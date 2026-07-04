@@ -86,11 +86,16 @@ bundled version). It prints which clips it wrote.
 
 ## 6. Test in-game
 
-**Relaunch FF9**, then move Vivi so she runs. An animation change needs a **relaunch**, not just an F6
-field-reload: the engine caches loaded clips by file path (`AnimationClipReader.LoadedClips`) and a field
-reload re-requests the same path, so it keeps the *cached* clip. (A **mesh** edit *does* show on F6 — only
-`.anim` clips need the relaunch.) Revert by deleting the written files under
-`FF9CustomMap\StreamingAssets\Assets\Resources\Animations\8\`.
+**Relaunch FF9** (or use the F6 button below), then move Vivi so she runs. An animation change needs its
+clip cache cleared: the engine caches loaded clips by file path (`AnimationClipReader.LoadedClips`) and a
+plain field reload re-requests the same path, so it keeps the *cached* clip. Two ways to apply a re-deploy:
+
+- **F6 ▸ Go ▸ "Reload + anims"** (fast) — clears the clip cache and reloads the field, so the new `.anim`
+  shows without leaving the game. (Needs the shipped/updated engine bundle; plain **Reload field** keeps the
+  cached clip on purpose, for when you only changed the mesh — which *does* refresh on a plain reload.)
+- **Relaunch FF9** (always works).
+
+Revert by deleting the written files under `FF9CustomMap\StreamingAssets\Assets\Resources\Animations\8\`.
 
 ---
 

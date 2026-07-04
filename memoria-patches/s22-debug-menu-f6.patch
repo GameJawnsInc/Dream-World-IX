@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..227ec46a
+index 00000000..88715490
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1691 @@
+@@ -0,0 +1,1701 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -523,6 +523,16 @@ index 00000000..227ec46a
 +        Section("Field");
 +        if (GUILayout.Button("Reload field", _button))
 +            Reload(false);
++        if (GUILayout.Button("Reload + anims", _button))
++        {
++            // Re-deployed loose .anim clips are cached (AnimationClipReader.LoadedClips, keyed by path,
++            // checked before disc), so a plain reload keeps the OLD clip. Clear that cache first so the
++            // re-created models re-read the edited clips from disk -- the animation-edit fast path (no full
++            // relaunch). Only loose-disc clips live in this cache, so this re-reads just the overrides;
++            // bundled clips are untouched. The MESH already refreshes on a plain reload.
++            Memoria.Assets.AnimationClipReader.LoadedClips.Clear();
++            Reload(false);
++        }
 +
 +        Section("Registered fields");
 +        GUILayout.BeginHorizontal();                            // filter bar — a verbatim fork can register ~500 fields

@@ -36,7 +36,7 @@ the original field's tuned behavior. This is the set that makes a forked field p
 
 | File | What it is |
 |---|---|
-| `s22-debug-menu-f6.patch` | The F6 in-game debug menu (Warp / Move / Cheats / Flags / Time, in field + battle) **plus a `World` tab on the overworld**: live pos/cell/block/topograph/disc/vehicle readout, vehicle-mode swap (`gEventGlobal[190]` + `w_movementChange`), disc 1↔4 switch, a Disable-control toggle, and a working **teleport** (the fix defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`, see `../ff9mapkit/docs/OVERWORLD_ENGINE.md`). A tester convenience; the beta bundle includes it, but it is not part of the fork-fidelity set or the upstream-candidate set. |
+| `s22-debug-menu-f6.patch` | The F6 in-game debug menu (Warp / Move / Cheats / Flags / Time, in field + battle) **plus a `World` tab on the overworld**: live pos/cell/block/topograph/disc/vehicle readout, vehicle-mode swap (`gEventGlobal[190]` + `w_movementChange`), disc 1↔4 switch, a Disable-control toggle, and a working **teleport** (the fix defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`, see `../ff9mapkit/docs/OVERWORLD_ENGINE.md`). The Go tab also has a **Reload + anims** button beside Reload field: it clears the static `AnimationClipReader.LoadedClips` cache before reloading so a re-deployed loose `.anim` (the model animation-edit loop) shows without a full relaunch — Reload field alone keeps the cached clip. A tester convenience; the beta bundle includes it, but it is not part of the fork-fidelity set or the upstream-candidate set. |
 
 ## Superseded / historical — kept for the build record, do NOT apply
 
