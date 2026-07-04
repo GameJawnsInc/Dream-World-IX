@@ -61,6 +61,12 @@ class FF9MK_OT_export_model(bpy.types.Operator, ExportHelper):
     no_anims: bpy.props.BoolProperty(
         name="Mesh only (skip animations)", default=False,
         description="Add --no-anims: import the mesh only, don't write back edited animation clips")
+    all_actions: bpy.props.BoolProperty(
+        name="Export ALL actions", default=False,
+        description="OFF (default) exports only the ACTIVE action -- the one clip you're editing. This avoids "
+                    "the footgun where a scene with the model imported more than once has stacked duplicate "
+                    "actions (run.001, run.002..) that all route to the same clip and clobber each other. Turn "
+                    "ON only in a clean scene where you deliberately edited several clips")
     selection_only: bpy.props.BoolProperty(
         name="Selected objects only", default=False,
         description="Export only the selected objects instead of the whole scene (if the scene has stray "
@@ -70,10 +76,14 @@ class FF9MK_OT_export_model(bpy.types.Operator, ExportHelper):
         try:
             # The settings the kit's importer expects: GLB, Y-up, skins + animations + custom-property extras
             # (the ff9_geo / ff9_anim_key stamps that route the re-import); modifiers NOT applied so the rig
-            # survives (the kit re-rigs if Blender changed the vertex count).
+            # survives (the kit re-rigs if Blender changed the vertex count). Default to the ACTIVE action only
+            # -- a scene with the model imported more than once stacks duplicate actions (run.001, run.002..)
+            # that all route to the same clip and clobber each other last-wins; exporting the one active action
+            # sidesteps that. "Export ALL actions" opts back to every action for a clean multi-clip edit.
             bpy.ops.export_scene.gltf(
                 filepath=self.filepath, export_format="GLB", use_selection=self.selection_only,
                 export_yup=True, export_skins=True, export_animations=True,
+                export_animation_mode="ACTIONS" if self.all_actions else "ACTIVE_ACTIONS",
                 export_extras=True, export_apply=False)
         except (RuntimeError, AttributeError) as e:
             self.report({"ERROR"}, f"glTF export failed ({e}); is the glTF 2.0 exporter enabled?")

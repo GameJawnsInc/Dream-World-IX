@@ -94,6 +94,17 @@ clips can be cached across a reload). Revert by deleting the written files under
 
 ## Rules & gotchas (the load-bearing ones)
 
+- **Start from File ▸ New and import the model ONCE.** Importing into a scene that already has the model
+  stacks duplicate actions (`run.001`, `run.002`, …). They all route to the same clip, collide, and
+  *clobber each other last-wins* — so your edit can silently lose to a pristine copy. If Export writes far
+  more clips than you edited, or the CLI prints `two animations map to key N — keeping the last-written`,
+  that's this. (Export Model defaults to the **active action only**, which avoids it; a clean scene is still
+  the real fix.)
+- **A bone with only a couple of keyframes HOLDS that pose for the rest of the clip.** FF9 clips are ~0.5 s;
+  two keys at frames 1–2 (~0.06 s) means the bone snaps there and holds for the remaining ~0.45 s = looks
+  frozen. To change *part* of a motion, **keep the bone's existing keyframes** and modify only the ones you
+  want (or Auto-Key and re-pose at those frames) — don't delete the rest of the curve. The export replaces a
+  bone's whole curve with whatever keys you ship, so sparse keys = a held pose.
 - **Never rename the `bone000…` bones.** The engine binds animation to bones **by name**; a renamed bone
   animates nothing.
 - **Keep the Action name** (`run`, `walk`, `idle`, …) — or its numeric anim key. The exporter routes each
@@ -116,6 +127,8 @@ clips can be cached across a reload). Revert by deleting the written files under
 |---|---|
 | `invalid choice: 'model-gltf'` | Your `ff9mapkit` predates the model commands — use a checkout (`py -m ff9mapkit`) or an updated install. |
 | Export said `no routable key … skipped` | You renamed the Action to something unrecognized. Rename it back to the clip label (`run`) or its numeric key. |
+| `two animations map to key N`, or way more clips written than you edited | Duplicate actions from importing the model more than once. Start from **File ▸ New**, import once; keep Export Model's "Export ALL actions" **off**. |
+| My edit didn't take / the run looks stock | Your edited clip lost the last-wins race to a pristine duplicate (see above), **or** the edited bone had too few keys and holds a pose. Clean scene + keep the bone's original keys. |
 | "no changed clips to write" | Your edit was below the detection threshold, or you edited a different Action than the one exported. Re-check you edited the `run` Action. |
 | Change doesn't show in-game | F6 reload can keep a cached clip — **relaunch** FF9. Confirm the `.anim` landed under `Animations/8/`. |
 | A limb animates nothing after editing | A bone got renamed (check for `bone024.001` etc.). Rename it back to `bone024`. |
