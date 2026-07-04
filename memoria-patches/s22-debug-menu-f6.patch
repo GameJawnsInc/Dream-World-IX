@@ -12,10 +12,10 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UIManager.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..c1bfe843
+index 00000000..227ec46a
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1378 @@
+@@ -0,0 +1,1691 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -58,18 +58,33 @@ index 00000000..c1bfe843
 +    private Boolean _controlHeld;           // whether user control is CURRENTLY held off by us (so we restore exactly once)
 +
 +    // [ff9mapkit] Persisted debug prefs (PlayerPrefs, Memoria's own settings store -- survives relaunch, per-machine).
-+    // Favorites: a set of pinned field ids surfaced as one-click warp buttons at the top of the Warp / World tabs.
-+    private readonly HashSet<Int32> _favorites = new HashSet<Int32>();
++    // Favorites: ONE combined list of pinned destinations -- a field WARP (id) OR an overworld SPOT teleport (world x,z)
++    // -- surfaced as one-click buttons at the top of BOTH the Warp and World tabs (context decides what a click does).
++    private struct Pin
++    {
++        public Boolean World;   // false = field warp (A = field id); true = overworld teleport (A = world X, B = world Z)
++        public Int32 A;
++        public Int32 B;
++        public Pin(Boolean world, Int32 a, Int32 b) { this.World = world; this.A = a; this.B = b; }
++        public String Encode() { return this.World ? ("w:" + this.A + ":" + this.B) : ("f:" + this.A); }
++        public Boolean Same(Pin o) { return this.World == o.World && this.A == o.A && (!this.World || this.B == o.B); }
++    }
++    private readonly List<Pin> _pins = new List<Pin>();
 +    private Boolean _prefsLoaded;                                   // LoadPrefs is idempotent (load once, lazily)
-+    private const String PrefFavorites = "ff9mk_debug_favorites";   // CSV of ids, e.g. "5000,6000,4003"
++    private const String PrefFavorites = "ff9mk_debug_favorites";   // CSV of tokens: "f:<id>" warp / "w:<x>:<z>" spot (legacy bare int = warp)
 +    private const String PrefDisableControl = "ff9mk_debug_disable_control"; // 0/1
++    private const String PrefFont = "ff9mk_debug_font";          // menu font index (into FontChoices)
++    // Alexandria is FF9's own UI font, bundled (encrypted) by Memoria in EmbeddedAsset/FA; the game never instantiates
++    // it (it loads TBUDGoStd), so we load it straight from the bundle. "System" = the built-in IMGUI font.
++    private static readonly String[] FontChoices = { "Alexandria", "System" };
 +
-+    private Rect _win = new Rect(24f, 24f, 380f, 520f);
++    private Rect _win = new Rect(24f, 24f, 580f, 640f);
 +    private Vector2 _scroll;
 +    private Int32 _tab;
 +    private String _warpText = "5000";
 +    private String _entranceText = "";       // [ff9mapkit] optional arrival entrance for the warp (blank = leave FieldEntrance as-is)
 +    private String _scenarioText = "";       // [ff9mapkit] optional ScenarioCounter to set before the warp (blank = leave as-is) -- seed a story beat to reach a story-gated fork
++    private String _fieldFilter = "";        // [ff9mapkit] Go tab: substring filter for the registered-fields list (a verbatim fork can register ~500)
 +    private String _txText = "0";
 +    private String _tzText = "0";
 +    private String _wxText = "0";       // [ff9mapkit] overworld teleport target X (world units), World tab
@@ -96,12 +111,21 @@ index 00000000..c1bfe843
 +    private Boolean _pendingWarpReset;
 +
 +    private const Int32 WinId = 0x4F9DEB;
-+    private static readonly String[] Tabs = { "Warp", "Move", "Cheats", "Flags", "Time", "World" };
++    // One context-adaptive "Go" tab (warp / teleport / — on the overworld — vehicle / disc / restore control) replaces the
++    // old Warp + Move + World trio (two of which were always a dead "field only / overworld only" note). Cheats/Flags/Time stay.
++    private static readonly String[] Tabs = { "Go", "Cheats", "Flags", "Time" };
 +    private static readonly Single[] Speeds = { 0.25f, 0.5f, 1f, 2f, 4f };
 +
-+    // lazily-built styling
-+    private GUIStyle _box, _title, _header, _label, _button, _field, _tabOn;
-+    private Texture2D _bgTex;
++    // lazily-built styling (flat dark theme, one blue accent — built once in EnsureStyles from generated textures)
++    private GUIStyle _box, _headerBar, _title, _subtitle, _header, _label, _hint, _mono, _statusStyle,
++                     _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn;
++    private Texture2D _hairlineTex;
++    private Font _ff9Font;                               // the active menu font, applied to every style (null = built-in default)
++    private Int32 _fontChoice;                           // index into FontChoices: 0 = Alexandria (bundled), 1 = System (built-in)
++    private readonly Dictionary<Int32, Font> _fontCache = new Dictionary<Int32, Font>();   // Alexandria, loaded once from the bundle
++    private Boolean _bundledFontsTried;                  // guard: attempt the (one-time) bundle decrypt+load exactly once
++    private Boolean _showWarpOpts;                       // Go tab: hide the advanced warp fields (entrance/scenario) behind "more options"
++    private readonly List<Texture2D> _tex = new List<Texture2D>();   // own the generated textures (never serialized)
 +
 +    public static void Toggle()
 +    {
@@ -121,10 +145,16 @@ index 00000000..c1bfe843
 +        try
 +        {
 +            _disableControl = PlayerPrefs.GetInt(PrefDisableControl, 0) != 0;   // default 0 = OFF
-+            _favorites.Clear();
++            _fontChoice = PlayerPrefs.GetInt(PrefFont, 0);                      // default 0 = Alexandria (FF9's menu font)
++            if (_fontChoice < 0 || _fontChoice > 1)
++                _fontChoice = 0;
++            _pins.Clear();
 +            foreach (String tok in PlayerPrefs.GetString(PrefFavorites, "").Split(','))
-+                if (Int32.TryParse(tok.Trim(), out Int32 id))
-+                    _favorites.Add(id);
++            {
++                Pin pin;
++                if (TryDecodePin(tok.Trim(), out pin) && !PinsContains(pin))
++                    _pins.Add(pin);
++            }
 +        }
 +        catch (Exception)
 +        {
@@ -135,11 +165,9 @@ index 00000000..c1bfe843
 +    {
 +        try
 +        {
-+            List<Int32> ids = new List<Int32>(_favorites);
-+            ids.Sort();
-+            String[] parts = new String[ids.Count];
-+            for (Int32 i = 0; i < ids.Count; i++)
-+                parts[i] = ids[i].ToString();
++            String[] parts = new String[_pins.Count];
++            for (Int32 i = 0; i < _pins.Count; i++)
++                parts[i] = _pins[i].Encode();
 +            PlayerPrefs.SetString(PrefFavorites, String.Join(",", parts));
 +            PlayerPrefs.Save();
 +        }
@@ -147,6 +175,42 @@ index 00000000..c1bfe843
 +        {
 +        }
 +    }
++
++    // Decode one stored token: "f:<id>" (field warp), "w:<x>:<z>" (overworld spot), or a legacy bare "<id>" (field warp).
++    private static Boolean TryDecodePin(String tok, out Pin pin)
++    {
++        pin = new Pin(false, 0, 0);
++        if (String.IsNullOrEmpty(tok))
++            return false;
++        String[] p = tok.Split(':');
++        if (p.Length == 1 && Int32.TryParse(p[0], out Int32 legacy))              // legacy bare id -> field warp
++        {
++            pin = new Pin(false, legacy, 0);
++            return true;
++        }
++        if (p.Length == 2 && p[0] == "f" && Int32.TryParse(p[1], out Int32 fid))  // field warp
++        {
++            pin = new Pin(false, fid, 0);
++            return true;
++        }
++        if (p.Length == 3 && p[0] == "w" && Int32.TryParse(p[1], out Int32 wx) && Int32.TryParse(p[2], out Int32 wz)) // overworld spot
++        {
++            pin = new Pin(true, wx, wz);
++            return true;
++        }
++        return false;
++    }
++
++    private Boolean PinsContains(Pin pin)
++    {
++        foreach (Pin p in _pins)
++            if (p.Same(pin))
++                return true;
++        return false;
++    }
++
++    private Boolean HasFieldPin(Int32 id) { return PinsContains(new Pin(false, id, 0)); }
++    private Boolean HasWorldPin(Int32 x, Int32 z) { return PinsContains(new Pin(true, x, z)); }
 +
 +    private void SaveDisableControlPref()
 +    {
@@ -160,20 +224,52 @@ index 00000000..c1bfe843
 +        }
 +    }
 +
-+    // Pin/unpin a field id in the persisted favorites (toggle).
-+    private void ToggleFavorite(Int32 id)
++    // Pin/unpin a destination in the combined favorites (toggle): remove an equal pin if present, else append it.
++    private void TogglePin(Pin pin)
 +    {
-+        if (!_favorites.Remove(id))
-+            _favorites.Add(id);
++        for (Int32 i = 0; i < _pins.Count; i++)
++            if (_pins[i].Same(pin))
++            {
++                _pins.RemoveAt(i);
++                SaveFavorites();
++                return;
++            }
++        _pins.Add(pin);
 +        SaveFavorites();
 +    }
 +
-+    private void ToggleFavoriteFromText(String text)
++    private void RemovePin(Pin pin)
++    {
++        for (Int32 i = 0; i < _pins.Count; i++)
++            if (_pins[i].Same(pin))
++            {
++                _pins.RemoveAt(i);
++                SaveFavorites();
++                return;
++            }
++    }
++
++    private void ToggleFavorite(Int32 id)                    // field-warp pin (a registered-field row)
++    {
++        TogglePin(new Pin(false, id, 0));
++    }
++
++    private void ToggleFavoriteFromText(String text)         // field-warp pin from a typed field id
 +    {
 +        if (Int32.TryParse(text, out Int32 id))
-+            ToggleFavorite(id);
++            TogglePin(new Pin(false, id, 0));
 +        else
 +            _status = "pin: enter a numeric field id first";
++    }
++
++    private void ToggleWorldPinFromText(String xText, String zText)   // overworld-spot pin from the world X,Z boxes
++    {
++        // Parse as Single to match the teleport's Go (WorldTeleport uses Single.TryParse); pins are integer-encoded in
++        // the "w:<x>:<z>" token, so round to the stored int (the ~1/256-unit loss is immaterial on a 1536-unit grid).
++        if (Single.TryParse(xText, out Single x) && Single.TryParse(zText, out Single z))
++            TogglePin(new Pin(true, (Int32)Math.Round(x), (Int32)Math.Round(z)));
++        else
++            _status = "pin: enter numeric world X, Z first";
 +    }
 +
 +    private static String FieldName(Int32 id)
@@ -182,30 +278,36 @@ index 00000000..c1bfe843
 +        return EventEngineUtils.eventIDToFBGID.TryGetValue(id, out name) ? name : "?";
 +    }
 +
-+    // Draw the pinned favorites as one-click warp buttons (+ unpin). `world` picks the warp path: the overworld
-+    // World-tab warp (SetNextMap+attr) vs the field Warp-tab faded warp. Iterates a COPY so unpin-mid-draw is safe.
++    // Draw the ONE combined favorites list (field warps + overworld spots) as one-click buttons (+ unpin). `world` is the
++    // current context (World tab vs a field tab): a field-warp pin warps via the right path for the context; an
++    // overworld-spot pin teleports on the world map and is GREYED on a field tab (you can't world-teleport off the
++    // overworld). Iterates a COPY so unpin-mid-draw is safe.
 +    private void DrawFavorites(Boolean world)
 +    {
-+        if (_favorites.Count == 0)
++        if (_pins.Count == 0)
 +            return;
-+        Section("★ Favorites (click to warp)");
-+        List<Int32> ids = new List<Int32>(_favorites);
-+        ids.Sort();
-+        foreach (Int32 id in ids)
++        Section("* Favorites (click to go)");
++        List<Pin> pins = new List<Pin>(_pins);
++        foreach (Pin pin in pins)
 +        {
 +            GUILayout.BeginHorizontal();
-+            if (GUILayout.Button("★ " + id + "   " + FieldName(id), _button))
++            if (pin.World)
++            {
++                Boolean prev = GUI.enabled;
++                GUI.enabled = world;                                       // overworld teleport is only usable on the world map
++                if (GUILayout.Button("world (" + pin.A + ", " + pin.B + ")", _button))
++                    WorldTeleportTo(pin.A, pin.B);
++                GUI.enabled = prev;
++            }
++            else if (GUILayout.Button(pin.A + "   " + FieldName(pin.A), _button))
 +            {
 +                if (world)
-+                    WorldWarp(id);
++                    WorldWarp(pin.A);
 +                else
-+                    Warp(id, false);
++                    Warp(pin.A, false);
 +            }
 +            if (GUILayout.Button("unpin", _button, GUILayout.Width(56f)))
-+            {
-+                _favorites.Remove(id);
-+                SaveFavorites();
-+            }
++                RemovePin(pin);
 +            GUILayout.EndHorizontal();
 +        }
 +    }
@@ -281,7 +383,7 @@ index 00000000..c1bfe843
 +    {
 +        ServicePendingWarp();                    // drive the deferred faded warp (fade out -> map change)
 +        // While the menu is open, RIGHT-CLICK the field to copy the world (x, z) under the cursor (to
-+        // the clipboard + the Move tab boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
++        // the clipboard + the Go tab teleport boxes) -- handy for placing NPCs/zones/spawns in a field.toml.
 +        if (_open && Input.GetMouseButtonDown(1))
 +            PickPoint();
 +    }
@@ -291,133 +393,169 @@ index 00000000..c1bfe843
 +        if (!_open)
 +            return;
 +        EnsureStyles();
++        // The FFIX font (EncryptFontManager) loads lazily; if it wasn't ready when styles were first built, pick it up now.
++        if (_ff9Font == null && _fontChoice == 0)               // bundle may not have been ready when styles were first built
++        {
++            Font f = FontForChoice(_fontChoice);
++            if (f != null) { _ff9Font = f; ApplyFont(f); }
++        }
 +        Single scale = Mathf.Max(1f, Screen.height / 800f);     // legible at 1080p / 1440p / 4K
 +        Matrix4x4 prev = GUI.matrix;
 +        GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
-+        _win.height = Mathf.Min(520f, Screen.height / scale - 32f);
++        _win.height = Mathf.Min(760f, Screen.height / scale - 40f);
 +        _win = GUI.Window(WinId, _win, DrawWindow, GUIContent.none, _box);
 +        GUI.matrix = prev;
 +    }
 +
 +    private void DrawWindow(Int32 id)
 +    {
-+        GUILayout.Label("ff9mapkit debug   (F6 closes)", _title);
-+        GUILayout.Label(CurrentInfo(), _label);
++        // Header bar: title + live context (field id/name/pos, or battle, or overworld disc/mode) + a × close.
++        GUILayout.BeginHorizontal(_headerBar);
++        GUILayout.BeginVertical();
++        GUILayout.Label("FF9 debug", _title);
++        GUILayout.Label(CurrentInfo(), _subtitle);
++        GUILayout.EndVertical();
++        GUILayout.FlexibleSpace();
++        if (GUILayout.Button("×", _iconBtn, GUILayout.Width(34f)))
++            SetOpen(false);
++        GUILayout.EndHorizontal();
 +
-+        // "Disable control" toggle: hold player input off while the menu is up (stops the character walking behind the
-+        // popup). Uncheck it to move -- and note the overworld teleport needs it OFF to stick.
-+        Boolean wantHold = GUILayout.Toggle(_disableControl, " Disable control (freeze the character while the menu is open)");
-+        if (wantHold != _disableControl)
++        // "Disable control": freeze player input while the menu is up. [x]/[ ] rather than a skin checkbox so it renders
++        // identically across fonts; defaults OFF (persisted). The overworld teleport wants control LIVE, so leave it off there.
++        GUILayout.Space(4f);
++        if (GUILayout.Button((_disableControl ? "[x]  " : "[  ]  ") + "Disable control", _toggleBtn))
 +        {
-+            _disableControl = wantHold;
-+            SaveDisableControlPref();               // remember the choice across launches
-+            ApplyControlHold(wantHold);
++            _disableControl = !_disableControl;
++            SaveDisableControlPref();
++            ApplyControlHold(_disableControl);
 +        }
 +
-+        GUILayout.BeginHorizontal();                            // tab bar
++        GUILayout.BeginHorizontal();                            // font picker (Alexandria/Garnet = FF9's own bundled UI fonts)
++        GUILayout.Label("Font", _hint, GUILayout.Width(40f));
++        for (Int32 fi = 0; fi < FontChoices.Length; fi++)
++            if (GUILayout.Button(FontChoices[fi], fi == _fontChoice ? _tabOn : _tabOff))
++                SetFontChoice(fi);
++        GUILayout.EndHorizontal();
++
++        GUILayout.Space(6f);
++        GUILayout.BeginHorizontal();                            // tab pills
 +        for (Int32 i = 0; i < Tabs.Length; i++)
-+            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _button))
++            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _tabOff))
 +                _tab = i;
 +        GUILayout.EndHorizontal();
-+        GUILayout.Space(4f);
++        GUILayout.Space(2f);
 +
 +        _scroll = GUILayout.BeginScrollView(_scroll);
 +        switch (_tab)
 +        {
-+            case 0: DrawWarp(); break;
-+            case 1: DrawMove(); break;
-+            case 2: DrawCheats(); break;
-+            case 3: DrawFlags(); break;
-+            case 4: DrawTime(); break;
-+            default: DrawWorld(); break;
++            case 0: DrawGo(); break;                            // context-adaptive: field warp/teleport, or overworld nav
++            case 1: DrawCheats(); break;
++            case 2: DrawFlags(); break;
++            default: DrawTime(); break;
 +        }
 +        GUILayout.EndScrollView();
 +
 +        if (_status.Length > 0)
-+            GUILayout.Label(_status, _label);
-+        if (GUILayout.Button("Close", _button))
-+            SetOpen(false);
-+        GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));          // drag by the title strip
++            GUILayout.Label(_status, _statusStyle);
++        GUI.DragWindow(new Rect(0f, 0f, 10000f, 34f));          // drag by the header
 +    }
 +
 +    // ------------------------------------------------------------------- tabs
-+    private void DrawWarp()
++    // The context-adaptive navigation tab (replaces the old Warp + Move + World trio). Field: warp + teleport + reload +
++    // registered list. Overworld: warp + world-teleport + vehicle + disc + restore control. Battle: a short note.
++    private void DrawGo()
 +    {
 +        if (InBattle)
 +        {
-+            GUILayout.Label("Field only — warp/reload run from a field, not in battle.", _label);
++            GUILayout.Label("Cheats, Flags and Time work in battle. Warp and teleport need a field or the overworld.", _hint);
 +            return;
 +        }
 +        if (InWorld)
 +        {
-+            GUILayout.Label("Field only — warp/reload run from a field, not the overworld. Use the World tab to change vehicle.", _label);
++            DrawGoWorld();
 +            return;
 +        }
-+        if (GUILayout.Button("Reload field", _button))
-+            Reload(false);
-+        DrawFavorites(false);                                   // pinned quick-warps (persisted)
++        DrawGoField();
++    }
++
++    private void DrawGoField()
++    {
++        DrawFavorites(false);                                   // combined pins (world spots greyed off the overworld)
++
 +        Section("Warp to field");
 +        GUILayout.BeginHorizontal();
-+        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(112f));
-+        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
++        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(88f));
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
 +            WarpTo(_warpText);
-+        Boolean favTyped = Int32.TryParse(_warpText, out Int32 typedId) && _favorites.Contains(typedId);
-+        if (GUILayout.Button(favTyped ? "★ pin" : "☆ pin", favTyped ? _tabOn : _button, GUILayout.Width(64f)))
-+            ToggleFavoriteFromText(_warpText);                  // pin/unpin the typed id
++        Boolean favTyped = Int32.TryParse(_warpText, out Int32 typedId) && HasFieldPin(typedId);
++        if (GUILayout.Button(favTyped ? "*" : "+", favTyped ? _tabOn : _button, GUILayout.Width(30f)))
++            ToggleFavoriteFromText(_warpText);
++        GUILayout.FlexibleSpace();
++        if (GUILayout.Button(_showWarpOpts ? "hide options" : "more options", _button, GUILayout.Width(96f)))
++            _showWarpOpts = !_showWarpOpts;
 +        GUILayout.EndHorizontal();
-+        // [ff9mapkit] Arrival entrance: a real gateway sets FieldEntrance just before Field(target), so the
-+        // destination .eb places the player at that door + inits the scroll/camera there. A bare F6 warp left
-+        // it stale -> you always landed at entry 0 (the "wrong end" + scrolling-field drift). Set it to arrive
-+        // as if through a specific door (blank = leave the current value). Try 0,1,2... to find the right door;
-+        // the Flags tab readout shows the live FieldEntrance so you can confirm which one took.
++        if (_showWarpOpts)                                      // advanced: arrival entrance + story-beat seed (rarely needed)
++        {
++            GUILayout.BeginHorizontal();
++            GUILayout.Label("arrive via entrance", _label, GUILayout.Width(128f));
++            _entranceText = GUILayout.TextField(_entranceText, 4, _field, GUILayout.Width(52f));
++            GUILayout.EndHorizontal();
++            GUILayout.BeginHorizontal();
++            GUILayout.Label("set scenario", _label, GUILayout.Width(128f));
++            _scenarioText = GUILayout.TextField(_scenarioText, 6, _field, GUILayout.Width(52f));
++            if (GUILayout.Button("Set now", _button, GUILayout.Width(64f)))
++                SetScenarioNow();
++            GUILayout.EndHorizontal();
++            GUILayout.Label("entrance = which door to arrive at; scenario = seed a story beat for a gated fork.", _hint);
++        }
++
++        Section("Teleport on this field");
 +        GUILayout.BeginHorizontal();
-+        GUILayout.Label("arrive via entrance", _label, GUILayout.Width(140f));
-+        _entranceText = GUILayout.TextField(_entranceText, 4, _field, GUILayout.Width(56f));
++        _txText = GUILayout.TextField(_txText, 7, _field, GUILayout.Width(64f));
++        _tzText = GUILayout.TextField(_tzText, 7, _field, GUILayout.Width(64f));
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
++            Teleport();
++        if (GUILayout.Button("here", _button, GUILayout.Width(48f)))
++            UseCurrent();
 +        GUILayout.EndHorizontal();
-+        // [ff9mapkit] Set ScenarioCounter before the warp: seed a STORY BEAT so a story-gated fork loads in the
-+        // right state (a cold fork boots at scenario 0). Blank = leave it. "Set now" applies it to the CURRENT
-+        // field without warping. The Flags tab readout shows the live ScenarioCounter + its beat name.
-+        GUILayout.BeginHorizontal();
-+        GUILayout.Label("set scenario", _label, GUILayout.Width(140f));
-+        _scenarioText = GUILayout.TextField(_scenarioText, 6, _field, GUILayout.Width(56f));
-+        if (GUILayout.Button("Set now", _button, GUILayout.Width(64f)))
-+            SetScenarioNow();
++        GUILayout.Label("right-click the field to copy that point's (x, z).", _hint);
++
++        Section("Field");
++        if (GUILayout.Button("Reload field", _button))
++            Reload(false);
++
++        Section("Registered fields");
++        GUILayout.BeginHorizontal();                            // filter bar — a verbatim fork can register ~500 fields
++        GUILayout.Label("filter", _label, GUILayout.Width(42f));
++        _fieldFilter = GUILayout.TextField(_fieldFilter, 24, _field);
++        if (GUILayout.Button("clear", _button, GUILayout.Width(58f)))
++            _fieldFilter = "";
 +        GUILayout.EndHorizontal();
-+        Section("Registered custom fields (☆ to pin)");
++        String filt = _fieldFilter.Trim().ToLowerInvariant();
++        const Int32 cap = 100;                                  // render at most this many rows a frame (keeps IMGUI responsive)
++        Int32 matched = 0, shown = 0;
 +        foreach (KeyValuePair<Int32, String> kv in RegisteredFields())
 +        {
++            // match id substring OR name substring (case-insensitive). When the filter is empty the && short-circuits, so
++            // no ToLowerInvariant runs on the full list — only the first `cap` rows are drawn.
++            if (filt.Length > 0 && kv.Key.ToString().IndexOf(filt) < 0 && kv.Value.ToLowerInvariant().IndexOf(filt) < 0)
++                continue;
++            matched++;
++            if (shown >= cap)
++                continue;
++            shown++;
 +            GUILayout.BeginHorizontal();
 +            if (GUILayout.Button(kv.Key + "   " + kv.Value, _button))
 +                Warp(kv.Key, false);
-+            Boolean fav = _favorites.Contains(kv.Key);
-+            if (GUILayout.Button(fav ? "★" : "☆", fav ? _tabOn : _button, GUILayout.Width(28f)))
++            Boolean fav = HasFieldPin(kv.Key);
++            if (GUILayout.Button(fav ? "*" : "+", fav ? _tabOn : _button, GUILayout.Width(30f)))
 +                ToggleFavorite(kv.Key);
 +            GUILayout.EndHorizontal();
 +        }
-+    }
-+
-+    private void DrawMove()
-+    {
-+        if (InBattle)
-+        {
-+            GUILayout.Label("Field only — teleport / point-pick run from a field, not in battle.", _label);
-+            return;
-+        }
-+        if (InWorld)
-+        {
-+            GUILayout.Label("Field only — teleport / point-pick run from a field, not the overworld. Use the World tab.", _label);
-+            return;
-+        }
-+        Section("Teleport (x, z) on this field");
-+        GUILayout.BeginHorizontal();
-+        _txText = GUILayout.TextField(_txText, 7, _field, GUILayout.Width(78f));
-+        _tzText = GUILayout.TextField(_tzText, 7, _field, GUILayout.Width(78f));
-+        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
-+            Teleport();
-+        if (GUILayout.Button("Copy", _button, GUILayout.Width(56f)))
-+            UseCurrent();
-+        GUILayout.EndHorizontal();
-+        GUILayout.Label("right-click the field -> copy that point's (x, z) to clipboard", _label);
++        if (matched == 0)
++            GUILayout.Label(filt.Length > 0 ? "no fields match \"" + _fieldFilter + "\"" : "no registered custom fields.", _hint);
++        else if (matched > shown)
++            GUILayout.Label("showing " + shown + " of " + matched + " — type in the filter to narrow.", _hint);
 +    }
 +
 +    private void DrawCheats()
@@ -445,13 +583,13 @@ index 00000000..c1bfe843
 +        if (GUILayout.Button("Add", _button, GUILayout.Width(56f)))
 +            GiveGil();
 +        GUILayout.EndHorizontal();
-+        GUILayout.Label("(item ids: ff9mapkit items)", _label);
++        GUILayout.Label("item ids: ff9mapkit items", _hint);
 +    }
 +
 +    private void DrawFlags()
 +    {
 +        Section("Story state");
-+        GUILayout.Label(StorySummary(), _label);
++        GUILayout.Label(StorySummary(), _mono);
 +
 +        Section("Story flag (gEventGlobal)");
 +        GUILayout.BeginHorizontal();
@@ -474,9 +612,9 @@ index 00000000..c1bfe843
 +        GUILayout.EndHorizontal();
 +
 +        Section("Reset");
-+        if (GUILayout.Button("Reset all flags", _button))
++        if (GUILayout.Button("Reset all flags", _danger))
 +            ResetFlags();
-+        if (GUILayout.Button("Reset all flags + reload", _button))
++        if (GUILayout.Button("Reset all flags + reload", _danger))
 +            Reload(true);
 +    }
 +
@@ -489,27 +627,14 @@ index 00000000..c1bfe843
 +            if (GUILayout.Button(s + "x", s == Time.timeScale ? _tabOn : _button))
 +                Time.timeScale = s;
 +        GUILayout.EndHorizontal();
-+        GUILayout.Label("slows/speeds animation + movement (close the menu to watch a cutscene). "
-+                        + "Some logic runs on a fixed tick.", _label);
++        GUILayout.Label("slows / speeds animation + movement — close the menu to watch a cutscene.", _hint);
 +    }
 +
-+    // OVERWORLD vehicle/movement swap. w_movementChange() re-reads gEventGlobal[190] as the control mode in the
-+    // normal (non-Bee) world scene, so setting the byte + calling it repoints the movement PROFILE (terrain limit,
-+    // flight, speed, camera) onto the currently-controlled character. The C# call is null-safe -- BUT it is NOT
-+    // safe in any state: each overworld state runs a different EVT_WORLD_WORLDxx event-script dispatcher, and
-+    // forcing a mode that state's per-frame vehicle switch never handles drives its air/boat nav arm on
-+    // uninitialised state -> a CalcStack expression underflow ("[CalcStack.pop] topOfStackID == 0") -> crash
-+    // (repro: airship on WORLD00). So the buttons are GATED to VehicleAllowByWorld (the modes each dispatcher
-+    // actually handles, derived byte-exact from the .eb). This does not swap the controlled ACTOR, so Zidane
-+    // keeps his model (a faithful model+position swap would repoint EventEngine's controlUID -- a later increment).
-+    private void DrawWorld()
++    // The overworld half of the Go tab: position readout, warp-to-field (doubles as the stuck-escape), world teleport,
++    // vehicle-mode swap (GATED per world state -- see VehicleAllowByWorld: forcing an unhandled mode crashes the .eb),
++    // disc switch, and restore control. Verbose help trimmed to one-line hints (the deep notes live in the memory doc).
++    private void DrawGoWorld()
 +    {
-+        if (!InWorld)
-+        {
-+            GUILayout.Label("Overworld only — open this on the world map (F6 now works there too).", _label);
-+            return;
-+        }
-+
 +        if (!_worldBoxesInit)                                   // seed the teleport boxes with the live pos, not 0,0
 +        {
 +            WMActor a0 = ff9.w_moveActorPtr;
@@ -522,68 +647,61 @@ index 00000000..c1bfe843
 +            }
 +        }
 +
-+        Section("Position (live)");
-+        GUILayout.Label(WorldReadout(), _label);
++        Section("Position");
++        GUILayout.Label(WorldReadout(), _mono);
++
++        DrawFavorites(true);                                   // combined pins (field warps + world spots)
 +
 +        Section("Warp to field");
 +        GUILayout.BeginHorizontal();
-+        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(112f));
-+        if (GUILayout.Button("Go", _button, GUILayout.Width(48f)))
++        _warpText = GUILayout.TextField(_warpText, 6, _field, GUILayout.Width(88f));
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
 +            WorldWarpTo(_warpText);
-+        Boolean favW = Int32.TryParse(_warpText, out Int32 widW) && _favorites.Contains(widW);
-+        if (GUILayout.Button(favW ? "★ pin" : "☆ pin", favW ? _tabOn : _button, GUILayout.Width(64f)))
++        Boolean favW = Int32.TryParse(_warpText, out Int32 widW) && HasFieldPin(widW);
++        if (GUILayout.Button(favW ? "*" : "+", favW ? _tabOn : _button, GUILayout.Width(30f)))
 +            ToggleFavoriteFromText(_warpText);
 +        GUILayout.EndHorizontal();
-+        GUILayout.Label("Overworld → field via the game's OWN transition (fades in). This is also the reliable ESCAPE "
-+                        + "if an entrance left you stuck: it fires even with control frozen. A forked destination is "
-+                        + "redirected by the s28 fork-donor map (enter a donor id).", _label);
-+        DrawFavorites(true);                                    // pinned quick-warps (shared with the Warp tab)
++        GUILayout.Label("Also the stuck-escape — fires even when control is frozen.", _hint);
 +
-+        Section("Restore control (unfreeze)");
-+        if (GUILayout.Button("Unfreeze player — restore control", _button))
-+            RestoreControl();
-+        GUILayout.Label("Re-enables user control + cancels auto-walk. Use if a warp/script left you frozen on the "
-+                        + "overworld but you'd rather stay than warp out.", _label);
-+
-+        Section("Teleport (world X, Z)");
++        Section("Teleport on the map");
 +        GUILayout.BeginHorizontal();
-+        _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(84f));
-+        _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(84f));
-+        if (GUILayout.Button("Go", _button, GUILayout.Width(44f)))
++        _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(64f));
++        _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(64f));
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(40f)))
 +            WorldTeleport();
-+        if (GUILayout.Button("Copy", _button, GUILayout.Width(56f)))
++        if (GUILayout.Button("here", _button, GUILayout.Width(46f)))
 +            CopyWorldPos();
++        Boolean favSpot = Single.TryParse(_wxText, out Single spXf) && Single.TryParse(_wzText, out Single spZf)
++                          && HasWorldPin((Int32)Math.Round(spXf), (Int32)Math.Round(spZf));   // match Go's Single parse; pins are int-encoded
++        if (GUILayout.Button(favSpot ? "*" : "+", favSpot ? _tabOn : _button, GUILayout.Width(30f)))
++            ToggleWorldPinFromText(_wxText, _wzText);
 +        GUILayout.EndHorizontal();
-+        GUILayout.Label("Absolute world units (x 0..1535, z 0..−1279 — z is NEGATIVE). Uses the stock reposition "
-+                        + "(SetPosition + re-ground); target LAND on foot, or swap vehicle first for water/air.", _label);
++        GUILayout.Label("x 0..1535, z 0..-1279 (z negative). Land on foot, or swap vehicle for water/air.", _hint);
 +
-+        Section("Vehicle / movement mode");
++        Section("Vehicle");
 +        Int32 cur = CurrentControlNo();
 +        Int32 allowMask = VehicleAllowMask();
-+        GUILayout.Label("current: " + cur + "  " + VehicleName(cur) + "     world state " + WorldMapNo(), _label);
++        GUILayout.Label("current: " + VehicleName(cur) + "   -   world state " + WorldMapNo(), _hint);
 +        VehicleButton("On foot", 0, allowMask);
 +        VehicleButton("Chocobo — plains", 1, allowMask);
 +        VehicleButton("Chocobo — mountains", 4, allowMask);
 +        VehicleButton("Chocobo — all terrain", 5, allowMask);
-+        VehicleButton("Chocobo — FLYING", 6, allowMask);
-+        VehicleButton("Blue Narciss — boat (water)", 7, allowMask);
++        VehicleButton("Chocobo — flying", 6, allowMask);
++        VehicleButton("Blue Narciss — boat", 7, allowMask);
 +        VehicleButton("Hilda Garde III — airship", 8, allowMask);
 +        VehicleButton("Invincible — airship", 9, allowMask);
-+        GUILayout.Label("Swaps the MOVEMENT profile (terrain access / flight / speed / camera) onto the current "
-+                        + "character — Zidane keeps his model. Swap is only safe on the benign free-roam states "
-+                        + "whose event script has no vehicle nav (WORLD02/10/11 — all modes work there). On states "
-+                        + "that gate vehicles behind an in-game boarding sequence (WORLD00 etc.) only On foot is "
-+                        + "offered, because forcing a mode skips the boarding nav setup and crashes the script. To "
-+                        + "reach a test entrance on those states, use Teleport above (vehicle-independent).", _label);
++        GUILayout.Label("Only safe on free-roam states (WORLD02/10/11); elsewhere only On foot is offered.", _hint);
 +
-+        Section("Disc");
++        Section("Disc & control");
 +        Byte disc = 0;
 +        try { disc = ff9.w_frameDisc; } catch (Exception) { }
-+        if (GUILayout.Button("Disc " + disc + "  →  switch to " + (disc == 1 ? "4" : "1"), _button))
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button("Disc " + disc + " -> " + (disc == 1 ? "4" : "1"), _button))
 +            ToggleDisc();
-+        GUILayout.Label("Reloads the world map (fade to black). COARSE switch — it does not advance the "
-+                        + "ScenarioCounter/party, so a mismatched save may show wrong geometry. Same path the stock "
-+                        + "debug menu uses (disc 1↔4 only).", _label);
++        if (GUILayout.Button("Restore control", _danger))
++            RestoreControl();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Disc switch is coarse (no ScenarioCounter advance). Restore control unfreezes a stuck player.", _hint);
 +    }
 +
 +    // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
@@ -637,11 +755,11 @@ index 00000000..c1bfe843
 +            // would crash the event script). GUI.enabled=false is the IMGUI disable idiom.
 +            Boolean prev = GUI.enabled;
 +            GUI.enabled = false;
-+            GUILayout.Button("○ " + label + "   — n/a in this world state", _button);
++            GUILayout.Button("- " + label + "   — n/a in this world state", _button);
 +            GUI.enabled = prev;
 +            return;
 +        }
-+        if (GUILayout.Button((on ? "● " : "○ ") + label, on ? _tabOn : _button))
++        if (GUILayout.Button((on ? "* " : "- ") + label, on ? _tabOn : _button))
 +            SetVehicle(mode);
 +    }
 +
@@ -689,15 +807,15 @@ index 00000000..c1bfe843
 +        switch (n)
 +        {
 +            case 0: return "(on foot)";
-+            case 1: return "(chocobo · plains)";
++            case 1: return "(chocobo - plains)";
 +            case 2:
 +            case 3:
-+            case 4: return "(chocobo · mountain)";
-+            case 5: return "(chocobo · all terrain)";
-+            case 6: return "(gold chocobo · flying)";
-+            case 7: return "(Blue Narciss · boat)";
-+            case 8: return "(Hilda Garde III · airship)";
-+            case 9: return "(Invincible · airship)";
++            case 4: return "(chocobo - mountain)";
++            case 5: return "(chocobo - all terrain)";
++            case 6: return "(gold chocobo - flying)";
++            case 7: return "(Blue Narciss - boat)";
++            case 8: return "(Hilda Garde III - airship)";
++            case 9: return "(Invincible - airship)";
 +            default: return "(?)";
 +        }
 +    }
@@ -763,14 +881,20 @@ index 00000000..c1bfe843
 +    // 24x20 grid first (out-of-grid coords can throw). Y carries the current height; InitSlice re-grounds it.
 +    private void WorldTeleport()
 +    {
++        Single wx, wz;
++        if (!Single.TryParse(_wxText, out wx) || !Single.TryParse(_wzText, out wz))
++        {
++            _status = "teleport: enter numeric X, Z";
++            return;
++        }
++        WorldTeleportTo(wx, wz);
++    }
++
++    // The overworld teleport core (parameterized), shared by the World-tab X,Z box and a pinned overworld SPOT favorite.
++    private void WorldTeleportTo(Single wx, Single wz)
++    {
 +        try
 +        {
-+            Single wx, wz;
-+            if (!Single.TryParse(_wxText, out wx) || !Single.TryParse(_wzText, out wz))
-+            {
-+                _status = "teleport: enter numeric X, Z";
-+                return;
-+            }
 +            WMWorld w = ff9.world;
 +            if (w == null || !w.Settings.WrapWorld || FF9StateSystem.World.IsBeeScene)
 +            {
@@ -870,7 +994,7 @@ index 00000000..c1bfe843
 +            PersistenSingleton<EventEngine>.Instance.SetNextMap(mapNo);
 +            FF9StateSystem.World.FF9World.map.nextMode = 1;
 +            sys.attr |= 4096u;                                   // 0x1000 -> shutdown+Replace on the next world tick (with fade)
-+            _status = "warping to field " + mapNo + " …";
++            _status = "warping to field " + mapNo + " ...";
 +            // The destination field loads a FRESH EventContext and re-enables control via its own .eb, so drop our
 +            // control-hold bookkeeping here (do NOT stamp the stale overworld _priorControl onto it -- same idiom as
 +            // RestoreControl). Skipping this stranded _controlHeld=true, which silently no-op'd the "Disable control"
@@ -932,7 +1056,7 @@ index 00000000..c1bfe843
 +        Boolean[] b = FF9StateSystem.Settings.IsBoosterButtonActive;
 +        if (b == null || idx < 0 || idx >= b.Length)
 +            return;
-+        if (GUILayout.Button((b[idx] ? "[x]  " : "[  ]  ") + label, _button))
++        if (GUILayout.Button((b[idx] ? "[x]  " : "[  ]  ") + label, b[idx] ? _tabOn : _button))
 +            b[idx] = !b[idx];
 +    }
 +
@@ -1116,7 +1240,7 @@ index 00000000..c1bfe843
 +            _txText = wx.ToString();
 +            _tzText = wz.ToString();
 +            GUIUtility.systemCopyBuffer = wx + ", " + wz;
-+            _status = "copied (" + wx + ", " + wz + ") -> clipboard + Move tab";
++            _status = "copied (" + wx + ", " + wz + ") -> clipboard + Go tab";
 +        }
 +        catch (Exception err)
 +        {
@@ -1356,42 +1480,231 @@ index 00000000..c1bfe843
 +        return list;
 +    }
 +
++    // A section header: a muted label + a hairline divider under it (the main visual grouping cue).
 +    private void Section(String name)
 +    {
-+        GUILayout.Space(8f);
++        GUILayout.Space(9f);
 +        GUILayout.Label(name, _header);
++        Rect r = GUILayoutUtility.GetRect(1f, 1f, GUILayout.ExpandWidth(true));
++        if (Event.current.type == EventType.Repaint)
++            GUI.DrawTexture(new Rect(r.x, r.y, r.width, 1f), _hairlineTex);
++        GUILayout.Space(3f);
++    }
++
++    // ---------------------------------------------------------------- theme
++    private static Color Col(Int32 r, Int32 g, Int32 b) { return new Color(r / 255f, g / 255f, b / 255f, 1f); }
++    private static Color Col(Int32 r, Int32 g, Int32 b, Single a) { return new Color(r / 255f, g / 255f, b / 255f, a); }
++
++    // A flat 1px-bordered (or solid) texture for panels/buttons/fields. Generated once, owned by _tex with
++    // HideAndDontSave so Unity never serializes or GCs them mid-frame. bordered = a 4x4 with a 1px edge, stretched
++    // 9-slice via the style's border RectOffset so the 1px frame stays crisp at any size.
++    private Texture2D MkTex(Color fill, Color border, Boolean bordered)
++    {
++        Int32 n = bordered ? 4 : 1;
++        Texture2D t = new Texture2D(n, n, TextureFormat.ARGB32, false);
++        t.hideFlags = HideFlags.HideAndDontSave;
++        t.filterMode = FilterMode.Point;
++        t.wrapMode = TextureWrapMode.Clamp;
++        for (Int32 y = 0; y < n; y++)
++            for (Int32 x = 0; x < n; x++)
++            {
++                Boolean edge = bordered && (x == 0 || y == 0 || x == n - 1 || y == n - 1);
++                t.SetPixel(x, y, edge ? border : fill);
++            }
++        t.Apply();
++        _tex.Add(t);
++        return t;
++    }
++
++    // Flat button style: fill + hover backgrounds, a 1px border, text color. stretchWidth so a lone button fills the
++    // row (like the stock skin button) while width-constrained buttons in a horizontal stay fixed.
++    private GUIStyle MkButton(Color fill, Color hover, Color border, Color text, Boolean bold)
++    {
++        Texture2D fillT = MkTex(fill, border, true);
++        Texture2D hoverT = MkTex(hover, border, true);
++        GUIStyle s = new GUIStyle(GUI.skin.button);           // inherit the skin's proper vertical text centering
++        s.fontSize = 14;
++        s.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
++        s.alignment = TextAnchor.MiddleCenter;
++        s.border = new RectOffset(1, 1, 1, 1);
++        s.padding = new RectOffset(10, 10, 4, 4);
++        s.margin = new RectOffset(2, 2, 2, 2);
++        s.fixedHeight = 30f;                                  // uniform row height -> text (and sibling fields) line up
++        s.stretchWidth = true;
++        s.wordWrap = false;
++        s.normal.background = fillT;    s.normal.textColor = text;
++        s.hover.background = hoverT;    s.hover.textColor = text;
++        s.active.background = hoverT;   s.active.textColor = text;
++        s.focused.background = fillT;   s.focused.textColor = text;
++        s.onNormal.background = fillT;  s.onNormal.textColor = text;
++        return s;
 +    }
 +
 +    private void EnsureStyles()
 +    {
 +        if (_box != null)
 +            return;
-+        _bgTex = new Texture2D(1, 1);
-+        _bgTex.SetPixel(0, 0, new Color(0.06f, 0.06f, 0.10f, 0.93f));
-+        _bgTex.Apply();
-+        _box = new GUIStyle(GUI.skin.box);
-+        _box.normal.background = _bgTex;
-+        _box.padding = new RectOffset(10, 10, 8, 10);
++
++        Color window   = Col(0x14, 0x16, 0x1B, 0.97f);   // window bg
++        Color panel    = Col(0x1B, 0x1E, 0x26);          // button / readout bg
++        Color input    = Col(0x23, 0x27, 0x33);          // text-field bg
++        Color inputHi  = Col(0x2B, 0x30, 0x40);          // button hover
++        Color border   = Col(0x33, 0x3A, 0x4B);          // hairline / control border
++        Color headerBg = Col(0x1E, 0x32, 0x53);          // title-bar bg (accent-tinted)
++        Color text     = Col(0xE7, 0xE9, 0xEF);          // primary text
++        Color muted    = Col(0x7E, 0x86, 0x9B);          // secondary text / hints
++        Color accent   = Col(0x9C, 0xC4, 0xFF);          // the one accent
++        Color accentBg = Col(0x23, 0x2C, 0x40);          // accent button/tab bg
++        Color accentHi = Col(0x2A, 0x36, 0x50);          // accent hover
++        Color accentBd = Col(0x40, 0x56, 0x7F);          // accent border
++        Color danger   = Col(0xFF, 0x9B, 0x9B);          // destructive text
++        Color dangerBg = Col(0x2A, 0x20, 0x22);
++        Color dangerHi = Col(0x36, 0x28, 0x2A);
++        Color dangerBd = Col(0x5A, 0x3A, 0x3A);
++
++        _hairlineTex = MkTex(border, border, false);
++
++        _box = new GUIStyle();
++        _box.normal.background = MkTex(window, border, true);
++        _box.border = new RectOffset(1, 1, 1, 1);
++        _box.padding = new RectOffset(9, 9, 8, 9);
++
++        _headerBar = new GUIStyle();
++        _headerBar.normal.background = MkTex(headerBg, headerBg, false);
++        _headerBar.padding = new RectOffset(9, 8, 7, 7);
++        _headerBar.margin = new RectOffset(0, 0, 0, 2);
++
 +        _title = new GUIStyle(GUI.skin.label);
-+        _title.fontSize = 15;
++        _title.fontSize = 17;
 +        _title.fontStyle = FontStyle.Bold;
-+        _title.normal.textColor = new Color(0.60f, 0.85f, 1f);
++        _title.normal.textColor = accent;
++
++        _subtitle = new GUIStyle(GUI.skin.label);
++        _subtitle.fontSize = 12;
++        _subtitle.normal.textColor = muted;
++
 +        _header = new GUIStyle(GUI.skin.label);
-+        _header.fontSize = 12;
-+        _header.fontStyle = FontStyle.Bold;
-+        _header.normal.textColor = new Color(0.72f, 0.72f, 0.78f);
++        _header.fontSize = 13;
++        _header.normal.textColor = muted;
++        _header.margin = new RectOffset(0, 0, 2, 1);
++
 +        _label = new GUIStyle(GUI.skin.label);
-+        _label.fontSize = 12;
-+        _label.normal.textColor = Color.white;
++        _label.fontSize = 14;
++        _label.normal.textColor = text;
 +        _label.wordWrap = true;
-+        _button = new GUIStyle(GUI.skin.button);
-+        _button.fontSize = 12;
++
++        _hint = new GUIStyle(GUI.skin.label);
++        _hint.fontSize = 12;
++        _hint.normal.textColor = muted;
++        _hint.wordWrap = true;
++
++        _mono = new GUIStyle(GUI.skin.label);          // boxed readout (world pos / story state)
++        _mono.fontSize = 13;
++        _mono.normal.textColor = muted;
++        _mono.wordWrap = true;
++        _mono.border = new RectOffset(1, 1, 1, 1);
++        _mono.padding = new RectOffset(8, 8, 6, 6);
++        _mono.normal.background = MkTex(panel, border, true);
++
++        _statusStyle = new GUIStyle(GUI.skin.label);
++        _statusStyle.fontSize = 12;
++        _statusStyle.normal.textColor = accent;
++        _statusStyle.wordWrap = true;
++        _statusStyle.margin = new RectOffset(2, 2, 4, 2);
++
 +        _field = new GUIStyle(GUI.skin.textField);
-+        _field.fontSize = 12;
-+        _tabOn = new GUIStyle(GUI.skin.button);
-+        _tabOn.fontSize = 12;
-+        _tabOn.fontStyle = FontStyle.Bold;
-+        _tabOn.normal.textColor = new Color(0.60f, 0.85f, 1f);
++        _field.fontSize = 14;
++        _field.border = new RectOffset(1, 1, 1, 1);
++        _field.padding = new RectOffset(8, 8, 4, 4);
++        _field.margin = new RectOffset(2, 2, 2, 2);
++        _field.alignment = TextAnchor.MiddleLeft;            // vertically center the input text
++        _field.fixedHeight = 30f;                            // match the buttons so a row's field + buttons line up
++        _field.normal.background = MkTex(input, border, true);
++        _field.normal.textColor = text;
++        _field.hover.background = MkTex(input, border, true);          // theme hover/active too (else they inherit the stock skin art)
++        _field.hover.textColor = text;
++        _field.focused.background = MkTex(input, accentBd, true);
++        _field.focused.textColor = text;
++        _field.active.background = MkTex(input, accentBd, true);
++        _field.active.textColor = text;
++
++        _button  = MkButton(panel, inputHi, border, text, false);
++        _primary = MkButton(accentBg, accentHi, accentBd, accent, true);
++        _danger  = MkButton(dangerBg, dangerHi, dangerBd, danger, false);
++        _tabOn   = MkButton(accentBg, accentHi, accentBd, accent, true);
++        _tabOff  = MkButton(panel, inputHi, panel, muted, false);
++
++        _iconBtn = MkButton(headerBg, accentHi, headerBg, muted, false);
++        _iconBtn.fontSize = 18;
++        _iconBtn.stretchWidth = false;
++        _iconBtn.padding = new RectOffset(4, 4, 0, 2);
++
++        _toggleBtn = MkButton(window, panel, window, text, false);   // borderless-looking (border == window bg)
++        _toggleBtn.alignment = TextAnchor.MiddleLeft;
++
++        // Use the live FFIX UI font (TBUDGoStd via EncryptFontManager — the same Font UILabel renders with) so the menu
++        // matches the game. It loads lazily; if null here, OnGUI retries and applies it once available. Falls back to the
++        // default IMGUI font if the font system is disabled/unavailable.
++        _ff9Font = FontForChoice(_fontChoice);
++        if (_ff9Font != null)
++            ApplyFont(_ff9Font);
++    }
++
++    // Load FF9's Alexandria font from the encrypted font bundle. The game only ever instantiates TBUDGoStd (via
++    // EncryptFontManager), so we replicate its decrypt + bundle-load to get Alexandria. Done once — a fresh
++    // AssetBundle.LoadAsset keeps the Font alive after Unload(false). Alexandria is a dynamic TTF -> scales to any size.
++    private void EnsureBundledFonts()
++    {
++        if (_fontCache.Count > 0 || _bundledFontsTried)
++            return;
++        _bundledFontsTried = true;                            // attempt EXACTLY once -> never re-decrypt 3.7MB per frame on failure
++        try
++        {
++            String path = "EmbeddedAsset/FA/" + AssetManagerUtil.GetPlatformPrefix(Application.platform) + "_fa.mpc";
++            Byte[] enc = AssetManager.LoadBytes(path, true);
++            if (enc == null)
++                return;
++            AssetBundle bundle = AssetBundle.CreateFromMemoryImmediate(ByteEncryption.Decryption(enc));
++            if (bundle == null)
++                return;
++            _fontCache[0] = bundle.LoadAsset<Font>("Alexandria");
++            bundle.Unload(false);                            // keep the loaded Font object; free the bundle data
++            UnityEngine.Object.DestroyImmediate(bundle);     // destroy the wrapper too (matches EncryptFontManager; Font survives)
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    // The Font for a picker index (0 = Alexandria; anything else = the built-in IMGUI font -> null).
++    private Font FontForChoice(Int32 i)
++    {
++        if (i != 0)
++            return null;
++        EnsureBundledFonts();
++        Font f;
++        return _fontCache.TryGetValue(0, out f) ? f : null;
++    }
++
++    // Switch + persist the menu font and re-skin every built style live (no reopen needed).
++    private void SetFontChoice(Int32 i)
++    {
++        _fontChoice = i;
++        try { PlayerPrefs.SetInt(PrefFont, i); PlayerPrefs.Save(); } catch (Exception) { }
++        if (i == 0 && _fontCache.Count == 0)                 // a prior auto-load failed -> let an explicit pick retry it
++            _bundledFontsTried = false;
++        _ff9Font = FontForChoice(i);
++        ApplyFont(_ff9Font);                                 // null -> styles fall back to the built-in default font
++    }
++
++    // Assign a font to every built style (called once when the FFIX font first becomes available).
++    private void ApplyFont(Font f)
++    {
++        GUIStyle[] all = { _box, _headerBar, _title, _subtitle, _header, _label, _hint, _mono, _statusStyle,
++                           _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn };
++        foreach (GUIStyle s in all)
++            if (s != null)
++                s.font = f;
 +    }
 +}
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs

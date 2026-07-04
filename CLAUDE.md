@@ -136,17 +136,17 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   engine; **F6 is a user-facing tool we KEEP and plan to grow**, ★ in-game verified shipping on a clean
   installer run 2026-06-30) — which is why we ship our own engine + held the PRs. Revert engine → no-edits
   rebuild: `tools/restore_memoria_dll.py baseline`; true stock = re-run the patcher.
-- **F6 debug menu** (ships in the engine bundle; in **FIELD, BATTLE, and the OVERWORLD**): a draggable tabbed IMGUI popup — **Warp** (reload ·
-  warp to any registered custom id · seed an arrival entrance + ScenarioCounter to reach a story-gated fork at
-  the right beat) · **Move** · **Cheats** (boosters / heal / give) · **Flags** (get/set/clear/snapshot a
-  `gEventGlobal` flag) · **Time** · **World** (overworld only: live pos/cell/disc/vehicle readout · vehicle-mode swap ·
-  disc 1↔4 · a working teleport — which defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`, ★ in-game
-  proven → [[project-ff9-f6-overworld-debug]]). Supersedes the old single-key F6-reload / F10-reset hotkeys.
-  **(★ 2026-07-03 in-game proven — RELAUNCH to apply):** pinnable/★-favorite warps persisted across
-  launches via `PlayerPrefs`; the "Disable control" checkbox now **defaults OFF** (persisted); and a World-tab
-  **"Warp to field"** (overworld→field via the game's own `SetNextMap`+`nextMode=1`+`attr|=0x1000` transition — fires even
-  when frozen, so it's the reliable stuck-escape) + a **"Restore control"** unfreeze button. A **GUI redesign of this menu
-  is planned next** (layout is provisional; the actions/persistence are the keepers) → [[project-ff9-f6-overworld-debug]].
+- **F6 debug menu** (ships in the engine bundle; in **FIELD, BATTLE, and the OVERWORLD**): a draggable IMGUI popup, **redesigned
+  2026-07-03** into a flat dark theme rendered in FF9's own **Alexandria** font (loaded from Memoria's encrypted font bundle;
+  font picker Alexandria/System). **4 context-adaptive tabs** — **Go** (on a field: reload · warp to any registered id [+ a
+  search filter, + arrival-entrance/ScenarioCounter under "more options"] · teleport; on the overworld: warp-to-field · world
+  teleport · vehicle-mode swap · disc 1↔4 · restore control) · **Cheats** (boosters / heal / give) · **Flags** (get/set/clear/
+  snapshot a `gEventGlobal` flag) · **Time**. Header shows live context; a **combined pinnable ★-favorite list** of BOTH field
+  WARPS and overworld SPOT teleports persists via `PlayerPrefs`. The overworld **"Warp to field"** (game's own
+  `SetNextMap`+`nextMode=1`+`attr|=0x1000` transition) fires even when frozen → the reliable **stuck-escape**; **"Restore
+  control"** unfreezes in place. The overworld **teleport** defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`.
+  "Disable control" **defaults OFF** (persisted). All ★ in-game proven → [[project-ff9-f6-overworld-debug]]. Supersedes the old
+  single-key F6-reload / F10-reset hotkeys.
 - **The Vivi hut is RETIRED to offline build-oracle status.** The painted hut rooms (4000 ext + 4002 int, the
   100%-kit-authored copy in `release/FF9CustomMap/`) were the S0 proof; their only job now is the byte-exact
   golden test (`examples/vivi-hut/` → the provenance manifest SHA). **Do NOT re-polish the hut in-game** — the
