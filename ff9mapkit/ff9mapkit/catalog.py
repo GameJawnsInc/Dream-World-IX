@@ -242,20 +242,49 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
 # reskin (loose FBX) AND an ``.anim`` edit are BOTH DLL-free here, exactly like a field model. THE ONE
 # EXCEPTION is the hardcoded Bee / Chocobo-minigame scene (``WMActor.Initialize`` adds bundled ``WMAnimationBank``
 # clips) -- there an ``.anim`` override won't show (the mesh reskin still does).
+# AUTHORITATIVE overworld-character map -- transcribed from ``WMAnimationBank.cs`` (the engine names these six
+# by their clip fields, e.g. ``ZidaneIdleClip = ANH_SUB_W0_001_STAND``). The other ``GEO_SUB_W0_*`` are more
+# walker/vehicle chibis the world ``.eb`` SetModels; the engine doesn't name them, so we DON'T fabricate an
+# identity for them (``world_role`` gives a coarse role instead). NOTE ``W0_001`` is Zidane, not the chocobo --
+# his model carries the chocobo-RIDING clips (``_CHO``: the rider's mounted animations live on the rider); the
+# actual chocobo is ``W0_003``.
+WORLD_MODEL_CHARACTER = {
+    "GEO_SUB_W0_001": "Zidane",
+    "GEO_SUB_W0_002": "Dagger (Garnet)",
+    "GEO_SUB_W0_003": "Chocobo",
+    "GEO_SUB_W0_008": "Blue Narciss",
+    "GEO_SUB_W0_009": "Hilda Garde 3",
+    "GEO_SUB_W0_010": "Invincible",
+}
+
+
+def world_character(name_or_id) -> str:
+    """The overworld character a world-form model IS, when the engine NAMES it (``WMAnimationBank.cs``) -- e.g.
+    ``'Zidane'`` for ``GEO_SUB_W0_001``. ``''`` for an unnamed world chibi (or a non-world model): authoritative,
+    never guessed. Pair with :func:`world_role` for the coarse role of the unnamed ones."""
+    m = model(name_or_id)
+    return WORLD_MODEL_CHARACTER.get(m.name, "") if m else ""
+
+
 def world_role(name_or_id) -> str:
-    """A coarse role for a world-form (W*) model, inferred from its clip vocabulary: ``'chocobo'`` /
-    ``'vehicle'`` (airship/ship) / ``'walker'`` (a party-leader overworld chibi) / ``''`` (a non-world model,
-    or one with too few clips to tell). Offline; a discovery aid for ``ff9mapkit models``, not a promise."""
+    """A coarse role for a world-form (W*) model, inferred from its clip vocabulary: ``'vehicle'`` (airship/ship
+    -- has a TAKEOFF/ROCKET clip) / ``'walker'`` (a character chibi -- has plain run/stand/idle) / ``'chocobo'``
+    (only ``_CHO`` mounted clips, no on-foot walk) / ``''``. Offline; a discovery aid, NOT an identity claim --
+    use :func:`world_character` for the authoritative name. (Order matters: a rider like Zidane has BOTH on-foot
+    AND ``_CHO`` clips, so 'walker' must win over 'chocobo'; and 'fly' can't gate 'vehicle' -- it substrings
+    ``fly_cho`` on the rider -- so 'takeoff' does.)"""
     m = model(name_or_id)
     if not m or m.form[:1] != "W":
         return ""
-    joined = " ".join(animations_for_model(m.id))
-    if "cho" in joined:                                   # _CHO clips (fly/dive/feed) -> the overworld chocobo
+    labels = set(animations_for_model(m.id))
+    if "run" in labels or "walk" in labels:               # PLAIN on-foot locomotion -> a character chibi
+        return "walker"                                   # (a rider like Zidane also carries _CHO mount clips)
+    if any("cho" in a for a in labels):                   # only mounted _CHO clips, no on-foot walk -> chocobo
         return "chocobo"
-    if any(k in joined for k in ("takeoff", "fly", "rocket")):
+    if any("takeoff" in a or "rocket" in a for a in labels):
         return "vehicle"                                  # airship / ship (Blue Narciss, Hilda Garde, Invincible)
-    if any(a in joined.split() for a in ("run", "walk", "stand", "idle", "idle1")):
-        return "walker"                                   # a party-leader overworld chibi
+    if labels & {"stand", "idle", "idle1"}:               # only stand/idle -> still a character (no run clip)
+        return "walker"
     return ""
 
 

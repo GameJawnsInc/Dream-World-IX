@@ -439,8 +439,10 @@ Follow the s23–s33 idiom: **wrap, don't rewrite.**
 `ModelFactory.CreateModel(FF9BattleDB.GEO.GetValue(model), …)`;
 `updateModelsToBeAdded.cs` dispatches field (`gMode==1`), world (`gMode==3`), and battle through it
 identically. World actors are the **W-form subset** (21 `GEO_SUB_W0_*` models — party-leader chibis, the chocobo, and the
-airships/ships; not a clean id→character order — e.g. `GEO_SUB_W0_001` is the *chocobo* by its `_CHO` clips)
-with `ANH_SUB_W0_*` clips on the same legacy `Animation` component (`WMActor.cs`).
+airships/ships) with `ANH_SUB_W0_*` clips on the same legacy `Animation` component (`WMActor.cs`). `WMAnimationBank.cs`
+names six authoritatively — **`W0_001` = Zidane, `W0_002` = Dagger, `W0_003` = Chocobo, `W0_008` = Blue Narciss,
+`W0_009` = Hilda Garde 3, `W0_010` = Invincible** (Zidane's model carries the chocobo-**riding** `_CHO` clips —
+the rider's mounted animations live on the rider, so *its* clip vocabulary is misleading; trust the map).
 
 **Why field first:** it's the north-star fidelity axis, the `SetModel` authoring surface is already
 rich (`_modeldb.py` / `archetypes.py` / InfoHub), and field has zero extra plumbing. **World deltas
@@ -469,10 +471,11 @@ Verified end-to-end offline on the real install: `model-gltf GEO_SUB_W0_001` exp
   the same as a field model.
 - **One caveat:** the hardcoded Bee / Chocobo-minigame scene (`WMActor.Initialize` → bundled `WMAnimationBank`
   clips) is the exception — an `.anim` override won't show *there* (the mesh reskin still does).
-- **Discovery:** the 21 world models are `GEO_SUB_W0_*` (type 5). `catalog.world_role()` classifies each from
-  its clip vocabulary — `chocobo` (`_CHO` fly/dive/feed), `vehicle` (takeoff/fly → airship/ship), `walker` (a
-  party-leader chibi). `ff9mapkit models GEO_SUB_W0_001` flags it as an OVERWORLD actor + its role; `model-gltf`
-  / `model-import` print overworld-specific "see it on the world map" guidance + the Bee caveat.
+- **Discovery:** the 21 world models are `GEO_SUB_W0_*` (type 5). `catalog.world_character()` gives the
+  authoritative name for the 6 the engine names (above); `catalog.world_role()` gives a coarse role for the rest
+  (`walker` = a character chibi with plain run/stand; `vehicle` = takeoff/rocket; `chocobo` = only `_CHO` mount
+  clips). `ff9mapkit models GEO_SUB_W0_001` shows "OVERWORLD actor — Zidane"; `model-gltf` / `model-import` print
+  overworld-specific "see it on the world map" guidance + the Bee caveat.
 - **Still DLL (unchanged):** a *net-new* world actor (`WMActor.Initialize`/`WMAnimationBank` hardcode the set);
   reskinning/re-animating an *existing* one is fully open. In-game verification is the human's (per §2).
 
