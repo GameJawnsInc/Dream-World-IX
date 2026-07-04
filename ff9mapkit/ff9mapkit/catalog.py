@@ -235,6 +235,30 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
     }
 
 
+# ------------------------------------------------------------- world models --
+# A world-form (``GEO_SUB_W0_*``) model is an OVERWORLD actor. The overworld places it via the SAME path as a
+# field NPC -- ``ModelFactory.CreateModel`` in the event engine's ``gMode == 3`` branch -- and attaches its
+# clips via the disc-probed ``AnimationFactory`` (the ``SetStand/Walk/Run`` opcodes are not gMode-gated). So a
+# reskin (loose FBX) AND an ``.anim`` edit are BOTH DLL-free here, exactly like a field model. THE ONE
+# EXCEPTION is the hardcoded Bee / Chocobo-minigame scene (``WMActor.Initialize`` adds bundled ``WMAnimationBank``
+# clips) -- there an ``.anim`` override won't show (the mesh reskin still does).
+def world_role(name_or_id) -> str:
+    """A coarse role for a world-form (W*) model, inferred from its clip vocabulary: ``'chocobo'`` /
+    ``'vehicle'`` (airship/ship) / ``'walker'`` (a party-leader overworld chibi) / ``''`` (a non-world model,
+    or one with too few clips to tell). Offline; a discovery aid for ``ff9mapkit models``, not a promise."""
+    m = model(name_or_id)
+    if not m or m.form[:1] != "W":
+        return ""
+    joined = " ".join(animations_for_model(m.id))
+    if "cho" in joined:                                   # _CHO clips (fly/dive/feed) -> the overworld chocobo
+        return "chocobo"
+    if any(k in joined for k in ("takeoff", "fly", "rocket")):
+        return "vehicle"                                  # airship / ship (Blue Narciss, Hilda Garde, Invincible)
+    if any(a in joined.split() for a in ("run", "walk", "stand", "idle", "idle1")):
+        return "walker"                                   # a party-leader overworld chibi
+    return ""
+
+
 # ----------------------------------------------------------- battle scenes ---
 def _is_model_bucket(name) -> bool:
     """A ``BSC_B3_*`` name is the MODEL bucket (176 entries) -- a model holder, NOT a fightable encounter.

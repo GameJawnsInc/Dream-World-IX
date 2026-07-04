@@ -1401,12 +1401,21 @@ def _cmd_model_export(args: argparse.Namespace) -> int:
 
 def _print_model_notes(geo, *, minted, merge_warnings=None):
     """Surface the merge warnings + the engine appearance-logic notes (THE RULE: name-keyed engine appearance
-    is preserved by an OVERRIDE, bypassed by a MINT; a story-evolved character is several ids)."""
+    is preserved by an OVERRIDE, bypassed by a MINT; a story-evolved character is several ids) + the overworld
+    guidance for a world-form model (a different in-game surface than a field)."""
+    from . import catalog as C
     from .models import appearance
     for w in (merge_warnings or []):
         print(f"  WARN: {w}")
     for note in appearance.appearance_notes(geo, minted=minted):
         print(f"  NOTE: {note}")
+    role = C.world_role(geo)
+    m = C.model(geo)
+    if m is not None and m.form[:1] == "W":
+        print(f"  NOTE: OVERWORLD model (world-map actor{', ' + role if role else ''}) -- reskin AND .anim edits "
+              f"are both DLL-free here (same loose-FBX/.anim path as a field). See it on the WORLD MAP (F6 -> "
+              f"warp to a field, then walk out to the overworld), not a field reload. CAVEAT: the Bee / "
+              f"Chocobo-minigame scene uses bundled clips, so an .anim edit won't show THERE (the mesh will).")
 
 
 def _cmd_model_mint(args: argparse.Namespace) -> int:
@@ -3299,6 +3308,10 @@ def _print_model_detail(m) -> int:
     formk = C.FORM_KIND.get(m.form[:1], "?")
     print(f"model {m.id}: {m.name}")
     print(f"  group {m.group} ({m.kind})  |  form {m.form} ({formk})  |  token {m.token}")
+    if m.form[:1] == "W":                                        # a world-form model = an overworld actor
+        role = C.world_role(m.id)
+        print(f"  OVERWORLD actor{' (' + role + ')' if role else ''} -- reskin + .anim edits are DLL-free "
+              f"(same as a field); see it on the world map. `model-gltf {m.name}` to edit.")
     ap = m.appearance
     if ap.story_evolved:
         others = [f for f in ap.forms if f != m.name]
