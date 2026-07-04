@@ -336,19 +336,23 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
     except (RuntimeError, FileNotFoundError, ValueError, KeyError):
         pass
     env5 = _load_env5(game)
-    # Fallback routing: if Blender dropped an animation's extras and it's an ACTION-named clip ("idle"/"walk"),
-    # the numeric-name fallback fails -> resolve the label to its on-disc anim key via the catalog so the edit
-    # isn't silently lost.
+    # Fallback routing: if Blender dropped an animation's extras, the numeric-name fallback fails for a
+    # FRIENDLY-named Action ("idle1"/"run"/"fly_cho" -- what the exporter now writes). Resolve the label to its
+    # on-disc key from each on-disc clip's OWN ANH name (e.g. ANH_SUB_W0_001_IDLE1 -> "idle1" -> 4716) -- NOT via
+    # animations_for_model, whose catalog id != the on-disc key for world models (that mismatch silently dropped
+    # the edit). This is the exact inverse of the exporter's label derivation, so a round-trip resolves.
     label_to_key = {}
-    if geo_name:
-        try:
-            from .. import catalog
-            on_disc = set(list_clip_keys(env5, gid))
-            for lbl, k in (catalog.animations_for_model(geo_name) or {}).items():
-                if k in on_disc:
-                    label_to_key[str(lbl).lower()] = k
-        except Exception:   # noqa: BLE001  -- catalog/install optional; fallback is best-effort
-            pass
+    try:
+        from .. import catalog
+        for k in list_clip_keys(env5, gid):
+            nm = catalog.animation_name(k)                    # ANH_SUB_W0_001_IDLE1
+            parts = nm.split("_") if nm else []
+            if len(parts) >= 5:                               # ANH <group> <form> <token> <ACTION...>
+                label_to_key.setdefault("_".join(parts[4:]).lower(), k)
+        for lbl, k in (catalog.animations_for_model(geo_name) or {}).items():
+            label_to_key.setdefault(str(lbl).lower(), k)      # also accept a catalog action label -> its id
+    except Exception:   # noqa: BLE001  -- catalog/install optional; fallback is best-effort
+        pass
     written, skipped, warnings = [], [], []
     # GROUP the parsed animations by their resolved clip key first. A scene with the model imported more than
     # once stacks duplicate actions (run.001 ...) that all route to the same key; writing them in order would
@@ -360,8 +364,9 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
         if key is None and pa["label"]:
             key = label_to_key.get(pa["label"].lower())
         if key is None:
-            warnings.append(f"animation {pa['label'] or '<unnamed>'!r} has no routable key (extras dropped + "
-                            f"non-numeric name) -- NOT written; rename the Action to its numeric anim key")
+            warnings.append(f"animation {pa['label'] or '<unnamed>'!r} has no routable key -- NOT written "
+                            f"(unrecognized Action name and no ff9_anim_key stamp; keep the exported name, "
+                            f"e.g. 'idle1'/'run', or its numeric anim key)")
             skipped.append(pa["label"] or "<unnamed>")
             continue
         by_key.setdefault(key, []).append(pa)

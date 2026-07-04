@@ -63,7 +63,8 @@ def test_auto_anim_selection_prefers_on_foot_with_friendly_labels():
     labels = [lbl for lbl, _ in sel]
     assert all(not lbl.isdigit() for lbl in labels), labels          # friendly action labels, not raw ids
     assert {"idle1", "stand", "run"} <= set(labels)                  # on-foot clips chosen over lower-id riding
-    assert labels[0] in ("idle1", "stand", "run")                    # comes in standing, not mid-ride
+    assert labels[0] == "stand"                                      # NEUTRAL rest first (not idle1 -- a yawn)
+    assert labels.index("stand") < labels.index("idle1")             # fidget clips don't lead
     # a raw-id / list request still works and stays numeric-addressable
     one = gltf._select_anim_keys("GEO_SUB_W0_001", 310, "4722", _FakeEnv(310, keys))
     assert one == [("4722", 4722)]

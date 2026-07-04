@@ -96,7 +96,10 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
             # named "1143". (His lowest-id clips are the chocobo-RIDING ones -- disc order alone surfaced those.)
             seen = {a for _, a in picked}
             id_to_label = {aid: lbl for lbl, aid in actions.items()}
-            _ON_FOOT = ("idle", "idle1", "idle2", "stand", "run", "walk", "turn", "turn_l", "turn_r")
+            # Neutral-rest first: 'stand' is the plain standing pose; 'idle1'/'idle2' are periodic FIDGETS
+            # (e.g. Zidane's idle1 is a yawn), so they must not lead. Anything not listed sorts after (disc order).
+            _ON_FOOT_ORDER = ("stand", "idle", "idle1", "idle2", "walk", "run", "turn", "turn_l", "turn_r")
+            _onfoot_rank = {a: i for i, a in enumerate(_ON_FOOT_ORDER)}
 
             def _lbl(k):
                 lbl = id_to_label.get(k)
@@ -108,7 +111,7 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
 
             rank = {k: i for i, k in enumerate(on_disc)}
             cand = [(_lbl(k), k) for k in on_disc if k not in seen]
-            cand.sort(key=lambda lk: (lk[0] not in _ON_FOOT, rank[lk[1]]))   # on-foot first, else disc order
+            cand.sort(key=lambda lk: (_onfoot_rank.get(lk[0], len(_ON_FOOT_ORDER)), rank[lk[1]]))  # neutral-first
             for lbl, aid in cand:
                 if len(picked) >= 4:
                     break
