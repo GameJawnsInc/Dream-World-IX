@@ -294,7 +294,53 @@ def edit_story_state(geg: bytearray, *, scenario: int | None = None,
     return notes
 
 
+# --- overworld player position (lives IN gEventGlobal; in-game proven 2026-07-05) ---
+# The world .eb stores the player's world X/Z here as 24-bit little-endian fixed-point (world = raw/256);
+# Y is NOT stored (the engine ground-snaps on load). Editing these bytes relocates the player on load
+# (write-tested: (258,-884) -> (272,-1142) landed exactly). See memory project-ff9-overworld-vehicles.
+WORLD_POS_X_OFF = 64
+WORLD_POS_Z_OFF = 69
+WORLD_POS_W = 3                 # bytes per coord (24-bit)
+WORLD_POS_FP = 256             # fixed-point scale (world units = raw / 256)
+_WORLD_POS_MIN = -(1 << 23) / WORLD_POS_FP
+_WORLD_POS_MAX = ((1 << 23) - 1) / WORLD_POS_FP
+
+
+def decode_world_position(geg) -> "tuple[float, float]":
+    """The overworld player ``(X, Z)`` world coords from a 2048-byte gEventGlobal. Y is not stored (the engine
+    ground-snaps on load). ONLY meaningful for a save taken on the OVERWORLD -- in a field this bit region
+    holds field flags, so decoding it there is nonsense."""
+    x = int.from_bytes(geg[WORLD_POS_X_OFF:WORLD_POS_X_OFF + WORLD_POS_W], "little", signed=True) / WORLD_POS_FP
+    z = int.from_bytes(geg[WORLD_POS_Z_OFF:WORLD_POS_Z_OFF + WORLD_POS_W], "little", signed=True) / WORLD_POS_FP
+    return x, z
+
+
+def _fp24(v: float) -> bytes:
+    raw = int(round(v * WORLD_POS_FP))
+    if not -(1 << 23) <= raw <= (1 << 23) - 1:
+        raise ValueError(f"world coord {v} out of range ({_WORLD_POS_MIN:.0f}..{_WORLD_POS_MAX:.0f})")
+    return raw.to_bytes(WORLD_POS_W, "little", signed=True)
+
+
+def edit_world_position(geg: bytearray, x: float | None = None, z: float | None = None) -> "list[str]":
+    """Set the overworld player X and/or Z in a 2048-byte gEventGlobal IN PLACE (24-bit fixed-point); returns
+    change notes. Leaves Y (unstored) and all other bytes untouched. ⚠ ONLY valid for an OVERWORLD save, and
+    only relocate to a WALKABLE spot -- an invalid spawn can black-screen brick the world (the "no controlled
+    actor" freeze). Keep the same world-scene state (gEventGlobal[0-1]) unless you also mean to change disc/
+    continent context."""
+    notes = []
+    ox, oz = decode_world_position(geg)
+    if x is not None:
+        geg[WORLD_POS_X_OFF:WORLD_POS_X_OFF + WORLD_POS_W] = _fp24(x)
+        notes.append(f"world X {ox:.2f} -> {float(x):.2f}")
+    if z is not None:
+        geg[WORLD_POS_Z_OFF:WORLD_POS_Z_OFF + WORLD_POS_W] = _fp24(z)
+        notes.append(f"world Z {oz:.2f} -> {float(z):.2f}")
+    return notes
+
+
 def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags=(), clear_flags=(),
+                     world_x: float | None = None, world_z: float | None = None,
                      do_backup: bool = True, dry_run: bool = False) -> dict:
     """Edit a real ``SavedData_ww.dat``'s story state IN PLACE and write it back -- the convenience the GUI's
     "Apply" uses (the CLI's ``save-edit --in-place`` path as one call). Reads ``block``'s gEventGlobal from
@@ -313,6 +359,7 @@ def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags
         src = sv.gEventGlobal(block)
     geg = bytearray(src)
     notes = edit_story_state(geg, scenario=scenario, set_flags=set_flags, clear_flags=clear_flags)
+    notes += edit_world_position(geg, world_x, world_z)
     if not notes or dry_run:
         return {"notes": notes, "extra": extra_exists, "extra_patched": None, "backups": [], "written": False}
     sv.set_gEventGlobal(block, bytes(geg))

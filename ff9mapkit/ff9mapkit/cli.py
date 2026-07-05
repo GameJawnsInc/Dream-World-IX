@@ -2983,16 +2983,30 @@ def _cmd_save_edit(args: argparse.Namespace) -> int:
 
     extra = S.extra_file_path(args.save, n)
     extra_exists = bool(extra and os.path.exists(extra))
+    def _worldpos(spec):
+        """Parse --world-pos 'X,Z' into (x, z) floats; either may be blank to leave that axis alone."""
+        if not spec:
+            return None, None
+        parts = [p.strip() for p in spec.split(",")]
+        if len(parts) != 2:
+            raise ValueError("--world-pos must be 'X,Z' (two comma-separated numbers; leave one blank to keep it)")
+        return (float(parts[0]) if parts[0] else None, float(parts[1]) if parts[1] else None)
+
     try:
         scenario = F.resolve_scenario(args.scenario) if args.scenario else None
         set_bits, clear_bits = _bits(args.set_flags), _bits(args.clear_flags)
+        wx, wz = _worldpos(getattr(args, "world_pos", None))
         # Memoria's per-slot extra file holds the AUTHORITATIVE gEventGlobal (it overrides the vanilla main
         # block on load), so read from it when present; fall back to the main block for a vanilla-only save.
         src = S.read_extra_gEventGlobal(extra) if extra_exists else None
         if src is None:
             src = sv.gEventGlobal(n)
         geg = bytearray(src)
+        if wx is not None or wz is not None:               # show the current spot so the user has a reference
+            print(f"current overworld position: {tuple(round(v, 1) for v in S.decode_world_position(geg))} "
+                  f"(X, Z; Y ground-snapped)")
         notes = S.edit_story_state(geg, scenario=scenario, set_flags=set_bits, clear_flags=clear_bits)
+        notes += S.edit_world_position(geg, wx, wz)
         sv.set_gEventGlobal(n, bytes(geg))                 # stage the vanilla main-block edit (in memory)
     except (ValueError, IndexError) as e:
         print(f"edit failed: {e}")
@@ -4531,6 +4545,9 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--scenario", help="set ScenarioCounter: a value (2500) or an area name (\"Ice Cavern\")")
     se.add_argument("--set", dest="set_flags", help="comma-separated flag indices (or [[flag]] names with --names) to SET")
     se.add_argument("--clear", dest="clear_flags", help="comma-separated flag indices to CLEAR")
+    se.add_argument("--world-pos", dest="world_pos", metavar="X,Z",
+                    help="relocate the OVERWORLD player to world X,Z (e.g. \"272,-1142\"; leave one blank to keep "
+                         "that axis). Y is ground-snapped. Only for an overworld save; pick a WALKABLE spot.")
     se.add_argument("--names", help="a field.toml/campaign.toml whose [[flag]] table names --set/--clear flags")
     se.add_argument("--out", help="write the edited save to this path (safe; leaves the original untouched)")
     se.add_argument("--in-place", action="store_true", help="overwrite the save (a timestamped .bak is made first)")

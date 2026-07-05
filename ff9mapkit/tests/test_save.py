@@ -226,3 +226,55 @@ def test_apply_story_edit_no_extra_reports_none(tmp_path):
     S.FF9Save(_make_save({1: _geg(6000)})).write(p)                        # no extra file alongside
     res = S.apply_story_edit(str(p), block=1, scenario=2500)
     assert res["written"] and res["extra"] is False and res["extra_patched"] is None
+
+
+# --- overworld player position (gEventGlobal X@64 / Z@69, 24-bit fixed-point; in-game proven) ---
+def test_world_position_round_trip_and_layout():
+    g = bytearray(2048)
+    S.edit_world_position(g, 272, -1142)
+    assert S.decode_world_position(g) == (272.0, -1142.0)
+    # exact byte layout: 24-bit LE fixed-point (world*256) at the proven offsets
+    assert g[S.WORLD_POS_X_OFF:S.WORLD_POS_X_OFF + 3] == (272 * 256).to_bytes(3, "little", signed=True)
+    assert g[S.WORLD_POS_Z_OFF:S.WORLD_POS_Z_OFF + 3] == (-1142 * 256).to_bytes(3, "little", signed=True)
+
+
+def test_world_position_fractional_matches_ground_truth():
+    # the real save1 decoded to (272.43, -1142.03); encode->decode must reproduce it within fixed-point step
+    g = bytearray(2048)
+    S.edit_world_position(g, 272.43, -1142.03)
+    x, z = S.decode_world_position(g)
+    assert abs(x - 272.43) < 0.01 and abs(z - (-1142.03)) < 0.01
+
+
+def test_world_position_partial_axis_and_notes():
+    g = bytearray(2048)
+    S.edit_world_position(g, 100, 200)
+    notes = S.edit_world_position(g, x=500)                               # change only X, keep Z
+    assert S.decode_world_position(g) == (500.0, 200.0)
+    assert notes == ["world X 100.00 -> 500.00"]                         # only the changed axis is noted
+
+
+def test_world_position_isolates_to_its_bytes():
+    g = bytearray(2048)
+    g[0], g[1] = 0x20, 0x09                                               # a ScenarioCounter that must survive
+    before = bytes(g)
+    S.edit_world_position(g, 272, -1142)
+    changed = {i for i in range(2048) if g[i] != before[i]}
+    assert changed <= set(range(64, 67)) | set(range(69, 72))            # only the 3+3 position bytes moved
+    assert g[0] == 0x20 and g[1] == 0x09                                 # scenario untouched
+
+
+def test_world_position_out_of_range_guard():
+    g = bytearray(2048)
+    with pytest.raises(ValueError, match="out of range"):
+        S.edit_world_position(g, x=1e9)
+
+
+def test_apply_story_edit_threads_world_pos(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(2500)})).write(p)                        # no extra -> falls back to main block
+    res = S.apply_story_edit(str(p), block=1, world_x=300, world_z=-500, do_backup=False)
+    assert res["written"] and any("world X" in n for n in res["notes"])
+    sv = S.FF9Save.load(str(p))
+    assert S.decode_world_position(bytearray(sv.gEventGlobal(1))) == (300.0, -500.0)
+    assert sv.gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])       # scenario preserved
