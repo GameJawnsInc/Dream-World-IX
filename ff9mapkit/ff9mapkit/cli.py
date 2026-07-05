@@ -1534,6 +1534,57 @@ def _cmd_model_anim(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sound_list(args: argparse.Namespace) -> int:
+    """List the id -> ResourceID map for music or SFX -- what to pass to `audio-import --song` / what file
+    to override."""
+    from . import sound as S
+    kind = getattr(args, "kind", "music")
+    try:
+        table = S.read_manifest(kind, game=args.game)
+    except Exception as e:                                 # noqa: BLE001
+        print(f"could not read the {kind} manifest: {e}", file=sys.stderr)
+        return 2
+    filt = (args.filter or "").strip().lower()
+    rows = [r for r in table if not filt or filt in r["resource_id"].lower() or filt == str(r["id"])]
+    print(f"{len(rows)} {kind} track(s) (id -> ResourceID):")
+    for r in rows:
+        print(f"  {r['id']:>5}  {r['resource_id']}")
+    print(f"\n  override one:  ff9mapkit audio-import <in.wav> --song <id>"
+          f"{' --kind sfx' if kind == 'sfx' else ''} --deploy <modfolder>")
+    return 0
+
+
+def _cmd_audio_import(args: argparse.Namespace) -> int:
+    """Import a custom music/SFX track: transcode to Ogg Vorbis + drop it as a loose override of an existing
+    id (DLL-free). Sets Memoria.ini PriorityToOGG=1 so the OGG wins over the bundled AKB."""
+    import os
+    from . import sound as S
+    if not args.deploy:
+        print("audio-import needs --deploy MODFOLDER (where to write the override)", file=sys.stderr)
+        return 2
+    try:
+        res = S.deploy_audio(args.input, args.song, args.deploy, kind=args.kind,
+                             loop_start=args.loop_start, loop_end=args.loop_end, quality=args.quality,
+                             set_priority=not args.no_set_priority, game=args.game)
+    except Exception as e:                                 # noqa: BLE001
+        print(f"audio-import failed: {e}", file=sys.stderr)
+        return 2
+    print(f"imported {args.kind} id {res['song_id']} = {res['resource_id']}")
+    print(f"  wrote: {res['path']}")
+    loop = ("auto-loop (whole track)" if res["loop_start"] is None and res["loop_end"] is None
+            else f"loop {res['loop_start']}..{res['loop_end']} samples") if args.kind == "music" else "play-once (sfx)"
+    print(f"  {loop}")
+    p = res.get("priority")
+    if p and p.get("changed"):
+        print(f"  set PriorityToOGG=1 in Memoria.ini (was {p['was']}; backup {os.path.basename(p['backup'] or '')})")
+    elif p and p.get("was") == "1":
+        print("  PriorityToOGG already 1")
+    elif args.no_set_priority:
+        print("  [!] did NOT set PriorityToOGG -- set [Audio] PriorityToOGG=1 in Memoria.ini or the bundle track wins")
+    print("  RESTART FF9 to hear it (audio loads at startup; F6 won't reload it). Check MusicVolume > 0.")
+    return 0
+
+
 def _cmd_battle_build(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .battle.build import BattleBuildError, BattleProject, build_battle_mod
@@ -3971,6 +4022,28 @@ def build_parser() -> argparse.ArgumentParser:
                          "(the loose-override-path proof; F6 -> Reload field to apply)")
     ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
+
+    for _snd, _label in (("music", "music"), ("sfx", "SFX")):
+        sl = sub.add_parser(f"{_snd}-list", help=f"list {_label} song-id -> ResourceID (what audio-import replaces)")
+        sl.add_argument("--filter", default=None, help="substring or exact-id filter")
+        sl.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+        sl.set_defaults(func=_cmd_sound_list, kind=_snd)
+
+    ai = sub.add_parser("audio-import",
+                        help="import a custom MUSIC/SFX track (Ogg Vorbis) over an existing id -- DLL-free")
+    ai.add_argument("input", help="source audio (wav/mp3/ogg/flac/...) -- transcoded to Ogg Vorbis")
+    ai.add_argument("--song", type=int, required=True, help="the id to REPLACE (see `music-list`/`sfx-list`)")
+    ai.add_argument("--kind", choices=["music", "sfx"], default="music", help="music (default) or sfx")
+    ai.add_argument("--loop-start", type=int, default=None,
+                    help="loop start SAMPLE (music auto-loops the whole track if omitted; ignored for sfx)")
+    ai.add_argument("--loop-end", type=int, default=None, help="loop end SAMPLE")
+    ai.add_argument("--quality", type=int, default=6, help="libvorbis quality 0-10 (default 6)")
+    ai.add_argument("--no-set-priority", action="store_true",
+                    help="don't touch Memoria.ini -- you must set [Audio] PriorityToOGG=1 yourself or the "
+                         "bundled track wins")
+    ai.add_argument("--deploy", metavar="MODFOLDER", default=None, help="mod folder to write the override into")
+    ai.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    ai.set_defaults(func=_cmd_audio_import)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
     bb.add_argument("battle", nargs="+", help="one or more battle.toml files")
