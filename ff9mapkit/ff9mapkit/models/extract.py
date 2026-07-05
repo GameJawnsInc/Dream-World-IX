@@ -37,8 +37,18 @@ def _unitypy():
     return _u()
 
 
+def _p0data(idx: int, game=None) -> Path:
+    return config.find_game_path(game) / "StreamingAssets" / f"p0data{idx}.bin"
+
+
 def _p0data4(game=None) -> Path:
-    return config.find_game_path(game) / "StreamingAssets" / "p0data4.bin"
+    return _p0data(4, game)
+
+
+def _model_bundle_index(type_int: int) -> int:
+    """Which p0data bundle holds a model of this type. Weapons (``GEO_WEP_*`` = type 6, under
+    ``BattleMap/BattleModel/``) live in ``p0data2``; every other model type in ``p0data4``."""
+    return 2 if type_int == 6 else 4
 
 
 def resolve_geo(token: str) -> tuple[str, int, int]:
@@ -83,10 +93,11 @@ def _comp_pptr(entry):
 
 
 class _Bundle:
-    """p0data4 loaded once, with pathid->ObjectReader + typetree cache."""
+    """A p0data model bundle loaded once (p0data4 for most models, p0data2 for weapons), with
+    pathid->ObjectReader + typetree cache."""
 
-    def __init__(self, game=None):
-        self.env = _unitypy().load(str(_p0data4(game)))
+    def __init__(self, game=None, data_index: int = 4):
+        self.env = _unitypy().load(str(_p0data(data_index, game)))
         # any container PPtr shares the same SerializedFile -> its .objects is the pathid table
         first = next(iter(self.env.container.values()))
         self.objs = first.assetsfile.objects
@@ -110,8 +121,10 @@ class _Bundle:
         return o.type.name if o is not None else None
 
     def find_prefab_go(self, type_int: int, geo_id: int):
-        """The root GameObject pathid for models/{type_int}/{geo_id}/{geo_id}.fbx."""
-        want = f"models/{type_int}/{geo_id}/{geo_id}.fbx"
+        """The root GameObject pathid for this model's prefab. Weapons (type 6) live at
+        ``battlemap/battlemodel/6/{id}/{id}.fbx``; every other type at ``models/{type}/{id}/{id}.fbx``."""
+        sub = "battlemap/battlemodel/6" if type_int == 6 else f"models/{type_int}"
+        want = f"{sub}/{geo_id}/{geo_id}.fbx"
         for k, pptr in self.env.container.items():
             if want in k.lower() and pptr.type.name == "GameObject":
                 return getattr(pptr, "path_id", None) or getattr(pptr, "m_PathID", None)
@@ -233,10 +246,12 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     m_BindPose per bone of THIS mesh (kept per-SMR so the correction can be computed mesh-by-mesh).
     Pass ``bundle`` to reuse an already-loaded p0data4 across many models (bulk sweeps)."""
     geo, gid, tint = resolve_geo(token)
-    b = bundle if bundle is not None else _Bundle(game)
+    b = bundle if bundle is not None else _Bundle(game, data_index=_model_bundle_index(tint))
     root_pid = b.find_prefab_go(tint, gid)
     if root_pid is None:
-        raise FileNotFoundError(f"{geo} (id {gid}) not found at models/{tint}/{gid}/{gid}.fbx in p0data4.bin")
+        sub = "battlemap/battlemodel/6" if tint == 6 else f"models/{tint}"
+        raise FileNotFoundError(
+            f"{geo} (id {gid}) not found at {sub}/{gid}/{gid}.fbx in p0data{_model_bundle_index(tint)}.bin")
     root_tt = b.tt(root_pid)
 
     # --- walk the transform hierarchy: collect bones + SkinnedMeshRenderers ---
@@ -332,6 +347,19 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     Pass ``bundle`` to reuse an already-loaded p0data4 across many models (bulk sweeps)."""
     c = _collect(token, game, bundle=bundle)
     bones, smrs, b = c["bones"], c["smrs"], c["bundle"]
+    if not smrs:
+        # Weapons (GEO_WEP_*) are STATIC meshes (MeshRenderer/MeshFilter, no skeleton) — the skinned
+        # exporter can't read them. Their common edit is a texture reskin, which needs no mesh at all
+        # (the engine's loose-.png disc-probe reskins the bundled weapon, ModelFactory.cs:100-116).
+        gid = c["geo_id"]
+        if c["type_int"] == 6:
+            raise ValueError(
+                f"{c['geo']} (id {gid}) is a WEAPON — a static mesh with no skeleton, which the skinned "
+                f"model exporter can't handle. To recolor it, drop a loose PNG at "
+                f"BattleMap/BattleModel/6/{gid}/{gid}.png in your mod folder (the engine reskins the "
+                f"bundled weapon from it — no mesh export needed). Editing the weapon GEOMETRY needs a "
+                f"static-mesh path (not yet built).")
+        raise ValueError(f"{c['geo']} (id {gid}) has no skinned mesh to export (static/empty prefab).")
 
     meshes: list[dict] = []
     materials: list[dict] = []

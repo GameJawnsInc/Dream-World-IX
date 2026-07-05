@@ -27,6 +27,15 @@ def test_nonweapon_deploys_to_models_tree(type_int):
         f"StreamingAssets/Assets/Resources/Models/{type_int}/456/456.fbx"
 
 
+def test_weapon_reads_from_p0data2_bundle():
+    """Weapons live in p0data2 (battlemap/battlemodel/6/), not p0data4 — the EXTRACTOR must pick the right
+    bundle (the deploy-path fix is only half; the read side needs the weapon special-case too)."""
+    from ff9mapkit.models import extract
+    assert extract._model_bundle_index(6) == 2               # weapon
+    for t in (1, 2, 3, 4, 5):
+        assert extract._model_bundle_index(t) == 4           # everything else
+
+
 def _norm(q):
     n = math.sqrt(sum(c * c for c in q)) or 1.0
     return tuple(c / n for c in q)
