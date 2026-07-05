@@ -297,6 +297,15 @@ and `AnimationClip`s directly.
 `StreamingAssets/Assets/Resources/`, resolved by `AssetManager.SearchAssetOnDisc` across all
 `FolderNames` (`AssetManager.cs:790-814`).
 
+> **Kit deploy honors the weapon special-case.** `export.model_dir_parts(type_int, geo_id)` is the
+> single source of truth for the on-disk layout — type 6 → `BattleMap/BattleModel/6/{id}/`, every other
+> type → `Models/{type}/{id}/` — used by every deploy site (`export`, `gltf.deploy_edit`, `mint`,
+> `model-mint --out`). So `model-export`/`-gltf`/`-import`/`-mint` target monsters (`GEO_MON_*`=3),
+> battle characters (`GEO_MAIN_*`=2) and **weapons** (`GEO_WEP_*`=6) correctly. Battle models resolve
+> the same as field ones (216 MON / 85 WEP / 83 MAIN in the DB). ⚠ Still **in-game unproven for the
+> skinned/animated battle path** (only field/character + static battle meshes are proven — a monster
+> reskin/edit is the pending playtest).
+
 **Discount the stale wiki claim.** The Memoria wiki line *"3D models may not be replaced by external
 files"* is contradicted by the current source — `CreateModel` demonstrably loads a loose `.fbx`
 first. Trust the source, not the wiki.
