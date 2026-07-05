@@ -36,6 +36,26 @@ def test_weapon_reads_from_p0data2_bundle():
         assert extract._model_bundle_index(t) == 4           # everything else
 
 
+def test_single_bone_static_model_emits_valid_fbx():
+    """A static weapon = a 1-bone rig (bone000 at identity, every vert weighted 100% to it), the shape
+    read_static_model produces so the skinned emitter/pipeline handle a skeleton-less mesh unchanged. It
+    must emit an engine-valid FBX (in-game proven: an enlarged RuneTooth loose FBX rendered in battle)."""
+    from ff9mapkit.models import fbx_validate
+    model = {
+        "geo": "GEO_WEP_B1_099", "geo_id": 599, "type_int": 6, "root_bone": "bone000",
+        "bones": [{"name": "bone000", "parent": None, "pos": [0, 0, 0], "rot": [0, 0, 0, 1],
+                   "scale": [1, 1, 1]}],
+        "meshes": [{"name": "weapon0", "verts": [[0, 0, 0], [10, 0, 0], [0, 10, 0], [10, 10, 0]],
+                    "normals": [[0, 0, 1]] * 4, "uvs": [[0, 0], [1, 0], [0, 1], [1, 1]],
+                    "submeshes": [{"material_idx": 0, "tris": [[0, 1, 2], [1, 3, 2]]}],
+                    "weights": [[(0, 1.0)]] * 4, "parent": None}],
+        "materials": [{"name": "weapon0_mat0", "texture": "599"}], "textures": {}}
+    text, meta = fbx_skin.emit_skinned_fbx(model)
+    assert meta["bones"] == 1 and meta["meshes"] == 1
+    fbx_validate.validate(text)                              # parses via the engine reader port
+    assert '"Model::bone000", "Root"' in text               # root bone forced BoneId 0
+
+
 def _norm(q):
     n = math.sqrt(sum(c * c for c in q)) or 1.0
     return tuple(c / n for c in q)

@@ -348,18 +348,10 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     c = _collect(token, game, bundle=bundle)
     bones, smrs, b = c["bones"], c["smrs"], c["bundle"]
     if not smrs:
-        # Weapons (GEO_WEP_*) are STATIC meshes (MeshRenderer/MeshFilter, no skeleton) — the skinned
-        # exporter can't read them. Their common edit is a texture reskin, which needs no mesh at all
-        # (the engine's loose-.png disc-probe reskins the bundled weapon, ModelFactory.cs:100-116).
-        gid = c["geo_id"]
-        if c["type_int"] == 6:
-            raise ValueError(
-                f"{c['geo']} (id {gid}) is a WEAPON — a static mesh with no skeleton, which the skinned "
-                f"model exporter can't handle. To recolor it, drop a loose PNG at "
-                f"BattleMap/BattleModel/6/{gid}/{gid}.png in your mod folder (the engine reskins the "
-                f"bundled weapon from it — no mesh export needed). Editing the weapon GEOMETRY needs a "
-                f"static-mesh path (not yet built).")
-        raise ValueError(f"{c['geo']} (id {gid}) has no skinned mesh to export (static/empty prefab).")
+        # A STATIC prefab (no SkinnedMeshRenderer): weapons (GEO_WEP_*) + some props. Read its MeshFilter
+        # geometry wrapped in a trivial 1-bone rig, so the skinned emitter + the whole model-gltf/import
+        # pipeline handle it unchanged (the engine imports a bone-less/1-bone mesh as a rigid model).
+        return read_static_model(token, game=game, bundle=b)
 
     meshes: list[dict] = []
     materials: list[dict] = []
@@ -408,6 +400,80 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"], "root_bone": c["root_bone"],
             "bones": bones, "meshes": meshes, "materials": materials, "textures": textures,
             "bind_correction": non_null[0] if non_null else None, "per_mesh_bind": per_mesh_G}
+
+
+def read_static_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
+    """Read a STATIC model prefab (``MeshFilter`` + ``MeshRenderer``, no skeleton — e.g. weapons) into the
+    same Model struct the skinned pipeline consumes, by wrapping it in a trivial 1-bone rig: a single
+    ``bone000`` at the origin (identity) with every vertex weighted 100% to it. The engine imports a
+    1-bone mesh as a rigid model that renders exactly as the original (bone000 = identity → no
+    deformation), so the emitter / ``model-gltf`` / ``model-import`` all work unchanged. Weapons attach to
+    the character's hand bone in battle code (``btl_eqp``), so the model itself is just a rigid mesh at the
+    origin. No bind correction (a static mesh has no ``m_BindPose`` — its verts are already model-space)."""
+    geo, gid, tint = resolve_geo(token)
+    b = bundle if bundle is not None else _Bundle(game, data_index=_model_bundle_index(tint))
+    root_pid = b.find_prefab_go(tint, gid)
+    if root_pid is None:
+        sub = "battlemap/battlemodel/6" if tint == 6 else f"models/{tint}"
+        raise FileNotFoundError(
+            f"{geo} (id {gid}) not found at {sub}/{gid}/{gid}.fbx in p0data{_model_bundle_index(tint)}.bin")
+
+    found: list = []                 # (mesh_pid, [mat_pids], go_name), pre-order
+    seen: set = set()
+
+    def walk(tr_pid, tr_tt):
+        if not tr_tt:
+            return
+        go_tt = b.tt(_pid(tr_tt.get("m_GameObject", {})))
+        if go_tt:
+            mesh_pid = None
+            mat_pids: list = []
+            for tn, pid in b.components(go_tt):
+                if tn == "MeshFilter":
+                    mesh_pid = _pid((b.tt(pid) or {}).get("m_Mesh", {}))
+                elif tn == "MeshRenderer":
+                    mat_pids = [_pid(mp) for mp in (b.tt(pid) or {}).get("m_Materials", [])]
+            if mesh_pid and mesh_pid not in seen:
+                seen.add(mesh_pid)
+                found.append((mesh_pid, mat_pids, go_tt.get("m_Name")))
+        for ch in tr_tt.get("m_Children", []):
+            cpid = _pid(ch)
+            walk(cpid, b.tt(cpid))
+
+    root_tpid, root_ttr = b.transform_of(b.tt(root_pid))
+    walk(root_tpid, root_ttr)
+    if not found:
+        raise ValueError(f"{geo} (id {gid}) has no MeshFilter geometry to export (empty prefab).")
+
+    bones = [{"name": "bone000", "parent": None, "pos": [0.0, 0.0, 0.0],
+              "rot": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0]}]
+    meshes: list = []
+    materials: list = []
+    texture_stems: set = set()
+    for mesh_pid, mat_pids, goname in found:
+        mesh = _decode_mesh_tt(b, mesh_pid)
+        name = mesh.get("name") or goname or f"mesh{len(meshes)}"
+        mat_stems = [_maintex_stem(b, mp) for mp in mat_pids]
+        for st in mat_stems:
+            if st:
+                texture_stems.add(st)
+        base_mat = len(materials)
+        subs = []
+        for si, tris in enumerate(mesh["submeshes"]):
+            subs.append({"material_idx": base_mat + si, "tris": tris})
+            materials.append({"name": f"{name}_mat{si}",
+                              "texture": mat_stems[si] if si < len(mat_stems) else (
+                                  mat_stems[0] if mat_stems else None)})
+        meshes.append({
+            "name": name, "verts": mesh["verts"],
+            "normals": mesh["normals"] or [[0.0, 1.0, 0.0]] * len(mesh["verts"]),
+            "uvs": mesh["uvs"], "submeshes": subs,
+            "weights": [[(0, 1.0)] for _ in mesh["verts"]],   # every vert 100% -> bone000
+            "parent": None})
+    textures = _read_textures(b, gid, texture_stems)
+    return {"geo": geo, "geo_id": gid, "type_int": tint, "root_bone": "bone000",
+            "bones": bones, "meshes": meshes, "materials": materials, "textures": textures,
+            "bind_correction": None, "per_mesh_bind": [None] * len(meshes)}
 
 
 def merge_nested_child_meshes(model: dict, warn=None) -> list:
