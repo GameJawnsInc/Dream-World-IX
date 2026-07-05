@@ -1428,7 +1428,8 @@ def _cmd_model_mint(args: argparse.Namespace) -> int:
             where = "--deploy MODFOLDER"
         else:
             man = mmint.mint_manifest(args.source, args.id, args.name, game=args.game)
-            dest = Path(args.out) / "Models" / str(man["type_int"]) / str(man["id"])
+            from .models import export as mexport
+            dest = Path(args.out).joinpath(*mexport.model_dir_parts(man["type_int"], man["id"]))
             mmint.export_mint(args.source, args.id, dest, new_name=man["name"], game=args.game)
             man["fbx"] = str(dest / f"{man['id']}.fbx")
             where = args.out

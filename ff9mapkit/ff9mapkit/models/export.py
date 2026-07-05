@@ -13,10 +13,21 @@ from pathlib import Path
 
 from . import extract, fbx_skin
 
+_RES = ("StreamingAssets", "Assets", "Resources")   # AssetManager searches models under Resources/
+
+
+def model_dir_parts(type_int: int, geo_id: int) -> tuple:
+    """Directory parts UNDER ``Resources/`` where the engine probes this model's ``.fbx`` + textures.
+    Weapons (``GEO_WEP_*`` = type 6) live under ``BattleMap/BattleModel/``; every other model under
+    ``Models/`` -- matching ``ModelFactory.GetRenameModelPath`` (ModelFactory.cs:26-34, the ``GEO_WEP``
+    special-case). This is the single source of truth for the loose-override on-disk layout."""
+    top = ("BattleMap", "BattleModel") if type_int == 6 else ("Models",)
+    return (*top, str(type_int), str(geo_id))
+
 
 def engine_rel_path(type_int: int, geo_id: int) -> str:
     """The mod-folder-relative path the engine looks for this model at (loose-override target)."""
-    return f"StreamingAssets/Assets/Resources/Models/{type_int}/{geo_id}/{geo_id}.fbx"
+    return "/".join((*_RES, *model_dir_parts(type_int, geo_id), f"{geo_id}.fbx"))
 
 
 def export_model(token: str, out_dir, *, game=None, flat: bool = False) -> dict:
@@ -35,7 +46,7 @@ def export_model(token: str, out_dir, *, game=None, flat: bool = False) -> dict:
     if flat:
         dest = out
     else:
-        dest = out / "Models" / str(model["type_int"]) / str(model["geo_id"])
+        dest = out.joinpath(*model_dir_parts(model["type_int"], model["geo_id"]))
     dest.mkdir(parents=True, exist_ok=True)
     fbx_path = dest / f'{model["geo_id"]}.fbx'
     fbx_path.write_text(text, encoding="ascii", newline="\n")
@@ -62,8 +73,7 @@ def deploy_override(token: str, mod_folder, *, game=None) -> dict:
     merge_warnings: list = []
     extract.merge_nested_child_meshes(model, warn=merge_warnings.append)   # fold nested-child meshes the loose-FBX importer would drop
     text, meta = fbx_skin.emit_skinned_fbx(model)
-    dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" \
-        / str(model["type_int"]) / str(model["geo_id"])
+    dest = Path(mod_folder).joinpath(*_RES, *model_dir_parts(model["type_int"], model["geo_id"]))
     dest.mkdir(parents=True, exist_ok=True)
     (dest / f'{model["geo_id"]}.fbx').write_text(text, encoding="ascii", newline="\n")
     for stem, img in model["textures"].items():

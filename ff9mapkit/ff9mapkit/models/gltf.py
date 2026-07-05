@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 from .. import catalog, config
-from . import extract, _gltf_io, fbx_skin
+from . import extract, _gltf_io, fbx_skin, export
 from ._gltf_io import GltfBuffer, FLOAT, UNSIGNED_INT, UNSIGNED_SHORT, ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER
 from .fbx_skin import _mat_trs, _mat_mul, _mat_inv
 
@@ -760,7 +760,7 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
         tid = int(geo_id)
         mode = "re-rig"
 
-    dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(tid)
+    dest = Path(mod_folder).joinpath(*export._RES, *export.model_dir_parts(type_int, tid))
     info = _emit_model_to(model, dest, tid)
     # Round-trip the animations too: write back only clips whose curves changed (spliced onto the pristine
     # source), so an edit to the mesh alone leaves every clip on its byte-faithful bundled version.

@@ -9,7 +9,22 @@ import math
 
 import pytest
 
-from ff9mapkit.models import fbx_skin
+from ff9mapkit.models import export, fbx_skin
+
+
+# --------------------------------------------------------------------- deploy path (weapon special-case)
+def test_weapon_deploys_to_battlemodel_tree():
+    """GEO_WEP_* (type 6) must go to BattleMap/BattleModel/6/{id}/, NOT Models/6/ -- matching the engine's
+    GetRenameModelPath GEO_WEP special-case (ModelFactory.cs:26-34). The wrong path never loads in-game."""
+    assert export.model_dir_parts(6, 123) == ("BattleMap", "BattleModel", "6", "123")
+    assert export.engine_rel_path(6, 123) == "StreamingAssets/Assets/Resources/BattleMap/BattleModel/6/123/123.fbx"
+
+
+@pytest.mark.parametrize("type_int", [1, 2, 3, 4, 5])   # acc / main / mon / npc / sub
+def test_nonweapon_deploys_to_models_tree(type_int):
+    assert export.model_dir_parts(type_int, 456) == ("Models", str(type_int), "456")
+    assert export.engine_rel_path(type_int, 456) == \
+        f"StreamingAssets/Assets/Resources/Models/{type_int}/456/456.fbx"
 
 
 def _norm(q):

@@ -170,8 +170,8 @@ def deploy_mint(source_token: str, new_id: int, mod_folder, new_name=None, *, ga
     """Export a mint straight into ``mod_folder`` at the engine override path Models/{type}/{new_id}/ AND
     append its ``3DModel`` line to the mod's DictionaryPatch.txt (idempotent). RELAUNCH to register the id."""
     man = mint_manifest(source_token, new_id, new_name, game=game)
-    dest = Path(mod_folder) / "StreamingAssets" / "Assets" / "Resources" / "Models" \
-        / str(man["type_int"]) / str(new_id)
+    from . import export
+    dest = Path(mod_folder).joinpath(*export._RES, *export.model_dir_parts(man["type_int"], new_id))
     export_mint(source_token, new_id, dest, new_name=man["name"], game=game)
     dp = Path(mod_folder) / "DictionaryPatch.txt"
     lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
