@@ -278,3 +278,38 @@ def test_apply_story_edit_threads_world_pos(tmp_path):
     sv = S.FF9Save.load(str(p))
     assert S.decode_world_position(bytearray(sv.gEventGlobal(1))) == (300.0, -500.0)
     assert sv.gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])       # scenario preserved
+
+
+# --- the per-actor position array (player record 0, chocobo record 1, +19 stride) ---
+def test_world_actor_offsets():
+    assert S._world_offsets("player") == (64, 69)
+    assert S._world_offsets("chocobo") == (83, 88)                        # +19 stride, proven from a mounted save
+    assert S._world_offsets(2) == (64 + 38, 69 + 38)                      # raw index passthrough (future vehicle record)
+    assert S.world_actor_index("chocobo") == 1
+    with pytest.raises(ValueError, match="unknown world actor"):
+        S._world_offsets("airship")                                       # not yet mapped -> explicit error
+
+
+def test_world_position_chocobo_record_isolated_from_player():
+    g = bytearray(2048)
+    S.edit_world_position(g, 911, -355, actor="chocobo")
+    assert S.decode_world_position(g, "chocobo") == (911.0, -355.0)
+    assert S.decode_world_position(g) == (0.0, 0.0)                       # player record untouched
+    assert g[83:86] == (911 * 256).to_bytes(3, "little", signed=True)     # exact chocobo offsets
+    assert g[88:91] == (-355 * 256).to_bytes(3, "little", signed=True)
+
+
+def test_world_position_note_tags_nonplayer_actor_only():
+    g = bytearray(2048)
+    assert S.edit_world_position(g, x=500) == ["world X 0.00 -> 500.00"]           # player: untagged (stable API)
+    assert S.edit_world_position(g, x=911, actor="chocobo") == ["chocobo world X 0.00 -> 911.00"]
+
+
+def test_apply_story_edit_threads_world_actor(tmp_path):
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(2500)})).write(p)
+    res = S.apply_story_edit(str(p), block=1, world_x=911, world_z=-355, world_actor="chocobo", do_backup=False)
+    assert res["written"] and any("chocobo world X" in n for n in res["notes"])
+    sv = S.FF9Save.load(str(p))
+    assert S.decode_world_position(bytearray(sv.gEventGlobal(1)), "chocobo") == (911.0, -355.0)
+    assert S.decode_world_position(bytearray(sv.gEventGlobal(1))) == (0.0, 0.0)    # player record untouched

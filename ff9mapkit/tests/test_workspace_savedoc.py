@@ -81,3 +81,15 @@ def test_worldpos_bad_input_is_reported(app, tmp_path):
     doc.worldpos_var.setText("nonsense")
     doc._preview()
     assert any("Cannot apply" in t for t in out)
+
+
+def test_worldpos_actor_combo_targets_chocobo(app, tmp_path):
+    out = []
+    doc, p = _doc(tmp_path, out)
+    doc.world_actor_combo.setCurrentText("chocobo")
+    doc.worldpos_var.setText("911,-355")
+    doc._confirm = lambda detail: True
+    doc._apply()
+    sv = S.FF9Save.load(str(p))
+    assert S.decode_world_position(bytearray(sv.gEventGlobal(1)), "chocobo") == (911.0, -355.0)
+    assert S.decode_world_position(bytearray(sv.gEventGlobal(1))) == (0.0, 0.0)   # player record untouched

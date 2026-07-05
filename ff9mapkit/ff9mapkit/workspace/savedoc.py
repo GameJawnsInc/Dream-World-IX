@@ -108,9 +108,7 @@ class StoryStateDoc(QWidget):
         for label, attr, hint in (
                 ("Scenario:", "sc_var", 'a value or area name (e.g. "Ice Cavern")'),
                 ("Set flags:", "set_var", "comma-separated bit indices (custom band ≥ 8512)"),
-                ("Clear flags:", "clear_var", "comma-separated bit indices"),
-                ("Overworld X,Z:", "worldpos_var",
-                 "relocate the overworld player (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")):
+                ("Clear flags:", "clear_var", "comma-separated bit indices")):
             row = QHBoxLayout()
             row.addWidget(QLabel(label))
             le = QLineEdit()
@@ -120,6 +118,20 @@ class StoryStateDoc(QWidget):
             h.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
             row.addWidget(h)
             lay.addLayout(row)
+        # Overworld position: an actor picker (player / chocobo) + an X,Z field. The per-actor array in
+        # gEventGlobal (player @ record 0, Choco @ record 1) -- OVERWORLD saves only, relocate to a walkable spot.
+        wrow = QHBoxLayout()
+        wrow.addWidget(QLabel("Overworld pos:"))
+        self.world_actor_combo = QComboBox()
+        self.world_actor_combo.addItems(list(_save.WORLD_ACTORS))
+        self.world_actor_combo.currentTextChanged.connect(lambda _t: self._refresh_worldpos_hint())
+        wrow.addWidget(self.world_actor_combo)
+        self.worldpos_var = QLineEdit()
+        wrow.addWidget(self.worldpos_var, 1)
+        wh = QLabel("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
+        wh.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        wrow.addWidget(wh)
+        lay.addLayout(wrow)
         btns = QHBoxLayout()
         self.preview_btn = QPushButton("Preview")
         self.preview_btn.clicked.connect(self._preview)
@@ -207,18 +219,12 @@ class StoryStateDoc(QWidget):
             self.edit_target.setText("Editing disabled — load the encrypted SavedData_ww.dat (read-only).")
             self.preview_btn.setEnabled(False)
             self.apply_btn.setEnabled(False)
-            self.worldpos_var.setPlaceholderText("")
         else:
             self.edit_target.setText(f"Editing: {label}  (block {blk}).  Reserved-region flags are refused; "
                                      "a .bak is written before any change.")
             self.preview_btn.setEnabled(True)
             self.apply_btn.setEnabled(True)
-            g = self._block_geg(blk)                       # show the current overworld spot as a greyed hint
-            if g is not None:
-                x, z = _save.decode_world_position(g)
-                self.worldpos_var.setPlaceholderText(f"current {x:.0f},{z:.0f}  (overworld saves only; blank = keep)")
-            else:
-                self.worldpos_var.setPlaceholderText("")
+        self._refresh_worldpos_hint()                      # greyed 'current X,Z' for the selected actor
 
     # ---- diff (B) ----
     def browse_b(self):
@@ -276,8 +282,9 @@ class StoryStateDoc(QWidget):
     def _edit_args(self):
         sc = self.sc_var.text().strip()
         wx, wz = self._parse_worldpos(self.worldpos_var.text())
+        actor = self.world_actor_combo.currentText() if hasattr(self, "world_actor_combo") else "player"
         return (_flags.resolve_scenario(sc) if sc else None,
-                self._parse_bits(self.set_var.text()), self._parse_bits(self.clear_var.text()), wx, wz)
+                self._parse_bits(self.set_var.text()), self._parse_bits(self.clear_var.text()), wx, wz, actor)
 
     def _block_geg(self, blk):
         """The gEventGlobal for a block as the GAME loads it (extra-preferred), or None. Used only to show the
@@ -292,6 +299,22 @@ class StoryStateDoc(QWidget):
         except Exception:                                 # noqa: BLE001
             return None
 
+    def _refresh_worldpos_hint(self):
+        """Set the X,Z placeholder to the SELECTED actor's current spot (greyed hint; blank field = keep). Runs
+        on slot change + actor-combo change. Only meaningful for an overworld save (silent no-op otherwise)."""
+        i = self.slots.currentRow()
+        blk = self.blocks[i] if (0 <= i < len(self.blocks)) else None
+        actor = self.world_actor_combo.currentText() if hasattr(self, "world_actor_combo") else "player"
+        g = self._block_geg(blk) if blk is not None else None
+        if g is not None:
+            try:
+                x, z = _save.decode_world_position(g, actor)
+                self.worldpos_var.setPlaceholderText(f"current {x:.0f},{z:.0f}  (overworld saves only; blank = keep)")
+                return
+            except (ValueError, IndexError):
+                pass
+        self.worldpos_var.setPlaceholderText("")
+
     def _target_block(self):
         i = self.slots.currentRow()
         return self.blocks[i] if (0 <= i < len(self.blocks)) else None
@@ -301,9 +324,9 @@ class StoryStateDoc(QWidget):
         if blk is None:
             return
         try:
-            scenario, setb, clrb, wx, wz = self._edit_args()
-            res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
-                                         set_flags=setb, clear_flags=clrb, world_x=wx, world_z=wz, dry_run=True)
+            scenario, setb, clrb, wx, wz, wactor = self._edit_args()
+            res = _save.apply_story_edit(self.path, block=blk, scenario=scenario, set_flags=setb, clear_flags=clrb,
+                                         world_x=wx, world_z=wz, world_actor=wactor, dry_run=True)
         except (ValueError, IndexError) as e:
             self._show_output(f"Cannot apply:\n  {e}")
             return
@@ -320,9 +343,9 @@ class StoryStateDoc(QWidget):
         if blk is None:
             return
         try:
-            scenario, setb, clrb, wx, wz = self._edit_args()
-            preview = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
-                                             set_flags=setb, clear_flags=clrb, world_x=wx, world_z=wz, dry_run=True)
+            scenario, setb, clrb, wx, wz, wactor = self._edit_args()
+            preview = _save.apply_story_edit(self.path, block=blk, scenario=scenario, set_flags=setb, clear_flags=clrb,
+                                             world_x=wx, world_z=wz, world_actor=wactor, dry_run=True)
         except (ValueError, IndexError) as e:
             self._show_output(f"Cannot apply:\n  {e}")
             return
@@ -333,8 +356,8 @@ class StoryStateDoc(QWidget):
             self._show_output("Cancelled — nothing written.")
             return
         try:
-            res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
-                                         set_flags=setb, clear_flags=clrb, world_x=wx, world_z=wz)
+            res = _save.apply_story_edit(self.path, block=blk, scenario=scenario, set_flags=setb, clear_flags=clrb,
+                                         world_x=wx, world_z=wz, world_actor=wactor)
         except Exception as e:                            # noqa: BLE001
             self._show_output(f"Write failed:\n  {e}")
             return

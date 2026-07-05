@@ -294,24 +294,47 @@ def edit_story_state(geg: bytearray, *, scenario: int | None = None,
     return notes
 
 
-# --- overworld player position (lives IN gEventGlobal; in-game proven 2026-07-05) ---
-# The world .eb stores the player's world X/Z here as 24-bit little-endian fixed-point (world = raw/256);
-# Y is NOT stored (the engine ground-snaps on load). Editing these bytes relocates the player on load
-# (write-tested: (258,-884) -> (272,-1142) landed exactly). See memory project-ff9-overworld-vehicles.
-WORLD_POS_X_OFF = 64
+# --- overworld position array (lives IN gEventGlobal; in-game proven 2026-07-05) ---
+# The world .eb stores each overworld actor's world X/Z as 24-bit little-endian fixed-point (world = raw/256)
+# in a per-actor ARRAY: record 0 = the player @ X64/Z69, record 1 = the chocobo (Choco) @ X83/Z88, on a
+# fixed +19-byte stride. Y is NOT stored (the engine ground-snaps on load). Editing a record's bytes
+# relocates that actor on load (player write-tested in-game: (258,-884) -> (272,-1142) landed exactly;
+# Choco is a single persistent companion that stays parked where you dismount). Records 2+ (boat/airships)
+# are the same stride but their indices are not yet confirmed. See memory project-ff9-overworld-vehicles.
+WORLD_POS_X_OFF = 64           # record 0 (player) X; Z = X + 5
 WORLD_POS_Z_OFF = 69
 WORLD_POS_W = 3                 # bytes per coord (24-bit)
 WORLD_POS_FP = 256             # fixed-point scale (world units = raw / 256)
+WORLD_POS_STRIDE = 19          # per-actor record spacing
+WORLD_ACTORS = ("player", "chocobo")   # record 0, 1 (proven); boat/airships = later records (TBD)
 _WORLD_POS_MIN = -(1 << 23) / WORLD_POS_FP
 _WORLD_POS_MAX = ((1 << 23) - 1) / WORLD_POS_FP
 
 
-def decode_world_position(geg) -> "tuple[float, float]":
-    """The overworld player ``(X, Z)`` world coords from a 2048-byte gEventGlobal. Y is not stored (the engine
-    ground-snaps on load). ONLY meaningful for a save taken on the OVERWORLD -- in a field this bit region
-    holds field flags, so decoding it there is nonsense."""
-    x = int.from_bytes(geg[WORLD_POS_X_OFF:WORLD_POS_X_OFF + WORLD_POS_W], "little", signed=True) / WORLD_POS_FP
-    z = int.from_bytes(geg[WORLD_POS_Z_OFF:WORLD_POS_Z_OFF + WORLD_POS_W], "little", signed=True) / WORLD_POS_FP
+def world_actor_index(actor) -> int:
+    """A record index for a named actor (or a raw int index passed through). Raises on an unknown name."""
+    if isinstance(actor, int):
+        return actor
+    try:
+        return WORLD_ACTORS.index(actor)
+    except ValueError:
+        raise ValueError(f"unknown world actor {actor!r}; known: {', '.join(WORLD_ACTORS)}") from None
+
+
+def _world_offsets(actor) -> "tuple[int, int]":
+    """(x_off, z_off) into gEventGlobal for a named actor's position record (record 0 + index*stride)."""
+    base = WORLD_POS_STRIDE * world_actor_index(actor)
+    return WORLD_POS_X_OFF + base, WORLD_POS_Z_OFF + base
+
+
+def decode_world_position(geg, actor="player") -> "tuple[float, float]":
+    """An overworld actor's ``(X, Z)`` world coords from a 2048-byte gEventGlobal (default the player;
+    ``"chocobo"`` = Choco's parked position). Y is not stored (the engine ground-snaps on load). ONLY
+    meaningful for a save taken on the OVERWORLD -- in a field this bit region holds field flags, so decoding
+    it there is nonsense."""
+    xo, zo = _world_offsets(actor)
+    x = int.from_bytes(geg[xo:xo + WORLD_POS_W], "little", signed=True) / WORLD_POS_FP
+    z = int.from_bytes(geg[zo:zo + WORLD_POS_W], "little", signed=True) / WORLD_POS_FP
     return x, z
 
 
@@ -322,25 +345,28 @@ def _fp24(v: float) -> bytes:
     return raw.to_bytes(WORLD_POS_W, "little", signed=True)
 
 
-def edit_world_position(geg: bytearray, x: float | None = None, z: float | None = None) -> "list[str]":
-    """Set the overworld player X and/or Z in a 2048-byte gEventGlobal IN PLACE (24-bit fixed-point); returns
-    change notes. Leaves Y (unstored) and all other bytes untouched. ⚠ ONLY valid for an OVERWORLD save, and
-    only relocate to a WALKABLE spot -- an invalid spawn can black-screen brick the world (the "no controlled
-    actor" freeze). Keep the same world-scene state (gEventGlobal[0-1]) unless you also mean to change disc/
-    continent context."""
+def edit_world_position(geg: bytearray, x: float | None = None, z: float | None = None,
+                        actor="player") -> "list[str]":
+    """Set an overworld actor's X and/or Z in a 2048-byte gEventGlobal IN PLACE (24-bit fixed-point); returns
+    change notes. ``actor`` = ``"player"`` (default) or ``"chocobo"`` (Choco's parked spot). Leaves Y
+    (unstored) and all other bytes untouched. ⚠ ONLY valid for an OVERWORLD save, and only relocate to a
+    WALKABLE spot -- an invalid spawn can black-screen brick the world (the "no controlled actor" freeze).
+    Keep the same world-scene state (gEventGlobal[0-1]) unless you also mean to change disc/continent context."""
+    xo, zo = _world_offsets(actor)
+    tag = "" if actor == "player" else f"{actor} "     # keep the player note text stable (API contract)
     notes = []
-    ox, oz = decode_world_position(geg)
+    ox, oz = decode_world_position(geg, actor)
     if x is not None:
-        geg[WORLD_POS_X_OFF:WORLD_POS_X_OFF + WORLD_POS_W] = _fp24(x)
-        notes.append(f"world X {ox:.2f} -> {float(x):.2f}")
+        geg[xo:xo + WORLD_POS_W] = _fp24(x)
+        notes.append(f"{tag}world X {ox:.2f} -> {float(x):.2f}")
     if z is not None:
-        geg[WORLD_POS_Z_OFF:WORLD_POS_Z_OFF + WORLD_POS_W] = _fp24(z)
-        notes.append(f"world Z {oz:.2f} -> {float(z):.2f}")
+        geg[zo:zo + WORLD_POS_W] = _fp24(z)
+        notes.append(f"{tag}world Z {oz:.2f} -> {float(z):.2f}")
     return notes
 
 
 def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags=(), clear_flags=(),
-                     world_x: float | None = None, world_z: float | None = None,
+                     world_x: float | None = None, world_z: float | None = None, world_actor="player",
                      do_backup: bool = True, dry_run: bool = False) -> dict:
     """Edit a real ``SavedData_ww.dat``'s story state IN PLACE and write it back -- the convenience the GUI's
     "Apply" uses (the CLI's ``save-edit --in-place`` path as one call). Reads ``block``'s gEventGlobal from
@@ -359,7 +385,7 @@ def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags
         src = sv.gEventGlobal(block)
     geg = bytearray(src)
     notes = edit_story_state(geg, scenario=scenario, set_flags=set_flags, clear_flags=clear_flags)
-    notes += edit_world_position(geg, world_x, world_z)
+    notes += edit_world_position(geg, world_x, world_z, actor=world_actor)
     if not notes or dry_run:
         return {"notes": notes, "extra": extra_exists, "extra_patched": None, "backups": [], "written": False}
     sv.set_gEventGlobal(block, bytes(geg))
