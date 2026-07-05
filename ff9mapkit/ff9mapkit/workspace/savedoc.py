@@ -108,7 +108,9 @@ class StoryStateDoc(QWidget):
         for label, attr, hint in (
                 ("Scenario:", "sc_var", 'a value or area name (e.g. "Ice Cavern")'),
                 ("Set flags:", "set_var", "comma-separated bit indices (custom band ≥ 8512)"),
-                ("Clear flags:", "clear_var", "comma-separated bit indices")):
+                ("Clear flags:", "clear_var", "comma-separated bit indices"),
+                ("Overworld X,Z:", "worldpos_var",
+                 "relocate the overworld player (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")):
             row = QHBoxLayout()
             row.addWidget(QLabel(label))
             le = QLineEdit()
@@ -205,11 +207,18 @@ class StoryStateDoc(QWidget):
             self.edit_target.setText("Editing disabled — load the encrypted SavedData_ww.dat (read-only).")
             self.preview_btn.setEnabled(False)
             self.apply_btn.setEnabled(False)
+            self.worldpos_var.setPlaceholderText("")
         else:
             self.edit_target.setText(f"Editing: {label}  (block {blk}).  Reserved-region flags are refused; "
                                      "a .bak is written before any change.")
             self.preview_btn.setEnabled(True)
             self.apply_btn.setEnabled(True)
+            g = self._block_geg(blk)                       # show the current overworld spot as a greyed hint
+            if g is not None:
+                x, z = _save.decode_world_position(g)
+                self.worldpos_var.setPlaceholderText(f"current {x:.0f},{z:.0f}  (overworld saves only; blank = keep)")
+            else:
+                self.worldpos_var.setPlaceholderText("")
 
     # ---- diff (B) ----
     def browse_b(self):
@@ -253,10 +262,35 @@ class StoryStateDoc(QWidget):
     def _parse_bits(self, s):
         return [_flags.resolve(t.strip(), {}) for t in (s or "").replace(";", ",").split(",") if t.strip()]
 
+    @staticmethod
+    def _parse_worldpos(s):
+        """'X,Z' -> (x, z) floats (either blank = keep that axis); '' -> (None, None). Raises on a bad shape."""
+        s = (s or "").strip()
+        if not s:
+            return None, None
+        parts = [p.strip() for p in s.split(",")]
+        if len(parts) != 2:
+            raise ValueError("Overworld X,Z must be two comma-separated numbers (e.g. 272,-1142)")
+        return (float(parts[0]) if parts[0] else None, float(parts[1]) if parts[1] else None)
+
     def _edit_args(self):
         sc = self.sc_var.text().strip()
+        wx, wz = self._parse_worldpos(self.worldpos_var.text())
         return (_flags.resolve_scenario(sc) if sc else None,
-                self._parse_bits(self.set_var.text()), self._parse_bits(self.clear_var.text()))
+                self._parse_bits(self.set_var.text()), self._parse_bits(self.clear_var.text()), wx, wz)
+
+    def _block_geg(self, blk):
+        """The gEventGlobal for a block as the GAME loads it (extra-preferred), or None. Used only to show the
+        current overworld position as a hint -- read failures are non-fatal."""
+        try:
+            extra = _save.extra_file_path(self.path, blk)
+            if extra and os.path.exists(extra):
+                g = _save.read_extra_gEventGlobal(extra)
+                if g is not None:
+                    return g
+            return _save.FF9Save.load(self.path).gEventGlobal(blk)
+        except Exception:                                 # noqa: BLE001
+            return None
 
     def _target_block(self):
         i = self.slots.currentRow()
@@ -267,14 +301,14 @@ class StoryStateDoc(QWidget):
         if blk is None:
             return
         try:
-            scenario, setb, clrb = self._edit_args()
+            scenario, setb, clrb, wx, wz = self._edit_args()
             res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
-                                         set_flags=setb, clear_flags=clrb, dry_run=True)
+                                         set_flags=setb, clear_flags=clrb, world_x=wx, world_z=wz, dry_run=True)
         except (ValueError, IndexError) as e:
             self._show_output(f"Cannot apply:\n  {e}")
             return
         if not res["notes"]:
-            self._show_output("Nothing to change — set a Scenario / Set flags / Clear flags.")
+            self._show_output("Nothing to change — set a Scenario / Set flags / Clear flags / Overworld X,Z.")
             return
         body = "PREVIEW (nothing written yet):\n" + "\n".join(f"  - {n}" for n in res["notes"])
         if res["extra"]:
@@ -286,9 +320,9 @@ class StoryStateDoc(QWidget):
         if blk is None:
             return
         try:
-            scenario, setb, clrb = self._edit_args()
+            scenario, setb, clrb, wx, wz = self._edit_args()
             preview = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
-                                             set_flags=setb, clear_flags=clrb, dry_run=True)
+                                             set_flags=setb, clear_flags=clrb, world_x=wx, world_z=wz, dry_run=True)
         except (ValueError, IndexError) as e:
             self._show_output(f"Cannot apply:\n  {e}")
             return
@@ -300,7 +334,7 @@ class StoryStateDoc(QWidget):
             return
         try:
             res = _save.apply_story_edit(self.path, block=blk, scenario=scenario,
-                                         set_flags=setb, clear_flags=clrb)
+                                         set_flags=setb, clear_flags=clrb, world_x=wx, world_z=wz)
         except Exception as e:                            # noqa: BLE001
             self._show_output(f"Write failed:\n  {e}")
             return
