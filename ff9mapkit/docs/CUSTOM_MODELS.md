@@ -302,9 +302,11 @@ and `AnimationClip`s directly.
 > type → `Models/{type}/{id}/` — used by every deploy site (`export`, `gltf.deploy_edit`, `mint`,
 > `model-mint --out`). So `model-export`/`-gltf`/`-import`/`-mint` target monsters (`GEO_MON_*`=3),
 > battle characters (`GEO_MAIN_*`=2) and **weapons** (`GEO_WEP_*`=6) correctly. Battle models resolve
-> the same as field ones (216 MON / 85 WEP / 83 MAIN in the DB). ⚠ Still **in-game unproven for the
-> skinned/animated battle path** (only field/character + static battle meshes are proven — a monster
-> reskin/edit is the pending playtest).
+> the same as field ones (216 MON / 85 WEP / 83 MAIN in the DB). ★ **In-game PROVEN for the
+> skinned/animated battle path (2026-07-05):** a 56-bone Goblin (`GEO_MON_B3_001`, id 152) reskinned
+> purple rendered + animated normally in a real battle, the loose FBX winning over Moguri's Goblin
+> texture from a higher-priority `FolderNames` folder. (Battle models load on battle ENTRY, not via
+> F6 — relaunch to pick up a fresh loose override.)
 
 **Discount the stale wiki claim.** The Memoria wiki line *"3D models may not be replaced by external
 files"* is contradicted by the current source — `CreateModel` demonstrably loads a loose `.fbx`
