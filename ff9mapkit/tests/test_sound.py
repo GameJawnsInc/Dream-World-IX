@@ -75,6 +75,18 @@ def test_set_priority_appends_when_key_missing(tmp_path, monkeypatch):
     assert "PriorityToOGG = 1" in ini.read_text()
 
 
+def test_volume_key_is_kind_aware():
+    assert S.volume_key("music") == "MusicVolume"
+    assert S.volume_key("sfx") == "SoundVolume"
+
+
+def test_ini_volume_reads_the_governing_key(tmp_path, monkeypatch):
+    (tmp_path / "Memoria.ini").write_text("[Audio]\nMusicVolume = 0\nSoundVolume = 7\n", encoding="utf-8")
+    monkeypatch.setattr(S.config, "find_game_path", lambda game=None: tmp_path)
+    assert S.ini_volume("music") == 0                      # muted -> the CLI warns
+    assert S.ini_volume("sfx") == 7
+
+
 @pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg not on PATH")
 def test_deploy_audio_places_ogg_at_override_path(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "read_manifest", lambda kind="music", game=None: S.parse_manifest(_MANIFEST))

@@ -170,6 +170,22 @@ def set_priority_to_ogg(game=None, value: int = 1, do_backup: bool = True) -> di
     return {"changed": True, "was": was, "backup": backup, "path": str(ini)}
 
 
+def volume_key(kind: str) -> str:
+    """The Memoria.ini volume that governs this kind (SFX -> SoundVolume, else MusicVolume)."""
+    return "SoundVolume" if kind == "sfx" else "MusicVolume"
+
+
+def ini_volume(kind: str, game=None):
+    """The current governing volume (0-10) from Memoria.ini, or None if unreadable. A 0 = muted = you
+    won't hear the override even though it loaded (the gotcha that music muted at 0 bit the first test)."""
+    import re
+    ini = config.find_game_path(game) / "Memoria.ini"
+    if not ini.exists():
+        return None
+    m = re.search(r"(?m)^\s*" + volume_key(kind) + r"\s*=\s*(\d+)", ini.read_text(encoding="utf-8"))
+    return int(m.group(1)) if m else None
+
+
 # --------------------------------------------------------------------------- deploy
 def deploy_audio(in_path, song_id: int, mod_folder, *, kind: str = "music", loop_start=None, loop_end=None,
                  quality: int = 6, set_priority: bool = True, game=None) -> dict:
@@ -185,4 +201,5 @@ def deploy_audio(in_path, song_id: int, mod_folder, *, kind: str = "music", loop
         stale.unlink()
     prio = set_priority_to_ogg(game=game) if set_priority else None
     return {"kind": kind, "song_id": int(song_id), "resource_id": resource_id, "path": str(dest),
-            "loop_start": loop_start, "loop_end": loop_end, "priority": prio}
+            "loop_start": loop_start, "loop_end": loop_end, "priority": prio,
+            "volume_key": volume_key(kind), "volume": ini_volume(kind, game=game)}

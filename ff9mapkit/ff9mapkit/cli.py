@@ -1581,7 +1581,11 @@ def _cmd_audio_import(args: argparse.Namespace) -> int:
         print("  PriorityToOGG already 1")
     elif args.no_set_priority:
         print("  [!] did NOT set PriorityToOGG -- set [Audio] PriorityToOGG=1 in Memoria.ini or the bundle track wins")
-    print("  RESTART FF9 to hear it (audio loads at startup; F6 won't reload it). Check MusicVolume > 0.")
+    vk, vv = res.get("volume_key", "MusicVolume"), res.get("volume")
+    if vv == 0:
+        print(f"  [!] {vk} is 0 (MUTED) -- turn it up (in-game Config or Memoria.ini) or you won't hear it")
+    print(f"  RESTART FF9 to hear it (audio loads at startup; F6 won't reload it)."
+          + (f" ({vk} = {vv})" if vv is not None else f" Check {vk} > 0."))
     return 0
 
 
