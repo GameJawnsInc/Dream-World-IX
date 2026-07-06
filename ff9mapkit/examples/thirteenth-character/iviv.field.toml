@@ -45,12 +45,15 @@ z = 3000
 spawn = [0, -837]
 
 # --- THE 13th CHARACTER: define + recruit in ONE block ---
-# borrow = "vivi"  -> clones Vivi's BaseStats + CharacterParameters (command-set/equip-set/battle-model);
-# recruit = true   -> B_PARTYADD(12) is prepended to Main_Init, so Iviv joins the party at field load.
+# borrow = "vivi"           -> clones Vivi's BaseStats + CharacterParameters (command-set/equip-set/stats);
+# recruit = true            -> B_PARTYADD(12) is prepended to Main_Init, so Iviv joins the party at field load;
+# custom_battle_model = true -> mint an INDEPENDENT, editable copy of Vivi's battle model bound to Iviv (its own
+#   CharacterSerialNumber + BattleParameters row), so reshaping it in Blender never touches Vivi.
 [[playable]]
 name = "Iviv"
 borrow = "vivi"
 recruit = true
+custom_battle_model = true
 stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
 
 # --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---

@@ -2,17 +2,24 @@ THE 13th PLAYABLE CHARACTER — in-game proof recipe
 ==================================================
 
 What this proves: a genuine NEW engine CharacterId (id 12) — a party member ALONGSIDE all 12 canon
-characters — authored purely as data (CSV rows + a DictionaryPatch name + field bytecode), ZERO DLL.
-"Iviv" borrows Vivi's battle model / Black-Magic kit / mage stats (a truly custom MODEL is the separate
-custom-models pillar), but is its OWN roster slot with its OWN name and stats.
+characters — authored purely as data (CSV rows + a DictionaryPatch name + a minted model + field
+bytecode), ZERO DLL. "Iviv" is its OWN roster slot with its OWN name, stats, and — with
+custom_battle_model = true — its OWN independent battle model.
 
 The whole character is one block in iviv.field.toml:
 
     [[playable]]
     name = "Iviv"
-    borrow = "vivi"
-    recruit = true
+    borrow = "vivi"             # clone Vivi's stats / command kit as the starting point
+    recruit = true              # join the party at field load
+    custom_battle_model = true  # mint an INDEPENDENT, editable copy of Vivi's battle model, bound to Iviv
     stats = { magic = 40 }
+
+custom_battle_model mints Vivi's battle model as a NEW GEO (id 6100, GEO_MAIN_B0_M100) at
+Models/2/6100/, gives Iviv its own CharacterSerialNumber (19) + BattleParameters row using that GEO,
+and reuses Vivi's battle animations (they bind by bone name). So Iviv starts looking like Vivi but is a
+SEPARATE model — reshape/recolor Models/2/6100/6100.fbx in Blender (ff9mapkit model-gltf 6100 -> edit ->
+model-import) to make it truly yours, and Vivi (id 5415) is never touched.
 
 DEPLOY
 ------

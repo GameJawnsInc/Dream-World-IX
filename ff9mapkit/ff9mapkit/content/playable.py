@@ -54,6 +54,35 @@ def _default_name_keyword(nid: int) -> str:
     return f"CU{nid:02d}"          # e.g. CU12 -- distinct from every base keyword (ZDNE/VIVI/...)
 
 
+# the custom battle-model defaults: a MINT id (>=6000, per character) + a BattleParameters serial (>=19).
+_BATTLE_MODEL_MINT_BASE = 6100     # id 12 -> mint GEO 6100, id 13 -> 6101, ... (clear of the generic [[mint]] band base)
+_BATTLE_SERIAL_BASE = 19           # id 12 -> serial 19, ... (0-18 are the base game's)
+
+
+def _battle_model_id(val, nid: int) -> int:
+    """The minted battle-model GEO id for the custom look (default per character; >= 6000)."""
+    if val is None:
+        return _BATTLE_MODEL_MINT_BASE + (nid - _cd.CUSTOM_CHAR_MIN)
+    if isinstance(val, bool) or not isinstance(val, (int, str)) or not str(val).strip().lstrip("-").isdigit():
+        raise PlayableError(f"[[playable]] id {nid}: battle_model_id must be an integer >= 6000")
+    v = int(val)
+    if v < 6000:
+        raise PlayableError(f"[[playable]] id {nid}: battle_model_id {v} is below the mint band 6000")
+    return v
+
+
+def _battle_serial(val, nid: int) -> int:
+    """The new BattleParameters serial for the custom look (default per character; >= 19)."""
+    if val is None:
+        return _BATTLE_SERIAL_BASE + (nid - _cd.CUSTOM_CHAR_MIN)
+    if isinstance(val, bool) or not isinstance(val, (int, str)) or not str(val).strip().lstrip("-").isdigit():
+        raise PlayableError(f"[[playable]] id {nid}: battle_serial must be an integer >= 19")
+    v = int(val)
+    if v < 19:
+        raise PlayableError(f"[[playable]] id {nid}: battle_serial {v} is below 19 (0-18 are the base game's)")
+    return v
+
+
 def parse_playable(entry, *, n: int = 0) -> dict:
     """One ``[[playable]]`` table -> a normalized spec, or raise :class:`PlayableError`. Pure (no install):
     ``{id, name, names:{SYM: str for every language}, borrow_id, stats:{}, params:{}, recruit:bool}``."""
@@ -126,8 +155,31 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     recruit = entry.get("recruit", False)
     if not isinstance(recruit, bool):
         raise PlayableError(f"[[playable]] id {nid}: 'recruit' must be true/false")
+    # custom battle look: mint an independent, editable copy of the donor's battle model + bind it via a NEW
+    # BattleParameters serial. Sets the character's serial_formula to the new serial (so it uses the new row).
+    custom_battle = entry.get("custom_battle_model", False)
+    if not isinstance(custom_battle, bool):
+        raise PlayableError(f"[[playable]] id {nid}: 'custom_battle_model' must be true/false")
+    battle_model_id = None
+    battle_serial = None
+    battle_model_from = entry.get("battle_model_from")
+    if battle_model_from is not None and not (isinstance(battle_model_from, str) and battle_model_from.strip()):
+        raise PlayableError(f"[[playable]] id {nid}: 'battle_model_from' must be a GEO name")
+    if custom_battle:
+        battle_model_id = _battle_model_id(entry.get("battle_model_id"), nid)
+        battle_serial = _battle_serial(entry.get("battle_serial"), nid)
+        # point the character's battle model at the new serial (a params override; the new-row build wins)
+        if "serial_formula" in params and str(params["serial_formula"]).strip() != str(battle_serial):
+            raise PlayableError(f"[[playable]] id {nid}: params.serial_formula collides with custom_battle_model "
+                                f"(which sets serial {battle_serial}) -- drop the explicit serial_formula")
+        params["serial_formula"] = str(battle_serial)
+    elif entry.get("battle_model_id") is not None or entry.get("battle_serial") is not None or battle_model_from:
+        raise PlayableError(f"[[playable]] id {nid}: battle_model_id/battle_serial/battle_model_from need "
+                            f"custom_battle_model = true")
     return {"id": nid, "name": name, "names": names, "borrow_id": borrow_id,
-            "stats": dict(stats), "params": params, "recruit": recruit}
+            "stats": dict(stats), "params": params, "recruit": recruit,
+            "custom_battle_model": custom_battle, "battle_model_id": battle_model_id,
+            "battle_serial": battle_serial, "battle_model_from": battle_model_from}
 
 
 def parse_all(entries) -> list:
@@ -170,6 +222,14 @@ def name_directive_lines(specs) -> list:
 def recruit_ids(specs) -> list:
     """The ids that asked to be recruited at their field's load (``recruit = true``)."""
     return [s["id"] for s in specs if s["recruit"]]
+
+
+def battle_model_specs(specs) -> list:
+    """The specs that asked for a custom battle model -> ``[{playable_id, name, borrow_id, model_id, serial,
+    model_from}]`` (model_from is an explicit donor GEO or None = derive from borrow)."""
+    return [{"playable_id": s["id"], "name": s["name"], "borrow_id": s["borrow_id"],
+             "model_id": s["battle_model_id"], "serial": s["battle_serial"], "model_from": s["battle_model_from"]}
+            for s in specs if s.get("custom_battle_model")]
 
 
 def registry(specs) -> dict:

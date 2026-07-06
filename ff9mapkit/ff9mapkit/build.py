@@ -2639,6 +2639,25 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
     return _party.inject_party(eb, adds, removes)
 
 
+def _resolve_playable_battle(bspec, *, game=None):
+    """A ``[[playable]]`` custom-battle-model spec (from :func:`playable.battle_model_specs`) -> ``(mint_block,
+    battle_params_row)``: the donor's battle GEO minted at a new id, and a new BattleParameters serial row that
+    references that minted GEO by name (both agree on the name via :func:`mint.derive_mint_name`). Reads the
+    install to resolve the donor's serial + battle model. Raises :class:`BuildError` on an unresolvable donor."""
+    from .battle import characterdelta as _cd
+    from .models import mint as _mint
+    try:
+        donor_serial, donor_geo = _cd.resolve_donor_battle(bspec["borrow_id"], game=game)
+    except _cd.CharacterDeltaError as ex:
+        raise BuildError(str(ex))
+    model_geo = bspec.get("model_from") or donor_geo          # explicit override, else the donor's battle GEO
+    minted_name = _mint.derive_mint_name(model_geo, bspec["model_id"])
+    mint_block = {"id": bspec["model_id"], "from": model_geo}
+    bp_row = {"id": bspec["serial"], "borrow": donor_serial, "model": minted_name,
+              "trance_model": minted_name, "comment": bspec["name"]}
+    return mint_block, bp_row
+
+
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
     """Prepend ``[field] walkmesh_tri_toggles`` to Main_Init -- reproduce a real field's LOAD-TIME engine
     walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, lost when the field is forked to a
@@ -4774,7 +4793,16 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # Pre-fill a placement's animset from the mint so `[[npc]]/[[prop]] model = <mintId>` borrows the
     # source's gestures with no manual `anims`. Must run BEFORE build_script (which reads those anims). mint.py
     mint_lines: list = []
-    mint_blocks = project.raw.get("mint", []) or []
+    mint_blocks = list(project.raw.get("mint", []) or [])
+    # [[playable]] custom_battle_model -> synthesize a mint of the donor's battle model (so editing it never
+    # touches the donor). The matching BattleParameters serial row is emitted mod-globally in _emit_character_data.
+    try:
+        _pspecs_b = _playable.parse_all(project.raw.get("playable"))
+    except _playable.PlayableError:
+        _pspecs_b = []                                  # a broken [[playable]] is reported by validate()
+    for _bspec in _playable.battle_model_specs(_pspecs_b):
+        _mb, _bp = _resolve_playable_battle(_bspec)
+        mint_blocks.append(_mb)
     if mint_blocks:
         from .models import mint as _mint
         mints = [_mint.resolve_mint(b) for b in mint_blocks]
@@ -5200,12 +5228,16 @@ def _emit_character_data(projects, layout) -> list:
         specs = _playable.parse_all(playables)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
+    # custom battle look -> a new BattleParameters serial row per custom-battle-model character (the mint of the
+    # model itself is staged in build_field; here we emit the serial row that binds the minted GEO to the serial).
+    battle_params = [_resolve_playable_battle(b)[1] for b in _playable.battle_model_specs(specs)]
     try:
         return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
                                             ability_gems=ability_gems, character_params=character_params,
                                             command_sets=command_sets, learns=learns,
                                             new_basestats=_playable.basestats_seeds(specs),
-                                            new_params=_playable.params_seeds(specs))
+                                            new_params=_playable.params_seeds(specs),
+                                            battle_params=battle_params)
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 

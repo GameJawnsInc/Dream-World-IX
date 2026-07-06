@@ -47,6 +47,16 @@ _CHARPARAMS = (
     "0;0;0;1;0;0;1;ZIDANE;# Zidane\n"
     "1;0;1;5;1;1;2;VIVI;# Vivi\n"
 )
+# SYNTHETIC BattleParameters (the COSMETIC per-serial table): Id;AvatarSprite;ModelId;TranceModelId + one anim
+# name (the real file has 34) + a comment cell. Fake GEO/anim tokens (match no real model). The `#! IncludeWeaponSound`
+# option line is preserved verbatim (load-bearing: it gates the trailing optional columns in the real file).
+_BATTLEPARAMS = (
+    "#! IncludeWeaponSound\n"
+    "# Id;AvatarSprite;ModelId;TranceModelId;MP_IDLE_NORMAL\n"
+    "# Int32;String;String;String;String\n"
+    "0;face00;GEO_MAIN_B0_000;GEO_MAIN_B0_022;ANH_MAIN_B0_000_000;# Zidane\n"
+    "2;face01;GEO_MAIN_B0_006;GEO_MAIN_B0_028;ANH_MAIN_B0_006_000;# Vivi\n"
+)
 # SYNTHETIC CommandSets (Id + 12 slots), TAB-PADDED like the real file (to prove the strip) + a colliding
 # Attack(Trance) legend name (proves we index by fixed position, not the legend).
 _COMMANDSETS = (
@@ -75,6 +85,7 @@ def base(tmp_path, monkeypatch):
     (tmp_path / "BaseStats.csv").write_bytes(_BASESTATS.encode("cp1252"))
     (tmp_path / "Leveling.csv").write_bytes(_LEVELING.encode("cp1252"))
     (tmp_path / "CharacterParameters.csv").write_bytes(_CHARPARAMS.encode("cp1252"))
+    (tmp_path / "BattleParameters.csv").write_bytes(_BATTLEPARAMS.encode("cp1252"))
     (tmp_path / "CommandSets.csv").write_bytes(_COMMANDSETS.encode("cp1252"))
     (tmp_path / "Abilities").mkdir()
     (tmp_path / "Abilities" / "AbilityGems.csv").write_bytes(_ABILITYGEMS.encode("cp1252"))
@@ -399,6 +410,32 @@ def test_new_row_rejects_bad(base):
         CD.build_basestats_delta([], new_rows=[{"id": 12, "borrow": "vivi", "name": "X", "overrides": {"nope": 1}}])
     with pytest.raises(CD.CharacterDeltaError):                       # unknown param override field
         CD.build_character_params_delta([], new_rows=[{"id": 12, "borrow": "vivi", "name": "X", "overrides": {"nope": 1}}])
+
+
+def test_battle_params_new_serial_clones_donor(base):
+    # clone Vivi's serial-2 row (`2;face01;GEO_MAIN_B0_006;GEO_MAIN_B0_028;ANH_MAIN_B0_006_000`) into serial 19,
+    # swapping ModelId + TranceModelId to a minted GEO; keep avatar + the anim; rename the comment.
+    text, _w = CD.build_battle_params_delta([{"id": 19, "borrow": 2, "model": "GEO_MAIN_B0_M100", "comment": "Iviv"}])
+    row = [l for l in text.splitlines() if l.startswith("19;")][0]
+    cells = row.split(";")
+    assert cells[0] == "19" and cells[2] == "GEO_MAIN_B0_M100" and cells[3] == "GEO_MAIN_B0_M100"   # id + model + trance
+    assert cells[1] == "face01" and cells[4] == "ANH_MAIN_B0_006_000"                                # avatar + anim kept
+    assert row.rstrip().endswith("# Iviv")
+    assert "#! IncludeWeaponSound" in text                                                           # option line preserved
+
+
+def test_battle_params_rejects_bad(base):
+    with pytest.raises(CD.CharacterDeltaError):                       # serial < 19 (the base band)
+        CD.build_battle_params_delta([{"id": 5, "borrow": 2, "model": "X"}])
+    with pytest.raises(CD.CharacterDeltaError):                       # borrow serial not in the base
+        CD.build_battle_params_delta([{"id": 19, "borrow": 99, "model": "X"}])
+    with pytest.raises(CD.CharacterDeltaError):                       # no model
+        CD.build_battle_params_delta([{"id": 19, "borrow": 2}])
+
+
+def test_resolve_donor_battle(base):
+    serial, geo = CD.resolve_donor_battle(1)                          # Vivi: serial-formula "2" -> serial 2 -> its ModelId
+    assert serial == 2 and geo == "GEO_MAIN_B0_006"
 
 
 def test_write_character_data_new_only(base, tmp_path):

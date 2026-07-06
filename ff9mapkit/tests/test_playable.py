@@ -121,6 +121,42 @@ def test_recruit_ids_and_registry():
     assert PL.registry(specs) == {"marcus": 12, "ark": 13}
 
 
+def test_custom_battle_model_defaults():
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "custom_battle_model": True})
+    assert s["custom_battle_model"] and s["battle_model_id"] == 6100 and s["battle_serial"] == 19
+    assert s["params"]["serial_formula"] == "19"                     # the character is pointed at the new serial
+    s2 = PL.parse_playable({"name": "X", "borrow": "vivi", "id": 13, "custom_battle_model": True})
+    assert s2["battle_model_id"] == 6101 and s2["battle_serial"] == 20   # per-character defaults
+    # no flag -> the battle fields don't leak
+    plain = PL.parse_playable({"name": "Y", "borrow": "vivi"})
+    assert plain["custom_battle_model"] is False and plain["battle_model_id"] is None
+    assert "serial_formula" not in plain["params"]
+
+
+def test_custom_battle_model_explicit_and_errors():
+    s = PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True,
+                           "battle_model_id": 6500, "battle_serial": 25, "battle_model_from": "GEO_MAIN_B0_007"})
+    assert s["battle_model_id"] == 6500 and s["battle_serial"] == 25 and s["battle_model_from"] == "GEO_MAIN_B0_007"
+    assert s["params"]["serial_formula"] == "25"
+    with pytest.raises(PL.PlayableError):                            # battle fields need the flag
+        PL.parse_playable({"name": "X", "borrow": "vivi", "battle_model_id": 6500})
+    with pytest.raises(PL.PlayableError):                            # mint id below the 6000 band
+        PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "battle_model_id": 500})
+    with pytest.raises(PL.PlayableError):                            # serial below 19
+        PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "battle_serial": 5})
+    with pytest.raises(PL.PlayableError):                            # explicit serial_formula collides with the flag
+        PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "params": {"serial_formula": "3"}})
+
+
+def test_battle_model_specs():
+    specs = PL.parse_all([{"name": "Iviv", "borrow": "vivi", "custom_battle_model": True},
+                          {"name": "Plain", "borrow": "steiner", "id": 13}])
+    bs = PL.battle_model_specs(specs)
+    assert len(bs) == 1                                              # only the custom-battle-model one
+    assert bs[0]["playable_id"] == 12 and bs[0]["borrow_id"] == 1
+    assert bs[0]["model_id"] == 6100 and bs[0]["serial"] == 19 and bs[0]["model_from"] is None
+
+
 def test_validate_playable():
     assert PL.validate_playable({"name": "Marcus", "borrow": "vivi"}) == []
     assert PL.validate_playable({"borrow": "vivi"})                  # missing name -> a problem

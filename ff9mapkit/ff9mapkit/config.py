@@ -435,6 +435,15 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Characters" / "CommandSets.csv"
 
     @property
+    def battle_parameters_csv(self) -> Path:
+        """Per-character COSMETIC battle data (``Data/Characters/BattleParameters.csv``), keyed by
+        CharacterSerialNumber: the battle ModelId + 34 animation names + avatar sprite + bones. MERGED per-serial
+        low->high (``EnumerateCsvFromLowToHigh``) -> a partial delta works (add a NEW serial >=19 that reuses a
+        donor's anims but a custom ModelId -> a custom battle look for a 13th character). NOT combat stats
+        (those are BaseStats.csv)."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "BattleParameters.csv"
+
+    @property
     def leveling_csv(self) -> Path:
         """The 99-row growth curve (``Data/Characters/Leveling.csv``). HIGHEST-priority-wins (WHOLE-FILE, gated at
         >=99 rows) -> a mod must emit the FULL 99-row file, and a stacked folder SHADOWS it (lint)."""

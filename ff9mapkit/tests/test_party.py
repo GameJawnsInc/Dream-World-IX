@@ -254,3 +254,31 @@ def test_full_build_playable_end_to_end(tmp_path):
     # Main_Init recruits the 13th character
     eb = EbScript.from_bytes(layout.eb_path("us", "EVT_PARTYROOM.eb.bytes").read_bytes())
     assert party.add_member(12) in _main_init_bytes(eb)
+
+
+def test_full_build_custom_battle_model(tmp_path):
+    """custom_battle_model = true -> a minted independent battle GEO + a BattleParameters serial-19 row + Iviv's
+    serial pointed at 19 (install-gated: reads the base CharacterParameters/BattleParameters)."""
+    toml = BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\ncustom_battle_model = true\n'
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower():
+            pytest.skip("no FF9 install for the base character CSVs")
+        raise
+    layout = ModLayout(out)
+    # the minted, INDEPENDENT battle model (Models/2/6100 -- NOT Vivi's 5415)
+    assert (layout.model_dir(2, 6100) / "6100.fbx").is_file()
+    assert "3DModel 6100 GEO_MAIN_B0_M100" in layout.dictionary_patch.read_text(encoding="utf-8")
+    # a new BattleParameters serial-19 row using the minted GEO
+    bp = [l for l in layout.battle_parameters_csv.read_text(encoding="cp1252").splitlines()
+          if l.startswith("19;")]
+    assert bp and "GEO_MAIN_B0_M100" in bp[0]
+    # Iviv's CharacterParameters serial (col 6) points at the new serial 19
+    cp = [l for l in layout.character_parameters_csv.read_text(encoding="cp1252").splitlines()
+          if l.startswith("12;") and not l.startswith("#")]
+    assert cp and cp[0].split(";")[6] == "19"

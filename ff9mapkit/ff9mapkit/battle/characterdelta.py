@@ -539,6 +539,112 @@ def build_character_params_delta(entries, *, game=None, new_rows=()) -> tuple:
     return "\n".join([note] + header + [";".join(by_id[c]) for c in sorted(changed)]) + "\n", warnings
 
 
+# ---- BattleParameters.csv -> a NEW serial row (the custom battle LOOK for a 13th character) -----------------
+# COSMETIC only (model/34 anims/avatar/bones; NOT combat stats -- those are BaseStats). Per-serial partial delta
+# (EnumerateCsvFromLowToHigh; coverage gate = a MINIMUM 0-18). A new character gets an independent battle model by
+# adding a serial >=19 that CLONES a donor serial's row (its 34 anims + avatar + bones) and only swaps the ModelId
+# to a minted GEO -- the clips bind to the minted mesh by bone NAME (memory project-ff9-13th-character /
+# project-ff9-custom-models). Verified engine-side: btl_mot.SetPlayerDefMotion loads the 34 anims by NAME;
+# BattlePlayerCharacter.CreatePlayer reads BattleParameterList[serial].ModelId -> ModelFactory.CreateModel.
+_BATTLE_SERIAL_MIN = 19             # 0-18 are the base game's serials (the coverage gate is `at least 19`)
+
+
+def build_battle_params_delta(new_serials, *, game=None) -> tuple:
+    """Read the base BattleParameters.csv + add NEW serial rows -> (partial delta, warnings). Each entry
+    ``{id (serial>=19), borrow (a donor serial), model (a GEO name), trance_model?, avatar?, comment}`` clones the
+    donor serial's row and swaps ModelId (+ TranceModelId, + AvatarSprite) -- everything else (the 34 anim names,
+    bones, offsets) is carried verbatim, so the minted mesh animates via the donor's clips."""
+    try:
+        header, cols, rows = _read_csv(_csv_path("BattleParameters.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[playable]] custom battle model needs your FF9 install to read the base "
+                                  f"BattleParameters.csv ({ex})")
+    if not cols or not rows:
+        raise CharacterDeltaError("could not parse the base BattleParameters.csv (no id-legend / no rows)")
+    if not isinstance(new_serials, list):
+        raise CharacterDeltaError("battle_params must be a list of tables")
+    idx = cols["id"]
+    model_col = cols.get("modelid")
+    trance_col = cols.get("trancemodelid")
+    avatar_col = cols.get("avatarsprite")
+    if model_col is None:
+        raise CharacterDeltaError("the base BattleParameters.csv legend has no ModelId column")
+    by_id = {}
+    for cells in rows:
+        try:
+            by_id[int(cells[idx].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    warnings, changed = [], {}
+    for nr in new_serials:
+        if not isinstance(nr, dict):
+            raise CharacterDeltaError(f"battle_params entry must be a table (got {type(nr).__name__})")
+        sid = _to_int(nr.get("id"), "battle serial id")
+        if sid < _BATTLE_SERIAL_MIN:
+            raise CharacterDeltaError(f"[[playable]] battle serial {sid} must be >= {_BATTLE_SERIAL_MIN} "
+                                      f"(0-{_BATTLE_SERIAL_MIN - 1} are the base game's)")
+        bser = _to_int(nr.get("borrow"), "battle borrow serial")
+        if bser not in by_id:
+            raise CharacterDeltaError(f"[[playable]] battle borrow serial {bser} is not in the base BattleParameters.csv")
+        if sid in by_id:
+            raise CharacterDeltaError(f"[[playable]] battle serial {sid} is already defined")
+        model = str(nr.get("model") or "").strip()
+        if not model:
+            raise CharacterDeltaError(f"[[playable]] battle serial {sid} needs a 'model' (a GEO name)")
+        cells = list(by_id[bser])                          # clone the donor serial's whole row
+        cells[idx] = str(sid)
+        cells[model_col] = model
+        if trance_col is not None and trance_col < len(cells):
+            cells[trance_col] = str(nr.get("trance_model") or model)
+        if avatar_col is not None and avatar_col < len(cells) and nr.get("avatar"):
+            cells[avatar_col] = str(nr["avatar"])
+        cmt = str(nr.get("comment") or f"serial{sid}")
+        if cells and cells[-1].lstrip().startswith("#"):   # the trailing `# Name` comment cell
+            cells[-1] = f"# {cmt}"
+        else:
+            cells.append(f"# {cmt}")
+        by_id[sid] = cells
+        changed.setdefault(sid, "playable")
+    note = "# ff9mapkit [[playable]] -- a partial BattleParameters.csv delta (new custom-character serial rows)."
+    return "\n".join([note] + header + [";".join(by_id[s]) for s in sorted(changed)]) + "\n", warnings
+
+
+def resolve_donor_battle(borrow_id, *, game=None) -> tuple:
+    """A base character's (0-11) DONOR battle identity -> ``(serial:int, model_geo:str)``: read its
+    CharacterParameters serial-formula (col 6) and, when it is a plain integer, its BattleParameters ModelId.
+    Raises CharacterDeltaError if the formula isn't a literal serial (a scenario-dependent donor like Zidane/
+    Garnet -- the author must then give an explicit battle model source)."""
+    try:
+        _h, cp_cols, cp_rows = _read_csv(_csv_path("CharacterParameters.csv", game))
+        _h2, bp_cols, bp_rows = _read_csv(_csv_path("BattleParameters.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[playable]] custom battle model needs your FF9 install ({ex})")
+    cp_by = {}
+    for cells in cp_rows:
+        try:
+            cp_by[int(cells[cp_cols.get('id', 0)].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    if borrow_id not in cp_by:
+        raise CharacterDeltaError(f"[[playable]] borrow id {borrow_id} is not in CharacterParameters.csv")
+    formula = cp_by[borrow_id][6].strip() if len(cp_by[borrow_id]) > 6 else ""
+    if not formula.lstrip("-").isdigit():
+        raise CharacterDeltaError(f"[[playable]] borrow id {borrow_id} has a scenario-dependent battle serial "
+                                  f"formula ({formula!r}) -- give an explicit battle_model / battle_serial")
+    serial = int(formula)
+    bp_idx = bp_cols["id"]
+    mcol = bp_cols.get("modelid")
+    bp_by = {}
+    for cells in bp_rows:
+        try:
+            bp_by[int(cells[bp_idx].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    if serial not in bp_by or mcol is None or mcol >= len(bp_by[serial]):
+        raise CharacterDeltaError(f"[[playable]] donor serial {serial} has no BattleParameters ModelId")
+    return serial, bp_by[serial][mcol].strip()
+
+
 # ---- [[command_set]] -> CommandSets.csv (PARTIAL per-preset; tab-padded -> strip + index slots by position) ----
 COMMANDSET_SLOTS = {
     "attack": 1, "defend": 2, "ability1": 3, "ability2": 4, "item": 5, "change": 6,
@@ -717,11 +823,13 @@ def validate_learn(entry) -> list:
 
 # ---- mod-write stage -------------------------------------------------------------------------------------
 def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
-                         command_sets=None, learns=None, new_basestats=None, new_params=None, game=None) -> list:
+                         command_sets=None, learns=None, new_basestats=None, new_params=None, battle_params=None,
+                         game=None) -> list:
     """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets (per-id deltas) + the per-preset
     Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF. ``new_basestats`` / ``new_params`` seed genuine
-    NEW (13th+) characters (``[[playable]]``) into the BaseStats / CharacterParameters deltas -- so those two
-    files are written whenever there is EITHER a base-char delta OR a new character."""
+    NEW (13th+) characters (``[[playable]]``) into the BaseStats / CharacterParameters deltas; ``battle_params``
+    adds a new BattleParameters serial row (a custom battle LOOK). Those files are written whenever there is EITHER
+    a base-char delta OR a new character."""
     warnings: list = []
     # BaseStats + CharacterParameters merge new-character seed rows with any base-char deltas (one file each).
     if characters or new_basestats:
@@ -733,6 +841,11 @@ def write_character_data(layout, *, characters=None, levelings=None, ability_gem
         text, w = build_character_params_delta(character_params or [], game=game, new_rows=new_params or [])
         layout.character_parameters_csv.parent.mkdir(parents=True, exist_ok=True)
         layout.character_parameters_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+    if battle_params:                                   # [[playable]] custom battle model -> a new serial row
+        text, w = build_battle_params_delta(battle_params, game=game)
+        layout.battle_parameters_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.battle_parameters_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
         warnings += w
     for entries, path, builder in ((levelings, layout.leveling_csv, build_leveling_file),
                                    (ability_gems, layout.ability_gems_csv, build_ability_gems_delta),
