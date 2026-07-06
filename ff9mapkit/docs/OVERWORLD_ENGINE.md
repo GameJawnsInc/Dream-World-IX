@@ -512,11 +512,26 @@ block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only
 
 Where `world-coast` MOSAICS real coastline pieces, `world-water` **synthesizes** faithful open-ocean water from a depth
 field — the "author water from scratch" frontier the coast section flagged. `ff9mapkit world-water --cells X,Y
-[--deep S] [--donor 15,4]` deploys, per cell: a submerged flat `Terrain` override (the s34 land-override GATE + a floor
-under the water at `Y=-3`), the three `Sea3`/`Sea5`/`Sea4` water sub-meshes, blanked `Sea1`/`Sea2`, and a `Donor.txt`
-naming a real deep-ocean block (same per-cell donor mechanism as `world-coast`). Code: `world/water.py` (algorithm +
-orchestration) + `mesh.tri_soup_block_mesh`/`hidden_block_mesh` (the render-sub-mesh + blanking primitives). **Requires
-the custom engine (s34); RELAUNCH.**
+[--deep S] [--donor 15,4]` deploys, per cell: a flat `Terrain` override at `Y≈0` (the s34 land-override GATE **and** the
+cell's WALKMESH — see below), the three `Sea3`/`Sea5`/`Sea4` water sub-meshes at `Y=0`, blanked `Sea1`/`Sea2`, and a
+`Donor.txt` naming a real deep-ocean block (same per-cell donor mechanism as `world-coast`). Code: `world/water.py`
+(algorithm + orchestration) + `mesh.tri_soup_block_mesh`/`hidden_block_mesh` (the render-sub-mesh + blanking primitives).
+**Requires the custom engine (s34); RELAUNCH.**
+
+**Walkmesh / boat traversal (RE 2026-07-06, source-confirmed).** On a reclaimed cell the `Terrain` override is registered
+BEFORE the Sea meshes (`WMWorld.LoadBlock` order) so it WINS the walkmesh raycast (`WMBlock.Raycast` iterates
+`ActiveWalkMeshes` and returns the first mesh hit). So the `Terrain` override IS the cell's walkmesh, and its Y +
+topograph are the levers. Real ocean has NO terrain — its Sea meshes at `Y=0` carry a SEA topograph (sea3=54 shallow,
+sea4=57 deep, IDALL `tangent.x` bits 2-7) and ARE the walkmesh; a BOAT (movement mode 7) is a surface follower whose
+`Y` = the raycast hit (`w_nwpHit`→`w_cellHit`, no default-height fallback on a ready cell), and its traversal mask
+`{0x02600000,…}` admits topographs 53/54/57 while ON-FOOT (mode 0) + chocobos are BLOCKED on water (mask
+`{0x0010667F, 0xD8FF3CFF}`). So `world-water` sets the `Terrain` walkmesh to `Y=-0.1` (`WATER_Y` — just below the `Y=0`
+water render, so a boat floats ~at the surface with the model visible; hidden under the opaque water → no z-fight; `0`
+z-fights, a bigger negative sinks the vehicle — tune with `--height`) carrying `topograph 57` (`WATER_TOPOGRAPH`,
+`tangent.x=228`). Result: a boat sails on top / on-foot is blocked — real ocean. (Before this: `Y=-3`/topo-0 = a land
+floor UNDER the opaque water, so travel happened submerged with the character hidden.) **Test with a boat** (F6 → World
+→ vehicle swap to Blue Narciss if you don't have one) from a NON-parked-on-the-cell save — changing the topograph under
+a parked on-foot actor risks the "no controlled actor" brick → [[project-ff9-overworld-actor-brick]].
 
 **The byte-derived recipe** (surveyed across all 15 disc-1 open-ocean blocks; tile-for-tile 17/17 shape-match vs the
 real game; the only per-cell difference is a corner seam-variant the game itself coin-flips 50/50):

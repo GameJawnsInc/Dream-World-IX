@@ -51,6 +51,16 @@ LADDER = ["Sea3", "Sea5", "Sea4"]                       # rank 0 shallow / 1 tra
 BLANK = ["Sea1", "Sea2"]                                # coast-only shades -> blanked so the donor's don't render
 RANK = {"sea3": 0, "sea5": 1, "sea4": 2}
 
+# The reclaimed cell's WALKMESH is our flat Terrain override (it wins the raycast -- registered before the Sea meshes,
+# WMWorld.cs LoadBlock order; verified in the s34 patch + a source RE). Real ocean's walkmesh IS its Sea mesh at Y=0
+# carrying a SEA topograph: sea3(shallow)=54, sea4(deep)=57 (IDALL tangent.x bits 2-7). A BOAT (movement mode 7) is a
+# surface follower whose Y = the walkmesh raycast hit, and its traversal mask admits topographs 53/54/57; ON-FOOT (mode
+# 0) and chocobos are BLOCKED on 54/57. So to make a synthesized cell behave like real ocean -- a boat floats on top
+# (model visible), on-foot blocked -- the walkmesh must sit at the surface and carry a sea topograph.
+WATER_TOPOGRAPH = 57    # deep-sea IDALL topograph: boat-traversable (mode 7 mask bit 25), on-foot/chocobo BLOCKED
+WATER_Y = -0.1          # ocean walkmesh Y: just below the Y=0 water render, so a boat floats ~at the surface (hidden
+#                         under the opaque water -> no z-fight; a bigger negative sinks the vehicle, 0 z-fights the sea)
+
 # byte-proven per-shade UV rects + v-strips (reconstructed from real block (8,4) exactly) + the water normal
 URECT = [(0.0, 0.50394), (0.50394, 0.99213)]            # mains: 2x2 quadrant u-halves
 VRECT = [(0.0, 0.49606), (0.50794, 1.0)]                # mains: 2x2 quadrant v-halves
@@ -286,11 +296,12 @@ def adjacency_violations(grid) -> int:
 def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, disc: int, lod: str, height: float,
                        game, dry_run: bool) -> dict:
     """Deploy ONE cell's ocean, the shape shared by :func:`water` (synthesized Sea meshes) and :func:`deploy_verbatim`
-    (real Sea meshes): a flat submerged ``Terrain`` override (the s34 land-override GATE + a floor at ``Y=height``),
-    the ``Sea3``/``Sea5``/``Sea4`` meshes from ``sea`` (a ``part -> BlockMesh`` map; a missing part is BLANKED), blanked
+    (real Sea meshes): a flat ``Terrain`` override at ``Y=height`` (the s34 land-override GATE **and** the cell's
+    WALKMESH -- carries :data:`WATER_TOPOGRAPH` so a boat sails on top / on-foot is blocked, at the water surface), the
+    ``Sea3``/``Sea5``/``Sea4`` meshes from ``sea`` (a ``part -> BlockMesh`` map; a missing part is BLANKED), blanked
     ``Sea1``/``Sea2``, and the ``Donor.txt`` naming the deep-ocean ``donor``. Returns the ``part -> BlockMesh`` deployed."""
     from . import mesh as M
-    parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=0, height=height, lod=lod)}
+    parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=WATER_TOPOGRAPH, height=height, lod=lod)}
     for name in LADDER:
         parts[name] = sea.get(name) or M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod)
     for name in BLANK:
@@ -316,7 +327,7 @@ def _deploy_bands(mod_folder: str, bx: int, by: int, bands: dict, *, donor, disc
 
 def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | None = None, shallows: float = 0.05,
           threshold: float = 1.0, span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1",
-          height: float = -3.0, game=None, dry_run: bool = False) -> dict:
+          height: float = WATER_Y, game=None, dry_run: bool = False) -> dict:
     """Synthesize faithful ocean water on each sea cell in ``cells`` (``(x, y)`` grid coords, 0..23 x 0..19).
 
     ``depth`` is a caller-supplied ``depth(world_x, world_z) -> float`` (higher = deeper). When ``None``, the built-in
@@ -324,9 +335,10 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
     deep like real FF9 open water ~94% Sea4, with a ~``shallows`` scatter of shallow patches); a direction "N"/"S"/"E"/
     "W" -> a graded shallow->deep RAMP toward it (:func:`default_depth_field`, for a coast/bay; uses ``span``/``noise``).
     Because the field is sampled at shared world-space cell edges, a contiguous ``cells`` region is seamless across
-    cells AND blocks. Each cell deploys: a flat submerged ``Terrain`` override at ``Y=height`` (the s34 land-override
-    gate + a floor under the water), the ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, blanked ``Sea1``/``Sea2``, and a
-    ``Donor.txt`` naming the real deep-ocean ``donor`` block whose base sea prefab supplies the rest.
+    cells AND blocks. Each cell deploys: a flat ``Terrain`` override at ``Y=height`` (the s34 land-override gate AND the
+    cell's WALKMESH, carrying a sea topograph so a boat floats on top at the surface and on-foot is blocked -- like real
+    ocean), the ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, blanked ``Sea1``/``Sea2``, and a ``Donor.txt`` naming the
+    real deep-ocean ``donor`` block whose base sea prefab supplies the rest.
 
     Requires the CUSTOM engine (the s34 sea->land divert); a stock sea cell short-circuits to ``SeaBlockPrefab`` before
     the override fires. RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via F6 -> World -> Teleport.
@@ -355,7 +367,7 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
 
 
 def deploy_verbatim(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), disc: int = 1, lod: str = "0_1",
-                    height: float = -3.0, game=None, dry_run: bool = False) -> dict:
+                    height: float = WATER_Y, game=None, dry_run: bool = False) -> dict:
     """Deploy a REAL open-ocean block's water sub-meshes VERBATIM onto each target cell -- the NORTH-STAR A/B reference
     for validating :func:`water`. Copies ``source``=(bx, by)'s real ``Sea3``/``Sea4``/``Sea5`` meshes UNCHANGED (only
     relocated to the cell), then deploys them through the EXACT same shape as :func:`water` (flat submerged Terrain gate
@@ -517,7 +529,7 @@ def arrangement_from_block(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1",
 
 
 def reproduce(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), seed=0, disc: int = 1, lod: str = "0_1",
-              height: float = -3.0, game=None, dry_run: bool = False) -> dict:
+              height: float = WATER_Y, game=None, dry_run: bool = False) -> dict:
     """Reproduce a REAL block's shallow/deep arrangement with SYNTHESIZED tiles onto each target cell -- the in-game
     fidelity proof for :func:`water`. Reads ``source``=(bx, by)'s per-cell shade layout (:func:`arrangement_from_block`)
     and regenerates it through the synth's tile-selection + mains anti-tiling, so it lands the SAME layout as the real
