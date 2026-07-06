@@ -168,6 +168,15 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     if custom_anims and not custom_battle:
         raise PlayableError(f"[[playable]] id {nid}: custom_battle_anims needs custom_battle_model = true "
                             f"(the independent animset binds to the MINTED battle model's own id)")
+    # persist Blender edits: a .glb (from `playable-anims --export`, edited) the BUILD ships onto the animset, so
+    # the edits survive a re-deploy (vs the quick `playable-anims --edit` which is wiped by the next deploy).
+    anim_edits = entry.get("anim_edits")
+    if anim_edits is not None:
+        if not (isinstance(anim_edits, str) and anim_edits.strip()):
+            raise PlayableError(f"[[playable]] id {nid}: 'anim_edits' must be a path to a Blender-edited .glb")
+        if not custom_anims:
+            raise PlayableError(f"[[playable]] id {nid}: anim_edits needs custom_battle_anims = true "
+                                f"(it edits that minted animset)")
     portrait = entry.get("portrait")                       # a custom avatar image (path to a 132x190 PNG)
     if portrait is not None and not (isinstance(portrait, str) and portrait.strip()):
         raise PlayableError(f"[[playable]] id {nid}: 'portrait' must be a path to a PNG image")
@@ -205,7 +214,7 @@ def parse_playable(entry, *, n: int = 0) -> dict:
                             f"custom_battle_model = true or portrait")
     return {"id": nid, "name": name, "names": names, "borrow_id": borrow_id,
             "stats": dict(stats), "params": params, "recruit": recruit, "portrait": portrait, "avatar": avatar,
-            "custom_battle_model": custom_battle, "custom_battle_anims": custom_anims,
+            "custom_battle_model": custom_battle, "custom_battle_anims": custom_anims, "anim_edits": anim_edits,
             "battle_model_id": battle_model_id,
             "battle_serial": battle_serial, "battle_model_from": battle_model_from,
             "battle_borrow_serial": battle_borrow_serial}
@@ -274,7 +283,7 @@ def custom_serial_specs(specs) -> list:
     avatar}]``. ``custom_model`` gates the mint; ``portrait``/``avatar`` gate the atlas + the AvatarSprite cell."""
     return [{"playable_id": s["id"], "name": s["name"], "borrow_id": s["borrow_id"],
              "custom_model": bool(s.get("custom_battle_model")),
-             "custom_anims": bool(s.get("custom_battle_anims")),
+             "custom_anims": bool(s.get("custom_battle_anims")), "anim_edits": s.get("anim_edits"),
              "model_id": s["battle_model_id"], "serial": s["battle_serial"], "model_from": s["battle_model_from"],
              "borrow_serial": s["battle_borrow_serial"], "portrait": s.get("portrait"), "avatar": s.get("avatar")}
             for s in specs if s.get("custom_battle_model") or s.get("portrait")]

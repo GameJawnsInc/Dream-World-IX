@@ -171,6 +171,19 @@ def test_custom_battle_anims():
     assert PL.custom_serial_specs([s])[0]["custom_anims"] is True    # carried to the build
 
 
+def test_anim_edits_persists_blender_edits():
+    # anim_edits = a .glb the BUILD ships onto the animset (survives re-deploy); requires custom_battle_anims.
+    with pytest.raises(PL.PlayableError):                            # needs custom_battle_anims (edits that animset)
+        PL.parse_playable({"name": "Iviv", "borrow": "vivi", "custom_battle_model": True, "anim_edits": "x.glb"})
+    with pytest.raises(PL.PlayableError):                            # must be a path string
+        PL.parse_playable({"name": "Iviv", "borrow": "vivi", "custom_battle_model": True,
+                           "custom_battle_anims": True, "anim_edits": 123})
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "custom_battle_model": True,
+                           "custom_battle_anims": True, "anim_edits": "iviv_anims.glb"})
+    assert s["anim_edits"] == "iviv_anims.glb"
+    assert PL.custom_serial_specs([s])[0]["anim_edits"] == "iviv_anims.glb"     # carried to the build
+
+
 def test_duplicate_battle_model_id_and_serial_rejected():
     # two custom characters must not share a battle_model_id (same Models/ + animset band) or serial (row collision)
     with pytest.raises(PL.PlayableError):

@@ -349,3 +349,34 @@ def test_resolve_playable_animset_maps_the_edit_loop():
     proj.raw["playable"][0].pop("custom_battle_anims", None)
     with pytest.raises(BuildError):
         resolve_playable_animset(proj)
+
+
+def test_anim_edits_build_ships_the_edited_animset(tmp_path):
+    # [[playable]] anim_edits = a Blender-edited .glb the BUILD ships onto the animset (survives re-deploy).
+    from ff9mapkit.config import find_game_path
+    import ff9mapkit.build as B
+    from ff9mapkit.build import build_mod, FieldProject as FP
+    from ff9mapkit.models import gltf as mgltf
+    from ff9mapkit.battle import characterdelta as cd
+    import shutil
+    try:
+        find_game_path()
+    except Exception:                                                    # noqa: BLE001 -- needs the install
+        pytest.skip("needs the FF9 install (export + build read p0data)")
+    proj_dir = tmp_path / "proj"
+    shutil.copytree(_thirteenth_example().parent, proj_dir)
+    toml_path = proj_dir / "iviv.field.toml"
+    info = B.resolve_playable_animset(str(toml_path))                    # export the animset glb INTO the project dir
+    mgltf.export_gltf(info["source_geo"], str(proj_dir / "iviv_anims.glb"),
+                      anims=" ".join(str(sk) for _sg, sk, _dk in info["clips"]),
+                      label_overrides=cd.battle_motion_labels(info["serial"]))
+    proj = FP.load(str(toml_path))                                       # base_dir = proj_dir (next to the glb)
+    proj.raw["playable"][0]["anim_edits"] = "iviv_anims.glb"
+    B.build_mod([proj], tmp_path / "mod", mod_name="FF9CustomMap")
+    shipped = list((tmp_path / "mod/StreamingAssets/Assets/Resources/Animations/6100").glob("*.anim"))
+    assert len(shipped) == 34                                            # the EDITED-animset path ran + shipped all 34
+    # a missing anim_edits file fails the build loud (not a silent freeze)
+    proj2 = FP.load(str(toml_path))
+    proj2.raw["playable"][0]["anim_edits"] = "nope.glb"
+    with pytest.raises(BuildError):
+        build_mod([proj2], tmp_path / "mod2", mod_name="FF9CustomMap")

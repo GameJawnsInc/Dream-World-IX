@@ -4872,6 +4872,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         if _plan is not None:
             _anim_warnings.extend(_plan.get("warnings", []))
             if _plan.get("clips"):
+                _plan["anim_edits"] = _bspec.get("anim_edits")   # [[playable]] anim_edits = a Blender-edited .glb
                 _anim_plans.append(_plan)
     if mint_blocks:
         from .models import mint as _mint
@@ -4890,8 +4891,30 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     if _anim_plans:                                     # ship each minted model's OWN animset + register the names
         from .models import anim as _anim
         for _plan in _anim_plans:
+            _edits = _plan.get("anim_edits")             # [[playable]] anim_edits -> ship the EDITED animset (persists)
             try:                                         # fail loud rather than ship an incomplete (freezing) set
-                _written = _anim.deploy_battle_animset(_plan["mint_id"], _plan["clips"], layout.root)
+                if _edits:
+                    _glb = Path(_edits)
+                    if not _glb.is_absolute() and project.base_dir is not None:
+                        _glb = Path(project.base_dir) / _glb
+                    if not _glb.is_file():
+                        raise BuildError(f"[[playable]] anim_edits: file not found: {_glb} (a Blender-edited .glb "
+                                         f"from `playable-anims --export`)")
+                    _lbls = {}
+                    try:                                 # route by Action NAME (Blender drops the ff9_anim_key stamp)
+                        from .battle import characterdelta as _cd_lbl
+                        _lbls = {v.lower(): k for k, v in _cd_lbl.battle_motion_labels(_plan["serial"]).items()}
+                    except Exception:   # noqa: BLE001  -- catalog/install optional; the numeric-name route still works
+                        pass
+                    _res = _anim.deploy_battle_animset_edits(_plan["clips"], _plan["mint_id"], str(_glb),
+                                                             layout.root, label_keys=_lbls)
+                    _written = _res["written"]
+                    _anim_warnings.extend(_res.get("warnings", []))
+                    if not _res["edited"]:               # a declared edit file that changed nothing -> surface it
+                        _anim_warnings.append(f"[[playable]] anim_edits {_edits!r}: 0 motions differ from the donor "
+                                              f"(no pose change detected / wrong donor exported)")
+                else:
+                    _written = _anim.deploy_battle_animset(_plan["mint_id"], _plan["clips"], layout.root)
             except _anim.AnimsetError as ex:
                 raise BuildError(str(ex))
             if len(_written) != len(_plan["clips"]):     # every re-pointed name MUST have a shipped clip (else freeze)

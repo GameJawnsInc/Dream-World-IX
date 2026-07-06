@@ -58,6 +58,10 @@ borrow = "vivi"
 recruit = true
 custom_battle_model = true
 custom_battle_anims = true
+# anim_edits = "iviv_anims.glb"      # OPTIONAL: a Blender-edited .glb (from `playable-anims iviv.field.toml
+#   --export iviv_anims.glb`, edited) the BUILD ships onto the animset -- so the edits PERSIST across re-deploys
+#   (the quick `playable-anims --edit --deploy` route is wiped by the next field/campaign deploy). Uncomment +
+#   drop the edited .glb next to this file.
 portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
 stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
 
