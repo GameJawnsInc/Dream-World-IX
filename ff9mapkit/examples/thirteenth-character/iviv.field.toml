@@ -81,8 +81,10 @@ learn = [                   # -> Abilities/20.csv, seeded from menu_from; ap = 0
 [playable.abilities.command1]   # command1 = a NEW UNIQUE command (an inline table -> mint its own Commands.csv row)
 name = "Spark"                  # its display label (a com_name.mes overlay renames just this command)
 # The pool mixes STOCK spells (a bare name) with a CUSTOM one (an inline { name, from, ... } table). The custom
-# ability clones a stock donor's animation + damage formula, then retunes it -> its OWN behaviour, zero-DLL, and it
-# never touches the donor. "Voltflare" is a Thunder spell (from Fire) that hits harder for more MP -- unique to Iviv.
+# ability clones a stock donor's ANIMATION + damage formula, then retunes it -> its OWN behaviour, zero-DLL, and it
+# never touches the donor. NOTE: the on-screen VFX is the DONOR's (`from`) -- FF9 doesn't recolour a spell by element,
+# so a Fire-cloned Thunder spell LOOKS like fire (the Thunder element only shows as damage vs a weak/resistant enemy).
+# For an animation that MATCHES the element, clone from that element's donor (from = "Thunder" -> lightning + Thunder).
 abilities = [
   "Blizzard",                  # a stock Black-Magic spell
   "Cure",                      # a stock White-Magic spell (so Spark mixes schools, which no canon command does)
