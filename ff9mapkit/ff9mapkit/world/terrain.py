@@ -109,9 +109,48 @@ def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", gam
     return summary
 
 
+# The (7,17) grey-rock CLIFF-FACE texture vocabulary (byte-derived; see project-ff9-overworld-coast-mosaic): a
+# horizontal atlas strip of rock tiles, U = along-shore arc (wraps the strip), V = height up the slope.
+_CLIFF_ROCK_U = (0.699, 0.947)      # the rock strip u-span (~4 tiles) -- tiles + wraps along the shore
+_CLIFF_ROCK_V = (0.923, 0.893)      # (V at the face BASE Y=0, V at the face TOP) -- V climbs the slope
+_CLIFF_FACE_TOPO = 58               # the shore-rim / cliff-face topograph
+
+
+def _apply_cliff_rock_uvs(bm, *, tile_u: float = 26.0):
+    """Override the topo-58 cliff-FACE tris' UVs with the real grey-rock band: U = along-shore arc (wrapping the rock
+    strip ~every ``tile_u`` world units), V = height up the face (base -> 0.923, top -> 0.893). Leaves the plateau
+    (topo-0 grass) UVs as the palette set them. Reproduces the measured (7,17) cliff-texture rule instead of a guess."""
+    import math
+    from .extract import decode_id, CH_UV  # noqa: F401 (CH_UV documents the channel we mutate)
+    verts, tans, uv = bm.verts, bm.tangents, bm.chan_arrays[CH_UV]
+    cx = sum(v[0] for v in verts) / bm.vcount
+    cz = sum(v[2] for v in verts) / bm.vcount
+    face_max = max((verts[k][1] for tri in bm.tris for k in tri
+                    if decode_id(int(round(tans[tri[0]][0])))["topograph"] == _CLIFF_FACE_TOPO), default=0.0)
+    if face_max <= 1e-3:
+        return bm
+    xs = [v[0] for v in verts]; zs = [v[2] for v in verts]
+    perim = 2.0 * ((max(xs) - min(xs)) + (max(zs) - min(zs)))
+    wraps = max(1.0, round(perim / max(tile_u, 4.0)))            # how many times the rock strip wraps the shore
+    ub, ut = _CLIFF_ROCK_U
+    vb, vt = _CLIFF_ROCK_V
+    two_pi = 2.0 * math.pi
+    for tri in bm.tris:
+        if decode_id(int(round(tans[tri[0]][0])))["topograph"] != _CLIFF_FACE_TOPO:
+            continue
+        a0 = math.atan2(verts[tri[0]][2] - cz, verts[tri[0]][0] - cx)
+        ang = [a0 + ((math.atan2(verts[k][2] - cz, verts[k][0] - cx) - a0 + math.pi) % two_pi - math.pi) for k in tri]
+        base = math.floor(min(ang) / two_pi * wraps)            # keep the tri's U window contiguous (no wrap-seam in-tri)
+        for k, a in zip(tri, ang):
+            frac = min(max(a / two_pi * wraps - base, 0.0), 1.0)
+            hy = min(max(verts[k][1] / face_max, 0.0), 1.0)
+            uv[k] = [ub + frac * (ut - ub), vb + hy * (vt - vb)]
+    return bm
+
+
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
-            height: float | None = None, seg: int = 10, beach: float = 22.0, grass_topo: int = 0,
-            shore_topo: int = 20, game=None, dry_run: bool = False) -> dict:
+            height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
+            shore_topo: int | None = None, shore_frac: float | None = None, game=None, dry_run: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -125,6 +164,10 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         real atlas pixel colors, not frequency). Water-facing edges are computed
         per cell from the reclaimed set + the real-land set (a cell edge whose neighbour is another reclaimed cell or
         real land gets NO beach -- interior/seam). Per-tri grass/shore topographs are palette-textured individually.
+      * ``"cliff"`` -- a CLIFF coast: the plateau drops via a STEEP shore-rim ramp (topo 58) straight to the waterline
+        (``Y=0``), textured with the REAL grey-rock band (``_apply_cliff_rock_uvs``: U = along-shore arc wrapping the
+        rock strip, V = height up the face) -- the byte-derived (7,17) cliff seam, NOT a topograph palette guess. Cliff
+        defaults: ``height`` 4, ``beach`` 6 (steep), ``shore_topo`` 58, ``shore_frac`` 0.6. No shallow ladder / foam.
       * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea
         surface at ``height=0`` (lift it a few units for an open-ocean cell), fine flush (``height=0``) against a coast.
 
@@ -140,11 +183,19 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     for (bx, by) in cells:
         if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
             raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    # per-profile shape defaults. island = gentle SAND beach; cliff = STEEP shore-rim drop to the waterline + the
+    # real grey-rock texture on the face (the (7,17) teardown: topo-58 face ~40deg, plateau Y~4, base at Y=0).
     if height is None:
-        height = 6.0 if profile == "island" else 0.0
+        height = {"island": 6.0, "cliff": 4.0}.get(profile, 0.0)
+    if beach is None:
+        beach = 6.0 if profile == "cliff" else 22.0        # ramp WIDTH: small = steep (cliff), large = gentle (beach)
+    if shore_topo is None:
+        shore_topo = 58 if profile == "cliff" else 20      # 58 = shore-rim/cliff (on-foot BLOCKED); 20 = walkable sand
+    if shore_frac is None:
+        shore_frac = 0.6 if profile == "cliff" else 0.3
     reclaimed = set(cells)
     land = set()
-    if profile == "island":
+    if profile in ("island", "cliff"):
         try:                                              # real-land set: a neighbour that is real coast is NOT water
             land = set(X.list_blocks(disc=disc, game=game))
         except Exception:                                 # noqa: BLE001 -- offline/no install -> treat non-reclaimed as water
@@ -152,12 +203,14 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
                "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
-        if profile == "island":
+        if profile in ("island", "cliff"):
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
                      and (bx + dx, by + dy) not in land]
             bm = M.island_block_mesh(disc=disc, x=bx, y=by, water_dirs=water, seg=seg, height=height,
-                                     beach=beach, grass_topo=grass_topo, shore_topo=shore_topo)
+                                     beach=beach, grass_topo=grass_topo, shore_topo=shore_topo, shore_frac=shore_frac)
             bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # per-tri grass/shore
+            if profile == "cliff":
+                bm = _apply_cliff_rock_uvs(bm)             # the real grey-rock band on the face (NOT the palette guess)
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount, "water_edges": len(water)}
         else:
             bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)
