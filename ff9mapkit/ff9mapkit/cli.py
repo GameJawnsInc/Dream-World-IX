@@ -1566,14 +1566,18 @@ def _cmd_playable_anims(args: argparse.Namespace) -> int:
           f"{info['name']}'s Animations/{r['dest_geo_id']}/ ({info['key_count']} total)")
     if r["edited"]:
         print(f"  edited motions (source keys): {', '.join(map(str, r['edited']))}")
+    elif r.get("glb_anims") and not r.get("matched"):      # the glb had clips but NONE belong to this animset
+        print(f"  0 edits applied -- NONE of the .glb's {r['glb_anims']} animation(s) belong to {info['name']}'s "
+              f"animset. Did you export the RIGHT donor? -> ff9mapkit model-gltf {src} --anims all")
     else:
-        print("  no CHANGED clips in the .glb (every Action matched the donor) -- edit a pose in Blender first")
+        print("  no CHANGED clips in the .glb (every matched Action equals the donor) -- edit a pose in Blender first")
     for w in r.get("warnings", []):
         print(f"  WARN: {w}")
     print(f"  {src} is untouched. RELAUNCH FF9 to apply (the engine caches .anim by path; F6 keeps the cached one), "
           f"then enter a battle to see {info['name']}'s new motion.")
-    print(f"  NOTE: run this AFTER deploying the field -- re-deploying it re-ships the faithful animset and wipes "
-          f"these edits, so re-run playable-anims after any field re-deploy.")
+    print(f"  NOTE: run this AFTER deploying the field, and RE-RUN it after any re-deploy -- deploy_field re-ships the "
+          f"faithful animset (per-file overwrite) and deploy_campaign/deploy_journey REBUILD the whole folder, either "
+          f"of which wipes these edits.")
     return 0
 
 

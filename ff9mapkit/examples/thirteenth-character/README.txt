@@ -37,8 +37,9 @@ changes only Iviv. Vivi's own Animations/5415/ is never written. (Trance animati
       ff9mapkit playable-anims iviv.field.toml --edit iviv_anims.glb --deploy <game>\FF9CustomMap
       # -> writes ONLY Iviv's Animations/6100/ (edited motions spliced, the rest faithful); RELAUNCH + fight.
     (Or hand-edit a shipped clip's JSON directly at Animations\6100\<key>.anim and relaunch — same effect.)
-    NOTE: run playable-anims AFTER deploy_field — re-deploying the field re-ships the faithful animset and wipes
-    these edits, so re-run playable-anims after any field re-deploy.
+    NOTE: run playable-anims AFTER deploying, and RE-RUN it after any re-deploy — deploy_field re-ships the
+    faithful animset (per-file) and deploy_campaign/deploy_journey rebuild the whole folder, either of which
+    wipes these edits.
 
 DEPLOY
 ------

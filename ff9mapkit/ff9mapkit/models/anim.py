@@ -385,13 +385,21 @@ def deploy_battle_animset_edits(clips, dest_geo_id: int, gltf_path, mod_folder, 
     except Exception:   # noqa: BLE001  -- catalog optional; the ff9_anim_key stamp is the primary route
         pass
     edits_by_key: dict = {}
+    n_glb_anims, matched, warnings = 0, 0, []
     for pa in parse_gltf_animations(gltf, blob, scale=scale):
+        n_glb_anims += 1
         key = pa["key"]
         if key is None and pa["label"]:
             key = label_to_key.get(pa["label"].lower())
-        if key is not None and int(key) in plan_src_keys:
+        if key is None:                                    # a renamed Blender Action with a dropped ff9_anim_key
+            warnings.append(f"glb animation {pa['label'] or '<unnamed>'!r} has no routable key -- NOT applied (keep "
+                            f"the exported Action name, e.g. 'attack'/'idle1', or its numeric anim key)")
+            continue
+        if int(key) in plan_src_keys:
             edits_by_key.setdefault(int(key), []).append(pa)
-    written, edited_keys, faithful_keys, warnings = [], [], [], []
+            matched += 1
+        # else: a resolved key OUTSIDE this animset (an extra clip from `--anims all`) -> legitimately ignored
+    written, edited_keys, faithful_keys = [], [], []
     for src_geo_id, src_key, dst_key in clips:
         source_clip = _gltf_io.read_clip(env5, int(src_geo_id), int(src_key))
         if not source_clip or not source_clip.get("bones"):
@@ -409,8 +417,8 @@ def deploy_battle_animset_edits(clips, dest_geo_id: int, gltf_path, mod_folder, 
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
         written.append(str(p))
-    return {"written": written, "edited": edited_keys, "faithful": faithful_keys,
-            "warnings": warnings, "dest_geo_id": int(dest_geo_id)}
+    return {"written": written, "edited": edited_keys, "faithful": faithful_keys, "warnings": warnings,
+            "dest_geo_id": int(dest_geo_id), "matched": matched, "glb_anims": n_glb_anims}
 
 
 def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scale=None,

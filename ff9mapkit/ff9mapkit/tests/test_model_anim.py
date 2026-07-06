@@ -87,6 +87,22 @@ def test_deploy_battle_animset_edits_routes_edited_and_faithful(monkeypatch):
     assert not os.path.isdir(os.path.join(dest, "StreamingAssets", "Assets", "Resources", "Animations", "5415"))
 
 
+def test_deploy_battle_animset_edits_warns_unroutable_and_reports_match(monkeypatch):
+    """A glb animation with no routable key WARNS (not silently lost); a glb whose clips belong to a DIFFERENT
+    model matches nothing (matched==0) so the CLI can flag an export-wrong-donor mistake instead of 'no edits'."""
+    monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
+    monkeypatch.setattr(anim._gltf_io, "read_glb", lambda p: ({"asset": {"extras": {}}}, b""))
+    monkeypatch.setattr(anim.extract, "read_model", _raise_keyerror)
+    monkeypatch.setattr(anim._gltf_io, "read_clip", lambda env, gid, key: _identity_clip(key))
+    # one UNROUTABLE animation (renamed, no key) + one clip for a FOREIGN model (key 999, not in the plan)
+    monkeypatch.setattr(anim, "parse_gltf_animations", lambda g, b, scale=None: [
+        {"key": None, "label": "myattack", "bones": {}}, {"key": 999, "label": "999", "bones": {}}])
+    r = anim.deploy_battle_animset_edits([(5415, 100, 1010000)], 6100, "x.glb", _tmp("dwix_rt_warn"))
+    assert r["edited"] == [] and r["faithful"] == [100] and len(r["written"]) == 1   # complete + freeze-safe
+    assert r["matched"] == 0 and r["glb_anims"] == 2                                 # nothing matched this animset
+    assert any("no routable key" in w for w in r["warnings"])                        # the renamed clip is flagged
+
+
 def test_deploy_battle_animset_edits_fails_loud_on_missing_source(monkeypatch):
     monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
     monkeypatch.setattr(anim._gltf_io, "read_glb", lambda p: ({"asset": {"extras": {}}}, b""))
