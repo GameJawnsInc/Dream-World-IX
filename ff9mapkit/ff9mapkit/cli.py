@@ -2125,6 +2125,10 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
             sx, sy = (int(v) for v in args.verbatim.split(","))
             summary = W.deploy_verbatim(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy),
                                         disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+        elif args.reproduce:
+            sx, sy = (int(v) for v in args.reproduce.split(","))
+            summary = W.reproduce(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy), seed=args.seed,
+                                  disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
         else:
             summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep,
                               threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
@@ -2138,6 +2142,14 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
               f"at {len(summary['cells'])} cell(s) -- the A/B reference for world-water:")
         for c in summary["cells"]:
             print(f"  cell {tuple(c['cell'])}: carried {c['carried']} ({c['verts']} verts)")
+    elif args.reproduce:
+        verb = "would reproduce" if args.dry_run else "reproduced"
+        print(f"{verb} block {tuple(summary['source'])}'s arrangement with SYNTHESIZED tiles (donor "
+              f"{tuple(summary['donor'])}) at {len(summary['cells'])} cell(s) -- the fidelity A/B for world-water:")
+        for c in summary["cells"]:
+            s = c["shades"]
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
     else:
         verb = "would synthesize" if args.dry_run else "synthesized"
         print(f"{verb} graded ocean water (donor {tuple(summary['donor'])}, deeper toward {summary['deep_dir']}) "
@@ -4357,9 +4369,13 @@ def build_parser() -> argparse.ArgumentParser:
     wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")
     wwt.add_argument("--height", type=float, default=-3.0,
                      help="submerged Terrain floor Y under the water (default -3, below the sea surface)")
-    wwt.add_argument("--verbatim", nargs="?", const="8,4", metavar="BX,BY",
-                     help="A/B REFERENCE: instead of synthesizing, deploy REAL ocean block BX,BY verbatim (default 8,4, "
-                          "the byte-proven block) onto --cells -- the north-star to compare world-water against at the same spot")
+    _wref = wwt.add_mutually_exclusive_group()
+    _wref.add_argument("--verbatim", nargs="?", const="8,4", metavar="BX,BY",
+                       help="A/B REFERENCE: instead of synthesizing, deploy REAL ocean block BX,BY verbatim (default 8,4, "
+                            "the byte-proven block) onto --cells -- the north-star to compare world-water against at the same spot")
+    _wref.add_argument("--reproduce", nargs="?", const="8,4", metavar="BX,BY",
+                       help="FIDELITY A/B: reproduce REAL block BX,BY's shallow/deep LAYOUT (default 8,4) with SYNTHESIZED "
+                            "tiles -- deploy beside --verbatim of the same block; they should look alike (the 17/17 shape-match, in-game)")
     wwt.add_argument("--seed", type=int, default=0, help="anti-tiling PRNG seed (deterministic; vary for a new shuffle)")
     wwt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wwt.add_argument("--dry-run", action="store_true", help="report the cells it would fill, write nothing")

@@ -131,6 +131,79 @@ def test_deploy_verbatim_rejects_a_non_ocean_source(monkeypatch):
         W.deploy_verbatim("MOD", cells=[(3, 17)], source=(12, 10), dry_run=True)
 
 
+# ---- reproduce a real block's arrangement (the fidelity A/B) ---------------------------------------------------------
+
+def _fake_part_block(x, y, part, cells):
+    """A block whose Sea ``part`` sub-mesh covers exactly ``cells`` (each a 4u quad, so read_shade_grid bins it there)."""
+    from ff9mapkit.world.extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    pos, tris = [], []
+    for (i, j) in cells:
+        x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
+        base = len(pos)
+        for (px, pz) in [(x0, z0), (x1, z0), (x1, z1), (x0, z0), (x1, z1), (x0, z1)]:
+            pos.append([px, 0.0, pz])
+        tris += [[base, base + 1, base + 2], [base + 3, base + 4, base + 5]]
+    n = len(pos)
+    chan = {CH_POS: pos, CH_NRM: [[0.0, 1.0, 0.0]] * n, CH_UV: [[0.5, 0.5]] * n, CH_TAN: [[1.0, 0.0, 0.0, 1.0]] * n}
+    return BlockMesh(name=f"Block[{x}][{y}] {part}", disc=1, x=x, y=y, lod="0_1", vcount=n, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}, chan_arrays=chan,
+                     flat_index=list(range(n)), tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def _stub_reproduce_source(monkeypatch):
+    """A source block with a clean N-shallow gradient: rows j<5 sea3, row j==5 sea5, rows j>5 sea4."""
+    sea3 = [(i, j) for i in range(16) for j in range(5)]
+    sea5 = [(i, 5) for i in range(16)]
+    sea4 = [(i, j) for i in range(16) for j in range(6, 16)]
+    by_part = {"sea3": sea3, "sea5": sea5, "sea4": sea4}
+    def fake(x, y, **k):
+        part = k.get("part")
+        if part in by_part:
+            return _fake_part_block(x, y, part, by_part[part])
+        raise ValueError(part)
+    monkeypatch.setattr(X, "read_block", fake)
+    return {"sea3": 80, "sea5": 16, "sea4": 160}
+
+
+def test_read_shade_grid_bins_tris(monkeypatch):
+    _stub_reproduce_source(monkeypatch)
+    grid = W.read_shade_grid(8, 4)
+    assert grid[0][0] == "sea3" and grid[0][5] == "sea5" and grid[0][15] == "sea4"
+    assert W.shade_counts(grid) == {"sea3": 80, "sea5": 16, "sea4": 160}
+
+
+def test_arrangement_from_block_reselects_every_sea5(monkeypatch):
+    _stub_reproduce_source(monkeypatch)
+    grid, sea5tile = W.arrangement_from_block(8, 4)
+    sea5cells = [(i, j) for i in range(W.G) for j in range(W.G) if grid[i][j] == "sea5"]
+    assert len(sea5tile) == len(sea5cells)                         # every sea5 cell re-tiled
+    # a sea5 cell with sea4 to the SOUTH gets the tip pointing south = strip0 / r90 (DEEPSET2TILE[{"S"}])
+    assert sea5tile[(0, 5)] == (0, "r90")
+    assert W.adjacency_violations(grid) == 0                       # a marching-band-consistent layout
+
+
+def test_reproduce_matches_source_layout_and_deploys(monkeypatch):
+    counts = _stub_reproduce_source(monkeypatch)
+    overrides, sidecars = _capture(monkeypatch)
+    s = W.reproduce("MOD", cells=[(3, 17)], source=(8, 4), donor=(15, 4))
+    assert s["op"] == "water-reproduce" and s["source"] == [8, 4]
+    # the reproduced cell has the SOURCE's shade distribution (that's the whole point -- same layout, synth tiles)
+    assert s["cells"][0]["shades"] == counts and s["cells"][0]["adjacency_violations"] == 0
+    assert [o[3] for o in overrides] == ["Terrain", "Sea3", "Sea5", "Sea4", "Sea1", "Sea2"]
+    assert all(o[0] == 3 and o[1] == 17 for o in overrides) and sidecars == [(15, 4, 3, 17)]
+
+
+def test_reproduce_dry_run_and_validation(monkeypatch):
+    _stub_reproduce_source(monkeypatch)
+    overrides, sidecars = _capture(monkeypatch)
+    s = W.reproduce("MOD", cells=[(3, 17)], dry_run=True)
+    assert s["dry_run"] is True and s["cells"] and overrides == [] and sidecars == []
+    with pytest.raises(ValueError):
+        W.reproduce("MOD", cells=[(3, 20)], dry_run=True)          # cell off-grid
+    with pytest.raises(ValueError):
+        W.reproduce("MOD", cells=[(3, 17)], donor=(24, 4), dry_run=True)   # donor off-grid
+
+
 # ---- the marching-band language + invariants ------------------------------------------------------------------------
 
 def test_sea3_never_touches_sea4_within_a_cell():

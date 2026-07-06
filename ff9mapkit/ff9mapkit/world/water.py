@@ -217,14 +217,10 @@ def _tile_uv(grid, quad, rot, sea5tile, i, j):
     return lambda fx, fz: [u0 + m(fx, fz)[0] * (u1 - u0), v0 + m(fx, fz)[1] * (v1 - v0)]
 
 
-def build_cell(bx: int, by: int, *, depth, threshold: float = 1.0, seed=0):
-    """Build the three water bands for one cell: ``bands[rank]`` = a list of triangles (rank 0 ``Sea3`` / 1 ``Sea5`` /
-    2 ``Sea4``), each triangle a 3-list of ``((localX, 0, localZ), [u, v])`` pairs in the block's LOCAL frame (verts
-    stay local; deploy places the block by index). Also returns the shade ``grid`` + ``sea5tile`` map (for validation).
-    The per-cell PRNGs are seeded deterministically from ``(seed, bx, by)`` so adjacent cells vary (no macro-repeat)
-    while the run stays reproducible."""
-    rng_t = random.Random(f"ff9water:{seed}:{bx}:{by}:trans")
-    grid, sea5tile = build_arrangement(depth, threshold, bx, by, rng_t)
+def _bands_from_arrangement(grid, sea5tile, bx: int, by: int, seed) -> dict:
+    """Generate the three water bands (``bands[rank]`` = triangle lists, rank 0 ``Sea3`` / 1 ``Sea5`` / 2 ``Sea4``, each
+    triangle a 3-list of ``((localX, 0, localZ), [u, v])`` pairs in the block's LOCAL frame) for a PREBUILT arrangement
+    (``grid`` + ``sea5tile``), applying fresh mains quadrant+rotation anti-tiling seeded from ``(seed, bx, by)``."""
     rng_m = random.Random(f"ff9water:{seed}:{bx}:{by}:mains")
     quad = assign_quadrants(grid, rng_m)
     rot = assign_rotations(grid, rng_m)
@@ -237,6 +233,16 @@ def build_cell(bx: int, by: int, *, depth, threshold: float = 1.0, seed=0):
             corner = {(0, 0): vg[(i, j)], (1, 0): vg[(i + 1, j)], (1, 1): vg[(i + 1, j + 1)], (0, 1): vg[(i, j + 1)]}
             for tri in ([(0, 0), (1, 0), (1, 1)], [(0, 0), (1, 1), (0, 1)]):
                 bands[rk].append([(corner[c], uv(*c)) for c in tri])
+    return bands
+
+
+def build_cell(bx: int, by: int, *, depth, threshold: float = 1.0, seed=0):
+    """Build the three water bands for one cell from the depth field (marching-band arrangement + anti-tiling). Returns
+    ``(bands, grid, sea5tile)``. The per-cell PRNGs are seeded deterministically from ``(seed, bx, by)`` so adjacent
+    cells vary (no macro-repeat) while the run stays reproducible."""
+    rng_t = random.Random(f"ff9water:{seed}:{bx}:{by}:trans")
+    grid, sea5tile = build_arrangement(depth, threshold, bx, by, rng_t)
+    bands = _bands_from_arrangement(grid, sea5tile, bx, by, seed)
     return bands, grid, sea5tile
 
 
@@ -272,6 +278,18 @@ def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, d
     return parts
 
 
+def _deploy_bands(mod_folder: str, bx: int, by: int, bands: dict, *, donor, disc: int, lod: str, height: float,
+                  game, dry_run: bool) -> None:
+    """Turn synthesized ``bands`` into the ``Sea3``/``Sea5``/``Sea4`` render sub-meshes and deploy the cell (shared by
+    :func:`water` and :func:`reproduce`)."""
+    from . import mesh as M
+    sea = {name: M.tri_soup_block_mesh(bands[rk], name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by,
+                                       lod=lod, normal=NORMAL)
+           for rk, name in enumerate(LADDER) if bands[rk]}
+    _deploy_ocean_cell(mod_folder, bx, by, sea=sea, donor=donor, disc=disc, lod=lod, height=height, game=game,
+                       dry_run=dry_run)
+
+
 def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = "S", threshold: float = 1.0,
           span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1", height: float = -3.0,
           game=None, dry_run: bool = False) -> dict:
@@ -287,7 +305,6 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = 
     Requires the CUSTOM engine (the s34 sea->land divert); a stock sea cell short-circuits to ``SeaBlockPrefab`` before
     the override fires. RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via F6 -> World -> Teleport.
     Returns a summary; deploys nothing when ``dry_run``."""
-    from . import mesh as M
     cells = [tuple(c) for c in cells]
     if not cells:
         raise ValueError("give at least one cell")
@@ -303,11 +320,8 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = 
                "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
         bands, grid, sea5tile = build_cell(bx, by, depth=depth, threshold=threshold, seed=seed)
-        sea = {name: M.tri_soup_block_mesh(bands[rk], name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by,
-                                           lod=lod, normal=NORMAL)
-               for rk, name in enumerate(LADDER) if bands[rk]}
-        _deploy_ocean_cell(mod_folder, bx, by, sea=sea, donor=(dx, dy), disc=disc, lod=lod, height=height,
-                           game=game, dry_run=dry_run)
+        _deploy_bands(mod_folder, bx, by, bands, donor=(dx, dy), disc=disc, lod=lod, height=height,
+                      game=game, dry_run=dry_run)
         summary["cells"].append({"cell": [bx, by], "shades": shade_counts(grid), "sea5": len(sea5tile),
                                  "adjacency_violations": adjacency_violations(grid)})
     return summary
@@ -351,4 +365,94 @@ def deploy_verbatim(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), dis
                            game=game, dry_run=dry_run)
         summary["cells"].append({"cell": [bx, by], "carried": sorted(sea),
                                  "verts": sum(bm.vcount for bm in sea.values())})
+    return summary
+
+
+_NEIGH = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}   # (di, dj); N/-j is the top edge (matches _edge_mids)
+
+
+def _neighbor(grid, i, j, d):
+    di, dj = _NEIGH[d]
+    ni, nj = i + di, j + dj
+    return grid[ni][nj] if 0 <= ni < G and 0 <= nj < G else None
+
+
+def read_shade_grid(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The per-cell shade layout of a REAL block: ``grid[i][j] in {sea3, sea4, sea5}``, by binning each Sea sub-mesh's
+    triangles to their 4u cell. A cell with no Sea geometry defaults to ``sea4`` (the deep open-ocean base). Requires
+    the game install."""
+    from . import extract as X
+    seen = [[None] * G for _ in range(G)]
+    for part in ("sea3", "sea4", "sea5"):
+        try:
+            bm = X.read_block(sx, sy, disc=disc, lod=lod, part=part, game=game)
+        except (ValueError, FileNotFoundError):
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // CELL)
+            if 0 <= i < G and 0 <= j < G:
+                seen[i][j] = part
+    return [[seen[i][j] or "sea4" for j in range(G)] for i in range(G)]
+
+
+def _repro_deepset(grid, i, j) -> frozenset:
+    """The marching-band deep-edge-set for reproducing a real ``sea5`` cell: the edges facing a DEEP (sea4) neighbour
+    (the byte-proven rule -- a transition tile's deep edges abut sea4 100% of the time). Degrade an invalid set (a
+    peninsula tip with 0 sea4 neighbours, or a channel) to the nearest representable Wang tile."""
+    deep = [d for d in "NESW" if _neighbor(grid, i, j, d) == "sea4"]
+    de = frozenset(deep)
+    if de in DEEPSET2TILE:
+        return de
+    if len(deep) >= 3:                                   # 4 deep (lone shallow poke) -> a deep-tip
+        return frozenset(deep[:3])
+    if len(deep) == 2:                                   # opposite channel -> a single tip toward the deeper side
+        return frozenset(deep[:1])
+    s5 = [d for d in "NESW" if _neighbor(grid, i, j, d) == "sea5"]   # 0 sea4: point along the peninsula
+    return frozenset(s5[:1]) if s5 else frozenset("E")
+
+
+def arrangement_from_block(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=None, seed=0):
+    """Reconstruct a real block's arrangement for the synthesizer: its per-cell shade ``grid`` (from
+    :func:`read_shade_grid`) plus a ``sea5tile`` map whose transition tiles are RE-SELECTED by the synth's own
+    :data:`DEEPSET2TILE` rule from each sea5 cell's deep-edge-set. So the LAYOUT is the real block's but the TILES are
+    synthesized -- the in-game form of the offline 17/17 shape-match validation. Requires the game install."""
+    grid = read_shade_grid(sx, sy, disc=disc, lod=lod, game=game)
+    rng = random.Random(f"ff9water:repro:{seed}:{sx}:{sy}")
+    sea5tile = {}
+    for i in range(G):
+        for j in range(G):
+            if grid[i][j] == "sea5":
+                variants = DEEPSET2TILE[_repro_deepset(grid, i, j)]
+                sea5tile[(i, j)] = variants[rng.randrange(len(variants))]
+    return grid, sea5tile
+
+
+def reproduce(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), seed=0, disc: int = 1, lod: str = "0_1",
+              height: float = -3.0, game=None, dry_run: bool = False) -> dict:
+    """Reproduce a REAL block's shallow/deep arrangement with SYNTHESIZED tiles onto each target cell -- the in-game
+    fidelity proof for :func:`water`. Reads ``source``=(bx, by)'s per-cell shade layout (:func:`arrangement_from_block`)
+    and regenerates it through the synth's tile-selection + mains anti-tiling, so it lands the SAME layout as the real
+    block but drawn with synthesized tiles. Deploy it beside :func:`deploy_verbatim` of the same block: they should look
+    alike (the offline 17/17 shape-match, made visible). Requires the game install + the custom engine (s34). Returns a
+    summary; deploys nothing when ``dry_run``."""
+    cells = [tuple(c) for c in cells]
+    if not cells:
+        raise ValueError("give at least one cell")
+    for (bx, by) in cells:
+        if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
+            raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    sx, sy = source
+    dx, dy = donor
+    if not (0 <= dx < GRID_X and 0 <= dy < GRID_Y):
+        raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    grid, sea5tile = arrangement_from_block(sx, sy, disc=disc, lod=lod, game=game, seed=seed)
+    summary = {"op": "water-reproduce", "source": [sx, sy], "donor": [dx, dy], "disc": disc,
+               "dry_run": dry_run, "cells": []}
+    for (bx, by) in cells:
+        bands = _bands_from_arrangement(grid, sea5tile, bx, by, seed)
+        _deploy_bands(mod_folder, bx, by, bands, donor=(dx, dy), disc=disc, lod=lod, height=height,
+                      game=game, dry_run=dry_run)
+        summary["cells"].append({"cell": [bx, by], "shades": shade_counts(grid), "sea5": len(sea5tile),
+                                 "adjacency_violations": adjacency_violations(grid)})
     return summary
