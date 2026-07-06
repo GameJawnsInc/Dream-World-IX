@@ -2130,7 +2130,7 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
             summary = W.reproduce(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy), seed=args.seed,
                                   disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
         else:
-            summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep,
+            summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, shallows=args.shallows,
                               threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
                               disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
     except (ValueError, ConfigError, FileNotFoundError) as e:
@@ -2152,8 +2152,8 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
                   f"(sea3|sea4 seams={c['adjacency_violations']})")
     else:
         verb = "would synthesize" if args.dry_run else "synthesized"
-        print(f"{verb} graded ocean water (donor {tuple(summary['donor'])}, deeper toward {summary['deep_dir']}) "
-              f"at {len(summary['cells'])} cell(s):")
+        desc = f"graded, deeper toward {summary['deep_dir']}" if summary.get("deep_dir") else "open ocean (mostly deep)"
+        print(f"{verb} ocean water ({desc}, donor {tuple(summary['donor'])}) at {len(summary['cells'])} cell(s):")
         for c in summary["cells"]:
             s = c["shades"]
             print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
@@ -4362,8 +4362,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "stays seamless). Grid is 24x20; reach a lone cell via F6->World->Teleport.")
     wwt.add_argument("--donor", default="15,4",
                      help="a real DEEP-OCEAN donor block 'dx,dy' whose base sea prefab backs the cell (default 15,4)")
-    wwt.add_argument("--deep", choices=["N", "S", "E", "W"], default="S",
-                     help="which way the water deepens across the region (default S = deeper toward the south)")
+    wwt.add_argument("--deep", choices=["N", "S", "E", "W"], default=None,
+                     help="OMIT for faithful open ocean (mostly deep, ~94%% Sea4 like real FF9 open water); give a "
+                          "direction for a graded shallow->deep RAMP toward it (a coast/bay)")
+    wwt.add_argument("--shallows", type=float, default=0.05,
+                     help="open-ocean shallow-patch fraction (default 0.05 ~ real; 0 = uniform deep Sea4). Ignored with --deep.")
     wwt.add_argument("--threshold", type=float, default=1.0, help="depth at the shallow|deep seam (default 1.0)")
     wwt.add_argument("--span", type=float, default=2.0, help="depth range shallow->deep across the region (default 2.0)")
     wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")

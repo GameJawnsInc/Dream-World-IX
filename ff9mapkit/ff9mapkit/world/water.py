@@ -124,6 +124,26 @@ def default_depth_field(cells, *, deep_dir: str = "S", span: float = 2.0, noise:
     return depth
 
 
+_PATCH_FREQ = 0.5   # lower-frequency noise -> coherent shallow PATCHES (not per-cell speckle), like real open ocean
+
+
+def open_ocean_depth_field(cells, *, shallows: float = 0.05, noise: float = 0.5, threshold: float = 1.0):
+    """A faithful OPEN-OCEAN depth field: mostly deep (like real FF9 open ocean, ~94% ``Sea4``) with a light, organic
+    scatter of shallow PATCHES (a fraction ~``shallows`` of the region), each ringed by transition water -- and NO
+    directional gradient (that's :func:`default_depth_field`, for a coast/bay). ``shallows=0`` -> uniform deep ``Sea4``.
+    The shallow fraction is set by offsetting a low-frequency noise so ~``shallows`` of the region dips below
+    ``threshold``, so the look is stable regardless of which cells you fill (and seam-continuous across them, since it's
+    a pure function of world position)."""
+    if shallows <= 0:
+        return lambda wx, wz: threshold + 1.0                # everything deep
+    seen = {tuple(c) for c in cells}
+    samples = sorted(_vnoise((bx * BLOCK + (i + 0.5) * CELL) * _PATCH_FREQ, (-by * BLOCK - (j + 0.5) * CELL) * _PATCH_FREQ) * noise
+                     for (bx, by) in seen for i in range(G) for j in range(G))
+    q = samples[min(int(shallows * (len(samples) - 1)), len(samples) - 1)]
+    base = threshold - q
+    return lambda wx, wz: base + _vnoise(wx * _PATCH_FREQ, wz * _PATCH_FREQ) * noise
+
+
 def _edge_mids(bx: int, by: int, i: int, j: int) -> dict:
     """The four edge-midpoint WORLD coordinates of sub-tile ``(i, j)`` in block ``(bx, by)``. World frame:
     ``worldVert = (bx*64 + localX, y, -by*64 + localZ)`` with ``localZ`` in ``[-64, 0]`` (grid row marches -Z), so the
@@ -294,13 +314,15 @@ def _deploy_bands(mod_folder: str, bx: int, by: int, bands: dict, *, donor, disc
                        dry_run=dry_run)
 
 
-def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = "S", threshold: float = 1.0,
-          span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1", height: float = -3.0,
-          game=None, dry_run: bool = False) -> dict:
-    """Synthesize graded open-ocean water on each sea cell in ``cells`` (``(x, y)`` grid coords, 0..23 x 0..19).
+def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | None = None, shallows: float = 0.05,
+          threshold: float = 1.0, span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1",
+          height: float = -3.0, game=None, dry_run: bool = False) -> dict:
+    """Synthesize faithful ocean water on each sea cell in ``cells`` (``(x, y)`` grid coords, 0..23 x 0..19).
 
-    ``depth`` is a caller-supplied ``depth(world_x, world_z) -> float`` (higher = deeper); when ``None`` a built-in
-    graded field is used (:func:`default_depth_field`, parameterised by ``deep_dir``/``span``/``noise``/``threshold``).
+    ``depth`` is a caller-supplied ``depth(world_x, world_z) -> float`` (higher = deeper). When ``None``, the built-in
+    field depends on ``deep_dir``: omitted (``None``) -> faithful OPEN OCEAN (:func:`open_ocean_depth_field`, mostly
+    deep like real FF9 open water ~94% Sea4, with a ~``shallows`` scatter of shallow patches); a direction "N"/"S"/"E"/
+    "W" -> a graded shallow->deep RAMP toward it (:func:`default_depth_field`, for a coast/bay; uses ``span``/``noise``).
     Because the field is sampled at shared world-space cell edges, a contiguous ``cells`` region is seamless across
     cells AND blocks. Each cell deploys: a flat submerged ``Terrain`` override at ``Y=height`` (the s34 land-override
     gate + a floor under the water), the ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, blanked ``Sea1``/``Sea2``, and a
@@ -319,9 +341,10 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = 
     if not (0 <= dx < GRID_X and 0 <= dy < GRID_Y):
         raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
     if depth is None:
-        depth = default_depth_field(cells, deep_dir=deep_dir, span=span, noise=noise)
-    summary = {"op": "water", "donor": [dx, dy], "disc": disc, "deep_dir": deep_dir, "threshold": threshold,
-               "dry_run": dry_run, "cells": []}
+        depth = (default_depth_field(cells, deep_dir=deep_dir, span=span, noise=noise) if deep_dir
+                 else open_ocean_depth_field(cells, shallows=shallows, noise=noise, threshold=threshold))
+    summary = {"op": "water", "mode": deep_dir or "open", "donor": [dx, dy], "disc": disc, "deep_dir": deep_dir,
+               "threshold": threshold, "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
         bands, grid, sea5tile = build_cell(bx, by, depth=depth, threshold=threshold, seed=seed)
         _deploy_bands(mod_folder, bx, by, bands, donor=(dx, dy), disc=disc, lod=lod, height=height,

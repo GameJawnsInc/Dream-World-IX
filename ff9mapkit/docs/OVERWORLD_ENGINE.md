@@ -540,10 +540,13 @@ real game; the only per-cell difference is a corner seam-variant the game itself
 Byte-exact constants (reconstructed from real block (8,4), in `world/water.py`): `URECT`/`VRECT` (mains quadrant),
 `UFULL`/`VSTRIP` (transition full-width-u × quarter-strips-v), `NORMAL = (-0.12, 0.98, 0.17)`. The mesh is **position +
 UV only** (the `WorldMap/Terrain` shader binds only vertex + texcoord — normals/tangents are irrelevant to water
-rendering, so a single byte-proven normal is stamped everywhere). Depth is caller-controlled: pass a
-`depth(world_x, world_z)` callable (a hand-authored map / real contour), or use the built-in `default_depth_field`
-(a graded ramp over the region bbox, `--deep N/S/E/W`, `--threshold`, `--span`, `--noise`). Anti-tiling is seeded per
-cell from `(--seed, x, y)` so a region doesn't macro-repeat; the shade PLACEMENT is seed-independent (set by depth).
+rendering, so a single byte-proven normal is stamped everywhere). Depth is caller-controlled with two built-in fields
+(or pass your own `depth(world_x, world_z)` callable — a hand-authored map / real contour): the DEFAULT (no `--deep`)
+is **faithful open ocean** (`open_ocean_depth_field` — mostly deep, ~94% Sea4 like real FF9 open water, with a
+`--shallows`-fraction scatter of coherent shallow patches, each ringed by transition; `--shallows 0` = uniform deep
+Sea4); a direction `--deep N/S/E/W` opts into a **graded shallow→deep RAMP** (`default_depth_field`, for a coast/bay;
+`--threshold`/`--span`/`--noise`). Anti-tiling is seeded per cell from `(--seed, x, y)` so a region doesn't macro-repeat;
+the shade PLACEMENT is seed-independent (set by depth).
 
 **Hard-won lessons (do NOT relitigate — offline rendering + marginal statistics CANNOT judge water quality; both of
 these were invisible to them and found only by UV byte-analysis + the human's in-game read):** (1) real ocean uses all
@@ -561,10 +564,8 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
     rect (`read_sea5_tiles`/`_fit_tile`, the fit that scored 17/17) — so a thin peninsula comes out right, not
     guessed from neighbour shades (that shade heuristic, `_repro_deepset`, is only the fallback for the rare
     transpose tile a pure rotation can't represent). Deploy it beside `--verbatim` of the same block — they should look
-    alike. This holds the LAYOUT fixed (a real block's, not the default demo gradient) so the only variable is tile
-    quality — the in-game form of the offline 17/17. (Note the default synth gradient is a *demo* that runs the full
-    shallow→deep range; real open ocean is ~94% deep, so faithful open water wants a mostly-deep field — `--reproduce`
-    or a high `--threshold`.)
+    alike. This holds the LAYOUT fixed (a real block's) so the only variable is tile quality — the in-game form of the
+    offline 17/17.
 **In-game loop:** relaunch → F6 → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).

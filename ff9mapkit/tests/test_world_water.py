@@ -65,6 +65,35 @@ def test_water_validates_grid_and_args(monkeypatch):
         W.water("MOD", cells=[(3, 17)], deep_dir="X", dry_run=True)    # bad direction
 
 
+# ---- open-ocean default vs the graded ramp --------------------------------------------------------------------------
+
+def test_open_ocean_is_the_default_and_mostly_deep():
+    s = W.water("MOD", cells=[(3, 17)], dry_run=True)          # no --deep -> faithful open ocean
+    assert s["mode"] == "open" and s["deep_dir"] is None
+    sh = s["cells"][0]["shades"]
+    assert sh["sea4"] > 200 and sh["sea3"] * 5 < sh["sea4"]    # dominantly deep (real open ocean ~94% Sea4)
+    assert sh["sea3"] > 0                                       # but a light scatter of shallows, not pure deep
+
+
+def test_open_ocean_shallows_zero_is_uniform_deep():
+    s = W.water("MOD", cells=[(3, 17)], shallows=0.0, dry_run=True)
+    assert s["cells"][0]["shades"] == {"sea3": 0, "sea5": 0, "sea4": 256}
+
+
+def test_deep_dir_opts_into_the_graded_ramp():
+    s = W.water("MOD", cells=[(3, 17)], deep_dir="S", dry_run=True)
+    assert s["mode"] == "S"
+    sh = s["cells"][0]["shades"]
+    assert sh["sea3"] > 50 and sh["sea4"] > 50                  # a real gradient: both halves substantial
+
+
+def test_open_ocean_field_places_the_shallow_fraction():
+    d = W.open_ocean_depth_field([(3, 17)], shallows=0.10)
+    below = sum(1 for i in range(W.G) for j in range(W.G)
+                if d(3 * W.BLOCK + (i + 0.5) * W.CELL, -17 * W.BLOCK - (j + 0.5) * W.CELL) < 1.0)
+    assert 20 <= below <= 32                                    # ~10% of 256 cell centres dip shallow (by construction)
+
+
 # ---- verbatim A/B reference deploy -----------------------------------------------------------------------------------
 
 def _fake_sea_block(x, y, part, vcount):
