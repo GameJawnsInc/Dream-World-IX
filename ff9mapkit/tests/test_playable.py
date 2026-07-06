@@ -156,6 +156,33 @@ def test_custom_serial_specs():
     assert bs[0]["playable_id"] == 12 and bs[0]["borrow_id"] == 1 and bs[0]["custom_model"] is True
     assert bs[0]["model_id"] == 6100 and bs[0]["serial"] == 19 and bs[0]["model_from"] is None
     assert bs[0]["borrow_serial"] is None and bs[0]["portrait"] is None and bs[0]["avatar"] is None
+    assert bs[0]["custom_anims"] is False                            # default: the minted model shares donor clips
+
+
+def test_custom_battle_anims():
+    # custom_battle_anims gives the minted battle model its OWN editable animset (requires custom_battle_model).
+    with pytest.raises(PL.PlayableError):                            # needs the model mint (binds to its id)
+        PL.parse_playable({"name": "Iviv", "borrow": "vivi", "custom_battle_anims": True})
+    with pytest.raises(PL.PlayableError):                            # must be a bool
+        PL.parse_playable({"name": "Iviv", "borrow": "vivi", "custom_battle_model": True, "custom_battle_anims": "yes"})
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi",
+                           "custom_battle_model": True, "custom_battle_anims": True})
+    assert s["custom_battle_anims"] is True
+    assert PL.custom_serial_specs([s])[0]["custom_anims"] is True    # carried to the build
+
+
+def test_duplicate_battle_model_id_and_serial_rejected():
+    # two custom characters must not share a battle_model_id (same Models/ + animset band) or serial (row collision)
+    with pytest.raises(PL.PlayableError):
+        PL.parse_all([{"name": "A", "borrow": "vivi", "id": 12, "custom_battle_model": True, "battle_model_id": 6100},
+                      {"name": "B", "borrow": "steiner", "id": 13, "custom_battle_model": True, "battle_model_id": 6100}])
+    with pytest.raises(PL.PlayableError):
+        PL.parse_all([{"name": "A", "borrow": "vivi", "id": 12, "custom_battle_model": True, "battle_serial": 19},
+                      {"name": "B", "borrow": "steiner", "id": 13, "custom_battle_model": True, "battle_serial": 19}])
+    # the DEFAULTS never collide (per-slot): two plain custom-model chars parse fine
+    ok = PL.parse_all([{"name": "A", "borrow": "vivi", "id": 12, "custom_battle_model": True},
+                       {"name": "B", "borrow": "steiner", "id": 13, "custom_battle_model": True}])
+    assert [s["battle_model_id"] for s in ok] == [6100, 6101]
 
 
 def test_custom_battle_borrow_serial():

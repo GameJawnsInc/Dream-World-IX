@@ -13,6 +13,7 @@ The whole character is one block in iviv.field.toml:
     borrow = "vivi"             # clone Vivi's stats / command kit as the starting point
     recruit = true              # join the party at field load
     custom_battle_model = true  # mint an INDEPENDENT, editable copy of Vivi's battle model, bound to Iviv
+    custom_battle_anims = true  # ALSO give that model its OWN independent, editable battle ANIMSET
     stats = { magic = 40 }
 
 custom_battle_model mints Vivi's battle model as a NEW GEO (id 6100, GEO_MAIN_B0_M100) at
@@ -21,6 +22,19 @@ and reuses Vivi's battle animations (they bind by bone name). So Iviv starts loo
 SEPARATE model — reshape/recolor Models/2/6100/6100.fbx in Blender (ff9mapkit model-gltf 6100 -> edit ->
 model-import) to make it truly yours, and Vivi (id 5415) is never touched.
 
+custom_battle_anims goes one step further: the 34 battle motions (idle / attack / cast / hit / ...) are
+attached BY NAME, and a name's own token decides which folder its clip loads from — so simply reusing
+Vivi's names would share Vivi's clips (editing them would change Vivi too). With this flag the kit ships
+faithful copies of Vivi's 34 clips under Iviv's OWN model — Animations/6100/<key>.anim — and registers
+them (3DModelAnimation lines) + re-points Iviv's BattleParameters row to the new names. They play
+identically to Vivi UNTIL you edit them; editing any Animations/6100/*.anim (or the Blender clip loop)
+changes only Iviv. Vivi's own Animations/5415/ is never written. (Trance animations stay shared in v1.)
+
+    Proving a UNIQUE pose (after the deploy + a battle works): edit one shipped clip in the LIVE mod, e.g.
+    <game>\FF9CustomMap\StreamingAssets\Assets\Resources\Animations\6100\<key>.anim — exaggerate a bone's
+    rotation in the JSON — then RELAUNCH and fight. Iviv's motion differs; Vivi's is unchanged. (A
+    first-class "edit in Blender, deploy to Iviv" retarget loop is the next increment.)
+
 DEPLOY
 ------
 From the repo root:
@@ -28,8 +42,10 @@ From the repo root:
     py tools/deploy_field.py ff9mapkit/examples/thirteenth-character/iviv.field.toml
 
 (That sandboxes the field into your test slot — default 4003 — and copies the id-12 BaseStats.csv +
-CharacterParameters.csv + CommandSets.csv and the CharacterDefaultName lines into your live mod folder,
-all reversibly.)
+CharacterParameters.csv + CommandSets.csv + BattleParameters.csv, the CharacterDefaultName lines, the
+minted Models/2/6100/ FBX, and — with custom_battle_anims — the Animations/6100/ clips + their
+3DModelAnimation lines, all reversibly. The 3DModel/3DModelAnimation registrations are read at LAUNCH,
+so the animset needs a relaunch to take effect, same as the model itself.)
 
 TEST (the order matters)
 ------------------------

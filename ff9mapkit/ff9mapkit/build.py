@@ -2640,9 +2640,10 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
 
 
 def _resolve_playable_battle(bspec, *, game=None):
-    """A ``[[playable]]`` custom-battle-model spec (from :func:`playable.battle_model_specs`) -> ``(mint_block,
-    battle_params_row)``: the donor's battle GEO minted at a new id, and a new BattleParameters serial row that
-    references that minted GEO by name. Both the mint's ``3DModel`` directive and the BattleParameters ModelId
+    """A ``[[playable]]`` custom-battle-model spec (from :func:`playable.custom_serial_specs`) -> ``(mint_block,
+    battle_params_row, anim_plan)``: the donor's battle GEO minted at a new id, a new BattleParameters serial row
+    that references that minted GEO by name, and (when ``custom_anims``) the plan to give the minted model its OWN
+    independent animset (else ``None``). Both the mint's ``3DModel`` directive and the BattleParameters ModelId
     cell are derived from the SAME **canonical** (uppercased + validated) GEO name, so ``GetGEOID`` resolves them
     (a lowercase ``battle_model_from`` would otherwise mismatch the directive). The donor's battle GEO + the
     serial-to-clone (for the 34 anims/avatar/bones) come from the install by default, or from explicit
@@ -2653,6 +2654,7 @@ def _resolve_playable_battle(bspec, *, game=None):
     model_from = bspec.get("model_from")
     borrow_serial = bspec.get("borrow_serial")
     custom_model = bspec.get("custom_model")
+    custom_anims = bspec.get("custom_anims")
     donor_geo = donor_serial = None
     # need the donor's serial (to clone the row) unless overridden; need its battle GEO only when minting a model.
     if borrow_serial is None or (custom_model and model_from is None):
@@ -2662,6 +2664,7 @@ def _resolve_playable_battle(bspec, *, game=None):
             raise BuildError(str(ex))
     serial_to_clone = borrow_serial if borrow_serial is not None else donor_serial
     mint_block = None
+    anim_plan = None
     bp_row = {"id": bspec["serial"], "borrow": serial_to_clone, "comment": bspec["name"]}
     if custom_model:                                         # mint an independent model + point the row's ModelId at it
         src_geo = model_from or donor_geo
@@ -2673,9 +2676,16 @@ def _resolve_playable_battle(bspec, *, game=None):
         mint_block = {"id": bspec["model_id"], "from": canonical_geo}
         bp_row["model"] = minted_name
         bp_row["trance_model"] = minted_name
+        if custom_anims:                                    # give the minted model its OWN normal animset
+            try:
+                anim_plan = _cd.plan_battle_animset(serial_to_clone, minted_name, bspec["model_id"], game=game)
+            except _cd.CharacterDeltaError as ex:
+                raise BuildError(str(ex))
+            if anim_plan["names"]:                          # re-point the row's normal anim cells to the mint names
+                bp_row["anim_names_remap"] = anim_plan["names"]
     if bspec.get("avatar"):                                  # custom portrait -> the row's AvatarSprite
         bp_row["avatar"] = bspec["avatar"]
-    return mint_block, bp_row
+    return mint_block, bp_row, anim_plan
 
 
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
@@ -4820,10 +4830,16 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _pspecs_b = _playable.parse_all(project.raw.get("playable"))
     except _playable.PlayableError:
         _pspecs_b = []                                  # a broken [[playable]] is reported by validate()
+    _anim_plans: list = []                              # custom_battle_anims -> (mint) independent-animset plans
+    _anim_warnings: list = []
     for _bspec in _playable.custom_serial_specs(_pspecs_b):
-        _mb, _bp = _resolve_playable_battle(_bspec)
+        _mb, _bp, _plan = _resolve_playable_battle(_bspec)
         if _mb is not None:                             # a portrait-only spec has no model to mint
             mint_blocks.append(_mb)
+        if _plan is not None:
+            _anim_warnings.extend(_plan.get("warnings", []))
+            if _plan.get("clips"):
+                _anim_plans.append(_plan)
     if mint_blocks:
         from .models import mint as _mint
         mints = [_mint.resolve_mint(b) for b in mint_blocks]
@@ -4838,9 +4854,21 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         for blk, man in zip(mint_blocks, mints):
             _mint.stage_mint(blk, layout.model_dir(man["type_int"], man["id"]), base_dir=project.base_dir)
             mint_lines.append(man["directive"])
+    if _anim_plans:                                     # ship each minted model's OWN animset + register the names
+        from .models import anim as _anim
+        for _plan in _anim_plans:
+            try:                                         # fail loud rather than ship an incomplete (freezing) set
+                _written = _anim.deploy_battle_animset(_plan["mint_id"], _plan["clips"], layout.root)
+            except _anim.AnimsetError as ex:
+                raise BuildError(str(ex))
+            if len(_written) != len(_plan["clips"]):     # every re-pointed name MUST have a shipped clip (else freeze)
+                raise BuildError(f"custom_battle_anims: shipped {len(_written)}/{len(_plan['clips'])} clips for "
+                                 f"mint {_plan['mint_id']} -- refusing to register motions with no clip")
+            mint_lines.extend(_plan["directives"])       # `3DModelAnimation <key> <name>` (rides with `3DModel`)
 
     camera = resolve_camera(project)
     warnings = list(lint_logic(project))          # story/flag sanity (dangling requires, collisions, dup names)
+    warnings += _anim_warnings                     # custom_battle_anims: no-op / shared-clip notices
     pw = cam.pitch_warning(cam.pitch_deg(camera))
     if pw:
         warnings.append(pw)

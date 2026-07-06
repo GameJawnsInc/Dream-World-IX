@@ -24,6 +24,35 @@ def _tmp(name):
     return os.path.join(tempfile.gettempdir(), name)
 
 
+# --------------------------------------------------------------------------- custom_battle_anims: minted animset copy
+
+def test_deploy_battle_animset_writes_faithful_clips_to_the_mint_folder(monkeypatch):
+    """A 13th character's custom_battle_anims ships FAITHFUL copies of the donor's clips at the MINTED model's
+    own Animations/<mintId>/<key>.anim -- so editing them never touches the donor's Animations/<srcId>/ clips.
+    Each clip carries its OWN (src_geo_id, src_key, dst_key)."""
+    src = {"name": "src", "sample_rate": 30.0,
+           "bones": {"bone001": {"bone": 1, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0))]}}}
+    monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())            # no p0data needed
+    monkeypatch.setattr(anim._gltf_io, "read_clip", lambda env, gid, key: src)      # donor clip -> faithful copy
+    dest = _tmp("dwix_animset_test")
+    written = anim.deploy_battle_animset(6100, [(5415, 5, 1010000), (5415, 6, 1010001)], dest)
+    p0 = os.path.join(dest, "StreamingAssets", "Assets", "Resources", "Animations", "6100", "1010000.anim")
+    assert written[0] == p0 and os.path.isfile(p0)
+    doc = json.loads(open(p0, encoding="utf-8").read())
+    assert doc["transform"][0]["bone"] == "bone001"                                 # the donor clip, faithfully copied
+    assert os.path.isfile(os.path.join(dest, "StreamingAssets", "Assets", "Resources",
+                                       "Animations", "6100", "1010001.anim"))
+
+
+def test_deploy_battle_animset_fails_loud_on_missing_clip(monkeypatch):
+    """A missing/empty source clip must RAISE (not silently skip) -- registering a battle motion with no clip
+    freezes the battle (btl_mot.cs:226), so the build fails rather than ship an incomplete (freezing) set."""
+    monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
+    monkeypatch.setattr(anim._gltf_io, "read_clip", lambda env, gid, key: None)     # simulate a missing clip
+    with pytest.raises(anim.AnimsetError):
+        anim.deploy_battle_animset(6100, [(5415, 5, 1010000)], _tmp("dwix_animset_fail"))
+
+
 # --------------------------------------------------------------------------- JSON serialization (the engine schema)
 
 def test_clip_to_anim_json_matches_the_engine_json_schema():

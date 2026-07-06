@@ -49,11 +49,15 @@ spawn = [0, -837]
 # recruit = true            -> B_PARTYADD(12) is prepended to Main_Init, so Iviv joins the party at field load;
 # custom_battle_model = true -> mint an INDEPENDENT, editable copy of Vivi's battle model bound to Iviv (its own
 #   CharacterSerialNumber + BattleParameters row), so reshaping it in Blender never touches Vivi.
+# custom_battle_anims = true -> ALSO give that minted model its own independent battle ANIMSET: faithful copies of
+#   Vivi's 34 battle clips at Animations/6100/*.anim (+ 3DModelAnimation registrations), so editing Iviv's
+#   attack/cast/etc. poses (hand-edit the .anim JSON, or the Blender loop) never touches Vivi's animations.
 [[playable]]
 name = "Iviv"
 borrow = "vivi"
 recruit = true
 custom_battle_model = true
+custom_battle_anims = true
 portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
 stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
 

@@ -319,7 +319,8 @@ def test_resolve_playable_battle_canonicalizes_and_explicit_serial():
     from ff9mapkit.build import _resolve_playable_battle
     spec = {"playable_id": 12, "name": "Iviv", "borrow_id": 2, "model_id": 6100, "serial": 19, "custom_model": True,
             "model_from": "geo_main_b0_006", "borrow_serial": 2, "avatar": None}    # lowercase source + explicit serial
-    mb, bp = _resolve_playable_battle(spec)
+    mb, bp, plan = _resolve_playable_battle(spec)                         # 3-tuple: plan is None without custom_anims
     assert mb["from"] == "GEO_MAIN_B0_006"                                # canonical (uppercase) == the 3DModel name
     assert bp["model"] == "GEO_MAIN_B0_M100"                              # ModelId cell == the registered GEO name
     assert bp["borrow"] == 2 and bp["id"] == 19                          # the explicit anim-source serial was used
+    assert plan is None and "anim_names_remap" not in bp                  # no custom_battle_anims -> shared donor clips

@@ -161,6 +161,13 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     custom_battle = entry.get("custom_battle_model", False)
     if not isinstance(custom_battle, bool):
         raise PlayableError(f"[[playable]] id {nid}: 'custom_battle_model' must be true/false")
+    # give the MINTED battle model its own independent, editable animset (else it shares the donor's clips by name)
+    custom_anims = entry.get("custom_battle_anims", False)
+    if not isinstance(custom_anims, bool):
+        raise PlayableError(f"[[playable]] id {nid}: 'custom_battle_anims' must be true/false")
+    if custom_anims and not custom_battle:
+        raise PlayableError(f"[[playable]] id {nid}: custom_battle_anims needs custom_battle_model = true "
+                            f"(the independent animset binds to the MINTED battle model's own id)")
     portrait = entry.get("portrait")                       # a custom avatar image (path to a 132x190 PNG)
     if portrait is not None and not (isinstance(portrait, str) and portrait.strip()):
         raise PlayableError(f"[[playable]] id {nid}: 'portrait' must be a path to a PNG image")
@@ -198,7 +205,8 @@ def parse_playable(entry, *, n: int = 0) -> dict:
                             f"custom_battle_model = true or portrait")
     return {"id": nid, "name": name, "names": names, "borrow_id": borrow_id,
             "stats": dict(stats), "params": params, "recruit": recruit, "portrait": portrait, "avatar": avatar,
-            "custom_battle_model": custom_battle, "battle_model_id": battle_model_id,
+            "custom_battle_model": custom_battle, "custom_battle_anims": custom_anims,
+            "battle_model_id": battle_model_id,
             "battle_serial": battle_serial, "battle_model_from": battle_model_from,
             "battle_borrow_serial": battle_borrow_serial}
 
@@ -209,12 +217,27 @@ def parse_all(entries) -> list:
         return []
     if not isinstance(entries, list):
         entries = [entries]
-    specs, seen = [], {}
+    specs, seen, seen_model, seen_serial = [], {}, {}, {}
     for n, e in enumerate(entries):
         spec = parse_playable(e, n=n)
         if spec["id"] in seen:
             raise PlayableError(f"[[playable]] id {spec['id']} is defined twice (#{seen[spec['id']]} and #{n})")
         seen[spec["id"]] = n
+        # A shared battle_model_id would mint two characters into the SAME Models/<id>/ + the SAME animset key band
+        # (one would play the other's model/anims); a shared battle_serial would collide their BattleParameters rows.
+        mid = spec.get("battle_model_id")
+        if mid is not None:
+            if mid in seen_model:
+                raise PlayableError(f"[[playable]] id {spec['id']}: battle_model_id {mid} is already used by "
+                                    f"[[playable]] #{seen_model[mid]} -- each custom character needs its own "
+                                    f"(default is 6100 + the character's slot; drop the explicit value or change it)")
+            seen_model[mid] = n
+        sid = spec.get("battle_serial")
+        if sid is not None:
+            if sid in seen_serial:
+                raise PlayableError(f"[[playable]] id {spec['id']}: battle_serial {sid} is already used by "
+                                    f"[[playable]] #{seen_serial[sid]} -- each needs its own (default 19 + slot)")
+            seen_serial[sid] = n
         specs.append(spec)
     return specs
 
@@ -251,6 +274,7 @@ def custom_serial_specs(specs) -> list:
     avatar}]``. ``custom_model`` gates the mint; ``portrait``/``avatar`` gate the atlas + the AvatarSprite cell."""
     return [{"playable_id": s["id"], "name": s["name"], "borrow_id": s["borrow_id"],
              "custom_model": bool(s.get("custom_battle_model")),
+             "custom_anims": bool(s.get("custom_battle_anims")),
              "model_id": s["battle_model_id"], "serial": s["battle_serial"], "model_from": s["battle_model_from"],
              "borrow_serial": s["battle_borrow_serial"], "portrait": s.get("portrait"), "avatar": s.get("avatar")}
             for s in specs if s.get("custom_battle_model") or s.get("portrait")]

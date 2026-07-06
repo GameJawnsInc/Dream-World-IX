@@ -424,6 +424,53 @@ def test_battle_params_new_serial_clones_donor(base):
     assert "#! IncludeWeaponSound" in text                                                           # option line preserved
 
 
+def test_first_anh_run_isolates_the_normal_block():
+    # the normal AnimationId block is the FIRST contiguous run of ANH_ cells; a later (trance) run is excluded.
+    row = ["19", "face01", "GEO_MAIN_B0_006", "GEO_MAIN_B0_028", "0",
+           "ANH_MAIN_B0_006_A", "ANH_MAIN_B0_006_B",       # normal block (contiguous)
+           "5", "0", "0",                                   # AttackSequence + bytes (non-ANH -> ends the run)
+           "ANH_MAIN_B0_028_TR"]                            # a later trance-ish ANH cell (a SEPARATE run)
+    assert CD._first_anh_run(row) == ["ANH_MAIN_B0_006_A", "ANH_MAIN_B0_006_B"]
+
+
+def test_battle_animset_remap_pure():
+    # custom_battle_anims: re-point EVERY normal-block cell to the MINTED model's token -- regardless of the cell's
+    # OWN token (Steiner-class: ModelId GEO_MAIN_B0_018 but anims token 007) -- deduped, fresh keys (>=1M per-mint
+    # band), each clip carrying its OWN source folder (from name_to_src, the anim's own geoId).
+    normal = ["ANH_MAIN_B0_007_ATTACK", "ANH_MAIN_B0_007_ATTACK", "ANH_MAIN_B0_007_CAST"]   # token 007, not the mint's
+    name_to_src = {"ANH_MAIN_B0_007_ATTACK": (300, 5), "ANH_MAIN_B0_007_CAST": (300, 6)}
+    plan = CD.battle_animset_remap(normal, "GEO_MAIN_B0_M100", 6100, name_to_src)
+    assert plan["names"] == {"ANH_MAIN_B0_007_ATTACK": "ANH_MAIN_B0_M100_ATTACK",           # re-token to the MINT,
+                             "ANH_MAIN_B0_007_CAST": "ANH_MAIN_B0_M100_CAST"}                # keep the suffix
+    assert plan["clips"] == [(300, 5, 1_010_000), (300, 6, 1_010_001)]                       # (src_geo_id,src_key,dst_key)
+    assert plan["directives"] == ["3DModelAnimation 1010000 ANH_MAIN_B0_M100_ATTACK",
+                                  "3DModelAnimation 1010001 ANH_MAIN_B0_M100_CAST"]
+
+
+def test_battle_animset_remap_unresolved_cell_left_shared():
+    # a cell with no source clip is LEFT shared with the donor (never re-pointed) so it can't freeze -- and warned.
+    plan = CD.battle_animset_remap(["ANH_MAIN_B0_006_ATTACK", "ANH_MAIN_B0_006_ODD"],
+                                   "GEO_MAIN_B0_M100", 6100, {"ANH_MAIN_B0_006_ATTACK": (5415, 5)})
+    assert plan["names"] == {"ANH_MAIN_B0_006_ATTACK": "ANH_MAIN_B0_M100_ATTACK"}            # only the resolvable one
+    assert any("no source clip" in w for w in plan["warnings"])
+
+
+def test_battle_animset_remap_empty_warns():
+    plan = CD.battle_animset_remap([], "GEO_MAIN_B0_M100", 6100, {})
+    assert plan["names"] == {} and plan["clips"] == []
+    assert any("stays shared" in w for w in plan["warnings"])                                # a silent no-op is surfaced
+
+
+def test_battle_params_custom_anims_repoints_row(base):
+    # the serial row's normal anim cell is re-pointed to the mint name (so it resolves to Animations/<mintId>/)
+    remap = {"ANH_MAIN_B0_006_000": "ANH_MAIN_B0_M100_000"}
+    text, _w = CD.build_battle_params_delta([{"id": 19, "borrow": 2, "model": "GEO_MAIN_B0_M100",
+                                              "anim_names_remap": remap, "comment": "Iviv"}])
+    row = [l for l in text.splitlines() if l.startswith("19;")][0]
+    assert "ANH_MAIN_B0_M100_000" in row and "ANH_MAIN_B0_006_000" not in row        # re-pointed; donor name gone
+    assert row.split(";")[2] == "GEO_MAIN_B0_M100"                                    # model still swapped
+
+
 def test_battle_params_rejects_bad(base):
     with pytest.raises(CD.CharacterDeltaError):                       # serial < 19 (the base band)
         CD.build_battle_params_delta([{"id": 5, "borrow": 2, "model": "X"}])

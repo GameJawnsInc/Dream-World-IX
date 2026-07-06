@@ -317,6 +317,36 @@ def deploy_source_anims(token: str, mod_folder, *, which="all", game=None) -> di
     return {"geo": geo, "geo_id": geo_id, "written": written, "keys": keys}
 
 
+class AnimsetError(RuntimeError):
+    """A minted battle animset couldn't ship a clip its serial row + directives already reference (would freeze)."""
+
+
+def deploy_battle_animset(dest_geo_id: int, clips, mod_folder, *, game=None) -> list:
+    """Give a MINTED battle model its own independent animset: for each ``(src_geo_id, src_key, dst_key)``, read the
+    source clip from ITS OWN p0data5 folder (the anim's embedded token, which may differ from the row's ModelId) and
+    write it as faithful ``.anim`` JSON at ``Animations/<dest_geo_id>/<dst_key>.anim`` under ``mod_folder``. The
+    copies are byte-faithful to the donor (the character animates identically until edited), but they live in the
+    MINTED model's own folder, so editing them never touches the donor's ``Animations/<src_geo_id>/`` clips.
+
+    FAIL-LOUD: every ``(src, dst)`` the planner listed is ALSO referenced by the already-emitted serial row + its
+    ``3DModelAnimation`` registration, and a MISSING clip freezes that motion in-battle (btl_mot.cs:226). So an
+    unreadable source clip raises :class:`AnimsetError` rather than silently shipping an incomplete (freezing) set.
+    Returns the written paths (one per clip)."""
+    env5 = _load_env5(game)
+    written = []
+    for src_geo_id, src_key, dst_key in clips:
+        clip = _gltf_io.read_clip(env5, int(src_geo_id), int(src_key))
+        if not clip or not clip.get("bones"):
+            raise AnimsetError(f"custom_battle_anims: source clip Animations/{int(src_geo_id)}/{int(src_key)} is "
+                               f"missing/empty -- refusing to register a battle motion with no clip (would freeze "
+                               f"the battle). The serial row + 3DModelAnimation already reference it.")
+        p = anim_disc_path(mod_folder, int(dest_geo_id), int(dst_key))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
+        written.append(str(p))
+    return written
+
+
 def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scale=None,
                            game=None, force=False) -> dict:
     """Write back the animations from a Blender-edited ``.glb`` as loose ``.anim`` overrides: parse each

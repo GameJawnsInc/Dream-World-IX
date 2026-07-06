@@ -134,6 +134,12 @@ src_models = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Models"
 if src_models.is_dir():
     shutil.copytree(src_models, live.root / "StreamingAssets" / "Assets" / "Resources" / "Models",
                     dirs_exist_ok=True)
+# [[playable]] custom_battle_anims: a minted battle model's OWN animset (loose .anim at Animations/<mintId>/<key>).
+# Ships alongside its `3DModelAnimation` DictionaryPatch lines (carried in mint_lines below). RELAUNCH to register.
+src_anims = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Animations"
+if src_anims.is_dir():
+    shutil.copytree(src_anims, live.root / "StreamingAssets" / "Assets" / "Resources" / "Animations",
+                    dirs_exist_ok=True)
 
 # [[playable]] portrait: the loose Face Atlas override (a custom avatar sprite, appended non-destructively).
 src_atlas = tl.face_atlas_dir
@@ -167,12 +173,21 @@ if _src_manifest.is_file():
     _live_manifest.write_text(_text, encoding="utf-8", newline="\n")
     print("  + custom [music] theme(s) -> RELAUNCH to register the new song id(s) + set MusicVolume > 0")
 mint_lines = info.get("mint_lines", [])
-mint_ids = {ml.split()[1] for ml in mint_lines if len(ml.split()) >= 2}
+# `3DModel <id> <NAME>` register a GEO id; `3DModelAnimation <key> <ANH_NAME>` register a custom anim (custom_battle_
+# anims). Drop stale ids by GEO id, and stale anim registrations by the GEO middle-block their ANH name shares.
+mint_ids = {ml.split()[1] for ml in mint_lines if ml.startswith("3DModel ") and len(ml.split()) >= 2}
+mint_geo_blocks = {"_".join(ml.split()[2].split("_")[1:4]) for ml in mint_lines      # MAIN_B0_M100 from GEO_MAIN_B0_M100
+                   if ml.startswith("3DModel ") and len(ml.split()) >= 3}
+def _stale_anim(ln):                                       # a 3DModelAnimation line for a mint being redeployed
+    p = ln.split()
+    return (ln.startswith("3DModelAnimation ") and len(p) >= 3
+            and "_".join(p[-1].split("_")[1:4]) in mint_geo_blocks)
 charname_lines = info.get("charname_lines", [])   # [[playable]] CharacterDefaultName <id> <SYM> <name> (per-lang)
 charname_keys = {(p[1], p[2]) for p in (ln.split() for ln in charname_lines) if len(p) >= 3}   # (char-id, lang)
 dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
       if ln.strip() and ln.split()[1:2] != [str(FID)]           # drop this field's old FieldScene/LocationName
       and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # drop stale mint ids
+      and not _stale_anim(ln)                                                                  # drop stale anim regs
       and not (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # drop stale names
                and (ln.split()[1], ln.split()[2]) in charname_keys)]
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
@@ -180,8 +195,12 @@ dp += charname_lines                           # `CharacterDefaultName <id> <SYM
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
-if mint_lines:
-    print(f"  + {len(mint_lines)} mint 3DModel line(s) + staged Models/ -> RELAUNCH to register the new id(s)")
+_n_model = sum(1 for ml in mint_lines if ml.startswith("3DModel "))
+_n_anim = sum(1 for ml in mint_lines if ml.startswith("3DModelAnimation "))
+if _n_model:
+    print(f"  + {_n_model} mint 3DModel line(s) + staged Models/ -> RELAUNCH to register the new id(s)")
+if _n_anim:
+    print(f"  + {_n_anim} 3DModelAnimation line(s) + staged Animations/ (custom_battle_anims) -> RELAUNCH to register")
 if charname_lines:
     print(f"  + {len(charname_lines)} CharacterDefaultName line(s) ([[playable]]) -> RELAUNCH to apply the name")
 if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
@@ -325,17 +344,29 @@ if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
         print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
+_mint_ids_repr = repr(sorted(mint_ids))              # this deploy's minted GEO ids (drop their 3DModel lines on revert)
+_mint_blk_repr = repr(sorted(mint_geo_blocks))        # their GEO middle-blocks (drop matching 3DModelAnimation lines)
 revert = f'''#!/usr/bin/env python3
 import sys, shutil
 from pathlib import Path
 sys.path.insert(0, r"{KIT}")
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 STAMP="{STAMP}"; BK=Path(r"{BK}"); live=ModLayout(find_game_path()/"{MOD_FOLDER}")
-# surgical DictionaryPatch revert: drop only THIS id's line from the CURRENT live file (preserving any line
-# another tool -- e.g. deploy_battle's "BattleScene <sceneid>" registration -- added into the SAME mod folder
-# since this deploy), then restore this id's prior registration from the pre-deploy backup if it had one. A
-# wholesale snapshot-restore (the old behavior) re-clobbered those co-deployed lines -> a black screen.
-_dpkeep=[ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if ln.strip() and ln.split()[1:2]!=["{FID}"]]
+# surgical DictionaryPatch revert: drop THIS id's line + THIS deploy's mint registrations (3DModel <mintId> and
+# 3DModelAnimation <key> <ANH_..middle..>) from the CURRENT live file (preserving any line another tool -- e.g.
+# deploy_battle's "BattleScene <sceneid>" -- added into the SAME mod folder since this deploy), then restore this
+# id's prior registration from the pre-deploy backup if it had one. A wholesale snapshot-restore (the old
+# behavior) re-clobbered those co-deployed lines -> a black screen. (The staged Models//Animations/ FBX+clip
+# trees are LEFT on disk -- inert once unregistered -- matching the mint deploy's copytree.)
+_MINT_IDS=set({_mint_ids_repr}); _MINT_BLK=set({_mint_blk_repr})
+def _revkeep(ln):
+    p=ln.split()
+    if not ln.strip(): return False
+    if p[1:2]==["{FID}"]: return False
+    if ln.startswith("3DModel ") and p[1:2] and p[1] in _MINT_IDS: return False
+    if ln.startswith("3DModelAnimation ") and len(p)>=3 and "_".join(p[-1].split("_")[1:4]) in _MINT_BLK: return False
+    return True
+_dpkeep=[ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if _revkeep(ln)]
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 if _dpbak.exists():
     _dpkeep+=[ln for ln in _dpbak.read_text(encoding="utf-8").splitlines() if ln.strip() and ln.split()[1:2]==["{FID}"]]
@@ -348,7 +379,7 @@ for L in LANGS:
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
     if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
-print("reverted: DictionaryPatch + dialogue + start-state CSVs + BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed.")
+print("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogue + start-state CSVs + BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed. (staged Models//Animations/ trees left inert on disk)")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
 (OUT / "revert_deploy.py").write_text(revert, encoding="utf-8", newline="\n")            # generic = latest deploy

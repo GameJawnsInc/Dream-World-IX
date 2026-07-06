@@ -593,6 +593,9 @@ def build_battle_params_delta(new_serials, *, game=None) -> tuple:
         if not model and not avatar:                       # a row must change SOMETHING (a model and/or a portrait)
             raise CharacterDeltaError(f"[[playable]] battle serial {sid} needs a 'model' (GEO name) and/or an 'avatar'")
         cells = list(by_id[bser])                          # clone the donor serial's whole row
+        remap = nr.get("anim_names_remap")                 # custom_battle_anims -> re-point the row's normal animset
+        if remap:                                          # value-based (only ANH cells match) -> layout-proof
+            cells = [remap.get(c, c) for c in cells]
         cells[idx] = str(sid)
         if model:                                          # custom battle model -> swap ModelId (+ TranceModelId)
             cells[model_col] = model
@@ -647,6 +650,129 @@ def resolve_donor_battle(borrow_id, *, game=None) -> tuple:
     if serial not in bp_by or mcol is None or mcol >= len(bp_by[serial]):
         raise CharacterDeltaError(f"[[playable]] donor serial {serial} has no BattleParameters ModelId")
     return serial, bp_by[serial][mcol].strip()
+
+
+# ---- custom_battle_anims: a MINTED battle model's OWN independent animset (so editing it never touches the donor) -
+# The 34 AnimationId cells of a serial row are attached at battle entry by NAME (player: btl_mot.SetPlayerDefMotion
+# -> AnimationFactory.AddAnimWithAnimatioName; enemy: btl_init.OrganizeEnemyData -- verified in-source). That resolves
+# ANH_<grp>_<form>_<tok>_X to the folder of GEO_<grp>_<form>_<tok> -- the anim's OWN embedded token, NOT the model
+# that plays it (e.g. Steiner's serial-7 ModelId is GEO_MAIN_B0_018 but his anims are token 007). So a minted model
+# that borrows the donor's anim NAMES shares the donor's clip folder (editing them touches the donor). Independence:
+# take the row's NORMAL AnimationId block (the first contiguous run of ANH_ cells; the trance block, if present, is a
+# separate later run kept shared in v1), re-point every cell to the MINTED model's token (ANH_<mintgrp>_<mintform>_
+# M###_<suffix>), register each with `3DModelAnimation <key> <name>` (DataPatchers.cs:598 -> AnimationDB[key]=name;
+# the model GEO + anim ANH must share the middle block), and copy each clip from ITS OWN source folder (the anim's
+# token, not the ModelId) to Animations/<mintId>/<key>.anim. A missing clip FREEZES the motion (btl_mot.cs:226), so
+# the build ships EVERY re-pointed clip or fails loud -- never re-points a name whose source clip it can't copy.
+_BATTLE_ANIM_KEY_BASE = 1_000_000   # fresh AnimationDB keys for a minted animset (real ids run < ~20k; the engine's
+                                    # own custom-anim example uses 100000 -- we stay an order above, per-mint banded).
+                                    # SAFETY: FF9BattleDB.GEO / AnimationDB are TwoWayDictionary(allowDuplicateValues=
+                                    # true), so a `3DModelAnimation`'s reverse (name->key) write only lands when the
+                                    # name is NEW. A fresh key + a NOVEL M### name therefore add entries, never rebind
+                                    # a real one -> the donor's name->key + key->name stay intact (Vivi is untouched).
+
+
+def _anh_parts(name):
+    """(grp, form, token, suffix) for an ``ANH_<grp>_<form>_<token>_<suffix..>`` name, else None."""
+    p = str(name).split("_")
+    if len(p) < 5 or p[0] != "ANH":
+        return None
+    return p[1], p[2], p[3], "_".join(p[4:])
+
+
+def _first_anh_run(cells) -> list:
+    """The cell VALUES of the first maximal contiguous run of ANH_ cells -- the NORMAL AnimationId block. The row
+    layout is Id;Avatar;Model;Trance;GlowColor;AnimationId[0..33];AttackSequence;... (+ an optional later
+    TranceAnimationId[0..33] block), so the first ANH_ run is exactly the normal 34, bounded by non-ANH cells."""
+    run, started = [], False
+    for c in cells:
+        if _anh_parts(c) is not None:
+            run.append(c)
+            started = True
+        elif started:
+            break                                          # end of the first (normal) run; the trance run is later
+    return run
+
+
+def battle_animset_remap(normal_cells, mint_geo, mint_id, name_to_src) -> dict:
+    """PURE (no install): the plan to give a minted battle model its own NORMAL animset. ``normal_cells`` is the
+    row's normal AnimationId block (:func:`_first_anh_run`); ``name_to_src`` maps each anim name -> its source
+    ``(src_geo_id, src_key)`` (the anim's OWN clip folder + key). Each cell is re-pointed to a mint-token twin
+    ``ANH_<mintgrp>_<mintform>_<minttok>_<suffix>`` + a fresh AnimationDB key. Returns ``{names:{donor:mint},
+    clips:[(src_geo_id,src_key,dst_key)], directives:[...], warnings:[...]}``. A cell whose source can't be
+    resolved is LEFT shared with the donor (not re-pointed) so it can never freeze -- and warned."""
+    mg = str(mint_geo).split("_")
+    if len(mg) < 4:
+        return {"names": {}, "clips": [], "directives": [], "warnings": [
+            f"custom_battle_anims: can't parse mint GEO name ({mint_geo!r})"]}
+    m_grp, m_form, m_tok = mg[1], mg[2], mg[3]
+    names, clips, directives, warnings = {}, [], [], []
+    seen = {}                                              # donor_name -> dst_key (a name repeats across cells)
+    for cell in normal_cells:
+        parts = _anh_parts(cell)
+        if not parts or cell in seen:
+            continue
+        src = name_to_src.get(cell)
+        if src is None:
+            warnings.append(f"custom_battle_anims: no source clip for {cell!r} -- left shared with the donor")
+            continue
+        src_geo_id, src_key = src
+        dst_key = _BATTLE_ANIM_KEY_BASE + (int(mint_id) - 6000) * 100 + len(seen)
+        mint_name = f"ANH_{m_grp}_{m_form}_{m_tok}_{parts[3]}"
+        seen[cell] = dst_key
+        names[cell] = mint_name
+        clips.append((int(src_geo_id), int(src_key), dst_key))
+        directives.append(f"3DModelAnimation {dst_key} {mint_name}")
+    if not names:
+        warnings.append("custom_battle_anims: no re-pointable normal anims found (the serial row has no resolvable "
+                        "AnimationId clips) -- the animset stays shared with the donor")
+    return {"names": names, "clips": clips, "directives": directives, "warnings": warnings}
+
+
+def plan_battle_animset(serial_to_clone, mint_geo, mint_id, *, game=None, name_to_src=None) -> dict:
+    """Resolve :func:`battle_animset_remap` from the install: read the donor serial's row, take its NORMAL
+    AnimationId block, and for each anim NAME resolve its source ``(src_geo_id, src_key)`` -- the clip's OWN folder
+    (from the anim's embedded GEO token, NOT the row's ModelId) + key, both from the baked catalog. Returns
+    ``{names, clips:[(src_geo_id,src_key,dst_key)], directives, warnings, mint_id}``. ``name_to_src`` can be
+    injected (tests); by default it is built from the catalog."""
+    try:
+        _h, bp_cols, bp_rows = _read_csv(_csv_path("BattleParameters.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[playable]] custom_battle_anims needs your FF9 install ({ex})")
+    idx = bp_cols["id"]
+    by_id = {}
+    for cells in bp_rows:
+        try:
+            by_id[int(cells[idx].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    ser = int(serial_to_clone)
+    if ser not in by_id:
+        raise CharacterDeltaError(f"[[playable]] custom_battle_anims: donor serial {ser} has no BattleParameters row")
+    normal_cells = _first_anh_run(by_id[ser])
+    if name_to_src is None:
+        # Build {anim_name -> (src_geo_id, src_key)} for the block's anims: src_key from the baked AnimationDB
+        # reverse, src_geo_id from the anim's OWN embedded GEO token (Animations/<that geoId>/ holds the clip).
+        from .. import catalog
+        from ..models import extract as _extract
+        name_to_key = {v: k for k, v in catalog.ANIMATIONS.items()}
+        name_to_src, geo_cache = {}, {}
+        for cell in set(normal_cells):
+            parts = _anh_parts(cell)
+            key = name_to_key.get(cell)
+            if not parts or key is None:
+                continue
+            src_geo = f"GEO_{parts[0]}_{parts[1]}_{parts[2]}"
+            if src_geo not in geo_cache:
+                try:
+                    geo_cache[src_geo] = _extract.resolve_geo(src_geo)[1]
+                except (ValueError, KeyError, FileNotFoundError, OSError, RuntimeError):
+                    geo_cache[src_geo] = None
+            if geo_cache[src_geo] is not None:
+                name_to_src[cell] = (geo_cache[src_geo], key)
+    plan = battle_animset_remap(normal_cells, mint_geo, mint_id, name_to_src)
+    plan["mint_id"] = int(mint_id)                         # the DEST folder: Animations/<mint_id>/<dst_key>.anim
+    return plan
 
 
 # ---- [[command_set]] -> CommandSets.csv (PARTIAL per-preset; tab-padded -> strip + index slots by position) ----
