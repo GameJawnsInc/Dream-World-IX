@@ -38,6 +38,9 @@ class Field:
     help: str = ""
     default: object = None            # for BOOL: the value omitted from the file (e.g. once=True)
     catalog: str = None               # comma-separated Info Hub kinds -> render a "Browse..." picker button
+    file: str = None                  # a QFileDialog name-filter (e.g. "Audio (*.wav *.mp3)") -> the Qt
+                                      # editor renders a Browse-for-file button; the tk editor shows a
+                                      # plain entry (value stays an ordinary STR either way)
 
 
 # --- section specs (the editor's logic vocabulary) ---------------------------------------
@@ -143,7 +146,16 @@ ENCOUNTER_SPEC = [
     Field("battle_music", "Battle music id", OPTINT, "default 0 = battle theme"),
 ]
 MUSIC_SPEC = [
-    Field("song", "Field BGM song id", OPTINT, "e.g. 9 = Vivi's Theme; blank = no field music"),
+    Field("song", "Field BGM song id", OPTINT, "an existing game song, e.g. 9 = Vivi's Theme; blank = no "
+                                               "field music (or mint YOUR OWN track via File below)",
+          catalog="song"),
+    Field("file", "File (custom track)", STR, "an audio file (wav/mp3/ogg/flac…, relative to this field.toml) "
+                                              "minted into a NEW song at build — needs ffmpeg; IGNORED when a "
+                                              "Song id is set above; hear it after a game restart",
+          file="Audio (*.wav *.mp3 *.ogg *.flac *.m4a *.opus);;All files (*)"),
+    Field("loop_start", "Loop start (samples)", OPTINT,
+          "with File: loop point in SAMPLES; blank = loop the whole track"),
+    Field("loop_end", "Loop end (samples)", OPTINT, "with File: loop end in samples; blank = track end"),
 ]
 PARTY_SPEC = [
     Field("add", "Add members", STRLIST,
@@ -211,7 +223,8 @@ SECTION_HELP = {
     "camera": "Camera / walkmesh / layers / positions are SPATIAL -- author them in Blender. Read-only here.",
     "dialogue": "Text options. Auto-wrap breaks long dialogue lines to fit the screen (FF9 won't).",
     "encounter": "Random battles on this field (battle scene id + frequency + battle music).",
-    "music": "The field's background music (a song id, e.g. 9 = Vivi's Theme).",
+    "music": "The field's background music — an existing game song (a song id), or your own audio file "
+             "minted into the mod at build.",
     "party": "Who's in the party (menu + battle) on this field -- add/remove playable characters at load. "
              "Separate from who you WALK as (an Import option).",
     "startup": "Assert the story beat this field boots in (a forked field starts at scenario zero): set the "

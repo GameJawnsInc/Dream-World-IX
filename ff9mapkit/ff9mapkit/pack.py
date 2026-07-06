@@ -49,21 +49,27 @@ def suggest_ids(base: int, count: int) -> list[int]:
     return [base + i for i in range(count)]
 
 
-def pack_mod(mod_root, out_path) -> Path:
+def pack_mod(mod_root, out_path, *, name=None) -> Path:
     """Zip a built mod folder for distribution. Returns the zip path.
 
     The archive contains the mod folder itself (so unzipping next to FF9_Launcher.exe installs
-    it). Skips ``*.bak`` and editor leftovers.
+    it). ``name`` overrides the folder name INSIDE the zip — Memoria identifies a mod by that
+    folder name (``Memoria.ini FolderNames``), so a campaign staged at the default ``dist/``
+    should be packed with the real mod name, not shipped as a folder called ``dist``. Skips
+    ``*.bak`` and editor leftovers.
     """
     mod_root = Path(mod_root).resolve()
     if not mod_root.is_dir():
         raise FileNotFoundError(mod_root)
+    top = (str(name).strip() if name else "") or mod_root.name    # whitespace-only -> the folder's own name
+    if "/" in top or "\\" in top:
+        raise ValueError(f"--name must be a bare folder name, not a path: {top!r}")
     out_path = Path(out_path)
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for p in sorted(mod_root.rglob("*")):
             if p.is_dir() or p.suffix in (".bak",) or p.name.endswith(".prefix.bak"):
                 continue
-            zf.write(p, arcname=str(Path(mod_root.name) / p.relative_to(mod_root)))
+            zf.write(p, arcname=str(Path(top) / p.relative_to(mod_root)))
     return out_path
 
 

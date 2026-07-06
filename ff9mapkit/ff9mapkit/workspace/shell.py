@@ -19,7 +19,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QObject, QProcess, QSize, QUrl, Signal
+from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
 )
@@ -49,6 +49,8 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
+from . import thumbs as _thumbs
+from .thumbs import ThumbService
 from .widgets import PlaceholderListWidget, install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -391,6 +393,12 @@ class Workspace(QMainWindow):
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
         self.setStyleSheet(qss(pal))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
+        self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
+        self.thumbs.ready.connect(self._on_thumb_ready)
+        self._thumb_rerender = QTimer(self)                   # coalesce N thumbnail arrivals -> one Map redraw
+        self._thumb_rerender.setSingleShot(True)
+        self._thumb_rerender.setInterval(250)
+        self._thumb_rerender.timeout.connect(lambda: self.map.rerender())
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
         self._root_items = []                                 # so toggling the dot never resizes/shifts a row
@@ -866,7 +874,8 @@ class Workspace(QMainWindow):
         self.doc_scroll.setWidget(self.doc_host)
         self.tabs.addTab(self.doc_scroll, "Editor")
         self._doc_placeholder("Select a field or an object on the left to edit it.")
-        self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
+        self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
+                               thumbs=self.thumbs.cached)               # nodes show the real art when cached
         self.tabs.addTab(self.map, "Map")
         # the save docs route their console output to the bottom Output panel when docked (so the doc body
         # reclaims that height); standalone (output=None) they'd keep an in-pane console.
@@ -883,7 +892,8 @@ class Workspace(QMainWindow):
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
         self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                      on_forked=self._import_forked)       # a clean fork auto-opens its project
+                                      on_forked=self._import_forked,       # a clean fork auto-opens its project
+                                      thumbs=self.thumbs)                  # fork preview shows the room's art
         self.tabs.addTab(self.import_field, "Import")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -892,7 +902,6 @@ class Workspace(QMainWindow):
         split.addWidget(self.tabs)
 
         insp = QWidget()
-        insp.setMaximumWidth(420)                   # an info panel -- cap it so long content can't balloon it
         iv = QVBoxLayout(insp)
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
@@ -910,7 +919,15 @@ class Workspace(QMainWindow):
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
-        split.addWidget(insp)
+        # Scrollable: a tall card (thumbnail + rollup + xrefs) must scroll, not clip -- and without the
+        # scroll area its minimumSizeHint would also make the whole window un-shrinkable.
+        insp_scroll = QScrollArea()
+        insp_scroll.setWidgetResizable(True)
+        insp_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        insp_scroll.setMaximumWidth(420)            # an info panel -- cap it so long content can't balloon it
+        insp_scroll.setWidget(insp)
+        split.addWidget(insp_scroll)
 
         split.setSizes([300, 640, 240])
         split.setStretchFactor(1, 1)
@@ -1008,6 +1025,15 @@ class Workspace(QMainWindow):
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setStyleSheet(f"color:{self.pal['muted']};")
         v.addWidget(intro)
+        # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
+        self._recent_head = self._home_section("Recent")
+        v.addWidget(self._recent_head)
+        self._recent_box = QWidget()
+        self._recent_box.setStyleSheet("background: transparent;")
+        self._recent_lay = QVBoxLayout(self._recent_box)
+        self._recent_lay.setContentsMargins(4, 0, 0, 4)
+        self._recent_lay.setSpacing(5)
+        v.addWidget(self._recent_box)
         v.addWidget(self._home_section("The project spine — top-down"))
         v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
                                    [("Open…", self.on_open_journey, True), ("New…", self.on_new_journey, False)]))
@@ -1096,6 +1122,54 @@ class Workspace(QMainWindow):
             self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
         else:
             self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
+        self._refresh_recent()
+
+    _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
+
+    @staticmethod
+    def _recent_display(entry):
+        """A short human name for a recent row: the project folder for a journey/campaign, the field name
+        for a field.toml, the file name for a save."""
+        p = Path(entry["path"])
+        if entry["kind"] in ("journey", "campaign"):
+            return p.parent.name or p.name
+        if entry["kind"] == "field":
+            return p.name.removesuffix(".toml").removesuffix(".field") or p.stem
+        return p.name
+
+    def _refresh_recent(self):
+        """Rebuild the Home Recent rows from prefs (pruning entries whose file vanished). Cheap: at most
+        RECENT_LIMIT label rows, only when the Home tab is being (re)shown."""
+        if not hasattr(self, "_recent_lay"):
+            return
+        self._clear_layout(self._recent_lay)
+        # DISPLAY-filter unreachable paths only -- never persist the prune here: a network share or an
+        # unplugged drive is transient, and silently deleting the row would lose the user's list. The
+        # persistent prune happens in _open_recent, where the user clicked and saw the message.
+        rows = [e for e in prefs.recent() if Path(e["path"]).exists()][:6]
+        self._recent_head.setVisible(bool(rows))
+        self._recent_box.setVisible(bool(rows))
+        for e in rows:
+            glyph = self._RECENT_GLYPH.get(e["kind"], "●")
+            lab = QLabel(f'<span style="color:{self.pal["accent"]};">{glyph}</span>&nbsp; '
+                         f'<a href="open">{_esc(self._recent_display(e))}</a>'
+                         f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
+                         f'{_esc(_snip(e["path"], 64))}</span>')
+            lab.setTextFormat(Qt.TextFormat.RichText)
+            lab.setToolTip(e["path"])
+            lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
+            self._recent_lay.addWidget(lab)
+
+    def _open_recent(self, kind, path):
+        """Reopen a recent project by kind; a vanished file prunes itself instead of erroring."""
+        if not Path(path).exists():
+            self.statusBar().showMessage(f"No longer exists: {path}")
+            prefs.remove_recent(path)
+            self._refresh_recent()
+            return False
+        open_ = {"journey": self.open_journey, "campaign": self.open_campaign,
+                 "field": self.open_field, "save": self.open_save}[kind]
+        return open_(path)
 
     # ---- item helpers ----
     @staticmethod
@@ -1155,6 +1229,7 @@ class Workspace(QMainWindow):
         self.tabs.setCurrentWidget(self.doc_scroll)
         self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this journey
+        prefs.add_recent("journey", path)
         return True
 
     def _populate_journey(self):
@@ -2372,10 +2447,18 @@ class Workspace(QMainWindow):
                                             "FF9 save (*.dat);;Save JSON / Base64 (*.json *.txt);;All files (*)")
         if not f:
             return
-        self.story_state.load(f)
-        self.item_equip.load(f)
+        self.open_save(f)
+
+    def open_save(self, path) -> bool:
+        """Open ``path`` into both save documents (the path-taking core of :meth:`_open_save`, so a
+        Recent row can re-open a save). True when at least one document loaded it."""
+        ok = bool(self.story_state.load(str(path)))
+        ok = bool(self.item_equip.load(str(path))) or ok
         self.story_state.set_flag_names(self._project_flag_names())   # annotate with the open project's [[flag]] names
         self.tabs.setCurrentWidget(self.story_state)
+        if ok:
+            prefs.add_recent("save", path)
+        return ok
 
     def open_field(self, path) -> bool:
         """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
@@ -2383,6 +2466,7 @@ class Workspace(QMainWindow):
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
+        self.thumbs.invalidate()                   # same-named fields across projects (see open_campaign)
         path = Path(path)
         try:
             doc = FieldDoc.load(path)
@@ -2412,6 +2496,7 @@ class Workspace(QMainWindow):
         self._select_member(name)
         self.tabs.setCurrentWidget(self.doc_scroll)   # a standalone field has no map -> show its Editor
         self._refresh_flag_names()                    # re-annotate an already-open Story State save with this field
+        prefs.add_recent("field", path)
         return True
 
     def _populate_field(self, name):
@@ -2486,8 +2571,9 @@ class Workspace(QMainWindow):
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
-        path = Path(path)
-        try:
+        self.thumbs.invalidate()                   # member NAMES recur across projects (same-FBG forks) --
+        path = Path(path)                          # never show the previous project's art; re-resolution is
+        try:                                       # near-instant off the disk cache
             plan = C.load_campaign(path)
         except Exception as e:                     # noqa: BLE001
             self.statusBar().showMessage(f"Open failed: {e}")
@@ -2520,6 +2606,10 @@ class Workspace(QMainWindow):
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
+        for m in plan.members:                     # prefetch every member's background thumbnail (async,
+            self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id)   # cached, install-gated)
+        if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
+            prefs.add_recent("campaign", path)     # already the recent entry
         return True
 
     def _journey_label(self):
@@ -3022,6 +3112,9 @@ class Workspace(QMainWindow):
             if any(j.campaigns for j in self.manifest.journeys):
                 cmds.insert(3, ("Add region to arc…", "command", self.on_add_region_to_arc))
                 cmds.insert(4, ("Fill entry from forks…", "command", self.on_reconcile_journey))
+        for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
+            cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
+                         "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
         content = []
 
         def walk(item):
@@ -3369,6 +3462,8 @@ class Workspace(QMainWindow):
                 self._mount_logic_node(member, int(parts[1]), int(parts[2]))
             return
         if key in _SINGLES:                        # a single table (field/encounter/music/dialogue)
+            if key == "music":
+                self._prewarm_songs()              # so the song Browse… picker doesn't extract on the GUI thread
             spec = _SECTION_SPEC[key]
             self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
             return
@@ -4391,6 +4486,7 @@ class Workspace(QMainWindow):
         docs are NOT reloaded, so unsaved GUI edits are preserved (only the scene side is re-read from disk)."""
         if not self._commit_active_ck():               # fold a pending edit first; a bad open form blocks refresh
             return
+        self.thumbs.invalidate()                       # a repaint/re-import may have changed the art -> re-resolve
         item = self.tree.currentItem()
         fa = self._ancestor_field(item) if item is not None else None
         sel = None
@@ -5172,11 +5268,55 @@ class Workspace(QMainWindow):
             return self._inspect_object(field, key)
         return [self._muted(f"in field: {field}")] if field else []
 
+    def _member_real_id(self, name):
+        """The donor REAL field id behind a member (campaign mode), for the install-side thumbnail
+        composite. None for a loose field / an unknown member (its project background.png still works)."""
+        if self.plan is not None:
+            m = next((mm for mm in self.plan.members if mm.name == name), None)
+            if m is not None:
+                return m.real_id
+        return None
+
+    def _prewarm_songs(self):
+        """Warm the song-manifest disk cache in the background (the first-ever extraction reads the
+        install's 590 MB resources.assets) so the music form's Browse… picker opens instantly instead of
+        freezing the GUI thread. Once-per-process; failures are the picker's empty-list case anyway."""
+        if getattr(self, "_songs_warmed", False) or not _thumbs.enabled():
+            return                                 # the NO_THUMBS flag doubles as 'no background readers'
+        self._songs_warmed = True
+
+        def _warm():
+            try:
+                from .. import sound
+                sound.read_manifest("music")
+            except Exception:   # noqa: BLE001  (no install / no UnityPy) -> the picker shows no songs
+                pass
+        threading.Thread(target=_warm, name="ff9-songwarm", daemon=True).start()
+
+    def _on_thumb_ready(self, member, _png):
+        """A background thumbnail landed (queued from the worker): refresh the Inspector if that field is
+        the one being inspected, and coalesce a Map redraw (many arrive in a burst on campaign open).
+        INSPECTOR-ONLY refresh -- a full _on_select would re-mount (and commit) the actively edited form,
+        yanking focus mid-typing."""
+        cur = self.tree.currentItem()
+        fa = self._ancestor_field(cur) if cur is not None else None
+        if fa is not None and self._payload(fa)[1] == member and cur is not None:
+            self._inspect(cur, self._payload(cur), member)   # rewrites insp_title/body only
+        self._thumb_rerender.start()
+
     def _inspect_field(self, name):
-        """A campaign member (or a loose field): id/source/mode, a CONTENT rollup, the live cross-references
-        (exits to / reached from -- clickable member links + reachability flags), and the file-path link."""
+        """A campaign member (or a loose field): the background THUMBNAIL (the art, finally visible),
+        id/source/mode, a CONTENT rollup, the live cross-references (exits to / reached from -- clickable
+        member links + reachability flags), and the file-path link."""
         lines = []
         doc = self._safe_doc(name)
+        png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
+        if png:                                     # rich text renders the file:/// img. Landscape rooms cap
+            pm = QPixmap(png)                       # by WIDTH (the 420px panel); tall scrolling rooms cap by
+            if pm.height() > pm.width() * 1.4:      # HEIGHT so the card's text stays above the fold.
+                lines.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
+            else:
+                lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:
@@ -5587,6 +5727,16 @@ class Workspace(QMainWindow):
                 if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
                                            or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
                     warn(f"battle scene must be a numeric id (got '{sc}')")
+            elif kind == "music":                          # mirror content.music.mint_field_theme's precedence
+                f = obj.get("file")
+                if f and obj.get("song") is not None:      # both set -> the build silently ignores file
+                    warn("both song and file are set — song wins and the custom track is IGNORED "
+                         "(clear the song id to mint the file)")
+                elif isinstance(f, str) and f.strip():
+                    base = self.member_paths.get(member)
+                    if base is not None and not (Path(f).is_absolute() and Path(f).exists()) \
+                            and not (base.parent / f).exists():
+                        warn(f"[music] file not found beside the field.toml: {f}")
             elif kind == "choice":
                 ref = obj.get("npc")                       # talk-triggered: must name an existing NPC
                 if isinstance(ref, str) and ref.strip() and ref not in self._field_entity_names(member)["npc"]:
@@ -5631,7 +5781,7 @@ class Workspace(QMainWindow):
             for e in (data.get(section, []) or []):
                 if isinstance(e, dict) and self._node_problems(section, e, member):
                     n += 1
-        for single in ("encounter", "cutscene"):
+        for single in ("encounter", "cutscene", "music"):
             if data.get(single) and self._node_problems(single, data[single], member):
                 n += 1
         return n
@@ -5791,6 +5941,21 @@ def _smoke(win):
     check the tree, the breadcrumb, lazy object load, and the Problems dock -- the Qt analogue of the
     tkinter campaign-editor smoke. Runs under QT_QPA_PLATFORM=offscreen."""
     import tempfile
+    # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
+    # a smoke run never writes temp paths into the developer's real prefs.json.
+    _rec = []
+
+    def _stub_add_recent(kind, path):
+        p = str(Path(path).resolve())
+        _rec[:] = [{"kind": kind, "path": p}] + [e for e in _rec if e["path"] != p]
+        del _rec[prefs.RECENT_LIMIT:]
+
+    def _stub_remove_recent(path):
+        _rec[:] = [e for e in _rec if e["path"] != str(path)]
+
+    prefs.add_recent = _stub_add_recent
+    prefs.recent = lambda: list(_rec)
+    prefs.remove_recent = _stub_remove_recent
     d = Path(tempfile.mkdtemp())
     M = C.Member
     members = [M(300, 30100, "IC_ENT", "borrow", 11, "", "IC_ENT/IC_ENT.field.toml", False),
@@ -5816,6 +5981,17 @@ def _smoke(win):
     assert win._payload(camp)[0] == "campaign"
     names = [win._payload(camp.child(i))[1] for i in range(camp.childCount())]
     assert names == ["IC_ENT", "IC_COR", "IC_LOST"], names
+    # MRU: the successful open recorded a recent entry; Home renders it as a row; Ctrl-K offers Reopen;
+    # _open_recent round-trips back into the campaign; a vanished path prunes instead of erroring.
+    assert _rec and _rec[0]["kind"] == "campaign" and _rec[0]["path"].endswith("campaign.toml"), _rec
+    win._refresh_recent()
+    assert win._recent_lay.count() == 1, win._recent_lay.count()
+    assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
+    assert win._open_recent("campaign", _rec[0]["path"]) is True
+    prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
+    assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
+    assert all(not e["path"].endswith("missing.field.toml") for e in _rec), "dead entry not pruned"
+    camp = win.tree.topLevelItem(0)                       # the Reopen round-trip rebuilt the tree -> re-fetch
     # the campaign Map document renders the same graph (compute_layout core) -- 3 nodes, 1 edge
     assert win.map._layout is not None and len(win.map._layout.nodes) == 3
     assert len(win.map._layout.edges) == 1
@@ -6097,6 +6273,13 @@ def _smoke(win):
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
     assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
+    # [music]: song+file together -> file silently loses at build, so the GUI warns; a missing file warns;
+    # a real file beside the field.toml is clean (mirrors content.music.mint_field_theme's precedence)
+    assert win._node_problems("music", {"song": 9}, "IC_ENT") == [], "a plain song id is clean"
+    assert win._node_problems("music", {"song": 9, "file": "t.ogg"}, "IC_ENT"), "song+file warns (file ignored)"
+    assert win._node_problems("music", {"file": "no_such.ogg"}, "IC_ENT"), "a missing [music] file warns"
+    (d / "IC_ENT" / "theme.ogg").write_bytes(b"OggS")
+    assert win._node_problems("music", {"file": "theme.ogg"}, "IC_ENT") == [], "an existing [music] file is clean"
     # SCENE.TOML-AWARE reference checks: a choice/cutscene reference resolves against BOTH the field.toml
     # NPCs/markers AND the sibling scene.toml (Blender-owned) -- so a scene-placed entity isn't falsely flagged.
     pdoc.data["npc"].append({"name": "Ref", "preset": "vivi"})       # a field.toml NPC
@@ -7363,6 +7546,7 @@ def main(argv=None):
     smoke = "--smoke" in argv
     if smoke:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")     # deterministic: no worker threads headless
     app = QApplication.instance() or QApplication([])
     app.setWindowIcon(_app_icon())                 # so dialogs/taskbar inherit our icon, not Qt's default
     pal = pick_palette("dark" if smoke else prefs.theme())

@@ -19,8 +19,8 @@ import html
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .. import dialogue as _dlg
@@ -111,6 +111,12 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         if val:
             setter(val)
 
+    def browse_file(field, setter):
+        # a file-backed field (Field.file = the dialog's name filter, e.g. the [music] custom track)
+        fn, _ = QFileDialog.getOpenFileName(w, f"Pick {field.label}", "", field.file)
+        if fn:
+            setter(fn)
+
     for f in spec:
         box = QWidget()
         v = QVBoxLayout(box)
@@ -151,6 +157,14 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             row.addWidget(widget, 1)
             b = QPushButton("Browse…")
             b.clicked.connect(lambda _=False, ff=f, g=getters[f.key], st=setter: browse(ff, g, st))
+            row.addWidget(b)
+            v.addLayout(row)
+        elif getattr(f, "file", None) and setter is not None:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(widget, 1)
+            b = QPushButton("Browse…")
+            b.clicked.connect(lambda _=False, ff=f, st=setter: browse_file(ff, st))
             row.addWidget(b)
             v.addLayout(row)
         else:
@@ -322,7 +336,7 @@ _KIND_LABEL = {
     "sps_template": "SPS templates",
     "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
     "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
-    "storyflag": "Story flags",
+    "song": "Songs", "storyflag": "Story flags",
 }
 # sidebar order: the open project's OWN content first (fields/flags/SPS effects), then the static catalogs.
 _LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS
@@ -342,6 +356,8 @@ _HUB_HELP = {
     "model": "the raw GEO models by their engine name — the lowest level, no animation join.",
     "item": "item / equipment names (+ stats read from your install).",
     "scene": "battle encounter scenes, by id.",
+    "song": "the game's music tracks, by song id (from your install's manifest) — pick one in the Music "
+            "form, or mint your own via <code>[music] file</code>. Appears after the first song browse.",
     "storyflag": "FF9's built-in story-state registry — named engine vars, scenario beats, reserved bit regions.",
     "field": "the fields in the OPEN campaign (this section shows only when a campaign is loaded).",
     "flag": "the named story flags in the OPEN campaign.",

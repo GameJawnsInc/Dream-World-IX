@@ -255,6 +255,15 @@ def build_campaign_argv(path):
     return [sys.executable, "-m", "ff9mapkit", "build-all", str(path)]
 
 
+def pack_argv(mod_root, out_zip, *, name=None):
+    """``ff9mapkit pack`` -- zip a built mod folder for distribution. ``name`` = the mod-folder name
+    INSIDE the zip (what Memoria.ini FolderNames will call it) when the staged folder is a dist/."""
+    a = [sys.executable, "-m", "ff9mapkit", "pack", str(mod_root), "--out", str(out_zip)]
+    if name:
+        a += ["--name", str(name)]
+    return a
+
+
 def deploy_field_argv(repo_root, field):
     """Reversibly deploy a field.toml into this worktree's test slot (``tools/deploy_field.py``)."""
     return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]

@@ -194,3 +194,47 @@ def test_startup_uses_the_saved_theme(app, monkeypatch):
     monkeypatch.setattr(shell.Workspace, "show", lambda self: None)
     shell.main(["ff9_workspace"])
     assert created["pal"] is theme.NORD
+
+
+# ---- recent projects (MRU) — prefs-level, no Qt needed beyond the module import above ----
+
+@pytest.fixture()
+def prefs_file(tmp_path, monkeypatch):
+    """Point the prefs store at a throwaway file so MRU tests never touch the real prefs.json."""
+    from ff9mapkit import prefs
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    return prefs
+
+
+def test_recent_round_trip_dedupes_and_caps(prefs_file, tmp_path):
+    p = prefs_file
+    for i in range(p.RECENT_LIMIT + 3):
+        p.add_recent("field", tmp_path / f"f{i}.field.toml")
+    rows = p.recent()
+    assert len(rows) == p.RECENT_LIMIT                       # capped
+    assert rows[0]["path"].endswith(f"f{p.RECENT_LIMIT + 2}.field.toml")   # most recent first
+    p.add_recent("field", tmp_path / f"f{p.RECENT_LIMIT}.field.toml")      # re-open -> moves to front, no dup
+    rows = p.recent()
+    assert rows[0]["path"].endswith(f"f{p.RECENT_LIMIT}.field.toml")
+    assert len({e["path"] for e in rows}) == len(rows)
+
+
+def test_recent_survives_garbage_and_unknown_kinds(prefs_file, tmp_path):
+    p = prefs_file
+    p.add_recent("overworld", tmp_path / "nope.toml")        # unknown kind -> ignored
+    assert p.recent() == []
+    (tmp_path / "prefs.json").write_text(
+        '{"recent": ["junk", {"kind": "field"}, {"kind": "campaign", "path": "C:/x/campaign.toml"},'
+        ' {"kind": "field", "path": 7}], "theme": "dark"}', encoding="utf-8")
+    rows = p.recent()                                        # only the one well-formed entry survives
+    assert rows == [{"kind": "campaign", "path": "C:/x/campaign.toml"}]
+    assert p.theme() == "dark"                               # unrelated keys untouched
+
+
+def test_remove_recent(prefs_file, tmp_path):
+    p = prefs_file
+    p.add_recent("save", tmp_path / "SavedData_ww.dat")
+    p.add_recent("journey", tmp_path / "journeys.toml")
+    gone = p.recent()[1]["path"]
+    p.remove_recent(gone)
+    assert [e["kind"] for e in p.recent()] == ["journey"]

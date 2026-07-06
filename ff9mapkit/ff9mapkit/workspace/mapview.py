@@ -12,22 +12,32 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from ..editor.graphview import compute_layout
 
+_THUMB_H = 86                                   # the art band inside a node (when any thumbnail is ready)
+
 
 class CampaignMap(QGraphicsView):
     """A scrollable, pannable node-link map of a campaign. ``on_open(name)`` fires on double-clicking a
-    node; the open member is highlighted (accent fill). Call :meth:`render` with a CampaignGraph."""
+    node; the open member is highlighted (accent fill). Call :meth:`render` with a CampaignGraph.
 
-    def __init__(self, palette, *, on_open=None):
+    ``thumbs`` (optional) is ``thumbs(name) -> png path | None`` -- when ANY member has a ready background
+    thumbnail, nodes grow an art band showing the actual room (the layout falls back to the classic compact
+    boxes while nothing is cached, so a game-less machine sees exactly the old map). The taller node size is
+    passed explicitly HERE so the shared tk layout defaults stay untouched."""
+
+    def __init__(self, palette, *, on_open=None, thumbs=None):
         super().__init__()
         self.pal = palette
         self.on_open = on_open
+        self.thumbs = thumbs
+        self._graph = None
         self._layout = None
         self._current = None
+        self._use_thumbs = False
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -36,9 +46,18 @@ class CampaignMap(QGraphicsView):
 
     # -- public --
     def render(self, graph, current=None):
-        self._layout = compute_layout(graph)
+        self._graph = graph
         self._current = current
+        self._layout = compute_layout(graph)
+        self._use_thumbs = bool(self.thumbs) and any(self.thumbs(n.name) for n in self._layout.nodes)
+        if self._use_thumbs:                       # any art ready -> relay out with room for the art band
+            self._layout = compute_layout(graph, node_w=176, node_h=_THUMB_H + 52)
         self._draw()
+
+    def rerender(self):
+        """Redraw from the stored graph (e.g. when a background thumbnail lands) -- a no-op when empty."""
+        if self._graph is not None:
+            self.render(self._graph, self._current)
 
     def highlight(self, name):
         if self._layout is None:
@@ -48,6 +67,7 @@ class CampaignMap(QGraphicsView):
 
     def clear(self):
         self._scene.clear()
+        self._graph = None
         self._layout = None
         self._current = None
 
@@ -128,14 +148,33 @@ class CampaignMap(QGraphicsView):
         path = QPainterPath()
         path.addRoundedRect(QRectF(n.x, n.y, n.w, n.h), 10, 10)
         body = sc.addPath(path, QPen(QColor(outline), 2 if outline != pal["border"] else 1), QBrush(QColor(fill)))
+        items = [body]
+        ty = n.y + 8                                       # where the title starts (below the art band, if any)
+        if self._use_thumbs:
+            ty = n.y + _THUMB_H + 12
+            png = self.thumbs(n.name) if self.thumbs else None
+            pm = QPixmap(png) if png else QPixmap()
+            if not pm.isNull():
+                iw = int(n.w - 12)
+                pm = pm.scaledToWidth(iw, Qt.TransformationMode.SmoothTransformation)
+                if pm.height() > _THUMB_H:                 # center-crop to the band (rooms are portrait-ish)
+                    pm = pm.copy(0, (pm.height() - _THUMB_H) // 2, iw, _THUMB_H)
+                img = sc.addPixmap(pm)
+                img.setPos(n.x + 6, n.y + 6)
+                items.append(img)
+            else:                                          # no art YET for this member: a quiet placeholder band
+                ph = sc.addRect(n.x + 6, n.y + 6, n.w - 12, _THUMB_H,
+                                QPen(QColor(pal["border"]), 1), QBrush(QColor(pal["surface"])))
+                items.append(ph)
         title = sc.addSimpleText(n.name, QFont("Segoe UI", 10, QFont.Weight.Bold))
         title.setBrush(QBrush(QColor(tcol)))
-        title.setPos(n.cx - title.boundingRect().width() / 2, n.y + 8)
+        title.setPos(n.cx - title.boundingRect().width() / 2, ty)
         sub = sc.addSimpleText(f"id {n.new_id} · {n.mode}", QFont("Segoe UI", 8))   # show the mode for every node
         sub.setBrush(QBrush(QColor(sub_col)))
-        sub.setPos(n.cx - sub.boundingRect().width() / 2, n.y + 26)
+        sub.setPos(n.cx - sub.boundingRect().width() / 2, ty + 18)
         tip = self._node_tooltip(n)                       # status + mode gloss + the double-click affordance
-        for item in (body, title, sub):
+        items += [title, sub]
+        for item in items:
             item.setToolTip(tip)
 
     def _arrow_head(self, x1, y1, x2, y2, color, size=11):
