@@ -53,6 +53,50 @@ def test_deploy_battle_animset_fails_loud_on_missing_clip(monkeypatch):
         anim.deploy_battle_animset(6100, [(5415, 5, 1010000)], _tmp("dwix_animset_fail"))
 
 
+def _identity_clip(key):
+    return {"name": str(key), "sample_rate": 30.0,
+            "bones": {"bone001": {"bone": 1, "rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.0, 0.0, 1.0))]}}}
+
+
+def _raise_keyerror(*a, **k):
+    raise KeyError("no model")
+
+
+def test_deploy_battle_animset_edits_routes_edited_and_faithful(monkeypatch):
+    """The Blender edit loop: an edited donor .glb routes ONLY the changed clips onto the character's mint folder;
+    every other clip is a FAITHFUL copy (so the animset stays complete/freeze-safe), and the DONOR is never written."""
+    monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
+    monkeypatch.setattr(anim._gltf_io, "read_glb", lambda p: ({"asset": {"extras": {"ff9_scale": 0.01}}}, b""))
+    monkeypatch.setattr(anim.extract, "read_model", _raise_keyerror)                 # no model_bones -> splice by path
+    monkeypatch.setattr(anim._gltf_io, "read_clip", lambda env, gid, key: _identity_clip(key))
+    edited = {1: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.707, 0.0, 0.707))]}}   # a real ~90deg change
+    monkeypatch.setattr(anim, "parse_gltf_animations",
+                        lambda g, b, scale=None: [{"key": 100, "label": "attack", "bones": edited}])
+    dest = _tmp("dwix_rt_edits")
+    clips = [(5415, 100, 1010000), (5415, 200, 1010001)]
+    r = anim.deploy_battle_animset_edits(clips, 6100, "x.glb", dest)
+    assert r["edited"] == [100] and r["faithful"] == [200] and len(r["written"]) == 2
+    e = json.loads(open(os.path.join(dest, "StreamingAssets", "Assets", "Resources", "Animations",
+                                     "6100", "1010000.anim"), encoding="utf-8").read())
+    f = json.loads(open(os.path.join(dest, "StreamingAssets", "Assets", "Resources", "Animations",
+                                     "6100", "1010001.anim"), encoding="utf-8").read())
+    erot = e["transform"][0]["localRotation"][-1]
+    assert abs(erot["y"] - 0.707) < 1e-3                                              # the edit propagated
+    assert f["transform"][0]["localRotation"][-1]["y"] == 0.0                         # faithful clip unchanged
+    # nothing was written under the DONOR's folder (5415)
+    assert not os.path.isdir(os.path.join(dest, "StreamingAssets", "Assets", "Resources", "Animations", "5415"))
+
+
+def test_deploy_battle_animset_edits_fails_loud_on_missing_source(monkeypatch):
+    monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
+    monkeypatch.setattr(anim._gltf_io, "read_glb", lambda p: ({"asset": {"extras": {}}}, b""))
+    monkeypatch.setattr(anim.extract, "read_model", _raise_keyerror)
+    monkeypatch.setattr(anim._gltf_io, "read_clip", lambda env, gid, key: None)      # source clip gone
+    monkeypatch.setattr(anim, "parse_gltf_animations", lambda g, b, scale=None: [])
+    with pytest.raises(anim.AnimsetError):
+        anim.deploy_battle_animset_edits([(5415, 100, 1010000)], 6100, "x.glb", _tmp("dwix_rt_fail"))
+
+
 # --------------------------------------------------------------------------- JSON serialization (the engine schema)
 
 def test_clip_to_anim_json_matches_the_engine_json_schema():

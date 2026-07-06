@@ -2688,6 +2688,38 @@ def _resolve_playable_battle(bspec, *, game=None):
     return mint_block, bp_row, anim_plan
 
 
+def resolve_playable_animset(field, *, name=None, game=None) -> dict:
+    """Resolve the Blender-edit-loop parameters for a field's ``custom_battle_anims`` ``[[playable]]``:
+    ``{name, source_geo, src_geo_id, dest_geo_id, clips, key_count}``. ``source_geo`` is the DONOR battle model
+    to export for editing (``model-gltf <source_geo> --anims all``); ``clips`` = ``[(src_geo_id, src_key,
+    dst_key)]`` routes the edited clips onto the character's OWN minted animset (:func:`ff9mapkit.models.anim.
+    deploy_battle_animset_edits`). ``field`` is a field.toml path or a :class:`FieldProject`; ``name``
+    disambiguates when several playables use ``custom_battle_anims``."""
+    proj = field if isinstance(field, FieldProject) else FieldProject.load(field)
+    try:
+        specs = _playable.parse_all(proj.raw.get("playable"))
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    cands = [s for s in _playable.custom_serial_specs(specs) if s.get("custom_anims")]
+    if name:
+        cands = [s for s in cands if s["name"].lower() == str(name).lower()]
+    if not cands:
+        raise BuildError("no [[playable]] with custom_battle_anims = true in this field"
+                         + (f" named {name!r}" if name else "")
+                         + " (needs custom_battle_model = true + custom_battle_anims = true)")
+    if len(cands) > 1:
+        raise BuildError(f"{len(cands)} playables use custom_battle_anims -- pass --name to pick one "
+                         f"({', '.join(s['name'] for s in cands)})")
+    _mb, _bp, plan = _resolve_playable_battle(cands[0], game=game)
+    if not plan or not plan.get("clips"):
+        raise BuildError(f"[[playable]] {cands[0]['name']!r}: no re-pointable battle animset "
+                         f"(the donor serial has no resolvable AnimationId clips)")
+    from .models import extract as _extract
+    src_geo_id = next(iter({sg for sg, _sk, _dk in plan["clips"]}))
+    return {"name": cands[0]["name"], "source_geo": _extract.MODELS.get(src_geo_id), "src_geo_id": src_geo_id,
+            "dest_geo_id": plan["mint_id"], "clips": plan["clips"], "key_count": len(plan["clips"])}
+
+
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
     """Prepend ``[field] walkmesh_tri_toggles`` to Main_Init -- reproduce a real field's LOAD-TIME engine
     walkmesh hotfix (``BGI_triSetActive`` keyed on the real ``fldMapNo``, lost when the field is forked to a

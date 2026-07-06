@@ -30,10 +30,15 @@ them (3DModelAnimation lines) + re-points Iviv's BattleParameters row to the new
 identically to Vivi UNTIL you edit them; editing any Animations/6100/*.anim (or the Blender clip loop)
 changes only Iviv. Vivi's own Animations/5415/ is never written. (Trance animations stay shared in v1.)
 
-    Proving a UNIQUE pose (after the deploy + a battle works): edit one shipped clip in the LIVE mod, e.g.
-    <game>\FF9CustomMap\StreamingAssets\Assets\Resources\Animations\6100\<key>.anim — exaggerate a bone's
-    rotation in the JSON — then RELAUNCH and fight. Iviv's motion differs; Vivi's is unchanged. (A
-    first-class "edit in Blender, deploy to Iviv" retarget loop is the next increment.)
+    EDITING Iviv's animations in Blender (the donor is NEVER touched) — `ff9mapkit playable-anims`:
+      ff9mapkit playable-anims iviv.field.toml                 # INFO: which donor model to export + the steps
+      ff9mapkit model-gltf GEO_MAIN_B0_006 --anims all --out iviv_anims.glb
+      # open iviv_anims.glb in Blender, scrub the Action(s) you want unique, edit a pose, export the .glb
+      ff9mapkit playable-anims iviv.field.toml --edit iviv_anims.glb --deploy <game>\FF9CustomMap
+      # -> writes ONLY Iviv's Animations/6100/ (edited motions spliced, the rest faithful); RELAUNCH + fight.
+    (Or hand-edit a shipped clip's JSON directly at Animations\6100\<key>.anim and relaunch — same effect.)
+    NOTE: run playable-anims AFTER deploy_field — re-deploying the field re-ships the faithful animset and wipes
+    these edits, so re-run playable-anims after any field re-deploy.
 
 DEPLOY
 ------

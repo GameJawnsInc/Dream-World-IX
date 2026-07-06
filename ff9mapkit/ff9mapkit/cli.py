@@ -1534,6 +1534,49 @@ def _cmd_model_anim(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_playable_anims(args: argparse.Namespace) -> int:
+    """The Blender edit loop for a 13th character's custom_battle_anims animset: INFO (which donor model to
+    export) or ROUTE an edited donor .glb onto the character's OWN minted animset (the donor is never touched)."""
+    from ff9mapkit import build as B
+    from ff9mapkit.models import anim as manim
+    try:
+        info = B.resolve_playable_animset(args.field, name=args.name, game=args.game)
+    except (B.BuildError, RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    src = info["source_geo"] or f"id {info['src_geo_id']}"
+    if not args.edit:                                       # INFO mode -- show the whole loop
+        print(f"{info['name']}'s battle animset ({info['key_count']} clips) is minted at model id "
+              f"{info['dest_geo_id']} (Animations/{info['dest_geo_id']}/), sourced from {src}.")
+        print("Edit loop (the donor is NEVER touched):")
+        print(f"  1. ff9mapkit model-gltf {src} --anims all --out {info['name'].lower()}_anims.glb")
+        print(f"  2. open the .glb in Blender, scrub/edit the Action(s) you want unique, export the .glb")
+        print(f"  3. ff9mapkit playable-anims {args.field} --edit {info['name'].lower()}_anims.glb --deploy MODFOLDER")
+        print(f"     (writes ONLY {info['name']}'s Animations/{info['dest_geo_id']}/ -- {src} is unchanged)")
+        return 0
+    if not args.deploy:
+        print("playable-anims --edit needs --deploy MODFOLDER (where to write the character's animset)", file=sys.stderr)
+        return 2
+    try:
+        r = manim.deploy_battle_animset_edits(info["clips"], info["dest_geo_id"], args.edit, args.deploy, game=args.game)
+    except (manim.AnimsetError, RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"routed {len(r['edited'])} edited + {len(r['faithful'])} faithful clip(s) -> "
+          f"{info['name']}'s Animations/{r['dest_geo_id']}/ ({info['key_count']} total)")
+    if r["edited"]:
+        print(f"  edited motions (source keys): {', '.join(map(str, r['edited']))}")
+    else:
+        print("  no CHANGED clips in the .glb (every Action matched the donor) -- edit a pose in Blender first")
+    for w in r.get("warnings", []):
+        print(f"  WARN: {w}")
+    print(f"  {src} is untouched. RELAUNCH FF9 to apply (the engine caches .anim by path; F6 keeps the cached one), "
+          f"then enter a battle to see {info['name']}'s new motion.")
+    print(f"  NOTE: run this AFTER deploying the field -- re-deploying it re-ships the faithful animset and wipes "
+          f"these edits, so re-run playable-anims after any field re-deploy.")
+    return 0
+
+
 def _cmd_sound_list(args: argparse.Namespace) -> int:
     """List the id -> ResourceID map for music or SFX -- what to pass to `audio-import --song` / what file
     to override."""
@@ -4037,6 +4080,20 @@ def build_parser() -> argparse.ArgumentParser:
                          "(the loose-override-path proof; F6 -> Reload field to apply)")
     ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
+
+    pa = sub.add_parser("playable-anims",
+                        help="the Blender edit loop for a 13th character's custom_battle_anims animset -- route "
+                             "edited donor clips onto the character's OWN minted animset (donor untouched)")
+    pa.add_argument("field", help="the field.toml carrying the [[playable]] custom_battle_anims block")
+    pa.add_argument("--edit", metavar="GLB", default=None,
+                    help="a Blender-edited .glb (exported from the DONOR via `model-gltf <source_geo> --anims all`) "
+                         "to route onto the character's animset. Omit for INFO (which model to export + how).")
+    pa.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="mod folder to write the character's Animations/<mintId>/ animset into (with --edit)")
+    pa.add_argument("--name", default=None,
+                    help="the [[playable]] name, if the field defines more than one custom_battle_anims character")
+    pa.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    pa.set_defaults(func=_cmd_playable_anims)
 
     for _snd, _label in (("music", "music"), ("sfx", "SFX")):
         sl = sub.add_parser(f"{_snd}-list", help=f"list {_label} song-id -> ResourceID (what audio-import replaces)")

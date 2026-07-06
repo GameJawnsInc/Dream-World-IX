@@ -324,3 +324,28 @@ def test_resolve_playable_battle_canonicalizes_and_explicit_serial():
     assert bp["model"] == "GEO_MAIN_B0_M100"                              # ModelId cell == the registered GEO name
     assert bp["borrow"] == 2 and bp["id"] == 19                          # the explicit anim-source serial was used
     assert plan is None and "anim_names_remap" not in bp                  # no custom_battle_anims -> shared donor clips
+
+
+def _thirteenth_example():
+    import pathlib
+    return pathlib.Path(__file__).resolve().parents[1] / "examples" / "thirteenth-character" / "iviv.field.toml"
+
+
+def test_resolve_playable_animset_maps_the_edit_loop():
+    # the Blender edit-loop resolver: the field's custom_battle_anims playable -> (source donor, mint dest, clips).
+    from ff9mapkit.config import find_game_path
+    from ff9mapkit.build import resolve_playable_animset, FieldProject as FP
+    try:
+        find_game_path()
+    except Exception:                                                    # noqa: BLE001 -- needs the install for the plan
+        pytest.skip("needs the FF9 install (reads the base BattleParameters.csv + p0data)")
+    info = resolve_playable_animset(str(_thirteenth_example()))
+    assert info["name"] == "Iviv" and info["source_geo"] == "GEO_MAIN_B0_006"
+    assert info["dest_geo_id"] == 6100 and info["src_geo_id"] == 5415 and info["key_count"] == 34
+    assert all(len(c) == 3 and c[0] == 5415 for c in info["clips"])       # (src_geo_id, src_key, dst_key), one source
+    assert {c[2] for c in info["clips"]} == {1010000 + i for i in range(34)}   # the mint's fresh key band
+    # a field whose playable lacks custom_battle_anims -> a clear error (no animset to edit)
+    proj = FP.load(str(_thirteenth_example()))
+    proj.raw["playable"][0].pop("custom_battle_anims", None)
+    with pytest.raises(BuildError):
+        resolve_playable_animset(proj)

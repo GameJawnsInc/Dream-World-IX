@@ -347,6 +347,72 @@ def deploy_battle_animset(dest_geo_id: int, clips, mod_folder, *, game=None) -> 
     return written
 
 
+def deploy_battle_animset_edits(clips, dest_geo_id: int, gltf_path, mod_folder, *, scale=None, game=None) -> dict:
+    """The Blender edit loop for a MINTED battle animset: route a donor-model ``.glb`` (exported with
+    ``model-gltf <donor GEO> --anims all`` and edited in Blender) onto the 13th character's OWN animset. For EVERY
+    ``(src_geo_id, src_key, dst_key)`` in the plan's ``clips`` it writes ``Animations/<dest_geo_id>/<dst_key>.anim``
+    -- the ``.glb``'s EDITED clip where a curve actually changed (spliced onto the pristine source so untouched
+    bones stay byte-faithful), else a FAITHFUL copy of the source. So the minted animset stays COMPLETE (every
+    motion has a clip -> no freeze) and only the edited motions differ from the donor; the donor's own
+    ``Animations/<src_geo_id>/`` is never written. Returns ``{written, edited, faithful, warnings, dest_geo_id}``.
+
+    Editing lives entirely in the MINT folder, so it composes with :func:`deploy_battle_animset` (the build's
+    faithful seed) -- re-running this after a build simply overwrites the changed clips."""
+    gltf, blob = _gltf_io.read_glb(gltf_path)
+    stamp = (gltf.get("asset") or {}).get("extras") or {}
+    if scale is None:
+        scale = float(stamp.get("ff9_scale", DEFAULT_SCALE))
+    env5 = _load_env5(game)
+    # the plan's clips share one source model (the anim token's folder); read its bones for the splice fallback
+    model_bones = None
+    src_ids = {int(sg) for sg, _sk, _dk in clips}
+    if len(src_ids) == 1:
+        try:
+            gid = next(iter(src_ids))
+            model_bones = extract.read_model(extract.MODELS.get(gid) or gid, game=game)["bones"]
+        except (RuntimeError, FileNotFoundError, ValueError, KeyError):
+            pass
+    # parse the glb -> edits keyed by the SOURCE clip key (ff9_anim_key stamp, or the ANH action-label fallback if
+    # Blender dropped the stamp); ignore any animation not part of this playable's animset.
+    plan_src_keys = {int(sk) for _sg, sk, _dk in clips}
+    label_to_key = {}
+    try:
+        from .. import catalog
+        for _sg, sk, _dk in clips:
+            parts = (catalog.animation_name(sk) or "").split("_")
+            if len(parts) >= 5:
+                label_to_key.setdefault("_".join(parts[4:]).lower(), int(sk))
+    except Exception:   # noqa: BLE001  -- catalog optional; the ff9_anim_key stamp is the primary route
+        pass
+    edits_by_key: dict = {}
+    for pa in parse_gltf_animations(gltf, blob, scale=scale):
+        key = pa["key"]
+        if key is None and pa["label"]:
+            key = label_to_key.get(pa["label"].lower())
+        if key is not None and int(key) in plan_src_keys:
+            edits_by_key.setdefault(int(key), []).append(pa)
+    written, edited_keys, faithful_keys, warnings = [], [], [], []
+    for src_geo_id, src_key, dst_key in clips:
+        source_clip = _gltf_io.read_clip(env5, int(src_geo_id), int(src_key))
+        if not source_clip or not source_clip.get("bones"):
+            raise AnimsetError(f"custom_battle_anims: source clip Animations/{int(src_geo_id)}/{int(src_key)} is "
+                               f"missing/empty -- can't build the animset (would freeze the battle).")
+        group = [pa for pa in edits_by_key.get(int(src_key), []) if _is_edited(pa["bones"], source_clip)]
+        if group:                                          # a genuinely-edited clip -> splice the changed curves
+            merged = splice_edits_onto_clip(source_clip, group[-1]["bones"], model_bones=model_bones,
+                                            warn=warnings.append)
+            edited_keys.append(int(src_key))
+        else:                                              # untouched -> faithful copy (keeps the animset complete)
+            merged = source_clip
+            faithful_keys.append(int(src_key))
+        p = anim_disc_path(mod_folder, int(dest_geo_id), int(dst_key))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
+        written.append(str(p))
+    return {"written": written, "edited": edited_keys, "faithful": faithful_keys,
+            "warnings": warnings, "dest_geo_id": int(dest_geo_id)}
+
+
 def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scale=None,
                            game=None, force=False) -> dict:
     """Write back the animations from a Blender-edited ``.glb`` as loose ``.anim`` overrides: parse each
