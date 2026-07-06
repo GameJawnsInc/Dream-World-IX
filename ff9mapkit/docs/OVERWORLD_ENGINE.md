@@ -585,6 +585,43 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
 
+### Custom-SHAPED coastline — `world-coast-custom` (ribbon-warp a real beach onto YOUR outline; ⏳ offline-built 2026-07-06, awaits in-game)
+
+Where `world-coast` MOSAICS real coast tiles (the shoreline stays the donor's shape) and `world-water` synthesizes open
+ocean, `world-coast-custom` **bends a real beach's land onto an arbitrary shoreline curve you draw** — the synthesis THE
+LAW demands (a per-cell mosaic of independent tiles can't make a *continuous novel* coastline; cliffs authored apart
+never meet, but one warped ribbon of a single beach can). Code: `world/coast_custom.py`.
+
+**Method — BACKWARD RESAMPLE** (not a forward vertex push). Per target cell, build a regular `seg×seg` Terrain grid; for
+each grid point run the inverse map `world→(s,d)` — project the point onto the shoreline polyline → `s` (along-shore
+arc-length) + signed `d` (cross-shore, seaward +) — then look up the donor's *straightened* field at `(s mod period, d)`.
+Backward resampling is COMPLETE (no gaps), WATERTIGHT (a pure function of world XZ → adjacent cells agree on shared edges
+for free, the same seam guarantee as `world-water`), and has NO fold-over holes (nearest-arc projection degrades to a
+medial-axis crease, never a tear). The donor is straightened via **beach1 PCA** (the waterline strip → along-shore axis;
+the perpendicular is cross-shore, signed so the land sits at `d<0`). Along-shore tiling is **reflective (ping-pong)** so
+the sampled height/shore is continuous where the beach repeats (a hard modulo tears every triangle straddling the seam).
+
+**Deploy (mirrors the `world-water` contract).** Per cell: (1) a complete `Terrain` override = donor land tiles (real Y +
+topograph + atlas UV, visible + walkable) blended into submerged water tiles (topo 57 at `Y=-0.1`) — the s34 gate + the
+walkmesh; (2) a full-cell deep `Sea4` byte-copied from the SeaBlockPrefab source **(12,0)** so real animated deep ocean
+renders across the cell at `Y=0` (land pokes above, submerged tiles hide below); (3) BLANK `Sea1/2/3/5` so the donor's
+own near-shore bands don't cover the land; (4) a `Donor.txt` naming `sea_donor` **(15,4)** — which MUST carry a Terrain +
+Sea transforms (the land override binds to its Terrain transform; a plain deep block like (12,0) has none).
+
+**Usage.** `ff9mapkit world-coast-custom --mod-folder FF9CustomMap --outline '140,-1150;200,-1120;270,-1108;340,-1120;400,-1150'`
+`--beach-donor 17,15 --land-side left --preview coast.png [--dry-run]`. The outline is FLOAT world-XZ points (world Z is
+negative; a cell center is `bx*64+32, -(by*64+32)`). `--beach-donor` = the real coast whose land is warped (default 17,15
+cliffed; **7,17** is flatter); `--land-side {left,right}` = which side of the drawn curve is land. Cells auto-derive from
+the outline (or pass `--cells`). `--preview` writes an **offline top-down PNG** (land by topograph, the curve, the grid,
+fold warnings) — the dev can't see the game, so preview + hermetic tests + human playtest is the loop.
+
+**v1 LIMITATION (the frontier):** the near-shore is a flat deep plane — no warped foam/shallow GRADIENT hugging the bent
+shore yet (a crisp foamless waterline where sand meets deep water). Warping `beach1`/`sea1`/`sea2` to follow the curve is
+the next iteration (`world-water` proves an overridden Sea sub-mesh still animates by transform name, so it's tractable).
+Also: only COAST-HUGGING curves are safe — a bend tighter than the donor's cross-shore reach (~48u) folds the ribbon
+(the command warns). **In-game loop:** deploy from a save NOT parked on a target cell (editing geometry under the parked
+actor bricks it) → relaunch → F6 → World → Teleport to a cell centre. ⏳ AWAITS the first in-game playtest.
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas
