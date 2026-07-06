@@ -64,6 +64,42 @@ def test_island_block_mesh_profile():
     assert {X.decode_id(int(round(interior.tangents[t[0]][0])))["topograph"] for t in interior.tris} == {0}
 
 
+def _tri_slope_deg(bm, tri):
+    import math
+    a, b, c = bm.verts[tri[0]], bm.verts[tri[1]], bm.verts[tri[2]]
+    ux, uy, uz = (b[i] - a[i] for i in range(3))
+    wx, wy, wz = (c[i] - a[i] for i in range(3))
+    nx, ny, nz = uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx
+    L = math.sqrt(nx * nx + ny * ny + nz * nz)
+    return math.degrees(math.acos(min(1.0, abs(ny) / L))) if L > 1e-9 else 0.0
+
+
+def test_cliff_block_mesh_is_a_steep_faithful_wall():
+    # the FAITHFUL (7,17) cliff: a rolling top dropping to Y=0 via a STEEP ~73deg rock WALL, NOT a gentle apron.
+    bm = M.cliff_block_mesh(disc=1, x=4, y=17, cliff_dirs=[(-1, 0), (1, 0), (0, 1), (0, -1)], seg=10,
+                            land_height=4.0, rim_run=1.2, roll_amp=0.6)
+    ys = [v[1] for v in bm.verts]
+    assert min(ys) == 0.0 and max(ys) >= 4.0                  # border at the waterline (0) -> land top (~4 + roll)
+    assert all(_geom_normal_y(bm, t) > 0 for t in bm.tris)    # EVERY tri up-facing -> survives the walkmesh filter
+    # the wall tris (topo 58) are STEEP: essentially all >45deg, median well above the island apron's ~24deg
+    wall = [t for t in bm.tris
+            if X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] == 58
+            and (max(bm.verts[k][1] for k in t) - min(bm.verts[k][1] for k in t)) > 0.3]
+    slopes = sorted(_tri_slope_deg(bm, t) for t in wall)
+    assert slopes and min(slopes) > 45.0                      # 100% of face tris are a wall, not a ramp (matches real)
+    assert 65.0 < slopes[len(slopes) // 2] < 80.0             # median ~73deg (real measured 72deg)
+    topos = {X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] for t in bm.tris}
+    assert topos == {0, 58}                                   # walkable plains top (0) + blocked rock wall (58)
+    # WATERTIGHT: coincident XZ corners share Y (height is a pure fn of XZ) -> no tears
+    seen = {}
+    for v in bm.verts:
+        k = (round(v[0], 3), round(v[2], 3))
+        assert abs(seen.setdefault(k, v[1]) - v[1]) < 1e-4
+    # a cell with NO cliff edges is a flat-topped interior (no wall)
+    interior = M.cliff_block_mesh(disc=1, x=2, y=17, cliff_dirs=[], seg=8, land_height=4.0, roll_amp=0.0)
+    assert {X.decode_id(int(round(interior.tangents[t[0]][0])))["topograph"] for t in interior.tris} == {0}
+
+
 def test_reclaim_dry_run_and_dispatch(monkeypatch):
     deployed = []
     monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)          # no install needed

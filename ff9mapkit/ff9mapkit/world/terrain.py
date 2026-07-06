@@ -150,7 +150,8 @@ def _apply_cliff_rock_uvs(bm, *, tile_u: float = 26.0):
 
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
-            shore_topo: int | None = None, shore_frac: float | None = None, game=None, dry_run: bool = False) -> dict:
+            shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
+            game=None, dry_run: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -164,10 +165,13 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         real atlas pixel colors, not frequency). Water-facing edges are computed
         per cell from the reclaimed set + the real-land set (a cell edge whose neighbour is another reclaimed cell or
         real land gets NO beach -- interior/seam). Per-tri grass/shore topographs are palette-textured individually.
-      * ``"cliff"`` -- a CLIFF coast: the plateau drops via a STEEP shore-rim ramp (topo 58) straight to the waterline
-        (``Y=0``), textured with the REAL grey-rock band (``_apply_cliff_rock_uvs``: U = along-shore arc wrapping the
-        rock strip, V = height up the face) -- the byte-derived (7,17) cliff seam, NOT a topograph palette guess. Cliff
-        defaults: ``height`` 4, ``beach`` 6 (steep), ``shore_topo`` 58, ``shore_frac`` 0.6. No shallow ladder / foam.
+      * ``"cliff"`` -- a CLIFF coast: a rolling walkable land top that drops to the waterline (``Y=0``) via a STEEP
+        near-vertical ROCK WALL on each water edge (:func:`ff9mapkit.world.mesh.cliff_block_mesh`), textured with the
+        REAL grey-rock band (``_apply_cliff_rock_uvs``: U = along-shore arc wrapping the rock strip, V = height up the
+        face). This is the FAITHFUL byte-derived (7,17) cliff (measured 100% of face tris >45deg, median 72deg, ~4u drop
+        over ~1.2u run) -- NOT ``island_block_mesh``'s gentle grid-smeared apron (24deg over 9u, the wrong shape) nor a
+        topograph palette guess. Cliff defaults: ``height`` 4 (wall height), ``rim_run`` 1.2 (wall run -> ~73deg). The
+        wall is topo 58 (on-foot BLOCKED -- the player stops at the rim); no shallow ladder / foam.
       * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea
         surface at ``height=0`` (lift it a few units for an open-ocean cell), fine flush (``height=0``) against a coast.
 
@@ -193,6 +197,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         shore_topo = 58 if profile == "cliff" else 20      # 58 = shore-rim/cliff (on-foot BLOCKED); 20 = walkable sand
     if shore_frac is None:
         shore_frac = 0.6 if profile == "cliff" else 0.3
+    if rim_run is None:
+        rim_run = 1.2                                      # cliff wall run (u); ~1.2 -> the measured (7,17) ~73deg
     reclaimed = set(cells)
     land = set()
     if profile in ("island", "cliff"):
@@ -206,11 +212,15 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         if profile in ("island", "cliff"):
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
                      and (bx + dx, by + dy) not in land]
-            bm = M.island_block_mesh(disc=disc, x=bx, y=by, water_dirs=water, seg=seg, height=height,
-                                     beach=beach, grass_topo=grass_topo, shore_topo=shore_topo, shore_frac=shore_frac)
-            bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # per-tri grass/shore
-            if profile == "cliff":
+            if profile == "cliff":                         # STEEP rock wall (faithful), not island's gentle apron
+                bm = M.cliff_block_mesh(disc=disc, x=bx, y=by, cliff_dirs=water, seg=seg, land_height=height,
+                                        rim_run=rim_run, land_topo=grass_topo)
+                bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # top: grass
                 bm = _apply_cliff_rock_uvs(bm)             # the real grey-rock band on the face (NOT the palette guess)
+            else:
+                bm = M.island_block_mesh(disc=disc, x=bx, y=by, water_dirs=water, seg=seg, height=height,
+                                         beach=beach, grass_topo=grass_topo, shore_topo=shore_topo, shore_frac=shore_frac)
+                bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # per-tri grass/shore
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount, "water_edges": len(water)}
         else:
             bm = M.flat_block_mesh(disc=disc, x=bx, y=by, seg=seg, topograph=topograph, height=height)

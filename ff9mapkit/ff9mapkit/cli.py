@@ -2054,7 +2054,7 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
             return 2
         summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
-                            shore_topo=args.shore_topo, game=args.game, dry_run=args.dry_run)
+                            shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4335,15 +4335,17 @@ def build_parser() -> argparse.ArgumentParser:
                      help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
                           "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
     wrc.add_argument("--profile", choices=["island", "flat", "cliff"], default="island",
-                     help="'island' (default) = grass plateau ramping to a sand beach ring; 'cliff' = plateau dropping "
-                          "via a STEEP shore-rim to the waterline, textured with the REAL grey-rock band (the byte-"
-                          "derived cliff seam); 'flat' = a bare slab of one --topograph")
+                     help="'island' (default) = grass plateau ramping to a sand beach ring; 'cliff' = rolling land top "
+                          "dropping via a STEEP near-vertical ROCK WALL to the waterline (the FAITHFUL byte-derived "
+                          "(7,17) cliff: ~73deg, ~1.2u run, real grey-rock band); 'flat' = a bare slab of one --topograph")
     wrc.add_argument("--height", type=float, default=None,
-                     help="land Y: plateau height (default island 6 / cliff 4) or flat-slab Y (default 0 = coast level)")
+                     help="land Y: plateau/wall height (default island 6 / cliff 4) or flat-slab Y (default 0 = coast level)")
     wrc.add_argument("--beach", type=float, default=None,
-                     help="shore ramp WIDTH in units (default island 22 gentle / cliff 6 steep) -- how far the drop slopes inland")
+                     help="island shore ramp WIDTH in units (default 22 gentle) -- how far the drop slopes inland (island profile)")
+    wrc.add_argument("--rim-run", type=float, default=None,
+                     help="cliff wall RUN in units (default 1.2 -> ~73deg, the measured (7,17) wall); smaller = steeper (cliff profile)")
     wrc.add_argument("--shore-topo", type=int, default=None,
-                     help="shore-edge terrain type (default island 20 sand / cliff 58 shore-rim; 58 is on-foot BLOCKED)")
+                     help="island shore-edge terrain type (default 20 sand; 58 is on-foot BLOCKED)")
     wrc.add_argument("--topograph", type=int, default=0,
                      help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
     wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
