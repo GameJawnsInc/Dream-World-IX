@@ -91,13 +91,25 @@ def build_thumb(project_toml, real_id) -> Path | None:
     if out.is_file():
         return out
     if src is not None:
-        return _scale_to_cache(src, out)
-    # install-side composite of the real/donor field (slow-once; bundle cache keeps siblings cheap)
+        png = _scale_to_cache(src, out)
+        stale_prefix = key.rsplit("_", 2)[0]       # proj_<hash> -- older mtime/size variants of the SAME
+        for old in _cache_dir().glob(f"{stale_prefix}_*.png"):     # source are dead weight: prune them
+            if old != out:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return png
+    # install-side composite of the real/donor field (slow-once; bundle cache keeps siblings cheap).
+    # env_lock serializes against any GUI-thread reader of the same cached UnityPy environments (the SPS
+    # detail preview) -- their SerializedFile readers are stateful and not thread-safe.
     from .. import extract
     with tempfile.TemporaryDirectory(prefix="ff9-thumb-") as td:
         full = Path(td) / "full.png"
         # camera 0 keeps multi-camera fields clean (index None jams every overlay onto one canvas)
-        if extract.compose_background(str(int(real_id)), full, draw_footprint=False, camera_index=0) is None:
+        with extract.env_lock:
+            ok = extract.compose_background(str(int(real_id)), full, draw_footprint=False, camera_index=0)
+        if ok is None:
             return None
         return _scale_to_cache(full, out)
 
@@ -115,7 +127,8 @@ class ThumbService(QObject):
         self._done = {}                          # member -> png path (str)
         self._miss = set()                       # members that resolved to no-source/no-install
         self._pending = set()
-        self._lock = threading.Lock()
+        self._gen = 0                            # bumped by invalidate(): in-flight results older than the
+        self._lock = threading.Lock()            # bump are DROPPED (they may have read pre-refresh art)
         self._worker = None
 
     # ---- GUI-thread API ----
@@ -129,25 +142,32 @@ class ThumbService(QObject):
         png = self._done.get(member)
         if png:
             return png
+        # enqueue + worker liveness under ONE lock: the worker only retires (sets _worker = None) under the
+        # same lock after a final empty-queue check, so a put can never be stranded by a dying worker.
         with self._lock:
             if member in self._miss or member in self._pending:
                 return None
             self._pending.add(member)
-        self._q.put((member, str(project_toml) if project_toml else None, real_id))
-        if self._worker is None or not self._worker.is_alive():
-            self._worker = threading.Thread(target=self._drain, name="ff9-thumbs", daemon=True)
-            self._worker.start()
+            self._q.put((member, str(project_toml) if project_toml else None, real_id))
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._drain, name="ff9-thumbs", daemon=True)
+                self._worker.start()
         return None
 
     def invalidate(self, member=None):
-        """Forget results/misses (one member, or all) so the next request re-resolves -- F5's analogue."""
+        """Forget results/misses/pendings (one member, or all) so the next request re-resolves -- F5's
+        analogue. Bumps the generation so an IN-FLIGHT build (which may have read the old art) is dropped
+        instead of landing stale over the fresh state."""
         with self._lock:
+            self._gen += 1
             if member is None:
                 self._done.clear()
                 self._miss.clear()
+                self._pending.clear()
             else:
                 self._done.pop(member, None)
                 self._miss.discard(member)
+                self._pending.discard(member)
 
     # ---- worker ----
     def _drain(self):
@@ -155,15 +175,28 @@ class ThumbService(QObject):
             try:
                 member, toml, real_id = self._q.get(timeout=2.0)
             except queue.Empty:
-                return                            # idle -> let the thread die; request() restarts one
+                with self._lock:                  # retire ATOMICALLY vs request(): re-check under the lock
+                    if self._q.empty():
+                        self._worker = None       # published before death -> the next request starts fresh
+                        return
+                continue                          # a put landed in the gap -> keep draining
+            with self._lock:
+                gen = self._gen
             try:
                 png = build_thumb(toml, real_id)
             except Exception:   # noqa: BLE001  (no install / bad art / anything) -> a remembered miss
                 png = None
             with self._lock:
+                if gen != self._gen:              # invalidated mid-build: the result may be stale -> drop
+                    self._pending.discard(member)
+                    continue
                 self._pending.discard(member)
                 if png is None:
                     self._miss.add(member)
+                else:
+                    self._done[member] = str(png)
             if png is not None:
-                self._done[member] = str(png)
-                self.ready.emit(member, str(png))   # queued into the GUI thread
+                try:
+                    self.ready.emit(member, str(png))   # queued into the GUI thread
+                except RuntimeError:              # the service's C++ half died (app exit) -- stop quietly
+                    return

@@ -61,7 +61,9 @@ def pack_mod(mod_root, out_path, *, name=None) -> Path:
     mod_root = Path(mod_root).resolve()
     if not mod_root.is_dir():
         raise FileNotFoundError(mod_root)
-    top = str(name).strip() if name else mod_root.name
+    top = (str(name).strip() if name else "") or mod_root.name    # whitespace-only -> the folder's own name
+    if "/" in top or "\\" in top:
+        raise ValueError(f"--name must be a bare folder name, not a path: {top!r}")
     out_path = Path(out_path)
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for p in sorted(mod_root.rglob("*")):

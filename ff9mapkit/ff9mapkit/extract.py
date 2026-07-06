@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import re
+import threading
 from collections import OrderedDict
 from pathlib import Path
 
@@ -83,20 +84,28 @@ def _bundles(game=None):
 _STREAM_ENV_CACHE: "OrderedDict[str, object]" = OrderedDict()
 _STREAM_ENV_CACHE_MAX = 8
 
+# Cached UnityPy environments are NOT thread-safe: each object read seeks a SHARED stateful reader inside
+# the SerializedFile, so two threads parsing the same env interleave into garbage. Historically everything
+# ran on one thread; the Workspace's thumbnail worker changed that. Every user of a cached env from OFF the
+# main thread (and any main-thread reader that can overlap one -- the SPS detail preview) must hold this
+# re-entrant lock for the DURATION of its env reads, not just the load.
+env_lock = threading.RLock()
+
 
 def _load_env(path):
     """``UnityPy.load`` a static base-game bundle, memoized (bounded LRU) by absolute path. Read-only
     base data ONLY -- never a mod-folder bundle (those mutate on deploy; use ``_load_mod_bundle``)."""
-    key = os.path.abspath(str(path))
-    env = _STREAM_ENV_CACHE.get(key)
-    if env is not None:
-        _STREAM_ENV_CACHE.move_to_end(key)
+    with env_lock:
+        key = os.path.abspath(str(path))
+        env = _STREAM_ENV_CACHE.get(key)
+        if env is not None:
+            _STREAM_ENV_CACHE.move_to_end(key)
+            return env
+        env = _unitypy().load(key)
+        _STREAM_ENV_CACHE[key] = env
+        while len(_STREAM_ENV_CACHE) > _STREAM_ENV_CACHE_MAX:
+            _STREAM_ENV_CACHE.popitem(last=False)
         return env
-    env = _unitypy().load(key)
-    _STREAM_ENV_CACHE[key] = env
-    while len(_STREAM_ENV_CACHE) > _STREAM_ENV_CACHE_MAX:
-        _STREAM_ENV_CACHE.popitem(last=False)
-    return env
 
 
 # ---- field -> bundle index (built once, cached; so lookups don't rescan ~50 bundles) ----

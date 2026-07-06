@@ -444,6 +444,8 @@ def snippet(entry: Entry) -> str:
         return f'give_item = [{e.ident}, 1]  # {e.name} -- e.g. an [[event]] reward'
     if e.kind == "scene":
         return f'[encounter]\nscene = {e.ident}  # {e.name}'
+    if e.kind == "song":
+        return f'[music]\nsong = {e.ident}  # {e.name}'
     if e.kind == "sps_template":                       # a creator preset -> a ready [[sps]] block
         return (f'[[sps]]\nid = 5000\ntemplate = "{e.name}"\n'
                 f'pos = [0, 0]        # [x, z] -- auto-grounded onto the floor')
@@ -518,6 +520,12 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         d = Detail(name=e.name, kind="flag", model=None, model_id=e.ident, snippet=snippet(e))
         d.facts = [("kind", "campaign story flag"), ("index", str(e.ident)),
                    ("gate", f'requires_flag = "{e.name}"'), ("set", f'set_flag = ["{e.name}", 1]')]
+        return d
+    if e.kind == "song":                               # a game music track (the [music] song picker)
+        d = Detail(name=e.name, kind="song", model=None, model_id=e.ident, snippet=snippet(e))
+        d.facts = [("kind", "game song"), ("song id", str(e.ident)),
+                   ("resource", e.summary.split("— ", 1)[-1]),
+                   ("use", f"[music] song = {e.ident}")]
         return d
     if e.kind == "storyflag":                          # an FF9 story-flag registry entry (reference)
         sub, name, loc, meaning, tier = _storyflag_rows().get(e.name, ("", e.name, "", e.summary, ""))

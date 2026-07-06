@@ -336,7 +336,7 @@ _KIND_LABEL = {
     "sps_template": "SPS templates",
     "archetype": "Archetypes", "creature": "Creatures", "composite": "Composites",
     "prop": "Props", "model": "Models", "item": "Items", "scene": "Battle scenes",
-    "storyflag": "Story flags",
+    "song": "Songs", "storyflag": "Story flags",
 }
 # sidebar order: the open project's OWN content first (fields/flags/SPS effects), then the static catalogs.
 _LIBRARY_ORDER = ("field", "flag", "sps") + infohub.KINDS
@@ -356,6 +356,8 @@ _HUB_HELP = {
     "model": "the raw GEO models by their engine name — the lowest level, no animation join.",
     "item": "item / equipment names (+ stats read from your install).",
     "scene": "battle encounter scenes, by id.",
+    "song": "the game's music tracks, by song id (from your install's manifest) — pick one in the Music "
+            "form, or mint your own via <code>[music] file</code>. Appears after the first song browse.",
     "storyflag": "FF9's built-in story-state registry — named engine vars, scenario beats, reserved bit regions.",
     "field": "the fields in the OPEN campaign (this section shows only when a campaign is loaded).",
     "flag": "the named story flags in the OPEN campaign.",

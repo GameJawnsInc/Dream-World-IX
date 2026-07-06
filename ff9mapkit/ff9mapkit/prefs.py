@@ -35,7 +35,9 @@ def save(d: dict) -> None:
     try:
         p = _path()
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(d, indent=2), encoding="utf-8")
+        tmp = p.with_name(p.name + ".tmp")         # atomic: a crash mid-write must not wipe theme + MRU
+        tmp.write_text(json.dumps(d, indent=2), encoding="utf-8")
+        tmp.replace(p)
     except OSError:
         pass
 

@@ -14,21 +14,27 @@ from tkinter import ttk
 from .. import infohub
 
 
-def pick(parent, *, kinds=None, title="Pick from the catalog", initial="", campaign_context=None):
+def pick(parent, *, kinds=None, title="Pick from the catalog", initial="", campaign_context=None,
+         want_id=False):
     """Open a modal catalog picker over the spine; return the chosen entry name (str) or None if cancelled.
 
     ``kinds`` restricts the search to those catalog kinds (e.g. ``["archetype", "creature"]``); None = all.
     ``initial`` pre-fills the search box (e.g. the field's current value). ``campaign_context`` (a
-    CampaignPlan) lets the picker also surface the open campaign's members/shared flags (kind 'field'/'flag')."""
-    dlg = _PickerDialog(parent, kinds=kinds, title=title, initial=initial, campaign_context=campaign_context)
+    CampaignPlan) lets the picker also surface the open campaign's members/shared flags (kind 'field'/'flag').
+    ``want_id`` returns the picked entry's numeric id instead of its name -- REQUIRED for a catalog on a
+    numeric form field (battle scene, song), which can't parse a name (the Qt picker's want_id twin)."""
+    dlg = _PickerDialog(parent, kinds=kinds, title=title, initial=initial, campaign_context=campaign_context,
+                        want_id=want_id)
     parent.wait_window(dlg.win)
     return dlg.result
 
 
 class _PickerDialog:
-    def __init__(self, parent, *, kinds=None, title="Pick", initial="", campaign_context=None):
+    def __init__(self, parent, *, kinds=None, title="Pick", initial="", campaign_context=None,
+                 want_id=False):
         self.kinds = list(kinds) if kinds else None
         self.campaign_context = campaign_context
+        self.want_id = want_id
         self.result = None
         self._entries = []
 
@@ -90,7 +96,9 @@ class _PickerDialog:
         if not sel and len(self._entries) == 1:        # a single match + Enter -> take it
             sel = (0,)
         if sel:
-            self.result = self._entries[sel[0]].name
+            e = self._entries[sel[0]]
+            # a numeric target field needs the entry's ID (its name would fail the int parse on save)
+            self.result = str(e.ident) if self.want_id and e.ident is not None else e.name
             self.win.destroy()
 
     def _cancel(self):

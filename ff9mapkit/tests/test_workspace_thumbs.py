@@ -108,3 +108,52 @@ def test_service_remembers_a_miss(cache):
     assert svc.request("Y", toml, None) is None and svc._q.qsize() == 0
     svc.invalidate("Y")                                # F5's analogue re-arms it
     assert "Y" not in svc._miss
+
+
+def test_build_thumb_corrupt_png_raises_and_service_records_a_miss(cache):
+    import time
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    proj = cache / "CORRUPT"
+    proj.mkdir()
+    toml = proj / "C.field.toml"
+    toml.write_text("[field]\nid = 3\n", encoding="utf-8")
+    (proj / "background.png").write_bytes(b"not a png at all")
+    with pytest.raises(Exception):                      # the pure builder raises (PIL can't identify it)...
+        thumbs.build_thumb(toml, None)
+    svc = thumbs.ThumbService()                         # ...and the service swallows it into a MISS
+    svc.request("C", toml, None)
+    deadline = time.monotonic() + 10
+    while "C" not in svc._miss and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert "C" in svc._miss and svc.cached("C") is None
+
+
+def test_invalidate_drops_an_in_flight_stale_build(cache):
+    """The generation counter: a result whose build STARTED before invalidate() must not land (it may
+    have read pre-refresh art). Simulated by monkeypatching build_thumb to wait for the bump."""
+    import time
+    import threading as _t
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    toml = _project(cache)
+    svc = thumbs.ThumbService()
+    bumped = _t.Event()
+    real_build = thumbs.build_thumb
+
+    def slow_build(t, rid):
+        bumped.wait(timeout=10)                         # hold the in-flight build until F5 fires
+        return real_build(t, rid)
+    thumbs.build_thumb = slow_build
+    try:
+        svc.request("IC_ENT", toml, None)
+        worker = svc._worker
+        time.sleep(0.2)                                 # the worker is now inside slow_build
+        svc.invalidate()                                # F5 while in flight
+        bumped.set()
+        worker.join(timeout=15)                         # let the worker COMMIT (i.e. drop) + retire
+        app.processEvents()
+        assert svc.cached("IC_ENT") is None, "a stale in-flight result landed after invalidate()"
+    finally:
+        thumbs.build_thumb = real_build

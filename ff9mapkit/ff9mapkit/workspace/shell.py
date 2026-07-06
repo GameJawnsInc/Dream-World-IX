@@ -49,6 +49,7 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
+from . import thumbs as _thumbs
 from .thumbs import ThumbService
 from .widgets import PlaceholderListWidget, install_wheel_guard
 
@@ -901,7 +902,6 @@ class Workspace(QMainWindow):
         split.addWidget(self.tabs)
 
         insp = QWidget()
-        insp.setMaximumWidth(420)                   # an info panel -- cap it so long content can't balloon it
         iv = QVBoxLayout(insp)
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
@@ -919,7 +919,15 @@ class Workspace(QMainWindow):
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
-        split.addWidget(insp)
+        # Scrollable: a tall card (thumbnail + rollup + xrefs) must scroll, not clip -- and without the
+        # scroll area its minimumSizeHint would also make the whole window un-shrinkable.
+        insp_scroll = QScrollArea()
+        insp_scroll.setWidgetResizable(True)
+        insp_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        insp_scroll.setMaximumWidth(420)            # an info panel -- cap it so long content can't balloon it
+        insp_scroll.setWidget(insp)
+        split.addWidget(insp_scroll)
 
         split.setSizes([300, 640, 240])
         split.setStretchFactor(1, 1)
@@ -1135,11 +1143,10 @@ class Workspace(QMainWindow):
         if not hasattr(self, "_recent_lay"):
             return
         self._clear_layout(self._recent_lay)
-        rows = prefs.recent()
-        gone = [e for e in rows if not Path(e["path"]).exists()]
-        for e in gone:
-            prefs.remove_recent(e["path"])
-        rows = [e for e in rows if e not in gone][:6]
+        # DISPLAY-filter unreachable paths only -- never persist the prune here: a network share or an
+        # unplugged drive is transient, and silently deleting the row would lose the user's list. The
+        # persistent prune happens in _open_recent, where the user clicked and saw the message.
+        rows = [e for e in prefs.recent() if Path(e["path"]).exists()][:6]
         self._recent_head.setVisible(bool(rows))
         self._recent_box.setVisible(bool(rows))
         for e in rows:
@@ -2459,6 +2466,7 @@ class Workspace(QMainWindow):
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
+        self.thumbs.invalidate()                   # same-named fields across projects (see open_campaign)
         path = Path(path)
         try:
             doc = FieldDoc.load(path)
@@ -2563,8 +2571,9 @@ class Workspace(QMainWindow):
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
-        path = Path(path)
-        try:
+        self.thumbs.invalidate()                   # member NAMES recur across projects (same-FBG forks) --
+        path = Path(path)                          # never show the previous project's art; re-resolution is
+        try:                                       # near-instant off the disk cache
             plan = C.load_campaign(path)
         except Exception as e:                     # noqa: BLE001
             self.statusBar().showMessage(f"Open failed: {e}")
@@ -3104,8 +3113,8 @@ class Workspace(QMainWindow):
                 cmds.insert(3, ("Add region to arc…", "command", self.on_add_region_to_arc))
                 cmds.insert(4, ("Fill entry from forks…", "command", self.on_reconcile_journey))
         for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
-            cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']}", "recent",
-                         lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
+            cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
+                         "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
         content = []
 
         def walk(item):
@@ -3453,6 +3462,8 @@ class Workspace(QMainWindow):
                 self._mount_logic_node(member, int(parts[1]), int(parts[2]))
             return
         if key in _SINGLES:                        # a single table (field/encounter/music/dialogue)
+            if key == "music":
+                self._prewarm_songs()              # so the song Browse… picker doesn't extract on the GUI thread
             spec = _SECTION_SPEC[key]
             self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
             return
@@ -5266,13 +5277,31 @@ class Workspace(QMainWindow):
                 return m.real_id
         return None
 
+    def _prewarm_songs(self):
+        """Warm the song-manifest disk cache in the background (the first-ever extraction reads the
+        install's 590 MB resources.assets) so the music form's Browse… picker opens instantly instead of
+        freezing the GUI thread. Once-per-process; failures are the picker's empty-list case anyway."""
+        if getattr(self, "_songs_warmed", False) or not _thumbs.enabled():
+            return                                 # the NO_THUMBS flag doubles as 'no background readers'
+        self._songs_warmed = True
+
+        def _warm():
+            try:
+                from .. import sound
+                sound.read_manifest("music")
+            except Exception:   # noqa: BLE001  (no install / no UnityPy) -> the picker shows no songs
+                pass
+        threading.Thread(target=_warm, name="ff9-songwarm", daemon=True).start()
+
     def _on_thumb_ready(self, member, _png):
         """A background thumbnail landed (queued from the worker): refresh the Inspector if that field is
-        the one being inspected, and coalesce a Map redraw (many arrive in a burst on campaign open)."""
+        the one being inspected, and coalesce a Map redraw (many arrive in a burst on campaign open).
+        INSPECTOR-ONLY refresh -- a full _on_select would re-mount (and commit) the actively edited form,
+        yanking focus mid-typing."""
         cur = self.tree.currentItem()
         fa = self._ancestor_field(cur) if cur is not None else None
-        if fa is not None and self._payload(fa)[1] == member:
-            self._on_select()                          # re-inspect -> the img line appears
+        if fa is not None and self._payload(fa)[1] == member and cur is not None:
+            self._inspect(cur, self._payload(cur), member)   # rewrites insp_title/body only
         self._thumb_rerender.start()
 
     def _inspect_field(self, name):
@@ -5282,8 +5311,12 @@ class Workspace(QMainWindow):
         lines = []
         doc = self._safe_doc(name)
         png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
-        if png:                                     # rich text renders the file:/// img; width caps it under
-            lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')   # the 420px panel
+        if png:                                     # rich text renders the file:/// img. Landscape rooms cap
+            pm = QPixmap(png)                       # by WIDTH (the 420px panel); tall scrolling rooms cap by
+            if pm.height() > pm.width() * 1.4:      # HEIGHT so the card's text stays above the fold.
+                lines.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
+            else:
+                lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:

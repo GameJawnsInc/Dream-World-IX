@@ -844,12 +844,15 @@ def _cmd_import_all(args: argparse.Namespace) -> int:
 def _cmd_pack(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .pack import pack_mod
-    name = getattr(args, "name", None)
+    name = (getattr(args, "name", None) or "").strip() or None
     out = args.out or ((name or Path(args.mod_root).resolve().name) + ".zip")
     try:
         z = pack_mod(args.mod_root, out, name=name)
     except FileNotFoundError as e:
         print(f"mod folder not found: {e}", file=sys.stderr)
+        return 2
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
     print(f"packed {args.mod_root} -> {z}")
     return 0

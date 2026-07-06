@@ -648,7 +648,12 @@ class ImportDoc(QWidget):
     # ---- fork-preview art (SEE the room you're about to fork) ----
     def _request_preview_art(self, token):
         """Show the field's background beside the fidelity report. Numeric ids only (a name would need the
-        install-side index resolved here); async + cached via the shell's ThumbService."""
+        install-side index resolved here); async + cached via the shell's ThumbService. ALWAYS resets the
+        previous preview first -- stale art next to a different field's report is worse than none."""
+        self._preview_key = None
+        if hasattr(self, "preview_img"):
+            self.preview_img.clear()
+            self.preview_img.setVisible(False)
         if self.thumbs is None or not token.isdigit():
             return
         self._preview_key = f"import:{int(token)}"
