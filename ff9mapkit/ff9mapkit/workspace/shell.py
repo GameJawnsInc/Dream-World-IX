@@ -20,7 +20,9 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QObject, QProcess, QSize, QUrl, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtGui import (
+    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
@@ -47,7 +49,7 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
-from .widgets import install_wheel_guard
+from .widgets import PlaceholderListWidget, install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -80,6 +82,43 @@ def _app_icon() -> QIcon:
     so the GUI still launches. Lazy: QIcon defers the actual decode until first paint."""
     ico = Path(__file__).resolve().parent / "dreamworldix.ico"
     return QIcon(str(ico)) if ico.is_file() else QIcon()
+
+
+def _qpalette(pal) -> QPalette:
+    """A QPalette derived from the theme palette, so anything the stylesheet does NOT reach (native-drawn
+    frames, combo popups, message boxes, the Fusion base style's fallbacks) still follows the chosen theme.
+    Without this, Qt keeps the PLATFORM palette -- on a dark-mode OS every light theme rendered as a broken
+    dark/light mix (and vice versa)."""
+    p = QPalette()
+    roles = {
+        QPalette.ColorRole.Window: pal["bg"],
+        QPalette.ColorRole.WindowText: pal["text"],
+        QPalette.ColorRole.Base: pal["field"],
+        QPalette.ColorRole.AlternateBase: pal["surface"],
+        QPalette.ColorRole.Text: pal["text"],
+        QPalette.ColorRole.Button: pal["surface_btn"],
+        QPalette.ColorRole.ButtonText: pal["text"],
+        QPalette.ColorRole.Highlight: pal["accent"],
+        QPalette.ColorRole.HighlightedText: pal["accent_fg"],
+        QPalette.ColorRole.ToolTipBase: pal["surface"],
+        QPalette.ColorRole.ToolTipText: pal["text"],
+        QPalette.ColorRole.PlaceholderText: pal["muted"],
+        QPalette.ColorRole.Link: pal["accent"],
+    }
+    for role, color in roles.items():
+        p.setColor(role, QColor(color))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        p.setColor(QPalette.ColorGroup.Disabled, role, QColor(pal["muted"]))
+    return p
+
+
+def _apply_app_theme(app, pal):
+    """Point the whole application at ``pal``: the Fusion base style (the one built-in style that fully
+    honours stylesheets -- the Windows-11 default paints its own OS-mode chrome UNDER the QSS) + the derived
+    QPalette. Idempotent; called at launch and on a live theme switch."""
+    if app.style().objectName() != "fusion":
+        app.setStyle("fusion")
+    app.setPalette(_qpalette(pal))
 
 # section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
@@ -347,6 +386,9 @@ class Workspace(QMainWindow):
         self.setWindowTitle(f"Dream World IX — Workspace   ·   v{__version__}")
         self.setWindowIcon(_app_icon())
         self.resize(1280, 820)
+        app = QApplication.instance()
+        if app is not None:                        # direct construction (smoke/tests) gets the same base
+            _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
         self.setStyleSheet(qss(pal))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
@@ -393,8 +435,13 @@ class Workspace(QMainWindow):
         navigation read the new ``self.pal`` automatically; the one currently open keeps its inline hint
         colours until it's next rebuilt (clicking away and back refreshes it)."""
         self.pal = pal
+        app = QApplication.instance()
+        if app is not None:
+            _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
         self.setStyleSheet(qss(pal))
         self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
+        if getattr(self, "problems", None) is not None:
+            self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
         self._retint_version_chip()
         self._retint_hub_button()
         if getattr(self, "crumb", None) is not None:
@@ -722,7 +769,7 @@ class Workspace(QMainWindow):
                                     "kept (only the scene side is re-read). (F5)")
         self.act_refresh.triggered.connect(self.on_refresh_scene)
         tb.addAction(self.act_refresh)                  # always enabled: a benign read; no-ops if nothing's loaded
-        self.act_lint_cli = QAction("Lint (CLI)", self)
+        self.act_lint_cli = QAction("Lint", self)
         self.act_lint_cli.setToolTip("Run the full `ff9mapkit lint` through the CLI (the complete validator "
                                      "suite, in a subprocess) — output streams to the Output console.")
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
@@ -737,10 +784,17 @@ class Workspace(QMainWindow):
         self._retint_hub_button()                           # the Info Hub's own ? badge) so the popup stands out
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        tb.addWidget(spacer)
-        search = QPushButton("⌕   Search content & commands   (Ctrl-K)")
+        spacer.setStyleSheet("background: transparent;")   # the global QWidget rule painted it $bg -- a
+        tb.addWidget(spacer)                               # dark hole in the toolbar
+        # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
+        # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
+        # features were invisible until the window grew. Now it shrinks first and never evicts anything.
+        search = QPushButton("⌕  Search anything  (Ctrl-K)")
         search.setObjectName("search")
-        search.setFixedWidth(320)
+        search.setToolTip("Jump to any command, field, or object (Ctrl-K)")
+        search.setMinimumWidth(150)
+        search.setMaximumWidth(360)
+        search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
         self._settings_btn = self._menu_button(tb, "⚙", "Preferences, About, and updates", [
@@ -748,6 +802,7 @@ class Workspace(QMainWindow):
             ("Check for updates…", self._open_update_dialog),
             ("About Dream World IX", self._open_about),
         ])
+        self._settings_btn.setObjectName("gear")           # compact, chevron-free (see the QSS #gear rules)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
@@ -818,7 +873,7 @@ class Workspace(QMainWindow):
         self.story_state = StoryStateDoc(self.pal, output=self._save_output)       # save STATE layer (5b-i)
         self.tabs.addTab(self.story_state, "Story State")
         self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
-        self.tabs.addTab(self.item_equip, "Item & Equip")
+        self.tabs.addTab(self.item_equip, "Item && Equip")     # && -- a lone & is eaten as a mnemonic
         self.battle = BattleDoc(self.pal, output=self._save_output, problems=self._show_problems,
                                 run=self.run_job, kit_root=KIT,            # encounter editor + Fork battle…
                                 on_open=self._on_battle_open)              # opening/forking a battle.toml pre-aims Build & Deploy
@@ -826,7 +881,7 @@ class Workspace(QMainWindow):
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
-        self.tabs.addTab(self.build_deploy, "Build & Deploy")
+        self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                       on_forked=self._import_forked)       # a clean fork auto-opens its project
         self.tabs.addTab(self.import_field, "Import")
@@ -842,7 +897,7 @@ class Workspace(QMainWindow):
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
-        self.insp_title.setStyleSheet("font-weight:600;")
+        self.insp_title.setStyleSheet("font-weight:600;font-size:15px;")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
@@ -885,7 +940,9 @@ class Workspace(QMainWindow):
         self.banner = QLabel("")
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
-        self.problems = QListWidget()
+        self.problems = PlaceholderListWidget(
+            "No problems yet — Check (toolbar) validates the open project and reports here.",
+            self.pal["muted"])
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -897,6 +954,7 @@ class Workspace(QMainWindow):
         ov.addWidget(self._dock_header("Output"))
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)
 
         split.addWidget(prob_page)
@@ -925,12 +983,19 @@ class Workspace(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        page = QWidget()                           # full-width page; the content column is width-capped and
+        ph = QHBoxLayout(page)                     # centred so lines don't stretch across a wide monitor
+        ph.setContentsMargins(30, 26, 30, 26)
         body = QWidget()
+        body.setMaximumWidth(860)
+        ph.addStretch(1)
+        ph.addWidget(body, 4)
+        ph.addStretch(1)
         v = QVBoxLayout(body)
-        v.setContentsMargins(30, 26, 30, 26)
+        v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
         title = QLabel("Dream World IX — Workspace")
-        title.setStyleSheet("font-size:18px;font-weight:700;")
+        title.setStyleSheet("font-size:22px;font-weight:700;")
         v.addWidget(title)
         self._home_status = QLabel("")
         self._home_status.setWordWrap(True)
@@ -944,54 +1009,69 @@ class Workspace(QMainWindow):
         intro.setStyleSheet(f"color:{self.pal['muted']};")
         v.addWidget(intro)
         v.addWidget(self._home_section("The project spine — top-down"))
-        v.addWidget(self._home_row("◆ Journey", "the whole arc: a hub + member campaigns + links (the front door)",
-                                   [("Open…", self.on_open_journey), ("New…", self.on_new_journey)]))
-        v.addWidget(self._home_row("▣ Campaign", "a connected chain of fields",
-                                   [("Open…", self.on_open_campaign), ("New…", self.on_new_campaign)]))
-        v.addWidget(self._home_row("● Field", "one explorable screen (edit it standalone)",
-                                   [("Open…", self.on_open_field), ("New…", self.on_new_field)]))
+        v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
+                                   [("Open…", self.on_open_journey, True), ("New…", self.on_new_journey, False)]))
+        v.addWidget(self._home_row("▣", "Campaign", "a connected chain of fields",
+                                   [("Open…", self.on_open_campaign, False), ("New…", self.on_new_campaign, False)]))
+        v.addWidget(self._home_row("●", "Field", "one explorable screen (edit it standalone)",
+                                   [("Open…", self.on_open_field, False), ("New…", self.on_new_field, False)]))
         v.addWidget(self._home_section("Off to the side"))
-        v.addWidget(self._home_row("⚔ Battle", "a battle background / encounter — a referenced sibling of a field",
-                                   [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle))]))
-        v.addWidget(self._home_row("⤵ Import", "fork a real FF9 field into a new project",
-                                   [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field))]))
-        v.addWidget(self._home_row("◈ Save", "edit a real save's story flags / items / equipment (orthogonal state)",
-                                   [("Open Save…", self._open_save)]))
+        v.addWidget(self._home_row("⚔", "Battle", "a battle background / encounter — a referenced sibling of a field",
+                                   [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle), False)]))
+        v.addWidget(self._home_row("⤵", "Import", "fork a real FF9 field into a new project",
+                                   [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field), False)]))
+        v.addWidget(self._home_row("◈", "Save", "edit a real save's story flags / items / equipment "
+                                   "(orthogonal state)",
+                                   [("Open Save…", self._open_save, False)]))
         v.addStretch(1)
         hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <b>Close</b> (toolbar) returns here.")
         hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setStyleSheet(f"color:{self.pal['muted']};margin-top:6px;")
         v.addWidget(hint)
-        scroll.setWidget(body)
+        scroll.setWidget(page)
         self._welcome_tab = scroll                 # kept so Close can return here
         self.tabs.addTab(scroll, "Home")
         self._refresh_home_status()
 
     def _home_section(self, text):
-        lab = QLabel(text)
-        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;margin-top:8px;")
+        lab = QLabel(text.upper())
+        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;font-size:11px;"
+                          "letter-spacing:1px;margin-top:10px;")
         return lab
 
-    def _home_row(self, title, desc, buttons):
-        """One entry-point row: a glyph+name + one-line description on the left, its action button(s) on the
-        right (the same glyphs as the tree/breadcrumb, so the visual language is consistent)."""
-        box = QWidget()
+    def _home_row(self, glyph, title, desc, buttons):
+        """One entry-point CARD: a tinted glyph + name + one-line description on the left, its action
+        button(s) right-aligned (the same glyphs as the tree/breadcrumb, so the visual language is
+        consistent). ``buttons`` = (label, callback, is_primary) -- the ONE primary action on the page
+        (Journey ▸ Open, the recommended front door) renders in the accent colour."""
+        box = QFrame()
+        box.setObjectName("card")
         h = QHBoxLayout(box)
-        h.setContentsMargins(0, 0, 0, 0)
+        h.setContentsMargins(16, 12, 14, 12)
+        h.setSpacing(12)
+        g = QLabel(glyph)
+        g.setStyleSheet(f"color:{self.pal['accent']};font-size:17px;")
+        g.setFixedWidth(26)
+        g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        h.addWidget(g)
         col = QWidget()
+        col.setStyleSheet("background: transparent;")
         cv = QVBoxLayout(col)
         cv.setContentsMargins(0, 0, 0, 0)
-        cv.setSpacing(1)
+        cv.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet("font-weight:600;")
+        t.setStyleSheet("font-weight:600;font-size:14px;")
         d = QLabel(desc)
         d.setWordWrap(True)
         d.setStyleSheet(f"color:{self.pal['muted']};")
         cv.addWidget(t)
         cv.addWidget(d)
         h.addWidget(col, 1)
-        for label, cb in buttons:
+        for label, cb, primary in buttons:
             b = QPushButton(label)
+            if primary:
+                b.setObjectName("accent")
+            b.setMinimumWidth(96)
             b.clicked.connect(lambda _=False, c=cb: c())
             h.addWidget(b)
         return box
@@ -2957,6 +3037,11 @@ class Workspace(QMainWindow):
     def _palette_label(self, item, p):
         fa = self._ancestor_field(item)
         if fa is not None and item is not fa:                # an object -> qualify it with its field
+            parent = item.parent()
+            pp = self._payload(parent) if parent is not None else None
+            if pp and pp[0] == "group":                      # ...and its GROUP, else unnamed entries are
+                grp = pp[1].split(" (")[0]                   # ambiguous ("#0" could be any list's row 0)
+                return f"{self._payload(fa)[1]} ▸ {grp} ▸ {p[1]}"
             return f"{self._payload(fa)[1]} ▸ {p[1]}"
         return p[1]
 
@@ -7280,7 +7365,9 @@ def main(argv=None):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     app.setWindowIcon(_app_icon())                 # so dialogs/taskbar inherit our icon, not Qt's default
-    win = Workspace(pick_palette("dark" if smoke else prefs.theme()))
+    pal = pick_palette("dark" if smoke else prefs.theme())
+    _apply_app_theme(app, pal)                     # Fusion + a theme QPalette, BEFORE any widget exists
+    win = Workspace(pal)
     if smoke:
         _smoke(win)
         return

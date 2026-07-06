@@ -1,12 +1,14 @@
 """Shared Qt widget helpers for the Workspace.
 
-PySide6-only. The one thing here today is the application-wide wheel guard -- see :class:`WheelGuard`.
+PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the empty-state list
+(:class:`PlaceholderListWidget`).
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject
-from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtGui import QColor, QPainter
+from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QListWidget
 
 
 class WheelGuard(QObject):
@@ -32,6 +34,28 @@ class WheelGuard(QObject):
             ev.ignore()
             return True
         return False
+
+
+class PlaceholderListWidget(QListWidget):
+    """A QListWidget that paints a muted hint while it is empty (the QLineEdit-placeholder idiom, which
+    plain list views lack) -- so an empty Problems panel says what will appear there instead of sitting as
+    a silent grey box. Set ``placeholder`` / ``placeholder_color`` (a '#rrggbb' string) any time; the
+    shell's retheme updates the colour."""
+
+    def __init__(self, placeholder="", color="#808080", parent=None):
+        super().__init__(parent)
+        self.placeholder = placeholder
+        self.placeholder_color = color
+
+    def paintEvent(self, ev):                      # noqa: N802 (Qt override)
+        super().paintEvent(ev)
+        if self.count() == 0 and self.placeholder:
+            painter = QPainter(self.viewport())
+            painter.setPen(QColor(self.placeholder_color))
+            rect = self.viewport().rect().adjusted(12, 8, -12, -8)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                             | Qt.TextFlag.TextWordWrap, self.placeholder)
+            painter.end()
 
 
 def install_wheel_guard(app=None):
