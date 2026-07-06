@@ -204,6 +204,108 @@ def test_reproduce_dry_run_and_validation(monkeypatch):
         W.reproduce("MOD", cells=[(3, 17)], donor=(24, 4), dry_run=True)   # donor off-grid
 
 
+# ---- exact real-tile reproduction (read the block's actual Sea5 tiles, not a shade guess) ----------------------------
+
+def _sea5_corners_uv(u0, u1, v0, v1, oname):
+    m = W.OMAPS[oname]
+    return {(fx, fz): (u0 + m(fx, fz)[0] * (u1 - u0), v0 + m(fx, fz)[1] * (v1 - v0)) for fx in (0, 1) for fz in (0, 1)}
+
+
+def _sea5_corners(strip, oname):
+    return _sea5_corners_uv(W.UFULL[0], W.UFULL[1], W.VSTRIP[strip][0], W.VSTRIP[strip][1], oname)
+
+
+def _fake_sea5_block(x, y, celluvs):
+    """A Sea5 sub-mesh whose cell ``(i,j)`` carries the exact corner UVs ``celluvs[(i,j)] = {(fx,fz): (u,v)}``."""
+    from ff9mapkit.world.extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    pos, uv, tris = [], [], []
+    for (i, j), corners in celluvs.items():
+        pts = {(0, 0): (i * 4.0, -j * 4.0), (1, 0): ((i + 1) * 4.0, -j * 4.0),
+               (1, 1): ((i + 1) * 4.0, -(j + 1) * 4.0), (0, 1): (i * 4.0, -(j + 1) * 4.0)}
+        base = len(pos)
+        for c in [(0, 0), (1, 0), (1, 1), (0, 0), (1, 1), (0, 1)]:
+            px, pz = pts[c]
+            pos.append([px, 0.0, pz])
+            uv.append(list(corners[c]))
+        tris += [[base, base + 1, base + 2], [base + 3, base + 4, base + 5]]
+    n = len(pos)
+    chan = {CH_POS: pos, CH_NRM: [[0.0, 1.0, 0.0]] * n, CH_UV: uv, CH_TAN: [[1.0, 0.0, 0.0, 1.0]] * n}
+    return BlockMesh(name=f"Block[{x}][{y}] sea5", disc=1, x=x, y=y, lod="0_1", vcount=n, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}, chan_arrays=chan,
+                     flat_index=list(range(n)), tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def test_fit_tile_roundtrips_every_strip_and_rotation():
+    for strip in range(4):
+        for oname in W.ROTS:
+            u0, u1, v0, v1, name = W._fit_tile(_sea5_corners(strip, oname))
+            assert W._strip_of(v0) == strip and name == oname
+
+
+def test_fit_tile_rejects_a_transpose():
+    u0, u1 = W.UFULL
+    v0, v1 = W.VSTRIP[1]
+    # u tracks fz, v tracks fx -> a transpose, which no pure rotation reproduces
+    d = {(fx, fz): (u0 + fz * (u1 - u0), v0 + fx * (v1 - v0)) for fx in (0, 1) for fz in (0, 1)}
+    assert W._fit_tile(d) is None
+
+
+def test_read_sea5_tiles_recovers_orientation_and_exact_rect(monkeypatch):
+    specs = {(3, 3): (2, "r0"), (4, 4): (1, "r90"), (7, 2): (0, "r270"), (9, 9): (3, "r180")}
+    celluvs = {c: _sea5_corners(strip, oname) for c, (strip, oname) in specs.items()}
+
+    def fake(x, y, **k):
+        if k.get("part") == "sea5":
+            return _fake_sea5_block(x, y, celluvs)
+        raise ValueError("only sea5")
+    monkeypatch.setattr(X, "read_block", fake)
+    got = W.read_sea5_tiles(8, 4)
+    assert {c: v[:2] for c, v in got.items()} == specs             # (strip, rotation) recovered
+    for c, (strip, _) in specs.items():                            # and the exact rect is carried
+        assert got[c][2:] == pytest.approx((W.UFULL[0], W.UFULL[1], W.VSTRIP[strip][0], W.VSTRIP[strip][1]))
+
+
+def test_reproduce_carries_exact_deviating_v_band(monkeypatch):
+    # real block (8,4) strip3 tiles sample v-band (0.74016, 1.0), which DEVIATES from canonical VSTRIP[3]=(0.75591,1.0);
+    # the fix carries the real rect so the reproduction matches the block (not the nearest canonical strip)
+    dev_v0, dev_v1 = 0.74016, 1.0
+    celluvs = {(5, 5): _sea5_corners_uv(W.UFULL[0], W.UFULL[1], dev_v0, dev_v1, "r0")}
+
+    def fake(x, y, **k):
+        if k.get("part") == "sea5":
+            return _fake_sea5_block(x, y, celluvs)
+        raise ValueError("only sea5")     # sea3/sea4 absent -> (5,5) sea5, the rest default to sea4
+    monkeypatch.setattr(X, "read_block", fake)
+    grid, sea5tile = W.arrangement_from_block(8, 4)
+    assert grid[5][5] == "sea5"
+    t = sea5tile[(5, 5)]
+    assert t[0] == 3 and t[1] == "r0"                              # classified strip 3 / r0
+    assert t[4] == pytest.approx(dev_v0)                           # carries the REAL v0
+    assert abs(t[4] - W.VSTRIP[3][0]) > 0.01                       # and it is NOT the canonical band (the fix)
+
+
+def test_arrangement_prefers_real_tiles_over_the_shade_heuristic(monkeypatch):
+    sea3 = [(i, j) for i in range(16) for j in range(5)]
+    sea5 = [(i, 5) for i in range(16)]
+    sea4 = [(i, j) for i in range(16) for j in range(6, 16)]
+    real = _sea5_corners(2, "r180")                                # deliberately != the heuristic's (0,"r90")
+
+    def fake(x, y, **k):
+        p = k.get("part")
+        if p == "sea3":
+            return _fake_part_block(x, y, "sea3", sea3)
+        if p == "sea4":
+            return _fake_part_block(x, y, "sea4", sea4)
+        if p == "sea5":
+            return _fake_sea5_block(x, y, {c: real for c in sea5})
+        raise ValueError(p)
+    monkeypatch.setattr(X, "read_block", fake)
+    _, with_real = W.arrangement_from_block(8, 4, real_tiles=True)
+    _, heuristic = W.arrangement_from_block(8, 4, real_tiles=False)
+    assert with_real[(0, 5)][:2] == (2, "r180")                    # the real UV wins (strip, rotation)
+    assert heuristic[(0, 5)] == (0, "r90")                         # the shade guess (a sea5 cell facing sea4 to the south)
+
+
 # ---- the marching-band language + invariants ------------------------------------------------------------------------
 
 def test_sea3_never_touches_sea4_within_a_cell():

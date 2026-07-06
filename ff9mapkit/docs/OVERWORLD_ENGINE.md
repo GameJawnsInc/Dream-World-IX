@@ -555,13 +555,16 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
   * `world-water --cells X,Y --verbatim [BX,BY]` deploys a REAL open-ocean block (default `8,4`, the byte-proven block
     the synth was validated 17/17 against) VERBATIM — the north-star, isolating SYNTHESIS from the deploy pipeline
     (`water.deploy_verbatim`).
-  * `world-water --cells X,Y --reproduce [BX,BY]` reads that block's shallow/deep LAYOUT and regenerates it with
-    SYNTHESIZED tiles (`water.reproduce` → `arrangement_from_block`: same shade grid, tiles re-selected by the synth's
-    own `DEEPSET2TILE` rule + mains anti-tiling). Deploy it beside `--verbatim` of the same block — they should look
-    alike. This is the in-game form of the offline 17/17 shape-match: it holds the LAYOUT fixed (a real block's, not the
-    default demo gradient) so the only variable is tile quality. (Note the default synth gradient is a *demo* that runs
-    the full shallow→deep range; real open ocean is ~94% deep, so faithful open water wants a mostly-deep field —
-    `--reproduce` or a high `--threshold`.)
+  * `world-water --cells X,Y --reproduce [BX,BY]` reads that block's shallow/deep LAYOUT and regenerates it through the
+    synth mesh pipeline (`water.reproduce` → `arrangement_from_block`: same shade grid + fresh mains anti-tiling). Each
+    Sea5 transition tile is read from the block's ACTUAL UVs — the exact `(strip, rotation)` **and** its real v-band
+    rect (`read_sea5_tiles`/`_fit_tile`, the fit that scored 17/17) — so a thin peninsula comes out right, not
+    guessed from neighbour shades (that shade heuristic, `_repro_deepset`, is only the fallback for the rare
+    transpose tile a pure rotation can't represent). Deploy it beside `--verbatim` of the same block — they should look
+    alike. This holds the LAYOUT fixed (a real block's, not the default demo gradient) so the only variable is tile
+    quality — the in-game form of the offline 17/17. (Note the default synth gradient is a *demo* that runs the full
+    shallow→deep range; real open ocean is ~94% deep, so faithful open water wants a mostly-deep field — `--reproduce`
+    or a high `--threshold`.)
 **In-game loop:** relaunch → F6 → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).

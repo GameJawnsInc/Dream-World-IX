@@ -205,9 +205,13 @@ def _tile_uv(grid, quad, rot, sea5tile, i, j):
     """A ``(fx, fz) -> [u, v]`` sampler for sub-tile ``(i, j)`` (``fx``/``fz`` = the 0/1 quad corner). Transition tiles
     use the full-width-u x hashed v-strip (rotated to face deep); mains use their quadrant rect + rotation."""
     if grid[i][j] == "sea5":
-        strip, oname = sea5tile[(i, j)]
-        u0, u1 = UFULL
-        v0, v1 = VSTRIP[strip]
+        t = sea5tile[(i, j)]
+        strip, oname = t[0], t[1]
+        if len(t) >= 6:                                  # a reproduced REAL tile carries its exact (u0,u1,v0,v1) rect
+            u0, u1, v0, v1 = t[2], t[3], t[4], t[5]
+        else:                                            # a synthesized tile uses the canonical full-u x VSTRIP band
+            u0, u1 = UFULL
+            v0, v1 = VSTRIP[strip]
     else:
         ub, vb = quad[(i, j)]
         u0, u1 = URECT[ub]
@@ -412,17 +416,78 @@ def _repro_deepset(grid, i, j) -> frozenset:
     return frozenset(s5[:1]) if s5 else frozenset("E")
 
 
-def arrangement_from_block(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=None, seed=0):
-    """Reconstruct a real block's arrangement for the synthesizer: its per-cell shade ``grid`` (from
-    :func:`read_shade_grid`) plus a ``sea5tile`` map whose transition tiles are RE-SELECTED by the synth's own
-    :data:`DEEPSET2TILE` rule from each sea5 cell's deep-edge-set. So the LAYOUT is the real block's but the TILES are
-    synthesized -- the in-game form of the offline 17/17 shape-match validation. Requires the game install."""
+def _strip_of(v0: float) -> int:
+    """Which of the 4 quarter-strips a fitted ``v0`` (the tile's minimum v) belongs to."""
+    return min(range(4), key=lambda k: abs(VSTRIP[k][0] - v0))
+
+
+def _fit_tile(corners: dict):
+    """Fit a cell's 4 corner UVs (``{(fx, fz): (u, v)}``) to ``(bounding rect, one of the 4 rotations)`` and return
+    ``(u0, u1, v0, v1, rotation-name)``, or ``None`` if no pure rotation reproduces every corner within tolerance (a
+    transpose/reflection tile -- the rare ~1% class my vocabulary can't represent). This is the exact fit that scored
+    the offline 17/17 shape-match; the rect it returns is the tile's real UV extent (carried through for an exact
+    reproduction, not just quantized to a strip index)."""
+    us = [uv[0] for uv in corners.values()]
+    vs = [uv[1] for uv in corners.values()]
+    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+    if u1 == u0 or v1 == v0:
+        return None
+    for name in ROTS:
+        m = OMAPS[name]
+        if all(abs((u0 + m(fx, fz)[0] * (u1 - u0)) - u) <= 0.01 and abs((v0 + m(fx, fz)[1] * (v1 - v0)) - v) <= 0.01
+               for (fx, fz), (u, v) in corners.items()):
+            return (u0, u1, v0, v1, name)
+    return None
+
+
+def read_sea5_tiles(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=None) -> dict:
+    """Read the ACTUAL transition tile of every real ``Sea5`` cell from its UVs (bin the sub-mesh's triangles to cells,
+    fit the 4 corner UVs). Returns ``{(i, j): (strip, rotation, u0, u1, v0, v1)}`` for cells whose tile fits a pure
+    rotation -- the ``(strip, rotation)`` classify it, and the ``(u0, u1, v0, v1)`` rect is its EXACT real UV extent (so
+    the reproduction matches the real tile pixel-for-pixel, not just to the nearest canonical strip). Unfittable (rare
+    transpose) cells are omitted. Requires the game install."""
+    from collections import defaultdict
+    from . import extract as X
+    try:
+        bm = X.read_block(sx, sy, disc=disc, lod=lod, part="sea5", game=game)
+    except (ValueError, FileNotFoundError):
+        return {}
+    corners = defaultdict(dict)
+    for tri in bm.tris:
+        i = int((sum(bm.verts[q][0] for q in tri) / 3) // CELL)
+        j = int((-sum(bm.verts[q][2] for q in tri) / 3) // CELL)
+        for k in tri:
+            v = bm.verts[k]
+            corners[(i, j)][(round((v[0] - i * CELL) / CELL), round((-v[2] - j * CELL) / CELL))] = bm.uvs[k]
+    out = {}
+    for (i, j), d in corners.items():
+        if all(c in d for c in ((0, 0), (1, 0), (1, 1), (0, 1))):
+            fit = _fit_tile(d)
+            if fit is not None:
+                u0, u1, v0, v1, name = fit
+                out[(i, j)] = (_strip_of(v0), name, u0, u1, v0, v1)
+    return out
+
+
+def arrangement_from_block(sx: int, sy: int, *, disc: int = 1, lod: str = "0_1", game=None, seed=0,
+                           real_tiles: bool = True):
+    """Reconstruct a real block's arrangement for the synthesizer: its per-cell shade ``grid`` (:func:`read_shade_grid`)
+    plus a ``sea5tile`` map. With ``real_tiles`` (default), each transition tile is the block's ACTUAL ``(strip,
+    rotation)`` read from its UVs (:func:`read_sea5_tiles`) -- an EXACT reproduction, so thin peninsulas/features come
+    out right. A cell whose real tile can't be represented (the rare transpose) falls back to the shade-derived
+    :data:`DEEPSET2TILE` rule (:func:`_repro_deepset`), which is also used for every cell when ``real_tiles=False``.
+    Requires the game install."""
     grid = read_shade_grid(sx, sy, disc=disc, lod=lod, game=game)
+    real = read_sea5_tiles(sx, sy, disc=disc, lod=lod, game=game) if real_tiles else {}
     rng = random.Random(f"ff9water:repro:{seed}:{sx}:{sy}")
     sea5tile = {}
     for i in range(G):
         for j in range(G):
-            if grid[i][j] == "sea5":
+            if grid[i][j] != "sea5":
+                continue
+            if (i, j) in real:
+                sea5tile[(i, j)] = real[(i, j)]                   # the EXACT real transition tile
+            else:
                 variants = DEEPSET2TILE[_repro_deepset(grid, i, j)]
                 sea5tile[(i, j)] = variants[rng.randrange(len(variants))]
     return grid, sea5tile
