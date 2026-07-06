@@ -134,6 +134,29 @@ src_models = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Models"
 if src_models.is_dir():
     shutil.copytree(src_models, live.root / "StreamingAssets" / "Assets" / "Resources" / "Models",
                     dirs_exist_ok=True)
+
+# [music] file = custom themes: ship the minted OGG(s) + the override MusicMetaData.txt (a NEW song id per
+# theme). Merge the built manifest's custom (band >=1000) entries into any live override so successive
+# deploys ACCUMULATE their themes. A minted new id needs no PriorityToOGG (no bundled .akb to lose to).
+_src_sounds = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Sounds"
+if _src_sounds.is_dir():
+    shutil.copytree(_src_sounds, live.root / "StreamingAssets" / "Assets" / "Resources" / "Sounds",
+                    dirs_exist_ok=True)
+_src_manifest = tl.root / "FF9_Data" / "EmbeddedAsset" / "Manifest" / "Sounds" / "MusicMetaData.txt"
+if _src_manifest.is_file():
+    from ff9mapkit import sound as _snd
+    _live_manifest = live.root / "FF9_Data" / "EmbeddedAsset" / "Manifest" / "Sounds" / "MusicMetaData.txt"
+    _built = _snd.parse_manifest(_src_manifest.read_text(encoding="utf-8"))
+    if _live_manifest.exists():                       # merge: live (stock + prior mints) + this deploy's new ids
+        _base = _snd.parse_manifest(_live_manifest.read_text(encoding="utf-8"))
+        _have = {e["id"] for e in _base}
+        _new = [e for e in _built if e["id"] >= _snd.MINT_ID_BASE["music"] and e["id"] not in _have]
+        _text = _snd.serialize_manifest(_base + _new)
+    else:
+        _text = _src_manifest.read_text(encoding="utf-8")
+    _live_manifest.parent.mkdir(parents=True, exist_ok=True)
+    _live_manifest.write_text(_text, encoding="utf-8", newline="\n")
+    print("  + custom [music] theme(s) -> RELAUNCH to register the new song id(s) + set MusicVolume > 0")
 mint_lines = info.get("mint_lines", [])
 mint_ids = {ml.split()[1] for ml in mint_lines if len(ml.split()) >= 2}
 dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
