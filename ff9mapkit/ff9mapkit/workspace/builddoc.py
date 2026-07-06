@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from ..editor import feedback as fb
@@ -93,9 +93,14 @@ class BuildDoc(QWidget):
         self.go.clicked.connect(self.on_go)
         self.rev = QPushButton("Revert test deploy")
         self.rev.clicked.connect(self.on_revert)
+        self.pack_btn = QPushButton("Package (zip)…")
+        self.pack_btn.setToolTip("Zip a BUILT mod folder into a shareable release — the last step of the "
+                                 "funnel. Unzipping it next to FF9_Launcher.exe installs the mod.")
+        self.pack_btn.clicked.connect(self.on_pack)
         btns.addWidget(self.chk)
         btns.addWidget(self.go)
         btns.addWidget(self.rev)
+        btns.addWidget(self.pack_btn)
         btns.addStretch(1)
         v.addLayout(btns)
         v.addStretch(1)
@@ -434,8 +439,78 @@ class BuildDoc(QWidget):
         return f
 
     def _busy(self, b):
-        for w in (self.chk, self.go, self.rev, self.set_ng, self.rev_ng):
+        for w in (self.chk, self.go, self.rev, self.pack_btn, self.set_ng, self.rev_ng):
             w.setEnabled(not b)
+
+    # ------------------------------------------------------------------ Package for sharing
+    def _pack_guess(self):
+        """(mod_root, name) prefill for the pack dialog, per the open target kind: the staged dist/ beside
+        the project file, and the REAL mod-folder name (Memoria identifies a mod by its folder name, so a
+        zip must not unpack as 'dist')."""
+        f = self.path.text().strip().strip('"')
+        base = Path(f).parent if f else None
+        if self.kind == "campaign" and self.plan is not None:
+            return (base / "dist" if base else None), (self.plan.mod_folder or "FF9CustomMap")
+        if self.kind == "journey":
+            return None, ""                            # a single-folder journey stages only into the live
+        if base is not None:                           # game folder -- pack THAT (the hint says so)
+            return base / "dist", "FF9CustomMap"
+        return None, ""
+
+    def on_pack(self):
+        """'Package (zip)…' — zip a built mod folder for sharing (`ff9mapkit pack`). A small dialog:
+        the folder to zip (prefilled with the staged dist/ when one is knowable), the mod-folder name
+        inside the zip, and the destination .zip."""
+        guess_root, guess_name = self._pack_guess()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Package mod for sharing")
+        v = QVBoxLayout(dlg)
+        hint = QLabel("Zips a BUILT mod folder (DictionaryPatch.txt + StreamingAssets/…) so unzipping next "
+                      "to FF9_Launcher.exe installs it. Build/Deploy first — pack takes the OUTPUT folder. "
+                      "For a single-folder journey, pack the deployed <game>/<merged folder>.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        v.addWidget(hint)
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Mod folder:"))
+        root_edit = QLineEdit(str(guess_root) if guess_root else "")
+        row1.addWidget(root_edit, 1)
+        b1 = QPushButton("Browse…")
+
+        def _pick_root():
+            d = QFileDialog.getExistingDirectory(dlg, "Built mod folder (a dist/ or a deployed mod folder)")
+            if d:
+                root_edit.setText(d)
+        b1.clicked.connect(_pick_root)
+        row1.addWidget(b1)
+        v.addLayout(row1)
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Folder name in the zip:"))
+        name_edit = QLineEdit(guess_name)
+        name_edit.setToolTip("What Memoria.ini FolderNames will call the mod — a staged dist/ must NOT "
+                             "ship as a folder literally named 'dist'.")
+        row2.addWidget(name_edit, 1)
+        v.addLayout(row2)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Pack…")
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        root = root_edit.text().strip().strip('"')
+        if not root or not Path(root).is_dir():
+            self._warn("No mod folder", "Pick the BUILT mod folder to zip (run Build / Deploy first).")
+            return
+        name = name_edit.text().strip() or Path(root).name
+        out, _ = QFileDialog.getSaveFileName(self, "Save the release zip as",
+                                             str(Path(root).parent / f"{name}.zip"), "Zip (*.zip)")
+        if not out:
+            return
+        self._stream(jobs.pack_argv(root, out, name=name), cwd=self.kit_cwd, subject="Package",
+                     ok_headline="Packed — ready to share",
+                     ok_next=f"Share {out} — unzipping it next to FF9_Launcher.exe installs the mod "
+                             f"(folder '{name}', add it to Memoria.ini FolderNames).")
 
     def _stream(self, argv, *, cwd, subject, ok_headline, ok_next=""):
         self._busy(True)

@@ -1250,6 +1250,9 @@ The lines are deduped by scene across the whole mod (the patch is scene-keyed an
 | key | meaning |
 |---|---|
 | `song` | field BGM song-play id (e.g. `9` = Vivi's Theme). Plays on entry, and resumes after battle if there's an encounter. |
+| `file` | **your own track**: a path to an audio file (wav/mp3/ogg/flac/… — anything ffmpeg decodes), relative to this `field.toml`. The build transcodes it to Ogg Vorbis and **mints a brand-new song id** (≥ 1000) into the mod, then wires the field to play it. Needs `ffmpeg` on PATH (or `$FFMPEG`). Only consulted when `song` is **absent** — if both are set, `song` wins and `file` is ignored. Custom audio loads at game **startup**, so hear it after a restart (F6 reload isn't enough). |
+| `loop_start` | with `file`: the loop point, in **samples**. Blank = the whole track loops. |
+| `loop_end` | with `file`: the loop end, in samples. Blank = the track's end. |
 
 Works on **synthesize** *and* **verbatim** forks, by different mechanisms:
 

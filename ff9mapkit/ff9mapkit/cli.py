@@ -844,9 +844,10 @@ def _cmd_import_all(args: argparse.Namespace) -> int:
 def _cmd_pack(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .pack import pack_mod
-    out = args.out or (Path(args.mod_root).resolve().name + ".zip")
+    name = getattr(args, "name", None)
+    out = args.out or ((name or Path(args.mod_root).resolve().name) + ".zip")
     try:
-        z = pack_mod(args.mod_root, out)
+        z = pack_mod(args.mod_root, out, name=name)
     except FileNotFoundError as e:
         print(f"mod folder not found: {e}", file=sys.stderr)
         return 2
@@ -3716,6 +3717,9 @@ def build_parser() -> argparse.ArgumentParser:
     pk = sub.add_parser("pack", help="zip a built mod for distribution")
     pk.add_argument("mod_root", help="path to a built mod folder")
     pk.add_argument("--out", default=None, help="output .zip (default: <modname>.zip)")
+    pk.add_argument("--name", default=None,
+                    help="the mod-folder name INSIDE the zip (what Memoria.ini FolderNames will call it; "
+                         "default = the folder's own name — use this when packing a staged dist/)")
     pk.set_defaults(func=_cmd_pack)
 
     gh = sub.add_parser("gen-hub", help="generate a World-Hub field.toml from a journeys.toml registry "

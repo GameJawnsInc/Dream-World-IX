@@ -27,7 +27,8 @@ from . import prop_archetypes as _props
 from .content.npc import PRESETS as _CHAR_PRESETS    # vivi / zidane -- explicit, byte-golden
 
 # the kinds the Info Hub indexes, listed in browse priority order (curated/named first, raw + reference last)
-KINDS = ("archetype", "creature", "composite", "prop", "model", "item", "scene", "storyflag", "sps_template")
+KINDS = ("archetype", "creature", "composite", "prop", "model", "item", "scene", "song", "storyflag",
+         "sps_template")
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,32 @@ def _build_entries() -> list:
     out += _storyflag_entries()                                       # FF9 story-flag registry (reference)
     out += _sps_template_entries()                                    # Tier-2 [[sps]] creator presets
     return out
+
+
+_SONG_CACHE: Optional[list] = None
+
+
+def _song_entries(force: bool = False) -> list:
+    """The game's music table as ``song`` entries (backs the ``[music] song`` catalog picker), built LAZILY
+    -- the first-ever manifest extraction reads the install's 590 MB resources.assets, which must not tax
+    an unrelated picker. ``force=False`` (a kitchen-sink browse) builds only from the already-extracted
+    disk cache; ``force=True`` (the picker explicitly asked for songs) pays the one-time extraction. Ids
+    map to ResourceIDs (e.g. 9 -> Sounds01/BGM_/music009); the game data has no title table, so the
+    resource file name is the display name. Install-gated and best-effort: never raises."""
+    global _SONG_CACHE
+    if _SONG_CACHE is None:
+        try:
+            from . import sound as _sound
+            if not force:              # cheap path only: skip unless the extraction already happened
+                ra = _sound.resources_assets_path()
+                if not _sound._cache_path(ra, _sound.MANIFESTS["music"]).exists():
+                    return []
+            rows = _sound.read_manifest("music")
+            _SONG_CACHE = [Entry("song", r["resource_id"].rsplit("/", 1)[-1], None,
+                                 f"song #{r['id']} — {r['resource_id']}", r["id"]) for r in rows]
+        except Exception:   # noqa: BLE001  (no install / no UnityPy / manifest unreadable) -> empty kind
+            _SONG_CACHE = []
+    return _SONG_CACHE
 
 
 def _sps_template_entries() -> list:
@@ -373,6 +400,8 @@ def browse(query: str = "", kinds=None, limit=200, campaign_context=None, sps_co
             | ({"sps"} if sps_entries else set())
     # no context -> iterate the cached list directly (no copy), preserving today's behavior exactly
     extra = field_entries + sps_entries
+    if "song" in want:                 # lazy install-gated kind: the one-time 590 MB manifest extraction
+        extra = extra + _song_entries(force=bool(kinds))   # runs only when songs were explicitly asked for
     entries = (extra + _all_entries()) if extra else _all_entries()
     out = []
     for e in entries:

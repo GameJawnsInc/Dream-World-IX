@@ -63,7 +63,8 @@ class ImportDoc(QWidget):
         outer.addWidget(scroll)
         self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
                          self.fork_region_btn, self.catalog_btn, self.rp_unpack_btn, self.rp_pack_btn,
-                         self.dlg_btn, self.save_btn, self.list_btn, self.tpl_btn]
+                         self.dlg_btn, self.save_btn, self.list_btn, self.songs_btn, self.sfx_btn,
+                         self.tpl_btn]
 
     # ------------------------------------------------------------------ fork-a-field
     def _fork_box(self):
@@ -467,6 +468,16 @@ class ImportDoc(QWidget):
         self.list_btn.clicked.connect(self.on_list_fields)
         lst.addWidget(self.list_filter)
         lst.addWidget(self.list_btn)
+        self.songs_btn = QPushButton("List songs")
+        self.songs_btn.setToolTip("The game's music table (song id → resource) — the ids the [music] "
+                                  "section and the Editor's song picker use. First run extracts it from "
+                                  "your install (slow once, then cached).")
+        self.songs_btn.clicked.connect(lambda: self._kit(["music-list"], subject="List songs"))
+        self.sfx_btn = QPushButton("List SFX")
+        self.sfx_btn.setToolTip("The game's sound-effect table (id → resource).")
+        self.sfx_btn.clicked.connect(lambda: self._kit(["sfx-list"], subject="List SFX"))
+        lst.addWidget(self.songs_btn)
+        lst.addWidget(self.sfx_btn)
         lst.addStretch(1)
         v.addLayout(lst)
 

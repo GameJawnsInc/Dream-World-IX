@@ -1008,6 +1008,15 @@ class Workspace(QMainWindow):
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setStyleSheet(f"color:{self.pal['muted']};")
         v.addWidget(intro)
+        # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
+        self._recent_head = self._home_section("Recent")
+        v.addWidget(self._recent_head)
+        self._recent_box = QWidget()
+        self._recent_box.setStyleSheet("background: transparent;")
+        self._recent_lay = QVBoxLayout(self._recent_box)
+        self._recent_lay.setContentsMargins(4, 0, 0, 4)
+        self._recent_lay.setSpacing(5)
+        v.addWidget(self._recent_box)
         v.addWidget(self._home_section("The project spine — top-down"))
         v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
                                    [("Open…", self.on_open_journey, True), ("New…", self.on_new_journey, False)]))
@@ -1096,6 +1105,55 @@ class Workspace(QMainWindow):
             self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
         else:
             self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
+        self._refresh_recent()
+
+    _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
+
+    @staticmethod
+    def _recent_display(entry):
+        """A short human name for a recent row: the project folder for a journey/campaign, the field name
+        for a field.toml, the file name for a save."""
+        p = Path(entry["path"])
+        if entry["kind"] in ("journey", "campaign"):
+            return p.parent.name or p.name
+        if entry["kind"] == "field":
+            return p.name.removesuffix(".toml").removesuffix(".field") or p.stem
+        return p.name
+
+    def _refresh_recent(self):
+        """Rebuild the Home Recent rows from prefs (pruning entries whose file vanished). Cheap: at most
+        RECENT_LIMIT label rows, only when the Home tab is being (re)shown."""
+        if not hasattr(self, "_recent_lay"):
+            return
+        self._clear_layout(self._recent_lay)
+        rows = prefs.recent()
+        gone = [e for e in rows if not Path(e["path"]).exists()]
+        for e in gone:
+            prefs.remove_recent(e["path"])
+        rows = [e for e in rows if e not in gone][:6]
+        self._recent_head.setVisible(bool(rows))
+        self._recent_box.setVisible(bool(rows))
+        for e in rows:
+            glyph = self._RECENT_GLYPH.get(e["kind"], "●")
+            lab = QLabel(f'<span style="color:{self.pal["accent"]};">{glyph}</span>&nbsp; '
+                         f'<a href="open">{_esc(self._recent_display(e))}</a>'
+                         f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
+                         f'{_esc(_snip(e["path"], 64))}</span>')
+            lab.setTextFormat(Qt.TextFormat.RichText)
+            lab.setToolTip(e["path"])
+            lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
+            self._recent_lay.addWidget(lab)
+
+    def _open_recent(self, kind, path):
+        """Reopen a recent project by kind; a vanished file prunes itself instead of erroring."""
+        if not Path(path).exists():
+            self.statusBar().showMessage(f"No longer exists: {path}")
+            prefs.remove_recent(path)
+            self._refresh_recent()
+            return False
+        open_ = {"journey": self.open_journey, "campaign": self.open_campaign,
+                 "field": self.open_field, "save": self.open_save}[kind]
+        return open_(path)
 
     # ---- item helpers ----
     @staticmethod
@@ -1155,6 +1213,7 @@ class Workspace(QMainWindow):
         self.tabs.setCurrentWidget(self.doc_scroll)
         self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this journey
+        prefs.add_recent("journey", path)
         return True
 
     def _populate_journey(self):
@@ -2372,10 +2431,18 @@ class Workspace(QMainWindow):
                                             "FF9 save (*.dat);;Save JSON / Base64 (*.json *.txt);;All files (*)")
         if not f:
             return
-        self.story_state.load(f)
-        self.item_equip.load(f)
+        self.open_save(f)
+
+    def open_save(self, path) -> bool:
+        """Open ``path`` into both save documents (the path-taking core of :meth:`_open_save`, so a
+        Recent row can re-open a save). True when at least one document loaded it."""
+        ok = bool(self.story_state.load(str(path)))
+        ok = bool(self.item_equip.load(str(path))) or ok
         self.story_state.set_flag_names(self._project_flag_names())   # annotate with the open project's [[flag]] names
         self.tabs.setCurrentWidget(self.story_state)
+        if ok:
+            prefs.add_recent("save", path)
+        return ok
 
     def open_field(self, path) -> bool:
         """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
@@ -2412,6 +2479,7 @@ class Workspace(QMainWindow):
         self._select_member(name)
         self.tabs.setCurrentWidget(self.doc_scroll)   # a standalone field has no map -> show its Editor
         self._refresh_flag_names()                    # re-annotate an already-open Story State save with this field
+        prefs.add_recent("field", path)
         return True
 
     def _populate_field(self, name):
@@ -2520,6 +2588,8 @@ class Workspace(QMainWindow):
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
+        if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
+            prefs.add_recent("campaign", path)     # already the recent entry
         return True
 
     def _journey_label(self):
@@ -3022,6 +3092,9 @@ class Workspace(QMainWindow):
             if any(j.campaigns for j in self.manifest.journeys):
                 cmds.insert(3, ("Add region to arc…", "command", self.on_add_region_to_arc))
                 cmds.insert(4, ("Fill entry from forks…", "command", self.on_reconcile_journey))
+        for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
+            cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']}", "recent",
+                         lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
         content = []
 
         def walk(item):
@@ -5587,6 +5660,16 @@ class Workspace(QMainWindow):
                 if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
                                            or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
                     warn(f"battle scene must be a numeric id (got '{sc}')")
+            elif kind == "music":                          # mirror content.music.mint_field_theme's precedence
+                f = obj.get("file")
+                if f and obj.get("song") is not None:      # both set -> the build silently ignores file
+                    warn("both song and file are set — song wins and the custom track is IGNORED "
+                         "(clear the song id to mint the file)")
+                elif isinstance(f, str) and f.strip():
+                    base = self.member_paths.get(member)
+                    if base is not None and not (Path(f).is_absolute() and Path(f).exists()) \
+                            and not (base.parent / f).exists():
+                        warn(f"[music] file not found beside the field.toml: {f}")
             elif kind == "choice":
                 ref = obj.get("npc")                       # talk-triggered: must name an existing NPC
                 if isinstance(ref, str) and ref.strip() and ref not in self._field_entity_names(member)["npc"]:
@@ -5631,7 +5714,7 @@ class Workspace(QMainWindow):
             for e in (data.get(section, []) or []):
                 if isinstance(e, dict) and self._node_problems(section, e, member):
                     n += 1
-        for single in ("encounter", "cutscene"):
+        for single in ("encounter", "cutscene", "music"):
             if data.get(single) and self._node_problems(single, data[single], member):
                 n += 1
         return n
@@ -5791,6 +5874,21 @@ def _smoke(win):
     check the tree, the breadcrumb, lazy object load, and the Problems dock -- the Qt analogue of the
     tkinter campaign-editor smoke. Runs under QT_QPA_PLATFORM=offscreen."""
     import tempfile
+    # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
+    # a smoke run never writes temp paths into the developer's real prefs.json.
+    _rec = []
+
+    def _stub_add_recent(kind, path):
+        p = str(Path(path).resolve())
+        _rec[:] = [{"kind": kind, "path": p}] + [e for e in _rec if e["path"] != p]
+        del _rec[prefs.RECENT_LIMIT:]
+
+    def _stub_remove_recent(path):
+        _rec[:] = [e for e in _rec if e["path"] != str(path)]
+
+    prefs.add_recent = _stub_add_recent
+    prefs.recent = lambda: list(_rec)
+    prefs.remove_recent = _stub_remove_recent
     d = Path(tempfile.mkdtemp())
     M = C.Member
     members = [M(300, 30100, "IC_ENT", "borrow", 11, "", "IC_ENT/IC_ENT.field.toml", False),
@@ -5816,6 +5914,17 @@ def _smoke(win):
     assert win._payload(camp)[0] == "campaign"
     names = [win._payload(camp.child(i))[1] for i in range(camp.childCount())]
     assert names == ["IC_ENT", "IC_COR", "IC_LOST"], names
+    # MRU: the successful open recorded a recent entry; Home renders it as a row; Ctrl-K offers Reopen;
+    # _open_recent round-trips back into the campaign; a vanished path prunes instead of erroring.
+    assert _rec and _rec[0]["kind"] == "campaign" and _rec[0]["path"].endswith("campaign.toml"), _rec
+    win._refresh_recent()
+    assert win._recent_lay.count() == 1, win._recent_lay.count()
+    assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
+    assert win._open_recent("campaign", _rec[0]["path"]) is True
+    prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
+    assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
+    assert all(not e["path"].endswith("missing.field.toml") for e in _rec), "dead entry not pruned"
+    camp = win.tree.topLevelItem(0)                       # the Reopen round-trip rebuilt the tree -> re-fetch
     # the campaign Map document renders the same graph (compute_layout core) -- 3 nodes, 1 edge
     assert win.map._layout is not None and len(win.map._layout.nodes) == 3
     assert len(win.map._layout.edges) == 1
@@ -6097,6 +6206,13 @@ def _smoke(win):
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
     assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
+    # [music]: song+file together -> file silently loses at build, so the GUI warns; a missing file warns;
+    # a real file beside the field.toml is clean (mirrors content.music.mint_field_theme's precedence)
+    assert win._node_problems("music", {"song": 9}, "IC_ENT") == [], "a plain song id is clean"
+    assert win._node_problems("music", {"song": 9, "file": "t.ogg"}, "IC_ENT"), "song+file warns (file ignored)"
+    assert win._node_problems("music", {"file": "no_such.ogg"}, "IC_ENT"), "a missing [music] file warns"
+    (d / "IC_ENT" / "theme.ogg").write_bytes(b"OggS")
+    assert win._node_problems("music", {"file": "theme.ogg"}, "IC_ENT") == [], "an existing [music] file is clean"
     # SCENE.TOML-AWARE reference checks: a choice/cutscene reference resolves against BOTH the field.toml
     # NPCs/markers AND the sibling scene.toml (Blender-owned) -- so a scene-placed entity isn't falsely flagged.
     pdoc.data["npc"].append({"name": "Ref", "preset": "vivi"})       # a field.toml NPC
