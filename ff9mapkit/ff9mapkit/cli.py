@@ -4370,8 +4370,9 @@ def build_parser() -> argparse.ArgumentParser:
     wwt.add_argument("--threshold", type=float, default=1.0, help="depth at the shallow|deep seam (default 1.0)")
     wwt.add_argument("--span", type=float, default=2.0, help="depth range shallow->deep across the region (default 2.0)")
     wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")
-    wwt.add_argument("--height", type=float, default=-3.0,
-                     help="submerged Terrain floor Y under the water (default -3, below the sea surface)")
+    wwt.add_argument("--height", type=float, default=-0.1,
+                     help="ocean walkmesh Y (default -0.1, just below the Y=0 surface so a boat floats on top; a bigger "
+                          "negative sinks the vehicle, 0 z-fights the water)")
     _wref = wwt.add_mutually_exclusive_group()
     _wref.add_argument("--verbatim", nargs="?", const="8,4", metavar="BX,BY",
                        help="A/B REFERENCE: instead of synthesizing, deploy REAL ocean block BX,BY verbatim (default 8,4, "

@@ -94,6 +94,37 @@ def test_open_ocean_field_places_the_shallow_fraction():
     assert 20 <= below <= 32                                    # ~10% of 256 cell centres dip shallow (by construction)
 
 
+# ---- the ocean walkmesh: at the surface, boat-traversable ------------------------------------------------------------
+
+def _capture_meshes(monkeypatch):
+    meshes = {}
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: meshes.__setitem__(k.get("part"), bm))
+    monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: None)
+    return meshes
+
+
+def test_terrain_walkmesh_sits_at_the_surface_with_a_sea_topograph(monkeypatch):
+    meshes = _capture_meshes(monkeypatch)
+    W.water("MOD", cells=[(3, 17)])
+    ter = meshes["Terrain"]
+    # the walkmesh is at the water surface (just below Y=0), NOT the old -3 submerged floor that buried the model
+    assert all(abs(v[1] - W.WATER_Y) < 1e-6 for v in ter.verts)
+    assert -1.0 < W.WATER_Y <= 0.0
+    # and carries the deep-sea topograph (57): a boat (mode 7) traverses it, on-foot/chocobo is blocked -- real ocean
+    topos = {X.decode_id(int(round(t[0])))["topograph"] for t in ter.tangents}
+    assert topos == {57} and W.WATER_TOPOGRAPH == 57
+
+
+def test_reproduce_shares_the_ocean_walkmesh(monkeypatch):
+    # the A/B reference deploys the SAME surface water walkmesh (it reproduces ocean, not land)
+    _stub_reproduce_source(monkeypatch)                        # feeds read_shade_grid / read_sea5_tiles
+    meshes = _capture_meshes(monkeypatch)
+    W.reproduce("MOD", cells=[(3, 17)])
+    ter = meshes["Terrain"]
+    assert all(abs(v[1] - W.WATER_Y) < 1e-6 for v in ter.verts)
+    assert {X.decode_id(int(round(t[0])))["topograph"] for t in ter.tangents} == {57}
+
+
 # ---- verbatim A/B reference deploy -----------------------------------------------------------------------------------
 
 def _fake_sea_block(x, y, part, vcount):
