@@ -253,6 +253,25 @@ def adjacency_violations(grid) -> int:
                if 0 <= i + di < G and 0 <= j + dj < G and {grid[i][j], grid[i + di][j + dj]} == {"sea3", "sea4"})
 
 
+def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, disc: int, lod: str, height: float,
+                       game, dry_run: bool) -> dict:
+    """Deploy ONE cell's ocean, the shape shared by :func:`water` (synthesized Sea meshes) and :func:`deploy_verbatim`
+    (real Sea meshes): a flat submerged ``Terrain`` override (the s34 land-override GATE + a floor at ``Y=height``),
+    the ``Sea3``/``Sea5``/``Sea4`` meshes from ``sea`` (a ``part -> BlockMesh`` map; a missing part is BLANKED), blanked
+    ``Sea1``/``Sea2``, and the ``Donor.txt`` naming the deep-ocean ``donor``. Returns the ``part -> BlockMesh`` deployed."""
+    from . import mesh as M
+    parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=0, height=height, lod=lod)}
+    for name in LADDER:
+        parts[name] = sea.get(name) or M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod)
+    for name in BLANK:
+        parts[name] = M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod)
+    if not dry_run:
+        for name, bm in parts.items():
+            M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=name)
+        M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc, x=bx, y=by, lod=lod, game=game)
+    return parts
+
+
 def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = "S", threshold: float = 1.0,
           span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1", height: float = -3.0,
           game=None, dry_run: bool = False) -> dict:
@@ -284,18 +303,52 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = 
                "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
         bands, grid, sea5tile = build_cell(bx, by, depth=depth, threshold=threshold, seed=seed)
-        nm = lambda part: f"Block[{bx}][{by}] {part}"
-        parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=0, height=height, lod=lod)}
-        for rk, name in enumerate(LADDER):
-            tris = bands[rk]
-            parts[name] = (M.tri_soup_block_mesh(tris, name=nm(name), disc=disc, x=bx, y=by, lod=lod, normal=NORMAL)
-                           if tris else M.hidden_block_mesh(name=nm(name), disc=disc, x=bx, y=by, lod=lod))
-        for name in BLANK:
-            parts[name] = M.hidden_block_mesh(name=nm(name), disc=disc, x=bx, y=by, lod=lod)
-        if not dry_run:
-            for name, bm in parts.items():
-                M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=name)
-            M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=disc, x=bx, y=by, lod=lod, game=game)
+        sea = {name: M.tri_soup_block_mesh(bands[rk], name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by,
+                                           lod=lod, normal=NORMAL)
+               for rk, name in enumerate(LADDER) if bands[rk]}
+        _deploy_ocean_cell(mod_folder, bx, by, sea=sea, donor=(dx, dy), disc=disc, lod=lod, height=height,
+                           game=game, dry_run=dry_run)
         summary["cells"].append({"cell": [bx, by], "shades": shade_counts(grid), "sea5": len(sea5tile),
                                  "adjacency_violations": adjacency_violations(grid)})
+    return summary
+
+
+def deploy_verbatim(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), disc: int = 1, lod: str = "0_1",
+                    height: float = -3.0, game=None, dry_run: bool = False) -> dict:
+    """Deploy a REAL open-ocean block's water sub-meshes VERBATIM onto each target cell -- the NORTH-STAR A/B reference
+    for validating :func:`water`. Copies ``source``=(bx, by)'s real ``Sea3``/``Sea4``/``Sea5`` meshes UNCHANGED (only
+    relocated to the cell), then deploys them through the EXACT same shape as :func:`water` (flat submerged Terrain gate
+    + blanked Sea1/Sea2 + donor sidecar) -- so a side-by-side at the same cell isolates the SYNTHESIS quality from the
+    deploy pipeline (a byte-copy of a real block is proven to render faithfully in-game). ``source`` defaults to block
+    (8,4), the byte-proven reference the synthesizer was validated 17/17 against. Requires the game install (reads the
+    real block) + the custom engine (s34). Returns a summary; deploys nothing when ``dry_run``."""
+    import dataclasses
+    from . import extract as X
+    cells = [tuple(c) for c in cells]
+    if not cells:
+        raise ValueError("give at least one cell")
+    for (bx, by) in cells:
+        if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
+            raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    sx, sy = source
+    dx, dy = donor
+    if not (0 <= dx < GRID_X and 0 <= dy < GRID_Y):
+        raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    src = {}                                                 # the real Sea sub-meshes the source actually has
+    for name in LADDER:
+        try:
+            src[name] = X.read_block(sx, sy, disc=disc, lod=lod, part=name.lower(), game=game)
+        except (ValueError, FileNotFoundError):
+            src[name] = None
+    if not any(src.values()):
+        raise ValueError(f"source block ({sx},{sy}) has no Sea3/Sea4/Sea5 sub-mesh -- pick an OPEN-OCEAN block")
+    summary = {"op": "water-verbatim", "source": [sx, sy], "donor": [dx, dy], "disc": disc,
+               "dry_run": dry_run, "cells": []}
+    for (bx, by) in cells:
+        sea = {name: dataclasses.replace(bm, x=bx, y=by, name=f"Block[{bx}][{by}] {name}")
+               for name, bm in src.items() if bm is not None}
+        _deploy_ocean_cell(mod_folder, bx, by, sea=sea, donor=(dx, dy), disc=disc, lod=lod, height=height,
+                           game=game, dry_run=dry_run)
+        summary["cells"].append({"cell": [bx, by], "carried": sorted(sea),
+                                 "verts": sum(bm.vcount for bm in sea.values())})
     return summary

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from ff9mapkit.world import mesh as M, water as W
+from ff9mapkit.world import extract as X, mesh as M, water as W
 
 
 # ---- deploy orchestration -------------------------------------------------------------------------------------------
@@ -63,6 +63,72 @@ def test_water_validates_grid_and_args(monkeypatch):
         W.water("MOD", cells=[], dry_run=True)                 # no cells
     with pytest.raises(ValueError):
         W.water("MOD", cells=[(3, 17)], deep_dir="X", dry_run=True)    # bad direction
+
+
+# ---- verbatim A/B reference deploy -----------------------------------------------------------------------------------
+
+def _fake_sea_block(x, y, part, vcount):
+    from ff9mapkit.world.extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    n = vcount
+    chan = {CH_POS: [[1.0, 2.0, 3.0]] * n, CH_NRM: [[0.0, 1.0, 0.0]] * n,
+            CH_UV: [[0.5, 0.5]] * n, CH_TAN: [[1.0, 0.0, 0.0, 1.0]] * n}
+    return BlockMesh(name=f"Block[{x}][{y}] {part}", disc=1, x=x, y=y, lod="0_1", vcount=n, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}, chan_arrays=chan,
+                     flat_index=list(range(n)), tris=[[i, i + 1, i + 2] for i in range(0, n, 3)],
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def _stub_open_ocean(monkeypatch):
+    """A source block with real sea3/sea4/sea5 and NO terrain/sea1/sea2 (like the byte-proven block 8,4)."""
+    counts = {"sea3": 9, "sea4": 30, "sea5": 6}
+    def fake(x, y, **k):
+        part = k.get("part")
+        if part in counts:
+            return _fake_sea_block(x, y, part, counts[part])
+        raise ValueError(f"block ({x},{y}) has no {part}")
+    monkeypatch.setattr(X, "read_block", fake)
+    return counts
+
+
+def test_deploy_verbatim_carries_real_sea_and_matches_water_shape(monkeypatch):
+    counts = _stub_open_ocean(monkeypatch)
+    overrides, sidecars = _capture(monkeypatch)
+    s = W.deploy_verbatim("MOD", cells=[(3, 17)], source=(8, 4), donor=(15, 4))
+    assert s["op"] == "water-verbatim" and s["source"] == [8, 4]
+    # SAME deploy shape as water(): 6 parts in the same order + a donor sidecar
+    assert [o[3] for o in overrides] == ["Terrain", "Sea3", "Sea5", "Sea4", "Sea1", "Sea2"]
+    by_part = {o[3]: o[2] for o in overrides}
+    assert by_part["Sea3"] == counts["sea3"] and by_part["Sea4"] == counts["sea4"] and by_part["Sea5"] == counts["sea5"]
+    assert by_part["Sea1"] == 3 and by_part["Sea2"] == 3            # blanked (source has none)
+    assert all(o[0] == 3 and o[1] == 17 for o in overrides)         # every mesh relocated to the target cell
+    assert sidecars == [(15, 4, 3, 17)]
+    assert s["cells"][0]["carried"] == ["Sea3", "Sea4", "Sea5"]
+
+
+def test_deploy_verbatim_does_not_mutate_the_source(monkeypatch):
+    _stub_open_ocean(monkeypatch)
+    _capture(monkeypatch)
+    src = X.read_block(8, 4, part="sea4")
+    W.deploy_verbatim("MOD", cells=[(3, 17), (4, 17)], source=(8, 4))
+    assert src.x == 8 and src.y == 4                                # the relocation is a copy, not in-place
+
+
+def test_deploy_verbatim_dry_run_and_validation(monkeypatch):
+    _stub_open_ocean(monkeypatch)
+    overrides, sidecars = _capture(monkeypatch)
+    s = W.deploy_verbatim("MOD", cells=[(3, 17)], dry_run=True)
+    assert s["dry_run"] is True and s["cells"] and overrides == [] and sidecars == []
+    with pytest.raises(ValueError):
+        W.deploy_verbatim("MOD", cells=[(3, 20)], dry_run=True)     # cell off-grid
+    with pytest.raises(ValueError):
+        W.deploy_verbatim("MOD", cells=[(3, 17)], donor=(24, 4), dry_run=True)   # donor off-grid
+
+
+def test_deploy_verbatim_rejects_a_non_ocean_source(monkeypatch):
+    monkeypatch.setattr(X, "read_block", lambda x, y, **k: (_ for _ in ()).throw(ValueError("land block")))
+    _capture(monkeypatch)
+    with pytest.raises(ValueError, match="Sea3/Sea4/Sea5"):
+        W.deploy_verbatim("MOD", cells=[(3, 17)], source=(12, 10), dry_run=True)
 
 
 # ---- the marching-band language + invariants ------------------------------------------------------------------------

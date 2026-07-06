@@ -549,7 +549,11 @@ cell from `(--seed, x, y)` so a region doesn't macro-repeat; the shade PLACEMENT
 these were invisible to them and found only by UV byte-analysis + the human's in-game read):** (1) real ocean uses all
 **4** rotations of each quadrant, not just 0/180 (a generator doing only 0/180 is wrong on ~46% of tiles, invisible to
 stats); (2) the transition tile identity is the deep-edge-SET, not a shallow/deep depth bias (that heuristic regressed).
-Validate everything against a verbatim real block; don't declare victory before the human confirms in-game. **In-game
+Validate everything against a verbatim real block; don't declare victory before the human confirms in-game. **The A/B
+reference** is built in: `world-water --cells X,Y --verbatim [BX,BY]` deploys a REAL open-ocean block (default `8,4`,
+the byte-proven block the synth was validated 17/17 against) VERBATIM onto the SAME cell, through the identical deploy
+shape (flat Terrain gate + real Sea3/Sea4/Sea5 + blanked Sea1/Sea2 + donor sidecar) — so deploying the verbatim then
+the synth to the same cell isolates the SYNTHESIS quality from the deploy pipeline (`water.deploy_verbatim`). **In-game
 loop:** relaunch → F6 → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell (3,17) →
 `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of the
 50/50 coin-flip (cosmetic — the game itself coin-flips it).

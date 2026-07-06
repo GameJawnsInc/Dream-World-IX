@@ -2121,22 +2121,34 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
             print("no cells parsed -- give e.g. --cells '3,17' or a range '2-4,16-18'", file=sys.stderr)
             return 2
         dx, dy = (int(v) for v in args.donor.split(","))
-        summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, threshold=args.threshold,
-                          span=args.span, noise=args.noise, seed=args.seed, disc=args.disc, height=args.height,
-                          game=args.game, dry_run=args.dry_run)
+        if args.verbatim:
+            sx, sy = (int(v) for v in args.verbatim.split(","))
+            summary = W.deploy_verbatim(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy),
+                                        disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+        else:
+            summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep,
+                              threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
+                              disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    verb = "would synthesize" if args.dry_run else "synthesized"
-    print(f"{verb} graded ocean water (donor {tuple(summary['donor'])}, deeper toward {summary['deep_dir']}) "
-          f"at {len(summary['cells'])} cell(s):")
-    for c in summary["cells"]:
-        s = c["shades"]
-        print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
-              f"(sea3|sea4 seams={c['adjacency_violations']})")
-    if any(c["adjacency_violations"] for c in summary["cells"]):
-        print("  WARNING: a sea3|sea4 direct adjacency slipped the transition band -- report this (should be 0).",
-              file=sys.stderr)
+    if args.verbatim:
+        verb = "would place" if args.dry_run else "placed"
+        print(f"{verb} VERBATIM real ocean block {tuple(summary['source'])} (donor {tuple(summary['donor'])}) "
+              f"at {len(summary['cells'])} cell(s) -- the A/B reference for world-water:")
+        for c in summary["cells"]:
+            print(f"  cell {tuple(c['cell'])}: carried {c['carried']} ({c['verts']} verts)")
+    else:
+        verb = "would synthesize" if args.dry_run else "synthesized"
+        print(f"{verb} graded ocean water (donor {tuple(summary['donor'])}, deeper toward {summary['deep_dir']}) "
+              f"at {len(summary['cells'])} cell(s):")
+        for c in summary["cells"]:
+            s = c["shades"]
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
+        if any(c["adjacency_violations"] for c in summary["cells"]):
+            print("  WARNING: a sea3|sea4 direct adjacency slipped the transition band -- report this (should be 0).",
+                  file=sys.stderr)
     if not args.dry_run:
         print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
         print("  A lone cell is reachable via F6 -> World -> Teleport; a contiguous run of cells stays seamless.")
@@ -4345,6 +4357,9 @@ def build_parser() -> argparse.ArgumentParser:
     wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")
     wwt.add_argument("--height", type=float, default=-3.0,
                      help="submerged Terrain floor Y under the water (default -3, below the sea surface)")
+    wwt.add_argument("--verbatim", nargs="?", const="8,4", metavar="BX,BY",
+                     help="A/B REFERENCE: instead of synthesizing, deploy REAL ocean block BX,BY verbatim (default 8,4, "
+                          "the byte-proven block) onto --cells -- the north-star to compare world-water against at the same spot")
     wwt.add_argument("--seed", type=int, default=0, help="anti-tiling PRNG seed (deterministic; vary for a new shuffle)")
     wwt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wwt.add_argument("--dry-run", action="store_true", help="report the cells it would fill, write nothing")
