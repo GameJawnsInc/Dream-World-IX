@@ -2132,8 +2132,7 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
         else:
             summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, shallows=args.shallows,
                               threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
-                              disc=args.disc, height=args.height, shallow_threshold=args.shallow_threshold,
-                              game=args.game, dry_run=args.dry_run)
+                              disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2157,11 +2156,10 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
         print(f"{verb} ocean water ({desc}, donor {tuple(summary['donor'])}) at {len(summary['cells'])} cell(s):")
         for c in summary["cells"]:
             s = c["shades"]
-            sh = f"sea2={s['sea2']} sea1={s['sea1']} " if (s["sea2"] or s["sea1"]) else ""
-            print(f"  cell {tuple(c['cell'])}: {sh}sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
-                  f"(pure-band seams={c['adjacency_violations']})")
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
         if any(c["adjacency_violations"] for c in summary["cells"]):
-            print("  WARNING: two different pure bands are directly adjacent (a blend slipped) -- report this (should be 0).",
+            print("  WARNING: a sea3|sea4 direct adjacency slipped the transition band -- report this (should be 0).",
                   file=sys.stderr)
     if not args.dry_run:
         print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
@@ -4369,10 +4367,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "direction for a graded shallow->deep RAMP toward it (a coast/bay)")
     wwt.add_argument("--shallows", type=float, default=0.05,
                      help="open-ocean shallow-patch fraction (default 0.05 ~ real; 0 = uniform deep Sea4). Ignored with --deep.")
-    wwt.add_argument("--threshold", type=float, default=1.0, help="depth at the mid|deep seam (default 1.0)")
-    wwt.add_argument("--shallow-threshold", type=float, default=None,
-                     help="engage the near-shore SHALLOW rungs: depth below this becomes Sea2 (shallow), with a Sea1 "
-                          "blend up to Sea3 (mid). Must be < --threshold. OMIT for the proven 3-rung open ocean.")
+    wwt.add_argument("--threshold", type=float, default=1.0, help="depth at the shallow|deep seam (default 1.0)")
     wwt.add_argument("--span", type=float, default=2.0, help="depth range shallow->deep across the region (default 2.0)")
     wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")
     wwt.add_argument("--height", type=float, default=-0.1,

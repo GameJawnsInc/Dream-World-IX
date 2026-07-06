@@ -30,10 +30,10 @@ def test_water_deploys_six_parts_and_sidecar(monkeypatch):
     s = W.water("MOD", cells=[(3, 17)], donor=(15, 4))
     assert s["op"] == "water" and s["donor"] == [15, 4]
     parts = [o[3] for o in overrides]
-    assert parts == ["Terrain", "Sea2", "Sea1", "Sea3", "Sea5", "Sea4"]      # Terrain + the full 5-rung ladder
+    assert parts == ["Terrain", "Sea3", "Sea5", "Sea4", "Sea1", "Sea2"]      # fixed, complete part set
     assert all(o[0] == 3 and o[1] == 17 for o in overrides)                  # all on the target cell
     assert sidecars == [(15, 4, 3, 17)]                                      # one Donor.txt naming the donor
-    # open ocean (no shallow_threshold): the coast shades Sea1/Sea2 are the 3-vert hidden mesh; mid/deep are real
+    # the blanked coast shades are the 3-vert hidden mesh; the water bands are real geometry
     by_part = {o[3]: o[2] for o in overrides}
     assert by_part["Sea1"] == 3 and by_part["Sea2"] == 3
     assert by_part["Sea3"] > 3 and by_part["Sea4"] > 3
@@ -77,7 +77,7 @@ def test_open_ocean_is_the_default_and_mostly_deep():
 
 def test_open_ocean_shallows_zero_is_uniform_deep():
     s = W.water("MOD", cells=[(3, 17)], shallows=0.0, dry_run=True)
-    assert s["cells"][0]["shades"] == {"sea2": 0, "sea1": 0, "sea3": 0, "sea5": 0, "sea4": 256}
+    assert s["cells"][0]["shades"] == {"sea3": 0, "sea5": 0, "sea4": 256}
 
 
 def test_deep_dir_opts_into_the_graded_ramp():
@@ -155,8 +155,8 @@ def test_deploy_verbatim_carries_real_sea_and_matches_water_shape(monkeypatch):
     overrides, sidecars = _capture(monkeypatch)
     s = W.deploy_verbatim("MOD", cells=[(3, 17)], source=(8, 4), donor=(15, 4))
     assert s["op"] == "water-verbatim" and s["source"] == [8, 4]
-    # SAME deploy shape as water(): Terrain + the 5-rung ladder + a donor sidecar
-    assert [o[3] for o in overrides] == ["Terrain", "Sea2", "Sea1", "Sea3", "Sea5", "Sea4"]
+    # SAME deploy shape as water(): 6 parts in the same order + a donor sidecar
+    assert [o[3] for o in overrides] == ["Terrain", "Sea3", "Sea5", "Sea4", "Sea1", "Sea2"]
     by_part = {o[3]: o[2] for o in overrides}
     assert by_part["Sea3"] == counts["sea3"] and by_part["Sea4"] == counts["sea4"] and by_part["Sea5"] == counts["sea5"]
     assert by_part["Sea1"] == 3 and by_part["Sea2"] == 3            # blanked (source has none)
@@ -222,14 +222,14 @@ def _stub_reproduce_source(monkeypatch):
             return _fake_part_block(x, y, part, by_part[part])
         raise ValueError(part)
     monkeypatch.setattr(X, "read_block", fake)
-    return {"sea2": 0, "sea1": 0, "sea3": 80, "sea5": 16, "sea4": 160}
+    return {"sea3": 80, "sea5": 16, "sea4": 160}
 
 
 def test_read_shade_grid_bins_tris(monkeypatch):
     _stub_reproduce_source(monkeypatch)
     grid = W.read_shade_grid(8, 4)
     assert grid[0][0] == "sea3" and grid[0][5] == "sea5" and grid[0][15] == "sea4"
-    assert W.shade_counts(grid) == {"sea2": 0, "sea1": 0, "sea3": 80, "sea5": 16, "sea4": 160}
+    assert W.shade_counts(grid) == {"sea3": 80, "sea5": 16, "sea4": 160}
 
 
 def test_arrangement_from_block_reselects_every_sea5(monkeypatch):
@@ -249,7 +249,7 @@ def test_reproduce_matches_source_layout_and_deploys(monkeypatch):
     assert s["op"] == "water-reproduce" and s["source"] == [8, 4]
     # the reproduced cell has the SOURCE's shade distribution (that's the whole point -- same layout, synth tiles)
     assert s["cells"][0]["shades"] == counts and s["cells"][0]["adjacency_violations"] == 0
-    assert [o[3] for o in overrides] == ["Terrain", "Sea2", "Sea1", "Sea3", "Sea5", "Sea4"]
+    assert [o[3] for o in overrides] == ["Terrain", "Sea3", "Sea5", "Sea4", "Sea1", "Sea2"]
     assert all(o[0] == 3 and o[1] == 17 for o in overrides) and sidecars == [(15, 4, 3, 17)]
 
 
@@ -416,43 +416,11 @@ def test_default_gradient_actually_grades():
 
 
 def test_custom_depth_callable_is_used():
-    # an all-deep field -> every cell Sea4; an all-shallow field -> every cell Sea3 (the shallowest OPEN-ocean rung)
+    # an all-deep field -> every cell Sea4; an all-shallow field -> every cell Sea3
     _, deep_grid, _ = W.build_cell(3, 17, depth=lambda x, z: 999.0, threshold=1.0)
     _, shallow_grid, _ = W.build_cell(3, 17, depth=lambda x, z: -999.0, threshold=1.0)
-    assert W.shade_counts(deep_grid) == {"sea2": 0, "sea1": 0, "sea3": 0, "sea5": 0, "sea4": 256}
-    assert W.shade_counts(shallow_grid) == {"sea2": 0, "sea1": 0, "sea3": 256, "sea5": 0, "sea4": 0}
-
-
-# ---- the 5-rung shallow extension (Sea2 shallow + Sea1 blend, opt-in via shallow_threshold) ---------------------------
-def test_shallow_threshold_none_never_places_the_shallows():
-    """SAFETY: with shallow_threshold=None (the default) the placement is the proven 3-rung band -- no Sea2/Sea1."""
-    depth = W.default_depth_field([(3, 17)], deep_dir="S", span=2.0, noise=0.0)
-    _, grid, _ = W.build_cell(3, 17, depth=depth, threshold=1.0)
-    c = W.shade_counts(grid)
-    assert c["sea2"] == 0 and c["sea1"] == 0
-    assert c["sea3"] > 0 and c["sea4"] > 0
-
-
-def test_shallow_threshold_engages_all_five_rungs():
-    """A deep->shore ramp with a shallow_threshold reaches every rung, and the blend invariant still holds."""
-    depth = W.default_depth_field([(3, 17)], deep_dir="S", span=2.0, noise=0.0)
-    _, grid, _ = W.build_cell(3, 17, depth=depth, threshold=1.0, shallow_threshold=0.4)
-    c = W.shade_counts(grid)
-    assert c["sea2"] > 0 and c["sea1"] > 0 and c["sea3"] > 0 and c["sea5"] > 0 and c["sea4"] > 0
-    assert W.adjacency_violations(grid) == 0                    # a Wang blend bridges every pure-band boundary
-
-
-def test_all_shallow_field_is_all_sea2():
-    _, grid, _ = W.build_cell(3, 17, depth=lambda x, z: -999.0, threshold=1.0, shallow_threshold=0.4)
-    assert W.shade_counts(grid) == {"sea2": 256, "sea1": 0, "sea3": 0, "sea5": 0, "sea4": 0}
-
-
-def test_shallow_deploys_sea2_sea1_as_real_geometry(monkeypatch):
-    overrides, _ = _capture(monkeypatch)
-    W.water("MOD", cells=[(3, 17)], deep_dir="S", span=2.0, noise=0.0, shallow_threshold=0.4)
-    by_part = {o[3]: o[2] for o in overrides}
-    assert by_part["Sea2"] > 3 and by_part["Sea1"] > 3         # real bands now, not the 3-vert hidden blank
-    assert by_part["Sea3"] > 3 and by_part["Sea4"] > 3
+    assert W.shade_counts(deep_grid) == {"sea3": 0, "sea5": 0, "sea4": 256}
+    assert W.shade_counts(shallow_grid) == {"sea3": 256, "sea5": 0, "sea4": 0}
 
 
 def test_deepset2tile_covers_every_partial_edge_set():
@@ -512,7 +480,7 @@ def test_hidden_block_mesh_is_a_buried_degenerate_tri():
 def test_water_meshes_serialize_roundtrip(tmp_path):
     depth = W.default_depth_field([(3, 17)], deep_dir="S")
     bands, _, _ = W.build_cell(3, 17, depth=depth)
-    bm = M.tri_soup_block_mesh(bands["Sea4"], name="Block[3][17] Sea4", x=3, y=17, normal=W.NORMAL)
+    bm = M.tri_soup_block_mesh(bands[2], name="Block[3][17] Sea4", x=3, y=17, normal=W.NORMAL)
     p = M.write_ff9mesh(bm, tmp_path / "sea4.ff9mesh")
     d = M.read_ff9mesh(p)
     assert d["vcount"] == bm.vcount and len(d["indices"]) == bm.vcount
