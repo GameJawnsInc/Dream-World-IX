@@ -162,24 +162,35 @@ def parse_playable(entry, *, n: int = 0) -> dict:
         raise PlayableError(f"[[playable]] id {nid}: 'custom_battle_model' must be true/false")
     battle_model_id = None
     battle_serial = None
+    battle_borrow_serial = None
     battle_model_from = entry.get("battle_model_from")
     if battle_model_from is not None and not (isinstance(battle_model_from, str) and battle_model_from.strip()):
         raise PlayableError(f"[[playable]] id {nid}: 'battle_model_from' must be a GEO name")
     if custom_battle:
         battle_model_id = _battle_model_id(entry.get("battle_model_id"), nid)
         battle_serial = _battle_serial(entry.get("battle_serial"), nid)
+        bbs = entry.get("battle_borrow_serial")            # a donor BattleParameters serial (0-18) to clone anims from
+        if bbs is not None:
+            if isinstance(bbs, bool) or not isinstance(bbs, (int, str)) or not str(bbs).strip().lstrip("-").isdigit():
+                raise PlayableError(f"[[playable]] id {nid}: battle_borrow_serial must be an integer serial 0-18")
+            battle_borrow_serial = int(bbs)
+            if not 0 <= battle_borrow_serial <= 18:
+                raise PlayableError(f"[[playable]] id {nid}: battle_borrow_serial {battle_borrow_serial} "
+                                    f"out of range (0-18, a base game serial)")
         # point the character's battle model at the new serial (a params override; the new-row build wins)
         if "serial_formula" in params and str(params["serial_formula"]).strip() != str(battle_serial):
             raise PlayableError(f"[[playable]] id {nid}: params.serial_formula collides with custom_battle_model "
                                 f"(which sets serial {battle_serial}) -- drop the explicit serial_formula")
         params["serial_formula"] = str(battle_serial)
-    elif entry.get("battle_model_id") is not None or entry.get("battle_serial") is not None or battle_model_from:
-        raise PlayableError(f"[[playable]] id {nid}: battle_model_id/battle_serial/battle_model_from need "
-                            f"custom_battle_model = true")
+    elif (entry.get("battle_model_id") is not None or entry.get("battle_serial") is not None
+          or battle_model_from or entry.get("battle_borrow_serial") is not None):
+        raise PlayableError(f"[[playable]] id {nid}: battle_model_id/battle_serial/battle_model_from/"
+                            f"battle_borrow_serial need custom_battle_model = true")
     return {"id": nid, "name": name, "names": names, "borrow_id": borrow_id,
             "stats": dict(stats), "params": params, "recruit": recruit,
             "custom_battle_model": custom_battle, "battle_model_id": battle_model_id,
-            "battle_serial": battle_serial, "battle_model_from": battle_model_from}
+            "battle_serial": battle_serial, "battle_model_from": battle_model_from,
+            "battle_borrow_serial": battle_borrow_serial}
 
 
 def parse_all(entries) -> list:
@@ -228,7 +239,8 @@ def battle_model_specs(specs) -> list:
     """The specs that asked for a custom battle model -> ``[{playable_id, name, borrow_id, model_id, serial,
     model_from}]`` (model_from is an explicit donor GEO or None = derive from borrow)."""
     return [{"playable_id": s["id"], "name": s["name"], "borrow_id": s["borrow_id"],
-             "model_id": s["battle_model_id"], "serial": s["battle_serial"], "model_from": s["battle_model_from"]}
+             "model_id": s["battle_model_id"], "serial": s["battle_serial"], "model_from": s["battle_model_from"],
+             "borrow_serial": s["battle_borrow_serial"]}
             for s in specs if s.get("custom_battle_model")]
 
 

@@ -155,6 +155,22 @@ def test_battle_model_specs():
     assert len(bs) == 1                                              # only the custom-battle-model one
     assert bs[0]["playable_id"] == 12 and bs[0]["borrow_id"] == 1
     assert bs[0]["model_id"] == 6100 and bs[0]["serial"] == 19 and bs[0]["model_from"] is None
+    assert bs[0]["borrow_serial"] is None                           # default (derive from borrow)
+
+
+def test_custom_battle_borrow_serial():
+    # a scenario-formula donor (Zidane/Garnet/...) needs an explicit battle model + anim-source serial
+    s = PL.parse_playable({"name": "Zephyr", "borrow": "garnet", "custom_battle_model": True,
+                           "battle_model_from": "GEO_MAIN_B0_006", "battle_borrow_serial": 2})
+    assert s["battle_borrow_serial"] == 2 and s["battle_model_from"] == "GEO_MAIN_B0_006"
+    assert PL.battle_model_specs([s])[0]["borrow_serial"] == 2
+    with pytest.raises(PL.PlayableError):                            # serial out of the base range 0-18
+        PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "battle_borrow_serial": 25})
+    with pytest.raises(PL.PlayableError):                            # needs the flag
+        PL.parse_playable({"name": "X", "borrow": "vivi", "battle_borrow_serial": 2})
+    # default -> None (derive from borrow)
+    assert PL.parse_playable({"name": "X", "borrow": "vivi",
+                              "custom_battle_model": True})["battle_borrow_serial"] is None
 
 
 def test_validate_playable():

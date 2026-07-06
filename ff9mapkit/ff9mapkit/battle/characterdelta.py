@@ -630,7 +630,9 @@ def resolve_donor_battle(borrow_id, *, game=None) -> tuple:
     formula = cp_by[borrow_id][6].strip() if len(cp_by[borrow_id]) > 6 else ""
     if not formula.lstrip("-").isdigit():
         raise CharacterDeltaError(f"[[playable]] borrow id {borrow_id} has a scenario-dependent battle serial "
-                                  f"formula ({formula!r}) -- give an explicit battle_model / battle_serial")
+                                  f"formula ({formula!r}), so its battle model can't be auto-picked -- set BOTH "
+                                  f"battle_model_from = \"<GEO>\" (the model to mint) AND battle_borrow_serial = "
+                                  f"<0-18> (the BattleParameters row to clone anims/avatar from)")
     serial = int(formula)
     bp_idx = bp_cols["id"]
     mcol = bp_cols.get("modelid")

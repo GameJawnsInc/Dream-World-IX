@@ -282,3 +282,16 @@ def test_full_build_custom_battle_model(tmp_path):
     cp = [l for l in layout.character_parameters_csv.read_text(encoding="cp1252").splitlines()
           if l.startswith("12;") and not l.startswith("#")]
     assert cp and cp[0].split(";")[6] == "19"
+
+
+def test_resolve_playable_battle_canonicalizes_and_explicit_serial():
+    # review fixes: (1) a lowercase battle_model_from is CANONICALIZED so the BattleParameters ModelId matches the
+    # registered 3DModel name; (2) an explicit battle_borrow_serial lets a scenario-formula donor work (no
+    # resolve_donor_battle call -> no install needed here).
+    from ff9mapkit.build import _resolve_playable_battle
+    spec = {"playable_id": 12, "name": "Iviv", "borrow_id": 2, "model_id": 6100, "serial": 19,
+            "model_from": "geo_main_b0_006", "borrow_serial": 2}          # lowercase source + explicit serial
+    mb, bp = _resolve_playable_battle(spec)
+    assert mb["from"] == "GEO_MAIN_B0_006"                                # canonical (uppercase) == the 3DModel name
+    assert bp["model"] == "GEO_MAIN_B0_M100"                              # ModelId cell == the registered GEO name
+    assert bp["borrow"] == 2 and bp["id"] == 19                          # the explicit anim-source serial was used

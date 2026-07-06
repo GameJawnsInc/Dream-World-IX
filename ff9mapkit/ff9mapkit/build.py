@@ -2642,18 +2642,31 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
 def _resolve_playable_battle(bspec, *, game=None):
     """A ``[[playable]]`` custom-battle-model spec (from :func:`playable.battle_model_specs`) -> ``(mint_block,
     battle_params_row)``: the donor's battle GEO minted at a new id, and a new BattleParameters serial row that
-    references that minted GEO by name (both agree on the name via :func:`mint.derive_mint_name`). Reads the
-    install to resolve the donor's serial + battle model. Raises :class:`BuildError` on an unresolvable donor."""
+    references that minted GEO by name. Both the mint's ``3DModel`` directive and the BattleParameters ModelId
+    cell are derived from the SAME **canonical** (uppercased + validated) GEO name, so ``GetGEOID`` resolves them
+    (a lowercase ``battle_model_from`` would otherwise mismatch the directive). The donor's battle GEO + the
+    serial-to-clone (for the 34 anims/avatar/bones) come from the install by default, or from explicit
+    ``battle_model_from`` / ``battle_borrow_serial`` overrides (which let a scenario-formula donor be used).
+    Raises :class:`BuildError` on an unresolvable donor / unknown GEO."""
     from .battle import characterdelta as _cd
-    from .models import mint as _mint
-    try:
-        donor_serial, donor_geo = _cd.resolve_donor_battle(bspec["borrow_id"], game=game)
-    except _cd.CharacterDeltaError as ex:
-        raise BuildError(str(ex))
-    model_geo = bspec.get("model_from") or donor_geo          # explicit override, else the donor's battle GEO
-    minted_name = _mint.derive_mint_name(model_geo, bspec["model_id"])
-    mint_block = {"id": bspec["model_id"], "from": model_geo}
-    bp_row = {"id": bspec["serial"], "borrow": donor_serial, "model": minted_name,
+    from .models import mint as _mint, extract as _extract
+    model_from = bspec.get("model_from")
+    borrow_serial = bspec.get("borrow_serial")
+    donor_geo = donor_serial = None
+    if model_from is None or borrow_serial is None:          # need the donor's default battle identity
+        try:
+            donor_serial, donor_geo = _cd.resolve_donor_battle(bspec["borrow_id"], game=game)
+        except _cd.CharacterDeltaError as ex:
+            raise BuildError(str(ex))
+    src_geo = model_from or donor_geo
+    try:                                                     # canonicalize (uppercase + validate) -> matches the mint
+        canonical_geo = _extract.resolve_geo(src_geo)[0]
+    except (ValueError, KeyError, FileNotFoundError, OSError, RuntimeError) as ex:
+        raise BuildError(f"[[playable]] battle model source {src_geo!r} is not a known GEO model ({ex})")
+    minted_name = _mint.derive_mint_name(canonical_geo, bspec["model_id"])
+    serial_to_clone = borrow_serial if borrow_serial is not None else donor_serial
+    mint_block = {"id": bspec["model_id"], "from": canonical_geo}
+    bp_row = {"id": bspec["serial"], "borrow": serial_to_clone, "model": minted_name,
               "trance_model": minted_name, "comment": bspec["name"]}
     return mint_block, bp_row
 
