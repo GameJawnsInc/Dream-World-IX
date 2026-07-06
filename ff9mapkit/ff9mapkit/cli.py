@@ -4336,14 +4336,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
     wrc.add_argument("--profile", choices=["island", "flat", "cliff"], default="island",
                      help="'island' (default) = grass plateau ramping to a sand beach ring; 'cliff' = rolling land top "
-                          "dropping via a STEEP near-vertical ROCK WALL to the waterline (the FAITHFUL byte-derived "
-                          "(7,17) cliff: ~73deg, ~1.2u run, real grey-rock band); 'flat' = a bare slab of one --topograph")
+                          "dropping via a STEEP near-vertical ROCK WALL to the waterline (FAITHFUL to 208 real cliffs: "
+                          "~73deg, arc-length rock UVs); 'flat' = a bare slab of one --topograph")
     wrc.add_argument("--height", type=float, default=None,
-                     help="land Y: plateau/wall height (default island 6 / cliff 4) or flat-slab Y (default 0 = coast level)")
+                     help="land Y: plateau/wall height (default island 6 / cliff 3.2 ~ real interior-land Y) or flat-slab Y (default 0)")
     wrc.add_argument("--beach", type=float, default=None,
                      help="island shore ramp WIDTH in units (default 22 gentle) -- how far the drop slopes inland (island profile)")
     wrc.add_argument("--rim-run", type=float, default=None,
-                     help="cliff wall RUN in units (default 1.2 -> ~73deg, the measured (7,17) wall); smaller = steeper (cliff profile)")
+                     help="cliff wall RUN in units (default 1.0 -> ~73deg at height 3.2); smaller = steeper (cliff profile)")
     wrc.add_argument("--shore-topo", type=int, default=None,
                      help="island shore-edge terrain type (default 20 sand; 58 is on-foot BLOCKED)")
     wrc.add_argument("--topograph", type=int, default=0,
