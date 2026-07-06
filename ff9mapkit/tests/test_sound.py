@@ -131,3 +131,34 @@ def test_mint_song_writes_manifest_ogg_and_accumulates(tmp_path, monkeypatch):
     r2 = S.mint_song(wav, mod, set_priority=False)                 # 2nd mint reads the OVERRIDE, not stock
     assert r2["song_id"] == 1001
     assert {e["id"] for e in S.parse_manifest(mpath.read_text())} == {0, 9, 1000, 1001}   # both preserved
+
+
+# --- [music] file = build hook (content.music.mint_field_theme) ---
+def test_mint_field_theme_mints_when_file_set(tmp_path, monkeypatch):
+    from ff9mapkit.content import music as M
+    called = {}
+
+    def fake_mint(f, mod_root, **kw):
+        called.update(f=str(f), mod_root=str(mod_root), kw=kw)
+        return {"song_id": 1000, "resource_id": "Sounds01/BGM_/custom1000"}
+
+    monkeypatch.setattr(S, "mint_song", fake_mint)                 # content.music calls sound.mint_song
+    (tmp_path / "theme.ogg").write_bytes(b"x")
+    r = M.mint_field_theme({"file": "theme.ogg", "loop_start": 5}, tmp_path, tmp_path / "mod")
+    assert r["song_id"] == 1000
+    assert called["kw"]["loop_start"] == 5 and called["kw"]["set_priority"] is False   # build never touches the ini
+    assert called["f"].endswith("theme.ogg")                       # resolved relative to the field.toml dir
+
+
+def test_mint_field_theme_noop_when_no_file_or_song_set(monkeypatch):
+    from ff9mapkit.content import music as M
+    monkeypatch.setattr(S, "mint_song", lambda *a, **k: pytest.fail("should not mint"))
+    assert M.mint_field_theme(None, ".", ".") is None
+    assert M.mint_field_theme({"song": 9}, ".", ".") is None       # a plain swap, no custom file
+    assert M.mint_field_theme({"file": "x", "song": 9}, ".", ".") is None   # explicit song wins -> skip
+
+
+def test_mint_field_theme_missing_file_raises(tmp_path):
+    from ff9mapkit.content import music as M
+    with pytest.raises(FileNotFoundError):
+        M.mint_field_theme({"file": "nope.ogg"}, tmp_path, tmp_path / "mod")

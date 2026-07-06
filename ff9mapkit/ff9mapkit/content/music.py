@@ -95,3 +95,24 @@ def replace_field_music(eb_bytes, new_song: int, *, old_song: int | None = None)
                 buf[ins.off + bo:ins.off + bo + width] = new_song.to_bytes(width, "little")
                 n += 1
     return bytes(buf), n, old_song
+
+
+def mint_field_theme(music_cfg, base_dir, mod_root, *, game=None):
+    """If ``[music]`` declares a custom ``file`` (and no explicit ``song``), MINT a new song id + deploy the
+    OGG into ``mod_root`` (:func:`ff9mapkit.sound.mint_song`, DLL-free) and return the mint result dict; else
+    ``None``. The caller then wires ``music['song'] = result['song_id']`` so the field's ``.eb`` plays it. A
+    minted new id needs no ``PriorityToOGG`` (no bundled ``.akb`` to lose to), so this does NOT touch the
+    game ini. Needs the FF9 install (reads the stock manifest to extend) + ffmpeg. Raises FileNotFoundError
+    on a missing file (relative to the field.toml dir)."""
+    from pathlib import Path
+    cfg = music_cfg or {}
+    if not cfg.get("file") or cfg.get("song") is not None:
+        return None
+    f = Path(cfg["file"])
+    if not f.is_absolute():
+        f = Path(base_dir) / f
+    if not f.exists():
+        raise FileNotFoundError(f"{f} not found")
+    from .. import sound
+    return sound.mint_song(f, mod_root, kind="music", loop_start=cfg.get("loop_start"),
+                           loop_end=cfg.get("loop_end"), set_priority=False, game=game)

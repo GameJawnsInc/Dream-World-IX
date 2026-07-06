@@ -4779,6 +4779,19 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     if pw:
         warnings.append(pw)
 
+    # [music] file = "theme.ogg" -- ship a CUSTOM field theme (not a swap of an existing track): MINT a new
+    # song id + deploy the OGG into the mod (DLL-free), then wire the field to play it via music.song =
+    # <minted id> (build_script/verbatim both read it). Runs BEFORE build_script. A minted new id needs NO
+    # PriorityToOGG (no bundled .akb to lose to), so we don't touch the game ini. Needs the FF9 install
+    # (reads the stock manifest to extend) + ffmpeg.
+    try:
+        _theme = _music.mint_field_theme(project.raw.get("music"), project.base_dir, layout.root)
+    except Exception as e:                                # noqa: BLE001
+        raise BuildError(f"[music] file: {e}")
+    if _theme is not None:
+        project.raw["music"]["song"] = _theme["song_id"]  # wire the field to the minted id
+        warnings.append(f"[music] file: minted song id {_theme['song_id']} -> {_theme['resource_id']}")
+
     # BG-borrow (import mode): the DictionaryPatch points the BG lookup at a REAL base-game field
     # (areaID + borrow_bg mapid), so the engine renders that field's art + walkmesh + camera while
     # running OUR script. We ship only the .eb (no custom scene). The borrowed `camera.bgx` still
