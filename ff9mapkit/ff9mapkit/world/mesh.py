@@ -315,6 +315,92 @@ def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg:
     return bm
 
 
+def cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, cliff_dirs, seg: int = 10, land_height: float = 4.0,
+                     rim_run: float = 1.2, roll_amp: float = 0.6, land_topo: int = 0, cliff_topo: int = 58,
+                     profile_pow: float = 1.0, lod: str = "0_1"):
+    """Synthesize ONE block of a CLIFF-walled island: a walkable rolling land top at ~``land_height`` that drops to the
+    waterline (``Y=0``) via a STEEP near-vertical ROCK WALL on each cliff-facing edge -- the FAITHFUL (7,17) cliff
+    profile (measured 2026-07-06: 100% of real cliff-face tris are >45deg, median **72deg**, ~4u drop over ~**1.2u**
+    run), NOT :func:`island_block_mesh`'s gentle grid-smeared apron (24deg over 9u -- the wrong shape).
+
+    THE KEY: the wall is SHARP because a vertex ROW is placed EXACTLY ``rim_run`` inside each cliff border (a
+    NON-UNIFORM grid), so the full drop lands in one ~1.2u band instead of smearing across a uniform 6.4u grid quad.
+    ``cliff_dirs`` = the grid dirs whose neighbour is open water (subset of ``{(-1,0),(1,0),(0,1),(0,-1)}``); an EMPTY
+    set = a flat-topped interior cell (no wall). The wall tris carry ``cliff_topo`` (58, on-foot BLOCKED -- the player
+    stops at the rim) for :func:`ff9mapkit.world.terrain._apply_cliff_rock_uvs` to texture grey rock; the top carries
+    ``land_topo`` (0 = plains). A 74deg wall's geometric normal still has ``n.y = cos(74) ~ 0.28 > 0.1`` so it survives
+    the engine's up-facing walkmesh filter (renders + collides); topo 58 is what blocks foot traffic, not the slope.
+
+    CORNERS ARE TEAR-FREE: with a grid line at ``rim_run`` on BOTH cliff axes, the corner quad has three ``Y=0`` corners
+    + one raised inner corner, so its two triangles share the low->high diagonal -- no mid-quad crease to split
+    inconsistently (the exact failure mode of ``island_block_mesh``'s ``min()``-sampled ramp, which put the diagonal
+    crease INSIDE a quad -> the triangular gaps). ``roll_amp`` undulation fades in PAST the rim (0 at the wall top) so
+    the wall top stays a clean uniform line while the interior rolls like real land. Heights are a pure function of
+    world XZ (coincident corners get identical Y) -> watertight. Call sequence mirrors island_block_mesh (winding gives
+    the +Y geometric normal; :func:`recompute_normals` runs at the end for slope shading)."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    cd = set(tuple(d) for d in cliff_dirs)
+    idL, idC = float(encode_id(topograph=land_topo)), float(encode_id(topograph=cliff_topo))
+
+    def axis(lo, hi, cliff_lo, cliff_hi):                    # grid lines + a rim inset line on each cliff border
+        lines = {lo + (hi - lo) * f / seg for f in range(seg + 1)}
+        if cliff_lo:
+            lines.add(lo + rim_run)
+        if cliff_hi:
+            lines.add(hi - rim_run)
+        return sorted(lines)
+
+    xs = axis(0.0, 64.0, (-1, 0) in cd, (1, 0) in cd)        # west border x=0, east x=64
+    zs = axis(-64.0, 0.0, (0, 1) in cd, (0, -1) in cd)       # south border z=-64, north z=0
+
+    def inset(lx, lz):                                       # world-XZ distance INWARD from the nearest cliff border
+        ds = []
+        if (-1, 0) in cd:
+            ds.append(lx)                                    # from west (x=0)
+        if (1, 0) in cd:
+            ds.append(64.0 - lx)                             # from east (x=64)
+        if (0, -1) in cd:
+            ds.append(-lz)                                   # from north (z=0)
+        if (0, 1) in cd:
+            ds.append(lz + 64.0)                             # from south (z=-64)
+        return min(ds) if ds else rim_run + 10.0
+
+    def hgt(lx, lz):
+        ins = inset(lx, lz)
+        t = max(0.0, min(1.0, ins / rim_run))
+        base = land_height * (t ** profile_pow)              # 0 at the border -> land_height at the rim (steep wall)
+        rw = max(0.0, min(1.0, (ins - rim_run) / 6.0))       # fade the roll in past the rim (0 at the wall top)
+        return base + roll_amp * math.sin(lx * 0.19 + 0.7) * math.cos(lz * 0.17 + 0.3) * rw
+
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(px, pz, idall):
+        nonlocal vi
+        pos.append([px, hgt(px, pz), pz]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    for ix in range(len(xs) - 1):
+        for iz in range(len(zs) - 1):
+            x0, x1 = xs[ix], xs[ix + 1]
+            z0, z1 = zs[iz + 1], zs[iz]                       # z0 nearer 0, z1 more negative (island_block_mesh winding)
+            c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+            is_wall = any(inset(cx, cz) < rim_run - 1e-6 for (cx, cz) in (c00, c10, c11, c01))
+            idall = idC if is_wall else idL
+            for (a, b, c) in ((c00, c11, c01), (c00, c10, c11)):   # both UP-wound (+Y geometric normal)
+                base = vi
+                emit(*a, idall); emit(*b, idall); emit(*c, idall)
+                tris.append([base, base + 1, base + 2])
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    bm = BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                   channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                   raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    recompute_normals(bm)
+    return bm
+
+
 def tri_soup_block_mesh(triangles, *, name, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1",
                         normal=(0.0, 1.0, 0.0)):
     """Build a :class:`~ff9mapkit.world.extract.BlockMesh` from a triangle SOUP -- ``triangles`` is a list of triangles,
