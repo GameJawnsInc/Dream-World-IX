@@ -2111,6 +2111,62 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_water(args: argparse.Namespace) -> int:
+    """Synthesize graded OPEN-OCEAN water (shallow->deep) on sea cells from a built-in depth gradient -- the faithful
+    marching-band synthesizer (Sea3/Sea5/Sea4 alphabet, byte-proven UVs). Needs the custom engine (s34); RELAUNCH."""
+    from .world import water as W
+    try:
+        cells = _parse_cells(args.cells)
+        if not cells:
+            print("no cells parsed -- give e.g. --cells '3,17' or a range '2-4,16-18'", file=sys.stderr)
+            return 2
+        dx, dy = (int(v) for v in args.donor.split(","))
+        if args.verbatim:
+            sx, sy = (int(v) for v in args.verbatim.split(","))
+            summary = W.deploy_verbatim(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy),
+                                        disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+        elif args.reproduce:
+            sx, sy = (int(v) for v in args.reproduce.split(","))
+            summary = W.reproduce(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy), seed=args.seed,
+                                  disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+        else:
+            summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, shallows=args.shallows,
+                              threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
+                              disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.verbatim:
+        verb = "would place" if args.dry_run else "placed"
+        print(f"{verb} VERBATIM real ocean block {tuple(summary['source'])} (donor {tuple(summary['donor'])}) "
+              f"at {len(summary['cells'])} cell(s) -- the A/B reference for world-water:")
+        for c in summary["cells"]:
+            print(f"  cell {tuple(c['cell'])}: carried {c['carried']} ({c['verts']} verts)")
+    elif args.reproduce:
+        verb = "would reproduce" if args.dry_run else "reproduced"
+        print(f"{verb} block {tuple(summary['source'])}'s arrangement with SYNTHESIZED tiles (donor "
+              f"{tuple(summary['donor'])}) at {len(summary['cells'])} cell(s) -- the fidelity A/B for world-water:")
+        for c in summary["cells"]:
+            s = c["shades"]
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
+    else:
+        verb = "would synthesize" if args.dry_run else "synthesized"
+        desc = f"graded, deeper toward {summary['deep_dir']}" if summary.get("deep_dir") else "open ocean (mostly deep)"
+        print(f"{verb} ocean water ({desc}, donor {tuple(summary['donor'])}) at {len(summary['cells'])} cell(s):")
+        for c in summary["cells"]:
+            s = c["shades"]
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
+        if any(c["adjacency_violations"] for c in summary["cells"]):
+            print("  WARNING: a sea3|sea4 direct adjacency slipped the transition band -- report this (should be 0).",
+                  file=sys.stderr)
+    if not args.dry_run:
+        print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
+        print("  A lone cell is reachable via F6 -> World -> Teleport; a contiguous run of cells stays seamless.")
+    return 0
+
+
 def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
     """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
     from .world import atlas as A
@@ -4296,6 +4352,37 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
     wct.set_defaults(func=_cmd_world_coast)
+
+    wwt = sub.add_parser("world-water",
+                         help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "
+                              "marching-band synthesizer (Sea3/Sea5/Sea4, byte-proven UVs). Needs the custom engine; relaunch.")
+    wwt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wwt.add_argument("--cells", required=True,
+                     help="target ocean cells: 'x,y;x,y' (e.g. '3,17') or a range 'x0-x1,y0-y1' (a contiguous patch "
+                          "stays seamless). Grid is 24x20; reach a lone cell via F6->World->Teleport.")
+    wwt.add_argument("--donor", default="15,4",
+                     help="a real DEEP-OCEAN donor block 'dx,dy' whose base sea prefab backs the cell (default 15,4)")
+    wwt.add_argument("--deep", choices=["N", "S", "E", "W"], default=None,
+                     help="OMIT for faithful open ocean (mostly deep, ~94%% Sea4 like real FF9 open water); give a "
+                          "direction for a graded shallow->deep RAMP toward it (a coast/bay)")
+    wwt.add_argument("--shallows", type=float, default=0.05,
+                     help="open-ocean shallow-patch fraction (default 0.05 ~ real; 0 = uniform deep Sea4). Ignored with --deep.")
+    wwt.add_argument("--threshold", type=float, default=1.0, help="depth at the shallow|deep seam (default 1.0)")
+    wwt.add_argument("--span", type=float, default=2.0, help="depth range shallow->deep across the region (default 2.0)")
+    wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")
+    wwt.add_argument("--height", type=float, default=-3.0,
+                     help="submerged Terrain floor Y under the water (default -3, below the sea surface)")
+    _wref = wwt.add_mutually_exclusive_group()
+    _wref.add_argument("--verbatim", nargs="?", const="8,4", metavar="BX,BY",
+                       help="A/B REFERENCE: instead of synthesizing, deploy REAL ocean block BX,BY verbatim (default 8,4, "
+                            "the byte-proven block) onto --cells -- the north-star to compare world-water against at the same spot")
+    _wref.add_argument("--reproduce", nargs="?", const="8,4", metavar="BX,BY",
+                       help="FIDELITY A/B: reproduce REAL block BX,BY's shallow/deep LAYOUT (default 8,4) with SYNTHESIZED "
+                            "tiles -- deploy beside --verbatim of the same block; they should look alike (the 17/17 shape-match, in-game)")
+    wwt.add_argument("--seed", type=int, default=0, help="anti-tiling PRNG seed (deterministic; vary for a new shuffle)")
+    wwt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wwt.add_argument("--dry-run", action="store_true", help="report the cells it would fill, write nothing")
+    wwt.set_defaults(func=_cmd_world_water)
 
     wat = sub.add_parser("world-atlas-add-tile",
                          help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "

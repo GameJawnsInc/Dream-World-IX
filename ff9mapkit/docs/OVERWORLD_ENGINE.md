@@ -508,6 +508,68 @@ ray (`w_movementChrInitSlice` already sky-casts infinitely from +400u), but `w_n
 on a destination block not yet `IsReady` at warp time. Fix: `WMWorld.ForceLoadBlockReadyAt(pos)` force-loads the target
 block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only on a FAR/unstreamed warp.
 
+### Custom graded OCEAN water — `world-water` (synthesize open water from scratch, validated 17/17 tile-shape, ★ in-game "looks good" 2026-07-05)
+
+Where `world-coast` MOSAICS real coastline pieces, `world-water` **synthesizes** faithful open-ocean water from a depth
+field — the "author water from scratch" frontier the coast section flagged. `ff9mapkit world-water --cells X,Y
+[--deep S] [--donor 15,4]` deploys, per cell: a submerged flat `Terrain` override (the s34 land-override GATE + a floor
+under the water at `Y=-3`), the three `Sea3`/`Sea5`/`Sea4` water sub-meshes, blanked `Sea1`/`Sea2`, and a `Donor.txt`
+naming a real deep-ocean block (same per-cell donor mechanism as `world-coast`). Code: `world/water.py` (algorithm +
+orchestration) + `mesh.tri_soup_block_mesh`/`hidden_block_mesh` (the render-sub-mesh + blanking primitives). **Requires
+the custom engine (s34); RELAUNCH.**
+
+**The byte-derived recipe** (surveyed across all 15 disc-1 open-ocean blocks; tile-for-tile 17/17 shape-match vs the
+real game; the only per-cell difference is a corner seam-variant the game itself coin-flips 50/50):
+
+- **Alphabet = 3 shades.** Open ocean uses ONLY `Sea3` (light/shallow) / `Sea5` (transition) / `Sea4` (dark/deep).
+  `Sea1`/`Sea2` are COAST-only (0 of 3583 surveyed open-ocean tiles) → blanked (a buried degenerate tri), else they
+  read as misplaced river tiles.
+- **Placement = a MARCHING BAND.** Sample the depth field at each 4u sub-tile's four EDGE MIDPOINTS **in WORLD
+  coordinates**; an edge is "deep" if `depth > threshold`. 0 deep → `Sea3`; 4 → `Sea4`; 1–3 → a `Sea5` transition.
+  Because the samples are the SHARED cell-edge midpoints, neighbours agree by construction → `Sea3` can never touch
+  `Sea4`, seams line up, **and this holds ACROSS block boundaries** (adjacent cells sample the same world edges) → a
+  contiguous multi-cell region is seamless. This world-space sampling is the one real generalization over the single-
+  block scratch prototype.
+- **Transition UV = a Wang tile** keyed by which edges face deep (`DEEPSET2TILE`): 1 deep → a "tip" v-strip rotated to
+  point at the deep side; 3 deep → a strip pointing at the lone shallow; 2-adjacent (a corner) → one of two seam-
+  variants; 2-opposite (a channel, no Wang tile) → degrade to the deepest single edge.
+- **Mains UV = quadrant + 4-rotation anti-tiling.** `Sea3`/`Sea4` pick one of the texture's 2×2 quadrants (parity flip
+  ~68% between neighbours) and one of **4** rotations (prefer-same ~45%) — the real caustic shuffle. **Depth is carried
+  by WHICH SHADE, never by orientation.**
+
+Byte-exact constants (reconstructed from real block (8,4), in `world/water.py`): `URECT`/`VRECT` (mains quadrant),
+`UFULL`/`VSTRIP` (transition full-width-u × quarter-strips-v), `NORMAL = (-0.12, 0.98, 0.17)`. The mesh is **position +
+UV only** (the `WorldMap/Terrain` shader binds only vertex + texcoord — normals/tangents are irrelevant to water
+rendering, so a single byte-proven normal is stamped everywhere). Depth is caller-controlled with two built-in fields
+(or pass your own `depth(world_x, world_z)` callable — a hand-authored map / real contour): the DEFAULT (no `--deep`)
+is **faithful open ocean** (`open_ocean_depth_field` — mostly deep, ~94% Sea4 like real FF9 open water, with a
+`--shallows`-fraction scatter of coherent shallow patches, each ringed by transition; `--shallows 0` = uniform deep
+Sea4); a direction `--deep N/S/E/W` opts into a **graded shallow→deep RAMP** (`default_depth_field`, for a coast/bay;
+`--threshold`/`--span`/`--noise`). Anti-tiling is seeded per cell from `(--seed, x, y)` so a region doesn't macro-repeat;
+the shade PLACEMENT is seed-independent (set by depth).
+
+**Hard-won lessons (do NOT relitigate — offline rendering + marginal statistics CANNOT judge water quality; both of
+these were invisible to them and found only by UV byte-analysis + the human's in-game read):** (1) real ocean uses all
+**4** rotations of each quadrant, not just 0/180 (a generator doing only 0/180 is wrong on ~46% of tiles, invisible to
+stats); (2) the transition tile identity is the deep-edge-SET, not a shallow/deep depth bias (that heuristic regressed).
+Validate everything against a verbatim real block; don't declare victory before the human confirms in-game. **Two A/B
+references are built in** (both keep the identical deploy shape — flat Terrain gate + Sea3/Sea4/Sea5 + blanked
+Sea1/Sea2 + donor sidecar — so only the water differs):
+  * `world-water --cells X,Y --verbatim [BX,BY]` deploys a REAL open-ocean block (default `8,4`, the byte-proven block
+    the synth was validated 17/17 against) VERBATIM — the north-star, isolating SYNTHESIS from the deploy pipeline
+    (`water.deploy_verbatim`).
+  * `world-water --cells X,Y --reproduce [BX,BY]` reads that block's shallow/deep LAYOUT and regenerates it through the
+    synth mesh pipeline (`water.reproduce` → `arrangement_from_block`: same shade grid + fresh mains anti-tiling). Each
+    Sea5 transition tile is read from the block's ACTUAL UVs — the exact `(strip, rotation)` **and** its real v-band
+    rect (`read_sea5_tiles`/`_fit_tile`, the fit that scored 17/17) — so a thin peninsula comes out right, not
+    guessed from neighbour shades (that shade heuristic, `_repro_deepset`, is only the fallback for the rare
+    transpose tile a pure rotation can't represent). Deploy it beside `--verbatim` of the same block — they should look
+    alike. This holds the LAYOUT fixed (a real block's) so the only variable is tile quality — the in-game form of the
+    offline 17/17.
+**In-game loop:** relaunch → F6 → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell
+(3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
+the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas
