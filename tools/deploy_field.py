@@ -271,7 +271,11 @@ _PRESET_STEMS = {"Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko"
 _abil_dir = tl.abilities_csv("Zidane").parent
 if _abil_dir.is_dir():
     for _f in sorted(_abil_dir.glob("*.csv")):
-        if _f.stem not in _PRESET_STEMS:                     # skip AbilityGems (handled in the main loop above)
+        # base preset learn files by NAME, plus a 13th-char's OWN custom preset by NUMERIC name (Abilities/20.csv,
+        # band 20-23; [playable.abilities]). Skip AbilityGems.csv (handled in the main loop above). WITHOUT the
+        # custom-band case the learn file never deploys -> the engine's FF9Abil_HasAp is false -> the char knows
+        # EVERY pool spell (no AP gating), which is exactly the "knows all black+white magic" bug.
+        if _f.stem not in _PRESET_STEMS and not (_f.stem.isdigit() and 20 <= int(_f.stem) <= 23):
             continue
         _live_f = live.abilities_csv(_f.stem)
         _live_f.parent.mkdir(parents=True, exist_ok=True)
