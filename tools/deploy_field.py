@@ -369,7 +369,14 @@ def _revkeep(ln):
 _dpkeep=[ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if _revkeep(ln)]
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 if _dpbak.exists():
-    _dpkeep+=[ln for ln in _dpbak.read_text(encoding="utf-8").splitlines() if ln.strip() and ln.split()[1:2]==["{FID}"]]
+    # restore to the PRE-deploy state: re-add this id's prior FieldScene/LocationName AND any mint 3DModel/
+    # 3DModelAnimation this revert dropped that PRE-EXISTED this deploy (so reverting one field can't strip a
+    # registration another field had already made -- the shared-character-on-two-fields case). Lines THIS deploy
+    # added fresh aren't in the backup, so they stay gone. (_revkeep is False for exactly the lines we dropped.)
+    _seen=set(_dpkeep)
+    for ln in _dpbak.read_text(encoding="utf-8").splitlines():
+        if ln.strip() and not _revkeep(ln) and ln not in _seen:
+            _dpkeep.append(ln); _seen.add(ln)
 live.dictionary_patch.write_text("\\n".join(_dpkeep)+"\\n", encoding="utf-8", newline="\\n")
 shutil.rmtree(live.fieldmap_dir("{FBG}"), ignore_errors=True)
 mc=live.mapconfig_path("EVT_{name}")
