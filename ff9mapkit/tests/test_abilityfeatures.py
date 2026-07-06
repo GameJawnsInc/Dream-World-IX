@@ -48,13 +48,14 @@ def test_cumulate_replace_contradiction():
 
 def test_aa_by_id_and_cmd_by_id():
     assert ">AA 82+ 82" in _one({"kind": "AA", "ability": 82, "features": "[code=Target] X [/code]"})
+    assert ">AA 192+ 192" in _one({"kind": "AA", "ability": 192, "features": "[code=Status] 8 [/code]"})  # minted-ability band
     assert ">CMD 31 Magic Sword" in _one({"kind": "CMD", "ability": 31, "cumulate": False,
                                           "comment": "Magic Sword", "features": "[code=HardDisable] 1 [/code]"})
 
 
 def test_aa_id_out_of_range_and_cmd_zero():
     with pytest.raises(AbilityFeatureError):
-        _one({"kind": "AA", "ability": 192, "features": "[code=Power] 1 [/code]"})
+        _one({"kind": "AA", "ability": 224, "features": "[code=Power] 1 [/code]"})   # above the 0-223 custom band
     with pytest.raises(AbilityFeatureError):
         _one({"kind": "CMD", "ability": 0, "features": "[code=Disable] 1 [/code]"})
 

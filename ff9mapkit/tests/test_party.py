@@ -321,6 +321,37 @@ def test_full_build_custom_ability(tmp_path):
     assert "AA:192;0" in layout.abilities_csv("20").read_text(encoding="cp1252")
 
 
+def test_full_build_custom_ability_status_and_effect(tmp_path):
+    """A custom ability with status = [...] + effect = "[code=...]" -> an auto-minted StatusSets row the action's
+    statusIndex points at, AND an [[ability_feature]] >AA block keyed on the RAW custom id (install-gated)."""
+    toml = (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+            '\n[playable.abilities]\nmenu_from = "vivi"\n'
+            '\n[playable.abilities.command1]\nname = "Spark"\n'
+            'abilities = [{ name = "Voltflare", from = "Fire", power = 50, mp = 18, '
+            'status = ["Silence"], rate = 60, effect = "[code=Power]Power+10[/code]" }]\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower():
+            pytest.skip("no FF9 install for the base battle CSVs")
+        raise
+    layout = ModLayout(out)
+    # the custom action's statusIndex points at the minted set (band 100+)
+    arow = next(l for l in layout.actions_csv.read_text(encoding="cp1252").splitlines() if l.startswith("Voltflare;192;"))
+    set_id = arow.split(";")[15]
+    assert int(set_id) >= 100
+    # the StatusSets.csv carries that minted set = Silence
+    srow = next(l for l in layout.status_sets_csv.read_text(encoding="cp1252").splitlines() if l.startswith(f"Voltflare;{set_id};"))
+    assert "Silence" in srow
+    # AbilityFeatures.txt has the >AA 192 effect (the RAW id, not the AA:256 learn form)
+    aft = layout.ability_features_txt.read_text(encoding="cp1252")
+    assert ">AA 192" in aft and "[code=Power]" in aft
+
+
 def test_full_build_custom_battle_model(tmp_path):
     """custom_battle_model = true -> a minted independent battle GEO + a BattleParameters serial-19 row + Iviv's
     serial pointed at 19 (install-gated: reads the base CharacterParameters/BattleParameters)."""

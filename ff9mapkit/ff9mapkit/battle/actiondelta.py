@@ -292,10 +292,18 @@ def _build(name, entries, fields_map, *, kind, max_id, note, game):
 _CUSTOM_ACTION_MIN = 192
 _CUSTOM_ACTION_MAX = 223
 # The tuning fields an inline custom ability may override (a SAFE subset of ACTION_FIELDS): all range-guarded numeric /
-# element / enum columns. `status_index` is EXCLUDED -- it points at a StatusSets ROW and the engine indexes
-# add_status[statusIndex] with a DIRECT (KeyNotFound-throwing) indexer at cast, so a bad set = a crash; to give a
-# custom spell a status, clone a status-inflicting donor (`from = "Bio"`) whose statusIndex is already valid.
+# element / enum columns. `status_index` is EXCLUDED from the AUTHOR-facing overrides -- it points at a StatusSets ROW
+# and the engine indexes add_status[statusIndex] with a DIRECT (KeyNotFound-throwing) indexer at cast, so a bad set = a
+# crash. Instead a custom ability's `status = [...]` list is AUTO-MINTED into a StatusSets row (below) and the kit
+# injects the resulting id as a TRUSTED `status_index` on the seed (the "SAFE because the row exists" invariant).
 _CUSTOM_ACTION_OVERRIDES = frozenset(ACTION_FIELDS) - {"status_index"}
+# The auto-minted StatusSets band for a custom ability's `status = [...]` (base sets are 0-38, hand-authored
+# `[[status_set]]` are >=39; the auto band starts at 100 to stay clear of both). A row here is emitted in the SAME build.
+_CUSTOM_STATUS_SET_MIN = 100
+# scriptIds whose formula APPLIES the action's status set (calls TryAlter*Statuses): 9 MagicAttack, 11
+# MagicApplyNegativeStatus, 103 MagicApplyPositiveStatus. A custom status spell should clone one of these donors --
+# else the set is valid but nothing lands (a silent no-op the build warns about).
+_STATUS_APPLYING_SCRIPTS = {"9", "11", "103"}
 
 
 def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
@@ -343,6 +351,21 @@ def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
                 cells[ci] = _encode_value(k, v, ACTION_FIELDS[k], warnings=warnings)
             except ActionDeltaError as ex:
                 raise ActionDeltaError(f"{ctx} {name!r} {ex}")
+        # a KIT-INJECTED status_index = the id of an auto-minted StatusSets row (from `status = [...]`) -> SAFE because
+        # that row is emitted in the SAME build. The author can't set status_index directly (excluded above). Warn on
+        # the two silent-no-op traps: rate=0 (the HitRate gate never passes) + a non-status-applying donor script.
+        si = nr.get("status_index")
+        if si is not None:
+            sc = cols.get("statusindex")
+            if sc is not None and sc < len(cells):
+                cells[sc] = str(_to_int(si, f"{ctx} status_index"))
+                rc, scr = cols.get("rate"), cols.get("scriptid")
+                if rc is not None and rc < len(cells) and cells[rc].strip() in ("0", ""):
+                    warnings.append(f"{ctx} {name!r}: inflicts a status but rate=0 -> it will (almost) never land; "
+                                    f"give it a rate (e.g. rate = 50)")
+                if scr is not None and scr < len(cells) and cells[scr].strip() not in _STATUS_APPLYING_SCRIPTS:
+                    warnings.append(f"{ctx} {name!r}: inflicts a status but the donor's script ({cells[scr].strip()}) "
+                                    f"may not APPLY it -- clone a status-applying magic donor (e.g. from = \"Bio\")")
         rows[aid] = cells
         minted.append(aid)
     return minted

@@ -173,6 +173,25 @@ def test_new_action_merges_with_retune(base):
     assert 193 in rows and rows[193][0] == "Voltflare" and rows[193][cols["power"]] == "40"   # the mint
 
 
+def test_new_action_injected_status_index_and_warnings(base):
+    # a kit-injected status_index (from status=[...]) IS applied to the statusIndex column
+    text, w = AD.build_actions_delta([], new_rows=[
+        {"id": 192, "name": "Hex", "from": "Fire", "status_index": 100, "overrides": {"rate": 60}}])
+    cols, rows = _reparse(base, text)
+    assert rows[192][cols["statusindex"]] == "100"
+    assert w == []                                                   # Fire (synthetic scriptId 9) applies statuses, rate 60
+
+
+def test_new_action_status_no_op_warnings(base):
+    # rate 0 (Fire's synthetic rate) -> "won't land" warning
+    _t, w = AD.build_actions_delta([], new_rows=[{"id": 192, "name": "Hex", "from": "Fire", "status_index": 100}])
+    assert any("rate=0" in x for x in w)
+    # a non-status-applying donor script (Angel's Snack scriptId 52) -> "may not APPLY" warning
+    _t2, w2 = AD.build_actions_delta([], new_rows=[
+        {"id": 193, "name": "Hex2", "from": "Angel's Snack", "status_index": 100, "overrides": {"rate": 60}}])
+    assert any("may not APPLY" in x for x in w2)
+
+
 def test_write_battle_data_emits_new_actions_only(base, tmp_path):
     from ff9mapkit.config import ModLayout
     layout = ModLayout(tmp_path / "mod")

@@ -353,8 +353,38 @@ def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
     if donor is None or isinstance(donor, bool) or (isinstance(donor, str) and not donor.strip()):
         raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} needs 'from' = a stock ability to clone "
                             f"(its animation + damage formula; e.g. from = \"Fire\")")
-    overrides = {k: v for k, v in a.items() if k not in ("name", "from")}
-    return {"name": aname.strip(), "from": donor, "overrides": overrides}
+    # `status = [names]` (auto-minted into a StatusSets row + the action's status_index) and `effect` = a "[code=...]"
+    # AbilityFeatures body are NOT Actions.csv columns -- pull them out; everything else is an ACTION_FIELDS override.
+    status = a.get("status")
+    if status is not None:
+        if (not isinstance(status, list) or not status
+                or not all(isinstance(s, str) and s.strip() for s in status)):
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} status must be a non-empty list of "
+                                f"status names (e.g. status = [\"Silence\"])")
+        try:                                               # validate the names offline (a typo fails lint, not the game)
+            from ..battle import battlecsv as _bc
+            _bc.encode_status_list(status)
+        except (ValueError, TypeError) as ex:
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} status: {ex}")
+    eff_keys = [k for k in ("effect", "code", "feature") if a.get(k) is not None]
+    if len(eff_keys) > 1:
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r}: set only one of effect/code/feature")
+    effect = None
+    if eff_keys:
+        effect = a.get(eff_keys[0])
+        if not isinstance(effect, str) or not effect.strip():
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} {eff_keys[0]} must be a non-empty "
+                                f"\"[code=...]\" string")
+        # structure-check the [code=...] body OFFLINE (balanced tags, a known AA [code=TAG], single-line) so `lint`
+        # catches a malformed effect -- else the build is the first to reject it. (The id is a placeholder; the real
+        # one is allocated in parse_all. The NCalc formula stays opaque -- the engine validates it.)
+        from ..battle import abilityfeatures as _af
+        _probs = _af.validate_blocks([{"kind": "AA", "ability": _cd._MAX_ACTIVE_ABILITY, "features": effect}])
+        if _probs:
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} {eff_keys[0]}: {_probs[0]}")
+    overrides = {k: v for k, v in a.items() if k not in ("name", "from", "status", "effect", "code", "feature")}
+    return {"name": aname.strip(), "from": donor, "overrides": overrides,
+            "status": list(status) if status else None, "effect": effect}
 
 
 def parse_all(entries) -> list:
@@ -408,6 +438,7 @@ def parse_all(entries) -> list:
     # rewrite each pool marker -> its allocated int id, collect the Actions.csv new-rows, and auto-learn each (ap=0).
     from ..battle import actiondelta as _ad
     act_alloc = _ad._CUSTOM_ACTION_MIN
+    status_set_ids: dict = {}                                # a status-name-list -> a shared minted StatusSets id (dedup)
     for spec in specs:
         for mc in spec.get("minted_commands", []):
             new_pool = []
@@ -419,6 +450,18 @@ def parse_all(entries) -> list:
                     ca = dict(a["__custom__"])
                     ca["id"] = act_alloc
                     act_alloc += 1
+                    if ca.get("status"):                         # status = [...] -> an auto-minted StatusSets row +
+                        skey = tuple(sorted(s.strip().lower() for s in ca["status"]))   # a dedup key (shared row)
+                        sid = status_set_ids.get(skey)
+                        if sid is None:
+                            sid = _ad._CUSTOM_STATUS_SET_MIN + len(status_set_ids)
+                            status_set_ids[skey] = sid
+                            spec.setdefault("minted_status_sets", []).append(
+                                {"id": sid, "name": ca["name"], "statuses": list(ca["status"])})
+                        ca["status_index"] = sid                 # the kit-trusted status_index (the row exists this build)
+                    if ca.get("effect"):                         # effect = "[code=...]" -> an [[ability_feature]] block
+                        spec.setdefault("minted_features", []).append(
+                            {"kind": "AA", "ability": ca["id"], "features": ca["effect"], "comment": ca["name"]})
                     spec.setdefault("minted_actions", []).append(ca)
                     new_pool.append(ca["id"])                    # the pool's ListEntry references the allocated int id
                     # learn it at ap=0 (usable now). PREPEND (like the stock pool seeds) so an explicit `learn` entry
@@ -467,9 +510,22 @@ def command_seeds(specs) -> list:
 
 def action_seeds(specs) -> list:
     """Specs with an inline CUSTOM ability in a command pool -> the ``new_actions`` for the Actions.csv delta +
-    the ``aa_name.mes`` overlay: each ``{id, name, from, overrides}`` (a donor clone). The id is allocated in
-    :func:`parse_all`."""
+    the ``aa_name.mes`` overlay: each ``{id, name, from, overrides, status_index?}`` (a donor clone). The id is
+    allocated in :func:`parse_all`."""
     return [ca for s in specs for ca in s.get("minted_actions", [])]
+
+
+def status_set_seeds(specs) -> list:
+    """Specs with a custom ability that inflicts a ``status = [...]`` -> the auto-minted ``StatusSets.csv`` rows
+    ({id, name, statuses}) an action's ``status_index`` points at (deduped by status list in :func:`parse_all`).
+    Merged with any author ``[[status_set]]`` blocks at build."""
+    return [ss for s in specs for ss in s.get("minted_status_sets", [])]
+
+
+def feature_seeds(specs) -> list:
+    """Specs with a custom ability carrying an ``effect`` -> the ``[[ability_feature]]`` blocks
+    ({kind:"AA", ability:<custom id>, features:<code>}) merged with any author blocks at build."""
+    return [f for s in specs for f in s.get("minted_features", [])]
 
 
 def name_directive_lines(specs) -> list:

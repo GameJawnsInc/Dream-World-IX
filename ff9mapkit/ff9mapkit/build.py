@@ -5303,9 +5303,13 @@ def _emit_battle_data(projects, layout) -> list:
         b = p.raw.get("playable", [])
         playables += b if isinstance(b, list) else [b]
     try:
-        new_actions = _playable.action_seeds(_playable.parse_all(playables))
+        _specs = _playable.parse_all(playables)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
+    new_actions = _playable.action_seeds(_specs)
+    # a custom ability's `status = [...]` auto-mints a StatusSets row -> MERGE it with any author [[status_set]] (one
+    # StatusSets.csv writer; a minted action's status_index points at one of these, so they ride the same build).
+    status_sets = status_sets + _playable.status_set_seeds(_specs)
     if not actions and not statuses and not status_sets and not magic_sword_sets and not new_actions:
         return []
     from .battle import actiondelta as _adelta
@@ -5396,6 +5400,16 @@ def _emit_ability_features(projects, layout) -> list:
     changed abilities) merged per-ability over the base. Raises BuildError on a bad block."""
     from .battle import abilityfeatures as _af
     feats = [b for p in projects for b in _af._as_list(p.raw.get("ability_feature"))]   # tolerate a single [ability_feature] table (dict)
+    # + a custom ability's `effect` -> a minted [[ability_feature]] block keyed on its custom AA id (MERGED with the
+    # author blocks; one AbilityFeatures.txt writer). parse_all is deterministic, so the id matches the Actions.csv row.
+    playables = []
+    for p in projects:
+        b = p.raw.get("playable", [])
+        playables += b if isinstance(b, list) else [b]
+    try:
+        feats = feats + _playable.feature_seeds(_playable.parse_all(playables))
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
     if not feats:
         return []
     try:

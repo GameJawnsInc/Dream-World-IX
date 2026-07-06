@@ -290,9 +290,12 @@ def test_custom_ability_in_pool_mints_and_learns():
     s = specs[0]
     # the inline-table marker is replaced by the allocated custom-ability id (192); the stock 'Cure' is kept verbatim
     assert s["minted_commands"][0]["abilities"] == ["Cure", 192]
-    assert s["minted_actions"] == [{"name": "Voltflare", "from": "Fire",
-                                    "overrides": {"power": 55, "element": ["Thunder"], "mp": 18}, "id": 192}]
+    ca = s["minted_actions"][0]
+    assert ca["id"] == 192 and ca["name"] == "Voltflare" and ca["from"] == "Fire"
+    assert ca["overrides"] == {"power": 55, "element": ["Thunder"], "mp": 18}
+    assert ca.get("status") is None and ca.get("effect") is None and "status_index" not in ca
     assert PL.action_seeds(specs) == s["minted_actions"]
+    assert PL.status_set_seeds(specs) == [] and PL.feature_seeds(specs) == []
     # the command ListEntry holds the RAW id 192; the learn file holds the AA:192 form (the two are deliberately different)
     assert PL.command_seeds(specs)[0]["abilities"] == ["Cure", 192]
     assert {"ability": "AA:192", "ap": 0} in s["ability_learn"]
@@ -323,6 +326,48 @@ def test_custom_ability_allocation_and_exhaustion():
     with pytest.raises(PL.PlayableError):
         PL.parse_all([{"id": 12, "name": "A", "borrow": "vivi", "abilities": {
             "command1": {"name": "S", "abilities": pool}}}])
+
+
+def test_custom_ability_status_mints_set_and_injects_index():
+    from ff9mapkit.battle import actiondelta as AD
+    specs = PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "S", "abilities": [
+            {"name": "Voltflare", "from": "Bio", "status": ["Silence"], "rate": 60}]}}}])
+    ca = PL.action_seeds(specs)[0]
+    assert ca["status"] == ["Silence"] and ca["status_index"] == AD._CUSTOM_STATUS_SET_MIN   # injected minted-set id
+    assert PL.status_set_seeds(specs) == [{"id": AD._CUSTOM_STATUS_SET_MIN, "name": "Voltflare", "statuses": ["Silence"]}]
+
+
+def test_custom_ability_status_dedup_shares_one_set():
+    # two custom abilities with the SAME status list share ONE minted StatusSets row
+    specs = PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "S", "abilities": [
+            {"name": "A", "from": "Bio", "status": ["Silence"]},
+            {"name": "B", "from": "Bio", "status": ["Silence"]}]}}}])
+    sets = PL.status_set_seeds(specs)
+    assert len(sets) == 1                                            # deduped by the status list
+    assert [ca["status_index"] for ca in PL.action_seeds(specs)] == [sets[0]["id"], sets[0]["id"]]
+
+
+def test_custom_ability_effect_makes_feature():
+    specs = PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "S", "abilities": [
+            {"name": "Voltflare", "from": "Fire", "effect": "[code=Power]Power+10[/code]"}]}}}])
+    assert PL.feature_seeds(specs) == [{"kind": "AA", "ability": 192,
+                                        "features": "[code=Power]Power+10[/code]", "comment": "Voltflare"}]
+
+
+def test_custom_ability_status_effect_errors():
+    def mk(e):
+        return {"name": "X", "borrow": "vivi", "abilities": {"command1": {"name": "S", "abilities": [e]}}}
+    with pytest.raises(PL.PlayableError):                            # bad status name
+        PL.parse_playable(mk({"name": "Y", "from": "Fire", "status": ["Nonsense"]}))
+    with pytest.raises(PL.PlayableError):                            # status must be a non-empty list
+        PL.parse_playable(mk({"name": "Y", "from": "Fire", "status": []}))
+    with pytest.raises(PL.PlayableError):                            # only one of effect/code/feature
+        PL.parse_playable(mk({"name": "Y", "from": "Fire", "effect": "x", "code": "y"}))
+    with pytest.raises(PL.PlayableError):                            # a malformed [code] body caught offline (at lint)
+        PL.parse_playable(mk({"name": "Y", "from": "Fire", "effect": "[code=Power] unbalanced"}))
 
 
 def test_anim_edits_persists_blender_edits():

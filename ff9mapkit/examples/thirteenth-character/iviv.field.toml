@@ -88,7 +88,12 @@ name = "Spark"                  # its display label (a com_name.mes overlay rena
 abilities = [
   "Blizzard",                  # a stock Black-Magic spell
   "Cure",                      # a stock White-Magic spell (so Spark mixes schools, which no canon command does)
-  { name = "Voltflare", from = "Fire", power = 55, element = ["Thunder"], mp = 18 },   # a CUSTOM spell (new AA id)
+  # a CUSTOM spell (new AA id): a Thunder spell (from Fire) at 55 power / 18 MP that INFLICTS SILENCE at 50%.
+  # `status = [names]` auto-mints a StatusSets row + points the action's statusIndex at it (SAFE: the row exists);
+  # it lands only if the donor's script applies statuses (Fire/Bio-style magic) AND `rate` is non-zero (the hit gate).
+  # `effect` is the power-user escape hatch -- an AbilityFeatures "[code=TAG]" NCalc formula keyed on this custom
+  # ability (TAG = Power/Element/MPCost/HitRate/Priority/Status/...), e.g. effect = "[code=MPCost] 0 [/code]" (free).
+  { name = "Voltflare", from = "Fire", power = 55, element = ["Thunder"], mp = 18, status = ["Silence"], rate = 50 },
 ]
 
 # --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---
