@@ -552,6 +552,20 @@ real game; the only per-cell difference is a corner seam-variant the game itself
   ~68% between neighbours) and one of **4** rotations (prefer-same ~45%) — the real caustic shuffle. **Depth is carried
   by WHICH SHADE, never by orientation.**
 
+**Near-shore SHALLOW rungs — the 5-rung ladder (`--shallow-threshold`, ⏳ built 2026-07-06, awaits in-game).** The
+whole water column reuses just the two tile kinds above: a **PURE band** (`Sea4` deep 57 / `Sea3` mid 54 / `Sea2`
+shallow 53 — same flat 4u mains-quadrant tile, different shade + topograph) and a **Wang BLEND strip** (`Sea5` mid↔deep
+54+57 / `Sea1` shallow↔mid 53+54 — same `UFULL`×`VSTRIP` tile, one rung apart), byte-pulled from real coastal blocks
+(17,15)/(7,17). So the marching band generalizes from ONE threshold (mid|deep) to TWO: pass `--shallow-threshold T`
+(below `--threshold`) and each 4u sub-tile is classed from its edge LEVELS (0 shallow / 1 mid / 2 deep) — all-equal → the
+pure band, straddle → the Wang blend for that boundary (`Sea5` keyed on the deep edges, `Sea1` on the mid-or-deeper).
+`shallow_threshold=None` (the default) keeps levels within {mid,deep} → **byte-identical to the proven 3-rung placement**
+(open ocean + the `--deep` ramp are unchanged). The one thing this can't yet reproduce faithfully: real shore-hugging
+`Sea2` tiles subdivide finer than 4u right at the waterline (where water meets land) — the synth uses the clean grid.
+`Sea2`/`Sea1` are now deployed as real geometry when present (blanked when absent), so every cell ships all five Sea
+parts + Terrain. NEXT test: one deep→shallow ramp cell in-game (`world-water --deep S --shallow-threshold 0.4`).
+→ [[project-ff9-overworld-coast-mosaic]].
+
 Byte-exact constants (reconstructed from real block (8,4), in `world/water.py`): `URECT`/`VRECT` (mains quadrant),
 `UFULL`/`VSTRIP` (transition full-width-u × quarter-strips-v), `NORMAL = (-0.12, 0.98, 0.17)`. The mesh is **position +
 UV only** (the `WorldMap/Terrain` shader binds only vertex + texcoord — normals/tangents are irrelevant to water

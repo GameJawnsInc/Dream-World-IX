@@ -47,9 +47,15 @@ GRID_X, GRID_Y = 24, 20                                 # the fixed overworld bl
 G = 16                                                  # 16x16 sub-tiles per block
 CELL = BLOCK / G                                        # 4.0u per sub-tile
 
-LADDER = ["Sea3", "Sea5", "Sea4"]                       # rank 0 shallow / 1 transition / 2 deep (the open-ocean alphabet)
-BLANK = ["Sea1", "Sea2"]                                # coast-only shades -> blanked so the donor's don't render
-RANK = {"sea3": 0, "sea5": 1, "sea4": 2}
+LADDER = ["Sea3", "Sea5", "Sea4"]                       # the open-ocean alphabet: mid / mid<->deep blend / deep (verbatim + reproduce)
+# The FULL shore->deep water column (the 5-rung ladder, used when a shallow_threshold engages the near-shore bands):
+#   Sea2 (shallow) -> Sea1 (shallow<->mid blend) -> Sea3 (mid) -> Sea5 (mid<->deep blend) -> Sea4 (deep).
+# Sea2/Sea3/Sea4 are PURE bands (mains URECT x VRECT); Sea1/Sea5 are Wang blend STRIPS (UFULL x VSTRIP). Every sea cell
+# deploys all five (a band with no tiles is BLANKED), so open ocean (no shallow_threshold) blanks Sea1/Sea2 exactly as before.
+ALL_SEA = ["Sea2", "Sea1", "Sea3", "Sea5", "Sea4"]
+PART_OF = {"sea2": "Sea2", "sea1": "Sea1", "sea3": "Sea3", "sea5": "Sea5", "sea4": "Sea4"}
+PURE = ("sea2", "sea3", "sea4")                         # pure-band shades (mains quadrant UVs + anti-tiling)
+TRANS = ("sea1", "sea5")                                # Wang blend strips (full-u x v-quarter, rotated to face deeper)
 
 # The reclaimed cell's WALKMESH is our flat Terrain override (it wins the raycast -- registered before the Sea meshes,
 # WMWorld.cs LoadBlock order; verified in the s34 patch + a source RE). Real ocean's walkmesh IS its Sea mesh at Y=0
@@ -169,30 +175,47 @@ def _deep_edges(depth, threshold: float, bx: int, by: int, i: int, j: int) -> fr
     return frozenset(d for d, (mx, mz) in _edge_mids(bx, by, i, j).items() if depth(mx, mz) > threshold)
 
 
-def build_arrangement(depth, threshold: float, bx: int, by: int, rng: random.Random):
-    """Marching-band placement for one block: returns ``grid[i][j] in {sea3, sea4, sea5}`` and
-    ``sea5tile{(i, j): (strip, rotation)}`` from the world-edge-sampled deep-edge-set. A 2-opposite ("channel") set has
-    no single Wang tile, so it degrades to the strongest single/triple deep edge (the tile pointing at the deepest side)."""
+def _band_level(d: float, threshold: float, shallow_threshold) -> int:
+    """Quantize a depth to a band level: 2 deep / 1 mid / 0 shallow. ``shallow_threshold=None`` disables the shallow
+    band (a depth is only ever level 1 or 2), so the placement collapses to the proven single-threshold 3-rung band."""
+    if d > threshold:
+        return 2
+    if shallow_threshold is None or d > shallow_threshold:
+        return 1
+    return 0
+
+
+def build_arrangement(depth, threshold: float, bx: int, by: int, rng: random.Random, shallow_threshold=None):
+    """Marching-band placement for one block over the (up to) 5-rung ladder. Returns ``grid[i][j]`` in
+    ``{sea2, sea1, sea3, sea5, sea4}`` + ``transtile{(i, j): (strip, rotation)}`` for the Wang blend tiles (BOTH
+    ``sea1`` and ``sea5``). Each 4u sub-tile is classified from its four world-sampled EDGE levels: all-equal -> the
+    pure band of that level; straddling a boundary -> the Wang blend for it (``sea5`` = mid<->deep keyed on the DEEP
+    edges, ``sea1`` = shallow<->mid keyed on the MID-or-deeper edges), degrading a 2-opposite "channel" to the
+    strongest deeper edge as before. With ``shallow_threshold=None`` no edge reaches level 0, so this is byte-identical
+    to the proven 3-rung placement (level 1 == old ``sea3``, level 2 == old ``sea4``, {1,2} == old ``sea5``)."""
     grid = [["sea4"] * G for _ in range(G)]
-    sea5tile = {}
+    transtile = {}
     for i in range(G):
         for j in range(G):
-            de = _deep_edges(depth, threshold, bx, by, i, j)
-            n = len(de)
-            if n == 0:
-                grid[i][j] = "sea3"
-            elif n == 4:
-                grid[i][j] = "sea4"
-            else:
-                key = de
-                if key not in DEEPSET2TILE:                  # 2-opposite channel: drop the weaker deep edge(s)
-                    mids = _edge_mids(bx, by, i, j)
-                    dep = sorted(de, key=lambda d: -depth(*mids[d]))
-                    key = frozenset(dep[:1]) if n == 2 else frozenset(dep[:3])
-                variants = DEEPSET2TILE[key]
-                grid[i][j] = "sea5"
-                sea5tile[(i, j)] = variants[rng.randrange(len(variants))]
-    return grid, sea5tile
+            mids = _edge_mids(bx, by, i, j)
+            lv = {d: _band_level(depth(mx, mz), threshold, shallow_threshold) for d, (mx, mz) in mids.items()}
+            levels = set(lv.values())
+            if len(levels) == 1:                             # a pure band (all four edges agree)
+                grid[i][j] = {0: "sea2", 1: "sea3", 2: "sea4"}[levels.pop()]
+                continue
+            if 2 in levels:                                  # mid<->deep blend (also degrades a steep 0..2 tile)
+                shade, deepset = "sea5", frozenset(d for d, l in lv.items() if l == 2)
+            else:                                            # shallow<->mid blend (levels within {0,1})
+                shade, deepset = "sea1", frozenset(d for d, l in lv.items() if l == 1)
+            key = deepset
+            if key not in DEEPSET2TILE:                      # 2-opposite channel: drop the weaker deeper edge(s)
+                n = len(deepset)
+                dep = sorted(deepset, key=lambda d: -depth(*mids[d]))
+                key = frozenset(dep[:1]) if n == 2 else frozenset(dep[:3])
+            variants = DEEPSET2TILE[key]
+            grid[i][j] = shade
+            transtile[(i, j)] = variants[rng.randrange(len(variants))]
+    return grid, transtile
 
 
 def assign_quadrants(grid, rng: random.Random) -> dict:
@@ -201,7 +224,7 @@ def assign_quadrants(grid, rng: random.Random) -> dict:
     quad = {}
     for j in range(G):
         for i in range(G):
-            if grid[i][j] not in ("sea3", "sea4"):
+            if grid[i][j] not in PURE:
                 continue
             nb = [q for q in (quad.get((i - 1, j)), quad.get((i, j - 1))) if q]
             if not nb:
@@ -221,7 +244,7 @@ def assign_rotations(grid, rng: random.Random) -> dict:
     rot = {}
     for j in range(G):
         for i in range(G):
-            if grid[i][j] not in ("sea3", "sea4"):
+            if grid[i][j] not in PURE:
                 continue
             nb = [r for r in (rot.get((i - 1, j)), rot.get((i, j - 1))) if r]
             if nb and rng.random() < 0.52:
@@ -231,11 +254,12 @@ def assign_rotations(grid, rng: random.Random) -> dict:
     return rot
 
 
-def _tile_uv(grid, quad, rot, sea5tile, i, j):
-    """A ``(fx, fz) -> [u, v]`` sampler for sub-tile ``(i, j)`` (``fx``/``fz`` = the 0/1 quad corner). Transition tiles
-    use the full-width-u x hashed v-strip (rotated to face deep); mains use their quadrant rect + rotation."""
-    if grid[i][j] == "sea5":
-        t = sea5tile[(i, j)]
+def _tile_uv(grid, quad, rot, transtile, i, j):
+    """A ``(fx, fz) -> [u, v]`` sampler for sub-tile ``(i, j)`` (``fx``/``fz`` = the 0/1 quad corner). Blend tiles
+    (``sea1``/``sea5``) use the full-width-u x hashed v-strip (rotated to face deeper); pure bands use their quadrant
+    rect + rotation."""
+    if grid[i][j] in TRANS:
+        t = transtile[(i, j)]
         strip, oname = t[0], t[1]
         if len(t) >= 6:                                  # a reproduced REAL tile carries its exact (u0,u1,v0,v1) rect
             u0, u1, v0, v1 = t[2], t[3], t[4], t[5]
@@ -251,46 +275,49 @@ def _tile_uv(grid, quad, rot, sea5tile, i, j):
     return lambda fx, fz: [u0 + m(fx, fz)[0] * (u1 - u0), v0 + m(fx, fz)[1] * (v1 - v0)]
 
 
-def _bands_from_arrangement(grid, sea5tile, bx: int, by: int, seed) -> dict:
-    """Generate the three water bands (``bands[rank]`` = triangle lists, rank 0 ``Sea3`` / 1 ``Sea5`` / 2 ``Sea4``, each
-    triangle a 3-list of ``((localX, 0, localZ), [u, v])`` pairs in the block's LOCAL frame) for a PREBUILT arrangement
-    (``grid`` + ``sea5tile``), applying fresh mains quadrant+rotation anti-tiling seeded from ``(seed, bx, by)``."""
+def _bands_from_arrangement(grid, transtile, bx: int, by: int, seed) -> dict:
+    """Generate the water bands (``bands[part_name]`` = triangle lists keyed by ``"Sea2".."Sea4"``, each triangle a
+    3-list of ``((localX, 0, localZ), [u, v])`` pairs in the block's LOCAL frame) for a PREBUILT arrangement
+    (``grid`` + ``transtile``), applying fresh pure-band quadrant+rotation anti-tiling seeded from ``(seed, bx, by)``.
+    A part with no tiles stays an empty list -> BLANKED at deploy (so open ocean blanks ``Sea1``/``Sea2`` as before)."""
     rng_m = random.Random(f"ff9water:{seed}:{bx}:{by}:mains")
     quad = assign_quadrants(grid, rng_m)
     rot = assign_rotations(grid, rng_m)
     vg = {(i, j): (i * CELL, 0.0, -(j * CELL)) for i in range(G + 1) for j in range(G + 1)}
-    bands = {0: [], 1: [], 2: []}
+    bands = {name: [] for name in ALL_SEA}
     for i in range(G):
         for j in range(G):
-            rk = RANK[grid[i][j]]
-            uv = _tile_uv(grid, quad, rot, sea5tile, i, j)
+            part = PART_OF[grid[i][j]]
+            uv = _tile_uv(grid, quad, rot, transtile, i, j)
             corner = {(0, 0): vg[(i, j)], (1, 0): vg[(i + 1, j)], (1, 1): vg[(i + 1, j + 1)], (0, 1): vg[(i, j + 1)]}
             for tri in ([(0, 0), (1, 0), (1, 1)], [(0, 0), (1, 1), (0, 1)]):
-                bands[rk].append([(corner[c], uv(*c)) for c in tri])
+                bands[part].append([(corner[c], uv(*c)) for c in tri])
     return bands
 
 
-def build_cell(bx: int, by: int, *, depth, threshold: float = 1.0, seed=0):
-    """Build the three water bands for one cell from the depth field (marching-band arrangement + anti-tiling). Returns
-    ``(bands, grid, sea5tile)``. The per-cell PRNGs are seeded deterministically from ``(seed, bx, by)`` so adjacent
-    cells vary (no macro-repeat) while the run stays reproducible."""
+def build_cell(bx: int, by: int, *, depth, threshold: float = 1.0, seed=0, shallow_threshold=None):
+    """Build the water bands for one cell from the depth field (marching-band arrangement + anti-tiling). Returns
+    ``(bands, grid, transtile)`` (``bands`` keyed by part name). ``shallow_threshold`` (below ``threshold``) engages the
+    near-shore ``Sea2``/``Sea1`` rungs; ``None`` keeps the proven 3-rung open-ocean/ramp placement. The per-cell PRNGs
+    are seeded deterministically from ``(seed, bx, by)`` so adjacent cells vary (no macro-repeat), reproducibly."""
     rng_t = random.Random(f"ff9water:{seed}:{bx}:{by}:trans")
-    grid, sea5tile = build_arrangement(depth, threshold, bx, by, rng_t)
-    bands = _bands_from_arrangement(grid, sea5tile, bx, by, seed)
-    return bands, grid, sea5tile
+    grid, transtile = build_arrangement(depth, threshold, bx, by, rng_t, shallow_threshold=shallow_threshold)
+    bands = _bands_from_arrangement(grid, transtile, bx, by, seed)
+    return bands, grid, transtile
 
 
 def shade_counts(grid) -> dict:
     from collections import Counter
     c = Counter(grid[i][j] for i in range(G) for j in range(G))
-    return {s: c.get(s, 0) for s in ("sea3", "sea5", "sea4")}
+    return {s: c.get(s, 0) for s in ("sea2", "sea1", "sea3", "sea5", "sea4")}
 
 
 def adjacency_violations(grid) -> int:
-    """Count DIRECT ``sea3``|``sea4`` 4-neighbour adjacencies -- the marching-band invariant guarantees 0 (a transition
-    band always bridges them); any nonzero means a bug in the placement."""
+    """Count DIRECT adjacencies of two DIFFERENT pure bands (sea2|sea3, sea3|sea4, sea2|sea4) -- the marching-band
+    invariant guarantees 0 (a Wang blend always bridges two different pure bands); any nonzero means a placement bug."""
     return sum(1 for i in range(G) for j in range(G) for di, dj in ((1, 0), (0, 1))
-               if 0 <= i + di < G and 0 <= j + dj < G and {grid[i][j], grid[i + di][j + dj]} == {"sea3", "sea4"})
+               if 0 <= i + di < G and 0 <= j + dj < G and grid[i][j] in PURE and grid[i + di][j + dj] in PURE
+               and grid[i][j] != grid[i + di][j + dj])
 
 
 def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, disc: int, lod: str, height: float,
@@ -302,10 +329,8 @@ def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, d
     ``Sea1``/``Sea2``, and the ``Donor.txt`` naming the deep-ocean ``donor``. Returns the ``part -> BlockMesh`` deployed."""
     from . import mesh as M
     parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=WATER_TOPOGRAPH, height=height, lod=lod)}
-    for name in LADDER:
+    for name in ALL_SEA:                                     # deploy every sea rung; a band with no tiles is BLANKED
         parts[name] = sea.get(name) or M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod)
-    for name in BLANK:
-        parts[name] = M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod)
     if not dry_run:
         for name, bm in parts.items():
             M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=name)
@@ -315,19 +340,19 @@ def _deploy_ocean_cell(mod_folder: str, bx: int, by: int, *, sea: dict, donor, d
 
 def _deploy_bands(mod_folder: str, bx: int, by: int, bands: dict, *, donor, disc: int, lod: str, height: float,
                   game, dry_run: bool) -> None:
-    """Turn synthesized ``bands`` into the ``Sea3``/``Sea5``/``Sea4`` render sub-meshes and deploy the cell (shared by
-    :func:`water` and :func:`reproduce`)."""
+    """Turn synthesized ``bands`` (keyed by part name) into the ``Sea2``..``Sea4`` render sub-meshes and deploy the cell
+    (shared by :func:`water` and :func:`reproduce`). A band with no tiles is omitted here and BLANKED downstream."""
     from . import mesh as M
-    sea = {name: M.tri_soup_block_mesh(bands[rk], name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by,
+    sea = {name: M.tri_soup_block_mesh(bands[name], name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by,
                                        lod=lod, normal=NORMAL)
-           for rk, name in enumerate(LADDER) if bands[rk]}
+           for name in ALL_SEA if bands[name]}
     _deploy_ocean_cell(mod_folder, bx, by, sea=sea, donor=donor, disc=disc, lod=lod, height=height, game=game,
                        dry_run=dry_run)
 
 
 def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | None = None, shallows: float = 0.05,
           threshold: float = 1.0, span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1",
-          height: float = WATER_Y, game=None, dry_run: bool = False) -> dict:
+          height: float = WATER_Y, shallow_threshold=None, game=None, dry_run: bool = False) -> dict:
     """Synthesize faithful ocean water on each sea cell in ``cells`` (``(x, y)`` grid coords, 0..23 x 0..19).
 
     ``depth`` is a caller-supplied ``depth(world_x, world_z) -> float`` (higher = deeper). When ``None``, the built-in
@@ -356,12 +381,13 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
         depth = (default_depth_field(cells, deep_dir=deep_dir, span=span, noise=noise) if deep_dir
                  else open_ocean_depth_field(cells, shallows=shallows, noise=noise, threshold=threshold))
     summary = {"op": "water", "mode": deep_dir or "open", "donor": [dx, dy], "disc": disc, "deep_dir": deep_dir,
-               "threshold": threshold, "dry_run": dry_run, "cells": []}
+               "threshold": threshold, "shallow_threshold": shallow_threshold, "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
-        bands, grid, sea5tile = build_cell(bx, by, depth=depth, threshold=threshold, seed=seed)
+        bands, grid, transtile = build_cell(bx, by, depth=depth, threshold=threshold, seed=seed,
+                                            shallow_threshold=shallow_threshold)
         _deploy_bands(mod_folder, bx, by, bands, donor=(dx, dy), disc=disc, lod=lod, height=height,
                       game=game, dry_run=dry_run)
-        summary["cells"].append({"cell": [bx, by], "shades": shade_counts(grid), "sea5": len(sea5tile),
+        summary["cells"].append({"cell": [bx, by], "shades": shade_counts(grid), "transitions": len(transtile),
                                  "adjacency_violations": adjacency_violations(grid)})
     return summary
 
