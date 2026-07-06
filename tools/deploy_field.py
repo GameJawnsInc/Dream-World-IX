@@ -301,6 +301,20 @@ for _lang in LANGS:
     shutil.copyfile(_src_cn, _live_cn)
     csv_reverts.append((f"com_name-{_lang}", str(_live_cn), _had))
     print(f"  + text/{_lang}/command/com_name.mes (command name)")
+# [playable.abilities] inline custom ability -> a per-lang aa_name.mes NAME overlay (the Actions.csv row itself rides
+# the "Actions" CSV sync above). Same reversible backup/restore pattern as com_name.
+for _lang in LANGS:
+    _src_an = tl.ability_name_mes(_lang)
+    if not _src_an.exists():
+        continue
+    _live_an = live.ability_name_mes(_lang)
+    _live_an.parent.mkdir(parents=True, exist_ok=True)
+    _had = _live_an.exists()
+    if _had:
+        shutil.copyfile(_live_an, BK / f"aa_name-{_lang}.mes.preDEPLOY.{STAMP}")
+    shutil.copyfile(_src_an, _live_an)
+    csv_reverts.append((f"aa_name-{_lang}", str(_live_an), _had))
+    print(f"  + text/{_lang}/ability/aa_name.mes (ability name)")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)

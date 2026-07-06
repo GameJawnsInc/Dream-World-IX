@@ -287,6 +287,8 @@ def parse_playable(entry, *, n: int = 0) -> dict:
         seeds, _seeded = [], set()
         for mc in minted_commands:
             for a in mc["abilities"]:
+                if isinstance(a, dict):                    # a custom ability -> allocated + auto-learned in parse_all
+                    continue
                 key = str(a).strip().lower()
                 if key not in _explicit and key not in _seeded:
                     seeds.append({"ability": a, "ap": 0})
@@ -318,14 +320,41 @@ def _parse_minted_command(val, nid, key) -> dict:
     if not isinstance(abils, list) or not abils:
         raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r} needs a non-empty 'abilities' "
                             f"pool (a list of ability names/ids, e.g. [\"Fire\", \"Cure\"])")
+    pool = []
     for a in abils:
+        if isinstance(a, dict):                            # an inline table -> MINT a custom ability (its own behaviour)
+            pool.append({"__custom__": _parse_custom_ability(a, nid, key, name.strip())})
+            continue
         if a is None or isinstance(a, bool) or (isinstance(a, str) and not a.strip()):
             raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r} has an empty ability in its pool")
+        # a BARE id must be a stock ability (0-191); a custom ability (192+) is only mintable via an inline table.
+        if (isinstance(a, int) and a >= 192) or (isinstance(a, str) and a.strip().lstrip("-").isdigit() and int(a) >= 192):
+            raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r}: a bare ability id >=192 "
+                                f"must be MINTED via an inline table {{ name, from }} -- bare ids are stock 0-191")
+        pool.append(a)
     extra = set(val) - {"name", "abilities"}
     if extra:
         raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r} has unknown key(s) "
                             f"{sorted(extra)} (only 'name' and 'abilities')")
-    return {"name": name.strip(), "abilities": list(abils)}
+    return {"name": name.strip(), "abilities": pool}
+
+
+def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
+    """An inline pool table -> a custom-ability spec ``{name, from, overrides}``. A UNIQUE spell that clones a stock
+    donor (``from``) and retunes it (project-ff9-ability-preset-system). The id is allocated (the 192+ band) + the
+    ability auto-learned in :func:`parse_all`; the overrides' values are range-checked at build (they need the install
+    to read the donor row)."""
+    aname = a.get("name")
+    if not isinstance(aname, str) or not aname.strip():
+        raise PlayableError(f"[[playable]] id {nid}: a custom ability in abilities.{key} ({cmd_name!r}) needs a 'name'")
+    if ";" in aname or aname.lstrip().startswith("#"):
+        raise PlayableError(f"[[playable]] id {nid}: custom ability name {aname!r} can't contain ';' or start with '#'")
+    donor = a.get("from")
+    if donor is None or isinstance(donor, bool) or (isinstance(donor, str) and not donor.strip()):
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} needs 'from' = a stock ability to clone "
+                            f"(its animation + damage formula; e.g. from = \"Fire\")")
+    overrides = {k: v for k, v in a.items() if k not in ("name", "from")}
+    return {"name": aname.strip(), "from": donor, "overrides": overrides}
 
 
 def parse_all(entries) -> list:
@@ -375,6 +404,29 @@ def parse_all(entries) -> list:
             mc["id"] = cid
             spec["ability_slots"][mc["slot"]] = cid              # ability1/ability2 -> the minted command id
             spec["ability_slots"].setdefault(mc["slot"] + "_trance", cid)   # trance mirrors unless explicitly set
+    # allocate the custom-ABILITY band (192+) for inline custom spells in the command pools (dedup across ALL specs):
+    # rewrite each pool marker -> its allocated int id, collect the Actions.csv new-rows, and auto-learn each (ap=0).
+    from ..battle import actiondelta as _ad
+    act_alloc = _ad._CUSTOM_ACTION_MIN
+    for spec in specs:
+        for mc in spec.get("minted_commands", []):
+            new_pool = []
+            for a in mc["abilities"]:
+                if isinstance(a, dict) and "__custom__" in a:
+                    if act_alloc > _ad._CUSTOM_ACTION_MAX:
+                        raise PlayableError(f"[[playable]] too many custom abilities: the custom-ability band "
+                                            f"{_ad._CUSTOM_ACTION_MIN}-{_ad._CUSTOM_ACTION_MAX} is exhausted")
+                    ca = dict(a["__custom__"])
+                    ca["id"] = act_alloc
+                    act_alloc += 1
+                    spec.setdefault("minted_actions", []).append(ca)
+                    new_pool.append(ca["id"])                    # the pool's ListEntry references the allocated int id
+                    # learn it at ap=0 (usable now). PREPEND (like the stock pool seeds) so an explicit `learn` entry
+                    # would still win under build_learn_file's last-write-wins -- the "explicit ap wins" invariant.
+                    spec["ability_learn"].insert(0, {"ability": f"AA:{ca['id']}", "ap": 0})
+                else:
+                    new_pool.append(a)
+            mc["abilities"] = new_pool
     return specs
 
 
@@ -411,6 +463,13 @@ def command_seeds(specs) -> list:
     ({id, name, abilities}). The id is allocated in :func:`parse_all`."""
     return [{"id": mc["id"], "name": mc["name"], "abilities": mc["abilities"]}
             for s in specs for mc in s.get("minted_commands", [])]
+
+
+def action_seeds(specs) -> list:
+    """Specs with an inline CUSTOM ability in a command pool -> the ``new_actions`` for the Actions.csv delta +
+    the ``aa_name.mes`` overlay: each ``{id, name, from, overrides}`` (a donor clone). The id is allocated in
+    :func:`parse_all`."""
+    return [ca for s in specs for ca in s.get("minted_actions", [])]
 
 
 def name_directive_lines(specs) -> list:

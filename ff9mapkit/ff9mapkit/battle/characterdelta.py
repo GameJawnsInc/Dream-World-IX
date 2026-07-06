@@ -963,7 +963,11 @@ def build_command_set_delta(entries, *, game=None, new_rows=()) -> tuple:
 # custom band is the safe unused low ids. Name: a `com_name.mes` overlay (a per-lang sentence array;
 # project-ff9-ability-preset-system).
 _CMD_CUSTOM_BAND = (46, 35, 36, 37, 38, 39, 40)      # allocate 46 first, then the unused RedMagic/YellowMagic/WhiteMagicCinna slots
-_MAX_ACTIVE_ABILITY = 191                            # a ListEntry pool entry is an active-ability id (BattleAbilityId), 0-191
+# A ListEntry pool entry is an active-ability id (BattleAbilityId). 0-191 = the packed stock abilities; 192-223 = the
+# MINTED custom-ability band (a new Actions.csv row, actiondelta._CUSTOM_ACTION_MIN/MAX). A minted id resolves the same
+# way for the pool (a plain int in ListEntry) AND the learn file (an ``AA:<id>`` token). BARE pool tokens are still
+# capped at 191 (a raw 192+ with no minted row would crash) -- only an inline custom-ability table allocates 192+.
+_MAX_ACTIVE_ABILITY = 223
 
 
 def _resolve_active_ability(token, *, game=None, ctx="command pool") -> int:
@@ -1036,6 +1040,14 @@ def build_command_name_overlay(new_commands) -> str:
                    for nc in (new_commands or []))
 
 
+def build_ability_name_overlay(new_actions) -> str:
+    """The minted custom abilities -> an ``aa_name.mes`` overlay body: one ``[TXID=<id>]<name>[ENDN]`` sentence per
+    ability (the ACTIVE-ability sibling of :func:`build_command_name_overlay`; ``/Ability/aa_name.mes`` is loaded by
+    the same cumulative index->name importer as command names). Renames ONLY the minted ids (192+)."""
+    return "".join(f"[TXID={_to_int(na['id'], 'minted ability id')}]{str(na['name']).strip()}[ENDN]"
+                   for na in (new_actions or []))
+
+
 # ---- [[learn]] -> Abilities/<Preset>.csv (WHOLE-FILE per preset; the ability-progression curve) -------------
 def _resolve_learn_token(token, *, game=None) -> str:
     """An ability -> the canonical Abilities-CSV cell. Forms: ``0`` / ``AA:n`` / ``SA:n`` (passthrough + range);
@@ -1048,7 +1060,9 @@ def _resolve_learn_token(token, *, game=None) -> str:
     up = s.upper()
     if up.startswith(("AA:", "SA:")):
         n = _to_int(up[3:], f"[[learn]] {up[:2]}")
-        vmax = 191 if up.startswith("AA:") else _MAX_SA_ID
+        # AA: 0-191 stock + 192-223 the minted custom-ability band (learn a custom spell as AA:<id>; the engine maps
+        # AA:192 -> abilId 256, matching the pool's ListEntry value 192 -- the two forms are deliberately different).
+        vmax = _MAX_ACTIVE_ABILITY if up.startswith("AA:") else _MAX_SA_ID
         if not 0 <= n <= vmax:
             raise CharacterDeltaError(f"[[learn]] {up[:3]}{n} out of range (0-{vmax})")
         return f"{up[:3]}{n}"
@@ -1161,7 +1175,8 @@ def validate_learn(entry) -> list:
 # ---- mod-write stage -------------------------------------------------------------------------------------
 def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
                          command_sets=None, learns=None, new_basestats=None, new_params=None, battle_params=None,
-                         command_set_new_rows=None, learns_new=None, new_commands=None, game=None) -> list:
+                         command_set_new_rows=None, learns_new=None, new_commands=None, new_actions=None,
+                         game=None) -> list:
     """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets (per-id deltas) + the per-preset
     Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF. ``new_basestats`` / ``new_params`` seed genuine
     NEW (13th+) characters (``[[playable]]``) into the BaseStats / CharacterParameters deltas; ``battle_params``
@@ -1207,6 +1222,13 @@ def write_character_data(layout, *, characters=None, levelings=None, ability_gem
             p = layout.command_name_mes(lang)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(overlay, encoding="cp1252", errors="replace", newline="\n")
+    if new_actions:                                         # minted custom abilities -> a per-lang aa_name.mes overlay
+        aoverlay = build_ability_name_overlay(new_actions)  # (the Actions.csv rows themselves ride the battle-data emit)
+        from ..config import LANGS
+        for lang in LANGS:
+            p = layout.ability_name_mes(lang)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(aoverlay, encoding="cp1252", errors="replace", newline="\n")
     if learns:                                              # the learn lists are a FILE SET (one whole file per preset)
         for pname, g in _group_learns(learns).items():
             text, w = build_learn_file(pname, g["abilities"], g["removes"], game=game)

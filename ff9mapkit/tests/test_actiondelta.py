@@ -130,6 +130,56 @@ def test_status_delta(base):
     assert rows[16][cols["oprcount"]] == "30" and rows[16][cols["conticount"]] == "5"
 
 
+# ---- MINT a custom NEW ability (a unique spell cloned into the 192+ band) ----
+def test_new_action_clones_donor_and_overrides(base):
+    text, w = AD.build_actions_delta([], new_rows=[
+        {"id": 192, "name": "Voltflare", "from": "Fire",
+         "overrides": {"power": 55, "element": ["Thunder"], "mp": 18}}])
+    cols, rows = _reparse(base, text)
+    row = rows[192]
+    assert row[0] == "Voltflare"                                 # the Comment cell -> the custom name
+    assert row[cols["power"]] == "55" and row[cols["mp"]] == "18"
+    assert row[cols["elements"]] == "4"                          # Thunder bitmask (retuned)
+    assert row[cols["animationid1"]] == "111" and row[cols["scriptid"]] == "9"   # cloned from Fire (render + formula kept)
+    assert row[-1].strip() == "# Voltflare" and w == []
+
+
+def test_new_action_band_and_guards(base):
+    ok = lambda nr: AD.build_actions_delta([], new_rows=[nr])
+    with pytest.raises(AD.ActionDeltaError):                     # below the band (0-191 = packed base)
+        ok({"id": 25, "name": "X", "from": "Fire"})
+    with pytest.raises(AD.ActionDeltaError):                     # above the band
+        ok({"id": 999, "name": "X", "from": "Fire"})
+    with pytest.raises(AD.ActionDeltaError):                     # unknown donor
+        ok({"id": 192, "name": "X", "from": "Nope"})
+    with pytest.raises(AD.ActionDeltaError):                     # missing name
+        ok({"id": 192, "name": "", "from": "Fire"})
+    with pytest.raises(AD.ActionDeltaError):                     # ';' would shift the CSV columns
+        ok({"id": 192, "name": "a;b", "from": "Fire"})
+    with pytest.raises(AD.ActionDeltaError):                     # status_index is crash-prone -> not overridable
+        ok({"id": 192, "name": "X", "from": "Fire", "overrides": {"status_index": 5}})
+    with pytest.raises(AD.ActionDeltaError):                     # two customs can't share an id
+        AD.build_actions_delta([], new_rows=[{"id": 192, "name": "A", "from": "Fire"},
+                                             {"id": 192, "name": "B", "from": "Blizzard"}])
+
+
+def test_new_action_merges_with_retune(base):
+    # a [[battle_action]] retune AND a minted ability land in ONE Actions.csv delta (no clobber, one emission)
+    text, _w = AD.build_actions_delta([{"action": "Fire", "power": 30}],
+                                      new_rows=[{"id": 193, "name": "Voltflare", "from": "Blizzard",
+                                                 "overrides": {"power": 40}}])
+    cols, rows = _reparse(base, text)
+    assert rows[25][cols["power"]] == "30"                       # the retune of Fire
+    assert 193 in rows and rows[193][0] == "Voltflare" and rows[193][cols["power"]] == "40"   # the mint
+
+
+def test_write_battle_data_emits_new_actions_only(base, tmp_path):
+    from ff9mapkit.config import ModLayout
+    layout = ModLayout(tmp_path / "mod")
+    AD.write_battle_data(layout, new_actions=[{"id": 192, "name": "Voltflare", "from": "Fire"}])
+    assert any(l.startswith("Voltflare;192;") for l in layout.actions_csv.read_text(encoding="cp1252").splitlines())
+
+
 def test_write_battle_data_emits_both(base, tmp_path):
     from ff9mapkit.config import ModLayout
     layout = ModLayout(tmp_path / "mod")

@@ -324,6 +324,13 @@ class ModLayout:
         return (self.root / "StreamingAssets" / "assets" / "resources" / "commonasset"
                 / "mapconfigdata" / f"{evt_name}.bytes")
 
+    def ability_name_mes(self, lang: str) -> Path:
+        """``<root>/FF9_Data/embeddedasset/text/<lang>/ability/aa_name.mes`` -- the ACTIVE-ability NAME overlay
+        (the sibling of :meth:`command_name_mes`; the engine reads ``EmbeddedAsset/Text/<Symbol>/Ability/aa_name.mes``
+        case-insensitively via ``ImportWithCumulativeModFiles``, an index->name sentence array). A per-lang overlay
+        carrying ``[TXID=<id>]<Name>[ENDN]`` names exactly one minted custom active ability (id >=192)."""
+        return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "ability" / "aa_name.mes"
+
     def command_name_mes(self, lang: str) -> Path:
         """``<root>/FF9_Data/embeddedasset/text/<lang>/command/com_name.mes`` -- the battle-command NAME overlay.
         The engine reads ``EmbeddedAsset/Text/<Symbol>/Command/com_name.mes`` case-insensitively via

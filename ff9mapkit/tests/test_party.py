@@ -290,6 +290,37 @@ def test_full_build_minted_command(tmp_path):
     assert "AA:25;0" in learn                                          # Fire (active ability 25) learned at ap 0
 
 
+def test_full_build_custom_ability(tmp_path):
+    """A custom ability inline in a minted command pool -> a NEW Actions.csv row (cloned from a donor + retuned),
+    a per-lang aa_name.mes overlay, the ListEntry holds the RAW id (192) while the learn file holds AA:192
+    (install-gated: resolves the donor + names via the base CSVs)."""
+    toml = (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+            '\n[playable.abilities]\nmenu_from = "vivi"\n'
+            '\n[playable.abilities.command1]\nname = "Spark"\n'
+            'abilities = ["Cure", { name = "Voltflare", from = "Fire", power = 55, element = ["Thunder"], mp = 18 }]\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower():
+            pytest.skip("no FF9 install for the base battle/character CSVs")
+        raise
+    layout = ModLayout(out)
+    # the NEW Actions.csv row 192 (cloned from Fire, retuned Thunder / power 55 / mp 18)
+    arow = next(l for l in layout.actions_csv.read_text(encoding="cp1252").splitlines() if l.startswith("Voltflare;192;"))
+    parts = arow.split(";")
+    assert parts[11] == "55" and parts[16] == "18" and parts[12] == "4"    # power / mp / Thunder element
+    # a per-lang aa_name.mes overlay names just ability 192
+    assert layout.ability_name_mes("us").read_text(encoding="cp1252") == "[TXID=192]Voltflare[ENDN]"
+    # the command ListEntry ends with the RAW id 192; the learn file learns it as AA:192 (the opposite form)
+    crow = next(l for l in layout.commands_csv.read_text(encoding="cp1252").splitlines() if l.startswith("46;"))
+    assert crow.split(";")[3].split(",")[-1].strip() == "192"
+    assert "AA:192;0" in layout.abilities_csv("20").read_text(encoding="cp1252")
+
+
 def test_full_build_custom_battle_model(tmp_path):
     """custom_battle_model = true -> a minted independent battle GEO + a BattleParameters serial-19 row + Iviv's
     serial pointed at 19 (install-gated: reads the base CharacterParameters/BattleParameters)."""

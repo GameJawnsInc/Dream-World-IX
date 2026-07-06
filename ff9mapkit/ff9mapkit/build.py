@@ -5296,12 +5296,22 @@ def _emit_battle_data(projects, layout) -> list:
     statuses = [s for p in projects for s in p.raw.get("status", [])]
     status_sets = [b for p in projects for b in (p.raw.get("status_set", []) or [])]
     magic_sword_sets = [b for p in projects for b in (p.raw.get("magic_sword_set", []) or [])]
-    if not actions and not statuses and not status_sets and not magic_sword_sets:
+    # [playable.abilities] inline CUSTOM abilities -> NEW Actions.csv rows, MERGED into the same delta as the
+    # [[battle_action]] retunes (Actions.csv has one writer -> a minted ability can't clobber a retune, or vice versa).
+    playables = []
+    for p in projects:
+        b = p.raw.get("playable", [])
+        playables += b if isinstance(b, list) else [b]
+    try:
+        new_actions = _playable.action_seeds(_playable.parse_all(playables))
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    if not actions and not statuses and not status_sets and not magic_sword_sets and not new_actions:
         return []
     from .battle import actiondelta as _adelta
     try:
         return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets,
-                                         magic_sword_sets=magic_sword_sets)
+                                         magic_sword_sets=magic_sword_sets, new_actions=new_actions)
     except _adelta.ActionDeltaError as ex:
         raise BuildError(str(ex))
 
@@ -5345,7 +5355,8 @@ def _emit_character_data(projects, layout) -> list:
                                             battle_params=battle_params,
                                             command_set_new_rows=_playable.command_set_seeds(specs),
                                             learns_new=_playable.learn_seeds(specs),
-                                            new_commands=_playable.command_seeds(specs))
+                                            new_commands=_playable.command_seeds(specs),
+                                            new_actions=_playable.action_seeds(specs))
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 

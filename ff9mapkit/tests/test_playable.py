@@ -282,6 +282,49 @@ def test_minted_command_band_exhaustion():
         PL.parse_all(entries)
 
 
+def test_custom_ability_in_pool_mints_and_learns():
+    # an inline TABLE in a command pool mints a custom ability (a unique spell cloned from a donor)
+    specs = PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "Spark", "abilities": [
+            "Cure", {"name": "Voltflare", "from": "Fire", "power": 55, "element": ["Thunder"], "mp": 18}]}}}])
+    s = specs[0]
+    # the inline-table marker is replaced by the allocated custom-ability id (192); the stock 'Cure' is kept verbatim
+    assert s["minted_commands"][0]["abilities"] == ["Cure", 192]
+    assert s["minted_actions"] == [{"name": "Voltflare", "from": "Fire",
+                                    "overrides": {"power": 55, "element": ["Thunder"], "mp": 18}, "id": 192}]
+    assert PL.action_seeds(specs) == s["minted_actions"]
+    # the command ListEntry holds the RAW id 192; the learn file holds the AA:192 form (the two are deliberately different)
+    assert PL.command_seeds(specs)[0]["abilities"] == ["Cure", 192]
+    assert {"ability": "AA:192", "ap": 0} in s["ability_learn"]
+
+
+def test_custom_ability_errors():
+    def mk(pool_entry):
+        return {"name": "X", "borrow": "vivi", "abilities": {"command1": {"name": "S", "abilities": [pool_entry]}}}
+    with pytest.raises(PL.PlayableError):                        # missing name
+        PL.parse_playable(mk({"from": "Fire"}))
+    with pytest.raises(PL.PlayableError):                        # missing from (the donor to clone)
+        PL.parse_playable(mk({"name": "Y"}))
+    with pytest.raises(PL.PlayableError):                        # a bare id >=192 must be minted via a table
+        PL.parse_playable(mk(192))
+    with pytest.raises(PL.PlayableError):                        # ';' in a custom ability name
+        PL.parse_playable(mk({"name": "a;b", "from": "Fire"}))
+
+
+def test_custom_ability_allocation_and_exhaustion():
+    from ff9mapkit.battle import actiondelta as AD
+    # allocated sequentially from the band start (192, 193, ...) across the build
+    specs = PL.parse_all([{"id": 12, "name": "A", "borrow": "vivi", "abilities": {
+        "command1": {"name": "S", "abilities": [{"name": "c1", "from": "Fire"}, {"name": "c2", "from": "Fire"}]}}}])
+    assert [ca["id"] for ca in PL.action_seeds(specs)] == [AD._CUSTOM_ACTION_MIN, AD._CUSTOM_ACTION_MIN + 1]
+    # more customs than the band has slots -> a clear error (not an IndexError)
+    n = AD._CUSTOM_ACTION_MAX - AD._CUSTOM_ACTION_MIN + 1
+    pool = [{"name": f"c{i}", "from": "Fire"} for i in range(n + 1)]
+    with pytest.raises(PL.PlayableError):
+        PL.parse_all([{"id": 12, "name": "A", "borrow": "vivi", "abilities": {
+            "command1": {"name": "S", "abilities": pool}}}])
+
+
 def test_anim_edits_persists_blender_edits():
     # anim_edits = a .glb the BUILD ships onto the animset (survives re-deploy); requires custom_battle_anims.
     with pytest.raises(PL.PlayableError):                            # needs custom_battle_anims (edits that animset)

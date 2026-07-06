@@ -283,12 +283,89 @@ def _build(name, entries, fields_map, *, kind, max_id, note, game):
     return _render(options, legend, rows, changed, note=note), warnings
 
 
-def build_actions_delta(entries, *, game=None) -> tuple:
-    """Read the base Actions.csv + apply ``[[battle_action]]`` entries -> (delta_text, warnings)."""
-    note = ("# ff9mapkit [[battle_action]] -- a partial Actions.csv delta (merged over the base by the engine; "
-            "the #! lines below are load-bearing).")
-    return _build("Actions.csv", entries, ACTION_FIELDS, kind="battle_action", max_id=_ACTION_MAX_ID,
-                  note=note, game=game)
+# A NEW custom active ability (a 13th character's unique spell) is a NEW Actions.csv id past the packed base 0-191.
+# The engine's aa_data is a Dictionary (FF9StateBattleSystem: no array bound) + the loader gate is a FLOOR (0-191 must
+# exist, FF9BattleDB.cs:63) -> a per-id delta ADDS 192+. The BattleAbilityId space is "pooled" (÷192/×256); a ListEntry
+# value V in 192-223 lands in pool 1 (idInPool 0-31, all ACTIVE), so the display/cast/learn round-trip is clean. RENDER
+# safety = CLONE a stock donor row (keeps its animationId1/2 VFX + scriptId formula + targets valid) and override only
+# the tuning fields -> the spell casts + animates as the donor but with Iviv's own power/element/mp. (project-ff9-ability-preset-system)
+_CUSTOM_ACTION_MIN = 192
+_CUSTOM_ACTION_MAX = 223
+# The tuning fields an inline custom ability may override (a SAFE subset of ACTION_FIELDS): all range-guarded numeric /
+# element / enum columns. `status_index` is EXCLUDED -- it points at a StatusSets ROW and the engine indexes
+# add_status[statusIndex] with a DIRECT (KeyNotFound-throwing) indexer at cast, so a bad set = a crash; to give a
+# custom spell a status, clone a status-inflicting donor (`from = "Bio"`) whose statusIndex is already valid.
+_CUSTOM_ACTION_OVERRIDES = frozenset(ACTION_FIELDS) - {"status_index"}
+
+
+def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
+    """Mint custom NEW abilities: CLONE a donor row, re-id into the custom band (>=192), rename (the Comment cell +
+    trailing ``# name``), and apply the safe overrides. Adds each new row into ``rows`` in place; returns the minted
+    ids. A donor clone keeps every render/formula ref valid so the spell can't crash (recon lens C)."""
+    minted, seen = [], set()
+    idc, cmtc = cols.get("id"), cols.get("comment", 0)
+    for n, nr in enumerate(new_rows if isinstance(new_rows, list) else [new_rows]):
+        ctx = f"[[battle_ability]] #{n}"
+        if not isinstance(nr, dict):
+            raise ActionDeltaError(f"{ctx} must be a table")
+        aid = _to_int(nr.get("id"), f"{ctx} id")
+        if not _CUSTOM_ACTION_MIN <= aid <= _CUSTOM_ACTION_MAX:
+            raise ActionDeltaError(f"{ctx}: custom ability id {aid} out of the band "
+                                   f"{_CUSTOM_ACTION_MIN}-{_CUSTOM_ACTION_MAX} (0-191 are the packed base)")
+        if aid in rows or aid in seen:
+            raise ActionDeltaError(f"{ctx}: custom ability id {aid} is already defined")
+        seen.add(aid)
+        donor = _resolve_id(nr.get("from"), rows, names, kind="battle_ability from", max_id=_ACTION_MAX_ID)
+        name = str(nr.get("name") or "").strip()
+        if not name:
+            raise ActionDeltaError(f"{ctx}: a custom ability needs a 'name'")
+        if ";" in name or name.lstrip().startswith("#"):
+            raise ActionDeltaError(f"{ctx}: name {name!r} can't contain ';' or start with '#' "
+                                   f"(it would shift the CSV columns -> a boot crash)")
+        cells = list(rows[donor])                          # clone the donor row VERBATIM (valid vfx/script/targets)
+        if idc is not None and idc < len(cells):
+            cells[idc] = str(aid)
+        if cmtc < len(cells):
+            cells[cmtc] = name
+        if cells and cells[-1].lstrip().startswith("#"):   # the trailing "# Comment" cell -> the new name
+            cells[-1] = f"# {name}"
+        for k, v in (nr.get("overrides") or {}).items():
+            if k not in _CUSTOM_ACTION_OVERRIDES:
+                extra = " (clone a status-inflicting donor instead)" if k in ("status_index",) else ""
+                raise ActionDeltaError(f"{ctx} {name!r}: field {k!r} can't be set on a custom ability{extra} "
+                                       f"(overridable: {', '.join(sorted(_CUSTOM_ACTION_OVERRIDES))})")
+            col = ACTION_FIELDS[k][0]
+            ci = cols.get(col)
+            if ci is None or ci >= len(cells):
+                warnings.append(f"{ctx}: column {col!r} not present in this install's CSV -- {k} skipped")
+                continue
+            try:
+                cells[ci] = _encode_value(k, v, ACTION_FIELDS[k], warnings=warnings)
+            except ActionDeltaError as ex:
+                raise ActionDeltaError(f"{ctx} {name!r} {ex}")
+        rows[aid] = cells
+        minted.append(aid)
+    return minted
+
+
+def build_actions_delta(entries, *, new_rows=(), game=None) -> tuple:
+    """Read the base Actions.csv + apply ``[[battle_action]]`` retunes (existing ids 0-191) AND mint any custom NEW
+    abilities (``new_rows``, cloned into the >=192 band) -> ONE merged partial Actions.csv delta ``(text, warnings)``.
+    Both share one emission (the file is written once) so a minted action can't clobber a retune or vice-versa."""
+    note = ("# ff9mapkit [[battle_action]] / minted custom ability -- a partial Actions.csv delta (merged over the "
+            "base by the engine; the #! lines below are load-bearing).")
+    try:
+        options, legend, cols, rows = _read_raw(_csv_path("Actions.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise ActionDeltaError(f"[[battle_action]] needs your FF9 install to read the base Actions.csv ({ex})")
+    if not cols or not rows:
+        raise ActionDeltaError("could not parse the base Actions.csv (no id column / no rows)")
+    names = _name_index(rows, cols)
+    changed, warnings = _apply_entries(entries or [], rows, cols, names, ACTION_FIELDS,
+                                       kind="battle_action", max_id=_ACTION_MAX_ID)
+    minted = _apply_new_actions(new_rows or [], rows, cols, names, warnings)
+    changed = list(changed) + [m for m in minted if m not in changed]
+    return _render(options, legend, rows, changed, note=note), warnings
 
 
 def build_status_delta(entries, *, game=None) -> tuple:
@@ -397,12 +474,18 @@ def validate_magic_sword_sets(entries) -> list:
 
 
 def write_battle_data(layout, *, actions=None, statuses=None, status_sets=None, magic_sword_sets=None,
-                      game=None) -> list:
+                      new_actions=None, game=None) -> list:
     """Emit the Actions / StatusData / StatusSets / MagicSwordSets CSV deltas into ``layout`` (mod-write stage).
-    Returns warnings. Written cp1252 (byte-faithful with the base) + LF; the engine StreamReader is EOL-agnostic."""
+    Returns warnings. Written cp1252 (byte-faithful with the base) + LF; the engine StreamReader is EOL-agnostic.
+    ``new_actions`` mints custom NEW abilities (id >=192) into the SAME Actions.csv delta as the ``[[battle_action]]``
+    retunes -- one emission, so neither clobbers the other."""
     warnings: list = []
-    for entries, path, builder in ((actions, layout.actions_csv, build_actions_delta),
-                                   (statuses, layout.status_data_csv, build_status_delta),
+    if actions or new_actions:                              # Actions.csv: retunes + minted custom abilities, ONE file
+        text, w = build_actions_delta(actions or [], new_rows=new_actions or [], game=game)
+        layout.actions_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.actions_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+    for entries, path, builder in ((statuses, layout.status_data_csv, build_status_delta),
                                    (status_sets, layout.status_sets_csv, build_status_sets),
                                    (magic_sword_sets, layout.magic_sword_sets_csv, build_magic_sword_sets)):
         if entries:
