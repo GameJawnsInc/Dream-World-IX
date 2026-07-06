@@ -1563,14 +1563,25 @@ def _cmd_audio_import(args: argparse.Namespace) -> int:
         print("audio-import needs --deploy MODFOLDER (where to write the override)", file=sys.stderr)
         return 2
     try:
-        res = S.deploy_audio(args.input, args.song, args.deploy, kind=args.kind,
-                             loop_start=args.loop_start, loop_end=args.loop_end, quality=args.quality,
-                             set_priority=not args.no_set_priority, game=args.game)
+        if args.new_song:
+            res = S.mint_song(args.input, args.deploy, kind=args.kind, new_id=args.id,
+                              loop_start=args.loop_start, loop_end=args.loop_end, quality=args.quality,
+                              set_priority=not args.no_set_priority, game=args.game)
+        else:
+            res = S.deploy_audio(args.input, args.song, args.deploy, kind=args.kind,
+                                 loop_start=args.loop_start, loop_end=args.loop_end, quality=args.quality,
+                                 set_priority=not args.no_set_priority, game=args.game)
     except Exception as e:                                 # noqa: BLE001
         print(f"audio-import failed: {e}", file=sys.stderr)
         return 2
-    print(f"imported {args.kind} id {res['song_id']} = {res['resource_id']}")
-    print(f"  wrote: {res['path']}")
+    if res.get("minted"):
+        print(f"minted NEW {args.kind} id {res['song_id']} = {res['resource_id']}")
+        print(f"  ogg:      {res['path']}")
+        print(f"  manifest: {res['manifest']}")
+        print(f"  PLAY IT in a field:  [music] song = {res['song_id']}   (or .eb RunSoundCode(0, {res['song_id']}))")
+    else:
+        print(f"imported {args.kind} id {res['song_id']} = {res['resource_id']}")
+        print(f"  wrote: {res['path']}")
     loop = ("auto-loop (whole track)" if res["loop_start"] is None and res["loop_end"] is None
             else f"loop {res['loop_start']}..{res['loop_end']} samples") if args.kind == "music" else "play-once (sfx)"
     print(f"  {loop}")
@@ -4034,9 +4045,14 @@ def build_parser() -> argparse.ArgumentParser:
         sl.set_defaults(func=_cmd_sound_list, kind=_snd)
 
     ai = sub.add_parser("audio-import",
-                        help="import a custom MUSIC/SFX track (Ogg Vorbis) over an existing id -- DLL-free")
+                        help="import a custom MUSIC/SFX track (Ogg Vorbis): REPLACE an id or MINT a new one -- DLL-free")
     ai.add_argument("input", help="source audio (wav/mp3/ogg/flac/...) -- transcoded to Ogg Vorbis")
-    ai.add_argument("--song", type=int, required=True, help="the id to REPLACE (see `music-list`/`sfx-list`)")
+    _tgt = ai.add_mutually_exclusive_group(required=True)
+    _tgt.add_argument("--song", type=int, help="REPLACE this existing id (see `music-list`/`sfx-list`)")
+    _tgt.add_argument("--new-song", action="store_true",
+                      help="MINT a NEW id (add a track, don't swap); id auto-picked (>=1000) unless --id. Trigger "
+                           "it with a field's [music] song = <id>")
+    ai.add_argument("--id", type=int, default=None, help="the id to mint at (with --new-song; default: auto-pick)")
     ai.add_argument("--kind", choices=["music", "sfx"], default="music", help="music (default) or sfx")
     ai.add_argument("--loop-start", type=int, default=None,
                     help="loop start SAMPLE (music auto-loops the whole track if omitted; ignored for sfx)")

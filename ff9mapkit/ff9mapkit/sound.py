@@ -203,3 +203,71 @@ def deploy_audio(in_path, song_id: int, mod_folder, *, kind: str = "music", loop
     return {"kind": kind, "song_id": int(song_id), "resource_id": resource_id, "path": str(dest),
             "loop_start": loop_start, "loop_end": loop_end, "priority": prio,
             "volume_key": volume_key(kind), "volume": ini_volume(kind, game=game)}
+
+
+# --------------------------------------------------------------------------- new-song-id minting
+# ADD a track (a new id), not just swap an existing one. The engine reads a mod's override *MetaData.txt
+# from the EMBEDDED-asset root <mod>/FF9_Data/EmbeddedAsset/ (NOT StreamingAssets/Assets/Resources --
+# GetResourcesAssetsPath(true)="FF9_Data"); it REPLACES the stock table and GetSoundProfile is a dict with
+# no bounds cap, so a fresh id resolves. In-game proven 2026-07-05. New ids sit in a band clear of stock.
+MINT_ID_BASE = {"music": 1000, "sfx": 100000}     # stock music ids top out ~136; sfx in the thousands
+
+
+def manifest_override_path(mod_folder, kind: str = "music") -> Path:
+    """The mod-folder path for an override ``*MetaData.txt`` -- the EMBEDDED-asset root is ``FF9_Data/``,
+    NOT ``StreamingAssets/Assets/Resources/`` (the load-bearing path correction, in-game proven)."""
+    return Path(mod_folder) / "FF9_Data" / "EmbeddedAsset" / "Manifest" / "Sounds" / MANIFESTS[kind]
+
+
+def serialize_manifest(entries) -> str:
+    """``[{"id","resource_id","type"}]`` -> the engine's ``{"data":[{name, soundIndex, type}]}`` JSON. The
+    override REPLACES the stock table, so ``entries`` must be the FULL set (stock + your additions)."""
+    return json.dumps({"data": [{"name": e["resource_id"], "soundIndex": str(e["id"]),
+                                 "type": e.get("type") or "Music"} for e in entries]})
+
+
+def next_free_song_id(entries, kind: str = "music") -> int:
+    used = {e["id"] for e in entries}
+    i = MINT_ID_BASE[kind]
+    while i in used:
+        i += 1
+    return i
+
+
+def base_entries(mod_folder, kind: str = "music", game=None) -> list:
+    """The entries a mint extends: the mod's EXISTING override manifest (preserving prior mints) if present,
+    else the stock table extracted from the install."""
+    mpath = manifest_override_path(mod_folder, kind)
+    if mpath.exists():
+        return parse_manifest(mpath.read_text(encoding="utf-8"))
+    return read_manifest(kind, game=game)
+
+
+def mint_song(in_path, mod_folder, *, kind: str = "music", new_id=None, resource_id=None, loop_start=None,
+              loop_end=None, quality: int = 6, set_priority: bool = True, game=None) -> dict:
+    """MINT a NEW song id (add, don't swap): extend the mod's override manifest with a fresh id + a new
+    ResourceID and deploy the OGG. Accumulates onto an existing override manifest (mint several). Returns
+    ``{song_id, resource_id, manifest, ogg, ...}``. TRIGGER it in a field: ``[music] song = <song_id>`` (or
+    ``RunSoundCode(0, <song_id>)`` in the ``.eb``). ``new_id`` auto-picks a free id in the mint band."""
+    base = base_entries(mod_folder, kind, game=game)
+    if new_id is None:
+        new_id = next_free_song_id(base, kind)
+    elif any(e["id"] == int(new_id) for e in base):
+        raise ValueError(f"{kind} id {new_id} already exists in the manifest -- omit --id to auto-pick a free one")
+    new_id = int(new_id)
+    if resource_id is None:
+        sub = "Sounds01/BGM_" if kind == "music" else "Sounds02/SE00"
+        resource_id = f"{sub}/custom{new_id}"
+    entries = base + [{"id": new_id, "resource_id": resource_id, "type": "Music" if kind == "music" else "SoundEffect"}]
+    mpath = manifest_override_path(mod_folder, kind)
+    mpath.parent.mkdir(parents=True, exist_ok=True)
+    mpath.write_text(serialize_manifest(entries), encoding="utf-8")
+    dest = Path(mod_folder) / override_rel_path(resource_id)
+    encode_ogg(in_path, dest, loop_start=loop_start, loop_end=loop_end, quality=quality)
+    stale = dest.with_name(dest.stem + ".akb.bytes")
+    if stale.exists():
+        stale.unlink()
+    prio = set_priority_to_ogg(game=game) if set_priority else None
+    return {"kind": kind, "song_id": new_id, "resource_id": resource_id, "manifest": str(mpath),
+            "ogg": str(dest), "path": str(dest), "loop_start": loop_start, "loop_end": loop_end,
+            "priority": prio, "minted": True, "volume_key": volume_key(kind), "volume": ini_volume(kind, game=game)}

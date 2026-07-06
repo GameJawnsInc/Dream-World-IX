@@ -96,3 +96,38 @@ def test_deploy_audio_places_ogg_at_override_path(tmp_path, monkeypatch):
     assert res["resource_id"] == "Sounds01/BGM_/music006" and res["song_id"] == 0
     dest = tmp_path / "mod" / "StreamingAssets/Assets/Resources/Sounds/Sounds01/BGM_/music006.ogg"
     assert dest.exists() and dest.read_bytes()[:4] == b"OggS"
+
+
+# --- new-song-id minting ---
+def test_manifest_override_path_uses_ff9data_root(tmp_path):
+    # the load-bearing correction: embedded-asset overrides live under FF9_Data/, NOT StreamingAssets/...
+    assert S.manifest_override_path(tmp_path, "music") == \
+        tmp_path / "FF9_Data" / "EmbeddedAsset" / "Manifest" / "Sounds" / "MusicMetaData.txt"
+
+
+def test_serialize_manifest_roundtrips_through_parse():
+    entries = [{"id": 0, "resource_id": "Sounds01/BGM_/music006", "type": "Music"},
+               {"id": 1000, "resource_id": "Sounds01/BGM_/custom1000", "type": "Music"}]
+    assert S.parse_manifest(S.serialize_manifest(entries)) == entries
+
+
+def test_next_free_song_id_picks_the_band_then_skips_used():
+    assert S.next_free_song_id([], "music") == 1000                # empty -> band base
+    assert S.next_free_song_id([{"id": 1000, "resource_id": "x"}], "music") == 1001
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg not on PATH")
+def test_mint_song_writes_manifest_ogg_and_accumulates(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "read_manifest", lambda kind="music", game=None: S.parse_manifest(_MANIFEST))
+    wav = tmp_path / "in.wav"
+    _tiny_wav(wav)
+    mod = tmp_path / "mod"
+    r1 = S.mint_song(wav, mod, set_priority=False)
+    assert r1["minted"] and r1["song_id"] == 1000                  # auto-picked band base (stock max is 9)
+    mpath = mod / "FF9_Data/EmbeddedAsset/Manifest/Sounds/MusicMetaData.txt"
+    ogg = mod / "StreamingAssets/Assets/Resources/Sounds" / (r1["resource_id"] + ".ogg")
+    assert mpath.exists() and ogg.exists() and ogg.read_bytes()[:4] == b"OggS"
+    assert {e["id"] for e in S.parse_manifest(mpath.read_text())} == {0, 9, 1000}   # stock + minted
+    r2 = S.mint_song(wav, mod, set_priority=False)                 # 2nd mint reads the OVERRIDE, not stock
+    assert r2["song_id"] == 1001
+    assert {e["id"] for e in S.parse_manifest(mpath.read_text())} == {0, 9, 1000, 1001}   # both preserved
