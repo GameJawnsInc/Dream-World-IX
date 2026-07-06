@@ -231,14 +231,23 @@ def parse_playable(entry, *, n: int = 0) -> dict:
             if not _cd._PRESET_CUSTOM_MIN <= ability_preset_id <= _cd._PRESET_CUSTOM_MAX:
                 raise PlayableError(f"[[playable]] id {nid}: abilities.preset must be \"custom\" or a custom-band id "
                                     f"{_cd._PRESET_CUSTOM_MIN}-{_cd._PRESET_CUSTOM_MAX} (a base 0-19 is a canon char's)")
-        mf = ab.get("menu_from", borrow)                   # base donor preset to clone the menu + seed the learn list
+        mf = ab.get("menu_from")                           # base donor preset to clone the menu + seed the learn list
+        if mf is None:
+            # default = the borrow donor's preset -- valid only for the 8 MAIN chars (CharacterId 0-7 == PresetId);
+            # a guest (8-11) has a DIFFERENT preset id, so require an explicit menu_from rather than silently misalign.
+            if borrow_id > 7:
+                raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from is required when borrow is a guest "
+                                    f"(CharacterId {borrow_id}) -- set it to a base preset 0-15 (a canon caster/"
+                                    f"fighter) to clone the command menu + seed the learn list")
+            mf = borrow_id
         try:
             mf_id, mf_name = _cd._resolve_preset(mf, f"[[playable]] id {nid} abilities.menu_from")
         except _cd.CharacterDeltaError:
-            raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from {mf!r} is not a base preset (0-19) -- "
-                                f"set menu_from to a canon character/preset to clone the command menu + learn list")
-        if not 0 <= mf_id <= _cd._MAX_PRESET_ID:
-            raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from must be a BASE preset (0-19)")
+            raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from {mf!r} is not a base preset -- "
+                                f"set menu_from to a canon character/preset (0-15) to clone the menu + learn list")
+        if not 0 <= mf_id <= 15:                            # Stage presets 16-19 have a CommandSet but NO Abilities file
+            raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from must be a base preset 0-15 (a canon "
+                                f"character with a learn file to seed from; Stage presets 16-19 have none)")
         ability_menu_from = (mf_id, mf_name)
         ability_slots = {}
         for key, slot in (("command1", "ability1"), ("command2", "ability2"),

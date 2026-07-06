@@ -200,6 +200,18 @@ def test_abilities_errors():
     assert plain["ability_preset_id"] is None and PL.command_set_seeds([plain]) == []
 
 
+def test_abilities_menu_from_validation():
+    # a GUEST borrow (CharacterId 8-11 != PresetId) needs an explicit menu_from -- else a silent misalignment
+    with pytest.raises(PL.PlayableError):
+        PL.parse_playable({"name": "X", "borrow": "cinna", "abilities": {}})
+    # a Stage preset (16-19) has a CommandSet but NO learn file to seed from -> rejected offline (not a late build error)
+    with pytest.raises(PL.PlayableError):
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {"menu_from": "StageZidane"}})
+    # a guest borrow WITH an explicit base menu_from is fine
+    s = PL.parse_playable({"name": "X", "borrow": "cinna", "abilities": {"menu_from": "zidane"}})
+    assert s["ability_menu_from"] == (0, "Zidane")
+
+
 def test_anim_edits_persists_blender_edits():
     # anim_edits = a .glb the BUILD ships onto the animset (survives re-deploy); requires custom_battle_anims.
     with pytest.raises(PL.PlayableError):                            # needs custom_battle_anims (edits that animset)

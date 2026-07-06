@@ -852,6 +852,12 @@ BATTLE_COMMANDS = {_norm_cmd(k): v for k, v in {
 }.items()}
 
 
+# The ability-submenu commands whose menu is populated from the CHARACTER's learned abilities (magic / summon /
+# skill), so a slot set to one of these opens to (its Commands.csv pool INTERSECT the learn list). If the author
+# CHANGES such a slot away from the donor's without adding matching abilities to learn=[...], the menu can be EMPTY.
+_LEARN_POOL_COMMANDS = {16, 17, 19, 20, 21, 22, 23, 24, 25, 28, 34}
+
+
 def _resolve_command(token, ctx="[playable.abilities]") -> int:
     """A BattleCommandId name (Memoria enum / a friendly alias like 'Blk Mag') or a 0-47 id -> the id."""
     if token is None or isinstance(token, bool):
@@ -927,7 +933,13 @@ def build_command_set_delta(entries, *, game=None, new_rows=()) -> tuple:
             slot = COMMANDSET_SLOTS.get(slotname)
             if slot is None or slot >= len(cells):
                 raise CharacterDeltaError(f"[[playable.abilities]] preset {cid_new}: bad command slot {slotname!r}")
-            cells[slot] = str(_resolve_command(val, f"[[playable.abilities]] {slotname}"))
+            new_cmd = _resolve_command(val, f"[[playable.abilities]] {slotname}")
+            donor_val = by_id[clone][slot].strip() if slot < len(by_id[clone]) else ""
+            if new_cmd in _LEARN_POOL_COMMANDS and str(new_cmd) != donor_val:   # a pool command CHANGED from the donor
+                warnings.append(f"[[playable.abilities]] preset {cid_new}: {slotname}={val!r} draws its menu spells "
+                                f"from the LEARN list -- ensure abilities.learn includes abilities in that command's "
+                                f"pool (with ap = 0), or its battle menu may open EMPTY")
+            cells[slot] = str(new_cmd)
         cmt = str(nr.get("comment") or f"preset{cid_new}")
         if cells and cells[-1].lstrip().startswith("#"):
             cells[-1] = f"# {cmt}"

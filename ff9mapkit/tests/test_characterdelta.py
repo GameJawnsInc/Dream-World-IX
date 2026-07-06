@@ -518,6 +518,12 @@ def test_command_set_new_row_rejects(base):
         CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 99, "slots": {}}])
 
 
+def test_command_set_new_row_warns_empty_pool(base):
+    # a learn-pool command (White Magic) CHANGED from the donor's slot -> warn its menu may be empty without matching learn
+    _t, w = CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 1, "slots": {"ability2": "White Magic"}}])
+    assert any("may open EMPTY" in x for x in w)
+
+
 def test_build_learn_file_read_from(base):
     # a custom preset "20" seeds its learn list from the donor Vivi.csv, overriding Fire's AP to 0 (learned)
     text, _w = CD.build_learn_file("20", [{"ability": "AA:25", "ap": 0}], [], read_from="Vivi")
