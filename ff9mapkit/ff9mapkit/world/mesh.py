@@ -315,13 +315,15 @@ def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg:
     return bm
 
 
-def cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, cliff_dirs, seg: int = 10, land_height: float = 4.0,
-                     rim_run: float = 1.2, roll_amp: float = 0.6, land_topo: int = 0, cliff_topo: int = 58,
+def cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, cliff_dirs, seg: int = 10, land_height: float = 3.2,
+                     rim_run: float = 1.0, roll_amp: float = 0.6, land_topo: int = 0, cliff_topo: int = 58,
                      profile_pow: float = 1.0, lod: str = "0_1"):
     """Synthesize ONE block of a CLIFF-walled island: a walkable rolling land top at ~``land_height`` that drops to the
-    waterline (``Y=0``) via a STEEP near-vertical ROCK WALL on each cliff-facing edge -- the FAITHFUL (7,17) cliff
-    profile (measured 2026-07-06: 100% of real cliff-face tris are >45deg, median **72deg**, ~4u drop over ~**1.2u**
-    run), NOT :func:`island_block_mesh`'s gentle grid-smeared apron (24deg over 9u -- the wrong shape).
+    waterline (``Y=0``) via a STEEP near-vertical ROCK WALL on each cliff-facing edge -- the FAITHFUL real cliff profile
+    (survey of 208 real cliffs 2026-07-06: 100% of face tris >45deg, median **72deg**; rim height median ~3.7u but the
+    interior land you STAND on is median ~3.1u, hence the ``3.2`` default -- a 4u mesa reads too high). The wall angle
+    is ``atan(land_height/rim_run)`` (3.2/1.0 -> ~73deg); keep ``rim_run ~ land_height/3.1`` to hold the real angle.
+    NOT :func:`island_block_mesh`'s gentle grid-smeared apron (24deg over 9u -- the wrong shape).
 
     THE KEY: the wall is SHARP because a vertex ROW is placed EXACTLY ``rim_run`` inside each cliff border (a
     NON-UNIFORM grid), so the full drop lands in one ~1.2u band instead of smearing across a uniform 6.4u grid quad.

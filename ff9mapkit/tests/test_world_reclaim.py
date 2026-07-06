@@ -100,6 +100,38 @@ def test_cliff_block_mesh_is_a_steep_faithful_wall():
     assert {X.decode_id(int(round(interior.tangents[t[0]][0])))["topograph"] for t in interior.tris} == {0}
 
 
+def test_cliff_rock_uvs_constant_density_no_corner_stretch():
+    # the real cliff-face UV rule (survey of 7808 real wall tris): constant texel density via ALONG-SHORE ARC-LENGTH,
+    # NOT atan2 angle (which stretched at corners). Assert: U tiles the rock strip, density is uniform incl. at corners.
+    import math
+    bm = M.cliff_block_mesh(disc=1, x=4, y=17, cliff_dirs=[(-1, 0), (1, 0), (0, 1), (0, -1)], seg=10)
+    for u in bm.chan_arrays[X.CH_UV]:
+        u[0] = u[1] = 0.0                                    # clear (palette would set these) so we read only the rock UVs
+    bm = T._apply_cliff_rock_uvs(bm)
+    V, UV = bm.verts, bm.uvs
+    dens_all, dens_corner = [], []
+    for t in range(len(bm.flat_index) // 3):
+        idx = bm.flat_index[3 * t:3 * t + 3]
+        if X.decode_id(int(round(bm.tangents[idx[0]][0])))["topograph"] != 58:
+            continue
+        ys = [V[i][1] for i in idx]
+        if max(ys) - min(ys) <= 0.3:
+            continue
+        us = [UV[i][0] for i in idx]; vs = [UV[i][1] for i in idx]
+        assert all(0.699 - 1e-6 <= u <= 0.947 + 1e-6 for u in us)      # U stays inside the rock strip
+        edges = max(math.dist(V[idx[a]], V[idx[b]]) for a in range(3) for b in range(a + 1, 3))
+        d = math.hypot(max(us) - min(us), max(vs) - min(vs)) / edges
+        dens_all.append(d)
+        cxx = sum(V[i][0] for i in idx) / 3; czz = sum(V[i][2] for i in idx) / 3
+        if min(cxx, 64 - cxx) < 8 and min(-czz, 64 + czz) < 8:         # a corner tri
+            dens_corner.append(d)
+    assert dens_all and dens_corner
+    med_all = sorted(dens_all)[len(dens_all) // 2]
+    med_corner = sorted(dens_corner)[len(dens_corner) // 2]
+    assert 0.008 < med_all < 0.016                            # ~real 0.0115-0.013 texels/u
+    assert abs(med_corner - med_all) / med_all < 0.35         # corners are NOT stretched (density ~ the flats)
+
+
 def test_reclaim_dry_run_and_dispatch(monkeypatch):
     deployed = []
     monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)          # no install needed

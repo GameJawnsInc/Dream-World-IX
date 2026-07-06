@@ -116,35 +116,57 @@ _CLIFF_ROCK_V = (0.923, 0.893)      # (V at the face BASE Y=0, V at the face TOP
 _CLIFF_FACE_TOPO = 58               # the shore-rim / cliff-face topograph
 
 
-def _apply_cliff_rock_uvs(bm, *, tile_u: float = 26.0):
-    """Override the topo-58 cliff-FACE tris' UVs with the real grey-rock band: U = along-shore arc (wrapping the rock
-    strip ~every ``tile_u`` world units), V = height up the face (base -> 0.923, top -> 0.893). Leaves the plateau
-    (topo-0 grass) UVs as the palette set them. Reproduces the measured (7,17) cliff-texture rule instead of a guess."""
+def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125):
+    """Override the topo-58 cliff-FACE tris' UVs with the real grey-rock band: U advances with ALONG-SHORE ARC-LENGTH
+    at a constant texel ``density`` (per world unit), V = height up the face (base -> 0.923, top -> 0.893). This is the
+    measured real-cliff rule (survey of 7808 real wall tris: UV density is tight ~0.0115-0.013 texels/u -- i.e.
+    CONSTANT, so U is arc-length-driven, each ~5u wall tri = one ~0.062-wide rock tile tiling around the shore, one
+    tile tall). It replaces the old atan2-ANGLE mapping, which is only arc-length on a CIRCLE: on a rectangular island
+    angle barely moves along a straight edge then swings fast at a corner -> the rock compressed on the flats and
+    STRETCHED / swirled at the corners. U is derived from the vertex's position along the cell-rectangle perimeter
+    (unit world rate), so density is uniform everywhere incl. corners. Leaves the plateau (topo-0 grass) UVs untouched.
+
+    Single-cell scope: the perimeter arc-length resets per cell, so a MULTI-cell cliff coast gets one tile-seam at each
+    cell border (the along-shore chaining of cliff cells is a later increment). One subtle seam also falls where the
+    loop closes (the perimeter is rarely an integer number of tiles) -- both are how real rock cliffs read too."""
     import math
     from .extract import decode_id, CH_UV  # noqa: F401 (CH_UV documents the channel we mutate)
     verts, tans, uv = bm.verts, bm.tangents, bm.chan_arrays[CH_UV]
-    cx = sum(v[0] for v in verts) / bm.vcount
-    cz = sum(v[2] for v in verts) / bm.vcount
-    face_max = max((verts[k][1] for tri in bm.tris for k in tri
-                    if decode_id(int(round(tans[tri[0]][0])))["topograph"] == _CLIFF_FACE_TOPO), default=0.0)
+    face = [tri for tri in bm.tris if decode_id(int(round(tans[tri[0]][0])))["topograph"] == _CLIFF_FACE_TOPO]
+    if not face:
+        return bm
+    face_max = max((verts[k][1] for tri in face for k in tri), default=0.0)
     if face_max <= 1e-3:
         return bm
     xs = [v[0] for v in verts]; zs = [v[2] for v in verts]
-    perim = 2.0 * ((max(xs) - min(xs)) + (max(zs) - min(zs)))
-    wraps = max(1.0, round(perim / max(tile_u, 4.0)))            # how many times the rock strip wraps the shore
+    xmin, xmax, zmin, zmax = min(xs), max(xs), min(zs), max(zs)
+    hh, ww = (zmax - zmin), (xmax - xmin)
+    perim = 2.0 * (hh + ww) or 1.0
+
+    def shore_s(x, z):                                          # arc-length CW around the cell rectangle (unit rate)
+        dW, dE, dN, dS = x - xmin, xmax - x, zmax - z, z - zmin
+        m = min(dW, dE, dN, dS)
+        if m == dW:
+            return zmax - z                                    # W edge, N->S
+        if m == dS:
+            return hh + (x - xmin)                              # S edge, W->E
+        if m == dE:
+            return hh + ww + (z - zmin)                         # E edge, S->N
+        return 2.0 * hh + ww + (xmax - x)                       # N edge, E->W
+
     ub, ut = _CLIFF_ROCK_U
     vb, vt = _CLIFF_ROCK_V
-    two_pi = 2.0 * math.pi
-    for tri in bm.tris:
-        if decode_id(int(round(tans[tri[0]][0])))["topograph"] != _CLIFF_FACE_TOPO:
-            continue
-        a0 = math.atan2(verts[tri[0]][2] - cz, verts[tri[0]][0] - cx)
-        ang = [a0 + ((math.atan2(verts[k][2] - cz, verts[k][0] - cx) - a0 + math.pi) % two_pi - math.pi) for k in tri]
-        base = math.floor(min(ang) / two_pi * wraps)            # keep the tri's U window contiguous (no wrap-seam in-tri)
-        for k, a in zip(tri, ang):
-            frac = min(max(a / two_pi * wraps - base, 0.0), 1.0)
+    strip_w = ut - ub
+    for tri in face:
+        s = [shore_s(verts[k][0], verts[k][2]) for k in tri]
+        ref = s[0]
+        s = [ref + ((sk - ref + perim / 2.0) % perim) - perim / 2.0 for sk in s]   # unwrap across the loop-close seam
+        phase = [sk * density for sk in s]
+        base = math.floor(min(phase) / strip_w)                # keep the tri's U window contiguous, tile the rock strip
+        for k, ph in zip(tri, phase):
+            frac = min(max(ph - base * strip_w, 0.0), strip_w)
             hy = min(max(verts[k][1] / face_max, 0.0), 1.0)
-            uv[k] = [ub + frac * (ut - ub), vb + hy * (vt - vb)]
+            uv[k] = [ub + frac, vb + hy * (vt - vb)]
     return bm
 
 
@@ -170,7 +192,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         REAL grey-rock band (``_apply_cliff_rock_uvs``: U = along-shore arc wrapping the rock strip, V = height up the
         face). This is the FAITHFUL byte-derived (7,17) cliff (measured 100% of face tris >45deg, median 72deg, ~4u drop
         over ~1.2u run) -- NOT ``island_block_mesh``'s gentle grid-smeared apron (24deg over 9u, the wrong shape) nor a
-        topograph palette guess. Cliff defaults: ``height`` 4 (wall height), ``rim_run`` 1.2 (wall run -> ~73deg). The
+        topograph palette guess. Cliff defaults (survey of 208 real cliffs): ``height`` 3.2 (~ the interior-land Y you
+        stand on: rim med 3.7 but land med 3.1, so a 4u mesa reads too high), ``rim_run`` 1.0 (wall run -> ~73deg). The
         wall is topo 58 (on-foot BLOCKED -- the player stops at the rim); no shallow ladder / foam.
       * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea
         surface at ``height=0`` (lift it a few units for an open-ocean cell), fine flush (``height=0``) against a coast.
@@ -190,7 +213,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     # per-profile shape defaults. island = gentle SAND beach; cliff = STEEP shore-rim drop to the waterline + the
     # real grey-rock texture on the face (the (7,17) teardown: topo-58 face ~40deg, plateau Y~4, base at Y=0).
     if height is None:
-        height = {"island": 6.0, "cliff": 4.0}.get(profile, 0.0)
+        height = {"island": 6.0, "cliff": 3.2}.get(profile, 0.0)   # cliff 3.2 ~ real interior-land Y (survey: rim med 3.7, land med 3.1)
     if beach is None:
         beach = 6.0 if profile == "cliff" else 22.0        # ramp WIDTH: small = steep (cliff), large = gentle (beach)
     if shore_topo is None:
@@ -198,7 +221,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     if shore_frac is None:
         shore_frac = 0.6 if profile == "cliff" else 0.3
     if rim_run is None:
-        rim_run = 1.2                                      # cliff wall run (u); ~1.2 -> the measured (7,17) ~73deg
+        rim_run = 1.0                                      # cliff wall run (u); atan(height/run): 3.2/1.0 -> ~73deg (real med 72)
     reclaimed = set(cells)
     land = set()
     if profile in ("island", "cliff"):
