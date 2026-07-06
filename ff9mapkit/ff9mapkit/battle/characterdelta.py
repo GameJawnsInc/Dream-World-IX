@@ -951,6 +951,91 @@ def build_command_set_delta(entries, *, game=None, new_rows=()) -> tuple:
     return "\n".join([note] + header + [";".join(by_id[c]) for c in sorted(changed)]) + "\n", warnings
 
 
+# ---- MINT a unique command -> Commands.csv (a NEW magic-list command with its OWN ability pool) --------------
+# A 13th char's OWN command (not a remix of Black/White Magic): a new Commands.csv row `Id;Type;MainEntry;ListEntry`
+# with Type=1 (Ability) and ListEntry = a hand-picked pool of ACTIVE-ability ids. The engine (CharacterCommands.
+# LoadBattleCommands + BattleHUD.DisplayAbility) reads any row generically; the shown spells = ListEntry INTERSECT
+# the character's learned abilities. Zero-DLL: `EnumerateCsvFromLowToHigh` MERGES per-id, so a partial file
+# adds/overrides just a custom-band id. The base supplies 0-46 (0-44 are REQUIRED by the loader). Id 46 (Reserve4)
+# is a defined-but-unreferenced "None" placeholder, and 35-40 are unused "Magic" placeholder rows -> overriding any
+# is safe (no base CommandSet references them). We deliberately SKIP 45 (AccessMenu -- reserved for the .ini [Battle]
+# AccessMenus option) and 47 (EnemyAtk). Ids 48-99 are ENGINE-RESERVED (LoadBattleCommands logs an error). So the
+# custom band is the safe unused low ids. Name: a `com_name.mes` overlay (a per-lang sentence array;
+# project-ff9-ability-preset-system).
+_CMD_CUSTOM_BAND = (46, 35, 36, 37, 38, 39, 40)      # allocate 46 first, then the unused RedMagic/YellowMagic/WhiteMagicCinna slots
+_MAX_ACTIVE_ABILITY = 191                            # a ListEntry pool entry is an active-ability id (BattleAbilityId), 0-191
+
+
+def _resolve_active_ability(token, *, game=None, ctx="command pool") -> int:
+    """An active-ability name / ``AA:n`` / ``0-191`` id -> the active-ability id (BattleAbilityId) for a command
+    ListEntry. Rejects support-ability (``SA:``) tokens -- a command pool holds ACTIVE abilities only."""
+    if token is None or isinstance(token, bool):
+        raise CharacterDeltaError(f"{ctx}: an ability needs a name or a 0-{_MAX_ACTIVE_ABILITY} id")
+    s = str(token).strip()
+    up = s.upper()
+    if up.startswith("SA:"):
+        raise CharacterDeltaError(f"{ctx}: {s!r} is a support ability -- a command pool holds ACTIVE abilities only")
+    if up.startswith("AA:"):
+        s = up[3:]
+    if s.lstrip("-").isdigit():
+        n = int(s)
+        if not 0 <= n <= _MAX_ACTIVE_ABILITY:
+            raise CharacterDeltaError(f"{ctx}: ability id {n} out of range (0-{_MAX_ACTIVE_ABILITY})")
+        return n
+    from . import actiondelta as _ad                  # an active-ability NAME -> id (live Actions.csv, needs install)
+    try:
+        _o, _l, cols, rows = _ad._read_raw(_ad._csv_path("Actions.csv", game))
+        return _ad._resolve_id(s, rows, _ad._name_index(rows, cols), kind="command pool ability",
+                               max_id=_MAX_ACTIVE_ABILITY)
+    except _ad.ActionDeltaError as ex:
+        raise CharacterDeltaError(f"{ctx}: {ex}")
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"{ctx}: an ability name needs the install to resolve via Actions.csv ({ex})")
+
+
+def build_commands_delta(new_commands, *, game=None) -> tuple:
+    """``[playable.abilities] command1/command2`` inline tables -> a PARTIAL ``Commands.csv`` delta (merged per-id
+    over the base). Each ``{id, name, abilities:[name/id]}`` becomes a ``Id;1;MainEntry;ListEntry;# name`` row: a
+    magic-list command (Type 1 = Ability) whose ListEntry is its own resolved ability POOL. Returns ``(text,
+    warnings)``. Reuses the base file's ``#! IncludeId`` header so the merged row keys on its own Id column."""
+    if not new_commands:
+        return "", []
+    try:
+        header, cols, rows = _read_csv(_csv_path("Commands.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[playable.abilities] a minted command needs your FF9 install to read Commands.csv ({ex})")
+    warnings, out_rows, seen = [], [], set()
+    for nc in new_commands:
+        cid = _to_int(nc.get("id"), "minted command id")
+        if cid not in _CMD_CUSTOM_BAND:
+            raise CharacterDeltaError(f"[playable.abilities] minted command id {cid} is not in the safe custom band "
+                                      f"{list(_CMD_CUSTOM_BAND)} (46 Reserve4 + the unused 35-40; 48-99 are engine-reserved)")
+        if cid in seen:
+            raise CharacterDeltaError(f"[playable.abilities] minted command id {cid} is defined twice")
+        seen.add(cid)
+        name = str(nc.get("name") or "").strip()
+        if not name:
+            raise CharacterDeltaError(f"[playable.abilities] minted command {cid} needs a 'name'")
+        abils = nc.get("abilities") or []
+        if not isinstance(abils, list) or not abils:
+            raise CharacterDeltaError(f"[playable.abilities] minted command {name!r} needs a non-empty 'abilities' pool")
+        pool = [_resolve_active_ability(a, game=game, ctx=f"[playable.abilities] command {name!r} pool") for a in abils]
+        if len(set(pool)) != len(pool):
+            warnings.append(f"[playable.abilities] command {name!r} lists a duplicate ability in its pool")
+        # Id ; Type(1=Ability) ; MainEntry(=first pool entry, matching base rows) ; ListEntry(comma-space) ; # name
+        out_rows.append(f"{cid};1;{pool[0]};{', '.join(str(p) for p in pool)};# {name}")
+    note = "# ff9mapkit [playable.abilities] -- a partial Commands.csv delta (a minted unique command, merged per-id)."
+    return "\n".join([note] + header + out_rows) + "\n", warnings
+
+
+def build_command_name_overlay(new_commands) -> str:
+    """The minted commands -> a ``com_name.mes`` overlay body: one ``[TXID=<id>]<name>[ENDN]`` sentence per command.
+    Cumulatively merged by the engine (``ImportWithCumulativeModFiles``) over the base command names -> it renames
+    ONLY the minted ids, leaving every other command untouched."""
+    return "".join(f"[TXID={_to_int(nc['id'], 'minted command id')}]{str(nc['name']).strip()}[ENDN]"
+                   for nc in (new_commands or []))
+
+
 # ---- [[learn]] -> Abilities/<Preset>.csv (WHOLE-FILE per preset; the ability-progression curve) -------------
 def _resolve_learn_token(token, *, game=None) -> str:
     """An ability -> the canonical Abilities-CSV cell. Forms: ``0`` / ``AA:n`` / ``SA:n`` (passthrough + range);
@@ -1076,7 +1161,7 @@ def validate_learn(entry) -> list:
 # ---- mod-write stage -------------------------------------------------------------------------------------
 def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
                          command_sets=None, learns=None, new_basestats=None, new_params=None, battle_params=None,
-                         command_set_new_rows=None, learns_new=None, game=None) -> list:
+                         command_set_new_rows=None, learns_new=None, new_commands=None, game=None) -> list:
     """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets (per-id deltas) + the per-preset
     Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF. ``new_basestats`` / ``new_params`` seed genuine
     NEW (13th+) characters (``[[playable]]``) into the BaseStats / CharacterParameters deltas; ``battle_params``
@@ -1111,6 +1196,17 @@ def write_character_data(layout, *, characters=None, levelings=None, ability_gem
         layout.command_sets_csv.parent.mkdir(parents=True, exist_ok=True)
         layout.command_sets_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
         warnings += w
+    if new_commands:                                        # [playable.abilities] minted unique command(s) -> Commands.csv + names
+        text, w = build_commands_delta(new_commands, game=game)
+        layout.commands_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.commands_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+        overlay = build_command_name_overlay(new_commands)  # a per-lang com_name.mes overlay (same text every lang)
+        from ..config import LANGS
+        for lang in LANGS:
+            p = layout.command_name_mes(lang)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(overlay, encoding="cp1252", errors="replace", newline="\n")
     if learns:                                              # the learn lists are a FILE SET (one whole file per preset)
         for pname, g in _group_learns(learns).items():
             text, w = build_learn_file(pname, g["abilities"], g["removes"], game=game)

@@ -324,6 +324,14 @@ class ModLayout:
         return (self.root / "StreamingAssets" / "assets" / "resources" / "commonasset"
                 / "mapconfigdata" / f"{evt_name}.bytes")
 
+    def command_name_mes(self, lang: str) -> Path:
+        """``<root>/FF9_Data/embeddedasset/text/<lang>/command/com_name.mes`` -- the battle-command NAME overlay.
+        The engine reads ``EmbeddedAsset/Text/<Symbol>/Command/com_name.mes`` case-insensitively via
+        ``ImportWithCumulativeModFiles`` (an index->name sentence array), so a per-lang overlay carrying just
+        ``[TXID=<id>]<Name>[ENDN]`` renames exactly one command (a minted unique command's display label). Same
+        text across langs (a custom command name isn't localized)."""
+        return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "command" / "com_name.mes"
+
     # --- dialogue text (.mes), one folder per language ---
     def text_field_dir(self, lang: str) -> Path:
         return self.root / "FF9_Data" / "embeddedasset" / "text" / lang / "field"
@@ -433,6 +441,15 @@ class ModLayout:
         """Per-character battle-menu command LAYOUTS (``Data/Characters/CommandSets.csv``), keyed by preset 0-19.
         MERGED low->high -> a partial delta (only the presets you re-point) works."""
         return self.root / "StreamingAssets" / "Data" / "Characters" / "CommandSets.csv"
+
+    @property
+    def commands_csv(self) -> Path:
+        """The battle-command TABLE (``Data/Characters/Commands.csv``), keyed by BattleCommandId. Each row =
+        ``Id;Type;MainEntry;ListEntry`` -- a magic-list command is ``Type=1`` (Ability) with ``ListEntry`` = its
+        own ability POOL. MERGED per-id low->high (``EnumerateCsvFromLowToHigh``) -> a partial delta works: the
+        base supplies commands 0-46 (0-44 are required), so a mod adds/overrides just a custom-band id (45/46 or
+        the unused 35-40) to MINT a unique command for a 13th character (project-ff9-ability-preset-system)."""
+        return self.root / "StreamingAssets" / "Data" / "Characters" / "Commands.csv"
 
     @property
     def face_atlas_dir(self) -> Path:

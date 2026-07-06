@@ -212,6 +212,76 @@ def test_abilities_menu_from_validation():
     assert s["ability_menu_from"] == (0, "Zidane")
 
 
+def test_minted_command_parse_and_autoseed():
+    # command1 as an inline TABLE mints a unique command with its own pool
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "Spark", "abilities": ["Fire", "Blizzard", "Cure"]},
+        "command2": "White Magic", "learn": [{"ability": "Protect", "ap": 0}]}})
+    assert s["minted_commands"] == [{"name": "Spark", "abilities": ["Fire", "Blizzard", "Cure"], "slot": "ability1"}]
+    # the pool auto-seeds the learn list at ap=0 (the explicit Protect is kept; pool spells appended once)
+    learned = {l["ability"]: l["ap"] for l in s["ability_learn"]}
+    assert learned == {"Protect": 0, "Fire": 0, "Blizzard": 0, "Cure": 0}
+
+
+def test_minted_command_autoseed_respects_explicit_ap():
+    # an explicit learn entry for a pool ability WINS (its ap is not overwritten by the ap=0 auto-seed) -- same form
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "Spark", "abilities": ["Fire"]}, "learn": [{"ability": "Fire", "ap": 99}]}})
+    assert [l for l in s["ability_learn"] if l["ability"] == "Fire"] == [{"ability": "Fire", "ap": 99}]
+
+
+def test_minted_command_autoseed_different_token_form_explicit_wins():
+    # the pool names an ability ("Fire") that the author ALSO learns in a DIFFERENT token form ("AA:25", ap 500).
+    # The seeds are PREPENDED so build_learn_file (last-write-wins after token resolution) keeps the author's ap 500.
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "Spark", "abilities": ["Fire"]}, "learn": [{"ability": "AA:25", "ap": 500}]}})
+    # seed (Fire, ap 0) comes FIRST, the explicit (AA:25, ap 500) LAST -> the explicit wins once both resolve to AA:25
+    assert s["ability_learn"] == [{"ability": "Fire", "ap": 0}, {"ability": "AA:25", "ap": 500}]
+
+
+def test_minted_command_allocation_and_seeds():
+    specs = PL.parse_all([{"name": "Iviv", "borrow": "vivi", "id": 12, "abilities": {
+        "command1": {"name": "Spark", "abilities": ["Fire"]}, "command2": "White Magic"}}])
+    s = specs[0]
+    assert s["minted_commands"][0]["id"] == 46                     # first custom-band command id
+    assert s["ability_slots"]["ability1"] == 46                    # the slot is rewritten to the minted id
+    assert s["ability_slots"]["ability1_trance"] == 46             # and mirrors into trance
+    assert PL.command_seeds(specs) == [{"id": 46, "name": "Spark", "abilities": ["Fire"]}]
+    # the CommandSet row for the custom preset points ability1 at the minted id
+    assert PL.command_set_seeds(specs)[0]["slots"]["ability1"] == 46
+
+
+def test_minted_command_explicit_trance_pin_wins():
+    specs = PL.parse_all([{"name": "Iviv", "borrow": "vivi", "id": 12, "abilities": {
+        "command1": {"name": "Spark", "abilities": ["Fire"]}, "command1_trance": "Black Magic"}}])
+    s = specs[0]
+    assert s["ability_slots"]["ability1"] == 46 and s["ability_slots"]["ability1_trance"] == "Black Magic"
+
+
+def test_minted_command_errors():
+    with pytest.raises(PL.PlayableError):                          # a table on a trance slot can't mint a command
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {
+            "command1_trance": {"name": "Y", "abilities": ["Fire"]}}})
+    with pytest.raises(PL.PlayableError):                          # missing name
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {"command1": {"abilities": ["Fire"]}}})
+    with pytest.raises(PL.PlayableError):                          # empty pool
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {"command1": {"name": "Y", "abilities": []}}})
+    with pytest.raises(PL.PlayableError):                          # unknown key in the inline table
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {
+            "command1": {"name": "Y", "abilities": ["Fire"], "foo": 1}}})
+
+
+def test_minted_command_band_exhaustion():
+    from ff9mapkit.battle import characterdelta as CD
+    # 4 custom chars (presets 20-23) each minting BOTH command slots = 8 commands > the 7-slot band -> a clear error
+    entries = [{"name": f"C{i}", "borrow": "vivi", "id": 12 + i, "abilities": {
+        "command1": {"name": f"K{i}a", "abilities": ["Fire"]},
+        "command2": {"name": f"K{i}b", "abilities": ["Fire"]}} } for i in range(4)]
+    assert len(CD._CMD_CUSTOM_BAND) == 7
+    with pytest.raises(PL.PlayableError):
+        PL.parse_all(entries)
+
+
 def test_anim_edits_persists_blender_edits():
     # anim_edits = a .glb the BUILD ships onto the animset (survives re-deploy); requires custom_battle_anims.
     with pytest.raises(PL.PlayableError):                            # needs custom_battle_anims (edits that animset)

@@ -250,6 +250,7 @@ for src_csv, live_csv, label in ((tl.initial_items_csv, live.initial_items_csv, 
                                  (tl.character_parameters_csv, live.character_parameters_csv, "CharacterParameters"),
                                  (tl.battle_parameters_csv, live.battle_parameters_csv, "BattleParameters"),
                                  (tl.command_sets_csv, live.command_sets_csv, "CommandSets"),
+                                 (tl.commands_csv, live.commands_csv, "Commands"),
                                  (tl.leveling_csv, live.leveling_csv, "Leveling"),
                                  (tl.ability_gems_csv, live.ability_gems_csv, "AbilityGems"),
                                  (tl.ability_features_txt, live.ability_features_txt, "AbilityFeatures")):
@@ -285,6 +286,21 @@ if _abil_dir.is_dir():
         shutil.copyfile(_f, _live_f)
         csv_reverts.append((_f.stem, str(_live_f), _had))
         print(f"  + Abilities/{_f.stem}.csv (learn list)")
+# [playable.abilities] minted unique command -> a per-lang com_name.mes NAME overlay (FF9_Data/embeddedasset/text/
+# <lang>/command/). Each lang's file gets its own reversible backup/restore (joins csv_reverts). WITHOUT this the
+# Commands.csv pool + CommandSets slot deploy (the command works) but shows a blank/placeholder name, not the mint.
+for _lang in LANGS:
+    _src_cn = tl.command_name_mes(_lang)
+    if not _src_cn.exists():
+        continue
+    _live_cn = live.command_name_mes(_lang)
+    _live_cn.parent.mkdir(parents=True, exist_ok=True)
+    _had = _live_cn.exists()
+    if _had:
+        shutil.copyfile(_live_cn, BK / f"com_name-{_lang}.mes.preDEPLOY.{STAMP}")
+    shutil.copyfile(_src_cn, _live_cn)
+    csv_reverts.append((f"com_name-{_lang}", str(_live_cn), _had))
+    print(f"  + text/{_lang}/command/com_name.mes (command name)")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)
@@ -296,7 +312,8 @@ for _label, _live, _had in csv_reverts:
 # Reload re-reads only the field's .eb/.mes/scene/walkmesh, NOT item/stat data -> a change needs a RELAUNCH.
 _STARTUP_CSVS = {"Weapons", "Armors", "Items", "Stats", "ItemEffects", "InitialItems", "ShopItems", "Synthesis",
                  "DefaultEquipment", "Actions", "StatusData", "StatusSets", "BaseStats", "Leveling", "AbilityGems",
-                 "AbilityFeatures", "MagicSwordSets", "CharacterParameters", "BattleParameters", "CommandSets"}
+                 "AbilityFeatures", "MagicSwordSets", "CharacterParameters", "BattleParameters", "CommandSets",
+                 "Commands"}
 if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
     print("  !! item/stat CSVs load at game startup (or New-Game init) -> RELAUNCH to apply (F6 Reload won't)")
 

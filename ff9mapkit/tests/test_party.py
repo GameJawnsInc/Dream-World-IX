@@ -256,6 +256,40 @@ def test_full_build_playable_end_to_end(tmp_path):
     assert party.add_member(12) in _main_init_bytes(eb)
 
 
+def test_full_build_minted_command(tmp_path):
+    """[playable.abilities] with a command1 inline table -> a minted unique command: a Commands.csv row (Type 1 =
+    Ability, its own pool), the custom preset's CommandSet Ability1 slot pointed at it, a com_name.mes name overlay
+    per lang, and the pool auto-learned in Abilities/20.csv (install-gated: resolves ability names via Actions.csv)."""
+    toml = (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+            '\n[playable.abilities]\nmenu_from = "vivi"\ncommand2 = "White Magic"\n'
+            '\n[playable.abilities.command1]\nname = "Spark"\nabilities = ["Fire", "Blizzard", "Cure"]\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower():
+            pytest.skip("no FF9 install for the base character CSVs")
+        raise
+    layout = ModLayout(out)
+    # a partial Commands.csv delta with the minted command 46 (Type 1 = Ability, a curated pool)
+    cmd = [l for l in layout.commands_csv.read_text(encoding="cp1252").splitlines()
+           if l and not l.startswith("#")]
+    row = next(l for l in cmd if l.startswith("46;"))
+    assert row.split(";")[1] == "1" and row.endswith("# Spark")        # Ability type + our name comment
+    # the custom preset's CommandSet row (id 20) points Ability1 at the minted command
+    cs = next(l for l in layout.command_sets_csv.read_text(encoding="cp1252").splitlines() if l.startswith("20;"))
+    assert cs.split(";")[3] == "46"                                    # Ability1 slot = the minted command id
+    # a per-lang com_name.mes overlay renames just command 46
+    assert layout.command_name_mes("us").read_text(encoding="cp1252") == "[TXID=46]Spark[ENDN]"
+    assert layout.command_name_mes("jp").is_file()
+    # the pool auto-learned at ap=0 in the custom preset's learn file (so its menu shows the spells, AP-gated)
+    learn = layout.abilities_csv("20").read_text(encoding="cp1252")
+    assert "AA:25;0" in learn                                          # Fire (active ability 25) learned at ap 0
+
+
 def test_full_build_custom_battle_model(tmp_path):
     """custom_battle_model = true -> a minted independent battle GEO + a BattleParameters serial-19 row + Iviv's
     serial pointed at 19 (install-gated: reads the base CharacterParameters/BattleParameters)."""

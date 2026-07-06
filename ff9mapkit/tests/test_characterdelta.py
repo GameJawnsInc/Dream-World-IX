@@ -329,6 +329,62 @@ def test_command_set_range_preset_and_validate(base):
     assert any("ambiguous" in p for p in CD.validate_command_set({"preset": "Marcus", "attack": 1}))
 
 
+# ---- MINT a unique command -> Commands.csv (a NEW magic-list command with its OWN ability pool) ----
+_COMMANDS = (
+    "#! IncludeId\n"
+    "# Id;Type;Ability;Abilities\n"
+    "0;0;0;;# None\n"
+    "45;0;0;;# None\n"
+    "46;0;0;;# None\n"
+)
+
+
+def _with_commands(base):
+    (base / "Commands.csv").write_bytes(_COMMANDS.encode("cp1252"))
+    return base
+
+
+def test_resolve_active_ability_forms():
+    assert CD._resolve_active_ability("25") == 25 and CD._resolve_active_ability("AA:30") == 30
+    assert CD._resolve_active_ability(48) == 48                    # numeric id passthrough (0-191)
+    with pytest.raises(CD.CharacterDeltaError):                    # a support ability -> a command pool holds ACTIVE abilities
+        CD._resolve_active_ability("SA:2")
+    with pytest.raises(CD.CharacterDeltaError):                    # out of range
+        CD._resolve_active_ability("999")
+    with pytest.raises(CD.CharacterDeltaError):                    # None / bool
+        CD._resolve_active_ability(None)
+
+
+def test_build_commands_delta_row_format(base):
+    _with_commands(base)
+    text, w = CD.build_commands_delta([{"id": 46, "name": "Spark", "abilities": ["AA:25", "AA:29", 33]}])
+    assert "#! IncludeId" in text                                  # reuses the base header so the merge keys on Id
+    assert "46;1;25;25, 29, 33;# Spark" in text.splitlines()       # Type=1 (Ability), MainEntry=pool[0], ListEntry comma-space
+    assert w == []
+
+
+def test_build_commands_delta_guards(base):
+    _with_commands(base)
+    with pytest.raises(CD.CharacterDeltaError):                    # id outside the safe custom band (22 = Black Magic)
+        CD.build_commands_delta([{"id": 22, "name": "X", "abilities": [25]}])
+    with pytest.raises(CD.CharacterDeltaError):                    # empty pool
+        CD.build_commands_delta([{"id": 46, "name": "X", "abilities": []}])
+    with pytest.raises(CD.CharacterDeltaError):                    # missing name
+        CD.build_commands_delta([{"id": 46, "name": "", "abilities": [25]}])
+    with pytest.raises(CD.CharacterDeltaError):                    # same id twice
+        CD.build_commands_delta([{"id": 46, "name": "A", "abilities": [25]},
+                                 {"id": 46, "name": "B", "abilities": [26]}])
+    _t, w = CD.build_commands_delta([{"id": 46, "name": "Dup", "abilities": [25, 25]}])
+    assert any("duplicate" in x for x in w)                        # a repeated ability in the pool -> a warning
+
+
+def test_build_command_name_overlay():
+    ov = CD.build_command_name_overlay([{"id": 46, "name": "Spark", "abilities": [25]},
+                                        {"id": 35, "name": "Flux", "abilities": [26]}])
+    assert ov == "[TXID=46]Spark[ENDN][TXID=35]Flux[ENDN]"
+    assert CD.build_command_name_overlay([]) == ""
+
+
 # ---- [[learn]] -> Abilities/<Preset>.csv (WHOLE-FILE per preset) ----
 def test_learn_override_append_remove(base):
     text, warns = CD.build_learn_file(

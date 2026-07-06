@@ -216,6 +216,7 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     # command MENU + its own learnable ability list, cloned from a base donor preset (project-ff9-ability-preset-
     # system). ZERO-DLL: a custom preset resolves to a numeric Abilities/<id>.csv + a merged CommandSets row.
     ability_preset_id = ability_menu_from = ability_slots = ability_learn = None
+    minted_commands = []
     ab = entry.get("abilities")
     if ab is not None:
         if not isinstance(ab, dict):
@@ -249,15 +250,25 @@ def parse_playable(entry, *, n: int = 0) -> dict:
             raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from must be a base preset 0-15 (a canon "
                                 f"character with a learn file to seed from; Stage presets 16-19 have none)")
         ability_menu_from = (mf_id, mf_name)
-        ability_slots = {}
+        ability_slots, minted_commands = {}, []
         for key, slot in (("command1", "ability1"), ("command2", "ability2"),
                           ("command1_trance", "ability1_trance"), ("command2_trance", "ability2_trance")):
-            if ab.get(key) is not None:
+            val = ab.get(key)
+            if val is None:
+                continue
+            if isinstance(val, dict):                      # an inline table -> MINT a unique command with its OWN pool
+                if key.endswith("_trance"):
+                    raise PlayableError(f"[[playable]] id {nid}: abilities.{key} can't mint a command -- put the "
+                                        f"inline command table on command1/command2 (it auto-applies in trance too)")
+                mc = _parse_minted_command(val, nid, key)
+                mc["slot"] = slot                          # ability1/ability2; the id + trance mirror are set in parse_all
+                minted_commands.append(mc)
+            else:
                 try:                                       # resolve offline (a BattleCommandId name/id -> id)
-                    _cd._resolve_command(ab[key], f"[[playable]] id {nid} abilities.{key}")
+                    _cd._resolve_command(val, f"[[playable]] id {nid} abilities.{key}")
                 except _cd.CharacterDeltaError as ex:
                     raise PlayableError(str(ex))
-                ability_slots[slot] = ab[key]
+                ability_slots[slot] = val
         ability_slots.setdefault("ability1_trance", ability_slots.get("ability1"))   # trance mirrors the regular slot
         ability_slots.setdefault("ability2_trance", ability_slots.get("ability2"))
         ability_slots = {k: v for k, v in ability_slots.items() if v is not None}
@@ -267,7 +278,20 @@ def parse_playable(entry, *, n: int = 0) -> dict:
         for l in lrn:
             if not isinstance(l, dict) or l.get("ability") is None:
                 raise PlayableError(f"[[playable]] id {nid}: each abilities.learn entry needs an 'ability'")
-        ability_learn = lrn
+        # A minted command's POOL auto-seeds the learn list at ap=0 (learnable/usable NOW) so its menu isn't empty.
+        # The seeds are PREPENDED, not appended: build_learn_file resolves every entry to its AA:id token and is
+        # last-write-wins, so putting the author's explicit `learn` entries LAST makes them win even when the same
+        # ability is written in a DIFFERENT token form (pool "Fire" vs learn "AA:25") -- the documented "explicit ap
+        # wins" invariant, which a raw-string dedup alone would miss. (The dedup below still skips a same-FORM repeat.)
+        _explicit = {str(l["ability"]).strip().lower() for l in lrn}
+        seeds, _seeded = [], set()
+        for mc in minted_commands:
+            for a in mc["abilities"]:
+                key = str(a).strip().lower()
+                if key not in _explicit and key not in _seeded:
+                    seeds.append({"ability": a, "ap": 0})
+                    _seeded.add(key)
+        ability_learn = seeds + list(lrn)
         if params.get("menu_type") is not None or params.get("preset") is not None:
             raise PlayableError(f"[[playable]] id {nid}: [playable.abilities] owns the preset -- drop the explicit "
                                 f"params.menu_type/preset")
@@ -279,7 +303,29 @@ def parse_playable(entry, *, n: int = 0) -> dict:
             "battle_serial": battle_serial, "battle_model_from": battle_model_from,
             "battle_borrow_serial": battle_borrow_serial,
             "ability_preset_id": ability_preset_id, "ability_menu_from": ability_menu_from,
-            "ability_slots": ability_slots, "ability_learn": ability_learn}
+            "ability_slots": ability_slots, "ability_learn": ability_learn,
+            "minted_commands": minted_commands}
+
+
+def _parse_minted_command(val, nid, key) -> dict:
+    """An inline ``command1``/``command2`` table -> a minted-command spec ``{name, abilities}``. A unique battle
+    command with its OWN ability pool (project-ff9-ability-preset-system): the id is allocated + the trance slot
+    mirrored in :func:`parse_all`."""
+    name = val.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise PlayableError(f"[[playable]] id {nid}: abilities.{key} (an inline command) needs a 'name'")
+    abils = val.get("abilities")
+    if not isinstance(abils, list) or not abils:
+        raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r} needs a non-empty 'abilities' "
+                            f"pool (a list of ability names/ids, e.g. [\"Fire\", \"Cure\"])")
+    for a in abils:
+        if a is None or isinstance(a, bool) or (isinstance(a, str) and not a.strip()):
+            raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r} has an empty ability in its pool")
+    extra = set(val) - {"name", "abilities"}
+    if extra:
+        raise PlayableError(f"[[playable]] id {nid}: abilities.{key} command {name!r} has unknown key(s) "
+                            f"{sorted(extra)} (only 'name' and 'abilities')")
+    return {"name": name.strip(), "abilities": list(abils)}
 
 
 def parse_all(entries) -> list:
@@ -316,6 +362,19 @@ def parse_all(entries) -> list:
                                     f"[[playable]] #{seen_preset[pre]} -- each needs its own (default 20 + slot)")
             seen_preset[pre] = n
         specs.append(spec)
+    # allocate custom-band ids for any minted unique commands (dedup across ALL specs -> a distinct Commands.csv id
+    # each), then wire each into its CommandSet slot + mirror it to the trance slot (unless the author pinned one).
+    cmd_alloc = 0
+    for spec in specs:
+        for mc in spec.get("minted_commands", []):
+            if cmd_alloc >= len(_cd._CMD_CUSTOM_BAND):
+                raise PlayableError(f"[[playable]] too many minted commands: the custom command band "
+                                    f"{list(_cd._CMD_CUSTOM_BAND)} ({len(_cd._CMD_CUSTOM_BAND)} slots) is exhausted")
+            cid = _cd._CMD_CUSTOM_BAND[cmd_alloc]
+            cmd_alloc += 1
+            mc["id"] = cid
+            spec["ability_slots"][mc["slot"]] = cid              # ability1/ability2 -> the minted command id
+            spec["ability_slots"].setdefault(mc["slot"] + "_trance", cid)   # trance mirrors unless explicitly set
     return specs
 
 
@@ -344,6 +403,14 @@ def learn_seeds(specs) -> list:
     return [{"preset_name": str(s["ability_preset_id"]), "read_from": s["ability_menu_from"][1],
              "abilities": s["ability_learn"] or [], "removes": []}
             for s in specs if s.get("ability_preset_id") is not None]
+
+
+def command_seeds(specs) -> list:
+    """Specs with a minted ``command1``/``command2`` inline table -> the ``new_commands`` for
+    :func:`characterdelta.write_character_data`: each unique command's ``Commands.csv`` row + ``com_name.mes`` name
+    ({id, name, abilities}). The id is allocated in :func:`parse_all`."""
+    return [{"id": mc["id"], "name": mc["name"], "abilities": mc["abilities"]}
+            for s in specs for mc in s.get("minted_commands", [])]
 
 
 def name_directive_lines(specs) -> list:
