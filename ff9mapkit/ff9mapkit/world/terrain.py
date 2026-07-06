@@ -110,8 +110,8 @@ def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", gam
 
 
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
-            height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
-            shore_topo: int | None = None, shore_frac: float | None = None, game=None, dry_run: bool = False) -> dict:
+            height: float | None = None, seg: int = 10, beach: float = 22.0, grass_topo: int = 0,
+            shore_topo: int = 20, game=None, dry_run: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -125,11 +125,6 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
         real atlas pixel colors, not frequency). Water-facing edges are computed
         per cell from the reclaimed set + the real-land set (a cell edge whose neighbour is another reclaimed cell or
         real land gets NO beach -- interior/seam). Per-tri grass/shore topographs are palette-textured individually.
-      * ``"cliff"`` -- a CLIFF coast: the same plateau, but the water-facing edge drops via a STEEP shore-rim ramp
-        (topograph **58**, on-foot BLOCKED) straight to the waterline (``Y=0``) instead of a gentle sand beach --
-        reproducing the (7,17)-teardown cliff seam (topo-58 face ~40deg, plateau ``Y~4``, base flush on deep Sea4). Uses
-        the same builder + water-edge logic as ``"island"`` with cliff-tuned defaults (``height`` 4, ``beach`` 6 steep,
-        ``shore_topo`` 58, ``shore_frac`` 0.6). No shallow ladder / foam ramp -- those are a BEACH-only structure.
       * ``"flat"`` -- a bare flat slab at ``Y=height`` of one ``topograph`` (0 = plains). Cheapest; z-fights the sea
         surface at ``height=0`` (lift it a few units for an open-ocean cell), fine flush (``height=0``) against a coast.
 
@@ -145,19 +140,11 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     for (bx, by) in cells:
         if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
             raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
-    # per-profile shape defaults. island = a gentle SAND beach ramp; cliff = a STEEP shore-rim drop straight to the
-    # waterline (the (7,17) teardown: topo-58 face, ~40deg, plateau Y~4, base at Y=0 against deep Sea4).
     if height is None:
-        height = {"island": 6.0, "cliff": 4.0}.get(profile, 0.0)
-    if beach is None:
-        beach = 6.0 if profile == "cliff" else 22.0        # ramp WIDTH: small = steep (cliff), large = gentle (beach)
-    if shore_topo is None:
-        shore_topo = 58 if profile == "cliff" else 20      # 58 = shore-rim/cliff edge (on-foot BLOCKED); 20 = walkable sand
-    if shore_frac is None:
-        shore_frac = 0.6 if profile == "cliff" else 0.3    # fraction of the drop that is shore-rim (cliff = most of it)
+        height = 6.0 if profile == "island" else 0.0
     reclaimed = set(cells)
     land = set()
-    if profile in ("island", "cliff"):
+    if profile == "island":
         try:                                              # real-land set: a neighbour that is real coast is NOT water
             land = set(X.list_blocks(disc=disc, game=game))
         except Exception:                                 # noqa: BLE001 -- offline/no install -> treat non-reclaimed as water
@@ -165,11 +152,11 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
                "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
-        if profile in ("island", "cliff"):
+        if profile == "island":
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
                      and (bx + dx, by + dy) not in land]
             bm = M.island_block_mesh(disc=disc, x=bx, y=by, water_dirs=water, seg=seg, height=height,
-                                     beach=beach, grass_topo=grass_topo, shore_topo=shore_topo, shore_frac=shore_frac)
+                                     beach=beach, grass_topo=grass_topo, shore_topo=shore_topo)
             bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # per-tri grass/shore
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount, "water_edges": len(water)}
         else:
