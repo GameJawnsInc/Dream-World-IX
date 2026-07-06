@@ -1,0 +1,301 @@
+"""Synthesize custom GRADED OCEAN WATER for the overworld -- a faithful shallow->deep sea surface authored from a depth
+field (no DLL beyond the shipped s34 divert). This is the ``world-water`` pillar: the counterpart of :func:`terrain.coast`
+(which carries a REAL coastline verbatim) for OPEN water you author from scratch.
+
+**The proven recipe** (byte-derived from a survey of all 15 disc-1 open-ocean blocks, then validated tile-for-tile at
+17/17 shape-match against the real game, and confirmed in-game 2026-07-05):
+
+* **Alphabet = 3 shades.** Open ocean uses ONLY ``Sea3`` (light/shallow) / ``Sea5`` (transition) / ``Sea4``
+  (dark/deep). ``Sea1``/``Sea2`` are COAST-only (0 of 3583 surveyed open-ocean tiles) -- painting them in open water is
+  the "river tiles supplanted into the ocean" look, so we BLANK them (:func:`ff9mapkit.world.mesh.hidden_block_mesh`).
+* **Placement = a MARCHING BAND.** Sample the depth field at each 4u cell's four EDGE MIDPOINTS; an edge is "deep" if
+  its depth exceeds ``threshold``. 0 deep edges -> ``Sea3``; 4 -> ``Sea4``; 1-3 -> a ``Sea5`` transition tile. Because
+  the sample points are the SHARED cell-edge midpoints (evaluated in WORLD coordinates), neighbouring cells agree by
+  construction -> the sea3/sea4/sea5 seams line up, ``Sea3`` can never touch ``Sea4``, AND this holds ACROSS block
+  boundaries too (adjacent cells sample the same world-space edges), so a multi-cell region is seamless.
+* **Transition UV = a Wang tile** keyed by WHICH edges face deep (:data:`DEEPSET2TILE`): 1 deep edge -> a "tip" strip
+  rotated to point at the deep side; 3 deep -> a strip pointing at the lone shallow; 2 adjacent (a corner) -> one of two
+  seam-variants. The deep-edge-set -> (v-strip, rotation) map is the byte-derived transition language.
+* **Mains UV = quadrant + 4-rotation anti-tiling.** ``Sea3``/``Sea4`` tiles pick one of the texture's 2x2 quadrants
+  (stochastic-checkerboard parity flip ~68% between neighbours) and one of 4 rotations (prefer-same clustering ~45%),
+  reproducing the real caustic shuffle. Depth is carried by WHICH SHADE, never by orientation.
+
+All UV rectangles / v-strips / the water normal are byte-exact constants reconstructed from real block (8,4). The mesh
+is position + UV only (the ``WorldMap/Terrain`` shader binds only vertex + texcoord; normals/tangents are irrelevant to
+water rendering, so a single byte-proven :data:`NORMAL` is stamped on every vertex).
+
+**Mechanism / requirements** (shared with :func:`ff9mapkit.world.terrain.reclaim`/:func:`~ff9mapkit.world.terrain.coast`):
+each target sea cell gets a flat submerged ``Terrain`` override (the s34 land-override GATE, so the divert fires) plus
+the three ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, the two blanked coast shades, and a ``Donor.txt`` naming a real
+deep-ocean block whose base sea prefab supplies everything we don't override. **Requires the CUSTOM engine (s34).**
+RELAUNCH (or exit+re-enter the overworld) to load. A lone cell is reachable via F6 -> World -> Teleport.
+
+Hard-won lessons this encodes (do NOT relitigate -- offline rendering + marginal statistics CANNOT judge water quality;
+these were found only by byte-analysis + the human's in-game read):
+  * Real ocean uses all **4** rotations of each texture quadrant, not just 0/180 -- invisible to rendering + stats.
+  * The transition tile identity is the deep-edge-SET, not a shallow/deep depth bias (that heuristic regressed).
+  * ``Sea1``/``Sea2`` in open water read as misplaced river tiles -- blank them.
+-> project-memory ``project-ff9-overworld-terrain-authoring`` / ``project-ff9-overworld-coast-mosaic``.
+"""
+from __future__ import annotations
+
+import math
+import random
+
+BLOCK = 64                                              # a 64x64 Unity-unit overworld block (extract.BLOCK_SIZE)
+GRID_X, GRID_Y = 24, 20                                 # the fixed overworld block grid
+G = 16                                                  # 16x16 sub-tiles per block
+CELL = BLOCK / G                                        # 4.0u per sub-tile
+
+LADDER = ["Sea3", "Sea5", "Sea4"]                       # rank 0 shallow / 1 transition / 2 deep (the open-ocean alphabet)
+BLANK = ["Sea1", "Sea2"]                                # coast-only shades -> blanked so the donor's don't render
+RANK = {"sea3": 0, "sea5": 1, "sea4": 2}
+
+# byte-proven per-shade UV rects + v-strips (reconstructed from real block (8,4) exactly) + the water normal
+URECT = [(0.0, 0.50394), (0.50394, 0.99213)]            # mains: 2x2 quadrant u-halves
+VRECT = [(0.0, 0.49606), (0.50794, 1.0)]                # mains: 2x2 quadrant v-halves
+UFULL = (0.0, 0.98413)                                  # transition: full texture width in u (never rotated in u)
+VSTRIP = [(0.0, 0.25197), (0.25197, 0.49606), (0.50794, 0.74016), (0.75591, 1.0)]   # 4 measured quarter-strips
+NORMAL = (-0.12, 0.98, 0.17)
+ROTS = ["r0", "r90", "r180", "r270"]
+
+# deep-edge-set (frozenset of 'N'/'E'/'S'/'W') -> [(v-strip index, rotation-name), ...] (a list = seam-variants).
+# 1 deep = strip0 ("tip", rotation points the deep edge); 3 deep = strip2 (points the lone shallow);
+# 2 adjacent = strip1/strip3 (a corner, two byte-observed variants). The byte-derived transition language.
+DEEPSET2TILE = {
+    frozenset("E"): [(0, "r0")], frozenset("S"): [(0, "r90")], frozenset("W"): [(0, "r180")], frozenset("N"): [(0, "r270")],
+    frozenset("ES"): [(1, "r0"), (3, "r90")], frozenset("SW"): [(1, "r90"), (3, "r180")],
+    frozenset("NW"): [(1, "r180"), (3, "r270")], frozenset("NE"): [(1, "r270"), (3, "r0")],
+    frozenset("NES"): [(2, "r0")], frozenset("ESW"): [(2, "r90")], frozenset("NSW"): [(2, "r180")], frozenset("NEW"): [(2, "r270")],
+}
+
+
+def _orient_maps() -> dict:
+    """The 4 rotation maps ``(fx, fz) in {0,1}^2 -> (a, b) in {0,1}^2`` (position within the quadrant/strip rect).
+    ``r0`` = identity; each successive one is a 90-degree rotation ``(a, b) -> (b, 1-a)``. (Reproduces real block
+    (8,4)'s UV orientations exactly -- the 90/270 rotations an id+180-only model dropped.)"""
+    def rot(a, b):
+        return (b, 1 - a)
+    maps = {}
+    f = (lambda fx, fz: (fx, fz))
+    for r in range(4):
+        maps[f"r{r * 90}"] = f
+        f = (lambda p: (lambda fx, fz: rot(*p(fx, fz))))(f)
+    return maps
+
+
+OMAPS = _orient_maps()
+
+
+def _vnoise(x: float, z: float) -> float:
+    """A cheap deterministic multi-frequency wobble (world XZ -> ~[-1.3, 1.3]) that gives the shallow|deep contour an
+    organic edge instead of a straight line. Continuous in world space, so it agrees across cell + block seams."""
+    return math.sin(x * 0.11 + 1.3) * 0.6 + math.sin(z * 0.08 - 0.7) * 0.4 + math.sin(x * 0.23 + z * 0.19) * 0.3
+
+
+def default_depth_field(cells, *, deep_dir: str = "S", span: float = 2.0, noise: float = 0.5):
+    """A built-in graded depth field over the world bounding box of ``cells``: a smooth ramp from shallow (0) at one
+    edge to deep (``span``) at the opposite edge in the ``deep_dir`` direction ("N"/"S"/"E"/"W"), plus organic noise.
+    Returns ``depth(world_x, world_z) -> float`` (higher = deeper). It is a pure function of WORLD position, so adjacent
+    cells sample identical shared edges -> the shallow/deep placement is seamless across the region. For a single cell
+    (``span`` 2, ``threshold`` 1) the shallow|deep seam sits mid-cell -- the proven demo look. Pass your own callable to
+    :func:`water` for a hand-authored depth map / real contour instead."""
+    if deep_dir not in ("N", "S", "E", "W"):
+        raise ValueError(f"deep_dir must be one of N/S/E/W, got {deep_dir!r}")
+    xs = [bx for (bx, by) in cells]
+    ys = [by for (bx, by) in cells]
+    x0, x1 = min(xs) * BLOCK, (max(xs) + 1) * BLOCK          # world-x span of the region (west..east)
+    z_south, z_north = -(max(ys) + 1) * BLOCK, -min(ys) * BLOCK   # world-z: south is more negative, north nearer 0
+    dx = max(x1 - x0, 1e-6)
+    dz = max(z_north - z_south, 1e-6)
+
+    def frac(wx: float, wz: float) -> float:                # 0 at the shallow edge -> 1 at the deep edge
+        if deep_dir == "S":
+            return (z_north - wz) / dz                       # deeper going south (wz decreasing)
+        if deep_dir == "N":
+            return (wz - z_south) / dz
+        if deep_dir == "E":
+            return (wx - x0) / dx
+        return (x1 - wx) / dx                                 # "W"
+
+    def depth(wx: float, wz: float) -> float:
+        return frac(wx, wz) * span + _vnoise(wx, wz) * noise
+
+    return depth
+
+
+def _edge_mids(bx: int, by: int, i: int, j: int) -> dict:
+    """The four edge-midpoint WORLD coordinates of sub-tile ``(i, j)`` in block ``(bx, by)``. World frame:
+    ``worldVert = (bx*64 + localX, y, -by*64 + localZ)`` with ``localZ`` in ``[-64, 0]`` (grid row marches -Z), so the
+    shared edge between two cells resolves to the IDENTICAL world point from both sides (the seam-matching guarantee)."""
+    ox, oz = bx * BLOCK, -by * BLOCK
+    return {"N": (ox + (i + 0.5) * CELL, oz - j * CELL),
+            "S": (ox + (i + 0.5) * CELL, oz - (j + 1) * CELL),
+            "E": (ox + (i + 1) * CELL, oz - (j + 0.5) * CELL),
+            "W": (ox + i * CELL, oz - (j + 0.5) * CELL)}
+
+
+def _deep_edges(depth, threshold: float, bx: int, by: int, i: int, j: int) -> frozenset:
+    return frozenset(d for d, (mx, mz) in _edge_mids(bx, by, i, j).items() if depth(mx, mz) > threshold)
+
+
+def build_arrangement(depth, threshold: float, bx: int, by: int, rng: random.Random):
+    """Marching-band placement for one block: returns ``grid[i][j] in {sea3, sea4, sea5}`` and
+    ``sea5tile{(i, j): (strip, rotation)}`` from the world-edge-sampled deep-edge-set. A 2-opposite ("channel") set has
+    no single Wang tile, so it degrades to the strongest single/triple deep edge (the tile pointing at the deepest side)."""
+    grid = [["sea4"] * G for _ in range(G)]
+    sea5tile = {}
+    for i in range(G):
+        for j in range(G):
+            de = _deep_edges(depth, threshold, bx, by, i, j)
+            n = len(de)
+            if n == 0:
+                grid[i][j] = "sea3"
+            elif n == 4:
+                grid[i][j] = "sea4"
+            else:
+                key = de
+                if key not in DEEPSET2TILE:                  # 2-opposite channel: drop the weaker deep edge(s)
+                    mids = _edge_mids(bx, by, i, j)
+                    dep = sorted(de, key=lambda d: -depth(*mids[d]))
+                    key = frozenset(dep[:1]) if n == 2 else frozenset(dep[:3])
+                variants = DEEPSET2TILE[key]
+                grid[i][j] = "sea5"
+                sea5tile[(i, j)] = variants[rng.randrange(len(variants))]
+    return grid, sea5tile
+
+
+def assign_quadrants(grid, rng: random.Random) -> dict:
+    """Mains anti-tiling: each ``sea3``/``sea4`` tile picks a 2x2 quadrant ``(u_half, v_half)``. Parity ``u ^ v`` flips
+    ~68% between neighbours (a stochastic checkerboard) -> the real caustic shuffle, no visible repeat."""
+    quad = {}
+    for j in range(G):
+        for i in range(G):
+            if grid[i][j] not in ("sea3", "sea4"):
+                continue
+            nb = [q for q in (quad.get((i - 1, j)), quad.get((i, j - 1))) if q]
+            if not nb:
+                quad[(i, j)] = (rng.randint(0, 1), rng.randint(0, 1))
+            else:
+                pn = nb[rng.randrange(len(nb))]
+                par = pn[0] ^ pn[1]
+                target = (1 - par) if rng.random() < 0.68 else par
+                opts = [(0, 0), (1, 1)] if target == 0 else [(1, 0), (0, 1)]
+                quad[(i, j)] = opts[rng.randrange(2)]
+    return quad
+
+
+def assign_rotations(grid, rng: random.Random) -> dict:
+    """Mains anti-tiling: each ``sea3``/``sea4`` tile picks one of 4 rotations, prefer-same clustering (copy a placed
+    neighbour ~52% -> adjacent-same ~45% like the real data, else a weighted marginal)."""
+    rot = {}
+    for j in range(G):
+        for i in range(G):
+            if grid[i][j] not in ("sea3", "sea4"):
+                continue
+            nb = [r for r in (rot.get((i - 1, j)), rot.get((i, j - 1))) if r]
+            if nb and rng.random() < 0.52:
+                rot[(i, j)] = nb[rng.randrange(len(nb))]
+            else:
+                rot[(i, j)] = rng.choices(ROTS, weights=[0.32, 0.25, 0.21, 0.21])[0]
+    return rot
+
+
+def _tile_uv(grid, quad, rot, sea5tile, i, j):
+    """A ``(fx, fz) -> [u, v]`` sampler for sub-tile ``(i, j)`` (``fx``/``fz`` = the 0/1 quad corner). Transition tiles
+    use the full-width-u x hashed v-strip (rotated to face deep); mains use their quadrant rect + rotation."""
+    if grid[i][j] == "sea5":
+        strip, oname = sea5tile[(i, j)]
+        u0, u1 = UFULL
+        v0, v1 = VSTRIP[strip]
+    else:
+        ub, vb = quad[(i, j)]
+        u0, u1 = URECT[ub]
+        v0, v1 = VRECT[vb]
+        oname = rot[(i, j)]
+    m = OMAPS[oname]
+    return lambda fx, fz: [u0 + m(fx, fz)[0] * (u1 - u0), v0 + m(fx, fz)[1] * (v1 - v0)]
+
+
+def build_cell(bx: int, by: int, *, depth, threshold: float = 1.0, seed=0):
+    """Build the three water bands for one cell: ``bands[rank]`` = a list of triangles (rank 0 ``Sea3`` / 1 ``Sea5`` /
+    2 ``Sea4``), each triangle a 3-list of ``((localX, 0, localZ), [u, v])`` pairs in the block's LOCAL frame (verts
+    stay local; deploy places the block by index). Also returns the shade ``grid`` + ``sea5tile`` map (for validation).
+    The per-cell PRNGs are seeded deterministically from ``(seed, bx, by)`` so adjacent cells vary (no macro-repeat)
+    while the run stays reproducible."""
+    rng_t = random.Random(f"ff9water:{seed}:{bx}:{by}:trans")
+    grid, sea5tile = build_arrangement(depth, threshold, bx, by, rng_t)
+    rng_m = random.Random(f"ff9water:{seed}:{bx}:{by}:mains")
+    quad = assign_quadrants(grid, rng_m)
+    rot = assign_rotations(grid, rng_m)
+    vg = {(i, j): (i * CELL, 0.0, -(j * CELL)) for i in range(G + 1) for j in range(G + 1)}
+    bands = {0: [], 1: [], 2: []}
+    for i in range(G):
+        for j in range(G):
+            rk = RANK[grid[i][j]]
+            uv = _tile_uv(grid, quad, rot, sea5tile, i, j)
+            corner = {(0, 0): vg[(i, j)], (1, 0): vg[(i + 1, j)], (1, 1): vg[(i + 1, j + 1)], (0, 1): vg[(i, j + 1)]}
+            for tri in ([(0, 0), (1, 0), (1, 1)], [(0, 0), (1, 1), (0, 1)]):
+                bands[rk].append([(corner[c], uv(*c)) for c in tri])
+    return bands, grid, sea5tile
+
+
+def shade_counts(grid) -> dict:
+    from collections import Counter
+    c = Counter(grid[i][j] for i in range(G) for j in range(G))
+    return {s: c.get(s, 0) for s in ("sea3", "sea5", "sea4")}
+
+
+def adjacency_violations(grid) -> int:
+    """Count DIRECT ``sea3``|``sea4`` 4-neighbour adjacencies -- the marching-band invariant guarantees 0 (a transition
+    band always bridges them); any nonzero means a bug in the placement."""
+    return sum(1 for i in range(G) for j in range(G) for di, dj in ((1, 0), (0, 1))
+               if 0 <= i + di < G and 0 <= j + dj < G and {grid[i][j], grid[i + di][j + dj]} == {"sea3", "sea4"})
+
+
+def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str = "S", threshold: float = 1.0,
+          span: float = 2.0, noise: float = 0.5, seed=0, disc: int = 1, lod: str = "0_1", height: float = -3.0,
+          game=None, dry_run: bool = False) -> dict:
+    """Synthesize graded open-ocean water on each sea cell in ``cells`` (``(x, y)`` grid coords, 0..23 x 0..19).
+
+    ``depth`` is a caller-supplied ``depth(world_x, world_z) -> float`` (higher = deeper); when ``None`` a built-in
+    graded field is used (:func:`default_depth_field`, parameterised by ``deep_dir``/``span``/``noise``/``threshold``).
+    Because the field is sampled at shared world-space cell edges, a contiguous ``cells`` region is seamless across
+    cells AND blocks. Each cell deploys: a flat submerged ``Terrain`` override at ``Y=height`` (the s34 land-override
+    gate + a floor under the water), the ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, blanked ``Sea1``/``Sea2``, and a
+    ``Donor.txt`` naming the real deep-ocean ``donor`` block whose base sea prefab supplies the rest.
+
+    Requires the CUSTOM engine (the s34 sea->land divert); a stock sea cell short-circuits to ``SeaBlockPrefab`` before
+    the override fires. RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via F6 -> World -> Teleport.
+    Returns a summary; deploys nothing when ``dry_run``."""
+    from . import mesh as M
+    cells = [tuple(c) for c in cells]
+    if not cells:
+        raise ValueError("give at least one cell")
+    for (bx, by) in cells:
+        if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
+            raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    dx, dy = donor
+    if not (0 <= dx < GRID_X and 0 <= dy < GRID_Y):
+        raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    if depth is None:
+        depth = default_depth_field(cells, deep_dir=deep_dir, span=span, noise=noise)
+    summary = {"op": "water", "donor": [dx, dy], "disc": disc, "deep_dir": deep_dir, "threshold": threshold,
+               "dry_run": dry_run, "cells": []}
+    for (bx, by) in cells:
+        bands, grid, sea5tile = build_cell(bx, by, depth=depth, threshold=threshold, seed=seed)
+        nm = lambda part: f"Block[{bx}][{by}] {part}"
+        parts = {"Terrain": M.flat_block_mesh(disc=disc, x=bx, y=by, seg=8, topograph=0, height=height, lod=lod)}
+        for rk, name in enumerate(LADDER):
+            tris = bands[rk]
+            parts[name] = (M.tri_soup_block_mesh(tris, name=nm(name), disc=disc, x=bx, y=by, lod=lod, normal=NORMAL)
+                           if tris else M.hidden_block_mesh(name=nm(name), disc=disc, x=bx, y=by, lod=lod))
+        for name in BLANK:
+            parts[name] = M.hidden_block_mesh(name=nm(name), disc=disc, x=bx, y=by, lod=lod)
+        if not dry_run:
+            for name, bm in parts.items():
+                M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=name)
+            M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=disc, x=bx, y=by, lod=lod, game=game)
+        summary["cells"].append({"cell": [bx, by], "shades": shade_counts(grid), "sea5": len(sea5tile),
+                                 "adjacency_violations": adjacency_violations(grid)})
+    return summary

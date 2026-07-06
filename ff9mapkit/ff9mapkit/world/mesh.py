@@ -315,6 +315,45 @@ def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg:
     return bm
 
 
+def tri_soup_block_mesh(triangles, *, name, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1",
+                        normal=(0.0, 1.0, 0.0)):
+    """Build a :class:`~ff9mapkit.world.extract.BlockMesh` from a triangle SOUP -- ``triangles`` is a list of triangles,
+    each a 3-list of ``((px, py, pz), (u, v))`` (position, uv) vertex pairs in the block's LOCAL frame. Verts are
+    emitted FRESH per triangle (unindexed: ``vcount == indexCount``, matching the stock world blocks -- sharing verts
+    would desync the flat index buffer). Every vertex gets the fixed ``normal`` and a trivial tangent ``[1,0,0,1]`` (no
+    IDALL): this is a RENDER sub-mesh (a water / decor layer), NOT the collision Terrain (whose walkability comes from
+    :func:`flat_block_mesh`'s winding + topograph). The overworld water synthesizer (:mod:`ff9mapkit.world.water`) emits
+    its Sea3/Sea5/Sea4 layers through this."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    nx, ny, nz = normal
+    pos, nrm, uv, tan = [], [], [], []
+    for tri in triangles:
+        for (p, t) in tri:
+            pos.append([float(p[0]), float(p[1]), float(p[2])]); nrm.append([nx, ny, nz])
+            uv.append([float(t[0]), float(t[1])]); tan.append([1.0, 0.0, 0.0, 1.0])
+    n = len(pos)
+    return BlockMesh(name=name, disc=disc, x=x, y=y, lod=lod, vcount=n, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=list(range(n)), tris=[[3 * k, 3 * k + 1, 3 * k + 2] for k in range(n // 3)],
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def hidden_block_mesh(*, name, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1", y_depth: float = -80.0,
+                      normal=(0.0, 1.0, 0.0)):
+    """A single degenerate (near-zero-area) triangle far below the world at ``y_depth`` -- deploys as a sub-mesh override
+    that renders NOTHING. Used to BLANK a donor block's sub-mesh part (e.g. the coast-only Sea1/Sea2 water a deep-ocean
+    donor carries) so it does not draw on a synthesized-water cell."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    nx, ny, nz = normal
+    pos = [[0.0, y_depth, 0.0], [0.1, y_depth, 0.0], [0.0, y_depth, 0.1]]
+    return BlockMesh(name=name, disc=disc, x=x, y=y, lod=lod, vcount=3, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: [[nx, ny, nz]] * 3, CH_UV: [[0.0, 0.0]] * 3,
+                                  CH_TAN: [[1.0, 0.0, 0.0, 1.0]] * 3},
+                     flat_index=[0, 1, 2], tris=[[0, 1, 2]], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
     """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
     Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged
