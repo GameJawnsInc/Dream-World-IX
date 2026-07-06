@@ -589,15 +589,17 @@ def build_battle_params_delta(new_serials, *, game=None) -> tuple:
         if sid in by_id:
             raise CharacterDeltaError(f"[[playable]] battle serial {sid} is already defined")
         model = str(nr.get("model") or "").strip()
-        if not model:
-            raise CharacterDeltaError(f"[[playable]] battle serial {sid} needs a 'model' (a GEO name)")
+        avatar = nr.get("avatar")
+        if not model and not avatar:                       # a row must change SOMETHING (a model and/or a portrait)
+            raise CharacterDeltaError(f"[[playable]] battle serial {sid} needs a 'model' (GEO name) and/or an 'avatar'")
         cells = list(by_id[bser])                          # clone the donor serial's whole row
         cells[idx] = str(sid)
-        cells[model_col] = model
-        if trance_col is not None and trance_col < len(cells):
-            cells[trance_col] = str(nr.get("trance_model") or model)
-        if avatar_col is not None and avatar_col < len(cells) and nr.get("avatar"):
-            cells[avatar_col] = str(nr["avatar"])
+        if model:                                          # custom battle model -> swap ModelId (+ TranceModelId)
+            cells[model_col] = model
+            if trance_col is not None and trance_col < len(cells):
+                cells[trance_col] = str(nr.get("trance_model") or model)
+        if avatar and avatar_col is not None and avatar_col < len(cells):   # custom portrait -> swap AvatarSprite
+            cells[avatar_col] = str(avatar)
         cmt = str(nr.get("comment") or f"serial{sid}")
         if cells and cells[-1].lstrip().startswith("#"):   # the trailing `# Name` comment cell
             cells[-1] = f"# {cmt}"

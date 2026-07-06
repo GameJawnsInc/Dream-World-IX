@@ -54,6 +54,7 @@ name = "Iviv"
 borrow = "vivi"
 recruit = true
 custom_battle_model = true
+portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
 stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
 
 # --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---

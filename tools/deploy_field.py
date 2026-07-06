@@ -135,6 +135,15 @@ if src_models.is_dir():
     shutil.copytree(src_models, live.root / "StreamingAssets" / "Assets" / "Resources" / "Models",
                     dirs_exist_ok=True)
 
+# [[playable]] portrait: the loose Face Atlas override (a custom avatar sprite, appended non-destructively).
+src_atlas = tl.face_atlas_dir
+if src_atlas.is_dir() and any(src_atlas.iterdir()):
+    live.face_atlas_dir.mkdir(parents=True, exist_ok=True)
+    for _af in src_atlas.iterdir():
+        if _af.is_file():
+            shutil.copyfile(_af, live.face_atlas_dir / _af.name)
+    print("  + Face Atlas override (custom menu portrait) -> RELAUNCH to apply (read at launch, not F6)")
+
 # [music] file = custom themes: ship the minted OGG(s) + the override MusicMetaData.txt (a NEW song id per
 # theme). Merge the built manifest's custom (band >=1000) entries into any live override so successive
 # deploys ACCUMULATE their themes. A minted new id needs no PriorityToOGG (no bundled .akb to lose to).

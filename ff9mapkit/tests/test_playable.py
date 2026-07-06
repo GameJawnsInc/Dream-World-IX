@@ -148,14 +148,14 @@ def test_custom_battle_model_explicit_and_errors():
         PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "params": {"serial_formula": "3"}})
 
 
-def test_battle_model_specs():
+def test_custom_serial_specs():
     specs = PL.parse_all([{"name": "Iviv", "borrow": "vivi", "custom_battle_model": True},
                           {"name": "Plain", "borrow": "steiner", "id": 13}])
-    bs = PL.battle_model_specs(specs)
-    assert len(bs) == 1                                              # only the custom-battle-model one
-    assert bs[0]["playable_id"] == 12 and bs[0]["borrow_id"] == 1
+    bs = PL.custom_serial_specs(specs)
+    assert len(bs) == 1                                              # only the one needing a custom serial row
+    assert bs[0]["playable_id"] == 12 and bs[0]["borrow_id"] == 1 and bs[0]["custom_model"] is True
     assert bs[0]["model_id"] == 6100 and bs[0]["serial"] == 19 and bs[0]["model_from"] is None
-    assert bs[0]["borrow_serial"] is None                           # default (derive from borrow)
+    assert bs[0]["borrow_serial"] is None and bs[0]["portrait"] is None and bs[0]["avatar"] is None
 
 
 def test_custom_battle_borrow_serial():
@@ -163,7 +163,7 @@ def test_custom_battle_borrow_serial():
     s = PL.parse_playable({"name": "Zephyr", "borrow": "garnet", "custom_battle_model": True,
                            "battle_model_from": "GEO_MAIN_B0_006", "battle_borrow_serial": 2})
     assert s["battle_borrow_serial"] == 2 and s["battle_model_from"] == "GEO_MAIN_B0_006"
-    assert PL.battle_model_specs([s])[0]["borrow_serial"] == 2
+    assert PL.custom_serial_specs([s])[0]["borrow_serial"] == 2
     with pytest.raises(PL.PlayableError):                            # serial out of the base range 0-18
         PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "battle_borrow_serial": 25})
     with pytest.raises(PL.PlayableError):                            # needs the flag
@@ -171,6 +171,21 @@ def test_custom_battle_borrow_serial():
     # default -> None (derive from borrow)
     assert PL.parse_playable({"name": "X", "borrow": "vivi",
                               "custom_battle_model": True})["battle_borrow_serial"] is None
+
+
+def test_portrait_parsing():
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "portrait": "iviv.png"})
+    assert s["portrait"] == "iviv.png" and s["avatar"] == "face_cu12"
+    assert s["params"]["serial_formula"] == "19"                    # a portrait alone needs a custom serial row
+    assert s["custom_battle_model"] is False and s["battle_model_id"] is None   # ...but NO model mint
+    cs = PL.custom_serial_specs([s])
+    assert len(cs) == 1 and cs[0]["custom_model"] is False
+    assert cs[0]["portrait"] == "iviv.png" and cs[0]["avatar"] == "face_cu12"
+    # portrait + custom_battle_model coexist (custom model AND custom face)
+    s2 = PL.parse_playable({"name": "X", "borrow": "vivi", "custom_battle_model": True, "portrait": "x.png"})
+    assert s2["avatar"] == "face_cu12" and s2["battle_model_id"] == 6100
+    with pytest.raises(PL.PlayableError):                           # portrait must be a path string
+        PL.parse_playable({"name": "X", "borrow": "vivi", "portrait": 5})
 
 
 def test_validate_playable():

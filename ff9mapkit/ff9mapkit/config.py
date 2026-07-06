@@ -435,6 +435,13 @@ class ModLayout:
         return self.root / "StreamingAssets" / "Data" / "Characters" / "CommandSets.csv"
 
     @property
+    def face_atlas_dir(self) -> Path:
+        """The loose NGUI **Face Atlas** override dir (``FF9_Data/EmbeddedAsset/UI/Atlas/``) -- a ``Face Atlas.png``
+        + ``Face Atlas.png.tpsheet`` (append) here adds a custom-character portrait sprite at LAUNCH
+        (``UIAtlas.OverrideAtlas``), non-destructively (memory project-ff9-13th-character)."""
+        return self.root / "FF9_Data" / "EmbeddedAsset" / "UI" / "Atlas"
+
+    @property
     def battle_parameters_csv(self) -> Path:
         """Per-character COSMETIC battle data (``Data/Characters/BattleParameters.csv``), keyed by
         CharacterSerialNumber: the battle ModelId + 34 animation names + avatar sprite + bones. MERGED per-serial

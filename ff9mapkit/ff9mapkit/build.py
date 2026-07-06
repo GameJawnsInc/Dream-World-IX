@@ -2652,22 +2652,29 @@ def _resolve_playable_battle(bspec, *, game=None):
     from .models import mint as _mint, extract as _extract
     model_from = bspec.get("model_from")
     borrow_serial = bspec.get("borrow_serial")
+    custom_model = bspec.get("custom_model")
     donor_geo = donor_serial = None
-    if model_from is None or borrow_serial is None:          # need the donor's default battle identity
+    # need the donor's serial (to clone the row) unless overridden; need its battle GEO only when minting a model.
+    if borrow_serial is None or (custom_model and model_from is None):
         try:
             donor_serial, donor_geo = _cd.resolve_donor_battle(bspec["borrow_id"], game=game)
         except _cd.CharacterDeltaError as ex:
             raise BuildError(str(ex))
-    src_geo = model_from or donor_geo
-    try:                                                     # canonicalize (uppercase + validate) -> matches the mint
-        canonical_geo = _extract.resolve_geo(src_geo)[0]
-    except (ValueError, KeyError, FileNotFoundError, OSError, RuntimeError) as ex:
-        raise BuildError(f"[[playable]] battle model source {src_geo!r} is not a known GEO model ({ex})")
-    minted_name = _mint.derive_mint_name(canonical_geo, bspec["model_id"])
     serial_to_clone = borrow_serial if borrow_serial is not None else donor_serial
-    mint_block = {"id": bspec["model_id"], "from": canonical_geo}
-    bp_row = {"id": bspec["serial"], "borrow": serial_to_clone, "model": minted_name,
-              "trance_model": minted_name, "comment": bspec["name"]}
+    mint_block = None
+    bp_row = {"id": bspec["serial"], "borrow": serial_to_clone, "comment": bspec["name"]}
+    if custom_model:                                         # mint an independent model + point the row's ModelId at it
+        src_geo = model_from or donor_geo
+        try:                                                # canonicalize (uppercase + validate) -> matches the mint
+            canonical_geo = _extract.resolve_geo(src_geo)[0]
+        except (ValueError, KeyError, FileNotFoundError, OSError, RuntimeError) as ex:
+            raise BuildError(f"[[playable]] battle model source {src_geo!r} is not a known GEO model ({ex})")
+        minted_name = _mint.derive_mint_name(canonical_geo, bspec["model_id"])
+        mint_block = {"id": bspec["model_id"], "from": canonical_geo}
+        bp_row["model"] = minted_name
+        bp_row["trance_model"] = minted_name
+    if bspec.get("avatar"):                                  # custom portrait -> the row's AvatarSprite
+        bp_row["avatar"] = bspec["avatar"]
     return mint_block, bp_row
 
 
@@ -4813,9 +4820,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         _pspecs_b = _playable.parse_all(project.raw.get("playable"))
     except _playable.PlayableError:
         _pspecs_b = []                                  # a broken [[playable]] is reported by validate()
-    for _bspec in _playable.battle_model_specs(_pspecs_b):
+    for _bspec in _playable.custom_serial_specs(_pspecs_b):
         _mb, _bp = _resolve_playable_battle(_bspec)
-        mint_blocks.append(_mb)
+        if _mb is not None:                             # a portrait-only spec has no model to mint
+            mint_blocks.append(_mb)
     if mint_blocks:
         from .models import mint as _mint
         mints = [_mint.resolve_mint(b) for b in mint_blocks]
@@ -5241,9 +5249,9 @@ def _emit_character_data(projects, layout) -> list:
         specs = _playable.parse_all(playables)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
-    # custom battle look -> a new BattleParameters serial row per custom-battle-model character (the mint of the
-    # model itself is staged in build_field; here we emit the serial row that binds the minted GEO to the serial).
-    battle_params = [_resolve_playable_battle(b)[1] for b in _playable.battle_model_specs(specs)]
+    # custom battle look / portrait -> a new BattleParameters serial row per character (the mint of a custom model
+    # is staged in build_field; here we emit the serial row that binds the minted GEO + custom AvatarSprite).
+    battle_params = [_resolve_playable_battle(b)[1] for b in _playable.custom_serial_specs(specs)]
     try:
         return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
                                             ability_gems=ability_gems, character_params=character_params,
@@ -5253,6 +5261,35 @@ def _emit_character_data(projects, layout) -> list:
                                             battle_params=battle_params)
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
+
+
+def _emit_portraits(projects, layout) -> list:
+    """Emit the loose **Face Atlas** override (a custom menu portrait) from every ``[[playable]] portrait``. Reads
+    each portrait PNG relative to its field.toml, packs them into one atlas + an append tpsheet (mod-global; the
+    character's AvatarSprite cell was pointed at the sprite name in _resolve_playable_battle)."""
+    from .content import portrait as _portrait
+    portraits, warnings, seen = [], [], set()
+    for p in projects:
+        pl = p.raw.get("playable")
+        if pl is None:
+            continue
+        try:
+            specs = _playable.parse_all(pl)
+        except _playable.PlayableError:
+            continue                                        # validate() reports a bad [[playable]]
+        for s in _playable.custom_serial_specs(specs):
+            if not s.get("portrait") or s["avatar"] in seen:
+                continue
+            try:
+                img, w = _portrait.load_portrait(s["portrait"], base_dir=getattr(p, "base_dir", None))
+            except _portrait.PortraitError as ex:
+                raise BuildError(str(ex))
+            portraits.append({"name": s["avatar"], "image": img})
+            warnings += w
+            seen.add(s["avatar"])
+    if portraits:
+        warnings += _portrait.write_face_atlas(layout, portraits)
+    return warnings
 
 
 def _emit_ability_features(projects, layout) -> list:
@@ -5700,6 +5737,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_item_data(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
+    start_warnings += _emit_portraits(projects, layout)
     start_warnings += _emit_ability_features(projects, layout)
     start_warnings += bp_warnings
     start_warnings += text_warnings

@@ -35,6 +35,7 @@ from __future__ import annotations
 from ..config import LANGS
 from ..battle import characterdelta as _cd
 from . import equipment as _eqp
+from . import portrait as _portrait
 
 
 class PlayableError(ValueError):
@@ -155,21 +156,29 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     recruit = entry.get("recruit", False)
     if not isinstance(recruit, bool):
         raise PlayableError(f"[[playable]] id {nid}: 'recruit' must be true/false")
-    # custom battle look: mint an independent, editable copy of the donor's battle model + bind it via a NEW
-    # BattleParameters serial. Sets the character's serial_formula to the new serial (so it uses the new row).
+    # custom battle look (mint an independent editable model) and/or a custom menu PORTRAIT -- either needs a NEW
+    # BattleParameters serial row (the ModelId + AvatarSprite live there). Sets serial_formula to the new serial.
     custom_battle = entry.get("custom_battle_model", False)
     if not isinstance(custom_battle, bool):
         raise PlayableError(f"[[playable]] id {nid}: 'custom_battle_model' must be true/false")
+    portrait = entry.get("portrait")                       # a custom avatar image (path to a 132x190 PNG)
+    if portrait is not None and not (isinstance(portrait, str) and portrait.strip()):
+        raise PlayableError(f"[[playable]] id {nid}: 'portrait' must be a path to a PNG image")
+    needs_serial = custom_battle or portrait is not None
     battle_model_id = None
     battle_serial = None
     battle_borrow_serial = None
+    avatar = None
     battle_model_from = entry.get("battle_model_from")
     if battle_model_from is not None and not (isinstance(battle_model_from, str) and battle_model_from.strip()):
         raise PlayableError(f"[[playable]] id {nid}: 'battle_model_from' must be a GEO name")
     if custom_battle:
         battle_model_id = _battle_model_id(entry.get("battle_model_id"), nid)
+    elif entry.get("battle_model_id") is not None or battle_model_from:
+        raise PlayableError(f"[[playable]] id {nid}: battle_model_id/battle_model_from need custom_battle_model = true")
+    if needs_serial:
         battle_serial = _battle_serial(entry.get("battle_serial"), nid)
-        bbs = entry.get("battle_borrow_serial")            # a donor BattleParameters serial (0-18) to clone anims from
+        bbs = entry.get("battle_borrow_serial")            # a donor BattleParameters serial (0-18) to clone from
         if bbs is not None:
             if isinstance(bbs, bool) or not isinstance(bbs, (int, str)) or not str(bbs).strip().lstrip("-").isdigit():
                 raise PlayableError(f"[[playable]] id {nid}: battle_borrow_serial must be an integer serial 0-18")
@@ -177,17 +186,18 @@ def parse_playable(entry, *, n: int = 0) -> dict:
             if not 0 <= battle_borrow_serial <= 18:
                 raise PlayableError(f"[[playable]] id {nid}: battle_borrow_serial {battle_borrow_serial} "
                                     f"out of range (0-18, a base game serial)")
-        # point the character's battle model at the new serial (a params override; the new-row build wins)
+        if portrait is not None:
+            avatar = _portrait.sprite_name(nid)            # the atlas sprite name for this character's portrait
+        # point the character's battle model/portrait at the new serial (a params override; the new-row build wins)
         if "serial_formula" in params and str(params["serial_formula"]).strip() != str(battle_serial):
-            raise PlayableError(f"[[playable]] id {nid}: params.serial_formula collides with custom_battle_model "
-                                f"(which sets serial {battle_serial}) -- drop the explicit serial_formula")
+            raise PlayableError(f"[[playable]] id {nid}: params.serial_formula collides with custom_battle_model/"
+                                f"portrait (which set serial {battle_serial}) -- drop the explicit serial_formula")
         params["serial_formula"] = str(battle_serial)
-    elif (entry.get("battle_model_id") is not None or entry.get("battle_serial") is not None
-          or battle_model_from or entry.get("battle_borrow_serial") is not None):
-        raise PlayableError(f"[[playable]] id {nid}: battle_model_id/battle_serial/battle_model_from/"
-                            f"battle_borrow_serial need custom_battle_model = true")
+    elif entry.get("battle_serial") is not None or entry.get("battle_borrow_serial") is not None:
+        raise PlayableError(f"[[playable]] id {nid}: battle_serial/battle_borrow_serial need "
+                            f"custom_battle_model = true or portrait")
     return {"id": nid, "name": name, "names": names, "borrow_id": borrow_id,
-            "stats": dict(stats), "params": params, "recruit": recruit,
+            "stats": dict(stats), "params": params, "recruit": recruit, "portrait": portrait, "avatar": avatar,
             "custom_battle_model": custom_battle, "battle_model_id": battle_model_id,
             "battle_serial": battle_serial, "battle_model_from": battle_model_from,
             "battle_borrow_serial": battle_borrow_serial}
@@ -235,13 +245,15 @@ def recruit_ids(specs) -> list:
     return [s["id"] for s in specs if s["recruit"]]
 
 
-def battle_model_specs(specs) -> list:
-    """The specs that asked for a custom battle model -> ``[{playable_id, name, borrow_id, model_id, serial,
-    model_from}]`` (model_from is an explicit donor GEO or None = derive from borrow)."""
+def custom_serial_specs(specs) -> list:
+    """The specs that need a NEW BattleParameters serial row -- a custom battle MODEL and/or a custom PORTRAIT ->
+    ``[{playable_id, name, borrow_id, custom_model, model_id, serial, model_from, borrow_serial, portrait,
+    avatar}]``. ``custom_model`` gates the mint; ``portrait``/``avatar`` gate the atlas + the AvatarSprite cell."""
     return [{"playable_id": s["id"], "name": s["name"], "borrow_id": s["borrow_id"],
+             "custom_model": bool(s.get("custom_battle_model")),
              "model_id": s["battle_model_id"], "serial": s["battle_serial"], "model_from": s["battle_model_from"],
-             "borrow_serial": s["battle_borrow_serial"]}
-            for s in specs if s.get("custom_battle_model")]
+             "borrow_serial": s["battle_borrow_serial"], "portrait": s.get("portrait"), "avatar": s.get("avatar")}
+            for s in specs if s.get("custom_battle_model") or s.get("portrait")]
 
 
 def registry(specs) -> dict:

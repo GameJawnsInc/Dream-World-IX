@@ -284,13 +284,41 @@ def test_full_build_custom_battle_model(tmp_path):
     assert cp and cp[0].split(";")[6] == "19"
 
 
+def test_full_build_portrait(tmp_path):
+    """portrait = a custom menu portrait: a loose Face Atlas override + a BattleParameters serial row whose
+    AvatarSprite is the new sprite, WITHOUT minting a model (install-gated: reads the donor's serial)."""
+    from PIL import Image
+    Image.new("RGBA", (132, 190), (255, 0, 255, 255)).save(tmp_path / "port.png")
+    toml = BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\nportrait = "port.png"\n'
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower():
+            pytest.skip("no FF9 install for the base character CSVs")
+        raise
+    layout = ModLayout(out)
+    # the loose Face Atlas override (append)
+    assert (layout.face_atlas_dir / "Face Atlas.png").is_file()
+    tp = (layout.face_atlas_dir / "Face Atlas.png.tpsheet").read_text(encoding="utf-8")
+    assert ":append=true" in tp and "face_cu12;" in tp
+    # a BattleParameters serial-19 row whose AvatarSprite (col 1) is the custom sprite
+    bp = [l for l in layout.battle_parameters_csv.read_text(encoding="cp1252").splitlines() if l.startswith("19;")]
+    assert bp and bp[0].split(";")[1] == "face_cu12"
+    # portrait-only -> NO minted model (no 3DModel line for a battle-model mint)
+    assert "GEO_MAIN_B0_M" not in layout.dictionary_patch.read_text(encoding="utf-8")
+
+
 def test_resolve_playable_battle_canonicalizes_and_explicit_serial():
     # review fixes: (1) a lowercase battle_model_from is CANONICALIZED so the BattleParameters ModelId matches the
     # registered 3DModel name; (2) an explicit battle_borrow_serial lets a scenario-formula donor work (no
     # resolve_donor_battle call -> no install needed here).
     from ff9mapkit.build import _resolve_playable_battle
-    spec = {"playable_id": 12, "name": "Iviv", "borrow_id": 2, "model_id": 6100, "serial": 19,
-            "model_from": "geo_main_b0_006", "borrow_serial": 2}          # lowercase source + explicit serial
+    spec = {"playable_id": 12, "name": "Iviv", "borrow_id": 2, "model_id": 6100, "serial": 19, "custom_model": True,
+            "model_from": "geo_main_b0_006", "borrow_serial": 2, "avatar": None}    # lowercase source + explicit serial
     mb, bp = _resolve_playable_battle(spec)
     assert mb["from"] == "GEO_MAIN_B0_006"                                # canonical (uppercase) == the 3DModel name
     assert bp["model"] == "GEO_MAIN_B0_M100"                              # ModelId cell == the registered GEO name
