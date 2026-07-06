@@ -36,7 +36,7 @@ def test_parse_per_language_names_and_overrides():
                            "params": {"equip_set": "vivi", "name_keyword": "MRC2"}})
     assert s["names"]["JP"] == "マーカス" and s["names"]["US"] == "Mark" and s["names"]["FR"] == "Marcus"
     assert s["stats"] == {"strength": 24, "magic": 30}
-    assert s["params"]["equip_set"] == "vivi" and s["params"]["name_keyword"] == "MRC2"   # explicit keyword kept
+    assert s["params"]["equip_set"] == 1 and s["params"]["name_keyword"] == "MRC2"   # "vivi" -> set id 1; explicit keyword kept
 
 
 def test_parse_rejects_bad_inputs():
@@ -60,6 +60,24 @@ def test_parse_rejects_bad_inputs():
         PL.parse_playable({"name": "X", "borrow": "vivi", "names": {"zz": "Y"}})    # unknown language
     with pytest.raises(PL.PlayableError):
         PL.parse_playable({"name": "X", "borrow": "vivi", "recruit": "yes"})        # recruit not a bool
+
+
+def test_parse_rejects_csv_hostile_name():
+    # a ';' or '#' in the name would corrupt the BaseStats/CharacterParameters CSV row (delimiter / comment marker)
+    for bad in ("Foo;Bar", "#Hero", "A;B", "Ace #1"):
+        with pytest.raises(PL.PlayableError):
+            PL.parse_playable({"name": bad, "borrow": "vivi"})
+    assert PL.parse_playable({"name": "Iviv", "borrow": "vivi"})["name"] == "Iviv"   # a clean name is fine
+
+
+def test_equip_set_accepts_a_character_name():
+    # equip_set / equipment_set take a numeric EquipmentSetId OR a character name (resolved here to the id)
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "params": {"equip_set": "steiner"}})
+    assert s["params"]["equip_set"] == 3                                            # Steiner's EquipmentSetId
+    s2 = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "params": {"equipment_set": 5}})
+    assert s2["params"]["equipment_set"] == 5                                        # a bare int still works
+    with pytest.raises(PL.PlayableError):
+        PL.parse_playable({"name": "Iviv", "borrow": "vivi", "params": {"equip_set": "nope"}})   # unknown name
 
 
 def test_parse_all_dedups_ids():
@@ -93,7 +111,7 @@ def test_basestats_and_params_seeds():
     assert bs == {"id": 12, "borrow": 1, "name": "Marcus", "overrides": {"strength": 24}}
     pr = PL.params_seeds(specs)[0]
     assert pr["id"] == 12 and pr["borrow"] == 1 and pr["name"] == "Marcus"
-    assert pr["overrides"]["equip_set"] == "vivi" and pr["overrides"]["name_keyword"] == "CU12"
+    assert pr["overrides"]["equip_set"] == 1 and pr["overrides"]["name_keyword"] == "CU12"   # "vivi" -> set id 1
 
 
 def test_recruit_ids_and_registry():

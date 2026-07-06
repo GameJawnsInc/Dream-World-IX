@@ -5592,9 +5592,25 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
                     (p.raw.get("playable") if isinstance(p.raw.get("playable"), list)
                      else ([p.raw["playable"]] if p.raw.get("playable") else []))]
     try:
-        charname_lines = _playable.name_directive_lines(_playable.parse_all(_play_blocks))
+        _pspecs = _playable.parse_all(_play_blocks)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
+    charname_lines = _playable.name_directive_lines(_pspecs)
+    # Crash guard: a bare `[party] add = [12]` for a custom-band id (12-15) that NO [[playable]] defines anywhere
+    # in the mod would emit B_PARTYADD(12) but allocate no PLAYER -> partyadd() null-derefs at field load. The
+    # recruit=true / add-by-name paths can't hit this (they carry/require a definition); only a raw numeric id
+    # can, so validate it here where the whole mod's [[playable]] set is known (mirrors the opens_shop guard).
+    _defined_playable_ids = {s["id"] for s in _pspecs}
+    for p in projects:
+        _pty = p.raw.get("party")
+        _adds = _pty.get("add") if isinstance(_pty, dict) else None
+        for m in (_adds if isinstance(_adds, list) else []):
+            if (isinstance(m, int) and not isinstance(m, bool)
+                    and _party.CUSTOM_MIN <= m <= _party.CUSTOM_MAX and m not in _defined_playable_ids):
+                raise BuildError(f"[party] add = [{m}] recruits a custom 13th+ character (id {m}) that no "
+                                 f"[[playable]] block defines -- add a [[playable]] with id = {m} (or use "
+                                 f"recruit = true on it). Without a definition the game crashes when the field "
+                                 f"loads (no PLAYER is allocated for id {m}).")
 
     layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results, charname_lines)) + "\n",
                                        encoding="utf-8", newline="\n")

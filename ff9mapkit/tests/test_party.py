@@ -218,6 +218,16 @@ def test_playable_validate_and_party_by_name(tmp_path):
     assert any("[[playable]]" in m for m in _problems(tmp_path, BASE + '\n[[playable]]\nborrow = "vivi"\n'))
 
 
+def test_build_raises_on_bare_custom_recruit_without_playable(tmp_path):
+    # a bare `[party] add = [12]` with NO [[playable]] defining id 12 would emit B_PARTYADD(12) but allocate no
+    # PLAYER -> a null-deref crash at field load. The build must reject it (no install needed -- the guard fires
+    # before any character CSV is read).
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + "\n[party]\nadd = [12]\n", encoding="utf-8")
+    with pytest.raises(BuildError, match=r"no \[\[playable\]\]|crashes"):
+        build_mod([FieldProject.load(p)], tmp_path / "mod")
+
+
 def test_full_build_playable_end_to_end(tmp_path):
     """The whole [[playable]] path in one build (install-gated: reads the base character CSVs). Skips cleanly
     on a public clone without the FF9 install."""

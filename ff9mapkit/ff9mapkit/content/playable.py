@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from ..config import LANGS
 from ..battle import characterdelta as _cd
+from . import equipment as _eqp
 
 
 class PlayableError(ValueError):
@@ -66,6 +67,13 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     if not (isinstance(name, str) and name.strip()):
         raise PlayableError(f"[[playable]] id {nid} needs a 'name' (the menu/battle name)")
     name = " ".join(name.split())
+    # The name lands in the BaseStats.csv Comment column (col 0, BEFORE the Id column) and the CharacterParameters
+    # trailing comment, so a ';' (the CSV delimiter) would shift the Id column -> the engine's Byte.Parse throws
+    # -> a hard boot ConfirmQuit; a leading '#' (the comment marker) would drop the whole BaseStats row -> the
+    # 13th char loads with no base stats. Reject both up front (mirrors _encode_param's ';' guard for String cols).
+    if ";" in name or "#" in name:
+        raise PlayableError(f"[[playable]] id {nid}: name {name!r} can't contain ';' or '#' -- they collide with "
+                            f"the CSV delimiter / comment marker and would corrupt the character's data row")
     borrow = entry.get("borrow")
     if borrow is None:
         raise PlayableError(f"[[playable]] id {nid} needs a 'borrow' (a base character 0-11 to clone from)")
@@ -104,6 +112,16 @@ def parse_playable(entry, *, n: int = 0) -> dict:
             raise PlayableError(f"[[playable]] id {nid} params: unknown field {k!r} "
                                 f"(known: {', '.join(sorted(_cd.CHARACTER_PARAM_FIELDS))})")
     params = dict(params)
+    # equip_set / equipment_set is a numeric EquipmentSetId; accept a character NAME too (like `borrow`/`preset`),
+    # resolving it to the id here so the CSV writer still gets an int (else a `equip_set = "vivi"` would only fail
+    # at build with an unhelpful "must be an integer").
+    for _k in ("equip_set", "equipment_set"):
+        v = params.get(_k)
+        if isinstance(v, str) and not v.strip().lstrip("-").isdigit():
+            try:
+                params[_k] = _eqp.resolve_set_id(v)
+            except (ValueError, TypeError) as ex:
+                raise PlayableError(f"[[playable]] id {nid} params {_k}: {ex}")
     params.setdefault("name_keyword", _default_name_keyword(nid))     # a unique tag by default
     recruit = entry.get("recruit", False)
     if not isinstance(recruit, bool):
