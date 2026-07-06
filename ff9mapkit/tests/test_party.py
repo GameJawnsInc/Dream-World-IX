@@ -161,3 +161,86 @@ def test_field_load_inject_converts_jump_table_valueerror():
         _field_load_inject("[party]", "X", lambda: _raise(ValueError("something else")))
     # a clean injection passes its result straight through
     assert _field_load_inject("[party]", "X", lambda: b"ok") == b"ok"
+
+
+# ---- [[playable]] -- recruiting a genuine NEW (13th+) CharacterId ------------------------------
+def test_resolve_member_custom_band_and_registry():
+    assert party.resolve_member(12) == 12                            # a custom 13th id passes through
+    assert party.resolve_member(15) == 15
+    with pytest.raises(ValueError):
+        party.resolve_member(16)                                     # above the custom band
+    reg = {"zephyr": 12, "ark": 13}
+    assert party.resolve_member("Zephyr", reg) == 12                 # a custom char by name (via the registry)
+    assert party.resolve_member("steiner", reg) == 3                 # base names still resolve with a registry present
+    with pytest.raises(ValueError):
+        party.resolve_member("Zephyr")                             # no registry -> the custom name is unknown
+
+
+def test_apply_party_recruits_playable_recruit_flag(tmp_path):
+    from types import SimpleNamespace
+    from ff9mapkit import build
+    eb = _build_eb(tmp_path, BASE).data                             # a clean synth field eb (no install needed)
+    proj = SimpleNamespace(raw={"playable": [{"name": "Marcus", "borrow": "vivi", "id": 12, "recruit": True}]})
+    out = build._apply_party(proj, eb)                              # recruit = true -> B_PARTYADD(12) prepended
+    body = _main_init_bytes(EbScript.from_bytes(out))
+    assert party.add_member(12) in body
+
+
+def test_apply_party_recruits_custom_by_name(tmp_path):
+    from types import SimpleNamespace
+    from ff9mapkit import build
+    eb = _build_eb(tmp_path, BASE).data
+    proj = SimpleNamespace(raw={"playable": [{"name": "Zephyr", "borrow": "vivi", "id": 12}],
+                                "party": {"add": ["Zephyr"]}})       # [party] add by the [[playable]] name
+    body = _main_init_bytes(EbScript.from_bytes(build._apply_party(proj, eb)))
+    assert party.add_member(12) in body
+
+
+def test_dictionary_lines_includes_charname_extras():
+    from types import SimpleNamespace
+    from ff9mapkit.build import _dictionary_lines
+    r = SimpleNamespace(text_block=1073, register_text_block=False, location_line=None, mint_lines=[],
+                        dict_line="FieldScene 4003 11 100 PARTYROOM 1073")
+    out = _dictionary_lines([r], ["CharacterDefaultName 12 US Marcus"])
+    assert "CharacterDefaultName 12 US Marcus" in out
+    assert out.index("CharacterDefaultName 12 US Marcus") < out.index(r.dict_line)   # directive before FieldScene
+
+
+def test_playable_validate_and_party_by_name(tmp_path):
+    # a bare custom id validates clean (the [[playable]] may be defined elsewhere / mod-global)
+    assert _problems(tmp_path, BASE + "\n[party]\nadd = [12]\n") == []
+    # [party] add by a custom NAME resolves only when a [[playable]] with that name is on the field
+    ok = BASE + '\n[[playable]]\nname = "Zephyr"\nborrow = "vivi"\n[party]\nadd = ["Zephyr"]\n'
+    assert _problems(tmp_path, ok) == []
+    bad = BASE + '\n[party]\nadd = ["Zephyr"]\n'                    # no [[playable]] -> the name is unknown
+    assert any("unknown party member" in m for m in _problems(tmp_path, bad))
+    # a malformed [[playable]] is reported
+    assert any("[[playable]]" in m for m in _problems(tmp_path, BASE + '\n[[playable]]\nborrow = "vivi"\n'))
+
+
+def test_full_build_playable_end_to_end(tmp_path):
+    """The whole [[playable]] path in one build (install-gated: reads the base character CSVs). Skips cleanly
+    on a public clone without the FF9 install."""
+    toml = BASE + '\n[[playable]]\nname = "Marcus"\nborrow = "vivi"\nrecruit = true\nstats = { strength = 40 }\n'
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower():
+            pytest.skip("no FF9 install for the base character CSVs")
+        raise
+    layout = ModLayout(out)
+    # the allocator (CharacterParameters) + stats (BaseStats) both carry id-12
+    assert any(l.split(";")[1:2] == ["12"] for l in layout.base_stats_csv.read_text(encoding="cp1252").splitlines()
+               if l and not l.startswith("#"))
+    assert any(l.split(";")[0:1] == ["12"] for l in
+               layout.character_parameters_csv.read_text(encoding="cp1252").splitlines()
+               if l and not l.startswith("#"))
+    # the name directive rides the DictionaryPatch
+    assert "CharacterDefaultName 12 US Marcus" in layout.dictionary_patch.read_text(encoding="utf-8")
+    # Main_Init recruits the 13th character
+    eb = EbScript.from_bytes(layout.eb_path("us", "EVT_PARTYROOM.eb.bytes").read_bytes())
+    assert party.add_member(12) in _main_init_bytes(eb)

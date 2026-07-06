@@ -364,3 +364,53 @@ def test_learn_ap_is_int32_bounded(base):
     CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": 2_000_000_000}], [], game=None)        # Int32 ok
     with pytest.raises(CD.CharacterDeltaError):
         CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": 3_000_000_000}], [], game=None)    # > Int32 max
+
+
+# ---- [[playable]] new-character seeding (a NEW 13th+ CharacterId in the custom band) -----------
+def test_basestats_new_row_clones_donor(base):
+    # borrow Vivi (synthetic `Vivi;1;15;25;35;45;7`) into a new id-12 named Marcus, override strength
+    text, _w = CD.build_basestats_delta([], new_rows=[
+        {"id": 12, "borrow": "vivi", "name": "Marcus", "overrides": {"strength": 99}}])
+    # Comment=Marcus, Id=12, Dex/Mag/Will/Gems cloned from Vivi (15/35/45/7), Strength overridden to 99
+    assert "Marcus;12;15;99;35;45;7" in text.splitlines()
+
+
+def test_charparams_new_row_clones_donor(base):
+    # borrow Vivi (`1;0;1;5;1;1;2;VIVI;# Vivi`) -> id-12, unique keyword, override equip_set, rename the comment
+    text, _w = CD.build_character_params_delta([], new_rows=[
+        {"id": 12, "borrow": "vivi", "name": "Marcus", "overrides": {"equip_set": 3, "name_keyword": "CU12"}}])
+    assert "12;0;1;5;1;3;2;CU12;# Marcus" in text.splitlines()
+
+
+def test_new_row_merges_with_base_deltas(base):
+    # a [[character]] tuning Vivi AND a new id-12 coexist in one BaseStats delta (sorted by id)
+    text, _w = CD.build_basestats_delta([{"character": "Vivi", "strength": 2}], new_rows=[
+        {"id": 12, "borrow": "zidane", "name": "Ark", "overrides": {}}])
+    body = [l for l in text.splitlines() if not l.startswith("#")]
+    assert any(l.startswith("Vivi;1;") for l in body) and any(l.startswith("Ark;12;") for l in body)
+
+
+def test_new_row_rejects_bad(base):
+    with pytest.raises(CD.CharacterDeltaError):                       # borrow must be a base char 0-11
+        CD.build_basestats_delta([], new_rows=[{"id": 12, "borrow": 12, "name": "X", "overrides": {}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # id must be in the custom band, not 0-11
+        CD.build_basestats_delta([], new_rows=[{"id": 5, "borrow": "vivi", "name": "X", "overrides": {}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # unknown stat override field
+        CD.build_basestats_delta([], new_rows=[{"id": 12, "borrow": "vivi", "name": "X", "overrides": {"nope": 1}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # unknown param override field
+        CD.build_character_params_delta([], new_rows=[{"id": 12, "borrow": "vivi", "name": "X", "overrides": {"nope": 1}}])
+
+
+def test_write_character_data_new_only(base, tmp_path):
+    from ff9mapkit.config import ModLayout
+    layout = ModLayout(tmp_path / "mod")
+    # a [[playable]] with NO other character blocks still writes BOTH BaseStats + CharacterParameters
+    CD.write_character_data(layout,
+                            new_basestats=[{"id": 12, "borrow": "vivi", "name": "Marcus", "overrides": {}}],
+                            new_params=[{"id": 12, "borrow": "vivi", "name": "Marcus",
+                                         "overrides": {"name_keyword": "CU12"}}])
+    assert layout.base_stats_csv.is_file() and layout.character_parameters_csv.is_file()
+    _h, cols, rows = CD._read_csv(layout.base_stats_csv)
+    assert any(r[cols["id"]] == "12" for r in rows)                  # the new id-12 row landed
+    _h2, c2, r2 = CD._read_csv(layout.character_parameters_csv)
+    assert any(r[c2["id"]] == "12" for r in r2)

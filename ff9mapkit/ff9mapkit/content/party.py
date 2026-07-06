@@ -36,22 +36,33 @@ CHAR_OLD_INDEX = {0: "Zidane", 1: "Vivi", 2: "Garnet", 3: "Steiner", 4: "Freya",
                   7: "Amarant", 8: "Beatrix", 9: "Cinna", 10: "Marcus", 11: "Blank"}
 NAME_TO_INDEX = {name.lower(): idx for idx, name in CHAR_OLD_INDEX.items()}
 ALIASES = {"dagger": "garnet", "salamander": "amarant"}
+# The custom 13th+ band (a NEW CharacterId, `[[playable]]`; see characterdelta.CUSTOM_CHAR_MIN/MAX). A bare id
+# in this band recruits the custom char: `B_PARTYADD` pushes it as an i16 and the engine's `chr2slot` ->
+# `CharacterOldIndexToID((CharacterOldIndex)12)` falls through to `(CharacterId)12` (memory
+# project-ff9-13th-character). There is NO CharacterOldIndex name for a custom id -- reference it by its 12..15
+# id, or by its `[[playable]]` name (resolved via the `extra` registry).
+CUSTOM_MIN, CUSTOM_MAX = 12, 15
 
 
-def resolve_member(name) -> int:
-    """CharacterOldIndex for a member name (case-insensitive; aliases ``dagger``->garnet,
-    ``salamander``->amarant). A bare int 0..11 passes through. Raises ``ValueError`` on an unknown name."""
+def resolve_member(name, extra=None) -> int:
+    """CharacterOldIndex for a member name (case-insensitive; aliases ``dagger``->garnet, ``salamander``->
+    amarant). A bare int 0..11 (a base character) OR 12..15 (a custom 13th+ ``[[playable]]``) passes through.
+    ``extra`` maps a ``[[playable]]`` NAME (lowercased) -> its custom id, so a custom char can be added by name.
+    Raises ``ValueError`` on an unknown name / out-of-range id."""
     if isinstance(name, bool):                       # guard: bools are ints in Python, never a valid member
-        raise ValueError(f"party member must be a name or 0..11, not {name!r}")
+        raise ValueError(f"party member must be a name or an id, not {name!r}")
     if isinstance(name, int):
-        if name in CHAR_OLD_INDEX:
+        if name in CHAR_OLD_INDEX or CUSTOM_MIN <= name <= CUSTOM_MAX:
             return name
-        raise ValueError(f"party member index {name} out of range (0..11)")
-    key = ALIASES.get(str(name).lower().strip(), str(name).lower().strip())
+        raise ValueError(f"party member index {name} out of range (0..11, or a custom {CUSTOM_MIN}..{CUSTOM_MAX})")
+    key = str(name).lower().strip()
+    if extra and key in extra:                       # a [[playable]] custom character, by name
+        return int(extra[key])
+    key = ALIASES.get(key, key)
     if key not in NAME_TO_INDEX:
         raise ValueError(f"unknown party member {name!r} -- choose from "
                          f"{', '.join(CHAR_OLD_INDEX[i] for i in sorted(CHAR_OLD_INDEX))} "
-                         f"(aliases: dagger, salamander)")
+                         f"(aliases: dagger, salamander; or a custom [[playable]] name/id)")
     return NAME_TO_INDEX[key]
 
 

@@ -43,6 +43,7 @@ from .content import platform as _platform
 from .content import prop as _prop
 from .content import region as _region
 from .content import party as _party
+from .content import playable as _playable
 from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
 from .content import walkmesh_hotfix as _walkmesh_hotfix
@@ -407,9 +408,10 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                     problems.append(f"{label} {markers_key}: {e}")
 
 
-def _validate_party(pty, problems: list) -> None:
+def _validate_party(pty, problems: list, extra=None) -> None:
     """Validate the ``[party]`` block -- ``add`` / ``remove`` lists of existing-character names (or 0..11
-    CharacterOldIndex). Each name must resolve; unknown keys are flagged."""
+    CharacterOldIndex, or a custom 12..15 / ``[[playable]]`` name via ``extra``). Each name must resolve;
+    unknown keys are flagged."""
     if not isinstance(pty, dict):
         problems.append("[party] must be a table (add = [names], remove = [names])")
         return
@@ -420,7 +422,7 @@ def _validate_party(pty, problems: list) -> None:
             continue
         for m in members:
             try:
-                _party.resolve_member(m)
+                _party.resolve_member(m, extra)
             except ValueError as e:
                 problems.append(f"[party] {key}: {e}")
     for key in pty:
@@ -1128,9 +1130,18 @@ def validate(project: FieldProject) -> list[str]:
     oe = project.raw.get("on_entry")                     # field-load beats ([[on_entry]]: gated, once)
     if oe is not None:
         _validate_on_entry(oe, story_names, problems)
+    play_reg = {}                                        # 13th+ character definition ([[playable]])
+    if project.raw.get("playable") is not None:
+        _pl = project.raw.get("playable")
+        for q, pb in enumerate(_pl if isinstance(_pl, list) else [_pl]):
+            problems += [f"[[playable]] #{q}: {p}" for p in _playable.validate_playable(pb)]
+        try:                                             # a registry so [party] can add a custom char by name
+            play_reg = _playable.registry(_playable.parse_all(_pl))
+        except _playable.PlayableError:
+            pass                                         # the per-block errors above already report the problem
     pty = project.raw.get("party")                       # party membership ([party]: add/remove members)
     if pty is not None:
-        _validate_party(pty, problems)
+        _validate_party(pty, problems, play_reg)
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -2607,11 +2618,17 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
     :func:`build_field` (which bypasses build_script). No ``[party]`` -> unchanged (byte-identical). On a
     verbatim fork whose Main_Init rebuilds the roster (``SetPartyReserve`` 0xB4, which runs AFTER our prepend
     and can wipe the add), warn (``warnings`` is in scope only on the verbatim path)."""
-    pty = project.raw.get("party")
-    if not pty:
-        return eb
-    adds = [_party.resolve_member(m) for m in pty.get("add", [])]
-    removes = [_party.resolve_member(m) for m in pty.get("remove", [])]
+    pty = project.raw.get("party") or {}
+    try:                                              # a [[playable]] recruit = true joins at this field's load
+        specs = _playable.parse_all(project.raw.get("playable"))
+    except _playable.PlayableError:
+        specs = []                                    # a broken [[playable]] is reported by validate(); don't crash here
+    reg = _playable.registry(specs)
+    adds = [_party.resolve_member(m, reg) for m in pty.get("add", [])]
+    removes = [_party.resolve_member(m, reg) for m in pty.get("remove", [])]
+    for rid in _playable.recruit_ids(specs):          # recruit = true -> add the custom id (dedup vs explicit adds)
+        if rid not in adds:
+            adds.append(rid)
     if not adds and not removes:
         return eb
     if warnings is not None and (adds or removes) and _party.field_resets_party(eb):
@@ -5175,13 +5192,20 @@ def _emit_character_data(projects, layout) -> list:
     character_params = _blocks("character_param")
     command_sets = _blocks("command_set")
     learns = _blocks("learn")
-    if not (characters or levelings or ability_gems or character_params or command_sets or learns):
+    playables = _blocks("playable")                     # [[playable]] -- a genuine NEW (13th+) character
+    if not (characters or levelings or ability_gems or character_params or command_sets or learns or playables):
         return []
     from .battle import characterdelta as _cdelta
     try:
+        specs = _playable.parse_all(playables)
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    try:
         return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
                                             ability_gems=ability_gems, character_params=character_params,
-                                            command_sets=command_sets, learns=learns)
+                                            command_sets=command_sets, learns=learns,
+                                            new_basestats=_playable.basestats_seeds(specs),
+                                            new_params=_playable.params_seeds(specs))
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 
@@ -5519,14 +5543,15 @@ def _write_field_mes(results: list, layout, langs) -> None:
             layout.mes_path(lang, text_block).write_text(body, encoding="utf-8", newline="\n")
 
 
-def _dictionary_lines(results) -> list:
+def _dictionary_lines(results, extra_directives=()) -> list:
     """The DictionaryPatch lines for a built mod: a ``MessageFile <block> <name>`` registration for each distinct
     CUSTOM text block (``register_text_block``), THEN the per-field ``FieldScene`` lines. A custom mesID must be
     registered or DataPatchers SKIPS the FieldScene (`if (!MesDB.ContainsKey(mesID)) continue;` -> "invalid
     message file ID" -> the field never loads); the name is just a MesDB label (the field text loads by NUMERIC
     mesID via field/<block>.mes). Base blocks (e.g. the default 1073) are already in MesDB and ship no line. This
     is what unblocks disjoint per-campaign text-block windows (campaign._remap_text_blocks) -- the cross-campaign
-    text-shadow cure."""
+    text-shadow cure. ``extra_directives`` are mod-global directive lines (e.g. ``[[playable]]`` ->
+    ``CharacterDefaultName <id> <SYM> <name>``) that ride the same drop-in DictionaryPatch."""
     mes_reg = sorted({r.text_block for r in results if getattr(r, "register_text_block", False)})
     field_lines: list[str] = []
     mint_lines: list[str] = []
@@ -5537,7 +5562,7 @@ def _dictionary_lines(results) -> list:
         for ml in getattr(r, "mint_lines", []) or []:   # [[mint]] -> `3DModel <id> <name>` (dedup across members)
             if ml not in mint_lines:
                 mint_lines.append(ml)
-    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + mint_lines + field_lines
+    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + mint_lines + list(extra_directives) + field_lines
 
 
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
@@ -5561,7 +5586,18 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     results = [build_field(p, layout, langs=langs) for p in projects]
     _write_field_mes(results, layout, langs)            # shared-text_block-safe .mes (was per-member in build_field)
 
-    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results)) + "\n", encoding="utf-8", newline="\n")
+    # [[playable]] -> mod-global CharacterDefaultName directive lines (the 13th+ character's menu/battle name,
+    # per language). Aggregated across members (a duplicate id is caught here); parse errors fail the build.
+    _play_blocks = [b for p in projects for b in
+                    (p.raw.get("playable") if isinstance(p.raw.get("playable"), list)
+                     else ([p.raw["playable"]] if p.raw.get("playable") else []))]
+    try:
+        charname_lines = _playable.name_directive_lines(_playable.parse_all(_play_blocks))
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+
+    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results, charname_lines)) + "\n",
+                                       encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
@@ -5627,4 +5663,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             # deploy_campaign append these to DictionaryPatch AND the staged Models/<type>/<id>/ FBX ships.
             "mint_lines": list(dict.fromkeys(ml for r in results
                                              for ml in (getattr(r, "mint_lines", []) or []))),
+            # [[playable]] `CharacterDefaultName <id> <SYM> <name>` directives (the 13th+ character's name, per
+            # language) -- mod-global; deploy_field.py merges them by (id, lang) so a re-deploy replaces cleanly.
+            "charname_lines": list(charname_lines),
             "warnings": [w for r in results for w in r.warnings] + start_warnings}

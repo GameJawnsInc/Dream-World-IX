@@ -43,6 +43,30 @@ CHARACTER_IDS = {
 }
 _MAX_CHAR_ID = 11
 
+# The custom ADDITIVE band for a genuine NEW (13th+) CharacterId -- a party member ALONGSIDE the 12 canon
+# characters (memory project-ff9-13th-character). The engine loads any CSV row whose Id is beyond 0-11 (the
+# BaseStats/CharacterParameters gates are MINIMUMS, `for i < 12` -- a 13th id-12 row PASSES), and every
+# runtime table (FF9StateGlobal.player is a Dictionary<CharacterId,PLAYER>, the menu/battle iterate it) is
+# dynamic, so id 12 needs ZERO DLL. id 12 is the in-game-proven first slot; 13-15 also load (undefined enum
+# values cast fine) but stay unproven -- keep the band tight.
+CUSTOM_CHAR_MIN = 12
+CUSTOM_CHAR_MAX = 15
+
+
+def _resolve_new_char_id(token, ctx) -> int:
+    """A NEW (13th+) CharacterId in the additive band CUSTOM_CHAR_MIN..MAX. A base id 0-11 is NOT a new
+    character -- those are seeded by the base game -- so it is rejected here (use ``[[character]]`` to tune them)."""
+    if isinstance(token, bool) or not isinstance(token, (int, str)):
+        raise CharacterDeltaError(f"{ctx} needs an 'id' ({CUSTOM_CHAR_MIN}-{CUSTOM_CHAR_MAX}, a NEW character)")
+    try:
+        nid = int(token)
+    except (ValueError, TypeError):
+        raise CharacterDeltaError(f"{ctx} id must be an integer {CUSTOM_CHAR_MIN}-{CUSTOM_CHAR_MAX} (got {token!r})")
+    if not CUSTOM_CHAR_MIN <= nid <= CUSTOM_CHAR_MAX:
+        raise CharacterDeltaError(f"{ctx} id {nid} is out of the custom band {CUSTOM_CHAR_MIN}-{CUSTOM_CHAR_MAX} "
+                                  f"(0-11 are the base game's -- a NEW character uses {CUSTOM_CHAR_MIN}+)")
+    return nid
+
 # friendly TOML key -> (BaseStats column name, max). Dexterity/Strength/Magic/Will are Byte (the base stat; the
 # engine formula later clamps the DERIVED stat to 50/99). Gems is UInt32.
 CHARACTER_FIELDS = {
@@ -203,9 +227,12 @@ def _resolve_char_id(token):
     return cid
 
 
-def build_basestats_delta(entries, *, game=None) -> tuple:
+def build_basestats_delta(entries, *, game=None, new_rows=()) -> tuple:
     """Read the base BaseStats.csv + apply ``[[character]]`` entries -> (delta_text, warnings). A PARTIAL delta:
-    only the changed character rows are emitted; the engine supplies the rest per-id."""
+    only the changed character rows are emitted; the engine supplies the rest per-id. ``new_rows`` seeds genuine
+    NEW (13th+) characters from ``[[playable]]``: each ``{id, borrow, name, overrides}`` clones a donor 0-11 row,
+    re-ids it into the custom band, and applies the author's stat overrides -- the engine's per-id merge accepts
+    the extra id (its coverage gate is a MINIMUM)."""
     try:
         header, cols, rows = _read_csv(_csv_path("BaseStats.csv", game))
     except (FileNotFoundError, OSError, RuntimeError) as ex:
@@ -223,6 +250,30 @@ def build_basestats_delta(entries, *, game=None) -> tuple:
             continue
     warnings: list = []
     changed: dict = {}
+    for nr in (new_rows or ()):                             # [[playable]] -> a NEW character's BaseStats row
+        nid = _resolve_new_char_id(nr.get("id"), "[[playable]]")
+        bid = _resolve_char_id(nr.get("borrow"))           # the donor (a base char 0-11) to clone stats from
+        if bid not in by_id:
+            raise CharacterDeltaError(f"[[playable]] borrow id {bid} is not in the base BaseStats.csv")
+        if nid in by_id:
+            raise CharacterDeltaError(f"[[playable]] id {nid} is already defined (a duplicate 13th character)")
+        cells = list(by_id[bid])                           # clone the donor row, re-id + rename it
+        cells[idx] = str(nid)
+        nidx = cols.get("comment", 0)                      # BaseStats Comment is col 0 -- the menu-name label
+        if nidx < len(cells):
+            cells[nidx] = str(nr.get("name") or f"Char{nid}")
+        for k, v in (nr.get("overrides") or {}).items():
+            spec = CHARACTER_FIELDS.get(k)
+            if spec is None:
+                raise CharacterDeltaError(f"[[playable]] id {nid} stats: unknown field {k!r} "
+                                          f"(known: {', '.join(sorted(set(s[0] for s in CHARACTER_FIELDS.values())))})")
+            col, vmax = spec
+            ci = cols.get(col)
+            if ci is None or ci >= len(cells):
+                raise CharacterDeltaError(f"[[playable]] id {nid}: base row has no column {col!r}")
+            cells[ci] = _range(_to_int(v, f"[[playable]] {k}"), vmax, f"[[playable]] id {nid} stats {k}")
+        by_id[nid] = cells
+        changed.setdefault(nid, "playable")
     for n, e in enumerate(entries):
         if not isinstance(e, dict):
             raise CharacterDeltaError(f"[[character]] #{n} must be a table (got {type(e).__name__})")
@@ -416,9 +467,13 @@ def _encode_param(value, kind, vmax, key) -> str:
     return str(_range(_to_int(value, key), vmax, key))     # 0-255 -- a 20-254 menu_type crashes at battle entry
 
 
-def build_character_params_delta(entries, *, game=None) -> tuple:
+def build_character_params_delta(entries, *, game=None, new_rows=()) -> tuple:
     """Read CharacterParameters.csv + apply ``[[character_param]]`` -> (partial delta, warnings). PER-id (0-11):
-    only the changed rows are emitted; the base supplies the rest. Columns are written by FIXED INDEX."""
+    only the changed rows are emitted; the base supplies the rest. Columns are written by FIXED INDEX. ``new_rows``
+    seeds a genuine NEW (13th+) character from ``[[playable]]``: each ``{id, borrow, name, overrides}`` clones a
+    donor 0-11 row (its CommandSet/EquipmentSet/serial formula), re-ids it, and applies overrides. This row is
+    the ALLOCATOR -- ``FF9Play_Init`` builds a PLAYER for every loaded CharacterParameters Id, so an id-12 row
+    is what brings the 13th character into existence (memory project-ff9-13th-character)."""
     try:
         header, cols, rows = _read_csv(_csv_path("CharacterParameters.csv", game))
     except (FileNotFoundError, OSError, RuntimeError) as ex:
@@ -434,6 +489,31 @@ def build_character_params_delta(entries, *, game=None) -> tuple:
             by_id[int(cells[idx].strip())] = cells
         except (ValueError, IndexError):
             continue
+    for nr in (new_rows or ()):                             # [[playable]] -> a NEW character's CharacterParameters row
+        nid = _resolve_new_char_id(nr.get("id"), "[[playable]]")
+        bid = _resolve_char_id(nr.get("borrow"))           # the donor (a base char 0-11) to clone identity from
+        if bid not in by_id:
+            raise CharacterDeltaError(f"[[playable]] borrow id {bid} is not in the base CharacterParameters.csv")
+        if nid in by_id:
+            raise CharacterDeltaError(f"[[playable]] id {nid} is already defined (a duplicate 13th character)")
+        cells = list(by_id[bid])                           # clone the donor row, re-id it
+        cells[idx] = str(nid)
+        name = str(nr.get("name") or f"Char{nid}")
+        if cells and cells[-1].lstrip().startswith("#"):   # the trailing `# Name` comment cell
+            cells[-1] = f"# {name}"
+        else:
+            cells.append(f"# {name}")
+        for k, v in (nr.get("overrides") or {}).items():
+            spec = CHARACTER_PARAM_FIELDS.get(k)
+            if spec is None:
+                raise CharacterDeltaError(f"[[playable]] id {nid} params: unknown field {k!r} "
+                                          f"(known: {', '.join(sorted(CHARACTER_PARAM_FIELDS))})")
+            ci, kind, vmax = spec
+            if ci >= len(cells):
+                raise CharacterDeltaError(f"[[playable]] id {nid}: base row has no column index {ci}")
+            cells[ci] = _encode_param(v, kind, vmax, f"[[playable]] id {nid} params {k}")
+        by_id[nid] = cells
+        changed.setdefault(nid, "playable")
     for n, e in enumerate(entries):
         if not isinstance(e, dict):
             raise CharacterDeltaError(f"[[character_param]] #{n} must be a table (got {type(e).__name__})")
@@ -637,14 +717,25 @@ def validate_learn(entry) -> list:
 
 # ---- mod-write stage -------------------------------------------------------------------------------------
 def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
-                         command_sets=None, learns=None, game=None) -> list:
+                         command_sets=None, learns=None, new_basestats=None, new_params=None, game=None) -> list:
     """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets (per-id deltas) + the per-preset
-    Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF."""
+    Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF. ``new_basestats`` / ``new_params`` seed genuine
+    NEW (13th+) characters (``[[playable]]``) into the BaseStats / CharacterParameters deltas -- so those two
+    files are written whenever there is EITHER a base-char delta OR a new character."""
     warnings: list = []
-    for entries, path, builder in ((characters, layout.base_stats_csv, build_basestats_delta),
-                                   (levelings, layout.leveling_csv, build_leveling_file),
+    # BaseStats + CharacterParameters merge new-character seed rows with any base-char deltas (one file each).
+    if characters or new_basestats:
+        text, w = build_basestats_delta(characters or [], game=game, new_rows=new_basestats or [])
+        layout.base_stats_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.base_stats_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+    if character_params or new_params:
+        text, w = build_character_params_delta(character_params or [], game=game, new_rows=new_params or [])
+        layout.character_parameters_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.character_parameters_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+    for entries, path, builder in ((levelings, layout.leveling_csv, build_leveling_file),
                                    (ability_gems, layout.ability_gems_csv, build_ability_gems_delta),
-                                   (character_params, layout.character_parameters_csv, build_character_params_delta),
                                    (command_sets, layout.command_sets_csv, build_command_set_delta)):
         if entries:
             text, w = builder(entries, game=game)
