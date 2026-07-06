@@ -2167,58 +2167,6 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
     return 0
 
 
-def _parse_outline(spec: str):
-    """Parse a shoreline ``"x,z;x,z;..."`` polyline of FLOAT world-XZ points into ``[(x,z), ...]``.
-    World Z is negative going down the block grid (a cell's world center is ``(bx*64+32, -(by*64+32))``)."""
-    pts = []
-    seps = spec.split(";") if ";" in spec else spec.split()     # ';' between points; tolerate spaces inside a pair
-    for tok in seps:
-        tok = tok.strip()
-        if not tok:
-            continue
-        xs, zs = tok.split(",")
-        pts.append((float(xs), float(zs)))
-    return pts
-
-
-def _cmd_world_coast_custom(args: argparse.Namespace) -> int:
-    """Ribbon-warp a REAL beach donor onto a CUSTOM shoreline curve (the synthesis path for a NOVEL continuous
-    coastline -- a mosaic of independent tiles can't make continuous land, one warped ribbon can). Needs s34; RELAUNCH."""
-    from .world import coast_custom as CC
-    try:
-        outline = _parse_outline(args.outline)
-        if len(outline) < 2:
-            print("outline needs >=2 points -- give e.g. --outline '140,-1150;260,-1108;400,-1150'", file=sys.stderr)
-            return 2
-        cells = _parse_cells(args.cells) if args.cells else None
-        bx, by = (int(v) for v in args.beach_donor.split(","))
-        sx, sy = (int(v) for v in args.sea_donor.split(","))
-        summary = CC.coast_custom(args.mod_folder, outline=outline, beach_donor=(bx, by), sea_donor=(sx, sy),
-                                  cells=cells, land_side=args.land_side, seg=args.seg, disc=args.disc,
-                                  height=args.height, game=args.game, preview=args.preview, dry_run=args.dry_run)
-    except (ValueError, ConfigError, FileNotFoundError) as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    verb = "would warp" if args.dry_run else "warped"
-    print(f"{verb} beach donor {tuple(summary['beach_donor'])} onto a {summary['outline_len']}u shoreline "
-          f"(land on the {summary['land_side']}, tile period {summary['period']}u) at {len(summary['cells'])} cell(s):")
-    for c in summary["cells"]:
-        print(f"  cell {tuple(c['cell'])}: land={c['land_tris']} water={c['water_tris']} tris")
-    if summary["skipped"]:
-        print(f"  ({len(summary['skipped'])} all-water cell(s) skipped -- stock ocean already sails there)")
-    if summary["fold_warning"]:
-        print(f"  WARNING: the outline bends tighter (min radius {summary['min_turn_radius']}u) than the donor's "
-              f"cross-shore reach ({summary['cross_shore_reach']}u) -- the ribbon may fold on the concave side. "
-              f"Ease the curve or use a narrower donor.", file=sys.stderr)
-    if summary.get("preview"):
-        print(f"  preview PNG -> {summary['preview']}")
-    if not args.dry_run:
-        print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
-        print("  Deploy from a save NOT parked on a target cell (editing geometry under the parked actor bricks it).")
-        print("  Reach it via F6 -> World -> Teleport to a cell center (bx*64+32, -(by*64+32)).")
-    return 0
-
-
 def _cmd_world_atlas_reskin(args: argparse.Namespace) -> int:
     """Deploy a repainted atlas PNG as a no-DLL HD reskin (T2) -- keep the SAME UV layout, replace the pixels."""
     from .world import atlas as A
@@ -4404,31 +4352,6 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
     wct.set_defaults(func=_cmd_world_coast)
-
-    wcc = sub.add_parser("world-coast-custom",
-                         help="ribbon-warp a REAL beach onto a CUSTOM shoreline curve -- synthesize a NOVEL continuous "
-                              "coastline (bends a real beach's land+texture to your outline). Needs the custom engine; relaunch.")
-    wcc.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
-    wcc.add_argument("--outline", required=True,
-                     help="the shoreline as FLOAT world-XZ points 'x,z;x,z;...' (world Z is negative; a cell center is "
-                          "bx*64+32, -(by*64+32)). e.g. '140,-1150;260,-1108;400,-1150'")
-    wcc.add_argument("--cells", default=None,
-                     help="restrict output to these cells 'x,y;x,y' or 'x0-x1,y0-y1' (default: derive from the outline)")
-    wcc.add_argument("--beach-donor", default="17,15",
-                     help="the REAL coastal donor whose land shape+texture is warped (default 17,15; 7,17 is flatter). "
-                          "Must have a 'beach1' waterline mesh.")
-    wcc.add_argument("--sea-donor", default="15,4",
-                     help="the Donor.txt block for the surrounding sea (must have a Terrain+Sea transform; default "
-                          "15,4). Its own near-shore bands are blanked + replaced by a full deep-ocean plane.")
-    wcc.add_argument("--land-side", choices=["left", "right"], default="left",
-                     help="which side of the drawn curve is LAND, relative to the point order (default left)")
-    wcc.add_argument("--seg", type=int, default=16, help="Terrain grid resolution per cell (default 16 = 4u tiles)")
-    wcc.add_argument("--height", type=float, default=-0.1,
-                     help="submerged-water walkmesh Y (default -0.1, just under the sea render so a boat floats hidden)")
-    wcc.add_argument("--preview", default=None, help="write a top-down PNG preview to this path (works with --dry-run)")
-    wcc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
-    wcc.add_argument("--dry-run", action="store_true", help="report + preview, write no overrides")
-    wcc.set_defaults(func=_cmd_world_coast_custom)
 
     wwt = sub.add_parser("world-water",
                          help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "
