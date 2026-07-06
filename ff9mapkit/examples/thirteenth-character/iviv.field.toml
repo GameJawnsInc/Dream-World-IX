@@ -1,0 +1,67 @@
+# THE 13th PLAYABLE CHARACTER — a genuine NEW engine CharacterId (id 12), recruited into the party
+# ALONGSIDE all 12 canon characters. This is the ZERO-DLL in-game proof for the [[playable]] block
+# (memory project-ff9-13th-character). "Iviv" wears Vivi's battle model + Black-Magic kit + mage stats
+# (a custom model is the separate custom-models pillar), but is its own roster slot with its own name.
+#
+#   ff9mapkit lint  examples/thirteenth-character/iviv.field.toml
+#   py tools/deploy_field.py ff9mapkit/examples/thirteenth-character/iviv.field.toml
+#
+# THEN (see README.txt for the full recipe):
+#   1. RELAUNCH FF9 (the new CharacterParameters/BaseStats rows + the CharacterDefaultName directive load
+#      at startup / New-Game init — F6 Reload won't pick them up).
+#   2. NEW GAME (so the engine inits the party with id-12 present).
+#   3. F6 -> Warp to field -> the deployed slot (default 4003). Main_Init recruits Iviv on load.
+#   4. Open the party menu: Iviv appears as its OWN member (Vivi's look, its own name + stats).
+#   5. Walk into a battle (this room has encounters) -> Iviv FIGHTS.
+#   6. Step on the save point, save, then reload the save -> Iviv PERSISTS (the save round-trip).
+
+[field]
+id = 4813
+name = "IVIVROOM"          # -> FBG_N11_IVIVROOM + EVT_IVIVROOM.eb  (deploy_field re-slots this into the test id)
+area = 11
+text_block = 1073
+title = "13th Character"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# --- THE 13th CHARACTER: define + recruit in ONE block ---
+# borrow = "vivi"  -> clones Vivi's BaseStats + CharacterParameters (command-set/equip-set/battle-model);
+# recruit = true   -> B_PARTYADD(12) is prepended to Main_Init, so Iviv joins the party at field load.
+[[playable]]
+name = "Iviv"
+borrow = "vivi"
+recruit = true
+stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
+
+# --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---
+[encounter]
+scene = 67                 # Evil Forest / Trail (the game's first, weakest battles)
+freq = 48
+battle_music = 0           # 0 = Battle Theme
+
+[music]
+song = 9                   # Vivi's Theme (Disc 1)
+
+# --- a save point, so you can prove the 13th character SURVIVES a save/reload round-trip ---
+[[savepoint]]
+zone = [[-220, -420], [220, -420], [220, -720], [-220, -720]]
