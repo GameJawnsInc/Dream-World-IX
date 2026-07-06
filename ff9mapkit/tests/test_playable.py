@@ -171,6 +171,35 @@ def test_custom_battle_anims():
     assert PL.custom_serial_specs([s])[0]["custom_anims"] is True    # carried to the build
 
 
+def test_abilities_parse_and_seeds():
+    # [playable.abilities] gives the char its OWN custom preset (20) + command menu + learn list
+    s = PL.parse_playable({"name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": "Black Magic", "command2": "White Magic", "learn": [{"ability": "Fire", "ap": 0}]}})
+    assert s["ability_preset_id"] == 20                              # custom band (char 12 -> preset 20)
+    assert s["ability_menu_from"] == (1, "Vivi")                     # menu_from defaults to the borrow donor's preset
+    assert s["ability_slots"]["ability1"] == "Black Magic" and s["ability_slots"]["ability2"] == "White Magic"
+    assert s["ability_slots"]["ability1_trance"] == "Black Magic"    # trance mirrors the regular slot by default
+    assert s["params"]["menu_type"] == 20                            # CharacterParameters col-4 -> the custom preset
+    cs, ls = PL.command_set_seeds([s]), PL.learn_seeds([s])
+    assert cs[0]["id"] == 20 and cs[0]["clone_from"] == 1 and cs[0]["slots"]["ability1"] == "Black Magic"
+    assert ls[0]["preset_name"] == "20" and ls[0]["read_from"] == "Vivi" and ls[0]["abilities"][0]["ability"] == "Fire"
+
+
+def test_abilities_errors():
+    with pytest.raises(PL.PlayableError):                            # a base preset (must be the custom band)
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {"preset": "vivi"}})
+    with pytest.raises(PL.PlayableError):                            # unknown command
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {"command1": "Nonsense"}})
+    with pytest.raises(PL.PlayableError):                            # params.menu_type collides with the abilities block
+        PL.parse_playable({"name": "X", "borrow": "vivi", "abilities": {}, "params": {"menu_type": 5}})
+    with pytest.raises(PL.PlayableError):                            # two custom chars can't share a preset
+        PL.parse_all([{"name": "A", "borrow": "vivi", "id": 12, "abilities": {"preset": 20}},
+                      {"name": "B", "borrow": "steiner", "id": 13, "abilities": {"preset": 20}}])
+    # a spec without an abilities block leaves the preset unset (borrows the donor's, as before)
+    plain = PL.parse_playable({"name": "X", "borrow": "vivi"})
+    assert plain["ability_preset_id"] is None and PL.command_set_seeds([plain]) == []
+
+
 def test_anim_edits_persists_blender_edits():
     # anim_edits = a .glb the BUILD ships onto the animset (survives re-deploy); requires custom_battle_anims.
     with pytest.raises(PL.PlayableError):                            # needs custom_battle_anims (edits that animset)

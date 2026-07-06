@@ -65,6 +65,19 @@ custom_battle_anims = true
 portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
 stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
 
+# --- OPTIONAL: give Iviv its OWN ability kit (a custom CharacterPresetId 20) instead of borrowing Vivi's ---
+# UNCOMMENT to make Iviv a mixed black+WHITE caster with its own battle command menu (zero-DLL). It clones the
+# menu_from donor's command set + learn list, then sets the two ability command slots + a curated learn list.
+# [playable.abilities]
+# preset    = "custom"        # auto-allocates preset id 20 (band 20-23) + points menu_type at it
+# menu_from = "vivi"          # base preset to clone the menu + seed the learn file from (default: the borrow)
+# command1  = "Black Magic"   # Ability1 menu slot (a BattleCommandId name or id 0-47)
+# command2  = "White Magic"   # Ability2 menu slot -> a black+white caster (spells shown = command pool INTERSECT learn)
+# learn = [                   # -> Abilities/20.csv, seeded from menu_from; ap = 0 means already-learned (usable now)
+#   { ability = "Fire",  ap = 0 }, { ability = "Blizzard", ap = 0 },
+#   { ability = "Cure",  ap = 0 }, { ability = "Protect",  ap = 0 },
+# ]
+
 # --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---
 [encounter]
 scene = 67                 # Evil Forest / Trail (the game's first, weakest battles)

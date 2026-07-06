@@ -484,6 +484,47 @@ def test_battle_motion_labels_maps_slot_to_key(base):
     assert labels == {5: "00_idle"}                                  # NN_ prefix keeps Blender's Action list ordered
 
 
+def test_resolve_command():
+    assert CD._resolve_command("Black Magic") == 22 and CD._resolve_command("blk mag") == 22
+    assert CD._resolve_command(19) == 19 and CD._resolve_command("Skill") == 25 and CD._resolve_command("White_Magic") == 19
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_command("Nonsense")
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_command(99)                                      # >47 = system/enemy, not player-assignable
+
+
+def test_resolve_preset_custom_band():
+    assert CD._resolve_preset("vivi") == (1, "Vivi")                # base preset by name
+    assert CD._resolve_preset(20) == (20, "20")                     # custom band -> numeric "name" (Abilities/20.csv)
+    assert CD._resolve_preset(23) == (23, "23")
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_preset(50)                                       # above the custom band
+
+
+def test_command_set_new_row_clones_and_overrides(base):
+    # a NEW custom preset (20) clones a donor preset's row (fixed Attack/Item/Change) + sets the ability slots
+    text, _w = CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 1,
+                                          "slots": {"ability1": "Black Magic", "ability2": 19}, "comment": "Iviv"}])
+    row = [l for l in text.splitlines() if l.split(";")[0].strip() == "20"][0]
+    cells = [c.strip() for c in row.split(";")]
+    assert cells[0] == "20" and cells[3] == "22" and cells[4] == "19"   # id + ability1=BlackMagic + ability2=White(19)
+    assert cells[1] == "1" and row.rstrip().endswith("# Iviv")          # Attack slot cloned from the donor
+
+
+def test_command_set_new_row_rejects(base):
+    with pytest.raises(CD.CharacterDeltaError):                       # id below the custom band
+        CD.build_command_set_delta([], new_rows=[{"id": 5, "clone_from": 1, "slots": {}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # clone_from not in the base
+        CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 99, "slots": {}}])
+
+
+def test_build_learn_file_read_from(base):
+    # a custom preset "20" seeds its learn list from the donor Vivi.csv, overriding Fire's AP to 0 (learned)
+    text, _w = CD.build_learn_file("20", [{"ability": "AA:25", "ap": 0}], [], read_from="Vivi")
+    assert "AA:25;0" in text                                          # Fire seeded learned, from the Vivi base file
+    assert "20 learn list" in text.splitlines()[0]                    # the note references preset 20, not Vivi
+
+
 def test_battle_params_rejects_bad(base):
     with pytest.raises(CD.CharacterDeltaError):                       # serial < 19 (the base band)
         CD.build_battle_params_delta([{"id": 5, "borrow": 2, "model": "X"}])

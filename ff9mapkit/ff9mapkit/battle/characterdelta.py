@@ -419,17 +419,27 @@ PRESET_IDS = {n.lower(): i for i, n in enumerate(_PRESET_NAMES)}
 _MAX_PRESET_ID = len(_PRESET_NAMES) - 1
 _AMBIGUOUS_PRESETS = {"cinna": ("Cinna1", "Cinna2"), "marcus": ("Marcus1", "Marcus2"),
                       "blank": ("Blank1", "Blank2"), "beatrix": ("Beatrix1", "Beatrix2")}
+# A CUSTOM preset band for a 13th+ character's OWN ability kit (project-ff9-ability-preset-system). The engine keys
+# CommandSets/menu_type/learn by a Dictionary with MINIMUM-only coverage gates (LoadBattleCommandSets requires 0-19
+# PRESENT, accepts higher ids), and an undefined enum id stringifies to its DECIMAL, so preset 20 resolves to the
+# numeric learn file Abilities/20.csv -- ZERO-DLL, no enum member, no directive. The custom "name" IS str(id).
+_PRESET_CUSTOM_MIN = 20     # char 12 -> preset 20, char 13 -> 21, ... (parallel to CUSTOM_CHAR_MIN)
+_PRESET_CUSTOM_MAX = 23
 
 
 def _resolve_preset(token, ctx="[[learn]]"):
-    """A CharacterPresetId name or 0-19 id -> (id, canonical_name). Bare Cinna/Marcus/Blank/Beatrix = ambiguous."""
+    """A CharacterPresetId name or 0-19 id -> (id, canonical_name). A custom-band id 20-23 -> (id, str(id)) (its
+    numeric learn-file name Abilities/<id>.csv). Bare Cinna/Marcus/Blank/Beatrix = ambiguous."""
     if token is None or isinstance(token, bool):
         raise CharacterDeltaError(f"{ctx} needs a 'preset' (a CharacterPresetId name or a 0-{_MAX_PRESET_ID} id)")
     if isinstance(token, int) or (isinstance(token, str) and token.strip().lstrip("-").isdigit()):
         pid = int(token)
-        if not 0 <= pid <= _MAX_PRESET_ID:
-            raise CharacterDeltaError(f"{ctx} preset id {pid} out of range (0-{_MAX_PRESET_ID})")
-        return pid, _PRESET_NAMES[pid]
+        if 0 <= pid <= _MAX_PRESET_ID:
+            return pid, _PRESET_NAMES[pid]
+        if _PRESET_CUSTOM_MIN <= pid <= _PRESET_CUSTOM_MAX:     # a 13th+ char's OWN preset -> numeric file name
+            return pid, str(pid)
+        raise CharacterDeltaError(f"{ctx} preset id {pid} out of range (0-{_MAX_PRESET_ID}, or custom "
+                                  f"{_PRESET_CUSTOM_MIN}-{_PRESET_CUSTOM_MAX})")
     key = str(token).strip().lower()
     if key in _AMBIGUOUS_PRESETS:
         raise CharacterDeltaError(f"{ctx} preset {token!r} is ambiguous -- use {' or '.join(_AMBIGUOUS_PRESETS[key])}")
@@ -826,7 +836,39 @@ COMMANDSET_SLOTS = {
 _MAX_COMMAND_ID = 47           # BattleCommandId slot value; >=48 = system/boundary
 
 
-def build_command_set_delta(entries, *, game=None) -> tuple:
+def _norm_cmd(s) -> str:
+    return " ".join(str(s).strip().lower().replace("_", " ").split())
+
+
+# BattleCommandId -> id (Memoria's open-source enum names, provenance-clean; player-assignable = 0-47, < BoundaryCheck
+# 48). Friendly names + a few short aliases so [playable.abilities] command slots read 'Black Magic' not 22.
+BATTLE_COMMANDS = {_norm_cmd(k): v for k, v in {
+    "Attack": 1, "Steal": 2, "Jump": 3, "Defend": 4, "Change": 7, "Focus": 13, "Accumulate": 13, "Item": 14,
+    "Throw": 15, "Summon": 16, "Summon Garnet": 16, "White Magic Garnet": 17, "White Magic": 19,
+    "White Magic Eiko": 19, "Summon Eiko": 20, "Double White Magic": 21, "Black Magic": 22, "Double Black Magic": 23,
+    "Blue Magic": 24, "Skill": 25, "Dyne": 26, "Dragon": 27, "Flair": 28, "Elan": 29, "Sword Art": 30,
+    "Sword Magic": 31, "Magic Sword": 31, "Holy Sword": 32, "Holy White Magic": 34,
+    "Blk Mag": 22, "Wht Mag": 19, "Blu Mag": 24, "None": 0,
+}.items()}
+
+
+def _resolve_command(token, ctx="[playable.abilities]") -> int:
+    """A BattleCommandId name (Memoria enum / a friendly alias like 'Blk Mag') or a 0-47 id -> the id."""
+    if token is None or isinstance(token, bool):
+        raise CharacterDeltaError(f"{ctx}: a command needs a BattleCommandId name or a 0-{_MAX_COMMAND_ID} id")
+    if isinstance(token, int) or (isinstance(token, str) and token.strip().lstrip("-").isdigit()):
+        cid = int(token)
+        if not 0 <= cid <= _MAX_COMMAND_ID:
+            raise CharacterDeltaError(f"{ctx}: command id {cid} out of range (0-{_MAX_COMMAND_ID}, player-assignable)")
+        return cid
+    cid = BATTLE_COMMANDS.get(_norm_cmd(token))
+    if cid is None:
+        raise CharacterDeltaError(f"{ctx}: unknown command {token!r} (a BattleCommandId name like 'Black Magic' / "
+                                  f"'Blk Mag' / 'Skill', or a 0-{_MAX_COMMAND_ID} id)")
+    return cid
+
+
+def build_command_set_delta(entries, *, game=None, new_rows=()) -> tuple:
     """Read CommandSets.csv + apply ``[[command_set]]`` -> (partial delta, warnings). PER-preset (0-19): re-point
     a character's battle-menu command SLOTS to existing BattleCommandIds (e.g. give Vivi a different ability
     command). The file is tab-padded + its legend collides Attack(Trance), so slots are written by FIXED INDEX
@@ -869,6 +911,30 @@ def build_command_set_delta(entries, *, game=None) -> tuple:
             if not 0 <= cid <= _MAX_COMMAND_ID:
                 raise CharacterDeltaError(f"[[command_set]] {pname} {k}={cid} out of range (0-{_MAX_COMMAND_ID})")
             cells[slot] = str(cid)
+    for nr in new_rows:                                    # [[playable.abilities]] -> a NEW custom-preset command set
+        cid_new = _to_int(nr.get("id"), "command_set new preset id")
+        if not _PRESET_CUSTOM_MIN <= cid_new <= _PRESET_CUSTOM_MAX:
+            raise CharacterDeltaError(f"[[playable.abilities]] custom preset {cid_new} out of the custom band "
+                                      f"{_PRESET_CUSTOM_MIN}-{_PRESET_CUSTOM_MAX}")
+        clone = _to_int(nr.get("clone_from"), "command_set clone_from")   # a base preset 0-19 to clone the row from
+        if clone not in by_id:
+            raise CharacterDeltaError(f"[[playable.abilities]] menu_from preset {clone} is not in the base CommandSets.csv")
+        if cid_new in by_id:
+            raise CharacterDeltaError(f"[[playable.abilities]] custom preset {cid_new} is already defined")
+        cells = list(by_id[clone])                         # clone the donor row (fixed Attack/Defend/Item/Change slots)
+        cells[idx] = str(cid_new)
+        for slotname, val in (nr.get("slots") or {}).items():
+            slot = COMMANDSET_SLOTS.get(slotname)
+            if slot is None or slot >= len(cells):
+                raise CharacterDeltaError(f"[[playable.abilities]] preset {cid_new}: bad command slot {slotname!r}")
+            cells[slot] = str(_resolve_command(val, f"[[playable.abilities]] {slotname}"))
+        cmt = str(nr.get("comment") or f"preset{cid_new}")
+        if cells and cells[-1].lstrip().startswith("#"):
+            cells[-1] = f"# {cmt}"
+        else:
+            cells.append(f"# {cmt}")
+        by_id[cid_new] = cells
+        changed.setdefault(cid_new, "playable")
     note = "# ff9mapkit [[command_set]] -- a partial CommandSets.csv delta (merged per-preset over the base)."
     return "\n".join([note] + header + [";".join(by_id[c]) for c in sorted(changed)]) + "\n", warnings
 
@@ -919,14 +985,16 @@ def _group_learns(learns):
     return grouped
 
 
-def build_learn_file(preset_name, abilities, removes, *, game=None) -> tuple:
-    """Read Abilities/<preset_name>.csv + apply the learn edits -> (WHOLE-FILE text, warnings). Override an
-    existing token's AP, append a new token, drop a removed token, re-emit ALL rows (the whole file replaces the
-    base, highest-priority-wins). Rows are ``<token>;<ap>;# <name>``."""
+def build_learn_file(preset_name, abilities, removes, *, game=None, read_from=None) -> tuple:
+    """Read Abilities/<read_from or preset_name>.csv + apply the learn edits -> (WHOLE-FILE text, warnings). Override
+    an existing token's AP, append a new token, drop a removed token, re-emit ALL rows (the whole file replaces the
+    base, highest-priority-wins). Rows are ``<token>;<ap>;# <name>``. ``read_from`` seeds a CUSTOM preset's file
+    ([[playable.abilities]]) from a base donor's learn list (the custom preset has no base file of its own)."""
+    src = read_from or preset_name
     try:
-        header, _cols, rows = _read_csv(_csv_path(f"Abilities/{preset_name}.csv", game))
+        header, _cols, rows = _read_csv(_csv_path(f"Abilities/{src}.csv", game))
     except (FileNotFoundError, OSError, RuntimeError) as ex:
-        raise CharacterDeltaError(f"[[learn]] preset {preset_name}: can't read Abilities/{preset_name}.csv -- "
+        raise CharacterDeltaError(f"[[learn]] preset {preset_name}: can't read Abilities/{src}.csv -- "
                                   f"presets 0-15 must exist; Stage* (16-19) have no base file ({ex})")
     by_token: dict = {}
     order: list = []
@@ -996,7 +1064,7 @@ def validate_learn(entry) -> list:
 # ---- mod-write stage -------------------------------------------------------------------------------------
 def write_character_data(layout, *, characters=None, levelings=None, ability_gems=None, character_params=None,
                          command_sets=None, learns=None, new_basestats=None, new_params=None, battle_params=None,
-                         game=None) -> list:
+                         command_set_new_rows=None, learns_new=None, game=None) -> list:
     """Emit BaseStats / Leveling / AbilityGems / CharacterParameters / CommandSets (per-id deltas) + the per-preset
     Abilities/<Name>.csv learn lists into ``layout``. cp1252 + LF. ``new_basestats`` / ``new_params`` seed genuine
     NEW (13th+) characters (``[[playable]]``) into the BaseStats / CharacterParameters deltas; ``battle_params``
@@ -1020,13 +1088,17 @@ def write_character_data(layout, *, characters=None, levelings=None, ability_gem
         layout.battle_parameters_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
         warnings += w
     for entries, path, builder in ((levelings, layout.leveling_csv, build_leveling_file),
-                                   (ability_gems, layout.ability_gems_csv, build_ability_gems_delta),
-                                   (command_sets, layout.command_sets_csv, build_command_set_delta)):
+                                   (ability_gems, layout.ability_gems_csv, build_ability_gems_delta)):
         if entries:
             text, w = builder(entries, game=game)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="cp1252", errors="replace", newline="\n")
             warnings += w
+    if command_sets or command_set_new_rows:                # CommandSets: base-preset re-points + custom-preset new rows
+        text, w = build_command_set_delta(command_sets or [], game=game, new_rows=command_set_new_rows or [])
+        layout.command_sets_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.command_sets_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
     if learns:                                              # the learn lists are a FILE SET (one whole file per preset)
         for pname, g in _group_learns(learns).items():
             text, w = build_learn_file(pname, g["abilities"], g["removes"], game=game)
@@ -1034,6 +1106,13 @@ def write_character_data(layout, *, characters=None, levelings=None, ability_gem
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(text, encoding="cp1252", errors="replace", newline="\n")
             warnings += w
+    for ln in learns_new or []:                             # [[playable.abilities]] -> a custom preset's Abilities/<id>.csv
+        text, w = build_learn_file(ln["preset_name"], ln.get("abilities", []), ln.get("removes", []),
+                                   read_from=ln.get("read_from"), game=game)
+        p = layout.abilities_csv(ln["preset_name"])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
     return warnings
 
 

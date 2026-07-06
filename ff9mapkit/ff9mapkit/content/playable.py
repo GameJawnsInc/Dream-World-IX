@@ -212,12 +212,65 @@ def parse_playable(entry, *, n: int = 0) -> dict:
     elif entry.get("battle_serial") is not None or entry.get("battle_borrow_serial") is not None:
         raise PlayableError(f"[[playable]] id {nid}: battle_serial/battle_borrow_serial need "
                             f"custom_battle_model = true or portrait")
+    # [playable.abilities] -- give the character its OWN CharacterPresetId (a custom band 20-23): its own battle
+    # command MENU + its own learnable ability list, cloned from a base donor preset (project-ff9-ability-preset-
+    # system). ZERO-DLL: a custom preset resolves to a numeric Abilities/<id>.csv + a merged CommandSets row.
+    ability_preset_id = ability_menu_from = ability_slots = ability_learn = None
+    ab = entry.get("abilities")
+    if ab is not None:
+        if not isinstance(ab, dict):
+            raise PlayableError(f"[[playable]] id {nid}: 'abilities' must be a table ([playable.abilities])")
+        ptok = ab.get("preset", "custom")
+        if isinstance(ptok, str) and ptok.strip().lower() == "custom":
+            ability_preset_id = _cd._PRESET_CUSTOM_MIN + (nid - _cd.CUSTOM_CHAR_MIN)   # 12->20, 13->21, ...
+        else:
+            try:
+                ability_preset_id, _ = _cd._resolve_preset(ptok, f"[[playable]] id {nid} abilities.preset")
+            except _cd.CharacterDeltaError as ex:
+                raise PlayableError(str(ex))
+            if not _cd._PRESET_CUSTOM_MIN <= ability_preset_id <= _cd._PRESET_CUSTOM_MAX:
+                raise PlayableError(f"[[playable]] id {nid}: abilities.preset must be \"custom\" or a custom-band id "
+                                    f"{_cd._PRESET_CUSTOM_MIN}-{_cd._PRESET_CUSTOM_MAX} (a base 0-19 is a canon char's)")
+        mf = ab.get("menu_from", borrow)                   # base donor preset to clone the menu + seed the learn list
+        try:
+            mf_id, mf_name = _cd._resolve_preset(mf, f"[[playable]] id {nid} abilities.menu_from")
+        except _cd.CharacterDeltaError:
+            raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from {mf!r} is not a base preset (0-19) -- "
+                                f"set menu_from to a canon character/preset to clone the command menu + learn list")
+        if not 0 <= mf_id <= _cd._MAX_PRESET_ID:
+            raise PlayableError(f"[[playable]] id {nid}: abilities.menu_from must be a BASE preset (0-19)")
+        ability_menu_from = (mf_id, mf_name)
+        ability_slots = {}
+        for key, slot in (("command1", "ability1"), ("command2", "ability2"),
+                          ("command1_trance", "ability1_trance"), ("command2_trance", "ability2_trance")):
+            if ab.get(key) is not None:
+                try:                                       # resolve offline (a BattleCommandId name/id -> id)
+                    _cd._resolve_command(ab[key], f"[[playable]] id {nid} abilities.{key}")
+                except _cd.CharacterDeltaError as ex:
+                    raise PlayableError(str(ex))
+                ability_slots[slot] = ab[key]
+        ability_slots.setdefault("ability1_trance", ability_slots.get("ability1"))   # trance mirrors the regular slot
+        ability_slots.setdefault("ability2_trance", ability_slots.get("ability2"))
+        ability_slots = {k: v for k, v in ability_slots.items() if v is not None}
+        lrn = ab.get("learn", [])
+        if not isinstance(lrn, list):
+            raise PlayableError(f"[[playable]] id {nid}: abilities.learn must be a list of {{ ability, ap }} tables")
+        for l in lrn:
+            if not isinstance(l, dict) or l.get("ability") is None:
+                raise PlayableError(f"[[playable]] id {nid}: each abilities.learn entry needs an 'ability'")
+        ability_learn = lrn
+        if params.get("menu_type") is not None or params.get("preset") is not None:
+            raise PlayableError(f"[[playable]] id {nid}: [playable.abilities] owns the preset -- drop the explicit "
+                                f"params.menu_type/preset")
+        params["menu_type"] = ability_preset_id            # point CharacterParameters col-4 at the custom preset
     return {"id": nid, "name": name, "names": names, "borrow_id": borrow_id,
             "stats": dict(stats), "params": params, "recruit": recruit, "portrait": portrait, "avatar": avatar,
             "custom_battle_model": custom_battle, "custom_battle_anims": custom_anims, "anim_edits": anim_edits,
             "battle_model_id": battle_model_id,
             "battle_serial": battle_serial, "battle_model_from": battle_model_from,
-            "battle_borrow_serial": battle_borrow_serial}
+            "battle_borrow_serial": battle_borrow_serial,
+            "ability_preset_id": ability_preset_id, "ability_menu_from": ability_menu_from,
+            "ability_slots": ability_slots, "ability_learn": ability_learn}
 
 
 def parse_all(entries) -> list:
@@ -226,7 +279,7 @@ def parse_all(entries) -> list:
         return []
     if not isinstance(entries, list):
         entries = [entries]
-    specs, seen, seen_model, seen_serial = [], {}, {}, {}
+    specs, seen, seen_model, seen_serial, seen_preset = [], {}, {}, {}, {}
     for n, e in enumerate(entries):
         spec = parse_playable(e, n=n)
         if spec["id"] in seen:
@@ -247,6 +300,12 @@ def parse_all(entries) -> list:
                 raise PlayableError(f"[[playable]] id {spec['id']}: battle_serial {sid} is already used by "
                                     f"[[playable]] #{seen_serial[sid]} -- each needs its own (default 19 + slot)")
             seen_serial[sid] = n
+        pre = spec.get("ability_preset_id")               # a shared custom preset would collide the CommandSets row + learn file
+        if pre is not None:
+            if pre in seen_preset:
+                raise PlayableError(f"[[playable]] id {spec['id']}: abilities preset {pre} is already used by "
+                                    f"[[playable]] #{seen_preset[pre]} -- each needs its own (default 20 + slot)")
+            seen_preset[pre] = n
         specs.append(spec)
     return specs
 
@@ -259,6 +318,23 @@ def basestats_seeds(specs) -> list:
 def params_seeds(specs) -> list:
     """Specs -> the ``new_rows`` for :func:`characterdelta.build_character_params_delta`."""
     return [{"id": s["id"], "borrow": s["borrow_id"], "name": s["name"], "overrides": s["params"]} for s in specs]
+
+
+def command_set_seeds(specs) -> list:
+    """Specs with a ``[playable.abilities]`` block -> the ``command_set_new_rows`` for
+    :func:`characterdelta.write_character_data`: a NEW custom-preset CommandSets row cloned from ``menu_from`` with
+    the author's command-slot picks."""
+    return [{"id": s["ability_preset_id"], "clone_from": s["ability_menu_from"][0],
+             "slots": s["ability_slots"], "comment": s["name"]}
+            for s in specs if s.get("ability_preset_id") is not None]
+
+
+def learn_seeds(specs) -> list:
+    """Specs with a ``[playable.abilities]`` block -> the ``learns_new`` for :func:`characterdelta.write_character_data`:
+    the custom preset's ``Abilities/<id>.csv`` learn list, seeded from ``menu_from``'s file."""
+    return [{"preset_name": str(s["ability_preset_id"]), "read_from": s["ability_menu_from"][1],
+             "abilities": s["ability_learn"] or [], "removes": []}
+            for s in specs if s.get("ability_preset_id") is not None]
 
 
 def name_directive_lines(specs) -> list:

@@ -380,3 +380,25 @@ def test_anim_edits_build_ships_the_edited_animset(tmp_path):
     proj2.raw["playable"][0]["anim_edits"] = "nope.glb"
     with pytest.raises(BuildError):
         build_mod([proj2], tmp_path / "mod2", mod_name="FF9CustomMap")
+
+
+def test_abilities_build_emits_custom_preset(tmp_path):
+    # [playable.abilities] -> a custom CharacterPresetId 20: a merged CommandSets row + Abilities/20.csv + col-4=20.
+    from ff9mapkit.config import find_game_path
+    import ff9mapkit.build as B
+    from ff9mapkit.build import build_mod, FieldProject as FP
+    try:
+        find_game_path()
+    except Exception:                                                    # noqa: BLE001 -- needs the install (base CSVs)
+        pytest.skip("needs the FF9 install (reads base CommandSets/Abilities CSVs)")
+    proj = FP.load(str(_thirteenth_example()))
+    proj.raw["playable"][0]["abilities"] = {"command1": "Black Magic", "command2": "White Magic",
+                                            "learn": [{"ability": "Fire", "ap": 0}]}
+    B.build_mod([proj], tmp_path / "mod", mod_name="FF9CustomMap")
+    ch = tmp_path / "mod/StreamingAssets/Data/Characters"
+    cs = (ch / "CommandSets.csv").read_text(encoding="cp1252")
+    row20 = [c.strip() for c in next(l for l in cs.splitlines() if l.split(";")[0].strip() == "20").split(";")]
+    assert row20[3] == "22" and row20[4] == "19"                         # Ability1=Black Magic, Ability2=White Magic
+    cp = (ch / "CharacterParameters.csv").read_text(encoding="cp1252")
+    assert next(l for l in cp.splitlines() if l.split(";")[0].strip() == "12").split(";")[4] == "20"   # menu_type=20
+    assert (ch / "Abilities" / "20.csv").is_file()                       # the custom preset's numeric learn file

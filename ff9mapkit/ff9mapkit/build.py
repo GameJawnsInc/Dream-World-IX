@@ -5342,7 +5342,9 @@ def _emit_character_data(projects, layout) -> list:
                                             command_sets=command_sets, learns=learns,
                                             new_basestats=_playable.basestats_seeds(specs),
                                             new_params=_playable.params_seeds(specs),
-                                            battle_params=battle_params)
+                                            battle_params=battle_params,
+                                            command_set_new_rows=_playable.command_set_seeds(specs),
+                                            learns_new=_playable.learn_seeds(specs))
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
 
