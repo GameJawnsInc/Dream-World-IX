@@ -19,7 +19,7 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QObject, QProcess, QSize, QUrl, Signal
+from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
 )
@@ -49,6 +49,7 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
+from .thumbs import ThumbService
 from .widgets import PlaceholderListWidget, install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -391,6 +392,12 @@ class Workspace(QMainWindow):
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
         self.setStyleSheet(qss(pal))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
+        self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
+        self.thumbs.ready.connect(self._on_thumb_ready)
+        self._thumb_rerender = QTimer(self)                   # coalesce N thumbnail arrivals -> one Map redraw
+        self._thumb_rerender.setSingleShot(True)
+        self._thumb_rerender.setInterval(250)
+        self._thumb_rerender.timeout.connect(lambda: self.map.rerender())
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
         self._root_items = []                                 # so toggling the dot never resizes/shifts a row
@@ -866,7 +873,8 @@ class Workspace(QMainWindow):
         self.doc_scroll.setWidget(self.doc_host)
         self.tabs.addTab(self.doc_scroll, "Editor")
         self._doc_placeholder("Select a field or an object on the left to edit it.")
-        self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
+        self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
+                               thumbs=self.thumbs.cached)               # nodes show the real art when cached
         self.tabs.addTab(self.map, "Map")
         # the save docs route their console output to the bottom Output panel when docked (so the doc body
         # reclaims that height); standalone (output=None) they'd keep an in-pane console.
@@ -883,7 +891,8 @@ class Workspace(QMainWindow):
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
         self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                      on_forked=self._import_forked)       # a clean fork auto-opens its project
+                                      on_forked=self._import_forked,       # a clean fork auto-opens its project
+                                      thumbs=self.thumbs)                  # fork preview shows the room's art
         self.tabs.addTab(self.import_field, "Import")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -2588,6 +2597,8 @@ class Workspace(QMainWindow):
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
+        for m in plan.members:                     # prefetch every member's background thumbnail (async,
+            self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id)   # cached, install-gated)
         if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
             prefs.add_recent("campaign", path)     # already the recent entry
         return True
@@ -4464,6 +4475,7 @@ class Workspace(QMainWindow):
         docs are NOT reloaded, so unsaved GUI edits are preserved (only the scene side is re-read from disk)."""
         if not self._commit_active_ck():               # fold a pending edit first; a bad open form blocks refresh
             return
+        self.thumbs.invalidate()                       # a repaint/re-import may have changed the art -> re-resolve
         item = self.tree.currentItem()
         fa = self._ancestor_field(item) if item is not None else None
         sel = None
@@ -5245,11 +5257,33 @@ class Workspace(QMainWindow):
             return self._inspect_object(field, key)
         return [self._muted(f"in field: {field}")] if field else []
 
+    def _member_real_id(self, name):
+        """The donor REAL field id behind a member (campaign mode), for the install-side thumbnail
+        composite. None for a loose field / an unknown member (its project background.png still works)."""
+        if self.plan is not None:
+            m = next((mm for mm in self.plan.members if mm.name == name), None)
+            if m is not None:
+                return m.real_id
+        return None
+
+    def _on_thumb_ready(self, member, _png):
+        """A background thumbnail landed (queued from the worker): refresh the Inspector if that field is
+        the one being inspected, and coalesce a Map redraw (many arrive in a burst on campaign open)."""
+        cur = self.tree.currentItem()
+        fa = self._ancestor_field(cur) if cur is not None else None
+        if fa is not None and self._payload(fa)[1] == member:
+            self._on_select()                          # re-inspect -> the img line appears
+        self._thumb_rerender.start()
+
     def _inspect_field(self, name):
-        """A campaign member (or a loose field): id/source/mode, a CONTENT rollup, the live cross-references
-        (exits to / reached from -- clickable member links + reachability flags), and the file-path link."""
+        """A campaign member (or a loose field): the background THUMBNAIL (the art, finally visible),
+        id/source/mode, a CONTENT rollup, the live cross-references (exits to / reached from -- clickable
+        member links + reachability flags), and the file-path link."""
         lines = []
         doc = self._safe_doc(name)
+        png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
+        if png:                                     # rich text renders the file:/// img; width caps it under
+            lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')   # the 420px panel
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:
@@ -7479,6 +7513,7 @@ def main(argv=None):
     smoke = "--smoke" in argv
     if smoke:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")     # deterministic: no worker threads headless
     app = QApplication.instance() or QApplication([])
     app.setWindowIcon(_app_icon())                 # so dialogs/taskbar inherit our icon, not Qt's default
     pal = pick_palette("dark" if smoke else prefs.theme())

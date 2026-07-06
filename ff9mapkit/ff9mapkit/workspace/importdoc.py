@@ -26,9 +26,13 @@ class ImportDoc(QWidget):
     job to the Output panel + posts a verdict); ``problems`` = ``shell._show_problems`` (unused here -- the
     shell-outs have only a stream + a return code, so the verdict comes from run_job)."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None):
+    def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None, thumbs=None):
         super().__init__()
         self.pal = pal
+        self.thumbs = thumbs                           # the shell's ThumbService (field art previews); optional
+        self._preview_key = None                       # the thumb key we're waiting on for the fork preview
+        if thumbs is not None:
+            thumbs.ready.connect(self._on_thumb_ready)
         self.kit = Path(kit_root)                      # `-m ff9mapkit` cwd (this worktree's package)
         # Default output base: the repo parent for a checkout; an installed copy's package dir is inside a
         # venv, so write forked projects to a discoverable user folder instead (not buried in site-packages).
@@ -89,6 +93,9 @@ class ImportDoc(QWidget):
         row.addWidget(self.find_btn)
         row.addWidget(self.preview_btn)
         v.addLayout(row)
+        self.preview_img = QLabel()                    # the room's actual background, shown by Preview fidelity
+        self.preview_img.setVisible(False)
+        v.addWidget(self.preview_img)
 
         mode = QGroupBox("Fork mode")
         mv = QVBoxLayout(mode)
@@ -632,10 +639,34 @@ class ImportDoc(QWidget):
         field = self.field.text().strip()
         if not field:
             return self._warn("No field", "Enter a real field id or name to preview its fork fidelity.")
+        self._request_preview_art(field)
         self._kit(["fork-report", field], subject="Fork preview",
                   ok_next="Read the fidelity report (it recommends a fork mode). Verbatim is the faithful "
                           "default — note its suggested [startup] scenario, Import, then add that beat in the "
                           "editor; or switch to Re-authorable to carry NPCs/dialogue as editable content.")
+
+    # ---- fork-preview art (SEE the room you're about to fork) ----
+    def _request_preview_art(self, token):
+        """Show the field's background beside the fidelity report. Numeric ids only (a name would need the
+        install-side index resolved here); async + cached via the shell's ThumbService."""
+        if self.thumbs is None or not token.isdigit():
+            return
+        self._preview_key = f"import:{int(token)}"
+        png = self.thumbs.request(self._preview_key, None, int(token))
+        if png:
+            self._show_preview_art(png)
+
+    def _on_thumb_ready(self, member, png):
+        if member == self._preview_key:
+            self._show_preview_art(png)
+
+    def _show_preview_art(self, png):
+        from PySide6.QtGui import QPixmap
+        pm = QPixmap(png)
+        if pm.isNull():
+            return
+        self.preview_img.setPixmap(pm.scaledToWidth(300, Qt.TransformationMode.SmoothTransformation))
+        self.preview_img.setVisible(True)
 
     def on_import(self):
         from ..editor import jobs
