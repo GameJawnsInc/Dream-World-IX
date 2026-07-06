@@ -103,6 +103,21 @@ def test_deploy_battle_animset_edits_warns_unroutable_and_reports_match(monkeypa
     assert any("no routable key" in w for w in r["warnings"])                        # the renamed clip is flagged
 
 
+def test_deploy_battle_animset_edits_routes_by_label_when_stamp_dropped(monkeypatch):
+    """Blender DROPS the ff9_anim_key glTF stamp on re-export, so a --export'd Action ('23_attack') comes back
+    keyless. label_keys (the inverted motion map the exporter named it with) routes it by NAME so the edit lands."""
+    monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
+    monkeypatch.setattr(anim._gltf_io, "read_glb", lambda p: ({"asset": {"extras": {}}}, b""))
+    monkeypatch.setattr(anim.extract, "read_model", _raise_keyerror)
+    monkeypatch.setattr(anim._gltf_io, "read_clip", lambda env, gid, key: _identity_clip(key))
+    edited = {1: {"rot": [(0.0, (0.0, 0.0, 0.0, 1.0)), (1.0, (0.0, 0.707, 0.0, 0.707))]}}
+    monkeypatch.setattr(anim, "parse_gltf_animations",                    # key=None (stamp gone), friendly name
+                        lambda g, b, scale=None: [{"key": None, "label": "23_attack", "bones": edited}])
+    r = anim.deploy_battle_animset_edits([(5415, 2991, 1010023)], 6100, "x.glb", _tmp("dwix_lblkey"),
+                                         label_keys={"23_attack": 2991})
+    assert r["edited"] == [2991] and r["matched"] == 1 and not r["warnings"]   # routed by name -> edit applied
+
+
 def test_deploy_battle_animset_edits_fails_loud_on_missing_source(monkeypatch):
     monkeypatch.setattr(anim, "_load_env5", lambda game=None: object())
     monkeypatch.setattr(anim._gltf_io, "read_glb", lambda p: ({"asset": {"extras": {}}}, b""))

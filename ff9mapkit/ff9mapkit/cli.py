@@ -1586,8 +1586,12 @@ def _cmd_playable_anims(args: argparse.Namespace) -> int:
     if not args.deploy:
         print("playable-anims --edit needs --deploy MODFOLDER (where to write the character's animset)", file=sys.stderr)
         return 2
+    # Blender drops the ff9_anim_key glTF stamp on re-export, so route the edited Actions back by their NAME:
+    # invert the same {key -> "NN_motion"} map the --export step named them with ("23_attack" -> its clip key).
+    _label_keys = {v.lower(): k for k, v in _motion_labels().items()}
     try:
-        r = manim.deploy_battle_animset_edits(info["clips"], info["dest_geo_id"], args.edit, args.deploy, game=args.game)
+        r = manim.deploy_battle_animset_edits(info["clips"], info["dest_geo_id"], args.edit, args.deploy,
+                                              game=args.game, label_keys=_label_keys)
     except (manim.AnimsetError, RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2

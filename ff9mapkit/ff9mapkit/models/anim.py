@@ -347,7 +347,8 @@ def deploy_battle_animset(dest_geo_id: int, clips, mod_folder, *, game=None) -> 
     return written
 
 
-def deploy_battle_animset_edits(clips, dest_geo_id: int, gltf_path, mod_folder, *, scale=None, game=None) -> dict:
+def deploy_battle_animset_edits(clips, dest_geo_id: int, gltf_path, mod_folder, *, scale=None, game=None,
+                                label_keys=None) -> dict:
     """The Blender edit loop for a MINTED battle animset: route a donor-model ``.glb`` (exported with
     ``model-gltf <donor GEO> --anims all`` and edited in Blender) onto the 13th character's OWN animset. For EVERY
     ``(src_geo_id, src_key, dst_key)`` in the plan's ``clips`` it writes ``Animations/<dest_geo_id>/<dst_key>.anim``
@@ -372,10 +373,14 @@ def deploy_battle_animset_edits(clips, dest_geo_id: int, gltf_path, mod_folder, 
             model_bones = extract.read_model(extract.MODELS.get(gid) or gid, game=game)["bones"]
         except (RuntimeError, FileNotFoundError, ValueError, KeyError):
             pass
-    # parse the glb -> edits keyed by the SOURCE clip key (ff9_anim_key stamp, or the ANH action-label fallback if
-    # Blender dropped the stamp); ignore any animation not part of this playable's animset.
+    # parse the glb -> edits keyed by the SOURCE clip key (ff9_anim_key stamp, or an action-name fallback if
+    # Blender dropped the stamp -- which it DOES on re-export); ignore any animation not part of this playable's
+    # animset. ``label_keys`` (e.g. the friendly "23_attack"->key motion map the exporter named Actions with) is
+    # the PRIMARY name fallback, since Blender preserves the Action NAME but not the glTF extras.
     plan_src_keys = {int(sk) for _sg, sk, _dk in clips}
     label_to_key = {}
+    for lbl, k in (label_keys or {}).items():
+        label_to_key.setdefault(str(lbl).lower(), int(k))
     try:
         from .. import catalog
         for _sg, sk, _dk in clips:
