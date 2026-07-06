@@ -110,9 +110,13 @@ class BuildDoc(QWidget):
         self.rb_test = QRadioButton(f"Test slot {tid} — quick + reversible; play via F6 → Warp"
                                     + ("  (or New Game → hut door)" if tid == 4003 else ""))
         self.rb_test.setChecked(self.has_tools)        # installed copy: no F6 dev engine -> default to Install to game
-        self.rb_game = QRadioButton(f"Install to game (shipping mod folder): {self.game_mod}"
+        # label = the folder NAME only; the full path lives in the tooltip. (An unwrappable radio label
+        # carrying the whole install path forced the tab's minimum width past the pane -> h-scrolling.)
+        self.rb_game = QRadioButton(f"Install to game (shipping mod folder): {Path(self.game_mod).name}"
                                     if self.game_mod else "Install to game — (game install not found)")
-        if not self.game_mod:
+        if self.game_mod:
+            self.rb_game.setToolTip(str(self.game_mod))
+        else:
             self.rb_game.setEnabled(False)
         of = QHBoxLayout()
         self.rb_other = QRadioButton("Build only — to a folder:")

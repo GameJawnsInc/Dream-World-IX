@@ -91,9 +91,10 @@ class ImportDoc(QWidget):
 
         mode = QGroupBox("Fork mode")
         mv = QVBoxLayout(mode)
+        # NB: radio/checkbox labels can't word-wrap, so a long label forces the whole tab's minimum width
+        # (horizontal scrolling at normal window sizes). Keep them SHORT; detail goes in the wrapped hints.
         self.mode_verbatim = QRadioButton("Verbatim — the truest fork (recommended)")
-        self.mode_authorable = QRadioButton("Re-authorable — editable [[npc]]/content, but you rebuild the "
-                                            "field's logic & story gating yourself (advanced)")
+        self.mode_authorable = QRadioButton("Re-authorable — editable content; you rebuild the logic (advanced)")
         self.mode_verbatim.setChecked(True)
         mv.addWidget(self.mode_verbatim)
         mv.addWidget(self.mode_authorable)
@@ -111,21 +112,25 @@ class ImportDoc(QWidget):
 
         self.art_box = QGroupBox("Background art")
         av = QVBoxLayout(self.art_box)
-        self.art_native = QRadioButton("Native — seamless, faithful occlusion + lighting; ANY field (recommended)")
-        self.art_borrow = QRadioButton("BG-borrow — reuse the real art via DictionaryPatch (fast; area ≥ 10)")
-        self.art_editable = QRadioButton("Editable scene — repaintable per-depth layers, but SEAM-PRONE "
-                                         "(to repaint seamlessly, fork Native + use ‘Repaint a native fork’ below)")
+        self.art_native = QRadioButton("Native — seamless + faithful; ANY field (recommended)")
+        self.art_borrow = QRadioButton("BG-borrow — reuse the real art (fast; area ≥ 10)")
+        self.art_editable = QRadioButton("Editable scene — repaintable layers (seam-prone)")
         self.art_native.setChecked(True)
         for r in (self.art_native, self.art_borrow, self.art_editable):
             av.addWidget(r)
+        art_hint = QLabel("Editable scenes show grid seams — to repaint seamlessly, fork Native and use "
+                          "‘Repaint a native fork’ below. BG-borrow points DictionaryPatch at the real art.")
+        art_hint.setWordWrap(True)
+        art_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        av.addWidget(art_hint)
         v.addWidget(self.art_box)
 
         self.carry_box = QGroupBox("Carry from the real field")
         cv = QVBoxLayout(self.carry_box)
-        self.carry_npcs = QCheckBox("NPCs & props faithfully (their push/talk interactions fire)")
-        self.carry_text = QCheckBox("Real dialogue, verbatim (per language) — carried NPCs speak the real words")
+        self.carry_npcs = QCheckBox("NPCs & props faithfully (push/talk interactions fire)")
+        self.carry_text = QCheckBox("Real dialogue, verbatim (per language)")
         self.dialogue_stubs = QCheckBox("Dialogue as editable [[npc]] stubs (to RE-AUTHOR, not carry)")
-        self.save_moogle = QCheckBox("Save point — the hidden Moogle + the save flourish (if the field has one)")
+        self.save_moogle = QCheckBox("Save point — hidden Moogle + flourish (if the field has one)")
         self.carry_npcs.setChecked(True)
         self.carry_text.setChecked(True)
         for c in (self.carry_npcs, self.carry_text, self.dialogue_stubs, self.save_moogle):
@@ -250,14 +255,18 @@ class ImportDoc(QWidget):
         row.addWidget(self.seeds, 1)
         row.addWidget(self.catalog_btn)
         v.addLayout(row)
-        self.rg_whole = QCheckBox("Whole zone — fork ALL story-state visits of each seed's zone (override the "
-                                  "catalog's single-visit scope; more fields/ids — Dry-run to preview)")
-        self.rg_verbatim = QCheckBox("Verbatim — each member ships its real script + dialogue, runs the real "
-                                     "logic (recommended; uncheck to fork re-authorable members you rebuild yourself)")
+        self.rg_whole = QCheckBox("Whole zone — fork ALL story-state visits of each seed's zone")
+        self.rg_verbatim = QCheckBox("Verbatim — real script + dialogue per member (recommended)")
         self.rg_whole.setChecked(False)          # default = the catalog region's own visit (--ids, lean + fast)
         self.rg_verbatim.setChecked(True)
         v.addWidget(self.rg_whole)
         v.addWidget(self.rg_verbatim)
+        scope_hint = QLabel("Whole zone overrides the catalog's single-visit scope (more fields/ids — Dry-run to "
+                            "preview). Unchecking Verbatim forks re-authorable members whose logic you rebuild "
+                            "yourself.")
+        scope_hint.setWordWrap(True)
+        scope_hint.setStyleSheet(muted)
+        v.addWidget(scope_hint)
         # Walk as (player swap) for the WHOLE chain -- the region analogue of the single-fork swap.
         rswap = QHBoxLayout()
         rswap.addWidget(QLabel("Walk as:"))
