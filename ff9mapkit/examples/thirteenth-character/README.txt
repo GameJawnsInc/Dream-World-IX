@@ -31,9 +31,10 @@ identically to Vivi UNTIL you edit them; editing any Animations/6100/*.anim (or 
 changes only Iviv. Vivi's own Animations/5415/ is never written. (Trance animations stay shared in v1.)
 
     EDITING Iviv's animations in Blender (the donor is NEVER touched) — `ff9mapkit playable-anims`:
-      ff9mapkit playable-anims iviv.field.toml                 # INFO: which donor model to export + the steps
-      ff9mapkit model-gltf GEO_MAIN_B0_006 --anims all --out iviv_anims.glb
-      # open iviv_anims.glb in Blender, scrub the Action(s) you want unique, edit a pose, export the .glb
+      ff9mapkit playable-anims iviv.field.toml                          # INFO: the loop + the motion->key table
+      ff9mapkit playable-anims iviv.field.toml --export iviv_anims.glb  # NAMED Actions: 23_attack, 27_cast, ...
+      # open iviv_anims.glb in Blender — the Action list reads "00_idle / 23_attack / 27_cast / ..." (not raw
+      # numbers). Scrub the motion you want unique, edit a pose, export the .glb.
       ff9mapkit playable-anims iviv.field.toml --edit iviv_anims.glb --deploy <game>\FF9CustomMap
       # -> writes ONLY Iviv's Animations/6100/ (edited motions spliced, the rest faithful); RELAUNCH + fight.
     (Or hand-edit a shipped clip's JSON directly at Animations\6100\<key>.anim and relaunch — same effect.)

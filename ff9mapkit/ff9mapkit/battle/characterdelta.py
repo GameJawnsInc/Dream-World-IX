@@ -772,7 +772,49 @@ def plan_battle_animset(serial_to_clone, mint_geo, mint_id, *, game=None, name_t
                 name_to_src[cell] = (geo_cache[src_geo], key)
     plan = battle_animset_remap(normal_cells, mint_geo, mint_id, name_to_src)
     plan["mint_id"] = int(mint_id)                         # the DEST folder: Animations/<mint_id>/<dst_key>.anim
+    plan["serial"] = ser                                   # the donor serial -> battle_motion_labels for the edit loop
     return plan
+
+
+# The 34 battle-motion slots of a BattleParameters row, in order (btl_mot.cs:22-55 MP_* comments) -- so the Blender
+# edit loop can name each Action by what it DOES ("23_attack", "27_cast") instead of a raw clip key.
+_BATTLE_MOTION_LABELS = (
+    "idle", "idle_low_hp", "hit", "hit_hard", "ko", "getup_low_hp", "getup_ko", "fall_low_hp", "fall_ko",
+    "ready", "to_ready", "low_hp_to_ready", "to_defend", "defend", "defend_to_idle", "cover", "dodge", "flee",
+    "victory", "victory_loop", "to_run", "run", "run_to_attack", "attack", "jump_back", "attack_to_idle",
+    "to_cast", "cast", "cast_end", "step_forward", "step_back", "item", "ready_to_idle", "special",
+)
+
+
+def battle_motion_labels(serial_to_clone, *, game=None, name_to_key=None) -> dict:
+    """``{src_clip_key -> "NN_motion"}`` for a donor serial's normal battle animset (the 34 MP_* slots in order,
+    first slot per unique clip). Lets the Blender edit loop name each Action ("23_attack", "27_cast") instead of
+    the raw numeric key the modeler saw in Blender's Action list."""
+    try:
+        _h, bp_cols, bp_rows = _read_csv(_csv_path("BattleParameters.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise CharacterDeltaError(f"[[playable]] custom_battle_anims needs your FF9 install ({ex})")
+    idx = bp_cols["id"]
+    by_id = {}
+    for cells in bp_rows:
+        try:
+            by_id[int(cells[idx].strip())] = cells
+        except (ValueError, IndexError):
+            continue
+    ser = int(serial_to_clone)
+    if ser not in by_id:
+        raise CharacterDeltaError(f"[[playable]] custom_battle_anims: donor serial {ser} has no BattleParameters row")
+    normal = _first_anh_run(by_id[ser])
+    if name_to_key is None:
+        from .. import catalog
+        name_to_key = {v: k for k, v in catalog.ANIMATIONS.items()}
+    out: dict = {}
+    for i, cell in enumerate(normal[:len(_BATTLE_MOTION_LABELS)]):
+        key = name_to_key.get(cell)
+        if key is None or int(key) in out:                 # first slot that uses a clip wins its label
+            continue
+        out[int(key)] = f"{i:02d}_{_BATTLE_MOTION_LABELS[i]}"
+    return out
 
 
 # ---- [[command_set]] -> CommandSets.csv (PARTIAL per-preset; tab-padded -> strip + index slots by position) ----

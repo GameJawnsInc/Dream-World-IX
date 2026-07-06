@@ -471,6 +471,19 @@ def test_battle_params_custom_anims_repoints_row(base):
     assert row.split(";")[2] == "GEO_MAIN_B0_M100"                                    # model still swapped
 
 
+def test_battle_motion_label_order():
+    # the 34 fixed battle-motion slots (btl_mot.cs MP_* order) -- the Blender edit loop names Actions by these
+    assert CD._BATTLE_MOTION_LABELS[0] == "idle" and CD._BATTLE_MOTION_LABELS[23] == "attack"
+    assert CD._BATTLE_MOTION_LABELS[27] == "cast" and CD._BATTLE_MOTION_LABELS[18] == "victory"
+    assert len(CD._BATTLE_MOTION_LABELS) == 34
+
+
+def test_battle_motion_labels_maps_slot_to_key(base):
+    # the synthetic Vivi serial-2 row has one anim cell (slot 0) -> "00_idle"; key from the injected name->key map
+    labels = CD.battle_motion_labels(2, name_to_key={"ANH_MAIN_B0_006_000": 5})
+    assert labels == {5: "00_idle"}                                  # NN_ prefix keeps Blender's Action list ordered
+
+
 def test_battle_params_rejects_bad(base):
     with pytest.raises(CD.CharacterDeltaError):                       # serial < 19 (the base band)
         CD.build_battle_params_delta([{"id": 5, "borrow": 2, "model": "X"}])

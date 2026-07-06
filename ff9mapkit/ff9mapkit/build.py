@@ -2717,7 +2717,8 @@ def resolve_playable_animset(field, *, name=None, game=None) -> dict:
     from .models import extract as _extract
     src_geo_id = next(iter({sg for sg, _sk, _dk in plan["clips"]}))
     return {"name": cands[0]["name"], "source_geo": _extract.MODELS.get(src_geo_id), "src_geo_id": src_geo_id,
-            "dest_geo_id": plan["mint_id"], "clips": plan["clips"], "key_count": len(plan["clips"])}
+            "dest_geo_id": plan["mint_id"], "clips": plan["clips"], "key_count": len(plan["clips"]),
+            "serial": plan.get("serial")}
 
 
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
