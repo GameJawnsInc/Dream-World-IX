@@ -265,7 +265,9 @@ class ModLayout:
         The folder ``ModelFactory.CreateModel`` probes on disc before the bundle: an OVERRIDE when ``id`` is
         a real GEO id, a MINT when it's a new id registered via a ``3DModel <id> <name>`` DictionaryPatch
         line. Casing matches ``_battle_resources`` (capitalized Assets/Resources), verbatim-proven in-game."""
-        return self.root / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(geo_id)
+        from .models.export import model_dir_parts   # single source of truth: weapons (type 6) live
+        return self.root.joinpath("StreamingAssets", "Assets", "Resources",   # under BattleMap/BattleModel/
+                                  *model_dir_parts(type_int, geo_id))
 
     # --- battle background (BBG): a loose FBX + image#.png the engine loads instead of the bundle ---
     @property
