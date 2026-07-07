@@ -43,6 +43,7 @@ from .content import platform as _platform
 from .content import prop as _prop
 from .content import region as _region
 from .content import party as _party
+from .content import playable as _playable
 from .content import reinit as _reinit
 from .content import entry_settle as _entry_settle
 from .content import walkmesh_hotfix as _walkmesh_hotfix
@@ -407,9 +408,10 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                     problems.append(f"{label} {markers_key}: {e}")
 
 
-def _validate_party(pty, problems: list) -> None:
+def _validate_party(pty, problems: list, extra=None) -> None:
     """Validate the ``[party]`` block -- ``add`` / ``remove`` lists of existing-character names (or 0..11
-    CharacterOldIndex). Each name must resolve; unknown keys are flagged."""
+    CharacterOldIndex, or a custom 12..15 / ``[[playable]]`` name via ``extra``). Each name must resolve;
+    unknown keys are flagged."""
     if not isinstance(pty, dict):
         problems.append("[party] must be a table (add = [names], remove = [names])")
         return
@@ -420,7 +422,7 @@ def _validate_party(pty, problems: list) -> None:
             continue
         for m in members:
             try:
-                _party.resolve_member(m)
+                _party.resolve_member(m, extra)
             except ValueError as e:
                 problems.append(f"[party] {key}: {e}")
     for key in pty:
@@ -1128,9 +1130,18 @@ def validate(project: FieldProject) -> list[str]:
     oe = project.raw.get("on_entry")                     # field-load beats ([[on_entry]]: gated, once)
     if oe is not None:
         _validate_on_entry(oe, story_names, problems)
+    play_reg = {}                                        # 13th+ character definition ([[playable]])
+    if project.raw.get("playable") is not None:
+        _pl = project.raw.get("playable")
+        for q, pb in enumerate(_pl if isinstance(_pl, list) else [_pl]):
+            problems += [f"[[playable]] #{q}: {p}" for p in _playable.validate_playable(pb)]
+        try:                                             # a registry so [party] can add a custom char by name
+            play_reg = _playable.registry(_playable.parse_all(_pl))
+        except _playable.PlayableError:
+            pass                                         # the per-block errors above already report the problem
     pty = project.raw.get("party")                       # party membership ([party]: add/remove members)
     if pty is not None:
-        _validate_party(pty, problems)
+        _validate_party(pty, problems, play_reg)
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -2607,11 +2618,17 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
     :func:`build_field` (which bypasses build_script). No ``[party]`` -> unchanged (byte-identical). On a
     verbatim fork whose Main_Init rebuilds the roster (``SetPartyReserve`` 0xB4, which runs AFTER our prepend
     and can wipe the add), warn (``warnings`` is in scope only on the verbatim path)."""
-    pty = project.raw.get("party")
-    if not pty:
-        return eb
-    adds = [_party.resolve_member(m) for m in pty.get("add", [])]
-    removes = [_party.resolve_member(m) for m in pty.get("remove", [])]
+    pty = project.raw.get("party") or {}
+    try:                                              # a [[playable]] recruit = true joins at this field's load
+        specs = _playable.parse_all(project.raw.get("playable"))
+    except _playable.PlayableError:
+        specs = []                                    # a broken [[playable]] is reported by validate(); don't crash here
+    reg = _playable.registry(specs)
+    adds = [_party.resolve_member(m, reg) for m in pty.get("add", [])]
+    removes = [_party.resolve_member(m, reg) for m in pty.get("remove", [])]
+    for rid in _playable.recruit_ids(specs):          # recruit = true -> add the custom id (dedup vs explicit adds)
+        if rid not in adds:
+            adds.append(rid)
     if not adds and not removes:
         return eb
     if warnings is not None and (adds or removes) and _party.field_resets_party(eb):
@@ -2620,6 +2637,88 @@ def _apply_party(project: FieldProject, eb: bytes, warnings: list | None = None)
                         "stick. The reset can be partial or scenario-gated, so verify in-game; or use a field "
                         "that doesn't reset the party.")
     return _party.inject_party(eb, adds, removes)
+
+
+def _resolve_playable_battle(bspec, *, game=None):
+    """A ``[[playable]]`` custom-battle-model spec (from :func:`playable.custom_serial_specs`) -> ``(mint_block,
+    battle_params_row, anim_plan)``: the donor's battle GEO minted at a new id, a new BattleParameters serial row
+    that references that minted GEO by name, and (when ``custom_anims``) the plan to give the minted model its OWN
+    independent animset (else ``None``). Both the mint's ``3DModel`` directive and the BattleParameters ModelId
+    cell are derived from the SAME **canonical** (uppercased + validated) GEO name, so ``GetGEOID`` resolves them
+    (a lowercase ``battle_model_from`` would otherwise mismatch the directive). The donor's battle GEO + the
+    serial-to-clone (for the 34 anims/avatar/bones) come from the install by default, or from explicit
+    ``battle_model_from`` / ``battle_borrow_serial`` overrides (which let a scenario-formula donor be used).
+    Raises :class:`BuildError` on an unresolvable donor / unknown GEO."""
+    from .battle import characterdelta as _cd
+    from .models import mint as _mint, extract as _extract
+    model_from = bspec.get("model_from")
+    borrow_serial = bspec.get("borrow_serial")
+    custom_model = bspec.get("custom_model")
+    custom_anims = bspec.get("custom_anims")
+    donor_geo = donor_serial = None
+    # need the donor's serial (to clone the row) unless overridden; need its battle GEO only when minting a model.
+    if borrow_serial is None or (custom_model and model_from is None):
+        try:
+            donor_serial, donor_geo = _cd.resolve_donor_battle(bspec["borrow_id"], game=game)
+        except _cd.CharacterDeltaError as ex:
+            raise BuildError(str(ex))
+    serial_to_clone = borrow_serial if borrow_serial is not None else donor_serial
+    mint_block = None
+    anim_plan = None
+    bp_row = {"id": bspec["serial"], "borrow": serial_to_clone, "comment": bspec["name"]}
+    if custom_model:                                         # mint an independent model + point the row's ModelId at it
+        src_geo = model_from or donor_geo
+        try:                                                # canonicalize (uppercase + validate) -> matches the mint
+            canonical_geo = _extract.resolve_geo(src_geo)[0]
+        except (ValueError, KeyError, FileNotFoundError, OSError, RuntimeError) as ex:
+            raise BuildError(f"[[playable]] battle model source {src_geo!r} is not a known GEO model ({ex})")
+        minted_name = _mint.derive_mint_name(canonical_geo, bspec["model_id"])
+        mint_block = {"id": bspec["model_id"], "from": canonical_geo}
+        bp_row["model"] = minted_name
+        bp_row["trance_model"] = minted_name
+        if custom_anims:                                    # give the minted model its OWN normal animset
+            try:
+                anim_plan = _cd.plan_battle_animset(serial_to_clone, minted_name, bspec["model_id"], game=game)
+            except _cd.CharacterDeltaError as ex:
+                raise BuildError(str(ex))
+            if anim_plan["names"]:                          # re-point the row's normal anim cells to the mint names
+                bp_row["anim_names_remap"] = anim_plan["names"]
+    if bspec.get("avatar"):                                  # custom portrait -> the row's AvatarSprite
+        bp_row["avatar"] = bspec["avatar"]
+    return mint_block, bp_row, anim_plan
+
+
+def resolve_playable_animset(field, *, name=None, game=None) -> dict:
+    """Resolve the Blender-edit-loop parameters for a field's ``custom_battle_anims`` ``[[playable]]``:
+    ``{name, source_geo, src_geo_id, dest_geo_id, clips, key_count}``. ``source_geo`` is the DONOR battle model
+    to export for editing (``model-gltf <source_geo> --anims all``); ``clips`` = ``[(src_geo_id, src_key,
+    dst_key)]`` routes the edited clips onto the character's OWN minted animset (:func:`ff9mapkit.models.anim.
+    deploy_battle_animset_edits`). ``field`` is a field.toml path or a :class:`FieldProject`; ``name``
+    disambiguates when several playables use ``custom_battle_anims``."""
+    proj = field if isinstance(field, FieldProject) else FieldProject.load(field)
+    try:
+        specs = _playable.parse_all(proj.raw.get("playable"))
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    cands = [s for s in _playable.custom_serial_specs(specs) if s.get("custom_anims")]
+    if name:
+        cands = [s for s in cands if s["name"].lower() == str(name).lower()]
+    if not cands:
+        raise BuildError("no [[playable]] with custom_battle_anims = true in this field"
+                         + (f" named {name!r}" if name else "")
+                         + " (needs custom_battle_model = true + custom_battle_anims = true)")
+    if len(cands) > 1:
+        raise BuildError(f"{len(cands)} playables use custom_battle_anims -- pass --name to pick one "
+                         f"({', '.join(s['name'] for s in cands)})")
+    _mb, _bp, plan = _resolve_playable_battle(cands[0], game=game)
+    if not plan or not plan.get("clips"):
+        raise BuildError(f"[[playable]] {cands[0]['name']!r}: no re-pointable battle animset "
+                         f"(the donor serial has no resolvable AnimationId clips)")
+    from .models import extract as _extract
+    src_geo_id = next(iter({sg for sg, _sk, _dk in plan["clips"]}))
+    return {"name": cands[0]["name"], "source_geo": _extract.MODELS.get(src_geo_id), "src_geo_id": src_geo_id,
+            "dest_geo_id": plan["mint_id"], "clips": plan["clips"], "key_count": len(plan["clips"]),
+            "serial": plan.get("serial")}
 
 
 def _apply_walkmesh_hotfix(project: FieldProject, eb: bytes) -> bytes:
@@ -4757,7 +4856,24 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # Pre-fill a placement's animset from the mint so `[[npc]]/[[prop]] model = <mintId>` borrows the
     # source's gestures with no manual `anims`. Must run BEFORE build_script (which reads those anims). mint.py
     mint_lines: list = []
-    mint_blocks = project.raw.get("mint", []) or []
+    mint_blocks = list(project.raw.get("mint", []) or [])
+    # [[playable]] custom_battle_model -> synthesize a mint of the donor's battle model (so editing it never
+    # touches the donor). The matching BattleParameters serial row is emitted mod-globally in _emit_character_data.
+    try:
+        _pspecs_b = _playable.parse_all(project.raw.get("playable"))
+    except _playable.PlayableError:
+        _pspecs_b = []                                  # a broken [[playable]] is reported by validate()
+    _anim_plans: list = []                              # custom_battle_anims -> (mint) independent-animset plans
+    _anim_warnings: list = []
+    for _bspec in _playable.custom_serial_specs(_pspecs_b):
+        _mb, _bp, _plan = _resolve_playable_battle(_bspec)
+        if _mb is not None:                             # a portrait-only spec has no model to mint
+            mint_blocks.append(_mb)
+        if _plan is not None:
+            _anim_warnings.extend(_plan.get("warnings", []))
+            if _plan.get("clips"):
+                _plan["anim_edits"] = _bspec.get("anim_edits")   # [[playable]] anim_edits = a Blender-edited .glb
+                _anim_plans.append(_plan)
     if mint_blocks:
         from .models import mint as _mint
         mints = [_mint.resolve_mint(b) for b in mint_blocks]
@@ -4772,9 +4888,43 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         for blk, man in zip(mint_blocks, mints):
             _mint.stage_mint(blk, layout.model_dir(man["type_int"], man["id"]), base_dir=project.base_dir)
             mint_lines.append(man["directive"])
+    if _anim_plans:                                     # ship each minted model's OWN animset + register the names
+        from .models import anim as _anim
+        for _plan in _anim_plans:
+            _edits = _plan.get("anim_edits")             # [[playable]] anim_edits -> ship the EDITED animset (persists)
+            try:                                         # fail loud rather than ship an incomplete (freezing) set
+                if _edits:
+                    _glb = Path(_edits)
+                    if not _glb.is_absolute() and project.base_dir is not None:
+                        _glb = Path(project.base_dir) / _glb
+                    if not _glb.is_file():
+                        raise BuildError(f"[[playable]] anim_edits: file not found: {_glb} (a Blender-edited .glb "
+                                         f"from `playable-anims --export`)")
+                    _lbls = {}
+                    try:                                 # route by Action NAME (Blender drops the ff9_anim_key stamp)
+                        from .battle import characterdelta as _cd_lbl
+                        _lbls = {v.lower(): k for k, v in _cd_lbl.battle_motion_labels(_plan["serial"]).items()}
+                    except Exception:   # noqa: BLE001  -- catalog/install optional; the numeric-name route still works
+                        pass
+                    _res = _anim.deploy_battle_animset_edits(_plan["clips"], _plan["mint_id"], str(_glb),
+                                                             layout.root, label_keys=_lbls)
+                    _written = _res["written"]
+                    _anim_warnings.extend(_res.get("warnings", []))
+                    if not _res["edited"]:               # a declared edit file that changed nothing -> surface it
+                        _anim_warnings.append(f"[[playable]] anim_edits {_edits!r}: 0 motions differ from the donor "
+                                              f"(no pose change detected / wrong donor exported)")
+                else:
+                    _written = _anim.deploy_battle_animset(_plan["mint_id"], _plan["clips"], layout.root)
+            except _anim.AnimsetError as ex:
+                raise BuildError(str(ex))
+            if len(_written) != len(_plan["clips"]):     # every re-pointed name MUST have a shipped clip (else freeze)
+                raise BuildError(f"custom_battle_anims: shipped {len(_written)}/{len(_plan['clips'])} clips for "
+                                 f"mint {_plan['mint_id']} -- refusing to register motions with no clip")
+            mint_lines.extend(_plan["directives"])       # `3DModelAnimation <key> <name>` (rides with `3DModel`)
 
     camera = resolve_camera(project)
     warnings = list(lint_logic(project))          # story/flag sanity (dangling requires, collisions, dup names)
+    warnings += _anim_warnings                     # custom_battle_anims: no-op / shared-clip notices
     pw = cam.pitch_warning(cam.pitch_deg(camera))
     if pw:
         warnings.append(pw)
@@ -5146,12 +5296,26 @@ def _emit_battle_data(projects, layout) -> list:
     statuses = [s for p in projects for s in p.raw.get("status", [])]
     status_sets = [b for p in projects for b in (p.raw.get("status_set", []) or [])]
     magic_sword_sets = [b for p in projects for b in (p.raw.get("magic_sword_set", []) or [])]
-    if not actions and not statuses and not status_sets and not magic_sword_sets:
+    # [playable.abilities] inline CUSTOM abilities -> NEW Actions.csv rows, MERGED into the same delta as the
+    # [[battle_action]] retunes (Actions.csv has one writer -> a minted ability can't clobber a retune, or vice versa).
+    playables = []
+    for p in projects:
+        b = p.raw.get("playable", [])
+        playables += b if isinstance(b, list) else [b]
+    try:
+        _specs = _playable.parse_all(playables)
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    new_actions = _playable.action_seeds(_specs)
+    # a custom ability's `status = [...]` auto-mints a StatusSets row -> MERGE it with any author [[status_set]] (one
+    # StatusSets.csv writer; a minted action's status_index points at one of these, so they ride the same build).
+    status_sets = status_sets + _playable.status_set_seeds(_specs)
+    if not actions and not statuses and not status_sets and not magic_sword_sets and not new_actions:
         return []
     from .battle import actiondelta as _adelta
     try:
         return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets,
-                                         magic_sword_sets=magic_sword_sets)
+                                         magic_sword_sets=magic_sword_sets, new_actions=new_actions)
     except _adelta.ActionDeltaError as ex:
         raise BuildError(str(ex))
 
@@ -5175,15 +5339,59 @@ def _emit_character_data(projects, layout) -> list:
     character_params = _blocks("character_param")
     command_sets = _blocks("command_set")
     learns = _blocks("learn")
-    if not (characters or levelings or ability_gems or character_params or command_sets or learns):
+    playables = _blocks("playable")                     # [[playable]] -- a genuine NEW (13th+) character
+    if not (characters or levelings or ability_gems or character_params or command_sets or learns or playables):
         return []
     from .battle import characterdelta as _cdelta
     try:
+        specs = _playable.parse_all(playables)
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    # custom battle look / portrait -> a new BattleParameters serial row per character (the mint of a custom model
+    # is staged in build_field; here we emit the serial row that binds the minted GEO + custom AvatarSprite).
+    battle_params = [_resolve_playable_battle(b)[1] for b in _playable.custom_serial_specs(specs)]
+    try:
         return _cdelta.write_character_data(layout, characters=characters, levelings=levelings,
                                             ability_gems=ability_gems, character_params=character_params,
-                                            command_sets=command_sets, learns=learns)
+                                            command_sets=command_sets, learns=learns,
+                                            new_basestats=_playable.basestats_seeds(specs),
+                                            new_params=_playable.params_seeds(specs),
+                                            battle_params=battle_params,
+                                            command_set_new_rows=_playable.command_set_seeds(specs),
+                                            learns_new=_playable.learn_seeds(specs),
+                                            new_commands=_playable.command_seeds(specs),
+                                            new_actions=_playable.action_seeds(specs))
     except _cdelta.CharacterDeltaError as ex:
         raise BuildError(str(ex))
+
+
+def _emit_portraits(projects, layout) -> list:
+    """Emit the loose **Face Atlas** override (a custom menu portrait) from every ``[[playable]] portrait``. Reads
+    each portrait PNG relative to its field.toml, packs them into one atlas + an append tpsheet (mod-global; the
+    character's AvatarSprite cell was pointed at the sprite name in _resolve_playable_battle)."""
+    from .content import portrait as _portrait
+    portraits, warnings, seen = [], [], set()
+    for p in projects:
+        pl = p.raw.get("playable")
+        if pl is None:
+            continue
+        try:
+            specs = _playable.parse_all(pl)
+        except _playable.PlayableError:
+            continue                                        # validate() reports a bad [[playable]]
+        for s in _playable.custom_serial_specs(specs):
+            if not s.get("portrait") or s["avatar"] in seen:
+                continue
+            try:
+                img, w = _portrait.load_portrait(s["portrait"], base_dir=getattr(p, "base_dir", None))
+            except _portrait.PortraitError as ex:
+                raise BuildError(str(ex))
+            portraits.append({"name": s["avatar"], "image": img})
+            warnings += w
+            seen.add(s["avatar"])
+    if portraits:
+        warnings += _portrait.write_face_atlas(layout, portraits)
+    return warnings
 
 
 def _emit_ability_features(projects, layout) -> list:
@@ -5192,6 +5400,16 @@ def _emit_ability_features(projects, layout) -> list:
     changed abilities) merged per-ability over the base. Raises BuildError on a bad block."""
     from .battle import abilityfeatures as _af
     feats = [b for p in projects for b in _af._as_list(p.raw.get("ability_feature"))]   # tolerate a single [ability_feature] table (dict)
+    # + a custom ability's `effect` -> a minted [[ability_feature]] block keyed on its custom AA id (MERGED with the
+    # author blocks; one AbilityFeatures.txt writer). parse_all is deterministic, so the id matches the Actions.csv row.
+    playables = []
+    for p in projects:
+        b = p.raw.get("playable", [])
+        playables += b if isinstance(b, list) else [b]
+    try:
+        feats = feats + _playable.feature_seeds(_playable.parse_all(playables))
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
     if not feats:
         return []
     try:
@@ -5519,14 +5737,15 @@ def _write_field_mes(results: list, layout, langs) -> None:
             layout.mes_path(lang, text_block).write_text(body, encoding="utf-8", newline="\n")
 
 
-def _dictionary_lines(results) -> list:
+def _dictionary_lines(results, extra_directives=()) -> list:
     """The DictionaryPatch lines for a built mod: a ``MessageFile <block> <name>`` registration for each distinct
     CUSTOM text block (``register_text_block``), THEN the per-field ``FieldScene`` lines. A custom mesID must be
     registered or DataPatchers SKIPS the FieldScene (`if (!MesDB.ContainsKey(mesID)) continue;` -> "invalid
     message file ID" -> the field never loads); the name is just a MesDB label (the field text loads by NUMERIC
     mesID via field/<block>.mes). Base blocks (e.g. the default 1073) are already in MesDB and ship no line. This
     is what unblocks disjoint per-campaign text-block windows (campaign._remap_text_blocks) -- the cross-campaign
-    text-shadow cure."""
+    text-shadow cure. ``extra_directives`` are mod-global directive lines (e.g. ``[[playable]]`` ->
+    ``CharacterDefaultName <id> <SYM> <name>``) that ride the same drop-in DictionaryPatch."""
     mes_reg = sorted({r.text_block for r in results if getattr(r, "register_text_block", False)})
     field_lines: list[str] = []
     mint_lines: list[str] = []
@@ -5537,7 +5756,7 @@ def _dictionary_lines(results) -> list:
         for ml in getattr(r, "mint_lines", []) or []:   # [[mint]] -> `3DModel <id> <name>` (dedup across members)
             if ml not in mint_lines:
                 mint_lines.append(ml)
-    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + mint_lines + field_lines
+    return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + mint_lines + list(extra_directives) + field_lines
 
 
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
@@ -5561,7 +5780,34 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     results = [build_field(p, layout, langs=langs) for p in projects]
     _write_field_mes(results, layout, langs)            # shared-text_block-safe .mes (was per-member in build_field)
 
-    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results)) + "\n", encoding="utf-8", newline="\n")
+    # [[playable]] -> mod-global CharacterDefaultName directive lines (the 13th+ character's menu/battle name,
+    # per language). Aggregated across members (a duplicate id is caught here); parse errors fail the build.
+    _play_blocks = [b for p in projects for b in
+                    (p.raw.get("playable") if isinstance(p.raw.get("playable"), list)
+                     else ([p.raw["playable"]] if p.raw.get("playable") else []))]
+    try:
+        _pspecs = _playable.parse_all(_play_blocks)
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    charname_lines = _playable.name_directive_lines(_pspecs)
+    # Crash guard: a bare `[party] add = [12]` for a custom-band id (12-15) that NO [[playable]] defines anywhere
+    # in the mod would emit B_PARTYADD(12) but allocate no PLAYER -> partyadd() null-derefs at field load. The
+    # recruit=true / add-by-name paths can't hit this (they carry/require a definition); only a raw numeric id
+    # can, so validate it here where the whole mod's [[playable]] set is known (mirrors the opens_shop guard).
+    _defined_playable_ids = {s["id"] for s in _pspecs}
+    for p in projects:
+        _pty = p.raw.get("party")
+        _adds = _pty.get("add") if isinstance(_pty, dict) else None
+        for m in (_adds if isinstance(_adds, list) else []):
+            if (isinstance(m, int) and not isinstance(m, bool)
+                    and _party.CUSTOM_MIN <= m <= _party.CUSTOM_MAX and m not in _defined_playable_ids):
+                raise BuildError(f"[party] add = [{m}] recruits a custom 13th+ character (id {m}) that no "
+                                 f"[[playable]] block defines -- add a [[playable]] with id = {m} (or use "
+                                 f"recruit = true on it). Without a definition the game crashes when the field "
+                                 f"loads (no PLAYER is allocated for id {m}).")
+
+    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results, charname_lines)) + "\n",
+                                       encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
@@ -5603,6 +5849,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_item_data(projects, layout)
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
+    start_warnings += _emit_portraits(projects, layout)
     start_warnings += _emit_ability_features(projects, layout)
     start_warnings += bp_warnings
     start_warnings += text_warnings
@@ -5627,4 +5874,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             # deploy_campaign append these to DictionaryPatch AND the staged Models/<type>/<id>/ FBX ships.
             "mint_lines": list(dict.fromkeys(ml for r in results
                                              for ml in (getattr(r, "mint_lines", []) or []))),
+            # [[playable]] `CharacterDefaultName <id> <SYM> <name>` directives (the 13th+ character's name, per
+            # language) -- mod-global; deploy_field.py merges them by (id, lang) so a re-deploy replaces cleanly.
+            "charname_lines": list(charname_lines),
             "warnings": [w for r in results for w in r.warnings] + start_warnings}

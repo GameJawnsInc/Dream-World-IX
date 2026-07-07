@@ -1,0 +1,135 @@
+# THE 13th PLAYABLE CHARACTER — a genuine NEW engine CharacterId (id 12), recruited into the party
+# ALONGSIDE all 12 canon characters. This is the ZERO-DLL in-game proof for the [[playable]] block
+# (memory project-ff9-13th-character). "Iviv" wears Vivi's battle model + Black-Magic kit + mage stats
+# (a custom model is the separate custom-models pillar), but is its own roster slot with its own name.
+#
+#   ff9mapkit lint  examples/thirteenth-character/iviv.field.toml
+#   py tools/deploy_field.py ff9mapkit/examples/thirteenth-character/iviv.field.toml
+#
+# THEN (see README.txt for the full recipe):
+#   1. RELAUNCH FF9 (the new CharacterParameters/BaseStats rows + the CharacterDefaultName directive load
+#      at startup / New-Game init — F6 Reload won't pick them up).
+#   2. NEW GAME (so the engine inits the party with id-12 present).
+#   3. F6 -> Warp to field -> the deployed slot (default 4003). Main_Init recruits Iviv on load.
+#   4. Open the party menu: Iviv appears as its OWN member (Vivi's look, its own name + stats).
+#   5. Walk into a battle (this room has encounters) -> Iviv FIGHTS.
+#   6. Step on the save point, save, then reload the save -> Iviv PERSISTS (the save round-trip).
+
+[field]
+id = 4813
+name = "IVIVROOM"          # -> FBG_N11_IVIVROOM + EVT_IVIVROOM.eb  (deploy_field re-slots this into the test id)
+area = 11
+text_block = 1073
+title = "13th Character"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# --- THE 13th CHARACTER: define + recruit in ONE block ---
+# borrow = "vivi"           -> clones Vivi's BaseStats + CharacterParameters (command-set/equip-set/stats);
+# recruit = true            -> B_PARTYADD(12) is prepended to Main_Init, so Iviv joins the party at field load;
+# custom_battle_model = true -> mint an INDEPENDENT, editable copy of Vivi's battle model bound to Iviv (its own
+#   CharacterSerialNumber + BattleParameters row), so reshaping it in Blender never touches Vivi.
+# custom_battle_anims = true -> ALSO give that minted model its own independent battle ANIMSET: faithful copies of
+#   Vivi's 34 battle clips at Animations/6100/*.anim (+ 3DModelAnimation registrations), so editing Iviv's
+#   attack/cast/etc. poses (hand-edit the .anim JSON, or the Blender loop) never touches Vivi's animations.
+[[playable]]
+name = "Iviv"
+borrow = "vivi"
+recruit = true
+custom_battle_model = true
+custom_battle_anims = true
+# anim_edits = "iviv_anims.glb"      # OPTIONAL: a Blender-edited .glb (from `playable-anims iviv.field.toml
+#   --export iviv_anims.glb`, edited) the BUILD ships onto the animset -- so the edits PERSIST across re-deploys
+#   (the quick `playable-anims --edit --deploy` route is wiped by the next field/campaign deploy). Uncomment +
+#   drop the edited .glb next to this file.
+portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
+stats = { magic = 40 }     # a stronger Black Mage than Vivi. NOTE: Magic drives BOTH damage AND the MP pool, so it's
+#                            the WRONG lever to cut a single spell's damage (flooring it starves MP). Dial an individual
+#                            spell's damage with its own `power` instead (see Voltflare's power = 1 below).
+
+# --- OPTIONAL: give Iviv its OWN ability kit (a custom CharacterPresetId 20) instead of borrowing Vivi's ---
+# Iviv gets his own battle command menu (zero-DLL): a UNIQUE command "Spark" (an inline command that MINTS its own
+# BattleCommandId + curated ability POOL -- no canon character has it) alongside a stock "White Magic". A command1/
+# command2 slot takes EITHER a BattleCommandId name (a string, e.g. "Black Magic") OR an inline [.command1] table
+# to mint a one-of-a-kind command. Spells shown under a command = its POOL intersected with the learn list below.
+[playable.abilities]
+preset    = "custom"        # auto-allocates preset id 20 (band 20-23) + points menu_type at it
+menu_from = "vivi"          # base preset to clone the menu + seed the learn file from (default: the borrow)
+command2  = "White Magic"   # Ability2 menu slot: a stock BattleCommandId name (a black+WHITE caster; command1 below)
+learn = [                   # -> Abilities/20.csv, seeded from menu_from; ap = 0 = already-learned/usable now
+  { ability = "Protect", ap = 0 },   # a White-Magic spell (command2); the Spark pool auto-learns at ap=0
+]
+
+[playable.abilities.command1]   # command1 = a NEW UNIQUE command (an inline table -> mint its own Commands.csv row)
+name = "Spark"                  # its display label (a com_name.mes overlay renames just this command)
+# The pool mixes STOCK spells (a bare name) with a CUSTOM one (an inline { name, from, ... } table). The custom
+# ability clones a stock donor's ANIMATION + damage formula, then retunes it -> its OWN behaviour, zero-DLL, and it
+# never touches the donor. NOTE: the on-screen VFX is the DONOR's (`from`) -- FF9 doesn't recolour a spell by element,
+# so a Fire-cloned Thunder spell LOOKS like fire (the Thunder element only shows as damage vs a weak/resistant enemy).
+# For an animation that MATCHES the element, clone from that element's donor (from = "Thunder" -> lightning + Thunder).
+abilities = [
+  "Blizzard",                  # a stock Black-Magic spell
+  "Cure",                      # a stock White-Magic spell (so Spark mixes schools, which no canon command does)
+  # a CUSTOM spell (new AA id): a Thunder spell (from Fire) at 55 power / 18 MP that INFLICTS SILENCE at 50%.
+  # `status = [names]` auto-mints a StatusSets row + points the action's statusIndex at it (SAFE: the row exists);
+  # it lands only if the donor's script applies statuses (Fire/Bio-style magic) AND `rate` is non-zero (the hit gate).
+  # `effect` is the power-user escape hatch -- an AbilityFeatures "[code=TAG]" NCalc formula keyed on THIS custom
+  # ability (TAG = Power/Element/MPCost/HitRate/Priority/Status/...). Here it makes Voltflare FREE: the base mp is 18,
+  # but "[code=MPCost] 0 [/code]" patches the cost to 0 -> the battle menu shows 0 MP and casting deducts none.
+  { name = "Voltflare", from = "Fire", power = 1, element = ["Thunder"], mp = 18, status = ["Silence"], rate = 50, effect = "[code=MPCost] 0 [/code]" },
+]
+
+# --- A SECOND custom character on a DIFFERENT rig -- proves the [[playable]] stack isn't Vivi/mage-specific.
+# "Steiniv" borrows STEINER (a physical KNIGHT: Attack + Sword Arts, high strength), takes its OWN CharacterId 13,
+# and recruits ALONGSIDE Iviv. The kit auto-allocates DISTINCT bands for the 2nd character -- BaseStats/
+# CharacterParameters id 13, preset 21 (Iviv's is 20), command 35 (Iviv's "Spark" is 46), custom ability 193
+# (Voltflare is 192) -- so the whole custom stack GENERALIZES across rigs and two custom characters coexist.
+[[playable]]
+id = 13
+name = "Steiniv"
+borrow = "steiner"          # a physical knight rig (vs Iviv's Vivi mage rig)
+recruit = true
+stats = { strength = 60 }   # a strong knight (the stat-override path, on a non-mage donor)
+
+[playable.abilities]
+preset    = "custom"        # a 2nd custom preset -> auto-allocates 21 (must not collide with Iviv's 20)
+menu_from = "steiner"       # clone Steiner's command set (Attack / Sword Art) + learn file
+
+[playable.abilities.command1]   # a 2nd custom command "Rune" -> the next band id (35; Iviv's "Spark" took 46)
+name = "Rune"
+# a custom SWORD skill (a 2nd custom ability -> id 193) cloned from Beatrix's "Flare Sword" (a sword animation +
+# formula), retuned cheap -- proving the custom-ability path works off a PHYSICAL/sword donor, not just a mage spell.
+abilities = [ { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 } ]
+
+# --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---
+[encounter]
+scene = 67                 # Evil Forest / Trail (the game's first, weakest battles)
+freq = 48
+battle_music = 0           # 0 = Battle Theme
+
+[music]
+song = 9                   # Vivi's Theme (Disc 1)
+
+# --- a save point, so you can prove the 13th character SURVIVES a save/reload round-trip ---
+[[savepoint]]
+zone = [[-220, -420], [220, -420], [220, -720], [-220, -720]]

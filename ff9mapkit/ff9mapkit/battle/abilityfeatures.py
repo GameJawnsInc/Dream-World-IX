@@ -22,7 +22,10 @@ import re
 from . import characterdelta as _cd
 
 _KINDS = ("SA", "AA", "CMD")
-_SA_MAX, _AA_MAX = 63, 191
+# AA feature ids: 0-191 = the stock active abilities; 192-223 = the MINTED custom-ability band (a `>AA 192` header
+# binds to the custom Actions.csv row by its RAW id -- the engine stores AA features in an uncapped
+# Dictionary<BattleAbilityId,FeatureSet>, keyed directly, so a custom id attaches an [code=...] effect zero-DLL).
+_SA_MAX, _AA_MAX = 63, 223
 
 # the special-id words -> canonical casing + which kinds they actually ACT for (the engine silently no-ops the
 # rest: for >AA/>CMD only "Global" reaches a branch, the other three fall through both -> a dead block).

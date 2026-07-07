@@ -47,6 +47,16 @@ _CHARPARAMS = (
     "0;0;0;1;0;0;1;ZIDANE;# Zidane\n"
     "1;0;1;5;1;1;2;VIVI;# Vivi\n"
 )
+# SYNTHETIC BattleParameters (the COSMETIC per-serial table): Id;AvatarSprite;ModelId;TranceModelId + one anim
+# name (the real file has 34) + a comment cell. Fake GEO/anim tokens (match no real model). The `#! IncludeWeaponSound`
+# option line is preserved verbatim (load-bearing: it gates the trailing optional columns in the real file).
+_BATTLEPARAMS = (
+    "#! IncludeWeaponSound\n"
+    "# Id;AvatarSprite;ModelId;TranceModelId;MP_IDLE_NORMAL\n"
+    "# Int32;String;String;String;String\n"
+    "0;face00;GEO_MAIN_B0_000;GEO_MAIN_B0_022;ANH_MAIN_B0_000_000;# Zidane\n"
+    "2;face01;GEO_MAIN_B0_006;GEO_MAIN_B0_028;ANH_MAIN_B0_006_000;# Vivi\n"
+)
 # SYNTHETIC CommandSets (Id + 12 slots), TAB-PADDED like the real file (to prove the strip) + a colliding
 # Attack(Trance) legend name (proves we index by fixed position, not the legend).
 _COMMANDSETS = (
@@ -75,6 +85,7 @@ def base(tmp_path, monkeypatch):
     (tmp_path / "BaseStats.csv").write_bytes(_BASESTATS.encode("cp1252"))
     (tmp_path / "Leveling.csv").write_bytes(_LEVELING.encode("cp1252"))
     (tmp_path / "CharacterParameters.csv").write_bytes(_CHARPARAMS.encode("cp1252"))
+    (tmp_path / "BattleParameters.csv").write_bytes(_BATTLEPARAMS.encode("cp1252"))
     (tmp_path / "CommandSets.csv").write_bytes(_COMMANDSETS.encode("cp1252"))
     (tmp_path / "Abilities").mkdir()
     (tmp_path / "Abilities" / "AbilityGems.csv").write_bytes(_ABILITYGEMS.encode("cp1252"))
@@ -318,6 +329,62 @@ def test_command_set_range_preset_and_validate(base):
     assert any("ambiguous" in p for p in CD.validate_command_set({"preset": "Marcus", "attack": 1}))
 
 
+# ---- MINT a unique command -> Commands.csv (a NEW magic-list command with its OWN ability pool) ----
+_COMMANDS = (
+    "#! IncludeId\n"
+    "# Id;Type;Ability;Abilities\n"
+    "0;0;0;;# None\n"
+    "45;0;0;;# None\n"
+    "46;0;0;;# None\n"
+)
+
+
+def _with_commands(base):
+    (base / "Commands.csv").write_bytes(_COMMANDS.encode("cp1252"))
+    return base
+
+
+def test_resolve_active_ability_forms():
+    assert CD._resolve_active_ability("25") == 25 and CD._resolve_active_ability("AA:30") == 30
+    assert CD._resolve_active_ability(48) == 48                    # numeric id passthrough (0-191)
+    with pytest.raises(CD.CharacterDeltaError):                    # a support ability -> a command pool holds ACTIVE abilities
+        CD._resolve_active_ability("SA:2")
+    with pytest.raises(CD.CharacterDeltaError):                    # out of range
+        CD._resolve_active_ability("999")
+    with pytest.raises(CD.CharacterDeltaError):                    # None / bool
+        CD._resolve_active_ability(None)
+
+
+def test_build_commands_delta_row_format(base):
+    _with_commands(base)
+    text, w = CD.build_commands_delta([{"id": 46, "name": "Spark", "abilities": ["AA:25", "AA:29", 33]}])
+    assert "#! IncludeId" in text                                  # reuses the base header so the merge keys on Id
+    assert "46;1;25;25, 29, 33;# Spark" in text.splitlines()       # Type=1 (Ability), MainEntry=pool[0], ListEntry comma-space
+    assert w == []
+
+
+def test_build_commands_delta_guards(base):
+    _with_commands(base)
+    with pytest.raises(CD.CharacterDeltaError):                    # id outside the safe custom band (22 = Black Magic)
+        CD.build_commands_delta([{"id": 22, "name": "X", "abilities": [25]}])
+    with pytest.raises(CD.CharacterDeltaError):                    # empty pool
+        CD.build_commands_delta([{"id": 46, "name": "X", "abilities": []}])
+    with pytest.raises(CD.CharacterDeltaError):                    # missing name
+        CD.build_commands_delta([{"id": 46, "name": "", "abilities": [25]}])
+    with pytest.raises(CD.CharacterDeltaError):                    # same id twice
+        CD.build_commands_delta([{"id": 46, "name": "A", "abilities": [25]},
+                                 {"id": 46, "name": "B", "abilities": [26]}])
+    _t, w = CD.build_commands_delta([{"id": 46, "name": "Dup", "abilities": [25, 25]}])
+    assert any("duplicate" in x for x in w)                        # a repeated ability in the pool -> a warning
+
+
+def test_build_command_name_overlay():
+    ov = CD.build_command_name_overlay([{"id": 46, "name": "Spark", "abilities": [25]},
+                                        {"id": 35, "name": "Flux", "abilities": [26]}])
+    assert ov == "[TXID=46]Spark[ENDN][TXID=35]Flux[ENDN]"
+    assert CD.build_command_name_overlay([]) == ""
+
+
 # ---- [[learn]] -> Abilities/<Preset>.csv (WHOLE-FILE per preset) ----
 def test_learn_override_append_remove(base):
     text, warns = CD.build_learn_file(
@@ -364,3 +431,186 @@ def test_learn_ap_is_int32_bounded(base):
     CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": 2_000_000_000}], [], game=None)        # Int32 ok
     with pytest.raises(CD.CharacterDeltaError):
         CD.build_learn_file("Vivi", [{"ability": "AA:25", "ap": 3_000_000_000}], [], game=None)    # > Int32 max
+
+
+# ---- [[playable]] new-character seeding (a NEW 13th+ CharacterId in the custom band) -----------
+def test_basestats_new_row_clones_donor(base):
+    # borrow Vivi (synthetic `Vivi;1;15;25;35;45;7`) into a new id-12 named Marcus, override strength
+    text, _w = CD.build_basestats_delta([], new_rows=[
+        {"id": 12, "borrow": "vivi", "name": "Marcus", "overrides": {"strength": 99}}])
+    # Comment=Marcus, Id=12, Dex/Mag/Will/Gems cloned from Vivi (15/35/45/7), Strength overridden to 99
+    assert "Marcus;12;15;99;35;45;7" in text.splitlines()
+
+
+def test_charparams_new_row_clones_donor(base):
+    # borrow Vivi (`1;0;1;5;1;1;2;VIVI;# Vivi`) -> id-12, unique keyword, override equip_set, rename the comment
+    text, _w = CD.build_character_params_delta([], new_rows=[
+        {"id": 12, "borrow": "vivi", "name": "Marcus", "overrides": {"equip_set": 3, "name_keyword": "CU12"}}])
+    assert "12;0;1;5;1;3;2;CU12;# Marcus" in text.splitlines()
+
+
+def test_new_row_merges_with_base_deltas(base):
+    # a [[character]] tuning Vivi AND a new id-12 coexist in one BaseStats delta (sorted by id)
+    text, _w = CD.build_basestats_delta([{"character": "Vivi", "strength": 2}], new_rows=[
+        {"id": 12, "borrow": "zidane", "name": "Ark", "overrides": {}}])
+    body = [l for l in text.splitlines() if not l.startswith("#")]
+    assert any(l.startswith("Vivi;1;") for l in body) and any(l.startswith("Ark;12;") for l in body)
+
+
+def test_new_row_rejects_bad(base):
+    with pytest.raises(CD.CharacterDeltaError):                       # borrow must be a base char 0-11
+        CD.build_basestats_delta([], new_rows=[{"id": 12, "borrow": 12, "name": "X", "overrides": {}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # id must be in the custom band, not 0-11
+        CD.build_basestats_delta([], new_rows=[{"id": 5, "borrow": "vivi", "name": "X", "overrides": {}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # unknown stat override field
+        CD.build_basestats_delta([], new_rows=[{"id": 12, "borrow": "vivi", "name": "X", "overrides": {"nope": 1}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # unknown param override field
+        CD.build_character_params_delta([], new_rows=[{"id": 12, "borrow": "vivi", "name": "X", "overrides": {"nope": 1}}])
+
+
+def test_battle_params_new_serial_clones_donor(base):
+    # clone Vivi's serial-2 row (`2;face01;GEO_MAIN_B0_006;GEO_MAIN_B0_028;ANH_MAIN_B0_006_000`) into serial 19,
+    # swapping ModelId + TranceModelId to a minted GEO; keep avatar + the anim; rename the comment.
+    text, _w = CD.build_battle_params_delta([{"id": 19, "borrow": 2, "model": "GEO_MAIN_B0_M100", "comment": "Iviv"}])
+    row = [l for l in text.splitlines() if l.startswith("19;")][0]
+    cells = row.split(";")
+    assert cells[0] == "19" and cells[2] == "GEO_MAIN_B0_M100" and cells[3] == "GEO_MAIN_B0_M100"   # id + model + trance
+    assert cells[1] == "face01" and cells[4] == "ANH_MAIN_B0_006_000"                                # avatar + anim kept
+    assert row.rstrip().endswith("# Iviv")
+    assert "#! IncludeWeaponSound" in text                                                           # option line preserved
+
+
+def test_first_anh_run_isolates_the_normal_block():
+    # the normal AnimationId block is the FIRST contiguous run of ANH_ cells; a later (trance) run is excluded.
+    row = ["19", "face01", "GEO_MAIN_B0_006", "GEO_MAIN_B0_028", "0",
+           "ANH_MAIN_B0_006_A", "ANH_MAIN_B0_006_B",       # normal block (contiguous)
+           "5", "0", "0",                                   # AttackSequence + bytes (non-ANH -> ends the run)
+           "ANH_MAIN_B0_028_TR"]                            # a later trance-ish ANH cell (a SEPARATE run)
+    assert CD._first_anh_run(row) == ["ANH_MAIN_B0_006_A", "ANH_MAIN_B0_006_B"]
+
+
+def test_battle_animset_remap_pure():
+    # custom_battle_anims: re-point EVERY normal-block cell to the MINTED model's token -- regardless of the cell's
+    # OWN token (Steiner-class: ModelId GEO_MAIN_B0_018 but anims token 007) -- deduped, fresh keys (>=1M per-mint
+    # band), each clip carrying its OWN source folder (from name_to_src, the anim's own geoId).
+    normal = ["ANH_MAIN_B0_007_ATTACK", "ANH_MAIN_B0_007_ATTACK", "ANH_MAIN_B0_007_CAST"]   # token 007, not the mint's
+    name_to_src = {"ANH_MAIN_B0_007_ATTACK": (300, 5), "ANH_MAIN_B0_007_CAST": (300, 6)}
+    plan = CD.battle_animset_remap(normal, "GEO_MAIN_B0_M100", 6100, name_to_src)
+    assert plan["names"] == {"ANH_MAIN_B0_007_ATTACK": "ANH_MAIN_B0_M100_ATTACK",           # re-token to the MINT,
+                             "ANH_MAIN_B0_007_CAST": "ANH_MAIN_B0_M100_CAST"}                # keep the suffix
+    assert plan["clips"] == [(300, 5, 1_010_000), (300, 6, 1_010_001)]                       # (src_geo_id,src_key,dst_key)
+    assert plan["directives"] == ["3DModelAnimation 1010000 ANH_MAIN_B0_M100_ATTACK",
+                                  "3DModelAnimation 1010001 ANH_MAIN_B0_M100_CAST"]
+
+
+def test_battle_animset_remap_unresolved_cell_left_shared():
+    # a cell with no source clip is LEFT shared with the donor (never re-pointed) so it can't freeze -- and warned.
+    plan = CD.battle_animset_remap(["ANH_MAIN_B0_006_ATTACK", "ANH_MAIN_B0_006_ODD"],
+                                   "GEO_MAIN_B0_M100", 6100, {"ANH_MAIN_B0_006_ATTACK": (5415, 5)})
+    assert plan["names"] == {"ANH_MAIN_B0_006_ATTACK": "ANH_MAIN_B0_M100_ATTACK"}            # only the resolvable one
+    assert any("no source clip" in w for w in plan["warnings"])
+
+
+def test_battle_animset_remap_empty_warns():
+    plan = CD.battle_animset_remap([], "GEO_MAIN_B0_M100", 6100, {})
+    assert plan["names"] == {} and plan["clips"] == []
+    assert any("stays shared" in w for w in plan["warnings"])                                # a silent no-op is surfaced
+
+
+def test_battle_params_custom_anims_repoints_row(base):
+    # the serial row's normal anim cell is re-pointed to the mint name (so it resolves to Animations/<mintId>/)
+    remap = {"ANH_MAIN_B0_006_000": "ANH_MAIN_B0_M100_000"}
+    text, _w = CD.build_battle_params_delta([{"id": 19, "borrow": 2, "model": "GEO_MAIN_B0_M100",
+                                              "anim_names_remap": remap, "comment": "Iviv"}])
+    row = [l for l in text.splitlines() if l.startswith("19;")][0]
+    assert "ANH_MAIN_B0_M100_000" in row and "ANH_MAIN_B0_006_000" not in row        # re-pointed; donor name gone
+    assert row.split(";")[2] == "GEO_MAIN_B0_M100"                                    # model still swapped
+
+
+def test_battle_motion_label_order():
+    # the 34 fixed battle-motion slots (btl_mot.cs MP_* order) -- the Blender edit loop names Actions by these
+    assert CD._BATTLE_MOTION_LABELS[0] == "idle" and CD._BATTLE_MOTION_LABELS[23] == "attack"
+    assert CD._BATTLE_MOTION_LABELS[27] == "cast" and CD._BATTLE_MOTION_LABELS[18] == "victory"
+    assert len(CD._BATTLE_MOTION_LABELS) == 34
+
+
+def test_battle_motion_labels_maps_slot_to_key(base):
+    # the synthetic Vivi serial-2 row has one anim cell (slot 0) -> "00_idle"; key from the injected name->key map
+    labels = CD.battle_motion_labels(2, name_to_key={"ANH_MAIN_B0_006_000": 5})
+    assert labels == {5: "00_idle"}                                  # NN_ prefix keeps Blender's Action list ordered
+
+
+def test_resolve_command():
+    assert CD._resolve_command("Black Magic") == 22 and CD._resolve_command("blk mag") == 22
+    assert CD._resolve_command(19) == 19 and CD._resolve_command("Skill") == 25 and CD._resolve_command("White_Magic") == 19
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_command("Nonsense")
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_command(99)                                      # >47 = system/enemy, not player-assignable
+
+
+def test_resolve_preset_custom_band():
+    assert CD._resolve_preset("vivi") == (1, "Vivi")                # base preset by name
+    assert CD._resolve_preset(20) == (20, "20")                     # custom band -> numeric "name" (Abilities/20.csv)
+    assert CD._resolve_preset(23) == (23, "23")
+    with pytest.raises(CD.CharacterDeltaError):
+        CD._resolve_preset(50)                                       # above the custom band
+
+
+def test_command_set_new_row_clones_and_overrides(base):
+    # a NEW custom preset (20) clones a donor preset's row (fixed Attack/Item/Change) + sets the ability slots
+    text, _w = CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 1,
+                                          "slots": {"ability1": "Black Magic", "ability2": 19}, "comment": "Iviv"}])
+    row = [l for l in text.splitlines() if l.split(";")[0].strip() == "20"][0]
+    cells = [c.strip() for c in row.split(";")]
+    assert cells[0] == "20" and cells[3] == "22" and cells[4] == "19"   # id + ability1=BlackMagic + ability2=White(19)
+    assert cells[1] == "1" and row.rstrip().endswith("# Iviv")          # Attack slot cloned from the donor
+
+
+def test_command_set_new_row_rejects(base):
+    with pytest.raises(CD.CharacterDeltaError):                       # id below the custom band
+        CD.build_command_set_delta([], new_rows=[{"id": 5, "clone_from": 1, "slots": {}}])
+    with pytest.raises(CD.CharacterDeltaError):                       # clone_from not in the base
+        CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 99, "slots": {}}])
+
+
+def test_command_set_new_row_warns_empty_pool(base):
+    # a learn-pool command (White Magic) CHANGED from the donor's slot -> warn its menu may be empty without matching learn
+    _t, w = CD.build_command_set_delta([], new_rows=[{"id": 20, "clone_from": 1, "slots": {"ability2": "White Magic"}}])
+    assert any("may open EMPTY" in x for x in w)
+
+
+def test_build_learn_file_read_from(base):
+    # a custom preset "20" seeds its learn list from the donor Vivi.csv, overriding Fire's AP to 0 (learned)
+    text, _w = CD.build_learn_file("20", [{"ability": "AA:25", "ap": 0}], [], read_from="Vivi")
+    assert "AA:25;0" in text                                          # Fire seeded learned, from the Vivi base file
+    assert "20 learn list" in text.splitlines()[0]                    # the note references preset 20, not Vivi
+
+
+def test_battle_params_rejects_bad(base):
+    with pytest.raises(CD.CharacterDeltaError):                       # serial < 19 (the base band)
+        CD.build_battle_params_delta([{"id": 5, "borrow": 2, "model": "X"}])
+    with pytest.raises(CD.CharacterDeltaError):                       # borrow serial not in the base
+        CD.build_battle_params_delta([{"id": 19, "borrow": 99, "model": "X"}])
+    with pytest.raises(CD.CharacterDeltaError):                       # no model
+        CD.build_battle_params_delta([{"id": 19, "borrow": 2}])
+
+
+def test_resolve_donor_battle(base):
+    serial, geo = CD.resolve_donor_battle(1)                          # Vivi: serial-formula "2" -> serial 2 -> its ModelId
+    assert serial == 2 and geo == "GEO_MAIN_B0_006"
+
+
+def test_write_character_data_new_only(base, tmp_path):
+    from ff9mapkit.config import ModLayout
+    layout = ModLayout(tmp_path / "mod")
+    # a [[playable]] with NO other character blocks still writes BOTH BaseStats + CharacterParameters
+    CD.write_character_data(layout,
+                            new_basestats=[{"id": 12, "borrow": "vivi", "name": "Marcus", "overrides": {}}],
+                            new_params=[{"id": 12, "borrow": "vivi", "name": "Marcus",
+                                         "overrides": {"name_keyword": "CU12"}}])
+    assert layout.base_stats_csv.is_file() and layout.character_parameters_csv.is_file()
+    _h, cols, rows = CD._read_csv(layout.base_stats_csv)
+    assert any(r[cols["id"]] == "12" for r in rows)                  # the new id-12 row landed
+    _h2, c2, r2 = CD._read_csv(layout.character_parameters_csv)
+    assert any(r[c2["id"]] == "12" for r in r2)

@@ -135,7 +135,8 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
 
 # ---------------------------------------------------------------- exporter
 
-def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None, _model=None) -> dict:
+def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None,
+                label_overrides=None, _model=None) -> dict:
     """Write a ``.glb`` for ``token`` (GEO name or id) at ``out_path``. Returns a manifest (counts + anims).
     ``_model`` is an internal hook to pass a pre-read struct (bulk sweeps) and skip the p0data4 read."""
     model = _model if _model is not None else extract.read_model(token, game=game)
@@ -330,12 +331,15 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
                     samplers.append({"input": tin, "output": sacc, "interpolation": "LINEAR"})
                     channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "scale"}})
         if channels:
+            # A caller (e.g. playable-anims) can NAME each Action by what it does ("23_attack") via
+            # label_overrides[key] -- the raw numeric key is otherwise unreadable in Blender's Action list.
+            name = str((label_overrides or {}).get(key, label))
             # Stamp the routing key so the return path (models.anim) can write each clip back to
             # Animations/{geoId}/{key}.anim even if Blender renames the Action -- extras survive a glTF
             # round-trip as Action custom properties; a purely-numeric name is the fallback.
-            gltf_anims.append({"name": label, "samplers": samplers, "channels": channels,
-                               "extras": {"ff9_anim_key": key, "ff9_anim_label": label}})
-            anim_labels.append(label)
+            gltf_anims.append({"name": name, "samplers": samplers, "channels": channels,
+                               "extras": {"ff9_anim_key": key, "ff9_anim_label": name}})
+            anim_labels.append(name)
 
     # --- assemble ---
     gltf = {
