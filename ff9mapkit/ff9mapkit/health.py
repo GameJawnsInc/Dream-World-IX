@@ -90,9 +90,12 @@ def health_report(game=None) -> list:
     try:
         from . import provision
         ok = provision.templates_present()
-        rows.append(_row("Base templates", "extracted" if ok else "NOT extracted",
+        rows.append(_row("Base templates", "extracted" if ok else f"NOT extracted ({provision.data_dir()})",
                          "ok" if ok else "warn",
-                         "" if ok else "Run setup extracts them from your install (~1–2 min, once)"))
+                         "" if ok else "Run setup extracts them from your install (~1–2 min, once). "
+                                       "They live PER-CHECKOUT (gitignored — no game bytes in git), so a "
+                                       "fresh worktree/clone starts without them even when another copy "
+                                       "has them."))
     except Exception as e:  # noqa: BLE001
         rows.append(_row("Base templates", f"probe failed ({e})", "warn", ""))
 

@@ -53,3 +53,21 @@ def test_setup_dialog_constructs_offscreen(monkeypatch, tmp_path):
     dlg = SetupHealthDialog(None, pick_palette("dark"), kit_cwd=tmp_path)
     assert dlg._worst in ("ok", "warn", "bad")         # the report rendered
     dlg.refresh()                                      # re-render is safe (grid rebuild)
+
+
+def test_setup_dialog_refresh_never_stacks_grids(monkeypatch, tmp_path):
+    """The doubled-report regression: refresh() before exec() queues the old grid's deferred delete
+    OUTSIDE the dialog's nested event loop, so it must be DETACHED immediately — WITHOUT processing
+    any deferred deletes, exactly one grid may be parented to the host."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication, QWidget
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.setupdialog import SetupHealthDialog
+    QApplication.instance() or QApplication([])
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    dlg = SetupHealthDialog(None, pick_palette("dark"), kit_cwd=tmp_path)
+    dlg.refresh()                                      # the _open_setup-before-exec() sequence
+    dlg.refresh()
+    kids = [c for c in dlg.grid_host.findChildren(QWidget) if c.parent() is dlg.grid_host]
+    assert len(kids) == 1, f"stale report grids still parented: {len(kids)}"
