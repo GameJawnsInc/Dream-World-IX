@@ -420,19 +420,22 @@ def build_actions_delta(entries, *, new_rows=(), game=None) -> tuple:
 _CUSTOM_STATUS_MIN = 33     # BattleStatusId.CustomStatus1..31 = 33-63: the mod-reservable custom-status band (its own
 _CUSTOM_STATUS_MAX = 63     # 64-bit BattleStatus bit). A minted status needs a StatusData ROW here or btl_stat.cs:71
 #                             (statusDatabase[statusId] on apply) KeyNotFound-crashes. project-ff9-scripts-dll (P7).
-# Every behavioural + visual StatusData column, neutralised: a CustomStatusN row is INERT data (no tick / no auto-
-# expire [both engine-excluded for custom bits] / no clears / no immunities / no particle / no tint). The status's
-# BEHAVIOUR lives entirely in its [StatusScript]. Set by CSV column NAME (install column-order-independent).
-_STATUS_DATA_NEUTRAL = {"oprcount": "0", "conticount": "0", "clearonapply": "", "immunityprovided": "",
-                        "spseffect": "-1", "shpeffect": "-1", "colorkind": "0", "colorpriority": "0", "colorbase": "0"}
+# A CustomStatusN row's BEHAVIOURAL fields are always neutralised (its behaviour lives in the [StatusScript], its
+# panel icon in the BuffIcon DictionaryPatch): no tick / no auto-expire (both engine-excluded for custom bits) / no
+# clears / no immunities. The ON-MODEL visual (SPS particle / SHP over-model indicator / Color tint, btl_stat.cs:78-81)
+# is INHERITED from an `over_model` donor status's row when given, else turned off.
+_STATUS_DATA_BEHAV_NEUTRAL = {"oprcount": "0", "conticount": "0", "clearonapply": "", "immunityprovided": ""}
+_STATUS_DATA_VISUAL_OFF = {"spseffect": "-1", "shpeffect": "-1", "colorkind": "-1"}   # no particle / over-model / tint
 
 
 def _mint_status_rows(new_rows, rows, cols) -> list:
-    """Mint NEW custom-status StatusData rows (33-63): clone a base row's COLUMN STRUCTURE, re-id, rename, and
-    neutralise every behavioural/visual column. Adds each into ``rows`` in place; returns the minted ids."""
+    """Mint NEW custom-status StatusData rows (33-63). Clone the ``over_model`` donor status's row -- so the custom
+    status INHERITS its ON-MODEL visual (the SPS particle / SHP over-model indicator like Haste's chevron / Color
+    tint, btl_stat.cs:78-81) -- re-id, rename, and neutralise the BEHAVIOURAL fields. No ``over_model`` -> a neutral
+    base row with the visual OFF (inert data). Adds each into ``rows`` in place; returns the minted ids."""
     if not new_rows:
         return []
-    donor = rows[min(rows)]                          # borrow ONLY the column structure (all behaviour is neutralised)
+    names = _name_index(rows, cols)                  # base-status comment name -> [ids] (the visual donor lookup)
     idc, cmtc = cols.get("id"), cols.get("comment", 0)
     minted, seen = [], set()
     for n, nr in enumerate(new_rows if isinstance(new_rows, list) else [new_rows]):
@@ -447,15 +450,28 @@ def _mint_status_rows(new_rows, rows, cols) -> list:
             raise ActionDeltaError(f"{ctx}: status id {sid} is already defined")
         seen.add(sid)
         name = re.sub(r"[;\r\n]+", " ", str(nr.get("name", f"Status {sid}"))).strip() or f"Status {sid}"
-        cells = list(donor)
+        over = nr.get("over_model")
+        donor_id = None
+        if over:                                     # borrow this vanilla status's on-model visual (SPS/SHP/Color)
+            ids = names.get(str(over).strip().lower())
+            if not ids:
+                raise ActionDeltaError(f"{ctx} {name!r}: over_model {over!r} is not a base status (borrow the on-model "
+                                       f"visual of a vanilla status, e.g. \"Haste\"/\"Slow\" [chevron], \"Berserk\" [tint])")
+            donor_id = ids[0]
+        cells = list(rows[donor_id] if donor_id is not None else rows[min(rows)])
         if idc is not None and idc < len(cells):
             cells[idc] = str(sid)
         if cmtc < len(cells):
             cells[cmtc] = name
-        for col, val in _STATUS_DATA_NEUTRAL.items():
+        for col, val in _STATUS_DATA_BEHAV_NEUTRAL.items():
             ci = cols.get(col)
             if ci is not None and ci < len(cells):
                 cells[ci] = val
+        if donor_id is None:                         # no visual donor -> turn the on-model visual OFF (fully inert)
+            for col, val in _STATUS_DATA_VISUAL_OFF.items():
+                ci = cols.get(col)
+                if ci is not None and ci < len(cells):
+                    cells[ci] = val
         if cells and cells[-1].lstrip().startswith("#"):
             cells[-1] = f"# {name}"
         rows[sid] = cells

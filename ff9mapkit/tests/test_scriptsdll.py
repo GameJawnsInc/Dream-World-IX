@@ -436,16 +436,23 @@ def test_encode_custom_status_names():
 
 
 def test_mint_status_data_row():
-    # a synthetic base (no install): clone the column structure + neutralise every behavioural/visual column.
+    # a synthetic base (no install): clone the column structure; behaviour neutralised, on-model visual off/inherited.
     cols = {"comment": 0, "id": 1, "oprcount": 2, "conticount": 3, "clearonapply": 4, "immunityprovided": 5,
             "spseffect": 6, "shpeffect": 7, "colorkind": 8, "colorpriority": 9, "colorbase": 10}
-    rows = {0: ["Petrify", "0", "5", "0", "Venom", "Petrify", "3", "-1", "1", "2", "3", "# Petrify"]}
+    rows = {0: ["Petrify", "0", "5", "0", "Venom", "Petrify", "3", "-1", "1", "2", "3", "# Petrify"],
+            19: ["Haste", "19", "0", "40", "", "", "-1", "1", "-1", "0", "0", "# Haste"]}   # SHPEffect=1 (over-model)
+    # no over_model -> a neutral base with the visual OFF (behaviour = [StatusScript], panel icon = the BuffIcon line)
     assert ad._mint_status_rows([{"id": 33, "name": "Rebirth"}], rows, cols) == [33]
     r = rows[33]
     assert r[cols["id"]] == "33" and r[cols["comment"]] == "Rebirth" and r[-1] == "# Rebirth"
-    assert r[cols["oprcount"]] == "0" and r[cols["clearonapply"]] == "" and r[cols["spseffect"]] == "-1"
+    assert r[cols["oprcount"]] == "0" and r[cols["clearonapply"]] == "" and r[cols["shpeffect"]] == "-1"
+    # over_model -> INHERIT that status's on-model visual (Haste's SHPEffect=1 = the over-model chevron), behaviour off
+    ad._mint_status_rows([{"id": 34, "name": "Frenzy", "over_model": "Haste"}], rows, cols)
+    assert rows[34][cols["shpeffect"]] == "1" and rows[34][cols["oprcount"]] == "0"
     with pytest.raises(ad.ActionDeltaError):                                         # out of the 33-63 band
         ad._mint_status_rows([{"id": 10, "name": "X"}], rows, cols)
+    with pytest.raises(ad.ActionDeltaError):                                         # unknown over_model donor
+        ad._mint_status_rows([{"id": 35, "name": "X", "over_model": "NotAStatus"}], rows, cols)
 
 
 def _iviv_status(status):
@@ -458,7 +465,7 @@ def test_parse_custom_status_allocates():
     specs = pl.parse_all([_iviv_status([{"name": "Rebirth", "template": "auto_life"}])])
     assert pl.status_script_seeds(specs) == [{"id": 33, "status_enum": "CustomStatus1", "name": "Rebirth",
                                               "template": "auto_life", "icon": "AutoLife"}]   # template default icon resolved
-    assert pl.status_data_seeds(specs) == [{"id": 33, "name": "Rebirth"}]           # -> a StatusData row
+    assert pl.status_data_seeds(specs) == [{"id": 33, "name": "Rebirth", "over_model": "AutoLife"}]   # -> a StatusData row
     ca = next(a for a in pl.action_seeds(specs) if a["name"] == "Guardian")
     assert ca["status"] == ["CustomStatus1"]                                        # inflict list enriched
     assert any("CustomStatus1" in s["statuses"] for s in pl.status_set_seeds(specs))  # a StatusSets inflicts it

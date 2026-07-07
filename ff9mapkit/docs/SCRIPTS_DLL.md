@@ -162,11 +162,23 @@ Or a raw `{ name = "…", body = "<C# class-body>", hooks = ["death_changer"] }`
 methods (`Apply`/`Remove`/`OnDeath`/`OnATB`/…) and declare which lifecycle interfaces (`hooks`) they implement:
 `death_changer` (OnDeath), `auto_attack` (OnATB), `figure_point` (OnFigurePoint), `finish_command` (OnFinishCommand).
 
-**The HUD icon:** a custom status **borrows a vanilla status's icon** — each template picks a sensible default
-(`auto_life` → AutoLife, `auto_attack` → Berserk), or set `icon = "<vanilla status>"` (e.g. `"Regen"`, `"Protect"`,
-`"Reflect"`) to choose. The kit emits a `BuffIcon`/`DebuffIcon` **DictionaryPatch** line that registers the sprite
-at launch, so it shows in *every* status display — the battle HUD, the target/"hover" status, resists, and the
-party menu. (FF9 shows statuses by icon only — there's no separate text name.)
+**The HUD icon** (in the status *panels*): a custom status **borrows a vanilla status's icon** — each template
+picks a sensible default (`auto_life` → AutoLife, `auto_attack` → Berserk), or set `icon = "<vanilla status>"`
+(e.g. `"Regen"`, `"Protect"`, `"Reflect"`) to choose. The kit emits a `BuffIcon`/`DebuffIcon` **DictionaryPatch**
+line that registers the sprite at launch, so it shows in every panel display — the battle HUD Good/Bad-status
+panel, the target/"hover" status, resists, and the party menu. (FF9 shows statuses by icon only — no text name.)
+
+**The on-model visual** (over the character's 3D battle model): the panel icon and the *on-model* indicator are
+**separate** engine mechanisms. To also show something on the model — like Haste's floating up-chevron or Slow's
+down-chevron — set `over_model = "<vanilla status>"`; the custom status inherits that status's on-model effect
+(its SHP over-model shape / SPS particle / colour tint from `StatusData`). Only some statuses have one: **Haste**
+/**Slow** (chevrons), **Silence**/**Trouble** (shapes), a particle (`"Poison"`/`"Berserk"`/`"Blind"`…), or a tint
+(`"Protect"`/`"Shell"`/`"Trance"`). `over_model` defaults to the `icon` donor — and **AutoLife has no on-model
+effect**, so a revive buff needs e.g. `over_model = "Haste"` to be visible on the model:
+
+```toml
+status = [{ name = "Rebirth", template = "auto_life", over_model = "Haste" }]   # heart in the panel + up-chevron on the model
+```
 
 **Engine limit (honest):** a **per-tick DoT is not reachable** — the engine gates the per-tick `OnOpr` hook to
 vanilla statuses only (a compile-time `OprCount` mask), so a custom status can't tick each frame. The reachable

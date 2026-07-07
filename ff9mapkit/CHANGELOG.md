@@ -33,8 +33,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   + `hooks`. A per-tick DoT is engine-gated (documented); the reachable hooks are Apply/Remove/OnDeath/OnATB/
   OnFigurePoint/OnFinishCommand. Each custom status **borrows a vanilla status's HUD icon** (template default, or
   `icon = "<vanilla status>"`) via a `BuffIcon`/`DebuffIcon` DictionaryPatch line registered at launch, so it shows
-  in every status display (battle HUD, target/"hover", resists, party menu). ★ Behaviour + panel icon in-game proven
-  (a custom revive-on-death status fired + showed its icon).
+  in every panel display (battle HUD, target/"hover", resists, party menu); an `over_model = "<vanilla status>"`
+  additionally gives it an ON-MODEL indicator (inheriting that status's SHP over-model chevron / SPS particle / tint
+  from `StatusData`). ★ Behaviour + panel icon in-game proven (a custom revive-on-death status fired + showed its icon).
 
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 

@@ -390,6 +390,15 @@ def _parse_status_spec(s, nid, aname) -> dict:
             raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} icon must be a vanilla status name to "
                                 f"borrow its HUD icon from (e.g. \"AutoLife\", \"Regen\", \"Berserk\")")
         out["icon"] = icon.strip()
+    over = s.get("over_model")                             # the ON-MODEL visual (particle/over-model chevron/tint)
+    if over is None:
+        over = out.get("icon")                             # default: match the panel-icon donor (AutoLife has none)
+    if over is not None:                                   # borrow a vanilla status's on-model visual (SPS/SHP/Color)
+        from ..battle import battlecsv as _bc
+        if not isinstance(over, str) or over.strip().lower() not in {n.lower() for _, n in _bc.STATUSES}:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} over_model must be a vanilla status "
+                                f"name to borrow its on-model visual (e.g. \"Haste\"/\"Slow\" [chevron], \"Berserk\")")
+        out["over_model"] = over.strip()
     return out
 
 
@@ -565,7 +574,9 @@ def parse_all(entries) -> list:
                             spec.setdefault("minted_status_scripts", []).append(
                                 {"id": status_alloc, "status_enum": enum, "name": cs["name"],
                                  **{k: v for k, v in cs.items() if k in ("template", "body", "hooks", "icon")}})
-                            spec.setdefault("minted_status_data", []).append({"id": status_alloc, "name": cs["name"]})
+                            spec.setdefault("minted_status_data", []).append(
+                                {"id": status_alloc, "name": cs["name"],
+                                 **({"over_model": cs["over_model"]} if cs.get("over_model") else {})})
                             status_alloc += 1
                         if ca.get("status") is None:              # inflict it via THIS ability's StatusSets row (below)
                             ca["status"] = []
