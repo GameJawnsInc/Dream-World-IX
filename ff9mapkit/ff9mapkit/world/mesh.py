@@ -440,7 +440,8 @@ def blob_outline(cx: float, cz: float, *, base_radius: float = 24.0, n: int = 96
 def blob_cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg_ang: int = 96, rings: int = 4,
                           land_height: float = 3.2, rim_run: float = 1.0, roll_amp: float = 0.6,
                           base_radius: float = 24.0, undulation: float = 0.11, seed=None,
-                          land_topo: int = 0, cliff_topo: int = 58, lod: str = "0_1"):
+                          land_topo: int = 0, cliff_topo: int = 58, submerge: bool = True,
+                          submerge_topo: int = 57, submerge_y: float = -0.6, lod: str = "0_1"):
     """Synthesize a ROUNDED cliff island whose coastline is a SMOOTH ORGANIC curve (:func:`blob_outline`) instead of the
     64u CELL RECTANGLE -- the faithful move away from the axis-aligned square (real FF9 coasts are gentle ~25u-radius
     curves + occasional corners, NOT rectangles; the hard 90deg cell corners were also where the rock UVs warped). A
@@ -504,15 +505,41 @@ def blob_cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg_ang: int
             emit(p, idC); emit(q, idC); emit(r, idC)
             tris.append([base, base + 1, base + 2])
 
-    # auto-orient to +Y geometric normal (walkability): flip winding if the first real tri faces down
+    # SUBMERGED sea-floor fill OUTSIDE the island (topo 57 = boat-water, just BELOW the Y=0 sea render) so the WHOLE
+    # cell has Terrain: the s34 land-override gate + a walkmesh under the entire cell (robust player placement, no void)
+    # -- the island pokes above; the deploy_island_sea Sea4 at Y=0 hides the floor. (The proven coast recipe: island
+    # land + submerged floor + Sea4.)
+    if submerge:
+        idW = float(encode_id(topograph=submerge_topo))
+        sub_seg = 12
+        step = 64.0 / sub_seg
+        two_pi = 2.0 * math.pi
+
+        def radius_at(th):                                   # outline radius at angle th (interp the per-angle radii)
+            t = (th % two_pi) / two_pi * seg_ang
+            i0 = int(t) % seg_ang
+            f = t - int(t)
+            return radii[i0] * (1.0 - f) + radii[(i0 + 1) % seg_ang] * f
+
+        for gi in range(sub_seg):
+            for gj in range(sub_seg):
+                x0, x1 = gi * step, (gi + 1) * step
+                z0, z1 = -gj * step, -(gj + 1) * step
+                mcx, mcz = (x0 + x1) / 2.0, (z0 + z1) / 2.0
+                if math.hypot(mcx - cx, mcz - cz) < radius_at(math.atan2(mcz - cz, mcx - cx)) + 2.0:
+                    continue                                 # under/near the island disk -> skip (the disk covers it)
+                c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+                for (p, q, r) in ((c00, c11, c01), (c00, c10, c11)):
+                    base = vi
+                    emit((p[0], submerge_y, p[1]), idW); emit((q[0], submerge_y, q[1]), idW); emit((r[0], submerge_y, r[1]), idW)
+                    tris.append([base, base + 1, base + 2])
+
+    # orient EVERY tri to a +Y geometric normal (walkability) -- per-tri, since the polar disk + the grid submerge fill
+    # have different natural windings (an all-or-nothing flip would leave one group down-facing).
     for t in tris:
         a, b, c = pos[t[0]], pos[t[1]], pos[t[2]]
-        ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])   # Cross(e1,e2).y (XZ only)
-        if abs(ny) > 1e-6:
-            if ny < 0:
-                for tt in tris:
-                    tt[1], tt[2] = tt[2], tt[1]
-            break
+        if (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]) < 0:   # Cross(e1,e2).y < 0 -> flip
+            t[1], t[2] = t[2], t[1]
 
     chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
     channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}

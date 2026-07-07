@@ -144,16 +144,21 @@ def test_blob_cliff_is_a_smooth_organic_island():
     axis_aligned = sum(1 for i in range(len(outline))
                        if abs(outline[i][0] - outline[i - 1][0]) < 0.05 or abs(outline[i][1] - outline[i - 1][1]) < 0.05)
     assert axis_aligned < len(outline) * 0.15                  # almost no axis-aligned edges (not a rectangle)
-    # mesh integrity: every tri up-facing (walkable) + watertight (coincident XZ share Y)
+    # mesh integrity: every tri up-facing (walkable, incl. the submerged floor)
     assert all(_geom_normal_y(bm, t) > 0 for t in bm.tris)
+    # the ISLAND (topo 0 grass + 58 wall) is watertight (coincident XZ share Y); the submerged floor is a separate layer
+    island_vis = {i for t in bm.tris if X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] in (0, 58) for i in t}
     seen = {}
-    for v in bm.verts:
+    for i in island_vis:
+        v = bm.verts[i]
         k = (round(v[0], 3), round(v[2], 3))
         assert abs(seen.setdefault(k, v[1]) - v[1]) < 1e-4
     topos = {X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] for t in bm.tris}
-    assert topos == {0, 58}                                    # walkable grass top + rock wall
+    assert topos == {0, 58, 57}                                # grass top + rock wall + submerged sea-floor (full cell)
     ys = [v[1] for v in bm.verts]
-    assert min(ys) == 0.0 and 3.0 < max(ys) < 4.2              # waterline base up to ~land_height (+roll)
+    assert min(ys) < 0.0 and 3.0 < max(ys) < 4.2              # submerged floor (<0) up to the island top (~land_height)
+    assert 0.0 in {round(v[1], 2) for t in bm.tris if X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] == 58
+                   for v in [bm.verts[i] for i in t]}          # the rock wall reaches the waterline (Y=0)
     # rock UV runs along the SMOOTH outline arc-length -> stays in the strip, uniform density (no corner warp)
     for u in bm.chan_arrays[X.CH_UV]:
         u[0] = u[1] = 0.0
