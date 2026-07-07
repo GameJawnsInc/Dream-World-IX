@@ -15,9 +15,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
-    QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
+    QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 
@@ -60,14 +60,16 @@ class ImportDoc(QWidget):
         root.addWidget(intro)
         root.addWidget(self._fork_box())
         root.addWidget(self._region_box())
+        root.addWidget(self._archive_box())
         root.addWidget(self._repaint_box())
         root.addWidget(self._models_box())
         root.addWidget(self._read_box())
         root.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
-        self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
-                         self.fork_region_btn, self.catalog_btn, self.rp_unpack_btn, self.rp_pack_btn,
+        self._buttons = [self.find_btn, self.preview_btn, self.study_btn, self.rooms_btn, self.import_btn,
+                         self.dryrun_btn, self.fork_region_btn, self.catalog_btn, self.arc_btn,
+                         self.rp_unpack_btn, self.rp_pack_btn,
                          self.mdl_pick_btn, self.mdl_gltf_btn, self.mdl_import_btn, self.mdl_mint_btn,
                          self.dlg_btn, self.save_btn, self.list_btn, self.songs_btn, self.sfx_btn,
                          self.tpl_btn]
@@ -89,12 +91,27 @@ class ImportDoc(QWidget):
         self.find_btn.setToolTip("List the real FF9 fields matching the box above (id + name) — the same lookup "
                                  "as 'List fields' under Read & inspect.")
         self.find_btn.clicked.connect(self.on_find)
-        self.preview_btn = QPushButton("Preview fidelity")
-        self.preview_btn.clicked.connect(self.on_preview)
         row.addWidget(self.field, 1)
         row.addWidget(self.find_btn)
-        row.addWidget(self.preview_btn)
         v.addLayout(row)
+        # the pre-fork STUDY row -- 'fork/learn from a real field's bytes BEFORE authoring' as buttons
+        study = QHBoxLayout()
+        self.preview_btn = QPushButton("Preview fidelity")
+        self.preview_btn.clicked.connect(self.on_preview)
+        study.addWidget(self.preview_btn)
+        self.explain_chk = QCheckBox("+ explain NPC logic")
+        self.explain_chk.setToolTip("fork-report --explain: decode each NPC's talk routine into readable "
+                                    "English (dialogue + items + the funcs it runs) — shows WHY a "
+                                    "render-only NPC needs --verbatim.")
+        study.addWidget(self.explain_chk)
+        self.study_btn = QPushButton("Study logic…")
+        self.study_btn.setToolTip("The field's whole .eb as a read-only, legible logic map (every entry + "
+                                  "routine: dialogue, rewards, flags, warps) — study the real bytes before "
+                                  "you fork. Needs the install; ~2–5 s.")
+        self.study_btn.clicked.connect(self.on_study_logic)
+        study.addWidget(self.study_btn)
+        study.addStretch(1)
+        v.addLayout(study)
         self.preview_img = QLabel()                    # the room's actual background, shown by Preview fidelity
         self.preview_img.setVisible(False)
         v.addWidget(self.preview_img)
@@ -163,6 +180,15 @@ class ImportDoc(QWidget):
         swap.addWidget(self.swap_player)          # combo is a big wheel-scroll target in the scrolling panel)
         self.neutralize = QCheckBox("Neutralize scripted gestures")
         swap.addWidget(self.neutralize)
+        self.rooms_btn = QPushButton("Suggest a test room…")
+        self.rooms_btn.setToolTip("Sweep ALL fields for the best swap/demo rooms (single-PC, swap-clean, "
+                                  "close camera) — answers 'which field should I try this in'. ~45 s; the "
+                                  "table streams to Output.")
+        self.rooms_btn.clicked.connect(
+            lambda: self._kit(["find-rooms"], subject="Find test rooms",
+                              ok_next="Pick a room from the table above, put its id in the field box, and "
+                                      "Preview fidelity / Import."))
+        swap.addWidget(self.rooms_btn)
         swap.addStretch(1)                        # left-align the compact combo + checkbox
         v.addLayout(swap)
         swap_hint = QLabel("Optional: control a different character (a playable name) or any model (a GEO id, "
@@ -500,6 +526,69 @@ class ImportDoc(QWidget):
         v.addLayout(tpl)
         return box
 
+    # ------------------------------------------------------------------ import-all archive
+    def _archive_box(self):
+        """`ff9mapkit import-all` — the whole-game (or one-zone) Blender-ready reference archive: the
+        on-disk source of truth you copy field folders out of."""
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Reference archive  (import-all — every field, foldered)")
+        v = QVBoxLayout(box)
+        lbl = QLabel("Bulk-import fields into <out>/<ZONE>/<FBG>/ — lightweight model-against projects "
+                     "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
+                     "browsable reference you copy field folders out of.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(muted)
+        v.addWidget(lbl)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Archive root:"))
+        self.arc_out = QLineEdit()
+        self.arc_out.setPlaceholderText("a GITIGNORED folder — this is SE-derived art (e.g. reference/all-fields)")
+        row.addWidget(self.arc_out, 1)
+        ab = QPushButton("Browse…")
+        ab.clicked.connect(lambda: self._pick_dir_into(self.arc_out, "Archive root (gitignored)"))
+        row.addWidget(ab)
+        v.addLayout(row)
+        opts = QHBoxLayout()
+        opts.addWidget(QLabel("Zone filter:"))
+        self.arc_pattern = QLineEdit()
+        self.arc_pattern.setFixedWidth(140)
+        self.arc_pattern.setPlaceholderText("e.g. iccv — blank = ALL")
+        self.arc_pattern.setToolTip("Only fields whose FBG folder contains this substring (a zone: iccv / "
+                                    "dali / trno …). Blank imports the whole game.")
+        opts.addWidget(self.arc_pattern)
+        self.arc_editable = QCheckBox("Full editable scenes (bigger + slower)")
+        self.arc_editable.setToolTip("Per-depth repaintable layers for art-modding a whole set at once "
+                                     "(~2–3 GB whole-game) instead of the lightweight default (~500 MB).")
+        opts.addWidget(self.arc_editable)
+        self.arc_btn = QPushButton("Build archive")
+        self.arc_btn.clicked.connect(self.on_archive)
+        opts.addWidget(self.arc_btn)
+        opts.addStretch(1)
+        v.addLayout(opts)
+        hint = QLabel("Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special "
+                      "fields with no scene) are listed and skipped.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        return box
+
+    def _pick_dir_into(self, line_edit, caption):
+        d = QFileDialog.getExistingDirectory(self, caption)
+        if d:
+            line_edit.setText(d)
+
+    def on_archive(self):
+        out = self.arc_out.text().strip().strip('"')
+        if not out:
+            return self._warn("No archive root", "Pick the folder to build the archive into (keep it "
+                                                 "gitignored — the art is SE-derived).")
+        pat = self.arc_pattern.text().strip()
+        argv = ["import-all", "--out", out] + (["--pattern", pat] if pat else ["--all"]) \
+            + (["--editable"] if self.arc_editable.isChecked() else [])
+        self._kit(argv, subject="Build archive",
+                  ok_next=f"Archive at {out} — <ZONE>/<FBG>/ folders, each openable here or importable "
+                          "in Blender (Import FF9 Field).")
+
     # ------------------------------------------------------------------ custom 3D models
     def _models_box(self):
         """The DLL-free model round trip: export a real model to a Blender-editable .glb, then bring the
@@ -786,10 +875,51 @@ class ImportDoc(QWidget):
         if not field:
             return self._warn("No field", "Enter a real field id or name to preview its fork fidelity.")
         self._request_preview_art(field)
-        self._kit(["fork-report", field], subject="Fork preview",
+        argv = ["fork-report", field] + (["--explain"] if self.explain_chk.isChecked() else [])
+        self._kit(argv, subject="Fork preview",
                   ok_next="Read the fidelity report (it recommends a fork mode). Verbatim is the faithful "
                           "default — note its suggested [startup] scenario, Import, then add that beat in the "
                           "editor; or switch to Re-authorable to carry NPCs/dialogue as editable content.")
+
+    def on_study_logic(self):
+        """'Study logic…' — the doctrine ('fork/learn from a real field's bytes before authoring') as a
+        click: decode the field's whole .eb into the read-only logic map, IN-PROCESS (a few seconds behind
+        a wait cursor), into a scrollable dialog. Same output as `ff9mapkit logic-map <field>`."""
+        field = self.field.text().strip()
+        if not field:
+            return self._warn("No field", "Enter a real field id or name to study its logic.")
+        from PySide6.QtGui import QCursor
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            from .. import forkreport as FR
+            from .. import logic_map as LM
+            fid = FR.resolve_field_id(field)
+            text = LM.format_logic_map(LM.logic_map(fid))
+        except Exception as e:                         # noqa: BLE001  (no install / unknown field / bad .eb)
+            QApplication.restoreOverrideCursor()
+            return self._warn("Couldn't decode", f"{e}\n\n(Studying a real field needs your FF9 install + "
+                                                 "UnityPy — check ⚙ ▸ Setup & health.)")
+        QApplication.restoreOverrideCursor()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Field logic — {field} (read-only)")
+        dlg.resize(860, 620)
+        dv = QVBoxLayout(dlg)
+        hint = QLabel("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
+                      "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        dv.addWidget(hint)
+        body = QPlainTextEdit()
+        body.setReadOnly(True)
+        body.setPlainText(text)
+        dv.addWidget(body, 1)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(close)
+        dv.addLayout(row)
+        dlg.exec()
 
     # ---- fork-preview art (SEE the room you're about to fork) ----
     def _request_preview_art(self, token):
