@@ -202,6 +202,20 @@ class ModelsDoc(QWidget):
         clips.addStretch(1)
         v.addLayout(clips)
 
+        rsk = QHBoxLayout()
+        self.mdl_tex_btn = QPushButton("Export textures…")
+        self.mdl_tex_btn.setToolTip("The CHEAPEST edit — no Blender: write the model's textures as "
+                                    "editable PNGs (any editor, any size, keep the names).")
+        self.mdl_tex_btn.clicked.connect(self.on_model_textures)
+        rsk.addWidget(self.mdl_tex_btn)
+        self.mdl_reskin_btn = QPushButton("Deploy reskin PNG(s)…")
+        self.mdl_reskin_btn.setToolTip("Ship edited {name}.png file(s) into the mod folder — the engine "
+                                       "probes them by NAME and swaps the texture, mesh untouched.")
+        self.mdl_reskin_btn.clicked.connect(self.on_model_reskin)
+        rsk.addWidget(self.mdl_reskin_btn)
+        rsk.addStretch(1)
+        v.addLayout(rsk)
+
         imp = QHBoxLayout()
         imp.addWidget(QLabel("Edited .glb:"))
         self.mdl_glb = QLineEdit()
@@ -236,7 +250,8 @@ class ModelsDoc(QWidget):
         hint.setWordWrap(True)
         hint.setStyleSheet(muted)
         v.addWidget(hint)
-        self._buttons = [self.mdl_gltf_btn, self.mdl_anim_btn, self.mdl_import_btn, self.mdl_mint_btn]
+        self._buttons = [self.mdl_gltf_btn, self.mdl_anim_btn, self.mdl_import_btn, self.mdl_mint_btn,
+                         self.mdl_tex_btn, self.mdl_reskin_btn]
         return box
 
     # ------------------------------------------------------------------ browser
@@ -330,7 +345,8 @@ class ModelsDoc(QWidget):
             return
         if m.group == "WEP":
             text = (f"# {m.name} is a battle WEAPON (a static mesh, id {m.id}).\n"
-                    f"# Reskin: drop an edited {m.id}.png at BattleMap/BattleModel/6/{m.id}/ in a mod folder.\n")
+                    f"# Reskin it with Export textures… → edit the PNG → Deploy reskin PNG(s)…\n"
+                    f"# (it lands at BattleMap/BattleModel/6/{m.id}/ in the mod folder)\n")
         else:
             text = (f'[[npc]]\nname = "my_npc"\nmodel = "{m.name}"\npos = [0, 0]\n'
                     f'dialogue = "Hello!"\n')
@@ -424,6 +440,32 @@ class ModelsDoc(QWidget):
         self._kit(["model-mint", token, "--id", mid, "--deploy", mod], subject="Mint model",
                   ok_next=f"Minted id {mid} + registered it in DictionaryPatch.txt. RELAUNCH FF9, then "
                           f"place it with [[npc]] model = {mid} (its animations came along from the source).")
+
+    def on_model_textures(self):
+        token = self._sel_token()
+        if token is None:
+            return
+        d = QFileDialog.getExistingDirectory(self, "Folder to write the editable texture PNGs into")
+        if not d:
+            return
+        self._kit(["model-reskin", token, "--export-textures", d], subject="Export textures",
+                  ok_next=f"Wrote the pristine PNGs to {d}. Edit them in any image editor (any size "
+                          "works), KEEP THE NAMES, then Deploy reskin PNG(s)…")
+
+    def on_model_reskin(self):
+        token = self._sel_token()
+        if token is None:
+            return
+        mod = self._model_mod_arg()
+        if mod is None:
+            return
+        files, _ = QFileDialog.getOpenFileNames(self, "The edited {name}.png file(s)", "",
+                                                "PNG images (*.png)")
+        if not files:
+            return
+        self._kit(["model-reskin", token, "--deploy", mod, "--texture", *files], subject="Deploy reskin",
+                  ok_next="Reskin deployed. Field models: F6 → Reload field. Battle/weapon models load "
+                          "on battle entry — a RELAUNCH is the sure path.")
 
     def browse_model_mod(self):
         d = QFileDialog.getExistingDirectory(self, "Mod folder to deploy models into")

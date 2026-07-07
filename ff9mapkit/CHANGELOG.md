@@ -49,6 +49,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   Import tab's old models box is now a pointer. Previews render on a background worker (per-user
   disk cache, `ModelThumbService`); a machine without the install degrades to text rows.
 
+### Added — texture reskin (`model-reskin` + the Models tab's cheapest edit)
+- **`ff9mapkit model-reskin <model> --export-textures DIR`** writes a model's pristine textures as
+  editable `{name}.png` files; **`--deploy MODFOLDER --texture <edited.png…>`** ships them back to
+  the model's own override dir (weapons' `BattleMap/BattleModel/6/` path included). No Blender, no
+  FBX, no DLL — the engine probes `<model dir>/{textureName}.png` per material for every
+  bundle-loaded model (`ModelFactory.cs:100-116`) and swaps the texture by NAME, so names are
+  validated fail-loud (a mis-named PNG deploys fine and then silently never loads). Any size works
+  (upscales fine); Zidane's F3/F4/F5 alt-costume forms are warned (the engine skips the probe for
+  them). The Models tab gets **Export textures… / Deploy reskin PNG(s)…** buttons.
+
 ### Added — model previews (`model-preview` + the renderer behind the GUI thumbnails)
 - **`ff9mapkit model-preview <model>`** software-renders any FF9 model to a textured PNG still — pure
   PIL (no OpenGL/Blender), orthographic 3/4 view, `--size/--yaw/--pitch/--rest`. Under the hood

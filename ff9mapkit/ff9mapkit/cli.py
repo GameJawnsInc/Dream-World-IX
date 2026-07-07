@@ -1488,6 +1488,38 @@ def _cmd_model_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_reskin(args: argparse.Namespace) -> int:
+    """The cheapest model edit: export a model's textures / deploy edited PNGs as a loose reskin."""
+    from .models import reskin as mreskin
+    if not args.export_textures and not args.texture:
+        print("model-reskin needs --export-textures DIR (get the editable PNGs) or "
+              "--texture PNG... --deploy MODFOLDER (ship the edited ones)", file=sys.stderr)
+        return 2
+    try:
+        if args.export_textures:
+            man = mreskin.export_textures(args.model, args.export_textures, game=args.game)
+            print(f"exported {len(man['textures'])} texture(s) of {man['geo']} -> {man['dir']}")
+            for t in man["textures"]:
+                print(f"  {t['name']}  ({t['size'][0]}x{t['size'][1]})")
+            print("Edit them in any image editor (any size works), KEEP THE NAMES, then: "
+                  f"ff9mapkit model-reskin {args.model} --deploy MODFOLDER --texture <edited.png...>")
+        if args.texture:
+            if not args.deploy:
+                print("--texture needs --deploy MODFOLDER (where to ship the reskin)", file=sys.stderr)
+                return 2
+            man = mreskin.deploy_reskin(args.model, args.texture, args.deploy, game=args.game)
+            print(f"reskinned {man['geo']} (id {man['geo_id']}): {', '.join(man['deployed'])}")
+            print(f"  -> {man['dir']}")
+            print("Field models: F6 -> Reload field re-probes the texture. Battle/weapon models load "
+                  "on battle entry -- a RELAUNCH is the sure path.")
+        for w in man.get("warnings", []):
+            print(f"  NOTE: {w}")
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_model_import(args: argparse.Namespace) -> int:
     """Bring a (Blender-edited) glTF back into the game -> a loose-FBX override (the edit loop return path)."""
     from .models import gltf as mgltf
@@ -4208,6 +4240,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="render the raw rest pose instead of frame 0 of the model's stand clip")
     mp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mp.set_defaults(func=_cmd_model_preview)
+
+    mr = sub.add_parser("model-reskin",
+                        help="the cheapest model edit: export a model's textures, or deploy edited PNGs "
+                             "as a loose reskin (no Blender, no FBX, no DLL)")
+    mr.add_argument("model", help="GEO name or model id to reskin, e.g. GEO_MAIN_F0_VIV or 8 (see `models`)")
+    mr.add_argument("--export-textures", metavar="DIR", default=None,
+                    help="write the model's pristine textures as editable {stem}.png files into DIR")
+    mr.add_argument("--texture", metavar="PNG", nargs="+", default=None,
+                    help="edited PNG file(s) to ship -- each must KEEP its {stem}.png name")
+    mr.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="mod folder to write the reskin into (the model's own override dir)")
+    mr.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mr.set_defaults(func=_cmd_model_reskin)
 
     pa = sub.add_parser("playable-anims",
                         help="the Blender edit loop for a 13th character's custom_battle_anims animset -- route "

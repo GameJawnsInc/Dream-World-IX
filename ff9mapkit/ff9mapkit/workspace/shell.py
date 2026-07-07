@@ -6258,7 +6258,8 @@ def _smoke(win):
     assert 0 < md.listw.count() < 120
     assert all(it.text().startswith("GEO_WEP") for it in [md.listw.item(i) for i in range(3)])
     md.group.setCurrentIndex(0)
-    for _btn in (md.mdl_gltf_btn, md.mdl_anim_btn, md.mdl_import_btn, md.mdl_mint_btn):
+    for _btn in (md.mdl_gltf_btn, md.mdl_anim_btn, md.mdl_import_btn, md.mdl_mint_btn,
+                 md.mdl_tex_btn, md.mdl_reskin_btn):
         assert _btn is not None
     assert any(lbl == "Go to Models" for lbl, _k, _cb in win._command_index())
     assert win.import_field.models_tab_btn.isEnabled(), "Import-tab pointer to Models not wired"
