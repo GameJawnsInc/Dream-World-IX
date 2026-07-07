@@ -382,9 +382,31 @@ def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
         _probs = _af.validate_blocks([{"kind": "AA", "ability": _cd._MAX_ACTIVE_ABILITY, "features": effect}])
         if _probs:
             raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} {eff_keys[0]}: {_probs[0]}")
-    overrides = {k: v for k, v in a.items() if k not in ("name", "from", "status", "effect", "code", "feature")}
+    # `script = {template = "..."}` (or `{body = "<C#>"}`) -> a MINTED battle FORMULA (a Memoria.Scripts.<Mod>.dll
+    # BattleScript, id 256+; project-ff9-scripts-dll) -- a behaviour the data path can't express (drain, %-max-HP,
+    # ...). A SCALAR `script` (an existing scriptId int/name) is NOT pulled out: it stays an ACTION_FIELDS override
+    # that re-points at an EXISTING (0-191) formula (data-only, no DLL). The real id is allocated in parse_all.
+    script_spec = None
+    sc = a.get("script")
+    if isinstance(sc, dict):
+        from ..battle import scriptsource as _ss
+        if sc.get("body") is not None:
+            body = sc.get("body")
+            if not isinstance(body, str) or not body.strip():
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.body must be a "
+                                    f"non-empty C# Perform() body string")
+            script_spec = {"body": body}
+        else:
+            tmpl = sc.get("template")
+            if not isinstance(tmpl, str) or tmpl not in _ss.TEMPLATES:
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.template must be one of "
+                                    f"{sorted(_ss.TEMPLATES)} (or set script.body = \"<C# Perform() body>\")")
+            script_spec = {"template": tmpl}
+    overrides = {k: v for k, v in a.items()
+                 if k not in ("name", "from", "status", "effect", "code", "feature")
+                 and not (k == "script" and isinstance(v, dict))}
     return {"name": aname.strip(), "from": donor, "overrides": overrides,
-            "status": list(status) if status else None, "effect": effect}
+            "status": list(status) if status else None, "effect": effect, "script": script_spec}
 
 
 def parse_all(entries) -> list:
@@ -438,6 +460,7 @@ def parse_all(entries) -> list:
     # rewrite each pool marker -> its allocated int id, collect the Actions.csv new-rows, and auto-learn each (ap=0).
     from ..battle import actiondelta as _ad
     act_alloc = _ad._CUSTOM_ACTION_MIN
+    script_alloc = _ad._CUSTOM_SCRIPT_MIN                     # a minted battle FORMULA's scriptId (256+, dict band)
     status_set_ids: dict = {}                                # a status-name-list -> a shared minted StatusSets id (dedup)
     for spec in specs:
         for mc in spec.get("minted_commands", []):
@@ -462,6 +485,14 @@ def parse_all(entries) -> list:
                     if ca.get("effect"):                         # effect = "[code=...]" -> an [[ability_feature]] block
                         spec.setdefault("minted_features", []).append(
                             {"kind": "AA", "ability": ca["id"], "features": ca["effect"], "comment": ca["name"]})
+                    if ca.get("script"):                         # script = {template/body} -> a minted battle FORMULA
+                        if script_alloc > _ad._CUSTOM_SCRIPT_MAX:  # a Memoria.Scripts.<Mod>.dll [BattleScript(256+)]
+                            raise PlayableError(f"[[playable]] too many scripted abilities: the custom-script band "
+                                                f"{_ad._CUSTOM_SCRIPT_MIN}-{_ad._CUSTOM_SCRIPT_MAX} is exhausted")
+                        ca["script_id"] = script_alloc           # repoint the Actions.csv scriptId at the minted formula
+                        script_alloc += 1
+                        spec.setdefault("minted_scripts", []).append(
+                            {"id": ca["script_id"], "name": ca["name"], **ca["script"]})
                     spec.setdefault("minted_actions", []).append(ca)
                     new_pool.append(ca["id"])                    # the pool's ListEntry references the allocated int id
                     # learn it at ap=0 (usable now). PREPEND (like the stock pool seeds) so an explicit `learn` entry
@@ -526,6 +557,14 @@ def feature_seeds(specs) -> list:
     """Specs with a custom ability carrying an ``effect`` -> the ``[[ability_feature]]`` blocks
     ({kind:"AA", ability:<custom id>, features:<code>}) merged with any author blocks at build."""
     return [f for s in specs for f in s.get("minted_features", [])]
+
+
+def script_seeds(specs) -> list:
+    """Specs with a custom ability carrying ``script = {template/body}`` -> the minted battle-FORMULA sources
+    ({id, name, template?/body?}) that :func:`build._emit_scripts` emits + compiles into
+    ``Memoria.Scripts.<Mod>.dll``. The id (256+, the engine's ``BattleExtendedScripts`` floor) is allocated in
+    :func:`parse_all` and matches the Actions.csv ``scriptId`` cell that binds it at cast (project-ff9-scripts-dll)."""
+    return [sc for s in specs for sc in s.get("minted_scripts", [])]
 
 
 def name_directive_lines(specs) -> list:

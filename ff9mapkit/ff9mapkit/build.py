@@ -5418,6 +5418,41 @@ def _emit_ability_features(projects, layout) -> list:
         raise BuildError(str(ex))
 
 
+def _emit_scripts(projects, layout, mod_name) -> list:
+    """Emit + compile the minted battle-FORMULA DLL from every ``[[playable]]`` custom ability that carries
+    ``script = {template/body}`` -> ``Scripts/Sources/*.cs`` + ``Memoria.Scripts.<mod_name>.dll`` (the Scripts-DLL
+    channel, project-ff9-scripts-dll). No scripted abilities -> a NO-OP (the whole channel is inert, so a normal
+    build never touches a compiler). ``parse_all`` is deterministic, so each script's ``[BattleScript(id)]`` matches
+    the Actions.csv ``scriptId`` cell repointed in :func:`_emit_battle_data`. The DLL loads once at the title screen
+    -> a RELAUNCH is required (F6 won't reload it); the caller/deploy surfaces that. Compiles against the INSTALLED
+    engine (version-coupled), so it needs the FF9 install + a C# compiler; raises BuildError if either is missing."""
+    playables = []
+    for p in projects:
+        b = p.raw.get("playable", [])
+        playables += b if isinstance(b, list) else [b]
+    try:
+        specs = _playable.parse_all(playables)
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    scripts = _playable.script_seeds(specs)
+    if not scripts:
+        # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
+        # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
+        # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
+        import shutil as _sh
+        _sh.rmtree(layout.scripts_dir, ignore_errors=True)
+        return []
+    from .battle import scriptsource as _ssrc, scriptcompile as _scomp
+    try:
+        warnings = list(_ssrc.write_scripts(layout, scripts))
+        _scomp.compile_scripts(layout, mod_name)
+    except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
+        raise BuildError(str(ex))
+    warnings.append(f"scripted abilities: built Memoria.Scripts.{mod_name}.dll ({len(scripts)} custom formula(s)). "
+                    f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
+    return warnings
+
+
 def _emit_battle_patch(projects) -> tuple:
     """Aggregate every project's ``[[battle_patch]]`` (scene-scoped) + ``[[battle_enemy]]`` / ``[[battle_attack]]``
     (global by-name) blocks -> (battle_patch_lines, warnings). Mod-GLOBAL reflection patches (always-on, not
@@ -5851,6 +5886,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings += _emit_character_data(projects, layout)
     start_warnings += _emit_portraits(projects, layout)
     start_warnings += _emit_ability_features(projects, layout)
+    start_warnings += _emit_scripts(projects, layout, mod_name)
     start_warnings += bp_warnings
     start_warnings += text_warnings
 

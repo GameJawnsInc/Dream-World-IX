@@ -97,6 +97,12 @@ abilities = [
   # ability (TAG = Power/Element/MPCost/HitRate/Priority/Status/...). Here it makes Voltflare FREE: the base mp is 18,
   # but "[code=MPCost] 0 [/code]" patches the cost to 0 -> the battle menu shows 0 MP and casting deducts none.
   { name = "Voltflare", from = "Fire", power = 1, element = ["Thunder"], mp = 18, status = ["Silence"], rate = 50, effect = "[code=MPCost] 0 [/code]" },
+  # a SCRIPTED custom ability: `script = {template=...}` mints a NEW battle FORMULA in a mod-owned
+  # Memoria.Scripts.<Mod>.dll (a [BattleScript(id>=256)], zero engine rebuild -- project-ff9-scripts-dll). This is
+  # a behaviour NO data-only edit can express: "drain_hp" (cloned from FF9's own DrainHp formula) deals magic
+  # damage AND heals the caster for the same amount. The ability's power/element/mp still tune it (the formula reads
+  # the Actions.csv row). Needs a C# compiler at build/deploy + a RELAUNCH (the DLL loads once at the title screen).
+  { name = "Soul Leech", from = "Fire", power = 40, element = ["Dark"], mp = 12, script = { template = "drain_hp" } },
 ]
 
 # --- A SECOND custom character on a DIFFERENT rig -- proves the [[playable]] stack isn't Vivi/mage-specific.

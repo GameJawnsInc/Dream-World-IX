@@ -291,6 +291,13 @@ def _build(name, entries, fields_map, *, kind, max_id, note, game):
 # the tuning fields -> the spell casts + animates as the donor but with Iviv's own power/element/mp. (project-ff9-ability-preset-system)
 _CUSTOM_ACTION_MIN = 192
 _CUSTOM_ACTION_MAX = 223
+# A minted BATTLE FORMULA (a `script = {template/body}` on a custom ability) gets a NEW scriptId in the engine's
+# BattleExtendedScripts DICT band -- the base scripts pack 0-109 in a 256-slot array, so >=256 lands in the
+# unbounded dict (ScriptsLoader; project-ff9-scripts-dll, proven in-game). It is INDEPENDENT of the ability id
+# (192-223): the ability's Actions.csv `scriptId` cell is repointed at this id, and scriptsource emits a matching
+# [BattleScript(id)] into Memoria.Scripts.<Mod>.dll. Allocated in content.playable.parse_all (deterministic).
+_CUSTOM_SCRIPT_MIN = 256
+_CUSTOM_SCRIPT_MAX = 511
 # The tuning fields an inline custom ability may override (a SAFE subset of ACTION_FIELDS): all range-guarded numeric /
 # element / enum columns. `status_index` is EXCLUDED from the AUTHOR-facing overrides -- it points at a StatusSets ROW
 # and the engine indexes add_status[statusIndex] with a DIRECT (KeyNotFound-throwing) indexer at cast, so a bad set = a
@@ -351,9 +358,22 @@ def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
                 cells[ci] = _encode_value(k, v, ACTION_FIELDS[k], warnings=warnings)
             except ActionDeltaError as ex:
                 raise ActionDeltaError(f"{ctx} {name!r} {ex}")
+        # a KIT-INJECTED script_id (256+) = a minted Memoria.Scripts.<Mod>.dll formula (`script = {template/body}`);
+        # REPOINT the cloned row's scriptId at it (replacing the donor's stock formula) -- done BEFORE the status
+        # check below so that check inspects the EFFECTIVE scriptId (else a `status` + minted-script combo would warn
+        # against the donor, not the formula that actually runs). Trusted: the DLL is compiled the SAME build
+        # (build._emit_scripts) and parse_all is deterministic, so the id matches its [BattleScript]. The author never
+        # sets this directly (a scalar `script`/`script_id` override still routes to an EXISTING formula via
+        # ACTION_FIELDS; a TABLE `script` is pulled out + minted in playable.parse_all).
+        sci = nr.get("script_id")
+        if sci is not None:
+            scr2 = cols.get("scriptid")
+            if scr2 is not None and scr2 < len(cells):
+                cells[scr2] = str(_to_int(sci, f"{ctx} script_id"))
         # a KIT-INJECTED status_index = the id of an auto-minted StatusSets row (from `status = [...]`) -> SAFE because
         # that row is emitted in the SAME build. The author can't set status_index directly (excluded above). Warn on
-        # the two silent-no-op traps: rate=0 (the HitRate gate never passes) + a non-status-applying donor script.
+        # the silent-no-op traps: rate=0 (the HitRate gate never passes) + a script that doesn't APPLY statuses (the
+        # donor's, OR a minted 256+ formula -- only the 'magic_damage' template calls TryAlter*Statuses).
         si = nr.get("status_index")
         if si is not None:
             sc = cols.get("statusindex")
@@ -364,8 +384,14 @@ def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
                     warnings.append(f"{ctx} {name!r}: inflicts a status but rate=0 -> it will (almost) never land; "
                                     f"give it a rate (e.g. rate = 50)")
                 if scr is not None and scr < len(cells) and cells[scr].strip() not in _STATUS_APPLYING_SCRIPTS:
-                    warnings.append(f"{ctx} {name!r}: inflicts a status but the donor's script ({cells[scr].strip()}) "
-                                    f"may not APPLY it -- clone a status-applying magic donor (e.g. from = \"Bio\")")
+                    _sid = cells[scr].strip()
+                    if _sid.isdigit() and int(_sid) >= _CUSTOM_SCRIPT_MIN:
+                        warnings.append(f"{ctx} {name!r}: inflicts a status but its minted `script` formula won't "
+                                        f"APPLY it -- a scripted formula must call TryAlter*Statuses (only the "
+                                        f"'magic_damage' template does). Drop `status` here, or drop `script`.")
+                    else:
+                        warnings.append(f"{ctx} {name!r}: inflicts a status but the donor's script ({_sid}) may not "
+                                        f"APPLY it -- clone a status-applying magic donor (e.g. from = \"Bio\")")
         rows[aid] = cells
         minted.append(aid)
     return minted

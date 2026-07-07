@@ -400,6 +400,7 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 **Pillars (all in-game proven — detail in the named memory + `git log`):**
 - Battle backgrounds — all tiers (reskin / FBX / new-scene / camera), no DLL → [[project-ff9-battle-backgrounds]]
 - Battle tuning — enemy + player side + raw17 `btlseq` attack-choreography, no DLL → [[project-ff9-battle-tuning]]
+- Scripts-DLL — a custom ability's `script = {template/body}` mints a NEW battle FORMULA (a `[BattleScript(id≥256)]` in a mod `Memoria.Scripts.<Mod>.dll`, compiled at deploy vs the installed engine; NO engine rebuild). ★ P1 (raw bind) + P2→P4 (declarative channel) in-game proven 2026-07-07 (Iviv's "Soul Leech" drain) → [[project-ff9-scripts-dll]]
 - Battle/party GUI — battle + party config folded into the Workspace (encounter-first) → [[project-ff9-battle-party-gui]]
 - Campaigns — `import-chain` + the Campaign-Editor IDE → [[project-ff9-worldmap-feasibility]], [[project-ff9-import-chain-coverage]]
 - Multi-campaign journey assembler — both link modes + zero-link deploy-derived auto-wiring → [[project-ff9-world-hub]], [[project-ff9-journey-single-folder]]

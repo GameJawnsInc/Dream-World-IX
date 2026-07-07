@@ -315,6 +315,23 @@ for _lang in LANGS:
     shutil.copyfile(_src_an, _live_an)
     csv_reverts.append((f"aa_name-{_lang}", str(_live_an), _had))
     print(f"  + text/{_lang}/ability/aa_name.mes (ability name)")
+# [playable.abilities] SCRIPTED custom ability (`script = {template/body}`) -> the minted battle-FORMULA DLL
+# (Memoria.Scripts.<MOD>.dll) the engine Assembly.LoadFile's IN ADDITION to its base (project-ff9-scripts-dll).
+# The DLL is the load-bearing artifact -> ship it reversibly (backup/restore/delete, like the CSVs; it joins
+# csv_reverts). Its C# Sources are runtime-INERT -> copied additively for provenance + a future recompile. The
+# Actions.csv scriptId repoint rides the "Actions" sync above. LOADED ONCE AT THE TITLE SCREEN -> RELAUNCH (not F6).
+_src_dll = tl.scripts_dll(MOD_FOLDER)
+if _src_dll.exists():
+    _live_dll = live.scripts_dll(MOD_FOLDER)
+    _live_dll.parent.mkdir(parents=True, exist_ok=True)
+    _had_dll = _live_dll.exists()
+    if _had_dll:
+        shutil.copyfile(_live_dll, BK / f"{_src_dll.name}.preDEPLOY.{STAMP}")
+    shutil.copyfile(_src_dll, _live_dll)
+    csv_reverts.append((_src_dll.stem, str(_live_dll), _had_dll))    # stem+".dll" -> the revert codegen's {label}{ext}
+    if tl.scripts_sources_dir.is_dir():
+        shutil.copytree(tl.scripts_sources_dir, live.scripts_sources_dir, dirs_exist_ok=True)
+    print(f"  + {_src_dll.name} (custom battle formula DLL) -> RELAUNCH to load (once at title, not F6)")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)
