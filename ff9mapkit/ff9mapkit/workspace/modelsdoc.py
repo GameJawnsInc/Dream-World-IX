@@ -146,6 +146,7 @@ class ModelsDoc(QWidget):
         rv.addLayout(copy_row)
 
         rv.addWidget(self._actions_box())
+        rv.addWidget(self._playable_box())
         rv.addWidget(self._deployed_box())
         rv.addStretch(1)
 
@@ -254,6 +255,85 @@ class ModelsDoc(QWidget):
         self._buttons = [self.mdl_gltf_btn, self.mdl_anim_btn, self.mdl_import_btn, self.mdl_mint_btn,
                          self.mdl_tex_btn, self.mdl_reskin_btn]
         return box
+
+    def _playable_box(self):
+        """The 13th-character battle-animset loop (`playable-anims`): export the donor's battle model
+        with Blender Actions NAMED by battle motion, edit, route the edits onto the character's OWN
+        minted animset (donor untouched). Field-toml-scoped -- the [[playable]] block must carry
+        custom_battle_anims = true (editable in the field editor's Playables section)."""
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Custom playable's battle animset")
+        v = QVBoxLayout(box)
+        frow = QHBoxLayout()
+        frow.addWidget(QLabel("field.toml:"))
+        self.pa_field = QLineEdit()
+        self.pa_field.setPlaceholderText("the field.toml carrying the [[playable]] custom_battle_anims block")
+        frow.addWidget(self.pa_field, 1)
+        fb = QPushButton("Browse…")
+        fb.clicked.connect(self.browse_pa_field)
+        frow.addWidget(fb)
+        v.addLayout(frow)
+        brow = QHBoxLayout()
+        self.pa_export_btn = QPushButton("Export donor .glb…")
+        self.pa_export_btn.setToolTip("Write the donor battle model with each Action NAMED by battle "
+                                      "motion (23_attack, …) — edit any of them in Blender.")
+        self.pa_export_btn.clicked.connect(self.on_pa_export)
+        brow.addWidget(self.pa_export_btn)
+        self.pa_edit_btn = QPushButton("Route edited .glb…")
+        self.pa_edit_btn.setToolTip("Splice the edited clips onto the character's OWN minted animset "
+                                    "(Animations/<mintId>/) — the donor stays untouched. RELAUNCH to see it.")
+        self.pa_edit_btn.clicked.connect(self.on_pa_edit)
+        brow.addWidget(self.pa_edit_btn)
+        brow.addStretch(1)
+        v.addLayout(brow)
+        hint = QLabel("For a [[playable]] with custom_battle_anims = true (edit the block in the field "
+                      "editor's Playables section). Also survives re-deploys via its anim_edits key.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        self._buttons += [self.pa_export_btn, self.pa_edit_btn]
+        return box
+
+    def browse_pa_field(self):
+        f, _ = QFileDialog.getOpenFileName(self, "The field.toml with the [[playable]] block", "",
+                                           "field.toml (*.toml)")
+        if f:
+            self.pa_field.setText(f)
+
+    def _pa_field_arg(self):
+        f = self.pa_field.text().strip().strip('"')
+        if not f or not Path(f).is_file():
+            self._warn("No field.toml", "Pick the field.toml carrying the [[playable]] block first.")
+            return None
+        return f
+
+    def on_pa_export(self):
+        field = self._pa_field_arg()
+        if field is None:
+            return
+        out, _ = QFileDialog.getSaveFileName(self, "Export the donor battle model", "playable_anims.glb",
+                                             "glTF binary (*.glb)")
+        if not out:
+            return
+        self._kit(["playable-anims", field, "--export", out], subject="Export donor .glb",
+                  ok_next=f"Wrote {out} — Actions are named by battle motion (23_attack, …). Edit in "
+                          "Blender (active action only!), then Route edited .glb.")
+
+    def on_pa_edit(self):
+        field = self._pa_field_arg()
+        if field is None:
+            return
+        mod = self._model_mod_arg()
+        if mod is None:
+            return
+        glb, _ = QFileDialog.getOpenFileName(self, "The Blender-edited donor .glb", "",
+                                             "glTF (*.glb *.gltf)")
+        if not glb:
+            return
+        self._kit(["playable-anims", field, "--edit", glb, "--deploy", mod], subject="Route animset edits",
+                  ok_next="Edited clips spliced onto the character's OWN animset (donor untouched). "
+                          "RELAUNCH FF9 to see them; add anim_edits = \"<the .glb>\" to the [[playable]] "
+                          "block so re-deploys keep the edit.")
 
     def _deployed_box(self):
         """What's actually deployed model-wise in the 'Deploy into' folder -- overrides / reskins /

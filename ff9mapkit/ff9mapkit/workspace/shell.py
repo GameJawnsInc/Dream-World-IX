@@ -130,16 +130,16 @@ _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
                  "event": forms.EVENT_SPEC, "chest": forms.CHEST_SPEC, "flag": forms.FLAG_SPEC,
                  "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC,
-                 "sps": forms.SPS_SPEC}
+                 "sps": forms.SPS_SPEC, "playable": forms.PLAYABLE_SPEC}
 _SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
            ("party", "Party"), ("startup", "Startup beat")]
 _LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("chest", "Chests"), ("flag", "Flags"),
-          ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects")]
+          ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects"), ("playable", "Playables")]
 _LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "chest": "Chest", "flag": "Flag",
-                  "marker": "Marker", "choice": "Choice", "sps": "Effect"}
+                  "marker": "Marker", "choice": "Choice", "sps": "Effect", "playable": "Playable"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
     "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
@@ -150,6 +150,7 @@ _LIST_DEFAULTS = {
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
     "sps": {"id": 5000, "template": "fire", "pos": [0, 0]},   # a from-scratch particle effect (Tier-2 creator)
+    "playable": {"name": "Newhero", "borrow": "Vivi", "recruit": True},   # a custom 13th+ party member
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
 _DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
@@ -6370,6 +6371,21 @@ def _smoke(win):
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["startup"]["scenario"] == 2600 and \
         saved["startup"]["flags"] == [{"flag": "boss_dead", "value": 1}], saved
+    # [[playable]] is a LIST section: add one, form-edit a flat key, save -- and a NESTED table
+    # (an ability kit authored in TOML) survives the form save untouched (_commit pops spec keys only)
+    win._add_list_item("IC_ENT", "playable")
+    _pd = win._doc("IC_ENT")
+    assert _pd.data["playable"][0]["name"] == "Newhero"
+    _pd.data["playable"][0]["abilities"] = {"preset": 20, "learn": ["AA:12"]}
+    win._open_editor("IC_ENT", "object", "playable:0")
+    assert win._save_ctx["section"] == "playable" and not win._save_ctx["single"]
+    win._save_ctx["getters"]["custom_battle_model"] = lambda: True
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["playable"][0]["custom_battle_model"] is True, saved
+    assert saved["playable"][0]["abilities"] == {"preset": 20, "learn": ["AA:12"]}, \
+        "the nested ability kit must survive a form save"
+    assert saved["playable"][0]["name"] == "Newhero"
     # H1: commit-on-switch keeps uncommitted form edits (no Save) -- simulate a widget edit, then switch
     win._open_editor("IC_ENT", "object", "npc:0")
     win._save_ctx["getters"]["dialogue"] = lambda: "EDITED ON SWITCH"   # as if the user typed it
@@ -7846,7 +7862,8 @@ def _smoke(win):
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
-          f"+ MODELS tab (catalog browser + filters + detail + glb/anim/mint actions + .glb drop) "
+          f"+ MODELS tab (catalog browser + filters + detail + glb/anim/mint/reskin actions + deployed "
+          f"inventory + .glb drop) + [[playable]] form (flat keys; nested ability kit survives a save) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired "
           f"+ live theme switch ({len(_THEMES)} palettes) + Preferences/About commands")
 

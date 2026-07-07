@@ -68,6 +68,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
   with Refresh + a confirm-first **Revert selected…**.
 
+### Added — the `[[playable]]` form + the playable-anims GUI
+- A **Playables** section in the field editor's object tree: a `[[playable]]` block's flat keys —
+  id / name / borrow / recruit / `custom_battle_model` / `custom_battle_anims` / `anim_edits`
+  (file-picked) / `portrait` (file-picked) / `battle_model_from` (model-picker) / `battle_model_id`
+  — are now form-editable. The nested tables (stats / abilities / commands / status / script) stay
+  TOML-authored and **survive a form save untouched** (the editor's save only replaces the keys the
+  form owns; pinned by the smoke). The Models tab gains a **"Custom playable's battle animset"** box
+  driving `playable-anims` (export the donor `.glb` with motion-named Actions / route the edited
+  `.glb` onto the character's own minted animset).
+
 ### Added — model previews across the Info Hub + catalog pickers
 - Every model-backed Info Hub page (models, archetypes, creatures, props) and the in-form catalog
   picker now show the rendered preview — leading the detail pane (an image below a 197-entry
