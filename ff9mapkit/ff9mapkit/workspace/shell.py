@@ -6137,6 +6137,10 @@ def _smoke(win):
     for _btn in (win.import_field.mdl_pick_btn, win.import_field.mdl_gltf_btn,
                  win.import_field.mdl_import_btn, win.import_field.mdl_mint_btn):
         assert _btn is not None
+    # pre-fork study + archive + find-rooms: the round-5 widgets built + wired
+    for _w in (win.import_field.explain_chk, win.import_field.study_btn, win.import_field.rooms_btn,
+               win.import_field.arc_out, win.import_field.arc_pattern, win.import_field.arc_btn):
+        assert _w is not None
     # F9 deploy: the crumb-row button is enabled + aimed at the open campaign (pre-aimed by open_campaign);
     # the palette carries the command
     assert win.deploy_btn.isEnabled(), "Deploy button dead with a campaign open"
