@@ -2047,7 +2047,8 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
         specs = _playable.parse_all(pl)
     except _playable.PlayableError:
         return                                            # a broken [[playable]] is already reported by validate()
-    scripts = _playable.script_seeds(specs) + _playable.field_script_seeds(specs)
+    scripts = (_playable.script_seeds(specs) + _playable.field_script_seeds(specs)
+               + _playable.status_script_seeds(specs))
     if not scripts:
         return                                            # no `script = {...}` ability -> the Scripts-DLL channel is inert
     from .battle import scriptcompile as _scomp
@@ -5341,12 +5342,16 @@ def _emit_battle_data(projects, layout) -> list:
     # a custom ability's `status = [...]` auto-mints a StatusSets row -> MERGE it with any author [[status_set]] (one
     # StatusSets.csv writer; a minted action's status_index points at one of these, so they ride the same build).
     status_sets = status_sets + _playable.status_set_seeds(_specs)
-    if not actions and not statuses and not status_sets and not magic_sword_sets and not new_actions:
+    # a custom ability's `status = [{template/body}]` mints a NEW StatusData row (id 33-63) so the engine can inflict
+    # the custom status -> MERGE it into the same StatusData.csv delta as the [[status]] retunes (one writer). (P7)
+    new_statuses = _playable.status_data_seeds(_specs)
+    if not (actions or statuses or status_sets or magic_sword_sets or new_actions or new_statuses):
         return []
     from .battle import actiondelta as _adelta
     try:
         return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets,
-                                         magic_sword_sets=magic_sword_sets, new_actions=new_actions)
+                                         magic_sword_sets=magic_sword_sets, new_actions=new_actions,
+                                         new_statuses=new_statuses)
     except _adelta.ActionDeltaError as ex:
         raise BuildError(str(ex))
 
@@ -5467,7 +5472,8 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         raise BuildError(str(ex))
     scripts = _playable.script_seeds(specs)
     field_scripts = _playable.field_script_seeds(specs)   # paired [FieldAbilityScript] effects (P7), same DLL + scriptId
-    if not scripts and not field_scripts:
+    status_scripts = _playable.status_script_seeds(specs)  # custom [StatusScript] behaviours (P7), same DLL
+    if not scripts and not field_scripts and not status_scripts:
         # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
         # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
         # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
@@ -5476,12 +5482,13 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         return []
     from .battle import scriptsource as _ssrc, scriptcompile as _scomp
     try:
-        warnings = list(_ssrc.write_scripts(layout, scripts, field_scripts))   # ONE wipe -> battle + field .cs together
+        warnings = list(_ssrc.write_scripts(layout, scripts, field_scripts, status_scripts))   # ONE wipe -> all .cs
         _scomp.compile_scripts(layout, mod_name)
     except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
         raise BuildError(str(ex))
     made = (f"{len(scripts)} battle formula(s)"
-            + (f" + {len(field_scripts)} field effect(s)" if field_scripts else ""))
+            + (f" + {len(field_scripts)} field effect(s)" if field_scripts else "")
+            + (f" + {len(status_scripts)} status behaviour(s)" if status_scripts else ""))
     warnings.append(f"scripted abilities: built Memoria.Scripts.{mod_name}.dll ({made}). "
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
     return warnings

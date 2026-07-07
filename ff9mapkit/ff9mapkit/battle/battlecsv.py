@@ -143,6 +143,11 @@ def encode_target_display(value) -> str:
 # StatusData ClearOnApply/ImmunityProvided cells are a ``Name(bitIndex), ...`` list (BattleStatusId, the
 # ``#! UnshiftStatuses`` format); the index = the status's bit position (Petrify=0 … GradualPetrify=31).
 _STATUS_INDEX_BY_NAME = {nm.lower(): (bm.bit_length() - 1, nm) for bm, nm in STATUSES}
+# CustomStatus1..31 = the mod-reservable custom-status band (BattleStatusId 33-63 / BattleStatus bits 33-63,
+# project-ff9-scripts-dll P7). They belong in a StatusData row + a StatusSets inflict list (the 64-bit Name(idx)
+# encoders here), but NOT the 32-bit raw16 enemy masks (encode_status) -- so add them ONLY to this index map, not
+# the shared STATUSES / _STATUS_BY_NAME tables that feed the u32 masks.
+_STATUS_INDEX_BY_NAME.update({f"customstatus{i}": (32 + i, f"CustomStatus{i}") for i in range(1, 32)})
 
 
 def encode_status_list(value) -> str:

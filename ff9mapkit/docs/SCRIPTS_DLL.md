@@ -10,8 +10,10 @@
 > **P7 — the fan-out (★ in-game proven 2026-07-07):** the *same* mod DLL also hosts **field effects** — a
 > `script.field` sub-table mints a paired `[FieldAbilityScript(id)]` at the same scriptId, so a curative ability
 > works both in *and* out of combat (§2). Proven: Iviv's "Lifewell" healed in battle *and* healed an ally from the
-> field menu (the same ability, one DLL). Two further surfaces the loader exposes (custom status behaviors, global
-> battle overloads) are scoped follow-ons.
+> field menu (the same ability, one DLL). And **custom status behaviours** — an ability's `status = [{template/
+> body}]` mints a `[StatusScript]` for a new `CustomStatusN` ailment (revive-on-death, auto-attack, …) plus its
+> `StatusData` row — are built too (offline + real-engine-compile proven, awaiting in-game; §2). Global battle
+> overloads remain a scoped follow-on.
 >
 > Provenance: this doc is analysis + author-facing recipes only — **zero Square-Enix bytes**. The stock-donor
 > formula/field templates live in `ff9mapkit/battle/scriptsource.py` (kit source: battle templates cloned from the
@@ -130,6 +132,47 @@ Or a raw `field = { body = "<C# Apply(FieldCalculator v) body>" }` — the field
 menu, use it → HP restored out of combat. Remove the `field` half and rebuild → the field menu greys/misses it
 (the `DefaultFieldScript` default arm), proving the field script is what enabled it. (Relaunch after deploy — the
 DLL loads once at the title screen.)
+
+### And a custom STATUS behaviour (P7)
+
+The same DLL can host a genuinely new **status ailment** — a stateful per-unit condition with C# on the engine's
+status lifecycle. A custom ability's `status` list accepts a **table** (a minted custom status) alongside plain
+status names:
+
+```toml
+abilities = [
+  # a buff that grants a one-shot revive-on-death:
+  { name = "Guardian", from = "Life",
+    status = [{ name = "Rebirth", template = "auto_life" }] },
+]
+```
+
+This mints, in one build: a `[StatusScript(BattleStatusId.CustomStatus1)]` (the behaviour) into the DLL, a
+`StatusData.csv` row at the auto-allocated custom id (33–63, so the engine can inflict it), and the ability's
+`StatusSets` row that applies it. Mix freely: `status = ["Silence", { name = "Rebirth", template = "auto_life" }]`.
+
+**The templates** (transcribed from Memoria `DefaultStatus` donors — with the hook each uses):
+
+| `template` | Hook | Cloned from | What it does |
+|---|---|---|---|
+| `auto_life` | `OnDeath` | AutoLife | revive the unit once when it would die |
+| `auto_attack` | `OnATB` | Berserk | force an auto-Attack each turn (loses manual control) |
+
+Or a raw `{ name = "…", body = "<C# class-body>", hooks = ["death_changer"] }` — you write the `StatusScriptBase`
+methods (`Apply`/`Remove`/`OnDeath`/`OnATB`/…) and declare which lifecycle interfaces (`hooks`) they implement:
+`death_changer` (OnDeath), `auto_attack` (OnATB), `figure_point` (OnFigurePoint), `finish_command` (OnFinishCommand).
+
+**Engine limit (honest):** a **per-tick DoT is not reachable** — the engine gates the per-tick `OnOpr` hook to
+vanilla statuses only (a compile-time `OprCount` mask), so a custom status can't tick each frame. The reachable
+hooks are `Apply`/`Remove` (on inflict/cure) + `OnDeath` / `OnATB` / `OnFigurePoint` / `OnFinishCommand`, which
+dispatch off the applied-effects set (not the tick mask) and so fire for a custom bit.
+
+**Inflicting it:** the custom status lands only if the inflicting ability's formula *applies* statuses — clone a
+status-applying `from` (a positive-status buff); the build **warns** if `from` won't apply it (iterate on `from`
+until the warning clears).
+
+**In-game proof:** give a recruited character an ability that inflicts `auto_life`, cast it on an ally, let that
+ally be KO'd → they auto-revive once. (Relaunch after deploy.)
 
 ---
 

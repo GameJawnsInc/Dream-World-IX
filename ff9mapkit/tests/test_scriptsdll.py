@@ -397,3 +397,114 @@ def test_full_build_compiles_field_and_battle(tmp_path):
     arow = next(l for l in layout.actions_csv.read_text(encoding="cp1252").splitlines()
                 if l.startswith("Lifewell;192;"))
     assert int(arow.split(";")[10]) == ad._CUSTOM_SCRIPT_MIN  # ONE scriptId binds both
+
+
+# ---- P7: the STATUS-behaviour channel ([StatusScript] + a minted CustomStatusN + its StatusData row) ---
+def test_render_status_template_shape():
+    fn, src = ss.render_status_script(33, "Rebirth", "CustomStatus1", template="auto_life")
+    assert fn == "0033_RebirthStatusScript.cs"
+    assert "public sealed class Rebirth33StatusScript : StatusScriptBase, IDeathChangerStatusScript" in src
+    assert "[StatusScript(BattleStatusId.CustomStatus1)]" in src
+    assert "namespace Memoria.Scripts.Status" in src
+    assert "public Boolean OnDeath()" in src
+    assert "btl_stat.RemoveStatus(Target, BattleStatusId.CustomStatus1);" in src   # __STATUS__ substituted in the body
+    assert "__STATUS__" not in src
+
+
+def test_render_status_body_with_hooks():
+    fn, src = ss.render_status_script(34, "Doomed", "CustomStatus2",
+                                      body="public Boolean OnDeath() { return false; }", hooks=["death_changer"])
+    assert fn == "0034_DoomedStatusScript.cs"
+    assert ": StatusScriptBase, IDeathChangerStatusScript" in src and "return false;" in src
+    with pytest.raises(ss.ScriptSourceError):
+        ss.render_status_script(33, "X", "CustomStatus1", template="nope")
+    with pytest.raises(ss.ScriptSourceError):
+        ss.render_status_script(33, "X", "CustomStatus1", body="void F(){}", hooks=["not_a_hook"])
+
+
+def test_all_status_templates_render():
+    for t in ss.STATUS_TEMPLATES:
+        _, src = ss.render_status_script(33, "T", "CustomStatus1", template=t)
+        assert "[StatusScript(BattleStatusId.CustomStatus1)]" in src and "Memoria.Scripts.Status" in src
+
+
+def test_encode_custom_status_names():
+    from ff9mapkit.battle import battlecsv as bc
+    assert bc.encode_status_list(["CustomStatus1"]) == "CustomStatus1(33)"
+    assert bc.encode_status_list(["CustomStatus31"]) == "CustomStatus31(63)"        # top of the band
+    assert bc.encode_status_list(["Silence", "CustomStatus1"]) == "Silence(3), CustomStatus1(33)"
+
+
+def test_mint_status_data_row():
+    # a synthetic base (no install): clone the column structure + neutralise every behavioural/visual column.
+    cols = {"comment": 0, "id": 1, "oprcount": 2, "conticount": 3, "clearonapply": 4, "immunityprovided": 5,
+            "spseffect": 6, "shpeffect": 7, "colorkind": 8, "colorpriority": 9, "colorbase": 10}
+    rows = {0: ["Petrify", "0", "5", "0", "Venom", "Petrify", "3", "-1", "1", "2", "3", "# Petrify"]}
+    assert ad._mint_status_rows([{"id": 33, "name": "Rebirth"}], rows, cols) == [33]
+    r = rows[33]
+    assert r[cols["id"]] == "33" and r[cols["comment"]] == "Rebirth" and r[-1] == "# Rebirth"
+    assert r[cols["oprcount"]] == "0" and r[cols["clearonapply"]] == "" and r[cols["spseffect"]] == "-1"
+    with pytest.raises(ad.ActionDeltaError):                                         # out of the 33-63 band
+        ad._mint_status_rows([{"id": 10, "name": "X"}], rows, cols)
+
+
+def _iviv_status(status):
+    return {"id": 12, "name": "Iviv", "borrow": "vivi",
+            "abilities": {"preset": "custom", "command1": {"name": "Spark", "abilities": [
+                {"name": "Guardian", "from": "Cure", "status": status}]}}}
+
+
+def test_parse_custom_status_allocates():
+    specs = pl.parse_all([_iviv_status([{"name": "Rebirth", "template": "auto_life"}])])
+    assert pl.status_script_seeds(specs) == [{"id": 33, "status_enum": "CustomStatus1", "name": "Rebirth",
+                                              "template": "auto_life"}]
+    assert pl.status_data_seeds(specs) == [{"id": 33, "name": "Rebirth"}]           # -> a StatusData row
+    ca = next(a for a in pl.action_seeds(specs) if a["name"] == "Guardian")
+    assert ca["status"] == ["CustomStatus1"]                                        # inflict list enriched
+    assert any("CustomStatus1" in s["statuses"] for s in pl.status_set_seeds(specs))  # a StatusSets inflicts it
+
+
+def test_status_string_and_table_mix():
+    specs = pl.parse_all([_iviv_status(["Silence", {"name": "Rebirth", "template": "auto_life"}])])
+    ca = next(a for a in pl.action_seeds(specs) if a["name"] == "Guardian")
+    assert ca["status"] == ["Silence", "CustomStatus1"]                             # string kept + custom appended
+    assert len(pl.status_script_seeds(specs)) == 1
+
+
+def test_custom_status_errors():
+    with pytest.raises(pl.PlayableError):
+        pl.parse_all([_iviv_status([{"name": "X", "template": "nope"}])])           # unknown template
+    with pytest.raises(pl.PlayableError):
+        pl.parse_all([_iviv_status([{"template": "auto_life"}])])                   # needs a name
+    with pytest.raises(pl.PlayableError):
+        pl.parse_all([_iviv_status([{"name": "X", "body": "void F(){}", "hooks": ["nope"]}])])  # bad hook
+
+
+def test_full_build_compiles_status(tmp_path):
+    """A custom-status ability -> a [StatusScript] .cs compiled into the DLL + a minted StatusData row (33-63) + a
+    StatusSets row inflicting CustomStatus1. Skips without the install / csc."""
+    from ff9mapkit.battle import scriptcompile
+    toml = (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+            '\n[playable.abilities]\nmenu_from = "vivi"\n'
+            '\n[playable.abilities.command1]\nname = "Spark"\n'
+            'abilities = [{ name = "Guardian", from = "Cure", '
+            'status = [{ name = "Rebirth", template = "auto_life" }] }]\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []               # lint clean offline (validates the status template)
+    if not scriptcompile.toolchain_available():
+        pytest.skip("no C# compiler (csc) to build the mod formula DLL")
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower() or "managed" in str(ex).lower():
+            pytest.skip("no FF9 install for the base CSVs / managed DLLs")
+        raise
+    layout = ModLayout(out)
+    dll = layout.scripts_dll("FF9CustomMap")
+    assert dll.exists() and dll.stat().st_size > 0            # the [StatusScript] compiled into the DLL
+    assert any(s.name.endswith("StatusScript.cs") for s in layout.scripts_sources_dir.glob("*.cs"))
+    sd = layout.status_data_csv.read_text(encoding="cp1252")  # a StatusData row minted at the custom band (33)
+    assert any(l.split(";")[1].strip() == "33" for l in sd.splitlines() if ";" in l and not l.startswith("#"))
+    assert "CustomStatus1(33)" in layout.status_sets_csv.read_text(encoding="cp1252")   # a StatusSets inflicts it

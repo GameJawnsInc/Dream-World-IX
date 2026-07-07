@@ -26,6 +26,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   curative ability works both **in and out of combat** (five field templates transcribed from Memoria's
   `SFieldCalculator`; requires a paired battle formula — they share one minted id). ★ In-game proven — Iviv's
   "Lifewell" healed in battle *and* healed an ally from the field menu. See [docs/SCRIPTS_DLL.md](docs/SCRIPTS_DLL.md) §2.
+- **Custom status behaviours (the channel's third surface):** an ability's `status` list accepts a table
+  `{ name, template/body, hooks }` → the kit mints a `[StatusScript(BattleStatusId.CustomStatusN)]` (behaviour) into
+  the same DLL, a `StatusData.csv` row at the auto-allocated custom id (33–63, so the engine can inflict it), and the
+  `StatusSets` row that applies it. Templates `auto_life` (revive-on-death) / `auto_attack` (Berserk) + a raw `body`
+  + `hooks`. A per-tick DoT is engine-gated (documented); the reachable hooks are Apply/Remove/OnDeath/OnATB/
+  OnFigurePoint/OnFinishCommand. Offline + real-engine-compile proven; in-game proof pending.
 
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 

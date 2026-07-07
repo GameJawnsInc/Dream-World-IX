@@ -202,6 +202,105 @@ __BODY__
 """
 
 
+# ---- STATUS behaviours (the [StatusScript] surface -- a new stateful ailment, project-ff9-scripts-dll P7) ----
+# A status script runs on a unit's status LIFECYCLE (btl_stat: Apply on inflict, Remove on cure) + optional hook
+# interfaces. The kit binds one to a CUSTOM status (BattleStatusId.CustomStatus1..31 = 33-63, the reserved band with
+# its own 64-bit BattleStatus bit) and inflicts it via an ability's `status = [{table}]`. Each template is transcribed
+# VERBATIM from a Memoria.DefaultScripts donor (MIT source), the donor's own BattleStatusId swapped for the minted
+# CustomStatusN (__STATUS__). NOTE: per-tick `OnOpr` (IOprStatusScript) is engine-GATED to vanilla bits by the const
+# BattleStatusConst.OprCount mask (btl_stat.cs:294) -> a custom DoT is NOT reachable; the viable hooks are Apply/Remove
+# + OnDeath (IDeathChangerStatusScript) / OnATB (IAutoAttackStatusScript) / OnFigurePoint / OnFinishCommand, which
+# dispatch off the applied-effects dict + an interface check (STAT_INFO.cs:9-10), not the OprCount mask.
+# short hook name -> the marker interface a status script implements (OnOpr per-tick is omitted: engine-gated).
+STATUS_HOOKS: dict[str, str] = {
+    "death_changer": "IDeathChangerStatusScript",     # OnDeath() -- fires when the unit would die (e.g. auto-revive)
+    "auto_attack": "IAutoAttackStatusScript",         # OnATB() -- fires when the ATB fills (e.g. a forced action)
+    "figure_point": "IFigurePointStatusScript",       # OnFigurePoint() -- the damage-display hook
+    "finish_command": "IFinishCommandScript",         # OnFinishCommand() -- when a command the unit ran ends
+}
+
+# template name -> {hooks: [short names], body: the class-body methods}. Cloned from Memoria.DefaultScripts (donor +
+# line cited); `__STATUS__` is replaced with the minted CustomStatusN so a body can reference its OWN status id.
+STATUS_TEMPLATES: dict[str, dict] = {
+    # AutoLifeStatusScript (DefaultStatus/AutoLifeStatusScript.cs) -- revive the unit once when it would die (OnDeath).
+    # Inflict on an ally; when they hit 0 HP the status pops and restores them (default 1 HP).
+    "auto_life": {"hooks": ["death_changer"], "body": """\
+public Int32 HPRestore = 1;
+
+public override UInt32 Apply(BattleUnit target, BattleUnit inflicter, params Object[] parameters)
+{
+    base.Apply(target, inflicter, parameters);
+    HPRestore = Math.Max(HPRestore, parameters.Length > 0 ? Convert.ToInt32(parameters[0]) : 1);
+    return btl_stat.ALTER_SUCCESS;
+}
+
+public override Boolean Remove()
+{
+    return true;
+}
+
+public Boolean OnDeath()
+{
+    btl_stat.RemoveStatus(Target, BattleStatusId.__STATUS__);
+    if (HPRestore > 0)
+    {
+        Target.CurrentHp = Math.Min((UInt32)HPRestore, Target.MaximumHp);
+        btl_stat.RemoveStatus(Target, BattleStatusId.Death);
+    }
+    return true;
+}"""},
+    # BerserkStatusScript (DefaultStatus/BerserkStatusScript.cs) -- force an auto-Attack each turn (OnATB). Inflict on
+    # a unit; it acts on its own (loses manual control) until cured.
+    "auto_attack": {"hooks": ["auto_attack"], "body": """\
+public override UInt32 Apply(BattleUnit target, BattleUnit inflicter, params Object[] parameters)
+{
+    base.Apply(target, inflicter, parameters);
+    if (!target.CanUseTheAttackCommand)
+        return btl_stat.ALTER_RESIST;
+    return btl_stat.ALTER_SUCCESS;
+}
+
+public override Boolean Remove()
+{
+    btl_stat.StatusCommandCancel(Target);
+    return true;
+}
+
+public Boolean OnATB()
+{
+    if (!Target.CanUseTheAttackCommand)
+    {
+        btl_stat.RemoveStatus(Target, BattleStatusId.__STATUS__);
+        return false;
+    }
+    if (Target.IsPlayer)
+        btl_cmd.SetCommand(Target.ATBCommand, BattleCommandId.Attack, (Int32)BattleAbilityId.Attack, btl_util.GetRandomBtlID(0), 0u);
+    else
+        btl_cmd.SetEnemyCommand(Target, BattleCommandId.EnemyAtk, Target.EnemyType.p_atk_no, btl_util.GetRandomBtlID(1));
+    return true;
+}"""},
+}
+
+# The STATUS source shell -- the [StatusScript] twin. namespace Memoria.Scripts.Status; the `Memoria`-namespace
+# StatusScriptBase + the hook interfaces (IStatusScript.cs) resolve by walk-up; btl_stat/btl_cmd (FF9) via `using FF9`.
+_STATUS_SHELL = """\
+using System;
+using FF9;
+using Memoria.Data;
+using Object = System.Object;
+
+namespace Memoria.Scripts.Status
+{
+    /// <summary>ff9mapkit minted STATUS behaviour: __NAME__ (__TMPL__). See project-ff9-scripts-dll.</summary>
+    [StatusScript(BattleStatusId.__STATUS__)]
+    public sealed class __CLS__ : StatusScriptBase__INTERFACES__
+    {
+__BODY__
+    }
+}
+"""
+
+
 def _ident(name: str) -> str:
     """A safe C# identifier stem from an ability name (``"Soul Leech"`` -> ``"SoulLeech"``)."""
     s = re.sub(r"[^A-Za-z0-9]", "", str(name)) or "Custom"
@@ -259,19 +358,51 @@ def render_field_script(sid: int, name: str, *, template: str | None = None, bod
     return f"{sid:04d}_{stem}FieldScript.cs", src
 
 
-def write_scripts(layout, scripts, field_scripts=()) -> list:
-    """Emit every minted ``.cs`` into ``layout.scripts_sources_dir``: battle FORMULAS (``scripts``, from
-    :func:`content.playable.script_seeds`) AND FIELD effects (``field_scripts``, from
-    :func:`content.playable.field_script_seeds`), each ``{id, name, template?/body?}``. Both go in ONE pass because
-    the dir is WIPED first (a second call would clobber the first's output) -- see the wipe rationale below. Returns
-    warnings (none today). Written UTF-8 / LF (Roslyn reads the encoding from the file; ASCII C# is encoding-agnostic)."""
+def render_status_script(status_id: int, name: str, status_enum: str, *,
+                         template: str | None = None, body: str | None = None, hooks=None) -> tuple[str, str]:
+    """Render ONE STATUS-behaviour ``.cs`` -> ``(filename, source)`` (the [StatusScript] twin). ``status_enum`` is
+    the CustomStatusN enum name the script binds to (``[StatusScript(BattleStatusId.<status_enum>)]``) AND is
+    substituted for ``__STATUS__`` in the body (so a body can reference its OWN status). Provide a known ``template``
+    or a raw ``body`` + ``hooks`` (short hook names -> the marker interfaces). ``status_id`` (33-63) keeps the
+    class/filename unique + distinct from the 256-band battle/field scripts."""
+    stem = _ident(name)
+    cls = f"{stem}{status_id}StatusScript"
+    if body is not None:
+        if not isinstance(body, str) or not body.strip():
+            raise ScriptSourceError(f"status script.body for {name!r} must be a non-empty C# class-body")
+        methods, tname, hook_list = body, "body", list(hooks or [])
+    else:
+        tmpl = STATUS_TEMPLATES.get(template)
+        if tmpl is None:
+            raise ScriptSourceError(f"unknown status template {template!r} for {name!r} "
+                                    f"(known: {', '.join(sorted(STATUS_TEMPLATES))}; or use body = \"<C#>\" + hooks)")
+        methods, tname, hook_list = tmpl["body"], template, list(tmpl["hooks"])
+    bad = [h for h in hook_list if h not in STATUS_HOOKS]
+    if bad:
+        raise ScriptSourceError(f"status {name!r} unknown hook(s) {bad} (known: {', '.join(sorted(STATUS_HOOKS))})")
+    interfaces = "".join(f", {STATUS_HOOKS[h]}" for h in hook_list)
+    perform = _indent(methods.replace("__STATUS__", status_enum), spaces=8)   # __BODY__ sits at the class-member level
+    safe_name = re.sub(r"[\r\n]+", " ", str(name)).replace("*/", "* /")
+    safe_name = re.sub(r"__(?:CLS|ID|NAME|TMPL|BODY|STATUS|INTERFACES)__", "", safe_name)
+    src = (_STATUS_SHELL.replace("__CLS__", cls).replace("__STATUS__", status_enum)
+           .replace("__NAME__", safe_name).replace("__TMPL__", tname)
+           .replace("__INTERFACES__", interfaces).replace("__BODY__", perform))
+    return f"{status_id:04d}_{stem}StatusScript.cs", src
+
+
+def write_scripts(layout, scripts, field_scripts=(), status_scripts=()) -> list:
+    """Emit every minted ``.cs`` into ``layout.scripts_sources_dir``: battle FORMULAS (``scripts``), FIELD effects
+    (``field_scripts``), and STATUS behaviours (``status_scripts``) -- from :func:`content.playable`'s
+    ``script_seeds`` / ``field_script_seeds`` / ``status_script_seeds``. All go in ONE pass because the dir is WIPED
+    first (a second call would clobber the first's output). Returns warnings (none today). Written UTF-8 / LF (Roslyn
+    reads the encoding from the file; ASCII C# is encoding-agnostic)."""
     warnings: list = []
     d = layout.scripts_sources_dir
     # the Scripts sources are ENTIRELY kit-owned + regenerated every build -> WIPE first, so a rebuild into a
     # PERSISTENT out dir (campaign/journey/GUI `dist/`) can't accumulate a stale NNNN_*.cs from a renamed/removed
     # ability -- its old [BattleScript(<id>)] would duplicate a reused 256-band id and compile to two classes on the
     # same id (a build error, or a wrong/nondeterministic binding). The deploy_field test slot uses a fresh tmp dir
-    # so it never hit this, but campaign/journey dist is persistent. ONE wipe covers battle + field (both written below).
+    # so it never hit this, but campaign/journey dist is persistent. ONE wipe covers battle + field + status (all below).
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True, exist_ok=True)
     for s in scripts:
@@ -279,5 +410,9 @@ def write_scripts(layout, scripts, field_scripts=()) -> list:
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     for s in field_scripts:
         fname, src = render_field_script(int(s["id"]), s["name"], template=s.get("template"), body=s.get("body"))
+        (d / fname).write_text(src, encoding="utf-8", newline="\n")
+    for s in status_scripts:
+        fname, src = render_status_script(int(s["id"]), s["name"], s["status_enum"],
+                                          template=s.get("template"), body=s.get("body"), hooks=s.get("hooks"))
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     return warnings

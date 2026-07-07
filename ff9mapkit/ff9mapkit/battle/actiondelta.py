@@ -417,11 +417,71 @@ def build_actions_delta(entries, *, new_rows=(), game=None) -> tuple:
     return _render(options, legend, rows, changed, note=note), warnings
 
 
-def build_status_delta(entries, *, game=None) -> tuple:
-    note = ("# ff9mapkit [[status]] -- a partial StatusData.csv delta (merged over the base by the engine; "
-            "the #! lines below are load-bearing).")
-    return _build("StatusData.csv", entries, STATUS_FIELDS, kind="status", max_id=_STATUS_MAX_ID,
-                  note=note, game=game)
+_CUSTOM_STATUS_MIN = 33     # BattleStatusId.CustomStatus1..31 = 33-63: the mod-reservable custom-status band (its own
+_CUSTOM_STATUS_MAX = 63     # 64-bit BattleStatus bit). A minted status needs a StatusData ROW here or btl_stat.cs:71
+#                             (statusDatabase[statusId] on apply) KeyNotFound-crashes. project-ff9-scripts-dll (P7).
+# Every behavioural + visual StatusData column, neutralised: a CustomStatusN row is INERT data (no tick / no auto-
+# expire [both engine-excluded for custom bits] / no clears / no immunities / no particle / no tint). The status's
+# BEHAVIOUR lives entirely in its [StatusScript]. Set by CSV column NAME (install column-order-independent).
+_STATUS_DATA_NEUTRAL = {"oprcount": "0", "conticount": "0", "clearonapply": "", "immunityprovided": "",
+                        "spseffect": "-1", "shpeffect": "-1", "colorkind": "0", "colorpriority": "0", "colorbase": "0"}
+
+
+def _mint_status_rows(new_rows, rows, cols) -> list:
+    """Mint NEW custom-status StatusData rows (33-63): clone a base row's COLUMN STRUCTURE, re-id, rename, and
+    neutralise every behavioural/visual column. Adds each into ``rows`` in place; returns the minted ids."""
+    if not new_rows:
+        return []
+    donor = rows[min(rows)]                          # borrow ONLY the column structure (all behaviour is neutralised)
+    idc, cmtc = cols.get("id"), cols.get("comment", 0)
+    minted, seen = [], set()
+    for n, nr in enumerate(new_rows if isinstance(new_rows, list) else [new_rows]):
+        ctx = f"custom status #{n}"
+        if not isinstance(nr, dict):
+            raise ActionDeltaError(f"{ctx} must be a table")
+        sid = _to_int(nr.get("id"), f"{ctx} id")
+        if not _CUSTOM_STATUS_MIN <= sid <= _CUSTOM_STATUS_MAX:
+            raise ActionDeltaError(f"{ctx}: status id {sid} out of the custom band "
+                                   f"{_CUSTOM_STATUS_MIN}-{_CUSTOM_STATUS_MAX} (0-32 are the base statuses)")
+        if sid in seen or sid in rows:
+            raise ActionDeltaError(f"{ctx}: status id {sid} is already defined")
+        seen.add(sid)
+        name = re.sub(r"[;\r\n]+", " ", str(nr.get("name", f"Status {sid}"))).strip() or f"Status {sid}"
+        cells = list(donor)
+        if idc is not None and idc < len(cells):
+            cells[idc] = str(sid)
+        if cmtc < len(cells):
+            cells[cmtc] = name
+        for col, val in _STATUS_DATA_NEUTRAL.items():
+            ci = cols.get(col)
+            if ci is not None and ci < len(cells):
+                cells[ci] = val
+        if cells and cells[-1].lstrip().startswith("#"):
+            cells[-1] = f"# {name}"
+        rows[sid] = cells
+        minted.append(sid)
+    return minted
+
+
+def build_status_delta(entries, *, new_rows=(), game=None) -> tuple:
+    """``[[status]]`` retunes (existing ids 0-32) + minted NEW custom statuses (``new_rows``, ids 33-63) -> ONE
+    partial StatusData.csv delta ``(text, warnings)``. Both share one emission so neither clobbers the other -- the
+    engine merges per-id over the base (0-32 from the base, 33-63 added). A custom status's row is inert data; its
+    behaviour lives in a ``[StatusScript]`` in Memoria.Scripts.<Mod>.dll (project-ff9-scripts-dll P7)."""
+    note = ("# ff9mapkit [[status]] / custom status -- a partial StatusData.csv delta (merged per-id over the base; "
+            "the #! lines below are load-bearing). Custom statuses (33-63) are inert data; behaviour is in the "
+            "Memoria.Scripts.<Mod>.dll [StatusScript].")
+    try:
+        options, legend, cols, rows = _read_raw(_csv_path("StatusData.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise ActionDeltaError(f"[[status]] needs your FF9 install to read the base StatusData.csv ({ex})")
+    if not cols or not rows:
+        raise ActionDeltaError("could not parse the base StatusData.csv (no id column / no rows)")
+    changed, warnings = _apply_entries(entries or [], rows, cols, _name_index(rows, cols), STATUS_FIELDS,
+                                       kind="status", max_id=_STATUS_MAX_ID)
+    minted = _mint_status_rows(new_rows or [], rows, cols)
+    changed = list(changed) + [m for m in minted if m not in changed]
+    return _render(options, legend, rows, changed, note=note), warnings
 
 
 def build_status_sets(entries, *, game=None) -> tuple:
@@ -523,19 +583,24 @@ def validate_magic_sword_sets(entries) -> list:
 
 
 def write_battle_data(layout, *, actions=None, statuses=None, status_sets=None, magic_sword_sets=None,
-                      new_actions=None, game=None) -> list:
+                      new_actions=None, new_statuses=None, game=None) -> list:
     """Emit the Actions / StatusData / StatusSets / MagicSwordSets CSV deltas into ``layout`` (mod-write stage).
     Returns warnings. Written cp1252 (byte-faithful with the base) + LF; the engine StreamReader is EOL-agnostic.
     ``new_actions`` mints custom NEW abilities (id >=192) into the SAME Actions.csv delta as the ``[[battle_action]]``
-    retunes -- one emission, so neither clobbers the other."""
+    retunes; ``new_statuses`` mints custom NEW statuses (id 33-63) into the SAME StatusData.csv delta as the
+    ``[[status]]`` retunes -- one emission each, so neither clobbers the other."""
     warnings: list = []
     if actions or new_actions:                              # Actions.csv: retunes + minted custom abilities, ONE file
         text, w = build_actions_delta(actions or [], new_rows=new_actions or [], game=game)
         layout.actions_csv.parent.mkdir(parents=True, exist_ok=True)
         layout.actions_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
         warnings += w
-    for entries, path, builder in ((statuses, layout.status_data_csv, build_status_delta),
-                                   (status_sets, layout.status_sets_csv, build_status_sets),
+    if statuses or new_statuses:                            # StatusData.csv: retunes + minted custom statuses, ONE file
+        text, w = build_status_delta(statuses or [], new_rows=new_statuses or [], game=game)
+        layout.status_data_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.status_data_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+    for entries, path, builder in ((status_sets, layout.status_sets_csv, build_status_sets),
                                    (magic_sword_sets, layout.magic_sword_sets_csv, build_magic_sword_sets)):
         if entries:
             text, w = builder(entries, game=game)
