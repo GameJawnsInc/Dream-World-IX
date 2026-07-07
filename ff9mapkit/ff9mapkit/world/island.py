@@ -157,13 +157,16 @@ def _split_at_borders(parent_tris):
 
 # --------------------------------------------------------------------------- the builder
 
-def build_landmass(*, center, base_radius: float = 24.0, seed=None, land_height: float = 3.2,
+def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int = 1, land_height: float = 3.2,
                    rim_run: float = 1.0, undulation: float = 0.11, n_corners: int = 3,
                    corner_strength: float = 0.26, n_patches: int = 2, relief=None, stamps=None,
                    mains_seed: int = 0xF91, stamp_seed: int = 0xF92, disc: int = 1, game=None) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
-    meshes. ``relief`` = a :func:`grassland.relief_field` dict, ``"auto"`` (load from the install), or
-    ``None`` (flat -- hermetic). ``stamps`` likewise (a list / ``"auto"`` / ``None``). Returns
+    meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
+    (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
+    :func:`verify_landmass` checks it against the measured FF9 coastline language). ``relief`` = a
+    :func:`grassland.relief_field` dict, ``"auto"`` (load from the install), or ``None`` (flat --
+    hermetic). ``stamps`` likewise (a list / ``"auto"`` / ``None``). Returns
     ``{"blocks": {(bx, by): BlockMesh}, "outline", "seed", "report"}`` -- run :func:`verify_landmass`
     (or let :func:`landmass` do it) before deploying."""
     from . import mesh as M
@@ -172,8 +175,12 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, land_height:
     cx, cz = center
     if seed is None:
         seed = float(int(cx * 7 + cz * 13) % 997)
-    outline, radii = M.blob_outline(cx, cz, base_radius=base_radius, seed=seed, undulation=undulation,
-                                    n_corners=n_corners, corner_strength=corner_strength)
+    if lobes >= 2:
+        outline, radii = M.multi_blob_outline(cx, cz, lobes=lobes, base_radius=base_radius, seed=seed,
+                                              undulation=undulation)
+    else:
+        outline, radii = M.blob_outline(cx, cz, base_radius=base_radius, seed=seed, undulation=undulation,
+                                        n_corners=n_corners, corner_strength=corner_strength)
     nring = len(outline)
     rim = []
     for (ox, oz), r in zip(outline, radii):
@@ -447,6 +454,13 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
     report.update(cracks=cracks, down_facing=down, walk_filter_fails=steep, grass_over_8u=big,
                   uv_out_of_region=oob, holes=holes, holes_sampled=tot)
 
+    # the coastline SHAPE gate: the generated outline must sit inside the measured FF9 language
+    # (real disc-1 coasts: med turn 22 deg/8u, corner(45-80) 15%, acute(>=80) 7%)
+    from . import mesh as _M
+    shape = _M.outline_shape_stats(built["outline"])
+    shape["ok"] = 8.0 <= shape["med_turn"] <= 35.0 and shape["acute"] <= 0.12 and shape["max_turn"] < 150.0
+    report["shape"] = shape
+
     place_reports = {}
     if sea_plane is not None:
         from . import mesh as M
@@ -467,6 +481,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
             place_reports[blk] = entry
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
+                       and shape["ok"]
                        and all(e["miss"] == 0 and e.get("centre_ok", True) for e in place_reports.values()))
     return report
 
@@ -479,7 +494,7 @@ def _sea_plane(disc: int = 1, game=None):
     return M.fill_missing_grid_quads(X.read_block(*SEA_PLANE_SOURCE, disc=disc, part="sea4", game=game))
 
 
-def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None,
+def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None, lobes: int = 1,
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
              donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1", game=None, dry_run: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
@@ -493,8 +508,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         if cell is None:
             raise ValueError("give center=(wx, wz) or cell=(bx, by)")
         center = (BLOCK * cell[0] + BLOCK / 2, -BLOCK * cell[1] - BLOCK / 2)
-    built = build_landmass(center=center, base_radius=base_radius, seed=seed, land_height=land_height,
-                           rim_run=rim_run, n_patches=n_patches,
+    built = build_landmass(center=center, base_radius=base_radius, seed=seed, lobes=lobes,
+                           land_height=land_height, rim_run=rim_run, n_patches=n_patches,
                            relief=None if flat else "auto", stamps=None if flat else "auto",
                            disc=disc, game=game)
     plane = _sea_plane(disc, game)

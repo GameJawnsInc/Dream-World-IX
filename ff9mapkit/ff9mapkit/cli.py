@@ -2201,8 +2201,9 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     the ENGINE PLACEMENT simulator) before deploy. Needs the custom engine (s34); re-enter the world map."""
     from .world import island as I
     try:
-        kw = dict(base_radius=args.radius, seed=args.seed, land_height=args.height, rim_run=args.rim_run,
-                  n_patches=args.patches, flat=args.flat, disc=args.disc, game=args.game, dry_run=args.dry_run)
+        kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
+                  rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, disc=args.disc,
+                  game=args.game, dry_run=args.dry_run)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -4510,6 +4511,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="base coastline radius in units (default 24 ~ one block; bigger spans blocks)")
     wis.add_argument("--seed", type=float, default=None,
                      help="island shape seed (deterministic; default derives from the centre)")
+    wis.add_argument("--lobes", type=int, default=1,
+                     help="1 = a perturbed-circle island (default); 2-3 = an ASYMMETRIC multi-lobe landmass "
+                          "(elongation, waists, natural corners -- gated against the measured FF9 coastline language)")
     wis.add_argument("--height", type=float, default=3.2,
                      help="interior land height (default 3.2 = the real coastal-cliff interior median)")
     wis.add_argument("--rim-run", type=float, default=1.0,

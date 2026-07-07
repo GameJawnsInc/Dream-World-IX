@@ -232,6 +232,25 @@ def test_landmass_deploy_orchestration(monkeypatch):
     assert sidecars == [(0, 0, 3, 1)]
 
 
+def test_multi_blob_outline_deterministic_and_in_language():
+    """The asymmetric multi-lobe coastline stays inside FF9's measured shape language (real: med turn
+    22 deg/8u, corner 15%, acute 7%) and is reproducible per seed."""
+    a1, r1 = M.multi_blob_outline(96.0, -192.0, lobes=3, base_radius=40.0, seed=86.0)
+    a2, r2 = M.multi_blob_outline(96.0, -192.0, lobes=3, base_radius=40.0, seed=86.0)
+    assert a1 == a2 and r1 == r2 and min(r1) > 0
+    st = M.outline_shape_stats(a1)
+    assert 8.0 <= st["med_turn"] <= 35.0 and st["acute"] <= 0.12 and st["max_turn"] < 150.0
+    st_other = M.outline_shape_stats(M.multi_blob_outline(96.0, -192.0, lobes=3, base_radius=40.0, seed=87.0)[0])
+    assert st_other != st                                # a different seed is a different island
+
+
+def test_build_landmass_lobes_shape_gate():
+    built = I.build_landmass(center=(96.0, -192.0), base_radius=40.0, seed=86.0, lobes=3)
+    rep = I.verify_landmass(built, sea_plane=_synth_plane())
+    assert rep["shape"]["ok"] and rep["clean"], rep
+    assert len(built["blocks"]) >= 4                     # a radius-40 landmass genuinely spans blocks
+
+
 def test_landmass_dry_run_writes_nothing(monkeypatch):
     called = []
     monkeypatch.setattr(M, "deploy_override", lambda *a, **k: called.append(a))

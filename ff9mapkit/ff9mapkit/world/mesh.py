@@ -437,6 +437,96 @@ def blob_outline(cx: float, cz: float, *, base_radius: float = 24.0, n: int = 96
     return pts, radii
 
 
+def multi_blob_outline(cx: float, cz: float, *, lobes: int = 3, base_radius: float = 26.0, spread: float = 0.55,
+                       n: int = 160, seed: float = 0.0, undulation: float = 0.09, smooth: int = 2,
+                       n_corners: int = 2, corner_strength: float = 0.22, ripple: float = 0.022):
+    """An ASYMMETRIC multi-lobe island outline -- the union of ``lobes`` offset circles sampled radially
+    from the shared centre, then gently undulated and lightly smoothed. Where :func:`blob_outline` reads
+    as a regular perturbed circle (its fixed low-frequency harmonics make symmetric-looking dips), the
+    lobe UNION gives what real FF9 landmasses have: elongation, bulges, concave WAISTS between lobes, and
+    natural corner creases where lobe arcs meet -- while every local curve stays a gentle circular arc in
+    the measured shape language (med turn 22 deg/8u, ~15%% corners). ``spread`` scales the lobe-centre
+    scatter (kept under the lobe radii so the union stays star-convex from the centre -- the wall/grass
+    builders need a single-valued outline). Returns ``(pts, radii)`` like :func:`blob_outline`;
+    deterministic per ``seed``."""
+    offs = []
+    for k in range(max(1, lobes)):
+        ang = 2.0 * math.pi * _hash01(seed, 100 + 7 * k)
+        mag = spread * base_radius * (0.35 + 0.65 * _hash01(seed, 101 + 7 * k))
+        rad = base_radius * (0.62 + 0.55 * _hash01(seed, 102 + 7 * k))
+        offs.append((mag * math.cos(ang), mag * math.sin(ang), rad))
+    comps = [(f, undulation * (0.45 + 0.55 * _hash01(seed, 3 * f)) / f, 2.0 * math.pi * _hash01(seed, 3 * f + 1))
+             for f in (2, 3, 5)]                             # gentle wobble on top of the lobe union
+    comps += [(f, ripple * (0.5 + 0.5 * _hash01(seed, 5 * f)), 2.0 * math.pi * _hash01(seed, 5 * f + 1))
+              for f in (9, 13, 17)]                          # 8u-scale ripple (real med turn ~22deg; big radii need it)
+    corners = [(2.0 * math.pi * _hash01(seed, 150 + c), corner_strength * (0.55 + 0.45 * _hash01(seed, 160 + c)),
+                0.08 + 0.05 * _hash01(seed, 170 + c)) for c in range(max(0, n_corners))]
+    radii = []
+    for i in range(n):
+        th = 2.0 * math.pi * i / n
+        dx, dz = math.cos(th), math.sin(th)
+        r = 0.0
+        for (ox, oz, R) in offs:                             # farthest ray-circle exit = the union boundary
+            proj = ox * dx + oz * dz
+            q2 = ox * ox + oz * oz - proj * proj
+            if q2 <= R * R:
+                t = proj + math.sqrt(R * R - q2)
+                if t > r:
+                    r = t
+        if r <= 0.0:                                         # centre outside every lobe: degenerate seed -> a floor
+            r = 0.3 * base_radius
+        for (f, a, p) in comps:
+            r *= (1.0 + a * math.sin(f * th + p))
+        for (cth, cs, cw) in corners:                        # a few localized dents = real 45-80deg headland corners
+            d = abs(((th - cth + math.pi) % (2.0 * math.pi)) - math.pi)
+            r *= (1.0 - cs * math.exp(-(d / cw) ** 2))
+        radii.append(r)
+    for _ in range(max(0, smooth)):                          # soften the union creases to real-corner grade
+        radii = [(radii[i - 1] + 2.0 * radii[i] + radii[(i + 1) % n]) / 4.0 for i in range(n)]
+    pts = [(cx + radii[i] * math.cos(2.0 * math.pi * i / n), cz + radii[i] * math.sin(2.0 * math.pi * i / n))
+           for i in range(n)]
+    return pts, radii
+
+
+def outline_shape_stats(pts, *, step: float = 8.0) -> dict:
+    """FF9's measured coastline SHAPE-LANGUAGE stats for an outline: resample the closed loop at ``step``
+    arc-length, then bin the turn angles (real disc-1 coasts: med 22 deg, gentle(<20) 44%%, mild 32%%,
+    corner(45-80) 15%%, acute(>=80) 7%%). Use as a gate on generated coastlines: a shape whose stats sit
+    inside the real distribution reads like an FF9 landmass."""
+    per = [math.hypot(pts[(i + 1) % len(pts)][0] - pts[i][0], pts[(i + 1) % len(pts)][1] - pts[i][1])
+           for i in range(len(pts))]
+    total = sum(per)
+    res = []
+    target = 0.0
+    acc = 0.0
+    i = 0
+    while target < total and len(res) < 4096:
+        while acc + per[i] < target:
+            acc += per[i]
+            i = (i + 1) % len(pts)
+        t = (target - acc) / per[i] if per[i] > 1e-9 else 0.0
+        a, b = pts[i], pts[(i + 1) % len(pts)]
+        res.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])))
+        target += step
+    turns = []
+    m = len(res)
+    for j in range(m):
+        p0, p1, p2 = res[j - 1], res[j], res[(j + 1) % m]
+        a1 = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+        a2 = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
+        d = abs((a2 - a1 + math.pi) % (2.0 * math.pi) - math.pi)
+        turns.append(math.degrees(d))
+    turns_sorted = sorted(turns)
+    nT = len(turns) or 1
+    return {"med_turn": turns_sorted[nT // 2] if turns else 0.0,
+            "max_turn": turns_sorted[-1] if turns else 0.0,
+            "gentle": sum(1 for t in turns if t < 20) / nT,
+            "mild": sum(1 for t in turns if 20 <= t < 45) / nT,
+            "corner": sum(1 for t in turns if 45 <= t < 80) / nT,
+            "acute": sum(1 for t in turns if t >= 80) / nT,
+            "perimeter": total}
+
+
 def blob_cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg_ang: int = 96, rings: int = 4,
                           land_height: float = 3.2, rim_run: float = 1.0, roll_amp: float = 0.6,
                           base_radius: float = 24.0, undulation: float = 0.11, seed=None,
