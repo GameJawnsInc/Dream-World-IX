@@ -53,6 +53,22 @@ def test_pack_mod_zips_built_mod(tmp_path):
     assert all(n.startswith("FF9CustomMap/") for n in names)
 
 
+def test_pack_mod_name_overrides_zip_top_folder(tmp_path):
+    """`--name` renames the folder INSIDE the zip — Memoria identifies a mod by its folder name, so a
+    campaign staged at the default dist/ must not ship a zip that unpacks to a folder called 'dist'."""
+    mod_root = tmp_path / "dist"                       # the awkward-but-common staged name
+    (mod_root / "StreamingAssets").mkdir(parents=True)
+    (mod_root / "DictionaryPatch.txt").write_text("FieldScene 4003 11 X TESTROOM 1073\n", encoding="utf-8")
+    (mod_root / "StreamingAssets" / "x.bin").write_bytes(b"\x00")
+    (mod_root / "stale.bak").write_text("skip me", encoding="utf-8")
+    zip_path = pack.pack_mod(mod_root, tmp_path / "MyMod.zip", name="MyMod")
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+    assert names and all(n.startswith("MyMod/") for n in names), names
+    assert not any(n.endswith(".bak") for n in names)
+    assert pack.pack_mod(mod_root, tmp_path / "plain.zip").name == "plain.zip"   # default keeps folder name
+
+
 def test_new_project_writes_placeholder_art(tmp_path):
     """`new` scaffolds placeholder back.png + floor.png (valid PNGs, same canvas dims) and derives
     the walkmesh quad from the camera frame so it lines up with the placeholder floor."""

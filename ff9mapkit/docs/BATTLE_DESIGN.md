@@ -1,6 +1,6 @@
 # BATTLE_DESIGN.md — FF9 battle tuning & encounter authoring (the honest gap map)
 
-> Recon synthesis (2026-06-12, `battle_design` branch). Scope: tune existing battles + author new
+> Recon synthesis (2026-06-12). Scope: tune existing battles + author new
 > encounters with **stock monster models**, on **stock Memoria (no engine-DLL rebuild)**. Every claim cites
 > Memoria source `file:line` / a CSV column / a raw16 byte offset. This is the battle analog of
 > `FORK_FIDELITY.md`: what the kit can already do, what it can't yet, and the prioritized path.
@@ -202,8 +202,8 @@ authorable** (`seqcodec.py` parse/serialize + the `seqasm.py` assembler + `[[sce
 
 ### (h) Attack SEQUENCES — `btlseq.raw17` + `Data/SpecialEffects/<ef>/*.seq` (choreography + a thin gameplay edge)
 
-> Engine-verified 2026-06-13 (a 10-agent workflow, all 3 load-bearing claims adversarially re-derived from
-> source at high confidence). Sequences are **mostly cinematic but NOT pure fluff**; they are **no-DLL within
+> Engine-verified 2026-06-13 (all 3 load-bearing claims independently re-derived from the
+> Memoria source). Sequences are **mostly cinematic but NOT pure fluff**; they are **no-DLL within
 > the engine's fixed opcode vocabulary**; and they are **NOT a custom-model stepping-stone** (§8).
 
 **Two channels, both no-DLL whole-file overrides:**
@@ -389,7 +389,7 @@ passthrough-copy asset is the **`.mes`**; the CSV levers ship as non-destructive
 6. Formation shape (count ≤4, placement, per-pattern Rate) + scene flags (back-attack ambush, no-escape boss).
 7. Enemy AI (the real fight redesign — phases, HP-threshold triggers, counters).
 
-### Automated LINT/VALIDATION the kit should add (the "I can't see the game" superpower)
+### Automated LINT/VALIDATION the kit should add (offline, no game needed)
 All derivable **offline** from the fields above + the known formulas:
 - **Turns-to-kill estimator** — total enemy HP vs party DPS at level L via the real `Base×Bonus×Modifier`;
   flag HP-sponges / one-shots. Plus the symmetric **enemy time-to-kill-a-PC** ("is this fair?").
@@ -465,17 +465,17 @@ Add to `scene_data._MON_FIELDS` the verified scalar offsets: element affinities 
 AP `@4` + type AP `@50`, WinCard `@105` (drop/steal rates + MaxDamageLimit via BattlePatch arrays). Each = the
 identical `struct.pack_into` surgical pattern. Add element/status/category **name↔bit tables** (committable).
 
-### Phase 2 — the validation/lint suite (the superpower) ✅ DONE (kit 0.9.46)
+### Phase 2 — the validation/lint suite ✅ DONE (kit 0.9.46)
 `battle/scenelint.py` — `lint_scene(scene) -> [Finding]` over the Phase-0 parsed scene, surfaced in
 `battle-scene` (inspector footer) and `battle-build` (lints the **tuned** raw16 → `BattleResult.lint`). The bar
 is TRUST (quiet on vanilla, loud only on real problems), so every check was **validated against a 562-scene
-sweep** (a 3-lens adversarial review). Checks shipped: **no_reward** / **bad_item** (`warn`: a fight that rewards
+sweep**. Checks shipped: **no_reward** / **bad_item** (`warn`: a fight that rewards
 nothing; a drop/steal id that isn't a real item — both 0 false-positives across all 562 scenes), **status_immune**
 (immune to every common offensive status → status abilities dead), **element_wall** (resists/absorbs/halves ≥7/8
 elements), **phys/mag_wall** (defence in the weapon-power band ≥50 — real enemies cap ~24, FF9 weapon power ~108 —
 → attacks floored, subtractive defence), **level5** (level %5 AND not Death-immune → LV5 Death one-shots).
-Severity: `warn` = likely real problem, `info` = design awareness. ★ The review CAUGHT + we removed three
-over-firing heuristics the single smoke missed: an `hp_sponge`/turns-to-kill estimate (fired on ~49% of real
+Severity: `warn` = likely real problem, `info` = design awareness. ★ Validation caught + removed three
+over-firing heuristics the single smoke test missed: an `hp_sponge`/turns-to-kill estimate (fired on ~49% of real
 scenes — FF9 damage is multiplicative `Strength×(weaponPower−def)` ×party, off by 10-40× without a live party
 model), the raw `level3/4/5` divisibility notes (~74%, plus a backwards "LV4 Holy" on Holy-absorbers), and a
 standalone `no_weakness` note (~29%, a normal design choice). DEFERRED (needs a live party model): a precise
@@ -486,21 +486,21 @@ normal-late-game-enemy-is-clean regression) + the real-donor sweep.
 `battle/actiondelta.py` — `[[battle_action]]` (rebalance a shared ability: `power`/`element(s)`/`rate`/`mp`/
 `script`/`category`/`type`) and `[[status]]` (`tick`/`duration`) on a `field.toml`, emitted at the mod-write
 stage (`build._emit_battle_data` → `ModLayout.actions_csv`/`status_data_csv`). The engine merges these by
-**whole-ROW replacement** keyed on id, so to change one field we read the base row LIVE from the install,
-modify the named columns, and emit the complete row — preserving the base file's **`#!` option lines**
+**whole-ROW replacement** keyed on id, so to change one field the kit reads the base row LIVE from the install,
+modifies the named columns, and emits the complete row — preserving the base file's **`#!` option lines**
 (load-bearing: the engine parses by column POSITION and `#!` toggles optional columns). Mod-global (always-on,
 not new-game-scoped), aggregated across all fields, dup-id warned; `script` resolves a formula name (warns if
 it's not a stock scriptId — a new formula needs a `Memoria.Scripts.<Mod>.dll`). Provenance: the authored
 `field.toml` holds only the overrides; the emitted CSV is mod build-output (never committed). `deploy_field`
 ships the two CSVs reversibly. Offline `lint` does structural checks; name→id + value resolution happens at
 build (which has the install). (Enemy attacks live in raw16, not Actions.csv → the enemy-attack analog is the
-Phase-4 BattlePatch emitter.) ★ A 3-lens adversarial review (engine source + real CSVs) verified the merge +
+Phase-4 BattlePatch emitter.) ★ An adversarial review (engine source + real CSVs) verified the merge +
 byte-preservation sound and caught three real bugs (fixed): the install CSVs are **cp1252** not UTF-8 (4 ability
 names carry a 0x92 apostrophe — `errors="replace"` corrupted them + blocked name lookup → read/write cp1252 +
 straighten curly apostrophes); narrow engine columns (elements/category/type = Byte, tick = Byte, duration =
 UInt16) were unguarded so an out-of-range value would **crash the game at boot** (`Byte.Parse` overflow →
 `ConfirmQuit`) → range-checked OFFLINE; a name that maps to several ids now raises "ambiguous — use the id". 14
-tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is the human step.*
+tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is a manual verification step.*
 
 ### Phase 4 — `BattlePatch.txt` emitter for enemy/attack/scene tuning ✅ DONE (kit 0.9.51)
 `battle/battlepatch.py` — three `field.toml` blocks map 1:1 to the engine's selector model
@@ -522,10 +522,10 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is t
   fails the lint/build instead).
 - **Non-clobbering deploy** (`merge_battle_patch`): the built block is spliced into the live `BattlePatch.txt`
   under per-field `//` sentinel markers (the engine skips `//` lines, `DataPatchers.cs:551`), so a co-deployed
-  battle's repoint/`Music:` lines + a stacked worktree's lines survive — idempotent + reversible
+  battle's repoint/`Music:` lines + another stacked folder's lines survive — idempotent + reversible
   (`deploy_field.py`). `build_mod` merges the Phase-4 lines with the per-encounter BGM `Battle:`/`Music:` block.
 - CLI `battle-patch <field.toml>` (offline preview) + `--fields` (the tunable-field catalog); offline lint in
-  `validate_field`. ★ A 4-lens adversarial review (engine source + the structs) verified the grammar/ordering,
+  `validate_field`. ★ An adversarial review (engine source + the structs) verified the grammar/ordering,
   every field name↔[PatchableField]↔token↔range, and the value-encoding sound, and CAUGHT three real bugs
   (fixed): the `status_set`/`AddStatusNo` cap was `_U16` but `StatusSetId` only defines 0-38 → an undefined id
   is a `KeyNotFoundException` crash at command-build (capped at 38); a malformed (non-table / non-list) toml
@@ -535,7 +535,7 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is t
   prevent). 23 tests. ★ **IN-GAME PROVEN (2026-06-12):** a `[[battle_patch.attack]]` on the forked EF_R007
   Goblin patched the enemy's normal attack by index (`power`+`status_set`) and both landed — the attack inflicted
   the authored `StatusSets.csv` bundle (the `AA_DATA` enemy-attack lever, untouchable before, works by name).
-  (Author note: `status_set` is a `StatusSetId` row — 16 = the Dispel bundle, Poison = 20.) Surfaced + fixed a
+  (Note: `status_set` is a `StatusSetId` row — 16 = the Dispel bundle, Poison = 20.) Surfaced + fixed a
   `deploy_field` wholesale-snapshot DictionaryPatch revert that clobbered a co-deployed `BattleScene`
   registration (→ black screen); the revert is now surgical (drops only the field's own line).
   ★ **FULLY PROVEN (2026-06-12):** a follow-up confirmed EVERY Phase-4 channel in one fight — `AnyEnemyByName:
@@ -548,12 +548,12 @@ tests + real-install smoke; *in-game proof (the rebalanced ability behaves) is t
 `battle/characterdelta.py` — the PLAYER side of balance (the `actiondelta` twin), read-live `Data/Characters`
 deltas: **`[[character]]` → BaseStats.csv** (`dexterity`/`strength`/`magic`/`will`/`gems` by name/0-11 id; per-id
 PARTIAL delta, `EnumerateCsvFromLowToHigh`) + **`[[leveling]]` → Leveling.csv** (`exp`/`bonus_hp`/`bonus_mp` by
-`level=1..99`; **WHOLE-FILE** — `GetCsvWithHighestPriority` + a ≥99-row gate, so we read the base 99 live, patch,
-and re-emit ALL 99; HP=`BonusHP·Str/50`, MP=`BonusMP·Mag/100`). Range-checked offline vs the real column types
+`level=1..99`; **WHOLE-FILE** — `GetCsvWithHighestPriority` + a ≥99-row gate, so the kit reads the base 99 live, patches,
+and re-emits ALL 99; HP=`BonusHP·Str/50`, MP=`BonusMP·Mag/100`). Range-checked offline vs the real column types
 (Byte/UInt16/UInt32); `CharacterId` name table committed (the enum), stat values read live. Wired mod-global into
 `build`/`validate_field`/`deploy_field` + the deploy-time shadow guard (Leveling is whole-file like InitialItems);
-CLI `characters`. ★ A 4-lens adversarial review caught a provenance leak (a fixture row matched the install —
-de-leaked), the missing Leveling shadow guard (added), and a `[character]` vs `[[character]]` build/lint
+CLI `characters`. ★ An adversarial review caught a provenance leak (a fixture row matched the install —
+scrubbed), the missing Leveling shadow guard (added), and a `[character]` vs `[[character]]` build/lint
 disagreement (normalized). 15 tests + real-install smoke. ★ **IN-GAME PROVEN (2026-06-12):** a `[[character]]`
 boost of Vivi (40/80/90/45) + `[party] add=["vivi"]` on a New-Game field → at a fresh New Game her status menu
 read Speed 40 / Str 80 / Mag 90 / Spr 45 (vanilla 16/12/24/19) — `[[character]]`→BaseStats.csv lands at the
@@ -561,7 +561,7 @@ New-Game party build (Leveling shares the machinery; its in-game proof is a foll
 **Phase 5b ✅ DONE (kit 0.9.61):** `[[ability_gem]]` → `AbilityGems.csv` (re-cost a support ability's gem
 requirement; per-SupportAbility partial delta, the build-economy lever). `ability` by enum/display name or 0-63
 id (committed SupportAbility name table); `#! IncludeBoosted` + the Boosted column preserved; CLI `ability-gems`.
-A 3-lens review verified the 64-name table + the Boosted handling + provenance, and aliased the one display name
+A review pass verified the 64-name table + the Boosted handling + provenance, and aliased the one display name
 ("Odin's Sword") whose possessive broke resolution. 6 tests. **Still deferred:** `CharacterParameters.csv`
 (mostly menu/row), `Commands`/`CommandSets`. **Explicitly NOT `BattleParameters.csv`** (cosmetic only — model/anims).
 
@@ -574,21 +574,21 @@ added the missing VOCABULARY: `eb/_exprtable.py` (the `op_binary` operator table
 spawn-binding, entries `1..TypCount` = per-type AI, functions by TAG [Main/Counter/ATB/Dying], with named commands
 incl. a control-opcode overlay + annotated expressions). ★ The load-bearing property = **byte-walk PARITY**: a
 test asserts `_decode_func_pretty`'s instruction offsets == the proven `read_code`'s across every AI function of a
-real donor, so the view can never desync. Reads the real EF_R007 Goblin AI cleanly. 10 tests; a 3-lens review
+real donor, so the view can never desync. Reads the real EF_R007 Goblin AI cleanly. 10 tests; a review pass
 (table vs `EBin.cs` / byte-walk / presenter+provenance) found only a low truncated-eb `IndexError` (guarded).
 **Phase 6b ✅ DONE (kit 0.9.64)** — **same-length AI constant patches** (`battle/aipatch.py`, the first authoring
 step). `constant_sites` locates every patchable numeric constant (command immediates + `B_CONST`/`B_CONST4` expr
 literals) with offset+width — a walk that mirrors `read_code`/`pretty_expr` byte-for-byte; `battle-ai --sites`
 prints them (224 on EF_R007). `[[scene.ai_patch]]` (in `battle.toml`) cites `at`/`old`/`new`: a same-length,
 old-value-GUARDED in-place edit (no `fpos`/entry-table fixup), applied per-language to the forked eb at build
-(bytecode is language-identical). ★ A 3-lens review found + fixed: a 3-byte (Int24) immediate `KeyError`
+(bytecode is language-identical). ★ Review found + fixed: a 3-byte (Int24) immediate `KeyError`
 (→ generic width-N pack), a truncated-eb `IndexError` (→ clean `AiPatchError`), and the `B_CONST4` 26-bit engine
-mask (→ per-site cap); the `B_CONST` signedness path is benign (byte-faithful). 9 tests. *In-game proof = human.*
+mask (→ per-site cap); the `B_CONST` signedness path is benign (byte-faithful). 9 tests. *In-game proof is a manual step.*
 **Phase 6c-i ✅ DONE (kit 0.9.67)** — the enemy-AI **expression ASSEMBLER** (`eb/exprasm.py`), the keystone of
 new-branch authoring: the exact inverse of the 6a disassembler. `assemble("{ B_CURHP const(50) B_LT B_EXPR_END }")`
 → the RPN expression bytes the engine evaluates, round-trip-exact with `pretty_expr` (`assemble(pretty_expr(b))==b`
 byte-for-byte, proven against the real EF_R007 AI). Each token inverts a `pretty_expr` branch (op mnemonic / `const`
-+ `const4` / the `0xC0` minimal var encoding / sysvar / obj / member-ptr). CLI `battle-ai --asm`. ★ A 3-lens review
++ `const4` / the `0xC0` minimal var encoding / sysvar / obj / member-ptr). CLI `battle-ai --asm`. ★ Review
 confirmed the byte-layout matches `EBin.cs` and fixed: an `opXX` back-door that assembled a bare operand-byte
 (→ desync; now `opXX` accepts only unnamed pure operators `<0xC0`), an unguarded re-disasm crash (→ `assemble()`
 **self-verifies** its own round trip as a library invariant), and silent const masking (→ range-checked). 35 tests.
@@ -598,7 +598,7 @@ confirmed the byte-layout matches `EBin.cs` and fixed: an `opXX` back-door that 
 exact bytes; `assemble_block` resolves `label:`/symbolic jumps in two passes. `add_ai_function`/`replace_ai_function`
 splice the assembled branch into a forked eb via the existing byte-safe `eb.edit` primitives (entry-table + `fpos`
 fixup). CLI `battle-ai --asm-block`. Round-trip proven on the real EF_R007 AI (every instruction + every function
-byte-for-byte; `add_ai_function` re-parses with everything else byte-intact). ★ A 3-lens review fixed: a missing
+byte-for-byte; `add_ai_function` re-parses with everything else byte-intact). ★ Review fixed: a missing
 flow-TERMINATOR check (no per-function length bound in-engine → a RET-less branch runs off the function; now
 `aiauthor` requires `RET`/`TerminateEntry`) and a backward `JMP_IFNOT` (the engine reads its offset UNSIGNED, unlike
 `JMP`/`JMP_IF` → now rejected). 35 tests.
@@ -607,7 +607,7 @@ flow-TERMINATOR check (no per-function length bound in-engine → a RET-less bra
 jump bounds / **reachable RET** via a forward reachability walk / Attack-index `< atk_count`); ★ **a 562-scene sweep
 lints ALL shipping scenes CLEAN (0 false positives)**. CLI `battle-ai --lint`. `[[scene.ai_function]]`
 (`aiauthor.apply_ai_functions`) adds/replaces an AI function in `battle.toml`, spliced per-language at build AFTER
-`ai_patch`; the validate hook lints the COMPOSED (shipped) eb. ★ A 3-lens review (it re-ran the 562-sweep itself)
+`ai_patch`; the validate hook lints the COMPOSED (shipped) eb. ★ Review (re-running the 562-scene sweep)
 fixed 4: a `JMP_IFNOT` decoded signed but read UNSIGNED in-engine (missed the backward-jump fault → now unsigned);
 the validate hook lit the un-patched donor not the composed eb (→ composes + lints the shipped bytes); an incomplete
 terminator set (`GameOver`/`STOP`/… also end dispatch → false-flagged, now widened + shared with `aiauthor`); and an

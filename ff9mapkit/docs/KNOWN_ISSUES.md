@@ -1,6 +1,6 @@
 # Known issues & limitations
 
-This is an honest map of the rough edges in the public beta — what's not wired up yet, what's
+This page maps the rough edges in the public beta — what's not wired up yet, what's
 authored by hand rather than in a form, and the handful of things the engine genuinely can't do on
 a custom field id. None of these block the core loop (fork or author a field → build → deploy →
 play); they're the places where you'll reach for the CLI, a text editor, or Blender instead of the
@@ -13,13 +13,19 @@ It splits into two parts: **[the Workspace GUI](#part-a--the-workspace-gui)** an
 
 ## Part A — the Workspace GUI
 
-The desktop **Workspace** (`apps/ff9_workspace.pyw`) folds the authoring tools into one PySide6 window.
-It's entirely optional — the CLI does everything without it — and it's the youngest part of the kit,
-so it has the most gaps.
+The desktop **Workspace** folds the authoring tools into one PySide6 window.
+It's entirely optional — the CLI does everything without it.
 
 ### Launching it
 
-There is **no `ff9mapkit gui` subcommand yet.** Launch the Workspace directly:
+There is **no `ff9mapkit gui` subcommand yet.** For an **installed** copy (pip / uv / the Windows
+installer — no repo checkout), the launcher is the **`ff9mapkit-workspace`** entry point:
+
+```powershell
+ff9mapkit-workspace
+```
+
+From a repo checkout, launch the Workspace directly:
 
 ```powershell
 py apps\ff9_workspace.pyw                  # the front door
@@ -27,28 +33,30 @@ py apps\ff9_workspace.pyw                  # the front door
 py -m ff9mapkit.workspace.shell
 ```
 
-(`pip install -e ".[gui]"` first, or `py -m pip install PySide6`.) Note that the CLI's
+(`pip install -e ".[gui]"` first, or `py -m pip install ff9mapkit[gui]`.) Note that the CLI's
 `ff9mapkit edit` command opens an **older, single-field** Tkinter form editor — *not* the Workspace.
 
 ### The Workspace edits the logic layer, not the spatial layer
 
 The Workspace authors a field's **logic** (the `field.toml`). It does **not** author the **spatial
 layer** — camera angle, walkmesh geometry, and background art layers. Those are posed in **Blender**
-(via the add-on → a `scene.toml`) or written by hand. In the editor the **Camera** form is
-**read-only** for exactly this reason: camera / walkmesh / layers / positions are spatial, so the
-form points you to Blender rather than letting you edit them there. See the
+(via the add-on → a `scene.toml`) or written by hand. In the editor tree, **Camera** appears as a
+note pointing to Blender rather than an editable form, for exactly this reason: camera / walkmesh /
+layers / positions are spatial. See the
 [Blender add-on README](../blender/README.md).
 
 ### Only some `field.toml` sections have visual forms
 
-About ten sections have dedicated forms in the editor:
+These sections have dedicated forms in the editor:
 
-> **Field**, **Camera** (read-only), **Dialogue**, **Encounter**, **Music**, **Cutscene**, **NPCs**,
-> **Gateways**, **Events**, **Markers**, **Choices**.
+> **Field**, **Dialogue**, **Encounter**, **Music**, **Cutscene**, **Party**, **Startup beat**,
+> **NPCs**, **Gateways**, **Events**, **Chests**, **Flags**, **Markers**, **Choices**, and
+> **Effects (SPS)**. (**Camera** is a tree note pointing to Blender — see above.) Shared `[[flag]]`
+> tables also have modal editors at campaign and journey scope.
 
 Every **other** documented section is authored **directly in TOML** (by hand or in your editor of
-choice) — including `[[prop]]`, `[[ladder]]`, `[[jump]]`, `[[savepoint]]`, `[[flag]]`, `[startup]`,
-`[[on_entry]]`, `[party]`, `[start_inventory]`, `[[equipment]]`, `[[shop]]`, `[[item_text]]`, and the
+choice) — including `[[prop]]`, `[[ladder]]`, `[[jump]]`, `[[savepoint]]`,
+`[[on_entry]]`, `[start_inventory]`, `[[equipment]]`, `[[shop]]`, `[[item_text]]`, and the
 ATE blocks. The full schema for all of these is in [`FORMAT.md`](FORMAT.md). A field's TOML and its
 forms stay in sync, so hand-edited sections coexist with form-edited ones in the same file.
 
@@ -67,11 +75,18 @@ greyed out until you reopen the window. This is a known bug; reopening the Works
 
 A number of commands are CLI-only for now — use the terminal for:
 
-- `import-chain` in its general form (forking an arbitrary connected region),
-- `import-all` (the bulk Blender-ready archive),
 - `export-art` (offline background-PNG assembly),
 - the paint-guide / from-scratch art workflow (`guide`, the paint template),
-- `build-all` (compiling a whole `campaign.toml`).
+- the custom-model suite (`model-gltf` / `model-import` / `model-mint` / `model-anim` /
+  `model-export`),
+- the `world-*` overworld suite (terrain, reclaim, coast, water, entrances, encounters, atlas),
+- `audio-import` (custom music / SFX) and `music-list` / `sfx-list`,
+- `logic-map` / `lint-eb` (whole-script analysis of a verbatim fork — the Script panel covers the
+  edit flow, not these reports).
+
+(`import-chain`, `import-all`, and whole-campaign / journey builds are no longer on this list — the
+Import tab has panels for the first two, and the Build & Deploy tab compiles and deploys campaigns
+and journeys.)
 
 ### Custom hub art is set in the TOML, not the dialog
 
@@ -82,43 +97,9 @@ See [`JOURNEYS.md`](JOURNEYS.md).
 
 ### A dialogue edit can be "(saved)" yet still show the old line in-game (text-block shadow)
 
-Rewriting a verbatim fork's shipped dialogue in the **Script** panel and seeing **"(saved)"** only means
-the edit is recorded in the field's `field.toml` (as a `[[logic_edit]]`). Two more things have to be true
-for it to appear in-game:
-
-1. **Rebuild + redeploy.** GUI save does **not** touch the `.mes` — the build rewrites it. Re-run
-   `py tools/deploy_field.py …` (single field) or, for a journey/campaign member,
-   `py tools/deploy_campaign.py <campaign.toml> --apply` / `py tools/deploy_journey.py <journeys.toml> --apply`,
-   then **F6 → Reload field** (or relaunch). An F6 reload *without* a redeploy just re-reads the stale `.mes`.
-
-2. **No text-block shadow.** A field reads dialogue from `field/<text_block>.mes`, and the engine serves
-   that block from the **highest-priority** folder in `Memoria.ini FolderNames`. Campaign members and
-   worktree test slots all default to the shared block **1073**, so if a higher-priority folder (a churned
-   master `FF9CustomMap`, a leftover prior-journey folder, …) also defines 1073, it **shadows** your
-   edit — the engine shows *that* folder's old text, not yours. (The same gotcha hits `[[on_entry]]` lines.)
-
-The deploy step guards this: `deploy_field` **and** `deploy_campaign` / `deploy_journey` run the text-block
-**shadow check** and print a `TEXT SHADOWED: …` warning that names the blocking folder and a safe alternative
-block; the Script panel also flags a dialogue edit on the shared default 1073 as a heads-up. **Fixes:**
-deploy your folder higher in `FolderNames`, remove the higher folder's copy of the block, or pin a unique
-`[field] text_block` (any real mesID no higher folder defines). Diagnose directly:
-
-```powershell
-py -c "from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning; from ff9mapkit.config import find_game_path; print(shadow_warning(check_text_block_shadow(find_game_path(None), '<your-mod-folder>', <block>)) or 'clear')"
-```
-
-**Multi-campaign journeys had a sharper version — now cured.** A field's text block is its donor's numeric
-mesID, and a journey namespaces scene/`.eb` *names* (`--name-prefix`) but historically **not** these mesIDs, so
-two campaigns whose donors shared a mesID (e.g. Prima Vista and A. Castle both inheriting block `2`) collided on
-`field/2.mes` — stacked, the engine served one folder's copy for both. The deploy now gives **each campaign a
-disjoint custom text-block window** (`journey._text_block_windows` → `build_campaign(text_block_base=)`):
-it remaps that campaign's blocks into its window and registers each with a DictionaryPatch `MessageFile <id>`
-line so the engine's `MesDB` gate passes (the engine already supported this — the kit simply never emitted it).
-So a fresh journey deploy has no cross-campaign text collision, regardless of `FolderNames` order.
-`deploy_journey` still **warns** (`TEXT-BLOCK COLLISION: block N shipped by …`, by comparing the built campaign
-dists) as a backstop — e.g. if you hand-stack a mix of old (un-windowed) and new folders. For that case, reorder
-`FolderNames` so the campaign whose dialogue matters most sits highest, or re-deploy the whole journey so every
-campaign gets a window.
+A saved Script-panel edit still needs a rebuild + redeploy, and can be shadowed by a higher-priority
+mod folder's copy of the same text block — full symptom → cause → fix in
+[`TROUBLESHOOTING.md`](TROUBLESHOOTING.md#wrong-dialogue-but-correct-behavior--or-a-saved-edit-that-still-shows-the-old-line).
 
 ---
 
@@ -137,9 +118,10 @@ gateways, encounters) on stock Memoria too, but FF9 hardcodes a number of behavi
 *original* field's id — narrow-map letterbox masking, a few off-mesh / after-battle / per-actor
 fixes, the overworld→field entry redirect. Those are lost when the fork runs under a new id and
 **cannot be restored from script bytecode alone.** The bundled engine patch set
-([`memoria-patches/`](../../memoria-patches/), `s23`–`s33`) restores them for fork fidelity, and the
-showcase opening ships with that custom Memoria build. Exactly what's stock vs. patch-restored is in
-[`ENGINE.md`](ENGINE.md).
+([`memoria-patches/`](../../memoria-patches/), `s23`–`s34` — `s34` is the worldmap mesh-override
+lever behind `world-reclaim` / `world-coast` / `world-entrance`) restores them for fork fidelity;
+the bundle also carries `s22`, the F6 debug menu. The showcase opening ships with that custom
+Memoria build. Exactly what's stock vs. patch-restored is in [`ENGINE.md`](ENGINE.md).
 
 ### A few behaviors are engine-blocked even with the patches
 
@@ -148,20 +130,31 @@ ways that no script and no `fldMapNo` wrapper can reach. These remain genuinely 
 id:
 
 - a **brand-new FMV slot** (beyond the existing movie table) plus its paired audio,
-- a **13th playable party member** (the character roster is a fixed compile-time enum with a
-  fixed-layout save),
 - **ATE seen-state / trophy bookkeeping** on a custom id (the ATE itself plays fine; only the
   achievement bookkeeping is id-bound).
+
+(A custom **playable party member** is no longer on this list — the `[[playable]]` block defines
+and recruits one with zero engine changes; see
+[`examples/thirteenth-character/`](../examples/thirteenth-character/).)
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked, with the
 stock-Memoria workaround for each — is in [`FORK_FIDELITY.md`](FORK_FIDELITY.md).
 
-### No custom overworld / world map
+### Custom overworld — shipped, with residual limits
 
-There is no `WorldScene` mint, so a **custom overworld is not supported.** A multi-field structure is
-built as a **field-chain campaign** (`import-chain` + a `campaign.toml`, or a `journeys.toml` over
-several campaigns), not as a navigable world map. The overworld is the hardest unstarted piece; see
-[`FORK_FIDELITY.md`](FORK_FIDELITY.md).
+The custom-overworld pillar shipped in 1.0.0b12. The `world-*` suite reshapes walkable terrain
+(`world-terrain`), reclaims ocean cells as land (`world-reclaim`), carries real coastlines onto
+reclaimed ocean (`world-coast`), synthesizes graded open-ocean water (`world-water`), and adds a
+new overworld entrance into a custom field (`world-entrance`), alongside encounter, texture, and
+minimap tooling. `world-reclaim` / `world-coast` / `world-entrance` need the bundled `s34` engine
+patch; the texture, encounter, and environment commands run on stock Memoria.
+
+The residual limits: there is no full brand-new `WorldScene` mint — all overworld authoring edits
+the real world map in place; coastlines are placed from real coastal tiles rather than drawn from
+scratch; and continent-scale layouts and texturing brand-new geometry remain frontier work. A
+multi-field structure that doesn't need the overworld is still built as a **field-chain campaign**
+(`import-chain` + a `campaign.toml`, or a `journeys.toml` over several campaigns). Engine detail:
+[`OVERWORLD_ENGINE.md`](OVERWORLD_ENGINE.md).
 
 ### Per-door arrival spawn needs `--verbatim`
 
@@ -175,7 +168,8 @@ not a bug — the synthesized path trades that detail for editability.
 
 ## See also
 
-- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`–`s33` patch set.
-- [`FORK_FIDELITY.md`](FORK_FIDELITY.md) — the full, honest map of what a fork does and doesn't reproduce.
+- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`–`s34` patch set (plus the `s22` F6 menu).
+- [`FORK_FIDELITY.md`](FORK_FIDELITY.md) — the full map of what a fork does and doesn't reproduce.
+- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — first-run failures as symptom → cause → fix.
 - [`FORMAT.md`](FORMAT.md) — the complete `field.toml` schema (every section above).
 - [`../../SETUP.md`](../../SETUP.md) — install, the dev loop, and the GUI overview.

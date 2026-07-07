@@ -315,6 +315,280 @@ def island_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, water_dirs, seg:
     return bm
 
 
+def cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, cliff_dirs, seg: int = 10, land_height: float = 3.2,
+                     rim_run: float = 1.0, roll_amp: float = 0.6, land_topo: int = 0, cliff_topo: int = 58,
+                     profile_pow: float = 1.0, lod: str = "0_1"):
+    """Synthesize ONE block of a CLIFF-walled island: a walkable rolling land top at ~``land_height`` that drops to the
+    waterline (``Y=0``) via a STEEP near-vertical ROCK WALL on each cliff-facing edge -- the FAITHFUL real cliff profile
+    (survey of 208 real cliffs 2026-07-06: 100% of face tris >45deg, median **72deg**; rim height median ~3.7u but the
+    interior land you STAND on is median ~3.1u, hence the ``3.2`` default -- a 4u mesa reads too high). The wall angle
+    is ``atan(land_height/rim_run)`` (3.2/1.0 -> ~73deg); keep ``rim_run ~ land_height/3.1`` to hold the real angle.
+    NOT :func:`island_block_mesh`'s gentle grid-smeared apron (24deg over 9u -- the wrong shape).
+
+    THE KEY: the wall is SHARP because a vertex ROW is placed EXACTLY ``rim_run`` inside each cliff border (a
+    NON-UNIFORM grid), so the full drop lands in one ~1.2u band instead of smearing across a uniform 6.4u grid quad.
+    ``cliff_dirs`` = the grid dirs whose neighbour is open water (subset of ``{(-1,0),(1,0),(0,1),(0,-1)}``); an EMPTY
+    set = a flat-topped interior cell (no wall). The wall tris carry ``cliff_topo`` (58, on-foot BLOCKED -- the player
+    stops at the rim) for :func:`ff9mapkit.world.terrain._apply_cliff_rock_uvs` to texture grey rock; the top carries
+    ``land_topo`` (0 = plains). A 74deg wall's geometric normal still has ``n.y = cos(74) ~ 0.28 > 0.1`` so it survives
+    the engine's up-facing walkmesh filter (renders + collides); topo 58 is what blocks foot traffic, not the slope.
+
+    CORNERS ARE TEAR-FREE: with a grid line at ``rim_run`` on BOTH cliff axes, the corner quad has three ``Y=0`` corners
+    + one raised inner corner, so its two triangles share the low->high diagonal -- no mid-quad crease to split
+    inconsistently (the exact failure mode of ``island_block_mesh``'s ``min()``-sampled ramp, which put the diagonal
+    crease INSIDE a quad -> the triangular gaps). ``roll_amp`` undulation fades in PAST the rim (0 at the wall top) so
+    the wall top stays a clean uniform line while the interior rolls like real land. Heights are a pure function of
+    world XZ (coincident corners get identical Y) -> watertight. Call sequence mirrors island_block_mesh (winding gives
+    the +Y geometric normal; :func:`recompute_normals` runs at the end for slope shading)."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    cd = set(tuple(d) for d in cliff_dirs)
+    idL, idC = float(encode_id(topograph=land_topo)), float(encode_id(topograph=cliff_topo))
+
+    def axis(lo, hi, cliff_lo, cliff_hi):                    # grid lines + a rim inset line on each cliff border
+        lines = {lo + (hi - lo) * f / seg for f in range(seg + 1)}
+        if cliff_lo:
+            lines.add(lo + rim_run)
+        if cliff_hi:
+            lines.add(hi - rim_run)
+        return sorted(lines)
+
+    xs = axis(0.0, 64.0, (-1, 0) in cd, (1, 0) in cd)        # west border x=0, east x=64
+    zs = axis(-64.0, 0.0, (0, 1) in cd, (0, -1) in cd)       # south border z=-64, north z=0
+
+    def inset(lx, lz):                                       # world-XZ distance INWARD from the nearest cliff border
+        ds = []
+        if (-1, 0) in cd:
+            ds.append(lx)                                    # from west (x=0)
+        if (1, 0) in cd:
+            ds.append(64.0 - lx)                             # from east (x=64)
+        if (0, -1) in cd:
+            ds.append(-lz)                                   # from north (z=0)
+        if (0, 1) in cd:
+            ds.append(lz + 64.0)                             # from south (z=-64)
+        return min(ds) if ds else rim_run + 10.0
+
+    def hgt(lx, lz):
+        ins = inset(lx, lz)
+        t = max(0.0, min(1.0, ins / rim_run))
+        base = land_height * (t ** profile_pow)              # 0 at the border -> land_height at the rim (steep wall)
+        rw = max(0.0, min(1.0, (ins - rim_run) / 6.0))       # fade the roll in past the rim (0 at the wall top)
+        return base + roll_amp * math.sin(lx * 0.19 + 0.7) * math.cos(lz * 0.17 + 0.3) * rw
+
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(px, pz, idall):
+        nonlocal vi
+        pos.append([px, hgt(px, pz), pz]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    for ix in range(len(xs) - 1):
+        for iz in range(len(zs) - 1):
+            x0, x1 = xs[ix], xs[ix + 1]
+            z0, z1 = zs[iz + 1], zs[iz]                       # z0 nearer 0, z1 more negative (island_block_mesh winding)
+            c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+            is_wall = any(inset(cx, cz) < rim_run - 1e-6 for (cx, cz) in (c00, c10, c11, c01))
+            idall = idC if is_wall else idL
+            for (a, b, c) in ((c00, c11, c01), (c00, c10, c11)):   # both UP-wound (+Y geometric normal)
+                base = vi
+                emit(*a, idall); emit(*b, idall); emit(*c, idall)
+                tris.append([base, base + 1, base + 2])
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    bm = BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                   channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                   raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    recompute_normals(bm)
+    return bm
+
+
+def _hash01(seed: float, k: float) -> float:
+    """Deterministic pseudo-random in [0,1) (shader-style frac(sin(...))*C) -- gives each cell a distinct but
+    REPRODUCIBLE blob (no RNG, which the workflow/resume sandbox forbids)."""
+    v = math.sin(seed * 12.9898 + k * 78.233) * 43758.5453
+    return v - math.floor(v)
+
+
+def blob_outline(cx: float, cz: float, *, base_radius: float = 24.0, n: int = 96, seed: float = 0.0,
+                 undulation: float = 0.11, n_corners: int = 3, corner_strength: float = 0.26):
+    """A SMOOTH star-convex closed outline (a perturbed circle) tuned to FF9's measured coastline shape language:
+    gentle ~25u-radius curves (44% of a real coast is <20deg/8u turns) with a FEW sharper corners (15% at 45-80deg,
+    7% acute). ``R(theta) = base_radius * PROD(1 + a_f sin(f theta + p))`` over low frequencies f=2..5 (the gentle
+    undulation) times a few localized angular dents (the corners). Returns ``(pts, radii)`` -- ``n`` ``(x, z)`` points
+    CCW around the centre ``(cx, cz)`` + the per-angle radius. ``R`` is single-valued in theta so the outline is always
+    star-convex from the centre (the polar mesh in :func:`blob_cliff_block_mesh` fans from there without fold-over).
+    Deterministic per ``seed`` -> a distinct island shape per cell."""
+    comps = [(f, undulation * (0.45 + 0.55 * _hash01(seed, 3 * f)) / f, 2.0 * math.pi * _hash01(seed, 3 * f + 1))
+             for f in (2, 3, 4, 5)]                          # low-freq undulation (amplitude ~1/f keeps it gentle)
+    corners = [(2.0 * math.pi * _hash01(seed, 50 + c), corner_strength * (0.55 + 0.45 * _hash01(seed, 60 + c)),
+                0.09 + 0.05 * _hash01(seed, 70 + c)) for c in range(n_corners)]   # (angle, depth, width) dents
+    pts, radii = [], []
+    for i in range(n):
+        th = 2.0 * math.pi * i / n
+        r = base_radius
+        for (f, a, p) in comps:
+            r *= (1.0 + a * math.sin(f * th + p))
+        for (cth, cs, cw) in corners:
+            d = abs(((th - cth + math.pi) % (2.0 * math.pi)) - math.pi)     # angular distance to the corner
+            r *= (1.0 - cs * math.exp(-(d / cw) ** 2))                       # a narrow dent -> a sharper turn (a corner)
+        radii.append(r)
+        pts.append((cx + r * math.cos(th), cz + r * math.sin(th)))
+    return pts, radii
+
+
+def blob_cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg_ang: int = 96, rings: int = 4,
+                          land_height: float = 3.2, rim_run: float = 1.0, roll_amp: float = 0.6,
+                          base_radius: float = 24.0, undulation: float = 0.11, seed=None,
+                          land_topo: int = 0, cliff_topo: int = 58, submerge: bool = True,
+                          submerge_topo: int = 57, submerge_y: float = -0.6, lod: str = "0_1"):
+    """Synthesize a ROUNDED cliff island whose coastline is a SMOOTH ORGANIC curve (:func:`blob_outline`) instead of the
+    64u CELL RECTANGLE -- the faithful move away from the axis-aligned square (real FF9 coasts are gentle ~25u-radius
+    curves + occasional corners, NOT rectangles; the hard 90deg cell corners were also where the rock UVs warped). A
+    POLAR mesh: a rolling walkable land top (``land_topo`` 0) fanned from the cell centre out to a rim ring inset
+    ``rim_run`` inside the outline, then a STEEP rock WALL band (``cliff_topo`` 58) dropping from the rim (``land_height``)
+    to the outline at the waterline (``Y=0``) -- the same ~73deg wall as :func:`cliff_block_mesh` but following the
+    curve. Returns ``(bm, outline)``; the caller stamps the top via the palette then :func:`...terrain._apply_cliff_rock_uvs`
+    with ``outline`` so the rock U runs along the smooth curve's ARC-LENGTH (no corner to stretch). ``seed`` defaults to
+    a hash of the cell so each island is a distinct reproducible shape. Winding is auto-oriented to +Y (walkable)."""
+    from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    cx, cz = 32.0, -32.0                                     # cell centre (local frame x[0,64], z[-64,0])
+    if seed is None:
+        seed = float((int(x) * 73856093) ^ (int(y) * 19349663) & 0x7FFFFFFF)
+    outline, radii = blob_outline(cx, cz, base_radius=base_radius, n=seg_ang, seed=float(seed), undulation=undulation)
+    idL, idC = float(encode_id(topograph=land_topo)), float(encode_id(topograph=cliff_topo))
+
+    def roll(px, pz, t):                                     # gentle undulation, faded to 0 near the rim (clean wall top)
+        fade = min(1.0, max(0.0, (1.0 - t) / 0.25))
+        return roll_amp * math.sin(px * 0.19 + 0.7) * math.cos(pz * 0.17 + 0.3) * fade
+
+    def interior_xy(i, k):                                   # ring k (0=centre .. rings=rim), angle i
+        th = 2.0 * math.pi * i / seg_ang
+        rrim = max(0.0, radii[i] - rim_run)
+        t = k / rings
+        rad = rrim * t
+        px, pz = cx + rad * math.cos(th), cz + rad * math.sin(th)
+        return px, land_height + roll(px, pz, t), pz
+
+    def wall_xy(i):                                          # the outline point (wall base at the waterline)
+        return outline[i][0], 0.0, outline[i][1]
+
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    vi = 0
+
+    def emit(p, idall):
+        nonlocal vi
+        pos.append([p[0], p[1], p[2]]); nrm.append([0.0, 1.0, 0.0])
+        uv.append([0.0, 0.0]); tan.append([idall, 0.0, 0.0, 1.0])
+        flat.append(vi); vi += 1
+
+    center = (cx, land_height + roll(cx, cz, 0.0), cz)
+    for i in range(seg_ang):
+        j = (i + 1) % seg_ang
+        # centre fan (ring 0 is the single centre point -> triangles to ring 1)
+        base = vi
+        emit(center, idL); emit(interior_xy(i, 1), idL); emit(interior_xy(j, 1), idL)
+        tris.append([base, base + 1, base + 2])
+        # interior quad bands (ring 1 .. rings)
+        for k in range(1, rings):
+            a, b = interior_xy(i, k), interior_xy(i, k + 1)
+            c, d = interior_xy(j, k + 1), interior_xy(j, k)
+            for (p, q, r) in ((a, b, c), (a, c, d)):
+                base = vi
+                emit(p, idL); emit(q, idL); emit(r, idL)
+                tris.append([base, base + 1, base + 2])
+        # wall band: rim ring (k=rings, land_height) -> outline (Y=0), topo cliff
+        a, b = interior_xy(i, rings), wall_xy(i)
+        c, d = wall_xy(j), interior_xy(j, rings)
+        for (p, q, r) in ((a, b, c), (a, c, d)):
+            base = vi
+            emit(p, idC); emit(q, idC); emit(r, idC)
+            tris.append([base, base + 1, base + 2])
+
+    # SUBMERGED sea-floor fill OUTSIDE the island (topo 57 = boat-water, just BELOW the Y=0 sea render) so the WHOLE
+    # cell has Terrain: the s34 land-override gate + a walkmesh under the entire cell (robust player placement, no void)
+    # -- the island pokes above; the deploy_island_sea Sea4 at Y=0 hides the floor. (The proven coast recipe: island
+    # land + submerged floor + Sea4.)
+    if submerge:
+        idW = float(encode_id(topograph=submerge_topo))
+        sub_seg = 12
+        step = 64.0 / sub_seg
+        two_pi = 2.0 * math.pi
+
+        def radius_at(th):                                   # outline radius at angle th (interp the per-angle radii)
+            t = (th % two_pi) / two_pi * seg_ang
+            i0 = int(t) % seg_ang
+            f = t - int(t)
+            return radii[i0] * (1.0 - f) + radii[(i0 + 1) % seg_ang] * f
+
+        for gi in range(sub_seg):
+            for gj in range(sub_seg):
+                x0, x1 = gi * step, (gi + 1) * step
+                z0, z1 = -gj * step, -(gj + 1) * step
+                mcx, mcz = (x0 + x1) / 2.0, (z0 + z1) / 2.0
+                if math.hypot(mcx - cx, mcz - cz) < radius_at(math.atan2(mcz - cz, mcx - cx)) + 2.0:
+                    continue                                 # under/near the island disk -> skip (the disk covers it)
+                c00, c10, c11, c01 = (x0, z0), (x1, z0), (x1, z1), (x0, z1)
+                for (p, q, r) in ((c00, c11, c01), (c00, c10, c11)):
+                    base = vi
+                    emit((p[0], submerge_y, p[1]), idW); emit((q[0], submerge_y, q[1]), idW); emit((r[0], submerge_y, r[1]), idW)
+                    tris.append([base, base + 1, base + 2])
+
+    # orient EVERY tri to a +Y geometric normal (walkability) -- per-tri, since the polar disk + the grid submerge fill
+    # have different natural windings (an all-or-nothing flip would leave one group down-facing).
+    for t in tris:
+        a, b, c = pos[t[0]], pos[t[1]], pos[t[2]]
+        if (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]) < 0:   # Cross(e1,e2).y < 0 -> flip
+            t[1], t[2] = t[2], t[1]
+
+    chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
+    channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}
+    bm = BlockMesh(name=f"Block[{x}][{y}] Terrain", disc=disc, x=x, y=y, lod=lod, vcount=vi, stride=48,
+                   channels=channels, chan_arrays=chan, flat_index=flat, tris=tris,
+                   raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+    recompute_normals(bm)
+    return bm, outline
+
+
+def tri_soup_block_mesh(triangles, *, name, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1",
+                        normal=(0.0, 1.0, 0.0)):
+    """Build a :class:`~ff9mapkit.world.extract.BlockMesh` from a triangle SOUP -- ``triangles`` is a list of triangles,
+    each a 3-list of ``((px, py, pz), (u, v))`` (position, uv) vertex pairs in the block's LOCAL frame. Verts are
+    emitted FRESH per triangle (unindexed: ``vcount == indexCount``, matching the stock world blocks -- sharing verts
+    would desync the flat index buffer). Every vertex gets the fixed ``normal`` and a trivial tangent ``[1,0,0,1]`` (no
+    IDALL): this is a RENDER sub-mesh (a water / decor layer), NOT the collision Terrain (whose walkability comes from
+    :func:`flat_block_mesh`'s winding + topograph). The overworld water synthesizer (:mod:`ff9mapkit.world.water`) emits
+    its Sea3/Sea5/Sea4 layers through this."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    nx, ny, nz = normal
+    pos, nrm, uv, tan = [], [], [], []
+    for tri in triangles:
+        for (p, t) in tri:
+            pos.append([float(p[0]), float(p[1]), float(p[2])]); nrm.append([nx, ny, nz])
+            uv.append([float(t[0]), float(t[1])]); tan.append([1.0, 0.0, 0.0, 1.0])
+    n = len(pos)
+    return BlockMesh(name=name, disc=disc, x=x, y=y, lod=lod, vcount=n, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=list(range(n)), tris=[[3 * k, 3 * k + 1, 3 * k + 2] for k in range(n // 3)],
+                     raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def hidden_block_mesh(*, name, disc: int = 1, x: int = 0, y: int = 0, lod: str = "0_1", y_depth: float = -80.0,
+                      normal=(0.0, 1.0, 0.0)):
+    """A single degenerate (near-zero-area) triangle far below the world at ``y_depth`` -- deploys as a sub-mesh override
+    that renders NOTHING. Used to BLANK a donor block's sub-mesh part (e.g. the coast-only Sea1/Sea2 water a deep-ocean
+    donor carries) so it does not draw on a synthesized-water cell."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    nx, ny, nz = normal
+    pos = [[0.0, y_depth, 0.0], [0.1, y_depth, 0.0], [0.0, y_depth, 0.1]]
+    return BlockMesh(name=name, disc=disc, x=x, y=y, lod=lod, vcount=3, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: [[nx, ny, nz]] * 3, CH_UV: [[0.0, 0.0]] * 3,
+                                  CH_TAN: [[1.0, 0.0, 0.0, 1.0]] * 3},
+                     flat_index=[0, 1, 2], tris=[[0, 1, 2]], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
     """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
     Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged

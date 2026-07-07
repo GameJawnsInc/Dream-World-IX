@@ -125,9 +125,9 @@ remove one.
 
 ---
 
-## 8. WHAT REMAINS (the human, per Hard-Constraint §2)
+## 8. WHAT REMAINS — in-game verification
 
-The closing proof — a forked NPC speaks the donor's real line in-game — is the human playtest. Offline, the kit
+The closing proof — a forked NPC speaks the donor's real line in-game — is a manual playtest. Offline, the kit
 verifies: the grafted windows point at the carried band, the `.eb` round-trips byte-exact, the per-language `.mes`
 ships the donor text verbatim, and the authored band is undisturbed (`tests/test_textcarry.py`, 17 tests incl. 5
 install-fed full-pipeline).

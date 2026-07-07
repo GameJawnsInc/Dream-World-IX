@@ -1,6 +1,6 @@
-# Journeys — multi-campaign arcs (design handoff → overworld / World-Hub lane)
+# Journeys — multi-campaign arcs (the journey schema reference)
 
-> **Status (updated 2026-06-13):** schema **ADOPTED** by overworld; the GUI's forward-compat display held
+> **Status (updated 2026-06-13):** schema **ADOPTED**; the GUI's forward-compat display held
 > (no change needed — the only `_journey_label` touch-point was never hit). **`gen-hub` is BUILT + shipped**
 > — the single-field / single-campaign form (a bare-int `entry` + a `[hub]` table + a hub-side
 > `set_scenario`); two journeys ship (Dali → field 4100, Treno → field 4501, both verbatim fields). The
@@ -10,12 +10,12 @@
 > Cavern/Outside arc, the cavern boundary warping campaign A into campaign B (2026-06-13) — BOTH link
 > mechanisms now proven in-game: `field_remap` (a portal/scripted seam's `Field()` retargeted) AND
 > `worldmap_inject` (the elided **world-map leg** — an overworld `WorldMap` exit body-replaced with a
-> `Field()` warp). **The assembler is COMPLETE.** overworld's to own; this doc is the shared schema + job list.
+> `Field()` warp). **The assembler is COMPLETE.** This doc is the journey schema reference + job list.
 >
-> **Lane split (per `project-ff9-branch-lanes`):** overworld owns the World Hub + `gen-hub` + the assembler
-> + player-rig; story_flags owns scenario/party/flag + is the composition owner for starting-state/New-Game.
-> editor_gui only *surfaces* the hierarchy. A journey is overworld-lane data that **composes** story_flags'
-> seed levers.
+> **Ownership split:** the journey layer owns the World Hub + `gen-hub` + the assembler + the hub
+> player-rig; the starting-state levers (`[startup]`/`[party]`/flags) own scenario/party/flag seeding and are
+> the single composition owner for starting-state/New-Game. The GUI only *surfaces* the hierarchy. A journey
+> is data that **composes** those seed levers.
 
 ---
 
@@ -28,7 +28,7 @@ and defines how each campaign **hands off** to the next.
 
 Worked example — **Evil Forest → Ice Cavern** (consecutive in FF9: escape the forest → world map → the
 cavern). As a single journey, the inter-campaign world-map segment is **elided** to a direct field warp
-(custom overworld is the hardest-unbuilt thing — `project-ff9-worldmap-feasibility`; a journey chains
+(a journey chains
 campaigns by a `Field()` warp from one campaign's exit to the next's entry, not by a real overworld leg).
 
 Two shapes the hub can offer (both valid; the schema covers both):
@@ -85,9 +85,9 @@ campaigns = ["evil_forest", "ice_cavern"]                       # ORDERED folder
 entry     = { campaign = "evil_forest", field = "EVF_START" }   # member NAME (preferred) or field id
 set_scenario = 0                                                # optional hub-side beat (coexists w/ the seed)
 
-  [journey.seed]                       # DESTINATION-SIDE story_flags capstone the assembler applies on arrival
+  [journey.seed]                       # DESTINATION-SIDE starting-state capstone the assembler applies on arrival
   scenario  = 0                        #   (a SEPARATE layer from the row's hub-side set_scenario)
-  party     = ["Zidane", "Vivi"]       #   -> story_flags [party]
+  party     = ["Zidane", "Vivi"]       #   -> the [party] block
   # inventory / equipment per the [startup] / [start_inventory] / [[equipment]] capstone
 
   # MOD-GLOBAL player/ability balance (BaseStats / abilities / leveling), the SAME blocks a field.toml carries,
@@ -108,7 +108,7 @@ set_scenario = 0                                                # optional hub-s
 **The two seed layers coexist — they are NOT one, and don't conflict:**
 - **`set_scenario`** (flat, on the `[[journey]]` row) — the **hub-side** beat set on the selector field
   right *before* the `Field()` warp. This is what **`gen-hub` uses** today (cheap, one value).
-- **`[journey.seed]`** (`scenario`/`party`/inventory) — the **destination-side** story_flags **capstone**
+- **`[journey.seed]`** (`scenario`/`party`/inventory) — the **destination-side** starting-state **capstone**
   the **assembler** applies on arrival into the arc (richer: party/bag/gear). A journey may set **both**:
   a hub-side beat to enter on, and a fuller capstone once inside.
 
@@ -160,7 +160,7 @@ Journey   { id, name, entry: int | Ref, set_scenario?: int,        # set_scenari
             #                                                        the UNdeclared (real-bug) leaks, e.g. a grey ATE.
 Ref       { campaign: folder, field: member_name | int }          # resolves to a global field id at assemble
 Link      { from: {campaign, seam}, to: Ref }
-Seed      { scenario, party, inventory?, equipment? }             # DESTINATION-SIDE story_flags capstone
+Seed      { scenario, party, inventory?, equipment? }             # DESTINATION-SIDE starting-state capstone
 ```
 
 A `journeys.toml` parses to `{ Hub, [Journey] }`. The single-field/campaign form (bare-int `entry`,
@@ -169,7 +169,7 @@ unbuilt arc form. Keep it a pure, tk-free loader (mirror `campaign.load_campaign
 
 ---
 
-## 4. The assembler's responsibilities (overworld lane — COMPLETE + ★ in-game proven; see §9)
+## 4. The assembler's responsibilities (COMPLETE + ★ in-game proven; see §9)
 
 > The **single-field / single-campaign** path is already shipped by **`gen-hub`** (it reads `[hub]` + each
 > `[[journey]]`'s bare-int `entry` + hub-side `set_scenario` and emits the selector field). This section is
@@ -199,23 +199,23 @@ across mod folders):
    target to the assembled global field id of `to`. This is the "forest_exit → IC_ENT" warp. (A seam whose
    target is in *another* campaign is exactly what a single campaign's graph can't express today — it's the
    journey layer's job.)
-4. **Seed application.** Emit `[journey.seed]` as the story_flags New-Game capstone on the entry field
+4. **Seed application.** Emit `[journey.seed]` as the starting-state New-Game capstone on the entry field
    (`[startup]`/`[party]`/…), and promote the start-state CSVs to the highest mod folder
    (`deploy_campaign` already does CSV promotion + aborts on cross-folder EVT/FBG name collision —
    `--allow-name-collision` to override; reuse that).
 5. **World-Hub generation.** Emit the hub field's `[[choice]]` rows — one per journey — each
    `warp = <journey entry global id>` + the seed (`set_scenario` / party). Per journey the hub needs only
-   `{name, entry id, seed}` (`project-ff9-world-hub`). Then retarget New Game (field-70 override) → the hub.
+   `{name, entry id, seed}`. Then retarget New Game (field-70 override) → the hub.
 6. **Deploy orchestration.** `deploy_campaign` each member campaign reversibly into the mod folder
    (disjoint ids), deploy the hub, wire New Game. Use `import-chain --name-prefix` to keep FBG/EVT names
-   from colliding across campaigns (cross-worktree namespace).
+   from colliding across campaigns (EVT/FBG names are one global namespace).
 7. **Journey lint.** Campaigns exist + parse; id bands disjoint; flag bands disjoint; every
    `[[journey.link]].from.seam` resolves to a real seam and `to` to a real member; `entry` is valid; the
    seed is range-checked (scenario/party/items). Mirror `campaign.lint_campaign`'s shape `(errors, warnings)`.
 
 ---
 
-## 5. The GUI display contract (editor_gui lane — DONE, forward-compatible)
+## 5. The GUI display contract (DONE, forward-compatible)
 
 > **Update (2026-06-18):** the Workspace now also **authors the multi-campaign arc incrementally** — the
 > bottom-up "fork a region at a time → faithful chain" loop (the base game has no World Hub; the faithful
@@ -241,16 +241,16 @@ The PySide6 Workspace also **displays** a journey when one exists:
 - On a match, the breadcrumb shows `◆ <journey name> ▸ ▣ <campaign> ▸ ● <field> ▸ ▸ <object>` and the
   navigator nests the campaign under a journey root. No match → honest `campaign ▸ field ▸ object`.
 
-So the instant overworld writes a `journeys.toml` in this schema, the GUI lights up — **no GUI change
+So the instant a `journeys.toml` in this schema exists, the GUI lights up — **no GUI change
 needed** beyond what's shipped. If the schema's field names change, the only GUI touch-point is
 `Workspace._journey_label()` in `ff9mapkit/ff9mapkit/workspace/shell.py` (one method).
 
-> **Validated (2026-06-13):** overworld adopted the schema and the GUI lit up with **zero changes** — the
+> **Validated (2026-06-13):** the schema was adopted and the GUI lit up with **zero changes** — the
 > `_journey_label()` touch-point was never hit. The bare-int `entry = <field id>` form (the shipped Dali
 > 4100 / Treno 4501 journeys) is matched by `entry in member_ids` and is already smoke-tested; the
 > `campaigns`-list form is matched by folder name. All three journey forms display today.
 
-**Possible follow-up (editor_gui, optional):** extend the navigator so a journey root expands to **all its
+**Possible follow-up (GUI, optional):** extend the navigator so a journey root expands to **all its
 campaigns** (load each `campaigns` folder's `campaign.toml`) → each campaign's fields. Today the navigator
 shows one campaign at a time; a multi-campaign tree is a nav enhancement, not required for the breadcrumb.
 
@@ -264,7 +264,7 @@ shows one campaign at a time; a multi-campaign tree is a nav enhancement, not re
 - **`entry` form** — a **bare field id** is the shipped form (single field / campaign). For arcs,
   `entry = { campaign, field }` with a member **name** (resolved to an id at assemble).
 - **Seed layers** — confirmed **two**: `set_scenario` (hub-side, gen-hub) + `[journey.seed]` (destination
-  capstone, assembler). story_flags stays the single composition owner of the capstone.
+  capstone, assembler). The starting-state levers stay the single composition owner of the capstone.
 
 **Resolved by the assembler's offline core (2026-06-13; full rationale in §9):**
 - **The elided world-map leg** — a bare cross-campaign `Field()` warp (the `[[journey.link]]`, realized at
@@ -291,30 +291,27 @@ Then a minimal `journeys.toml` at the project root referencing both folders (§2
 
 ---
 
-## 8. Cross-lane seams (collision rules)
+## 8. Ownership seams (collision rules)
 
-- **overworld** owns this model + the assembler + the hub + the field-70 New-Game retarget.
-- **story_flags** owns the seed levers (`[startup]`/`[party]`/scenario/flags) the seed composes — don't
-  fork a parallel seed path.
-- **editor_gui** owns only *display* (§5).
+- The **journey layer** owns this model + the assembler + the hub + the field-70 New-Game retarget.
+- The **starting-state levers** (`[startup]`/`[party]`/scenario/flags) are what the seed composes — no
+  parallel seed path.
+- The **GUI** owns only *display* (§5).
 - **Global namespace:** EventDB/SceneData/flag bands are global — the assembler is the *only* place that
   can guarantee disjoint id + flag bands across a journey's campaigns. That guarantee is the whole job.
 
-(handoff authored from editor_gui; ship/merge per the FF-master discipline. Related: `project-ff9-world-hub`,
-`project-ff9-new-game-entry`, `project-ff9-branch-lanes`, `project-ff9-worldmap-feasibility`.)
-
 ---
 
-## 9. Implementation status (overworld lane — assembler COMPLETE + ★ IN-GAME PROVEN)
+## 9. Implementation status (assembler COMPLETE + ★ IN-GAME PROVEN)
 
 `ff9mapkit/journey.py` + CLI `lint-journey` / `assemble-journey` + `tools/deploy_journey.py` implement the
 **assembler** — the §8 namespace guarantee, the hub fold-in, AND the deploy orchestration (both link modes:
 `field_remap` + `worldmap_inject`), fully unit-testable with no game install (`tests/test_journey.py`, 38
 tests) and **proven in-game** (the Ice Cavern → Outside arc, below — both link mechanisms). The
-schema is unified with overworld's proven single-field hub journeys.
+schema is unified with the proven single-field hub journeys.
 
 **The unified `journeys.toml`** — one file, `[hub]` (presentation, `ff9mapkit.hub`'s schema) + `[[journey]]`
-rows that are **either** a *bare* single-field journey (overworld's proven floor — `entry = <field id>`,
+rows that are **either** a *bare* single-field journey (the proven floor — `entry = <field id>`,
 optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns` / `entry = {campaign, field}`
 / `[journey.seed]` / `[[journey.link]]`). `gen-hub` builds **only** the bare rows (rejects multi-campaign);
 `assemble-journey` resolves **both** (a bare row = the degenerate zero-campaign journey) and folds
@@ -348,7 +345,7 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
       leg**: "leave to the world map" becomes "warp into the next campaign". A link `to.entrance` sets the
       arrival entrance; a boundary with no onward seam (or several `Field()` targets) is `none` (not wired).
 
-**The §6 open decisions, resolved (overworld's call):**
+**The §6 open decisions, resolved:**
 1. **Location** — project root, campaign folders **relative to the journeys.toml** (`manifest.root`). A
    single-campaign demo beside its `campaign.toml` also works (folders are relative either way).
 2. **Targets** — member **NAME** preferred (resolved to a global id at assemble); a raw id is accepted but
@@ -358,11 +355,11 @@ optional `set_scenario`) **or** the *multi-campaign* shape from §2 (`campaigns`
    `Field(dst)` warp, reusing its zone — *not* a separately-injected region, which would risk a double-exit).
    The link `from` names the **boundary member** (key `field`, alias `seam`); a source with no onward seam at
    all is flagged `none` (nothing to wire).
-4. **Seed** — `[journey.seed]` **IS** the story_flags capstone (the whole table is carried verbatim as
+4. **Seed** — `[journey.seed]` **IS** the starting-state capstone (the whole table is carried verbatim as
    `JourneySeed.raw`); no parallel mechanism. The hub also seeds `scenario` so the select path lands on the
    right beat.
 5. **Mod folders** — each campaign keeps its own `mod_folder` (from its `campaign.toml`); the assembler
-   stacks them via `FolderNames`. The hub owns the highest folder + New Game (`project-ff9-world-hub`).
+   stacks them via `FolderNames`. The hub owns the highest folder + New Game.
 6. **Replay** — one-way; New Game switches journeys (confirmed).
 
 **★ IN-GAME PROVEN (2026-06-13):** a forked **Ice Cavern → Ice Cavern/Outside** arc — `import-chain 300
@@ -376,7 +373,7 @@ its own stacked mod folder at its disjoint flag window. After the playbook (depl
   (6300): its tag-2 walk-out region body-replaced with the proven `Field(6300)` warp, reusing the region's
   own map-edge zone. So "leave to the world map" became "warp into the next campaign" (2026-06-13).
 
-★ **Gotcha learned:** `deploy_campaign` wholesale-replaces a folder, so `--apply-links` must run **last** and
+★ **Note:** `deploy_campaign` wholesale-replaces a folder, so `--apply-links` must run **last** and
 be **re-run after any campaign re-deploy** (else the link patch is wiped — the symptom is landing in the real
 target id). The playbook warns this.
 
@@ -388,7 +385,7 @@ in-game playtest of the one-shot path):
   writing the partial revert. **New Game is NOT touched by default** — the field-70 override is SINGLE-OWNER,
   so forcing it would hijack an existing hub (e.g. a live World Hub); reach the new hub via **F6 → Warp**, or
   pass `--wire-newgame` to opt into making it the New-Game landing. Ends by printing the manual FolderNames +
-  relaunch steps (Hard Constraint §2). `--apply-links` still runs only the link step (re-apply after a
+  relaunch steps (manual, outside the tool). `--apply-links` still runs only the link step (re-apply after a
   campaign re-deploy). **Pre-flight (step 0):** emit the hub + **auto-extract its `[hub] borrow_field`
   camera** (`assemble-journey --extract-camera` / `generate_hub(extract_camera=)`) and build-check it
   offline, so a missing camera aborts BEFORE any campaign is deployed — never mid-deploy after the campaigns

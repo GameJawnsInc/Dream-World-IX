@@ -81,5 +81,5 @@ The save menu **opens, writes a slot, and reloads** correctly **in a custom fiel
 save → Continue-into-a-custom-field path round-trips in-game (CAMPAIGN_IMPORT.md §7, load-bearing test #2;
 the `fldMapNo` round-trip is detailed in [GLOBAL_RESOURCES.md](GLOBAL_RESOURCES.md)). The verbatim
 save-moogle carry is complete and proven (see [FORK_FIDELITY.md](FORK_FIDELITY.md)). The only piece the kit
-can't self-check is that this **synthesized** region opens the Menu where you stand — that's the per-build
-in-game placement gate the human owns (every region trigger has it).
+can't self-check is that this **synthesized** region opens the Menu where you stand — that placement is
+verified manually in-game per build (every region trigger has this step).

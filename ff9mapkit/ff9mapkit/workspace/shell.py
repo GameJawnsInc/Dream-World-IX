@@ -17,10 +17,13 @@ import html
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QObject, QProcess, QSize, QUrl, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
+)
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
@@ -47,7 +50,9 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
-from .widgets import install_wheel_guard
+from . import thumbs as _thumbs
+from .thumbs import ThumbService
+from .widgets import PlaceholderListWidget, install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -80,6 +85,43 @@ def _app_icon() -> QIcon:
     so the GUI still launches. Lazy: QIcon defers the actual decode until first paint."""
     ico = Path(__file__).resolve().parent / "dreamworldix.ico"
     return QIcon(str(ico)) if ico.is_file() else QIcon()
+
+
+def _qpalette(pal) -> QPalette:
+    """A QPalette derived from the theme palette, so anything the stylesheet does NOT reach (native-drawn
+    frames, combo popups, message boxes, the Fusion base style's fallbacks) still follows the chosen theme.
+    Without this, Qt keeps the PLATFORM palette -- on a dark-mode OS every light theme rendered as a broken
+    dark/light mix (and vice versa)."""
+    p = QPalette()
+    roles = {
+        QPalette.ColorRole.Window: pal["bg"],
+        QPalette.ColorRole.WindowText: pal["text"],
+        QPalette.ColorRole.Base: pal["field"],
+        QPalette.ColorRole.AlternateBase: pal["surface"],
+        QPalette.ColorRole.Text: pal["text"],
+        QPalette.ColorRole.Button: pal["surface_btn"],
+        QPalette.ColorRole.ButtonText: pal["text"],
+        QPalette.ColorRole.Highlight: pal["accent"],
+        QPalette.ColorRole.HighlightedText: pal["accent_fg"],
+        QPalette.ColorRole.ToolTipBase: pal["surface"],
+        QPalette.ColorRole.ToolTipText: pal["text"],
+        QPalette.ColorRole.PlaceholderText: pal["muted"],
+        QPalette.ColorRole.Link: pal["accent"],
+    }
+    for role, color in roles.items():
+        p.setColor(role, QColor(color))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        p.setColor(QPalette.ColorGroup.Disabled, role, QColor(pal["muted"]))
+    return p
+
+
+def _apply_app_theme(app, pal):
+    """Point the whole application at ``pal``: the Fusion base style (the one built-in style that fully
+    honours stylesheets -- the Windows-11 default paints its own OS-mode chrome UNDER the QSS) + the derived
+    QPalette. Idempotent; called at launch and on a live theme switch."""
+    if app.style().objectName() != "fusion":
+        app.setStyle("fusion")
+    app.setPalette(_qpalette(pal))
 
 # section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
@@ -346,9 +388,19 @@ class Workspace(QMainWindow):
         self._update_result = None                 # last PyPI update-check result (None until checked)
         self.setWindowTitle(f"Dream World IX — Workspace   ·   v{__version__}")
         self.setWindowIcon(_app_icon())
+        self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
+        app = QApplication.instance()
+        if app is not None:                        # direct construction (smoke/tests) gets the same base
+            _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
         self.setStyleSheet(qss(pal))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
+        self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
+        self.thumbs.ready.connect(self._on_thumb_ready)
+        self._thumb_rerender = QTimer(self)                   # coalesce N thumbnail arrivals -> one Map redraw
+        self._thumb_rerender.setSingleShot(True)
+        self._thumb_rerender.setInterval(250)
+        self._thumb_rerender.timeout.connect(lambda: self.map.rerender())
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
         self._root_items = []                                 # so toggling the dot never resizes/shifts a row
@@ -357,6 +409,7 @@ class Workspace(QMainWindow):
         self._build_dock()
         self.statusBar().showMessage("Open a campaign.toml to begin.")
         self._build_version_label()
+        self._restore_layout()                     # window/dock/splitter from the last session (best-effort)
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -393,8 +446,13 @@ class Workspace(QMainWindow):
         navigation read the new ``self.pal`` automatically; the one currently open keeps its inline hint
         colours until it's next rebuilt (clicking away and back refreshes it)."""
         self.pal = pal
+        app = QApplication.instance()
+        if app is not None:
+            _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
         self.setStyleSheet(qss(pal))
         self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
+        if getattr(self, "problems", None) is not None:
+            self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
         self._retint_version_chip()
         self._retint_hub_button()
         if getattr(self, "crumb", None) is not None:
@@ -595,8 +653,15 @@ class Workspace(QMainWindow):
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};")
         lay.addWidget(hint)
+        restore = QCheckBox("Reopen the last project on launch")
+        restore.setObjectName("restore_chk")
+        restore.setToolTip("Pick up exactly where you left off — the most recent journey/campaign/field "
+                           "opens automatically when the Workspace starts.")
+        restore.setChecked(prefs.restore_session())
+        lay.addWidget(restore)
         if update_check.is_installed():
             chk = QCheckBox("Check pypi.org once a day for a newer release")
+            chk.setObjectName("update_chk")
             chk.setChecked(update_check.is_enabled())
             lay.addWidget(chk)
         else:                                          # a source checkout: no auto-check (you update via git)
@@ -615,6 +680,7 @@ class Workspace(QMainWindow):
         def _accept():
             state["ok"] = True
             prefs.set_theme(combo.currentData())
+            prefs.set_restore_session(restore.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
@@ -722,7 +788,7 @@ class Workspace(QMainWindow):
                                     "kept (only the scene side is re-read). (F5)")
         self.act_refresh.triggered.connect(self.on_refresh_scene)
         tb.addAction(self.act_refresh)                  # always enabled: a benign read; no-ops if nothing's loaded
-        self.act_lint_cli = QAction("Lint (CLI)", self)
+        self.act_lint_cli = QAction("Lint", self)
         self.act_lint_cli.setToolTip("Run the full `ff9mapkit lint` through the CLI (the complete validator "
                                      "suite, in a subprocess) — output streams to the Output console.")
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
@@ -737,17 +803,26 @@ class Workspace(QMainWindow):
         self._retint_hub_button()                           # the Info Hub's own ? badge) so the popup stands out
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        tb.addWidget(spacer)
-        search = QPushButton("⌕   Search content & commands   (Ctrl-K)")
+        spacer.setStyleSheet("background: transparent;")   # the global QWidget rule painted it $bg -- a
+        tb.addWidget(spacer)                               # dark hole in the toolbar
+        # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
+        # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
+        # features were invisible until the window grew. Now it shrinks first and never evicts anything.
+        search = QPushButton("⌕  Search anything  (Ctrl-K)")
         search.setObjectName("search")
-        search.setFixedWidth(320)
+        search.setToolTip("Jump to any command, field, or object (Ctrl-K)")
+        search.setMinimumWidth(150)
+        search.setMaximumWidth(360)
+        search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
-        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, About, and updates", [
+        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, Setup, About, and updates", [
+            ("Setup && health…", self._open_setup),
             ("Preferences…", self._open_preferences),
             ("Check for updates…", self._open_update_dialog),
             ("About Dream World IX", self._open_about),
         ])
+        self._settings_btn.setObjectName("gear")           # compact, chevron-free (see the QSS #gear rules)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
@@ -755,6 +830,7 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_shortcut)
+        QShortcut(QKeySequence(Qt.Key_F9), self, activated=self._deploy_now)   # save-all + deploy the target
 
     def _menu_button(self, tb, text, tooltip, items):
         """A toolbar DROPDOWN button: ``text ▾`` opening a menu of (label, callback) items. Returns the
@@ -775,13 +851,39 @@ class Workspace(QMainWindow):
         v = QVBoxLayout(central)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
+        # The crumb ROW: the breadcrumb (stretching) + a contextual Deploy button on its right — the
+        # one-keystroke dev loop (F9): save everything, then run the Build tab's configured deploy for
+        # whatever is open. Lives here (not the toolbar, which is width-budgeted to fit 1280) because it
+        # acts on exactly the thing the breadcrumb names.
+        crumb_row = QWidget()
+        crumb_row.setStyleSheet(f"background:{self.pal['surface']};"
+                                f"border-bottom:1px solid {self.pal['border']};")
+        ch = QHBoxLayout(crumb_row)
+        ch.setContentsMargins(0, 0, 8, 0)
+        ch.setSpacing(6)
         self.crumb = BreadcrumbBar(self.pal)
         self.crumb.on_nav = self._on_crumb
-        v.addWidget(self.crumb)
+        ch.addWidget(self.crumb, 1)
+        self.deploy_btn = QPushButton("▶ Deploy   F9")
+        self.deploy_btn.setObjectName("accent")
+        self.deploy_btn.clicked.connect(self._deploy_now)
+        self.deploy_btn.setEnabled(False)
+        ch.addWidget(self.deploy_btn)
+        self._refresh_deploy_btn()
+        v.addWidget(crumb_row)
 
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
 
+        tree_col = QWidget()                       # the tree + its filter box, one splitter pane
+        tv = QVBoxLayout(tree_col)
+        tv.setContentsMargins(0, 0, 0, 0)
+        tv.setSpacing(4)
+        self.tree_filter = QLineEdit()
+        self.tree_filter.setPlaceholderText("⌕ filter the tree…")
+        self.tree_filter.setClearButtonEnabled(True)
+        self.tree_filter.textChanged.connect(self._filter_tree)
+        tv.addWidget(self.tree_filter)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)        # the unsaved-dot icon must NOT change a row's height
@@ -796,7 +898,8 @@ class Workspace(QMainWindow):
         for _ekey in (Qt.Key_Return, Qt.Key_Enter):                 # Enter = open (parity with double-click)
             esc = QShortcut(QKeySequence(_ekey), self.tree, activated=self._open_current_tree_item)
             esc.setContext(Qt.ShortcutContext.WidgetShortcut)
-        split.addWidget(self.tree)
+        tv.addWidget(self.tree, 1)
+        split.addWidget(tree_col)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -811,14 +914,15 @@ class Workspace(QMainWindow):
         self.doc_scroll.setWidget(self.doc_host)
         self.tabs.addTab(self.doc_scroll, "Editor")
         self._doc_placeholder("Select a field or an object on the left to edit it.")
-        self.map = CampaignMap(self.pal, on_open=self._select_member)   # the campaign graph as a document
+        self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
+                               thumbs=self.thumbs.cached)               # nodes show the real art when cached
         self.tabs.addTab(self.map, "Map")
         # the save docs route their console output to the bottom Output panel when docked (so the doc body
         # reclaims that height); standalone (output=None) they'd keep an in-pane console.
         self.story_state = StoryStateDoc(self.pal, output=self._save_output)       # save STATE layer (5b-i)
         self.tabs.addTab(self.story_state, "Story State")
         self.item_equip = ItemEquipDoc(self.pal, output=self._save_output)         # gil/inventory/equip (5b-ii)
-        self.tabs.addTab(self.item_equip, "Item & Equip")
+        self.tabs.addTab(self.item_equip, "Item && Equip")     # && -- a lone & is eaten as a mnemonic
         self.battle = BattleDoc(self.pal, output=self._save_output, problems=self._show_problems,
                                 run=self.run_job, kit_root=KIT,            # encounter editor + Fork battle…
                                 on_open=self._on_battle_open)              # opening/forking a battle.toml pre-aims Build & Deploy
@@ -826,9 +930,10 @@ class Workspace(QMainWindow):
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
-        self.tabs.addTab(self.build_deploy, "Build & Deploy")
+        self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
-                                      on_forked=self._import_forked)       # a clean fork auto-opens its project
+                                      on_forked=self._import_forked,       # a clean fork auto-opens its project
+                                      thumbs=self.thumbs)                  # fork preview shows the room's art
         self.tabs.addTab(self.import_field, "Import")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -837,12 +942,11 @@ class Workspace(QMainWindow):
         split.addWidget(self.tabs)
 
         insp = QWidget()
-        insp.setMaximumWidth(420)                   # an info panel -- cap it so long content can't balloon it
         iv = QVBoxLayout(insp)
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
-        self.insp_title.setStyleSheet("font-weight:600;")
+        self.insp_title.setStyleSheet("font-weight:600;font-size:15px;")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
@@ -855,10 +959,19 @@ class Workspace(QMainWindow):
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
-        split.addWidget(insp)
+        # Scrollable: a tall card (thumbnail + rollup + xrefs) must scroll, not clip -- and without the
+        # scroll area its minimumSizeHint would also make the whole window un-shrinkable.
+        insp_scroll = QScrollArea()
+        insp_scroll.setWidgetResizable(True)
+        insp_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        insp_scroll.setMaximumWidth(420)            # an info panel -- cap it so long content can't balloon it
+        insp_scroll.setWidget(insp)
+        split.addWidget(insp_scroll)
 
         split.setSizes([300, 640, 240])
         split.setStretchFactor(1, 1)
+        self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
 
     def _dock_header(self, text):
@@ -885,7 +998,9 @@ class Workspace(QMainWindow):
         self.banner = QLabel("")
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
-        self.problems = QListWidget()
+        self.problems = PlaceholderListWidget(
+            "No problems yet — Check (toolbar) validates the open project and reports here.",
+            self.pal["muted"])
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -894,9 +1009,28 @@ class Workspace(QMainWindow):
         ov = QVBoxLayout(out_page)
         ov.setContentsMargins(8, 8, 8, 8)
         ov.setSpacing(6)
-        ov.addWidget(self._dock_header("Output"))
+        head = QHBoxLayout()
+        head.addWidget(self._dock_header("Output"))
+        head.addStretch(1)
+        self._out_wrap = QPushButton("Wrap")
+        self._out_wrap.setCheckable(True)
+        self._out_wrap.setToolTip("Toggle line wrapping (long deploy lines vs a horizontal scroll)")
+        self._out_wrap.clicked.connect(
+            lambda on: self.output.setLineWrapMode(
+                QPlainTextEdit.LineWrapMode.WidgetWidth if on else QPlainTextEdit.LineWrapMode.NoWrap))
+        out_copy = QPushButton("Copy")
+        out_copy.setToolTip("Copy the whole console to the clipboard")
+        out_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.output.toPlainText()))
+        out_clear = QPushButton("Clear")
+        out_clear.clicked.connect(lambda: self.output.clear())
+        for b in (self._out_wrap, out_copy, out_clear):
+            b.setFixedHeight(24)
+            head.addWidget(b)
+        ov.addLayout(head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
+        self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)
 
         split.addWidget(prob_page)
@@ -925,17 +1059,32 @@ class Workspace(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        page = QWidget()                           # full-width page; the content column is width-capped and
+        ph = QHBoxLayout(page)                     # centred so lines don't stretch across a wide monitor
+        ph.setContentsMargins(30, 26, 30, 26)
         body = QWidget()
+        body.setMaximumWidth(860)
+        ph.addStretch(1)
+        ph.addWidget(body, 4)
+        ph.addStretch(1)
         v = QVBoxLayout(body)
-        v.setContentsMargins(30, 26, 30, 26)
+        v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
         title = QLabel("Dream World IX — Workspace")
-        title.setStyleSheet("font-size:18px;font-weight:700;")
+        title.setStyleSheet("font-size:22px;font-weight:700;")
         v.addWidget(title)
         self._home_status = QLabel("")
         self._home_status.setWordWrap(True)
         self._home_status.setTextFormat(Qt.TextFormat.RichText)
         v.addWidget(self._home_status)
+        # First-run affordance: when the install isn't configured (or templates aren't extracted), say so
+        # HERE — the alternative is a fresh user meeting greyed-out buttons with no explanation.
+        self._home_setup = QLabel("")
+        self._home_setup.setWordWrap(True)
+        self._home_setup.setTextFormat(Qt.TextFormat.RichText)
+        self._home_setup.setVisible(False)
+        self._home_setup.linkActivated.connect(lambda _h: self._open_setup())
+        v.addWidget(self._home_setup)
         intro = QLabel("Start at <b>any</b> level — they nest (journey ▸ campaign ▸ field ▸ object), but none "
                        "<i>requires</i> the one above. A <b>journey</b> is the front door (the whole arc); you "
                        "can also open a single campaign or field directly.")
@@ -943,55 +1092,79 @@ class Workspace(QMainWindow):
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setStyleSheet(f"color:{self.pal['muted']};")
         v.addWidget(intro)
+        # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
+        self._recent_head = self._home_section("Recent")
+        v.addWidget(self._recent_head)
+        self._recent_box = QWidget()
+        self._recent_box.setStyleSheet("background: transparent;")
+        self._recent_lay = QVBoxLayout(self._recent_box)
+        self._recent_lay.setContentsMargins(4, 0, 0, 4)
+        self._recent_lay.setSpacing(5)
+        v.addWidget(self._recent_box)
         v.addWidget(self._home_section("The project spine — top-down"))
-        v.addWidget(self._home_row("◆ Journey", "the whole arc: a hub + member campaigns + links (the front door)",
-                                   [("Open…", self.on_open_journey), ("New…", self.on_new_journey)]))
-        v.addWidget(self._home_row("▣ Campaign", "a connected chain of fields",
-                                   [("Open…", self.on_open_campaign), ("New…", self.on_new_campaign)]))
-        v.addWidget(self._home_row("● Field", "one explorable screen (edit it standalone)",
-                                   [("Open…", self.on_open_field), ("New…", self.on_new_field)]))
+        v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
+                                   [("Open…", self.on_open_journey, True), ("New…", self.on_new_journey, False)]))
+        v.addWidget(self._home_row("▣", "Campaign", "a connected chain of fields",
+                                   [("Open…", self.on_open_campaign, False), ("New…", self.on_new_campaign, False)]))
+        v.addWidget(self._home_row("●", "Field", "one explorable screen (edit it standalone)",
+                                   [("Open…", self.on_open_field, False), ("New…", self.on_new_field, False)]))
         v.addWidget(self._home_section("Off to the side"))
-        v.addWidget(self._home_row("⚔ Battle", "a battle background / encounter — a referenced sibling of a field",
-                                   [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle))]))
-        v.addWidget(self._home_row("⤵ Import", "fork a real FF9 field into a new project",
-                                   [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field))]))
-        v.addWidget(self._home_row("◈ Save", "edit a real save's story flags / items / equipment (orthogonal state)",
-                                   [("Open Save…", self._open_save)]))
+        v.addWidget(self._home_row("⚔", "Battle", "a battle background / encounter — a referenced sibling of a field",
+                                   [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle), False)]))
+        v.addWidget(self._home_row("⤵", "Import", "fork a real FF9 field into a new project",
+                                   [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field), False)]))
+        v.addWidget(self._home_row("◈", "Save", "edit a real save's story flags / items / equipment "
+                                   "(orthogonal state)",
+                                   [("Open Save…", self._open_save, False)]))
         v.addStretch(1)
         hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <b>Close</b> (toolbar) returns here.")
         hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setStyleSheet(f"color:{self.pal['muted']};margin-top:6px;")
         v.addWidget(hint)
-        scroll.setWidget(body)
+        scroll.setWidget(page)
         self._welcome_tab = scroll                 # kept so Close can return here
         self.tabs.addTab(scroll, "Home")
         self._refresh_home_status()
 
     def _home_section(self, text):
-        lab = QLabel(text)
-        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;margin-top:8px;")
+        lab = QLabel(text.upper())
+        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;font-size:11px;"
+                          "letter-spacing:1px;margin-top:10px;")
         return lab
 
-    def _home_row(self, title, desc, buttons):
-        """One entry-point row: a glyph+name + one-line description on the left, its action button(s) on the
-        right (the same glyphs as the tree/breadcrumb, so the visual language is consistent)."""
-        box = QWidget()
+    def _home_row(self, glyph, title, desc, buttons):
+        """One entry-point CARD: a tinted glyph + name + one-line description on the left, its action
+        button(s) right-aligned (the same glyphs as the tree/breadcrumb, so the visual language is
+        consistent). ``buttons`` = (label, callback, is_primary) -- the ONE primary action on the page
+        (Journey ▸ Open, the recommended front door) renders in the accent colour."""
+        box = QFrame()
+        box.setObjectName("card")
         h = QHBoxLayout(box)
-        h.setContentsMargins(0, 0, 0, 0)
+        h.setContentsMargins(16, 12, 14, 12)
+        h.setSpacing(12)
+        g = QLabel(glyph)
+        g.setStyleSheet(f"color:{self.pal['accent']};font-size:17px;")
+        g.setFixedWidth(26)
+        g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        h.addWidget(g)
         col = QWidget()
+        col.setStyleSheet("background: transparent;")
         cv = QVBoxLayout(col)
         cv.setContentsMargins(0, 0, 0, 0)
-        cv.setSpacing(1)
+        cv.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet("font-weight:600;")
+        t.setStyleSheet("font-weight:600;font-size:14px;")
         d = QLabel(desc)
         d.setWordWrap(True)
         d.setStyleSheet(f"color:{self.pal['muted']};")
         cv.addWidget(t)
         cv.addWidget(d)
         h.addWidget(col, 1)
-        for label, cb in buttons:
+        for label, cb, primary in buttons:
             b = QPushButton(label)
+            if primary:
+                b.setObjectName("accent")
+            b.setMinimumWidth(96)
             b.clicked.connect(lambda _=False, c=cb: c())
             h.addWidget(b)
         return box
@@ -1016,6 +1189,65 @@ class Workspace(QMainWindow):
             self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
         else:
             self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
+        if hasattr(self, "_home_setup"):
+            try:
+                from .. import health
+                issues = health.quick_issues()
+            except Exception:   # noqa: BLE001  (the banner must never break Home)
+                issues = []
+            self._home_setup.setVisible(bool(issues))
+            if issues:
+                self._home_setup.setText(
+                    f'<span style="color:{self.pal["warn"]};">⚠ {_esc(" · ".join(issues))}</span> — '
+                    f'<a href="setup">open Setup &amp; health</a> to fix it.')
+        self._refresh_recent()
+
+    _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
+
+    @staticmethod
+    def _recent_display(entry):
+        """A short human name for a recent row: the project folder for a journey/campaign, the field name
+        for a field.toml, the file name for a save."""
+        p = Path(entry["path"])
+        if entry["kind"] in ("journey", "campaign"):
+            return p.parent.name or p.name
+        if entry["kind"] == "field":
+            return p.name.removesuffix(".toml").removesuffix(".field") or p.stem
+        return p.name
+
+    def _refresh_recent(self):
+        """Rebuild the Home Recent rows from prefs (pruning entries whose file vanished). Cheap: at most
+        RECENT_LIMIT label rows, only when the Home tab is being (re)shown."""
+        if not hasattr(self, "_recent_lay"):
+            return
+        self._clear_layout(self._recent_lay)
+        # DISPLAY-filter unreachable paths only -- never persist the prune here: a network share or an
+        # unplugged drive is transient, and silently deleting the row would lose the user's list. The
+        # persistent prune happens in _open_recent, where the user clicked and saw the message.
+        rows = [e for e in prefs.recent() if Path(e["path"]).exists()][:6]
+        self._recent_head.setVisible(bool(rows))
+        self._recent_box.setVisible(bool(rows))
+        for e in rows:
+            glyph = self._RECENT_GLYPH.get(e["kind"], "●")
+            lab = QLabel(f'<span style="color:{self.pal["accent"]};">{glyph}</span>&nbsp; '
+                         f'<a href="open">{_esc(self._recent_display(e))}</a>'
+                         f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
+                         f'{_esc(_snip(e["path"], 64))}</span>')
+            lab.setTextFormat(Qt.TextFormat.RichText)
+            lab.setToolTip(e["path"])
+            lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
+            self._recent_lay.addWidget(lab)
+
+    def _open_recent(self, kind, path):
+        """Reopen a recent project by kind; a vanished file prunes itself instead of erroring."""
+        if not Path(path).exists():
+            self.statusBar().showMessage(f"No longer exists: {path}")
+            prefs.remove_recent(path)
+            self._refresh_recent()
+            return False
+        open_ = {"journey": self.open_journey, "campaign": self.open_campaign,
+                 "field": self.open_field, "save": self.open_save}[kind]
+        return open_(path)
 
     # ---- item helpers ----
     @staticmethod
@@ -1075,6 +1307,8 @@ class Workspace(QMainWindow):
         self.tabs.setCurrentWidget(self.doc_scroll)
         self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this journey
+        prefs.add_recent("journey", path)
+        self._refresh_deploy_btn()
         return True
 
     def _populate_journey(self):
@@ -1721,7 +1955,8 @@ class Workspace(QMainWindow):
         self.act_check.setEnabled(False)
         self.story_state.set_flag_names({})        # no project -> drop the authored-flag labels
         self.tabs.setCurrentWidget(self._welcome_tab)
-        self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")
+        self._refresh_deploy_btn()                 # Build & Deploy stays aimed (existing behavior); the
+        self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")   # tooltip re-names it
 
     # ---- create new (field / campaign / member) ----
     def _default_new_dest(self) -> str:
@@ -2292,10 +2527,18 @@ class Workspace(QMainWindow):
                                             "FF9 save (*.dat);;Save JSON / Base64 (*.json *.txt);;All files (*)")
         if not f:
             return
-        self.story_state.load(f)
-        self.item_equip.load(f)
+        self.open_save(f)
+
+    def open_save(self, path) -> bool:
+        """Open ``path`` into both save documents (the path-taking core of :meth:`_open_save`, so a
+        Recent row can re-open a save). True when at least one document loaded it."""
+        ok = bool(self.story_state.load(str(path)))
+        ok = bool(self.item_equip.load(str(path))) or ok
         self.story_state.set_flag_names(self._project_flag_names())   # annotate with the open project's [[flag]] names
         self.tabs.setCurrentWidget(self.story_state)
+        if ok:
+            prefs.add_recent("save", path)
+        return ok
 
     def open_field(self, path) -> bool:
         """Open a STANDALONE field.toml (no campaign) -- the 'Loose field' mode, so any authored field
@@ -2303,6 +2546,7 @@ class Workspace(QMainWindow):
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
+        self.thumbs.invalidate()                   # same-named fields across projects (see open_campaign)
         path = Path(path)
         try:
             doc = FieldDoc.load(path)
@@ -2332,6 +2576,8 @@ class Workspace(QMainWindow):
         self._select_member(name)
         self.tabs.setCurrentWidget(self.doc_scroll)   # a standalone field has no map -> show its Editor
         self._refresh_flag_names()                    # re-annotate an already-open Story State save with this field
+        prefs.add_recent("field", path)
+        self._refresh_deploy_btn()
         return True
 
     def _populate_field(self, name):
@@ -2385,6 +2631,7 @@ class Workspace(QMainWindow):
         """A battle.toml opened/forked on the Battle tab -> pre-aim Build & Deploy at it (do-now #6), so it's
         ready when you switch there. Mirrors how opening a field/campaign/journey pre-aims Build & Deploy."""
         self.build_deploy.set_target(path)
+        self._refresh_deploy_btn()
         self.statusBar().showMessage(f"Build & Deploy aimed at {Path(path).name}", 4000)
 
     def _import_forked(self, out_dir):
@@ -2406,8 +2653,9 @@ class Workspace(QMainWindow):
         if not self._maybe_prompt_unsaved():
             return False
         self._clear_doc()                          # drop the prior file's mounted form (stale _save_ctx)
-        path = Path(path)
-        try:
+        self.thumbs.invalidate()                   # member NAMES recur across projects (same-FBG forks) --
+        path = Path(path)                          # never show the previous project's art; re-resolution is
+        try:                                       # near-instant off the disk cache
             plan = C.load_campaign(path)
         except Exception as e:                     # noqa: BLE001
             self.statusBar().showMessage(f"Open failed: {e}")
@@ -2440,6 +2688,11 @@ class Workspace(QMainWindow):
             self._select_member(entry)
         self.tabs.setCurrentWidget(self.map)       # open a campaign -> land on its Map (its overview)
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this campaign
+        for m in plan.members:                     # prefetch every member's background thumbnail (async,
+            self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id)   # cached, install-gated)
+        if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
+            prefs.add_recent("campaign", path)     # already the recent entry
+        self._refresh_deploy_btn()
         return True
 
     def _journey_label(self):
@@ -2931,6 +3184,8 @@ class Workspace(QMainWindow):
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Deploy now (F9)", "command", self._deploy_now),
+            ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
             ("About Dream World IX", "command", self._open_about),
@@ -2942,6 +3197,9 @@ class Workspace(QMainWindow):
             if any(j.campaigns for j in self.manifest.journeys):
                 cmds.insert(3, ("Add region to arc…", "command", self.on_add_region_to_arc))
                 cmds.insert(4, ("Fill entry from forks…", "command", self.on_reconcile_journey))
+        for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
+            cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
+                         "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
         content = []
 
         def walk(item):
@@ -2957,6 +3215,11 @@ class Workspace(QMainWindow):
     def _palette_label(self, item, p):
         fa = self._ancestor_field(item)
         if fa is not None and item is not fa:                # an object -> qualify it with its field
+            parent = item.parent()
+            pp = self._payload(parent) if parent is not None else None
+            if pp and pp[0] == "group":                      # ...and its GROUP, else unnamed entries are
+                grp = pp[1].split(" (")[0]                   # ambiguous ("#0" could be any list's row 0)
+                return f"{self._payload(fa)[1]} ▸ {grp} ▸ {p[1]}"
             return f"{self._payload(fa)[1]} ▸ {p[1]}"
         return p[1]
 
@@ -3284,6 +3547,8 @@ class Workspace(QMainWindow):
                 self._mount_logic_node(member, int(parts[1]), int(parts[2]))
             return
         if key in _SINGLES:                        # a single table (field/encounter/music/dialogue)
+            if key == "music":
+                self._prewarm_songs()              # so the song Browse… picker doesn't extract on the GUI thread
             spec = _SECTION_SPEC[key]
             self._mount_form(member, key, spec, doc.data.get(key, {}) or {}, single=True, section=key)
             return
@@ -4306,6 +4571,7 @@ class Workspace(QMainWindow):
         docs are NOT reloaded, so unsaved GUI edits are preserved (only the scene side is re-read from disk)."""
         if not self._commit_active_ck():               # fold a pending edit first; a bad open form blocks refresh
             return
+        self.thumbs.invalidate()                       # a repaint/re-import may have changed the art -> re-resolve
         item = self.tree.currentItem()
         fa = self._ancestor_field(item) if item is not None else None
         sel = None
@@ -4692,8 +4958,50 @@ class Workspace(QMainWindow):
                     pass
         return True
 
+    # ---- drag-and-drop open ----
+    _DROP_SUFFIXES = (".toml", ".dat", ".json", ".glb", ".gltf")
+
+    def dragEnterEvent(self, event):               # noqa: N802 (Qt override)
+        urls = event.mimeData().urls() if event.mimeData() else []
+        if any(u.isLocalFile() and u.toLocalFile().lower().endswith(self._DROP_SUFFIXES) for u in urls):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):                    # noqa: N802 (Qt override)
+        for u in (event.mimeData().urls() if event.mimeData() else []):
+            if u.isLocalFile() and self._open_dropped(Path(u.toLocalFile())):
+                event.acceptProposedAction()
+                return
+
+    def _open_dropped(self, p) -> bool:
+        """Open a dropped file by what it IS: journeys/campaign/battle/field .toml (the Build tab's exact
+        discriminators), a save (.dat / save JSON), or a Blender .glb (pre-fills the Import tab's Custom
+        models box). Returns True when the drop was handled."""
+        s = p.suffix.lower()
+        if not p.is_file() or s not in self._DROP_SUFFIXES:
+            return False
+        if s == ".toml":
+            kind, _payload = jobs.detect_kind(p)
+            if kind == "journey":
+                return self.open_journey(p)
+            if kind == "campaign":
+                return self.open_campaign(p)
+            if kind == "battle":
+                if self.battle.load(str(p)):
+                    self.tabs.setCurrentWidget(self.battle)
+                    return True
+                return False
+            return self.open_field(p)
+        if s in (".glb", ".gltf"):
+            self.import_field.mdl_glb.setText(str(p))
+            self.tabs.setCurrentWidget(self.import_field)
+            self.statusBar().showMessage(f"{p.name} → Import ▸ Custom models (pick a mod folder, then "
+                                         "Import model)", 8000)
+            return True
+        return self.open_save(str(p))              # .dat / save JSON
+
     def closeEvent(self, event):                   # noqa: N802 (Qt override)
         if self._maybe_prompt_unsaved():
+            self._save_layout()                    # window/dock/splitter come back next launch
             event.accept()
         else:
             event.ignore()
@@ -5087,11 +5395,156 @@ class Workspace(QMainWindow):
             return self._inspect_object(field, key)
         return [self._muted(f"in field: {field}")] if field else []
 
+    def _member_real_id(self, name):
+        """The donor REAL field id behind a member (campaign mode), for the install-side thumbnail
+        composite. None for a loose field / an unknown member (its project background.png still works)."""
+        if self.plan is not None:
+            m = next((mm for mm in self.plan.members if mm.name == name), None)
+            if m is not None:
+                return m.real_id
+        return None
+
+    # ---- session continuity ----
+    def _filter_tree(self, text):
+        """Filter the project tree by substring: non-matching rows hide, ancestors of a match stay
+        visible, matches expand. Only what's LOADED filters (lazy object children appear on expand)."""
+        q = (text or "").strip().lower()
+
+        def walk(item) -> bool:
+            hit = q in item.text(0).lower()
+            child_hit = False
+            for i in range(item.childCount()):
+                if walk(item.child(i)):
+                    child_hit = True
+            show = not q or hit or child_hit
+            item.setHidden(not show)
+            if q and child_hit:
+                item.setExpanded(True)
+            return hit or child_hit
+
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+
+    def _restore_layout(self):
+        """Apply the persisted window geometry / dock state / central splitter (best-effort; a stale or
+        corrupt value falls back to the built-in defaults)."""
+        lay = prefs.layout()
+        try:
+            from PySide6.QtCore import QByteArray
+            if lay.get("geometry"):
+                self.restoreGeometry(QByteArray.fromBase64(lay["geometry"].encode("ascii")))
+            if lay.get("state"):
+                self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")))
+            if lay.get("central_split"):
+                self._central_split.setSizes(lay["central_split"])
+        except Exception:   # noqa: BLE001  (never let a bad layout block launch)
+            pass
+
+    def _save_layout(self):
+        try:
+            prefs.set_layout({
+                "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
+                "state": bytes(self.saveState().toBase64()).decode("ascii"),
+                "central_split": [int(x) for x in self._central_split.sizes()],
+            })
+        except Exception:   # noqa: BLE001
+            pass
+
+    def restore_last_session(self) -> bool:
+        """Reopen the most recent project (the opt-in launch behavior). True when something opened."""
+        for e in prefs.recent():
+            if Path(e["path"]).exists():
+                return bool(self._open_recent(e["kind"], e["path"]))
+        return False
+
+    def _deploy_target(self) -> str:
+        """What F9 would deploy: the Build & Deploy tab's aimed project file (pre-aimed on every open),
+        or '' when nothing is open."""
+        if getattr(self, "build_deploy", None) is None:
+            return ""
+        t = self.build_deploy.path.text().strip().strip('"')
+        return t if t and Path(t).is_file() else ""
+
+    def _refresh_deploy_btn(self):
+        """Enable + caption the crumb-row Deploy button for the current target (called on every open/
+        close/tab change — cheap: one line-edit read + one stat)."""
+        if getattr(self, "deploy_btn", None) is None:
+            return
+        t = self._deploy_target()
+        self.deploy_btn.setEnabled(bool(t))
+        self.deploy_btn.setToolTip(
+            f"Save everything, then Build / Deploy {Path(t).name} exactly as the Build & Deploy tab is "
+            f"configured (F9). Output streams below." if t
+            else "Open a field / campaign / journey / battle first (F9)")
+
+    def _deploy_now(self):
+        """F9 — the dev loop in one keystroke: fold + save every unsaved edit, then run the Build tab's
+        configured deploy for the open target. Refuses (rather than deploys stale files) if a save failed;
+        the stream lands in Output and the verdict in Problems, whatever tab you're on."""
+        t = self._deploy_target()
+        if not t:
+            self.statusBar().showMessage("Nothing to deploy — open a field / campaign / journey / battle "
+                                         "first.", 5000)
+            return
+        self._save_all()
+        if self._dirty_members():                  # a form failed validation / a file couldn't be written --
+            self.statusBar().showMessage("Deploy skipped — unsaved changes remain (see Problems).", 6000)
+            return                                 # deploying the stale on-disk state would mislead
+        self.statusBar().showMessage(f"Deploying {Path(t).name}…", 4000)
+        self.build_deploy.on_go()
+
+    def _open_setup(self):
+        """The Setup & Health dialog — the onboarding front door (⚙ menu / Ctrl-K / the Home banner).
+        ONE instance, reused: a per-open instance would let a closed dialog's setup process run on
+        invisibly while a fresh instance's busy-guard knows nothing about it (two concurrent setups)."""
+        from .setupdialog import SetupHealthDialog
+        dlg = getattr(self, "_setup_dlg", None)
+        if dlg is None:
+            dlg = SetupHealthDialog(self, self.pal, kit_cwd=KIT, on_change=self._refresh_home_status)
+            self._setup_dlg = dlg
+        dlg.refresh()
+        dlg.exec()
+
+    def _prewarm_songs(self):
+        """Warm the song-manifest disk cache in the background (the first-ever extraction reads the
+        install's 590 MB resources.assets) so the music form's Browse… picker opens instantly instead of
+        freezing the GUI thread. Once-per-process; failures are the picker's empty-list case anyway."""
+        if getattr(self, "_songs_warmed", False) or not _thumbs.enabled():
+            return                                 # the NO_THUMBS flag doubles as 'no background readers'
+        self._songs_warmed = True
+
+        def _warm():
+            try:
+                from .. import sound
+                sound.read_manifest("music")
+            except Exception:   # noqa: BLE001  (no install / no UnityPy) -> the picker shows no songs
+                pass
+        threading.Thread(target=_warm, name="ff9-songwarm", daemon=True).start()
+
+    def _on_thumb_ready(self, member, _png):
+        """A background thumbnail landed (queued from the worker): refresh the Inspector if that field is
+        the one being inspected, and coalesce a Map redraw (many arrive in a burst on campaign open).
+        INSPECTOR-ONLY refresh -- a full _on_select would re-mount (and commit) the actively edited form,
+        yanking focus mid-typing."""
+        cur = self.tree.currentItem()
+        fa = self._ancestor_field(cur) if cur is not None else None
+        if fa is not None and self._payload(fa)[1] == member and cur is not None:
+            self._inspect(cur, self._payload(cur), member)   # rewrites insp_title/body only
+        self._thumb_rerender.start()
+
     def _inspect_field(self, name):
-        """A campaign member (or a loose field): id/source/mode, a CONTENT rollup, the live cross-references
-        (exits to / reached from -- clickable member links + reachability flags), and the file-path link."""
+        """A campaign member (or a loose field): the background THUMBNAIL (the art, finally visible),
+        id/source/mode, a CONTENT rollup, the live cross-references (exits to / reached from -- clickable
+        member links + reachability flags), and the file-path link."""
         lines = []
         doc = self._safe_doc(name)
+        png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
+        if png:                                     # rich text renders the file:/// img. Landscape rooms cap
+            pm = QPixmap(png)                       # by WIDTH (the 420px panel); tall scrolling rooms cap by
+            if pm.height() > pm.width() * 1.4:      # HEIGHT so the card's text stays above the fold.
+                lines.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
+            else:
+                lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:
@@ -5502,6 +5955,16 @@ class Workspace(QMainWindow):
                 if sc is not None and not ((isinstance(sc, int) and not isinstance(sc, bool))
                                            or (isinstance(sc, str) and sc.strip().lstrip("-").isdigit())):
                     warn(f"battle scene must be a numeric id (got '{sc}')")
+            elif kind == "music":                          # mirror content.music.mint_field_theme's precedence
+                f = obj.get("file")
+                if f and obj.get("song") is not None:      # both set -> the build silently ignores file
+                    warn("both song and file are set — song wins and the custom track is IGNORED "
+                         "(clear the song id to mint the file)")
+                elif isinstance(f, str) and f.strip():
+                    base = self.member_paths.get(member)
+                    if base is not None and not (Path(f).is_absolute() and Path(f).exists()) \
+                            and not (base.parent / f).exists():
+                        warn(f"[music] file not found beside the field.toml: {f}")
             elif kind == "choice":
                 ref = obj.get("npc")                       # talk-triggered: must name an existing NPC
                 if isinstance(ref, str) and ref.strip() and ref not in self._field_entity_names(member)["npc"]:
@@ -5546,7 +6009,7 @@ class Workspace(QMainWindow):
             for e in (data.get(section, []) or []):
                 if isinstance(e, dict) and self._node_problems(section, e, member):
                     n += 1
-        for single in ("encounter", "cutscene"):
+        for single in ("encounter", "cutscene", "music"):
             if data.get(single) and self._node_problems(single, data[single], member):
                 n += 1
         return n
@@ -5665,6 +6128,8 @@ class Workspace(QMainWindow):
             return False
         self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
         self.output.clear()
+        self.output.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {subject}\n"
+                                    f"$ {' '.join(str(a) for a in argv[1:])}")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_dock()
         self.act_lint_cli.setEnabled(False)
@@ -5706,6 +6171,21 @@ def _smoke(win):
     check the tree, the breadcrumb, lazy object load, and the Problems dock -- the Qt analogue of the
     tkinter campaign-editor smoke. Runs under QT_QPA_PLATFORM=offscreen."""
     import tempfile
+    # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
+    # a smoke run never writes temp paths into the developer's real prefs.json.
+    _rec = []
+
+    def _stub_add_recent(kind, path):
+        p = str(Path(path).resolve())
+        _rec[:] = [{"kind": kind, "path": p}] + [e for e in _rec if e["path"] != p]
+        del _rec[prefs.RECENT_LIMIT:]
+
+    def _stub_remove_recent(path):
+        _rec[:] = [e for e in _rec if e["path"] != str(path)]
+
+    prefs.add_recent = _stub_add_recent
+    prefs.recent = lambda: list(_rec)
+    prefs.remove_recent = _stub_remove_recent
     d = Path(tempfile.mkdtemp())
     M = C.Member
     members = [M(300, 30100, "IC_ENT", "borrow", 11, "", "IC_ENT/IC_ENT.field.toml", False),
@@ -5731,6 +6211,47 @@ def _smoke(win):
     assert win._payload(camp)[0] == "campaign"
     names = [win._payload(camp.child(i))[1] for i in range(camp.childCount())]
     assert names == ["IC_ENT", "IC_COR", "IC_LOST"], names
+    # MRU: the successful open recorded a recent entry; Home renders it as a row; Ctrl-K offers Reopen;
+    # _open_recent round-trips back into the campaign; a vanished path prunes instead of erroring.
+    assert _rec and _rec[0]["kind"] == "campaign" and _rec[0]["path"].endswith("campaign.toml"), _rec
+    win._refresh_recent()
+    assert win._recent_lay.count() == 1, win._recent_lay.count()
+    assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
+    assert win._open_recent("campaign", _rec[0]["path"]) is True
+    prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
+    assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
+    assert all(not e["path"].endswith("missing.field.toml") for e in _rec), "dead entry not pruned"
+    camp = win.tree.topLevelItem(0)                       # the Reopen round-trip rebuilt the tree -> re-fetch
+    # Setup & Health: the command is in the palette, the Home banner widget exists, and the pure report
+    # engine renders rows without raising even on this (possibly game-less) machine.
+    assert any(lbl == "Setup & health…" for lbl, _k, _cb in win._command_index()), "no Setup palette row"
+    assert hasattr(win, "_home_setup")
+    from .. import health as _health
+    assert _health.worst_level(_health.health_report()) in ("ok", "warn", "bad")
+    # Custom models: the Import tab's box built with its four actions wired
+    for _btn in (win.import_field.mdl_pick_btn, win.import_field.mdl_gltf_btn,
+                 win.import_field.mdl_import_btn, win.import_field.mdl_mint_btn):
+        assert _btn is not None
+    # pre-fork study + archive + find-rooms: the round-5 widgets built + wired
+    for _w in (win.import_field.explain_chk, win.import_field.study_btn, win.import_field.rooms_btn,
+               win.import_field.arc_out, win.import_field.arc_pattern, win.import_field.arc_btn):
+        assert _w is not None
+    # F9 deploy: the crumb-row button is enabled + aimed at the open campaign (pre-aimed by open_campaign);
+    # the palette carries the command
+    assert win.deploy_btn.isEnabled(), "Deploy button dead with a campaign open"
+    assert win._deploy_target().endswith("campaign.toml"), win._deploy_target()
+    assert any(lbl == "Deploy now (F9)" for lbl, _k, _cb in win._command_index())
+    # drag-and-drop dispatch: a campaign.toml re-opens the campaign; a field.toml opens loose; a .glb
+    # pre-fills the Custom models box; garbage is refused
+    assert win._open_dropped(d / "campaign.toml") is True and win.plan is not None
+    assert win._open_dropped(d / "IC_COR" / "IC_COR.field.toml") is True and win._loose
+    _glb = d / "edit.glb"
+    _glb.write_bytes(b"glTF")
+    assert win._open_dropped(_glb) is True
+    assert win.import_field.mdl_glb.text() == str(_glb)
+    assert win._open_dropped(d / "IC_ENT") is False           # a directory is not a droppable file
+    assert win.open_campaign(d / "campaign.toml")             # restore campaign mode for the sections below
+    camp = win.tree.topLevelItem(0)
     # the campaign Map document renders the same graph (compute_layout core) -- 3 nodes, 1 edge
     assert win.map._layout is not None and len(win.map._layout.nodes) == 3
     assert len(win.map._layout.edges) == 1
@@ -6012,6 +6533,13 @@ def _smoke(win):
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
     assert win._node_problems("encounter", {"scene": "NoSuchScene"}, "IC_ENT"), "a non-numeric scene warns"
     assert win._node_problems("encounter", {"scene": 67}, "IC_ENT") == [], "a numeric scene id passes"
+    # [music]: song+file together -> file silently loses at build, so the GUI warns; a missing file warns;
+    # a real file beside the field.toml is clean (mirrors content.music.mint_field_theme's precedence)
+    assert win._node_problems("music", {"song": 9}, "IC_ENT") == [], "a plain song id is clean"
+    assert win._node_problems("music", {"song": 9, "file": "t.ogg"}, "IC_ENT"), "song+file warns (file ignored)"
+    assert win._node_problems("music", {"file": "no_such.ogg"}, "IC_ENT"), "a missing [music] file warns"
+    (d / "IC_ENT" / "theme.ogg").write_bytes(b"OggS")
+    assert win._node_problems("music", {"file": "theme.ogg"}, "IC_ENT") == [], "an existing [music] file is clean"
     # SCENE.TOML-AWARE reference checks: a choice/cutscene reference resolves against BOTH the field.toml
     # NPCs/markers AND the sibling scene.toml (Blender-owned) -- so a scene-placed entity isn't falsely flagged.
     pdoc.data["npc"].append({"name": "Ref", "preset": "vivi"})       # a field.toml NPC
@@ -7278,14 +7806,22 @@ def main(argv=None):
     smoke = "--smoke" in argv
     if smoke:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        os.environ.setdefault("FF9MAPKIT_NO_THUMBS", "1")     # deterministic: no worker threads headless
     app = QApplication.instance() or QApplication([])
     app.setWindowIcon(_app_icon())                 # so dialogs/taskbar inherit our icon, not Qt's default
-    win = Workspace(pick_palette("dark" if smoke else prefs.theme()))
+    pal = pick_palette("dark" if smoke else prefs.theme())
+    _apply_app_theme(app, pal)                     # Fusion + a theme QPalette, BEFORE any widget exists
+    win = Workspace(pal)
     if smoke:
         _smoke(win)
         return
     win.show()
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
+    if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
+        try:
+            win.restore_last_session()
+        except Exception:                          # noqa: BLE001  (a broken project must not block launch)
+            pass
     sys.exit(app.exec())
 
 

@@ -17,14 +17,35 @@ _QSS = Template(
     QWidget { background-color: $bg; color: $text; font-family: "Segoe UI"; font-size: 13px; }
     QMainWindow::separator { background: $border; width: 1px; height: 1px; }
 
-    QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: 5px 8px; spacing: 8px; }
+    /* Toolbar metrics are deliberately COMPACT (spacing 6 / button padding 10): every action plus the
+       search pill and the gear menu must FIT at the default 1280px window -- overflowing items land in
+       Qt's hidden extension chevron, which is how the Ctrl-K search and Preferences went invisible. */
+    QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: 5px 8px; spacing: 6px; }
+    QToolBar::separator { background: $border; width: 1px; margin: 5px 4px; }
     QToolButton, QPushButton {
         background: $surface_btn; color: $text; border: 1px solid $border;
-        border-radius: 6px; padding: 6px 12px;
+        border-radius: 6px; padding: 6px 10px;
     }
     QToolButton:hover, QPushButton:hover { background: $hover; }
     QPushButton:pressed, QToolButton:pressed { background: $pressed; }
     QPushButton:disabled { color: $muted; background: $bg; }
+    /* a disabled toolbar action recedes to flat ghost text (it used to look identical to enabled) */
+    QToolButton:disabled { color: $muted; background: transparent; border-color: transparent; }
+    /* dropdown tool-buttons (Field / Campaign / Journey / gear): keep the chevron inside the rounded
+       border, vertically centred (the default bottom-right corner position clips against the radius) */
+    QToolButton[popupMode="2"] { padding-right: 20px; }
+    QToolButton::menu-indicator {
+        subcontrol-origin: padding; subcontrol-position: center right; right: 5px;
+    }
+    /* the gear (settings) menu: icon-only -- no chevron, compact padding */
+    QToolButton#gear { padding: 6px 9px; }
+    QToolButton#gear::menu-indicator { image: none; width: 0; }
+    /* the Ctrl-K palette opener is a button DRESSED as a search field */
+    QPushButton#search {
+        background: $field; color: $muted; border: 1px solid $border; border-radius: 7px;
+        padding: 6px 12px; text-align: left;
+    }
+    QPushButton#search:hover { border-color: $accent; color: $text; background: $field; }
     QPushButton#accent { background: $accent; color: $accent_fg; border: 1px solid $accent; }
     QPushButton#accent:hover { background: $accent_hover; }
     QPushButton#accent:pressed { background: $accent_pressed; }
@@ -51,7 +72,19 @@ _QSS = Template(
         padding: 6px 9px; selection-background-color: $accent; selection-color: $accent_fg;
     }
     QLineEdit:focus { border: 1px solid $accent; }
-    QLineEdit#search { background: $surface; color: $muted; }
+
+    /* combos + spin boxes: themed like line edits (the Fusion base style would otherwise draw them from
+       the platform palette, which need not match the chosen theme) */
+    QComboBox, QAbstractSpinBox {
+        background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
+        padding: 4px 8px; selection-background-color: $accent; selection-color: $accent_fg;
+    }
+    QComboBox:focus, QAbstractSpinBox:focus { border: 1px solid $accent; }
+    QComboBox:disabled, QAbstractSpinBox:disabled { color: $muted; background: $bg; }
+    QComboBox QAbstractItemView {
+        background: $surface; color: $text; border: 1px solid $border;
+        selection-background-color: $accent; selection-color: $accent_fg;
+    }
 
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;
@@ -64,10 +97,20 @@ _QSS = Template(
     QTabWidget::pane { border: 1px solid $border; border-radius: 8px; top: -1px; }
     QTabBar::tab {
         background: $surface_btn; color: $muted; padding: 7px 16px; border: 1px solid $border;
-        border-bottom: 0; border-top-left-radius: 6px; border-top-right-radius: 6px; margin-right: 2px;
+        border-bottom: 2px solid transparent; border-top-left-radius: 6px; border-top-right-radius: 6px;
+        margin-right: 2px;
     }
-    QTabBar::tab:selected { background: $bg; color: $text; }
+    QTabBar::tab:selected { background: $bg; color: $text; border-bottom: 2px solid $accent; }
     QTabBar::tab:hover { color: $text; }
+
+    /* boxed form sections (Build & Deploy / Import): a quiet rounded outline with a floating caption */
+    QGroupBox {
+        border: 1px solid $border; border-radius: 8px; margin-top: 10px; padding-top: 8px;
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin; left: 10px; padding: 0 5px;
+        color: $muted; font-weight: 600; background: $bg;
+    }
 
     QPlainTextEdit, QTextEdit {
         background: $log_bg; color: $log_fg; border: 1px solid $border; border-radius: 8px;
@@ -95,7 +138,11 @@ _QSS = Template(
     QSplitter::handle:vertical { height: 1px; }
     QLabel { background: transparent; }
     QStatusBar { background: $surface; color: $muted; border-top: 1px solid $border; }
+    QStatusBar::item { border: none; }
     QToolTip { background: $surface; color: $text; border: 1px solid $border; }
+
+    /* Home-page entry cards */
+    QFrame#card { background: $surface; border: 1px solid $border; border-radius: 10px; }
     """
 )
 

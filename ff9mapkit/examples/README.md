@@ -1,7 +1,7 @@
 # Examples
 
 Worked `field.toml` projects. Build any with `ff9mapkit build <path>` (see
-[`docs/TUTORIAL.md`](../docs/TUTORIAL.md) to get started).
+[`docs/tutorials/`](../docs/tutorials/README.md) to get started).
 
 | Example | Shows |
 |---|---|

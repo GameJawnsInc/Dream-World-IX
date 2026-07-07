@@ -15,9 +15,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
-    QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
+    QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 
@@ -26,9 +26,13 @@ class ImportDoc(QWidget):
     job to the Output panel + posts a verdict); ``problems`` = ``shell._show_problems`` (unused here -- the
     shell-outs have only a stream + a return code, so the verdict comes from run_job)."""
 
-    def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None):
+    def __init__(self, pal, kit_root, *, run, problems=None, on_forked=None, thumbs=None):
         super().__init__()
         self.pal = pal
+        self.thumbs = thumbs                           # the shell's ThumbService (field art previews); optional
+        self._preview_key = None                       # the thumb key we're waiting on for the fork preview
+        if thumbs is not None:
+            thumbs.ready.connect(self._on_thumb_ready)
         self.kit = Path(kit_root)                      # `-m ff9mapkit` cwd (this worktree's package)
         # Default output base: the repo parent for a checkout; an installed copy's package dir is inside a
         # venv, so write forked projects to a discoverable user folder instead (not buried in site-packages).
@@ -56,14 +60,19 @@ class ImportDoc(QWidget):
         root.addWidget(intro)
         root.addWidget(self._fork_box())
         root.addWidget(self._region_box())
+        root.addWidget(self._archive_box())
         root.addWidget(self._repaint_box())
+        root.addWidget(self._models_box())
         root.addWidget(self._read_box())
         root.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
-        self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
-                         self.fork_region_btn, self.catalog_btn, self.rp_unpack_btn, self.rp_pack_btn,
-                         self.dlg_btn, self.save_btn, self.list_btn, self.tpl_btn]
+        self._buttons = [self.find_btn, self.preview_btn, self.study_btn, self.rooms_btn, self.import_btn,
+                         self.dryrun_btn, self.fork_region_btn, self.catalog_btn, self.arc_btn,
+                         self.rp_unpack_btn, self.rp_pack_btn,
+                         self.mdl_pick_btn, self.mdl_gltf_btn, self.mdl_import_btn, self.mdl_mint_btn,
+                         self.dlg_btn, self.save_btn, self.list_btn, self.songs_btn, self.sfx_btn,
+                         self.tpl_btn]
 
     # ------------------------------------------------------------------ fork-a-field
     def _fork_box(self):
@@ -82,18 +91,37 @@ class ImportDoc(QWidget):
         self.find_btn.setToolTip("List the real FF9 fields matching the box above (id + name) — the same lookup "
                                  "as 'List fields' under Read & inspect.")
         self.find_btn.clicked.connect(self.on_find)
-        self.preview_btn = QPushButton("Preview fidelity")
-        self.preview_btn.clicked.connect(self.on_preview)
         row.addWidget(self.field, 1)
         row.addWidget(self.find_btn)
-        row.addWidget(self.preview_btn)
         v.addLayout(row)
+        # the pre-fork STUDY row -- 'fork/learn from a real field's bytes BEFORE authoring' as buttons
+        study = QHBoxLayout()
+        self.preview_btn = QPushButton("Preview fidelity")
+        self.preview_btn.clicked.connect(self.on_preview)
+        study.addWidget(self.preview_btn)
+        self.explain_chk = QCheckBox("+ explain NPC logic")
+        self.explain_chk.setToolTip("fork-report --explain: decode each NPC's talk routine into readable "
+                                    "English (dialogue + items + the funcs it runs) — shows WHY a "
+                                    "render-only NPC needs --verbatim.")
+        study.addWidget(self.explain_chk)
+        self.study_btn = QPushButton("Study logic…")
+        self.study_btn.setToolTip("The field's whole .eb as a read-only, legible logic map (every entry + "
+                                  "routine: dialogue, rewards, flags, warps) — study the real bytes before "
+                                  "you fork. Needs the install; ~2–5 s.")
+        self.study_btn.clicked.connect(self.on_study_logic)
+        study.addWidget(self.study_btn)
+        study.addStretch(1)
+        v.addLayout(study)
+        self.preview_img = QLabel()                    # the room's actual background, shown by Preview fidelity
+        self.preview_img.setVisible(False)
+        v.addWidget(self.preview_img)
 
         mode = QGroupBox("Fork mode")
         mv = QVBoxLayout(mode)
+        # NB: radio/checkbox labels can't word-wrap, so a long label forces the whole tab's minimum width
+        # (horizontal scrolling at normal window sizes). Keep them SHORT; detail goes in the wrapped hints.
         self.mode_verbatim = QRadioButton("Verbatim — the truest fork (recommended)")
-        self.mode_authorable = QRadioButton("Re-authorable — editable [[npc]]/content, but you rebuild the "
-                                            "field's logic & story gating yourself (advanced)")
+        self.mode_authorable = QRadioButton("Re-authorable — editable content; you rebuild the logic (advanced)")
         self.mode_verbatim.setChecked(True)
         mv.addWidget(self.mode_verbatim)
         mv.addWidget(self.mode_authorable)
@@ -111,21 +139,25 @@ class ImportDoc(QWidget):
 
         self.art_box = QGroupBox("Background art")
         av = QVBoxLayout(self.art_box)
-        self.art_native = QRadioButton("Native — seamless, faithful occlusion + lighting; ANY field (recommended)")
-        self.art_borrow = QRadioButton("BG-borrow — reuse the real art via DictionaryPatch (fast; area ≥ 10)")
-        self.art_editable = QRadioButton("Editable scene — repaintable per-depth layers, but SEAM-PRONE "
-                                         "(to repaint seamlessly, fork Native + use ‘Repaint a native fork’ below)")
+        self.art_native = QRadioButton("Native — seamless + faithful; ANY field (recommended)")
+        self.art_borrow = QRadioButton("BG-borrow — reuse the real art (fast; area ≥ 10)")
+        self.art_editable = QRadioButton("Editable scene — repaintable layers (seam-prone)")
         self.art_native.setChecked(True)
         for r in (self.art_native, self.art_borrow, self.art_editable):
             av.addWidget(r)
+        art_hint = QLabel("Editable scenes show grid seams — to repaint seamlessly, fork Native and use "
+                          "‘Repaint a native fork’ below. BG-borrow points DictionaryPatch at the real art.")
+        art_hint.setWordWrap(True)
+        art_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        av.addWidget(art_hint)
         v.addWidget(self.art_box)
 
         self.carry_box = QGroupBox("Carry from the real field")
         cv = QVBoxLayout(self.carry_box)
-        self.carry_npcs = QCheckBox("NPCs & props faithfully (their push/talk interactions fire)")
-        self.carry_text = QCheckBox("Real dialogue, verbatim (per language) — carried NPCs speak the real words")
+        self.carry_npcs = QCheckBox("NPCs & props faithfully (push/talk interactions fire)")
+        self.carry_text = QCheckBox("Real dialogue, verbatim (per language)")
         self.dialogue_stubs = QCheckBox("Dialogue as editable [[npc]] stubs (to RE-AUTHOR, not carry)")
-        self.save_moogle = QCheckBox("Save point — the hidden Moogle + the save flourish (if the field has one)")
+        self.save_moogle = QCheckBox("Save point — hidden Moogle + flourish (if the field has one)")
         self.carry_npcs.setChecked(True)
         self.carry_text.setChecked(True)
         for c in (self.carry_npcs, self.carry_text, self.dialogue_stubs, self.save_moogle):
@@ -148,6 +180,15 @@ class ImportDoc(QWidget):
         swap.addWidget(self.swap_player)          # combo is a big wheel-scroll target in the scrolling panel)
         self.neutralize = QCheckBox("Neutralize scripted gestures")
         swap.addWidget(self.neutralize)
+        self.rooms_btn = QPushButton("Suggest a test room…")
+        self.rooms_btn.setToolTip("Sweep ALL fields for the best swap/demo rooms (single-PC, swap-clean, "
+                                  "close camera) — answers 'which field should I try this in'. ~45 s; the "
+                                  "table streams to Output.")
+        self.rooms_btn.clicked.connect(
+            lambda: self._kit(["find-rooms"], subject="Find test rooms",
+                              ok_next="Pick a room from the table above, put its id in the field box, and "
+                                      "Preview fidelity / Import."))
+        swap.addWidget(self.rooms_btn)
         swap.addStretch(1)                        # left-align the compact combo + checkbox
         v.addLayout(swap)
         swap_hint = QLabel("Optional: control a different character (a playable name) or any model (a GEO id, "
@@ -250,14 +291,18 @@ class ImportDoc(QWidget):
         row.addWidget(self.seeds, 1)
         row.addWidget(self.catalog_btn)
         v.addLayout(row)
-        self.rg_whole = QCheckBox("Whole zone — fork ALL story-state visits of each seed's zone (override the "
-                                  "catalog's single-visit scope; more fields/ids — Dry-run to preview)")
-        self.rg_verbatim = QCheckBox("Verbatim — each member ships its real script + dialogue, runs the real "
-                                     "logic (recommended; uncheck to fork re-authorable members you rebuild yourself)")
+        self.rg_whole = QCheckBox("Whole zone — fork ALL story-state visits of each seed's zone")
+        self.rg_verbatim = QCheckBox("Verbatim — real script + dialogue per member (recommended)")
         self.rg_whole.setChecked(False)          # default = the catalog region's own visit (--ids, lean + fast)
         self.rg_verbatim.setChecked(True)
         v.addWidget(self.rg_whole)
         v.addWidget(self.rg_verbatim)
+        scope_hint = QLabel("Whole zone overrides the catalog's single-visit scope (more fields/ids — Dry-run to "
+                            "preview). Unchecking Verbatim forks re-authorable members whose logic you rebuild "
+                            "yourself.")
+        scope_hint.setWordWrap(True)
+        scope_hint.setStyleSheet(muted)
+        v.addWidget(scope_hint)
         # Walk as (player swap) for the WHOLE chain -- the region analogue of the single-fork swap.
         rswap = QHBoxLayout()
         rswap.addWidget(QLabel("Walk as:"))
@@ -458,6 +503,16 @@ class ImportDoc(QWidget):
         self.list_btn.clicked.connect(self.on_list_fields)
         lst.addWidget(self.list_filter)
         lst.addWidget(self.list_btn)
+        self.songs_btn = QPushButton("List songs")
+        self.songs_btn.setToolTip("The game's music table (song id → resource) — the ids the [music] "
+                                  "section and the Editor's song picker use. First run extracts it from "
+                                  "your install (slow once, then cached).")
+        self.songs_btn.clicked.connect(lambda: self._kit(["music-list"], subject="List songs"))
+        self.sfx_btn = QPushButton("List SFX")
+        self.sfx_btn.setToolTip("The game's sound-effect table (id → resource).")
+        self.sfx_btn.clicked.connect(lambda: self._kit(["sfx-list"], subject="List SFX"))
+        lst.addWidget(self.songs_btn)
+        lst.addWidget(self.sfx_btn)
         lst.addStretch(1)
         v.addLayout(lst)
 
@@ -470,6 +525,213 @@ class ImportDoc(QWidget):
         tpl.addWidget(tplhint, 1)
         v.addLayout(tpl)
         return box
+
+    # ------------------------------------------------------------------ import-all archive
+    def _archive_box(self):
+        """`ff9mapkit import-all` — the whole-game (or one-zone) Blender-ready reference archive: the
+        on-disk source of truth you copy field folders out of."""
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Reference archive  (import-all — every field, foldered)")
+        v = QVBoxLayout(box)
+        lbl = QLabel("Bulk-import fields into <out>/<ZONE>/<FBG>/ — lightweight model-against projects "
+                     "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
+                     "browsable reference you copy field folders out of.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(muted)
+        v.addWidget(lbl)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Archive root:"))
+        self.arc_out = QLineEdit()
+        self.arc_out.setPlaceholderText("a GITIGNORED folder — this is SE-derived art (e.g. reference/all-fields)")
+        row.addWidget(self.arc_out, 1)
+        ab = QPushButton("Browse…")
+        ab.clicked.connect(lambda: self._pick_dir_into(self.arc_out, "Archive root (gitignored)"))
+        row.addWidget(ab)
+        v.addLayout(row)
+        opts = QHBoxLayout()
+        opts.addWidget(QLabel("Zone filter:"))
+        self.arc_pattern = QLineEdit()
+        self.arc_pattern.setFixedWidth(140)
+        self.arc_pattern.setPlaceholderText("e.g. iccv — blank = ALL")
+        self.arc_pattern.setToolTip("Only fields whose FBG folder contains this substring (a zone: iccv / "
+                                    "dali / trno …). Blank imports the whole game.")
+        opts.addWidget(self.arc_pattern)
+        self.arc_editable = QCheckBox("Full editable scenes (bigger + slower)")
+        self.arc_editable.setToolTip("Per-depth repaintable layers for art-modding a whole set at once "
+                                     "(~2–3 GB whole-game) instead of the lightweight default (~500 MB).")
+        opts.addWidget(self.arc_editable)
+        self.arc_btn = QPushButton("Build archive")
+        self.arc_btn.clicked.connect(self.on_archive)
+        opts.addWidget(self.arc_btn)
+        opts.addStretch(1)
+        v.addLayout(opts)
+        hint = QLabel("Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special "
+                      "fields with no scene) are listed and skipped.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        return box
+
+    def _pick_dir_into(self, line_edit, caption):
+        d = QFileDialog.getExistingDirectory(self, caption)
+        if d:
+            line_edit.setText(d)
+
+    def on_archive(self):
+        out = self.arc_out.text().strip().strip('"')
+        if not out:
+            return self._warn("No archive root", "Pick the folder to build the archive into (keep it "
+                                                 "gitignored — the art is SE-derived).")
+        pat = self.arc_pattern.text().strip()
+        argv = ["import-all", "--out", out] + (["--pattern", pat] if pat else ["--all"]) \
+            + (["--editable"] if self.arc_editable.isChecked() else [])
+        self._kit(argv, subject="Build archive",
+                  ok_next=f"Archive at {out} — <ZONE>/<FBG>/ folders, each openable here or importable "
+                          "in Blender (Import FF9 Field).")
+
+    # ------------------------------------------------------------------ custom 3D models
+    def _models_box(self):
+        """The DLL-free model round trip: export a real model to a Blender-editable .glb, then bring the
+        edited .glb back as a loose-FBX override — or MINT a brand-new model id from a source. All three
+        stream `py -m ff9mapkit model-*` through the shell's job runner."""
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Custom 3D models  (export → edit in Blender → import / mint)")
+        v = QVBoxLayout(box)
+        lbl = QLabel("Every FF9 model is editable, no engine DLL: export it as a .glb (mesh + rig + textures "
+                     "+ animations), edit in Blender, then import the .glb back as a loose override — or mint "
+                     "it to a NEW id (≥ 6000) and place it with [[npc]] model = <id>. The Info Hub's model "
+                     "pages have an 'Export for Blender…' button too.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(muted)
+        v.addWidget(lbl)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Model:"))
+        self.mdl_token = QLineEdit()
+        self.mdl_token.setPlaceholderText("GEO name or id — e.g. GEO_MAIN_F0_VIV or 8")
+        row.addWidget(self.mdl_token, 1)
+        self.mdl_pick_btn = QPushButton("Browse…")
+        self.mdl_pick_btn.clicked.connect(self.on_model_pick)
+        row.addWidget(self.mdl_pick_btn)
+        self.mdl_gltf_btn = QPushButton("Export .glb…")
+        self.mdl_gltf_btn.setToolTip("Write the model as a Blender-openable glTF (File ▸ Import ▸ glTF 2.0).")
+        self.mdl_gltf_btn.clicked.connect(self.on_model_gltf)
+        row.addWidget(self.mdl_gltf_btn)
+        v.addLayout(row)
+
+        dep = QHBoxLayout()
+        dep.addWidget(QLabel("Deploy into:"))
+        from ..editor import jobs
+        gm = jobs.detect_game_mod()
+        self.mdl_mod = QLineEdit(str(gm) if gm else "")
+        self.mdl_mod.setPlaceholderText("a mod folder, e.g. <game>/FF9CustomMap")
+        dep.addWidget(self.mdl_mod, 1)
+        mb = QPushButton("Browse…")
+        mb.clicked.connect(self.browse_model_mod)
+        dep.addWidget(mb)
+        v.addLayout(dep)
+
+        imp = QHBoxLayout()
+        imp.addWidget(QLabel("Edited .glb:"))
+        self.mdl_glb = QLineEdit()
+        self.mdl_glb.setPlaceholderText("the .glb you exported from Blender")
+        imp.addWidget(self.mdl_glb, 1)
+        gb = QPushButton("Browse…")
+        gb.clicked.connect(self.browse_model_glb)
+        imp.addWidget(gb)
+        self.mdl_import_btn = QPushButton("Import model")
+        self.mdl_import_btn.setToolTip("Splice the edited geometry back over the pristine rig (auto-detected "
+                                       "from the kit's glTF stamp) + write any CHANGED animation clips.")
+        self.mdl_import_btn.clicked.connect(self.on_model_import)
+        imp.addWidget(self.mdl_import_btn)
+        v.addLayout(imp)
+
+        mint = QHBoxLayout()
+        mint.addWidget(QLabel("Mint new id:"))
+        self.mdl_mint_id = QLineEdit("6000")
+        self.mdl_mint_id.setFixedWidth(70)
+        self.mdl_mint_id.setToolTip("The new model id — ≥ 6000 (clear of every real id).")
+        mint.addWidget(self.mdl_mint_id)
+        self.mdl_mint_btn = QPushButton("Mint from model")
+        self.mdl_mint_btn.setToolTip("Re-export the Model above to a brand-new id + register it in "
+                                     "DictionaryPatch.txt (3DModel line). Place it with [[npc]] model = <id>.")
+        self.mdl_mint_btn.clicked.connect(self.on_model_mint)
+        mint.addWidget(self.mdl_mint_btn)
+        mint.addStretch(1)
+        v.addLayout(mint)
+        hint = QLabel("Mesh edits show on F6 → Reload; edited ANIMATIONS and newly MINTED ids need a game "
+                      "relaunch (clips + DictionaryPatch load at startup).")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        return box
+
+    def on_model_pick(self):
+        from .forms_qt import pick_catalog
+        name = pick_catalog(self, "model", self.mdl_token.text().strip(), None, self.pal)
+        if name:
+            self.mdl_token.setText(name)
+
+    def _model_token_arg(self):
+        t = self.mdl_token.text().strip()
+        if not t:
+            self._warn("No model", "Enter (or Browse…) a GEO model name or id first.")
+            return None
+        return t
+
+    def _model_mod_arg(self):
+        m = self.mdl_mod.text().strip().strip('"')
+        if not m:
+            self._warn("No mod folder", "Pick the mod folder to deploy the model into (Deploy into:).")
+            return None
+        return m
+
+    def on_model_gltf(self):
+        token = self._model_token_arg()
+        if token is None:
+            return
+        out, _ = QFileDialog.getSaveFileName(self, "Export for Blender", f"{token}.glb",
+                                             "glTF binary (*.glb)")
+        if not out:
+            return
+        self._kit(["model-gltf", token, "--out", out], subject="Export .glb",
+                  ok_next=f"Wrote {out} — Blender: File ▸ Import ▸ glTF 2.0. Edit, export a .glb, then "
+                          "Import model below.")
+
+    def on_model_import(self):
+        glb = self.mdl_glb.text().strip().strip('"')
+        if not glb or not Path(glb).is_file():
+            return self._warn("No .glb", "Pick the edited .glb you exported from Blender.")
+        mod = self._model_mod_arg()
+        if mod is None:
+            return
+        self._kit(["model-import", glb, "--deploy", mod], subject="Import model",
+                  ok_next="Override deployed. Mesh edits: F6 → Reload on a field using the model. "
+                          "Edited animations need a game RELAUNCH.")
+
+    def on_model_mint(self):
+        token = self._model_token_arg()
+        if token is None:
+            return
+        mod = self._model_mod_arg()
+        if mod is None:
+            return
+        mid = self.mdl_mint_id.text().strip()
+        if not mid.isdigit() or int(mid) < 6000:
+            return self._warn("Bad id", "The mint id must be a number ≥ 6000 (below is the real-model band).")
+        self._kit(["model-mint", token, "--id", mid, "--deploy", mod], subject="Mint model",
+                  ok_next=f"Minted id {mid} + registered it in DictionaryPatch.txt. RELAUNCH FF9, then "
+                          f"place it with [[npc]] model = {mid} (its animations came along from the source).")
+
+    def browse_model_mod(self):
+        d = QFileDialog.getExistingDirectory(self, "Mod folder to deploy models into")
+        if d:
+            self.mdl_mod.setText(d)
+
+    def browse_model_glb(self):
+        f, _ = QFileDialog.getOpenFileName(self, "The Blender-edited glTF", "", "glTF (*.glb *.gltf)")
+        if f:
+            self.mdl_glb.setText(f)
 
     # ------------------------------------------------------------------ repaint a native fork
     def _repaint_box(self):
@@ -612,10 +874,138 @@ class ImportDoc(QWidget):
         field = self.field.text().strip()
         if not field:
             return self._warn("No field", "Enter a real field id or name to preview its fork fidelity.")
-        self._kit(["fork-report", field], subject="Fork preview",
+        self._request_preview_art(field)
+        argv = ["fork-report", field] + (["--explain"] if self.explain_chk.isChecked() else [])
+        self._kit(argv, subject="Fork preview",
                   ok_next="Read the fidelity report (it recommends a fork mode). Verbatim is the faithful "
                           "default — note its suggested [startup] scenario, Import, then add that beat in the "
                           "editor; or switch to Re-authorable to carry NPCs/dialogue as editable content.")
+
+    def on_study_logic(self):
+        """'Study logic…' — the doctrine ('fork/learn from a real field's bytes before authoring') as a
+        click: decode the field's whole .eb into the read-only logic map, IN-PROCESS (a few seconds behind
+        a wait cursor), into a scrollable dialog. Same output as `ff9mapkit logic-map <field>`."""
+        field = self.field.text().strip()
+        if not field:
+            return self._warn("No field", "Enter a real field id or name to study its logic.")
+        from PySide6.QtGui import QCursor
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            from .. import forkreport as FR
+            from .. import logic_map as LM
+            fid = FR.resolve_field_id(field)
+            text = LM.format_logic_map(LM.logic_map(fid))
+            try:
+                rep = FR.analyze(fid)                  # the beat/roster analysis (.eb-only, ~50 ms)
+            except Exception:                          # noqa: BLE001  (the map alone is still worth showing)
+                rep = None
+        except Exception as e:                         # noqa: BLE001  (no install / unknown field / bad .eb)
+            QApplication.restoreOverrideCursor()
+            return self._warn("Couldn't decode", f"{e}\n\n(Studying a real field needs your FF9 install + "
+                                                 "UnityPy — check ⚙ ▸ Setup & health.)")
+        QApplication.restoreOverrideCursor()
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Field logic — {field} (read-only)")
+        dlg.resize(860, 660)
+        dv = QVBoxLayout(dlg)
+        hint = QLabel("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
+                      "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        dv.addWidget(hint)
+        self._mount_beat_strip(dv, rep)
+        body = QPlainTextEdit()
+        body.setReadOnly(True)
+        body.setPlainText(text)
+        dv.addWidget(body, 1)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(close)
+        dv.addLayout(row)
+        dlg.exec()
+
+    def _mount_beat_strip(self, dv, rep):
+        """The BEAT SLIDER: on a rotating-cast field, scrub through the story beats the field gates on and
+        watch the spawned roster change (fork-report's #13 director analysis, made visual). A static field
+        gets a one-line note instead of a dead slider."""
+        muted = f"color:{self.pal['muted']};"
+        if rep is None:
+            return
+        if not rep.beat_roster:
+            note = QLabel("Roster: static — the cast doesn't rotate with the story"
+                          + (f" (gates on SC {', '.join(str(v) for v in rep.sc_gates)})" if rep.sc_gates
+                             else " (no ScenarioCounter gating)")
+                          + (f" · suggested [startup] scenario = {rep.suggested_scenario}"
+                             if rep.suggested_scenario is not None else ""))
+            note.setWordWrap(True)
+            note.setStyleSheet(muted)
+            dv.addWidget(note)
+            return
+        from PySide6.QtWidgets import QSlider
+        rows = sorted(rep.beat_roster, key=lambda r: r[0])
+        strip = QGroupBox("Roster by story beat  (drag to scrub ScenarioCounter)")
+        sv = QVBoxLayout(strip)
+        srow = QHBoxLayout()
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(0, len(rows) - 1)
+        slider.setPageStep(1)
+        slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        slider.setTickInterval(1)
+        srow.addWidget(slider, 1)
+        sv.addLayout(srow)
+        beat_lbl = QLabel("")
+        beat_lbl.setTextFormat(Qt.TextFormat.RichText)
+        beat_lbl.setWordWrap(True)
+        sv.addWidget(beat_lbl)
+
+        def show(ix):
+            bv, nm, entries = rows[ix]
+            where = nm[1] if nm else "?"
+            names = ", ".join((n[4:] if n.startswith("GEO_") else n) + (" *" if d else "")
+                              for _s, n, d in entries) or "(no carried cast)"
+            tags = []
+            if bv == 0:
+                tags.append("scenario-zero baseline")
+            if rep.suggested_scenario == bv:
+                tags.append("suggested [startup] beat")
+            tag = f' · <span style="{muted}">{" · ".join(tags)}</span>' if tags else ""
+            beat_lbl.setText(f"<b>SC {bv}</b> — {where}{tag}<br>"
+                             f'<span style="{muted}">{names}&nbsp;&nbsp;(* = a director; approximate — '
+                             f"flag-gated content assumed present)</span>")
+
+        slider.valueChanged.connect(show)
+        show(0)
+        dv.addWidget(strip)
+
+    # ---- fork-preview art (SEE the room you're about to fork) ----
+    def _request_preview_art(self, token):
+        """Show the field's background beside the fidelity report. Numeric ids only (a name would need the
+        install-side index resolved here); async + cached via the shell's ThumbService. ALWAYS resets the
+        previous preview first -- stale art next to a different field's report is worse than none."""
+        self._preview_key = None
+        if hasattr(self, "preview_img"):
+            self.preview_img.clear()
+            self.preview_img.setVisible(False)
+        if self.thumbs is None or not token.isdigit():
+            return
+        self._preview_key = f"import:{int(token)}"
+        png = self.thumbs.request(self._preview_key, None, int(token))
+        if png:
+            self._show_preview_art(png)
+
+    def _on_thumb_ready(self, member, png):
+        if member == self._preview_key:
+            self._show_preview_art(png)
+
+    def _show_preview_art(self, png):
+        from PySide6.QtGui import QPixmap
+        pm = QPixmap(png)
+        if pm.isNull():
+            return
+        self.preview_img.setPixmap(pm.scaledToWidth(300, Qt.TransformationMode.SmoothTransformation))
+        self.preview_img.setVisible(True)
 
     def on_import(self):
         from ..editor import jobs

@@ -60,7 +60,7 @@ Only TWO mutable blobs survive a save. Everything per-field is session-transient
 ## B. Static registries — merged at launch, never saved
 
 Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch at launch.
-**This is the cross-folder id-collision rule** (CLAUDE.md §3): same id in two folders = one key clobbered.
+**This is the cross-folder id-collision rule**: same id in two folders = one key clobbered.
 
 - `FF9DBAll.EventDB` — field id → `EVT_*` script (`FF9DBAll.Events.cs:7`); `FieldScene` line writes it (`DataPatchers.cs:380`).
 - `FF9BattleDB.SceneData` — `BSC_*` ↔ battle scene id; `MapModel` — scene → `BBG_*` (`DataPatchers.cs:413`).
@@ -91,7 +91,7 @@ Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the 8000 band wo
 
 ---
 
-## The root-cause bug this layer fixes — FIXED 2026-06-10 (story_flags branch)
+## The root-cause bug this layer fixes — FIXED 2026-06-10
 
 `build_script`'s once-flag counter **reset to 0 per build**, flag = `BASE + counter` computed *per-field*.
 So field B's first chest and field A's first chest BOTH picked 8000 → looting A marked B looted

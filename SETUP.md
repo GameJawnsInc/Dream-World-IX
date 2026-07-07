@@ -1,16 +1,18 @@
-# ff9mapkit — Setup & Quickstart
+# ff9mapkit — Setup & Reference
 
-> Commands are written for **Windows PowerShell** (the primary dev platform); the bash
-> equivalents differ only in how environment variables are set. Everything here is verified
-> against the current code (`ff9mapkit/ff9mapkit/cli.py`, `tools/`, `pyproject.toml`).
+> Commands are written for **Windows PowerShell** (the primary platform); bash equivalents differ
+> only in how environment variables are set.
 
-`ff9mapkit` is a Python toolkit (plus a Blender add-on) that compiles a declarative
-**`field.toml`** into a complete drop-in [Memoria](https://github.com/Albeoris/Memoria) mod — a
-brand-new *Final Fantasy IX* field with its camera, walkmesh, painted art, NPCs, dialogue,
-gateways, encounters, events, and cutscenes. It can also **import/fork any of FF9's ~674 real
-fields**, carrying their content faithfully. A **novel** field runs on a **stock, unmodified
-Memoria install**; a **forked** field needs the small bundled engine patch set (`memoria-patches/`)
-for fork fidelity — see [`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md).
+`ff9mapkit` is a Python toolkit (plus a Blender add-on) that compiles declarative TOML projects
+into complete drop-in [Memoria](https://github.com/Albeoris/Memoria) mods: custom **fields**
+(camera, walkmesh, painted art, NPCs, dialogue, gateways, encounters, events, cutscenes), forks of
+any of FF9's ~674 **real fields**, custom **battle backgrounds**, multi-field **campaigns** and
+**journeys**, custom **3D models**, **overworld** edits, and custom **music/SFX**.
+
+Engine requirements are split: a **novel** field (and models/battle/audio content) runs on a
+**stock, unmodified Memoria install**; a **forked** field needs the small bundled engine patch set
+for fidelity, and overworld authoring needs its mesh-override patch — see
+[`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md).
 
 ---
 
@@ -18,72 +20,69 @@ for fork fidelity — see [`ff9mapkit/docs/ENGINE.md`](ff9mapkit/docs/ENGINE.md)
 
 | Need | Detail |
 |---|---|
-| **Python ≥ 3.11** | Hard floor — the kit uses stdlib `tomllib` (3.11+). |
-| **A legally-owned FF9 (Steam or GOG) + Memoria** | The kit reads base assets *from your install*; it bundles zero game bytes. Both are the same moddable Unity port (auto-detected). The Microsoft Store / Game Pass version is **not** moddable. |
-| **Pillow ≥ 9.0** | The only hard runtime dependency (composites art layers + renders paint guides). Installed automatically. |
-| **UnityPy** (separate `pip install`) | Needed only for `extract-templates`, `import`, `list-fields`, and `battle-import` — anything that reads FF9's `p0data*.bin` assetbundles. Not a declared extra. |
+| **Python ≥ 3.11** | Hard floor — the kit uses stdlib `tomllib` (3.11+). Not needed with the Windows installer (it bootstraps its own via `uv`). |
+| **A legally-owned FF9 (Steam or GOG) + Memoria** | The kit reads base assets *from your install*; it bundles zero game bytes. Steam and GOG are the same moddable Unity port (both auto-detected). The Microsoft Store / Game Pass version is **not** moddable. |
+| **Pillow ≥ 9.0** | The only hard runtime dependency (composites art layers, renders paint guides). Installed automatically. |
 
-**Back up your clean game folder before anything else.** Copy the entire `FINAL FANTASY IX`
-install somewhere safe — it is your only true reset if a deploy ever corrupts something.
+**Back up the clean game folder before anything else.** Copy the entire `FINAL FANTASY IX`
+install somewhere safe — it is the only true reset if a deploy corrupts something.
 
-Optional extras (pick what you need; details in §2):
+Optional extras:
 
 | Extra | Installs | Unlocks |
 |---|---|---|
-| `gui` | `PySide6-Essentials ≥ 6.5` | The desktop Workspace GUI (`apps/ff9_workspace.pyw`, or the installed `ff9mapkit-workspace` launcher). Essentials (not the full meta-package) keeps the LGPLv3 path clean. |
-| `assets` | `UnityPy` | The asset-reading commands (`import`, `import-all`, `import-chain`, `list-fields`, `battle-import`, `extract-templates`). Same as the manual `pip install UnityPy` below — just bundled into the extra. |
-| `save` | `pycryptodome ≥ 3.10` | `save-edit` (read/write FF9's AES-encrypted save). Imported lazily. |
+| `assets` | `UnityPy` | Everything that reads FF9's `p0data*.bin` bundles: `extract-templates`, the `import`/fork family, `list-fields`, `battle-import`, `model-*`, `world-*` extraction, `sps`. |
+| `gui` | `PySide6-Essentials ≥ 6.5` | The desktop Workspace (`ff9mapkit-workspace`, or `apps/ff9_workspace.pyw` from a checkout). Essentials (not the full meta-package) keeps the LGPLv3 path clean. |
+| `save` | `pycryptodome ≥ 3.10` | `save-edit` and the save-editing family (FF9's AES-encrypted saves). Imported lazily. |
 | `dev` | `pytest`, `pytest-xdist` | The offline test suite (`py -m pytest -n 6`). |
 
-> **One-shot install:** `pip install -e ".[gui,assets,save]"` (or, for non-developers, the
-> `installer/` bootstrap `setup.exe`) sets up the GUI + the headline fork commands + save editing in one
-> go. The bootstrap installs everything via [`uv`](https://docs.astral.sh/uv/) with no system Python
-> needed — see [`installer/README.md`](installer/README.md).
+Install paths, pick one:
 
----
+- **Windows installer** (non-developers): `DreamWorldIX-Setup.exe` from the GitHub Releases page —
+  a `uv` bootstrap that needs no system Python, runs `ff9mapkit setup` for you, and can install
+  the engine bundle. See [`installer/README.md`](installer/README.md).
+- **PyPI:** `pip install "ff9mapkit[gui,assets,save]"` (pick the extras needed).
+- **Source checkout:** see §2.1.
 
 ## 2. Setup (one time)
 
-> **Fast path:** after installing (and especially if you used the `installer/` bootstrap, which runs it
-> for you), just run **`ff9mapkit setup`**. It auto-detects your FF9 install, remembers it in
-> `~/.ff9mapkit.toml`, runs `extract-templates`, and reports the Memoria engine status — doing §2.2–§2.4
-> in one shot. Add `--game "<path>"` if it isn't auto-found, or `--install-engine <dwix-custom-memoria.zip>`
-> to also install the engine bundle (backed up; needed only for *forked* fields). The manual steps below
-> are the breakdown of what `setup` does.
+> **Fast path:** after installing, run **`ff9mapkit setup`**. It auto-detects the FF9 install,
+> persists it in `~/.ff9mapkit.toml`, runs `extract-templates`, and reports the Memoria engine
+> status — §2.2–§2.4 in one shot. If the install isn't auto-found, pass the global game flag
+> *before* the subcommand: `ff9mapkit --game "<path>" setup`. Add
+> `--install-engine <dwix-custom-memoria.zip>` to also install the engine bundle (with DLL
+> backups; needed only for *forked* fields). The manual steps below are what `setup` does.
 
-### 2.1 Install the package
+### 2.1 Install from source
 
 The install must run **from the package directory** (`ff9mapkit/`, where `pyproject.toml` lives),
 not the repo root:
 
 ```powershell
-cd ff9mapkit                      # the package dir, from the repo root
-pip install -e .
-# …or with extras:
-pip install -e ".[dev,save,gui]"
+cd ff9mapkit
+pip install -e ".[assets]"
+# …or with more extras:
+pip install -e ".[dev,save,gui,assets]"
 ```
 
-This registers a console script, so `ff9mapkit <cmd>` works anywhere. If it isn't on your PATH,
-**`py -m ff9mapkit <cmd>` is identical** and is the safer form when several Pythons are installed.
-(Run from the kit root so the local package shadows any other editable install.)
+This registers a console script, so `ff9mapkit <cmd>` works anywhere. If it isn't on PATH,
+**`py -m ff9mapkit <cmd>` is identical** and is the safer form when several Pythons are installed
+(run it from the package directory so the local checkout shadows any other install).
 
-### 2.2 Point the kit at your FF9 install
+### 2.2 Point the kit at the FF9 install
 
-Resolution order is **`--game` flag → `$FF9_GAME_PATH` → `~/.ff9mapkit.toml` → common Steam
-paths**. If FF9 sits at a default Steam location it's auto-detected and **you can skip this step**.
-The auto-detected fallbacks:
+Resolution order: **`--game` flag → `$FF9_GAME_PATH` → `~/.ff9mapkit.toml` → auto-detect**.
+Auto-detect reads the Steam and GOG registry keys, scans Steam `libraryfolders.vdf`, then falls
+back to common locations (`Program Files (x86)\Steam\...`, `D:\SteamLibrary\...`, `C:\GOG Games`,
+GOG Galaxy). A default-location install is found without configuration.
 
-- `C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX`
-- `C:\Program Files\Steam\steamapps\common\FINAL FANTASY IX`
-- `D:\SteamLibrary\steamapps\common\FINAL FANTASY IX`
-
-To set it explicitly (PowerShell — note `$env:`, **not** bash `export`):
+To set it explicitly (PowerShell — `$env:`, **not** bash `export`):
 
 ```powershell
 # this session only:
 $env:FF9_GAME_PATH = "C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX"
 
-# persist it for future sessions (user-scoped):
+# persist for future sessions (user-scoped):
 [Environment]::SetEnvironmentVariable("FF9_GAME_PATH",
   "C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX", "User")
 ```
@@ -94,346 +93,233 @@ Or persist it in `C:\Users\<you>\.ff9mapkit.toml`:
 game_path = "C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
 ```
 
-### 2.3 Regenerate base assets from *your* install
+### 2.3 Regenerate base assets from the install
 
-The repo ships **no Square-Enix bytes**. A handful of base assets (the blank field every build
-starts from, the exit-region template, test fixtures) are *derived* from FF9's own data via
-copy/insert patches + a SHA-256 manifest. `extract-templates` reads your install, applies the
-patches, and verifies every output against the manifest:
+The repo ships **no Square-Enix bytes**. The base assets builds start from (the blank field, the
+exit-region template, test fixtures) are *derived* from FF9's own data via copy/insert patches +
+a SHA-256 manifest. `extract-templates` reads the install, applies the patches, and verifies
+every output:
 
 ```powershell
-py -m pip install UnityPy
 py -m ff9mapkit extract-templates
 # → "OK -- <N> assets regenerated + verified against the manifest."
 ```
 
-Run this **once per checkout**. Until it runs, byte-level commands raise a clear "run
-extract-templates" message and the byte-level tests skip. (For a read-only install, point
-`$env:FF9MAPKIT_DATA` at a writable cache dir.)
+Run **once per checkout** (the extracted files are gitignored, so each new checkout or worktree
+needs its own run). Until it runs, byte-level commands raise a "run extract-templates" message
+and the byte-level tests skip. For a read-only install location, point `$env:FF9MAPKIT_DATA` at a
+writable cache directory.
 
-### 2.4 Verify everything
+### 2.4 Verify
 
 ```powershell
 py -m ff9mapkit doctor
 ```
 
-`doctor` prints the kit version, whether UnityPy is present, the resolved game install (launcher +
-StreamingAssets found?), the mod root + `DictionaryPatch.txt`, and finally:
-
-```
-templates    : extracted
-```
-
-If you see `NOT extracted`, re-run §2.3. (`doctor` exits non-zero if the game path can't be
-resolved; pass `--game <path>` to override.)
+Prints the kit version, UnityPy presence, the resolved game install (launcher + StreamingAssets),
+the mod root + `DictionaryPatch.txt`, and `templates : extracted`. If templates report
+`NOT extracted`, re-run §2.3. `doctor` exits non-zero if the game path can't be resolved
+(`ff9mapkit --game <path> doctor` overrides). The Workspace GUI surfaces the same checks in its
+Setup & Health dialog.
 
 ### 2.5 (optional) Run the test suite
 
 ```powershell
 pip install -e ".[dev]"
-py -m pytest -n 6        # 1,500+ offline golden-master tests; -n 6 ≈ 2.6× faster than serial
+py -m pytest -n 6        # ~2,850 offline golden-master tests
 ```
 
 ### 2.6 Updating & uninstalling
 
-**Installed via the `.exe` / `uv`** (the non-developer path):
+**Installed via the `.exe` / `uv`:**
 
-- **Update** — easiest is one terminal command: **`uv tool upgrade ff9mapkit`** (pulls the latest
-  release from PyPI; no re-download). Re-running a *newer* `DreamWorldIX-Setup.exe` also works and
-  upgrades **in place** — same app id, so there's **no need to uninstall first**. Re-run the `.exe`
-  when a release ships a new engine bundle or icon; for code-only updates `uv tool upgrade` is enough.
-- **Uninstall** — *Settings → Apps* (Add/Remove Programs) → **"Dream World IX"**, or the Start-Menu
-  uninstaller. It runs `uv tool uninstall ff9mapkit` and removes the installer's files.
+- **Update** — `uv tool upgrade ff9mapkit` (pulls the latest PyPI release), or the Workspace's
+  *Upgrade & restart* button. Re-running a newer `DreamWorldIX-Setup.exe` upgrades in place (same
+  app id; no uninstall first) and is needed when a release ships a new engine bundle.
+- **Uninstall** — *Settings → Apps* → **"Dream World IX"**, or the Start-Menu uninstaller
+  (`uv tool uninstall ff9mapkit` + the installer's files).
 
-Three things uninstall **leaves in place on purpose**:
-- `uv` and its managed Python (shared — other tools may use them).
-- Your settings + extracted assets in `%LOCALAPPDATA%\ff9mapkit`.
-- The engine patches you may have applied to your **game** — those are a separate Memoria mod, not
-  part of the toolkit. To restore stock Memoria, copy the originals back from
-  `<your FF9 folder>\dwix-engine-backups\<timestamp>\` over `x64\FF9_Data\Managed` + `x86\…`, or just
-  re-run the Memoria patcher. (The uninstaller reminds you of this folder.)
+Uninstall intentionally leaves in place: `uv` and its managed Python (shared), settings +
+extracted assets in `%LOCALAPPDATA%\ff9mapkit`, and any engine patches applied to the **game**
+(a separate Memoria mod — restore stock DLLs from
+`<FF9>\dwix-engine-backups\<timestamp>\`, or re-run the Memoria patcher).
 
-**Installed editable** (`pip install -e .`, the dev path): update with `git pull` then re-run
-`pip install -e ".[…]"`; "uninstall" is `pip uninstall ff9mapkit` (your checkout + `~/.ff9mapkit.toml`
-stay).
+**Installed editable:** update with `git pull` + re-run `pip install -e ".[…]"`; uninstall with
+`pip uninstall ff9mapkit` (the checkout and `~/.ff9mapkit.toml` stay).
 
 ---
 
-## 3. Orientation — how to think about it
+## 3. Orientation
 
-### A field, and who owns what
+### The labor split
 
-A **field** is one explorable screen with a fixed-perspective pre-rendered background (a single
-FF9 room). Authoring one is a deliberate split of labor:
-
-| The kit owns (from math + bytes) | The human owns (cannot be automated) |
+| The kit owns (math + bytes) | Manual (cannot be automated) |
 |---|---|
-| Camera (pitch/yaw/FOV, the projection math) | **Painting the background art** + its depth layers |
+| Camera (pitch/yaw/FOV — the projection math) | **Painting background art** + its depth layers |
 | Walkmesh (walkable + depth geometry) | **Final in-game alignment** (does the art land on the floor?) |
-| Logic: event script (`.eb`), NPCs, dialogue, gateways, encounters, events, cutscenes, flags | Running the game and **playtesting** |
+| Logic: event script (`.eb`), NPCs, dialogue, gateways, encounters, events, cutscenes, flags | **Playtesting** |
 
-The hard reason for the split: **the toolkit cannot see the running game.** It validates
-everything it can offline (`lint`), and emits a *pixel-accurate paint guide* for your exact camera
-so you know where to paint — but after any change that should be visible in-game, the loop is
-**build → deploy → you playtest → report back**.
+The toolkit cannot see the running game. It validates everything it can offline (`lint`) and emits
+a pixel-accurate paint guide for the exact camera; anything visible in-game is verified by the
+loop **build → deploy → playtest**.
 
-### The fork spectrum — pick your fidelity
+### The fork spectrum
 
-Starting from a real field (instead of from scratch) gives four modes, trading editability for
-faithfulness:
+Four `import` modes trade editability for faithfulness — **`--verbatim`** to *play* it the same,
+**`--editable`** to *change* it:
 
-- **`import` (BG-borrow)** — render the real field's art/walkmesh/camera under *your own* script.
-  Best for a real-looking backdrop with all-new logic.
-- **`import --editable`** — ship a custom, *repaintable* scene (per-depth layers, occlusion kept).
-  Best when you intend to repaint or reshape the room.
-- **`import --native`** — seamless per-tile fork (vanilla `.bgs` + atlas, no `.bgx`). Best for a
-  faithful-art fork without `.bgx` bilinear seams.
-- **`import --verbatim`** — ships the field's **whole real `.eb` + `.mes`**, remapping only the
-  `Field()` warp destinations. The *truest* fork: it runs the real logic and speaks the real
-  dialogue. Reach for this when you want it to **play** like the original.
+| Mode | Ships | Use when |
+|---|---|---|
+| `import` (BG-borrow) | real art/walkmesh/camera under **your own** script | a real-looking backdrop, all-new logic |
+| `--editable` | a repaintable custom scene (per-depth layers, occlusion kept) | repainting or reshaping the room |
+| `--native` | per-tile scene (vanilla `.bgs` + atlas, no `.bgx`) | faithful art without tile seams — the recommended art fork |
+| `--verbatim` | the field's **whole real `.eb` + `.mes`** (only `Field()` warps remapped) | it should **play** like the original |
 
-Rule of thumb: **`--verbatim`** to *play* it the same; **`--editable`** to *change* it.
+### The authoring surfaces
 
-### The two authoring surfaces
+**`field.toml`** is the logic file (what exists, what it does) — by hand, `ff9mapkit edit`, or
+the Workspace (§6). The **Blender add-on** owns the spatial file (**`scene.toml`** — camera,
+walkmesh, markers); the two merge at build. Campaigns (`import-chain` + `campaign.toml`) and
+journeys (`journeys.toml` + a generated hub field) scale the same model to multi-field mods —
+see [tutorials 04–05](ff9mapkit/docs/tutorials/README.md).
 
-1. **Declarative `field.toml`** — the logic file (what exists, what it does). Edit by hand, via
-   the form editor (`ff9mapkit edit`), or in the **PySide6 Workspace** GUI (§6).
-2. **The Blender add-on** — visual camera posing, walkmesh modeling, marker placement → a
-   **`scene.toml`**. The split to internalize: **`scene.toml` = *where* things are**;
-   **`field.toml` = *what* they do**. Merged at build time.
+### Id bands & the global-id rule
 
-### Bigger structures
-
-- **Campaigns** — `import-chain <seed>` forks a connected slice of the game into one mod; the
-  PySide6 Workspace edits the multi-field project.
-- **Journeys** — a `journeys.toml` assembles one or more campaigns into a complete arc behind a
-  generated **hub field** that lets the player pick an arc, seeds its starting state, and warps in.
-
-### Reference box — id bands & the global-id rule
-
-Custom field ids are **≥ 4000** (the default `4003` test slot included), and because the engine's
-registries are merged across mod folders, **ids must be globally distinct even across stacked
-folders** — two folders reusing an id collide and one field loads a null `.eb` (black screen). One
-SETUP caveat on the cap: a field id is an **Int16 (max 32767)** — a higher id registers but is
-unreachable, and an out-of-range id can break the whole `DictionaryPatch` parse.
-
-The full id / flag / text namespaces and the global-id rule (with their rationale) live in
-[`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md).
+Custom field ids are **≥ 4000** (default test slot `4003`). The engine's registries merge across
+mod folders, so **ids must be globally distinct even across stacked folders** — a reused id makes
+one field load a null script (black screen). The id cap is Int16 (**32767**). Full id / flag /
+text namespaces: [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md).
 
 ---
 
-## 4. The dev loop (edit → deploy → F6)
+## 4. The dev loop
 
-The fast iterate loop needs **no relaunch** in the common case.
-
-**1. Edit a `field.toml`** (by hand, the form editor, or a Blender export).
-
-**2. Deploy it into the test slot** (run from the repo root):
+The fast iteration loop — **edit → deploy → F6 reload**, no relaunch per change — is
+[tutorial 02](ff9mapkit/docs/tutorials/02-dev-loop.md). Summary:
 
 ```powershell
-py tools\deploy_field.py myroom\MYROOM_FORK.field.toml
-# give a branch/worktree its own slot:
-py tools\deploy_field.py myroom\MYROOM_FORK.field.toml --id 5000
+py tools\deploy_field.py myroom\MYROOM.field.toml    # sandbox any field.toml into test slot 4003
+# in-game: F6 → Go → Reload field   (or Warp to field → <id>)
 ```
 
-`deploy_field.py` sandboxes **any** `field.toml` into a test slot — it force-overrides the build to
-the target id + a fixed name in-memory (your file is untouched), reverts that slot's prior deploy,
-backs up the live `DictionaryPatch.txt`/`.mes`, and writes a per-id `revert_deploy_<id>.py`.
-Default slot = **`4003`** (`TESTROOM`) unless a gitignored `.ff9deploy.toml` pins another `id`.
-Mod-folder resolution: `--mod-folder` → `$FF9_MOD_FOLDER` → `.ff9deploy.toml` → `FF9CustomMap`.
+A relaunch is only needed for: the first deploy of a new id, a `BattlePatch.txt` change,
+start-state CSVs / `TextPatch.txt`, or an engine DLL change. Revert with
+`py tools\scroll_out\revert_deploy.py` (or the per-id `revert_deploy_<id>.py`).
 
-**3. Reach it in-game with the F6 debug menu** (a *dev-engine* feature — the shipped mod needs none
-of it). Press **F6** to open a tabbed popup:
+Campaigns/journeys: `ff9mapkit deploy-campaign` / `deploy-journey` (or the `tools\` shims from a
+checkout) are dry-run by default (`--apply` to write); `ff9mapkit newgame` writes immediately
+(`--dry-run` to preview).
 
-- **Warp** — *Reload field* (re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art from
-  disk) and *Warp to field → `<id>`*. These two drive the loop.
-- **Move / Cheats / Flags / Time** — teleport, boosters/heal/give, get/set `gEventGlobal` story
-  flags (the reliable proof), and 0.25–4× time-scale.
-
-After a later edit: redeploy → **F6 → Reload field**. No relaunch.
-
-**Relaunch the game only when** F6 Reload can't pick a change up:
-- the **first deploy of a new id** (registers its `DictionaryPatch` line);
-- a **`BattlePatch.txt`** change (battle tuning / per-encounter BGM);
-- **start-state CSVs** (`InitialItems`, `DefaultEquipment`, `BaseStats`, `Leveling`) or
-  **`TextPatch.txt`** item names — read at startup / New Game;
-- an **engine DLL rebuild**.
-
-**Revert a deploy:**
-
-```powershell
-py tools\scroll_out\revert_deploy.py        # the latest deploy
-py tools\scroll_out\revert_deploy_4003.py   # a specific id (surgical: drops only that id's line)
-```
-
-**Bigger deploys:** `tools\deploy_campaign.py <campaign.toml>` installs a multi-field campaign and
-wires New Game to its entry; `tools\deploy_journey.py <journeys.toml>` orchestrates campaigns + the
-hub. Both are dry-run by default (add `--apply`) and need a relaunch after applying. (An **installed**
-copy without the repo `tools/` uses the package equivalents — `ff9mapkit deploy-campaign`,
-`deploy-journey`, and `ff9mapkit newgame <id>` to point New Game at a field; the Workspace GUI picks
-the right one automatically. Their snapshots + revert scripts go to `%LOCALAPPDATA%\ff9mapkit\cache`.)
-
-**Shipped path (no dev engine):** `ff9mapkit build … --mod-name MyMod`, copy the built mod folder
-into the game install, register it in `Memoria.ini [Mod] FolderNames`, and launch. This is the
-engine-independent route; the `deploy_field.py` + F6 loop above is just faster for iteration.
+The **shipped path** needs none of this: `ff9mapkit build … --mod-name MyMod`, copy the folder
+into the game install, register it in `Memoria.ini [Mod] FolderNames`, launch.
 
 ---
 
-## 5. Quickstart — your first field
+## 5. First field
 
-### Path 1 — Fork a real field (fastest, no painting)
+Walkthroughs live in **[`ff9mapkit/docs/tutorials/`](ff9mapkit/docs/tutorials/README.md)**:
 
-```powershell
-# 1. sanity-check
-py -m ff9mapkit doctor
+- **[01 — First fork](ff9mapkit/docs/tutorials/01-first-fork.md)** (fastest; no painting):
 
-# 2. find a field to fork (filter by map code: alex, treno, dali, iccv, grgr, …)
-py -m ff9mapkit list-fields glgv
+  ```powershell
+  py -m ff9mapkit list-fields glgv
+  py -m ff9mapkit fork-report glgv_map792_gv_rm1_0 --explain     # optional preview
+  py -m ff9mapkit import glgv_map792_gv_rm1_0 --out myroom --name MYROOM --verbatim
+  py -m ff9mapkit lint myroom\MYROOM.field.toml
+  py -m ff9mapkit build myroom\MYROOM.field.toml --out dist --mod-name MyFirstField
+  ```
 
-# (optional) preview what a fork will/won't reproduce:
-py -m ff9mapkit fork-report 354 --explain
-```
-
-```powershell
-# 3. fork it. --verbatim = most faithful (ships the REAL script + dialogue: real doors,
-#    story gating, rotating cast). Drop --verbatim for a simpler, easier-to-edit BG-borrow.
-py -m ff9mapkit import glgv_map792_gv_rm1_0 --out myroom --name MYROOM --verbatim
-```
-
-This writes `myroom\MYROOM_FORK.field.toml` (+ `camera.bgx`, `walkmesh.bgi`), already carrying the
-real field's art, walkmesh, camera, exits, encounters, and music. **It prints the walkmesh
-bounds — note them; your content must sit inside.** (Default `--id` is `4003`.)
-
-**4. Add an NPC with your own line.** Open the `.field.toml` and add a block (keep `pos` inside the
-printed bounds):
-
-```toml
-[[npc]]
-name = "Greeter"
-archetype = "vivi"           # place a cast model by name; run `ff9mapkit archetypes` for the list
-pos = [-700, -900]           # world (x, z), y = 0 — inside the printed walkmesh bounds
-dialogue = "Welcome to the room I just made."
-```
-
-Prefer a form? `py -m ff9mapkit edit myroom\MYROOM_FORK.field.toml`. (A verbatim fork keeps its
-real script; your `[[npc]]` is layered on top.)
-
-```powershell
-# 5. lint (off-walkmesh content, NPC within ~48u of a wall, dead flags, camera pitch, …)
-py -m ff9mapkit lint myroom\MYROOM_FORK.field.toml
-
-# 6. deploy into the test slot
-py tools\deploy_field.py myroom\MYROOM_FORK.field.toml --id 4003
-```
-
-**7. Play it.** In-game press **F6 → Warp to field → 4003**. (The *first* time a new id is used,
-relaunch once so its `DictionaryPatch` line registers; after that, redeploy → **F6 → Reload
-field**.) Then verify: does it render, can you reach and talk to your NPC?
-
-> **No dev engine?** Build a standalone mod instead — `py -m ff9mapkit build
-> myroom\MYROOM_FORK.field.toml --out dist --mod-name MyFirstField` — copy `dist\MyFirstField\`
-> into the game (Memoria auto-stacks it), and to *reach* a brand-new id, fork a field you can
-> already walk to and add a `[[gateway]] to = 4003` over a spot the player crosses.
-
-### Path 2 — From scratch (original art)
-
-When you want fully original art (full detail in [`docs/PIPELINE.md`](ff9mapkit/docs/PIPELINE.md)):
-
-```powershell
-# 1. scaffold. --area MUST be >= 10 (the BG loader reads exactly 2 chars; areas 0-9 black-screen)
-py -m ff9mapkit new MY_ROOM --area 11
-
-# 2. get a paint guide for your camera angle
-py -m ff9mapkit guide --pitch 48 --distance 4500 --fov 42.2 --png MY_ROOM\art\guide.png
-```
-
-3. **(Human) paint** the back/floor/front layers over the guide (export at 4× → 1536×1792) into
-   `MY_ROOM\art\`.
-4. **Fill in `field.toml`** (layers, walkmesh, spawn, NPCs, gateways, music — schema in
-   [`docs/FORMAT.md`](ff9mapkit/docs/FORMAT.md); `examples/vivi-hut/hut_int.field.toml` is a
-   complete worked example), then `lint` → deploy/build as in Path 1.
+- **[03 — Original-art field](ff9mapkit/docs/tutorials/03-original-art-field.md)** (from
+  scratch): `new` → `guide` → paint → `build`. Deep reference:
+  [`docs/PIPELINE.md`](ff9mapkit/docs/PIPELINE.md).
 
 ---
 
 ## 6. The GUI Workspace (optional)
 
-A single PySide6 window that folds every authoring tool into one place. **Entirely optional — the
-CLI does everything without it.**
+One PySide6 window folding every authoring tool together. **Optional — the CLI does everything
+without it.**
 
 ```powershell
-pip install ff9mapkit[gui]      # or: py -m pip install PySide6
-py apps\ff9_workspace.pyw          # the front door (shows a friendly prompt if PySide6 is missing)
-py apps\ff9_workspace.pyw --smoke  # headless self-check: prints "workspace shell smoke ok: …"
+pip install "ff9mapkit[gui]"
+ff9mapkit-workspace                  # installed launcher (also the Start-Menu shortcut)
+py apps\ff9_workspace.pyw            # from a repo checkout
+py apps\ff9_workspace.pyw --smoke    # headless self-check
 ```
 
-The window is built around a **journey ▸ campaign ▸ field ▸ object** tree, a breadcrumb, a central
-tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems** console.
+Built around a **journey ▸ campaign ▸ field ▸ object** tree with a breadcrumb, a tabbed document
+area, a right-hand Inspector (with live field-art thumbnails), and a bottom Output/Problems
+console:
 
-- **Create or open** via 3 toolbar dropdowns — **Field** (New, Ctrl-N), **Campaign**
-  (New, Ctrl-Shift-N), **Journey** (New + Open). **Open Journey…** is the top-level front door: it
-  loads a whole arc and lints the global-id guarantee into Problems.
-- **Editor** — forms for fields, NPCs, gateways, events, markers, cutscenes, dialogue choices + a
-  catalog picker; a live FF9-window **wrap preview** for dialogue; undo/redo (Ctrl-Z); Save All
-  (Ctrl-S).
-- **Map** (campaign graph), **Story State** + **Item & Equip** (save editors), **Build & Deploy**
-  (field/campaign/battle, auto-detected), **Import** (fork + fork-report), **Info Hub** (a
-  searchable model/prop/creature library with a ready-to-paste `field.toml` snippet).
-- A **Ctrl-K** command palette; an Inspector with per-node rollups and clickable
-  "exits to / reached from" cross-refs.
+- **Tabs:** **Editor** (field/NPC/gateway/event/chest/flag/party/startup/cutscene/choice/SPS
+  forms, catalog picker, live FF9-window dialogue wrap preview, undo/redo) · **Map** (campaign
+  graph) · **Story State** + **Item & Equip** (save editors) · **Battle** (encounter-first battle
+  tuning) · **Build & Deploy** (field/campaign/journey/battle, auto-detected; pack-to-zip; New
+  Game wiring) · **Import** (fork + fork-report + pre-fork logic study + import-all archive +
+  custom-3D-models flow + native repaint).
+- **Chrome:** a Home screen with recent projects; **Ctrl-K** command palette; an **Info Hub**
+  model/prop/creature library with ready-to-paste snippets; a **Setup & Health** page (install
+  detection, template extraction, engine status); **F9** one-keystroke deploy; drag-and-drop
+  open; a 7-theme picker + Preferences; an opt-in once-a-day update check with one-click
+  *Upgrade & restart*; session/layout restore.
 
-> **Installed vs. repo Workspace.** The installed `ff9mapkit-workspace` (the `.exe` / Start-Menu shortcut)
-> is the end-user front door: Build → *Install to game*, plus campaign/journey deploy and *Set New Game*.
-> The **dev-only** test slot (4003) + the F6 reload loop need the repo's `tools/`, so they're hidden on an
-> installed copy. To use them there, set **`FF9_REPO`** to your Dream World IX checkout (or launch the
-> Workspace from inside it) and reopen — they light up. Launching from the repo with
-> `py apps\ff9_workspace.pyw` gets dev mode automatically.
+> **Installed vs. repo.** The installed Workspace is the end-user front door (Build → *Install to
+> game*, campaign/journey deploy, *Point New Game here*). The dev test slot (4003) + the F6 reload
+> loop need the repo's `tools/`, so they are hidden on an installed copy — set **`FF9_REPO`** to a
+> Dream World IX checkout (or launch from inside one) to light them up.
 
 ---
 
 ## 7. CLI command reference
 
-59 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags: `--game
-<path>`, `--mod-folder <name>`, `--version`.
+97 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
+`--game <path>`, `--mod-folder <name>`, `--version` — go **before** the subcommand
+(`ff9mapkit --game <path> doctor`). Commands that read FF9's asset bundles need the `assets`
+extra (UnityPy).
 
 **Setup / doctor**
 
 | command | what it does |
 |---|---|
-| `setup` | One-shot: find your FF9 install, remember it, extract base assets, report Memoria (`--install-engine ZIP` installs the engine bundle; `--game`, `--force`, `--no-extract`). |
+| `setup` | One-shot: find the FF9 install, remember it, extract base assets, report Memoria status (`--install-engine ZIP`, `--force`, `--no-extract`). |
 | `doctor` | Resolve paths + sanity-check the install (game/mod paths, templates extracted). |
-| `extract-templates` | Regenerate base assets from your install (`--no-fixtures` = templates only). |
+| `extract-templates` | Regenerate base assets from the local install (`--no-fixtures` = templates only). |
 
-**Author a new field**
+**Author a field**
 
 | command | what it does |
 |---|---|
-| `new <name>` | Scaffold a field project (`--area` ≥10 default 11, `--id`, `--pitch`). |
+| `new <name>` | Scaffold a field project (`--area` ≥ 10, default 11; `--id`, `--pitch`). |
 | `guide` | Author a camera + emit a paint guide (`--pitch/--distance/--fov`, `--png`, `--template`). |
+| `paint-template` | Project a field.toml's floor + content onto per-layer trace-over PNGs + a legend. |
 | `camera <bgx>` | Inspect / regenerate a `.bgx` camera (`--regen OUT.bgx`). |
-| `walkmesh <obj\|fix\|verify> <in> [out]` | Convert `.obj`→`.bgi`, rebuild neighbor links, or run checks. |
-| `disasm <eb>` | Disassemble a `.eb` field script (`-e N`, `-a`). |
+| `walkmesh <obj\|fix\|verify>` | Convert `.obj`→`.bgi`, rebuild neighbor links, or run checks. |
 | `edit [field]` | Open the form-based logic editor. |
+| `disasm <eb>` | Disassemble a `.eb` field script (`-e N`, `-a`). |
 
-**Build & deploy / packaging**
+**Build & ship**
 
 | command | what it does |
 |---|---|
 | `build <field…>` | Compile project(s) into a Memoria mod (`--out`, `--mod-name`, `--author`). |
-| `lint <field>` | Run every offline validator without building. |
-| `pack <mod>` | Zip a built mod (`--out`). |
+| `lint <field>` | Every offline validator in one pass (schema, flags, geometry, layers, camera). |
+| `pack <mod>` | Zip a built mod for distribution (`--out`, `--name`). |
 | `export-art [target]` | Assemble a field's background PNGs offline (`--all`, `--composite`). |
+| `repaint-native <fork>` | Unpack a native fork's atlas into repaintable layers; `--pack` re-packs seamlessly. |
 
-**Fork / import a real field**
+**Fork / import real fields**
 
 | command | what it does |
 |---|---|
-| `import <field>` | Fork a real field (`--editable`/`--native`/`--verbatim`, `--swap-player`, `--id` def 4003). |
-| `import-all` | Bulk-import a Blender-ready archive (`--out`, `--all`, `--pattern`, `--editable`). |
-| `import-chain <seed>` | Fork a connected region into a campaign (`--out`, `--zones`, `--verbatim`). |
+| `import <field>` | Fork a real field (`--editable` / `--native` / `--verbatim`, `--swap-player`, `--dialogue`, `--carry-text`, `--id` def 4003). |
+| `import-all` | Bulk-import a foldered, Blender-ready archive — whole game / `--pattern` zone (`--editable`). |
+| `import-chain <seed>` | Fork a connected region into a campaign (`--zones`, `--whole-zone`, `--ids <ranges>`, `--verbatim`, `--id-base`, `--out`). |
+| `fork-report <field>` | Preview a fork's fidelity offline (`--explain` decodes NPC talk routines). |
 | `list-fields [pat]` | List real fields available to import (`--players`, `--non-zidane`). |
 | `find-field <q>` | Resolve a field id / name / FBG substring. |
-| `find-rooms` | Sweep for the best swap/demo test rooms. |
-| `fork-report <field>` | Preview a fork's fidelity offline (`--explain`). |
+| `find-rooms` | Sweep all fields for the best swap/demo test rooms. |
+| `logic-map <field>` | Read-only legible map of a real field's whole `.eb` (entries, call graph, effects). |
+| `lint-eb <field>` | Structurally lint a `.eb` — the offline soundness check for verbatim edits. |
 | `extract-field <ids…>` | Cache a real field's camera+walkmesh in the workspace cache. |
 
 **Campaigns / journeys**
@@ -442,18 +328,66 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 |---|---|
 | `new-campaign <dir>` / `add-field <camp>` | Create an empty campaign / add a member field. |
 | `build-all <camp>` / `lint-campaign <camp>` | Compile / validate a `campaign.toml`. |
-| `gen-hub <journeys>` | Generate a World-Hub field from a `journeys.toml`. |
-| `lint-journey` / `assemble-journey <journeys>` | Validate / assemble a multi-campaign journey. |
+| `gen-hub <journeys>` | Generate a World-Hub selector field from a `journeys.toml`. |
+| `lint-journey` / `assemble-journey` | Validate / assemble a multi-campaign journey (the namespace guarantee). |
+| `reference-arcs` | Scaffold FF9's real story arcs: list the arc table, print the fork playbook, or emit a chained `journeys.toml`. |
+| `deploy-campaign <camp>` | Reversibly install a built campaign + wire New Game (dry-run by default; `--apply`). |
+| `deploy-journey <journeys>` | Deploy a journey: campaigns + links + hub, one revert (dry-run by default; `--apply`). |
+| `newgame <id>` | Point New Game at a deployed field id (field-70 override; FMV preserved; `--retarget`). |
 
 **Battle backgrounds & tuning**
 
 | command | what it does |
 |---|---|
-| `battle-import <bbg>` / `battle-build <toml>` | Fork a battle background / compile a `battle.toml`. |
-| `battle-list` / `battle-scene <donor>` / `battle-actions` | Browse battle backgrounds / enemy data / player abilities. |
-| `battle-ai [donor]` | Disassemble enemy AI (read-only) + `--asm`/`--asm-block`/`--lint` helpers. |
+| `battle-import <bbg>` | Fork a real battle background → editable FBX + `battle.toml` (`--fork-scene`, `--ship-as`). |
+| `battle-build <toml>` | Compile a `battle.toml` into a mod. |
+| `battle-list` | List battle backgrounds (and `--scenes`). |
+| `battle-scene <donor>` | Inspect a battle scene's enemy data (stats/affinities/rewards/attacks). |
+| `battle-ai [donor]` | Disassemble enemy AI (read-only; `--asm`/`--asm-block`/`--lint`). |
+| `battle-seq <scene>` | Disassemble / lint / assemble attack choreography (`btlseq.raw17`). |
 | `battle-patch [toml]` | Preview the `BattlePatch.txt` a field emits (`--fields`). |
+| `battle-actions` | List shared player abilities + the scriptId formula catalog. |
 | `characters` / `ability-gems` | List stat / gem-cost tuning targets. |
+| `ability-features` | Preview the `AbilityFeatures.txt` a field emits (ability-effect DSL). |
+
+**Custom 3D models**
+
+| command | what it does |
+|---|---|
+| `model-gltf <model>` | Export a real model + animations to Blender-openable glTF (`--anims auto\|all\|none\|…`). |
+| `model-import <glb>` | Bring an edited glTF back as a loose-FBX override (`--like`, `--id`, `--deploy`, `--no-anims`). |
+| `model-mint <source>` | Mint a NEW additive GEO model id (≥ 6000) from a source model (`--id`, `--deploy`). |
+| `model-anim <model>` | Dump/deploy animation clips as editable loose `.anim` JSON. |
+| `model-export <model>` | Export a raw skinned FBX (the non-glTF path). |
+| `playable-anims <field>` | Route edited donor clips onto a custom playable character's own minted animset. |
+
+**Overworld** *(the mesh-writing commands — `world-terrain`, `world-reclaim`, `world-coast`,
+`world-water`, `world-entrance`, `world-deploy`, `world-mesh-build` — need the engine bundle's
+`s34` mesh-override patch; the atlas/texture, encounter, environment, and marker commands are
+stock-engine)*
+
+| command | what it does |
+|---|---|
+| `world-terrain` | Reshape walkable terrain (hill/crater/ridge/flatten) across blocks, seamlessly. |
+| `world-reclaim` | Reclaim ocean cells as walkable land. |
+| `world-coast` | Place a real FF9 coastal block (terrain + animated beach/foam) on reclaimed ocean (`--list` browses donors). |
+| `world-water` | Synthesize graded open-ocean water (shallow→deep bands) on sea cells. |
+| `world-entrance` | Author a whole custom overworld entrance: trigger func + event tiles + optional building (`--cell`, `--field`, `--building`). |
+| `world-encounters` / `world-encounter-rate` | Inspect/re-table the overworld encounter table / retune its frequency. |
+| `world-environment` | Author overworld weather/effects (Memoria `Environment.txt`). |
+| `world-extract` / `world-locate` / `world-retarget` | Extract a block's mesh / decode entrance dispatch / edit tile ids. |
+| `world-mesh-export` / `-build` / `-trim` | OBJ round-trip for block meshes (Blender surgery, buildings, floor-apron trim). |
+| `world-atlas-extract` / `-catalog` / `-reskin` / `-add-tile` | Extract / browse / repaint / extend the shared overworld texture atlas. |
+| `world-texture-palette` | Inspect the learned topograph→tile UV palette used to texture new geometry. |
+| `world-rename-markers` | Rename overworld minimap marker labels. |
+| `world-deploy` | Deploy reshaped blocks as loose mesh overrides. |
+
+**Audio**
+
+| command | what it does |
+|---|---|
+| `audio-import <audio>` | Import a custom music/SFX track (any common format, transcoded to Ogg Vorbis): replace an id or mint a new one — DLL-free. |
+| `music-list` / `sfx-list` | List song/SFX id → ResourceID (what `audio-import` replaces). |
 
 **Catalogs / Info Hub**
 
@@ -461,34 +395,34 @@ tabbed document area, a right-hand **Inspector**, and a bottom **Output/Problems
 |---|---|
 | `catalog <q>` | Search every reference catalog (models/items/scenes/fields). |
 | `models` / `animations` / `archetypes` / `items` / `scenes` / `flags` | Browse models / gestures / NPC archetypes / items / battle scenes / story flags by name. |
+| `sps` | List/decode/preview a field's SPS particle effects. |
 
 **Dialogue**
 
 | command | what it does |
 |---|---|
-| `dialogue <field>` | View authored dialogue + on-screen wrap preview (`--clean`). |
+| `dialogue <field>` | View authored dialogue + on-screen wrap preview (also takes a `campaign.toml`). |
 | `dialogue-import <field>` | Read a real field's (or a built mod's) dialogue (`--lang`, `--mod`). |
 
-**Save / story-state editing** *(all `items-set-*` share `--slot/--save-no/--autosave/--apply/--no-backup`; default is dry-run)*
+**Save / story-state editing** *(the `items-set-*` family shares `--slot/--save-no/--autosave/--apply/--no-backup`; dry-run by default)*
 
 | command | what it does |
 |---|---|
-| `flags-inspect` / `flags-diff` / `save-edit` | Decode / diff / set a save's scenario + story flags. |
+| `flags-inspect` / `flags-diff` | Decode / diff a save's scenario + story flags. |
+| `save-edit` | Set a save's story state (ScenarioCounter + flags). |
 | `items-inspect` | Read items / equipment / gil from a save. |
 | `items-set-gil` / `-item` / `-equip` / `-keyitem` / `-stat` / `-ap` | Write gil / inventory / equipment / key items / permanent stats / AP. |
-
-> This table is the full command surface — `ff9mapkit/README.md` keeps a condensed family overview
-> that links here.
 
 ---
 
 ## 8. Where to go next
 
-- [`ff9mapkit/docs/PIPELINE.md`](ff9mapkit/docs/PIPELINE.md) — the full from-scratch authoring workflow.
-- [`ff9mapkit/docs/FORMAT.md`](ff9mapkit/docs/FORMAT.md) — the `field.toml` schema.
+- [`ff9mapkit/docs/tutorials/`](ff9mapkit/docs/tutorials/README.md) — the tutorial set.
+- [`ff9mapkit/docs/FORMAT.md`](ff9mapkit/docs/FORMAT.md) — the `field.toml` / `battle.toml` schema.
 - [`ff9mapkit/docs/FEATURES.md`](ff9mapkit/docs/FEATURES.md) — the full capability list.
-- [`ff9mapkit/docs/FORK_FIDELITY.md`](ff9mapkit/docs/FORK_FIDELITY.md) — honest map of what forks do/don't reproduce.
-- [`ff9mapkit/docs/JOURNEYS.md`](ff9mapkit/docs/JOURNEYS.md) — the multi-campaign journey schema.
-- [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md) — canonical id / flag / text namespaces + the global-id rule.
+- [`ff9mapkit/docs/PIPELINE.md`](ff9mapkit/docs/PIPELINE.md) — the from-scratch workflow reference.
+- [`ff9mapkit/docs/FORK_FIDELITY.md`](ff9mapkit/docs/FORK_FIDELITY.md) — what forks do/don't reproduce.
+- [`ff9mapkit/docs/JOURNEYS.md`](ff9mapkit/docs/JOURNEYS.md) — the journey schema.
+- [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RESOURCES.md) — id / flag / text namespaces.
 - [`ff9mapkit/blender/README.md`](ff9mapkit/blender/README.md) — the Blender add-on.
 - [`ff9mapkit/examples/vivi-hut/`](ff9mapkit/examples/vivi-hut/) — a complete worked example.

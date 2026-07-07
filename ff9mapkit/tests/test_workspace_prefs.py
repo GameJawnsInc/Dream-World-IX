@@ -128,8 +128,8 @@ def test_preferences_writes_update_optin_only_when_installed(app, monkeypatch):
         monkeypatch.setattr(shell.update_check, "set_preference", lambda v: calls.append(v))
 
         def fake_exec(dlg):
-            chk = dlg.findChild(QCheckBox)               # only present on an installed copy
-            if chk is not None:
+            chk = dlg.findChild(QCheckBox, "update_chk")   # only present on an installed copy (by NAME --
+            if chk is not None:                            # the restore-session checkbox always exists)
                 chk.setChecked(True)
             dlg.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok).click()
             return 1
@@ -148,7 +148,7 @@ def test_preferences_update_toggle_only_on_installed(app, monkeypatch):
     seen = {}
 
     def fake_exec(dlg):
-        seen["chk"] = dlg.findChild(QCheckBox)
+        seen["chk"] = dlg.findChild(QCheckBox, "update_chk")
         dlg.reject()
         return 0
 
@@ -194,3 +194,58 @@ def test_startup_uses_the_saved_theme(app, monkeypatch):
     monkeypatch.setattr(shell.Workspace, "show", lambda self: None)
     shell.main(["ff9_workspace"])
     assert created["pal"] is theme.NORD
+
+
+# ---- recent projects (MRU) — prefs-level, no Qt needed beyond the module import above ----
+
+@pytest.fixture()
+def prefs_file(tmp_path, monkeypatch):
+    """Point the prefs store at a throwaway file so MRU tests never touch the real prefs.json."""
+    from ff9mapkit import prefs
+    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "prefs.json")
+    return prefs
+
+
+def test_recent_round_trip_dedupes_and_caps(prefs_file, tmp_path):
+    p = prefs_file
+    for i in range(p.RECENT_LIMIT + 3):
+        p.add_recent("field", tmp_path / f"f{i}.field.toml")
+    rows = p.recent()
+    assert len(rows) == p.RECENT_LIMIT                       # capped
+    assert rows[0]["path"].endswith(f"f{p.RECENT_LIMIT + 2}.field.toml")   # most recent first
+    p.add_recent("field", tmp_path / f"f{p.RECENT_LIMIT}.field.toml")      # re-open -> moves to front, no dup
+    rows = p.recent()
+    assert rows[0]["path"].endswith(f"f{p.RECENT_LIMIT}.field.toml")
+    assert len({e["path"] for e in rows}) == len(rows)
+
+
+def test_recent_survives_garbage_and_unknown_kinds(prefs_file, tmp_path):
+    p = prefs_file
+    p.add_recent("overworld", tmp_path / "nope.toml")        # unknown kind -> ignored
+    assert p.recent() == []
+    (tmp_path / "prefs.json").write_text(
+        '{"recent": ["junk", {"kind": "field"}, {"kind": "campaign", "path": "C:/x/campaign.toml"},'
+        ' {"kind": "field", "path": 7}], "theme": "dark"}', encoding="utf-8")
+    rows = p.recent()                                        # only the one well-formed entry survives
+    assert rows == [{"kind": "campaign", "path": "C:/x/campaign.toml"}]
+    assert p.theme() == "dark"                               # unrelated keys untouched
+
+
+def test_remove_recent(prefs_file, tmp_path):
+    p = prefs_file
+    p.add_recent("save", tmp_path / "SavedData_ww.dat")
+    p.add_recent("journey", tmp_path / "journeys.toml")
+    gone = p.recent()[1]["path"]
+    p.remove_recent(gone)
+    assert [e["kind"] for e in p.recent()] == ["journey"]
+
+
+def test_restore_session_and_layout_prefs(prefs_file):
+    p = prefs_file
+    assert p.restore_session() is False                      # opt-in: default off
+    p.set_restore_session(True)
+    assert p.restore_session() is True
+    p.set_layout({"geometry": "QUJD", "state": "REVG", "central_split": [300, 640, 240]})
+    assert p.layout() == {"geometry": "QUJD", "state": "REVG", "central_split": [300, 640, 240]}
+    p.set_layout({"geometry": 7, "central_split": ["x", -1]})   # garbage -> dropped per-key
+    assert p.layout() == {}

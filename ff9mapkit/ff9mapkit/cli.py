@@ -844,11 +844,15 @@ def _cmd_import_all(args: argparse.Namespace) -> int:
 def _cmd_pack(args: argparse.Namespace) -> int:
     from pathlib import Path
     from .pack import pack_mod
-    out = args.out or (Path(args.mod_root).resolve().name + ".zip")
+    name = (getattr(args, "name", None) or "").strip() or None
+    out = args.out or ((name or Path(args.mod_root).resolve().name) + ".zip")
     try:
-        z = pack_mod(args.mod_root, out)
+        z = pack_mod(args.mod_root, out, name=name)
     except FileNotFoundError as e:
         print(f"mod folder not found: {e}", file=sys.stderr)
+        return 2
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
     print(f"packed {args.mod_root} -> {z}")
     return 0
@@ -2130,7 +2134,7 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
             return 2
         summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
-                            game=args.game, dry_run=args.dry_run)
+                            shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2188,6 +2192,62 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts + Donor.txt")
     if not args.dry_run:
         print("  Needs the custom engine (per-cell coastal donor). RELAUNCH to apply.")
+    return 0
+
+
+def _cmd_world_water(args: argparse.Namespace) -> int:
+    """Synthesize graded OPEN-OCEAN water (shallow->deep) on sea cells from a built-in depth gradient -- the faithful
+    marching-band synthesizer (Sea3/Sea5/Sea4 alphabet, byte-proven UVs). Needs the custom engine (s34); RELAUNCH."""
+    from .world import water as W
+    try:
+        cells = _parse_cells(args.cells)
+        if not cells:
+            print("no cells parsed -- give e.g. --cells '3,17' or a range '2-4,16-18'", file=sys.stderr)
+            return 2
+        dx, dy = (int(v) for v in args.donor.split(","))
+        if args.verbatim:
+            sx, sy = (int(v) for v in args.verbatim.split(","))
+            summary = W.deploy_verbatim(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy),
+                                        disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+        elif args.reproduce:
+            sx, sy = (int(v) for v in args.reproduce.split(","))
+            summary = W.reproduce(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy), seed=args.seed,
+                                  disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+        else:
+            summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, shallows=args.shallows,
+                              threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
+                              disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.verbatim:
+        verb = "would place" if args.dry_run else "placed"
+        print(f"{verb} VERBATIM real ocean block {tuple(summary['source'])} (donor {tuple(summary['donor'])}) "
+              f"at {len(summary['cells'])} cell(s) -- the A/B reference for world-water:")
+        for c in summary["cells"]:
+            print(f"  cell {tuple(c['cell'])}: carried {c['carried']} ({c['verts']} verts)")
+    elif args.reproduce:
+        verb = "would reproduce" if args.dry_run else "reproduced"
+        print(f"{verb} block {tuple(summary['source'])}'s arrangement with SYNTHESIZED tiles (donor "
+              f"{tuple(summary['donor'])}) at {len(summary['cells'])} cell(s) -- the fidelity A/B for world-water:")
+        for c in summary["cells"]:
+            s = c["shades"]
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
+    else:
+        verb = "would synthesize" if args.dry_run else "synthesized"
+        desc = f"graded, deeper toward {summary['deep_dir']}" if summary.get("deep_dir") else "open ocean (mostly deep)"
+        print(f"{verb} ocean water ({desc}, donor {tuple(summary['donor'])}) at {len(summary['cells'])} cell(s):")
+        for c in summary["cells"]:
+            s = c["shades"]
+            print(f"  cell {tuple(c['cell'])}: sea3={s['sea3']} sea5={s['sea5']} sea4={s['sea4']} "
+                  f"(sea3|sea4 seams={c['adjacency_violations']})")
+        if any(c["adjacency_violations"] for c in summary["cells"]):
+            print("  WARNING: a sea3|sea4 direct adjacency slipped the transition band -- report this (should be 0).",
+                  file=sys.stderr)
+    if not args.dry_run:
+        print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
+        print("  A lone cell is reachable via F6 -> World -> Teleport; a contiguous run of cells stays seamless.")
     return 0
 
 
@@ -3740,6 +3800,9 @@ def build_parser() -> argparse.ArgumentParser:
     pk = sub.add_parser("pack", help="zip a built mod for distribution")
     pk.add_argument("mod_root", help="path to a built mod folder")
     pk.add_argument("--out", default=None, help="output .zip (default: <modname>.zip)")
+    pk.add_argument("--name", default=None,
+                    help="the mod-folder name INSIDE the zip (what Memoria.ini FolderNames will call it; "
+                         "default = the folder's own name — use this when packing a staged dist/)")
     pk.set_defaults(func=_cmd_pack)
 
     gh = sub.add_parser("gen-hub", help="generate a World-Hub field.toml from a journeys.toml registry "
@@ -4368,13 +4431,18 @@ def build_parser() -> argparse.ArgumentParser:
     wrc.add_argument("--cells", required=True,
                      help="sea cells to reclaim: 'x,y;x,y' (e.g. '2,5;3,5') or a range 'x0-x1,y0-y1' (a landmass). "
                           "Grid is 24x20; a lone cell is an island, a contiguous run bridges from the coast.")
-    wrc.add_argument("--profile", choices=["island", "flat"], default="island",
-                     help="'island' (default) = grass plateau ramping to a sand shore ring at the waterline (blends "
-                          "into the sea like a real coast); 'flat' = a bare slab of one --topograph")
+    wrc.add_argument("--profile", choices=["island", "flat", "cliff"], default="island",
+                     help="'island' (default) = grass plateau ramping to a sand beach ring; 'cliff' = rolling land top "
+                          "dropping via a STEEP near-vertical ROCK WALL to the waterline (FAITHFUL to 208 real cliffs: "
+                          "~73deg, arc-length rock UVs); 'flat' = a bare slab of one --topograph")
     wrc.add_argument("--height", type=float, default=None,
-                     help="land Y: island plateau height (default 6) or flat-slab Y (default 0 = coast level)")
-    wrc.add_argument("--beach", type=float, default=22.0,
-                     help="island shore ramp width in units (default 22) -- how far the beach slopes inland")
+                     help="land Y: plateau/wall height (default island 6 / cliff 3.2 ~ real interior-land Y) or flat-slab Y (default 0)")
+    wrc.add_argument("--beach", type=float, default=None,
+                     help="island shore ramp WIDTH in units (default 22 gentle) -- how far the drop slopes inland (island profile)")
+    wrc.add_argument("--rim-run", type=float, default=None,
+                     help="cliff wall RUN in units (default 1.0 -> ~73deg at height 3.2); smaller = steeper (cliff profile)")
+    wrc.add_argument("--shore-topo", type=int, default=None,
+                     help="island shore-edge terrain type (default 20 sand; 58 is on-foot BLOCKED)")
     wrc.add_argument("--topograph", type=int, default=0,
                      help="flat-profile terrain type (default 0 = plains; 49/58/59 are BLOCKED)")
     wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
@@ -4393,6 +4461,38 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
     wct.set_defaults(func=_cmd_world_coast)
+
+    wwt = sub.add_parser("world-water",
+                         help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "
+                              "marching-band synthesizer (Sea3/Sea5/Sea4, byte-proven UVs). Needs the custom engine; relaunch.")
+    wwt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wwt.add_argument("--cells", required=True,
+                     help="target ocean cells: 'x,y;x,y' (e.g. '3,17') or a range 'x0-x1,y0-y1' (a contiguous patch "
+                          "stays seamless). Grid is 24x20; reach a lone cell via F6->World->Teleport.")
+    wwt.add_argument("--donor", default="15,4",
+                     help="a real DEEP-OCEAN donor block 'dx,dy' whose base sea prefab backs the cell (default 15,4)")
+    wwt.add_argument("--deep", choices=["N", "S", "E", "W"], default=None,
+                     help="OMIT for faithful open ocean (mostly deep, ~94%% Sea4 like real FF9 open water); give a "
+                          "direction for a graded shallow->deep RAMP toward it (a coast/bay)")
+    wwt.add_argument("--shallows", type=float, default=0.05,
+                     help="open-ocean shallow-patch fraction (default 0.05 ~ real; 0 = uniform deep Sea4). Ignored with --deep.")
+    wwt.add_argument("--threshold", type=float, default=1.0, help="depth at the shallow|deep seam (default 1.0)")
+    wwt.add_argument("--span", type=float, default=2.0, help="depth range shallow->deep across the region (default 2.0)")
+    wwt.add_argument("--noise", type=float, default=0.5, help="organic wobble on the shallow|deep contour (default 0.5)")
+    wwt.add_argument("--height", type=float, default=-0.1,
+                     help="ocean walkmesh Y (default -0.1, just below the Y=0 surface so a boat floats on top; a bigger "
+                          "negative sinks the vehicle, 0 z-fights the water)")
+    _wref = wwt.add_mutually_exclusive_group()
+    _wref.add_argument("--verbatim", nargs="?", const="8,4", metavar="BX,BY",
+                       help="A/B REFERENCE: instead of synthesizing, deploy REAL ocean block BX,BY verbatim (default 8,4, "
+                            "the byte-proven block) onto --cells -- the north-star to compare world-water against at the same spot")
+    _wref.add_argument("--reproduce", nargs="?", const="8,4", metavar="BX,BY",
+                       help="FIDELITY A/B: reproduce REAL block BX,BY's shallow/deep LAYOUT (default 8,4) with SYNTHESIZED "
+                            "tiles -- deploy beside --verbatim of the same block; they should look alike (the 17/17 shape-match, in-game)")
+    wwt.add_argument("--seed", type=int, default=0, help="anti-tiling PRNG seed (deterministic; vary for a new shuffle)")
+    wwt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wwt.add_argument("--dry-run", action="store_true", help="report the cells it would fill, write nothing")
+    wwt.set_defaults(func=_cmd_world_water)
 
     wat = sub.add_parser("world-atlas-add-tile",
                          help="T3: paint a NEW tile into a FREE atlas region + deploy the reskin; prints the UV rect "

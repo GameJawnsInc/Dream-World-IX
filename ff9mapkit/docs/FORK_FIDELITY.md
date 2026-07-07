@@ -2,9 +2,9 @@
 
 > **North star (not a release).** The objective is to keep refining borrowed/forked fields until the kit can
 > recreate the *functioning game itself* from them. The measure of progress is **fidelity**: fork a real
-> field → does it play identically to the original? This doc is the honest, prioritized gap map. Produced by
-> the `fork-fidelity-audit` workflow (7 parallel per-dimension auditors → synthesis), 2026-06-11; grounded in
-> the current code (citations inline in the audit), the project memory, and the docs.
+> field → does it play identically to the original? This doc is the honest, prioritized gap map — verified
+> against real FF9 bytes and the Memoria source (2026-06-11); grounded in the current code (citations inline
+> in the audit) and the in-repo docs.
 
 ## Headline
 
@@ -16,7 +16,7 @@ Fork fidelity is **strong on the "physical" layer and partial-to-absent on the "
   field.
 - **Object/NPC carry — ~75% and advancing.** Verbatim `.eb`-entry graft + player-func graft + per-language
   text carry; the **verbatim save-moogle carry is COMPLETE** (P1–P6.1, on master — director graft + the
-  spawn-pose fix that resolved both timing bugs). The graft lane is now FREE (the deferred items below unblock).
+  spawn-pose fix that resolved both timing bugs). The deferred graft items below are unblocked.
 - **Narrative state — the weak axis.** A fork boots with a **zero `gEventGlobal`**, no ScenarioCounter, no
   flag presets, and a single heuristic spawn regardless of which door you entered. (A field's **entry
   cutscene** is NOT a separate problem — it runs from the field's own `.eb`, so a **verbatim** fork carries
@@ -86,12 +86,12 @@ caveats above are then governed by each donor's real story gating, presettable p
 
 ## Prioritized worklist (biggest leverage first)
 
-A **graft-lane** tag = a fix would edit `content/object.py` / `content/player.py` / `eventscan.py` /
-`content/savepoint.py` / the `extract.py` graft code. The save-moogle session that held this lane has **LANDED
-(2026-06-11)** — the lane is now FREE, so the graft-tagged items (#9, #11, #12) are workable too (no longer
+A **graft-code** tag = a fix would edit `content/object.py` / `content/player.py` / `eventscan.py` /
+`content/savepoint.py` / the `extract.py` graft code. The save-moogle carry **LANDED
+(2026-06-11)**, so the graft-tagged items (#9, #11, #12) are workable too (no longer
 deferred). Orthogonal items remain the lowest-risk picks.
 
-| # | Gap | Sev | Diff | Graft lane | Status |
+| # | Gap | Sev | Diff | Graft code | Status |
 |---|-----|-----|------|:---:|-----------|
 | 1 | ~~**Story-flag / scenario presets** — a fork boots at scenario-zero~~ | **blocker** | medium | no | ✅ **LANDED** — the `[startup]` block (boot in the right beat). |
 | 2 | ~~Story-branch **doors** collapsed (`if(flag){Field(A)}else{Field(B)}`)~~ | major | medium | no | ✅ **LANDED + IN-GAME PROVEN** — gated co-zone doors flagged + carried verbatim (see below). |
@@ -144,8 +144,8 @@ story-event director/roster tail — roster-by-beat analyzer, synth director-ski
 spawn), and #14 closed as proven-infeasible (`--verbatim` is the answer; `fork-report --explain` reads the quest).
 Plus the verbatim save-moogle carry (P1–P6.1) and the verbatim `.eb`+`.mes` fork (`import --verbatim`).
 
-**The small/orthogonal narrative-state backlog is now CLEAR.** What remains is bigger or out-of-lane:
-- **#6 / #13(battle-bg)** — battle-pillar (BGM metadata / per-fork BBG); the `battle_design` lane owns these.
+**The small/orthogonal narrative-state backlog is now CLEAR.** What remains is bigger or belongs to another pillar:
+- **#6 / #13(battle-bg)** — battle-pillar items (BGM metadata / per-fork BBG).
 - **#8** — BG-borrow `.bgx` tile seams: already mitigated (faithful forks use `--native`, seam-free); porting
   edge-bleed into the `.bgx` writer is a low-priority cosmetic.
 - **#11** — gateway-entry window carry+remap: only 2 niche fields; now lint-warned (use `--verbatim`).
@@ -153,17 +153,17 @@ Plus the verbatim save-moogle carry (P1–P6.1) and the verbatim `.eb`+`.mes` fo
   controlled PC is computed; `fork-report` warns on a `--swap-player` gesture glitch. Synth is lossy by design.
 
 Extraction of *which* flags a real prior field set on exit remains a separate, later, eventscan-touching task —
-the author asserts the beat for now (they have the game knowledge — cf. `feedback_trust_user_game_knowledge`).
+the author asserts the beat for now (the author's game knowledge outranks static analysis here).
 
 ## The carry decision — bring-in vs drop vs impossible (fork-mode taxonomy)
 
-> A cross-dimension consolidation (12-dimension `fork-content-taxonomy` workflow, 2026-06-14: classify → adversarial
-> challenge → synthesize; every "impossible/should-not" call was challenged, and the corrections are folded in —
-> claims a challenger refuted are NOT carried forward; two were re-verified against live code before landing here).
+> A cross-dimension consolidation (2026-06-14), verified against real FF9 bytes and the Memoria source; every
+> "impossible/should-not" call was adversarially challenged, and the corrections are folded in —
+> refuted claims are NOT carried forward; two were re-verified against live code before landing here.
 > It reframes the "Solved vs worklist" split above into the question an author actually faces per content type:
-> **do I carry this, drop it, or accept it as lost?** The entry-camera `entry_settle` dig is what surfaced the
+> **should a fork carry this, drop it, or accept it as lost?** The entry-camera `entry_settle` dig is what surfaced the
 > need — it isn't a fidelity *bug*, it's the band-aid for one genuinely-impossible item, and telling that apart
-> from "donor identity I should drop" is the whole point.
+> from donor identity a fork should drop is the whole point.
 >
 > **Now machine-queryable per field** (kit 0.9.98, +v2 0.10.0): `ff9mapkit fork-report <id>` operationalizes the
 > taxonomy so you don't consult the table by hand — an **Area title** line (the donor-identity card you DROP on a
@@ -195,8 +195,8 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
   drops the narrative *machinery* (warp-directors, rotating roster).
 - **IMPOSSIBLE is the residual no mode can reconstruct on stock Memoria**, and it is *narrow*: almost entirely
   **engine tables keyed on the real `fldMapNo`/FBG-name** that a minted id (≥4000) is simply absent from, with **no
-  `.eb` opcode reach**. For each, a dev-only DLL patch *would* solve it (the proven-but-unshipped `s23` narrow-map
-  patch is the template) but is **declined to keep the shipped mod engine-independent**.
+  `.eb` opcode reach**. For each, a DLL patch *would* solve it (the `s23` narrow-map
+  patch is the template) — and the shipped **`s23`–`s34` patch suite** (see below) now does exactly that for most of them.
 - **Perspective movement arcs are NOT a genuine residual** (corrected 2026-06-15 — an earlier draft called ladder
   climb-arcs / jump parabolas / the save-Moogle pop-out "copy-only, never generated from scratch"; that was wrong).
   These arcs are authored in **world coordinates**, and the engine projects world→screen through the fixed camera
@@ -214,7 +214,7 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
       `climb_arc_body` already interpolates `SetupJump/Jump` hops from two endpoints).
     - **The single genuine-eyeball residual: the off-floor height** (a jump's apex, a ladder's top, the moogle's
       pop height). The floor walkmesh pins depth *at floor level*, but these mechanics leave the floor plane, so
-      that one number is read off the painting + confirmed in the playtest loop (Hard-Constraint §2). An **authoring
+      that one number is read off the painting + confirmed manually in the in-game playtest loop. An **authoring
       task** like placing the walkmesh or painting the BG — NOT an engine wall and NOT an asset-absence impossibility
       (contrast cross-rig gesture remap below, where the clips literally do not exist).
 
@@ -244,17 +244,17 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 ### IMPOSSIBLE on stock Memoria — the genuine engine residuals
 
 All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach — so they are
-impossible on a *stock* engine. The shipped **`s23`–`s33` fork-donor remap patch set** (a custom Memoria build,
-bundled with the showcase) now restores most of them by wrapping the hardcoded `fldMapNo == N` gates with an
-effective-field-id; only the `s22` F6 debug menu remains dev-only. (This table predates the full `s23`–`s33`
-shipping decision — the current public summary of what's stock vs. patch-restored vs. genuinely blocked is in
-[`ENGINE.md`](ENGINE.md). The rows below mark what stays genuinely engine-blocked even with the patch set.)
+impossible on a *stock* engine. The shipped **`s23`–`s34` fork-donor remap patch suite** (a custom Memoria build,
+bundled in the public engine zip) now restores most of them by wrapping the hardcoded `fldMapNo == N` gates with an
+effective-field-id; the `s22` F6 debug menu ships in the same bundle as a user-facing tool. (This table predates
+the patch-suite shipping decision — the current public summary of what's stock vs. patch-restored vs. genuinely
+blocked is in [`ENGINE.md`](ENGINE.md). The rows below mark what stays genuinely engine-blocked even with the patch set.)
 
 | # | Residual | Why engine-blocked | Stock band-aid |
 |---|----------|--------------------|----------------|
 | 1 | **Entry-camera ease elimination** | `SmoothCamDelay`/`SmoothCamActive` engine internals; player binds AFTER the snap window; `SmoothCamExcludeMaps` is a hardcoded real-id set (`FieldMap.cs:2532`); no `.eb` op re-arms it. **Universal across all synth modes** — verbatim only *hides* it behind a long real entry sequence. | `entry_settle` black-hold (faithful, not a kludge) + source-side `WARP_FADE`. Runtime `CameraStabilizer` is per-user (`Memoria.ini`) → a baked `Wait` can't adapt; offline default-stabilizer estimator is UNBUILT-not-impossible. |
 | 2 | **ATE seen-state + ATE80 trophy** on a custom id | `EMinigame.MappingATEID` is a hardcoded if/else on real `fldMapNo` → −1 for ≥4000; `AteCheck` lives on `AchievementState`, not `gEventGlobal`. The ATE itself *plays* fine (verbatim / `[ate]`); only the bookkeeping is lost. | Fork in-place on the real id (in tension with verbatim's normal ≥4000 mint). |
-| 3 | **Narrow-map letterbox masking** on a mint | `NarrowMapList.MapWidth` is a hardcoded `fldMapNo` table (ids ≤3100) → mint falls to `return 500` = not-narrow; the `ConditionalForceNarrow` escape ALSO requires a real-id match (`RestrictedWidthScenesList`). | Fork in-place (keeps `fldMapNo`), **or the shipped `s23` patch** (gives the fork the donor's exact tuned width). → `project-ff9-narrow-map-fork-letterbox`. |
+| 3 | **Narrow-map letterbox masking** on a mint | `NarrowMapList.MapWidth` is a hardcoded `fldMapNo` table (ids ≤3100) → mint falls to `return 500` = not-narrow; the `ConditionalForceNarrow` escape ALSO requires a real-id match (`RestrictedWidthScenesList`). | Fork in-place (keeps `fldMapNo`), **or the shipped `s23` patch** (gives the fork the donor's exact tuned width). |
 | 4 | **Chocobo live dig-HUD** on a minted fork of 2950–2952 | `EventHUD.cs:384` gates the live timer HUD on literal `fldMapNo==2950\|\|2951\|\|2952`. (The *instruction popup* is `FieldZoneId==945`-keyed → reachable via `--text-block 945`; only the live HUD is id-locked.) | Fork in-place on 2950–2952. |
 | 5 | **Field-70 FMV + ~12 per-actor anim tweaks** on a mint | `FieldMapActor.cs` has `fldMapNo`-keyed per-actor tweaks; FMV bound to the real id. *Generalizes:* any real-`fldMapNo`-gated engine behavior is lost on a mint. | Retarget the stock field-70 override rather than mint FMV behavior. |
 | 6 | **A brand-NEW FMV slot** (beyond FMV000–060) + paired audio | `MBG.MBGDiscTable` is a fixed `static readonly` jagged array `MBG.Seek` indexes directly — no `.eb` reach; `.akb` audio is name-keyed (doubly blocked). | Reuse/repoint an existing slot (`fmv-swap` proven on FMV000); the `.bytes` layer is open. |
@@ -343,7 +343,7 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   encounters (all song 0) add no lines. ★ **IN-GAME PROVEN (2026-06-17):** a `--verbatim` fork of `EVT_GIZ_BOSS`
   (field 707, Gizamaluke / Sacred Room) → `[[battle_bgm]] scene=326 song=35` → `Battle: 326 / Music: 35`; deployed
   to slot 30050 (`FF9CustomMap-bt`), the Gizamaluke fight plays the **boss battle theme** (song 35), not the normal
-  battle theme — the user confirmed by ear. (Offline-proven first on `import 656 --verbatim` = KUINA_KM_SWP/Marsh,
+  battle theme — confirmed by ear in-game. (Offline-proven first on `import 656 --verbatim` = KUINA_KM_SWP/Marsh,
   scene 330 → 35.) **#6 fully closed (random prefill + scripted carry), in-game proven.**
 - **✅ LANDED — engine walkmesh hotfixes lost on a mint (`walkmesh_hotfixes.py` + `content/walkmesh_hotfix.py`,
   kit 0.9.97).** A handful of fields rely on a hardcoded `BGI_triSetActive` keyed on the real `fldMapNo` (toggles a
@@ -361,24 +361,15 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   chest (beyond its collision reach), is **STUCK with the toggle and FREE without it**. So the prepended
   `EnablePathTriangle` is what blocks that floor, not the co-located treasure-chest prop (entry 5,
   `GEO_ACC_F0_TBX` @ (−426,1664)); the patch extends ~120u around the chest, so it blocks *more* than the chest's
-  collision — the hotfix is not redundant. (Lessons learned the hard way: the engine's "Red Dragon bursting
+  collision — the hotfix is not redundant. (Notes: the engine's "Red Dragon bursting
   through wall" comment names the *room*, not the tris' job; a co-located created object's `CreateObject` registers
-  walkmesh collision (`BGI_charSetActive`) and can mask the toggle at the patch *center* — isolate it at the edge,
-  and don't claim "proven" without the A/B.)
+  walkmesh collision (`BGI_charSetActive`) and can mask the toggle at the patch *center* — isolate it at the edge;
+  the A/B isolation is what proves it.)
 - **Mognet/Chocobo-Paradise world-map alternate-form STATE (bits 815/814) is BROUGHT-IN** — `WorldConfiguration.cs`
   `UsePlaceAlternateForm` is a pure `gEventGlobal` byte read (NOT id-gated), so `[startup] flags=[{flag=815}]`
   reproduces it; only the achievement-WRITE paths (`DigUpKupo fldMapNo==1421`, ATE80) are id-blocked.
 
 ## Docs to refresh (flagged by the audit)
 
-- `project_ff9_object_carry.md` — stale test counts (cites 628/726; current baseline **765**); save-point
-  synthesis IS landed (it's in the P6 director-graft phase, not unstarted).
 - `docs/OBJECT_CARRY.md` §7 / `content/prop.py` comment — "save-moogle (field 300, entry 5)" is wrong: field
   300 entry 5 is a type-1 region; shown moogle is entry 9 (Mene). Hidden-in-cask is field 122 entries 5–10.
-- `project_ff9_camera_math.md` — trim the legacy per-pitch `sx/sy` (0.926/0.889) prose; the only live model is
-  `frame="world"` (org=0, no offset) + exact scale-1 `to_canvas`.
-- `project_ff9_import_fidelity.md` — accurate on the remaining gaps; refresh the "LARGELY DONE" note to name
-  **flag-preset** and **per-door spawn** as the two explicit blockers.
-- `project_ff9_encounters.md` — battle-scene BGM metadata gap still open; add a "still open 2026-06-11" stamp.
-- `CLAUDE.md` §5/§10 — once `[startup]` presets land, add a story-flag-preset line (today neither mentions
-  presets or per-door arrival as known fidelity gaps).

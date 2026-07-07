@@ -46,10 +46,12 @@ def list_field_sps(field, *, game=None, bundle=None) -> list[SpsEntry]:
 
 
 def load_sps_bytes(entry: SpsEntry, *, game=None, bundle=None) -> bytes:
-    """Raw bytes of one effect bin."""
+    """Raw bytes of one effect bin. Holds ``extract.env_lock`` for the object READ -- the cached UnityPy
+    env's reader is stateful, and the Workspace's thumbnail worker may be parsing the same bundle."""
     from .. import extract
-    _bundle, _folder, _roles, env = extract.find_field(entry.field_token, game=game, bundle=bundle)
-    return extract._raw_bytes(env.container[entry.container_key].read())
+    with extract.env_lock:
+        _bundle, _folder, _roles, env = extract.find_field(entry.field_token, game=game, bundle=bundle)
+        return extract._raw_bytes(env.container[entry.container_key].read())
 
 
 def load_sps(entry: SpsEntry, *, game=None, bundle=None) -> codec.Sps:
@@ -66,9 +68,10 @@ def load_tcb(field, *, game=None, bundle=None) -> bytes | None:
         return None
     from .. import extract
     key = _fieldmaps_prefix(folder) + "spt.tcb.bytes"
-    for k, obj in env.container.items():            # ContainerHelper has no .get(); iterate items
-        if k == key:
-            return extract._raw_bytes(obj.read())
+    with extract.env_lock:                          # see load_sps_bytes: reads race the thumbnail worker
+        for k, obj in env.container.items():        # ContainerHelper has no .get(); iterate items
+            if k == key:
+                return extract._raw_bytes(obj.read())
     return None
 
 

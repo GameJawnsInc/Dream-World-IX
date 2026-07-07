@@ -2,11 +2,10 @@
 
 > **What this is.** A reverse-engineering teardown of FF9's **Active Time Event (ATE)** system — the optional
 > "Active Time Event / Press SELECT" cutscenes of off-screen characters — grounded byte-for-byte in the Memoria
-> C# source and in real shipping `.eb` bytes extracted from the user's `p0data`. Produced by the `ate-teardown`
-> workflow (6 parallel subsystem dossiers → synthesis → **10 load-bearing claims adversarially verified, all
-> confirmed high-confidence** → real-field disassembly), 2026-06-13. North star = **emulate/export the real
-> game**, not recreate from scratch. Companion gap note lives in `FORK_FIDELITY.md`; deep recipe in project
-> memory `project-ff9-ate-system`.
+> C# source and in real shipping `.eb` bytes extracted from a real install's `p0data`. Verified against real
+> FF9 bytes and the Memoria source (2026-06-13); **10 load-bearing claims re-verified against the engine source, all
+> confirmed**. North star = **emulate/export the real
+> game**, not recreate from scratch. Companion gap note lives in `FORK_FIDELITY.md`.
 
 ---
 
@@ -244,7 +243,7 @@ and plays it under a `DisableMove..EnableMove` lock with a `winATE(64)` caption 
 ATE. The engine's `ProcessATEDialog → MappingATEID → ATE80Achievement` converts the **same** `SelectChoice` into
 a global ATE id **only** for the trophy; it does not pick or run the cutscene.
 
-*(Re-confirmed by direct disassembly of field 206's `.eb` extracted from the user's `p0data` (kit `disasm`):
+*(Re-confirmed by direct disassembly of field 206's `.eb` extracted from a real install's `p0data` (kit `disasm`):
 the exact `op_0B(0,1201,15,238,472,703,934)` and the `op_06(122, 1900→, 2005→, 2010→)` scenario dispatch in
 `Main_Init` are byte-verified — see §7 for the in-game test forks built from them.)*
 
@@ -348,7 +347,7 @@ ATE menu, no cutscenes replayed. (Avail-word differs per region — 200/550/552 
 Dali-350 + 1600 need several; find a field's avail-word by disassembling it (`ff9mapkit disasm <field>`) and reading the `opDC` site that gates its ATE menu.) Low-level equivalent:
 `[startup] flags` setting the word's bits (flag `N*8+bit` = byte N bit `bit`; e.g. flag 1888 = byte 236 bit 0).
 
-**The fidelity wall (document in `FORK_FIDELITY.md`, don't fight):** ATE **trigger/menu/cutscene** = `.eb`-faithful
+**The fidelity wall (documented in `FORK_FIDELITY.md`):** ATE **trigger/menu/cutscene** = `.eb`-faithful
 via `--verbatim`. But **seen-state (`AteCheck`) + the ATE80 trophy** come from C# `MappingATEID`, **keyed on real
 `fldLocNo`/`fldMapNo`/`ScenarioCounter`**. So an authored/forked ATE on a **custom field id (≥4000) will NOT
 register seen-state or count toward the trophy** — no `MappingATEID` switch row matches. Emulating that requires
@@ -367,7 +366,7 @@ either a **verbatim fork onto a *real* field id** (parasitic on the real `Mappin
 - Not yet observed: the `AteCheck`/ATE80 "seen" mark does **not** fire on a custom id (no `MappingATEID` row) — the
   documented engine-table gap.
 
-> **Kit fix this session — `[startup]` now works on scenario-jump-table fields.** The interactive-ATE hubs
+> **Kit fix — `[startup]` now works on scenario-jump-table fields.** The interactive-ATE hubs
 > (field 206 and ~11% of fields) gate their content with a `0x06` jump table in `Main_Init`; `[startup]` must set
 > the ScenarioCounter *ahead* of it. The byte-inserter (`eb/edit.insert_in_function`) previously refused any
 > insert into a `0x06` function. Since the engine is uniformly IP-relative (`s1.ip += offset` for every jump,
@@ -379,7 +378,7 @@ either a **verbatim fork onto a *real* field id** (parasitic on the real `Mappin
 
 ## 8. Open questions / needs in-game proof
 
-1. ~~**`op_0B` literals for field 206**~~ — **RESOLVED:** re-extracted from the user's `p0data` and byte-confirmed
+1. ~~**`op_0B` literals for field 206**~~ — **RESOLVED:** re-extracted from a real install's `p0data` and byte-confirmed
    (`op_0B(0,1201,15,238,472,703,934)` + the `op_06` SC dispatch).
 2. **`ATE(mode)` combos** — the common modes are now ★ IN-GAME PROVEN (mode 1 Blue @30007; mode 6 Gray+force
    @30008/30010), confirming `&3` (colour) + `&4` (force). C# still says the rest is "unknown"; exotic combos

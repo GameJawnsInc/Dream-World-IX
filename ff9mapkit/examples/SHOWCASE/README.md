@@ -25,7 +25,7 @@ anything; everything else stays the same.
 
 ### Reaching it in-game
 This is the field's *source*; building it makes the mod. Getting **into** it in-game needs an entrance
-from a field you can already reach — see [`docs/TUTORIAL.md`](../../docs/TUTORIAL.md) step 6.
+from a field you can already reach — see [`docs/tutorials/01-first-fork.md`](../../docs/tutorials/01-first-fork.md#5-reach-it-in-game) §5.
 
 For the full novel-art workflow (paint your own background to a guide), see
 [`docs/PIPELINE.md`](../../docs/PIPELINE.md); for every option, [`docs/FORMAT.md`](../../docs/FORMAT.md).
