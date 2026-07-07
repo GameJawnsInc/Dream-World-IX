@@ -63,8 +63,9 @@ custom_battle_anims = true
 #   (the quick `playable-anims --edit --deploy` route is wiped by the next field/campaign deploy). Uncomment +
 #   drop the edited .glb next to this file.
 portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
-stats = { magic = 1 }      # dialled to the FLOOR so Voltflare barely damages -> the enemy SURVIVES to show Silence.
-#                            (Magic scales ALL his magic, incl. Cure/Blizzard; bump it back up once the status is seen.)
+stats = { magic = 40 }     # a stronger Black Mage than Vivi. NOTE: Magic drives BOTH damage AND the MP pool, so it's
+#                            the WRONG lever to cut a single spell's damage (flooring it starves MP). Dial an individual
+#                            spell's damage with its own `power` instead (see Voltflare's power = 1 below).
 
 # --- OPTIONAL: give Iviv its OWN ability kit (a custom CharacterPresetId 20) instead of borrowing Vivi's ---
 # Iviv gets his own battle command menu (zero-DLL): a UNIQUE command "Spark" (an inline command that MINTS its own
