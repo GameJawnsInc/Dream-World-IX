@@ -89,6 +89,11 @@ class SetupHealthDialog(QDialog):
     # ---- the report ----
     def refresh(self):
         if self._grid is not None:
+            # Detach NOW, then deleteLater. deleteLater alone is not enough: a deferred delete queued
+            # OUTSIDE the dialog's exec() (e.g. the shell refreshing before exec) only processes when
+            # that OUTER event-loop level resumes -- i.e. after the dialog closes -- so the stale grid
+            # would render doubled under the new one for the dialog's whole lifetime.
+            self._grid.setParent(None)
             self._grid.deleteLater()
         self._grid = QWidget(self.grid_host)
         g = QGridLayout(self._grid)
