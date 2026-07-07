@@ -387,6 +387,7 @@ class Workspace(QMainWindow):
         self._update_result = None                 # last PyPI update-check result (None until checked)
         self.setWindowTitle(f"Dream World IX — Workspace   ·   v{__version__}")
         self.setWindowIcon(_app_icon())
+        self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
@@ -819,6 +820,7 @@ class Workspace(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=self.on_new_campaign)
         QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self._redo_shortcut)
+        QShortcut(QKeySequence(Qt.Key_F9), self, activated=self._deploy_now)   # save-all + deploy the target
 
     def _menu_button(self, tb, text, tooltip, items):
         """A toolbar DROPDOWN button: ``text ▾`` opening a menu of (label, callback) items. Returns the
@@ -839,9 +841,26 @@ class Workspace(QMainWindow):
         v = QVBoxLayout(central)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
+        # The crumb ROW: the breadcrumb (stretching) + a contextual Deploy button on its right — the
+        # one-keystroke dev loop (F9): save everything, then run the Build tab's configured deploy for
+        # whatever is open. Lives here (not the toolbar, which is width-budgeted to fit 1280) because it
+        # acts on exactly the thing the breadcrumb names.
+        crumb_row = QWidget()
+        crumb_row.setStyleSheet(f"background:{self.pal['surface']};"
+                                f"border-bottom:1px solid {self.pal['border']};")
+        ch = QHBoxLayout(crumb_row)
+        ch.setContentsMargins(0, 0, 8, 0)
+        ch.setSpacing(6)
         self.crumb = BreadcrumbBar(self.pal)
         self.crumb.on_nav = self._on_crumb
-        v.addWidget(self.crumb)
+        ch.addWidget(self.crumb, 1)
+        self.deploy_btn = QPushButton("▶ Deploy   F9")
+        self.deploy_btn.setObjectName("accent")
+        self.deploy_btn.clicked.connect(self._deploy_now)
+        self.deploy_btn.setEnabled(False)
+        ch.addWidget(self.deploy_btn)
+        self._refresh_deploy_btn()
+        v.addWidget(crumb_row)
 
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
@@ -1250,6 +1269,7 @@ class Workspace(QMainWindow):
         self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
         self._refresh_flag_names()                 # re-annotate an already-open Story State save with this journey
         prefs.add_recent("journey", path)
+        self._refresh_deploy_btn()
         return True
 
     def _populate_journey(self):
@@ -1896,7 +1916,8 @@ class Workspace(QMainWindow):
         self.act_check.setEnabled(False)
         self.story_state.set_flag_names({})        # no project -> drop the authored-flag labels
         self.tabs.setCurrentWidget(self._welcome_tab)
-        self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")
+        self._refresh_deploy_btn()                 # Build & Deploy stays aimed (existing behavior); the
+        self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")   # tooltip re-names it
 
     # ---- create new (field / campaign / member) ----
     def _default_new_dest(self) -> str:
@@ -2517,6 +2538,7 @@ class Workspace(QMainWindow):
         self.tabs.setCurrentWidget(self.doc_scroll)   # a standalone field has no map -> show its Editor
         self._refresh_flag_names()                    # re-annotate an already-open Story State save with this field
         prefs.add_recent("field", path)
+        self._refresh_deploy_btn()
         return True
 
     def _populate_field(self, name):
@@ -2570,6 +2592,7 @@ class Workspace(QMainWindow):
         """A battle.toml opened/forked on the Battle tab -> pre-aim Build & Deploy at it (do-now #6), so it's
         ready when you switch there. Mirrors how opening a field/campaign/journey pre-aims Build & Deploy."""
         self.build_deploy.set_target(path)
+        self._refresh_deploy_btn()
         self.statusBar().showMessage(f"Build & Deploy aimed at {Path(path).name}", 4000)
 
     def _import_forked(self, out_dir):
@@ -2630,6 +2653,7 @@ class Workspace(QMainWindow):
             self.thumbs.request(m.name, self.member_paths.get(m.name), m.real_id)   # cached, install-gated)
         if not keep_journey:                       # a journey drill-in isn't a project open -- the journey is
             prefs.add_recent("campaign", path)     # already the recent entry
+        self._refresh_deploy_btn()
         return True
 
     def _journey_label(self):
@@ -3121,6 +3145,7 @@ class Workspace(QMainWindow):
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Deploy now (F9)", "command", self._deploy_now),
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
@@ -4894,6 +4919,47 @@ class Workspace(QMainWindow):
                     pass
         return True
 
+    # ---- drag-and-drop open ----
+    _DROP_SUFFIXES = (".toml", ".dat", ".json", ".glb", ".gltf")
+
+    def dragEnterEvent(self, event):               # noqa: N802 (Qt override)
+        urls = event.mimeData().urls() if event.mimeData() else []
+        if any(u.isLocalFile() and u.toLocalFile().lower().endswith(self._DROP_SUFFIXES) for u in urls):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):                    # noqa: N802 (Qt override)
+        for u in (event.mimeData().urls() if event.mimeData() else []):
+            if u.isLocalFile() and self._open_dropped(Path(u.toLocalFile())):
+                event.acceptProposedAction()
+                return
+
+    def _open_dropped(self, p) -> bool:
+        """Open a dropped file by what it IS: journeys/campaign/battle/field .toml (the Build tab's exact
+        discriminators), a save (.dat / save JSON), or a Blender .glb (pre-fills the Import tab's Custom
+        models box). Returns True when the drop was handled."""
+        s = p.suffix.lower()
+        if not p.is_file() or s not in self._DROP_SUFFIXES:
+            return False
+        if s == ".toml":
+            kind, _payload = jobs.detect_kind(p)
+            if kind == "journey":
+                return self.open_journey(p)
+            if kind == "campaign":
+                return self.open_campaign(p)
+            if kind == "battle":
+                if self.battle.load(str(p)):
+                    self.tabs.setCurrentWidget(self.battle)
+                    return True
+                return False
+            return self.open_field(p)
+        if s in (".glb", ".gltf"):
+            self.import_field.mdl_glb.setText(str(p))
+            self.tabs.setCurrentWidget(self.import_field)
+            self.statusBar().showMessage(f"{p.name} → Import ▸ Custom models (pick a mod folder, then "
+                                         "Import model)", 8000)
+            return True
+        return self.open_save(str(p))              # .dat / save JSON
+
     def closeEvent(self, event):                   # noqa: N802 (Qt override)
         if self._maybe_prompt_unsaved():
             event.accept()
@@ -5297,6 +5363,42 @@ class Workspace(QMainWindow):
             if m is not None:
                 return m.real_id
         return None
+
+    def _deploy_target(self) -> str:
+        """What F9 would deploy: the Build & Deploy tab's aimed project file (pre-aimed on every open),
+        or '' when nothing is open."""
+        if getattr(self, "build_deploy", None) is None:
+            return ""
+        t = self.build_deploy.path.text().strip().strip('"')
+        return t if t and Path(t).is_file() else ""
+
+    def _refresh_deploy_btn(self):
+        """Enable + caption the crumb-row Deploy button for the current target (called on every open/
+        close/tab change — cheap: one line-edit read + one stat)."""
+        if getattr(self, "deploy_btn", None) is None:
+            return
+        t = self._deploy_target()
+        self.deploy_btn.setEnabled(bool(t))
+        self.deploy_btn.setToolTip(
+            f"Save everything, then Build / Deploy {Path(t).name} exactly as the Build & Deploy tab is "
+            f"configured (F9). Output streams below." if t
+            else "Open a field / campaign / journey / battle first (F9)")
+
+    def _deploy_now(self):
+        """F9 — the dev loop in one keystroke: fold + save every unsaved edit, then run the Build tab's
+        configured deploy for the open target. Refuses (rather than deploys stale files) if a save failed;
+        the stream lands in Output and the verdict in Problems, whatever tab you're on."""
+        t = self._deploy_target()
+        if not t:
+            self.statusBar().showMessage("Nothing to deploy — open a field / campaign / journey / battle "
+                                         "first.", 5000)
+            return
+        self._save_all()
+        if self._dirty_members():                  # a form failed validation / a file couldn't be written --
+            self.statusBar().showMessage("Deploy skipped — unsaved changes remain (see Problems).", 6000)
+            return                                 # deploying the stale on-disk state would mislead
+        self.statusBar().showMessage(f"Deploying {Path(t).name}…", 4000)
+        self.build_deploy.on_go()
 
     def _open_setup(self):
         """The Setup & Health dialog — the onboarding front door (⚙ menu / Ctrl-K / the Home banner).
@@ -6035,6 +6137,22 @@ def _smoke(win):
     for _btn in (win.import_field.mdl_pick_btn, win.import_field.mdl_gltf_btn,
                  win.import_field.mdl_import_btn, win.import_field.mdl_mint_btn):
         assert _btn is not None
+    # F9 deploy: the crumb-row button is enabled + aimed at the open campaign (pre-aimed by open_campaign);
+    # the palette carries the command
+    assert win.deploy_btn.isEnabled(), "Deploy button dead with a campaign open"
+    assert win._deploy_target().endswith("campaign.toml"), win._deploy_target()
+    assert any(lbl == "Deploy now (F9)" for lbl, _k, _cb in win._command_index())
+    # drag-and-drop dispatch: a campaign.toml re-opens the campaign; a field.toml opens loose; a .glb
+    # pre-fills the Custom models box; garbage is refused
+    assert win._open_dropped(d / "campaign.toml") is True and win.plan is not None
+    assert win._open_dropped(d / "IC_COR" / "IC_COR.field.toml") is True and win._loose
+    _glb = d / "edit.glb"
+    _glb.write_bytes(b"glTF")
+    assert win._open_dropped(_glb) is True
+    assert win.import_field.mdl_glb.text() == str(_glb)
+    assert win._open_dropped(d / "IC_ENT") is False           # a directory is not a droppable file
+    assert win.open_campaign(d / "campaign.toml")             # restore campaign mode for the sections below
+    camp = win.tree.topLevelItem(0)
     # the campaign Map document renders the same graph (compute_layout core) -- 3 nodes, 1 edge
     assert win.map._layout is not None and len(win.map._layout.nodes) == 3
     assert len(win.map._layout.edges) == 1
