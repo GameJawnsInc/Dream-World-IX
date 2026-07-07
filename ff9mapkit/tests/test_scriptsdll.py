@@ -529,6 +529,20 @@ def test_status_icon_directive():
     assert "BattleHUD" not in src and "static " not in src
 
 
+def test_status_power_knob():
+    # auto_life revives at power% of max HP (default 50); an override flows into the emitted C#
+    _, d = ss.render_status_script(33, "R", "CustomStatus1", template="auto_life")
+    assert "Target.MaximumHp * 50 / 100" in d and "__POWER__" not in d
+    _, d2 = ss.render_status_script(33, "R", "CustomStatus1", template="auto_life", power=25)
+    assert "Target.MaximumHp * 25 / 100" in d2
+    # parse carries `power` into the seed + validates it (integer 1-100)
+    specs = pl.parse_all([_iviv_status([{"name": "Rebirth", "template": "auto_life", "power": 30}])])
+    assert pl.status_script_seeds(specs)[0]["power"] == 30
+    for bad in (0, 101, 50.0, True):
+        with pytest.raises(pl.PlayableError):
+            pl.parse_all([_iviv_status([{"name": "X", "template": "auto_life", "power": bad}])])
+
+
 def test_status_icon_directive_lines():
     # a template's default icon -> a BuffIcon line (auto_life borrows AutoLife = sprite 131)
     specs = pl.parse_all([_iviv_status([{"name": "Rebirth", "template": "auto_life"}])])

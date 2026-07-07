@@ -35,7 +35,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `icon = "<vanilla status>"`) via a `BuffIcon`/`DebuffIcon` DictionaryPatch line registered at launch, so it shows
   in every panel display (battle HUD, target/"hover", resists, party menu); an `over_model = "<vanilla status>"`
   additionally gives it an ON-MODEL indicator (inheriting that status's SHP over-model chevron / SPS particle / tint
-  from `StatusData`). ★ Behaviour + panel icon in-game proven (a custom revive-on-death status fired + showed its icon).
+  from `StatusData`). The `auto_life` template takes a `power` knob (revive at power% of max HP, default 50).
+  ★ Behaviour + panel icon + on-model chevron in-game proven (a custom revive-on-death status fired + showed both).
 
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 

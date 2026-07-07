@@ -390,6 +390,12 @@ def _parse_status_spec(s, nid, aname) -> dict:
             raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} icon must be a vanilla status name to "
                                 f"borrow its HUD icon from (e.g. \"AutoLife\", \"Regen\", \"Berserk\")")
         out["icon"] = icon.strip()
+    pw = s.get("power")                                    # a template knob (auto_life: revive % of max HP)
+    if pw is not None:
+        if isinstance(pw, bool) or not isinstance(pw, int) or not 1 <= pw <= 100:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} power must be an integer 1-100 "
+                                f"(for auto_life it's the revive % of max HP, e.g. power = 50)")
+        out["power"] = pw
     over = s.get("over_model")                             # the ON-MODEL visual (particle/over-model chevron/tint)
     if over is None:
         over = out.get("icon")                             # default: match the panel-icon donor (AutoLife has none)
@@ -573,7 +579,7 @@ def parse_all(entries) -> list:
                             ent = custom_status_ids[ckey] = (status_alloc, enum)
                             spec.setdefault("minted_status_scripts", []).append(
                                 {"id": status_alloc, "status_enum": enum, "name": cs["name"],
-                                 **{k: v for k, v in cs.items() if k in ("template", "body", "hooks", "icon")}})
+                                 **{k: v for k, v in cs.items() if k in ("template", "body", "hooks", "icon", "power")}})
                             spec.setdefault("minted_status_data", []).append(
                                 {"id": status_alloc, "name": cs["name"],
                                  **({"over_model": cs["over_model"]} if cs.get("over_model") else {})})

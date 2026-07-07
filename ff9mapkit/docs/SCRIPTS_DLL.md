@@ -155,8 +155,11 @@ This mints, in one build: a `[StatusScript(BattleStatusId.CustomStatus1)]` (the 
 
 | `template` | Hook | Cloned from | What it does |
 |---|---|---|---|
-| `auto_life` | `OnDeath` | AutoLife | revive the unit once when it would die |
+| `auto_life` | `OnDeath` | AutoLife | revive the unit once when it would die, at `power`% of max HP (default 50) |
 | `auto_attack` | `OnATB` | Berserk | force an auto-Attack each turn (loses manual control) |
+
+`auto_life` takes a **`power`** knob (1–100) = the revive amount as a % of max HP: `{ template = "auto_life",
+power = 100 }` revives at full HP, `power = 25` at a quarter (default 50).
 
 Or a raw `{ name = "…", body = "<C# class-body>", hooks = ["death_changer"] }` — you write the `StatusScriptBase`
 methods (`Apply`/`Remove`/`OnDeath`/`OnATB`/…) and declare which lifecycle interfaces (`hooks`) they implement:

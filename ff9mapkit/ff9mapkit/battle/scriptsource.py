@@ -244,15 +244,13 @@ def status_icon_directive(status_id: int, icon) -> "str | None":
 # template name -> {hooks: [short names], body: the class-body methods}. Cloned from Memoria.DefaultScripts (donor +
 # line cited); `__STATUS__` is replaced with the minted CustomStatusN so a body can reference its OWN status id.
 STATUS_TEMPLATES: dict[str, dict] = {
-    # AutoLifeStatusScript (DefaultStatus/AutoLifeStatusScript.cs) -- revive the unit once when it would die (OnDeath).
-    # Inflict on an ally; when they hit 0 HP the status pops and restores them (default 1 HP).
-    "auto_life": {"hooks": ["death_changer"], "icon": "AutoLife", "body": """\
-public Int32 HPRestore = 1;
-
+    # AutoLifeStatusScript (DefaultStatus/AutoLifeStatusScript.cs), adapted: revive the unit once when it would die
+    # (OnDeath) at `power`% of its max HP (default 50, min 1). Inflict on an ally. The OnDeath revive+un-Death is
+    # faithful to the donor; only the restore AMOUNT is tunable (`__POWER__`) instead of the donor's parameter.
+    "auto_life": {"hooks": ["death_changer"], "icon": "AutoLife", "power": 50, "body": """\
 public override UInt32 Apply(BattleUnit target, BattleUnit inflicter, params Object[] parameters)
 {
     base.Apply(target, inflicter, parameters);
-    HPRestore = Math.Max(HPRestore, parameters.Length > 0 ? Convert.ToInt32(parameters[0]) : 1);
     return btl_stat.ALTER_SUCCESS;
 }
 
@@ -264,11 +262,11 @@ public override Boolean Remove()
 public Boolean OnDeath()
 {
     btl_stat.RemoveStatus(Target, BattleStatusId.__STATUS__);
-    if (HPRestore > 0)
-    {
-        Target.CurrentHp = Math.Min((UInt32)HPRestore, Target.MaximumHp);
-        btl_stat.RemoveStatus(Target, BattleStatusId.Death);
-    }
+    Int32 restore = (Int32)Target.MaximumHp * __POWER__ / 100;
+    if (restore < 1)
+        restore = 1;
+    Target.CurrentHp = Math.Min((UInt32)restore, Target.MaximumHp);
+    btl_stat.RemoveStatus(Target, BattleStatusId.Death);
     return true;
 }"""},
     # BerserkStatusScript (DefaultStatus/BerserkStatusScript.cs) -- force an auto-Attack each turn (OnATB). Inflict on
@@ -381,13 +379,13 @@ def render_field_script(sid: int, name: str, *, template: str | None = None, bod
 
 
 def render_status_script(status_id: int, name: str, status_enum: str, *, template: str | None = None,
-                         body: str | None = None, hooks=None) -> tuple[str, str]:
+                         body: str | None = None, hooks=None, power=None) -> tuple[str, str]:
     """Render ONE STATUS-behaviour ``.cs`` -> ``(filename, source)`` (the [StatusScript] twin). ``status_enum`` is
     the CustomStatusN enum name the script binds to (``[StatusScript(BattleStatusId.<status_enum>)]``) AND is
-    substituted for ``__STATUS__`` in the body (so a body can reference its OWN status). Provide a known ``template``
-    or a raw ``body`` + ``hooks`` (short hook names -> the marker interfaces). ``status_id`` (33-63) keeps the
-    class/filename unique + distinct from the 256-band battle/field scripts. (The HUD icon is a separate
-    DictionaryPatch line -- :func:`status_icon_directive` -- not part of the .cs.)"""
+    substituted for ``__STATUS__`` in the body (so a body can reference its OWN status). ``power`` (a template knob,
+    default the template's) is substituted for ``__POWER__`` -- e.g. auto_life's revive % of max HP. Provide a known
+    ``template`` or a raw ``body`` + ``hooks``. ``status_id`` (33-63) keeps the class/filename unique. (The HUD icon
+    is a separate DictionaryPatch line -- :func:`status_icon_directive` -- not part of the .cs.)"""
     stem = _ident(name)
     cls = f"{stem}{status_id}StatusScript"
     if body is not None:
@@ -400,13 +398,20 @@ def render_status_script(status_id: int, name: str, status_enum: str, *, templat
             raise ScriptSourceError(f"unknown status template {template!r} for {name!r} "
                                     f"(known: {', '.join(sorted(STATUS_TEMPLATES))}; or use body = \"<C#>\" + hooks)")
         methods, tname, hook_list = tmpl["body"], template, list(tmpl["hooks"])
+        if power is None:
+            power = tmpl.get("power")                        # the template's default knob (auto_life -> 50)
     bad = [h for h in hook_list if h not in STATUS_HOOKS]
     if bad:
         raise ScriptSourceError(f"status {name!r} unknown hook(s) {bad} (known: {', '.join(sorted(STATUS_HOOKS))})")
     interfaces = "".join(f", {STATUS_HOOKS[h]}" for h in hook_list)
-    perform = _indent(methods.replace("__STATUS__", status_enum), spaces=8)   # __BODY__ sits at the class-member level
+    methods = methods.replace("__STATUS__", status_enum)
+    if power is not None:
+        methods = methods.replace("__POWER__", str(int(power)))
+    if "__POWER__" in methods:                               # a template used __POWER__ but no power was given/defaulted
+        raise ScriptSourceError(f"status {name!r}: this template needs a `power` value (none given or defaulted)")
+    perform = _indent(methods, spaces=8)                     # __BODY__ sits at the class-member level
     safe_name = re.sub(r"[\r\n]+", " ", str(name)).replace("*/", "* /")
-    safe_name = re.sub(r"__(?:CLS|ID|NAME|TMPL|BODY|STATUS|INTERFACES)__", "", safe_name)
+    safe_name = re.sub(r"__(?:CLS|ID|NAME|TMPL|BODY|STATUS|INTERFACES|POWER)__", "", safe_name)
     src = (_STATUS_SHELL.replace("__CLS__", cls).replace("__STATUS__", status_enum)
            .replace("__NAME__", safe_name).replace("__TMPL__", tname)
            .replace("__INTERFACES__", interfaces).replace("__BODY__", perform))
@@ -435,7 +440,7 @@ def write_scripts(layout, scripts, field_scripts=(), status_scripts=()) -> list:
         fname, src = render_field_script(int(s["id"]), s["name"], template=s.get("template"), body=s.get("body"))
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     for s in status_scripts:
-        fname, src = render_status_script(int(s["id"]), s["name"], s["status_enum"],
-                                          template=s.get("template"), body=s.get("body"), hooks=s.get("hooks"))
+        fname, src = render_status_script(int(s["id"]), s["name"], s["status_enum"], template=s.get("template"),
+                                          body=s.get("body"), hooks=s.get("hooks"), power=s.get("power"))
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     return warnings
