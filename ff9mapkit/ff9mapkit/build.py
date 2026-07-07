@@ -5866,6 +5866,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
     charname_lines = _playable.name_directive_lines(_pspecs)
+    status_icon_lines = _playable.status_icon_directive_lines(_pspecs)   # BuffIcon/DebuffIcon for custom statuses (P7)
     # Crash guard: a bare `[party] add = [12]` for a custom-band id (12-15) that NO [[playable]] defines anywhere
     # in the mod would emit B_PARTYADD(12) but allocate no PLAYER -> partyadd() null-derefs at field load. The
     # recruit=true / add-by-name paths can't hit this (they carry/require a definition); only a raw numeric id
@@ -5882,8 +5883,9 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
                                  f"recruit = true on it). Without a definition the game crashes when the field "
                                  f"loads (no PLAYER is allocated for id {m}).")
 
-    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results, charname_lines)) + "\n",
-                                       encoding="utf-8", newline="\n")
+    layout.dictionary_patch.write_text(
+        "\n".join(_dictionary_lines(results, charname_lines + status_icon_lines)) + "\n",
+        encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
@@ -5954,4 +5956,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             # [[playable]] `CharacterDefaultName <id> <SYM> <name>` directives (the 13th+ character's name, per
             # language) -- mod-global; deploy_field.py merges them by (id, lang) so a re-deploy replaces cleanly.
             "charname_lines": list(charname_lines),
+            # custom-status `BuffIcon`/`DebuffIcon <statusId> <spriteIndex>` directives (P7) -- mod-global; ride the
+            # same DictionaryPatch, registered at launch so the icon shows in every status display.
+            "status_icon_lines": list(status_icon_lines),
             "warnings": [w for r in results for w in r.warnings] + start_warnings}

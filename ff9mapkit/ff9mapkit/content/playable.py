@@ -382,12 +382,14 @@ def _parse_status_spec(s, nid, aname) -> dict:
             raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} template must be one of "
                                 f"{sorted(_ss.STATUS_TEMPLATES)} (or set body = \"<C#>\" + hooks = [...])")
         out["template"] = tmpl
-    if s.get("icon") is not None:                          # borrow a vanilla status's HUD icon (else the template default)
-        ic = s.get("icon")
-        if not isinstance(ic, str) or ic.strip().lower() not in _ss._STATUS_ICON_DONORS:
+    icon = s.get("icon")                                   # explicit override, else the template's default HUD icon
+    if icon is None and out.get("template"):
+        icon = _ss.STATUS_TEMPLATES[out["template"]].get("icon")
+    if icon is not None:                                   # borrow a vanilla status's HUD icon (a DictionaryPatch line)
+        if not isinstance(icon, str) or icon.strip().lower() not in _ss._STATUS_ICON_DONORS:
             raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} icon must be a vanilla status name to "
                                 f"borrow its HUD icon from (e.g. \"AutoLife\", \"Regen\", \"Berserk\")")
-        out["icon"] = ic.strip()
+        out["icon"] = icon.strip()
     return out
 
 
@@ -699,6 +701,20 @@ def name_directive_lines(specs) -> list:
         for lang in LANGS:
             sym = _lang_symbol(lang)
             lines.append(f"CharacterDefaultName {s['id']} {sym} {s['names'][sym]}")
+    return lines
+
+
+def status_icon_directive_lines(specs) -> list:
+    """The mod-global ``BuffIcon``/``DebuffIcon <statusId> <spriteIndex>`` DictionaryPatch lines that give each minted
+    custom status a HUD icon (borrowing a vanilla status's sprite). DataPatchers registers them at LAUNCH, so the icon
+    shows everywhere the engine reads Buff/DebuffIconNames -- the party panel, the target/'hover' status, resists +
+    results (project-ff9-scripts-dll P7)."""
+    from ..battle import scriptsource as _ss
+    lines = []
+    for s in status_script_seeds(specs):
+        line = _ss.status_icon_directive(s["id"], s.get("icon"))
+        if line:
+            lines.append(line)
     return lines
 
 

@@ -32,8 +32,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `StatusSets` row that applies it. Templates `auto_life` (revive-on-death) / `auto_attack` (Berserk) + a raw `body`
   + `hooks`. A per-tick DoT is engine-gated (documented); the reachable hooks are Apply/Remove/OnDeath/OnATB/
   OnFigurePoint/OnFinishCommand. Each custom status **borrows a vanilla status's HUD icon** (template default, or
-  `icon = "<vanilla status>"`) via a static-ctor injection into `BattleHUD`'s public-static icon dicts, so it shows
-  in battle + the party menu. ★ Behaviour in-game proven (a custom revive-on-death status fired).
+  `icon = "<vanilla status>"`) via a `BuffIcon`/`DebuffIcon` DictionaryPatch line registered at launch, so it shows
+  in every status display (battle HUD, target/"hover", resists, party menu). ★ Behaviour + panel icon in-game proven
+  (a custom revive-on-death status fired + showed its icon).
 
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 
