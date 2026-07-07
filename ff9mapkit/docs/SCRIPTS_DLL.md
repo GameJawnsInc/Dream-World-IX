@@ -7,10 +7,11 @@
 > Proven in-game: Iviv's "Soul Leech" (a drain — deals damage *and* heals its caster) from one line of
 > `field.toml`.
 >
-> **P7 — the fan-out (2026-07-07; offline + real-engine-compile proven, awaiting in-game):** the *same* mod DLL
-> also hosts **field effects** — a `script.field` sub-table mints a paired `[FieldAbilityScript(id)]` at the same
-> scriptId, so a curative ability works both in *and* out of combat (§2). Two further surfaces the loader exposes
-> (custom status behaviors, global battle overloads) are scoped follow-ons.
+> **P7 — the fan-out (★ in-game proven 2026-07-07):** the *same* mod DLL also hosts **field effects** — a
+> `script.field` sub-table mints a paired `[FieldAbilityScript(id)]` at the same scriptId, so a curative ability
+> works both in *and* out of combat (§2). Proven: Iviv's "Lifewell" healed in battle *and* healed an ally from the
+> field menu (the same ability, one DLL). Two further surfaces the loader exposes (custom status behaviors, global
+> battle overloads) are scoped follow-ons.
 >
 > Provenance: this doc is analysis + author-facing recipes only — **zero Square-Enix bytes**. The stock-donor
 > formula/field templates live in `ff9mapkit/battle/scriptsource.py` (kit source: battle templates cloned from the

@@ -104,6 +104,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Enemy AI disassembly (`battle-ai`), scene inspection (`battle-scene`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Player-side tuning: base stats, leveling, gems, ability effects (`ability-features`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Mint a brand-new battle **formula** (`script = {template/body}` → `Memoria.Scripts.<Mod>.dll`) — drain / %-max-HP / custom C#, no engine rebuild | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
+| Pair a **field effect** (`script.field`) so a scripted ability heals/cures out of combat too — same DLL, same scriptId | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | Reshape a battle map in Blender (add-on Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
 
 ## Custom 3D models
