@@ -132,6 +132,39 @@ def test_cliff_rock_uvs_constant_density_no_corner_stretch():
     assert abs(med_corner - med_all) / med_all < 0.35         # corners are NOT stretched (density ~ the flats)
 
 
+def test_blob_cliff_is_a_smooth_organic_island():
+    # the faithful move off the 64u SQUARE: a smooth star-convex outline (FF9 coasts are gentle ~25u curves,
+    # NOT rectangles). Assert: organic outline (not axis-aligned), watertight, all walkable, rock UV along the curve.
+    import math
+    bm, outline = M.blob_cliff_block_mesh(x=4, y=17)
+    # outline is organic: radii vary (a real curve), and it is NOT the cell rectangle (no long axis-aligned runs)
+    rad = [math.hypot(px - 32.0, pz + 32.0) for (px, pz) in outline]
+    assert 15.0 < min(rad) and max(rad) < 31.0                 # inside the 64u cell with a water margin, non-degenerate
+    assert (max(rad) - min(rad)) > 1.5                         # the radius varies -> a curve, not a circle/square
+    axis_aligned = sum(1 for i in range(len(outline))
+                       if abs(outline[i][0] - outline[i - 1][0]) < 0.05 or abs(outline[i][1] - outline[i - 1][1]) < 0.05)
+    assert axis_aligned < len(outline) * 0.15                  # almost no axis-aligned edges (not a rectangle)
+    # mesh integrity: every tri up-facing (walkable) + watertight (coincident XZ share Y)
+    assert all(_geom_normal_y(bm, t) > 0 for t in bm.tris)
+    seen = {}
+    for v in bm.verts:
+        k = (round(v[0], 3), round(v[2], 3))
+        assert abs(seen.setdefault(k, v[1]) - v[1]) < 1e-4
+    topos = {X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] for t in bm.tris}
+    assert topos == {0, 58}                                    # walkable grass top + rock wall
+    ys = [v[1] for v in bm.verts]
+    assert min(ys) == 0.0 and 3.0 < max(ys) < 4.2              # waterline base up to ~land_height (+roll)
+    # rock UV runs along the SMOOTH outline arc-length -> stays in the strip, uniform density (no corner warp)
+    for u in bm.chan_arrays[X.CH_UV]:
+        u[0] = u[1] = 0.0
+    bm = T._apply_cliff_rock_uvs(bm, outline=outline)
+    wall_us = [bm.uvs[i][0] for t in bm.tris if X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] == 58 for i in t]
+    assert wall_us and all(0.699 - 1e-6 <= u <= 0.947 + 1e-6 for u in wall_us)
+    # a distinct seed per cell -> a distinct shape (reproducible, not identical islands)
+    _, outline2 = M.blob_cliff_block_mesh(x=9, y=3)
+    assert outline2 != outline
+
+
 def test_reclaim_dry_run_and_dispatch(monkeypatch):
     deployed = []
     monkeypatch.setattr(PAL, "apply_palette_uvs", lambda bm, **k: bm)          # no install needed
