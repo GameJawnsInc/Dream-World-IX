@@ -61,12 +61,14 @@ class ImportDoc(QWidget):
         root.addWidget(self._fork_box())
         root.addWidget(self._region_box())
         root.addWidget(self._repaint_box())
+        root.addWidget(self._models_box())
         root.addWidget(self._read_box())
         root.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
         self._buttons = [self.find_btn, self.preview_btn, self.import_btn, self.dryrun_btn,
                          self.fork_region_btn, self.catalog_btn, self.rp_unpack_btn, self.rp_pack_btn,
+                         self.mdl_pick_btn, self.mdl_gltf_btn, self.mdl_import_btn, self.mdl_mint_btn,
                          self.dlg_btn, self.save_btn, self.list_btn, self.songs_btn, self.sfx_btn,
                          self.tpl_btn]
 
@@ -497,6 +499,150 @@ class ImportDoc(QWidget):
         tpl.addWidget(tplhint, 1)
         v.addLayout(tpl)
         return box
+
+    # ------------------------------------------------------------------ custom 3D models
+    def _models_box(self):
+        """The DLL-free model round trip: export a real model to a Blender-editable .glb, then bring the
+        edited .glb back as a loose-FBX override — or MINT a brand-new model id from a source. All three
+        stream `py -m ff9mapkit model-*` through the shell's job runner."""
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Custom 3D models  (export → edit in Blender → import / mint)")
+        v = QVBoxLayout(box)
+        lbl = QLabel("Every FF9 model is editable, no engine DLL: export it as a .glb (mesh + rig + textures "
+                     "+ animations), edit in Blender, then import the .glb back as a loose override — or mint "
+                     "it to a NEW id (≥ 6000) and place it with [[npc]] model = <id>. The Info Hub's model "
+                     "pages have an 'Export for Blender…' button too.")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(muted)
+        v.addWidget(lbl)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Model:"))
+        self.mdl_token = QLineEdit()
+        self.mdl_token.setPlaceholderText("GEO name or id — e.g. GEO_MAIN_F0_VIV or 8")
+        row.addWidget(self.mdl_token, 1)
+        self.mdl_pick_btn = QPushButton("Browse…")
+        self.mdl_pick_btn.clicked.connect(self.on_model_pick)
+        row.addWidget(self.mdl_pick_btn)
+        self.mdl_gltf_btn = QPushButton("Export .glb…")
+        self.mdl_gltf_btn.setToolTip("Write the model as a Blender-openable glTF (File ▸ Import ▸ glTF 2.0).")
+        self.mdl_gltf_btn.clicked.connect(self.on_model_gltf)
+        row.addWidget(self.mdl_gltf_btn)
+        v.addLayout(row)
+
+        dep = QHBoxLayout()
+        dep.addWidget(QLabel("Deploy into:"))
+        from ..editor import jobs
+        gm = jobs.detect_game_mod()
+        self.mdl_mod = QLineEdit(str(gm) if gm else "")
+        self.mdl_mod.setPlaceholderText("a mod folder, e.g. <game>/FF9CustomMap")
+        dep.addWidget(self.mdl_mod, 1)
+        mb = QPushButton("Browse…")
+        mb.clicked.connect(self.browse_model_mod)
+        dep.addWidget(mb)
+        v.addLayout(dep)
+
+        imp = QHBoxLayout()
+        imp.addWidget(QLabel("Edited .glb:"))
+        self.mdl_glb = QLineEdit()
+        self.mdl_glb.setPlaceholderText("the .glb you exported from Blender")
+        imp.addWidget(self.mdl_glb, 1)
+        gb = QPushButton("Browse…")
+        gb.clicked.connect(self.browse_model_glb)
+        imp.addWidget(gb)
+        self.mdl_import_btn = QPushButton("Import model")
+        self.mdl_import_btn.setToolTip("Splice the edited geometry back over the pristine rig (auto-detected "
+                                       "from the kit's glTF stamp) + write any CHANGED animation clips.")
+        self.mdl_import_btn.clicked.connect(self.on_model_import)
+        imp.addWidget(self.mdl_import_btn)
+        v.addLayout(imp)
+
+        mint = QHBoxLayout()
+        mint.addWidget(QLabel("Mint new id:"))
+        self.mdl_mint_id = QLineEdit("6000")
+        self.mdl_mint_id.setFixedWidth(70)
+        self.mdl_mint_id.setToolTip("The new model id — ≥ 6000 (clear of every real id).")
+        mint.addWidget(self.mdl_mint_id)
+        self.mdl_mint_btn = QPushButton("Mint from model")
+        self.mdl_mint_btn.setToolTip("Re-export the Model above to a brand-new id + register it in "
+                                     "DictionaryPatch.txt (3DModel line). Place it with [[npc]] model = <id>.")
+        self.mdl_mint_btn.clicked.connect(self.on_model_mint)
+        mint.addWidget(self.mdl_mint_btn)
+        mint.addStretch(1)
+        v.addLayout(mint)
+        hint = QLabel("Mesh edits show on F6 → Reload; edited ANIMATIONS and newly MINTED ids need a game "
+                      "relaunch (clips + DictionaryPatch load at startup).")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(muted)
+        v.addWidget(hint)
+        return box
+
+    def on_model_pick(self):
+        from .forms_qt import pick_catalog
+        name = pick_catalog(self, "model", self.mdl_token.text().strip(), None, self.pal)
+        if name:
+            self.mdl_token.setText(name)
+
+    def _model_token_arg(self):
+        t = self.mdl_token.text().strip()
+        if not t:
+            self._warn("No model", "Enter (or Browse…) a GEO model name or id first.")
+            return None
+        return t
+
+    def _model_mod_arg(self):
+        m = self.mdl_mod.text().strip().strip('"')
+        if not m:
+            self._warn("No mod folder", "Pick the mod folder to deploy the model into (Deploy into:).")
+            return None
+        return m
+
+    def on_model_gltf(self):
+        token = self._model_token_arg()
+        if token is None:
+            return
+        out, _ = QFileDialog.getSaveFileName(self, "Export for Blender", f"{token}.glb",
+                                             "glTF binary (*.glb)")
+        if not out:
+            return
+        self._kit(["model-gltf", token, "--out", out], subject="Export .glb",
+                  ok_next=f"Wrote {out} — Blender: File ▸ Import ▸ glTF 2.0. Edit, export a .glb, then "
+                          "Import model below.")
+
+    def on_model_import(self):
+        glb = self.mdl_glb.text().strip().strip('"')
+        if not glb or not Path(glb).is_file():
+            return self._warn("No .glb", "Pick the edited .glb you exported from Blender.")
+        mod = self._model_mod_arg()
+        if mod is None:
+            return
+        self._kit(["model-import", glb, "--deploy", mod], subject="Import model",
+                  ok_next="Override deployed. Mesh edits: F6 → Reload on a field using the model. "
+                          "Edited animations need a game RELAUNCH.")
+
+    def on_model_mint(self):
+        token = self._model_token_arg()
+        if token is None:
+            return
+        mod = self._model_mod_arg()
+        if mod is None:
+            return
+        mid = self.mdl_mint_id.text().strip()
+        if not mid.isdigit() or int(mid) < 6000:
+            return self._warn("Bad id", "The mint id must be a number ≥ 6000 (below is the real-model band).")
+        self._kit(["model-mint", token, "--id", mid, "--deploy", mod], subject="Mint model",
+                  ok_next=f"Minted id {mid} + registered it in DictionaryPatch.txt. RELAUNCH FF9, then "
+                          f"place it with [[npc]] model = {mid} (its animations came along from the source).")
+
+    def browse_model_mod(self):
+        d = QFileDialog.getExistingDirectory(self, "Mod folder to deploy models into")
+        if d:
+            self.mdl_mod.setText(d)
+
+    def browse_model_glb(self):
+        f, _ = QFileDialog.getOpenFileName(self, "The Blender-edited glTF", "", "glTF (*.glb *.gltf)")
+        if f:
+            self.mdl_glb.setText(f)
 
     # ------------------------------------------------------------------ repaint a native fork
     def _repaint_box(self):

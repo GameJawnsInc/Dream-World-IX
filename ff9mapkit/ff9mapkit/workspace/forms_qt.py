@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
+    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .. import dialogue as _dlg
@@ -450,6 +450,12 @@ class CatalogLibrary(QDialog):
         cs = QPushButton("Copy snippet")
         cs.setToolTip("Copy a ready-to-paste field.toml block for this entry")
         cs.clicked.connect(self._copy_snippet)
+        self.blender_btn = QPushButton("Export for Blender…")
+        self.blender_btn.setToolTip("Write this model as a .glb (mesh + rig + textures + its standard "
+                                    "animations) — Blender opens it via File ▸ Import ▸ glTF 2.0. Edit it, "
+                                    "then bring it back on the Import tab's Custom models box.")
+        self.blender_btn.clicked.connect(self._export_gltf)
+        self.blender_btn.setEnabled(False)
         helpb = QPushButton("?")
         helpb.setToolTip("What's in the Info Hub? (glossary + how to use it)")
         helpb.setFixedSize(30, 30)                         # a circular violet badge -- pops out from the
@@ -462,6 +468,7 @@ class CatalogLibrary(QDialog):
         close.clicked.connect(self.reject)
         bar.addWidget(cn)
         bar.addWidget(cs)
+        bar.addWidget(self.blender_btn)
         bar.addStretch(1)
         bar.addWidget(helpb)
         bar.addWidget(close)
@@ -517,8 +524,18 @@ class CatalogLibrary(QDialog):
         r = self.lst.currentRow()
         return self._entries[r] if 0 <= r < len(self._entries) else None
 
+    @staticmethod
+    def _model_token(e):
+        """The GEO model behind an entry (for the Blender export), or None: a raw model entry IS one;
+        archetypes/creatures/props carry theirs in ``e.model``."""
+        if e is None:
+            return None
+        return e.name if e.kind == "model" else e.model
+
     def _describe(self, _row=0):
         e = self._current()
+        if hasattr(self, "blender_btn"):
+            self.blender_btn.setEnabled(self._model_token(e) is not None)
         if e is None:
             self.detail.setHtml("")
             return
@@ -528,6 +545,40 @@ class CatalogLibrary(QDialog):
             self.detail.setHtml(f"<b>{_esc(e.name)}</b> [{_esc(e.kind)}]<br>{_esc(e.summary)}")
             return
         self.detail.setHtml(self._render(d))
+
+    def _export_gltf(self):
+        """Export the selected model as a Blender-editable .glb, IN-PROCESS (a couple of seconds behind a
+        wait cursor — the library is modal, so streaming to the shell's Output would be invisible). The
+        success box carries the model's appearance caveats (hair-swap / story-evolved forms)."""
+        token = self._model_token(self._current())
+        if token is None:
+            return
+        out, _ = QFileDialog.getSaveFileName(self, "Export for Blender", f"{token}.glb",
+                                             "glTF binary (*.glb)")
+        if not out:
+            return
+        from PySide6.QtGui import QCursor
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            from ..models import gltf as _gltf
+            info = _gltf.export_gltf(token, out)
+        except Exception as e:                             # noqa: BLE001  (no install / no UnityPy / bad token)
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Export failed", f"{e}\n\n(The model export needs your FF9 install "
+                                                       "+ UnityPy — check ⚙ ▸ Setup & health.)")
+            return
+        QApplication.restoreOverrideCursor()
+        notes = []
+        try:
+            from ..models.appearance import appearance_notes
+            notes = appearance_notes(token, minted=False)
+        except Exception:                                  # noqa: BLE001
+            pass
+        extra = ("\n\nHeads-up:\n" + "\n".join(f"• {n}" for n in notes)) if notes else ""
+        QMessageBox.information(
+            self, "Exported for Blender",
+            f"Wrote {out}\n\nBlender: File ▸ Import ▸ glTF 2.0. When you're done editing, export a .glb "
+            f"and bring it back via Import ▸ Custom models ▸ Import edited .glb.{extra}")
 
     def _render(self, d) -> str:
         muted = self.pal["muted"]

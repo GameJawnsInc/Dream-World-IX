@@ -805,7 +805,8 @@ class Workspace(QMainWindow):
         search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
-        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, About, and updates", [
+        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, Setup, About, and updates", [
+            ("Setup && health…", self._open_setup),
             ("Preferences…", self._open_preferences),
             ("Check for updates…", self._open_update_dialog),
             ("About Dream World IX", self._open_about),
@@ -1018,6 +1019,14 @@ class Workspace(QMainWindow):
         self._home_status.setWordWrap(True)
         self._home_status.setTextFormat(Qt.TextFormat.RichText)
         v.addWidget(self._home_status)
+        # First-run affordance: when the install isn't configured (or templates aren't extracted), say so
+        # HERE — the alternative is a fresh user meeting greyed-out buttons with no explanation.
+        self._home_setup = QLabel("")
+        self._home_setup.setWordWrap(True)
+        self._home_setup.setTextFormat(Qt.TextFormat.RichText)
+        self._home_setup.setVisible(False)
+        self._home_setup.linkActivated.connect(lambda _h: self._open_setup())
+        v.addWidget(self._home_setup)
         intro = QLabel("Start at <b>any</b> level — they nest (journey ▸ campaign ▸ field ▸ object), but none "
                        "<i>requires</i> the one above. A <b>journey</b> is the front door (the whole arc); you "
                        "can also open a single campaign or field directly.")
@@ -1122,6 +1131,17 @@ class Workspace(QMainWindow):
             self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
         else:
             self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
+        if hasattr(self, "_home_setup"):
+            try:
+                from .. import health
+                issues = health.quick_issues()
+            except Exception:   # noqa: BLE001  (the banner must never break Home)
+                issues = []
+            self._home_setup.setVisible(bool(issues))
+            if issues:
+                self._home_setup.setText(
+                    f'<span style="color:{self.pal["warn"]};">⚠ {_esc(" · ".join(issues))}</span> — '
+                    f'<a href="setup">open Setup &amp; health</a> to fix it.')
         self._refresh_recent()
 
     _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
@@ -3101,6 +3121,7 @@ class Workspace(QMainWindow):
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
             ("About Dream World IX", "command", self._open_about),
@@ -5277,6 +5298,18 @@ class Workspace(QMainWindow):
                 return m.real_id
         return None
 
+    def _open_setup(self):
+        """The Setup & Health dialog — the onboarding front door (⚙ menu / Ctrl-K / the Home banner).
+        ONE instance, reused: a per-open instance would let a closed dialog's setup process run on
+        invisibly while a fresh instance's busy-guard knows nothing about it (two concurrent setups)."""
+        from .setupdialog import SetupHealthDialog
+        dlg = getattr(self, "_setup_dlg", None)
+        if dlg is None:
+            dlg = SetupHealthDialog(self, self.pal, kit_cwd=KIT, on_change=self._refresh_home_status)
+            self._setup_dlg = dlg
+        dlg.refresh()
+        dlg.exec()
+
     def _prewarm_songs(self):
         """Warm the song-manifest disk cache in the background (the first-ever extraction reads the
         install's 590 MB resources.assets) so the music form's Browse… picker opens instantly instead of
@@ -5992,6 +6025,16 @@ def _smoke(win):
     assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
     assert all(not e["path"].endswith("missing.field.toml") for e in _rec), "dead entry not pruned"
     camp = win.tree.topLevelItem(0)                       # the Reopen round-trip rebuilt the tree -> re-fetch
+    # Setup & Health: the command is in the palette, the Home banner widget exists, and the pure report
+    # engine renders rows without raising even on this (possibly game-less) machine.
+    assert any(lbl == "Setup & health…" for lbl, _k, _cb in win._command_index()), "no Setup palette row"
+    assert hasattr(win, "_home_setup")
+    from .. import health as _health
+    assert _health.worst_level(_health.health_report()) in ("ok", "warn", "bad")
+    # Custom models: the Import tab's box built with its four actions wired
+    for _btn in (win.import_field.mdl_pick_btn, win.import_field.mdl_gltf_btn,
+                 win.import_field.mdl_import_btn, win.import_field.mdl_mint_btn):
+        assert _btn is not None
     # the campaign Map document renders the same graph (compute_layout core) -- 3 nodes, 1 edge
     assert win.map._layout is not None and len(win.map._layout.nodes) == 3
     assert len(win.map._layout.edges) == 1
