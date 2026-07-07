@@ -17,6 +17,7 @@ import html
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
@@ -408,6 +409,7 @@ class Workspace(QMainWindow):
         self._build_dock()
         self.statusBar().showMessage("Open a campaign.toml to begin.")
         self._build_version_label()
+        self._restore_layout()                     # window/dock/splitter from the last session (best-effort)
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -651,8 +653,15 @@ class Workspace(QMainWindow):
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};")
         lay.addWidget(hint)
+        restore = QCheckBox("Reopen the last project on launch")
+        restore.setObjectName("restore_chk")
+        restore.setToolTip("Pick up exactly where you left off — the most recent journey/campaign/field "
+                           "opens automatically when the Workspace starts.")
+        restore.setChecked(prefs.restore_session())
+        lay.addWidget(restore)
         if update_check.is_installed():
             chk = QCheckBox("Check pypi.org once a day for a newer release")
+            chk.setObjectName("update_chk")
             chk.setChecked(update_check.is_enabled())
             lay.addWidget(chk)
         else:                                          # a source checkout: no auto-check (you update via git)
@@ -671,6 +680,7 @@ class Workspace(QMainWindow):
         def _accept():
             state["ok"] = True
             prefs.set_theme(combo.currentData())
+            prefs.set_restore_session(restore.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
@@ -865,6 +875,15 @@ class Workspace(QMainWindow):
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
 
+        tree_col = QWidget()                       # the tree + its filter box, one splitter pane
+        tv = QVBoxLayout(tree_col)
+        tv.setContentsMargins(0, 0, 0, 0)
+        tv.setSpacing(4)
+        self.tree_filter = QLineEdit()
+        self.tree_filter.setPlaceholderText("⌕ filter the tree…")
+        self.tree_filter.setClearButtonEnabled(True)
+        self.tree_filter.textChanged.connect(self._filter_tree)
+        tv.addWidget(self.tree_filter)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)        # the unsaved-dot icon must NOT change a row's height
@@ -879,7 +898,8 @@ class Workspace(QMainWindow):
         for _ekey in (Qt.Key_Return, Qt.Key_Enter):                 # Enter = open (parity with double-click)
             esc = QShortcut(QKeySequence(_ekey), self.tree, activated=self._open_current_tree_item)
             esc.setContext(Qt.ShortcutContext.WidgetShortcut)
-        split.addWidget(self.tree)
+        tv.addWidget(self.tree, 1)
+        split.addWidget(tree_col)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -951,6 +971,7 @@ class Workspace(QMainWindow):
 
         split.setSizes([300, 640, 240])
         split.setStretchFactor(1, 1)
+        self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
 
     def _dock_header(self, text):
@@ -988,9 +1009,27 @@ class Workspace(QMainWindow):
         ov = QVBoxLayout(out_page)
         ov.setContentsMargins(8, 8, 8, 8)
         ov.setSpacing(6)
-        ov.addWidget(self._dock_header("Output"))
+        head = QHBoxLayout()
+        head.addWidget(self._dock_header("Output"))
+        head.addStretch(1)
+        self._out_wrap = QPushButton("Wrap")
+        self._out_wrap.setCheckable(True)
+        self._out_wrap.setToolTip("Toggle line wrapping (long deploy lines vs a horizontal scroll)")
+        self._out_wrap.clicked.connect(
+            lambda on: self.output.setLineWrapMode(
+                QPlainTextEdit.LineWrapMode.WidgetWidth if on else QPlainTextEdit.LineWrapMode.NoWrap))
+        out_copy = QPushButton("Copy")
+        out_copy.setToolTip("Copy the whole console to the clipboard")
+        out_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.output.toPlainText()))
+        out_clear = QPushButton("Clear")
+        out_clear.clicked.connect(lambda: self.output.clear())
+        for b in (self._out_wrap, out_copy, out_clear):
+            b.setFixedHeight(24)
+            head.addWidget(b)
+        ov.addLayout(head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)
 
@@ -4962,6 +5001,7 @@ class Workspace(QMainWindow):
 
     def closeEvent(self, event):                   # noqa: N802 (Qt override)
         if self._maybe_prompt_unsaved():
+            self._save_layout()                    # window/dock/splitter come back next launch
             event.accept()
         else:
             event.ignore()
@@ -5363,6 +5403,59 @@ class Workspace(QMainWindow):
             if m is not None:
                 return m.real_id
         return None
+
+    # ---- session continuity ----
+    def _filter_tree(self, text):
+        """Filter the project tree by substring: non-matching rows hide, ancestors of a match stay
+        visible, matches expand. Only what's LOADED filters (lazy object children appear on expand)."""
+        q = (text or "").strip().lower()
+
+        def walk(item) -> bool:
+            hit = q in item.text(0).lower()
+            child_hit = False
+            for i in range(item.childCount()):
+                if walk(item.child(i)):
+                    child_hit = True
+            show = not q or hit or child_hit
+            item.setHidden(not show)
+            if q and child_hit:
+                item.setExpanded(True)
+            return hit or child_hit
+
+        for i in range(self.tree.topLevelItemCount()):
+            walk(self.tree.topLevelItem(i))
+
+    def _restore_layout(self):
+        """Apply the persisted window geometry / dock state / central splitter (best-effort; a stale or
+        corrupt value falls back to the built-in defaults)."""
+        lay = prefs.layout()
+        try:
+            from PySide6.QtCore import QByteArray
+            if lay.get("geometry"):
+                self.restoreGeometry(QByteArray.fromBase64(lay["geometry"].encode("ascii")))
+            if lay.get("state"):
+                self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")))
+            if lay.get("central_split"):
+                self._central_split.setSizes(lay["central_split"])
+        except Exception:   # noqa: BLE001  (never let a bad layout block launch)
+            pass
+
+    def _save_layout(self):
+        try:
+            prefs.set_layout({
+                "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
+                "state": bytes(self.saveState().toBase64()).decode("ascii"),
+                "central_split": [int(x) for x in self._central_split.sizes()],
+            })
+        except Exception:   # noqa: BLE001
+            pass
+
+    def restore_last_session(self) -> bool:
+        """Reopen the most recent project (the opt-in launch behavior). True when something opened."""
+        for e in prefs.recent():
+            if Path(e["path"]).exists():
+                return bool(self._open_recent(e["kind"], e["path"]))
+        return False
 
     def _deploy_target(self) -> str:
         """What F9 would deploy: the Build & Deploy tab's aimed project file (pre-aimed on every open),
@@ -6035,6 +6128,8 @@ class Workspace(QMainWindow):
             return False
         self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
         self.output.clear()
+        self.output.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {subject}\n"
+                                    f"$ {' '.join(str(a) for a in argv[1:])}")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_dock()
         self.act_lint_cli.setEnabled(False)
@@ -7722,6 +7817,11 @@ def main(argv=None):
         return
     win.show()
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
+    if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
+        try:
+            win.restore_last_session()
+        except Exception:                          # noqa: BLE001  (a broken project must not block launch)
+            pass
     sys.exit(app.exec())
 
 

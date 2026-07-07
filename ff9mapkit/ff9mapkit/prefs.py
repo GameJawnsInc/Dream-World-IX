@@ -97,3 +97,32 @@ def remove_recent(path) -> None:
     """Drop one path from the recent list (e.g. the file no longer exists)."""
     p = str(path)
     put("recent", [e for e in recent() if e["path"] != p])
+
+
+def restore_session() -> bool:
+    """Opt-in: reopen the most recent project on launch. Default False."""
+    return get("restore_session", False) is True
+
+
+def set_restore_session(on: bool) -> None:
+    put("restore_session", bool(on))
+
+
+def layout() -> dict:
+    """The saved window layout: ``{"geometry": b64, "state": b64, "central_split": [ints]}`` — any subset;
+    garbage-tolerant like every pref (a corrupt value is just dropped)."""
+    val = get("layout", {})
+    if not isinstance(val, dict):
+        return {}
+    out = {}
+    for k in ("geometry", "state"):
+        if isinstance(val.get(k), str) and val[k]:
+            out[k] = val[k]
+    cs = val.get("central_split")
+    if isinstance(cs, list) and cs and all(isinstance(x, int) and x >= 0 for x in cs):
+        out["central_split"] = cs
+    return out
+
+
+def set_layout(d: dict) -> None:
+    put("layout", d)
