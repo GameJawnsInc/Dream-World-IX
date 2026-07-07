@@ -99,6 +99,28 @@ abilities = [
   { name = "Voltflare", from = "Fire", power = 1, element = ["Thunder"], mp = 18, status = ["Silence"], rate = 50, effect = "[code=MPCost] 0 [/code]" },
 ]
 
+# --- A SECOND custom character on a DIFFERENT rig -- proves the [[playable]] stack isn't Vivi/mage-specific.
+# "Steiniv" borrows STEINER (a physical KNIGHT: Attack + Sword Arts, high strength), takes its OWN CharacterId 13,
+# and recruits ALONGSIDE Iviv. The kit auto-allocates DISTINCT bands for the 2nd character -- BaseStats/
+# CharacterParameters id 13, preset 21 (Iviv's is 20), command 35 (Iviv's "Spark" is 46), custom ability 193
+# (Voltflare is 192) -- so the whole custom stack GENERALIZES across rigs and two custom characters coexist.
+[[playable]]
+id = 13
+name = "Steiniv"
+borrow = "steiner"          # a physical knight rig (vs Iviv's Vivi mage rig)
+recruit = true
+stats = { strength = 60 }   # a strong knight (the stat-override path, on a non-mage donor)
+
+[playable.abilities]
+preset    = "custom"        # a 2nd custom preset -> auto-allocates 21 (must not collide with Iviv's 20)
+menu_from = "steiner"       # clone Steiner's command set (Attack / Sword Art) + learn file
+
+[playable.abilities.command1]   # a 2nd custom command "Rune" -> the next band id (35; Iviv's "Spark" took 46)
+name = "Rune"
+# a custom SWORD skill (a 2nd custom ability -> id 193) cloned from Beatrix's "Flare Sword" (a sword animation +
+# formula), retuned cheap -- proving the custom-ability path works off a PHYSICAL/sword donor, not just a mage spell.
+abilities = [ { name = "Iron Edge", from = "Flare Sword", power = 30, mp = 4 } ]
+
 # --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---
 [encounter]
 scene = 67                 # Evil Forest / Trail (the game's first, weakest battles)
