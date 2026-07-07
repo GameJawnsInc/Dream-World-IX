@@ -305,3 +305,95 @@ def test_engine_drift_quiet_on_missing_data(tmp_path, monkeypatch):
         raise sc.ScriptCompileError("no install")
     monkeypatch.setattr(sc, "_managed_dir", _boom)
     assert sc.engine_drift_warning(dll, game=None) is None                            # can't resolve the install
+
+
+# ---- P7: the FIELD-effect channel ([FieldAbilityScript], paired at the same scriptId) ------------------
+def test_render_field_template_shape():
+    fname, src = ss.render_field_script(256, "Lifewell", template="field_white_wind")
+    assert fname == "0256_LifewellFieldScript.cs"                          # distinct from the battle 0256_LifewellScript.cs
+    assert "public sealed class Lifewell256FieldScript : FieldAbilityScriptBase" in src
+    assert "[FieldAbilityScript(Id)]" in src
+    assert "public const Int32 Id = 256;" in src
+    assert "public override void Apply(FieldCalculator v)" in src
+    assert "namespace Memoria.Scripts.Field" in src
+    assert "v.TargetRecoverHp" in src                                      # the white_wind field-heal body (donor case 30)
+
+
+def test_render_field_body_and_errors():
+    fname, src = ss.render_field_script(300, "Warp", body="v.TargetRecoverHp = (Int32)v.Target.max.hp;")
+    assert fname == "0300_WarpFieldScript.cs" and "v.TargetRecoverHp = (Int32)v.Target.max.hp;" in src
+    with pytest.raises(ss.ScriptSourceError):
+        ss.render_field_script(256, "X", template="does_not_exist")
+    with pytest.raises(ss.ScriptSourceError):
+        ss.render_field_script(256, "X", body="   ")
+
+
+def test_all_field_templates_render():
+    for t in ss.FIELD_TEMPLATES:
+        _, src = ss.render_field_script(256, "T", template=t)
+        assert "public override void Apply(FieldCalculator v)" in src and "Memoria.Scripts.Field" in src
+
+
+def test_write_scripts_battle_and_field_coexist(tmp_path):
+    # a paired ability writes BOTH a battle Script.cs and a field FieldScript.cs at the SAME id, distinct files;
+    # a rebuild with a different set WIPES both stale files (one wipe covers battle + field).
+    layout = ModLayout(tmp_path)
+    ss.write_scripts(layout, [{"id": 256, "name": "Lifewell", "template": "white_wind"}],
+                     [{"id": 256, "name": "Lifewell", "template": "field_white_wind"}])
+    names = {p.name for p in layout.scripts_sources_dir.glob("*.cs")}
+    assert names == {"0256_LifewellScript.cs", "0256_LifewellFieldScript.cs"}
+    ss.write_scripts(layout, [{"id": 256, "name": "New", "template": "drain_hp"}], [])
+    assert {p.name for p in layout.scripts_sources_dir.glob("*.cs")} == {"0256_NewScript.cs"}
+
+
+def test_parse_field_pairs_scriptid():
+    specs = pl.parse_all([_iviv([
+        {"name": "Lifewell", "from": "Cure",
+         "script": {"template": "white_wind", "field": {"template": "field_white_wind"}}},
+    ])])
+    assert pl.script_seeds(specs) == [{"id": ad._CUSTOM_SCRIPT_MIN, "name": "Lifewell", "template": "white_wind"}]
+    assert pl.field_script_seeds(specs) == [{"id": ad._CUSTOM_SCRIPT_MIN, "name": "Lifewell",
+                                             "template": "field_white_wind"}]       # SAME id, field half split out
+
+
+def test_field_requires_paired_battle_script():
+    with pytest.raises(pl.PlayableError):                                  # script.field alone has no id to bind to
+        pl.parse_all([_iviv([{"name": "X", "from": "Cure", "script": {"field": {"template": "field_heal_hp"}}}])])
+
+
+def test_field_unknown_template_raises():
+    with pytest.raises(pl.PlayableError):
+        pl.parse_all([_iviv([{"name": "X", "from": "Cure",
+                              "script": {"template": "white_wind", "field": {"template": "nope"}}}])])
+
+
+def test_full_build_compiles_field_and_battle(tmp_path):
+    """A paired battle+field scripted ability -> BOTH .cs compiled into the ONE Memoria.Scripts.<Mod>.dll, sharing
+    the minted 256-band scriptId (so the ability behaves in AND out of combat). Skips without the install / csc."""
+    from ff9mapkit.battle import scriptcompile
+    toml = (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+            '\n[playable.abilities]\nmenu_from = "vivi"\n'
+            '\n[playable.abilities.command1]\nname = "Spark"\n'
+            'abilities = [{ name = "Lifewell", from = "Cure", '
+            'script = { template = "white_wind", field = { template = "field_white_wind" } } }]\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []               # lint clean offline (validates both template names)
+    if not scriptcompile.toolchain_available():
+        pytest.skip("no C# compiler (csc) to build the mod formula DLL")
+    out = tmp_path / "mod"
+    try:
+        build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
+    except BuildError as ex:
+        if "install" in str(ex).lower() or "managed" in str(ex).lower():
+            pytest.skip("no FF9 install for the base CSVs / managed DLLs")
+        raise
+    layout = ModLayout(out)
+    dll = layout.scripts_dll("FF9CustomMap")
+    assert dll.exists() and dll.stat().st_size > 0
+    srcs = {s.name for s in layout.scripts_sources_dir.glob("*.cs")}
+    assert any(n.endswith("FieldScript.cs") for n in srcs)    # the [FieldAbilityScript]
+    assert any(n.endswith("Script.cs") and not n.endswith("FieldScript.cs") for n in srcs)   # the [BattleScript]
+    arow = next(l for l in layout.actions_csv.read_text(encoding="cp1252").splitlines()
+                if l.startswith("Lifewell;192;"))
+    assert int(arow.split(";")[10]) == ad._CUSTOM_SCRIPT_MIN  # ONE scriptId binds both

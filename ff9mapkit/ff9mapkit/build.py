@@ -2047,7 +2047,7 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
         specs = _playable.parse_all(pl)
     except _playable.PlayableError:
         return                                            # a broken [[playable]] is already reported by validate()
-    scripts = _playable.script_seeds(specs)
+    scripts = _playable.script_seeds(specs) + _playable.field_script_seeds(specs)
     if not scripts:
         return                                            # no `script = {...}` ability -> the Scripts-DLL channel is inert
     from .battle import scriptcompile as _scomp
@@ -5466,7 +5466,8 @@ def _emit_scripts(projects, layout, mod_name) -> list:
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
     scripts = _playable.script_seeds(specs)
-    if not scripts:
+    field_scripts = _playable.field_script_seeds(specs)   # paired [FieldAbilityScript] effects (P7), same DLL + scriptId
+    if not scripts and not field_scripts:
         # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
         # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
         # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
@@ -5475,11 +5476,13 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         return []
     from .battle import scriptsource as _ssrc, scriptcompile as _scomp
     try:
-        warnings = list(_ssrc.write_scripts(layout, scripts))
+        warnings = list(_ssrc.write_scripts(layout, scripts, field_scripts))   # ONE wipe -> battle + field .cs together
         _scomp.compile_scripts(layout, mod_name)
     except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
         raise BuildError(str(ex))
-    warnings.append(f"scripted abilities: built Memoria.Scripts.{mod_name}.dll ({len(scripts)} custom formula(s)). "
+    made = (f"{len(scripts)} battle formula(s)"
+            + (f" + {len(field_scripts)} field effect(s)" if field_scripts else ""))
+    warnings.append(f"scripted abilities: built Memoria.Scripts.{mod_name}.dll ({made}). "
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
     return warnings
 

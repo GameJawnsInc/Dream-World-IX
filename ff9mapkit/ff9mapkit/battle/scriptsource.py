@@ -133,6 +133,75 @@ __BODY__
 """
 
 
+# ---- FIELD ability effects (the [FieldAbilityScript] surface -- an OUT-OF-BATTLE effect, project-ff9-scripts-dll P7) ----
+# A field script runs when an ability/item is used from the FIELD menu (SFieldCalculator.FieldCalcMain -> GetFieldAbilityScript
+# by the action's Ref.ScriptId -> Apply(FieldCalculator)). The kit pairs one with a battle FORMULA at the SAME minted scriptId
+# so a custom ability behaves BOTH in and out of combat. Each template is cloned VERBATIM from a shipped
+# SFieldCalculator.DefaultFieldScript arm (Memoria C# source, MIT) -- so it can't crash the field calc and reads the ability's
+# OWN Actions.csv tuning (e.g. `v.Action.Ref.Power`). The body's variable is `v` (the FieldCalculator), matching the donor.
+# template name -> the C# ``Apply()`` BODY, transcribed from SFieldCalculator.cs (donor case + line cited).
+FIELD_TEMPLATES: dict[str, str] = {
+    # case 10 "Magic Recovery" (SFieldCalculator.cs:52-60) -- heal the target's HP (spell heal). Point `targets` at an ally.
+    "field_heal_hp": """\
+if (v.CanBeHealed(true, false))
+{
+    v.SetupSpellHeal();
+    v.ApplyConcentrate();
+    v.ApplyMultiTarget();
+    v.HealHp();
+}""",
+    # case 12 "Magic Cure Status" (SFieldCalculator.cs:61-63) -- cure the ability's status set off the target.
+    "field_cure_status": """\
+v.CureActionStatuses();""",
+    # case 13 "Revive" (SFieldCalculator.cs:64-67) -- revive a KO'd ally (spell revive).
+    "field_revive": """\
+if (v.CanBeRevived())
+    v.ReviveSpell();""",
+    # case 30 "White Wind" (SFieldCalculator.cs:84-92) -- heal a fraction of the CASTER's max HP (power 0 -> 1/3, else
+    # power%). The natural PAIR for the battle `white_wind` formula (heals in AND out of combat).
+    "field_white_wind": """\
+if (v.CanBeHealed(true, false))
+{
+    if (v.Action.Ref.Power == 0)
+        v.TargetRecoverHp = (Int32)v.Caster.max.hp / 3;
+    else
+        v.TargetRecoverHp = (Int32)v.Caster.max.hp * v.Action.Ref.Power / 100;
+}""",
+    # case 37 "Chakra" (SFieldCalculator.cs:93-98) -- heal HP + MP by a % of the TARGET's max.
+    "field_chakra": """\
+if (v.CanBeHealed(true, true))
+{
+    v.TargetRecoverHp = (Int32)v.Target.max.hp * v.Action.Ref.Power / 100;
+    v.TargetRecoverMp = (Int32)v.Target.max.mp * v.Action.Ref.Power / 100;
+}""",
+}
+
+# The FIELD source shell -- the [FieldAbilityScript] twin of _SHELL. namespace Memoria.Scripts.Field (walk-up finds the
+# `Memoria`-namespace FieldAbilityScript/FieldAbilityScriptBase/FieldCalculator, IFieldScript.cs). Parameterless ctor (the
+# loader instantiates via GetConstructor(Type.EmptyTypes), ScriptsLoader.cs:252); the override renames the param to `v` to
+# match the donor arms verbatim. `using FF9` for the PLAYER data a body may touch; sentinel tokens keep C# braces intact.
+_FIELD_SHELL = """\
+using System;
+using FF9;
+using Memoria.Data;
+
+namespace Memoria.Scripts.Field
+{
+    /// <summary>ff9mapkit minted FIELD ability effect: __NAME__ (__TMPL__). See project-ff9-scripts-dll.</summary>
+    [FieldAbilityScript(Id)]
+    public sealed class __CLS__ : FieldAbilityScriptBase
+    {
+        public const Int32 Id = __ID__;
+
+        public override void Apply(FieldCalculator v)
+        {
+__BODY__
+        }
+    }
+}
+"""
+
+
 def _ident(name: str) -> str:
     """A safe C# identifier stem from an ability name (``"Soul Leech"`` -> ``"SoulLeech"``)."""
     s = re.sub(r"[^A-Za-z0-9]", "", str(name)) or "Custom"
@@ -167,20 +236,48 @@ def render_script(sid: int, name: str, *, template: str | None = None, body: str
     return f"{sid:04d}_{stem}Script.cs", src
 
 
-def write_scripts(layout, scripts) -> list:
-    """Emit each minted script's ``.cs`` into ``layout.scripts_sources_dir``. ``scripts`` = a list of
-    ``{id, name, template?/body?}`` (from :func:`content.playable.script_seeds`). Returns warnings (none today).
-    Written UTF-8 / LF (Roslyn reads the encoding from the file; ASCII C# is encoding-agnostic)."""
+def render_field_script(sid: int, name: str, *, template: str | None = None, body: str | None = None) -> tuple[str, str]:
+    """Render ONE FIELD-effect ``.cs`` -> ``(filename, source)`` (the [FieldAbilityScript] twin of
+    :func:`render_script`). Provide a known field ``template`` or a raw ``body`` (the C# ``Apply()`` body). The
+    class name embeds ``sid`` + a ``FieldScript`` suffix so it never collides with the paired battle ``Script`` at
+    the SAME id (both register on id ``sid``, in different engine dicts)."""
+    stem = _ident(name)
+    cls = f"{stem}{sid}FieldScript"
+    if body is not None:
+        if not isinstance(body, str) or not body.strip():
+            raise ScriptSourceError(f"field script.body for {name!r} must be a non-empty C# Apply() body")
+        perform, tname = _indent(body), "body"
+    else:
+        if template not in FIELD_TEMPLATES:
+            raise ScriptSourceError(f"unknown field script template {template!r} for {name!r} "
+                                    f"(known: {', '.join(sorted(FIELD_TEMPLATES))}; or use field.body = \"<C#>\")")
+        perform, tname = _indent(FIELD_TEMPLATES[template]), template
+    safe_name = re.sub(r"[\r\n]+", " ", str(name)).replace("*/", "* /")   # keep the doc-comment 1-line + closed
+    safe_name = re.sub(r"__(?:CLS|ID|NAME|TMPL|BODY)__", "", safe_name)   # a name can't smuggle in a shell sentinel
+    src = (_FIELD_SHELL.replace("__CLS__", cls).replace("__ID__", str(sid))
+           .replace("__NAME__", safe_name).replace("__TMPL__", tname).replace("__BODY__", perform))
+    return f"{sid:04d}_{stem}FieldScript.cs", src
+
+
+def write_scripts(layout, scripts, field_scripts=()) -> list:
+    """Emit every minted ``.cs`` into ``layout.scripts_sources_dir``: battle FORMULAS (``scripts``, from
+    :func:`content.playable.script_seeds`) AND FIELD effects (``field_scripts``, from
+    :func:`content.playable.field_script_seeds`), each ``{id, name, template?/body?}``. Both go in ONE pass because
+    the dir is WIPED first (a second call would clobber the first's output) -- see the wipe rationale below. Returns
+    warnings (none today). Written UTF-8 / LF (Roslyn reads the encoding from the file; ASCII C# is encoding-agnostic)."""
     warnings: list = []
     d = layout.scripts_sources_dir
     # the Scripts sources are ENTIRELY kit-owned + regenerated every build -> WIPE first, so a rebuild into a
     # PERSISTENT out dir (campaign/journey/GUI `dist/`) can't accumulate a stale NNNN_*.cs from a renamed/removed
     # ability -- its old [BattleScript(<id>)] would duplicate a reused 256-band id and compile to two classes on the
     # same id (a build error, or a wrong/nondeterministic binding). The deploy_field test slot uses a fresh tmp dir
-    # so it never hit this, but campaign/journey dist is persistent.
+    # so it never hit this, but campaign/journey dist is persistent. ONE wipe covers battle + field (both written below).
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True, exist_ok=True)
     for s in scripts:
         fname, src = render_script(int(s["id"]), s["name"], template=s.get("template"), body=s.get("body"))
+        (d / fname).write_text(src, encoding="utf-8", newline="\n")
+    for s in field_scripts:
+        fname, src = render_field_script(int(s["id"]), s["name"], template=s.get("template"), body=s.get("body"))
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     return warnings

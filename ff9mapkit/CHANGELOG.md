@@ -21,6 +21,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   against (a `<dll>.buildinfo.json` sidecar); deploy and the Setup & Health check warn when a deployed DLL was
   built against a different engine than the one now installed (e.g. after a Memoria update) — catching the
   version-coupling drift offline, before the in-battle `MissingMemberException`.
+- **Paired field effects (the channel fan-out):** a custom ability's `script` now accepts a `field = {template/body}`
+  sub-table → the kit mints a paired **`[FieldAbilityScript(id)]`** into the *same* DLL at the *same* scriptId, so a
+  curative ability works both **in and out of combat** (five field templates transcribed from Memoria's
+  `SFieldCalculator`; requires a paired battle formula — they share one minted id). Offline + real-engine-compile
+  proven; in-game proof pending. See [docs/SCRIPTS_DLL.md](docs/SCRIPTS_DLL.md) §2.
 
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 

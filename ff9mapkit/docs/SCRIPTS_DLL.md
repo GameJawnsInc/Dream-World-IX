@@ -7,9 +7,16 @@
 > Proven in-game: Iviv's "Soul Leech" (a drain — deals damage *and* heals its caster) from one line of
 > `field.toml`.
 >
-> Provenance: this doc is analysis + author-facing recipes only — **zero Square-Enix bytes**. The four
-> stock-donor formula templates live in `ff9mapkit/battle/scriptsource.py` (kit source); the compiled DLL is
-> mod build-output (never committed). Deep recipe: project memory `project-ff9-scripts-dll`.
+> **P7 — the fan-out (2026-07-07; offline + real-engine-compile proven, awaiting in-game):** the *same* mod DLL
+> also hosts **field effects** — a `script.field` sub-table mints a paired `[FieldAbilityScript(id)]` at the same
+> scriptId, so a curative ability works both in *and* out of combat (§2). Two further surfaces the loader exposes
+> (custom status behaviors, global battle overloads) are scoped follow-ons.
+>
+> Provenance: this doc is analysis + author-facing recipes only — **zero Square-Enix bytes**. The stock-donor
+> formula/field templates live in `ff9mapkit/battle/scriptsource.py` (kit source: battle templates cloned from the
+> install's loose `Scripts/Sources/Battle`, field templates transcribed from Memoria's MIT `SFieldCalculator` with
+> the donor line cited per template); the compiled DLL is mod build-output (never committed). Deep recipe: project
+> memory `project-ff9-scripts-dll`.
 
 ---
 
@@ -77,6 +84,51 @@ behaviour no `Actions.csv` edit can produce. ★ In-game proven.
 
 A **scalar** `script` stays an ordinary `Actions.csv` override (it re-points the row at a formula the engine
 already has); only a **table** `script` mints new C#.
+
+### Also out of combat: paired field effects (P7)
+
+A battle formula only runs *in* combat. A curative/support ability usually needs to work from the **field menu**
+too (heal an ally while walking around). Add a `field` sub-table to `script` and the kit mints a **second** plugin
+— a `[FieldAbilityScript(id)]` — into the *same* DLL at the *same* scriptId, so one ability behaves in *and* out
+of combat:
+
+```toml
+[playable.abilities.command1]
+name = "Spark"
+abilities = [
+  # heals in battle (white_wind formula) AND out of combat (field_white_wind):
+  { name = "Lifewell", from = "Cure", targets = "SingleAlly",
+    script = { template = "white_wind", field = { template = "field_white_wind" } } },
+]
+```
+
+The field effect binds on the **same `Ref.ScriptId`** the battle formula already repoints — `SFieldCalculator`
+runs `[FieldAbilityScript(256)]` when the ability is used on the field, `[BattleScript(256)]` when it's used in
+battle. Zero new binding, one compiled DLL.
+
+**`script.field` requires a paired battle `script`** (template or body) — they share one minted 256-band id, so a
+field-only effect isn't supported yet (a stock field scriptId would clobber a vanilla effect globally). The kit
+enforces this at build/lint.
+
+**The field templates** (each transcribed verbatim from a `SFieldCalculator.DefaultFieldScript` arm — point
+`targets` at an ally):
+
+| `field` template | Cloned from | What it does |
+|---|---|---|
+| `field_heal_hp` | Magic Recovery | heal the target's HP (spell heal) |
+| `field_white_wind` | White Wind | heal a fraction of the *caster's* max HP (pairs with the battle `white_wind`) |
+| `field_chakra` | Chakra | heal HP + MP by a % of the target's max |
+| `field_cure_status` | Magic Cure Status | cure the ability's status set off the target |
+| `field_revive` | Revive | revive a KO'd ally |
+
+Or a raw `field = { body = "<C# Apply(FieldCalculator v) body>" }` — the field calculator `v` exposes
+`v.CanBeHealed(...)`, `v.HealHp()`, `v.TargetRecoverHp` / `TargetRecoverMp`, `v.CureActionStatuses()`,
+`v.ReviveSpell()`, `v.Action.Ref.Power`, `v.Caster` / `v.Target` (see Memoria's `SFieldCalculator`).
+
+**In-game proof:** give a recruited character a paired heal ability, wound an ally, open the field **Ability**
+menu, use it → HP restored out of combat. Remove the `field` half and rebuild → the field menu greys/misses it
+(the `DefaultFieldScript` default arm), proving the field script is what enabled it. (Relaunch after deploy — the
+DLL loads once at the title screen.)
 
 ---
 
@@ -282,6 +334,7 @@ Scripted formulas are the **last** lever, not the first — they carry the versi
 | `Memoria.log` → "incompatible with the current version of Memoria" | a **stale** DLL (compiled against a different engine) | re-deploy so the kit re-compiles against the current install (deploy + the health check warn on this drift *before* the game does — §7) |
 | the spell inflicts no status | the `script` formula doesn't apply statuses | use `magic_damage` (or a `body` calling `TryAlterMagicStatuses()`); the build warns about this |
 | the spell shows the base MP cost in the field menu | a `[code=MPCost]` effect is a **battle**-side hook | expected — the field menu reads the base cost; the effect applies in battle |
+| the ability "Miss"es / greys out when used from the **field** menu | no paired `script.field`, or a stale/not-yet-loaded DLL | add `script.field` (§2), rebuild, and **relaunch** — an unbound custom scriptId hits the field default arm (Miss) |
 
 ---
 

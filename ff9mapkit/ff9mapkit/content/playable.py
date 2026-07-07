@@ -339,6 +339,25 @@ def _parse_minted_command(val, nid, key) -> dict:
     return {"name": name.strip(), "abilities": pool}
 
 
+def _parse_field_spec(fld, nid, aname, _ss) -> dict:
+    """Parse a custom ability's ``script.field`` (a PAIRED field-menu effect) -> ``{template}`` or ``{body}``
+    (project-ff9-scripts-dll P7). Mirrors the battle ``script`` validation against ``scriptsource.FIELD_TEMPLATES``."""
+    if not isinstance(fld, dict):
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field must be a table "
+                            f"{{ template = \"...\" }} or {{ body = \"<C#>\" }}")
+    if fld.get("body") is not None:
+        fbody = fld.get("body")
+        if not isinstance(fbody, str) or not fbody.strip():
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field.body must be a "
+                                f"non-empty C# Apply() body string")
+        return {"body": fbody}
+    ftmpl = fld.get("template")
+    if not isinstance(ftmpl, str) or ftmpl not in _ss.FIELD_TEMPLATES:
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field.template must be one of "
+                            f"{sorted(_ss.FIELD_TEMPLATES)} (or set script.field.body = \"<C# Apply() body>\")")
+    return {"template": ftmpl}
+
+
 def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
     """An inline pool table -> a custom-ability spec ``{name, from, overrides}``. A UNIQUE spell that clones a stock
     donor (``from``) and retunes it (project-ff9-ability-preset-system). The id is allocated (the 192+ band) + the
@@ -396,12 +415,25 @@ def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
                 raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.body must be a "
                                     f"non-empty C# Perform() body string")
             script_spec = {"body": body}
-        else:
+        elif sc.get("template") is not None:
             tmpl = sc.get("template")
-            if not isinstance(tmpl, str) or tmpl not in _ss.TEMPLATES:
+            if tmpl not in _ss.TEMPLATES:
                 raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.template must be one of "
                                     f"{sorted(_ss.TEMPLATES)} (or set script.body = \"<C# Perform() body>\")")
             script_spec = {"template": tmpl}
+        # script.field = {template/body} -> a PAIRED field-menu effect at the SAME minted scriptId, so the ability
+        # behaves both IN and OUT of combat. It requires the battle half (a field-only effect isn't supported yet --
+        # a stock field scriptId would clobber a vanilla effect globally). project-ff9-scripts-dll (P7).
+        fld = sc.get("field")
+        if fld is not None:
+            if script_spec is None:
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field needs a paired "
+                                    f"battle formula (set script.template or script.body too) -- they share one "
+                                    f"minted scriptId; a field-only effect isn't supported yet")
+            script_spec["field"] = _parse_field_spec(fld, nid, aname.strip(), _ss)
+        if script_spec is None:
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script table must set a template "
+                                f"or body (or use a scalar script = <id> to reuse an existing formula)")
     overrides = {k: v for k, v in a.items()
                  if k not in ("name", "from", "status", "effect", "code", "feature")
                  and not (k == "script" and isinstance(v, dict))}
@@ -491,8 +523,13 @@ def parse_all(entries) -> list:
                                                 f"{_ad._CUSTOM_SCRIPT_MIN}-{_ad._CUSTOM_SCRIPT_MAX} is exhausted")
                         ca["script_id"] = script_alloc           # repoint the Actions.csv scriptId at the minted formula
                         script_alloc += 1
-                        spec.setdefault("minted_scripts", []).append(
-                            {"id": ca["script_id"], "name": ca["name"], **ca["script"]})
+                        _scd = ca["script"]
+                        spec.setdefault("minted_scripts", []).append(        # the BATTLE formula (drop the field half)
+                            {"id": ca["script_id"], "name": ca["name"],
+                             **{k: v for k, v in _scd.items() if k != "field"}})
+                        if _scd.get("field"):                    # script.field -> a PAIRED field effect at the SAME id
+                            spec.setdefault("minted_field_scripts", []).append(
+                                {"id": ca["script_id"], "name": ca["name"], **_scd["field"]})
                     spec.setdefault("minted_actions", []).append(ca)
                     new_pool.append(ca["id"])                    # the pool's ListEntry references the allocated int id
                     # learn it at ap=0 (usable now). PREPEND (like the stock pool seeds) so an explicit `learn` entry
@@ -565,6 +602,14 @@ def script_seeds(specs) -> list:
     ``Memoria.Scripts.<Mod>.dll``. The id (256+, the engine's ``BattleExtendedScripts`` floor) is allocated in
     :func:`parse_all` and matches the Actions.csv ``scriptId`` cell that binds it at cast (project-ff9-scripts-dll)."""
     return [sc for s in specs for sc in s.get("minted_scripts", [])]
+
+
+def field_script_seeds(specs) -> list:
+    """Specs with a custom ability carrying ``script.field = {template/body}`` -> the minted FIELD ability-effect
+    sources ({id, name, template?/body?}) that :func:`build._emit_scripts` emits as a ``[FieldAbilityScript(id)]``
+    into the SAME ``Memoria.Scripts.<Mod>.dll``. The id EQUALS the paired battle formula's scriptId, so the same
+    Actions.csv ``scriptId`` cell binds the formula IN combat and the field effect OUT of it (project-ff9-scripts-dll P7)."""
+    return [sc for s in specs for sc in s.get("minted_field_scripts", [])]
 
 
 def name_directive_lines(specs) -> list:
