@@ -68,6 +68,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
   with Refresh + a confirm-first **Revert selected…**.
 
+### Added — palette-swap enemies (`[[scene.enemy]] skin`)
+- The classic FF9 move (Goblin → Goblin Mage) as one declarative knob on a forked battle:
+  `skin = { id = 6210, hue = 150 }` (or `tint = [r,g,b]` multipliers / `textures = { "<stem>" =
+  "my.png" }` hand-painted overrides, composable; optional `from`/`name`). The build mints the
+  enemy's model at the new id (≥ 6000) with the recolored textures, registers the `3DModel` line,
+  and points the enemy's `Geo@30` at the mint — so the original creature stays vanilla everywhere
+  else, and the variant keeps its own skeleton + clips (no cross-model retarget quirk, unlike a
+  body re-skin). Alpha (the cutout mask) is preserved exactly; validation is offline + fail-loud
+  (mint band 6000–32767 — `Geo@30` is a signed 16-bit field). RELAUNCH to register the id.
+
 ### Added — the `[[playable]]` form + the playable-anims GUI
 - A **Playables** section in the field editor's object tree: a `[[playable]]` block's flat keys —
   id / name / borrow / recruit / `custom_battle_model` / `custom_battle_anims` / `anim_edits`

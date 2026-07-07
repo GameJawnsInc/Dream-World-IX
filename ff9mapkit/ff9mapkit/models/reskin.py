@@ -75,6 +75,31 @@ def _optout_warnings(geo: str) -> list:
     return []
 
 
+def recolor_image(img, *, hue=None, tint=None):
+    """Pure declarative recolor -- the palette-swap primitive. ``hue`` rotates the hue wheel by
+    degrees (the classic Goblin -> red-Goblin move: geometry-safe, keeps shading/detail);
+    ``tint`` = [r, g, b] channel multipliers (e.g. [1.4, 0.7, 0.7] pushes red). Both compose
+    (hue first). Alpha is preserved untouched -- FF9 materials are cutout-alpha, so a recolor must
+    never disturb the mask. Returns a new RGBA image; the input is not mutated."""
+    from PIL import Image
+    out = img.convert("RGBA")
+    r, g, b, a = out.split()
+    rgb = Image.merge("RGB", (r, g, b))
+    if hue:
+        h, s, v = rgb.convert("HSV").split()
+        shift = int(round(float(hue) / 360.0 * 256.0)) % 256
+        if shift:
+            h = h.point(lambda x, _s=shift: (x + _s) % 256)
+        rgb = Image.merge("HSV", (h, s, v)).convert("RGB")
+    if tint:
+        mr, mg, mb = (float(t) for t in tint)
+        chans = []
+        for ch, m in zip(rgb.split(), (mr, mg, mb)):
+            chans.append(ch.point(lambda x, _m=m: min(255, max(0, int(round(x * _m))))))
+        rgb = Image.merge("RGB", chans)
+    return Image.merge("RGBA", (*rgb.split(), a))
+
+
 def deploy_reskin(token: str, png_paths, mod_folder, *, game=None) -> dict:
     """Copy edited ``{stem}.png`` files into ``mod_folder`` at the model's override dir. Validates
     names against the model's real stems (fail loud -- a mis-named PNG silently never loads) and
