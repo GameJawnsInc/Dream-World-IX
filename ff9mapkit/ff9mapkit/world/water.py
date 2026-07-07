@@ -366,6 +366,35 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
     return summary
 
 
+def deploy_island_sea(mod_folder: str, *, cells, donor=(15, 4), disc: int = 1, lod: str = "0_1", seed=0,
+                      game=None, dry_run: bool = False) -> dict:
+    """Deploy DEEP open-ocean sea sub-meshes (``Sea4`` at ``Y=0``) + blanked ``Sea1``/``Sea2`` + a ``Donor.txt`` AROUND a
+    synthesized island, WITHOUT a ``Terrain`` override -- the caller keeps its own LAND Terrain (e.g. a reclaim blob
+    island). A lone reclaimed island whose land does NOT fill the cell needs a sea surface in the cell's water area,
+    because the s34 divert removes the stock cell sea (a full-cell reclaim never needed this: it WAS the whole cell).
+    The island's land Terrain stays the s34 gate + walkmesh; this adds only the water RENDER around it. Deep-only
+    (open ocean) for now -- shore shallows/foam hugging the curved coast are a later increment. Returns a summary."""
+    from . import mesh as M
+    cells = [tuple(c) for c in cells]
+    depth = open_ocean_depth_field(cells, shallows=0.0)                 # uniform deep -> all Sea4
+    summary = {"op": "island_sea", "donor": list(donor), "disc": disc, "cells": []}
+    for (bx, by) in cells:
+        bands, _grid, _s5 = build_cell(bx, by, depth=depth, threshold=1.0, seed=seed)
+        sea = {name: M.tri_soup_block_mesh(bands[rk], name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by,
+                                           lod=lod, normal=NORMAL)
+               for rk, name in enumerate(LADDER) if bands[rk]}
+        if not dry_run:
+            for name in LADDER:                                        # Sea3/Sea5 empty (all-deep) -> blanked
+                bm = sea.get(name) or M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod)
+                M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=name)
+            for name in BLANK:
+                M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {name}", disc=disc, x=bx, y=by, lod=lod),
+                                  mod_folder=mod_folder, game=game, lod=lod, part=name)
+            M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc, x=bx, y=by, lod=lod, game=game)
+        summary["cells"].append({"cell": [bx, by], "sea4_tris": len(bands[2])})
+    return summary
+
+
 def deploy_verbatim(mod_folder: str, *, cells, source=(8, 4), donor=(15, 4), disc: int = 1, lod: str = "0_1",
                     height: float = WATER_Y, game=None, dry_run: bool = False) -> dict:
     """Deploy a REAL open-ocean block's water sub-meshes VERBATIM onto each target cell -- the NORTH-STAR A/B reference

@@ -251,6 +251,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
                "dry_run": dry_run, "cells": []}
     for (bx, by) in cells:
+        island_sea = False                                 # a blob island doesn't fill the cell -> it needs sea around it
         if profile in ("island", "cliff"):
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
                      and (bx + dx, by + dy) not in land]
@@ -260,6 +261,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
                                                           land_topo=grass_topo)
                     bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # top: grass
                     bm = _apply_cliff_rock_uvs(bm, outline=outline)   # rock U along the smooth curve's arc-length
+                    island_sea = True                      # the blob only covers a disk -> lay deep sea around it
                 else:                                      # part of a multi-cell landmass -> rectangle wall on water edges
                     bm = M.cliff_block_mesh(disc=disc, x=bx, y=by, cliff_dirs=water, seg=seg, land_height=height,
                                             rim_run=rim_run, land_topo=grass_topo)
@@ -276,5 +278,9 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount}
         if not dry_run:
             M.deploy_override(bm, mod_folder=mod_folder, game=game, part="Terrain")
+            if island_sea:                                 # deep ocean around the blob (Sea4 render; leaves our Terrain)
+                from . import water as W
+                W.deploy_island_sea(mod_folder, cells=[(bx, by)], disc=disc, game=game)
+                info["island_sea"] = True
         summary["cells"].append(info)
     return summary
