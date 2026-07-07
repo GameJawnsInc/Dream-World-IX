@@ -239,3 +239,6 @@ tworoom/treno_plat/
 installer/dwix-engine.zip
 installer/Output/
 installer/THIRD-PARTY-NOTICES.txt
+
+# video/demo assets embedding SE texture bytes (provenance gate: never commit)
+video/
