@@ -141,8 +141,8 @@ status names:
 
 ```toml
 abilities = [
-  # a buff that grants a one-shot revive-on-death:
-  { name = "Guardian", from = "Life",
+  # a buff that grants a one-shot revive-on-death (Vanish = a positive-status-applying donor):
+  { name = "Guardian", from = "Vanish",
     status = [{ name = "Rebirth", template = "auto_life" }] },
 ]
 ```
