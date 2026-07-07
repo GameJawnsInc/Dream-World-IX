@@ -2195,6 +2195,40 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_island(args: argparse.Namespace) -> int:
+    """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
+    grass tile language (mains + meadow stamps + rolling relief), gated offline (geometry, UV language, and
+    the ENGINE PLACEMENT simulator) before deploy. Needs the custom engine (s34); re-enter the world map."""
+    from .world import island as I
+    try:
+        kw = dict(base_radius=args.radius, seed=args.seed, land_height=args.height, rim_run=args.rim_run,
+                  n_patches=args.patches, flat=args.flat, disc=args.disc, game=args.game, dry_run=args.dry_run)
+        if args.center:
+            wx, wz = (float(v) for v in args.center.split(","))
+            summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
+        else:
+            bx, by = (int(v) for v in args.cell.split(","))
+            summary = I.landmass(args.mod_folder, cell=(bx, by), **kw)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = summary["center"]
+    print(f"{verb} a synthetic landmass at world ({cx:.0f}, {cz:.0f}) (radius {summary['radius']}, "
+          f"seed {summary['seed']}) across {len(summary['blocks'])} block(s):")
+    for b in summary["blocks"]:
+        blk = tuple(b["block"])
+        place = summary["report"].get("placement", {}).get(blk)
+        extra = ""
+        if place and "centre" in place:
+            gy, nm, topo = place["centre"]
+            extra = f"; centre grounds y={gy} on {nm} topo {topo}"
+        print(f"  block {blk}: {b['tris']} tris ({b['verts']} verts){extra}")
+    print("all gates CLEAN (geometry, UV language, placement census: 0 MISS). "
+          "F6 -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
+    return 0
+
+
 def _cmd_world_water(args: argparse.Namespace) -> int:
     """Synthesize graded OPEN-OCEAN water (shallow->deep) on sea cells from a built-in depth gradient -- the faithful
     marching-band synthesizer (Sea3/Sea5/Sea4 alphabet, byte-proven UVs). Needs the custom engine (s34); RELAUNCH."""
@@ -4461,6 +4495,32 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
     wct.set_defaults(func=_cmd_world_coast)
+
+    wis = sub.add_parser("world-island",
+                         help="synthesize a fully-CUSTOM cliff island/landmass on open ocean: organic coastline + "
+                              "faithful rock wall + the real grass language (mains/meadow/relief), offline-gated "
+                              "(geometry + UV + engine-placement census). Needs the custom engine; re-enter the world.")
+    wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    _wtgt = wis.add_mutually_exclusive_group(required=True)
+    _wtgt.add_argument("--cell", metavar="BX,BY", help="centre the island on ocean block BX,BY (grid 24x20)")
+    _wtgt.add_argument("--center", metavar="WX,WZ",
+                       help="centre at WORLD coords (x 0..1535, z 0..-1279); a large radius spans blocks and "
+                            "splits per-block automatically (a multi-cell landmass)")
+    wis.add_argument("--radius", type=float, default=24.0,
+                     help="base coastline radius in units (default 24 ~ one block; bigger spans blocks)")
+    wis.add_argument("--seed", type=float, default=None,
+                     help="island shape seed (deterministic; default derives from the centre)")
+    wis.add_argument("--height", type=float, default=3.2,
+                     help="interior land height (default 3.2 = the real coastal-cliff interior median)")
+    wis.add_argument("--rim-run", type=float, default=1.0,
+                     help="cliff wall RUN in units (default 1.0 -> ~73deg at height 3.2); smaller = steeper")
+    wis.add_argument("--patches", type=int, default=2,
+                     help="max meadow patches (verbatim stamps; only perfectly-fitting ones place; default 2)")
+    wis.add_argument("--flat", action="store_true",
+                     help="skip the rolling relief + meadow stamps (no install data needed; reads LESS faithful)")
+    wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wis.set_defaults(func=_cmd_world_island)
 
     wwt = sub.add_parser("world-water",
                          help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "

@@ -589,6 +589,60 @@ def hidden_block_mesh(*, name, disc: int = 1, x: int = 0, y: int = 0, lod: str =
                      flat_index=[0, 1, 2], tris=[[0, 1, 2]], raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
 
+def fill_missing_grid_quads(bm, *, quad: float = 4.0, x_cells=(0, 16), z_cells=(-16, 0)):
+    """Fill holes in a GRID-tiled sub-mesh: any ``quad``-unit cell in the given range with no triangle gets
+    a covered neighbour's tris CLONED, translated into place (same tile language; adjacent-repeat reads
+    fine on deep ocean). Returns a new :class:`~ff9mapkit.world.extract.BlockMesh` (or ``bm`` if complete).
+
+    Motivation: the REAL (12,0) deep-ocean Sea4 plane -- the game's only full-cell sea plane, the natural
+    Sea4 override for a synthesized island -- is itself MISSING one quad (local (15,-12); at home something
+    else covers it). Reused verbatim it leaves a void render hole that is ALSO an invisible VEHICLE WALL
+    (a no-walkmesh region rejects movement -- airship-proven in-game 2026-07-07; the placement-census MISS
+    gate catches it offline). See project memory ``project-ff9-overworld-placement-rules``."""
+    import collections
+    import math
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    Vs = bm.chan_arrays[CH_POS]
+    Ns = bm.chan_arrays[CH_NRM]
+    Us = bm.chan_arrays[CH_UV]
+    Ts = bm.chan_arrays[CH_TAN]
+    quadmap = collections.defaultdict(list)
+    for tri in bm.tris:
+        qx = math.floor(sum(Vs[i][0] for i in tri) / 3 / quad)
+        qz = math.floor(sum(Vs[i][2] for i in tri) / 3 / quad)
+        quadmap[(qx, qz)].append(tri)
+    missing = [(i, j) for i in range(*x_cells) for j in range(*z_cells) if (i, j) not in quadmap]
+    if not missing:
+        return bm
+    pos = [list(v) for v in Vs]
+    nrm = [list(v) for v in Ns]
+    uv = [list(v) for v in Us]
+    tan = [list(v) for v in Ts]
+    flat = list(bm.flat_index)
+    tris = [list(t) for t in bm.tris]
+    vi = bm.vcount
+    for (qi, qj) in missing:
+        src = next(((qi + di, qj + dj) for (di, dj) in ((-1, 0), (1, 0), (0, -1), (0, 1))
+                    if (qi + di, qj + dj) in quadmap), None)
+        if src is None:
+            continue
+        ddx, ddz = (qi - src[0]) * quad, (qj - src[1]) * quad
+        for tri in quadmap[src]:
+            base = vi
+            for i in tri:
+                pos.append([Vs[i][0] + ddx, Vs[i][1], Vs[i][2] + ddz])
+                nrm.append(list(Ns[i]))
+                uv.append(list(Us[i]))
+                tan.append(list(Ts[i]))
+                flat.append(vi)
+                vi += 1
+            tris.append([base, base + 1, base + 2])
+    return BlockMesh(name=bm.name, disc=bm.disc, x=bm.x, y=bm.y, lod=bm.lod, vcount=vi, stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
 def place_building(dst_object_bm, src_object_bm, *, translate=(0.0, 0.0, 0.0), set_idall=None):
     """Append ``src_object_bm``'s geometry (a copied building/structure) onto ``dst_object_bm`` (a block's existing
     Object mesh), shifted by ``translate`` (dst block-LOCAL units). Returns a NEW merged

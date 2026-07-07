@@ -182,8 +182,17 @@ def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125, outline=None):
         s = [ref + ((sk - ref + perim / 2.0) % perim) - perim / 2.0 for sk in s]   # unwrap across the loop-close seam
         phase = [sk * density for sk in s]
         base = math.floor(min(phase) / strip_w)                # keep the tri's U window contiguous, tile the rock strip
+        # WINDOW-TRANSLATE, not per-vertex clamp: a tri whose U-window straddles the strip's wrap
+        # (every strip_w/density ~ 19.8u of shoreline) used to get its far corner PINNED at the strip
+        # edge -> a full-height smeared band in-game (user-caught 2026-07-07). Shifting the whole window
+        # to fit (<= one tri span ~ 20px) puts the sawtooth wrap on a tri BOUNDARY -- how real cliffs
+        # wrap (their U resets between faces).
+        off = min(phase) - base * strip_w
+        span = max(phase) - min(phase)
+        if off + span > strip_w:
+            off = max(0.0, strip_w - span)
         for k, ph in zip(tri, phase):
-            frac = min(max(ph - base * strip_w, 0.0), strip_w)
+            frac = min(off + (ph - min(phase)), strip_w)
             hy = min(max(verts[k][1] / face_max, 0.0), 1.0)
             uv[k] = [ub + frac, vb + hy * (vt - vb)]
     return bm
