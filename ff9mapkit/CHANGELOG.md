@@ -38,6 +38,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   from `StatusData`). The `auto_life` template takes a `power` knob (revive at power% of max HP, default 50).
   ★ Behaviour + panel icon + on-model chevron in-game proven (a custom revive-on-death status fired + showed both).
 
+### Added — model previews (`model-preview` + the renderer behind the GUI thumbnails)
+- **`ff9mapkit model-preview <model>`** software-renders any FF9 model to a textured PNG still — pure
+  PIL (no OpenGL/Blender), orthographic 3/4 view, `--size/--yaw/--pitch/--rest`. Under the hood
+  (`models/preview.py`): TRUE linear-blend skinning of the raw prefab (`boneWorld · m_BindPose · v`,
+  exact even for the divergent per-bone binds the rigid G-bake approximates — the `GEO_SUB_W0_*`
+  overworld actors rendered scrambled without it), posed at **frame 0 of the model's stand clip**
+  (some rigs' rest pose is a collapsed authoring pose the player never sees), per-triangle affine
+  texture mapping with REPEAT-wrap tile normalization, painter's sort + flat lambert shading.
+
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 
 Toolkit + engine-bundle refresh on top of the first public beta.

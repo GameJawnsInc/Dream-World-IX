@@ -1472,6 +1472,22 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_preview(args: argparse.Namespace) -> int:
+    """Software-render a model to a PNG still (the same renderer behind the GUI thumbnails)."""
+    from .models import preview as mpreview
+    out = args.out or f"{str(args.model).replace('/', '_')}.png"
+    try:
+        img = mpreview.render_token(args.model, game=args.game, pose=not args.rest,
+                                    size=args.size, yaw=args.yaw, pitch=args.pitch)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    img.save(out)
+    print(f"rendered {args.model} -> {out}  ({args.size}x{args.size}, yaw {args.yaw:g}, pitch {args.pitch:g}, "
+          + ("rest pose" if args.rest else "stand pose") + ")")
+    return 0
+
+
 def _cmd_model_import(args: argparse.Namespace) -> int:
     """Bring a (Blender-edited) glTF back into the game -> a loose-FBX override (the edit loop return path)."""
     from .models import gltf as mgltf
@@ -4180,6 +4196,18 @@ def build_parser() -> argparse.ArgumentParser:
                          "(the loose-override-path proof; F6 -> Reload field to apply)")
     ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
+
+    mp = sub.add_parser("model-preview",
+                        help="software-render a model to a PNG still (textured, posed at its stand clip) -- no Blender")
+    mp.add_argument("model", help="GEO name or model id to render, e.g. GEO_MAIN_F0_VIV or 8 (see `models`)")
+    mp.add_argument("--out", default=None, help="output .png path (default: <model>.png in the current dir)")
+    mp.add_argument("--size", type=int, default=256, help="image size in px (square; default 256)")
+    mp.add_argument("--yaw", type=float, default=30.0, help="turntable angle in degrees (default 30: a 3/4 view)")
+    mp.add_argument("--pitch", type=float, default=12.0, help="look-down angle in degrees (default 12)")
+    mp.add_argument("--rest", action="store_true",
+                    help="render the raw rest pose instead of frame 0 of the model's stand clip")
+    mp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mp.set_defaults(func=_cmd_model_preview)
 
     pa = sub.add_parser("playable-anims",
                         help="the Blender edit loop for a 13th character's custom_battle_anims animset -- route "
