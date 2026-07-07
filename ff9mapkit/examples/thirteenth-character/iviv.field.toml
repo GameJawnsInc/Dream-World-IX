@@ -63,7 +63,8 @@ custom_battle_anims = true
 #   (the quick `playable-anims --edit --deploy` route is wiped by the next field/campaign deploy). Uncomment +
 #   drop the edited .glb next to this file.
 portrait = "art/iviv_portrait.png"   # a CUSTOM menu portrait (132x190 PNG) -> a loose Face Atlas sprite override
-stats = { magic = 40 }     # a small tweak to prove the override path (a stronger Black Mage than Vivi)
+stats = { magic = 1 }      # dialled to the FLOOR so Voltflare barely damages -> the enemy SURVIVES to show Silence.
+#                            (Magic scales ALL his magic, incl. Cure/Blizzard; bump it back up once the status is seen.)
 
 # --- OPTIONAL: give Iviv its OWN ability kit (a custom CharacterPresetId 20) instead of borrowing Vivi's ---
 # Iviv gets his own battle command menu (zero-DLL): a UNIQUE command "Spark" (an inline command that MINTS its own
@@ -93,7 +94,7 @@ abilities = [
   # it lands only if the donor's script applies statuses (Fire/Bio-style magic) AND `rate` is non-zero (the hit gate).
   # `effect` is the power-user escape hatch -- an AbilityFeatures "[code=TAG]" NCalc formula keyed on this custom
   # ability (TAG = Power/Element/MPCost/HitRate/Priority/Status/...), e.g. effect = "[code=MPCost] 0 [/code]" (free).
-  { name = "Voltflare", from = "Fire", power = 55, element = ["Thunder"], mp = 18, status = ["Silence"], rate = 50 },
+  { name = "Voltflare", from = "Fire", power = 1, element = ["Thunder"], mp = 18, status = ["Silence"], rate = 50 },
 ]
 
 # --- random battles, so you can prove Iviv FIGHTS (build auto-adds the after-battle reinit) ---
