@@ -322,6 +322,7 @@ for _lang in LANGS:
 # Actions.csv scriptId repoint rides the "Actions" sync above. LOADED ONCE AT THE TITLE SCREEN -> RELAUNCH (not F6).
 _src_dll = tl.scripts_dll(MOD_FOLDER)
 if _src_dll.exists():
+    from ff9mapkit.battle import scriptcompile as _scomp
     _live_dll = live.scripts_dll(MOD_FOLDER)
     _live_dll.parent.mkdir(parents=True, exist_ok=True)
     _had_dll = _live_dll.exists()
@@ -329,9 +330,21 @@ if _src_dll.exists():
         shutil.copyfile(_live_dll, BK / f"{_src_dll.name}.preDEPLOY.{STAMP}")
     shutil.copyfile(_src_dll, _live_dll)
     csv_reverts.append((_src_dll.stem, str(_live_dll), _had_dll))    # stem+".dll" -> the revert codegen's {label}{ext}
+    # carry the build stamp (which engine the DLL was compiled against) so the health check / a redeploy can WARN
+    # on version drift before the game throws a MissingMemberException at cast (project-ff9-scripts-dll).
+    _src_stamp, _live_stamp = _scomp._stamp_path(_src_dll), _scomp._stamp_path(_live_dll)
+    if _src_stamp.exists():
+        _had_stamp = _live_stamp.exists()
+        if _had_stamp:
+            shutil.copyfile(_live_stamp, BK / f"{_live_stamp.name}.preDEPLOY.{STAMP}")
+        shutil.copyfile(_src_stamp, _live_stamp)
+        csv_reverts.append((_live_stamp.stem, str(_live_stamp), _had_stamp))    # stem+".json" -> revert {label}{ext}
     if tl.scripts_sources_dir.is_dir():
         shutil.copytree(tl.scripts_sources_dir, live.scripts_sources_dir, dirs_exist_ok=True)
     print(f"  + {_src_dll.name} (custom battle formula DLL) -> RELAUNCH to load (once at title, not F6)")
+    _drift = _scomp.engine_drift_warning(_live_dll, game=GAME)       # normally quiet (just built vs this install)
+    if _drift:
+        print(f"  !! {_drift}")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)

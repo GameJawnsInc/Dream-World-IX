@@ -17,6 +17,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - **Lint gate:** `ff9mapkit lint` now fails early with a clear, build-blocking error when a field carries a
   scripted ability but no C# compiler (`csc`) is findable — instead of the build dying mid-compile. Fix by
   setting `$FF9_CSC` or installing VS Build Tools (the always-present .NET Framework csc works too).
+- **Engine-version stamp + drift warning:** each build stamps the DLL with the engine FileVersion it compiled
+  against (a `<dll>.buildinfo.json` sidecar); deploy and the Setup & Health check warn when a deployed DLL was
+  built against a different engine than the one now installed (e.g. after a Memoria update) — catching the
+  version-coupling drift offline, before the in-battle `MissingMemberException`.
 
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 

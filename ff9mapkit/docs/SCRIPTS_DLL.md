@@ -220,6 +220,14 @@ explicit Unity `mscorlib` avoid a double-`mscorlib` conflict.
   discipline as an engine rebuild's version-match. Blast radius is contained: additive + per-mod, so a broken DLL
   degrades only that mod's custom formulas.
 
+- **Drift is caught offline (before the game throws).** Each build **stamps** the DLL with the engine's
+  FileVersion (a `<dll>.buildinfo.json` sidecar, carried into the mod on deploy). The deploy step and the kit's
+  **health check** (the Workspace's *Setup & Health* page) compare that stamp against the *currently-installed*
+  engine and **warn** on a mismatch — so if you update Memoria after deploying, you're told to rebuild *before*
+  the game hits `MissingMemberException` in battle. It's best-effort/advisory (the Windows FileVersion): quiet
+  when it can't read a version, and it won't false-alarm across identical released engine bundles (they share a
+  FileVersion) — it fires on a real engine swap/update.
+
 - **RELAUNCH required.** A scripts DLL loads **once at the title screen** (`TitleUI.cs` → `Assembly.LoadFile`).
   **F6 → Reload does NOT re-load it** (like an engine-DLL or CSV-startup change). Deploy prints a relaunch note;
   close FF9 fully and relaunch after deploying a scripted ability.
@@ -271,7 +279,7 @@ Scripted formulas are the **last** lever, not the first — they carry the versi
 | build → `ScriptCompileError` with csc diagnostics | the `body` / template C# doesn't compile against this engine | fix the C# (the diagnostics name the line); clone a template as a starting point |
 | build → "needs your FF9 install / managed DLLs" | no FF9 install to compile against | build on the machine with FF9 installed (the DLL is version-coupled to it) |
 | `Memoria.log` → `Unknown script id: N` | the DLL didn't load / the id didn't bind | relaunch FF9 (F6 won't load the DLL); check the DLL name matches the mod folder |
-| `Memoria.log` → "incompatible with the current version of Memoria" | a **stale** DLL (compiled against a different engine) | re-deploy so the kit re-compiles against the current install |
+| `Memoria.log` → "incompatible with the current version of Memoria" | a **stale** DLL (compiled against a different engine) | re-deploy so the kit re-compiles against the current install (deploy + the health check warn on this drift *before* the game does — §7) |
 | the spell inflicts no status | the `script` formula doesn't apply statuses | use `magic_damage` (or a `body` calling `TryAlterMagicStatuses()`); the build warns about this |
 | the spell shows the base MP cost in the field menu | a `[code=MPCost]` effect is a **battle**-side hook | expected — the field menu reads the base cost; the effect applies in battle |
 

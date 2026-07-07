@@ -15,6 +15,8 @@ Proven producing a loadable DLL in-game 2026-07-07.
 """
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -92,3 +94,80 @@ def compile_scripts(layout, mod_name: str, *, game=None) -> None:
         raise ScriptCompileError(
             f"compiling the mod formula DLL failed (csc exit {proc.returncode}) -- fix the script body / template:\n"
             f"{diag}")
+    _write_engine_stamp(out_dll, managed)                # record which engine this version-coupled DLL was built against
+
+
+# ---- engine-version stamp: catch a STALE version-coupled DLL before the game throws at cast ------------
+# The mod DLL is CODE bound to the installed Assembly-CSharp types, so it is valid only against the engine it
+# was compiled against (project-ff9-scripts-dll). A stale DLL is NOT caught at load -- it throws a
+# MissingMemberException at CAST (logged "incompatible with the current version of Memoria"), i.e. mid-battle.
+# So the compiler stamps the DLL with the engine's FileVersion; deploy + the health check compare that against
+# the CURRENTLY-installed engine and WARN on drift (e.g. after a Memoria update) -- offline, before the game does.
+_STAMP_SUFFIX = ".buildinfo.json"
+
+
+def _stamp_path(dll_path) -> Path:
+    """The build-stamp sidecar next to a mod scripts DLL (``<dll>.buildinfo.json``)."""
+    return Path(str(dll_path) + _STAMP_SUFFIX)
+
+
+def _engine_version(managed_dir) -> "str | None":
+    """The installed engine's Assembly-CSharp FileVersion (``'1.1.<build-date>.<time>'`` -- distinct per engine
+    build; best-effort, Windows-only, ``None`` otherwise). Advisory, never load-bearing."""
+    try:
+        from ..memoria import read_assembly_version
+        return read_assembly_version(Path(managed_dir) / "Assembly-CSharp.dll")
+    except Exception:                                    # noqa: BLE001 -- advisory; a probe failure => unknown
+        return None
+
+
+def _write_engine_stamp(dll_path, managed_dir) -> None:
+    """Record which engine the mod DLL was compiled against, next to the DLL. Best-effort: a write failure is
+    swallowed (the stamp is advisory -- its absence just means the drift check stays silent, never wrong)."""
+    try:
+        from .. import __version__
+        stamp = {
+            "engine_file_version": _engine_version(managed_dir),
+            "built_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "kit_version": __version__,
+        }
+        _stamp_path(dll_path).write_text(json.dumps(stamp, indent=2) + "\n", encoding="utf-8")
+    except Exception:                                    # noqa: BLE001 -- advisory
+        pass
+
+
+def read_engine_stamp(dll_path) -> "dict | None":
+    """The build stamp written next to a mod scripts DLL by :func:`compile_scripts`, or ``None`` if the sidecar
+    is absent / unreadable / malformed."""
+    p = _stamp_path(dll_path)
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def engine_drift_warning(dll_path, *, game=None) -> "str | None":
+    """A one-line WARNING if the mod scripts DLL at ``dll_path`` was compiled against a DIFFERENT engine than
+    the one currently installed -- else ``None``. Best-effort + quiet: no DLL, no stamp, a version-less stamp,
+    or an unreadable installed version all return ``None`` (never a false alarm on missing data). The FileVersion
+    is stable across identical released engine bundles and distinct across builds, so this fires on a real engine
+    swap/update -- exactly the drift that leaves a version-coupled DLL stale. project-ff9-scripts-dll."""
+    dll = Path(dll_path)
+    if not dll.is_file():
+        return None
+    stamp = read_engine_stamp(dll)
+    built = stamp.get("engine_file_version") if stamp else None
+    if not built:
+        return None                                      # un-stamped / version-less build -> nothing to compare
+    try:
+        installed = _engine_version(_managed_dir(game))
+    except Exception:                                    # noqa: BLE001 -- no install to compare against -> stay silent
+        return None
+    if not installed or installed == built:
+        return None
+    return (f"the custom battle-formula DLL ({dll.name}) was built against Memoria engine {built}, but the "
+            f"installed engine is {installed}. If you updated Memoria, REBUILD/redeploy the scripted ability "
+            f"-- a version-coupled DLL throws a MissingMemberException in battle when the engine drifts.")

@@ -171,6 +171,8 @@ def test_full_build_compiles_dll(tmp_path):
     layout = ModLayout(out)
     dll = layout.scripts_dll("FF9CustomMap")
     assert dll.exists() and dll.stat().st_size > 0            # the compiled mod formula DLL
+    st = scriptcompile.read_engine_stamp(dll)                 # the build stamped which engine it compiled against
+    assert st is not None and "engine_file_version" in st and st.get("kit_version")
     srcs = list(layout.scripts_sources_dir.glob("*.cs"))
     assert len(srcs) == 1 and srcs[0].name.endswith("Script.cs")
     # the Actions.csv row's scriptId (field 10) is repointed at the minted 256-band formula
@@ -249,3 +251,57 @@ def test_lint_gate_silent_without_scripted_ability(tmp_path, monkeypatch):
     dp = tmp_path / "data.field.toml"
     dp.write_text(data_only, encoding="utf-8")
     assert not any("C# compiler" in e for e in lint_all(FieldProject.load(dp)).errors)
+
+
+# ---- the engine-version stamp + drift warning (mocked; no install / no csc) ----------------------------
+def test_engine_stamp_roundtrip_and_drift(tmp_path, monkeypatch):
+    """The compile stamps the DLL with the installed engine's FileVersion; the drift check stays silent when the
+    installed engine matches and WARNS (naming both versions) when it has moved."""
+    from ff9mapkit.battle import scriptcompile as sc
+    import ff9mapkit.memoria as mem
+    dll = tmp_path / "Memoria.Scripts.FF9CustomMap.dll"
+    dll.write_bytes(b"MZ")
+    managed = tmp_path / "Managed"
+    managed.mkdir()
+    (managed / "Assembly-CSharp.dll").write_bytes(b"engine")
+
+    monkeypatch.setattr(sc, "_managed_dir", lambda game=None: managed)
+    monkeypatch.setattr(mem, "read_assembly_version", lambda p: "1.1.1000.1")
+    sc._write_engine_stamp(dll, managed)
+    stamp = sc.read_engine_stamp(dll)
+    assert stamp and stamp["engine_file_version"] == "1.1.1000.1" and stamp["kit_version"]
+
+    assert sc.engine_drift_warning(dll, game=None) is None                # installed == built -> quiet
+
+    monkeypatch.setattr(mem, "read_assembly_version", lambda p: "1.1.2000.2")
+    w = sc.engine_drift_warning(dll, game=None)                           # the engine moved -> drift
+    assert w and "1.1.1000.1" in w and "1.1.2000.2" in w and "MissingMemberException" in w
+
+
+def test_engine_drift_quiet_on_missing_data(tmp_path, monkeypatch):
+    """Best-effort: no DLL / no stamp / a version-less stamp / an unresolvable install all stay silent (never a
+    false alarm on missing data)."""
+    from ff9mapkit.battle import scriptcompile as sc
+    import ff9mapkit.memoria as mem
+    assert sc.engine_drift_warning(tmp_path / "absent.dll", game=None) is None       # no DLL
+
+    dll = tmp_path / "Memoria.Scripts.FF9CustomMap.dll"
+    dll.write_bytes(b"MZ")
+    assert sc.engine_drift_warning(dll, game=None) is None                            # no stamp sidecar
+
+    managed = tmp_path / "Managed"
+    managed.mkdir()
+    (managed / "Assembly-CSharp.dll").write_bytes(b"x")
+    monkeypatch.setattr(sc, "_managed_dir", lambda game=None: managed)
+    monkeypatch.setattr(mem, "read_assembly_version", lambda p: None)                 # off-Windows / no version
+    sc._write_engine_stamp(dll, managed)
+    assert sc.read_engine_stamp(dll)["engine_file_version"] is None                   # a version-less stamp
+    assert sc.engine_drift_warning(dll, game=None) is None                            # -> nothing to compare
+
+    monkeypatch.setattr(mem, "read_assembly_version", lambda p: "1.1.9.9")
+    sc._write_engine_stamp(dll, managed)
+
+    def _boom(game=None):
+        raise sc.ScriptCompileError("no install")
+    monkeypatch.setattr(sc, "_managed_dir", _boom)
+    assert sc.engine_drift_warning(dll, game=None) is None                            # can't resolve the install
