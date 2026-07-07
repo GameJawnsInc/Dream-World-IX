@@ -6263,6 +6263,23 @@ def _smoke(win):
         assert _btn is not None
     assert any(lbl == "Go to Models" for lbl, _k, _cb in win._command_index())
     assert win.import_field.models_tab_btn.isEnabled(), "Import-tab pointer to Models not wired"
+    # the deployed-overrides panel: scan a fake mod folder, rows classified, backend revert works
+    _fm = d / "fakemod"
+    _fmv = _fm / "StreamingAssets" / "Assets" / "Resources" / "Models" / "2" / "8"
+    _fmv.mkdir(parents=True)
+    (_fmv / "8_0.png").write_bytes(b"x")
+    (_fm / "DictionaryPatch.txt").write_text("3DModel 9999 GEO_NPC_F9_SMK\n", encoding="utf-8")
+    md.mdl_mod.setText(str(_fm))
+    md.on_deployed_refresh()
+    assert md.dep_list.count() == 2, f"deployed scan rows: {md.dep_list.count()}"
+    _texts = [md.dep_list.item(i).text() for i in range(2)]
+    assert any("texture reskin" in t and "GEO_MAIN_F0_VIV" in t for t in _texts), _texts
+    assert any("DANGLING" in t for t in _texts), _texts
+    from ..models import deployed as _dep
+    _dangling = next(e for e in _dep.scan_mod(_fm) if e["kind"] == "mint-directive")
+    _dep.revert_entry(_fm, _dangling)
+    md.on_deployed_refresh()
+    assert md.dep_list.count() == 1
     # pre-fork study + archive + find-rooms: the round-5 widgets built + wired
     for _w in (win.import_field.explain_chk, win.import_field.study_btn, win.import_field.rooms_btn,
                win.import_field.arc_out, win.import_field.arc_pattern, win.import_field.arc_btn):

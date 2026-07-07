@@ -360,6 +360,7 @@ extra (UnityPy).
 | `model-anim <model>` | Dump/deploy animation clips as editable loose `.anim` JSON. |
 | `model-preview <model>` | Software-render a model to a PNG still (textured, posed at its stand clip). |
 | `model-reskin <model>` | The cheapest edit: export a model's textures / deploy edited PNGs as a loose reskin. |
+| `model-deployed <mod>` | List (or `--revert` one of) a mod folder's loose model overrides / reskins / mints / anim overrides. |
 | `model-export <model>` | Export a raw skinned FBX (the non-glTF path). |
 | `playable-anims <field>` | Route edited donor clips onto a custom playable character's own minted animset. |
 

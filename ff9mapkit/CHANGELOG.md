@@ -59,6 +59,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (upscales fine); Zidane's F3/F4/F5 alt-costume forms are warned (the engine skips the probe for
   them). The Models tab gets **Export textures… / Deploy reskin PNG(s)…** buttons.
 
+### Added — deployed-model inventory (`model-deployed` + the Models tab's panel)
+- The loose-override system is write-only; this is the read side. **`ff9mapkit model-deployed
+  <modfolder>`** lists everything model-side deployed in a mod folder — loose FBX **overrides**,
+  PNG-only **reskins** (weapon tree included), **mints** (named via their `3DModel` DictionaryPatch
+  line; an unregistered mint is flagged), **anim overrides**, and **dangling** `3DModel` lines whose
+  folder is gone. `--revert <id> [--kind …]` deletes one entry (a mint also loses its line;
+  path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
+  with Refresh + a confirm-first **Revert selected…**.
+
 ### Added — model previews (`model-preview` + the renderer behind the GUI thumbnails)
 - **`ff9mapkit model-preview <model>`** software-renders any FF9 model to a textured PNG still — pure
   PIL (no OpenGL/Blender), orthographic 3/4 view, `--size/--yaw/--pitch/--rest`. Under the hood

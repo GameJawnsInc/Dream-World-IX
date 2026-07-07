@@ -146,6 +146,7 @@ class ModelsDoc(QWidget):
         rv.addLayout(copy_row)
 
         rv.addWidget(self._actions_box())
+        rv.addWidget(self._deployed_box())
         rv.addStretch(1)
 
         right = QScrollArea()
@@ -253,6 +254,75 @@ class ModelsDoc(QWidget):
         self._buttons = [self.mdl_gltf_btn, self.mdl_anim_btn, self.mdl_import_btn, self.mdl_mint_btn,
                          self.mdl_tex_btn, self.mdl_reskin_btn]
         return box
+
+    def _deployed_box(self):
+        """What's actually deployed model-wise in the 'Deploy into' folder -- overrides / reskins /
+        mints / anim overrides / dangling 3DModel lines -- with a confirm-first per-entry revert.
+        The loose-override system is write-only; this is the read side."""
+        muted = f"color:{self.pal['muted']};"
+        box = QGroupBox("Deployed in this mod folder")
+        v = QVBoxLayout(box)
+        self.dep_list = QListWidget()
+        self.dep_list.setMaximumHeight(170)
+        v.addWidget(self.dep_list)
+        row = QHBoxLayout()
+        self.dep_refresh_btn = QPushButton("Refresh")
+        self.dep_refresh_btn.clicked.connect(self.on_deployed_refresh)
+        row.addWidget(self.dep_refresh_btn)
+        self.dep_revert_btn = QPushButton("Revert selected…")
+        self.dep_revert_btn.setToolTip("Delete this entry's loose files (a mint also loses its "
+                                       "3DModel line). The bundled original takes over again.")
+        self.dep_revert_btn.clicked.connect(self.on_deployed_revert)
+        row.addWidget(self.dep_revert_btn)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.dep_hint = QLabel("Pick a mod folder above, then Refresh.")
+        self.dep_hint.setWordWrap(True)
+        self.dep_hint.setStyleSheet(muted)
+        v.addWidget(self.dep_hint)
+        return box
+
+    def on_deployed_refresh(self):
+        from ..models import deployed
+        mod = self.mdl_mod.text().strip().strip('"')
+        self.dep_list.clear()
+        if not mod or not Path(mod).is_dir():
+            self.dep_hint.setText("Pick a mod folder above (Deploy into:), then Refresh.")
+            return
+        try:
+            entries = deployed.scan_mod(mod)
+        except OSError as e:
+            self.dep_hint.setText(f"Scan failed: {e}")
+            return
+        for e in entries:
+            it = QListWidgetItem(deployed.describe(e))
+            it.setData(Qt.ItemDataRole.UserRole, e)
+            self.dep_list.addItem(it)
+        self.dep_hint.setText(f"{len(entries)} deployed entr{'y' if len(entries) == 1 else 'ies'}."
+                              if entries else "No loose model overrides in this folder.")
+
+    def on_deployed_revert(self):
+        from ..models import deployed
+        it = self.dep_list.currentItem()
+        if it is None:
+            return self._warn("Nothing selected", "Pick a deployed entry to revert first.")
+        e = it.data(Qt.ItemDataRole.UserRole)
+        mod = self.mdl_mod.text().strip().strip('"')
+        detail = deployed.describe(e)
+        if QMessageBox.question(self, "Revert this entry?",
+                                f"Delete:\n\n{detail}\n\nfrom {mod}?\n\nThe bundled original takes "
+                                "over again. A registered mint id needs a game RELAUNCH to unregister.") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            r = deployed.revert_entry(mod, e)
+        except (OSError, ValueError) as err:
+            return self._warn("Revert failed", str(err))
+        bits = [f"removed {len(r['removed'])} folder(s)"]
+        if r["directive_removed"]:
+            bits.append("stripped the 3DModel line (relaunch to unregister)")
+        self.dep_hint.setText(f"Reverted {e['name'] or e['geo_id']}: " + ", ".join(bits) + ".")
+        self.on_deployed_refresh()
 
     # ------------------------------------------------------------------ browser
     def _refill(self, *_a):

@@ -1520,6 +1520,37 @@ def _cmd_model_reskin(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_deployed(args: argparse.Namespace) -> int:
+    """List (or revert one of) a mod folder's loose model overrides/reskins/mints/anim overrides."""
+    from .models import deployed
+    entries = deployed.scan_mod(args.mod_folder)
+    if args.revert is not None:
+        matches = [e for e in entries if e["geo_id"] == args.revert
+                   and (args.kind is None or e["kind"] == args.kind)]
+        if not matches:
+            print(f"nothing deployed at id {args.revert}"
+                  + (f" with kind {args.kind}" if args.kind else ""), file=sys.stderr)
+            return 2
+        if len(matches) > 1:
+            kinds = ", ".join(e["kind"] for e in matches)
+            print(f"id {args.revert} has {len(matches)} deployed entries ({kinds}) -- "
+                  f"disambiguate with --kind", file=sys.stderr)
+            return 2
+        r = deployed.revert_entry(args.mod_folder, matches[0])
+        print(f"reverted: {deployed.describe(matches[0])}")
+        if r["directive_removed"]:
+            print("  stripped its 3DModel line -- RELAUNCH to unregister the id")
+        return 0
+    if not entries:
+        print("no loose model overrides in this folder")
+        return 0
+    for e in entries:
+        print(f"  {deployed.describe(e)}")
+    print(f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'} "
+          f"(revert one: model-deployed <mod> --revert <id> [--kind <kind>])")
+    return 0
+
+
 def _cmd_model_import(args: argparse.Namespace) -> int:
     """Bring a (Blender-edited) glTF back into the game -> a loose-FBX override (the edit loop return path)."""
     from .models import gltf as mgltf
@@ -4253,6 +4284,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="mod folder to write the reskin into (the model's own override dir)")
     mr.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mr.set_defaults(func=_cmd_model_reskin)
+
+    mdp = sub.add_parser("model-deployed",
+                         help="list (or revert) a mod folder's loose model overrides / reskins / mints / "
+                              "anim overrides -- the read side of the write-only override system")
+    mdp.add_argument("mod_folder", help="the mod folder to scan, e.g. <game>/FF9CustomMap")
+    mdp.add_argument("--revert", type=int, metavar="ID", default=None,
+                     help="delete the deployed entry at this model id (a mint also loses its 3DModel line)")
+    mdp.add_argument("--kind", choices=["override", "reskin", "mint", "anims", "mint-directive"],
+                     default=None, help="disambiguate --revert when an id has several entry kinds")
+    mdp.set_defaults(func=_cmd_model_deployed)
 
     pa = sub.add_parser("playable-anims",
                         help="the Blender edit loop for a 13th character's custom_battle_anims animset -- route "
