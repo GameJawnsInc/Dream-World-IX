@@ -895,6 +895,10 @@ class ImportDoc(QWidget):
             from .. import logic_map as LM
             fid = FR.resolve_field_id(field)
             text = LM.format_logic_map(LM.logic_map(fid))
+            try:
+                rep = FR.analyze(fid)                  # the beat/roster analysis (.eb-only, ~50 ms)
+            except Exception:                          # noqa: BLE001  (the map alone is still worth showing)
+                rep = None
         except Exception as e:                         # noqa: BLE001  (no install / unknown field / bad .eb)
             QApplication.restoreOverrideCursor()
             return self._warn("Couldn't decode", f"{e}\n\n(Studying a real field needs your FF9 install + "
@@ -902,13 +906,14 @@ class ImportDoc(QWidget):
         QApplication.restoreOverrideCursor()
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Field logic — {field} (read-only)")
-        dlg.resize(860, 620)
+        dlg.resize(860, 660)
         dv = QVBoxLayout(dlg)
         hint = QLabel("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
                       "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};")
         dv.addWidget(hint)
+        self._mount_beat_strip(dv, rep)
         body = QPlainTextEdit()
         body.setReadOnly(True)
         body.setPlainText(text)
@@ -920,6 +925,59 @@ class ImportDoc(QWidget):
         row.addWidget(close)
         dv.addLayout(row)
         dlg.exec()
+
+    def _mount_beat_strip(self, dv, rep):
+        """The BEAT SLIDER: on a rotating-cast field, scrub through the story beats the field gates on and
+        watch the spawned roster change (fork-report's #13 director analysis, made visual). A static field
+        gets a one-line note instead of a dead slider."""
+        muted = f"color:{self.pal['muted']};"
+        if rep is None:
+            return
+        if not rep.beat_roster:
+            note = QLabel("Roster: static — the cast doesn't rotate with the story"
+                          + (f" (gates on SC {', '.join(str(v) for v in rep.sc_gates)})" if rep.sc_gates
+                             else " (no ScenarioCounter gating)")
+                          + (f" · suggested [startup] scenario = {rep.suggested_scenario}"
+                             if rep.suggested_scenario is not None else ""))
+            note.setWordWrap(True)
+            note.setStyleSheet(muted)
+            dv.addWidget(note)
+            return
+        from PySide6.QtWidgets import QSlider
+        rows = sorted(rep.beat_roster, key=lambda r: r[0])
+        strip = QGroupBox("Roster by story beat  (drag to scrub ScenarioCounter)")
+        sv = QVBoxLayout(strip)
+        srow = QHBoxLayout()
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(0, len(rows) - 1)
+        slider.setPageStep(1)
+        slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        slider.setTickInterval(1)
+        srow.addWidget(slider, 1)
+        sv.addLayout(srow)
+        beat_lbl = QLabel("")
+        beat_lbl.setTextFormat(Qt.TextFormat.RichText)
+        beat_lbl.setWordWrap(True)
+        sv.addWidget(beat_lbl)
+
+        def show(ix):
+            bv, nm, entries = rows[ix]
+            where = nm[1] if nm else "?"
+            names = ", ".join((n[4:] if n.startswith("GEO_") else n) + (" *" if d else "")
+                              for _s, n, d in entries) or "(no carried cast)"
+            tags = []
+            if bv == 0:
+                tags.append("scenario-zero baseline")
+            if rep.suggested_scenario == bv:
+                tags.append("suggested [startup] beat")
+            tag = f' · <span style="{muted}">{" · ".join(tags)}</span>' if tags else ""
+            beat_lbl.setText(f"<b>SC {bv}</b> — {where}{tag}<br>"
+                             f'<span style="{muted}">{names}&nbsp;&nbsp;(* = a director; approximate — '
+                             f"flag-gated content assumed present)</span>")
+
+        slider.valueChanged.connect(show)
+        show(0)
+        dv.addWidget(strip)
 
     # ---- fork-preview art (SEE the room you're about to fork) ----
     def _request_preview_art(self, token):
