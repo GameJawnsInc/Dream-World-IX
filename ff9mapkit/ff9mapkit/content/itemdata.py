@@ -81,7 +81,8 @@ _CHAR_BY_NAME = {c.lower(): c for c in _itemstats.CHARS}   # equip-by-character 
 
 # Which Items.csv FK column + which target CSV a block patches, and the editable {toml key: CSV column} maps.
 _WEAPON_COLS = {"power": "Power", "elements": "Elements",
-                "category": "Category", "status_index": "StatusIndex", "rate": "Rate"}
+                "category": "Category", "status_index": "StatusIndex", "rate": "Rate",
+                "model": "Model"}   # the GEO_WEP name the engine loads (btl_eqp); a table form MINTS one
 _ARMOR_COLS = {"p_def": "P.Def", "p_eva": "P.Eva", "m_def": "M.Def", "m_eva": "M.Eva"}
 _ITEM_COLS = {"price": "Price", "sell": "SellingPrice"}    # equippable_by is handled separately (12-column rewrite)
 
@@ -274,6 +275,10 @@ def _edits_for(block, col_map, cols) -> dict:
             edits[idx] = _clamp_int(v, 0, STATUS_INDEX_CAP, key)
         elif key == "rate":
             edits[idx] = _clamp_int(v, 0, RATE_CAP, key)
+        elif key == "model":
+            # by the time the delta builds, a table form was minted + normalized to its GEO name
+            # (resolve_weapon_models); the Model column is a String the engine resolves via GetGEOID
+            edits[idx] = str(v)
         else:
             edits[idx] = _clamp_int(v, 0, POWER_CAP, key)
     return edits
@@ -308,6 +313,108 @@ def ability_tokens(entries) -> str:
             seen.add(tok)
             toks.append(tok)
     return ", ".join(toks) if toks else "0"
+
+
+def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *, game=None):
+    """Normalize every ``[[weapon]]`` block's ``model`` knob BEFORE the delta builds. Returns
+    ``(weapons', directives, warnings)`` -- blocks come back with ``model`` as a plain GEO name string.
+
+    * a STRING = point the item at a stock ``GEO_WEP_*`` (validated against the GEO table; an unknown
+      ``GEO_WEP_``-shaped token passes with a warning -- it may be a mint registered elsewhere).
+    * a TABLE ``{ id = 6500, hue/tint/textures = ..., from = ..., name = ... }`` = MINT a recolored
+      variant: read the source weapon model (an explicit ``from``, else the item's CURRENT ``Model``
+      column), recolor its textures (:func:`ff9mapkit.models.reskin.recolor_image`; ``textures`` =
+      per-stem hand-painted overrides), emit the loose FBX + PNGs at the weapon override path
+      (``BattleMap/BattleModel/6/<id>/`` -- weapons are type 6), and register it via a
+      ``3DModel <id> <name>`` directive (returned; rides the build's mint_lines). The engine then
+      resolves the CSV ``Model`` name through ``GetGEOID`` exactly like a stock weapon
+      (``btl_eqp.InitWeapon``; the loose FBX wins the disc probe). RELAUNCH to register the id.
+    """
+    specs = [(i, b) for i, b in enumerate(weapons) if isinstance(b, dict) and b.get("model") is not None]
+    if not specs:
+        return weapons, [], []
+    from .. import catalog as _catalog
+    out = list(weapons)
+    directives, warnings = [], []
+    wrow_cache = None
+
+    # pass 1 -- PURE validation of every spec (band / ops / duplicate ids / string forms) BEFORE any
+    # install read or file write: a bad later block must not leave earlier mints half-emitted
+    mints = []
+    seen_ids: set = set()
+    for i, b in specs:
+        m = b["model"]
+        if isinstance(m, str):
+            known = _catalog.model(m)
+            if known is not None and known.group != "WEP":
+                raise ValueError(f"[[weapon]] {b.get('name')!r}: model {m!r} is a {known.group} model -- "
+                                 f"a weapon needs a GEO_WEP_* (battle weapons are static type-6 meshes)")
+            if known is None:
+                if not str(m).upper().startswith("GEO_WEP_"):
+                    raise ValueError(f"[[weapon]] {b.get('name')!r}: unknown weapon model {m!r} "
+                                     f"(a stock GEO_WEP_* name, or a table to mint one)")
+                warnings.append(f"[[weapon]] {b.get('name')!r}: model {m!r} is not a stock weapon -- "
+                                f"assuming a minted name registered elsewhere (3DModel line)")
+            continue                                   # a plain string passes through to the column set
+        if not isinstance(m, dict):
+            raise ValueError(f"[[weapon]] {b.get('name')!r}: model must be a GEO_WEP name or a mint table "
+                             f"{{ id = ..., hue/tint/textures = ... }}, got {type(m).__name__}")
+        sid = m.get("id")
+        if not isinstance(sid, int) or isinstance(sid, bool) or not 6000 <= sid <= 32767:
+            raise ValueError(f"[[weapon]] {b.get('name')!r}: model.id must be an int in the mint band "
+                             f"6000..32767, got {sid!r}")
+        if sid in seen_ids:
+            raise ValueError(f"[[weapon]] model id {sid} used twice -- each mint needs its own id")
+        seen_ids.add(sid)
+        if m.get("hue") is None and m.get("tint") is None and not m.get("textures"):
+            raise ValueError(f"[[weapon]] {b.get('name')!r}: model id={sid} does nothing -- give at least "
+                             f"one of hue / tint / textures")
+        mints.append((i, b))
+
+    # pass 2 -- the mints (install reads + file writes)
+    for i, b in mints:
+        m = b["model"]
+        sid, hue, tint, textures = m["id"], m.get("hue"), m.get("tint"), m.get("textures") or {}
+        src = m.get("from")
+        if src is None:                                # default: the item's CURRENT Model column
+            if wrow_cache is None:
+                _h, wcols, _wid, wrows = read_base_csv(weapons_text)
+                _ih, icols, _iid, irows = read_base_csv(items_text)
+                wrow_cache = (wcols, wrows, icols, irows)
+            wcols, wrows, icols, irows = wrow_cache
+            iid = _items.resolve(b["name"])
+            wid = _fk_of(irows, icols, iid, "WeaponId", "weapon")
+            row = wrows.get(wid)
+            if row is None:
+                raise ValueError(f"no Weapons.csv row for WeaponId {wid} ({b['name']})")
+            src = row.split(";")[wcols["Model"]].strip()
+
+        from ..models import extract as mextract
+        from ..models import fbx_skin as mfbx
+        from ..models import mint as mmint
+        from ..models import reskin as mreskin
+        from PIL import Image
+        model = mextract.read_model(src, game=game)    # a weapon reads via the static 1-bone-rig path
+        name = m.get("name") or mmint.derive_mint_name(model["geo"], sid)
+        mmint.validate_mint_name(name)
+        mextract.merge_nested_child_meshes(model, warn=warnings.append)
+        text, _meta = mfbx.emit_skinned_fbx(model)
+        dest = layout.model_dir(6, sid)                # -> BattleMap/BattleModel/6/<id>/
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / f"{sid}.fbx").write_text(text, encoding="ascii", newline="\n")
+        for stem, img in model["textures"].items():
+            if stem in textures:
+                out_img = Image.open(textures[stem]).convert("RGBA")
+            elif hue is not None or tint is not None:
+                out_img = mreskin.recolor_image(img, hue=hue, tint=tint)
+            else:
+                out_img = img
+            out_img.save(str(dest / f"{stem}.png"))
+        directives.append(f"3DModel {sid} {name}")
+        out[i] = dict(b, model=name)                   # normalize -> the string path sets the column
+        warnings.append(f"[[weapon]] {b.get('name')!r}: minted weapon model {sid} ({name}) from {src} -- "
+                        f"RELAUNCH to register the id (weapons load on battle entry)")
+    return out, directives, warnings
 
 
 # --- delta builders (text) ------------------------------------------------------------------------
@@ -602,13 +709,15 @@ def _read_text(path) -> str:
     return raw.decode(CSV_ENCODING, errors="replace")
 
 
-def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), item_effects=(), *, game=None) -> None:
+def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), item_effects=(), *, game=None) -> tuple:
     """Emit the ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` / ``[[item_effect]]`` deltas into
     ``layout``'s mod root. Reads the base rows from the install (raises a clear ValueError if it isn't reachable --
     the deltas need the base columns). An ``[[equip_bonus]]`` mint repoints an item's BonusId, so its Items.csv
-    repoints merge into the same Items.csv delta as any ``[[item]]`` price edits."""
+    repoints merge into the same Items.csv delta as any ``[[item]]`` price edits. Returns
+    ``(mint_directives, warnings)`` -- a ``[[weapon]] model`` mint's ``3DModel`` lines ride the build's
+    mint_lines (deploy appends them + ships the staged BattleMap/BattleModel/ tree)."""
     if not (weapons or armors or items or equip_bonuses or item_effects):
-        return
+        return [], []
     from ..config import ConfigError                       # a RuntimeError (no resolvable install), NOT OSError --
     try:                                                  # catch it too so build.py's `except ValueError` warns+skips
         d = _base_dir(game)
@@ -626,8 +735,13 @@ def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), i
                              f"Stats.csv columns -- couldn't read {d / 'Stats.csv'}: {e}") from e
         stats_delta, repoints = build_equip_bonus_delta(items_text, stats_text, equip_bonuses)
     plan = []
+    directives: list = []
+    wmodel_warns: list = []
     if weapons:
-        plan.append((layout.weapons_csv, build_weapons_delta(items_text, _read_text(d / "Weapons.csv"), weapons)))
+        weapons_text = _read_text(d / "Weapons.csv")
+        weapons, directives, wmodel_warns = resolve_weapon_models(weapons, weapons_text, items_text,
+                                                                  layout, game=game)
+        plan.append((layout.weapons_csv, build_weapons_delta(items_text, weapons_text, weapons)))
     if armors:
         plan.append((layout.armors_csv, build_armors_delta(items_text, _read_text(d / "Armors.csv"), armors)))
     if items or repoints:
@@ -642,3 +756,4 @@ def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), i
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding=CSV_ENCODING, newline="\n")
+    return directives, wmodel_warns

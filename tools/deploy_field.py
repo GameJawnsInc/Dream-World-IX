@@ -129,11 +129,13 @@ for L in LANGS:
     if sm.exists():                                        # dialogue: deploy the field's .mes block
         live.mes_path(L, text_block).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sm, live.mes_path(L, text_block))
-# [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live)
-src_models = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Models"
-if src_models.is_dir():
-    shutil.copytree(src_models, live.root / "StreamingAssets" / "Assets" / "Resources" / "Models",
-                    dirs_exist_ok=True)
+# [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live).
+# Weapons (type 6, e.g. a [[weapon]] model mint) stage under BattleMap/BattleModel/ instead -- ship that too.
+for _sub in (("Models",), ("BattleMap", "BattleModel")):
+    src_models = tl.root.joinpath("StreamingAssets", "Assets", "Resources", *_sub)
+    if src_models.is_dir():
+        shutil.copytree(src_models, live.root.joinpath("StreamingAssets", "Assets", "Resources", *_sub),
+                        dirs_exist_ok=True)
 # [[playable]] custom_battle_anims: a minted battle model's OWN animset (loose .anim at Animations/<mintId>/<key>).
 # Ships alongside its `3DModelAnimation` DictionaryPatch lines (carried in mint_lines below). RELAUNCH to register.
 src_anims = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Animations"

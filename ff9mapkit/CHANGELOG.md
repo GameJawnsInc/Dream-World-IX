@@ -68,6 +68,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
   with Refresh + a confirm-first **Revert selected…**.
 
+### Added — custom weapon models (`[[weapon]] model`)
+- A weapon item can now change what it LOOKS like: `model = "GEO_WEP_B1_030"` points it at a stock
+  weapon model; `model = { id = 6500, tint = [1.7, 0.5, 0.5] }` (or `hue` / per-stem `textures`)
+  **mints a recolored variant** at the new id — the loose FBX + PNGs land at the weapon override
+  path (`BattleMap/BattleModel/6/<id>/`), the `3DModel` line registers the name, and the item's
+  `Weapons.csv` `Model` column carries it, so the engine resolves it exactly like a stock weapon
+  (`btl_eqp.InitWeapon` → `GetGEOID` → the disc probe). Composes with the existing `[[weapon]]`
+  stat knobs; validated offline (mint band, ops, duplicate ids — all-specs-first so a bad block
+  never leaves earlier mints half-emitted); deploy ships the weapon tree. RELAUNCH to register.
+- Fixed: `ModLayout.model_dir` now routes type 6 to `BattleMap/BattleModel/` (was `Models/6/`,
+  where the engine never probes).
+
 ### Added — palette-swap enemies (`[[scene.enemy]] skin`)
 - The classic FF9 move (Goblin → Goblin Mage) as one declarative knob on a forked battle:
   `skin = { id = 6210, hue = 150 }` (or `tint = [r,g,b]` multipliers / `textures = { "<stem>" =

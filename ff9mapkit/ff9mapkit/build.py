@@ -1282,6 +1282,22 @@ def validate(project: FieldProject) -> list[str]:
                         _itemdata.encode_category(v)
                     except ValueError as e:
                         problems.append(f"[[weapon]] {nm!r} category: {e}")
+                elif k == "model":                     # a GEO_WEP name (string) or a mint table -- the deep
+                    if isinstance(v, str):             # checks run fail-loud at build (resolve_weapon_models)
+                        if not v.upper().startswith("GEO_WEP_"):
+                            problems.append(f"[[weapon]] {nm!r} model {v!r} is not a weapon model "
+                                            f"(GEO_WEP_* -- battle weapons are static type-6 meshes)")
+                    elif isinstance(v, dict):
+                        mid = v.get("id")
+                        if not isinstance(mid, int) or isinstance(mid, bool) or not 6000 <= mid <= 32767:
+                            problems.append(f"[[weapon]] {nm!r} model.id must be an int in the mint band "
+                                            f"6000..32767, got {mid!r}")
+                        elif v.get("hue") is None and v.get("tint") is None and not v.get("textures"):
+                            problems.append(f"[[weapon]] {nm!r} model id={mid} does nothing -- give at "
+                                            f"least one of hue / tint / textures")
+                    else:
+                        problems.append(f"[[weapon]] {nm!r} model must be a GEO_WEP name or a mint table "
+                                        f"{{ id = ..., hue/tint/textures = ... }}, got {v!r}")
                 elif isinstance(v, bool) or not isinstance(v, int):
                     problems.append(f"[[{kind}]] {nm!r} {k} must be an integer, got {v!r}")
                 elif v < 0:
@@ -5631,14 +5647,16 @@ def _emit_synthesis(projects, layout) -> list:
     return warnings
 
 
-def _emit_item_data(projects, layout) -> list:
+def _emit_item_data(projects, layout) -> tuple:
     """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items,Stats,ItemEffects}.csv``) from every
     built field's ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` / ``[[item_effect]]`` blocks.
     The engine merges these by id (whole-row), so any field may tune any item; the same item tuned in several blocks
     merges (later overrides per field) -- warned for visibility. Reads the install's base rows (a delta carries the
-    full base row); no install -> warn + skip. No blocks anywhere -> nothing written. Returns warnings."""
+    full base row); no install -> warn + skip. No blocks anywhere -> nothing written. Returns
+    ``(warnings, mint_directives)`` -- a ``[[weapon]] model`` mint's `3DModel` lines join the build's mint_lines."""
     from .content import itemdata as _itemdata
     warnings: list = []
+    directives: list = []
     buckets = {"weapon": [], "armor": [], "item": [], "equip_bonus": [], "item_effect": []}
     seen: dict = {}
     for kind in buckets:
@@ -5656,13 +5674,15 @@ def _emit_item_data(projects, layout) -> list:
                 seen[key] = _field_name(p)
                 buckets[kind].append(b)
     if not any(buckets.values()):
-        return warnings
+        return warnings, directives
     try:
-        _itemdata.write_item_data(layout, buckets["weapon"], buckets["armor"], buckets["item"],
-                                  buckets["equip_bonus"], buckets["item_effect"])
+        directives, wmodel_warns = _itemdata.write_item_data(
+            layout, buckets["weapon"], buckets["armor"], buckets["item"],
+            buckets["equip_bonus"], buckets["item_effect"])
+        warnings += wmodel_warns
     except ValueError as e:                                # e.g. unknown item name / not-a-weapon / no install
         warnings.append(f"item-data patch skipped: {e}")
-    return warnings
+    return warnings, directives
 
 
 def _emit_item_text(projects) -> tuple:
@@ -5924,7 +5944,8 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
     start_warnings += _emit_synthesis(projects, layout)
-    start_warnings += _emit_item_data(projects, layout)
+    item_warns, weapon_mint_lines = _emit_item_data(projects, layout)
+    start_warnings += item_warns
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
     start_warnings += _emit_portraits(projects, layout)
@@ -5951,8 +5972,9 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             "location_lines": [r.location_line for r in results if r.location_line],
             # [[mint]] `3DModel <id> <name>` directives (order-preserving dedup) -- deploy_field.py /
             # deploy_campaign append these to DictionaryPatch AND the staged Models/<type>/<id>/ FBX ships.
-            "mint_lines": list(dict.fromkeys(ml for r in results
-                                             for ml in (getattr(r, "mint_lines", []) or []))),
+            "mint_lines": list(dict.fromkeys([ml for r in results
+                                              for ml in (getattr(r, "mint_lines", []) or [])]
+                                             + weapon_mint_lines)),
             # [[playable]] `CharacterDefaultName <id> <SYM> <name>` directives (the 13th+ character's name, per
             # language) -- mod-global; deploy_field.py merges them by (id, lang) so a re-deploy replaces cleanly.
             "charname_lines": list(charname_lines),
