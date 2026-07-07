@@ -25,6 +25,7 @@ Disable with ``FF9MAPKIT_NO_THUMBS=1`` (the smoke does -- no worker threads in h
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import queue
 import tempfile
@@ -114,6 +115,69 @@ def build_thumb(project_toml, real_id) -> Path | None:
         return _scale_to_cache(full, out)
 
 
+# ---------------------------------------------------------------- 3D model previews (the Models tab)
+
+MODEL_THUMB = 256                               # cached model-preview size (px, square)
+_MODEL_RENDER_V = 1                             # bump when the renderer's output changes -> new cache keys
+
+
+def model_thumb_paths(geo_id) -> tuple[Path, Path]:
+    """(png, meta-json) cache paths for a model preview. Game art is static, so the key is just the
+    geo id + the renderer version (no mtime component)."""
+    stem = f"{int(geo_id)}_v{_MODEL_RENDER_V}"
+    d = provision.cache_dir() / "model_thumbs"
+    return d / f"{stem}.png", d / f"{stem}.json"
+
+
+def model_thumb_meta(geo_id) -> dict | None:
+    """The counts sidecar a finished render wrote ({bones, meshes, verts, textures}), or None."""
+    _png, meta = model_thumb_paths(geo_id)
+    try:
+        return json.loads(meta.read_text(encoding="utf-8")) if meta.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+def build_model_thumb(token, ctx: dict | None = None) -> str | None:
+    """Synchronously render (or reuse) the cached preview PNG for a model. Pure worker logic -- no Qt.
+    ``ctx`` (a plain dict, thread-confined to the caller) keeps the p0data bundles + the p0data5 env
+    alive across calls, so a browse session pays the ~2s bundle load once and ~0.1-0.3s per model after.
+    Writes a ``{geoId}_v{N}.json`` counts sidecar beside the PNG (bones/meshes/verts/textures -- the
+    detail pane's facts, harvested for free from the render struct)."""
+    from .. import catalog
+    m = catalog.model(token)
+    if not m:
+        return None
+    png, meta = model_thumb_paths(m.id)
+    if png.is_file():
+        return str(png)
+    from ..models import anim as manim
+    from ..models import extract, preview
+    ctx = ctx if ctx is not None else {}
+    didx = 2 if m.group == "WEP" else 4          # weapons live in p0data2 (BattleMap/BattleModel/6)
+    if didx not in ctx:
+        ctx[didx] = extract._Bundle(None, data_index=didx)
+    if "env5" not in ctx:
+        try:
+            ctx["env5"] = manim._load_env5(None)
+        except Exception:   # noqa: BLE001 -- no p0data5 -> render the rest pose instead of failing
+            ctx["env5"] = None
+    struct = preview._skinned_struct(m.name, bundle=ctx[didx], env5=ctx["env5"],
+                                     pose=ctx["env5"] is not None)
+    img = preview.render_model(struct, size=MODEL_THUMB)
+    png.parent.mkdir(parents=True, exist_ok=True)
+    tmp = png.with_suffix(".tmp.png")
+    img.save(tmp, "PNG", optimize=True)
+    tmp.replace(png)
+    info = {"geo": struct.get("geo"), "id": struct.get("geo_id"),
+            "bones": len(struct.get("bones") or []),
+            "meshes": len(struct.get("meshes") or []),
+            "verts": sum(len(me.get("verts") or []) for me in (struct.get("meshes") or [])),
+            "textures": sorted(struct.get("textures") or {})}
+    meta.write_text(json.dumps(info), encoding="utf-8")
+    return str(png)
+
+
 class ThumbService(QObject):
     """The Workspace-side async wrapper: one daemon worker drains a queue of (member, toml, real_id) and
     emits ``ready(member, png_path)`` for each success. Failures are remembered as misses (no re-try storm);
@@ -199,4 +263,92 @@ class ThumbService(QObject):
                 try:
                     self.ready.emit(member, str(png))   # queued into the GUI thread
                 except RuntimeError:              # the service's C++ half died (app exit) -- stop quietly
+                    return
+
+
+class ModelThumbService(QObject):
+    """Async 3D-model preview renders for the Models tab -- the same contract + locking discipline as
+    :class:`ThumbService` (cached/request/ready/invalidate, one daemon worker, remembered misses,
+    generation-dropped in-flight results), keyed by GEO NAME. The worker keeps the p0data bundles +
+    the p0data5 env alive between renders (``self._ctx``, worker-thread-confined), so a browse session
+    pays the bundle load once. A model whose prefab isn't on disc (the model DB lists some ids the
+    install never shipped) lands as a remembered miss -- the list shows it un-thumbnailed."""
+
+    ready = Signal(str, str)                     # (geo name, png path)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._q = queue.Queue()
+        self._done = {}                          # geo name -> png path (str)
+        self._miss = set()
+        self._pending = set()
+        self._gen = 0
+        self._lock = threading.Lock()
+        self._worker = None
+        self._ctx = {}                           # p0data bundle cache; touched ONLY by the worker thread
+
+    # ---- GUI-thread API ----
+    def cached(self, name) -> str | None:
+        return self._done.get(name)
+
+    def request(self, name) -> str | None:
+        """The cached path (instant) or None; a None ENQUEUES a background render unless it's a known
+        miss. Same worker-liveness discipline as ThumbService.request (enqueue + start under one lock)."""
+        if not enabled():
+            return None
+        png = self._done.get(name)
+        if png:
+            return png
+        with self._lock:
+            if name in self._miss or name in self._pending:
+                return None
+            self._pending.add(name)
+            self._q.put(name)
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._drain, name="ff9-model-thumbs", daemon=True)
+                self._worker.start()
+        return None
+
+    def invalidate(self, name=None):
+        with self._lock:
+            self._gen += 1
+            if name is None:
+                self._done.clear()
+                self._miss.clear()
+                self._pending.clear()
+            else:
+                self._done.pop(name, None)
+                self._miss.discard(name)
+                self._pending.discard(name)
+
+    # ---- worker ----
+    def _drain(self):
+        while True:
+            try:
+                name = self._q.get(timeout=2.0)
+            except queue.Empty:
+                with self._lock:
+                    if self._q.empty():
+                        self._worker = None
+                        return
+                continue
+            with self._lock:
+                gen = self._gen
+            try:
+                png = build_model_thumb(name, self._ctx)
+            except Exception:   # noqa: BLE001  (no install / no prefab on disc / anything) -> a miss
+                png = None
+            with self._lock:
+                if gen != self._gen:
+                    self._pending.discard(name)
+                    continue
+                self._pending.discard(name)
+                if png is None:
+                    self._miss.add(name)
+                else:
+                    self._done[name] = str(png)
+            if png is not None:
+                try:
+                    self.ready.emit(name, str(png))
+                except RuntimeError:
                     return

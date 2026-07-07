@@ -154,7 +154,7 @@ marker commands are stock-engine.
 | Tool | What | Docs |
 |---|---|---|
 | **CLI** | 98 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
-| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
+| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Models / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art + 3D-model thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
 | **Blender add-on** | Camera posing, walkmesh modeling, markers, field import, battle-map + model round-trips | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Field logic in forms — stdlib Tkinter, no PySide6 needed | [README](../README.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), the logic file owns *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |

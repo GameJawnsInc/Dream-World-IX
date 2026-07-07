@@ -38,6 +38,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   from `StatusData`). The `auto_life` template takes a `power` knob (revive at power% of max HP, default 50).
   ★ Behaviour + panel icon + on-model chevron in-game proven (a custom revive-on-death status fired + showed both).
 
+### Added — the Models tab (the custom-3D-models pillar's front door in the Workspace)
+- A new top-level **Models** tab: browse every GEO model the kit knows (search + group filter +
+  field-placeable filter) with **real rendered thumbnails**, a detail pane (preview still,
+  bones/meshes/verts/textures, the model→animation action join, story-evolved/hair-swap appearance
+  caveats, overworld-actor identity, Copy name / Copy `[[npc]]` snippet), and the whole DLL-free
+  edit round-trip in one place — Export `.glb` (anims auto/all/none) · Import the edited `.glb` ·
+  Mint a new id · Dump editable `.anim` clips — each streaming `ff9mapkit model-*` to the Output
+  panel. Ctrl-K "Go to Models", a Home row, and dropping a `.glb` on the window all land here; the
+  Import tab's old models box is now a pointer. Previews render on a background worker (per-user
+  disk cache, `ModelThumbService`); a machine without the install degrades to text rows.
+
 ### Added — model previews (`model-preview` + the renderer behind the GUI thumbnails)
 - **`ff9mapkit model-preview <model>`** software-renders any FF9 model to a textured PNG still — pure
   PIL (no OpenGL/Blender), orthographic 3/4 view, `--size/--yaw/--pitch/--rest`. Under the hood
