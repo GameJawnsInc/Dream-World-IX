@@ -1,10 +1,8 @@
 # Glossary
 
-A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs. New to FF9
-field authoring? Skim this first, then dive into [`FORMAT.md`](FORMAT.md) (the `field.toml`
-reference) and the [`TUTORIAL.md`](TUTORIAL.md).
-
-Terms are grouped by topic; within each group they build on each other.
+A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs. For the
+`field.toml` reference see [`FORMAT.md`](FORMAT.md); for a guided start see the
+[tutorials](tutorials/README.md).
 
 ---
 
@@ -35,6 +33,24 @@ Terms are grouped by topic; within each group they build on each other.
 : FF9's optional "Press SELECT" side-scenes (and the grey, unskippable auto-cutscene banner variant).
   Almost all of an ATE lives in the field's own event script rather than the engine, so a faithful
   fork carries it. See [`ATE_SYSTEM.md`](ATE_SYSTEM.md).
+
+**Prop**
+: A static set-dressing object placed on a field (a chest, tent, barrel, sign, ladder) — a model plus
+  a fixed pose, with no behavior of its own. Authored via `[[prop]]`; see [`FORMAT.md`](FORMAT.md).
+
+**Save point**
+: A field region that opens FF9's save menu (with an optional cosmetic moogle). Saving on a custom
+  field and reloading into it works. Authored via `[[savepoint]]`; see [`SAVEPOINT.md`](SAVEPOINT.md).
+
+**Battle background (BBG)**
+: The 3D scene a battle plays out in (`BBG_B###`). The kit can reskin one, replace its geometry, or
+  author a wholly new one, and tune the fight and camera around it — no engine changes needed. See
+  [`BATTLE_DESIGN.md`](BATTLE_DESIGN.md).
+
+**SPS particles**
+: FF9's field particle effects (smoke, sparkles, drips) — textured 2D quads driven by `.sps` binaries
+  that the event script triggers. Forks carry the donor field's particles, and the format is
+  authorable. See [`SPS.md`](SPS.md).
 
 **BG-borrow vs. custom scene**
 : Two ways to give a custom field its background. **BG-borrow** points your field at a *real* field's
@@ -70,6 +86,11 @@ Terms are grouped by topic; within each group they build on each other.
   up: a complete playable arc made of one *or more* chained campaigns, picked from a World Hub, with a
   starting point and seeded story state. (A campaign chains fields; a journey chains campaigns.) See
   [`CAMPAIGN_IMPORT.md`](CAMPAIGN_IMPORT.md) and [`JOURNEYS.md`](JOURNEYS.md).
+
+**World Hub**
+: A playable field a New Game can land on that lists the installed journeys and warps the player into
+  the chosen one, seeding its story state. Generated with `ff9mapkit gen-hub`; see
+  [`JOURNEYS.md`](JOURNEYS.md).
 
 ---
 
@@ -140,8 +161,9 @@ Terms are grouped by topic; within each group they build on each other.
 : The open-source FF9 engine layer this toolkit targets ([Memoria](https://github.com/Albeoris/Memoria),
   used by the Steam release). A **novel** field (built from scratch or BG-borrowing real art) runs on a
   **stock, unmodified Memoria**. A **forked** field needs a small bundled patch set
-  ([`memoria-patches/`](../../memoria-patches/), `s23`–`s33`) to restore the `fldMapNo`-keyed behaviors
-  noted above. See [`ENGINE.md`](ENGINE.md) for exactly what's stock vs. patched.
+  ([`memoria-patches/`](../../memoria-patches/), `s23`–`s34`) to restore the `fldMapNo`-keyed behaviors
+  noted above; the bundle also carries `s22`, the F6 debug menu (below). See [`ENGINE.md`](ENGINE.md)
+  for exactly what's stock vs. patched.
 
 **p0data**
 : The packed FF9 asset bundles (`p0data*.bin`) in your install's `StreamingAssets/`, where the real
@@ -149,8 +171,22 @@ Terms are grouped by topic; within each group they build on each other.
   dependency — to fork fields and to regenerate base templates. **It never ships their contents** (see
   [`PROVENANCE.md`](PROVENANCE.md)); everything is read from *your* legally-owned install.
 
-**The F6 debug menu (dev-engine only)**
-: An in-game developer overlay (toggled with F6) for fast iteration — reload the current field, warp to
-  any custom id, teleport, set story flags, give items, toggle cheats, change the time scale. It is a
-  **development-only** convenience built into a local engine build; it is **not** part of the shipped
-  engine and is not needed to play a finished mod.
+**Overworld (world map)**
+: FF9's traversable world map. The kit's `world-*` commands author it — reshape walkable terrain,
+  reclaim ocean cells as land, carry real coastlines, synthesize open water, add new field entrances
+  (optionally with a modelled building), and edit encounters and textures. The reclaim/coast/entrance
+  features need the bundled `s34` engine patch; the texture, encounter, and environment commands work
+  on a stock engine. See [`OVERWORLD_ENGINE.md`](OVERWORLD_ENGINE.md).
+
+**Custom 3D models (GEO)**
+: FF9's characters, NPCs, and props are GEO models. The engine loads loose-FBX overrides from a mod
+  folder, so custom or Blender-edited models and animations work on a stock engine — the kit's
+  `model-*` commands export, edit, mint, and animate them. See [`CUSTOM_MODELS.md`](CUSTOM_MODELS.md)
+  and [`ANIMATION_EDITING.md`](ANIMATION_EDITING.md).
+
+**The F6 debug menu**
+: An in-game menu (toggled with F6) that ships in the engine bundle as a user-facing tool. Four
+  context-adaptive tabs — **Go / Cheats / Flags / Time** — work on a field, in battle, and on the
+  overworld: reload the current field, warp to any registered field id, teleport, set story flags,
+  give items, toggle cheats, change the time scale; on the overworld, also swap vehicles, teleport
+  across the world map, and switch discs.

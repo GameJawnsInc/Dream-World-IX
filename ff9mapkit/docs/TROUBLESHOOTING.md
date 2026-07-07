@@ -1,6 +1,6 @@
 # Troubleshooting
 
-It didn't work — now what? This page covers the most common first-run failures as
+This page covers the most common first-run failures as
 **symptom → cause → fix**. If you haven't done the one-time setup yet, start with
 [`SETUP.md`](../../SETUP.md); for what's stock vs. enhanced engine behavior see
 [`ENGINE.md`](ENGINE.md); for the "ships no game data" guarantee see [`PROVENANCE.md`](PROVENANCE.md).
@@ -47,10 +47,17 @@ extract-templates" message, or `doctor` reports `templates : NOT extracted`.
 field every build starts from, the exit-region template, test fixtures) are *derived* from your own
 install and must be regenerated once per checkout.
 
-**Fix.** Install UnityPy (a separate manual install — it is **not** a declared extra), then extract:
+**Fix.** The one-shot **`ff9mapkit setup`** command does this end to end — it detects the install,
+persists it to `~/.ff9mapkit.toml`, runs `extract-templates`, and reports engine status:
 
 ```powershell
-py -m pip install UnityPy
+py -m ff9mapkit setup
+```
+
+Or do the extraction step by hand — install UnityPy (the `assets` extra), then extract:
+
+```powershell
+py -m pip install ff9mapkit[assets]   # or, from a checkout:  pip install -e ".[assets]"
 py -m ff9mapkit extract-templates
 py -m ff9mapkit doctor          # should now report:  templates : extracted
 ```
@@ -60,19 +67,21 @@ extracting. See [`PROVENANCE.md`](PROVENANCE.md) for the patches-not-bytes mecha
 
 ---
 
-### `import` / `list-fields` / `battle-import` / `export-art` fail
+### An asset-reading command fails (`import`, `list-fields`, `battle-import`, `export-art`, …)
 
 **Symptom.** A command prints something like *"needs UnityPy (pip install UnityPy) + your FF9
-install."*
+install."* This applies to every command that reads game assets: `import`, `import-all`,
+`extract-field`, `extract-templates`, `list-fields`, `export-art`, `battle-import`, `battle-scene`,
+`dialogue-import`, `sps`, the `model-*` suite, and the `world-*` extraction commands.
 
 **Cause.** These commands read FF9's `p0data*.bin` assetbundles, which requires **UnityPy** and a
-**detected FF9 install**. (UnityPy is the same separate manual install as above; it isn't pulled in
-by `pip install -e .`.)
+**detected FF9 install**. (UnityPy is the `assets` extra; it isn't pulled in by a bare
+`pip install -e .`.)
 
 **Fix.**
 
 ```powershell
-py -m pip install UnityPy
+py -m pip install ff9mapkit[assets]   # or:  pip install -e ".[assets]"  /  py -m pip install UnityPy
 py -m ff9mapkit doctor          # confirm  UnityPy : present  AND a resolved game install
 ```
 
@@ -86,17 +95,23 @@ If UnityPy is present but the game still isn't found, see the next entry.
 
 **Cause.** None of the resolution sources pointed at a real install directory.
 
-**Fix.** The kit resolves the install in this order:
+**Fix.** Run **`ff9mapkit setup`** — it detects the install and persists it to `~/.ff9mapkit.toml`
+(then extracts templates and reports engine status in the same pass). The kit resolves the install
+in this order:
 
 1. the `--game "<path>"` flag,
 2. the `$FF9_GAME_PATH` environment variable,
 3. `game_path = "..."` in `~/.ff9mapkit.toml`,
-4. the common Steam locations:
-   - `C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX`
-   - `C:\Program Files\Steam\steamapps\common\FINAL FANTASY IX`
-   - `D:\SteamLibrary\steamapps\common\FINAL FANTASY IX`
+4. auto-detection: the per-game **Steam and GOG registry keys** (the same keys Memoria reads), then
+   a scan of Steam's `libraryfolders.vdf` for every Steam library, then the common install folders
+   (`Program Files (x86)\Steam\...`, `D:\SteamLibrary\...`, `C:\GOG Games`, `D:\GOG Games`, GOG
+   Galaxy).
 
-Set it explicitly (PowerShell — note `$env:`, not bash `export`):
+Both the **Steam** and **GOG** builds are supported. The **Microsoft Store** build is **not
+moddable** and is not a supported target.
+
+If auto-detection still misses a non-standard location, set it explicitly (PowerShell — note
+`$env:`, not bash `export`):
 
 ```powershell
 $env:FF9_GAME_PATH = "C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX"
@@ -133,15 +148,16 @@ black-screen.
 
 **(b) A global EventDB id collision across stacked mod folders.** The engine's registries are merged
 across every mod folder, so a custom id reused in another folder collides — one field then loads a
-**null `.eb`** (black screen / invisible player). Diagnose by searching the `DictionaryPatch.txt`
-files for the id:
+**null `.eb`** (black screen / invisible player). Diagnose by searching **each stacked folder's**
+`DictionaryPatch.txt` for the id — check every folder listed in `Memoria.ini [Mod] FolderNames`:
 
 ```powershell
-py -m ff9mapkit doctor                          # prints each folder's dict patch path
+Select-String "FieldScene <id>" "<game>\*\DictionaryPatch.txt"
+py -m ff9mapkit doctor          # prints the resolved mod folder's dict patch path as a starting point
 ```
 
 > **Fix.** Give every custom field a **globally distinct id**, even across stacked folders. Custom ids
-> are **≥ 4000**; reach a field with the dev F6 → Warp menu or via a gateway. (See
+> are **≥ 4000**; reach a field with the F6 → Warp menu or via a gateway. (See
 > [`GLOBAL_RESOURCES.md`](GLOBAL_RESOURCES.md) for the id namespace and the global-id rule.)
 
 **(c) A field id above 32767.** The engine's `fldMapNo` is an **Int16** (max **32767**). A higher id
@@ -167,25 +183,57 @@ path (or a fork mode that carries the real script) rather than hand-rolling the 
 
 ---
 
-### Wrong dialogue but correct behavior (stacked mod folders)
+### Wrong dialogue but correct behavior — or a "(saved)" edit that still shows the old line
 
 **Symptom.** A field plays its logic correctly (right doors, right events) but shows the **wrong
-text** — often another field's lines.
+text** — often another field's lines. Or: a verbatim fork's dialogue was rewritten in the Workspace
+**Script** panel, the edit shows **"(saved)"**, but the game still speaks the old line.
 
-**Cause.** This is **text-block shadowing**. The engine reads a field's `.mes` from the
-**highest-priority** mod folder that defines that text-block id. If a higher-priority folder defines
-the same id, its text shadows yours. (The *flags* are still correct, which is why behavior looks
-right.)
+**Cause.** Two independent gaps sit between a saved edit and the screen:
 
-**Fix.** Set the field's `text_block` to a value **no higher-priority folder defines**. It must be a
-**real `MesDB` id** (arbitrary ids don't load); pin it in the field's `field.toml`:
+1. **The edit isn't deployed yet.** A Script-panel rewrite is recorded in the field's `field.toml`
+   (as a `[[logic_edit]]`); the GUI save does **not** touch the `.mes` — the build rewrites it. An
+   **F6 → Reload field** *without* a redeploy just re-reads the stale `.mes`.
+2. **Text-block shadowing.** A field reads dialogue from `field/<text_block>.mes`, and the engine
+   serves that block from the **highest-priority** folder in `Memoria.ini FolderNames`. Campaign
+   members and the deploy test slots all default to the shared block **1073**, so if a
+   higher-priority folder (a churned `FF9CustomMap`, a leftover prior-journey folder, …) also
+   defines the same block, it **shadows** the edit — the engine shows *that* folder's old text.
+   (The *flags* are still correct, which is why the behavior looks right. The same gotcha hits
+   `[[on_entry]]` lines.)
 
-```toml
-[field]
-text_block = 1234        # a real MesDB id that no stacked folder above you defines
+**Fix.**
+
+1. **Rebuild + redeploy, then reload.** `py tools/deploy_field.py …` (single field) or, for a
+   journey/campaign member, `ff9mapkit deploy-campaign <campaign.toml> --apply` /
+   `ff9mapkit deploy-journey <journeys.toml> --apply` (the checkout scripts
+   `py tools/deploy_campaign.py` / `py tools/deploy_journey.py` are thin shims over the same
+   commands) — then **F6 → Reload field** (or relaunch).
+2. **Clear the shadow.** Deploy your folder higher in `FolderNames`, remove the higher folder's
+   copy of the block, or pin a unique `[field] text_block` — it must be a **real `MesDB` id** that
+   no higher-priority folder defines (arbitrary ids don't load):
+
+   ```toml
+   [field]
+   text_block = 1234        # a real MesDB id that no stacked folder above you defines
+   ```
+
+The deploy step guards this: `deploy_field` **and** `deploy_campaign` / `deploy_journey` run the
+text-block **shadow check** and print a `TEXT SHADOWED: …` warning that names the blocking folder
+and a safe alternative block; the Script panel also flags a dialogue edit on the shared default
+1073. Diagnose directly:
+
+```powershell
+py -c "from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning; from ff9mapkit.config import find_game_path; print(shadow_warning(check_text_block_shadow(find_game_path(None), '<your-mod-folder>', <block>)) or 'clear')"
 ```
 
-The deploy tooling warns when it detects a shadowed text-block and suggests a free id.
+**Journey deploys are windowed against the sharper cross-campaign case.** A fresh journey deploy
+gives each campaign a **disjoint custom text-block window** (each block registered via a
+DictionaryPatch `MessageFile` line), so two campaigns whose donors share a mesID no longer collide,
+regardless of `FolderNames` order. `deploy_journey` still warns (`TEXT-BLOCK COLLISION: block N
+shipped by …`) when a mix of old (un-windowed) and new folders is hand-stacked — reorder
+`FolderNames` so the campaign whose dialogue matters most sits highest, or re-deploy the whole
+journey so every campaign gets a window.
 
 ---
 
@@ -196,7 +244,7 @@ The deploy tooling warns when it detects a shadowed text-block and suggests a fr
 **Cause.** Most edits to the *current* field can be hot-reloaded, but some changes are only read at
 startup.
 
-**Fix.** With the dev engine, press **F6 → Reload field** — it re-reads the current field's
+**Fix.** With the bundled custom engine, press **F6 → Reload field** — it re-reads the current field's
 `.eb`/`.mes`/scene/walkmesh/art from disk, no relaunch.
 
 **Relaunch the game** only when F6 Reload can't pick a change up:
@@ -206,10 +254,12 @@ startup.
 - **start-state CSVs** or **`TextPatch.txt`** item names (read at startup / New Game),
 - an **engine DLL rebuild**.
 
-> **Note.** The **F6 debug menu is a dev-engine feature** — it isn't part of stock Memoria or a
-> shipped mod. On a **stock** Memoria install, reach a custom field through a **gateway** from a field
-> you can already walk to, or by wiring it to **New Game**. See [`ENGINE.md`](ENGINE.md) for what's
-> stock vs. enhanced.
+> **Note.** The **F6 debug menu needs the bundled custom engine** — it ships in the public engine
+> bundle (`dwix-custom-memoria-*.zip`, installed by the Windows installer or by
+> `ff9mapkit setup --install-engine <zip>`, which backs up the stock DLLs automatically), but it is
+> not part of **stock** Memoria. On a stock install, reach a custom field through a **gateway** from
+> a field you can already walk to, or by wiring it to **New Game**. See [`ENGINE.md`](ENGINE.md) for
+> what's stock vs. enhanced.
 
 ---
 
@@ -234,11 +284,19 @@ pip install -e ".[save]"        # or:  py -m pip install pycryptodome
 
 ### The GUI won't launch
 
-**Symptom.** `apps/ff9_workspace.pyw` prints a prompt about a missing dependency, or nothing opens.
+**Symptom.** The Workspace prints a prompt about a missing dependency, or nothing opens.
 
 **Cause.** The desktop Workspace is built on **PySide6**, an optional extra.
 
-**Fix.** Install the `gui` extra, then launch the front door:
+**Fix.** Install the `gui` extra, then launch. For an **installed** copy (pip / uv / the Windows
+installer — no repo checkout), the launcher is the **`ff9mapkit-workspace`** entry point:
+
+```powershell
+py -m pip install ff9mapkit[gui]
+ff9mapkit-workspace
+```
+
+From a **repo checkout**, launch the front door directly:
 
 ```powershell
 pip install -e ".[gui]"         # or:  py -m pip install PySide6
@@ -268,6 +326,7 @@ py -m pytest -n 6               # run from the ff9mapkit/ package dir
 ## See also
 
 - [`SETUP.md`](../../SETUP.md) — install, configuration, the dev loop, and your first field.
+- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) — known rough edges and engine limitations, when a symptom here doesn't match.
 - [`ENGINE.md`](ENGINE.md) — what runs on stock Memoria vs. the bundled fork-fidelity patches.
 - [`PROVENANCE.md`](PROVENANCE.md) — why the kit ships no game data and how `extract-templates` works.
 - [`GLOBAL_RESOURCES.md`](GLOBAL_RESOURCES.md) — the id / flag / text namespaces and the global-id rule.

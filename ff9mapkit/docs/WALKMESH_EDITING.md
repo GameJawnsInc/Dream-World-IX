@@ -6,7 +6,7 @@ Status: **v1 + v2 shipped** (verbatim ship + build guard; obj+links seam reconci
 ## 1. The problem
 
 `ff9mapkit import --editable` forks a real field. Its background art splits into editable layers
-cleanly. Its **walkmesh** does not — if we re-export it through Wavefront `.obj`, multi-floor fields
+cleanly. Its **walkmesh** does not — if it is re-exported through Wavefront `.obj`, multi-floor fields
 come back **disconnected** (the player gets trapped on one floor; observed in-game on Gargan Roo,
 7 floors). Root cause, stated precisely:
 
@@ -78,7 +78,7 @@ tris   = [[cx, cy, cz], ...]
 frames = [ ... ]
 ```
 
-### 3.2 Export (automatic — we hold the original `.bgi`)
+### 3.2 Export (automatic — the original `.bgi` is retained)
 
 `import --editable` reads the original `.bgi`, so it emits the sidecar with **zero guessing**:
 
@@ -120,7 +120,7 @@ named floor.
 | **add a floor** | it's an island until you add a `[[seam]]`; the tool can *suggest* seams where the new floor's edges coincide with an existing floor's |
 | reshape an **animated** floor | anim centroid match fails → warn + drop the anim |
 
-The guarantee is **no silent mis-link**: anything we can't reconcile is reported, and the reachability
+The guarantee is **no silent mis-link**: anything the reconciler can't match is reported, and the reachability
 check (below) catches the consequence at build time.
 
 ## 4. Build-time verification — reachability (shipped in v1)
@@ -204,13 +204,12 @@ reconcile is proven to reproduce real fields' links exactly. The position-key ap
 
 ## 8. Non-goals / open questions
 
-- **Auto-inventing** connectivity for brand-new floors — you declare the seam; we can only *suggest*
+- **Auto-inventing** connectivity for brand-new floors — you declare the seam; the tool can only *suggest*
   coincident ones.
 - **Authoring** moving-platform animations — v3 carries them verbatim, it doesn't create them.
 - Whether to key the Blender path by world position or by a **custom face attribute** Blender
   preserves through edits (more robust, but Blender-specific) — decide during v3.
-- Semantic sanity ("does this ladder make sense") is out of scope; the engine doesn't care and neither
-  do we.
+- Semantic sanity ("does this ladder make sense") is out of scope; the engine doesn't care, and the kit doesn't check it.
 
 ## TL;DR
 

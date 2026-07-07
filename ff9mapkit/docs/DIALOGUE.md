@@ -62,7 +62,7 @@ ff9mapkit dialogue-import 100 --zone-id 33                  # read the field's <
 ff9mapkit dialogue-import 100 --all                        # also show system/notification windows + dupes
 ff9mapkit dialogue-import 100 --out alex.dialogue.json      # also write a JSON view (gitignored)
 ```
-Prints `NPC → txid → "text"`. Reading the live install needs UnityPy (`py -m pip install UnityPy`). When a
+Prints `NPC → txid → "text"`. Reading the live install needs the `assets` extra (`pip install ff9mapkit[assets]`). When a
 real field's lines come back **unresolved**, the note says *why* — UnityPy not installed, the install /
 `resources.assets` not found (pass `--game`), or "the source is fine, this field's block just didn't cover
 these txids; pass `--zone-id`."
@@ -110,7 +110,7 @@ verbatim") or bring it in as editable `[[npc]]` stubs to re-author ("Dialogue as
 > (`deploy_field` / `deploy_campaign` / `deploy_journey --apply`) for the new line to reach the game, and
 > watch for the **text-block shadow** (a higher `Memoria.ini FolderNames` folder that also defines the
 > field's block serves the OLD text — the deploy prints a `TEXT SHADOWED:` warning). Full detail:
-> [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md#a-dialogue-edit-can-be-saved-yet-still-show-the-old-line-in-game-text-block-shadow).
+> [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md#wrong-dialogue-but-correct-behavior--or-a-saved-edit-that-still-shows-the-old-line).
 
 ---
 

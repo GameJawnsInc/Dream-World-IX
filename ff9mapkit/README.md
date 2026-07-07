@@ -1,120 +1,107 @@
 # FF9 Map Kit (`ff9mapkit`)
 
-Author **novel custom field maps** for *Final Fantasy IX* (Steam, via the
-[Memoria engine](https://github.com/Albeoris/Memoria)) from a single declarative
-`field.toml`, compiled into a drop-in Memoria mod.
+Author custom *Final Fantasy IX* content (Steam/GOG, via the
+[Memoria engine](https://github.com/Albeoris/Memoria)) from declarative TOML projects, compiled
+into drop-in Memoria mods. Part of the **[Dream World IX](../README.md)** project.
 
-> Part of the **[Dream World IX](../README.md)** project — `ff9mapkit` is the toolkit/package name
-> (unchanged), `pip install`ed and imported as `ff9mapkit`.
+**Capabilities:** author any field camera from scratch (single / scrolling / multi-camera) with a
+pixel-accurate paint guide · fork any of **~674 real fields** — camera, walkmesh, art, exits,
+encounters, music, and (verbatim mode) the real script and dialogue · NPCs, dialogue choices,
+gateways, events, story branching, cutscenes, shops, save points from one `field.toml` · custom
+**3D battle backgrounds** + battle tuning · multi-field **campaigns** and **journeys** ·
+custom **3D character models** (Blender round-trip) and **playable characters** · **overworld**
+terrain/coast/entrance authoring · custom **music/SFX** · save and story-state editing.
 
-> **Feature-complete and in-game-verified.** The productized form of a proven
-> pipeline for minting brand-new playable FF9 fields, end to end. A **novel** field runs on a
-> **stock, unmodified Memoria install**; a **forked** field needs the small bundled engine patch
-> set for fork fidelity (see [`docs/ENGINE.md`](docs/ENGINE.md)).
-
-**Headline capabilities:** author **any camera angle** from scratch (single / scrolling / multi-camera)
-with a pixel-accurate paint guide · **fork any of ~674 real fields** — camera, walkmesh, art, *and* its
-exits/encounters/music · NPCs, dialogue, gateways, encounters, events, story branching, and cutscenes from
-one `field.toml`. Author it in TOML, a **form-based editor**, or a **[Blender add-on](blender/README.md)**.
-
-> **Full capability list & command reference → [`docs/FEATURES.md`](docs/FEATURES.md)** (with a before/now
-> comparison) and [`SETUP.md`](../SETUP.md) (the 59-command CLI reference). [`docs/gallery/`](docs/gallery/)
-> collects screenshots/GIFs as they're captured.
+Authoring surfaces: TOML by hand, the form editor (`ff9mapkit edit`), the
+[Blender add-on](blender/README.md), and the one-window
+[PySide6 Workspace](../SETUP.md#6-the-gui-workspace-optional).
 
 ## What it does
 
-Given a `field.toml` describing one field — its camera, painted background layers, walkmesh,
-NPCs, dialogue, gateways, encounter, and music — `ff9mapkit build` emits everything a custom
-field needs:
+Given a `field.toml` describing one field — camera, painted background layers, walkmesh, NPCs,
+dialogue, gateways, encounter, music — `ff9mapkit build` emits everything a custom field needs:
 
-- the background scene (`.bgx` camera + overlay PNGs) and walkmesh (`.bgi`),
+- the background scene (`.bgx`/`.bgs` + overlay PNGs or atlas) and walkmesh (`.bgi`),
 - the field event script (`.eb`) for all seven languages,
 - dialogue text (`.mes`),
-- and the `DictionaryPatch` / `BattlePatch` registration + `ModDescription.xml`.
+- the `DictionaryPatch` / `BattlePatch` registration + `ModDescription.xml`.
 
-## What stays a human task — the way the originals were made
+Battle maps (`battle.toml`), campaigns (`campaign.toml`), and journeys (`journeys.toml`) compile
+the same way at their own scopes.
 
-FF9's backgrounds are **pre-rendered**: the original artists built each room as a 3D scene, shot it
-through a fixed camera to bake a 2D plate, and the game projects the live 3D characters back onto that
-plate through the *same* camera. `ff9mapkit` deliberately follows that pipeline instead of hiding it.
-You place the camera; the kit hands you a **pixel-accurate paint guide** — the floor and walls
-projected onto the canvas, the modern stand-in for the layout render the original artists painted over
-— and you paint the background to match. Your hand-modeled `.obj` walkmesh is converted to the
-engine's `.bgi` and projected through that identical camera, so characters stand exactly where the art
-says they should. Painting the art and (optionally) modeling the geometry stay yours; everything in
-between is the kit.
+Two steps stay manual, matching how the original pre-rendered backgrounds were made: painting the
+background art (over the kit's projected paint guide) and judging final in-game alignment. The
+pipeline rationale is in [docs/PIPELINE.md](docs/PIPELINE.md).
 
 ## Quickstart
 
 ```powershell
-pip install -e .                                 # from the ff9mapkit\ package dir
-py -m ff9mapkit doctor                           # verify it found your FF9 install
-py -m ff9mapkit import <field> --out myroom --verbatim   # fork a real field — or `new` for original art
+pip install "ff9mapkit[assets]"                  # or from this dir: pip install -e ".[assets]"
+ff9mapkit setup                                  # find the FF9 install, extract base assets
+ff9mapkit import <field> --out myroom --verbatim # fork a real field — or `new` for original art
 ```
 
-> **Full setup → [`SETUP.md`](../SETUP.md)**: extras (`gui`/`save`/`dev`), game-path resolution, the
-> one-time `extract-templates` (the kit ships no game data — see [Provenance](docs/PROVENANCE.md)),
-> `doctor`, the dev loop, and a guided first-field walkthrough.
-
-**Prefer not to touch TOML?** Author the *logic* (dialogue, events, story flags, encounters, music,
-cutscenes) in the form-based editor — `ff9mapkit edit <field.toml>`. The visual side has a front-end too:
-the [**Blender add-on**](blender/README.md) poses the camera, models the walkmesh, places markers, and
-writes a `scene.toml`. So the suite splits cleanly — **Blender = where things are, the editor = what they
-do** — and `build` compiles both. There's also a one-window [PySide6 Workspace GUI](../SETUP.md#6-the-gui-workspace-optional).
+Full setup (extras, game-path resolution, the engine bundle) → [`SETUP.md`](../SETUP.md).
+First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 
 ## Commands
 
-59 subcommands — run `ff9mapkit -h` (or `py -m ff9mapkit -h`) for the full list. A taste of the families:
+97 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
+[`SETUP.md` §7](../SETUP.md#7-cli-command-reference). The families:
 
-- **Author** — `new` (scaffold) · `guide` (paint guide for your camera) · `walkmesh` · `edit` (form editor)
-- **Build & ship** — `build` · `lint` · `pack` · `export-art`
-- **Fork a real field** — `import` (`--editable`/`--native`/`--verbatim`) · `import-chain` · `fork-report`
-- **Campaigns & journeys** — `new-campaign` / `build-all` · `gen-hub` / `assemble-journey`
-- **Battle maps & tuning** — `battle-import` / `battle-build` · `battle-scene` / `battle-ai`
-- **Dialogue, catalogs & saves** — `dialogue` · `catalog` / `models` / `archetypes` · `flags-inspect` · `items-inspect`
-
-> **The full grouped command reference (all 59, with flags) is in [`SETUP.md` §7](../SETUP.md#7-cli-command-reference).**
+- **Setup** — `setup` · `doctor` · `extract-templates`
+- **Author** — `new` · `guide` / `paint-template` · `walkmesh` · `edit` · `camera` · `disasm`
+- **Build & ship** — `build` · `lint` · `pack` · `export-art` · `repaint-native`
+- **Fork real fields** — `import` (`--editable`/`--native`/`--verbatim`) · `import-all` ·
+  `import-chain` · `fork-report` · `list-fields` / `find-field` / `find-rooms` ·
+  `logic-map` / `lint-eb`
+- **Campaigns & journeys** — `new-campaign` / `add-field` / `build-all` / `lint-campaign` ·
+  `gen-hub` / `lint-journey` / `assemble-journey` / `reference-arcs` ·
+  `deploy-campaign` / `deploy-journey` / `newgame`
+- **Battle** — `battle-import` / `battle-build` · `battle-list` / `battle-scene` / `battle-ai` /
+  `battle-seq` · `battle-patch` / `characters` / `ability-gems` / `ability-features`
+- **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-export` /
+  `playable-anims`
+- **Overworld** — `world-terrain` / `world-reclaim` / `world-coast` / `world-water` /
+  `world-entrance` / `world-encounters` and the rest of the `world-*` suite
+- **Audio** — `audio-import` · `music-list` / `sfx-list`
+- **Catalogs & dialogue** — `catalog` / `models` / `animations` / `archetypes` / `items` /
+  `scenes` / `flags` / `sps` · `dialogue` / `dialogue-import`
+- **Saves** — `flags-inspect` / `flags-diff` / `save-edit` · `items-inspect` / `items-set-*`
 
 ## Docs
 
-- [`SETUP.md`](../SETUP.md) — **start here:** install, configure, the dev loop, and your first field (setup + quickstart).
-- [`docs/TUTORIAL.md`](docs/TUTORIAL.md) — the focused ~10-minute first-field walkthrough.
-- [`docs/FEATURES.md`](docs/FEATURES.md) — **the full capability list** (+ before/now comparison).
-- [`docs/gallery/`](docs/gallery/) — collects screenshots/GIFs as they're captured.
-- [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` schema.
-- [`docs/PIPELINE.md`](docs/PIPELINE.md) — the full authoring workflow.
-- [`docs/ENGINE.md`](docs/ENGINE.md) — engine requirements (stock Memoria) + provenance notes.
-- [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — **the kit ships no game data**: how the base assets are
-  regenerated from your own FF9 install (`extract-templates`), and why that's legally clean.
-- [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — the hard problems solved (camera math, `.eb` format, import).
-- [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terms used across the docs (walkmesh, gateway, fork, GLOB flag…).
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — common first-run failures → fixes.
-- [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) — beta limitations + the Workspace GUI gaps.
+- [`SETUP.md`](../SETUP.md) — install, configure, the CLI reference.
+- [`docs/tutorials/`](docs/tutorials/README.md) — single-goal walkthroughs (start with
+  [01 — First fork](docs/tutorials/01-first-fork.md)).
+- [`docs/FEATURES.md`](docs/FEATURES.md) — the full capability list.
+- [`docs/FORMAT.md`](docs/FORMAT.md) — the `field.toml` / `battle.toml` schema reference.
+- [`docs/PIPELINE.md`](docs/PIPELINE.md) — the from-scratch authoring workflow.
+- [`docs/ENGINE.md`](docs/ENGINE.md) — stock vs. patched Memoria; the engine bundle.
+- [`docs/FORK_FIDELITY.md`](docs/FORK_FIDELITY.md) — what forks do and don't reproduce.
+- [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — the kit ships no game data; how base assets are
+  regenerated from the local install.
+- [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — the reverse-engineered foundations (camera math,
+  `.eb` format, import frame).
+- [`docs/GLOSSARY.md`](docs/GLOSSARY.md) — terms used across the docs.
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) · [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)
+- [`docs/gallery/`](docs/gallery/) — screenshots/GIFs.
 - [`examples/vivi-hut/`](examples/vivi-hut) — a complete worked example.
-- [`blender/`](blender/README.md) — the **Blender add-on**: visually author the camera + walkmesh,
-  then export a `field.toml` for `build` (Blender 4.2+/5.x).
+- [`blender/`](blender/README.md) — the Blender add-on (camera, walkmesh, markers, model
+  round-trip; Blender 4.2+/5.x).
 
-## How it's built / trusted
+## Validation
 
-The library is split into `eb` (the event-script codec + content injectors), `scene`
-(camera math, `.bgx`, `.bgi` walkmesh, paint guides), `build` (the `field.toml` compiler),
-and `pack`. Correctness is proven by an **offline golden-master test suite**: every codec
-round-trips your install's field assets byte-for-byte (regenerated locally via `extract-templates`
-— the kit ships none), and compiling the example reproduces an in-game-verified field's script exactly.
+The package is organized by domain: `eb` (event-script codec + content injectors), `scene`
+(camera math, `.bgx`/`.bgs`, `.bgi` walkmesh, paint guides), `build` (the `field.toml` compiler),
+plus `battle/`, `world/`, `models/`, `content/`, deploy/journey orchestration, and the
+`editor/`+`workspace/` front-ends.
 
-```bash
-pip install -e ".[dev]" && pytest      # the full suite
+Correctness is proven offline by a golden-master test suite (~2,850 tests): every codec
+round-trips real install assets byte-for-byte (regenerated locally via `extract-templates` — the
+repo ships none), and compiling the bundled examples reproduces in-game-verified output exactly.
+
+```powershell
+pip install -e ".[dev]"
+py -m pytest -n 6
 ```
-
-## About
-
-I make games — including an FFIX-inspired RPG of my own — so this started as the tool I wanted while
-learning how FF9's fields actually work, not a drive-by experiment. The aim was to build a new room
-the way the game's creators did: paint a background against a 3D-derived guide, then walk on geometry
-projected through the same camera — so authoring a field feels like level design rather than blind
-byte-hacking. Months of reverse-engineering the field format, the projection math, and the event
-bytecode went into making that the easy path. If you're poking at FF9's internals too, I hope it
-saves you the same dig.
-
-Built on (and grateful for) the [Memoria engine](https://github.com/Albeoris/Memoria) — none of this
-is possible without it.

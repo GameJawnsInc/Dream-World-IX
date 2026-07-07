@@ -2,8 +2,8 @@
 
 Reverse-engineered while building the **F6 overworld debug tools** (2026-07-01). It is all C# in the Memoria
 engine (built from FF9's own game bytes), so every mechanic here is ultimately traceable — including the teleport
-reverter at the bottom, which turned out to be exactly that: plain C# (Memoria's frame smoother), **not** the
-native driver we first suspected. Companion: the F6 menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
+reverter at the bottom, which is exactly that: plain C# (Memoria's frame smoother), **not** a
+native driver. Companion: the F6 menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
 decodes the entrance dispatch.
 
 ## Update / tick architecture
@@ -59,7 +59,7 @@ decodes the entrance dispatch.
   | 9000, 9003, 9005, 9007, 9008, 9009 | WORLD00/03/05/07/08/09 | vehicle-discriminating (real nav arms) | **0 (foot only)** — any non-foot mode crashes |
   | 9001, 9004, 9006, 9012 | WORLD01/04/06/12 | cutscene, no vehicle switch | **0 (foot only)** (conservative) |
 
-  **Reaching a test entrance on a gated state (WORLD00 etc.):** use the vehicle-independent **World-tab
+  **Reaching a test entrance on a gated state (WORLD00 etc.):** use the vehicle-independent **Go-tab (overworld)
   Teleport** (absolute X/Z, re-grounds) — the swap can't fly you there. Making a vehicle actually work on a
   discriminating state would require replicating the boarding nav-state setup, or a *profile-decouple* (set the
   C# movement profile — `w_moveCHRControl_No`/`w_moveCHRControlPtr`, both `public static` — WITHOUT touching
@@ -129,7 +129,7 @@ states (9001/04/06/12, named verbatim in `eventWorldMaps`, `ff9.cs:10344`) have 
 field. **A custom entrance must be added to the WORLDxx actually loaded at that beat** (`world-entrance` targets it).
 
 **Region-key selection — RESOLVED 2026-07-02.** Within an SC band the state is picked by a **global region key
-`opD8(2)`** (GLOB source, *not* `Map.Byte[2]` as first thought — a persistent `gEventGlobal` 16-bit value at index 2)
+`opD8(2)`** (GLOB source, *not* `Map.Byte[2]` — a persistent `gEventGlobal` 16-bit value at index 2)
 that **each exit field writes itself, SC-gated**, then the shared cascade's `op_0B`/`op_06` switch maps region-key →
 `WorldMap(wldMapNo)`. Decoded from field 300's cascade (entry-2/tag-2, 19 `WorldMap` ops) and swept across all **61**
 WorldMap-emitting fields — the region-key write is **per-field/heterogeneous** (field 300 writes {41,71}; field 262
@@ -157,7 +157,7 @@ ids have **no `.eb` asset at all** → dead name registrations. So custom overwo
 (`struct { Int16 vx,vy; Int32 tx,ty; }`, `ff9.cs:10608`; built by literals `ff9.cs:421-1318`). Indexed
 `[w_naviMapno, locationId]` — `w_naviMapno = (w_frameScenePtr>=5990) ? 1 : 0` (`ff9.cs:8678`; **dim0 = disc 1**
 (`<5990`, the Mist Continent, 26 markers), **dim1 = disc 2+** (`>=5990`, the expanded/Outer/Forgotten world +
-disc-4 — one shared coord layout, NOT a separate disc-4/Terra map as first labelled)). `vx/vy` = **baked minimap pixels**; `tx/ty` = **world coords** (fixed-point, used *only*
+disc-4 — one shared coord layout, NOT a separate disc-4/Terra map)). `vx/vy` = **baked minimap pixels**; `tx/ty` = **world coords** (fixed-point, used *only*
 for airship autopilot). Render: `WorldHUD.cs:785-816` loops 0..63, spawns a `LocationPointer` at `vx/vy`
 directly (markers do NOT use the live `w_naviGetPos` projection — that's the moving player/vehicle BLIP, a
 separate pipeline, `ff9.cs:6939`). **Visibility gate = save flags:** `w_naviLocationAvailable` (`ff9.cs:6957`)
@@ -287,11 +287,11 @@ captured each tick in `RegisterState()`). Two of its methods write the actor tra
   (`HonoBehaviorSystem.cs:111`, inside the `MainLoopUpdateCount` loop). **This is the reverter.**
 - `Apply()` (`cs:145`) — a per-render-frame `Vector3.Lerp(prev, actual, t)`, **guarded** by `frameMove.sqrMagnitude < 100f`
   (`cs:144`) so a *big* teleport delta is **skipped** → the player visibly holds ~2 render frames, then the next
-  tick's `ResetState` snaps him back. Every symptom, explained.
+  tick's `ResetState` snaps him back. This accounts for every observed symptom.
 
-Because both writes hit `transform.position` directly (not the `pos` property), the earlier stack-trace probes —
-which were on the `WMActor.pos*` **property setters** — never fired for the player, and we wrongly concluded a
-"non-C# native driver." It was plain Memoria C# the whole time. **Lead #1 (animation) is refuted**:
+Because both writes hit `transform.position` directly (not the `pos` property), stack-trace probes on the
+`WMActor.pos*` **property setters** never fire for the player — a result easily misread as a
+"non-C# native driver." It is plain Memoria C#. **Animation is ruled out as the reverter**:
 `UpdateAnimationViaScript` samples `originalActor.go`, which `addGameObjectToWMActor` (`WMWorld.cs:224`) parents
 **under** the `_WM` transform — so animation only moves the model's *local* pose inside the parent; it cannot
 re-assert the parent's world position.
@@ -313,7 +313,7 @@ First authored overworld connectivity: a plain road cell (35,25, east of Dali) �
 entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingField` redirect of the dispatcher's
 `Field(300)`). Recipe:
 
-1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8)|(cellX<<2)|event`. The F6 **World** tab shows the live
+1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8)|(cellX<<2)|event`. The F6 **Go** tab (overworld context) shows the live
    cell (`w_worldPos2Cell` = `(int)(x/32), (int)(z/-32)`, identical to the readout) — use it as the targeting oracle.
    The destination is chosen by cloning a func whose `Byte[39]` routes there (each existing entrance func is `Byte[39]
    == its dispatch case`; e.g. `0x9895` → case 4 → Field 300 = Ice Cavern).
@@ -324,7 +324,7 @@ entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingF
 3. **⚠ Add it to the RIGHT dispatcher(s).** The disc-1 overworld runs one of `EVT_WORLD_WORLD00..12` by entry/story
    MapNo (9000-9012). Add the func to **every full dispatcher that has your clone source** (WORLD00/02/03/07/09/10/11
    all have `0x9895` + the area-4 case; WORLD01/04/06/12 are tiny cutscene states; WORLD05/08 have area-4 but not
-   `0x9895`). Missing the loaded WORLDxx = silent no-op (the bug that made the first build fail — it was only in WORLD00).
+   `0x9895`). Missing the loaded WORLDxx = silent no-op (a real failure mode: a func added only to WORLD00 never fires on the other states).
 4. **Set the tile event bits.** `ff9mapkit.world.mesh.retarget_tiles(bm, event=1, area=4, center=<cell centre>,
    radius<=16)` + `deploy_override(...)` — a loose `.ff9mesh` (needs the `s34` WorldMeshOverride engine patch). Keep the
    radius inside the 32-unit cell so it doesn't spill into a neighbour's entrance.
@@ -353,7 +353,7 @@ What it does, generalizing + hardening the manual recipe:
   <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
   to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.
 - **Dispatcher coverage.** Deploys to **every dispatcher whose base-2 area switch carries that case** (not just those with
-  `0x9895`): all 9 (`WORLD00/02/03/05/07/08/09/10/11`) carry case 4 — the manual spike missed `WORLD05/08`. All 7 langs.
+  `0x9895`): all 9 (`WORLD00/02/03/05/07/08/09/10/11`) carry case 4 — the manual recipe above misses `WORLD05/08`. All 7 langs.
 - **Stacking + idempotency.** Reads the mod-folder `.eb`/`.ff9mesh` as the base when present (so a 2nd entrance ADDS to the
   1st, and terrain/building overrides compose via `mesh.blockmesh_from_ff9mesh`), backs up each pre-edit dispatcher, and
   **skips** a dispatcher that already has the cell's tag (never clobbers). `--dry-run` prints the full plan writing nothing.
@@ -378,13 +378,13 @@ What it does, generalizing + hardening the manual recipe:
   topo has ZERO render effect (UV-only, byte-verified) so it's invisible. (4) **place by bbox-CENTRE, not vertex
   centroid** (`build_from_obj`/`_building_world_hull`) — an asymmetric model's centroid bulges it ~15u off-cell.
   `world-entrance` does all this by default; triggers use `exclude_polygon=<hull>`.
-- **⚠⚠ Pick a genuinely OPEN cell — check the WHOLE BLOCK, not a 16u radius.** The repeated stuck + "dirt mounds"
-  were (a) my footprint block, and (b) the block's OWN natural terrain (block[18][12] = 195 topo-49 dirt/river tiles;
+- **⚠⚠ Pick a genuinely OPEN cell — check the WHOLE BLOCK, not a 16u radius.** A repeated stuck + "dirt mounds"
+  symptom was (a) the placed footprint block, and (b) the block's OWN natural terrain (block[18][12] = 195 topo-49 dirt/river tiles;
   the cell centre was walkable so a 16u scan passed it, but the surroundings are river). Scan the block's blocked-
   fraction: block[15][15] is 0% blocked (clean grass). The solid footprint is also SPAWN-FRAGILE — teleporting/returning
   INTO it = stuck. For an entrance building, **`--hollow-building`** (render-only + no footprint block = zero blocked
   tiles = never stuck) is the safe default unless the arrival point is guaranteed outside the footprint. Diagnose a
-  trap with a point-in-triangle walkability map (`scratchpad/walk_fine.py`): if the spot reads walkable it's not a
+  trap with a point-in-triangle walkability map: if the spot reads walkable it's not a
   topograph trap (look at the placement / a spawn inside the footprint).
 - **⚠ Walkability / escape.** A live soft-lock escapes via **F6 → World → Teleport**. On-foot walkability is
   `w_movementCheckTopographID(limit, id)` (ff9.cs:5769) with on-foot `limit = {0x0010667F, 0xD8FF3CFF}` — **topo 10/36
@@ -393,7 +393,7 @@ What it does, generalizing + hardening the manual recipe:
   solid base is what prevents the box.
 
 **★ IN-GAME PROVEN 2026-07-01:** a Blender-modelled castle spawned assembled + grounded at the command's cell, the `!`
-prompt fired, warped to the forked Ice Cavern. See memory `project-ff9-worldmap-feasibility`.
+prompt fired, warped to the forked Ice Cavern.
 
 ### The building layer (the town/dungeon model) — ★ s34-overridable, proven 2026-07-01
 Each block loads TWO baked meshes (WMWorldPrefabMaker.cs:37,102): **"Terrain"** (ground + walkmesh + IDALL) and
@@ -459,7 +459,7 @@ fire. So on stock/current Memoria, dropping a Terrain override on an ocean cell 
 **The s34 extension (data-driven divert; `memoria-patches/s34-worldmap-mesh-override.patch`):** at BOTH sea call sites,
 if `WorldMeshOverride.HasLandOverride(disc, x, y)` (a `File.Exists` check for the cell's loose `Block[x][y]
 Terrain.ff9mesh`), route the cell onto a cached **plain land DONOR prefab** (`Block[12][10]` — has a `Terrain` child,
-no town `Object`; null-guarded) instead of `SeaBlockPrefab`. `RegisterBlockComponent` then swaps our per-cell override
+no town `Object`; null-guarded) instead of `SeaBlockPrefab`. `RegisterBlockComponent` then swaps the per-cell override
 (keyed on the TARGET block's `InitialX/InitialY`, not the donor's) in as the cell's Terrain **render + walkmesh +
 topograph**. `IsSea` is left untouched (harmless — the divert no longer consults `SeaBlockPrefab` for that cell) and
 grid placement is `InitialX/InitialY`-driven, so the donor's own coords are irrelevant. BOTH sites must stay identical
@@ -480,8 +480,8 @@ the remaining Path-D frontier is scale + a coastline/height pass + true new-cont
 ★ **PROVEN 2026-07-02** (screenshot): a 2-cell strip (2,12)+(2,13) rendered as walkable grassy land, player stood +
 walked on it, and was blocked at every sea seam (island behavior, as designed). **TWO lessons from the first run:**
 (1) ⚠ **do NOT add a serialized field to `WMWorld`** — the donor cache field must be `[NonSerialized]`; a public field
-broke the baked-prefab deserialization → NRE flood → overworld blackscreen (Unity's `output_log.txt`, not Memoria.log
-— see `project-ff9-memoria-build`). (2) **`--height 0` z-fights with the sea surface** (the flat plane is coplanar with
+broke the baked-prefab deserialization → NRE flood → overworld blackscreen (logged in Unity's `output_log.txt`, not
+Memoria.log). (2) **`--height 0` z-fights with the sea surface** (the flat plane is coplanar with
 the water → interlaced green/blue strips; functional but ugly). Deploy an open-ocean island at **`--height` a few units
 above 0** to clear the wave plane. ⚠ Raising height under a STANDING player embeds them (down-ray from `player.y+2.34`
 misses the higher surface) — teleport away + back (F6 re-grounds) after a height change, or set height before first
@@ -531,7 +531,7 @@ z-fights, a bigger negative sinks the vehicle — tune with `--height`) carrying
 `tangent.x=228`). Result: a boat sails on top / on-foot is blocked — real ocean. (Before this: `Y=-3`/topo-0 = a land
 floor UNDER the opaque water, so travel happened submerged with the character hidden.) **Test with a boat** (F6 → World
 → vehicle swap to Blue Narciss if you don't have one) from a NON-parked-on-the-cell save — changing the topograph under
-a parked on-foot actor risks the "no controlled actor" brick → [[project-ff9-overworld-actor-brick]].
+a parked on-foot actor risks the "no controlled actor" brick (silent black screen, no log; recover by loading a field save or starting a New Game).
 
 **The byte-derived recipe** (surveyed across all 15 disc-1 open-ocean blocks; tile-for-tile 17/17 shape-match vs the
 real game; the only per-cell difference is a corner seam-variant the game itself coin-flips 50/50):
@@ -564,10 +564,10 @@ Sea4); a direction `--deep N/S/E/W` opts into a **graded shallow→deep RAMP** (
 the shade PLACEMENT is seed-independent (set by depth).
 
 **Hard-won lessons (do NOT relitigate — offline rendering + marginal statistics CANNOT judge water quality; both of
-these were invisible to them and found only by UV byte-analysis + the human's in-game read):** (1) real ocean uses all
+these were invisible to them and found only by UV byte-analysis + in-game inspection):** (1) real ocean uses all
 **4** rotations of each quadrant, not just 0/180 (a generator doing only 0/180 is wrong on ~46% of tiles, invisible to
 stats); (2) the transition tile identity is the deep-edge-SET, not a shallow/deep depth bias (that heuristic regressed).
-Validate everything against a verbatim real block; don't declare victory before the human confirms in-game. **Two A/B
+Validate everything against a verbatim real block; don't treat a change as correct before it is confirmed in-game. **Two A/B
 references are built in** (both keep the identical deploy shape — flat Terrain gate + Sea3/Sea4/Sea5 + blanked
 Sea1/Sea2 + donor sidecar — so only the water differs):
   * `world-water --cells X,Y --verbatim [BX,BY]` deploys a REAL open-ocean block (default `8,4`, the byte-proven block
@@ -632,7 +632,7 @@ buckets (topo 49 spans many tiles), so the robust unit is "a real donor face's U
   `WMBlock.SetTextureFilterMode`→`WorldSmoothTexture`), deploys the reskin, and prints the UV rect; then
   `world-mesh-build --tile-uv Umin,Vmin,Umax,Vmax` stamps that region on custom geometry (`palette.stamp_uv_rect`).
   ★ Proven the pipeline end-to-end offline with a magenta test tile (rendered on a box, forest/bridge kept via
-  `--keep-block`); the *art* (a nice tile) is the human's, the plumbing is done. (A genuinely SEPARATE atlas — vs a
+  `--keep-block`); the *art* (a nice tile) is a manual step, the plumbing is done. (A genuinely SEPARATE atlas — vs a
   free-region add — would need a new material entry in the code-hardcoded `ObjectNameToPaths`, `WMBlock.cs:310`; the
   free-region route avoids that entirely.)
 
@@ -642,7 +642,7 @@ Open: the atlas tile-grid pitch is inferred (~5-6%/tri), not read from a constan
 
 ## Overworld encounters + the world-pack binary (RE 2026-07-02)
 
-The last un-RE'd overworld data system. Fully traced through the Memoria C# (5-finder workflow + a direct
+The last un-RE'd overworld data system. Fully traced through the Memoria C# (with a direct
 cross-check of every load-bearing line). Two halves: a **baked binary table** (which monsters, keyed by
 terrain) and a **live per-frame trigger** whose *rate* the world `.eb` itself pokes.
 
@@ -679,7 +679,7 @@ Byte   pattern;    // 1 B — topographId = (pattern >> 2); low 2 bits = scene-s
 Byte   pad;        // 1 B — hasFog = (pad & 1); (pad >> 1) = reserved
 ```
 
-(355 × 10 = 3550 B. Two workflow readers reported 6 and 12 — both wrong: 6 was a miscount, 12 is the C# managed
+(355 × 10 = 3550 B. Two other plausible strides — 6 and 12 — are wrong: 6 is a miscount, 12 is the C# managed
 `sizeof` with struct alignment. The **binary stride is 10**.)
 
 **Record selection — `w_worldGetBattleScenePtr()` (`ff9.cs:9079`):** it is keyed by **zone × topograph × fog**, not
@@ -711,7 +711,7 @@ world dispatchers, not a hidden native loop. Fires (returns 1) only when **all**
 
 **The rate is authorable with NO DLL and NO codec:** `w_frameEventBattleProb` is a `UInt16` (`ff9.cs:10088`) set
 by the world `.eb` via **SET-sysvar case 26** (`ff9.cs:3920`). Each dispatcher pokes it as you cross regions — so
-editing the world `.eb`'s case-26 writes (the same surface we already author for `world-entrance`) re-tunes the
+editing the world `.eb`'s case-26 writes (the same surface `world-entrance` already authors) re-tunes the
 overworld encounter rate per zone. Danger-level = *just this denominator*.
 
 ### Special / friendly encounters (`sworldEncountSpecial`)
@@ -747,7 +747,7 @@ nextMapNo)` (`WMScriptDirector.cs:208`; the mapper is a `(worldMapNo → (battle
 | **Clean CSV authoring seam** | small DLL patch | a `Data/World/WorldEncounters.csv` + `PatchWorldEncounter()` mirroring the existing 3 world patchers (`DataResources.cs` exposes only TransportControls/WeatherColors/Environment today; no encounter hook). s23–s33-class change. |
 | **Friendly/special-zone authoring** | research | via event-globals 194/198 + the 9 special records; blocked on the open questions. |
 
-**Correction vs the first-pass verdict:** re-tabling monsters is *not* impossible without a DLL — the `.img` loads
+**Correction:** re-tabling monsters is *not* impossible without a DLL — the `.img` loads
 through the mod-override path, so a whole-file repack works; only a *targeted patch* needs the engine seam. And the
 encounter *rate* is already free via the world `.eb`.
 
@@ -769,7 +769,7 @@ per-language `.eb` shadow (the writes are language-identical in count, JP at dif
 **★ Confirmed in-game 2026-07-02:** setting **all 355 records** to one scene (`[[set]] all = true`) made every
 overworld battle the identical fight (scene 359 = Mist-Continent Pythons/Goblins on the forest BG), everywhere on
 the map — so the `discmr.img` override *loads* and the codec is byte-correct. **Targeting lesson (the thing that
-first fooled the test):** record SELECTION is **zone-slice-primary** — `w_worldGetBattleScenePtr` (`ff9.cs:9079`)
+can fool a first test):** record SELECTION is **zone-slice-primary** — `w_worldGetBattleScenePtr` (`ff9.cs:9079`)
 scans only the current *area*'s slice of the table (`w_worldZoneInfo[zone..zone+1]`), matches `topograph` + `fog`
 within it, and **falls back to the slice's last record** when nothing matches. So a `topograph=`-only edit can miss
 the record that actually fires (its zone had no topograph match → the fallback record, a different topograph, fired).
@@ -777,7 +777,7 @@ Use `all = true` for a uniform overworld, target a specific record `index`, or �
 by **`area`/`zone`** (below). Also note the operative encounter TRIGGER is the
 EventEngine step-accumulator `ProcessEncount` (`EventEngine.ProcessEvents.cs:462`: `_encountBase += encratio` →
 `random8() < _encountBase>>3` → `SelectScene`→`w_worldGetBattleScenePtr`), **not** the `case 205` topograph-36–38
-gate I first fixated on (that gate is a separate world-`.eb` sysvar path; empirically battles fire on other
+gate (a plausible but incorrect candidate: that gate is a separate world-`.eb` sysvar path; empirically battles fire on other
 topographs too). The *rate* lever (`w_frameEventBattleProb`) is still real + proven — just don't read the
 `case 205` topograph clause as "the only tiles that fire."
 
@@ -798,7 +798,7 @@ re-table. RELAUNCH to apply (it's a bundled asset, not F6-reloadable).
 changed *only* the Alexandria/Mist start (F6 `area` 0/1 → uniform scene 359) while every other region kept its normal
 encounters — confirming area → zone → table-slice end-to-end. The 355 records are laid
 out **zone-by-zone**. Two hardcoded engine LUTs (baked into `world/worldpack.py`): `w_worldAreaZone` (`ff9.cs:1348`)
-maps each overworld **area** (0–63, the 6-bit `m_GetIDArea` tile field the F6 World tab prints) → one of **25 zones**;
+maps each overworld **area** (0–63, the 6-bit `m_GetIDArea` tile field the F6 Go tab (overworld) prints) → one of **25 zones**;
 `w_worldZoneFigure` (`ff9.cs:1415`) gives each zone its count of topograph entries (×2 fog twins = its record count).
 The CSR `zone_info[z] = 2·Σ figure[0..z-1]` places zone `z` at records `[zone_info[z], zone_info[z+1])`. The disc-1
 zones sum to exactly **254 records (0–253)** — which is precisely why the disc-4 alternate offset is `+254`

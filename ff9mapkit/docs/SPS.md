@@ -7,16 +7,15 @@ a 16-colour RGB ramp. The field `.eb` fires `RunSPSCode(slot, 130, id, 0, 0)` to
 place it, and loop it at ~15 fps.
 
 The kit already **carries** a fork's `.sps` + `spt.tcb` verbatim so a forked field keeps its donor's effects (see
-[FORK_FIDELITY](FORK_FIDELITY.md) and the `project-ff9-sps-fork` memory). This page covers the **authoring** side:
-decode/preview any effect (Tier 0) and re-skin one declaratively (Tier 1). The full reverse-engineering +
-roadmap lives in the `project-ff9-sps-authoring` memory.
+[FORK_FIDELITY](FORK_FIDELITY.md)). This page covers the **authoring** side:
+decode/preview any effect (Tier 0), re-skin one declaratively (Tier 1), and create a new one (Tier 2).
 
 ---
 
 ## Tier 0 — browse & preview (read-only)
 
 Decode any field's effects and render them to PNG/GIF offline (the bespoke analogue of Memoria's in-engine Model
-Viewer). Install-gated: needs your FF9 install + UnityPy (`py -m pip install UnityPy`).
+Viewer). Install-gated: needs your FF9 install + the `assets` extra (`pip install ff9mapkit[assets]`).
 
 ```
 ff9mapkit sps 303                          # list a field's SPS effects (by field id or FBG token)

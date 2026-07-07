@@ -1,25 +1,13 @@
 # What `ff9mapkit` can do
 
-The complete capability list. Most of this was, before this toolkit, either impossible without
-hand-editing binaries or outright unsolved in the FF9 modding community. Everything marked **✓** has
-been verified **in real gameplay** (not just compiled); **◐** is offline-validated (builds + passes the
-codec/golden tests) with the full in-game pass still pending.
+The complete capability list. **✓** = verified **in real gameplay** (not just compiled);
+**◐** = offline-validated (builds + passes the codec/golden tests) with the full in-game pass
+pending. See the [README](../README.md) for the project overview and
+[tutorials/](tutorials/README.md) for walkthroughs.
 
-> New here? Start with the [README](../README.md) quickstart, then [PIPELINE.md](PIPELINE.md) for the
-> full authoring walkthrough. This page is the bird's-eye view of *everything*.
-
----
-
-## Before this toolkit vs. now
-
-| | Before | With `ff9mapkit` |
-|---|---|---|
-| **Brand-new field** | No shipped FF9 mod had minted one; HW's "Export as Custom Field" produces a broken atlas and corrupts the script when adding entries | Mint a new field ID from a declarative `field.toml`, on a **stock Memoria install** |
-| **Camera angle** | The in-game FieldCreator's 5-point solver is mathematically degenerate for a flat floor — no novel angles | Author **any** pitch/yaw/FOV from scratch (the projection was reverse-engineered) |
-| **Background art** | Align by trial and error | A **pixel-accurate paint guide** for your exact camera; depth layers + occlusion |
-| **Walkmesh** | Hand-author binary, or the editor's unreliable neighbor links | Model in Blender → `.bgi`, **or import a real field's** and reshape it (multi-floor, seam-preserving) |
-| **Event script (`.eb`)** | Hex-edit PSX-style bytecode by hand; HW can't add entries | Declarative NPCs / dialogue / gateways / encounters / events / cutscenes, injected byte-exactly |
-| **Starting point** | From zero | **Fork any of ~674 real fields** — camera, walkmesh, art, *and* its exits/encounters/music |
+Engine requirements are per-pillar: everything below runs on **stock Memoria** except where noted
+— **forked fields** need the bundled fidelity patch set and **overworld mesh authoring** needs
+the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 
 ---
 
@@ -27,19 +15,25 @@ codec/golden tests) with the full in-game pass still pending.
 
 | Capability | | Docs |
 |---|---|---|
-| Mint a brand-new field ID (declarative `field.toml` → drop-in mod) | ✓ | [PIPELINE](PIPELINE.md), [FORMAT](FORMAT.md) |
+| Mint a brand-new field id (declarative `field.toml` → drop-in mod) — stock Memoria | ✓ | [PIPELINE](PIPELINE.md), [FORMAT](FORMAT.md) |
 | BG-borrow: render a real field's art/walkmesh/camera under your own script | ✓ | [ENGINE](ENGINE.md) |
 | Editable custom scene: ship your own art (per-depth layers, occlusion preserved) | ✓ | [PIPELINE](PIPELINE.md) |
-| Import / fork any real field (`import`) — camera + walkmesh + art | ✓ | [PIPELINE](PIPELINE.md) |
-| …and extract its **exits, encounters, field BGM, movement** from the script | ◐ | [FORMAT](FORMAT.md) |
-| Runs on **stock Memoria** — no engine fork required | ✓ | [ENGINE](ENGINE.md) |
+| Fork any of ~674 real fields (`import`) — camera + walkmesh + art + exits/encounters/BGM | ✓ | [PIPELINE](PIPELINE.md) |
+| `--native` fork: seam-free per-tile scene (vanilla `.bgs` + atlas) — the recommended art fork | ✓ | [FORK_FIDELITY](FORK_FIDELITY.md) |
+| `--verbatim` fork: the field's whole real script + dialogue (real doors, story gating, rotating cast) | ✓ | [FORK_FIDELITY](FORK_FIDELITY.md) |
+| Faithful NPC/prop carry on forks (verbatim entry graft, lighting, per-language text) | ✓ | [OBJECT_CARRY](OBJECT_CARRY.md) |
+| Fork-fidelity preview before forking (`fork-report`, `--explain`) — roster/story axes, suggested `[startup]` | ✓ | [FORK_REPORT](FORK_REPORT.md) |
+| Bulk archive import of the whole game (`import-all`), donor discovery (`find-field`, `find-rooms`) | ✓ | [README](../README.md) |
+| Edit a verbatim fork's script in place (`logic-map`, `lint-eb`, `[[logic_edit]]`/`[[logic_add]]`) | ✓ | [FIELD logic-map](FORMAT.md) |
+| Non-Zidane donors + walk-as swap (`--swap-player`), party control (`[party]`) | ✓ | [FORMAT](FORMAT.md) |
 
 ## Camera
 
 | Capability | | Docs |
 |---|---|---|
-| Author any angle from scratch (pitch / yaw / FOV / distance) | ✓ | [PIPELINE](PIPELINE.md) |
-| Pixel-accurate paint guide for the chosen camera (floor frame + perspective grid + height poles) | ✓ | [PIPELINE](PIPELINE.md) |
+| Author any angle from scratch (pitch / yaw / FOV / distance) — the projection is fully solved | ✓ | [PIPELINE](PIPELINE.md), [TECHNICAL](TECHNICAL.md) |
+| Pixel-accurate paint guide for the chosen camera (floor frame, perspective grid, height poles) | ✓ | [PIPELINE](PIPELINE.md) |
+| Per-layer trace-over paint templates (`guide --template`, `paint-template`) | ✓ | [PIPELINE](PIPELINE.md) |
 | Scrolling fields (larger-than-screen, view follows the player) | ✓ | [FORMAT](FORMAT.md) |
 | Multi-camera with script-driven switch zones (after-battle restore) | ✓ | [FORMAT](FORMAT.md) |
 | Borrow a real field's exact matched camera | ✓ | [PIPELINE](PIPELINE.md) |
@@ -51,93 +45,139 @@ codec/golden tests) with the full in-game pass still pending.
 | Hand-model in Blender → `.bgi` (byte-exact codec) | ✓ | [WALKMESH_EDITING](WALKMESH_EDITING.md) |
 | Import a real field's walkmesh (single- and multi-floor) | ✓ | [WALKMESH_EDITING](WALKMESH_EDITING.md) |
 | Reshape a multi-floor fork while preserving cross-floor seams | ✓ | [WALKMESH_EDITING](WALKMESH_EDITING.md) |
-| Build-time validation: floors reachable, content on-mesh, near-edge, zero-area tris, seams | ✓ | [FORMAT](FORMAT.md) |
-| `walkmesh verify` standalone checker | ✓ | [README](../README.md) |
-| `lint` = ONE offline pass: schema + logic + flag bands + geometry/placement + layer + camera pitch | ✓ | [README](../README.md) |
-| Reserved story-flag-band check (chest / handshake / scratch writes flagged by name) | ✓ | [FORMAT](FORMAT.md) |
+| Build-time validation: reachability, content on-mesh, near-edge, zero-area tris, seams | ✓ | [FORMAT](FORMAT.md) |
+| `walkmesh verify` standalone checker; `lint` = one pass over every offline validator | ✓ | [README](../README.md) |
 
 ## Background art
 
 | Capability | | Docs |
 |---|---|---|
-| Multiple painted layers with explicit depth | ✓ | [FORMAT](FORMAT.md) |
-| Foreground occlusion (a near layer draws over the player) | ✓ | [PIPELINE](PIPELINE.md) |
+| Multiple painted layers with explicit depth; foreground occlusion | ✓ | [FORMAT](FORMAT.md), [PIPELINE](PIPELINE.md) |
 | Light / shadow (additive & subtractive blend layers) preserved on import | ✓ | [PIPELINE](PIPELINE.md) |
-| Layer aspect / size validation (catch a stretched repaint before launch) | ✓ | [FORMAT](FORMAT.md) |
+| Native-fork repaint round-trip (`repaint-native`): atlas → spatial layers → seamless re-pack | ✓ | [PIPELINE](PIPELINE.md) |
+| Layer aspect / size validation | ✓ | [FORMAT](FORMAT.md) |
 
 ## Content & scripting
 
 | Capability | | Docs |
 |---|---|---|
-| NPCs (presets or custom model + animations) | ✓ | [FORMAT](FORMAT.md) |
-| Custom dialogue (own `.mes` text, no base-game collision) | ✓ | [FORMAT](FORMAT.md) · [DIALOGUE](DIALOGUE.md) |
-| View / import real FF9 dialogue (decode `.eb` + `.mes` → "NPC → text") | ✓ | [DIALOGUE](DIALOGUE.md) |
-| Preview a real field's fork fidelity (`fork-report`) — player/roster/interaction/dialogue/items-treasure/party axes, story beats, suggested `[startup]` | ✓ | [FORK_REPORT](FORK_REPORT.md) |
-| Gateways (room-to-room exits, walk-out direction) | ✓ | [FORMAT](FORMAT.md) |
+| NPCs (archetypes by name, any GEO model + animations) and `[[prop]]` set-dressing | ✓ | [FORMAT](FORMAT.md), [ARCHETYPES](ARCHETYPES.md) |
+| Custom dialogue (own `.mes`, speaker tags, auto-wrap); view/import real dialogue | ✓ | [DIALOGUE](DIALOGUE.md) |
+| Dialogue choices (`[[choice]]`) — NPC or zone triggered, item/gil/flag effects | ✓ | [FORMAT](FORMAT.md) |
+| Gateways (round-trip doors, walk-out direction), ladders, jumps | ✓ | [FORMAT](FORMAT.md) |
+| Save points (`[[savepoint]]` — save→reload into a custom field works) | ✓ | [SAVEPOINT](SAVEPOINT.md) |
 | Random encounters (+ battle music, + after-battle reinit) | ✓ | [FORMAT](FORMAT.md) |
 | Events: chests / gil / messages / story flags (one-shot or repeatable) | ✓ | [FORMAT](FORMAT.md) |
-| Story branching: flag-gated NPCs / gateways / events (live + across visits) | ✓ | [FORMAT](FORMAT.md) |
-| Cutscenes — narration (ordered, control-locked) | ✓ | [FORMAT](FORMAT.md) |
-| Cutscenes — actor (NPC walk / turn / emote / teleport / talk) | ✓ | [FORMAT](FORMAT.md) |
-| Save-persistent story flags (correct `gEventGlobal` scope) | ✓ | [FORMAT](FORMAT.md) |
-| Story-state author surface: `[startup]` asserts the beat on entry; `[[gateway]]` `set_scenario`/`set_flags` advances it on exit | ✓ | [FORK_FIDELITY](FORK_FIDELITY.md) |
-| Gated field-entry beats — `[[on_entry]]` fires a message / story write on load, once, only when `requires_scenario`/`requires_flag` match (re-author an entry cutscene for a synthesize fork) | ✓ | [FORMAT](FORMAT.md) |
-| New-game starting state — `[start_inventory]` (the full starting bag) + `[[equipment]]` (per-character default gear), as engine-independent CSV deltas | ✓ | [FORMAT](FORMAT.md) |
-| Custom shops — `[[shop]]` defines a shop's inventory (`ShopItems.csv` delta) + an opener (`[[npc]] opens_shop` or a standalone press-region); reward levers `give_item`/`remove_item`/`gil` | ✓ | [FORMAT](FORMAT.md) |
-| Wire a custom room into the real game world (entrance + exit) | ✓ | [PIPELINE](PIPELINE.md) |
+| Story branching: flag-gated NPCs / gateways / events; save-persistent flags | ✓ | [FORMAT](FORMAT.md) |
+| Story-state authoring: `[startup]` beat assert, `[[on_entry]]` gated entry beats, gateway `set_scenario` | ✓ | [FORK_FIDELITY](FORK_FIDELITY.md) |
+| Cutscenes: narration + multi-actor choreography (walk/turn/gesture/say, parallel beats, player as actor) | ✓ | [FORMAT](FORMAT.md) |
+| Active Time Events — optional (blue) and compulsory (grey) flavors | ✓ | [ATE_SYSTEM](ATE_SYSTEM.md) |
+| SPS field particles (fire/smoke/magic) — trigger, carry on forks, author | ✓ | [SPS](SPS.md) |
+| Field music rescore (`[music]`, verbatim + synthesized) | ✓ | [FORMAT](FORMAT.md) |
+| New-game starting state: `[start_inventory]`, `[[equipment]]` (CSV deltas) | ✓ | [FORMAT](FORMAT.md) |
+| Custom shops + synthesis shops (`[[shop]]`, `[[synthesis]]`, `opens_shop`) | ✓ | [FORMAT](FORMAT.md) |
+| Item/equipment tuning (`[[weapon]]`/`[[armor]]`/`[[item]]`) + menu text (`[[item_text]]`) | ✓ | [FORMAT](FORMAT.md) |
+| Custom playable characters (`[[playable]]`) — new roster id, own name/stats/kit, custom battle model, save-persistent — zero DLL | ✓ | `examples/thirteenth-character/` |
 
-## Front-ends (author however you like)
-
-| Tool | What | Docs |
-|---|---|---|
-| **CLI** | 59 commands — author/build/lint/pack a field, fork & inspect real fields, campaigns & journeys, battle maps, save/story-state editing, and reference catalogs | [README](../README.md) |
-| **Workspace GUI** (`apps/ff9_workspace.pyw`, PySide6) | The modern front door: one dockable window with a **journey ▸ campaign ▸ field ▸ object** tree and tabs for the Editor (field/NPC/gateway/event/cutscene/choice forms + catalog picker + live FF9-wrap preview), Map, Story State + Item & Equip save editors, Build & Deploy, Import (preview fidelity → fork), and a searchable Info Hub — plus a Ctrl-K palette, an Inspector, and undo/redo. **Folds in the eight standalone tkinter apps that were retired** (dialogue / import / campaign editor / story state / items / Info Hub / build / editor). | [README](../README.md) |
-| **Blender add-on** | Visually pose the camera, model the walkmesh, place NPC/gateway/event/spawn/cam-zone markers, paint backdrop, import a real field — **and reshape a 3D battle map** (Import/Export Battle Map) | [blender/README](../blender/README.md) |
-| **Form editor** (`ff9mapkit edit`) | Dialogue / events / encounters / flags / cutscenes in forms — no TOML, stdlib-only Tkinter (no PySide6 needed) | [README](../README.md) |
-| **Two-file split** | Blender owns *where* (`scene.toml`), you own *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
-
-## Engineering (how it's trusted)
-
-- **Byte-exact codecs** — the `.eb` script, `.bgi` walkmesh, `.bgx`/`.bgs` scene, and `.mes` text all
-  round-trip real game data byte-for-byte; building the worked examples reproduces in-game-verified
-  assets exactly.
-- **Offline golden-master validation** — 1,500+ kit + 60 Blender tests; correctness is proven without
-  ever launching the game (which honors the "can't see the running game" constraint).
-- **Grounded in source** — opcode tables and camera/projection math are baked from the Memoria engine
-  source, not guessed; the `.eb` and scene formats were reverse-engineered and verified.
-- **No engine dependency** — the output runs on an unmodified Memoria install.
-
----
-
-## Battle maps (custom 3D battle backgrounds)
+## Campaigns, journeys & the World Hub
 
 | Capability | | Docs |
 |---|---|---|
-| Fork a real battle background (`battle-import`) — geometry + per-submesh textures → editable FBX | ✓ | [FORMAT](FORMAT.md) |
-| Reskin textures / swap custom FBX geometry onto a real slot (stock engine, no rebuild) | ✓ | [FORMAT](FORMAT.md) |
-| **Mint a brand-new battle scene** (`--fork-scene`) — net-new `BattleScene` id with forked gameplay/camera/text | ✓ | [FORMAT](FORMAT.md) |
-| **Wholly original map** (`--ship-as BBG_B<N>`) — custom geometry under a new bbg number + authored static INB | ✓ | [FORMAT](FORMAT.md) |
-| **Tune the fight** (`[scene]`) — override enemy positions / stats / rewards / camera pose on a mint | ✓ | [FORMAT](FORMAT.md) |
-| **Spawn composition** (`[scene]` `monster_count` + per-slot `type`) — recompose AND grow the encounter (1–4 enemies; re-authors the eb's enemy-AI binding so a mint can exceed the donor's count) | ✓ | [FORMAT](FORMAT.md) |
-| **Opening-camera tweaks** (`[scene]` `camera_yaw` / `camera_pitch` / `camera_zoom`) — rotate/tilt/zoom a minted battle's opening shot (in-place raw17 edit; the native plugin renders it, no DLL rebuild) | ✓ | [FORMAT](FORMAT.md) |
-| **Author the opening sweep** (`[[scene.camera_keyframes]]`) — a from-scratch multi-segment crane/orbit in FF9's real opening-camera grammar; keyframes are offsets/zoom around the battle's proven framing, so it always stays framed and ends on the normal shot | ✓ | [FORMAT](FORMAT.md) |
-| Deploy reversibly + repoint a field encounter to trigger it (`deploy_battle.py --trigger-field`) | ✓ | [FORMAT](FORMAT.md) |
-| **Reshape a battle map in Blender** — import a BBG's Group_0/2/4/8 geometry + textures, edit, re-export an engine-faithful FBX (the add-on's Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
+| Fork a connected region into one campaign (`import-chain`; zone / whole-zone / exact-id scoping) | ✓ | [CAMPAIGN_IMPORT](CAMPAIGN_IMPORT.md) |
+| Campaign build + cross-field lint (`build-all`, `lint-campaign`) — one merged mod | ✓ | [CAMPAIGN_IMPORT](CAMPAIGN_IMPORT.md) |
+| Multi-campaign journeys: links, seeds, per-journey tuning (`journeys.toml`) | ✓ | [JOURNEYS](JOURNEYS.md) |
+| Generated World-Hub selector field (New Game → pick a journey → seeded warp) | ✓ | [JOURNEYS](JOURNEYS.md) |
+| FF9 reference-arc scaffold (`reference-arcs` — the disc-1 spine as a fork playbook) | ✓ | [JOURNEYS](JOURNEYS.md) |
+| Reversible deploys + New Game wiring (`deploy-campaign`, `deploy-journey`, `newgame`) | ✓ | [tutorials 04–05](tutorials/README.md) |
+| Story-flag scopes: field / campaign / journey, with lint-enforced disjointness | ✓ | [GLOBAL_RESOURCES](GLOBAL_RESOURCES.md) |
 
----
+## Battle maps & tuning
 
-## Not in scope (by design)
+| Capability | | Docs |
+|---|---|---|
+| Fork a real battle background (`battle-import`) — geometry + per-submesh textures → editable FBX | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Reskin textures / swap custom FBX geometry onto a real slot — stock engine, no relaunch | ✓ | [FORMAT](FORMAT.md) |
+| Mint a new battle scene (`--fork-scene`) or a wholly original map (`--ship-as BBG_B<N>`) | ✓ | [FORMAT](FORMAT.md) |
+| Tune the fight: enemy positions / stats / rewards / spawn composition (1–4 enemies) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Opening-camera tweaks + authored multi-segment opening sweeps (`[[scene.camera_keyframes]]`) | ✓ | [FORMAT](FORMAT.md) |
+| Attack choreography disassemble/edit (`battle-seq`, `btlseq.raw17`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Enemy AI disassembly (`battle-ai`), scene inspection (`battle-scene`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Player-side tuning: base stats, leveling, gems, ability effects (`ability-features`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Reshape a battle map in Blender (add-on Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
 
-Honest limits — the kit deliberately does **not**:
-- **Paint your background art / battle-map textures** — it gives you a pixel-accurate guide and forks
-  the real geometry; the painting is yours.
-- Author a **fully arbitrary battle camera from absolute coordinates** — the closed `FF9SpecialEffectPlugin.dll`
-  hides the exact world scale, so authored sweeps are expressed as offsets/zoom *around the donor's proven
-  framing* (which always frames the fight), not as raw world poses. A multi-segment opening crane/orbit IS
-  authorable (`[[scene.camera_keyframes]]`); a from-nothing pose in world units is not.
-- Generate **world-map** content (the overworld + its terrain/encounters; no world-map pillar yet).
-- Run the game or judge final visual alignment — that's the human playtest step.
-- Ship Square Enix's game data — game-derived blobs are sourced from *your own* install.
+## Custom 3D models
 
-Platform: developed and verified on **Windows** (the core is stdlib Python; path/launcher resolution
-assumes a Windows FF9 install).
+| Capability | | Docs |
+|---|---|---|
+| Export any model + rig + textures + animations to glTF (`model-gltf`) or FBX (`model-export`) | ✓ | [CUSTOM_MODELS](CUSTOM_MODELS.md) |
+| Blender mesh/texture editing → loose-FBX override, no DLL (`model-import`) | ✓ | [CUSTOM_MODELS](CUSTOM_MODELS.md) |
+| Mint a new additive model id ≥ 6000 (`model-mint`) — originals untouched | ✓ | [CUSTOM_MODELS](CUSTOM_MODELS.md) |
+| Animation editing: keyframe-edit real clips in Blender, loose `.anim` overrides (`model-anim`) | ✓ | [ANIMATION_EDITING](ANIMATION_EDITING.md) |
+| Custom-character animsets (`playable-anims`) | ✓ | [CUSTOM_MODELS](CUSTOM_MODELS.md) |
+| One-click add-on Import/Export FF9 Model | ✓ | [blender/README](../blender/README.md) |
+
+## Overworld
+
+The mesh-writing commands (`world-terrain`, `world-reclaim`, `world-coast`, `world-water`,
+`world-entrance`, `world-deploy`, `world-mesh-build`) require the engine bundle's `s34`
+mesh-override patch ([ENGINE.md](ENGINE.md)); the atlas/texture, encounter, environment, and
+marker commands are stock-engine.
+
+| Capability | | Docs |
+|---|---|---|
+| Reshape walkable terrain (hill/crater/ridge/flatten) across blocks, seamlessly (`world-terrain`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Reclaim ocean as walkable land (`world-reclaim`); carry real coastlines (`world-coast`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Synthesize graded open-ocean water (`world-water`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Author a custom overworld entrance — trigger + tiles + optional Blender building (`world-entrance`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Overworld encounters: re-table + retune frequency (`world-encounters`, `world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Atlas texturing: extract / catalog / reskin / add tiles; minimap marker renames | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+
+## Audio & video
+
+| Capability | | Docs |
+|---|---|---|
+| Custom music/SFX: replace or mint an Ogg Vorbis track, looping — DLL-free (`audio-import`) | ✓ | `audio-import -h` |
+| Field BGM rescore + per-encounter battle BGM | ✓ | [FORMAT](FORMAT.md) |
+
+## Save & story-state tooling
+
+| Capability | | Docs |
+|---|---|---|
+| Decode / diff a save's story state (`flags-inspect`, `flags-diff`); story-flag registry (`flags`) | ✓ | [GLOBAL_RESOURCES](GLOBAL_RESOURCES.md) |
+| Write story state (`save-edit`) — scenario + flags |  ✓ | [GLOBAL_RESOURCES](GLOBAL_RESOURCES.md) |
+| Items / equipment / gil / stats / AP read + write (`items-inspect`, `items-set-*`) | ✓ | [README](../README.md) |
+
+## Front-ends
+
+| Tool | What | Docs |
+|---|---|---|
+| **CLI** | 97 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
+| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
+| **Blender add-on** | Camera posing, walkmesh modeling, markers, field import, battle-map + model round-trips | [blender/README](../blender/README.md) |
+| **Form editor** (`ff9mapkit edit`) | Field logic in forms — stdlib Tkinter, no PySide6 needed | [README](../README.md) |
+| **Two-file split** | Blender owns *where* (`scene.toml`), the logic file owns *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |
+
+## Validation
+
+- **Byte-exact codecs** — `.eb` script, `.bgi` walkmesh, `.bgx`/`.bgs` scene, `.mes` text all
+  round-trip real game data byte-for-byte; building the worked examples reproduces
+  in-game-verified assets exactly.
+- **Offline golden-master suite** — ~2,850 kit tests + the Blender add-on suite; correctness is
+  provable without launching the game.
+- **Grounded in source** — opcode tables and camera/projection math are baked from the Memoria
+  engine source; the `.eb` and scene formats were reverse-engineered and byte-verified.
+
+## Out of scope
+
+- **Painting background art / battle-map textures** — the kit produces pixel-accurate guides and
+  forks real geometry; the painting itself is a manual art step.
+- **Fully arbitrary battle cameras from absolute coordinates** — the closed
+  `FF9SpecialEffectPlugin.dll` hides the world scale, so authored sweeps are expressed as
+  offsets/zoom around the donor's proven framing (multi-segment crane/orbit openings ARE
+  authorable; a from-nothing world-unit pose is not).
+- **Running the game** — final visual alignment and behavior are verified by manual playtesting.
+- **Shipping Square Enix game data** — game-derived assets are regenerated from the local install
+  ([PROVENANCE.md](PROVENANCE.md)).
+
+Platform: developed and verified on **Windows** (path/launcher resolution assumes a Windows FF9
+install).

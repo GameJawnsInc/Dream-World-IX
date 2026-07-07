@@ -1,13 +1,20 @@
 # How it works — the hard problems
 
 `ff9mapkit` looks like "fill in a TOML, get a map." Underneath, a handful of things had to be
-reverse-engineered or solved from scratch before any of that was possible. This is the record of the
-non-obvious parts — both as documentation and because the interesting work is invisible from the
-surface.
+reverse-engineered or solved from scratch before any of that was possible. This document records the
+non-obvious parts.
 
 Everything below was validated **offline**: the engine can't be scripted from the outside, and the
-final visual judgement is a human's, so correctness is established by byte-exact round-trips against
-real game data and by math checked against the engine's own source — not by "it looked right."
+final visual judgement is a manual in-game check, so correctness is established by byte-exact
+round-trips against real game data and by math checked against the engine's own source — not by
+"it looked right."
+
+**Scope:** this document covers the foundational-layer reverse engineering. Problems solved later
+have their own deep docs: [`ENGINE.md`](ENGINE.md) (stock vs. patched engine),
+[`FORK_FIDELITY.md`](FORK_FIDELITY.md) (how faithful a fork is),
+[`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md) (the id-keyed engine-gate census),
+[`OVERWORLD_ENGINE.md`](OVERWORLD_ENGINE.md) (world-map authoring),
+[`CUSTOM_MODELS.md`](CUSTOM_MODELS.md) (custom 3D models), and [`SPS.md`](SPS.md) (field particles).
 
 ---
 
@@ -24,7 +31,8 @@ So a brand-new ID can run a **custom script** while pointing its background look
 field's art (BG-borrow) or its own shipped scene. The one sharp edge: the engine builds the
 background name as `"FBG_N" + areaID` with **no zero-padding**, and the asset loader reads exactly two
 characters for the area — so single-digit areas (`0`–`9`) silently black-screen. The kit forces a
-custom scene's area `>= 10` and refuses a BG-borrow of a single-digit-area field with a clear message.
+custom scene's area `>= 10`; a BG-borrow of a single-digit-area field is auto-routed to a `--native`
+fork, which ships the art itself and sidesteps the name lookup.
 
 This is the piece the community had treated as unsolved: no shipped FF9 mod had minted a playable
 new field. Hades Workshop's "Export as Custom Field" produces a UV-broken atlas and corrupts the
@@ -68,7 +76,7 @@ which stops the player centre short of any wall) and the character-vs-floor offs
 the eyeball scale with the exact map + those two named constants is what made the guide reliable at
 any pitch.
 
-## 4. Character planting — the offset that wasn't
+## 4. The character ground offset
 
 FF9 draws the 2D background and the 3D character through related-but-not-identical projections, the
 classic "3D char vs 2D BG" vertical mismatch. Every painted room had drifted a little at the back
@@ -76,7 +84,7 @@ edge, and a `CHARACTER_GROUND_OFFSET_Z = 298` had been carried to compensate. A 
 (logging the player's true world position vs. where its feet rendered, at multiple pitches) measured
 the real offset: **zero**. The 298 was the partner of a `(0,0,300)` origin the walkmesh *builder* had
 been injecting — a near-cancelling double-count, camera-dependent, which is exactly what produced the
-years-old "back edge drifts" symptom. The honest model is `frame = world` (org 0, no offset); the
+recurring "back edge drifts" symptom. The honest model is `frame = world` (org 0, no offset); the
 walkmesh in true world coordinates *is* the painted floor.
 
 ## 5. The event script (`.eb`) — byte-exact authoring without Hades Workshop
@@ -127,6 +135,14 @@ entry holding both `SetRegion` and `Field`, with the destination's entrance read
 assignment immediately preceding the `Field` call. So a fork keeps the real place's exits,
 encounters, music, and movement tuning — not just its look.
 
+Forking has three fidelity modes. **`--verbatim`** ships the real field's whole event script and
+text, retargeting only the warp destinations — the field runs its own real logic. **`--native`**
+ships the real background through the engine's seamless per-tile path with an importable walkmesh.
+**`--editable`** splits the art into repaintable per-depth layers (occlusion preserved) for
+re-authoring the room. `ff9mapkit fork-report <field>` previews fidelity *before* forking — the
+object roster, the interaction surface, story-gated beats, and a suggested `[startup]` — see
+[`FORK_REPORT.md`](FORK_REPORT.md).
+
 ## 8. Engine quirks that cost a playtest each (now encoded as rules)
 
 - **Cutscene animation runs in the LOOP, not the Init.** `ProcessAnime` only advances animation
@@ -140,15 +156,33 @@ encounters, music, and movement tuning — not just its look.
 - **Walk turn-radius / warm-up / blocking waits** — issuing an actor command during the entry-fade
   makes it circle; a `Walk` to a point *behind* the actor orbits forever; `WaitTurn`/`WaitAnimation`
   on a player-cloned NPC never complete. The cutscene layer is built non-blocking around all three.
+- **GLOB vs. MAP flag persistence.** A script variable's *source* decides persistence: GLOB flags
+  live in the save-backed `gEventGlobal` block and survive field reloads and saves; MAP flags are
+  per-field and wiped on every field load — and the per-field buffer is only 80 bytes, so a high
+  flag index in MAP space reads out of bounds and crashes. Chests, story beats, and play-once
+  scenes must use GLOB.
+- **A tag-3 (talk) function must be ≥ 9 bytes.** The engine polls two fixed offsets into the
+  function every frame the player stands near the object; a shorter function indexes past the entry
+  buffer and throws an exception each frame. Short talk functions are padded, and non-interactive
+  props are emitted with no tag-3 at all.
+- **A field→field warp must fade to black *before* `Field()`.** Otherwise the destination loads in
+  the clear and the player watches its camera wire up around them. Gateways, ladders, and
+  choice-warps all emit the fade first.
+- **Opcode `0x2A` is `Battle`, not a warp.** The real field warp is `Field` (`0x2B`); encoding a
+  warp as `0x2A` starts a battle on a bad scene id — crash or black screen. (`PreloadField`,
+  `0xFD`, is a no-op hint on the PC engine.)
+- **After-battle resume needs an entry-0 tag-10 `Main_Reinit`.** A field cloned from a cutscene
+  field lacks one, so returning from a battle leaves every field object suspended — a softlock. The
+  kit emits a `Main_Reinit` that overrides the battle-result fade and re-enables movement.
 
-## 9. Why you can trust it without the game running
+## 9. Offline verification
 
-The hard constraint throughout was that the running game is unobservable from tooling and final
-alignment is a human call. So the kit is built to be **provably correct offline**:
+The running game is unobservable from tooling, and final alignment is confirmed by manual in-game
+playtesting — so the kit is built to be **provably correct offline**:
 
 - every codec round-trips real game assets byte-for-byte;
 - compiling the worked examples reproduces in-game-verified outputs exactly (golden masters);
 - camera/projection math is regression-tested against six real cameras and the engine's own formulas;
-- 1,500+ kit + 60 Blender tests, all offline;
+- a ~2,850-test offline suite (the kit plus the Blender add-on);
 - the few engine facts that *can't* be derived offline were each pinned with a temporary in-engine
   probe, then removed.

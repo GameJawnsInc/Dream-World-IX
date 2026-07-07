@@ -8,21 +8,21 @@ A few base assets the kit needs are *derived* from FF9's own field data:
 
 | asset | what it is | how it's obtained |
 |---|---|---|
-| blank field (`data/blank_field/<lang>.eb.bytes`) | the minimal playable field every built field starts from — a *cleaned* clone of a base field (popups removed, movement fixed, an after‑battle reinit added) | a base field is read from **your** install and a small **patch** (our edits) is applied |
+| blank field (`data/blank_field/<lang>.eb.bytes`) | the minimal playable field every built field starts from — a *cleaned* clone of a base field (popups removed, movement fixed, an after‑battle reinit added) | a base field is read from **your** install and a small **patch** (the kit's edits) is applied |
 | exit‑region template (`data/region_template.bin`) | the standard field‑exit entry the gateway injector patches | a base field's exit region is read from **your** install + a small patch |
 | test fixtures (`tests/fixtures/*`) | a real field script / camera / walkmesh used by the offline test suite | regenerated from **your** install |
 | battle-map geometry/textures (`<BBG>.fbx`, `image#.png`) | a real battle background forked into an editable FBX + PNGs by `ff9mapkit battle-import` | read from **your** install at runtime into a user‑chosen dir; gitignored, never committed (no committed battle template — you fork from your own install) |
 | minted-scene assets (`scene/*.raw16/.raw17/.eb/.mes`) | a real battle's gameplay/sequence/camera/text, forked by `battle-import --fork-scene` for a tier-c mint | read from **your** install into a user‑chosen dir; gitignored (`*.raw16.bytes`/`*.raw17.bytes`/`scene/eb`/`scene/mes`), never committed. The mint's static `.inb` is *authored* by the kit (pure `struct.pack`), not extracted |
 
 None of those bytes are committed to this repository or packaged in the wheel. Instead the repo ships
-only **our** part:
+only the project's part:
 
 - **copy/insert patches** (`data/provenance/*.patch`) — each is a list of *copy‑from‑offset*
-  directives plus the literal bytes **we** changed. A copy directive references your file by
+  directives plus the literal bytes the patch changes. A copy directive references your file by
   `(offset, length)`; it does **not** contain the game's bytes. This is exactly how an IPS/BPS/xdelta
   ROM‑hack patch works, and why patches are legally distributable while ROMs are not. (For reference,
-  the blank‑field patches are ~70–110 bytes of our edits over a 956‑byte field; the region patch is
-  ~5 bytes.) Verified **airtight**: `provision.patch_game_runs` asserts no insert run ever duplicates a
+  the blank‑field patches are ~70–110 bytes of kit edits over a 956‑byte field; the region patch is
+  ~5 bytes.) Verified: `provision.patch_game_runs` asserts no insert run ever duplicates a
   run already present in the source field — so a patch can't smuggle game bytes in disguise.
 - a **manifest** (`data/provenance/manifest.json`) — names the base fields to read and records the
   SHA‑256 of every regenerated blob, so extraction self‑verifies it produced exactly the right bytes
@@ -34,10 +34,9 @@ only **our** part:
 ## One‑time setup
 
 ```powershell
-pip install -e .
+pip install -e ".[assets]"          # the assets extra = UnityPy (reads FF9's p0data assetbundles)
 $env:FF9_GAME_PATH = "C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"   # optional
-# bash:  export FF9_GAME_PATH="C:/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX"
-pip install UnityPy                 # reads FF9's p0data assetbundles
+# full setup detail (auto-detect, ff9mapkit setup): ../../SETUP.md
 ff9mapkit extract-templates        # regenerate the base assets into a local (gitignored) cache
 ff9mapkit doctor                   # should now report: templates : extracted
 ```
