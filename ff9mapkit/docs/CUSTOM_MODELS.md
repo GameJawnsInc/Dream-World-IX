@@ -1,14 +1,16 @@
 # Custom Models — Export / Import Feasibility & Design
 
-> **Status:** exploration / design brief (branch `custom_models`). No code yet; no in-game proof yet.
+> **Status: SHIPPED + in-game proven.** This began as a feasibility/design brief; the
+> implementation lives in `ff9mapkit/models/` (CLI `model-gltf` / `model-import` / `model-mint` /
+> `model-anim` / `model-export`; tutorial: [tutorials/10-custom-model.md](tutorials/10-custom-model.md)).
 > **Scope:** FIELD & character models first; overworld (world map) as a follow-on. **Provenance:**
 > operate on the user's own install, output to their disk, ship zero Square-Enix bytes (gitignore
 > `*.fbx` / `*.anim` / textures, exactly like the battle-BG and world-mesh pipelines).
 >
-> This doc is grounded in a direct read of the Memoria source at the version-matched clone
-> (`C:\gd\FFIX\Memoria`, pinned build `6b8bb2d5`) plus an adversarial verification pass. Every
+> This doc is grounded in a direct read of the version-matched Memoria source (pinned build
+> `6b8bb2d5`) plus a source-level verification pass. Every
 > load-bearing engine claim carries a `file:line`. The "unknown until playtested" items are called
-> out explicitly — the human owns in-game judgment (CLAUDE.md §2).
+> out explicitly — they require manual in-game verification.
 
 ---
 
@@ -16,7 +18,7 @@
 
 The project's prior belief was *"custom models need a DLL build."* **That is stale.** Reading the
 current engine source shows Memoria already ships a **complete custom-model FBX pipeline** — and it's
-compiled into the build we already run:
+compiled into the pinned build the kit targets:
 
 - **The import seam is live and universal.** `ModelFactory.CreateModel` — the single choke point every
   field / character / battle / world model loads through — probes the mod folder for a loose
@@ -37,10 +39,10 @@ compiled into the build we already run:
   own doc-comment lists `AnimationClip` among the types "read as plain files."
   (`AssetManager.cs:24, 421-423`.)
 - This whole subsystem landed in Memoria commit **`9732e30e` "FBX model importer (#991)"**, an
-  **ancestor of the pinned `6b8bb2d5`** — already in the engine we ship. The project simply never
-  wired it up.
+  **ancestor of the pinned `6b8bb2d5`** — already in the shipped engine. It had never been
+  wired up.
 
-**Consequence for the two directions the owner asked about:**
+**Consequence for the two directions:**
 
 | Direction | Difficulty | DLL? |
 |---|---|---|
@@ -53,7 +55,7 @@ compiled into the build we already run:
 
 **Shortest path to a faithful export→re-import loop (fidelity first):** write an offline UnityPy
 exporter that emits a real GEO as a skinned FBX-ASCII → drop it *unchanged* at
-`Models/{type}/{geoId}/{geoId}.fbx` → `SetModel` it and have the human confirm it renders **and
+`Models/{type}/{geoId}/{geoId}.fbx` → `SetModel` it and confirm in-game that it renders **and
 animates** identically. That single playtest is the make-or-break gate; everything downstream (edit,
 scratch-author) is contingent on it.
 
@@ -93,7 +95,7 @@ the pieces. **Register** with the `3DModel <id> <GEO_NAME>` DictionaryPatch dire
 → `FF9BattleDB.GEO[id]=name` at load; sibling `3DModelAnimation` registers custom anims). **Render**:
 `SetModel(id)` → `GEO.GetValue(id)` → name → `GetModelType` (group→type) → `Models/{type}/{id}/{id}.fbx`, probed
 on disc first (the loose-FBX importer). **Animate**: anims resolve by the *animation name's* tokens, not the
-model's id — so a mint reuses any real model's animset by playing its `ANH_` names (our exporter keeps the bone
+model's id — so a mint reuses any real model's animset by playing its `ANH_` names (the exporter keeps the bone
 numbers so clips bind). Real GEO ids top out at 5511, so the mint band is **≥6000** (2-byte `SetModel` id; never
 reuse a real *name* — it would hijack the reverse lookup). Proven in-game: id 6000 = a re-export of BBA idling in
 the test field, additive (real BBA id 10 untouched). Kit: `models/mint.py`; a declarative **`[[mint]]`** block
@@ -234,7 +236,7 @@ around with an "Armature" null-node parent), (3) a global 180°-about-X flip bak
 the importer drops (fixed by baking `diag(1,-1,-1)` into verts), and (4) — the T-pose — the **cluster→bone
 FBX connection was reversed**: Memoria links it via `GetFirstConnectedIndex(clusterId, asChild=false)`,
 which wants `C: "OO", boneId, clusterId` (reversed from the standard cluster-child-of-bone convention), so
-my standard-direction connection linked zero subdeformers → `GetBoneWeights` returned null → `hasAnim=false`
+the standard-direction connection linked zero subdeformers → `GetBoneWeights` returned null → `hasAnim=false`
 → `anim=null` → `CreateCustomModel` skipped the whole skeleton → the mesh rendered as raw un-skinned verts
 (0 bones) = T-pose. **All four were emitter fixes; import needs no DLL.** The export half:
 
@@ -380,9 +382,9 @@ user's disk, gitignore outputs.
 *Reverse FF9* (tasior) and the *Chevluh FF9 Blender importer* read the PSX `ff9.IMG` and produce
 fully rigged, animated models — but custom rigged model **import**, especially for *field* models, is
 essentially **unsolved** at the geometry level. Hades Workshop's Unity Assets Viewer can dump the PC
-prefabs to FBX-ASCII, but its *import* is byte-round-trip only and corrupts on edit. So: we can lean
-on precedent (or the even-simpler native-Unity path on PC) for export, and we'd be **pioneering
-rigged field-model import** — consistent with this kit having pioneered custom fields.
+prefabs to FBX-ASCII, but its *import* is byte-round-trip only and corrupts on edit. So: export can lean
+on precedent (or the even-simpler native-Unity path on PC), while **rigged field-model import is
+new ground** — consistent with this kit having pioneered custom fields.
 
 ---
 
@@ -411,14 +413,14 @@ the engine iterates (`GeoAnim.cs:23-38`).
 + a consistent hierarchy + bindpose. You do **not** need to preserve FF9's exact bone count/order —
 only the naming so stock/donor `ANH_` clips bind.
 
-**Can we ship model+animation as one file?** Yes — either one skinned FBX (mesh + rig + takes), or
+**Model+animation can ship as one file** — either one skinned FBX (mesh + rig + takes), or
 geometry as FBX + animation as sidecar `.anim`. The `.anim` reader handles JSON or the binary `.anim`
 serialized format (as found in `p0data5.bin`).
 
 **Custom `.anim` loose-load is DLL-free** — resolved contradiction: `AssetManager.LoadFromDisc<T>`
 routes `AnimationClip` to `AnimationClipReader.ReadAnimationClipFromDisc` (`AssetManager.cs:421-423`),
-and the header doc-comment (`:24`) explicitly lists `AnimationClip` as a plain-file type. (The recon
-agent that said "ModelViewer-only" was wrong.) **Unknown until playtested:** whether a *loose FBX
+and the header doc-comment (`:24`) explicitly lists `AnimationClip` as a plain-file type — an earlier
+"ModelViewer-only" reading was wrong. **Unknown until playtested:** whether a *loose FBX
 field character* actually receives its `ANH_` clips in practice (proven only for static battle meshes;
 the code path exists but is unexercised for skinned field chars).
 
@@ -488,23 +490,23 @@ Verified end-to-end offline on the real install: `model-gltf GEO_SUB_W0_001` exp
   clips). `ff9mapkit models GEO_SUB_W0_001` shows "OVERWORLD actor — Zidane"; `model-gltf` / `model-import` print
   overworld-specific "see it on the world map" guidance + the Bee caveat.
 - **Still DLL (unchanged):** a *net-new* world actor (`WMActor.Initialize`/`WMAnimationBank` hardcode the set);
-  reskinning/re-animating an *existing* one is fully open. In-game verification is the human's (per §2).
+  reskinning/re-animating an *existing* one is fully open. In-game verification is a manual step.
 
 ---
 
 ## 7. Phased plan
 
-Each milestone marks **DLL vs no-DLL** and what **"in-game proven"** means (the human playtests).
+Each milestone marks **DLL vs no-DLL** and what **"in-game proven"** means (a manual playtest).
 
 **Phase 0 — Export a real model to an editable file. `no-DLL`.**
 Offline UnityPy exporter reads one field character GEO (start with an NPC) from the user's `p0data`,
 writes a skinned FBX-ASCII (bones `bone###`, weights, bindposes) + PNGs.
 *Proven when:* the FBX opens in Blender with a correct skeleton + skinned mesh + textures.
-*(Agent-verifiable via a headless Blender import — no game needed yet.)*
+*(Verifiable offline via a headless Blender import — no game needed yet.)*
 
 **Phase 1 — FIDELITY: re-import the UNCHANGED model. `no-DLL` (unless the importer TODO bites).**
 Drop the byte-unedited FBX at `Models/{type}/{geoId}/{geoId}.fbx`, `SetModel` that GEO.
-*Proven when:* the human confirms it renders **and animates via its stock `ANH_` clips**
+*Proven when:* in-game testing confirms it renders **and animates via its stock `ANH_` clips**
 indistinguishably from the bundled model. **This is the make-or-break gate.**
 - If deformation is wrong → small/medium DLL for `ModelImporter.cs:111`, then re-test.
 - If stock clips don't bind → check `bone###` naming/hierarchy parity first (data fix, likely no DLL).
@@ -515,7 +517,7 @@ redeployed Vivi's idle clip filled with her run motion → Vivi runs-in-place wh
 AnimationClip>("Animations/{geoId}/{key}")` probes each mod folder on disc FIRST (`LoadMultiple` bundle-asset
 branch → `LoadFromDisc` → `AnimationClipReader.ReadAnimationClipFromDisc`) and a JSON or binary clip at
 `<mod>/StreamingAssets/Assets/Resources/Animations/{geoId}/{key}.anim` **shadows the bundled p0data5 clip** —
-exactly parallel to the loose-FBX model override. We emit JSON (the same shape the engine's own ModelViewer
+exactly parallel to the loose-FBX model override. The kit emits JSON (the same shape the engine's own ModelViewer
 writes via `ParseToJSON`; the JSON reader keys curves by each bone's **full hierarchy path**, which is what the
 nested `bone{id:D3}` skeleton from `ModelImporter.CreateCustomModel` needs). CLI: **`ff9mapkit model-anim <GEO>
 [--clips …] --deploy MOD`** dumps/deploys a model's real clips as editable JSON (`models/anim.py`). GENERALITY:
@@ -536,7 +538,7 @@ robust to Blender re-sampling the keyframe COUNT while preserving the motion; a 
 unchanged, only a real pose edit writes. Rotation compares by normalized |dot| (sign-flip-safe); the splice
 replaces only genuinely-changed channels, so untouched bones stay byte-faithful. On a key collision (a scene
 imported more than once → duplicate actions), the deploy groups by clip key and picks an EDITED candidate
-(not last-wins), so a pristine copy can't clobber the edit. `--no-anims` for mesh-only. HARDENED by a 5-lens
+(not last-wins), so a pristine copy can't clobber the edit. `--no-anims` for mesh-only. HARDENED by
 adversarial review (fixed: scale-channel blindness that dropped squash/stretch edits; a ~5° rotation dead zone;
 silent unroutable-key drops; NaN emission). The **Blender add-on** adds an *Import/Export FF9 Model*
 pair that follows the same division of labour as *Export Field* → `ff9mapkit build`: the add-on does only the
@@ -547,16 +549,16 @@ no CLI-version coupling. **Phase 3 is complete.**
 
 **Phase 4 — SCRATCH AUTHOR on an existing GEO id. `no-DLL`.**
 Ship a wholly new mesh + rig reusing a donor GEO's `bone###` names (so stock clips drive it) or ship
-new `.anim` takes. *Proven when:* the human walks a brand-new custom model in-game, animated.
+new `.anim` takes. *Proven when:* a brand-new custom model walks in-game, animated.
 
 **Phase 5 — MINT a new GEO id (`small DLL`) + WORLD follow-on (`no-DLL` to reskin).**
 Add a `FF9BattleDB.GEO` entry + registration directive so a new model owns its id (no shadowing).
-Port the codec to world (scale/position adapter). *Proven when:* the human `SetModel`s a minted id
-in-field, and separately sees a reskinned overworld actor.
+Port the codec to world (scale/position adapter). *Proven when:* a minted id renders via `SetModel`
+in-field, and separately a reskinned overworld actor renders on the world map.
 
 ---
 
-## 8. Open questions / decisions for the owner
+## 8. Open questions / decisions
 
 1. **Fidelity gate acceptance (Phase 1):** does an unedited round-tripped rigged FBX deform + animate
    identically in-game? This one playtest decides whether the pillar stays DLL-free or needs the
@@ -621,6 +623,6 @@ in-field, and separately sees a reskinned overworld actor.
 | World actors use the same factory/format | `updateModelsToBeAdded.cs` (gMode 1/3/battle), `WMActor.cs` |
 | ≤4 bone influences per vertex (lossy cap) | `FbxSkeleton.RegisterWeight` |
 
-**Unsettled until the human playtests:** (a) rigged-field-FBX round-trip fidelity (deform + stock
+**Unsettled until playtested in-game:** (a) rigged-field-FBX round-trip fidelity (deform + stock
 clip binding), (b) custom `.anim` loose-load on the field spawn path, (c) that no real GEO exceeds 4
 bone-weights/vertex.

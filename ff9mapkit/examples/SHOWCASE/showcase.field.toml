@@ -1,6 +1,6 @@
 # SHOWCASE — one field that exercises most of the ff9mapkit content stack, so you can see how the
 # pieces fit together. It BUILDS offline with the placeholder art shipped here (repaint art/*.png to
-# make it pretty). Reachability (getting INTO it in-game) is yours — see docs/TUTORIAL.md step 6.
+# make it pretty). Reachability (getting INTO it in-game) is yours — see docs/tutorials/01-first-fork.md §5.
 #
 #   ff9mapkit lint  examples/SHOWCASE/showcase.field.toml
 #   ff9mapkit build examples/SHOWCASE/showcase.field.toml --out dist --mod-name Showcase

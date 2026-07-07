@@ -2,7 +2,7 @@
 
 > **Status: SHIPPED + in-game proven.** This began as a design doc; P1–P5 are implemented (P4 deploy in-game-verified). The implementation lives in `chain.py`, `campaign.py`, `eventscan.py`, `extract.py`, and `tools/deploy_campaign.py` (CLI `import-chain` / `build-all` / `lint-campaign`; deploy via `tools/deploy_campaign.py`). Status detail per the block below.
 
-Status: **P1–P5 implemented (P4 deploy in-game-verified); status per the block below.** Author target: ff9mapkit maintainer.
+Status: **P1–P5 implemented (P4 deploy in-game-verified); status per the block below.**
 Grounded against the live codebase (citations inline) and a **live byte-trace of the Ice Cavern region (fields 300–312)**, used as the worked example throughout. Every claim cites `file:line` where verified; the few genuinely-deferred items are flagged **[new_work]**.
 
 ## Implementation status
@@ -15,7 +15,7 @@ Grounded against the live codebase (citations inline) and a **live byte-trace of
   the 306→Marsh / 308→309 scripted seams, the 300/311/312 overworld exits, and per-screen encounters — and auto-flags 307's
   same-zone twin exits `STORY-COND`.
 - **Dev/test id allocation** (the field-id bands, capped at the Int16 `fldMapNo` max 32767):
-  a per-worktree mod folder + a **dev/test scratch band** (`pack.py` 30000–32767):
+  a per-checkout mod folder + a **dev/test scratch band** (`pack.py` 30000–32767):
   single-field test slot **30003** (after master 30000 / -bb 30001 / -ih 30002), campaign dev block **30100** (Ice Cavern → 30100–30112).
   Pinned in `.ff9deploy.toml`. A *shipped* campaign would instead claim a `pack.suggest_base` block in the 4000–9899 content band; dev/test
   campaigns stay in scratch. (Memoria.ini `FolderNames` + the mod folder are added at deploy time, P4 — everything through P3 is offline.)
@@ -119,14 +119,14 @@ A bounded BFS over the **walkable-door graph**. Frontier seeded with the resolve
    - **`--zones`** (with `--cross-zones` to span more) on FBG folder prefix (zone unit — Ice Cavern is all `fbg_n05_iccv_*` except 312's `fbg_n06_vgdl_*`).
    - **`--stop-at <id,...>`** explicit cuts.
    - **no-FBG prune** (world/special → branch terminates).
-   - **crash/unborrowable denylist** (seed it with field **100** — area 1 AND documented to crash, CLAUDE.md §5).
+   - **crash/unborrowable denylist** (seed it with field **100** — area 1 AND documented to crash).
    - **`--max-fields` hard cap** (default 25): abort LOUDLY if exceeded rather than forking 200 fields.
 
 ### 2.2 Natural graph boundaries (free, no new code)
 
 - **WorldMap exits stop the walk.** `scan_gateways` only follows `Field` (`FIELD_OP = 0x2B`, `eventscan.FIELD_OP`); WorldMap is a distinct opcode `0xB6` (`eb/opcodes.py:343`) and is never an edge. So the region's worldmap handoff is automatically a terminus — in the trace, **312** (38 `WorldMap` ops, no `Field` gateways) ends the chain for free, and **300** is the only worldmap *entry*.
 - **Battle edges are not graph edges.** Encounters are scanned as per-node *content* (`scan_encounter`, `eventscan.scan_encounter`), never followed.
-- **Scripted/cutscene warps are invisible (by design, and a documented limitation).** `scan_gateways` requires an entry holding BOTH `SetRegion(0x29)` AND `Field(0x2B)` (`eventscan.scan_gateways`); it skips computed/expression polygons (`_region_points` returns `[]` on any `arg_is_expr`) and bare `Field()` warps. The trace shows two real cases this drops: **306's `Field(652)`→Marsh** (a cutscene warp, no `SetRegion`) and **308's `Field(309)`** (a one-way scripted transition — `kit_gateways` empty for 308). The graph is the *walkable* graph, not every narrative transition. (★ Not `NarrowMapList.cs` — that's the engine's camera-WIDTH table, not a warp/cutscene driver; the unseen movers are scripted `Field()` warps + scenario-counter dispatch *inside* the `.eb`, plus runtime-computed ids.) **trust-the-user caveat (CLAUDE.md §9) applies.**
+- **Scripted/cutscene warps are invisible (by design, and a documented limitation).** `scan_gateways` requires an entry holding BOTH `SetRegion(0x29)` AND `Field(0x2B)` (`eventscan.scan_gateways`); it skips computed/expression polygons (`_region_points` returns `[]` on any `arg_is_expr`) and bare `Field()` warps. The trace shows two real cases this drops: **306's `Field(652)`→Marsh** (a cutscene warp, no `SetRegion`) and **308's `Field(309)`** (a one-way scripted transition — `kit_gateways` empty for 308). The graph is the *walkable* graph, not every narrative transition. (★ Not `NarrowMapList.cs` — that's the engine's camera-WIDTH table, not a warp/cutscene driver; the unseen movers are scripted `Field()` warps + scenario-counter dispatch *inside* the `.eb`, plus runtime-computed ids.) **Caveat: a byte scan alone cannot prove connectivity complete — cross-check against actual game knowledge.**
 
 ### 2.3 Two scanners for cross-field flag dependencies
 
@@ -201,7 +201,7 @@ The kit defines a top-level `campaign.toml` that the chain importer emits and th
 ```toml
 [campaign]
 name        = "ICE_CAVERN"      # mod-folder + ModDescription name
-mod_folder  = "FF9CustomMap-ice"  # the pinned worktree mod folder (Memoria.ini FolderNames)
+mod_folder  = "FF9CustomMap-ice"  # the pinned mod folder (Memoria.ini FolderNames)
 id_base     = 4100              # member i -> id_base + i (must be >= 4000; whole block distinct globally)
 flag_base   = 8512             # campaign flag band START (= campaign.FIRST_SAFE_FLAG; first bit clear of ALL
                                #   real-FF9 usage. WAS 8300 -> collided with real chest flags 8376-8511.)
@@ -310,7 +310,7 @@ entry_entrance = 0
 ### 4.2 Campaign-wide partitioning **[new_work]**
 
 - **Ids:** member `i` gets `id_base + i` (4100, 4101, …). `build_mod` does NO allocation — each id is read verbatim from `[field] id` (`build.FieldProject` → `build.build_field`). The campaign loader either (a) verifies author-typed ids are all ≥4000 and **globally** distinct, or (b) auto-assigns from `id_base` and rewrites every cross-field reference in lockstep (§2.5). The uniqueness assertion must be **global, not just within-campaign**, because EventDB/SceneData are merged across stacked mod folders at launch — see [`GLOBAL_RESOURCES.md` §B](GLOBAL_RESOURCES.md) for the id-namespace rule and the [section-C bands](GLOBAL_RESOURCES.md) (field ids 4000–9899 content / 30000–32767 scratch). The contiguous-block ceiling (4100..4140 all register) is **unverified — needs an in-game test** (§7).
-- **Flags:** parameterize the allocators by a **per-field `flag_base`** so field B never overlaps field A. Field `i` owns `[flag_base + i*K, flag_base + (i+1)*K)`, and within its block the three categories sub-partition (cutscene `base+0`, events `base+1..+31`, choices `base+32..+63`). **[LANDED 2026-06-10, story_flags branch]** `build._FlagAlloc` threads an optional per-member `flag_base` through `build_script`/`lint_logic` (default `None` = the historical 8000/8100/8200 constants, so single-field builds stay **byte-identical**); `campaign.build_campaign` assigns each member `flag_base + i*K`. The default `flag_base` is now **8512** (`campaign.FIRST_SAFE_FLAG`) — the old **8300** collided with real-FF9's treasure-chest bitfield at bits **8376–8511** (a verified latent save-corrupter; see `research/STORY_FLAGS.md` §4). `lint_campaign` now errors if any member block, or any explicit flag, lands in the chest band or past the choice scratch (bit 16320).
+- **Flags:** parameterize the allocators by a **per-field `flag_base`** so field B never overlaps field A. Field `i` owns `[flag_base + i*K, flag_base + (i+1)*K)`, and within its block the three categories sub-partition (cutscene `base+0`, events `base+1..+31`, choices `base+32..+63`). **[LANDED 2026-06-10]** `build._FlagAlloc` threads an optional per-member `flag_base` through `build_script`/`lint_logic` (default `None` = the historical 8000/8100/8200 constants, so single-field builds stay **byte-identical**); `campaign.build_campaign` assigns each member `flag_base + i*K`. The default `flag_base` is now **8512** (`campaign.FIRST_SAFE_FLAG`) — the old **8300** collided with real-FF9's treasure-chest bitfield at bits **8376–8511** (a verified latent save-corrupter; see `research/STORY_FLAGS.md` §4). `lint_campaign` now errors if any member block, or any explicit flag, lands in the chest band or past the choice scratch (bit 16320).
 - **Cross-field named flags:** authors write `requires_flag`/`set_flag` **by name**, resolved through a campaign registry table to a concrete index. This is the *only* safe cross-field gate (a name maps to one index regardless of which field sets vs reads it). Hook `build._gate_of` and `event.py:48` (int-only today). Shared/cross-field flags live in a **separate band above the per-field blocks** (recommended over exporting from a field block) so a field's local once-flags never alias a shared flag.
 
 ### 4.3 Cross-field lint
@@ -350,13 +350,13 @@ load campaign.toml -> [FieldProject.load(m.toml) for m in members]    # build.Fi
    -> cross-field lint (§4.3) — ABORT on dangling edge / dup id / dup text_block
    -> build_mod(projects, out_root, mod_name=campaign.mod_folder)      # build.build_mod, unchanged
 ```
-Output is a staged `dist/` (like `tworoom/dist`). `build_field` already assembles `FieldScene <id> <area> <bg_mapid> <name> <text_block>` and **skips the scene/FBG write when `borrow_bg` is set** (`build.build_field`) — so borrow members ship only `.eb`(+`.mes`), editable members ship their `.bgx`/`.bgi`/PNG scene. A mixed-mode chain builds fine (members are independent field.tomls). Per-language `.eb` is automatic (bytecode is language-identical, CLAUDE.md §7).
+Output is a staged `dist/` (like `tworoom/dist`). `build_field` already assembles `FieldScene <id> <area> <bg_mapid> <name> <text_block>` and **skips the scene/FBG write when `borrow_bg` is set** (`build.build_field`) — so borrow members ship only `.eb`(+`.mes`), editable members ship their `.bgx`/`.bgi`/PNG scene. A mixed-mode chain builds fine (members are independent field.tomls). Per-language `.eb` is automatic (bytecode is language-identical across all 7 languages).
 
 ### 5.2 `deploy-all` (generalize `install_tworoom.py`)
 
 `install_tworoom.py` was the literal hand-coded 2-field permanent install; `tools/deploy_campaign.py` generalizes its exact shape for arbitrary N:
 
-1. **ONE pre-deploy snapshot** of the whole mod folder → `backups/<folder>.pre-<campaign>.<stamp>` (`install_tworoom.py:45-47`). This is the critical reversibility choice — **do NOT use `deploy_field`'s per-id revert** (the generated `deploy_field` `revert_deploy_<id>.py`), whose per-id DictionaryPatch line-merge can wipe a sibling's `FieldScene` line → black-screen warp to an unregistered id (CLAUDE.md §3 records this exact failure). One set-wide snapshot → one `revert_campaign.py` that restores all N fields + the New-Game override atomically.
+1. **ONE pre-deploy snapshot** of the whole mod folder → `backups/<folder>.pre-<campaign>.<stamp>` (`install_tworoom.py:45-47`). This is the critical reversibility choice — **do NOT use `deploy_field`'s per-id revert** (the generated `deploy_field` `revert_deploy_<id>.py`), whose per-id DictionaryPatch line-merge can wipe a sibling's `FieldScene` line → black-screen warp to an unregistered id (a failure mode observed in practice). One set-wide snapshot → one `revert_campaign.py` that restores all N fields + the New-Game override atomically.
 2. **Copy each member's assets:** EVT `.eb` (7 langs) for all; `.mes` blocks; and the FBG scene dir **only for editable members** (skip for borrow — `deploy_field.py:110-113` already guards this; `install_tworoom.py:64` relies on borrow shipping EVT-only). Route every path through `ModLayout` (`config.py:99-198`: `eb_path`, `mes_path`, `fieldmap_dir`, `dictionary_patch`, `battle_patch`).
 3. **DictionaryPatch = the campaign's combined lines verbatim** from the staged dist (`install_tworoom.py:73-75`) — do NOT reuse `deploy_field`'s sandbox identity override (it forces id→4003 / name→TESTROOM, `deploy_field.FID`/`deploy_field.TEST_NAME`, the OPPOSITE of what a campaign needs; each member must deploy at its OWN id/name).
 4. **New-Game entry** (§5.3).
@@ -368,7 +368,7 @@ Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > 
 
 `tools/deploy_campaign.py` wires New Game via the proven `retarget_newgame_warp.py` — a **direct field-70 opening-override retarget**. `NewGame()` is stock and drops you at `fldMapNo` 70, so field 70 IS the real New-Game field; the deploy byte-patches the shared `FF9CustomMap` field-70 opening override `EVT_ALEX1_TS_OPENING` so its `Field()` literal points straight at the campaign's entry id. Route: **New Game → field 70 → `Field(entry)`** (direct retarget, no intermediary). A self-seeding verbatim chain bakes its own party/beat via `[startup]`/`[party]` (story_flags' starting-state capstone), so the entry field needs no party-creating hop. This **supersedes** the old field-100-hop `newgame_warp.py` (whose field-100 injection site doesn't exist on every install); `--stock` is a deprecated no-op (`argparse.SUPPRESS`, ignored — the field-70 retarget is universal). Reversible: backs up the 7-lang field-70 override + writes a revert; `revert_campaign.py` undoes the folder snapshot AND the warp.
 
-### 5.4 Worktree / FolderNames / distinct-id constraints (CLAUDE.md §3–§4)
+### 5.4 Worktree / FolderNames / distinct-id constraints
 
 - The campaign deploys into ONE `mod_folder` pinned by `.ff9deploy.toml` and listed in `Memoria.ini [Mod] FolderNames`; a new folder isn't read until added there and the game relaunches.
 - All N ids must be ≥4000 and **globally distinct** across every stacked folder (EventDB is a merged dict).
@@ -378,6 +378,8 @@ Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > 
 ---
 
 ## 6. Worked example end-to-end (REAL Ice Cavern, fields 300–312)
+
+> A user-facing tutorial version of this walkthrough lives at [`tutorials/04-campaign.md`](tutorials/04-campaign.md).
 
 ```
 # 1. Walk + fork the region from real game bytes (dry-run first to see the blast radius)
@@ -398,7 +400,7 @@ py -m ff9mapkit import-chain 300 --zones iccv --id-base 4100 \
       "13 fields forked into campaign/ice, 22 gateways retargeted in-chain,
        3 edges left as seams (author fresh). Flag deps: none. Next: build-all."
 
-# 3. EDIT (the human's work): repaint each editable layer PNG; author the 3 seams
+# 3. EDIT (manual art step): repaint each editable layer PNG; author the 3 seams
 #    (308's exit, 306's Marsh stub, 312's worldmap exit); optionally add NPCs/chests
 #    per member field.toml (empty rooms otherwise). Set a save point on IC_HUB.
 
@@ -423,7 +425,7 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 #    F6 -> Warp -> 4100 reaches it directly thereafter (no relaunch).
 ```
 
-**STOP and ask the human to playtest** after step 6 — per Hard-Constraint §2, the chain isn't "working" until walked in-game.
+**Playtest in-game after step 6** — the chain isn't "working" until walked in-game.
 
 ---
 
@@ -433,7 +435,7 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 
 - **Empty rooms.** `eventscan` deliberately extracts only unambiguous single-opcode patterns (gateways/music/encounter/control-dir/ladders); it does NOT scan **NPCs, dialogue, arbitrary event triggers, cutscenes, or party/spawn tables.** A forked chain is **walkable + connected with real art/camera/encounters/ladders, but empty of characters and story.** That is the realistic, honest deliverable.
 - **No flag-gate fidelity.** Real doors are often flag-gated; `scan_gateways` extracts the static zone+target only. A fork may expose doors the real game hid behind a flag, or omit dynamics. (Ice Cavern is clean — no inter-screen gates — but the general case isn't.)
-- **No custom art unless repainted.** Borrow members reuse real art; editable members ship the field's *exported* art (needs each field exported in-game first via `Memoria.ini [Export]`) which the human then repaints.
+- **No custom art unless repainted.** Borrow members reuse real art; editable members ship the field's own art (assembled offline from the atlas at import time), which is then repainted as a manual art step.
 - **Single spawn per field** (§2.6) — entrance imported/round-tripped but the landing position is the default centre; multi-entrance landing deferred.
 - **Scripted/cutscene transitions invisible** (§2.2) — 308's one-way `Field(309)` and 306's `Field(652)` are seams to author by hand.
 - **Additive only — never destructive.** A chain mints NEW ids ≥4000 and borrows art via DictionaryPatch; it never repurposes a real id, so it can't break a live cutscene (unlike REPURPOSE). The one non-additive act — making the chain reachable from the *real* game — would edit a real field's gateway; out of scope for v1 (chain reached via New-Game hook or F6 warp).
@@ -441,9 +443,9 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 ### Honest boundaries
 
 - **Graph explosion is the headline risk.** FF9's field graph is huge and densely cross-linked; a naive unbounded BFS from a town hub pulls hundreds. `--max-hops` alone is weak (a hub at hop 2 fans out enormously). **REQUIRE a zone allowlist (`--zones` folder-prefix) OR a hard `--max-fields` that aborts loudly.** Default to small max-hops + `--max-fields` (25) and force opt-in for more. (Ice Cavern is the easy case — self-contained, `--zones iccv` captures it cleanly.)
-- **Un-borrowable / crashing destinations.** Area < 10 black-screens (common in early game — Alexandria area 1, cargo ship area 0); **field 100 BOTH is area<10 AND crashes** (CLAUDE.md §5). Need a **data-driven crash denylist** (seed: field 100) + an **area<10 → auto-editable fallback**. Per-node failure must isolate (skip + warn + leave inbound edges as live seams), never abort the chain — `write_field_project` raises `RuntimeError` for area<10 (`extract.write_field_project`); `import-chain` must catch and degrade.
+- **Un-borrowable / crashing destinations.** Area < 10 black-screens (common in early game — Alexandria area 1, cargo ship area 0); **field 100 BOTH is area<10 AND crashes**. Need a **data-driven crash denylist** (seed: field 100) + an **area<10 → auto-editable fallback**. Per-node failure must isolate (skip + warn + leave inbound edges as live seams), never abort the chain — `write_field_project` raises `RuntimeError` for area<10 (`extract.write_field_project`); `import-chain` must catch and degrade.
 
-### Load-bearing in-game tests (the human's verifications — I cannot see the game)
+### Load-bearing in-game tests (manual verifications)
 
 1. **A contiguous ≥4000 block registers** (e.g. 4100..4112 all warp-able) — the id-ceiling is unverified.
 2. **Save → Continue inside a custom field (≥4000)** persists and reloads (the campaign is only "real" if you can save mid-cavern).

@@ -333,7 +333,7 @@ map ships on **stock Memoria, no engine rebuild**. Loop (the battle analogue of 
     ff9mapkit battle-import BBG_B013 --out my_map   # fork one -> battle.toml + BBG_B013.fbx + image#.png
     # edit my_map/BBG_B013.fbx in Blender (KEEP the meshes named Group_0/2/4/8) and/or repaint the PNGs
     ff9mapkit battle-build my_map/battle.toml --out dist
-    py tools/deploy_battle.py my_map/battle.toml    # reversible install into your (per-worktree) mod folder
+    py tools/deploy_battle.py my_map/battle.toml    # reversible install into your mod folder
 
 ```toml
 [battlemap]
@@ -687,8 +687,9 @@ remove = ["zidane"]            # optional: remove these (RemoveParty)
   an empty party hangs the menu/leader cursor (the build can't see runtime party state, so this is on you).
 - Prepended to **Main_Init**, so it applies at field load. **`.eb`-only, no DLL.** FF9 renders only the party
   **leader** in the field, so an added member shows in the menu/battle, **not** as a walking follower. Adding
-  a brand-new *custom* character (not one of the 12) needs an engine fork — out of scope here.
-- ★ **Caveat:** if the field's own Main_Init runs `SetPartyReserve` (rebuilds the roster) **after** our
+  a brand-new *custom* playable character is the `[[playable]]` block (DLL-free; worked example:
+  `examples/thirteenth-character/`).
+- ★ **Caveat:** if the field's own Main_Init runs `SetPartyReserve` (rebuilds the roster) **after** the kit's
   prepend, it can wipe the add — the build **warns** on a verbatim fork where this is the case. A synthesized
   field never resets the party. Pair with `[startup]`/`[[gateway]]` to also set the story beat.
 
@@ -762,8 +763,8 @@ bubble = true                                  # the floating "!" prompt (defaul
   build warns). An id is also the `Menu` sub-id, so it is **`<= 255`**. Ids must be unique across the mod
   (a duplicate is warned, last-wins — the engine's own merge rule). Shops may live on **any** field's
   `field.toml` (unlike the entry-only new-game state) — they all collect into one `ShopItems.csv`. Because the
-  engine **merges** `ShopItems.csv` by id across stacked mod folders, two **worktrees** that both pick the same
-  custom id collide silently (the higher-priority folder wins) — give each worktree its own shop-id sub-band,
+  engine **merges** `ShopItems.csv` by id across stacked mod folders, two **mod folders** that both pick the same
+  custom id collide silently (the higher-priority folder wins) — give each mod its own shop-id sub-band,
   the way field-id bands are split.
 - **Opener** → `Menu(2, id)` (the same op family as the save point's `Menu(4, 0)`). Either:
   - **`[[npc]] opens_shop = N`** — talking to that NPC opens shop `N`. `N` may be a **vanilla** shop (0-31)

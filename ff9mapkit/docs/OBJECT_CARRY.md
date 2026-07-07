@@ -9,8 +9,7 @@
 > original design rationale (algorithm, file surface, phasing) — read them as the as-built design narrative,
 > not as pending work; where a §5 symbol name differs from the shipped one it is corrected inline.
 
-> Produced by the `object-graft-research` ultracode workflow (11 agents, 5 dimensions, adversarially
-> verified against real FF9 bytes + the Memoria engine source). This is the design that replaces the
+> Adversarially verified against real FF9 bytes and the Memoria engine source. This is the design that replaces the
 > lossy player-clone object emit for IMPORTED fields. The authored `[[npc]]`/`[[prop]]` path is untouched.
 
 ## 1. SUMMARY
@@ -44,7 +43,7 @@ reference the player only by uid 250 with a tag the fork's player has — which 
 > wider than the v1 row: player-tag ≥ 2 interactions carry via `--graft-player-funcs`, real-words dialogue via
 > `--carry-text`, and the save point verbatim via `--save-moogle` (see the per-item notes).
 
-**The numbers (corrected per the adversarial verdicts — trust the verdict over the finding):**
+**The numbers (corrected by adversarial verification — the corrected values below are authoritative):**
 
 | Bucket | Share of 1351 genuine carried objects | v1? |
 |---|---|---|
@@ -79,7 +78,7 @@ into a **field-specific player function tag** the fork's player lacks. So:
 **v1.5 — STARTSEQ-helper closure — DONE (✓ shipped; in-game gate pending).** Carry the benign concurrent Seq a
 carried object launches via `STARTSEQ` (RunSharedScript, an entry index), appended at a free slot + the launcher
 arg remapped — the exact `inject_ladder` `sequences` graft generalized to objects. A 676-field census +
-adversarial verification (the `object-sibling-closure-research` workflow) refined the original "sibling +
+adversarial verification refined the original "sibling +
 STARTSEQ" scope to **STARTSEQ-helper only**: the sibling-OBJECT axis is EMPTY (every uncarried object-to-object
 ref is the party / player / a controller / save machinery / out-of-range — nothing safe to carry), so v1.5 ships
 the STARTSEQ closure alone. It **un-refuses 53 objects + un-stubs 23** (faithful object coverage ~65% → ~70%; 109
@@ -117,8 +116,8 @@ STARTSEQ patch). Arg widths confirmed against `eb/_optables.py`; uid resolution 
 - **250 (player) / 255 (self) / 251–254 (party)** → **KEEP verbatim** (slot-independent engine specials).
 - **donor player ENTRY INDEX** (e.g. 23 in field 122) → **rewrite to 250** (the slot-independent `controlUID`
   alias — 250 dynamically resolves to whoever holds control).
-- **a sibling we ARE carrying** → rewrite to that sibling's `uid_new`/`S_new`.
-- **a sibling we are NOT carrying** → **REFUSE** the standalone graft (or carry the closure in v1.5).
+- **a CARRIED sibling** → rewrite to that sibling's `uid_new`/`S_new`.
+- **an UNcarried sibling** → **REFUSE** the standalone graft (or carry the closure in v1.5).
 - **a computed (expression) uid** → **cannot statically remap → REFUSE**.
 
 **Immediate-arg opcodes (uid resolved via `GetObj1=GetObjUID(getv1())`):**
@@ -345,7 +344,7 @@ same value).
   -571)`** (measured), and the grafted Init bytes (`SetModel`/`SetStandAnimation(1904)`/
   `MoveInstantXZY(-250,-2,-571)`/`SetObjectLogicalSize(1,50,50)`/`SetObjectFlags(37)`) match the source verbatim
   with **zero Zidane-only ops** (the anti-"barrel skin" assertion).
-- **Human playtest (the commit gate):** `ff9mapkit import fbg_n08_udft_map122_uf_sto_0 --out F` → `build` →
+- **Manual in-game playtest (the shipping gate):** `ff9mapkit import fbg_n08_udft_map122_uf_sto_0 --out F` → `build` →
   `tools/deploy_field.py` → F6 → Warp → confirm the cask renders **upright at the right spot** (not the
   upside-down player-clone) and the two box rows carry. Also confirm the box-instancing switch actually yields 3
   distinct positions (the one mechanism the verdict flagged as asserted-but-unverified). This in-game gate was the
@@ -371,7 +370,7 @@ same value).
   forever* on a callee that never completes → frozen field. As shipped this is resolved two ways: the
   player-function graft (`--graft-player-funcs`) carries the missing tag so the callee completes, and the
   Init-only carry policy (§4) + the lint refuse-rule catch any player-tag-≥2 reference that can't be grafted. **It
-  fires on the user's own cask+boxes**, so this logic is load-bearing on the very first import.
+  fires on the driving field-122 cask+boxes**, so this logic is load-bearing on the very first import.
 - **Mis-patched arg offset** → corrupts the wrong byte → garbage object or crash. Mitigation: decoder-derived
   `_arg_byte_offset` + assert width==1; covered by the remap round-trip test.
 - **Un-remapped expression-uid** (the 0x78 token or B_ANGLEA) → object placed at (0,0) or follows the wrong

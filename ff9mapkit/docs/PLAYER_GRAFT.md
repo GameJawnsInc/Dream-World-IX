@@ -10,8 +10,8 @@
 > onto the fork player so that forked stock-map interactions (the field-122 cask EXAMINE, the box push/examine
 > gestures) actually fire — instead of being dropped to `init_only`. Generalizes the proven one-function
 > jump/ladder player graft to N functions with tag allocation + a TAG-arg remap. Every number below is from a
-> full 676-field census, corrected by each dimension's adversarial verdict (produced by the
-> `player-func-graft-research` ultracode workflow, 13 agents); every primitive is verified against the real code.
+> full 676-field census, adversarially verified against real FF9 bytes and the Memoria
+> source; every primitive is verified against the real code.
 
 ---
 
@@ -28,7 +28,7 @@ for one function). The genuinely new dimension is a **tag remap**: when a donor 
 is empirically depth-0 for the object path** (no object-referenced player func calls another player tag, verified
 across all 676 fields), so v1 needs no closure walker — it grafts the seed functions directly. **Headline scoping
 number: ~76% of object-referenced player functions are graftable on a Zidane donor, and ~90% of GEO_ACC
-set-dressing (chests/casks/boxes — the target) — which flips the user's own field-122 cask and boxes from
+set-dressing (chests/casks/boxes — the target) — which flips the driving field-122 cask and boxes from
 `init_only` to whole-entry carry.**
 
 ---
@@ -270,5 +270,4 @@ immediate. The carried `.mes` strings are SE-derived → gitignored. See docs/TE
 ---
 
 **Provenance:** the `.playerfuncN.bin` sidecars are verbatim SE-derived player-function bytes → gitignored (same
-posture as `.object*.bin`/`.jump.bin`). Design produced by the `player-func-graft-research` workflow; full key-file
-citations in the workflow output.
+posture as `.object*.bin`/`.jump.bin`). The design was verified against real FF9 bytes and the Memoria source.
