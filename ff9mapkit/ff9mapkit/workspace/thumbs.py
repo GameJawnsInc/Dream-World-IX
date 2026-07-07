@@ -25,7 +25,6 @@ Disable with ``FF9MAPKIT_NO_THUMBS=1`` (the smoke does -- no worker threads in h
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import queue
 import tempfile
@@ -116,66 +115,10 @@ def build_thumb(project_toml, real_id) -> Path | None:
 
 
 # ---------------------------------------------------------------- 3D model previews (the Models tab)
-
-MODEL_THUMB = 256                               # cached model-preview size (px, square)
-_MODEL_RENDER_V = 1                             # bump when the renderer's output changes -> new cache keys
-
-
-def model_thumb_paths(geo_id) -> tuple[Path, Path]:
-    """(png, meta-json) cache paths for a model preview. Game art is static, so the key is just the
-    geo id + the renderer version (no mtime component)."""
-    stem = f"{int(geo_id)}_v{_MODEL_RENDER_V}"
-    d = provision.cache_dir() / "model_thumbs"
-    return d / f"{stem}.png", d / f"{stem}.json"
-
-
-def model_thumb_meta(geo_id) -> dict | None:
-    """The counts sidecar a finished render wrote ({bones, meshes, verts, textures}), or None."""
-    _png, meta = model_thumb_paths(geo_id)
-    try:
-        return json.loads(meta.read_text(encoding="utf-8")) if meta.is_file() else None
-    except (OSError, ValueError):
-        return None
-
-
-def build_model_thumb(token, ctx: dict | None = None) -> str | None:
-    """Synchronously render (or reuse) the cached preview PNG for a model. Pure worker logic -- no Qt.
-    ``ctx`` (a plain dict, thread-confined to the caller) keeps the p0data bundles + the p0data5 env
-    alive across calls, so a browse session pays the ~2s bundle load once and ~0.1-0.3s per model after.
-    Writes a ``{geoId}_v{N}.json`` counts sidecar beside the PNG (bones/meshes/verts/textures -- the
-    detail pane's facts, harvested for free from the render struct)."""
-    from .. import catalog
-    m = catalog.model(token)
-    if not m:
-        return None
-    png, meta = model_thumb_paths(m.id)
-    if png.is_file():
-        return str(png)
-    from ..models import anim as manim
-    from ..models import extract, preview
-    ctx = ctx if ctx is not None else {}
-    didx = 2 if m.group == "WEP" else 4          # weapons live in p0data2 (BattleMap/BattleModel/6)
-    if didx not in ctx:
-        ctx[didx] = extract._Bundle(None, data_index=didx)
-    if "env5" not in ctx:
-        try:
-            ctx["env5"] = manim._load_env5(None)
-        except Exception:   # noqa: BLE001 -- no p0data5 -> render the rest pose instead of failing
-            ctx["env5"] = None
-    struct = preview._skinned_struct(m.name, bundle=ctx[didx], env5=ctx["env5"],
-                                     pose=ctx["env5"] is not None)
-    img = preview.render_model(struct, size=MODEL_THUMB)
-    png.parent.mkdir(parents=True, exist_ok=True)
-    tmp = png.with_suffix(".tmp.png")
-    img.save(tmp, "PNG", optimize=True)
-    tmp.replace(png)
-    info = {"geo": struct.get("geo"), "id": struct.get("geo_id"),
-            "bones": len(struct.get("bones") or []),
-            "meshes": len(struct.get("meshes") or []),
-            "verts": sum(len(me.get("verts") or []) for me in (struct.get("meshes") or [])),
-            "textures": sorted(struct.get("textures") or {})}
-    meta.write_text(json.dumps(info), encoding="utf-8")
-    return str(png)
+# The pure cache/render logic is Qt-free in models/thumbcache.py (the Info Hub + the catalog pickers
+# read the cache tk-free); re-exported here so the Workspace side keeps one import site.
+from ..models.thumbcache import (MODEL_THUMB, build_model_thumb, model_thumb_meta,   # noqa: F401,E402
+                                 model_thumb_paths)
 
 
 class ThumbService(QObject):

@@ -294,6 +294,17 @@ class CatalogPicker(QDialog):
                 png = infohub.detail(e, sps_context=self.sps_context).preview_png
             except Exception:                          # noqa: BLE001 -- preview is best-effort
                 png = None
+        elif e.kind in ("model", "archetype", "creature", "prop"):
+            # model-backed entries: CACHE READS ONLY (the Models tab / model-preview fill the cache;
+            # rendering here would block the GUI thread on a p0data load)
+            try:
+                from ..models.thumbcache import cached_png
+                from .. import catalog as _catmod
+                m = _catmod.model(e.ident) if e.ident is not None else (
+                    _catmod.model(e.model) if e.model else None)
+                png = cached_png(m.id) if m else None
+            except Exception:                          # noqa: BLE001 -- preview is best-effort
+                png = None
         if png:
             pm = QPixmap(png)
             if not pm.isNull():
@@ -584,6 +595,12 @@ class CatalogLibrary(QDialog):
         muted = self.pal["muted"]
         h = [f'<div style="font-size:15px;"><b>{_esc(d.name)}</b> '
              f'<span style="color:{muted};">[{_esc(d.kind)}]</span></div>']
+        if getattr(d, "preview_png", None):
+            # the preview LEADS -- a model page's animation list can run hundreds of entries, and an
+            # image below the fold reads as no image at all
+            from pathlib import Path
+            h.append(f'<p style="margin-top:6px;">'
+                     f'<img src="file:///{Path(d.preview_png).as_posix()}" width="200"></p>')
         if d.facts:
             h.append('<table cellspacing="0" cellpadding="2" style="margin-top:6px;">')
             for label, val in d.facts:
@@ -607,10 +624,6 @@ class CatalogLibrary(QDialog):
         if d.locations:
             loc = ", ".join(f"{nm} ({fid})" for fid, nm in d.locations[:24])
             h.append(f'<p><b>Appears in</b><br><span style="color:{muted};">{_esc(loc)}</span></p>')
-        if getattr(d, "preview_png", None):
-            from pathlib import Path
-            h.append(f'<p style="margin-top:6px;"><b>Preview</b><br>'
-                     f'<img src="file:///{Path(d.preview_png).as_posix()}" width="220"></p>')
         if d.snippet:
             h.append(f'<p style="margin-top:8px;"><b>Use it</b></p>'
                      f'<pre style="background:{self.pal["surface_btn"]};padding:6px;'

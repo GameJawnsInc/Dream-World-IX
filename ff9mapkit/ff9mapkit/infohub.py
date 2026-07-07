@@ -573,6 +573,10 @@ def detail(entry: Entry, usage_fn: Optional[Callable] = None, campaign_context=N
         d.anims = _cat.animation_actions(m.id)
         d.movement = _cat.npc_anims(m.id) or None
         d.aliases = _aliases_for(e.name, m.name)
+        # a rendered preview when the Models tab / model-preview already cached one -- CACHE READS
+        # ONLY (never renders: detail() runs on the GUI thread and must stay install-free)
+        from .models.thumbcache import cached_png as _model_png
+        d.preview_png = _model_png(m.id)
         if usage_fn is not None:
             try:
                 d.locations = list(usage_fn(m.id))

@@ -68,6 +68,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
   with Refresh + a confirm-first **Revert selected…**.
 
+### Added — model previews across the Info Hub + catalog pickers
+- Every model-backed Info Hub page (models, archetypes, creatures, props) and the in-form catalog
+  picker now show the rendered preview — leading the detail pane (an image below a 197-entry
+  animation list reads as no image at all). Strictly CACHE READS (`models/thumbcache.py`, Qt-free):
+  browsing the Models tab / running `model-preview` fills the per-user cache; the Info Hub never
+  renders on the GUI thread, so a cold cache or a game-less machine degrades to text.
+
 ### Added — model previews (`model-preview` + the renderer behind the GUI thumbnails)
 - **`ff9mapkit model-preview <model>`** software-renders any FF9 model to a textured PNG still — pure
   PIL (no OpenGL/Blender), orthographic 3/4 view, `--size/--yaw/--pitch/--rest`. Under the hood
