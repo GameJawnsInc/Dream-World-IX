@@ -68,6 +68,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
   with Refresh + a confirm-first **Revert selected…**.
 
+### Added — wholly NEW animation clips (`model-anim-new`)
+- The anim pillar authored *edits* of real clips; now it authors **new ones**: `ff9mapkit
+  model-anim-new <model> --glb <blender.glb> --action <name> --deploy <mod>` (or no `--glb` for the
+  built-in spin demo) builds a from-scratch clip — full-hierarchy `SetCurve` bone paths from the
+  model's own skeleton — writes the loose `Animations/<id>/<key>.anim`, and registers it with an
+  idempotent `3DModelAnimation <key> <ANH_…_SUFFIX>` DictionaryPatch line (keys minted in a
+  2,000,000+ band, clear of real ids and the battle-animset band). Play it anywhere an anim id
+  goes: `[[npc]] anims = { stand = <key> }`, a cutscene `animation` step. RELAUNCH to register.
+
 ### Added — custom weapon models (`[[weapon]] model`)
 - A weapon item can now change what it LOOKS like: `model = "GEO_WEP_B1_030"` points it at a stock
   weapon model; `model = { id = 6500, tint = [1.7, 0.5, 0.5] }` (or `hue` / per-stem `textures`)

@@ -495,3 +495,83 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
         p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
         written.append(str(p))
     return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid}
+
+
+# ---------------------------------------------------------------- wholly NEW clips (not edits)
+
+_NEW_ANIM_KEY_BASE = 2_000_000   # fresh AnimationDB keys for NEW custom clips -- above the battle-animset
+                                 # band (1M+) and far above real ids (<~20k). Registered per clip via a
+                                 # `3DModelAnimation <key> <ANH name>` DictionaryPatch line at launch.
+
+
+def new_clip(model_bones: list, bone_curves: dict, *, name: str = "custom",
+             sample_rate: float = 30.0, warn=None) -> dict:
+    """A wholly NEW raw clip struct from per-bone-NUMBER curves (no source clip -- the from-scratch path,
+    vs :func:`splice_edits_onto_clip` which overlays edits on a real donor). Bone paths come from the
+    model's own skeleton (:func:`bone_paths`) -- the full hierarchy path the engine's ``SetCurve`` needs.
+    ``bone_curves`` = ``{boneNum: {"rot":[(t,(x,y,z,w))...], "pos":..., "scale":...}}`` (what
+    :func:`parse_gltf_animations` returns per animation). Unkeyed bones hold their rest pose."""
+    paths = bone_paths(model_bones)
+    bones: dict = {}
+    length = 0.0
+    for bn, curves in sorted(bone_curves.items()):
+        path = paths.get(bn)
+        if path is None:
+            if warn:
+                warn(f"new clip {name!r}: bone{bn:03d} is not in the model's skeleton -- skipped")
+            continue
+        entry = {"bone": bn}
+        for chan in ("rot", "pos", "scale"):
+            if curves.get(chan):
+                entry[chan] = curves[chan]
+                length = max(length, curves[chan][-1][0])
+        if len(entry) > 1:
+            bones[path] = entry
+    if not bones:
+        raise AnimError(f"new clip {name!r} has no usable bone curves")
+    return {"name": name, "sample_rate": float(sample_rate), "length": length, "bones": bones}
+
+
+def synth_spin_curves(*, frames: int = 48, sample_rate: float = 30.0, bone: int = 0) -> dict:
+    """A synthesized demo clip: the root bone yaws a full 360 over ``frames`` -- the no-Blender proof of
+    the new-clip mechanism (mint key + registration + loose .anim + field playback)."""
+    import math
+    rot = []
+    for f in range(frames + 1):
+        half = math.pi * (f / frames)           # half-angle of a 0..360-degree yaw
+        rot.append((f / sample_rate, (0.0, math.sin(half), 0.0, math.cos(half))))
+    return {bone: {"rot": rot}}
+
+
+class AnimError(ValueError):
+    pass
+
+
+def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | None" = None,
+                    suffix: str = "CUSTOM1", game=None) -> dict:
+    """Ship one NEW clip for a model: write ``Animations/<geoId>/<key>.anim`` (loose, engine-probed) and
+    register it with an idempotent ``3DModelAnimation <key> <ANH name>`` DictionaryPatch line. The ANH name
+    carries the MODEL's own group/form/token (that's how ``GetRenameAnimationPath`` routes the name to this
+    model's clip folder). Play it anywhere an anim id goes: ``[[npc]] anims = { stand = <key> }``, a
+    cutscene ``animation`` step, ... RELAUNCH to register (DictionaryPatch loads at startup)."""
+    from . import extract
+    geo, gid, _tint = extract.resolve_geo(str(model_token))
+    parts = geo.split("_")                        # GEO <grp> <form> <token>
+    if len(parts) < 4:
+        raise AnimError(f"can't derive an ANH name from {geo!r}")
+    sfx = "".join(ch for ch in str(suffix).upper() if ch.isalnum() or ch == "_")
+    if not sfx:
+        raise AnimError(f"bad anim name suffix {suffix!r} (letters/digits/underscore)")
+    anh = f"ANH_{parts[1]}_{parts[2]}_{parts[3]}_{sfx}"
+    k = int(key) if key is not None else _NEW_ANIM_KEY_BASE + (gid % 10_000) * 100
+    dest = anim_disc_path(mod_folder, gid, k)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
+    directive = f"3DModelAnimation {k} {anh}"
+    dp = Path(mod_folder) / "DictionaryPatch.txt"
+    lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+    if directive not in lines:
+        lines.append(directive)
+        dp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return {"geo": geo, "geo_id": gid, "key": k, "name": anh, "path": str(dest),
+            "directive": directive, "dictionary_patch": str(dp)}

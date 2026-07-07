@@ -1472,6 +1472,45 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_model_anim_new(args: argparse.Namespace) -> int:
+    """Author a wholly NEW animation clip (not an edit): from a Blender .glb action, or the built-in
+    spin template (the no-Blender demo). Registers it via a 3DModelAnimation DictionaryPatch line."""
+    from .models import anim as manim
+    from .models import extract as mextract
+    try:
+        model = mextract.read_model(args.model, game=args.game)
+        warns: list = []
+        if args.glb:
+            if not args.action:
+                print("--glb needs --action <the Blender action/animation name>", file=sys.stderr)
+                return 2
+            from .models import _gltf_io
+            gltf, blob = _gltf_io.read_glb(args.glb)
+            parsed = manim.parse_gltf_animations(gltf, blob)
+            hit = next((pa for pa in parsed if (pa.get("label") or "") == args.action), None)
+            if hit is None:
+                labels = ", ".join(str(pa.get("label")) for pa in parsed) or "none"
+                print(f"no animation named {args.action!r} in {args.glb} (found: {labels})", file=sys.stderr)
+                return 2
+            clip = manim.new_clip(model["bones"], hit["bones"], name=args.suffix.lower(),
+                                  warn=warns.append)
+        else:
+            clip = manim.new_clip(model["bones"], manim.synth_spin_curves(),
+                                  name=args.suffix.lower(), warn=warns.append)
+        man = manim.deploy_new_anim(args.model, clip, args.deploy, key=args.key,
+                                    suffix=args.suffix, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for w in warns:
+        print(f"  WARN: {w}")
+    print(f"new clip {man['name']} (key {man['key']}) -> {man['path']}")
+    print(f"  registered: {man['directive']}  (in {man['dictionary_patch']})")
+    print(f"Play it anywhere an anim id goes -- e.g. [[npc]] anims = {{ stand = {man['key']} }} or a "
+          f"cutscene animation step. RELAUNCH to register the key (DictionaryPatch loads at startup).")
+    return 0
+
+
 def _cmd_model_preview(args: argparse.Namespace) -> int:
     """Software-render a model to a PNG still (the same renderer behind the GUI thumbnails)."""
     from .models import preview as mpreview
@@ -4259,6 +4298,22 @@ def build_parser() -> argparse.ArgumentParser:
                          "(the loose-override-path proof; F6 -> Reload field to apply)")
     ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
+
+    man = sub.add_parser("model-anim-new",
+                         help="author a wholly NEW animation clip for a model (a Blender .glb action, or "
+                              "the built-in spin demo) -- registered via 3DModelAnimation, DLL-free")
+    man.add_argument("model", help="GEO name or model id the clip animates, e.g. GEO_NPC_F1_BBA (see `models`)")
+    man.add_argument("--glb", default=None, help="a .glb carrying the new action (made on this model's rig "
+                                                 "via `model-gltf` -> Blender; omit for the spin demo)")
+    man.add_argument("--action", default=None, help="the Blender action/animation name inside --glb")
+    man.add_argument("--suffix", default="CUSTOM1",
+                     help="the clip's ANH name suffix (ANH_<grp>_<form>_<tok>_<SUFFIX>; default CUSTOM1)")
+    man.add_argument("--key", type=int, default=None,
+                     help="the AnimationDB key to register (default: auto in the 2,000,000+ custom band)")
+    man.add_argument("--deploy", metavar="MODFOLDER", required=True,
+                     help="mod folder to write Animations/<id>/<key>.anim + the DictionaryPatch line into")
+    man.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    man.set_defaults(func=_cmd_model_anim_new)
 
     mp = sub.add_parser("model-preview",
                         help="software-render a model to a PNG still (textured, posed at its stand clip) -- no Blender")
