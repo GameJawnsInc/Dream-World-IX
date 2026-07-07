@@ -12,7 +12,7 @@ import pytest
 from ff9mapkit.battle import scriptsource as ss
 from ff9mapkit.battle import actiondelta as ad
 from ff9mapkit.content import playable as pl
-from ff9mapkit.build import FieldProject, build_mod, validate, BuildError
+from ff9mapkit.build import FieldProject, build_mod, validate, lint_all, BuildError
 from ff9mapkit.config import ModLayout
 
 
@@ -200,3 +200,52 @@ def test_status_plus_script_warns(tmp_path):
             pytest.skip("no FF9 install for the base CSVs / managed DLLs")
         raise
     assert any("won't APPLY it" in w for w in info.get("warnings", [])), info.get("warnings")
+
+
+# ---- the lint-time toolchain gate (fail at lint, not mid-build; no install needed, csc mocked) ----------
+def _scripted_toml():
+    return (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+            '\n[playable.abilities]\nmenu_from = "vivi"\n'
+            '\n[playable.abilities.command1]\nname = "Spark"\n'
+            'abilities = [{ name = "Soul Leech", from = "Fire", power = 40, '
+            'script = { template = "drain_hp" } }]\n')
+
+
+def test_lint_gate_flags_missing_toolchain(tmp_path, monkeypatch):
+    """A scripted custom ability with NO C# compiler must FAIL at lint (early + named), not mid-build. With a
+    compiler present the same field lints clean of the toolchain error. Fully offline (no FF9 install / no real
+    csc needed) -- toolchain_available is mocked both ways."""
+    from ff9mapkit.battle import scriptcompile
+    p = tmp_path / "f.field.toml"
+    p.write_text(_scripted_toml(), encoding="utf-8")
+    proj = FieldProject.load(p)
+
+    monkeypatch.setattr(scriptcompile, "toolchain_available", lambda: False)
+    rep = lint_all(proj)
+    assert any("C# compiler" in e for e in rep.errors), rep.errors        # the gate fires -> a build-blocking error
+    assert any("Soul Leech" in e for e in rep.errors)                     # and names the offending ability
+
+    monkeypatch.setattr(scriptcompile, "toolchain_available", lambda: True)
+    assert not any("C# compiler" in e for e in lint_all(proj).errors)     # a compiler present -> no toolchain error
+
+    # the gate does NOT touch validate() -- it stays a pure schema check (so validate() == [] holds offline)
+    assert validate(proj) == []
+
+
+def test_lint_gate_silent_without_scripted_ability(tmp_path, monkeypatch):
+    """The gate fires ONLY when the Scripts-DLL channel is actually used: a plain field and a DATA-only
+    (scalar-``script``, existing-formula) custom ability must NOT get the toolchain error even with no compiler."""
+    from ff9mapkit.battle import scriptcompile
+    monkeypatch.setattr(scriptcompile, "toolchain_available", lambda: False)
+
+    plain = tmp_path / "plain.field.toml"
+    plain.write_text(BASE, encoding="utf-8")
+    assert not any("C# compiler" in e for e in lint_all(FieldProject.load(plain)).errors)
+
+    data_only = (BASE + '\n[[playable]]\nname = "Iviv"\nborrow = "vivi"\nrecruit = true\n'
+                 '\n[playable.abilities]\nmenu_from = "vivi"\n'
+                 '\n[playable.abilities.command1]\nname = "Spark"\n'
+                 'abilities = [{ name = "Weird", from = "Fire", script = 16 }]\n')
+    dp = tmp_path / "data.field.toml"
+    dp.write_text(data_only, encoding="utf-8")
+    assert not any("C# compiler" in e for e in lint_all(FieldProject.load(dp)).errors)

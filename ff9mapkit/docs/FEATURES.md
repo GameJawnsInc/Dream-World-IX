@@ -103,6 +103,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Attack choreography disassemble/edit (`battle-seq`, `btlseq.raw17`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Enemy AI disassembly (`battle-ai`), scene inspection (`battle-scene`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Player-side tuning: base stats, leveling, gems, ability effects (`ability-features`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Mint a brand-new battle **formula** (`script = {template/body}` → `Memoria.Scripts.<Mod>.dll`) — drain / %-max-HP / custom C#, no engine rebuild | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | Reshape a battle map in Blender (add-on Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
 
 ## Custom 3D models

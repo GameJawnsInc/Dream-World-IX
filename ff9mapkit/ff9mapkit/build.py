@@ -2031,6 +2031,36 @@ class LintReport:
         return not self.errors and not self.warnings
 
 
+def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
+    """Scripts-DLL toolchain gate: a ``[[playable]]`` custom ability with ``script = {template/body}`` mints a
+    battle FORMULA that must be COMPILED into ``Memoria.Scripts.<Mod>.dll`` at build time, so it needs a C#
+    compiler (``csc``). Surface a MISSING compiler at LINT (early + actionable) instead of letting the build die
+    mid-compile (``_emit_scripts`` -> ``ScriptCompileError``). Only fires when the channel is actually used -- no
+    scripted ability -> the whole thing is inert -> no requirement. This is a deliberate departure from lint's
+    "install-free" rule (unlike the FF9 install, which lint never requires so you can author on a machine without
+    the game): the compiler probe is cheap (a few dir globs) and the whole point is to fail early. Reported as a
+    build-blocking error (a scripted field genuinely cannot build here). project-ff9-scripts-dll."""
+    pl = project.raw.get("playable")
+    if pl is None:
+        return
+    try:
+        specs = _playable.parse_all(pl)
+    except _playable.PlayableError:
+        return                                            # a broken [[playable]] is already reported by validate()
+    scripts = _playable.script_seeds(specs)
+    if not scripts:
+        return                                            # no `script = {...}` ability -> the Scripts-DLL channel is inert
+    from .battle import scriptcompile as _scomp
+    if _scomp.toolchain_available():
+        return
+    names = ", ".join(sorted({str(s.get("name", "?")) for s in scripts}))
+    out.append(
+        f"scripted custom ability ({names}) needs a C# compiler (csc) to build its `script = {{...}}` battle "
+        f"formula into Memoria.Scripts.<Mod>.dll, but none was found -- the build would fail at compile time. "
+        f"Install Visual Studio Build Tools (Roslyn csc) or point $FF9_CSC at a csc.exe (the always-present .NET "
+        r"Framework csc at C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe works too).")
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -2039,6 +2069,7 @@ def lint_all(project: FieldProject) -> LintReport:
     failure recorded as an error (so one broken section never masks the others). This is the single source
     of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
     rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
+    _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
     # -> TypeError, a truncated .bgi -> struct.error, ...). A linter must NEVER traceback on bad input --

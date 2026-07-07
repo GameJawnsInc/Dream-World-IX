@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — custom battle FORMULAS with no engine rebuild (the Scripts-DLL channel)
+- A `[[playable]]` custom ability now takes **`script = { template = "drain_hp" }`** (or `{ body = "<C#>" }`)
+  and the kit mints a genuinely new battle-calc formula — a `[BattleScript(id≥256)]` class compiled into a
+  mod-owned **`Memoria.Scripts.<Mod>.dll`**, loaded *in addition to* the base engine by `ScriptsLoader`, with
+  **zero engine-DLL rebuild**. Four stock-donor templates (`drain_hp`/`drain_mp`/`magic_damage`/`white_wind`) +
+  a raw C# `body` escape hatch; the scriptId (256–511) is decoupled from the ability id (192–223). ★ In-game
+  proven — Iviv's "Soul Leech" drain (damage + self-heal). Docs: **[docs/SCRIPTS_DLL.md](docs/SCRIPTS_DLL.md)**.
+- The DLL is compiled at build/deploy against the INSTALLED engine (version-coupled) and loads once at the title
+  screen (RELAUNCH — F6 won't reload it). Reversible deploy (`tools/deploy_field.py`).
+- **Lint gate:** `ff9mapkit lint` now fails early with a clear, build-blocking error when a field carries a
+  scripted ability but no C# compiler (`csc`) is findable — instead of the build dying mid-compile. Fix by
+  setting `$FF9_CSC` or installing VS Build Tools (the always-present .NET Framework csc works too).
+
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 
 Toolkit + engine-bundle refresh on top of the first public beta.
