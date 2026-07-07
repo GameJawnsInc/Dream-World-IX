@@ -219,12 +219,28 @@ STATUS_HOOKS: dict[str, str] = {
     "finish_command": "IFinishCommandScript",         # OnFinishCommand() -- when a command the unit ran ends
 }
 
+# A CustomStatusN has NO battle-HUD icon (BattleHUD.Buff/DebuffIconNames hardcode only the 24 vanilla statuses,
+# BattleHUD.Const.cs:54-84). Both dicts are PUBLIC STATIC, and the scripts DLL runs in-process, so a status script's
+# static ctor can BORROW a vanilla status's sprite for its own bit -> the icon shows in battle AND the party menu (both
+# read these via FF9UIDataTool). vanilla status name -> (dict short-name, BattleStatusId enum) it lives under.
+_STATUS_ICON_DONORS: dict[str, tuple] = {
+    "autolife": ("Buff", "AutoLife"), "reflect": ("Buff", "Reflect"), "vanish": ("Buff", "Vanish"),
+    "protect": ("Buff", "Protect"), "shell": ("Buff", "Shell"), "float": ("Buff", "Float"),
+    "haste": ("Buff", "Haste"), "regen": ("Buff", "Regen"),
+    "slow": ("Debuff", "Slow"), "freeze": ("Debuff", "Freeze"), "heat": ("Debuff", "Heat"),
+    "mini": ("Debuff", "Mini"), "sleep": ("Debuff", "Sleep"), "poison": ("Debuff", "Poison"),
+    "stop": ("Debuff", "Stop"), "berserk": ("Debuff", "Berserk"), "confuse": ("Debuff", "Confuse"),
+    "zombie": ("Debuff", "Zombie"), "trouble": ("Debuff", "Trouble"), "blind": ("Debuff", "Blind"),
+    "silence": ("Debuff", "Silence"), "virus": ("Debuff", "Virus"), "venom": ("Debuff", "Venom"),
+    "petrify": ("Debuff", "Petrify"),
+}
+
 # template name -> {hooks: [short names], body: the class-body methods}. Cloned from Memoria.DefaultScripts (donor +
 # line cited); `__STATUS__` is replaced with the minted CustomStatusN so a body can reference its OWN status id.
 STATUS_TEMPLATES: dict[str, dict] = {
     # AutoLifeStatusScript (DefaultStatus/AutoLifeStatusScript.cs) -- revive the unit once when it would die (OnDeath).
     # Inflict on an ally; when they hit 0 HP the status pops and restores them (default 1 HP).
-    "auto_life": {"hooks": ["death_changer"], "body": """\
+    "auto_life": {"hooks": ["death_changer"], "icon": "AutoLife", "body": """\
 public Int32 HPRestore = 1;
 
 public override UInt32 Apply(BattleUnit target, BattleUnit inflicter, params Object[] parameters)
@@ -251,7 +267,7 @@ public Boolean OnDeath()
 }"""},
     # BerserkStatusScript (DefaultStatus/BerserkStatusScript.cs) -- force an auto-Attack each turn (OnATB). Inflict on
     # a unit; it acts on its own (loses manual control) until cured.
-    "auto_attack": {"hooks": ["auto_attack"], "body": """\
+    "auto_attack": {"hooks": ["auto_attack"], "icon": "Berserk", "body": """\
 public override UInt32 Apply(BattleUnit target, BattleUnit inflicter, params Object[] parameters)
 {
     base.Apply(target, inflicter, parameters);
@@ -295,7 +311,7 @@ namespace Memoria.Scripts.Status
     [StatusScript(BattleStatusId.__STATUS__)]
     public sealed class __CLS__ : StatusScriptBase__INTERFACES__
     {
-__BODY__
+__ICONREG____BODY__
     }
 }
 """
@@ -358,13 +374,30 @@ def render_field_script(sid: int, name: str, *, template: str | None = None, bod
     return f"{sid:04d}_{stem}FieldScript.cs", src
 
 
-def render_status_script(status_id: int, name: str, status_enum: str, *,
-                         template: str | None = None, body: str | None = None, hooks=None) -> tuple[str, str]:
+def _status_icon_reg(cls: str, status_enum: str, icon) -> str:
+    """A static ctor that copies a vanilla status's HUD sprite onto this CustomStatusN (so it shows an icon), or ""
+    if no ``icon``. ``icon`` = a vanilla status name whose Buff/DebuffIconNames sprite to borrow. Runs in-process at
+    first apply (before the icon is displayed); BattleHUD is in the global namespace, its dicts are public static."""
+    if not icon:
+        return ""
+    hit = _STATUS_ICON_DONORS.get(str(icon).strip().lower())
+    if hit is None:
+        raise ScriptSourceError(f"unknown status icon {icon!r} (borrow a vanilla status's icon; "
+                                f"known: {', '.join(sorted(n for _, n in _STATUS_ICON_DONORS.values()))})")
+    dictname = f"{hit[0]}IconNames"
+    return (f"        static {cls}()\n        {{\n"
+            f"            BattleHUD.{dictname}[BattleStatusId.{status_enum}] = "
+            f"BattleHUD.{dictname}[BattleStatusId.{hit[1]}];\n        }}\n\n")
+
+
+def render_status_script(status_id: int, name: str, status_enum: str, *, template: str | None = None,
+                         body: str | None = None, hooks=None, icon=None) -> tuple[str, str]:
     """Render ONE STATUS-behaviour ``.cs`` -> ``(filename, source)`` (the [StatusScript] twin). ``status_enum`` is
     the CustomStatusN enum name the script binds to (``[StatusScript(BattleStatusId.<status_enum>)]``) AND is
     substituted for ``__STATUS__`` in the body (so a body can reference its OWN status). Provide a known ``template``
-    or a raw ``body`` + ``hooks`` (short hook names -> the marker interfaces). ``status_id`` (33-63) keeps the
-    class/filename unique + distinct from the 256-band battle/field scripts."""
+    or a raw ``body`` + ``hooks`` (short hook names -> the marker interfaces). ``icon`` (a vanilla status name) gives
+    the custom status a HUD icon by borrowing that status's sprite (default: the template's). ``status_id`` (33-63)
+    keeps the class/filename unique + distinct from the 256-band battle/field scripts."""
     stem = _ident(name)
     cls = f"{stem}{status_id}StatusScript"
     if body is not None:
@@ -377,16 +410,18 @@ def render_status_script(status_id: int, name: str, status_enum: str, *,
             raise ScriptSourceError(f"unknown status template {template!r} for {name!r} "
                                     f"(known: {', '.join(sorted(STATUS_TEMPLATES))}; or use body = \"<C#>\" + hooks)")
         methods, tname, hook_list = tmpl["body"], template, list(tmpl["hooks"])
+        if icon is None:
+            icon = tmpl.get("icon")                          # the template's default icon (auto_life -> AutoLife, ...)
     bad = [h for h in hook_list if h not in STATUS_HOOKS]
     if bad:
         raise ScriptSourceError(f"status {name!r} unknown hook(s) {bad} (known: {', '.join(sorted(STATUS_HOOKS))})")
     interfaces = "".join(f", {STATUS_HOOKS[h]}" for h in hook_list)
     perform = _indent(methods.replace("__STATUS__", status_enum), spaces=8)   # __BODY__ sits at the class-member level
     safe_name = re.sub(r"[\r\n]+", " ", str(name)).replace("*/", "* /")
-    safe_name = re.sub(r"__(?:CLS|ID|NAME|TMPL|BODY|STATUS|INTERFACES)__", "", safe_name)
+    safe_name = re.sub(r"__(?:CLS|ID|NAME|TMPL|BODY|STATUS|INTERFACES|ICONREG)__", "", safe_name)
     src = (_STATUS_SHELL.replace("__CLS__", cls).replace("__STATUS__", status_enum)
-           .replace("__NAME__", safe_name).replace("__TMPL__", tname)
-           .replace("__INTERFACES__", interfaces).replace("__BODY__", perform))
+           .replace("__NAME__", safe_name).replace("__TMPL__", tname).replace("__INTERFACES__", interfaces)
+           .replace("__ICONREG__", _status_icon_reg(cls, status_enum, icon)).replace("__BODY__", perform))
     return f"{status_id:04d}_{stem}StatusScript.cs", src
 
 
@@ -412,7 +447,7 @@ def write_scripts(layout, scripts, field_scripts=(), status_scripts=()) -> list:
         fname, src = render_field_script(int(s["id"]), s["name"], template=s.get("template"), body=s.get("body"))
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     for s in status_scripts:
-        fname, src = render_status_script(int(s["id"]), s["name"], s["status_enum"],
-                                          template=s.get("template"), body=s.get("body"), hooks=s.get("hooks"))
+        fname, src = render_status_script(int(s["id"]), s["name"], s["status_enum"], template=s.get("template"),
+                                          body=s.get("body"), hooks=s.get("hooks"), icon=s.get("icon"))
         (d / fname).write_text(src, encoding="utf-8", newline="\n")
     return warnings

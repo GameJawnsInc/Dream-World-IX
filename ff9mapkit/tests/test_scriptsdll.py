@@ -508,3 +508,31 @@ def test_full_build_compiles_status(tmp_path):
     sd = layout.status_data_csv.read_text(encoding="cp1252")  # a StatusData row minted at the custom band (33)
     assert any(l.split(";")[1].strip() == "33" for l in sd.splitlines() if ";" in l and not l.startswith("#"))
     assert "CustomStatus1(33)" in layout.status_sets_csv.read_text(encoding="cp1252")   # a StatusSets inflicts it
+
+
+def test_status_icon_registration():
+    # a template's default icon -> a static ctor copies a vanilla status's HUD sprite (auto_life borrows AutoLife's buff)
+    _, src = ss.render_status_script(33, "Rebirth", "CustomStatus1", template="auto_life")
+    assert "static Rebirth33StatusScript()" in src
+    assert ("BattleHUD.BuffIconNames[BattleStatusId.CustomStatus1] = "
+            "BattleHUD.BuffIconNames[BattleStatusId.AutoLife];") in src
+    # auto_attack is a debuff -> DebuffIconNames, borrowing Berserk
+    _, src2 = ss.render_status_script(34, "Frenzy", "CustomStatus2", template="auto_attack")
+    assert ("BattleHUD.DebuffIconNames[BattleStatusId.CustomStatus2] = "
+            "BattleHUD.DebuffIconNames[BattleStatusId.Berserk];") in src2
+    # an explicit icon override wins over the template default
+    _, src3 = ss.render_status_script(33, "R", "CustomStatus1", template="auto_life", icon="Regen")
+    assert "BattleHUD.BuffIconNames[BattleStatusId.CustomStatus1] = BattleHUD.BuffIconNames[BattleStatusId.Regen];" in src3
+    # a body with no icon -> no static ctor
+    _, src4 = ss.render_status_script(33, "R", "CustomStatus1", body="public Boolean OnDeath() { return true; }",
+                                      hooks=["death_changer"])
+    assert "static " not in src4
+    with pytest.raises(ss.ScriptSourceError):             # unknown icon donor
+        ss.render_status_script(33, "R", "CustomStatus1", template="auto_life", icon="NotAStatus")
+
+
+def test_parse_status_icon_override():
+    specs = pl.parse_all([_iviv_status([{"name": "Rebirth", "template": "auto_life", "icon": "Regen"}])])
+    assert pl.status_script_seeds(specs)[0]["icon"] == "Regen"
+    with pytest.raises(pl.PlayableError):                 # a bad icon donor fails lint
+        pl.parse_all([_iviv_status([{"name": "X", "template": "auto_life", "icon": "Nope"}])])

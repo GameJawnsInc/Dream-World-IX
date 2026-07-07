@@ -382,6 +382,12 @@ def _parse_status_spec(s, nid, aname) -> dict:
             raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} template must be one of "
                                 f"{sorted(_ss.STATUS_TEMPLATES)} (or set body = \"<C#>\" + hooks = [...])")
         out["template"] = tmpl
+    if s.get("icon") is not None:                          # borrow a vanilla status's HUD icon (else the template default)
+        ic = s.get("icon")
+        if not isinstance(ic, str) or ic.strip().lower() not in _ss._STATUS_ICON_DONORS:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} icon must be a vanilla status name to "
+                                f"borrow its HUD icon from (e.g. \"AutoLife\", \"Regen\", \"Berserk\")")
+        out["icon"] = ic.strip()
     return out
 
 
@@ -556,7 +562,7 @@ def parse_all(entries) -> list:
                             ent = custom_status_ids[ckey] = (status_alloc, enum)
                             spec.setdefault("minted_status_scripts", []).append(
                                 {"id": status_alloc, "status_enum": enum, "name": cs["name"],
-                                 **{k: v for k, v in cs.items() if k in ("template", "body", "hooks")}})
+                                 **{k: v for k, v in cs.items() if k in ("template", "body", "hooks", "icon")}})
                             spec.setdefault("minted_status_data", []).append({"id": status_alloc, "name": cs["name"]})
                             status_alloc += 1
                         if ca.get("status") is None:              # inflict it via THIS ability's StatusSets row (below)

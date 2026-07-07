@@ -162,6 +162,12 @@ Or a raw `{ name = "…", body = "<C# class-body>", hooks = ["death_changer"] }`
 methods (`Apply`/`Remove`/`OnDeath`/`OnATB`/…) and declare which lifecycle interfaces (`hooks`) they implement:
 `death_changer` (OnDeath), `auto_attack` (OnATB), `figure_point` (OnFigurePoint), `finish_command` (OnFinishCommand).
 
+**The HUD icon:** a custom status **borrows a vanilla status's battle/menu icon** — each template picks a sensible
+default (`auto_life` → AutoLife, `auto_attack` → Berserk), or set `icon = "<vanilla status>"` (e.g. `"Regen"`,
+`"Protect"`, `"Reflect"`) to choose. Under the hood the `[StatusScript]`'s static ctor copies that sprite into the
+engine's `BattleHUD` icon dict at first apply, so it shows in battle *and* the party menu. (FF9 shows statuses by
+icon only — there's no separate text name.)
+
 **Engine limit (honest):** a **per-tick DoT is not reachable** — the engine gates the per-tick `OnOpr` hook to
 vanilla statuses only (a compile-time `OprCount` mask), so a custom status can't tick each frame. The reachable
 hooks are `Apply`/`Remove` (on inflict/cure) + `OnDeath` / `OnATB` / `OnFigurePoint` / `OnFinishCommand`, which
