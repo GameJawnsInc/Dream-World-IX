@@ -116,19 +116,22 @@ _CLIFF_ROCK_V = (0.923, 0.893)      # (V at the face BASE Y=0, V at the face TOP
 _CLIFF_FACE_TOPO = 58               # the shore-rim / cliff-face topograph
 
 
-def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125):
+def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125, outline=None):
     """Override the topo-58 cliff-FACE tris' UVs with the real grey-rock band: U advances with ALONG-SHORE ARC-LENGTH
     at a constant texel ``density`` (per world unit), V = height up the face (base -> 0.923, top -> 0.893). This is the
     measured real-cliff rule (survey of 7808 real wall tris: UV density is tight ~0.0115-0.013 texels/u -- i.e.
     CONSTANT, so U is arc-length-driven, each ~5u wall tri = one ~0.062-wide rock tile tiling around the shore, one
-    tile tall). It replaces the old atan2-ANGLE mapping, which is only arc-length on a CIRCLE: on a rectangular island
-    angle barely moves along a straight edge then swings fast at a corner -> the rock compressed on the flats and
-    STRETCHED / swirled at the corners. U is derived from the vertex's position along the cell-rectangle perimeter
-    (unit world rate), so density is uniform everywhere incl. corners. Leaves the plateau (topo-0 grass) UVs untouched.
+    tile tall). It replaces atan2-ANGLE, which is only arc-length on a CIRCLE (on a rectangle angle barely moves along
+    a straight edge then swings fast at a corner -> the rock STRETCHED at corners).
 
-    Single-cell scope: the perimeter arc-length resets per cell, so a MULTI-cell cliff coast gets one tile-seam at each
-    cell border (the along-shore chaining of cliff cells is a later increment). One subtle seam also falls where the
-    loop closes (the perimeter is rarely an integer number of tiles) -- both are how real rock cliffs read too."""
+    ``outline`` (a list of ``(x, z)`` around the SHORE, e.g. from :func:`ff9mapkit.world.mesh.blob_cliff_block_mesh`)
+    -> U = arc-length along THAT curve (each wall vert takes its nearest outline point's cumulative length). This is the
+    faithful path for a SMOOTH organic coast: the curve has no hard corner, so density stays uniform with no warp.
+    Without it, U falls back to arc-length around the cell-RECTANGLE perimeter (the old square-island path).
+
+    Single-cell scope: arc-length resets per cell, so a MULTI-cell coast gets one tile-seam at each cell border (the
+    along-shore chaining is a later increment); one subtle seam also falls where the loop closes (the length is rarely
+    an integer number of tiles) -- both are how real rock cliffs read too."""
     import math
     from .extract import decode_id, CH_UV  # noqa: F401 (CH_UV documents the channel we mutate)
     verts, tans, uv = bm.verts, bm.tangents, bm.chan_arrays[CH_UV]
@@ -138,21 +141,37 @@ def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125):
     face_max = max((verts[k][1] for tri in face for k in tri), default=0.0)
     if face_max <= 1e-3:
         return bm
-    xs = [v[0] for v in verts]; zs = [v[2] for v in verts]
-    xmin, xmax, zmin, zmax = min(xs), max(xs), min(zs), max(zs)
-    hh, ww = (zmax - zmin), (xmax - xmin)
-    perim = 2.0 * (hh + ww) or 1.0
 
-    def shore_s(x, z):                                          # arc-length CW around the cell rectangle (unit rate)
-        dW, dE, dN, dS = x - xmin, xmax - x, zmax - z, z - zmin
-        m = min(dW, dE, dN, dS)
-        if m == dW:
-            return zmax - z                                    # W edge, N->S
-        if m == dS:
-            return hh + (x - xmin)                              # S edge, W->E
-        if m == dE:
-            return hh + ww + (z - zmin)                         # E edge, S->N
-        return 2.0 * hh + ww + (xmax - x)                       # N edge, E->W
+    if outline:                                                # arc-length along the SMOOTH shore curve
+        n = len(outline)
+        cum = [0.0] * n
+        for i in range(1, n):
+            cum[i] = cum[i - 1] + math.hypot(outline[i][0] - outline[i - 1][0], outline[i][1] - outline[i - 1][1])
+        perim = cum[-1] + math.hypot(outline[0][0] - outline[-1][0], outline[0][1] - outline[-1][1]) or 1.0
+
+        def shore_s(x, z):                                     # nearest outline vertex's cumulative arc-length
+            bi, bd = 0, None
+            for i, (ox, oz) in enumerate(outline):
+                d = (x - ox) ** 2 + (z - oz) ** 2
+                if bd is None or d < bd:
+                    bd, bi = d, i
+            return cum[bi]
+    else:                                                      # arc-length around the cell-RECTANGLE perimeter
+        xs = [v[0] for v in verts]; zs = [v[2] for v in verts]
+        xmin, xmax, zmin, zmax = min(xs), max(xs), min(zs), max(zs)
+        hh, ww = (zmax - zmin), (xmax - xmin)
+        perim = 2.0 * (hh + ww) or 1.0
+
+        def shore_s(x, z):                                     # CW around the rectangle (unit rate)
+            dW, dE, dN, dS = x - xmin, xmax - x, zmax - z, z - zmin
+            m = min(dW, dE, dN, dS)
+            if m == dW:
+                return zmax - z
+            if m == dS:
+                return hh + (x - xmin)
+            if m == dE:
+                return hh + ww + (z - zmin)
+            return 2.0 * hh + ww + (xmax - x)
 
     ub, ut = _CLIFF_ROCK_U
     vb, vt = _CLIFF_ROCK_V
@@ -236,10 +255,16 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
                      and (bx + dx, by + dy) not in land]
             if profile == "cliff":                         # STEEP rock wall (faithful), not island's gentle apron
-                bm = M.cliff_block_mesh(disc=disc, x=bx, y=by, cliff_dirs=water, seg=seg, land_height=height,
-                                        rim_run=rim_run, land_topo=grass_topo)
-                bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # top: grass
-                bm = _apply_cliff_rock_uvs(bm)             # the real grey-rock band on the face (NOT the palette guess)
+                if len(water) == 4:                        # a LONE island -> a SMOOTH organic outline (not the 64u square)
+                    bm, outline = M.blob_cliff_block_mesh(disc=disc, x=bx, y=by, land_height=height, rim_run=rim_run,
+                                                          land_topo=grass_topo)
+                    bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # top: grass
+                    bm = _apply_cliff_rock_uvs(bm, outline=outline)   # rock U along the smooth curve's arc-length
+                else:                                      # part of a multi-cell landmass -> rectangle wall on water edges
+                    bm = M.cliff_block_mesh(disc=disc, x=bx, y=by, cliff_dirs=water, seg=seg, land_height=height,
+                                            rim_run=rim_run, land_topo=grass_topo)
+                    bm = PAL.apply_palette_uvs(bm, topograph=None, disc=disc, part="terrain", game=game)  # top: grass
+                    bm = _apply_cliff_rock_uvs(bm)         # arc-length around the cell rectangle
             else:
                 bm = M.island_block_mesh(disc=disc, x=bx, y=by, water_dirs=water, seg=seg, height=height,
                                          beach=beach, grass_topo=grass_topo, shore_topo=shore_topo, shore_frac=shore_frac)
