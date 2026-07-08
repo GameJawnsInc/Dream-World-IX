@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from ff9mapkit import forkreport
-from ff9mapkit.build import FieldProject, build_mod, validate
+from ff9mapkit.build import FieldProject, build_mod, validate, lint_logic, _lint_rotating_cast
 from ff9mapkit.config import ModLayout
 from ff9mapkit.content import npc as _npc
 from ff9mapkit.content import region, startup
@@ -158,3 +158,57 @@ scenario_min = 99999
     p.write_text(bad, encoding="utf-8")
     probs = validate(FieldProject.load(p))
     assert any("scenario_min must be" in x for x in probs)
+
+
+# ---- the rotating-cast lint (overlap / gap) ----------------------------------------------------
+def _npcs(*windows):
+    """NPCs at ONE spot with the given (min, max) windows."""
+    return [{"name": f"n{i}", "pos": [100, -400], "scenario_min": w[0], "scenario_max": w[1]}
+            for i, w in enumerate(windows)]
+
+
+def test_lint_tiled_windows_clean():
+    # adjacent half-open windows [_,6990) then [6990,_) tile perfectly -> no warning (the demo field's shape)
+    assert _lint_rotating_cast(_npcs((None, 6990), (6990, None))) == []
+
+
+def test_lint_overlap_warns():
+    warns = _lint_rotating_cast(_npcs((0, 7000), (6990, None)))    # 6990..7000 covered by both
+    assert any("OVERLAPPING" in w for w in warns)
+
+
+def test_lint_gap_warns():
+    warns = _lint_rotating_cast(_npcs((None, 3000), (5000, None)))  # 3000..5000 has nobody
+    assert any("GAP" in w for w in warns)
+
+
+def test_lint_lone_windowed_npc_is_clean():
+    # a single gated NPC's "absence outside its beat" is intentional, not a gap
+    assert _lint_rotating_cast(_npcs((2600, 6990))) == []
+
+
+def test_lint_different_spots_dont_interact():
+    a = {"name": "a", "pos": [100, -400], "scenario_max": 3000}
+    b = {"name": "b", "pos": [900, -400], "scenario_min": 5000}    # far away -> not a shared spot
+    assert _lint_rotating_cast([a, b]) == []
+
+
+def test_lint_wired_into_lint_logic(tmp_path):
+    overlapping = _BASE + """
+[[npc]]
+name = "a"
+model = "GEO_NPC_F1_BBA"
+pos = [120, -520]
+scenario_max = 7000
+
+[[npc]]
+name = "b"
+model = "GEO_NPC_F1_BBA"
+pos = [120, -520]
+scenario_min = 6990
+"""
+    p = tmp_path / "ov.field.toml"
+    p.write_text(overlapping, encoding="utf-8")
+    proj = FieldProject.load(p)
+    assert validate(proj) == []                                    # a valid build -- overlap is a LINT, not an error
+    assert any("OVERLAPPING" in w for w in lint_logic(proj))

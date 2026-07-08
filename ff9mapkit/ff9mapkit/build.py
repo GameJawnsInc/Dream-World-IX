@@ -1701,6 +1701,7 @@ def lint_logic(project: FieldProject) -> list[str]:
             out.append(f"NPC {who!r} has no model/preset -- it will CLONE THE PLAYER model (e.g. Zidane). "
                        f"Set preset = \"<character>\" or model = <id> for a different character. (Often a "
                        f"spatial marker placed in Blender whose [[npc]] logic was never authored.)")
+    out += _lint_rotating_cast(raw.get("npc", []) or [])
     enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
     if isinstance(enc, dict) and enc.get("scene") is None and (enc.get("freq") is not None
                                                                or enc.get("battle_music") is not None):
@@ -2595,6 +2596,59 @@ def _gate_of(d: dict):
     if "requires_flag_clear" in d:
         return int(d["requires_flag_clear"]), False
     return None, True
+
+
+def _lint_rotating_cast(npcs) -> list[str]:
+    """Advisory checks on a rotating cast (NPCs sharing a spot, gated by ``scenario_min``/``scenario_max``) --
+    the two ways a hand-authored roster misbehaves in-game:
+
+    * OVERLAP -- two windows at one spot both cover a beat -> both NPCs spawn there = a STACKED PAIR (the
+      exact #13 bug the analyzer catches on a fork). Half-open windows ``[a,b)`` + ``[b,c)`` do NOT overlap.
+    * GAP -- consecutive windows leave a beat with NOBODY at the spot (usually a typo in the tiling bound).
+
+    Groups by rounded (x, z). Only fires for a spot with >=2 windowed NPCs (a lone gated NPC is fine -- its
+    'gap' is intentional: it's simply absent outside its beat). An unbounded lower/upper end is treated as
+    -inf / +inf. Returns warning strings (advisory)."""
+    by_spot: dict = {}
+    for i, n in enumerate(npcs):
+        if not isinstance(n, dict) or "pos" not in n:
+            continue
+        try:
+            smin, smax = _scenario_window_of(n)
+        except (ValueError, KeyError):
+            continue                                   # a malformed window is a validate() error, not a lint
+        if smin is None and smax is None:
+            continue                                   # not a windowed NPC
+        try:
+            key = (round(float(n["pos"][0])), round(float(n["pos"][1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+        lo = smin if smin is not None else -1
+        hi = smax if smax is not None else _startup.SCENARIO_MAX + 1
+        by_spot.setdefault(key, []).append((lo, hi, n.get("name") or f"#{i}"))
+    out = []
+    for key, members in by_spot.items():
+        if len(members) < 2:
+            continue
+        members.sort()
+        spot = f"[{key[0]}, {key[1]}]"
+        for a in range(len(members)):
+            lo_a, hi_a, na = members[a]
+            for b in range(a + 1, len(members)):
+                lo_b, hi_b, nb = members[b]
+                if lo_b < hi_a and lo_a < hi_b:        # half-open overlap
+                    out.append(f"rotating cast at {spot}: NPC {na!r} and {nb!r} have OVERLAPPING beat windows "
+                               f"-- both appear where the windows meet, so they STACK (two NPCs on one spot). "
+                               f"Windows are half-open [min, max); make them adjacent (e.g. [_, N) then [N, _)).")
+        cover = sorted((lo, hi) for lo, hi, _ in members)
+        reach = cover[0][1]
+        for lo, hi in cover[1:]:
+            if lo > reach:
+                out.append(f"rotating cast at {spot}: a GAP in beat coverage around ScenarioCounter "
+                           f"{reach}..{lo} -- NO NPC is present there. If that spot should always be staffed, "
+                           f"tile the windows (one member's scenario_max = the next's scenario_min).")
+            reach = max(reach, hi)
+    return out
 
 
 def _scenario_window_of(d: dict):
