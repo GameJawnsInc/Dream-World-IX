@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
-index c0c537ca..f297b53f 100644
+index c0c537ca..538d9432 100644
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
 @@ -1071,6 +1071,7 @@
@@ -10,12 +10,20 @@ index c0c537ca..f297b53f 100644
      <Compile Include="Global\UI\UILabel.cs" />
      <Compile Include="Global\UI\UILocalize.cs" />
      <Compile Include="Global\UI\UIManager.cs" />
+@@ -1374,6 +1375,7 @@
+     <Compile Include="Memoria\Test\Values\Unity\Vector3Message.cs" />
+     <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
+     <Compile Include="Memoria\World\WorldConfiguration.cs" />
++    <Compile Include="Memoria\World\WorldMeshOverride.cs" />
+     <Compile Include="Memoria\World\WorldEffect.cs" />
+     <Compile Include="Memoria\World\WorldPlace.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..88715490
+index 00000000..f880467e
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1701 @@
+@@ -0,0 +1,1956 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -89,6 +97,8 @@ index 00000000..88715490
 +    private String _tzText = "0";
 +    private String _wxText = "0";       // [ff9mapkit] overworld teleport target X (world units), World tab
 +    private String _wzText = "0";       // [ff9mapkit] overworld teleport target Z (world units, NEGATIVE going down the grid)
++    private String _dumpBxText = "";    // [ff9mapkit] block-dump cell X (blank = the block under the player)
++    private String _dumpByText = "";    // [ff9mapkit] block-dump cell Y
 +    private Boolean _worldBoxesInit;    // auto-fill the teleport boxes with the live pos on the first World-tab draw (avoids the 0,0 ocean-corner default)
 +    private String _flagText = "8000";
 +    private String _itemText = "236";       // a Potion, by default
@@ -712,6 +722,203 @@ index 00000000..88715490
 +            RestoreControl();
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("Disc switch is coarse (no ScenarioCounter advance). Restore control unfreezes a stuck player.", _hint);
++
++        // [ff9mapkit] Recovery for the overworld 'no controlled actor' BLACK SCREEN (project-ff9-overworld-actor-brick).
++        Section("Recovery");
++        GUILayout.Label(ControlDiag(), _mono);
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button("Rebuild player actor", _danger))
++            RebuildPlayerActor();
++        if (GUILayout.Button("Break control (test)", _button))
++            BreakControlForTest();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Rebuild = fix a black / 'no controlled actor' overworld (rebuilds the leader's body, re-grounds, rebinds camera). Break (test) = simulate the black screen to verify Rebuild.", _hint);
++
++        // [ff9mapkit] Composition READ-BACK: dump a loaded block's ENGINE-SIDE composition (every child mesh as an
++        // OBJ + a manifest of active states / materials / shaders / block flags + the walkmeshes Raycast reads) so
++        // offline tools can diff what the game ACTUALLY built -- post WorldMeshOverride loader, post s34 donor-carry --
++        // against what the kit emitted. The ground-truth instrument for custom-coast visual debugging.
++        Section("Dump block (read-back)");
++        GUILayout.BeginHorizontal();
++        _dumpBxText = GUILayout.TextField(_dumpBxText, 4, _field, GUILayout.Width(48f));
++        _dumpByText = GUILayout.TextField(_dumpByText, 4, _field, GUILayout.Width(48f));
++        if (GUILayout.Button("Dump", _primary, GUILayout.Width(64f)))
++            DumpBlockFromText();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Block-grid x,y (0..23, 0..19); blank = the block under you. The block must be LOADED (stand on or near it). Writes ff9mk_dumps\\block_<x>_<y>\\ next to the game data (OBJ per child mesh + manifest.txt).", _hint);
++    }
++
++    // [ff9mapkit] Block-dump entry: resolve the target cell (typed, or the player's own block from the un-wrapped
++    // RealPosition -- the initial-grid frame InitialBlocks is indexed by) and dump it, reporting into the status line.
++    private void DumpBlockFromText()
++    {
++        WMWorld w = ff9.world;
++        if (w == (UnityEngine.Object)null || w.InitialBlocks == null)
++        {
++            _status = "dump: no overworld loaded";
++            return;
++        }
++        Int32 bx, by;
++        if (_dumpBxText.Trim().Length == 0 || _dumpByText.Trim().Length == 0)
++        {
++            WMActor a = ff9.w_moveActorPtr;
++            if (a == (UnityEngine.Object)null)
++            {
++                _status = "dump: no player actor (type a cell instead)";
++                return;
++            }
++            Vector3 p = a.RealPosition;
++            bx = (Int32)Math.Floor(p.x / 64f);
++            by = (Int32)Math.Floor(-p.z / 64f);
++        }
++        else if (!Int32.TryParse(_dumpBxText.Trim(), out bx) || !Int32.TryParse(_dumpByText.Trim(), out by))
++        {
++            _status = "dump: bad cell (need integer x and y)";
++            return;
++        }
++        try
++        {
++            _status = DumpBlock(w, bx, by);
++        }
++        catch (Exception ex)
++        {
++            _status = "dump FAILED: " + ex.Message;
++            global::Debug.Log("[ff9mk] block dump failed: " + ex);
++        }
++    }
++
++    // [ff9mapkit] The dump core. Writes, under <game data>\..\ff9mk_dumps\block_<x>_<y>\:
++    //   manifest.txt          -- block flags/Form/IsReady/transform + per-child: active state, renderer enabled,
++    //                            material + shader + texture names, mesh counts, local/world position
++    //   NN_<child>.obj        -- each MeshFilter's mesh in LOCAL coords (v/vn/vt + faces in ORIGINAL winding,
++    //                            byte-comparable to the kit emitter), tangents as trailing "# tan i x y z w" lines
++    //                            (tangent.x carries the per-triangle idall/entry id)
++    //   walk_formN_MM.obj     -- each WMMesh the movement Raycast actually reads (may differ from the render mesh)
++    private String DumpBlock(WMWorld w, Int32 bx, Int32 by)
++    {
++        if (bx < 0 || by < 0 || bx >= w.InitialBlocks.GetLength(0) || by >= w.InitialBlocks.GetLength(1))
++            return "dump: cell " + bx + "," + by + " out of range";
++        WMBlock block = w.InitialBlocks[bx, by];
++        if (block == (UnityEngine.Object)null)
++            return "dump: no block object at " + bx + "," + by;
++        String dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(
++            System.IO.Path.Combine(Application.dataPath, ".."), "ff9mk_dumps"));
++        dir = System.IO.Path.Combine(dir, "block_" + bx + "_" + by);
++        System.IO.Directory.CreateDirectory(dir);
++
++        System.Text.StringBuilder man = new System.Text.StringBuilder();
++        man.AppendLine("block " + bx + "," + by + "  Number=" + block.Number + "  Form=" + block.Form
++            + "  IsReady=" + block.IsReady + "  IsSea=" + block.IsSea + "  HasBeach1=" + block.HasBeach1
++            + "  HasBeach2=" + block.HasBeach2 + "  HasSea=" + block.HasSea
++            + "  activeSelf=" + block.gameObject.activeSelf);
++        man.AppendLine("transform.position=" + block.transform.position.ToString("F3")
++            + "  Current=" + block.CurrentX + "," + block.CurrentY
++            + "  Initial=" + block.InitialX + "," + block.InitialY);
++
++        Int32 n = 0;
++        foreach (MeshFilter mf in block.GetComponentsInChildren<MeshFilter>(true))
++        {
++            Mesh mesh = mf.sharedMesh;
++            Renderer r = mf.GetComponent<Renderer>();
++            Material mat = (r != (UnityEngine.Object)null) ? r.sharedMaterial : null;
++            String nm = mf.gameObject.name;
++            man.AppendLine();
++            man.AppendLine("child[" + n + "] '" + nm + "'"
++                + "  activeInHierarchy=" + mf.gameObject.activeInHierarchy
++                + "  rendererEnabled=" + ((r != (UnityEngine.Object)null) ? r.enabled.ToString() : "NONE")
++                + "  localPos=" + mf.transform.localPosition.ToString("F3")
++                + "  worldPos=" + mf.transform.position.ToString("F3"));
++            man.AppendLine("  material=" + ((mat != null) ? mat.name : "none")
++                + "  shader=" + ((mat != null && mat.shader != null) ? mat.shader.name : "none")
++                + "  tex=" + ((mat != null && mat.mainTexture != null) ? mat.mainTexture.name : "none"));
++            if (mesh == null)
++            {
++                man.AppendLine("  mesh=NULL");
++                n++;
++                continue;
++            }
++            man.AppendLine("  mesh='" + mesh.name + "'  verts=" + mesh.vertexCount
++                + "  tris=" + (mesh.triangles.Length / 3) + "  submeshes=" + mesh.subMeshCount
++                + "  normals=" + mesh.normals.Length + "  tangents=" + mesh.tangents.Length
++                + "  uvs=" + mesh.uv.Length + "  bounds=" + mesh.bounds.ToString());
++            WriteMeshObj(System.IO.Path.Combine(dir, n.ToString("D2") + "_" + SafePathName(nm) + ".obj"),
++                nm, mesh.vertices, mesh.normals, mesh.uv, mesh.tangents, mesh.triangles);
++            n++;
++        }
++
++        // The walkmeshes the movement Raycast actually reads (snapshotted arrays -- may differ from render meshes).
++        Int32 wmCount = 0;
++        for (Int32 form = 1; form <= 2; form++)
++        {
++            List<WMMesh> wms = (form == 1) ? block.Form1WalkMeshes : block.Form2WalkMeshes;
++            if (wms == null)
++                continue;
++            for (Int32 i = 0; i < wms.Count; i++)
++            {
++                WMMesh wm = wms[i];
++                man.AppendLine();
++                man.AppendLine("walkmesh form" + form + "[" + i + "]  verts=" + wm.Vertices.Length
++                    + "  tris=" + (wm.Triangles.Length / 3) + "  tangents=" + wm.Tangents.Length);
++                WriteMeshObj(System.IO.Path.Combine(dir, "walk_form" + form + "_" + i.ToString("D2") + ".obj"),
++                    "walk_form" + form + "_" + i, wm.Vertices, wm.Normals, null, wm.Tangents, wm.Triangles);
++                wmCount++;
++            }
++        }
++
++        System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "manifest.txt"), man.ToString());
++        global::Debug.Log("[ff9mk] dumped block " + bx + "," + by + " -> " + dir);
++        return "dumped " + n + " meshes + " + wmCount + " walkmeshes -> " + dir;
++    }
++
++    // [ff9mapkit] OBJ writer for the block dump: LOCAL coords, ORIGINAL winding (v/vn/vt, faces 1-based), then the
++    // tangent channel -- which Unity's OBJ has no slot for -- as trailing comment lines "# tan <i> <x> <y> <z> <w>"
++    // (one per vertex; tangent.x = the per-triangle idall/entry id the walk system reads).
++    private static void WriteMeshObj(String path, String name, Vector3[] verts, Vector3[] normals,
++        Vector2[] uvs, Vector4[] tangents, Int32[] tris)
++    {
++        System.Text.StringBuilder sb = new System.Text.StringBuilder();
++        sb.AppendLine("# ff9mk block dump: " + name);
++        sb.AppendLine("o " + name);
++        Boolean hasN = normals != null && normals.Length == verts.Length;
++        Boolean hasT = uvs != null && uvs.Length == verts.Length;
++        for (Int32 i = 0; i < verts.Length; i++)
++            sb.AppendLine("v " + F(verts[i].x) + " " + F(verts[i].y) + " " + F(verts[i].z));
++        if (hasN)
++            for (Int32 i = 0; i < normals.Length; i++)
++                sb.AppendLine("vn " + F(normals[i].x) + " " + F(normals[i].y) + " " + F(normals[i].z));
++        if (hasT)
++            for (Int32 i = 0; i < uvs.Length; i++)
++                sb.AppendLine("vt " + F(uvs[i].x) + " " + F(uvs[i].y));
++        for (Int32 t = 0; t + 2 < tris.Length; t += 3)
++        {
++            Int32 a = tris[t] + 1, b = tris[t + 1] + 1, c = tris[t + 2] + 1;
++            if (hasN && hasT)
++                sb.AppendLine("f " + a + "/" + a + "/" + a + " " + b + "/" + b + "/" + b + " " + c + "/" + c + "/" + c);
++            else if (hasT)
++                sb.AppendLine("f " + a + "/" + a + " " + b + "/" + b + " " + c + "/" + c);
++            else if (hasN)
++                sb.AppendLine("f " + a + "//" + a + " " + b + "//" + b + " " + c + "//" + c);
++            else
++                sb.AppendLine("f " + a + " " + b + " " + c);
++        }
++        if (tangents != null && tangents.Length == verts.Length)
++            for (Int32 i = 0; i < tangents.Length; i++)
++                sb.AppendLine("# tan " + i + " " + F(tangents[i].x) + " " + F(tangents[i].y)
++                    + " " + F(tangents[i].z) + " " + F(tangents[i].w));
++        System.IO.File.WriteAllText(path, sb.ToString());
++    }
++
++    private static String F(Single v)
++    {
++        return v.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
++    }
++
++    private static String SafePathName(String s)
++    {
++        System.Text.StringBuilder sb = new System.Text.StringBuilder(s.Length);
++        foreach (Char c in s)
++            sb.Append((Char.IsLetterOrDigit(c) || c == '_' || c == '-') ? c : '_');
++        return sb.ToString();
 +    }
 +
 +    // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
@@ -1035,6 +1242,62 @@ index 00000000..88715490
 +        catch (Exception err)
 +        {
 +            _status = "restore control failed: " + err.Message;
++        }
++    }
++
++    // [ff9mapkit] On-demand recovery for the overworld 'no controlled actor' black screen (F6 still renders on the
++    // black screen). Runs the same self-heal as the automatic w_frameUpdate hook; a no-op reports "already healthy".
++    private void RebuildPlayerActor()
++    {
++        try
++        {
++            Boolean did = ff9.w_worldSelfHealControl();
++            _status = did ? "player actor rebuilt + re-grounded" : "rebuild: control already healthy (nothing to do)";
++        }
++        catch (Exception err)
++        {
++            _status = "rebuild failed: " + err.Message;
++        }
++    }
++
++    // [ff9mapkit] TEST-ONLY: simulate the 'no controlled actor' black screen (clear the designator + point the camera
++    // at the dummy) so "Rebuild player actor" / the auto self-heal can be validated deterministically. The world
++    // should go black; press Rebuild to confirm recovery. F6 stays up (IMGUI overlay) so you can always recover.
++    private void BreakControlForTest()
++    {
++        try
++        {
++            PersistenSingleton<EventEngine>.Instance.DebugClearControl();
++            ff9.w_moveActorPtr = ff9.w_moveDummyCharacter;
++            _status = "control BROKEN (dummy) - world should go black; press 'Rebuild player actor'";
++        }
++        catch (Exception err)
++        {
++            _status = "break failed: " + err.Message;
++        }
++    }
++
++    // [ff9mapkit] Read-only diagnostic of the control/actor null-state, so the exact failure case is visible on the
++    // black screen. Guarded with the (UnityEngine.Object)null form (w_moveActorPtr overrides Unity ==).
++    private static String ControlDiag()
++    {
++        try
++        {
++            EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++            PosObj po = ee == null ? null : ee.GetControlChar();
++            String poStr = po == null ? "null" : ("uid " + po.uid + " idx " + po.index);
++            String wmStr = po == null ? "n/a" : (((Actor)po).wmActor == (UnityEngine.Object)null ? "NULL" : "ok");
++            WMActor gc = ff9.GetControlChar();
++            String gcStr = gc == (UnityEngine.Object)null ? "null" : "ok";
++            WMActor ptr = ff9.w_moveActorPtr;
++            String ptrStr = ptr == (UnityEngine.Object)null ? "NULL"
++                : (ptr == ff9.w_moveDummyCharacter ? "DUMMY (black!)" : "real");
++            return String.Format("EventControl PosObj: {0}\n  its wmActor: {1}\nff9.GetControlChar(): {2}\nw_moveActorPtr: {3}",
++                poStr, wmStr, gcStr, ptrStr);
++        }
++        catch (Exception e)
++        {
++            return "control diag unavailable: " + e.Message;
 +        }
 +    }
 +
