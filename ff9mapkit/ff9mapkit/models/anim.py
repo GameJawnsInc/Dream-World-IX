@@ -634,6 +634,13 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
     if not sfx:
         raise AnimError(f"bad anim name suffix {suffix!r} (letters/digits/underscore)")
     anh = f"ANH_{parts[1]}_{parts[2]}_{parts[3]}_{sfx}"
+    from .._animdb_all import ANIMATIONS as _stock
+    if anh in set(_stock.values()):
+        # AnimationDB is a TwoWayDictionary: re-registering a REAL clip name at a new key hijacks the
+        # stock name->key lookup (folder derivation goes through TryGetKey(name)) and mis-routes the
+        # real clip. e.g. --suffix B on BBA collides with her stock pose ANH_NPC_F1_BBA_B.
+        raise AnimError(f"{anh} is a real FF9 clip name -- pick a different suffix "
+                        f"(registering it at a new key would hijack the stock name->key lookup)")
     dp = Path(mod_folder) / "DictionaryPatch.txt"
     registered = _anim_key_registry(dp)
     if key is not None:
@@ -657,7 +664,10 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
     directive = f"3DModelAnimation {k} {anh}"
     lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
     if directive not in lines:
-        lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")]   # replace, never dup a key
+        # replace, never dup: a duplicate KEY double-Adds in AnimationDB; a duplicate NAME (same clip
+        # re-registered at an explicit new key) leaves a stale name->key row shadowing the new one
+        lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")
+                 and not (ln.startswith("3DModelAnimation ") and ln.endswith(f" {anh}"))]
         lines.append(directive)
         dp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return {"geo": geo, "geo_id": gid, "key": k, "name": anh, "path": str(dest),

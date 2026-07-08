@@ -140,6 +140,27 @@ def test_deploy_new_anim_rejects_a_bad_suffix(tmp_path, monkeypatch):
         anim.deploy_new_anim("GEO_NPC_F1_BBA", clip, tmp_path, suffix="///")
 
 
+def test_deploy_new_anim_rejects_a_stock_name_collision(tmp_path, monkeypatch):
+    # AnimationDB is a TwoWayDictionary: registering a REAL clip name (BBA's pose ANH_NPC_F1_BBA_B)
+    # at a new key would hijack the stock name->key lookup and mis-route the real clip's folder
+    from ff9mapkit.models import extract
+    monkeypatch.setattr(extract, "resolve_geo", lambda tok: ("GEO_NPC_F1_BBA", 10, 4))
+    clip = anim.new_clip(BONES, anim.synth_spin_curves(frames=2))
+    with pytest.raises(ValueError, match="real FF9 clip name"):
+        anim.deploy_new_anim("GEO_NPC_F1_BBA", clip, tmp_path, suffix="B")
+
+
+def test_deploy_new_anim_moving_a_name_to_an_explicit_key_leaves_one_line(tmp_path, monkeypatch):
+    from ff9mapkit.models import extract
+    monkeypatch.setattr(extract, "resolve_geo", lambda tok: ("GEO_NPC_F1_BBA", 10, 4))
+    clip = anim.new_clip(BONES, anim.synth_spin_curves(frames=2))
+    anim.deploy_new_anim("GEO_NPC_F1_BBA", clip, tmp_path, suffix="SPIN")            # auto -> 60000
+    man = anim.deploy_new_anim("GEO_NPC_F1_BBA", clip, tmp_path, key=61_000, suffix="SPIN")
+    text = (tmp_path / "DictionaryPatch.txt").read_text(encoding="utf-8")
+    assert man["key"] == 61_000
+    assert text.count("ANH_NPC_F1_BBA_SPIN") == 1 and "3DModelAnimation 61000 ANH_NPC_F1_BBA_SPIN" in text
+
+
 def test_npc_anim_setter_rejects_an_oversized_id():
     from ff9mapkit.content import npc
     assert npc._anim_op(0x33, 60_000).endswith((60_000).to_bytes(2, "little"))
