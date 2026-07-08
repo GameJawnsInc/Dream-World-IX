@@ -22,6 +22,7 @@ Subcommands are wired up incrementally as the library lands:
     battle-build  - compile a battle.toml into a Memoria mod (custom 3D battle map; stock engine)
     battle-list   - list the real FF9 battle backgrounds available to fork
     battle-actions- list the shared PLAYER abilities (Actions.csv) + the scriptId formula catalog
+    battle-telemetry - log every battle calc to a JSONL (Overload hook) + summarize it (--report)
     battle-scene  - inspect a real battle scene's enemy data (stats/affinities/rewards/attacks)
     dialogue  - view a field.toml's authored dialogue + how each line wraps on screen
     dialogue-import - read a REAL FF9 field's dialogue (or a built mod's) -- 'NPC -> text'
@@ -2908,6 +2909,64 @@ def _cmd_ability_features(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_battle_telemetry(args: argparse.Namespace) -> int:
+    """Install/remove the battle-calc TELEMETRY hook (the Scripts-DLL Overload channel) in a LIVE mod folder,
+    or summarize a captured JSONL. Install compiles the mod's whole ``Scripts/Sources`` tree (existing battle
+    formulas + the hook) into ``Memoria.Scripts.<folder>.dll`` -- RELAUNCH to load."""
+    _safe_console()
+    from pathlib import Path
+    from .battle import telemetry as T
+    from .battle.scriptcompile import ScriptCompileError
+    if args.report is not None or args.clear:
+        try:
+            jsonl = Path(args.report) if args.report else T.default_jsonl_path(args.game)
+        except ConfigError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if args.clear:
+            if jsonl.is_file():
+                jsonl.unlink()
+                print(f"cleared {jsonl}")
+            else:
+                print(f"nothing to clear ({jsonl} absent)")
+            return 0
+        print(f"telemetry: {jsonl}")
+        print(T.summarize(T.read_events(jsonl)))
+        return 0
+    if not args.mod_folder:
+        print("battle-telemetry needs a mod folder (name or path) to install into -- or --report/--clear",
+              file=sys.stderr)
+        return 2
+    cand = Path(args.mod_folder)
+    if cand.is_dir():
+        mod_root = cand.resolve()
+    else:
+        try:
+            mod_root = find_mod_root(find_game_path(args.game), args.mod_folder)
+        except ConfigError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if not mod_root.is_dir():
+            print(f"mod folder not found: {mod_root}", file=sys.stderr)
+            return 2
+    try:
+        if args.off:
+            dll = T.remove(mod_root, game=args.game)
+            print(f"telemetry hook removed from {mod_root.name}"
+                  + (f" (mod DLL recompiled from its remaining battle formulas: {dll.name})" if dll
+                     else " (mod DLL deleted -- no other scripted content)"))
+        else:
+            dll = T.install(mod_root, game=args.game)
+            print(f"telemetry hook installed -> {dll}")
+            print(f"  events append to <game>/{T.JSONL_BASENAME}")
+            print("  RELAUNCH the game to load it (scripts DLLs load once at title; F6 won't).")
+            print("  summarize a capture:  ff9mapkit battle-telemetry --report")
+    except ScriptCompileError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_battle_patch(args: argparse.Namespace) -> int:
     """Preview the ``BattlePatch.txt`` a field.toml's ``[[battle_patch]]`` / ``[[battle_enemy]]`` /
     ``[[battle_attack]]`` blocks emit (offline, no install) -- or, with ``--fields``, the catalog of tunable
@@ -4938,6 +4997,19 @@ def build_parser() -> argparse.ArgumentParser:
     bp.add_argument("--fields", action="store_true",
                     help="list the tunable [PatchableField] names by token instead of previewing a toml")
     bp.set_defaults(func=_cmd_battle_patch)
+
+    bt = sub.add_parser("battle-telemetry",
+                        help="log every battle calc to a JSONL (the Scripts-DLL Overload hook) -- install into "
+                             "a live mod folder, --off to remove, --report to summarize a capture")
+    bt.add_argument("mod_folder", nargs="?", default=None,
+                    help="live mod folder to instrument -- a name (resolved in the game install, e.g. "
+                         "FF9CustomMap) or a path; omit with --report/--clear")
+    bt.add_argument("--off", action="store_true", help="remove the hook + recompile the mod DLL without it")
+    bt.add_argument("--report", nargs="?", const="", default=None, metavar="JSONL",
+                    help="summarize a captured telemetry file (default: <game>/ff9mk_battle_telemetry.jsonl)")
+    bt.add_argument("--clear", action="store_true", help="delete the captured JSONL (start a fresh session)")
+    bt.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    bt.set_defaults(func=_cmd_battle_telemetry)
 
     an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")
     an.add_argument("character", nargs="?", help="vivi / zidane / garnet / steiner / freya / quina / eiko / amarant")

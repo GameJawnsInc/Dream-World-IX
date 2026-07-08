@@ -73,6 +73,16 @@ def compile_scripts(layout, mod_name: str, *, game=None) -> None:
     srcs = sorted(layout.scripts_sources_dir.glob("**/*.cs"))
     if not srcs:
         return
+    compile_sources(srcs, layout.scripts_dll(mod_name), game=game)
+
+
+def compile_sources(srcs, out_dll, *, game=None) -> None:
+    """Compile an explicit ``.cs`` list into ``out_dll`` against the installed engine. The general entry the
+    layout-driven :func:`compile_scripts` and the LIVE-mod recompiles (battle telemetry, deploy stickiness)
+    share -- same toolchain probe / reference set / engine stamp."""
+    srcs = [Path(s) for s in srcs]
+    if not srcs:
+        return
     csc = find_csc()
     if csc is None:
         raise ScriptCompileError(
@@ -80,7 +90,7 @@ def compile_scripts(layout, mod_name: str, *, game=None) -> None:
             "found. Install Visual Studio Build Tools (Roslyn csc), or set $FF9_CSC to a csc.exe path. The "
             r"always-present .NET Framework csc (C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe) works too.")
     managed = _managed_dir(game)
-    out_dll = layout.scripts_dll(mod_name)
+    out_dll = Path(out_dll)
     out_dll.parent.mkdir(parents=True, exist_ok=True)
     args = [str(csc), "/target:library", "/nostdlib+", "/noconfig", "/optimize+", f"/out:{out_dll}"]
     args += [f"/reference:{managed / r}" for r in _REFERENCES]
