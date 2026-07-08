@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — EXPERIMENTAL: image → explorable field (`image-field`, MVP)
+- **`ff9mapkit image-field <image> --floor "cx,cy …" --out DIR`** synthesizes a walkable FF9 field
+  from an arbitrary image + a hand-traced floor polygon: the image becomes the painted background,
+  the floor polygon is **un-projected onto the world ground plane into a walkmesh**, and a vanilla
+  FF9 camera ties them together (optional `--foreground` cut-out PNGs become occluder overlays).
+  Pillow-only, no new dependencies. The one genuinely new piece of math is the floor un-projection —
+  because FF9's field projection is **perspective** (not orthographic) and we target a single plane,
+  it's a closed-form projective **homography** (verified to round-trip `cam.to_canvas` to ~2e-12
+  world units; uses `inv3(R_view)`, never a transpose — the k=14/15 squash makes `R_view`
+  non-orthonormal). Everything downstream (camera synth, `.bgi` codec, `.bgx` overlay writer,
+  deploy) is existing, in-game-proven machinery. This is the MVP hand-mask slice of a researched
+  design; auto floor-detection + neural depth are optional future tiers. Awaiting in-game proof.
+
 ### Added — custom battle FORMULAS with no engine rebuild (the Scripts-DLL channel)
 - A `[[playable]]` custom ability now takes **`script = { template = "drain_hp" }`** (or `{ body = "<C#>" }`)
   and the kit mints a genuinely new battle-calc formula — a `[BattleScript(id≥256)]` class compiled into a

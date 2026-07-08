@@ -359,6 +359,7 @@ extra (UnityPy).
 | `model-mint <source>` | Mint a NEW additive GEO model id (≥ 6000) from a source model (`--id`, `--deploy`). |
 | `model-anim <model>` | Dump/deploy animation clips as editable loose `.anim` JSON. |
 | `model-anim-new <model>` | Author a wholly NEW clip (a Blender `.glb` action, or the spin demo) — registered via `3DModelAnimation`. |
+| `image-field <image>` | *Experimental:* synthesize a walkable field from an image + a hand-traced floor polygon (`--floor`). |
 | `model-preview <model>` | Software-render a model to a PNG still (textured, posed at its stand clip). |
 | `model-reskin <model>` | The cheapest edit: export a model's textures / deploy edited PNGs as a loose reskin. |
 | `model-deployed <mod>` | List (or `--revert` one of) a mod folder's loose model overrides / reskins / mints / anim overrides. |
