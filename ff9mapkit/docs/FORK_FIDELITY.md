@@ -295,11 +295,21 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
   a `GetInfo` `EffectiveFieldName` wrap — cosmetic, non-English-only, **intentionally not done**. BG-borrow and
   same-name (donor-named) forks already get localized titles (their `path`/name resolve to the donor bundle).
 - **Scenario cutscene roster / warp-directors carried as standing NPCs** — HANDLED on synth (`_loop_warps` drops any
-  LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). ⚠ The destructive synth-drop keys
+  LOOP firing `Field()`; 2-shopkeeper→1 proven) and BG-borrow (carries no `.eb`). The destructive synth-drop keys
   on `Field()` (0x2B) ONLY — **deliberately narrow** (spares animated props + the save-Moogle puppet, per worklist
-  #13b); a pure *phase-switch* rotation director (no warp) slips it and is caught only *incidentally* by the #13
-  arg-dedup + roster analyzer. (The advisory `forkreport._is_director` is correctly *wider* — 0x2B OR 0x06. The
-  asymmetry is by design: advisory-wide, destructive-narrow.)
+  #13b). ★ **CENSUS-SETTLED (2026-07-07): the "pure phase-switch rotation director" is a PHANTOM — do not widen the
+  drop to 0x06.** Sweeping all 818 fields for a pure phase-switch LOOP (op 0x06, no 0x2B): **527** exist, but the
+  ONLY roster-ish op any of them contains is `CreateObject` (41 LOOPs) — and `CreateObject` is a SELF op (engine
+  0x1D = *"place/replace the 3D model on the field"* for the object itself; `build_npc_init` uses it as
+  `CreateObject(D9(0),D9(4))`). **ZERO** contain `InitObject` (0x09, the only "init ANOTHER object's roster" op),
+  `SetModel`, `Show/HideObject`, or `SetObjectIndex`. So a phase-switch LOOP never rotates OTHER cast — cast
+  rotation is a **Main_Init `InitObject`-gating** phenomenon (decoded by the roster analyzer, authorable via
+  `[[npc]] scenario_min/scenario_max`). The 41 are **self-morphers** (an object re-placing its own model by phase —
+  e.g. field 115's Mognet moogle), which MUST be spared; widening the drop to 0x06 would be **41 false positives, 0
+  real directors**. The only residual is the universal synth property — a self-morpher shows its scenario-zero
+  appearance on a synth fork — covered by `--verbatim` (faithful) or authoring the beat window declaratively. The
+  advisory `forkreport._is_director` stays wider (0x2B OR 0x06) for the REPORT (harmless over-flag); the destructive
+  drop stays 0x2B-only. Asymmetry by design, and now proven not to leave a real gap.
 - **Donor talk dialogue / choice prompts** as the room's words — opt-in + import-only, so a plain import ships none.
 - **Donor player identity** (you-become-Vivi) in a hub — plain import carries no player `.eb`; the hub declares its
   own `[player] model=` Moogle. (And `--swap-player --neutralize-gestures` trades a cutscene rig's emoting for
