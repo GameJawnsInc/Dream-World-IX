@@ -353,6 +353,16 @@ if _src_dll.exists():
     if tl.scripts_sources_dir.is_dir():
         shutil.copytree(tl.scripts_sources_dir, live.scripts_sources_dir, dirs_exist_ok=True)
     print(f"  + {_src_dll.name} (custom battle formula DLL) -> RELAUNCH to load (once at title, not F6)")
+    # TELEMETRY STICKINESS: the build compiles its DLL from the build's Sources/Battle only, so a live
+    # battle-telemetry hook (ff9mapkit battle-telemetry) would be silently dropped by the copy above ->
+    # recompile the live DLL from ALL live sources (Battle + Telemetry) to fold it back in.
+    from ff9mapkit.battle import telemetry as _tele
+    if _tele.installed(live):
+        try:
+            _tele.recompile_live(live.root, game=GAME)
+            print(f"  + recompiled {_live_dll.name} WITH the live battle-telemetry hook (it stays on)")
+        except _scomp.ScriptCompileError as _te:
+            print(f"  !! could not fold the battle-telemetry hook back into {_live_dll.name}: {_te}")
     _drift = _scomp.engine_drift_warning(_live_dll, game=GAME)       # normally quiet (just built vs this install)
     if _drift:
         print(f"  !! {_drift}")

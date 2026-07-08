@@ -403,7 +403,37 @@ Scripted formulas are the **last** lever, not the first — they carry the versi
 
 ---
 
-## 12. See also
+## 12. Battle telemetry — the Overload hooks (`ff9mapkit battle-telemetry`)
+
+The same mod DLL can implement Memoria's **`IOverload*` interfaces** — engine choke points where a registered
+class *replaces* an inline engine default (`ScriptsLoader` registers by interface, no attribute needed). The
+kit uses four of them as a **dev tool**: a telemetry hook that logs every battle calc as one JSON line to
+`<game>/ff9mk_battle_telemetry.jsonl`, so battle balance can be analyzed offline instead of eyeballed.
+
+```
+ff9mapkit battle-telemetry FF9CustomMap     # install into a live mod folder -> RELAUNCH -> fight
+ff9mapkit battle-telemetry --report         # per-ability casts / hit% / crit% / damage stats
+ff9mapkit battle-telemetry --clear          # start a fresh capture
+ff9mapkit battle-telemetry FF9CustomMap --off   # remove the hook (recompiles the DLL without it)
+```
+
+Events: `battle` (boundary + full unit roster), `calc` (one per formula invocation, **both** directions,
+before it runs — a calc with no matching `result` is a miss/guard/no-effect, so hit rates fall out for free),
+`result` (computed **pre-cap** damage on the hit branch, both directions), `applied` (post-cap damage + target
+HP after — enemy-targeted calcs only; the engine's call site early-returns for player targets).
+
+Safety: where a hook displaces an engine default (backstab/kill-frozen, the ×1.5 damage-modifier stack, the
+reflect multiplier), the default is **transcribed verbatim** into the emitted C# — gameplay is unchanged.
+Every log write is `try/catch`-swallowed, so the hook can never break a battle. The source lives at
+`Scripts/Sources/Telemetry/` (a sibling of `Sources/Battle`, so a field build never wipes it), and
+`deploy_field` re-folds the hook into a freshly deployed DLL automatically. One caveat shared with the whole
+channel: the DLL loads once at title — **relaunch** after install/remove. And like everything override-only:
+if a *second* stacked mod folder ships its own implementation of the same `IOverload*` interface, the
+higher-priority folder's wins silently.
+
+---
+
+## 13. See also
 
 - [BATTLE_DESIGN.md](BATTLE_DESIGN.md) — the full battle-tuning lever map; §2(c) is the `scriptId` (re-point vs
   new-formula) row this channel completes.
@@ -413,5 +443,6 @@ Scripted formulas are the **last** lever, not the first — they carry the versi
   7-phase build plan. `project-ff9-ability-preset-system` / `project-ff9-13th-character` — the ability-kit stack
   this builds on.
 
-**Key refs:** `ScriptsLoader.cs:215-311`, `SBattleCalculator.cs:109-131`, `TitleUI.cs:1528` ·
-`ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `content/playable.py`, `build.py` (`_emit_scripts`).
+**Key refs:** `ScriptsLoader.cs:215-311,343-365`, `SBattleCalculator.cs:63,109-131,200,323`, `TitleUI.cs:1528` ·
+`ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `telemetry.py`, `content/playable.py`, `build.py`
+(`_emit_scripts`).
