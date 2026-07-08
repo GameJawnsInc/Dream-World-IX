@@ -1499,7 +1499,9 @@ def _cmd_model_anim_new(args: argparse.Namespace) -> int:
             clip = manim.new_clip(model["bones"], hit["bones"], name=args.suffix.lower(),
                                   warn=warns.append)
         else:
-            clip = manim.new_clip(model["bones"], manim.synth_spin_curves(),
+            b0 = next((b for b in model["bones"] if b["name"] == "bone000"), None)
+            rest = tuple(b0["rot"]) if b0 and b0.get("rot") else None   # compose the yaw onto the real rest
+            clip = manim.new_clip(model["bones"], manim.synth_spin_curves(rest=rest),
                                   name=args.suffix.lower(), warn=warns.append)
         man = manim.deploy_new_anim(args.model, clip, args.deploy, key=args.key,
                                     suffix=args.suffix, game=args.game)
@@ -4323,7 +4325,8 @@ def build_parser() -> argparse.ArgumentParser:
     man.add_argument("--suffix", default="CUSTOM1",
                      help="the clip's ANH name suffix (ANH_<grp>_<form>_<tok>_<SUFFIX>; default CUSTOM1)")
     man.add_argument("--key", type=int, default=None,
-                     help="the AnimationDB key to register (default: auto in the 2,000,000+ custom band)")
+                     help="the AnimationDB key to register (default: next free in the 60000-65535 band; "
+                          "a FIELD anim id must fit 16 bits, so keys above 65535 are rejected)")
     man.add_argument("--deploy", metavar="MODFOLDER", required=True,
                      help="mod folder to write Animations/<id>/<key>.anim + the DictionaryPatch line into")
     man.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")

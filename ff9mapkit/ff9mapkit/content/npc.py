@@ -68,9 +68,21 @@ def _d9_const(idx: int, val: int) -> bytes:
     return bytes([0x05, 0xD9, idx, 0x7D]) + struct.pack("<h", int(val)) + bytes([0x2C, 0x7F])
 
 
+def _anim16(anim_id, slot: str = "anim") -> int:
+    """Validate a field anim id fits the 16-bit slot. The .eb anim-setter args are u16 AND the engine's
+    Actor.idle/walk/run/turnl/turnr are UInt16 -- an oversized id would silently truncate (key % 65536),
+    the engine would look up a key nobody registered, and NO clip would attach (frozen NPC + the
+    head-focus spin artifact). Field-playable custom keys are minted at 60000-65535 by model-anim-new."""
+    a = int(anim_id)
+    if not 0 <= a <= 0xFFFF:
+        raise ValueError(f"{slot} animation id {a} does not fit a field anim slot (16-bit, max 65535); "
+                         f"field-playable custom keys are minted at 60000-65535 by model-anim-new")
+    return a
+
+
 def _anim_op(op: int, anim_id: int) -> bytes:
     """A movement-animation setter: <op> 00 <anim id, u16 LE>."""
-    return bytes([op, 0x00]) + struct.pack("<H", int(anim_id) & 0xFFFF)
+    return bytes([op, 0x00]) + struct.pack("<H", _anim16(anim_id))
 
 
 def _complete_anims(model, anims) -> dict:
@@ -310,7 +322,7 @@ def set_player_model(data, model_id: int, anims: dict | None = None, *,
         for k, name in enumerate(ANIM_ORDER):
             if name in anims and anims[name] is not None:
                 o = loc["stand"] + 4 * k
-                body0[o:o + 2] = pu16(int(anims[name]))
+                body0[o:o + 2] = pu16(_anim16(anims[name], slot=name))
     # moogle PC head-focus: a moogle avatar inherits the template's human head mask (97,61) -> a spin-to-
     # face when idle near an NPC. Match the real moogle value (4,1); only for moogle rigs (a human [player]
     # model= keeps its own mask). Same length -> stays in the in-place patch.

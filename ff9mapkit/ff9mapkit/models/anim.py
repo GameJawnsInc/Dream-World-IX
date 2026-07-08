@@ -524,9 +524,15 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
 
 # ---------------------------------------------------------------- wholly NEW clips (not edits)
 
-_NEW_ANIM_KEY_BASE = 2_000_000   # fresh AnimationDB keys for NEW custom clips -- above the battle-animset
-                                 # band (1M+) and far above real ids (<~20k). Registered per clip via a
-                                 # `3DModelAnimation <key> <ANH name>` DictionaryPatch line at launch.
+_NEW_ANIM_KEY_BASE = 60_000      # fresh AnimationDB keys for NEW custom clips. A FIELD anim id is 16-bit
+_NEW_ANIM_KEY_MAX = 65_535       # END TO END -- the .eb anim-setter args are u16 AND the engine's
+                                 # Actor.idle/walk/run/turnl/turnr are UInt16 -- so a field-playable key
+                                 # MUST fit <= 65535 (stock keys top out at 14739; 60000-65535 is the mint
+                                 # band). The old 2M base silently TRUNCATED in the .eb (2001000 -> 34920),
+                                 # the engine looked up a key nobody registered, and NO clip attached. The
+                                 # battle-animset band (1M+) is battle-only: btl mot[] is Int32. Registered
+                                 # per clip via a `3DModelAnimation <key> <ANH name>` DictionaryPatch line
+                                 # at launch.
 
 
 def new_clip(model_bones: list, bone_curves: dict, *, name: str = "custom",
@@ -535,7 +541,14 @@ def new_clip(model_bones: list, bone_curves: dict, *, name: str = "custom",
     vs :func:`splice_edits_onto_clip` which overlays edits on a real donor). Bone paths come from the
     model's own skeleton (:func:`bone_paths`) -- the full hierarchy path the engine's ``SetCurve`` needs.
     ``bone_curves`` = ``{boneNum: {"rot":[(t,(x,y,z,w))...], "pos":..., "scale":...}}`` (what
-    :func:`parse_gltf_animations` returns per animation). Unkeyed bones hold their rest pose."""
+    :func:`parse_gltf_animations` returns per animation).
+
+    Every skeleton bone the caller leaves unkeyed gets a STATIC rest-pose channel (rot+pos+scale, 2 keys),
+    matching real FF9 clips, which key all bones even for a 1-frame pose. Load-bearing: playback only
+    resets the bones a clip keys, and the engine COMPOSES the head-focus look offset onto the neck bone
+    every LateUpdate (`FieldMapActorController.UpdateNeck`) -- an unkeyed neck accumulates it into a
+    continuously spinning head. Rest TRS comes from ``model_bones`` (:func:`extract.read_model` pos/rot/
+    scale); a bones list without them falls back to the identity transform."""
     paths = bone_paths(model_bones)
     bones: dict = {}
     length = 0.0
@@ -554,22 +567,50 @@ def new_clip(model_bones: list, bone_curves: dict, *, name: str = "custom",
             bones[path] = entry
     if not bones:
         raise AnimError(f"new clip {name!r} has no usable bone curves")
+    length = length if length > 0 else 1.0 / float(sample_rate)
+    rest = {extract._bone_num(b["name"]): b for b in model_bones}
+    rest_of = {"rot": lambda b: tuple(b.get("rot") or (0.0, 0.0, 0.0, 1.0)),
+               "pos": lambda b: tuple(b.get("pos") or (0.0, 0.0, 0.0)),
+               "scale": lambda b: tuple(b.get("scale") or (1.0, 1.0, 1.0))}
+    for bn, path in paths.items():
+        entry = bones.setdefault(path, {"bone": bn})
+        for chan, rest_val in rest_of.items():
+            if not entry.get(chan):
+                v = rest_val(rest[bn])
+                entry[chan] = [(0.0, v), (length, v)]
     return {"name": name, "sample_rate": float(sample_rate), "length": length, "bones": bones}
 
 
-def synth_spin_curves(*, frames: int = 48, sample_rate: float = 30.0, bone: int = 0) -> dict:
+def synth_spin_curves(*, frames: int = 48, sample_rate: float = 30.0, bone: int = 0, rest=None) -> dict:
     """A synthesized demo clip: the root bone yaws a full 360 over ``frames`` -- the no-Blender proof of
-    the new-clip mechanism (mint key + registration + loose .anim + field playback)."""
+    the new-clip mechanism (mint key + registration + loose .anim + field playback). ``rest`` is the bone's
+    rest localRotation (x,y,z,w): the yaw COMPOSES onto it in the parent frame (``q = yaw * rest``). A raw
+    yaw would STOMP a non-identity rest -- e.g. BBA's bone000 rest is itself a -90-degree yaw."""
     import math
+    rx, ry, rz, rw = rest or (0.0, 0.0, 0.0, 1.0)
     rot = []
     for f in range(frames + 1):
         half = math.pi * (f / frames)           # half-angle of a 0..360-degree yaw
-        rot.append((f / sample_rate, (0.0, math.sin(half), 0.0, math.cos(half))))
+        ys, yc = math.sin(half), math.cos(half)
+        q = (yc * rx + ys * rz, yc * ry + ys * rw,      # Hamilton product (0,ys,0,yc) * rest
+             yc * rz - ys * rx, yc * rw - ys * ry)
+        rot.append((f / sample_rate, q))
     return {bone: {"rot": rot}}
 
 
 class AnimError(ValueError):
     pass
+
+
+def _anim_key_registry(dp: "Path") -> dict:
+    """The mod folder's ``3DModelAnimation <key> <name>`` registrations -> {key: name}."""
+    reg: dict = {}
+    if dp.exists():
+        for ln in dp.read_text(encoding="utf-8").splitlines():
+            parts = ln.split()
+            if len(parts) == 3 and parts[0] == "3DModelAnimation" and parts[1].isdigit():
+                reg[int(parts[1])] = parts[2]
+    return reg
 
 
 def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | None" = None,
@@ -578,7 +619,12 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
     register it with an idempotent ``3DModelAnimation <key> <ANH name>`` DictionaryPatch line. The ANH name
     carries the MODEL's own group/form/token (that's how ``GetRenameAnimationPath`` routes the name to this
     model's clip folder). Play it anywhere an anim id goes: ``[[npc]] anims = { stand = <key> }``, a
-    cutscene ``animation`` step, ... RELAUNCH to register (DictionaryPatch loads at startup)."""
+    cutscene ``animation`` step, ... RELAUNCH to register (DictionaryPatch loads at startup).
+
+    ``key=None`` reuses the key already registered to this ANH name (idempotent re-deploy) or allocates
+    the next free key in the 16-bit-safe 60000-65535 band; an explicit key must fit 16 bits too (a field
+    anim id is u16 in both the .eb and the engine -- an oversized key silently truncates and never
+    attaches). Re-registering a key REPLACES its line (a duplicate key would double-Add in AnimationDB)."""
     from . import extract
     geo, gid, _tint = extract.resolve_geo(str(model_token))
     parts = geo.split("_")                        # GEO <grp> <form> <token>
@@ -588,14 +634,30 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
     if not sfx:
         raise AnimError(f"bad anim name suffix {suffix!r} (letters/digits/underscore)")
     anh = f"ANH_{parts[1]}_{parts[2]}_{parts[3]}_{sfx}"
-    k = int(key) if key is not None else _NEW_ANIM_KEY_BASE + (gid % 10_000) * 100
+    dp = Path(mod_folder) / "DictionaryPatch.txt"
+    registered = _anim_key_registry(dp)
+    if key is not None:
+        k = int(key)
+        if not 0 < k <= _NEW_ANIM_KEY_MAX:
+            raise AnimError(f"anim key {k} does not fit a field anim slot (16-bit, max {_NEW_ANIM_KEY_MAX}"
+                            f") -- the .eb and the engine would silently truncate it and no clip would "
+                            f"attach; mint keys in the {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} band")
+    else:
+        k = next((kk for kk, nm in registered.items() if nm == anh), None)   # re-deploy reuses its key
+        if k is None:
+            k = _NEW_ANIM_KEY_BASE
+            while k in registered:
+                k += 1
+            if k > _NEW_ANIM_KEY_MAX:
+                raise AnimError(f"no free anim key left in {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} "
+                                f"(this folder's DictionaryPatch registers them all)")
     dest = anim_disc_path(mod_folder, gid, k)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
     directive = f"3DModelAnimation {k} {anh}"
-    dp = Path(mod_folder) / "DictionaryPatch.txt"
     lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
     if directive not in lines:
+        lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")]   # replace, never dup a key
         lines.append(directive)
         dp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return {"geo": geo, "geo_id": gid, "key": k, "name": anh, "path": str(dest),
