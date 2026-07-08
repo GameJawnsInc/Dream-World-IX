@@ -860,6 +860,18 @@ def validate(project: FieldProject) -> list[str]:
                 _archetypes.resolve(arch)                 # a named archetype (or vivi/zidane) must be known
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
+        label = f"[[npc]] {n.get('name', '#' + str(i))!r}"
+        try:                                              # rotating-cast beat window (min inclusive, max exclusive)
+            smin, smax = _scenario_window_of(n)
+        except (ValueError, KeyError) as e:
+            problems.append(f"{label} scenario window: {e}")
+            smin = smax = None
+        for bound, val in (("scenario_min", smin), ("scenario_max", smax)):
+            if val is not None and not (0 <= val <= _startup.SCENARIO_MAX):
+                problems.append(f"{label} {bound} must be 0..{_startup.SCENARIO_MAX} (or an area name); got {val}")
+        if smin is not None and smax is not None and smin >= smax:
+            problems.append(f"{label} scenario_min ({smin}) must be < scenario_max ({smax}) "
+                            f"-- the window is half-open [min, max); an empty/inverted window never appears.")
     for gc in project.raw.get("gateway_carry", []):     # #2b: a verbatim story-gated door entry sidecar
         binref = gc.get("bin")
         if not binref:
@@ -1689,6 +1701,7 @@ def lint_logic(project: FieldProject) -> list[str]:
             out.append(f"NPC {who!r} has no model/preset -- it will CLONE THE PLAYER model (e.g. Zidane). "
                        f"Set preset = \"<character>\" or model = <id> for a different character. (Often a "
                        f"spatial marker placed in Blender whose [[npc]] logic was never authored.)")
+    out += _lint_rotating_cast(raw.get("npc", []) or [])
     enc = raw.get("encounter")                     # a model-bucket [encounter] scene crashes in-game (the picker
     if isinstance(enc, dict) and enc.get("scene") is None and (enc.get("freq") is not None
                                                                or enc.get("battle_music") is not None):
@@ -2585,6 +2598,71 @@ def _gate_of(d: dict):
     return None, True
 
 
+def _lint_rotating_cast(npcs) -> list[str]:
+    """Advisory checks on a rotating cast (NPCs sharing a spot, gated by ``scenario_min``/``scenario_max``) --
+    the two ways a hand-authored roster misbehaves in-game:
+
+    * OVERLAP -- two windows at one spot both cover a beat -> both NPCs spawn there = a STACKED PAIR (the
+      exact #13 bug the analyzer catches on a fork). Half-open windows ``[a,b)`` + ``[b,c)`` do NOT overlap.
+    * GAP -- consecutive windows leave a beat with NOBODY at the spot (usually a typo in the tiling bound).
+
+    Groups by rounded (x, z). Only fires for a spot with >=2 windowed NPCs (a lone gated NPC is fine -- its
+    'gap' is intentional: it's simply absent outside its beat). An unbounded lower/upper end is treated as
+    -inf / +inf. Returns warning strings (advisory)."""
+    by_spot: dict = {}
+    for i, n in enumerate(npcs):
+        if not isinstance(n, dict) or "pos" not in n:
+            continue
+        try:
+            smin, smax = _scenario_window_of(n)
+        except (ValueError, KeyError):
+            continue                                   # a malformed window is a validate() error, not a lint
+        if smin is None and smax is None:
+            continue                                   # not a windowed NPC
+        try:
+            key = (round(float(n["pos"][0])), round(float(n["pos"][1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+        lo = smin if smin is not None else -1
+        hi = smax if smax is not None else _startup.SCENARIO_MAX + 1
+        by_spot.setdefault(key, []).append((lo, hi, n.get("name") or f"#{i}"))
+    out = []
+    for key, members in by_spot.items():
+        if len(members) < 2:
+            continue
+        members.sort()
+        spot = f"[{key[0]}, {key[1]}]"
+        for a in range(len(members)):
+            lo_a, hi_a, na = members[a]
+            for b in range(a + 1, len(members)):
+                lo_b, hi_b, nb = members[b]
+                if lo_b < hi_a and lo_a < hi_b:        # half-open overlap
+                    out.append(f"rotating cast at {spot}: NPC {na!r} and {nb!r} have OVERLAPPING beat windows "
+                               f"-- both appear where the windows meet, so they STACK (two NPCs on one spot). "
+                               f"Windows are half-open [min, max); make them adjacent (e.g. [_, N) then [N, _)).")
+        cover = sorted((lo, hi) for lo, hi, _ in members)
+        reach = cover[0][1]
+        for lo, hi in cover[1:]:
+            if lo > reach:
+                out.append(f"rotating cast at {spot}: a GAP in beat coverage around ScenarioCounter "
+                           f"{reach}..{lo} -- NO NPC is present there. If that spot should always be staffed, "
+                           f"tile the windows (one member's scenario_max = the next's scenario_min).")
+            reach = max(reach, hi)
+    return out
+
+
+def _scenario_window_of(d: dict):
+    """(scenario_min, scenario_max) from an NPC's beat-window keys, or (None, None). ``scenario_min`` is
+    INCLUSIVE, ``scenario_max`` EXCLUSIVE -> the NPC appears while ``min <= ScenarioCounter < max`` (a story
+    beat). Either bound may be a raw int OR an area name (resolved via :func:`flags.resolve_scenario`). This is
+    the rotating-cast idiom: NPCs at one spot with adjacent half-open windows swap by story progress."""
+    def _res(v):
+        if v is None:
+            return None
+        return _flags.resolve_scenario(v) if isinstance(v, str) else int(v)
+    return _res(d.get("scenario_min")), _res(d.get("scenario_max"))
+
+
 def _gateway_on_exit_body(gw: dict, names: dict) -> bytes:
     """The story-state advance a ``[[gateway]]`` applies when the player TAKES this exit: the raw
     ``set_var`` bytes from ``set_scenario`` (ScenarioCounter) + ``set_flags`` (gEventGlobal bits), built
@@ -3435,6 +3513,7 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
                 anims = _catalog.npc_anims(mid) or None
             kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
         gf, gs = _gate_of(n)
+        smin, smax = _scenario_window_of(n)
         txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
         # talk body: a dialogue [[choice]] (talk -> menu -> branch) OR opens_shop (talk -> Menu(2,id)) REPLACES
         # the plain WindowSync (validate forbids both on one NPC). Else the default WindowSync(dialogue) is used.
@@ -3454,7 +3533,8 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         pos = n["pos"]
         slot = EbScript.from_bytes(eb).entry_count - _object.PARTY_BAND_SIZE   # the slot this insert will take
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
-                             gate_require_set=gs, speak_body=sb, reserve_party_band=True, **kwargs)
+                             gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
+                             speak_body=sb, reserve_party_band=True, **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
     return eb, npc_slots
@@ -3754,6 +3834,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if holder_pose and not n.get("anims") and isinstance(kwargs.get("anims"), dict):
             kwargs["anims"] = {**kwargs["anims"], "stand": holder_pose}   # pose the holder to hold
         gf, gs = _gate_of(n)
+        smin, smax = _scenario_window_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
         intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
         # a dialogue choice on this NPC: talk -> menu -> branch (replaces the plain WindowSync)
@@ -3772,7 +3853,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
                                        greeting_txid=txid if n.get("dialogue") else None)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
-                             gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
+                             gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
+                             appears_scenario_max=smax, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:

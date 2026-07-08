@@ -19,7 +19,7 @@ no extraction; the author asserts the beat (they have the game knowledge).
 from __future__ import annotations
 
 from . import region as _region
-from ..eb import edit
+from ..eb import edit, opcodes
 
 SCENARIO_BYTE = 0          # ScenarioCounter = the save-backed UInt16 at gEventGlobal byte 0 (token 0xDC)
 SCENARIO_MAX = 32767       # set_var packs a signed int16; every real beat (<= 12000) fits with margin
@@ -27,6 +27,33 @@ WORD_BYTE_MAX = 2046       # a UInt16 word at byte N spans gEventGlobal[N..N+1];
 WORD_VALUE_MAX = 0xFFFF
 BYTE_BYTE_MAX = 2047       # a single byte at byte N occupies gEventGlobal[N] only; the heap is 2048 bytes
 BYTE_VALUE_MAX = 0xFF
+
+
+def scenario_window_gate(scenario_min=None, scenario_max=None) -> bytes:
+    """A self-return PROLOGUE that keeps a function running only while the ScenarioCounter is inside a beat
+    window ``[scenario_min, scenario_max)`` -- the FF9 rotating-cast idiom (an NPC that appears only during a
+    story stretch). Prepend it to an object's Init: outside the window the Init returns before ``CreateObject``,
+    so the NPC never appears/interacts.
+
+    Emits up to two guards, each ``ifnot (SC <cmp> bound) { return }`` (same self-return shape as
+    :func:`ff9mapkit.content.region.flag_gate` / :func:`ff9mapkit.content.onentry.scenario_gate`, but with a
+    ``>=`` / ``<`` bound so a RANGE gates, not a single beat):
+
+    - ``scenario_min``: ``ifnot (SC >= min) return`` -> absent before the beat opens.
+    - ``scenario_max``: ``ifnot (SC < max) return``  -> absent once the beat has passed (EXCLUSIVE upper bound,
+      so adjacent members tile seamlessly: ``[a, b)`` then ``[b, c)``).
+
+    Both optional (a one-sided window is fine: ``min`` only = "from this beat on"; ``max`` only = "until"). The
+    bytes round-trip through the roster reader (``forkreport._sc_cond`` decodes each guard's ``SC <cmp> bound``).
+    Returns ``b""`` when neither bound is given (no gate)."""
+    out = b""
+    if scenario_min is not None:
+        cond = _region.cond_cmp(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario_min), ">=")
+        out += cond + bytes([_region.JMP_TRUE]) + _region._i16(1) + opcodes.RETURN
+    if scenario_max is not None:
+        cond = _region.cond_cmp(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario_max), "<")
+        out += cond + bytes([_region.JMP_TRUE]) + _region._i16(1) + opcodes.RETURN
+    return out
 
 
 def startup_body(presets, scenario=None, words=(), byte_writes=()) -> bytes:

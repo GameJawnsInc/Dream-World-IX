@@ -429,8 +429,11 @@ dialogue choices · ladders · the F6 debug menu · Info Hub catalogs.
 - FMV pipeline + SPS field-particle authoring → [[project-ff9-fmv-pipeline]], [[project-ff9-sps-authoring]]
 - Onboarding + Windows installer — uv-bootstrap `.exe` + `ff9mapkit setup` (detect FF9 → save config → extract → Memoria report; opt-in `--install-engine`) + Steam/GOG auto-detect + the GUI working for installed (.exe/pip/uv) users → [[project-ff9-installer-packaging]]
 
-**Frontier:** #13 (story-event director/roster on rotating-cast fields) — core + tail in-game proven →
-[[project-ff9-fork-fidelity-worklist]]. Custom OVERWORLD is now STARTED (no longer "unstarted"): geometry reshape (s34,
+**Frontier:** #13 (story-event director/roster on rotating-cast fields) — carry-side (`--verbatim`+`[startup]`) AND
+now the AUTHORING side ★ in-game proven: **`[[npc]] scenario_min/scenario_max`** self-gates an NPC on a
+ScenarioCounter window `[min,max)` (min incl / max excl) so NPCs at one spot with adjacent windows are a rotating
+cast; the gate is the exact byte shape `fork-report` reads back → [[project-ff9-fork-fidelity-worklist]]. Custom
+OVERWORLD is now STARTED (no longer "unstarted"): geometry reshape (s34,
 ★proven), overworld→fork entry (s28, ★proven), and now **authoring a NEW overworld ENTRANCE from scratch** (world-`.eb`
 func + tile-bit edit → custom `!` → warp; ★in-game proven 2026-07-01, entered a forked field) → [[project-ff9-worldmap-feasibility]].
 The whole entrance flow is FOLDED into one command — **`ff9mapkit world-entrance --cell X Z --field N [--building

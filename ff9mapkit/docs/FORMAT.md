@@ -208,6 +208,7 @@ world coords (no offset) — they are already the exact engine positions.
 | `tail` | the dialogue window's pointer corner (`UPR` default). See below. |
 | `requires_flag` | GlobBool index (or a `[[flag]]` name) — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
 | `requires_flag_clear` | …only appears when the flag is CLEAR (the inverse — e.g. an NPC that leaves once an event fires). |
+| `scenario_min` / `scenario_max` | a **story-beat window** — the NPC only appears while `scenario_min ≤ ScenarioCounter < scenario_max` (min **inclusive**, max **exclusive**). Either bound may be a raw beat number or an area name (e.g. `"Dali"`). This is FF9's **rotating-cast** idiom: the NPC self-gates on the story clock, so it's present only during a stretch of the game. Composes with `requires_flag` (both must hold). See *Rotating casts* below. |
 | `holds` | a **prop the NPC holds in hand** — a prop-archetype name (`"cup"`, `"sword"`, `"save_the_queen"`) or a model, or a **list** of them. The kit attaches each prop to the right hand-bone *and* poses the prop + the holder correctly, **auto-resolved for this holder's model** from the shipping `AttachObject` catalog (`tools/extract_attach_poses.py` → `_held_poses.py`). So `holds = "save_the_queen"` on a `beatrix` puts the sword in her hand at her real holding pose. A (holder, prop) pair not in the catalog falls back to bone 11 + the prop's resting pose (and leaves the holder's pose alone). |
 
 ### Speaker names & the dialogue tail
@@ -232,6 +233,44 @@ dialogue = "I missed you, [ZDNE]."   # renders "Vivi: I missed you, Zidane."
 speaker = "[VIVI]"                    # renameable name; or just "Vivi"
 tail = "UPL"                          # pointer from the upper-left
 ```
+
+### Rotating casts (story-event fields)
+
+Real FF9 town/story fields don't have a fixed roster — the cast **rotates by story progress**. The
+shopkeeper in a shop is a different character on disc 1 vs. disc 4; a guard is at his post only during a
+siege. The engine does this by having each actor self-gate on the **ScenarioCounter** (the ordered story
+clock): the object's Init returns early — no model, no interaction — unless the story is inside its beat.
+
+`scenario_min` / `scenario_max` author exactly that. Put two NPCs **at the same spot** with **adjacent
+half-open windows**, and the cast swaps at the boundary — a rotating shopkeeper in four lines:
+
+```toml
+[[npc]]
+name = "keeper_disc1"
+model = "GEO_NPC_F0_BOM"
+pos = [120, -400]
+opens_shop = 4
+scenario_min = 2600     # appears from the Dali beat (ScenarioCounter >= 2600) …
+scenario_max = 11090    # … until the Pandemonium beat (< 11090)
+
+[[npc]]
+name = "keeper_disc4"
+model = "GEO_NPC_F1_BBA"
+pos = [120, -400]       # SAME spot
+opens_shop = 4
+scenario_min = 11090    # takes over at 11090 onward — the two windows tile seamlessly
+```
+
+Because the window is **half-open** (`[min, max)`), adjacent members never overlap (no stacked pair) and
+leave no gap. A one-sided window is fine: `scenario_min` alone = "from this beat on"; `scenario_max` alone
+= "until this beat". Combine with `requires_flag` for a member gated on both a beat *and* a story bit. To
+find the right beat numbers for a real field you're forking, `ff9mapkit fork-report <field>` prints the
+field's ScenarioCounter gates and (for a rotating field) a beat→cast table. The authored gate is the exact
+byte shape `fork-report` reads back, so a forked-then-reauthored roster round-trips through the analyzer.
+
+> This is the **authoring** side of fork-fidelity gap #13 (story-event director / rotating cast). Carrying a
+> real field's rotating cast faithfully is `--verbatim` + `[startup] scenario = N`; *authoring* a new one (on
+> a from-scratch or edited field) is these keys.
 
 ### Line breaks & pages
 

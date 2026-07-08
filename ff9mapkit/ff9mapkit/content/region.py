@@ -167,9 +167,26 @@ def cond_not(var_class, idx: int) -> bytes:
     return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_NOT, T_END])
 
 
+# comparison-op tokens usable in a var-vs-const condition (the ones the roster analyzer decodes: forkreport
+# `_CMP_OPS`). Keyed by a friendly name so callers don't pass raw bytes.
+CMP_TOKENS = {"==": T_EQ, "<": T_LT, ">": T_GT, "<=": T_LE, ">=": T_GE}
+
+
+def cond_cmp(var_class, idx: int, value: int, op: str = "==") -> bytes:
+    """``if (VAR <op> value)`` condition expr -> ``05 <var> 7D <value:i16> <cmp> 7F``. ``op`` is one of
+    :data:`CMP_TOKENS` (``== < > <= >=``). This is the general form the roster/scenario gates read + write --
+    e.g. ``cond_cmp(GLOB_UINT16, 0, 2600, ">=")`` is ``ScenarioCounter >= 2600``, the exact byte shape
+    ``forkreport._sc_cond`` decodes (so an authored gate round-trips through the reader)."""
+    try:
+        cmp = CMP_TOKENS[op]
+    except KeyError:
+        raise ValueError(f"unknown comparison {op!r} -- use one of {sorted(CMP_TOKENS)}")
+    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([cmp, T_END])
+
+
 def cond_eq(var_class, idx: int, value: int) -> bytes:
     """``if (VAR == value)`` condition expr -> ``05 <var> 7D <value:i16> 20 7F``."""
-    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_EQ, T_END])
+    return cond_cmp(var_class, idx, value, "==")
 
 
 def cond_item_count_lt(item_id: int, limit: int = 99) -> bytes:
