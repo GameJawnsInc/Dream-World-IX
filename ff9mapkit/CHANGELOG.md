@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+_Nothing yet — changes land here, then get stamped at the next release._
+
+## [1.0.0b13] - 2026-07-08 — 14th playable character, Scripts-DLL scripting, custom models & creatures, synthetic overworld
+
+> Versions **b3–b12** predate this file's return to per-version stamping; their notes live in
+> [`release-notes/`](../release-notes/) and on the
+> [GitHub Releases](https://github.com/GameJawnsInc/Dream-World-IX/releases) page. The per-version log
+> resumes at b13.
+
 ### Added — EXPERIMENTAL: image → explorable field (`image-field`, MVP)
 - **`ff9mapkit image-field <image> --floor "cx,cy …" --out DIR`** synthesizes a walkable FF9 field
   from an arbitrary image + a hand-traced floor polygon: the image becomes the painted background,

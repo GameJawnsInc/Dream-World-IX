@@ -25,8 +25,8 @@ jobs:
     name: Build wheel + sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Build
@@ -39,7 +39,7 @@ jobs:
         run: |
           python -m pip install twine
           python -m twine check dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: dist
           path: ff9mapkit/dist/*
@@ -50,8 +50,8 @@ jobs:
     # (Pillow / PySide6 / UnityPy ship platform-specific binaries).
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install package + extras + pip-licenses
@@ -62,7 +62,7 @@ jobs:
         working-directory: ff9mapkit
       - name: Generate THIRD-PARTY-NOTICES.txt
         run: python tools/gen_third_party_notices.py -o THIRD-PARTY-NOTICES.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: third-party-notices
           path: THIRD-PARTY-NOTICES.txt
@@ -75,11 +75,11 @@ jobs:
     permissions:
       contents: write          # create/update the Release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: dist
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: third-party-notices
           path: notices
@@ -101,7 +101,7 @@ jobs:
     permissions:
       id-token: write          # OIDC -- no API token/secret needed once Trusted Publishing is configured
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: dist
           path: dist
