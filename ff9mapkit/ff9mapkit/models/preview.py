@@ -88,8 +88,6 @@ def _stand_pose(geo_id: int, bones: list, game=None, env5=None) -> list:
         keys = _anim.list_clip_keys(env, geo_id)
     except Exception:
         return bones
-    if not keys:
-        return bones
 
     def rank(k):
         nm = (catalog.animation_name(k) or "").lower()
@@ -97,7 +95,25 @@ def _stand_pose(geo_id: int, bones: list, game=None, env5=None) -> list:
             if tokn in nm:
                 return (i, k)
         return (9, k)
-    clip = _gltf_io.read_clip(env, geo_id, min(keys, key=rank))
+    best, folder = (min(keys, key=rank), geo_id) if keys else (None, None)
+    if best is None or rank(best)[0] == 9:
+        # The own folder has no stand-like clip (or no clips at all) -- follow the engine's AnimationDB
+        # name-token redirect to the DONOR folder holding the model's named idle/stand (an F1+ NPC variant
+        # like GEO_NPC_F1_BBA keeps only niche gestures natively), so the thumbnail poses from a real rest
+        # clip instead of a random gesture / the collapsed rest hierarchy.
+        try:
+            acts = catalog.animations_for_model(geo_id) or {}
+            disc = _gltf_io.anim_disc_map(env)
+            for act in ("stand", "idle", "idle1", "wait", "walk"):
+                loc = catalog.locate_animation(acts[act], geo_id, disc) if act in acts else None
+                if loc:
+                    best, folder = loc
+                    break
+        except Exception:
+            pass
+    if best is None:
+        return bones
+    clip = _gltf_io.read_clip(env, folder, best)
     if not clip:
         return bones
     by_num = {ch.get("bone"): ch for ch in clip["bones"].values() if ch.get("bone") is not None}

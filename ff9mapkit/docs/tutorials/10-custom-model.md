@@ -17,8 +17,11 @@ ff9mapkit model-gltf GEO_MAIN_F0_VIV --out vivi.glb
 ```
 
 The `.glb` embeds the skinned mesh, the bone rig, textures, and a useful animation set
-(`--anims all` for the model's whole clip folder). It also carries a stamp (source id, scale) so
-the return trip needs no extra flags.
+(`--anims all` for the model's whole clip folder; `--anims "idle talk"` for named actions). An
+action whose clip lives in another model's animation folder — common for NPC variants, whose
+idle/walk usually belong to the family's base model — is found there automatically (the CLI notes
+which clips came from a donor folder). The `.glb` also carries a stamp (source id, scale) so the
+return trip needs no extra flags.
 
 Alternatively, in the Workspace: **Import** tab → **Custom 3D models** → **Export .glb…**; in
 Blender: the add-on's **Import FF9 Model**.

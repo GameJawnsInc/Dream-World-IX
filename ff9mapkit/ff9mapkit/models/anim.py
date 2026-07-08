@@ -36,7 +36,7 @@ import math
 import re
 from pathlib import Path
 
-from .. import config
+from .. import catalog, config
 from . import extract, _gltf_io
 from .gltf import _icpos, _icquat, _sign_continuous, DEFAULT_SCALE
 
@@ -297,24 +297,37 @@ def _resolve_geo_id(gltf: dict, geo, geo_id, *, game=None) -> tuple:
 def deploy_source_anims(token: str, mod_folder, *, which="all", game=None) -> dict:
     """Dump a model's REAL clips (or a subset) as loose ``.anim`` JSON into ``mod_folder`` -- the hand-edit
     surface AND the Phase-2 loose-override-path proof (each is the bundled clip, faithful minus tangents).
-    ``which`` = "all" or an iterable / comma-space string of anim KEYS."""
+    ``which`` = "all" (every clip in the model's OWN folder) or an iterable / comma-space string of anim
+    KEYS -- an explicitly requested key that lives in a DONOR model's folder (the engine's AnimationDB
+    name-token redirect, e.g. BBA's idle=560 in Animations/112/) is located + dumped at that real path,
+    sibling-resolving duplicate ids; a key found nowhere lands in ``missing``."""
     geo, geo_id, _ = extract.resolve_geo(token)
     env5 = _load_env5(game)
-    keys = list_clip_keys(env5, geo_id)
-    if which not in ("all", None, ""):
-        want = {int(t) for t in str(which).replace(",", " ").split()} if isinstance(which, str) \
-            else {int(x) for x in which}
-        keys = [k for k in keys if k in want]
+    missing: list = []
+    if which in ("all", None, ""):
+        targets = [(k, geo_id) for k in list_clip_keys(env5, geo_id)]
+    else:
+        want = [int(t) for t in str(which).replace(",", " ").split()] if isinstance(which, str) \
+            else [int(x) for x in which]
+        disc = _gltf_io.anim_disc_map(env5)
+        targets = []
+        for w in dict.fromkeys(want):                          # keep request order, drop dups
+            loc = catalog.locate_animation(w, geo_id, disc)
+            if loc:
+                targets.append(loc)
+            else:
+                missing.append(w)
     written = []
-    for k in keys:
-        clip = _gltf_io.read_clip(env5, geo_id, k)
+    for k, folder in targets:
+        clip = _gltf_io.read_clip(env5, folder, k)
         if not clip or not clip.get("bones"):
             continue
-        p = anim_disc_path(mod_folder, geo_id, k)
+        p = anim_disc_path(mod_folder, folder, k)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
         written.append(str(p))
-    return {"geo": geo, "geo_id": geo_id, "written": written, "keys": keys}
+    return {"geo": geo, "geo_id": geo_id, "written": written, "keys": [k for k, _ in targets],
+            "missing": missing}
 
 
 class AnimsetError(RuntimeError):
@@ -445,28 +458,32 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
     except (RuntimeError, FileNotFoundError, ValueError, KeyError):
         pass
     env5 = _load_env5(game)
+    disc = _gltf_io.anim_disc_map(env5)                       # {folder_id: set(key)} -- the physical layout
     # Fallback routing: if Blender dropped an animation's extras, the numeric-name fallback fails for a
     # FRIENDLY-named Action ("idle1"/"run"/"fly_cho" -- what the exporter now writes). Resolve the label to its
-    # on-disc key from each on-disc clip's OWN ANH name (e.g. ANH_SUB_W0_001_IDLE1 -> "idle1" -> 4716) -- NOT via
-    # animations_for_model, whose catalog id != the on-disc key for world models (that mismatch silently dropped
-    # the edit). This is the exact inverse of the exporter's label derivation, so a round-trip resolves.
+    # on-disc key from each on-disc clip's OWN ANH name (e.g. ANH_SUB_W0_001_IDLE1 -> "idle1" -> 4716), then
+    # accept a catalog action label -> its id (a DONOR-folder action like BBA's 'idle'=560; the locate below
+    # settles which folder + same-name sibling actually exists on disc).
     label_to_key = {}
     try:
-        from .. import catalog
-        for k in list_clip_keys(env5, gid):
+        for k in sorted(disc.get(gid) or ()):
             nm = catalog.animation_name(k)                    # ANH_SUB_W0_001_IDLE1
             parts = nm.split("_") if nm else []
             if len(parts) >= 5:                               # ANH <group> <form> <token> <ACTION...>
                 label_to_key.setdefault("_".join(parts[4:]).lower(), k)
         for lbl, k in (catalog.animations_for_model(geo_name) or {}).items():
             label_to_key.setdefault(str(lbl).lower(), k)      # also accept a catalog action label -> its id
-    except Exception:   # noqa: BLE001  -- catalog/install optional; fallback is best-effort
+    except Exception:   # noqa: BLE001  -- label fallback is best-effort; the ff9_anim_key stamp still routes
         pass
-    written, skipped, warnings = [], [], []
-    # GROUP the parsed animations by their resolved clip key first. A scene with the model imported more than
-    # once stacks duplicate actions (run.001 ...) that all route to the same key; writing them in order would
-    # let a pristine/re-sampled duplicate CLOBBER the user's edit last-wins. Instead, per key, pick an EDITED
-    # candidate (so the real edit beats the pristine copies) and write each key exactly once.
+    written, skipped, warnings, written_folders = [], [], [], set()
+    # GROUP the parsed animations by their resolved clip (key, folder) first. A scene with the model imported
+    # more than once stacks duplicate actions (run.001 ...) that all route to the same clip; writing them in
+    # order would let a pristine/re-sampled duplicate CLOBBER the user's edit last-wins. Instead, per clip,
+    # pick an EDITED candidate (so the real edit beats the pristine copies) and write each clip exactly once.
+    # A clip is routed to the folder the ENGINE reads it from (catalog.locate_animation: own folder, else the
+    # AnimationDB name-token redirect to a DONOR folder, sibling-resolving duplicate ids) -- an override
+    # written under the wrong folder is silently dead. An unlocatable key (a minted custom clip not in the
+    # bundle) keeps the model's own folder, where deploy_new_anim ships it.
     by_key: dict = {}
     for pa in parse_gltf_animations(gltf, blob, scale=scale):
         key = pa["key"]
@@ -478,9 +495,10 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
                             f"e.g. 'idle1'/'run', or its numeric anim key)")
             skipped.append(pa["label"] or "<unnamed>")
             continue
-        by_key.setdefault(key, []).append(pa)
-    for key, group in by_key.items():
-        source_clip = _gltf_io.read_clip(env5, gid, key) or {"name": str(key), "sample_rate": 30.0, "bones": {}}
+        loc = catalog.locate_animation(key, gid, disc)
+        by_key.setdefault(loc if loc else (int(key), gid), []).append(pa)
+    for (key, folder), group in by_key.items():
+        source_clip = _gltf_io.read_clip(env5, folder, key) or {"name": str(key), "sample_rate": 30.0, "bones": {}}
         edited = group if force else [pa for pa in group if _is_edited(pa["bones"], source_clip)]
         if not edited:
             skipped.append((key, "unchanged"))                       # every copy matches the source -> keep bundled
@@ -490,11 +508,18 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
                             f"using the edited one" + (" (last of several)" if len(edited) > 1 else ""))
         merged = splice_edits_onto_clip(source_clip, edited[-1]["bones"], model_bones=model_bones,
                                         warn=warnings.append)
-        p = anim_disc_path(mod_folder, gid, key)
+        if folder != gid:
+            donor = catalog.model(folder)
+            warnings.append(f"Animations/{folder}/{key}.anim is a SHARED donor-folder clip "
+                            f"({donor.name if donor else f'model {folder}'}'s) -- the engine reads it for "
+                            f"every model that plays it, not just {geo_name or gid}")
+        p = anim_disc_path(mod_folder, folder, key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
         written.append(str(p))
-    return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid}
+        written_folders.add(folder)
+    return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid,
+            "folders": sorted(written_folders) or [gid]}
 
 
 # ---------------------------------------------------------------- wholly NEW clips (not edits)

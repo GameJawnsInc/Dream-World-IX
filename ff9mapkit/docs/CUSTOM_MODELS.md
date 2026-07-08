@@ -115,7 +115,16 @@ verbatim and set `inverseBindMatrices[j] = inverse(boneWorld_rest[j])` (recomput
 independent of the per-mesh bake G (which lives in the verts), so glTF's one-IBM-per-joint reproduces the correct
 pose *and* animation, mirroring the engine; the rest-pose identity `world·IBM = I` is verified to 9.4e-08.
 Animations read straight from the legacy `.anim` clips in p0data5 (quaternion rotation curves + root translation,
-30 fps, LINEAR-faithful; `models/_gltf_io.read_clip`).
+30 fps, LINEAR-faithful; `models/_gltf_io.read_clip`). Clip **selection follows the engine's AnimationDB folder
+redirect** (`AnimationFactory.GetRenameAnimationPath` → `GetRenameAnimationDirectory`): a clip's on-disc folder
+comes from its *name's* model tokens, so most of a variant model's actions live in a DONOR model's folder —
+`GEO_NPC_F1_BBA` (10) keeps only two native gesture clips in `Animations/10/`, while her idle/walk/run/turns are
+`ANH_NPC_F0_BBA_*` in `Animations/112/` (`GEO_NPC_F0_BBA`'s). `--anims auto`, action labels, and raw ids all
+locate a clip where it really lives (own folder first, then the redirect, falling through AnimationDB's ~4.7k
+duplicate-name sibling ids — `catalog.animation_folder`/`locate_animation`), and the return path
+(`model-import`/`model-anim`) writes an edited donor clip back to that same folder — an override under the
+playing model's own folder would be silently dead. A donor-folder clip is SHARED by every model that plays it,
+so the CLI flags donor writes.
 
 **★★ Blender edit loop — COMPLETE + in-game PROVEN (2026-07-03).** A user reshaped Vivi in Blender → glTF →
 `model-import` → the edited Vivi renders in-game, still animating on the original skeleton — the full loop

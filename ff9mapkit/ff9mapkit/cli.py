@@ -1463,6 +1463,10 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     print(f"exported {man['geo']} (id {man['geo_id']}) -> {man['path']}")
     print(f"  {man['bones']} bones / {man['meshes']} mesh part(s) / {man['verts']} verts / "
           f"{man['textures']} texture(s) / anims: {', '.join(man['anims']) or 'none'}")
+    for d in man.get("donor_anims") or []:
+        who = d["model"] or "model %s" % d["folder"]
+        print(f"  donor clips: {', '.join(d['labels'])} <- Animations/{d['folder']}/ ({who}'s folder -- the "
+              f"engine's AnimationDB redirect; clips bind by bone name, so a same-rig donor clip plays cleanly)")
     print(f"  (each part is a SEPARATE named object in Blender -- edit one without disturbing the others)")
     for w in man.get("warnings", []):
         print(f"  WARN: {w}")
@@ -1606,9 +1610,9 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
           + (f", rig from {r['source']}" if r['source'] else "") + ")")
     print(f"  wrote: {r['path']}  (+ {len(r['textures'])} texture(s))")
     anims = r.get("anims") or {}
+    _anim_dirs = ", ".join(f"Animations/{f}/" for f in (anims.get("folders") or [anims.get("geo_id")]))
     if anims.get("written"):
-        print(f"  animations: wrote {len(anims['written'])} edited clip override(s) -> "
-              f"Animations/{anims.get('geo_id')}/*.anim")
+        print(f"  animations: wrote {len(anims['written'])} edited clip override(s) -> {_anim_dirs}*.anim")
     elif anims.get("error"):
         print(f"  animations: skipped ({anims['error']})")
     elif not args.no_anims:
@@ -1620,7 +1624,7 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
         # before disc), and F6 field-reload re-requests the SAME path -> it gets the cached clip. So a
         # re-deployed .anim needs a RELAUNCH; only the mesh/FBX is picked up by F6.
         print(f"  RELAUNCH FF9 to apply the .anim clip(s) (F6 field-reload keeps the cached clip); the MESH "
-              f"shows on F6. Revert: delete Models/<type>/{r['id']}/ + Animations/{anims.get('geo_id')}/.")
+              f"shows on F6. Revert: delete Models/<type>/{r['id']}/ + {_anim_dirs}.")
     else:
         print(f"  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by "
               f"deleting that Models/<type>/{r['id']}/ folder.")
@@ -1644,8 +1648,13 @@ def _cmd_model_anim(args: argparse.Namespace) -> int:
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
+    folders = sorted({Path(w).parent.name for w in r["written"]}, key=int) or [str(r["geo_id"])]
+    fdir = folders[0] if len(folders) == 1 else "{%s}" % ",".join(folders)   # donor-located clips span folders
     print(f"{'deployed' if args.deploy else 'dumped'} {len(r['written'])} clip(s) for {r['geo']} "
-          f"(id {r['geo_id']}) -> {where}/StreamingAssets/Assets/Resources/Animations/{r['geo_id']}/")
+          f"(id {r['geo_id']}) -> {where}/StreamingAssets/Assets/Resources/Animations/{fdir}/")
+    if r.get("missing"):
+        print(f"  NOT FOUND anywhere on disc (own folder, donor folder, or a same-name sibling id): "
+              f"{', '.join(map(str, r['missing']))}")
     if not r["written"]:
         print(f"  (no clips matched; available keys: {', '.join(map(str, r['keys'])) or 'none'})")
     else:
@@ -4260,7 +4269,10 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("--out", default=None, help="output .glb path (default: <geo>.glb in the current dir)")
     mg.add_argument("--anims", default="auto",
                     help="which clips to embed: 'auto' (idle/walk/run/turns), 'all' (the model's whole folder), "
-                         "'none', or a comma/space list of action labels or raw anim ids")
+                         "'none', or a comma/space list of action labels or raw anim ids. A clip that lives in "
+                         "a DONOR model's folder (the engine's AnimationDB name redirect -- e.g. most of "
+                         "GEO_NPC_F1_BBA's actions live in GEO_NPC_F0_BBA's Animations/112/) is found + "
+                         "embedded automatically")
     mg.add_argument("--scale", type=float, default=0.01,
                     help="uniform scale bake (default 0.01: FF9's hundreds-of-units models -> a few Blender metres)")
     mg.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
@@ -4290,8 +4302,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="dump/deploy a model's animation clips as editable loose .anim JSON (DLL-free)")
     ma.add_argument("model", help="GEO name or model id whose clips to dump, e.g. GEO_MAIN_F0_VIV or 8")
     ma.add_argument("--clips", default="all",
-                    help="which clips: 'all' (default) or a comma/space list of anim KEYS (see `model-gltf "
-                         "--anims all` output / the folder listing)")
+                    help="which clips: 'all' (default: every clip in the model's OWN folder) or a comma/space "
+                         "list of anim KEYS (see `models <GEO>` / `model-gltf --anims all`). A key living in a "
+                         "DONOR model's folder (the engine's AnimationDB redirect) resolves + dumps at its real "
+                         "Animations/<folder>/ path")
     ma.add_argument("--out", default=".", help="dir to write the Animations/<geoId>/ tree into (default: .)")
     ma.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="write straight into MODFOLDER's StreamingAssets override path instead of --out "
