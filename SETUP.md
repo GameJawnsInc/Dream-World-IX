@@ -367,15 +367,16 @@ extra (UnityPy).
 | `playable-anims <field>` | Route edited donor clips onto a custom playable character's own minted animset. |
 
 **Overworld** *(the mesh-writing commands — `world-terrain`, `world-reclaim`, `world-coast`,
-`world-water`, `world-entrance`, `world-deploy`, `world-mesh-build` — need the engine bundle's
-`s34` mesh-override patch; the atlas/texture, encounter, environment, and marker commands are
-stock-engine)*
+`world-transplant`, `world-water`, `world-entrance`, `world-deploy`, `world-mesh-build` — need
+the engine bundle's `s34` mesh-override patch; the atlas/texture, encounter, environment, and
+marker commands are stock-engine)*
 
 | command | what it does |
 |---|---|
 | `world-terrain` | Reshape walkable terrain (hill/crater/ridge/flatten) across blocks, seamlessly. |
 | `world-reclaim` | Reclaim ocean cells as walkable land. |
 | `world-coast` | Place a real FF9 coastal block (terrain + animated beach/foam) on reclaimed ocean (`--list` browses donors). |
+| `world-transplant` | Carry a complete real island (land + beach + Wang'd ocean) to a cell, with 90° rotation + 0-mod-4 shift, offline-gated. |
 | `world-water` | Synthesize graded open-ocean water (shallow→deep bands) on sea cells. |
 | `world-entrance` | Author a whole custom overworld entrance: trigger func + event tiles + optional building (`--cell`, `--field`, `--building`). |
 | `world-encounters` / `world-encounter-rate` | Inspect/re-table the overworld encounter table / retune its frequency. |

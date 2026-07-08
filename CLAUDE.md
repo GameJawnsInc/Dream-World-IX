@@ -466,8 +466,11 @@ position / 0-mod-4 shift / 90°-rotation knobs, then EDITED component-wise on th
 grass language; a beach-end re-cover with the cap-band asset); the saga distilled the coastline EDIT LAWS (components are
 geometry+texture+topo units; end welds are load-bearing — slide connector ASSEMBLIES, never re-draw their boundaries; at 1-column
 scale beach length = where the curl begins) + two permanent offline gates (placement census, WELD AUDIT — never hand-type
-geometry, real verts are off-lattice floats) — `scratch/synth-island/beach/island_morph.py` (kit productization = the next step)
-+ the s22 F6 block-dump tool → [[project-ff9-overworld-coast-mosaic]]. Remaining overworld frontier: multi-column GEOMETRIC
+geometry, real verts are off-lattice floats) — PRODUCTIZED 2026-07-08 as **`ff9mapkit world-transplant`** (`world/transplant.py`:
+transplant knobs + `TileRetexture`/`PatchRecover` tweak classes + `--strips auto` island-tongue rule [neighbour blocks are FOREIGN
+content, carried only where the donor's own land reaches that border]; `weld_audit` = a general gate in `world/mesh.py`; census
+folded in; kit build BYTE-IDENTICAL to the proven island_morph v16 scratch artifact) + the s22 F6 block-dump tool
+→ [[project-ff9-overworld-coast-mosaic]]. Remaining overworld frontier: multi-column GEOMETRIC
 coastline moves (interior waterline verts are movable; the transplant is the baseline); scale to a real CONTINENT
 (towns+entrances via `world-entrance --building`).
 

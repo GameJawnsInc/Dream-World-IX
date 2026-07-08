@@ -508,6 +508,30 @@ ray (`w_movementChrInitSlice` already sky-casts infinitely from +400u), but `w_n
 on a destination block not yet `IsReady` at warp time. Fix: `WMWorld.ForceLoadBlockReadyAt(pos)` force-loads the target
 block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only on a FAR/unstreamed warp.
 
+### VERBATIM island TRANSPLANT — `world-transplant` (carry a complete real island anywhere, ★ in-game proven 2026-07-08)
+
+Where `world-coast` re-tags a donor's terrain in place (block-relative, no repositioning), `world-transplant` carries
+the COMPLETE real block — terrain + `beach1` + every Sea sub-mesh, the full Wang'd ocean with its real peninsulas and
+stipple tiles — to a custom ocean cell **with position knobs**: `ff9mapkit world-transplant --cell X,Y --donor 7,17
+[--rot 90|180|270] [--shift dx,dz | auto]`. 90-degree rotations and 0-mod-4 shifts keep the 4u tile lattice EXACT, so
+the whole block stays byte-verbatim through the move (tiles rotate into their own legal rotation variants; free angles
+/ off-lattice shifts would strain the Wang tile language and are not offered). Where the donor's own land crosses a
+block border — the (7,17) island's east tongue lives in (8,17) — that neighbour's edge strip comes along automatically
+(`--strips auto`); neighbour blocks are otherwise FOREIGN content (someone else's landmass edge) and are never carried
+silently. The shift window follows the carried strips: shifting may only vacate an edge a strip can refill.
+
+Every build must pass the OFFLINE GATE SET before any file is written: the engine-placement census (`miss=0` — full
+walk/sail coverage), the **weld audit** (`ff9mapkit.world.mesh.weld_audit`, 0 near-miss vertex pairs — the
+hairline-crack detector: two verts closer than 0.05u but not identical read as a crack in-game), land-fit, frame
+bounds, and each edit's exact tri-count scope. Component EDITS on a transplant are library-level
+(`ff9mapkit.world.transplant`): `TileRetexture` retextures whole lattice cells in the learned tile language (UVs +
+IDALL only, geometry verbatim — the proven chocobo-track de-quest), and `PatchRecover` drops tris and re-covers their
+footprint with corner verts CAPTURED bit-exact from the dropped tris (the proven one-column beach shrink) — never
+hand-type geometry: real donor verts are off-lattice floats, and any rounded coordinate renders as a hairline crack.
+★ IN-GAME PROVEN 2026-07-08: the (7,17)+(8,17) island at cell (4,2), rotated 90°, auto-shifted (0,−8), de-quested +
+beach-shrunk — indistinguishable from the game's own coast ("that's it"); the kit build is byte-identical to the
+proven artifact, per part. **Requires the custom engine (s34 + `Donor.txt`); RELAUNCH.**
+
 ### Custom graded OCEAN water — `world-water` (synthesize open water from scratch, validated 17/17 tile-shape, ★ in-game "looks good" 2026-07-05)
 
 Where `world-coast` MOSAICS real coastline pieces, `world-water` **synthesizes** faithful open-ocean water from a depth

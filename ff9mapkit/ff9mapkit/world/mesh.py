@@ -1020,3 +1020,32 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
             tan[vi][0] = float(idall)
         changed += 1
     return changed
+
+
+def weld_audit(meshes, *, tol: float = 0.05) -> list:
+    """NEAR-MISS vertex census across mesh parts -- the hairline-crack gate. Any two vertices (from any parts:
+    cracks live BETWEEN parts too) closer than ``tol`` world units but not identical are a crack candidate: the
+    background peeks through the sliver in-game. The verbatim donor blocks have ZERO such pairs, so any edit must
+    too -- every hairline seam of the beach-end saga traced to HAND-ROUNDED coordinates (real donor verts are
+    off-lattice floats like ``x=496.046875``; never hand-type geometry, capture exact floats from the tris you
+    consume). ``meshes`` = an iterable of :class:`~ff9mapkit.world.extract.BlockMesh` or ``(name, BlockMesh)``.
+    Returns the offending ``(pos_a, pos_b)`` pairs (positions rounded to 6dp for identity), sorted; gate on
+    ``== []``. Spatial-hashed: fine for whole-block audits."""
+    cells: dict = {}
+    for m in meshes:
+        bm = m[1] if isinstance(m, tuple) else m
+        for v in (bm.verts or []):
+            p = (round(v[0], 6), round(v[1], 6), round(v[2], 6))
+            cells.setdefault((int(p[0] // tol), int(p[1] // tol), int(p[2] // tol)), set()).add(p)
+    pairs = set()
+    for (cx, cy, cz), pts in cells.items():
+        cand: set = set()
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    cand |= cells.get((cx + dx, cy + dy, cz + dz), set())
+        for p1 in pts:
+            for p2 in cand:
+                if p1 < p2 and 1e-18 < sum((a - b) ** 2 for a, b in zip(p1, p2)) < tol * tol:
+                    pairs.add((p1, p2))
+    return sorted(pairs)

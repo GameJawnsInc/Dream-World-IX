@@ -2352,6 +2352,57 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_transplant(args: argparse.Namespace) -> int:
+    """VERBATIM island transplant: carry a complete real coastal block -- land + beach + the full Wang'd
+    ocean, every sub-mesh -- to a custom ocean cell, with a 0-mod-4 in-cell shift + 90-degree rotation,
+    offline-gated (placement census + weld audit + land fit) before any write."""
+    from .world import transplant as TR
+
+    def _fmt(v):
+        if isinstance(v, float):
+            return f"{v:.6g}"
+        if isinstance(v, (list, tuple)):
+            return "[" + ",".join(_fmt(x) for x in v) + "]"
+        return str(v)
+
+    try:
+        bx, by = (int(v) for v in args.cell.split(","))
+        dx, dy = (int(v) for v in args.donor.split(","))
+        shift = "auto" if args.shift.strip().lower() == "auto" \
+            else tuple(float(v) for v in args.shift.split(","))
+        strips = args.strips.strip().lower()
+        if strips not in ("auto", "all", "none"):
+            strips = tuple(d.strip() for d in args.strips.split(","))
+        summary = TR.transplant(args.mod_folder, cell=(bx, by), donor=(dx, dy), rot=args.rot,
+                                shift=shift, strips=strips, extra=args.extra,
+                                land_margin=args.land_margin, disc=args.disc, game=args.game,
+                                census_samples=args.samples, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    sx, sz = summary["shift"]
+    print(f"verbatim transplant: donor block {tuple(summary['donor'])} -> cell {tuple(summary['cell'])} "
+          f"(rot {summary['rot']} deg, shift {sx:+g},{sz:+g}; neighbour strips: "
+          f"{','.join(summary['strips']) or 'none'})")
+    print("  carried: " + "  ".join(f"{p}:{n}" for p, n in summary["carried"].items()))
+    if summary["blanked"]:
+        print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
+    for g in summary["gates"]:
+        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
+        print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
+    if not summary["clean"]:
+        print("NOT CLEAN -- deploy refused (every gate must pass; iterate with --dry-run)", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print("dry run: gates CLEAN -- re-run without --dry-run to deploy")
+        return 0
+    print("deployed:")
+    for q in summary["deployed"]:
+        print("  " + q)
+    print("  Needs the CUSTOM engine (s34 + Donor.txt). RELAUNCH (or exit+re-enter the overworld) to apply.")
+    return 0
+
+
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
     grass tile language (mains + meadow stamps + rolling relief), gated offline (geometry, UV language, and
@@ -4787,6 +4838,37 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
     wct.set_defaults(func=_cmd_world_coast)
+
+    wtp = sub.add_parser("world-transplant",
+                         help="VERBATIM island transplant: carry a complete real coastal block (land + beach + "
+                              "the full Wang'd ocean, every sub-mesh) to a custom ocean cell, with a 0-mod-4 "
+                              "in-cell shift + 90-degree rotation -- fully verbatim, offline-gated (placement "
+                              "census + weld audit). Needs the custom engine; relaunch.")
+    wtp.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
+    wtp.add_argument("--cell", required=True, metavar="BX,BY", help="target ocean cell (grid 24x20)")
+    wtp.add_argument("--donor", required=True, metavar="DX,DY",
+                     help="the real donor block to carry; 7,17 is the proven beach island "
+                          "(world-coast --list browses coastal donors)")
+    wtp.add_argument("--rot", type=int, default=0, choices=(0, 90, 180, 270),
+                     help="rotate about the cell centre -- 90-degree multiples keep the 4u tile lattice (and "
+                          "the Wang ocean) fully verbatim (default 0)")
+    wtp.add_argument("--shift", default="auto",
+                     help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
+                          "neighbour strips can refill; default auto = centre the land in the cell")
+    wtp.add_argument("--strips", default="auto",
+                     help="which neighbour edge strips to carry: 'auto' = only where the donor's own land "
+                          "reaches that border (the island's tongue -- neighbour blocks are FOREIGN content "
+                          "otherwise), 'all', 'none', or explicit directions like 'E,N'")
+    wtp.add_argument("--extra", type=float, default=8.0,
+                     help="neighbour edge-strip width to carry, in units (default 8 = the proven island tongue)")
+    wtp.add_argument("--land-margin", type=float, default=2.0,
+                     help="land must sit this far inside the cell frame (island default 2; pass 0 for a donor "
+                          "whose land legitimately reaches the block border)")
+    wtp.add_argument("--samples", type=int, default=24,
+                     help="placement-census grid resolution (default 24 = 576 ground probes)")
+    wtp.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wtp.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wtp.set_defaults(func=_cmd_world_transplant)
 
     wis = sub.add_parser("world-island",
                          help="synthesize a fully-CUSTOM cliff island/landmass on open ocean: organic coastline + "

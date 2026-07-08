@@ -120,15 +120,16 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 
 ## Overworld
 
-The mesh-writing commands (`world-terrain`, `world-reclaim`, `world-coast`, `world-water`,
-`world-entrance`, `world-deploy`, `world-mesh-build`) require the engine bundle's `s34`
-mesh-override patch ([ENGINE.md](ENGINE.md)); the atlas/texture, encounter, environment, and
-marker commands are stock-engine.
+The mesh-writing commands (`world-terrain`, `world-reclaim`, `world-coast`, `world-transplant`,
+`world-water`, `world-entrance`, `world-deploy`, `world-mesh-build`) require the engine bundle's
+`s34` mesh-override patch ([ENGINE.md](ENGINE.md)); the atlas/texture, encounter, environment,
+and marker commands are stock-engine.
 
 | Capability | | Docs |
 |---|---|---|
 | Reshape walkable terrain (hill/crater/ridge/flatten) across blocks, seamlessly (`world-terrain`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Reclaim ocean as walkable land (`world-reclaim`); carry real coastlines (`world-coast`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Transplant a complete real island — land + beach + Wang'd ocean — to any cell, with 90° rotation + in-cell shift (`world-transplant`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Synthesize graded open-ocean water (`world-water`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Author a custom overworld entrance — trigger + tiles + optional Blender building (`world-entrance`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Overworld encounters: re-table + retune frequency (`world-encounters`, `world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
@@ -153,7 +154,7 @@ marker commands are stock-engine.
 
 | Tool | What | Docs |
 |---|---|---|
-| **CLI** | 104 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
+| **CLI** | 105 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
 | **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Models / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art + 3D-model thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
 | **Blender add-on** | Camera posing, walkmesh modeling, markers, field import, battle-map + model round-trips | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Field logic in forms — stdlib Tkinter, no PySide6 needed | [README](../README.md) |
