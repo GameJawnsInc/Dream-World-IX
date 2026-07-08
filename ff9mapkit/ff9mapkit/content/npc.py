@@ -21,6 +21,7 @@ from .._npcparams import NPC_PARAMS          # baked per-model NPC object params
 from ..eb import EbScript, edit, opcodes
 from ..eb.disasm import iter_code
 from . import region as _region
+from . import startup as _startup
 
 # Character presets: (model, animset, {stand, walk, run, left, right} animation ids)
 PRESETS = {
@@ -115,13 +116,19 @@ def _npc_object_params(model, animset):
 
 def build_npc_init(*, model, animset, anims, x: int, z: int, facing: int = 0, y: int = 0,
                    head_focus=DEFAULT_HEAD_FOCUS, logical_size=DEFAULT_LOGICAL_SIZE,
-                   init_tail: bytes = b"", gate=None) -> bytes:
+                   init_tail: bytes = b"", gate=None, scenario_window=None) -> bytes:
     """Emit a faithful standing-NPC Init (func tag 0) from scratch -- the real-NPC opcode shape, NO player
     clone. ``anims`` must hold all five movement clips (see :func:`_complete_anims`). ``gate`` =
     ``(flag_index, require_set)`` prepends a story-flag gate so the object is absent unless the flag is in
-    state. ``init_tail`` (the prop recipe: EnableHeadFocus(0) / AttachObject ...) is spliced just before the
-    RETURN, applying to the freshly created object."""
+    state. ``scenario_window`` = ``(scenario_min, scenario_max)`` (either bound may be None) prepends a
+    ScenarioCounter beat-window gate -- the rotating-cast idiom, absent outside ``[min, max)``. A window and a
+    flag COMPOSE (both self-returns -> the NPC appears only when the beat AND the flag hold). ``init_tail``
+    (the prop recipe: EnableHeadFocus(0) / AttachObject ...) is spliced just before the RETURN, applying to
+    the freshly created object."""
     parts = []
+    if scenario_window is not None:
+        smin, smax = scenario_window
+        parts.append(_startup.scenario_window_gate(smin, smax))
     if gate is not None:
         gf, gset = gate
         parts.append(_region.flag_gate(_region.GLOB_BOOL, gf, require_set=gset))
@@ -206,6 +213,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                anims=None, talk_text_id: int = 62, slot: int | None = None,
                spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                gate_flag: int | None = None, gate_require_set: bool = True,
+               appears_scenario_min: int | None = None, appears_scenario_max: int | None = None,
                intro: bytes | None = None, speak_body: bytes | None = None,
                init_tail: bytes | None = None, bare: bool = False,
                reserve_party_band: bool = False) -> bytes:
@@ -244,10 +252,13 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft.
     # The flag `gate` (object absent unless in state) and the prop `init_tail` (EnableHeadFocus(0) /
     # AttachObject) are folded into the Init by build_npc_init.
+    win = ((appears_scenario_min, appears_scenario_max)
+           if (appears_scenario_min is not None or appears_scenario_max is not None) else None)
     body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z,
                            head_focus=head_focus, logical_size=logical_size,
                            init_tail=bytes(init_tail or b""),
-                           gate=(gate_flag, gate_require_set) if gate_flag is not None else None)
+                           gate=(gate_flag, gate_require_set) if gate_flag is not None else None,
+                           scenario_window=win)
     # Loop (tag 1): the real 2-op standby. An ACTOR cutscene's `intro` choreography PREPENDS here (NOT the
     # Init): the engine only advances animation frames at loop state 1, so a cutscene baked into the Init
     # (state 2) would glide FROZEN. It self-gates to run once per visit.

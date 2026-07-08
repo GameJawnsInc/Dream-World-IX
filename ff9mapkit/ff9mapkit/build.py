@@ -860,6 +860,18 @@ def validate(project: FieldProject) -> list[str]:
                 _archetypes.resolve(arch)                 # a named archetype (or vivi/zidane) must be known
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
+        label = f"[[npc]] {n.get('name', '#' + str(i))!r}"
+        try:                                              # rotating-cast beat window (min inclusive, max exclusive)
+            smin, smax = _scenario_window_of(n)
+        except (ValueError, KeyError) as e:
+            problems.append(f"{label} scenario window: {e}")
+            smin = smax = None
+        for bound, val in (("scenario_min", smin), ("scenario_max", smax)):
+            if val is not None and not (0 <= val <= _startup.SCENARIO_MAX):
+                problems.append(f"{label} {bound} must be 0..{_startup.SCENARIO_MAX} (or an area name); got {val}")
+        if smin is not None and smax is not None and smin >= smax:
+            problems.append(f"{label} scenario_min ({smin}) must be < scenario_max ({smax}) "
+                            f"-- the window is half-open [min, max); an empty/inverted window never appears.")
     for gc in project.raw.get("gateway_carry", []):     # #2b: a verbatim story-gated door entry sidecar
         binref = gc.get("bin")
         if not binref:
@@ -2585,6 +2597,18 @@ def _gate_of(d: dict):
     return None, True
 
 
+def _scenario_window_of(d: dict):
+    """(scenario_min, scenario_max) from an NPC's beat-window keys, or (None, None). ``scenario_min`` is
+    INCLUSIVE, ``scenario_max`` EXCLUSIVE -> the NPC appears while ``min <= ScenarioCounter < max`` (a story
+    beat). Either bound may be a raw int OR an area name (resolved via :func:`flags.resolve_scenario`). This is
+    the rotating-cast idiom: NPCs at one spot with adjacent half-open windows swap by story progress."""
+    def _res(v):
+        if v is None:
+            return None
+        return _flags.resolve_scenario(v) if isinstance(v, str) else int(v)
+    return _res(d.get("scenario_min")), _res(d.get("scenario_max"))
+
+
 def _gateway_on_exit_body(gw: dict, names: dict) -> bytes:
     """The story-state advance a ``[[gateway]]`` applies when the player TAKES this exit: the raw
     ``set_var`` bytes from ``set_scenario`` (ScenarioCounter) + ``set_flags`` (gEventGlobal bits), built
@@ -3435,6 +3459,7 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
                 anims = _catalog.npc_anims(mid) or None
             kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
         gf, gs = _gate_of(n)
+        smin, smax = _scenario_window_of(n)
         txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
         # talk body: a dialogue [[choice]] (talk -> menu -> branch) OR opens_shop (talk -> Menu(2,id)) REPLACES
         # the plain WindowSync (validate forbids both on one NPC). Else the default WindowSync(dialogue) is used.
@@ -3454,7 +3479,8 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
         pos = n["pos"]
         slot = EbScript.from_bytes(eb).entry_count - _object.PARTY_BAND_SIZE   # the slot this insert will take
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, gate_flag=gf,
-                             gate_require_set=gs, speak_body=sb, reserve_party_band=True, **kwargs)
+                             gate_require_set=gs, appears_scenario_min=smin, appears_scenario_max=smax,
+                             speak_body=sb, reserve_party_band=True, **kwargs)
         if n.get("name"):
             npc_slots[n["name"]] = slot                                       # name -> uid (stable below the band)
     return eb, npc_slots
@@ -3754,6 +3780,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if holder_pose and not n.get("anims") and isinstance(kwargs.get("anims"), dict):
             kwargs["anims"] = {**kwargs["anims"], "stand": holder_pose}   # pose the holder to hold
         gf, gs = _gate_of(n)
+        smin, smax = _scenario_window_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
         intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
         # a dialogue choice on this NPC: talk -> menu -> branch (replaces the plain WindowSync)
@@ -3772,7 +3799,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             sb = _shop.shop_speak_body(int(n["opens_shop"]),
                                        greeting_txid=txid if n.get("dialogue") else None)
         eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), talk_text_id=txid, slot=slot,
-                             gate_flag=gf, gate_require_set=gs, intro=intro, speak_body=sb, **kwargs)
+                             gate_flag=gf, gate_require_set=gs, appears_scenario_min=smin,
+                             appears_scenario_max=smax, intro=intro, speak_body=sb, **kwargs)
         if gf is not None:
             gated_npc_slots.setdefault(gf, []).append(slot)
         if n.get("name") is not None:
