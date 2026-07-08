@@ -1,0 +1,524 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index 538d9432..df1f1c2a 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1378,6 +1378,8 @@
+     <Compile Include="Memoria\World\WorldMeshOverride.cs" />
+     <Compile Include="Memoria\World\WorldEffect.cs" />
+     <Compile Include="Memoria\World\WorldPlace.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
+diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
+index 192b988b..b50b4d89 100644
+--- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
++++ b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
+@@ -26,6 +26,7 @@ public class HonoluluFieldMain : HonoBehavior
+         this.scString = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR).ToString();
+         this.mapIDString = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.MAP_INDEX_SVR).ToString();
+         this.ff9InitStateFieldLocation(this.FF9.fldLocNo);
++        Memoria.Netsync.NetSyncClient.Ensure();   // [ff9mapkit] co-op ghost-sync client (idempotent; inert outside the co-op field)
+     }
+ 
+     public override void HonoStart()
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+new file mode 100644
+index 00000000..66e3d51b
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -0,0 +1,253 @@
++using System;
++using Memoria.Prime;
++using Memoria.Scripts;   // ShadersLoader
++using UnityEngine;
++
++namespace Memoria.Netsync
++{
++    // Persistent co-op "ghost sync" client. Config comes from Memoria.ini [Netsync]:
++    //   Enabled     = 0 | 1                 master switch; OFF by default (zero footprint on a normal game)
++    //   Role        = selftest | host | client
++    //   PeerAddress = <host LAN IP>         (client only; the machine running Role=host)
++    //   Port        = 49200
++    //   TargetField = 30003                 the co-op hangout field; the client is inert everywhere else
++    //
++    //   selftest      spawn a ghost beside the local player, mirroring it -- proves the pipeline solo.
++    //   host/client   NetSyncSocket carries {field,pos,rot,anim} both ways; each side renders the peer as
++    //                 a ghost while both are in TargetField. All Unity access is on the main thread here;
++    //                 the socket only swaps lock-guarded byte slots.
++    //
++    // Bootstrapped from HonoluluFieldMain.HonoAwake() via Ensure() (idempotent; only creates the object
++    // when Enabled). Render setup mirrors FieldMap.AddPlayer() (CreateModel + AddAnim + field-character
++    // shader) but WITHOUT a FieldMapActorController (it would re-snap the ghost to the walkmesh) or a real
++    // Actor -- we drive transform.localPosition ourselves, force huge skinned-mesh bounds so the PSX-shader-
++    // projected model isn't frustum-culled, and mirror the local player's per-submesh visibility.
++    public sealed class NetSyncClient : MonoBehaviour
++    {
++        private static NetSyncClient _instance;
++
++        private static Boolean _configLoaded;
++        private static Boolean _enabled;
++        private static String _role = "selftest";       // selftest | host | client
++        private static String _peer = "127.0.0.1";
++        private static Int32 _port = 49200;
++        private static Int32 _targetField = 30003;
++
++        private const String GhostModel = "GEO_MAIN_F0_ZDN";
++        private const String GhostModelPath = "Models/main/GEO_MAIN_F0_ZDN/GEO_MAIN_F0_ZDN";
++
++        private NetSyncSocket _socket;
++        private GameObject _ghost;
++        private Animation _ghostAnim;
++        private String _ghostClip;
++
++        // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
++        // load; creates the DontDestroyOnLoad object ONCE, and only when [Netsync] Enabled=1.
++        public static void Ensure()
++        {
++            if (_instance != null)
++                return;
++            LoadConfig();
++            if (!_enabled)
++                return;   // off by default -> nothing created, no per-frame cost on a normal game
++            GameObject go = new GameObject("NetSyncClient");
++            UnityEngine.Object.DontDestroyOnLoad(go);
++            _instance = go.AddComponent<NetSyncClient>();
++        }
++
++        private static void LoadConfig()
++        {
++            if (_configLoaded)
++                return;
++            _configLoaded = true;
++            try
++            {
++                IniFile ini = new IniFile(IniFile.MemoriaIniPath);   // Memoria.IniFile: reads ./Memoria.ini
++                _enabled = ini.GetSetting("Netsync", "Enabled", "0").Trim() == "1";
++                _role = ini.GetSetting("Netsync", "Role", "selftest").Trim().ToLowerInvariant();
++                _peer = ini.GetSetting("Netsync", "PeerAddress", "127.0.0.1").Trim();
++                Int32 p;
++                if (Int32.TryParse(ini.GetSetting("Netsync", "Port", "49200"), out p) && p > 0)
++                    _port = p;
++                Int32 f;
++                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "30003"), out f))
++                    _targetField = f;
++                Log.Message("[NetSync] config enabled=" + _enabled + " role=" + _role +
++                            " peer=" + _peer + " port=" + _port + " field=" + _targetField);
++            }
++            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); }
++        }
++
++        private void Update()
++        {
++            // Cheap, log-silent gate: only do anything on the co-op field. Any failure reading the
++            // global state (e.g. a scene without it) is treated as "not here" without spamming the log.
++            Int32 fld;
++            try { fld = FF9StateSystem.Common.FF9.fldMapNo; }
++            catch { fld = -1; }
++
++            if (fld != _targetField)
++            {
++                DespawnGhost();
++                return;
++            }
++
++            try
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || ee.fieldmap == null)
++                    return;
++
++                Actor local = ee.GetControlChar() as Actor;
++                if (local == null || local.fieldMapActor == null)
++                    return;   // player not fully spawned yet this frame
++
++                Transform pt = local.fieldMapActor.transform;
++
++                if (_role == "host" || _role == "client")
++                {
++                    if (_socket == null)
++                    {
++                        _socket = new NetSyncSocket(_role == "host", _peer, _port);
++                        _socket.Start();
++                    }
++                    _socket.SetLocal(fld, local.anim, pt.localPosition, pt.localRotation);   // broadcast me
++                    RemoteState rs = _socket.GetRemote();                                     // apply the peer
++                    if (rs.Valid && rs.Field == fld)
++                    {
++                        EnsureGhost(ee);
++                        if (_ghost != null)
++                            DriveGhost(rs.Pos, rs.Rot, rs.Anim);
++                    }
++                    else
++                    {
++                        DespawnGhost();   // peer absent / in another field / stale
++                    }
++                }
++                else   // "selftest": mirror the local player, offset beside it (solo sanity check)
++                {
++                    EnsureGhost(ee);
++                    if (_ghost != null)
++                        DriveGhost(pt.localPosition + new Vector3(250f, 0f, 0f), pt.localRotation, local.anim);
++                }
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] update failed");
++            }
++        }
++
++        private void OnDestroy()
++        {
++            if (_socket != null)
++            {
++                _socket.Stop();
++                _socket = null;
++            }
++        }
++
++        // Spawn the ghost model once, using AddPlayer's proven model setup (CreateModel + AddAnim +
++        // the field-character shader), but without the controller/FieldMapActor (see class comment).
++        private void EnsureGhost(EventEngine ee)
++        {
++            if (_ghost != null)
++                return;
++            try
++            {
++                GameObject g = ModelFactory.CreateModel(GhostModelPath, false, true,
++                                                        Configuration.Graphics.ElementsSmoothTexture);
++                if (g == null)
++                {
++                    Log.Message("[NetSync] CreateModel returned null for " + GhostModelPath);
++                    return;
++                }
++                AnimationFactory.AddAnimToGameObject(g, GhostModel);
++                g.name = "NetSyncGhost";
++                g.SetActive(true);                                    // defensive: ensure the model is active
++                g.transform.parent = ee.fieldmap.transform;           // share the field's local frame
++                g.transform.localScale = new Vector3(-1f, -1f, 1f);   // AddPlayer's final scale
++                // Match the controlled player's field-render layer (the field camera's culling mask) and
++                // grab its renderers so the ghost can mirror which submeshes are shown.
++                Actor lp = ee.GetControlChar() as Actor;
++                Renderer[] playerRends = null;
++                if (lp != null && lp.fieldMapActor != null)
++                {
++                    SetLayerRecursive(g, lp.fieldMapActor.gameObject.layer);
++                    playerRends = lp.fieldMapActor.GetComponentsInChildren<Renderer>();
++                }
++
++                Renderer[] renderers = g.GetComponentsInChildren<Renderer>();
++                for (Int32 i = 0; i < renderers.Length; i++)
++                {
++                    Renderer renderer = renderers[i];
++                    // CreateModel enables ALL submeshes (incl. Zidane's dagger); the field player keeps the
++                    // sheathed weapon OFF. Mirror the player's per-submesh visibility so the ghost matches.
++                    renderer.enabled = (playerRends != null && i < playerRends.Length) ? playerRends[i].enabled : true;
++                    SkinnedMeshRenderer smr = renderer as SkinnedMeshRenderer;
++                    if (smr != null)
++                    {
++                        // FF9 characters live in far field-world space but are placed on screen by the PSX
++                        // projection IN THE SHADER, so normal frustum culling on the world bounds wrongly
++                        // hides them. Force huge local bounds so the renderer is never culled.
++                        smr.updateWhenOffscreen = false;
++                        smr.localBounds = new Bounds(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
++                    }
++                    foreach (Material material in renderer.materials)
++                    {
++                        material.shader = ShadersLoader.Find(Configuration.Shaders.FieldCharacterShader);
++                        ModelFactory.SetMatFilter(material, Configuration.Graphics.ElementsSmoothTexture);
++                    }
++                }
++                NormalSolver.SmoothCharacterMesh(renderers);
++                _ghost = g;
++                _ghostAnim = g.GetComponent<Animation>();
++                if (_ghostAnim != null)
++                    _ghostAnim.wrapMode = WrapMode.Loop;   // default clips to looping
++                _ghostClip = null;
++                Log.Message("[NetSync] ghost spawned on field " + _targetField);
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] ghost spawn failed");
++                _ghost = null;
++            }
++        }
++
++        // Position + rotate the ghost and mirror one animation clip (resolved from the FF9 anim id).
++        private void DriveGhost(Vector3 localPos, Quaternion localRot, UInt16 animId)
++        {
++            _ghost.transform.localPosition = localPos;
++            _ghost.transform.localRotation = localRot;
++            if (_ghostAnim == null)
++                return;
++            String clip = FF9DBAll.AnimationDB.GetValue((Int32)animId);
++            if (String.IsNullOrEmpty(clip) || clip == _ghostClip)
++                return;   // same clip already playing -- don't restart it every frame
++            if (!_ghostAnim.IsPlaying(clip))
++            {
++                AnimationFactory.AddAnimWithAnimatioName(_ghost, clip);
++                AnimationState st = _ghostAnim[clip];
++                if (st != null)
++                    st.wrapMode = WrapMode.Loop;   // locomotion clips loop; Play() alone runs one cycle then freezes
++                _ghostAnim.Play(clip);
++            }
++            _ghostClip = clip;
++        }
++
++        private void DespawnGhost()
++        {
++            if (_ghost != null)
++                UnityEngine.Object.Destroy(_ghost);
++            _ghost = null;
++            _ghostAnim = null;
++            _ghostClip = null;
++        }
++
++        private static void SetLayerRecursive(GameObject go, Int32 layer)
++        {
++            go.layer = layer;
++            foreach (Transform child in go.transform)
++                SetLayerRecursive(child.gameObject, layer);
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+new file mode 100644
+index 00000000..eccba94e
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -0,0 +1,234 @@
++using System;
++using System.IO;
++using System.Net;
++using System.Net.Sockets;
++using System.Threading;
++using Memoria.Prime;
++using UnityEngine;
++
++namespace Memoria.Netsync
++{
++    // One peer's latest state (plain data; produced on the socket thread, consumed on the game thread).
++    public struct RemoteState
++    {
++        public Boolean Valid;
++        public Int32 Field;   // the peer's current fldMapNo
++        public UInt16 Anim;   // FF9 animation id (resolved to a clip name by the receiver)
++        public Vector3 Pos;   // the peer player's transform.localPosition (same field frame -> 1:1)
++        public Quaternion Rot;
++    }
++
++    // TCP transport for co-op ghost sync. One side is HOST (listens), the other CLIENT (connects to the
++    // host's LAN IP). Once connected, BOTH sides symmetrically send their own state every tick and receive
++    // the peer's. ALL socket I/O runs on background threads; the game thread only swaps lock-guarded slots
++    // (Unity objects are touched only by NetSyncClient on the main thread). Auto-reconnects on drop, so
++    // relaunching one instance re-pairs. Modeled on Memoria.Test.GameObjectService (proven TCP in-engine).
++    public sealed class NetSyncSocket
++    {
++        private readonly Boolean _isHost;
++        private readonly String _peerAddress;
++        private readonly Int32 _port;
++
++        private volatile Boolean _running;
++        private Socket _conn;
++        private Thread _acceptThread;
++
++        private readonly System.Object _lock = new System.Object();
++        private RemoteState _remote;      // latest peer state (guarded)
++        private Int32 _lastRecvTick;      // Environment.TickCount of the last received packet (guarded)
++        private Byte[] _localPacket;      // latest local packet to send (guarded)
++
++        private const Int32 StaleMs = 2000;   // no packet for this long -> treat the peer as gone
++
++        public NetSyncSocket(Boolean isHost, String peerAddress, Int32 port)
++        {
++            _isHost = isHost;
++            _peerAddress = peerAddress;
++            _port = port;
++        }
++
++        public void Start()
++        {
++            _running = true;
++            _acceptThread = new Thread(_isHost ? (ThreadStart)HostLoop : ClientLoop)
++            {
++                IsBackground = true,
++                Name = "NetSync-" + (_isHost ? "host" : "client"),
++            };
++            _acceptThread.Start();
++        }
++
++        public void Stop()
++        {
++            _running = false;
++            try { if (_conn != null) _conn.Close(); } catch { }
++        }
++
++        // Game thread: publish my current state (serialized immediately so the caller's Vector3 is copied).
++        public void SetLocal(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot)
++        {
++            Byte[] pkt = Serialize(field, anim, pos, rot);
++            lock (_lock) { _localPacket = pkt; }
++        }
++
++        // Game thread: the peer's latest state, or Valid=false if none / stale (peer left field or dropped).
++        public RemoteState GetRemote()
++        {
++            lock (_lock)
++            {
++                if (_remote.Valid && (Environment.TickCount - _lastRecvTick) > StaleMs)
++                    return new RemoteState { Valid = false };
++                return _remote;
++            }
++        }
++
++        private void HostLoop()
++        {
++            TcpListener listener = null;
++            try
++            {
++                listener = new TcpListener(IPAddress.Any, _port);
++                listener.Start();
++                Log.Message("[NetSync] host listening on port " + _port);
++                while (_running)
++                {
++                    Socket s = listener.AcceptSocket();   // blocks until a client connects
++                    Log.Message("[NetSync] peer connected: " + s.RemoteEndPoint);
++                    HandleConnection(s);
++                    Log.Message("[NetSync] peer disconnected; awaiting reconnect");
++                }
++            }
++            catch (Exception err) { Log.Error(err, "[NetSync] host loop failed"); }
++            finally { try { if (listener != null) listener.Stop(); } catch { } }
++        }
++
++        private void ClientLoop()
++        {
++            while (_running)
++            {
++                try
++                {
++                    Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
++                    s.Connect(_peerAddress, _port);
++                    Log.Message("[NetSync] connected to host " + _peerAddress + ":" + _port);
++                    HandleConnection(s);
++                    Log.Message("[NetSync] lost host; retrying");
++                }
++                catch (Exception err)
++                {
++                    Log.Message("[NetSync] connect to " + _peerAddress + ":" + _port + " failed (" + err.Message + ")");
++                }
++                if (_running) Thread.Sleep(2000);   // retry backoff
++            }
++        }
++
++        // Both roles: run a write thread + a read loop on the connected socket until it drops.
++        private void HandleConnection(Socket s)
++        {
++            s.NoDelay = true;
++            _conn = s;
++            Thread writer = new Thread(() => WriteLoop(s)) { IsBackground = true, Name = "NetSync-write" };
++            writer.Start();
++            try
++            {
++                ReadLoop(s);   // blocks until disconnect/error
++            }
++            finally
++            {
++                try { s.Close(); } catch { }
++                lock (_lock) { _remote = new RemoteState { Valid = false }; }   // clear the peer on drop
++            }
++        }
++
++        private void ReadLoop(Socket s)
++        {
++            Byte[] buf = new Byte[PacketSize];
++            using (NetworkStream stream = new NetworkStream(s, FileAccess.Read, false))
++            {
++                while (_running && s.Connected)
++                {
++                    if (!ReadFull(stream, buf, PacketSize))
++                        break;   // disconnected / error
++                    RemoteState rs;
++                    if (Deserialize(buf, out rs))
++                        lock (_lock) { _remote = rs; _lastRecvTick = Environment.TickCount; }
++                }
++            }
++        }
++
++        private void WriteLoop(Socket s)
++        {
++            try
++            {
++                using (NetworkStream stream = new NetworkStream(s, FileAccess.Write, false))
++                {
++                    while (_running && s.Connected)
++                    {
++                        Byte[] pkt;
++                        lock (_lock) { pkt = _localPacket; }
++                        if (pkt != null)
++                            stream.Write(pkt, 0, pkt.Length);
++                        Thread.Sleep(33);   // ~30 Hz
++                    }
++                }
++            }
++            catch { /* disconnect -> ReadLoop's finally cleans up */ }
++        }
++
++        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
++        {
++            Int32 off = 0;
++            while (off < count)
++            {
++                Int32 n;
++                try { n = stream.Read(buf, off, count - off); }
++                catch { return false; }
++                if (n <= 0) return false;   // graceful close
++                off += n;
++            }
++            return true;
++        }
++
++        // --- wire format: magic + version + field(u16) + anim(u16) + pos(3f) + rot(4f) = 34 bytes ---
++        private const Int32 PacketSize = 34;
++        private const Byte Magic = 0xF9;
++        private const Byte Version = 1;
++
++        private static Byte[] Serialize(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot)
++        {
++            Byte[] b = new Byte[PacketSize];
++            using (MemoryStream ms = new MemoryStream(b))
++            using (BinaryWriter bw = new BinaryWriter(ms))
++            {
++                bw.Write(Magic);
++                bw.Write(Version);
++                bw.Write((UInt16)field);
++                bw.Write(anim);
++                bw.Write(pos.x); bw.Write(pos.y); bw.Write(pos.z);
++                bw.Write(rot.x); bw.Write(rot.y); bw.Write(rot.z); bw.Write(rot.w);
++            }
++            return b;
++        }
++
++        private static Boolean Deserialize(Byte[] buf, out RemoteState rs)
++        {
++            rs = new RemoteState();
++            if (buf.Length < PacketSize || buf[0] != Magic)
++                return false;
++            using (MemoryStream ms = new MemoryStream(buf))
++            using (BinaryReader br = new BinaryReader(ms))
++            {
++                br.ReadByte();                         // magic
++                br.ReadByte();                         // version
++                rs.Field = br.ReadUInt16();
++                rs.Anim = br.ReadUInt16();
++                Single px = br.ReadSingle(), py = br.ReadSingle(), pz = br.ReadSingle();
++                Single rx = br.ReadSingle(), ry = br.ReadSingle(), rz = br.ReadSingle(), rw = br.ReadSingle();
++                rs.Pos = new Vector3(px, py, pz);
++                rs.Rot = new Quaternion(rx, ry, rz, rw);
++                rs.Valid = true;
++                return true;
++            }
++        }
++    }
++}
