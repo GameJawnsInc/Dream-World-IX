@@ -91,12 +91,15 @@ anims = { stand = 60001 }     # the key step 3 printed
 
 Redeploy, **relaunch** (new `3DModel` + anim keys register at startup), F6 → warp to the field.
 
-## 5. The deploy-revert caveat
+## 5. Redeploys keep your anim registration
 
-`deploy_field` reverts the slot's prior deploy before applying the new one — DictionaryPatch lines
-minted **between** deploys (your step-3 anim registration) get rolled back. **Re-run step 3 after
-every redeploy of the field** (it's idempotent: same clip name → same key). Symptom if forgotten:
-the creature stands frozen in rest pose after the next relaunch.
+`deploy_field` reverts the slot's prior deploy before applying the new one, but its revert/re-apply
+now touches **only** the DictionaryPatch lines that deploy owns (this field's `FieldScene`, its minted
+`3DModel` ids, its own `3DModelAnimation` keys) — matched by exact id/key. A clip you registered
+**between** deploys with `model-anim-new` (step 3) is foreign to the field build, so it's preserved
+across redeploys; you don't need to re-run step 3 each time. (It stays idempotent if you do: same clip
+name → same key.) If you ever see the creature frozen in rest pose after a relaunch, check that its
+`3DModelAnimation <key>` line is still in the mod folder's DictionaryPatch.
 
 ## 6. Blender instead of Python
 

@@ -8,8 +8,9 @@
 #   3. py ff9mapkit/examples/boletta/make_creature_anims.py <your mod folder>  -> prints the stand key
 #   4. set `anims = { stand = <key> }` below if yours differs, redeploy, RELAUNCH.
 #
-# CAVEAT: deploy_field reverts the slot's prior deploy first — re-run step 3 after every redeploy
-# (the anim's DictionaryPatch line is minted outside the field build and gets rolled back).
+# NOTE: deploy_field reverts the slot's prior deploy before re-applying, but it now PRESERVES
+# foreign DictionaryPatch lines it didn't write — so the step-3 anim registration survives a redeploy
+# (you no longer need to re-run step 3 each time). It's still idempotent if you do.
 
 [field]
 id = 4004
