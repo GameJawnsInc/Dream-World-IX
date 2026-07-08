@@ -1518,6 +1518,33 @@ def _cmd_model_anim_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_image_field(args: argparse.Namespace) -> int:
+    """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
+    from . import imagefield
+    try:
+        floor = []
+        for tok in str(args.floor).replace(";", " ").split():
+            cx, cy = tok.split(",")
+            floor.append((float(cx), float(cy)))
+        if len(floor) < 3:
+            print("--floor needs >=3 'cx,cy' canvas-pixel points (the floor outline)", file=sys.stderr)
+            return 2
+        fg = list(args.foreground or [])
+        man = imagefield.build_image_field(
+            args.image, floor, args.out, foreground=fg, name=args.name, field_id=args.id,
+            pitch=args.pitch, fov=args.fov, distance=args.distance)
+    except (imagefield.ImageFieldError, ValueError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(f"[EXPERIMENTAL] synthesized {args.name} -> {man['toml']}")
+    print(f"  walkmesh: {man['verts']} verts / {man['faces']} tris; spawn "
+          f"({man['spawn'][0]:.0f}, {man['spawn'][1]:.0f}); {len(man['layers'])} layer(s)")
+    print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then F6 -> Warp 30058)")
+    print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
+          "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
+    return 0
+
+
 def _cmd_model_preview(args: argparse.Namespace) -> int:
     """Software-render a model to a PNG still (the same renderer behind the GUI thumbnails)."""
     from .models import preview as mpreview
@@ -4425,6 +4452,25 @@ def build_parser() -> argparse.ArgumentParser:
                      help="mod folder to write Animations/<id>/<key>.anim + the DictionaryPatch line into")
     man.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     man.set_defaults(func=_cmd_model_anim_new)
+
+    imf = sub.add_parser("image-field",
+                         help="EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced "
+                              "floor polygon (Pillow-only; the floor is un-projected into a walkmesh)")
+    imf.add_argument("image", help="the source image (becomes the painted background)")
+    imf.add_argument("--floor", required=True,
+                     help="the floor outline as canvas-pixel points 'cx,cy cx,cy ...' (384x448, top-left, "
+                          "Y-down; >=3 points, below the horizon)")
+    imf.add_argument("--out", required=True, help="output project dir (writes <name>.field.toml + walkmesh.obj + art/)")
+    imf.add_argument("--name", default="PICTURE", help="field name / project stem (default PICTURE)")
+    imf.add_argument("--id", type=int, default=4003, help="field id to stamp in the toml (default 4003)")
+    imf.add_argument("--pitch", type=float, default=26.0,
+                     help="camera downward pitch in degrees (default 26; FF9 room band 6-48)")
+    imf.add_argument("--fov", type=float, default=42.0, help="horizontal FOV (default 42)")
+    imf.add_argument("--distance", type=float, default=3000.0,
+                     help="camera distance (default 3000; smaller = closer/larger floor)")
+    imf.add_argument("--foreground", action="append", default=None,
+                     help="a near-occluder cut-out PNG (full-canvas, alpha); repeatable (drawn in front of the actor)")
+    imf.set_defaults(func=_cmd_image_field)
 
     mp = sub.add_parser("model-preview",
                         help="software-render a model to a PNG still (textured, posed at its stand clip) -- no Blender")
