@@ -326,6 +326,19 @@ def recompile_live(mod_root, *, game=None) -> Path:
 
 # ---- the read side: parse + summarize the captured JSONL (the balance-analyzer seed) --------------------
 
+_TEXT_TAG = None  # compiled lazily
+
+
+def strip_text_tags(name: str) -> str:
+    """Strip FF9 text-markup tags from a captured name (enemy names come through the engine's ``Name`` as the
+    raw tagged string, e.g. ``[STRT=27,1]Fang[ENDN]``). Report-side only -- the JSONL keeps the faithful raw."""
+    global _TEXT_TAG
+    if _TEXT_TAG is None:
+        import re
+        _TEXT_TAG = re.compile(r"\[[0-9A-Za-z]+(?:=[^\]]*)?\]")
+    return _TEXT_TAG.sub("", name or "").strip()
+
+
 def default_jsonl_path(game=None) -> Path:
     """Where the hook writes: ``<game>/ff9mk_battle_telemetry.jsonl`` (beside StreamingAssets)."""
     from ..config import find_game_path
@@ -383,7 +396,7 @@ def summarize(events) -> str:
     taken: dict = {}
     for row in rows:
         calc, result = row["calc"], row["result"]
-        name = calc.get("ability") or f"cmd {calc.get('cmd')}"
+        name = strip_text_tags(calc.get("ability") or "") or f"cmd {calc.get('cmd')}"
         st = by_ability.setdefault(name, {"casts": 0, "hits": 0, "crits": 0, "dmg": []})
         st["casts"] += 1
         if result is not None:
@@ -394,8 +407,10 @@ def summarize(events) -> str:
             if hp and not result.get("heal"):
                 st["dmg"].append(hp)
                 caster, target = calc.get("caster") or {}, calc.get("target") or {}
-                dealt[caster.get("name", "?")] = dealt.get(caster.get("name", "?"), 0) + hp
-                taken[target.get("name", "?")] = taken.get(target.get("name", "?"), 0) + hp
+                cname = strip_text_tags(caster.get("name", "")) or "?"
+                tname = strip_text_tags(target.get("name", "")) or "?"
+                dealt[cname] = dealt.get(cname, 0) + hp
+                taken[tname] = taken.get(tname, 0) + hp
 
     if by_ability:
         out.append("")

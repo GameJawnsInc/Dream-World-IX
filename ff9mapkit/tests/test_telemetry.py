@@ -144,6 +144,17 @@ def test_summarize_empty():
     assert "no telemetry events" in telemetry.summarize([])
 
 
+def test_summarize_strips_ff9_text_tags():
+    """Enemy names arrive as the engine's raw tagged string ([STRT=27,1]Fang[ENDN], seen in the first live
+    capture) -- the REPORT strips the markup; the JSONL keeps the faithful raw."""
+    assert telemetry.strip_text_tags("[STRT=27,1]Fang[ENDN]") == "Fang"
+    events = _sample_events()
+    events[4]["caster"] = dict(events[4]["caster"], name="[STRT=33,1]Goblin[ENDN]")
+    events[4]["ability"] = "[STRT=69,1]Goblin Punch[ENDN]"
+    text = telemetry.summarize(events)
+    assert "Goblin Punch" in text and "[STRT" not in text
+
+
 # ---- the money test: the rendered hook compiles against the LIVE engine (install + csc gated) ---
 def test_hook_compiles_against_live_engine(tmp_path):
     if not scriptcompile.toolchain_available():
