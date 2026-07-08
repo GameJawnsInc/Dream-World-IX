@@ -129,11 +129,13 @@ for L in LANGS:
     if sm.exists():                                        # dialogue: deploy the field's .mes block
         live.mes_path(L, text_block).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(sm, live.mes_path(L, text_block))
-# [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live)
-src_models = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Models"
-if src_models.is_dir():
-    shutil.copytree(src_models, live.root / "StreamingAssets" / "Assets" / "Resources" / "Models",
-                    dirs_exist_ok=True)
+# [[mint]] loose-model FBX tree (NEW additive GEO ids) -- ship the whole staged Models/ (merge into live).
+# Weapons (type 6, e.g. a [[weapon]] model mint) stage under BattleMap/BattleModel/ instead -- ship that too.
+for _sub in (("Models",), ("BattleMap", "BattleModel")):
+    src_models = tl.root.joinpath("StreamingAssets", "Assets", "Resources", *_sub)
+    if src_models.is_dir():
+        shutil.copytree(src_models, live.root.joinpath("StreamingAssets", "Assets", "Resources", *_sub),
+                        dirs_exist_ok=True)
 # [[playable]] custom_battle_anims: a minted battle model's OWN animset (loose .anim at Animations/<mintId>/<key>).
 # Ships alongside its `3DModelAnimation` DictionaryPatch lines (carried in mint_lines below). RELAUNCH to register.
 src_anims = tl.root / "StreamingAssets" / "Assets" / "Resources" / "Animations"
@@ -184,14 +186,21 @@ def _stale_anim(ln):                                       # a 3DModelAnimation 
             and "_".join(p[-1].split("_")[1:4]) in mint_geo_blocks)
 charname_lines = info.get("charname_lines", [])   # [[playable]] CharacterDefaultName <id> <SYM> <name> (per-lang)
 charname_keys = {(p[1], p[2]) for p in (ln.split() for ln in charname_lines) if len(p) >= 3}   # (char-id, lang)
+status_icon_lines = info.get("status_icon_lines", [])   # [[playable]] custom-status Buff/DebuffIcon <statusId> <sprite>
+status_icon_ids = {p[1] for p in (ln.split() for ln in status_icon_lines) if len(p) >= 2}       # status ids being re-set
+def _stale_icon(ln):                                       # a Buff/DebuffIcon line for a custom status being redeployed
+    p = ln.split()
+    return len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in status_icon_ids
 dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
       if ln.strip() and ln.split()[1:2] != [str(FID)]           # drop this field's old FieldScene/LocationName
       and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # drop stale mint ids
       and not _stale_anim(ln)                                                                  # drop stale anim regs
+      and not _stale_icon(ln)                                                                  # drop stale status icons
       and not (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # drop stale names
                and (ln.split()[1], ln.split()[2]) in charname_keys)]
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
+dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
@@ -203,6 +212,8 @@ if _n_anim:
     print(f"  + {_n_anim} 3DModelAnimation line(s) + staged Animations/ (custom_battle_anims) -> RELAUNCH to register")
 if charname_lines:
     print(f"  + {len(charname_lines)} CharacterDefaultName line(s) ([[playable]]) -> RELAUNCH to apply the name")
+if status_icon_lines:
+    print(f"  + {len(status_icon_lines)} custom-status icon line(s) (Buff/DebuffIcon) -> RELAUNCH to apply")
 if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
     print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
 
@@ -315,6 +326,36 @@ for _lang in LANGS:
     shutil.copyfile(_src_an, _live_an)
     csv_reverts.append((f"aa_name-{_lang}", str(_live_an), _had))
     print(f"  + text/{_lang}/ability/aa_name.mes (ability name)")
+# [playable.abilities] SCRIPTED custom ability (`script = {template/body}`) -> the minted battle-FORMULA DLL
+# (Memoria.Scripts.<MOD>.dll) the engine Assembly.LoadFile's IN ADDITION to its base (project-ff9-scripts-dll).
+# The DLL is the load-bearing artifact -> ship it reversibly (backup/restore/delete, like the CSVs; it joins
+# csv_reverts). Its C# Sources are runtime-INERT -> copied additively for provenance + a future recompile. The
+# Actions.csv scriptId repoint rides the "Actions" sync above. LOADED ONCE AT THE TITLE SCREEN -> RELAUNCH (not F6).
+_src_dll = tl.scripts_dll(MOD_FOLDER)
+if _src_dll.exists():
+    from ff9mapkit.battle import scriptcompile as _scomp
+    _live_dll = live.scripts_dll(MOD_FOLDER)
+    _live_dll.parent.mkdir(parents=True, exist_ok=True)
+    _had_dll = _live_dll.exists()
+    if _had_dll:
+        shutil.copyfile(_live_dll, BK / f"{_src_dll.name}.preDEPLOY.{STAMP}")
+    shutil.copyfile(_src_dll, _live_dll)
+    csv_reverts.append((_src_dll.stem, str(_live_dll), _had_dll))    # stem+".dll" -> the revert codegen's {label}{ext}
+    # carry the build stamp (which engine the DLL was compiled against) so the health check / a redeploy can WARN
+    # on version drift before the game throws a MissingMemberException at cast (project-ff9-scripts-dll).
+    _src_stamp, _live_stamp = _scomp._stamp_path(_src_dll), _scomp._stamp_path(_live_dll)
+    if _src_stamp.exists():
+        _had_stamp = _live_stamp.exists()
+        if _had_stamp:
+            shutil.copyfile(_live_stamp, BK / f"{_live_stamp.name}.preDEPLOY.{STAMP}")
+        shutil.copyfile(_src_stamp, _live_stamp)
+        csv_reverts.append((_live_stamp.stem, str(_live_stamp), _had_stamp))    # stem+".json" -> revert {label}{ext}
+    if tl.scripts_sources_dir.is_dir():
+        shutil.copytree(tl.scripts_sources_dir, live.scripts_sources_dir, dirs_exist_ok=True)
+    print(f"  + {_src_dll.name} (custom battle formula DLL) -> RELAUNCH to load (once at title, not F6)")
+    _drift = _scomp.engine_drift_warning(_live_dll, game=GAME)       # normally quiet (just built vs this install)
+    if _drift:
+        print(f"  !! {_drift}")
 csv_revert_code = ""
 for _label, _live, _had in csv_reverts:
     _ext = Path(_live).suffix                             # backup keeps the real extension (.csv / .txt)

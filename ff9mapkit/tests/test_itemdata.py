@@ -217,8 +217,9 @@ def test_emit_item_data_dup_warns(tmp_path):
     class P:
         raw = {"weapon": [{"name": "Dagger", "power": 30}, {"name": "Dagger", "power": 40}]}
         path = tmp_path / "f.toml"
-    warns = _emit_item_data([P()], ModLayout(tmp_path / "mod"))
+    warns, mint_lines = _emit_item_data([P()], ModLayout(tmp_path / "mod"))
     assert any("tuned in two blocks" in w for w in warns)
+    assert mint_lines == []                       # no [[weapon]] model mints here
 
 
 # ==== [[equip_bonus]] -> Stats.csv (ItemStats) -- the level-up-growth + affinity lever =====================
@@ -732,8 +733,96 @@ def test_emit_item_effect_writes_delta(tmp_path):
         raw = {"item_effect": [{"name": "Potion", "power": 777}]}
         path = tmp_path / "f.toml"
     layout = ModLayout(tmp_path / "mod")
-    warns = _emit_item_data([P()], layout)
+    warns, _mints = _emit_item_data([P()], layout)
     assert not [w for w in warns if "skipped" in w]
     assert layout.item_effects_csv.exists()
     _h, cols, _idc, rows = ID.read_base_csv(layout.item_effects_csv.read_text(encoding="cp1252"))
     assert any(r.split(";")[cols["Power"]] == "777" for r in rows.values())
+
+
+# ==== [[weapon]] model -- custom weapon MODELS (stock swap / recolored mint) =====================
+WEAPONS_CSV_M = (
+    "#! IncludeHitSfx\n"
+    "# Comment;Id;Category;StatusIndex;Model;ScriptId;Power;Elements;Rate;Offset1;Offset2;HitSfx\n"
+    "# ;Int32;Byte;Int32;String;Int32;Int32;Byte;Int32;Int16;Int16;Byte\n"
+    f"Mage Masher;{MM};5;20;GEO_WEP_B1_002;2;14;0;0;0;380;10\n"
+    f"Dagger;{DAGGER};5;20;GEO_WEP_B1_001;2;12;0;0;0;380;10\n"
+)
+
+
+class _WLayout:
+    def __init__(self, root):
+        self.root = root
+
+    def model_dir(self, t, i):
+        assert t == 6, "a weapon mint must stage at the type-6 tree"
+        return self.root / "BattleMap" / "BattleModel" / str(t) / str(i)
+
+
+def _fake_wep_model():
+    from PIL import Image
+    return {"geo": "GEO_WEP_B1_001", "geo_id": 500, "type_int": 6, "root_bone": "bone000",
+            "bones": [{"name": "bone000", "parent": None, "pos": [0, 0, 0],
+                       "rot": [0, 0, 0, 1], "scale": [1, 1, 1]}],
+            "meshes": [{"name": "mesh0", "verts": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+                        "normals": [[0, 1, 0]] * 3, "uvs": [[0, 0]] * 3,
+                        "submeshes": [{"material_idx": 0, "tris": [[0, 1, 2]]}],
+                        "weights": [[(0, 1.0)]] * 3, "parent": None}],
+            "materials": [{"name": "m0", "texture": "500_0"}],
+            "textures": {"500_0": Image.new("RGBA", (4, 4), (255, 0, 0, 255))},
+            "bind_correction": None, "per_mesh_bind": [None]}
+
+
+def test_weapon_model_string_swaps_the_column():
+    ws, dl, _warns = ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_WEP_B1_021"}],
+                                              WEAPONS_CSV_M, ITEMS_CSV, None)
+    assert dl == [] and ws[0]["model"] == "GEO_WEP_B1_021"      # a stock name passes through, no mint
+    d = ID.build_weapons_delta(ITEMS_CSV, WEAPONS_CSV_M, ws)
+    row = [ln for ln in d.splitlines() if ln.startswith("Dagger")][0]
+    assert row.split(";")[4] == "GEO_WEP_B1_021"
+    assert "#! IncludeHitSfx" in d                              # option lines preserved verbatim
+
+
+def test_weapon_model_string_rejects_a_non_weapon():
+    with pytest.raises(ValueError, match="GEO_WEP"):
+        ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_MAIN_F0_VIV"}],
+                                 WEAPONS_CSV_M, ITEMS_CSV, None)
+    with pytest.raises(ValueError, match="unknown weapon model"):
+        ID.resolve_weapon_models([{"name": "Dagger", "model": "totally_wrong"}],
+                                 WEAPONS_CSV_M, ITEMS_CSV, None)
+    _ws, _dl, warns = ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_WEP_B9_XYZ"}],
+                                               WEAPONS_CSV_M, ITEMS_CSV, None)
+    assert any("minted name registered elsewhere" in w for w in warns)   # passthrough, warned
+
+
+def test_weapon_model_mint_table(tmp_path, monkeypatch):
+    from PIL import Image
+    from ff9mapkit.models import extract as mextract
+    monkeypatch.setattr(mextract, "read_model", lambda tok, game=None: _fake_wep_model())
+    ws, dl, warns = ID.resolve_weapon_models(
+        [{"name": "Dagger", "model": {"id": 6500, "hue": 120}}],
+        WEAPONS_CSV_M, ITEMS_CSV, _WLayout(tmp_path))
+    assert len(dl) == 1 and dl[0].startswith("3DModel 6500 GEO_WEP_")
+    assert isinstance(ws[0]["model"], str) and ws[0]["model"].startswith("GEO_WEP_")
+    fbx = tmp_path / "BattleMap" / "BattleModel" / "6" / "6500" / "6500.fbx"
+    png = tmp_path / "BattleMap" / "BattleModel" / "6" / "6500" / "500_0.png"
+    assert fbx.is_file() and png.is_file()
+    px = Image.open(png).convert("RGBA").getpixel((0, 0))
+    assert px[1] > 200 and px[0] < 60, f"the minted weapon texture must be recolored: {px}"
+    d = ID.build_weapons_delta(ITEMS_CSV, WEAPONS_CSV_M, ws)
+    row = [ln for ln in d.splitlines() if ln.startswith("Dagger")][0]
+    assert row.split(";")[4] == ws[0]["model"]                  # the column carries the minted name
+    assert any("RELAUNCH" in w for w in warns)
+
+
+def test_weapon_model_mint_validation():
+    with pytest.raises(ValueError, match="mint band"):
+        ID.resolve_weapon_models([{"name": "Dagger", "model": {"id": 500, "hue": 1}}],
+                                 WEAPONS_CSV_M, ITEMS_CSV, None)
+    with pytest.raises(ValueError, match="does nothing"):
+        ID.resolve_weapon_models([{"name": "Dagger", "model": {"id": 6500}}],
+                                 WEAPONS_CSV_M, ITEMS_CSV, None)
+    with pytest.raises(ValueError, match="used twice"):
+        ID.resolve_weapon_models([{"name": "Dagger", "model": {"id": 6500, "hue": 1}},
+                                  {"name": "Mage Masher", "model": {"id": 6500, "hue": 2}}],
+                                 WEAPONS_CSV_M, ITEMS_CSV, None)

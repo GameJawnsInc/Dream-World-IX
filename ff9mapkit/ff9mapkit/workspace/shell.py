@@ -51,7 +51,8 @@ from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 from . import thumbs as _thumbs
-from .thumbs import ThumbService
+from .modelsdoc import ModelsDoc
+from .thumbs import ModelThumbService, ThumbService
 from .widgets import PlaceholderListWidget, install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
@@ -129,16 +130,16 @@ _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
                  "event": forms.EVENT_SPEC, "chest": forms.CHEST_SPEC, "flag": forms.FLAG_SPEC,
                  "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC,
-                 "sps": forms.SPS_SPEC}
+                 "sps": forms.SPS_SPEC, "playable": forms.PLAYABLE_SPEC}
 _SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
 _SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
            ("party", "Party"), ("startup", "Startup beat")]
 _LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("chest", "Chests"), ("flag", "Flags"),
-          ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects")]
+          ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects"), ("playable", "Playables")]
 _LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "chest": "Chest", "flag": "Flag",
-                  "marker": "Marker", "choice": "Choice", "sps": "Effect"}
+                  "marker": "Marker", "choice": "Choice", "sps": "Effect", "playable": "Playable"}
 # the default new entity per list kind -- mirrors the tkinter editor's _add_entity (editor/app.py).
 _LIST_DEFAULTS = {
     "npc": {"name": "NPC", "preset": "vivi", "dialogue": "..."},
@@ -149,6 +150,7 @@ _LIST_DEFAULTS = {
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
     "sps": {"id": 5000, "template": "fire", "pos": [0, 0]},   # a from-scratch particle effect (Tier-2 creator)
+    "playable": {"name": "Newhero", "borrow": "Vivi", "recruit": True},   # a custom 13th+ party member
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
 _DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
@@ -396,6 +398,7 @@ class Workspace(QMainWindow):
         self.setStyleSheet(qss(pal))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
+        self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
         self.thumbs.ready.connect(self._on_thumb_ready)
         self._thumb_rerender = QTimer(self)                   # coalesce N thumbnail arrivals -> one Map redraw
         self._thumb_rerender.setSingleShot(True)
@@ -927,13 +930,19 @@ class Workspace(QMainWindow):
                                 run=self.run_job, kit_root=KIT,            # encounter editor + Fork battle…
                                 on_open=self._on_battle_open)              # opening/forking a battle.toml pre-aims Build & Deploy
         self.tabs.addTab(self.battle, "Battle")
+        # the custom-3D-models pillar's front door: browse every model with rendered previews + run the
+        # whole DLL-free edit round-trip (export .glb / import / mint / clips) on the selection.
+        self.models_doc = ModelsDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
+                                    model_thumbs=self.model_thumbs)
+        self.tabs.addTab(self.models_doc, "Models")
         # Phase 6b: Build & Deploy + Import folded in as documents (retiring the standalone tkinter apps).
         # They build argv via editor.jobs and stream through run_job -> the bottom Output panel.
         self.build_deploy = BuildDoc(self.pal, REPO, run=self.run_job, problems=self._show_problems)
         self.tabs.addTab(self.build_deploy, "Build && Deploy")   # && -- a lone & is eaten as a mnemonic
         self.import_field = ImportDoc(self.pal, KIT, run=self.run_job, problems=self._show_problems,
                                       on_forked=self._import_forked,       # a clean fork auto-opens its project
-                                      thumbs=self.thumbs)                  # fork preview shows the room's art
+                                      thumbs=self.thumbs,                  # fork preview shows the room's art
+                                      on_open_models=lambda: self.tabs.setCurrentWidget(self.models_doc))
         self.tabs.addTab(self.import_field, "Import")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
@@ -1113,6 +1122,9 @@ class Workspace(QMainWindow):
                                    [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle), False)]))
         v.addWidget(self._home_row("⤵", "Import", "fork a real FF9 field into a new project",
                                    [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field), False)]))
+        v.addWidget(self._home_row("🧍", "Models", "browse every FF9 3D model with previews — export, edit "
+                                   "in Blender, reimport",
+                                   [("Go to Models", lambda: self.tabs.setCurrentWidget(self.models_doc), False)]))
         v.addWidget(self._home_row("◈", "Save", "edit a real save's story flags / items / equipment "
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
@@ -3075,7 +3087,7 @@ class Workspace(QMainWindow):
         self._chip_mode = mode                     # remembered so a live theme switch can re-tint the chip
         chips = {"hub": ("HUB", "accent"), "journey": ("JOURNEY", "accent"), "campaign": ("CAMPAIGN", "accent"),
                  "field": ("FIELD", "accent"), "battle": ("BATTLE", "warn"),
-                 "save": ("SAVE", "accent"), "build": ("BUILD", "accent")}
+                 "save": ("SAVE", "accent"), "build": ("BUILD", "accent"), "model": ("MODEL", "accent")}
         spec = chips.get(mode)
         if spec is None:
             self.crumb.set_chip("")
@@ -3120,6 +3132,9 @@ class Workspace(QMainWindow):
         elif w is self.build_deploy:
             self.crumb.set([bc.Crumb("build", w.crumb_label())])
             self._set_chip("build")
+        elif w is self.models_doc:
+            self.crumb.set([bc.Crumb("model", w.crumb_label())])
+            self._set_chip("model")
         else:                                      # Import / Home -> project context, but no edit-target chip
             self.crumb.set(self._content_crumbs)
             self._set_chip(None)
@@ -3182,6 +3197,7 @@ class Workspace(QMainWindow):
             ("Go to Map", "view", lambda: self.tabs.setCurrentWidget(self.map)),
             ("Go to Story State", "view", lambda: self.tabs.setCurrentWidget(self.story_state)),
             ("Go to Item & Equip", "view", lambda: self.tabs.setCurrentWidget(self.item_equip)),
+            ("Go to Models", "view", lambda: self.tabs.setCurrentWidget(self.models_doc)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Deploy now (F9)", "command", self._deploy_now),
@@ -4992,10 +5008,9 @@ class Workspace(QMainWindow):
                 return False
             return self.open_field(p)
         if s in (".glb", ".gltf"):
-            self.import_field.mdl_glb.setText(str(p))
-            self.tabs.setCurrentWidget(self.import_field)
-            self.statusBar().showMessage(f"{p.name} → Import ▸ Custom models (pick a mod folder, then "
-                                         "Import model)", 8000)
+            self.models_doc.set_glb(p)
+            self.tabs.setCurrentWidget(self.models_doc)
+            self.statusBar().showMessage(f"{p.name} → Models (pick a mod folder, then Import model)", 8000)
             return True
         return self.open_save(str(p))              # .dat / save JSON
 
@@ -6228,10 +6243,44 @@ def _smoke(win):
     assert hasattr(win, "_home_setup")
     from .. import health as _health
     assert _health.worst_level(_health.health_report()) in ("ok", "warn", "bad")
-    # Custom models: the Import tab's box built with its four actions wired
-    for _btn in (win.import_field.mdl_pick_btn, win.import_field.mdl_gltf_btn,
-                 win.import_field.mdl_import_btn, win.import_field.mdl_mint_btn):
+    # the Models tab: browser populated from the catalog, filters narrow it, selection fills the detail
+    # pane (offline facts only -- FF9MAPKIT_NO_THUMBS gates every render), the four actions are wired,
+    # the palette + Import-tab pointer reach it
+    md = win.models_doc
+    assert md.listw.count() > 500, f"model browser under-populated: {md.listw.count()}"
+    md.search.setText("GEO_MAIN_F0_VIV")
+    assert md.listw.count() == 1
+    md.listw.setCurrentRow(0)
+    assert md._current is not None and md._current.id == 8
+    assert "id 8" in md.d_title.text()
+    assert "Actions:" in md.d_anims.text() and "idle" in md.d_anims.text()
+    md.search.setText("")
+    md.group.setCurrentIndex(5)                                # Weapons (WEP)
+    assert 0 < md.listw.count() < 120
+    assert all(it.text().startswith("GEO_WEP") for it in [md.listw.item(i) for i in range(3)])
+    md.group.setCurrentIndex(0)
+    for _btn in (md.mdl_gltf_btn, md.mdl_anim_btn, md.mdl_import_btn, md.mdl_mint_btn,
+                 md.mdl_tex_btn, md.mdl_reskin_btn):
         assert _btn is not None
+    assert any(lbl == "Go to Models" for lbl, _k, _cb in win._command_index())
+    assert win.import_field.models_tab_btn.isEnabled(), "Import-tab pointer to Models not wired"
+    # the deployed-overrides panel: scan a fake mod folder, rows classified, backend revert works
+    _fm = d / "fakemod"
+    _fmv = _fm / "StreamingAssets" / "Assets" / "Resources" / "Models" / "2" / "8"
+    _fmv.mkdir(parents=True)
+    (_fmv / "8_0.png").write_bytes(b"x")
+    (_fm / "DictionaryPatch.txt").write_text("3DModel 9999 GEO_NPC_F9_SMK\n", encoding="utf-8")
+    md.mdl_mod.setText(str(_fm))
+    md.on_deployed_refresh()
+    assert md.dep_list.count() == 2, f"deployed scan rows: {md.dep_list.count()}"
+    _texts = [md.dep_list.item(i).text() for i in range(2)]
+    assert any("texture reskin" in t and "GEO_MAIN_F0_VIV" in t for t in _texts), _texts
+    assert any("DANGLING" in t for t in _texts), _texts
+    from ..models import deployed as _dep
+    _dangling = next(e for e in _dep.scan_mod(_fm) if e["kind"] == "mint-directive")
+    _dep.revert_entry(_fm, _dangling)
+    md.on_deployed_refresh()
+    assert md.dep_list.count() == 1
     # pre-fork study + archive + find-rooms: the round-5 widgets built + wired
     for _w in (win.import_field.explain_chk, win.import_field.study_btn, win.import_field.rooms_btn,
                win.import_field.arc_out, win.import_field.arc_pattern, win.import_field.arc_btn):
@@ -6242,13 +6291,14 @@ def _smoke(win):
     assert win._deploy_target().endswith("campaign.toml"), win._deploy_target()
     assert any(lbl == "Deploy now (F9)" for lbl, _k, _cb in win._command_index())
     # drag-and-drop dispatch: a campaign.toml re-opens the campaign; a field.toml opens loose; a .glb
-    # pre-fills the Custom models box; garbage is refused
+    # pre-fills the Models tab's import row; garbage is refused
     assert win._open_dropped(d / "campaign.toml") is True and win.plan is not None
     assert win._open_dropped(d / "IC_COR" / "IC_COR.field.toml") is True and win._loose
     _glb = d / "edit.glb"
     _glb.write_bytes(b"glTF")
     assert win._open_dropped(_glb) is True
-    assert win.import_field.mdl_glb.text() == str(_glb)
+    assert win.models_doc.mdl_glb.text() == str(_glb)
+    assert win.tabs.currentWidget() is win.models_doc
     assert win._open_dropped(d / "IC_ENT") is False           # a directory is not a droppable file
     assert win.open_campaign(d / "campaign.toml")             # restore campaign mode for the sections below
     camp = win.tree.topLevelItem(0)
@@ -6321,6 +6371,21 @@ def _smoke(win):
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["startup"]["scenario"] == 2600 and \
         saved["startup"]["flags"] == [{"flag": "boss_dead", "value": 1}], saved
+    # [[playable]] is a LIST section: add one, form-edit a flat key, save -- and a NESTED table
+    # (an ability kit authored in TOML) survives the form save untouched (_commit pops spec keys only)
+    win._add_list_item("IC_ENT", "playable")
+    _pd = win._doc("IC_ENT")
+    assert _pd.data["playable"][0]["name"] == "Newhero"
+    _pd.data["playable"][0]["abilities"] = {"preset": 20, "learn": ["AA:12"]}
+    win._open_editor("IC_ENT", "object", "playable:0")
+    assert win._save_ctx["section"] == "playable" and not win._save_ctx["single"]
+    win._save_ctx["getters"]["custom_battle_model"] = lambda: True
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["playable"][0]["custom_battle_model"] is True, saved
+    assert saved["playable"][0]["abilities"] == {"preset": 20, "learn": ["AA:12"]}, \
+        "the nested ability kit must survive a form save"
+    assert saved["playable"][0]["name"] == "Newhero"
     # H1: commit-on-switch keeps uncommitted form edits (no Save) -- simulate a widget edit, then switch
     win._open_editor("IC_ENT", "object", "npc:0")
     win._save_ctx["getters"]["dialogue"] = lambda: "EDITED ON SWITCH"   # as if the user typed it
@@ -7797,6 +7862,8 @@ def _smoke(win):
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
+          f"+ MODELS tab (catalog browser + filters + detail + glb/anim/mint/reskin actions + deployed "
+          f"inventory + .glb drop) + [[playable]] form (flat keys; nested ability kit survives a save) "
           f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired "
           f"+ live theme switch ({len(_THEMES)} palettes) + Preferences/About commands")
 

@@ -1463,12 +1463,136 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     print(f"exported {man['geo']} (id {man['geo_id']}) -> {man['path']}")
     print(f"  {man['bones']} bones / {man['meshes']} mesh part(s) / {man['verts']} verts / "
           f"{man['textures']} texture(s) / anims: {', '.join(man['anims']) or 'none'}")
+    for d in man.get("donor_anims") or []:
+        who = d["model"] or "model %s" % d["folder"]
+        print(f"  donor clips: {', '.join(d['labels'])} <- Animations/{d['folder']}/ ({who}'s folder -- the "
+              f"engine's AnimationDB redirect; clips bind by bone name, so a same-rig donor clip plays cleanly)")
     print(f"  (each part is a SEPARATE named object in Blender -- edit one without disturbing the others)")
     for w in man.get("warnings", []):
         print(f"  WARN: {w}")
     _print_model_notes(man["geo"], minted=False, merge_warnings=None)
     print("Open in Blender: File > Import > glTF 2.0. It comes in rigged + textured; switch to the Animation "
           "workspace + pick an Action to scrub a clip. (Model is Y-up, ~scale 0.01 of FF9 units.)")
+    return 0
+
+
+def _cmd_model_anim_new(args: argparse.Namespace) -> int:
+    """Author a wholly NEW animation clip (not an edit): from a Blender .glb action, or the built-in
+    spin template (the no-Blender demo). Registers it via a 3DModelAnimation DictionaryPatch line."""
+    from .models import anim as manim
+    from .models import extract as mextract
+    try:
+        model = mextract.read_model(args.model, game=args.game)
+        warns: list = []
+        if args.glb:
+            if not args.action:
+                print("--glb needs --action <the Blender action/animation name>", file=sys.stderr)
+                return 2
+            from .models import _gltf_io
+            gltf, blob = _gltf_io.read_glb(args.glb)
+            parsed = manim.parse_gltf_animations(gltf, blob)
+            hit = next((pa for pa in parsed if (pa.get("label") or "") == args.action), None)
+            if hit is None:
+                labels = ", ".join(str(pa.get("label")) for pa in parsed) or "none"
+                print(f"no animation named {args.action!r} in {args.glb} (found: {labels})", file=sys.stderr)
+                return 2
+            clip = manim.new_clip(model["bones"], hit["bones"], name=args.suffix.lower(),
+                                  warn=warns.append)
+        else:
+            b0 = next((b for b in model["bones"] if b["name"] == "bone000"), None)
+            rest = tuple(b0["rot"]) if b0 and b0.get("rot") else None   # compose the yaw onto the real rest
+            clip = manim.new_clip(model["bones"], manim.synth_spin_curves(rest=rest),
+                                  name=args.suffix.lower(), warn=warns.append)
+        man = manim.deploy_new_anim(args.model, clip, args.deploy, key=args.key,
+                                    suffix=args.suffix, game=args.game)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    for w in warns:
+        print(f"  WARN: {w}")
+    print(f"new clip {man['name']} (key {man['key']}) -> {man['path']}")
+    print(f"  registered: {man['directive']}  (in {man['dictionary_patch']})")
+    print(f"Play it anywhere an anim id goes -- e.g. [[npc]] anims = {{ stand = {man['key']} }} or a "
+          f"cutscene animation step. RELAUNCH to register the key (DictionaryPatch loads at startup).")
+    return 0
+
+
+def _cmd_model_preview(args: argparse.Namespace) -> int:
+    """Software-render a model to a PNG still (the same renderer behind the GUI thumbnails)."""
+    from .models import preview as mpreview
+    out = args.out or f"{str(args.model).replace('/', '_')}.png"
+    try:
+        img = mpreview.render_token(args.model, game=args.game, pose=not args.rest,
+                                    size=args.size, yaw=args.yaw, pitch=args.pitch)
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    img.save(out)
+    print(f"rendered {args.model} -> {out}  ({args.size}x{args.size}, yaw {args.yaw:g}, pitch {args.pitch:g}, "
+          + ("rest pose" if args.rest else "stand pose") + ")")
+    return 0
+
+
+def _cmd_model_reskin(args: argparse.Namespace) -> int:
+    """The cheapest model edit: export a model's textures / deploy edited PNGs as a loose reskin."""
+    from .models import reskin as mreskin
+    if not args.export_textures and not args.texture:
+        print("model-reskin needs --export-textures DIR (get the editable PNGs) or "
+              "--texture PNG... --deploy MODFOLDER (ship the edited ones)", file=sys.stderr)
+        return 2
+    try:
+        if args.export_textures:
+            man = mreskin.export_textures(args.model, args.export_textures, game=args.game)
+            print(f"exported {len(man['textures'])} texture(s) of {man['geo']} -> {man['dir']}")
+            for t in man["textures"]:
+                print(f"  {t['name']}  ({t['size'][0]}x{t['size'][1]})")
+            print("Edit them in any image editor (any size works), KEEP THE NAMES, then: "
+                  f"ff9mapkit model-reskin {args.model} --deploy MODFOLDER --texture <edited.png...>")
+        if args.texture:
+            if not args.deploy:
+                print("--texture needs --deploy MODFOLDER (where to ship the reskin)", file=sys.stderr)
+                return 2
+            man = mreskin.deploy_reskin(args.model, args.texture, args.deploy, game=args.game)
+            print(f"reskinned {man['geo']} (id {man['geo_id']}): {', '.join(man['deployed'])}")
+            print(f"  -> {man['dir']}")
+            print("Field models: F6 -> Reload field re-probes the texture. Battle/weapon models load "
+                  "on battle entry -- a RELAUNCH is the sure path.")
+        for w in man.get("warnings", []):
+            print(f"  NOTE: {w}")
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
+def _cmd_model_deployed(args: argparse.Namespace) -> int:
+    """List (or revert one of) a mod folder's loose model overrides/reskins/mints/anim overrides."""
+    from .models import deployed
+    entries = deployed.scan_mod(args.mod_folder)
+    if args.revert is not None:
+        matches = [e for e in entries if e["geo_id"] == args.revert
+                   and (args.kind is None or e["kind"] == args.kind)]
+        if not matches:
+            print(f"nothing deployed at id {args.revert}"
+                  + (f" with kind {args.kind}" if args.kind else ""), file=sys.stderr)
+            return 2
+        if len(matches) > 1:
+            kinds = ", ".join(e["kind"] for e in matches)
+            print(f"id {args.revert} has {len(matches)} deployed entries ({kinds}) -- "
+                  f"disambiguate with --kind", file=sys.stderr)
+            return 2
+        r = deployed.revert_entry(args.mod_folder, matches[0])
+        print(f"reverted: {deployed.describe(matches[0])}")
+        if r["directive_removed"]:
+            print("  stripped its 3DModel line -- RELAUNCH to unregister the id")
+        return 0
+    if not entries:
+        print("no loose model overrides in this folder")
+        return 0
+    for e in entries:
+        print(f"  {deployed.describe(e)}")
+    print(f"{len(entries)} entr{'y' if len(entries) == 1 else 'ies'} "
+          f"(revert one: model-deployed <mod> --revert <id> [--kind <kind>])")
     return 0
 
 
@@ -1488,9 +1612,9 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
           + (f", rig from {r['source']}" if r['source'] else "") + ")")
     print(f"  wrote: {r['path']}  (+ {len(r['textures'])} texture(s))")
     anims = r.get("anims") or {}
+    _anim_dirs = ", ".join(f"Animations/{f}/" for f in (anims.get("folders") or [anims.get("geo_id")]))
     if anims.get("written"):
-        print(f"  animations: wrote {len(anims['written'])} edited clip override(s) -> "
-              f"Animations/{anims.get('geo_id')}/*.anim")
+        print(f"  animations: wrote {len(anims['written'])} edited clip override(s) -> {_anim_dirs}*.anim")
     elif anims.get("error"):
         print(f"  animations: skipped ({anims['error']})")
     elif not args.no_anims:
@@ -1502,7 +1626,7 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
         # before disc), and F6 field-reload re-requests the SAME path -> it gets the cached clip. So a
         # re-deployed .anim needs a RELAUNCH; only the mesh/FBX is picked up by F6.
         print(f"  RELAUNCH FF9 to apply the .anim clip(s) (F6 field-reload keeps the cached clip); the MESH "
-              f"shows on F6. Revert: delete Models/<type>/{r['id']}/ + Animations/{anims.get('geo_id')}/.")
+              f"shows on F6. Revert: delete Models/<type>/{r['id']}/ + {_anim_dirs}.")
     else:
         print(f"  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by "
               f"deleting that Models/<type>/{r['id']}/ folder.")
@@ -1526,8 +1650,13 @@ def _cmd_model_anim(args: argparse.Namespace) -> int:
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
+    folders = sorted({Path(w).parent.name for w in r["written"]}, key=int) or [str(r["geo_id"])]
+    fdir = folders[0] if len(folders) == 1 else "{%s}" % ",".join(folders)   # donor-located clips span folders
     print(f"{'deployed' if args.deploy else 'dumped'} {len(r['written'])} clip(s) for {r['geo']} "
-          f"(id {r['geo_id']}) -> {where}/StreamingAssets/Assets/Resources/Animations/{r['geo_id']}/")
+          f"(id {r['geo_id']}) -> {where}/StreamingAssets/Assets/Resources/Animations/{fdir}/")
+    if r.get("missing"):
+        print(f"  NOT FOUND anywhere on disc (own folder, donor folder, or a same-name sibling id): "
+              f"{', '.join(map(str, r['missing']))}")
     if not r["written"]:
         print(f"  (no clips matched; available keys: {', '.join(map(str, r['keys'])) or 'none'})")
     else:
@@ -4177,7 +4306,10 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("--out", default=None, help="output .glb path (default: <geo>.glb in the current dir)")
     mg.add_argument("--anims", default="auto",
                     help="which clips to embed: 'auto' (idle/walk/run/turns), 'all' (the model's whole folder), "
-                         "'none', or a comma/space list of action labels or raw anim ids")
+                         "'none', or a comma/space list of action labels or raw anim ids. A clip that lives in "
+                         "a DONOR model's folder (the engine's AnimationDB name redirect -- e.g. most of "
+                         "GEO_NPC_F1_BBA's actions live in GEO_NPC_F0_BBA's Animations/112/) is found + "
+                         "embedded automatically")
     mg.add_argument("--scale", type=float, default=0.01,
                     help="uniform scale bake (default 0.01: FF9's hundreds-of-units models -> a few Blender metres)")
     mg.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
@@ -4207,14 +4339,68 @@ def build_parser() -> argparse.ArgumentParser:
                         help="dump/deploy a model's animation clips as editable loose .anim JSON (DLL-free)")
     ma.add_argument("model", help="GEO name or model id whose clips to dump, e.g. GEO_MAIN_F0_VIV or 8")
     ma.add_argument("--clips", default="all",
-                    help="which clips: 'all' (default) or a comma/space list of anim KEYS (see `model-gltf "
-                         "--anims all` output / the folder listing)")
+                    help="which clips: 'all' (default: every clip in the model's OWN folder) or a comma/space "
+                         "list of anim KEYS (see `models <GEO>` / `model-gltf --anims all`). A key living in a "
+                         "DONOR model's folder (the engine's AnimationDB redirect) resolves + dumps at its real "
+                         "Animations/<folder>/ path")
     ma.add_argument("--out", default=".", help="dir to write the Animations/<geoId>/ tree into (default: .)")
     ma.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="write straight into MODFOLDER's StreamingAssets override path instead of --out "
                          "(the loose-override-path proof; F6 -> Reload field to apply)")
     ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
+
+    man = sub.add_parser("model-anim-new",
+                         help="author a wholly NEW animation clip for a model (a Blender .glb action, or "
+                              "the built-in spin demo) -- registered via 3DModelAnimation, DLL-free")
+    man.add_argument("model", help="GEO name or model id the clip animates, e.g. GEO_NPC_F1_BBA (see `models`)")
+    man.add_argument("--glb", default=None, help="a .glb carrying the new action (made on this model's rig "
+                                                 "via `model-gltf` -> Blender; omit for the spin demo)")
+    man.add_argument("--action", default=None, help="the Blender action/animation name inside --glb")
+    man.add_argument("--suffix", default="CUSTOM1",
+                     help="the clip's ANH name suffix (ANH_<grp>_<form>_<tok>_<SUFFIX>; default CUSTOM1)")
+    man.add_argument("--key", type=int, default=None,
+                     help="the AnimationDB key to register (default: next free in the 60000-65535 band; "
+                          "a FIELD anim id must fit 16 bits, so keys above 65535 are rejected)")
+    man.add_argument("--deploy", metavar="MODFOLDER", required=True,
+                     help="mod folder to write Animations/<id>/<key>.anim + the DictionaryPatch line into")
+    man.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    man.set_defaults(func=_cmd_model_anim_new)
+
+    mp = sub.add_parser("model-preview",
+                        help="software-render a model to a PNG still (textured, posed at its stand clip) -- no Blender")
+    mp.add_argument("model", help="GEO name or model id to render, e.g. GEO_MAIN_F0_VIV or 8 (see `models`)")
+    mp.add_argument("--out", default=None, help="output .png path (default: <model>.png in the current dir)")
+    mp.add_argument("--size", type=int, default=256, help="image size in px (square; default 256)")
+    mp.add_argument("--yaw", type=float, default=30.0, help="turntable angle in degrees (default 30: a 3/4 view)")
+    mp.add_argument("--pitch", type=float, default=12.0, help="look-down angle in degrees (default 12)")
+    mp.add_argument("--rest", action="store_true",
+                    help="render the raw rest pose instead of frame 0 of the model's stand clip")
+    mp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mp.set_defaults(func=_cmd_model_preview)
+
+    mr = sub.add_parser("model-reskin",
+                        help="the cheapest model edit: export a model's textures, or deploy edited PNGs "
+                             "as a loose reskin (no Blender, no FBX, no DLL)")
+    mr.add_argument("model", help="GEO name or model id to reskin, e.g. GEO_MAIN_F0_VIV or 8 (see `models`)")
+    mr.add_argument("--export-textures", metavar="DIR", default=None,
+                    help="write the model's pristine textures as editable {stem}.png files into DIR")
+    mr.add_argument("--texture", metavar="PNG", nargs="+", default=None,
+                    help="edited PNG file(s) to ship -- each must KEEP its {stem}.png name")
+    mr.add_argument("--deploy", metavar="MODFOLDER", default=None,
+                    help="mod folder to write the reskin into (the model's own override dir)")
+    mr.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mr.set_defaults(func=_cmd_model_reskin)
+
+    mdp = sub.add_parser("model-deployed",
+                         help="list (or revert) a mod folder's loose model overrides / reskins / mints / "
+                              "anim overrides -- the read side of the write-only override system")
+    mdp.add_argument("mod_folder", help="the mod folder to scan, e.g. <game>/FF9CustomMap")
+    mdp.add_argument("--revert", type=int, metavar="ID", default=None,
+                     help="delete the deployed entry at this model id (a mint also loses its 3DModel line)")
+    mdp.add_argument("--kind", choices=["override", "reskin", "mint", "anims", "mint-directive"],
+                     default=None, help="disambiguate --revert when an id has several entry kinds")
+    mdp.set_defaults(func=_cmd_model_deployed)
 
     pa = sub.add_parser("playable-anims",
                         help="the Blender edit loop for a 13th character's custom_battle_anims animset -- route "

@@ -5,6 +5,126 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — custom battle FORMULAS with no engine rebuild (the Scripts-DLL channel)
+- A `[[playable]]` custom ability now takes **`script = { template = "drain_hp" }`** (or `{ body = "<C#>" }`)
+  and the kit mints a genuinely new battle-calc formula — a `[BattleScript(id≥256)]` class compiled into a
+  mod-owned **`Memoria.Scripts.<Mod>.dll`**, loaded *in addition to* the base engine by `ScriptsLoader`, with
+  **zero engine-DLL rebuild**. Four stock-donor templates (`drain_hp`/`drain_mp`/`magic_damage`/`white_wind`) +
+  a raw C# `body` escape hatch; the scriptId (256–511) is decoupled from the ability id (192–223). ★ In-game
+  proven — Iviv's "Soul Leech" drain (damage + self-heal). Docs: **[docs/SCRIPTS_DLL.md](docs/SCRIPTS_DLL.md)**.
+- The DLL is compiled at build/deploy against the INSTALLED engine (version-coupled) and loads once at the title
+  screen (RELAUNCH — F6 won't reload it). Reversible deploy (`tools/deploy_field.py`).
+- **Lint gate:** `ff9mapkit lint` now fails early with a clear, build-blocking error when a field carries a
+  scripted ability but no C# compiler (`csc`) is findable — instead of the build dying mid-compile. Fix by
+  setting `$FF9_CSC` or installing VS Build Tools (the always-present .NET Framework csc works too).
+- **Engine-version stamp + drift warning:** each build stamps the DLL with the engine FileVersion it compiled
+  against (a `<dll>.buildinfo.json` sidecar); deploy and the Setup & Health check warn when a deployed DLL was
+  built against a different engine than the one now installed (e.g. after a Memoria update) — catching the
+  version-coupling drift offline, before the in-battle `MissingMemberException`.
+- **Paired field effects (the channel fan-out):** a custom ability's `script` now accepts a `field = {template/body}`
+  sub-table → the kit mints a paired **`[FieldAbilityScript(id)]`** into the *same* DLL at the *same* scriptId, so a
+  curative ability works both **in and out of combat** (five field templates transcribed from Memoria's
+  `SFieldCalculator`; requires a paired battle formula — they share one minted id). ★ In-game proven — Iviv's
+  "Lifewell" healed in battle *and* healed an ally from the field menu. See [docs/SCRIPTS_DLL.md](docs/SCRIPTS_DLL.md) §2.
+- **Custom status behaviours (the channel's third surface):** an ability's `status` list accepts a table
+  `{ name, template/body, hooks }` → the kit mints a `[StatusScript(BattleStatusId.CustomStatusN)]` (behaviour) into
+  the same DLL, a `StatusData.csv` row at the auto-allocated custom id (33–63, so the engine can inflict it), and the
+  `StatusSets` row that applies it. Templates `auto_life` (revive-on-death) / `auto_attack` (Berserk) + a raw `body`
+  + `hooks`. A per-tick DoT is engine-gated (documented); the reachable hooks are Apply/Remove/OnDeath/OnATB/
+  OnFigurePoint/OnFinishCommand. Each custom status **borrows a vanilla status's HUD icon** (template default, or
+  `icon = "<vanilla status>"`) via a `BuffIcon`/`DebuffIcon` DictionaryPatch line registered at launch, so it shows
+  in every panel display (battle HUD, target/"hover", resists, party menu); an `over_model = "<vanilla status>"`
+  additionally gives it an ON-MODEL indicator (inheriting that status's SHP over-model chevron / SPS particle / tint
+  from `StatusData`). The `auto_life` template takes a `power` knob (revive at power% of max HP, default 50).
+  ★ Behaviour + panel icon + on-model chevron in-game proven (a custom revive-on-death status fired + showed both).
+
+### Added — the Models tab (the custom-3D-models pillar's front door in the Workspace)
+- A new top-level **Models** tab: browse every GEO model the kit knows (search + group filter +
+  field-placeable filter) with **real rendered thumbnails**, a detail pane (preview still,
+  bones/meshes/verts/textures, the model→animation action join, story-evolved/hair-swap appearance
+  caveats, overworld-actor identity, Copy name / Copy `[[npc]]` snippet), and the whole DLL-free
+  edit round-trip in one place — Export `.glb` (anims auto/all/none) · Import the edited `.glb` ·
+  Mint a new id · Dump editable `.anim` clips — each streaming `ff9mapkit model-*` to the Output
+  panel. Ctrl-K "Go to Models", a Home row, and dropping a `.glb` on the window all land here; the
+  Import tab's old models box is now a pointer. Previews render on a background worker (per-user
+  disk cache, `ModelThumbService`); a machine without the install degrades to text rows.
+
+### Added — texture reskin (`model-reskin` + the Models tab's cheapest edit)
+- **`ff9mapkit model-reskin <model> --export-textures DIR`** writes a model's pristine textures as
+  editable `{name}.png` files; **`--deploy MODFOLDER --texture <edited.png…>`** ships them back to
+  the model's own override dir (weapons' `BattleMap/BattleModel/6/` path included). No Blender, no
+  FBX, no DLL — the engine probes `<model dir>/{textureName}.png` per material for every
+  bundle-loaded model (`ModelFactory.cs:100-116`) and swaps the texture by NAME, so names are
+  validated fail-loud (a mis-named PNG deploys fine and then silently never loads). Any size works
+  (upscales fine); Zidane's F3/F4/F5 alt-costume forms are warned (the engine skips the probe for
+  them). The Models tab gets **Export textures… / Deploy reskin PNG(s)…** buttons.
+
+### Added — deployed-model inventory (`model-deployed` + the Models tab's panel)
+- The loose-override system is write-only; this is the read side. **`ff9mapkit model-deployed
+  <modfolder>`** lists everything model-side deployed in a mod folder — loose FBX **overrides**,
+  PNG-only **reskins** (weapon tree included), **mints** (named via their `3DModel` DictionaryPatch
+  line; an unregistered mint is flagged), **anim overrides**, and **dangling** `3DModel` lines whose
+  folder is gone. `--revert <id> [--kind …]` deletes one entry (a mint also loses its line;
+  path-guarded to the mod folder). The Models tab gets a **"Deployed in this mod folder"** panel
+  with Refresh + a confirm-first **Revert selected…**.
+
+### Added — wholly NEW animation clips (`model-anim-new`)
+- The anim pillar authored *edits* of real clips; now it authors **new ones**: `ff9mapkit
+  model-anim-new <model> --glb <blender.glb> --action <name> --deploy <mod>` (or no `--glb` for the
+  built-in spin demo) builds a from-scratch clip — full-hierarchy `SetCurve` bone paths from the
+  model's own skeleton — writes the loose `Animations/<id>/<key>.anim`, and registers it with an
+  idempotent `3DModelAnimation <key> <ANH_…_SUFFIX>` DictionaryPatch line (keys minted in a
+  2,000,000+ band, clear of real ids and the battle-animset band). Play it anywhere an anim id
+  goes: `[[npc]] anims = { stand = <key> }`, a cutscene `animation` step. RELAUNCH to register.
+
+### Added — custom weapon models (`[[weapon]] model`)
+- A weapon item can now change what it LOOKS like: `model = "GEO_WEP_B1_030"` points it at a stock
+  weapon model; `model = { id = 6500, tint = [1.7, 0.5, 0.5] }` (or `hue` / per-stem `textures`)
+  **mints a recolored variant** at the new id — the loose FBX + PNGs land at the weapon override
+  path (`BattleMap/BattleModel/6/<id>/`), the `3DModel` line registers the name, and the item's
+  `Weapons.csv` `Model` column carries it, so the engine resolves it exactly like a stock weapon
+  (`btl_eqp.InitWeapon` → `GetGEOID` → the disc probe). Composes with the existing `[[weapon]]`
+  stat knobs; validated offline (mint band, ops, duplicate ids — all-specs-first so a bad block
+  never leaves earlier mints half-emitted); deploy ships the weapon tree. RELAUNCH to register.
+- Fixed: `ModLayout.model_dir` now routes type 6 to `BattleMap/BattleModel/` (was `Models/6/`,
+  where the engine never probes).
+
+### Added — palette-swap enemies (`[[scene.enemy]] skin`)
+- The classic FF9 move (Goblin → Goblin Mage) as one declarative knob on a forked battle:
+  `skin = { id = 6210, hue = 150 }` (or `tint = [r,g,b]` multipliers / `textures = { "<stem>" =
+  "my.png" }` hand-painted overrides, composable; optional `from`/`name`). The build mints the
+  enemy's model at the new id (≥ 6000) with the recolored textures, registers the `3DModel` line,
+  and points the enemy's `Geo@30` at the mint — so the original creature stays vanilla everywhere
+  else, and the variant keeps its own skeleton + clips (no cross-model retarget quirk, unlike a
+  body re-skin). Alpha (the cutout mask) is preserved exactly; validation is offline + fail-loud
+  (mint band 6000–32767 — `Geo@30` is a signed 16-bit field). RELAUNCH to register the id.
+
+### Added — the `[[playable]]` form + the playable-anims GUI
+- A **Playables** section in the field editor's object tree: a `[[playable]]` block's flat keys —
+  id / name / borrow / recruit / `custom_battle_model` / `custom_battle_anims` / `anim_edits`
+  (file-picked) / `portrait` (file-picked) / `battle_model_from` (model-picker) / `battle_model_id`
+  — are now form-editable. The nested tables (stats / abilities / commands / status / script) stay
+  TOML-authored and **survive a form save untouched** (the editor's save only replaces the keys the
+  form owns; pinned by the smoke). The Models tab gains a **"Custom playable's battle animset"** box
+  driving `playable-anims` (export the donor `.glb` with motion-named Actions / route the edited
+  `.glb` onto the character's own minted animset).
+
+### Added — model previews across the Info Hub + catalog pickers
+- Every model-backed Info Hub page (models, archetypes, creatures, props) and the in-form catalog
+  picker now show the rendered preview — leading the detail pane (an image below a 197-entry
+  animation list reads as no image at all). Strictly CACHE READS (`models/thumbcache.py`, Qt-free):
+  browsing the Models tab / running `model-preview` fills the per-user cache; the Info Hub never
+  renders on the GUI thread, so a cold cache or a game-less machine degrades to text.
+
+### Added — model previews (`model-preview` + the renderer behind the GUI thumbnails)
+- **`ff9mapkit model-preview <model>`** software-renders any FF9 model to a textured PNG still — pure
+  PIL (no OpenGL/Blender), orthographic 3/4 view, `--size/--yaw/--pitch/--rest`. Under the hood
+  (`models/preview.py`): TRUE linear-blend skinning of the raw prefab (`boneWorld · m_BindPose · v`,
+  exact even for the divergent per-bone binds the rigid G-bake approximates — the `GEO_SUB_W0_*`
+  overworld actors rendered scrambled without it), posed at **frame 0 of the model's stand clip**
+  (some rigs' rest pose is a collapsed authoring pose the player never sees), per-triangle affine
+  texture mapping with REPEAT-wrap tile normalization, painter's sort + flat lambert shading.
+
 ## [1.0.0b2] - 2026-06-24 — verbatim-fork spatial authoring + engine refresh
 
 Toolkit + engine-bundle refresh on top of the first public beta.

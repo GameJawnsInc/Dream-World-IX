@@ -265,7 +265,9 @@ class ModLayout:
         The folder ``ModelFactory.CreateModel`` probes on disc before the bundle: an OVERRIDE when ``id`` is
         a real GEO id, a MINT when it's a new id registered via a ``3DModel <id> <name>`` DictionaryPatch
         line. Casing matches ``_battle_resources`` (capitalized Assets/Resources), verbatim-proven in-game."""
-        return self.root / "StreamingAssets" / "Assets" / "Resources" / "Models" / str(type_int) / str(geo_id)
+        from .models.export import model_dir_parts   # single source of truth: weapons (type 6) live
+        return self.root.joinpath("StreamingAssets", "Assets", "Resources",   # under BattleMap/BattleModel/
+                                  *model_dir_parts(type_int, geo_id))
 
     # --- battle background (BBG): a loose FBX + image#.png the engine loads instead of the bundle ---
     @property
@@ -498,6 +500,27 @@ class ModLayout:
         low->high (accumulator) -> a partial file (only the abilities you change) works; the base supplies the
         rest. Authored from ``[[ability_feature]]`` (:mod:`battle.abilityfeatures`)."""
         return self.root / "StreamingAssets" / "Data" / "Characters" / "Abilities" / "AbilityFeatures.txt"
+
+    # --- custom battle-formula scripts (the Scripts-DLL channel; project-ff9-scripts-dll) ---
+    @property
+    def scripts_dir(self) -> Path:
+        """``…/StreamingAssets/Scripts`` -- holds ``Sources/`` (the emitted C# battle formulas) + the compiled
+        ``Memoria.Scripts.<Mod>.dll``. The engine loads a per-mod-folder DLL (name derived from the folder) IN
+        ADDITION to the base ``Memoria.Scripts.dll`` (``ScriptsLoader``), so a mod adds new ``[BattleScript(id)]``
+        formulas (id >=256) with NO engine rebuild. RELAUNCH-scoped (loaded once at title; F6 won't reload it)."""
+        return self.root / "StreamingAssets" / "Scripts"
+
+    @property
+    def scripts_sources_dir(self) -> Path:
+        """``…/Scripts/Sources/Battle`` -- the C# source(s) the kit emits + compiles. Runtime-INERT (the game
+        loads only the DLL); shipped alongside for provenance + a re-compile against a future engine."""
+        return self.scripts_dir / "Sources" / "Battle"
+
+    def scripts_dll(self, mod_name: str) -> Path:
+        """``…/Scripts/Memoria.Scripts.<mod_name>.dll`` -- the compiled mod formula DLL. The name MUST match the
+        mod's FolderNames entry: ``ScriptsLoader`` derives ``Memoria.Scripts.{folder}.dll`` and a mismatch is
+        simply never discovered (silently no custom formulas)."""
+        return self.scripts_dir / f"Memoria.Scripts.{mod_name}.dll"
 
     def ensure_dirs(self, fbg_name: str | None = None, *, bbg: str | None = None,
                     langs: tuple[str, ...] = LANGS) -> None:

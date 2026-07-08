@@ -13,8 +13,8 @@
 > map; the roadmap below (§8) is now mostly DONE — the full raw16 per-enemy table (`scene_data.py`), the CSV
 > deltas (`actiondelta.py`/`characterdelta.py`/`abilityfeatures.py`), enemy-AI authoring (`aiauthor.py`/
 > `ailint.py`/`aipatch.py`), BODY re-skin (`reskin.py`), and raw17 sequence authoring (`seqasm.py`/
-> `seqauthor.py`). The only deferred items are a wholly-new attack SLOT and a brand-new battle-calc formula
-> (a `Memoria.Scripts.<Mod>.dll`). §1/§2/§6 below are kept for the engineering rationale — read the per-row
+> `seqauthor.py`). A brand-new battle-calc **formula** (a `Memoria.Scripts.<Mod>.dll`) now SHIPS too — see
+> **[SCRIPTS_DLL.md](SCRIPTS_DLL.md)** — so the only deferred item is a wholly-new attack SLOT. §1/§2/§6 below are kept for the engineering rationale — read the per-row
 > **Kit** columns + §8 phase stamps for current ship-state.
 
 ---
@@ -41,8 +41,9 @@ do NOT share a format or a merge model:
 **The no-DLL boundary is wide.** Every per-enemy field, every action/status CSV, every AI `.eb`, the encounter
 wiring, and the BGM are stock-Memoria data-patches. The **only** DLL needs are (a) a *brand-new* battle-calc
 formula / `scriptId` behavior — and even that is a separate, swappable **`Memoria.Scripts.<Mod>.dll`** loaded
-per mod folder via `Assembly.LoadFile` (`ScriptsLoader.cs:283-291`), **NOT** the engine `Assembly-CSharp.dll` —
-and (b) engine-enum changes (e.g. a wholly new `CharacterId`). The kit's `[scene]` tuner now reaches the **full
+per mod folder via `Assembly.LoadFile` (`ScriptsLoader.cs:283-291`), **NOT** the engine `Assembly-CSharp.dll`
+(the kit now MINTS this DLL for you — [SCRIPTS_DLL.md](SCRIPTS_DLL.md)) — and (b) engine-enum changes
+(e.g. a wholly new `CharacterId`). The kit's `[scene]` tuner now reaches the **full
 raw16 per-enemy combat-identity table** (§2(a)) **plus** the CSV channels (`actiondelta`/`characterdelta`) and
 the enemy-AI `.eb` channel (`aiauthor`/`ailint`/`aipatch`).
 
@@ -147,7 +148,7 @@ Header (`Actions.csv:5`):
 | Lever | Controls | Channel | Location | DLL? | Kit |
 |---|---|---|---|---|---|
 | power / elements / rate / mp | damage / element / hit-or-status% / MP cost | CSV | cols 12/13/14/16 → `BTL_REF`/`AA_DATA` (`BattleActionEntry.cs:13-45`) | No | **done** (`[[battle_action]] power/element/rate/mp`, `actiondelta`) |
-| **scriptId** | which battle-calc formula runs | CSV (re-point) **/ DLL (new)** | col 11 → `ScriptsLoader.GetBattleScript` (`ScriptsLoader.cs:215-223`) | re-point **No** / new formula **Yes** (`Memoria.Scripts.<Mod>.dll`) | **done (re-point)** (`[[battle_action]] script` resolves the formula catalog; a NEW formula still needs the `.dll`) |
+| **scriptId** | which battle-calc formula runs | CSV (re-point) **/ DLL (new)** | col 11 → `ScriptsLoader.GetBattleScript` (`ScriptsLoader.cs:215-223`) | re-point **No** / new formula **kit-minted DLL** | **done (re-point + NEW)** — `[[battle_action]] script` re-points at a stock formula; a custom ability's `script = {template/body}` MINTS a new one (`Memoria.Scripts.<Mod>.dll`, no engine rebuild) → **[SCRIPTS_DLL.md](SCRIPTS_DLL.md)** |
 | category / type | physical/magic/reflectable/contact/weapon-props/crit bits | CSV | cols 15/17 (`type 0x8/0x10/0x20` only when `CustomBattleFlagsMeaning=1`) | No | **done** (`[[battle_action]] category/type`) |
 | statusIndex (AddStatusNo) | which `StatusSets.csv` row it inflicts/cures | CSV | col 16 → `StatusSetId` | No | **done** (`[[battle_action]] status_index`) |
 | targets / menuWindow / camera / vfx | targeting + cursor display + VFX ids | CSV | cols 3-10 | No | **done** (`[[battle_action]] targets`(TargetType)/`menu_window`(TargetDisplay)/`default_ally`/`for_dead`/`default_on_dead`/`camera`/`vfx1`/`vfx2`) |
@@ -310,7 +311,8 @@ in-memory after `ReadBattleScene` (`DataPatchers.cs:99-137,538-682`).
 **Registration — `DictionaryPatch.txt`** (`BattleScene`/`BattleMapModel`).
 
 **Needs DLL:** a new battle-calc formula / `scriptId` behavior → a separate **`Memoria.Scripts.<Mod>.dll`**
-(`ScriptsLoader.cs:283-311`, NOT the engine DLL); a new `CharacterId`; the fixed accumulator / `d`-table /
+(`ScriptsLoader.cs:283-311`, NOT the engine DLL — **the kit now mints + compiles this for you**, no engine
+rebuild → [SCRIPTS_DLL.md](SCRIPTS_DLL.md)); a new `CharacterId`; the fixed accumulator / `d`-table /
 escape-probability algorithms.
 
 **Two caveats a delta emitter MUST encode:**
@@ -424,9 +426,12 @@ reaches ANY scene by name **without forking** — the BP-only rate arrays / `Bon
 sequence authoring** (the `seqasm.py` assembler + length-changing `[[scene.seq_replace]]`/`[[scene.seq_insert]]`,
 `seqauthor.py`).
 
+**Now shipped:** a **brand-new battle-calc formula** / `scriptId` behavior — a custom ability's
+`script = {template/body}` mints a `[BattleScript(id≥256)]` into a separate `Memoria.Scripts.<Mod>.dll`
+(not the engine DLL, no rebuild) → **[SCRIPTS_DLL.md](SCRIPTS_DLL.md)**.
+
 **Still missing:** a **wholly-new attack SLOT** (grow `seqCount` + a coordinated raw16 `AA_DATA` + `.eb` AI edit —
-§2(h)/§8); and a **brand-new battle-calc formula** / `scriptId` behavior (a separate `Memoria.Scripts.<Mod>.dll`,
-not the engine DLL).
+§2(h)/§8).
 
 ---
 
@@ -443,8 +448,9 @@ ship custom C#).
 **Where the kit WINS** (don't out-GUI HW on single-enemy editing): CSV-delta ability/status balance (the
 `itemstats.py` pattern); **campaign-wide tuning** ("buff every Goblin across the chain"); **offline
 lint/validation**; declarative `battle.toml`/`field.toml` authoring; provenance-clean byte-verified
-import→tweak→verify; clean `BattlePatch.txt` emission. **Where NOT to bother:** a single-enemy GUI; novel
-`scriptId` formulas; cross-scene net-new formations needing a new type's raw17 seqs + GEO.
+import→tweak→verify; clean `BattlePatch.txt` emission. **Where NOT to bother:** a single-enemy GUI; cross-scene
+net-new formations needing a new type's raw17 seqs + GEO. (Novel `scriptId` formulas — once the ceiling only a
+forked engine reached — now ship as the kit's per-mod Scripts-DLL channel, [SCRIPTS_DLL.md](SCRIPTS_DLL.md).)
 
 ---
 
@@ -490,7 +496,8 @@ stage (`build._emit_battle_data` → `ModLayout.actions_csv`/`status_data_csv`).
 modifies the named columns, and emits the complete row — preserving the base file's **`#!` option lines**
 (load-bearing: the engine parses by column POSITION and `#!` toggles optional columns). Mod-global (always-on,
 not new-game-scoped), aggregated across all fields, dup-id warned; `script` resolves a formula name (warns if
-it's not a stock scriptId — a new formula needs a `Memoria.Scripts.<Mod>.dll`). Provenance: the authored
+it's not a stock scriptId — a new formula is minted via the Scripts-DLL channel, [SCRIPTS_DLL.md](SCRIPTS_DLL.md)).
+Provenance: the authored
 `field.toml` holds only the overrides; the emitted CSV is mod build-output (never committed). `deploy_field`
 ships the two CSVs reversibly. Offline `lint` does structural checks; name→id + value resolution happens at
 build (which has the install). (Enemy attacks live in raw16, not Actions.csv → the enemy-attack analog is the
@@ -618,6 +625,18 @@ forked Goblin's **tag-5 attack routine** (`battle_tests/bt_goblin`, scene 30055)
 enemy's AI ENTRY is bound by Main_Init's `InitObject(<entry>,…)` (the Goblin binds to **entry 2**, decoupled from the
 raw16 "type"); the `Attack` (0x38) command lives in **tag 5**. **Defer raw17 btlseq sequence authoring** (new codec
 + a coordinated raw16+eb+raw17 edit).
+
+### Phase 7 — a brand-new battle-calc FORMULA ✅ DONE (2026-07-07) → [SCRIPTS_DLL.md](SCRIPTS_DLL.md)
+The last DLL-gated battle item. A `[[playable]]` custom ability's `script = {template/body}` mints a genuinely new
+`scriptId` formula — a `[BattleScript(id≥256)]` in a mod-owned `Memoria.Scripts.<Mod>.dll`, compiled at deploy
+against the INSTALLED engine and loaded IN ADDITION to the base by `ScriptsLoader` (NOT the engine
+`Assembly-CSharp.dll`; **no rebuild**). Four stock-donor templates (`drain_hp`/`drain_mp`/`magic_damage`/
+`white_wind`) + a raw C# `body` escape hatch; the scriptId (256–511, the engine's `BattleExtendedScripts` dict
+band) is decoupled from the ability id (192–223). ★ **IN-GAME PROVEN (2026-07-07):** Iviv's "Soul Leech" drain
+(damage + self-heal) from one line of `field.toml`. A **lint gate** fails early when no C# compiler is findable;
+the one caveat is version-coupling (compile against the live install) + a RELAUNCH (the DLL loads once at the
+title). Full recipe → **[SCRIPTS_DLL.md](SCRIPTS_DLL.md)**. The ONE remaining battle-DLL item is a wholly-new
+attack SLOT (§2(h)).
 
 ---
 

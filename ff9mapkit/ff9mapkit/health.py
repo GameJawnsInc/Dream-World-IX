@@ -104,6 +104,19 @@ def health_report(game=None) -> list:
         layout = _cfg.ModLayout(Path(game) / "FF9CustomMap")
         rows.append(_row("Mod folder", f"{layout.root}"
                          + ("" if layout.root.is_dir() else "  (created on first deploy)")))
+        # a custom battle-formula DLL (the Scripts-DLL channel) is engine-VERSION-COUPLED -> WARN if it was built
+        # against a different engine than the one now installed (e.g. after a Memoria update), before the game
+        # throws a MissingMemberException at cast (project-ff9-scripts-dll).
+        dll = layout.scripts_dll("FF9CustomMap")
+        if dll.is_file():
+            from .battle import scriptcompile as _scomp
+            built = (_scomp.read_engine_stamp(dll) or {}).get("engine_file_version")
+            drift = _scomp.engine_drift_warning(dll, game=game)
+            if drift:
+                rows.append(_row("Custom battle formula DLL", f"engine MISMATCH (built vs {built})", "warn", drift))
+            else:
+                rows.append(_row("Custom battle formula DLL",
+                                 f"present{f' (engine {built})' if built else ''}"))
     except Exception:   # noqa: BLE001
         pass
     return rows

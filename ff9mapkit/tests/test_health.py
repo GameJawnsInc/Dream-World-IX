@@ -36,6 +36,36 @@ def test_quick_issues_reports_missing_templates(monkeypatch, tmp_path):
     assert health.quick_issues() == []
 
 
+def test_health_flags_scripts_dll_engine_drift(monkeypatch, tmp_path):
+    """A live custom battle-formula DLL built against a different engine surfaces as a WARN row (the drift
+    detector after a Memoria update); a matching one is a plain OK row naming the engine it was built against."""
+    (tmp_path / "StreamingAssets").mkdir()
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    layout = config.ModLayout(tmp_path / "FF9CustomMap")
+    dll = layout.scripts_dll("FF9CustomMap")
+    dll.parent.mkdir(parents=True, exist_ok=True)
+    dll.write_bytes(b"MZ")
+
+    from ff9mapkit.battle import scriptcompile
+    monkeypatch.setattr(scriptcompile, "read_engine_stamp", lambda d: {"engine_file_version": "1.1.1.1"})
+    monkeypatch.setattr(scriptcompile, "engine_drift_warning",
+                        lambda d, game=None: "built against 1.1.1.1, installed is 1.1.2.2")
+    row = next(r for r in health.health_report() if r["label"] == "Custom battle formula DLL")
+    assert row["level"] == "warn" and "1.1.1.1" in row["advice"]
+
+    monkeypatch.setattr(scriptcompile, "engine_drift_warning", lambda d, game=None: None)
+    row = next(r for r in health.health_report() if r["label"] == "Custom battle formula DLL")
+    assert row["level"] == "ok" and "1.1.1.1" in row["value"]
+
+
+def test_health_no_scripts_dll_row_when_absent(monkeypatch, tmp_path):
+    """No custom battle-formula DLL deployed -> no drift row at all (don't clutter installs without one)."""
+    (tmp_path / "StreamingAssets").mkdir()
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    labels = {r["label"] for r in health.health_report()}
+    assert "Custom battle formula DLL" not in labels
+
+
 def test_worst_level_ordering():
     assert health.worst_level([{"level": "ok"}]) == "ok"
     assert health.worst_level([{"level": "ok"}, {"level": "warn"}]) == "warn"

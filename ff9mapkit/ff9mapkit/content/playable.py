@@ -339,6 +339,75 @@ def _parse_minted_command(val, nid, key) -> dict:
     return {"name": name.strip(), "abilities": pool}
 
 
+def _parse_field_spec(fld, nid, aname, _ss) -> dict:
+    """Parse a custom ability's ``script.field`` (a PAIRED field-menu effect) -> ``{template}`` or ``{body}``
+    (project-ff9-scripts-dll P7). Mirrors the battle ``script`` validation against ``scriptsource.FIELD_TEMPLATES``."""
+    if not isinstance(fld, dict):
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field must be a table "
+                            f"{{ template = \"...\" }} or {{ body = \"<C#>\" }}")
+    if fld.get("body") is not None:
+        fbody = fld.get("body")
+        if not isinstance(fbody, str) or not fbody.strip():
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field.body must be a "
+                                f"non-empty C# Apply() body string")
+        return {"body": fbody}
+    ftmpl = fld.get("template")
+    if not isinstance(ftmpl, str) or ftmpl not in _ss.FIELD_TEMPLATES:
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field.template must be one of "
+                            f"{sorted(_ss.FIELD_TEMPLATES)} (or set script.field.body = \"<C# Apply() body>\")")
+    return {"template": ftmpl}
+
+
+def _parse_status_spec(s, nid, aname) -> dict:
+    """A custom-status table item in an ability's ``status = [...]`` -> ``{name, template?/body?/hooks?}`` (a minted
+    ``[StatusScript]`` behaviour). Mirrors :func:`_parse_field_spec` (project-ff9-scripts-dll P7)."""
+    from ..battle import scriptsource as _ss
+    name = s.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} custom status needs a 'name' "
+                            f"(e.g. status = [{{ name = \"Rebirth\", template = \"auto_life\" }}])")
+    out = {"name": name.strip()}
+    if s.get("body") is not None:
+        body = s.get("body")
+        if not isinstance(body, str) or not body.strip():
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} body must be a non-empty C# class-body")
+        hooks = s.get("hooks") or []
+        if not isinstance(hooks, list) or any(not isinstance(h, str) or h not in _ss.STATUS_HOOKS for h in hooks):
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} body needs hooks = a list of "
+                                f"{sorted(_ss.STATUS_HOOKS)} (the lifecycle interfaces it implements)")
+        out["body"], out["hooks"] = body, list(hooks)
+    else:
+        tmpl = s.get("template")
+        if not isinstance(tmpl, str) or tmpl not in _ss.STATUS_TEMPLATES:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} template must be one of "
+                                f"{sorted(_ss.STATUS_TEMPLATES)} (or set body = \"<C#>\" + hooks = [...])")
+        out["template"] = tmpl
+    icon = s.get("icon")                                   # explicit override, else the template's default HUD icon
+    if icon is None and out.get("template"):
+        icon = _ss.STATUS_TEMPLATES[out["template"]].get("icon")
+    if icon is not None:                                   # borrow a vanilla status's HUD icon (a DictionaryPatch line)
+        if not isinstance(icon, str) or icon.strip().lower() not in _ss._STATUS_ICON_DONORS:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} icon must be a vanilla status name to "
+                                f"borrow its HUD icon from (e.g. \"AutoLife\", \"Regen\", \"Berserk\")")
+        out["icon"] = icon.strip()
+    pw = s.get("power")                                    # a template knob (auto_life: revive % of max HP)
+    if pw is not None:
+        if isinstance(pw, bool) or not isinstance(pw, int) or not 1 <= pw <= 100:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} power must be an integer 1-100 "
+                                f"(for auto_life it's the revive % of max HP, e.g. power = 50)")
+        out["power"] = pw
+    over = s.get("over_model")                             # the ON-MODEL visual (particle/over-model chevron/tint)
+    if over is None:
+        over = out.get("icon")                             # default: match the panel-icon donor (AutoLife has none)
+    if over is not None:                                   # borrow a vanilla status's on-model visual (SPS/SHP/Color)
+        from ..battle import battlecsv as _bc
+        if not isinstance(over, str) or over.strip().lower() not in {n.lower() for _, n in _bc.STATUSES}:
+            raise PlayableError(f"[[playable]] id {nid}: custom status {name!r} over_model must be a vanilla status "
+                                f"name to borrow its on-model visual (e.g. \"Haste\"/\"Slow\" [chevron], \"Berserk\")")
+        out["over_model"] = over.strip()
+    return out
+
+
 def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
     """An inline pool table -> a custom-ability spec ``{name, from, overrides}``. A UNIQUE spell that clones a stock
     donor (``from``) and retunes it (project-ff9-ability-preset-system). The id is allocated (the 192+ band) + the
@@ -356,16 +425,26 @@ def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
     # `status = [names]` (auto-minted into a StatusSets row + the action's status_index) and `effect` = a "[code=...]"
     # AbilityFeatures body are NOT Actions.csv columns -- pull them out; everything else is an ACTION_FIELDS override.
     status = a.get("status")
+    status_names, custom_statuses = [], []     # existing-status name strings / minted custom-behaviour status tables
     if status is not None:
-        if (not isinstance(status, list) or not status
-                or not all(isinstance(s, str) and s.strip() for s in status)):
+        if not isinstance(status, list) or not status:
             raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} status must be a non-empty list of "
-                                f"status names (e.g. status = [\"Silence\"])")
-        try:                                               # validate the names offline (a typo fails lint, not the game)
-            from ..battle import battlecsv as _bc
-            _bc.encode_status_list(status)
-        except (ValueError, TypeError) as ex:
-            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} status: {ex}")
+                                f"status names and/or custom-status tables (e.g. status = [\"Silence\"] or "
+                                f"status = [{{ name = \"Rebirth\", template = \"auto_life\" }}])")
+        for s in status:
+            if isinstance(s, str) and s.strip():
+                status_names.append(s)
+            elif isinstance(s, dict):                      # a custom-behaviour status (minted [StatusScript]) (P7)
+                custom_statuses.append(_parse_status_spec(s, nid, aname.strip()))
+            else:
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} status entry {s!r} must be a "
+                                    f"status name or a {{ name, template/body }} table")
+        if status_names:                                   # validate the existing names offline (a typo fails lint)
+            try:
+                from ..battle import battlecsv as _bc
+                _bc.encode_status_list(status_names)
+            except (ValueError, TypeError) as ex:
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} status: {ex}")
     eff_keys = [k for k in ("effect", "code", "feature") if a.get(k) is not None]
     if len(eff_keys) > 1:
         raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r}: set only one of effect/code/feature")
@@ -382,9 +461,45 @@ def _parse_custom_ability(a, nid, key, cmd_name) -> dict:
         _probs = _af.validate_blocks([{"kind": "AA", "ability": _cd._MAX_ACTIVE_ABILITY, "features": effect}])
         if _probs:
             raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} {eff_keys[0]}: {_probs[0]}")
-    overrides = {k: v for k, v in a.items() if k not in ("name", "from", "status", "effect", "code", "feature")}
+    # `script = {template = "..."}` (or `{body = "<C#>"}`) -> a MINTED battle FORMULA (a Memoria.Scripts.<Mod>.dll
+    # BattleScript, id 256+; project-ff9-scripts-dll) -- a behaviour the data path can't express (drain, %-max-HP,
+    # ...). A SCALAR `script` (an existing scriptId int/name) is NOT pulled out: it stays an ACTION_FIELDS override
+    # that re-points at an EXISTING (0-191) formula (data-only, no DLL). The real id is allocated in parse_all.
+    script_spec = None
+    sc = a.get("script")
+    if isinstance(sc, dict):
+        from ..battle import scriptsource as _ss
+        if sc.get("body") is not None:
+            body = sc.get("body")
+            if not isinstance(body, str) or not body.strip():
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.body must be a "
+                                    f"non-empty C# Perform() body string")
+            script_spec = {"body": body}
+        elif sc.get("template") is not None:
+            tmpl = sc.get("template")
+            if tmpl not in _ss.TEMPLATES:
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.template must be one of "
+                                    f"{sorted(_ss.TEMPLATES)} (or set script.body = \"<C# Perform() body>\")")
+            script_spec = {"template": tmpl}
+        # script.field = {template/body} -> a PAIRED field-menu effect at the SAME minted scriptId, so the ability
+        # behaves both IN and OUT of combat. It requires the battle half (a field-only effect isn't supported yet --
+        # a stock field scriptId would clobber a vanilla effect globally). project-ff9-scripts-dll (P7).
+        fld = sc.get("field")
+        if fld is not None:
+            if script_spec is None:
+                raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script.field needs a paired "
+                                    f"battle formula (set script.template or script.body too) -- they share one "
+                                    f"minted scriptId; a field-only effect isn't supported yet")
+            script_spec["field"] = _parse_field_spec(fld, nid, aname.strip(), _ss)
+        if script_spec is None:
+            raise PlayableError(f"[[playable]] id {nid}: custom ability {aname!r} script table must set a template "
+                                f"or body (or use a scalar script = <id> to reuse an existing formula)")
+    overrides = {k: v for k, v in a.items()
+                 if k not in ("name", "from", "status", "effect", "code", "feature")
+                 and not (k == "script" and isinstance(v, dict))}
     return {"name": aname.strip(), "from": donor, "overrides": overrides,
-            "status": list(status) if status else None, "effect": effect}
+            "status": status_names or None, "effect": effect, "script": script_spec,
+            "custom_statuses": custom_statuses}
 
 
 def parse_all(entries) -> list:
@@ -438,7 +553,10 @@ def parse_all(entries) -> list:
     # rewrite each pool marker -> its allocated int id, collect the Actions.csv new-rows, and auto-learn each (ap=0).
     from ..battle import actiondelta as _ad
     act_alloc = _ad._CUSTOM_ACTION_MIN
+    script_alloc = _ad._CUSTOM_SCRIPT_MIN                     # a minted battle FORMULA's scriptId (256+, dict band)
     status_set_ids: dict = {}                                # a status-name-list -> a shared minted StatusSets id (dedup)
+    status_alloc = _ad._CUSTOM_STATUS_MIN                    # a minted custom STATUS's BattleStatusId (33-63)
+    custom_status_ids: dict = {}                             # a custom-status NAME -> (id, enum) (dedup across specs)
     for spec in specs:
         for mc in spec.get("minted_commands", []):
             new_pool = []
@@ -450,6 +568,26 @@ def parse_all(entries) -> list:
                     ca = dict(a["__custom__"])
                     ca["id"] = act_alloc
                     act_alloc += 1
+                    for cs in ca.get("custom_statuses", []):      # status = [{name, template/body}] -> a minted [StatusScript]
+                        ckey = cs["name"].strip().lower()
+                        ent = custom_status_ids.get(ckey)
+                        if ent is None:
+                            if status_alloc > _ad._CUSTOM_STATUS_MAX:
+                                raise PlayableError(f"[[playable]] too many custom statuses: the band "
+                                                    f"{_ad._CUSTOM_STATUS_MIN}-{_ad._CUSTOM_STATUS_MAX} is exhausted")
+                            enum = f"CustomStatus{status_alloc - _ad._CUSTOM_STATUS_MIN + 1}"
+                            ent = custom_status_ids[ckey] = (status_alloc, enum)
+                            spec.setdefault("minted_status_scripts", []).append(
+                                {"id": status_alloc, "status_enum": enum, "name": cs["name"],
+                                 **{k: v for k, v in cs.items() if k in ("template", "body", "hooks", "icon", "power")}})
+                            spec.setdefault("minted_status_data", []).append(
+                                {"id": status_alloc, "name": cs["name"],
+                                 **({"over_model": cs["over_model"]} if cs.get("over_model") else {})})
+                            status_alloc += 1
+                        if ca.get("status") is None:              # inflict it via THIS ability's StatusSets row (below)
+                            ca["status"] = []
+                        if ent[1] not in ca["status"]:
+                            ca["status"].append(ent[1])
                     if ca.get("status"):                         # status = [...] -> an auto-minted StatusSets row +
                         skey = tuple(sorted(s.strip().lower() for s in ca["status"]))   # a dedup key (shared row)
                         sid = status_set_ids.get(skey)
@@ -462,6 +600,19 @@ def parse_all(entries) -> list:
                     if ca.get("effect"):                         # effect = "[code=...]" -> an [[ability_feature]] block
                         spec.setdefault("minted_features", []).append(
                             {"kind": "AA", "ability": ca["id"], "features": ca["effect"], "comment": ca["name"]})
+                    if ca.get("script"):                         # script = {template/body} -> a minted battle FORMULA
+                        if script_alloc > _ad._CUSTOM_SCRIPT_MAX:  # a Memoria.Scripts.<Mod>.dll [BattleScript(256+)]
+                            raise PlayableError(f"[[playable]] too many scripted abilities: the custom-script band "
+                                                f"{_ad._CUSTOM_SCRIPT_MIN}-{_ad._CUSTOM_SCRIPT_MAX} is exhausted")
+                        ca["script_id"] = script_alloc           # repoint the Actions.csv scriptId at the minted formula
+                        script_alloc += 1
+                        _scd = ca["script"]
+                        spec.setdefault("minted_scripts", []).append(        # the BATTLE formula (drop the field half)
+                            {"id": ca["script_id"], "name": ca["name"],
+                             **{k: v for k, v in _scd.items() if k != "field"}})
+                        if _scd.get("field"):                    # script.field -> a PAIRED field effect at the SAME id
+                            spec.setdefault("minted_field_scripts", []).append(
+                                {"id": ca["script_id"], "name": ca["name"], **_scd["field"]})
                     spec.setdefault("minted_actions", []).append(ca)
                     new_pool.append(ca["id"])                    # the pool's ListEntry references the allocated int id
                     # learn it at ap=0 (usable now). PREPEND (like the stock pool seeds) so an explicit `learn` entry
@@ -528,6 +679,37 @@ def feature_seeds(specs) -> list:
     return [f for s in specs for f in s.get("minted_features", [])]
 
 
+def script_seeds(specs) -> list:
+    """Specs with a custom ability carrying ``script = {template/body}`` -> the minted battle-FORMULA sources
+    ({id, name, template?/body?}) that :func:`build._emit_scripts` emits + compiles into
+    ``Memoria.Scripts.<Mod>.dll``. The id (256+, the engine's ``BattleExtendedScripts`` floor) is allocated in
+    :func:`parse_all` and matches the Actions.csv ``scriptId`` cell that binds it at cast (project-ff9-scripts-dll)."""
+    return [sc for s in specs for sc in s.get("minted_scripts", [])]
+
+
+def field_script_seeds(specs) -> list:
+    """Specs with a custom ability carrying ``script.field = {template/body}`` -> the minted FIELD ability-effect
+    sources ({id, name, template?/body?}) that :func:`build._emit_scripts` emits as a ``[FieldAbilityScript(id)]``
+    into the SAME ``Memoria.Scripts.<Mod>.dll``. The id EQUALS the paired battle formula's scriptId, so the same
+    Actions.csv ``scriptId`` cell binds the formula IN combat and the field effect OUT of it (project-ff9-scripts-dll P7)."""
+    return [sc for s in specs for sc in s.get("minted_field_scripts", [])]
+
+
+def status_script_seeds(specs) -> list:
+    """Specs with a custom-behaviour status (an ability's ``status = [{template/body}]``) -> the minted
+    ``[StatusScript]`` sources ({id, status_enum, name, template?/body?/hooks?}) that :func:`build._emit_scripts`
+    compiles into ``Memoria.Scripts.<Mod>.dll``. The id is the BattleStatusId (33-63) allocated in :func:`parse_all`
+    (project-ff9-scripts-dll P7); the behaviour hooks fire off the applied-effects dict (per-tick ``OnOpr`` is engine-gated)."""
+    return [s for sp in specs for s in sp.get("minted_status_scripts", [])]
+
+
+def status_data_seeds(specs) -> list:
+    """Specs with a custom-behaviour status -> the ``{id, name}`` rows :func:`build._emit_battle_data` mints into a
+    ``StatusData.csv`` delta (id 33-63) so the engine can INFLICT the status (else ``statusDatabase[id]`` KeyNotFounds
+    at apply, btl_stat.cs:71). The row is inert data; the behaviour is the paired ``[StatusScript]``."""
+    return [s for sp in specs for s in sp.get("minted_status_data", [])]
+
+
 def name_directive_lines(specs) -> list:
     """The mod-global ``CharacterDefaultName <id> <SYM> <name>`` DictionaryPatch lines (one per language),
     ordered by spec then LANGS. DataPatchers reads these at LAUNCH (a relaunch, not F6, applies a name change)."""
@@ -536,6 +718,20 @@ def name_directive_lines(specs) -> list:
         for lang in LANGS:
             sym = _lang_symbol(lang)
             lines.append(f"CharacterDefaultName {s['id']} {sym} {s['names'][sym]}")
+    return lines
+
+
+def status_icon_directive_lines(specs) -> list:
+    """The mod-global ``BuffIcon``/``DebuffIcon <statusId> <spriteIndex>`` DictionaryPatch lines that give each minted
+    custom status a HUD icon (borrowing a vanilla status's sprite). DataPatchers registers them at LAUNCH, so the icon
+    shows everywhere the engine reads Buff/DebuffIconNames -- the party panel, the target/'hover' status, resists +
+    results (project-ff9-scripts-dll P7)."""
+    from ..battle import scriptsource as _ss
+    lines = []
+    for s in status_script_seeds(specs):
+        line = _ss.status_icon_directive(s["id"], s.get("icon"))
+        if line:
+            lines.append(line)
     return lines
 
 

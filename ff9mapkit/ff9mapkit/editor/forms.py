@@ -163,6 +163,33 @@ PARTY_SPEC = [
     Field("remove", "Remove members", STRLIST,
           "playable characters to REMOVE at field load, e.g. Eiko"),
 ]
+PLAYABLE_SPEC = [
+    # the FLAT keys of a [[playable]] block (a custom 13th+ party member). The nested tables --
+    # stats / params / names / abilities / command1 / command2 / status / script -- are deliberately
+    # NOT here: the editor's save keeps unknown keys verbatim (shell._commit pops only spec keys),
+    # so an ability kit authored in TOML survives a form edit untouched.
+    Field("id", "Character id", OPTINT, "the new CharacterId — 12 or higher (blank = auto)"),
+    Field("name", "Name", STR, "the menu/battle name (no ';' or '#')"),
+    Field("borrow", "Borrow from", STR,
+          "the base character whose kit/rig this clones — a name Zidane…Beatrix or an id 0-11"),
+    Field("recruit", "Recruit at field load", BOOL, "join the party when this field loads",
+          default=False),
+    Field("custom_battle_model", "Custom battle model", BOOL,
+          "mint an independent, Blender-editable battle model at its own id (≥ 6000)", default=False),
+    Field("custom_battle_anims", "Custom battle animset", BOOL,
+          "give the minted model its OWN editable animset (needs the custom battle model)",
+          default=False),
+    Field("anim_edits", "Animset edits (.glb)", STR,
+          "a Blender-edited donor .glb the build ships onto the animset — survives re-deploys "
+          "(needs the custom animset; see `ff9mapkit playable-anims`)",
+          file="glTF (*.glb *.gltf);;All files (*)"),
+    Field("portrait", "Portrait PNG", STR, "a 132×190 PNG for the menu/battle avatar",
+          file="Images (*.png);;All files (*)"),
+    Field("battle_model_from", "Battle model donor", STR,
+          "mint from this GEO battle model instead of the borrow character's", catalog="model"),
+    Field("battle_model_id", "Minted model id", OPTINT,
+          "the minted battle model's id (blank = auto, 6100 + slot; must be ≥ 6000)"),
+]
 STARTUP_SPEC = [
     Field("scenario", "Scenario beat", SCENARIOREF,
           "assert the story beat this field stands for: a number (0-32767) or an area name (e.g. dali)"),

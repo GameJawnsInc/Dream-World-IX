@@ -103,6 +103,8 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Attack choreography disassemble/edit (`battle-seq`, `btlseq.raw17`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Enemy AI disassembly (`battle-ai`), scene inspection (`battle-scene`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
 | Player-side tuning: base stats, leveling, gems, ability effects (`ability-features`) | ✓ | [BATTLE_DESIGN](BATTLE_DESIGN.md) |
+| Mint a brand-new battle **formula** (`script = {template/body}` → `Memoria.Scripts.<Mod>.dll`) — drain / %-max-HP / custom C#, no engine rebuild | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
+| Pair a **field effect** (`script.field`) so a scripted ability heals/cures out of combat too — same DLL, same scriptId | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | Reshape a battle map in Blender (add-on Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
 
 ## Custom 3D models
@@ -151,8 +153,8 @@ marker commands are stock-engine.
 
 | Tool | What | Docs |
 |---|---|---|
-| **CLI** | 97 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
-| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
+| **CLI** | 101 commands across the families above | [SETUP §7](../../SETUP.md#7-cli-command-reference) |
+| **Workspace GUI** (PySide6) | One dockable window: journey ▸ campaign ▸ field ▸ object tree; Editor / Map / Story State / Item & Equip / Battle / Models / Build & Deploy / Import tabs; Info Hub library; Ctrl-K palette; Setup & Health; F9 deploy; field-art + 3D-model thumbnails; themes + update check | [SETUP §6](../../SETUP.md#6-the-gui-workspace-optional) |
 | **Blender add-on** | Camera posing, walkmesh modeling, markers, field import, battle-map + model round-trips | [blender/README](../blender/README.md) |
 | **Form editor** (`ff9mapkit edit`) | Field logic in forms — stdlib Tkinter, no PySide6 needed | [README](../README.md) |
 | **Two-file split** | Blender owns *where* (`scene.toml`), the logic file owns *what* (`field.toml`); merged at build | [FORMAT](FORMAT.md) |

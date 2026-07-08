@@ -36,7 +36,7 @@ import math
 import re
 from pathlib import Path
 
-from .. import config
+from .. import catalog, config
 from . import extract, _gltf_io
 from .gltf import _icpos, _icquat, _sign_continuous, DEFAULT_SCALE
 
@@ -297,24 +297,37 @@ def _resolve_geo_id(gltf: dict, geo, geo_id, *, game=None) -> tuple:
 def deploy_source_anims(token: str, mod_folder, *, which="all", game=None) -> dict:
     """Dump a model's REAL clips (or a subset) as loose ``.anim`` JSON into ``mod_folder`` -- the hand-edit
     surface AND the Phase-2 loose-override-path proof (each is the bundled clip, faithful minus tangents).
-    ``which`` = "all" or an iterable / comma-space string of anim KEYS."""
+    ``which`` = "all" (every clip in the model's OWN folder) or an iterable / comma-space string of anim
+    KEYS -- an explicitly requested key that lives in a DONOR model's folder (the engine's AnimationDB
+    name-token redirect, e.g. BBA's idle=560 in Animations/112/) is located + dumped at that real path,
+    sibling-resolving duplicate ids; a key found nowhere lands in ``missing``."""
     geo, geo_id, _ = extract.resolve_geo(token)
     env5 = _load_env5(game)
-    keys = list_clip_keys(env5, geo_id)
-    if which not in ("all", None, ""):
-        want = {int(t) for t in str(which).replace(",", " ").split()} if isinstance(which, str) \
-            else {int(x) for x in which}
-        keys = [k for k in keys if k in want]
+    missing: list = []
+    if which in ("all", None, ""):
+        targets = [(k, geo_id) for k in list_clip_keys(env5, geo_id)]
+    else:
+        want = [int(t) for t in str(which).replace(",", " ").split()] if isinstance(which, str) \
+            else [int(x) for x in which]
+        disc = _gltf_io.anim_disc_map(env5)
+        targets = []
+        for w in dict.fromkeys(want):                          # keep request order, drop dups
+            loc = catalog.locate_animation(w, geo_id, disc)
+            if loc:
+                targets.append(loc)
+            else:
+                missing.append(w)
     written = []
-    for k in keys:
-        clip = _gltf_io.read_clip(env5, geo_id, k)
+    for k, folder in targets:
+        clip = _gltf_io.read_clip(env5, folder, k)
         if not clip or not clip.get("bones"):
             continue
-        p = anim_disc_path(mod_folder, geo_id, k)
+        p = anim_disc_path(mod_folder, folder, k)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
         written.append(str(p))
-    return {"geo": geo, "geo_id": geo_id, "written": written, "keys": keys}
+    return {"geo": geo, "geo_id": geo_id, "written": written, "keys": [k for k, _ in targets],
+            "missing": missing}
 
 
 class AnimsetError(RuntimeError):
@@ -445,28 +458,32 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
     except (RuntimeError, FileNotFoundError, ValueError, KeyError):
         pass
     env5 = _load_env5(game)
+    disc = _gltf_io.anim_disc_map(env5)                       # {folder_id: set(key)} -- the physical layout
     # Fallback routing: if Blender dropped an animation's extras, the numeric-name fallback fails for a
     # FRIENDLY-named Action ("idle1"/"run"/"fly_cho" -- what the exporter now writes). Resolve the label to its
-    # on-disc key from each on-disc clip's OWN ANH name (e.g. ANH_SUB_W0_001_IDLE1 -> "idle1" -> 4716) -- NOT via
-    # animations_for_model, whose catalog id != the on-disc key for world models (that mismatch silently dropped
-    # the edit). This is the exact inverse of the exporter's label derivation, so a round-trip resolves.
+    # on-disc key from each on-disc clip's OWN ANH name (e.g. ANH_SUB_W0_001_IDLE1 -> "idle1" -> 4716), then
+    # accept a catalog action label -> its id (a DONOR-folder action like BBA's 'idle'=560; the locate below
+    # settles which folder + same-name sibling actually exists on disc).
     label_to_key = {}
     try:
-        from .. import catalog
-        for k in list_clip_keys(env5, gid):
+        for k in sorted(disc.get(gid) or ()):
             nm = catalog.animation_name(k)                    # ANH_SUB_W0_001_IDLE1
             parts = nm.split("_") if nm else []
             if len(parts) >= 5:                               # ANH <group> <form> <token> <ACTION...>
                 label_to_key.setdefault("_".join(parts[4:]).lower(), k)
         for lbl, k in (catalog.animations_for_model(geo_name) or {}).items():
             label_to_key.setdefault(str(lbl).lower(), k)      # also accept a catalog action label -> its id
-    except Exception:   # noqa: BLE001  -- catalog/install optional; fallback is best-effort
+    except Exception:   # noqa: BLE001  -- label fallback is best-effort; the ff9_anim_key stamp still routes
         pass
-    written, skipped, warnings = [], [], []
-    # GROUP the parsed animations by their resolved clip key first. A scene with the model imported more than
-    # once stacks duplicate actions (run.001 ...) that all route to the same key; writing them in order would
-    # let a pristine/re-sampled duplicate CLOBBER the user's edit last-wins. Instead, per key, pick an EDITED
-    # candidate (so the real edit beats the pristine copies) and write each key exactly once.
+    written, skipped, warnings, written_folders = [], [], [], set()
+    # GROUP the parsed animations by their resolved clip (key, folder) first. A scene with the model imported
+    # more than once stacks duplicate actions (run.001 ...) that all route to the same clip; writing them in
+    # order would let a pristine/re-sampled duplicate CLOBBER the user's edit last-wins. Instead, per clip,
+    # pick an EDITED candidate (so the real edit beats the pristine copies) and write each clip exactly once.
+    # A clip is routed to the folder the ENGINE reads it from (catalog.locate_animation: own folder, else the
+    # AnimationDB name-token redirect to a DONOR folder, sibling-resolving duplicate ids) -- an override
+    # written under the wrong folder is silently dead. An unlocatable key (a minted custom clip not in the
+    # bundle) keeps the model's own folder, where deploy_new_anim ships it.
     by_key: dict = {}
     for pa in parse_gltf_animations(gltf, blob, scale=scale):
         key = pa["key"]
@@ -478,9 +495,10 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
                             f"e.g. 'idle1'/'run', or its numeric anim key)")
             skipped.append(pa["label"] or "<unnamed>")
             continue
-        by_key.setdefault(key, []).append(pa)
-    for key, group in by_key.items():
-        source_clip = _gltf_io.read_clip(env5, gid, key) or {"name": str(key), "sample_rate": 30.0, "bones": {}}
+        loc = catalog.locate_animation(key, gid, disc)
+        by_key.setdefault(loc if loc else (int(key), gid), []).append(pa)
+    for (key, folder), group in by_key.items():
+        source_clip = _gltf_io.read_clip(env5, folder, key) or {"name": str(key), "sample_rate": 30.0, "bones": {}}
         edited = group if force else [pa for pa in group if _is_edited(pa["bones"], source_clip)]
         if not edited:
             skipped.append((key, "unchanged"))                       # every copy matches the source -> keep bundled
@@ -490,8 +508,167 @@ def deploy_gltf_anim_edits(gltf_path, mod_folder, *, geo=None, geo_id=None, scal
                             f"using the edited one" + (" (last of several)" if len(edited) > 1 else ""))
         merged = splice_edits_onto_clip(source_clip, edited[-1]["bones"], model_bones=model_bones,
                                         warn=warnings.append)
-        p = anim_disc_path(mod_folder, gid, key)
+        if folder != gid:
+            donor = catalog.model(folder)
+            warnings.append(f"Animations/{folder}/{key}.anim is a SHARED donor-folder clip "
+                            f"({donor.name if donor else f'model {folder}'}'s) -- the engine reads it for "
+                            f"every model that plays it, not just {geo_name or gid}")
+        p = anim_disc_path(mod_folder, folder, key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(clip_to_anim_json(merged), encoding="utf-8", newline="\n")
         written.append(str(p))
-    return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid}
+        written_folders.add(folder)
+    return {"written": written, "skipped": skipped, "warnings": warnings, "geo_id": gid,
+            "folders": sorted(written_folders) or [gid]}
+
+
+# ---------------------------------------------------------------- wholly NEW clips (not edits)
+
+_NEW_ANIM_KEY_BASE = 60_000      # fresh AnimationDB keys for NEW custom clips. A FIELD anim id is 16-bit
+_NEW_ANIM_KEY_MAX = 65_535       # END TO END -- the .eb anim-setter args are u16 AND the engine's
+                                 # Actor.idle/walk/run/turnl/turnr are UInt16 -- so a field-playable key
+                                 # MUST fit <= 65535 (stock keys top out at 14739; 60000-65535 is the mint
+                                 # band). The old 2M base silently TRUNCATED in the .eb (2001000 -> 34920),
+                                 # the engine looked up a key nobody registered, and NO clip attached. The
+                                 # battle-animset band (1M+) is battle-only: btl mot[] is Int32. Registered
+                                 # per clip via a `3DModelAnimation <key> <ANH name>` DictionaryPatch line
+                                 # at launch.
+
+
+def new_clip(model_bones: list, bone_curves: dict, *, name: str = "custom",
+             sample_rate: float = 30.0, warn=None) -> dict:
+    """A wholly NEW raw clip struct from per-bone-NUMBER curves (no source clip -- the from-scratch path,
+    vs :func:`splice_edits_onto_clip` which overlays edits on a real donor). Bone paths come from the
+    model's own skeleton (:func:`bone_paths`) -- the full hierarchy path the engine's ``SetCurve`` needs.
+    ``bone_curves`` = ``{boneNum: {"rot":[(t,(x,y,z,w))...], "pos":..., "scale":...}}`` (what
+    :func:`parse_gltf_animations` returns per animation).
+
+    Every skeleton bone the caller leaves unkeyed gets a STATIC rest-pose channel (rot+pos+scale, 2 keys),
+    matching real FF9 clips, which key all bones even for a 1-frame pose. Load-bearing: playback only
+    resets the bones a clip keys, and the engine COMPOSES the head-focus look offset onto the neck bone
+    every LateUpdate (`FieldMapActorController.UpdateNeck`) -- an unkeyed neck accumulates it into a
+    continuously spinning head. Rest TRS comes from ``model_bones`` (:func:`extract.read_model` pos/rot/
+    scale); a bones list without them falls back to the identity transform."""
+    paths = bone_paths(model_bones)
+    bones: dict = {}
+    length = 0.0
+    for bn, curves in sorted(bone_curves.items()):
+        path = paths.get(bn)
+        if path is None:
+            if warn:
+                warn(f"new clip {name!r}: bone{bn:03d} is not in the model's skeleton -- skipped")
+            continue
+        entry = {"bone": bn}
+        for chan in ("rot", "pos", "scale"):
+            if curves.get(chan):
+                entry[chan] = curves[chan]
+                length = max(length, curves[chan][-1][0])
+        if len(entry) > 1:
+            bones[path] = entry
+    if not bones:
+        raise AnimError(f"new clip {name!r} has no usable bone curves")
+    length = length if length > 0 else 1.0 / float(sample_rate)
+    rest = {extract._bone_num(b["name"]): b for b in model_bones}
+    rest_of = {"rot": lambda b: tuple(b.get("rot") or (0.0, 0.0, 0.0, 1.0)),
+               "pos": lambda b: tuple(b.get("pos") or (0.0, 0.0, 0.0)),
+               "scale": lambda b: tuple(b.get("scale") or (1.0, 1.0, 1.0))}
+    for bn, path in paths.items():
+        entry = bones.setdefault(path, {"bone": bn})
+        for chan, rest_val in rest_of.items():
+            if not entry.get(chan):
+                v = rest_val(rest[bn])
+                entry[chan] = [(0.0, v), (length, v)]
+    return {"name": name, "sample_rate": float(sample_rate), "length": length, "bones": bones}
+
+
+def synth_spin_curves(*, frames: int = 48, sample_rate: float = 30.0, bone: int = 0, rest=None) -> dict:
+    """A synthesized demo clip: the root bone yaws a full 360 over ``frames`` -- the no-Blender proof of
+    the new-clip mechanism (mint key + registration + loose .anim + field playback). ``rest`` is the bone's
+    rest localRotation (x,y,z,w): the yaw COMPOSES onto it in the parent frame (``q = yaw * rest``). A raw
+    yaw would STOMP a non-identity rest -- e.g. BBA's bone000 rest is itself a -90-degree yaw."""
+    import math
+    rx, ry, rz, rw = rest or (0.0, 0.0, 0.0, 1.0)
+    rot = []
+    for f in range(frames + 1):
+        half = math.pi * (f / frames)           # half-angle of a 0..360-degree yaw
+        ys, yc = math.sin(half), math.cos(half)
+        q = (yc * rx + ys * rz, yc * ry + ys * rw,      # Hamilton product (0,ys,0,yc) * rest
+             yc * rz - ys * rx, yc * rw - ys * ry)
+        rot.append((f / sample_rate, q))
+    return {bone: {"rot": rot}}
+
+
+class AnimError(ValueError):
+    pass
+
+
+def _anim_key_registry(dp: "Path") -> dict:
+    """The mod folder's ``3DModelAnimation <key> <name>`` registrations -> {key: name}."""
+    reg: dict = {}
+    if dp.exists():
+        for ln in dp.read_text(encoding="utf-8").splitlines():
+            parts = ln.split()
+            if len(parts) == 3 and parts[0] == "3DModelAnimation" and parts[1].isdigit():
+                reg[int(parts[1])] = parts[2]
+    return reg
+
+
+def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | None" = None,
+                    suffix: str = "CUSTOM1", game=None) -> dict:
+    """Ship one NEW clip for a model: write ``Animations/<geoId>/<key>.anim`` (loose, engine-probed) and
+    register it with an idempotent ``3DModelAnimation <key> <ANH name>`` DictionaryPatch line. The ANH name
+    carries the MODEL's own group/form/token (that's how ``GetRenameAnimationPath`` routes the name to this
+    model's clip folder). Play it anywhere an anim id goes: ``[[npc]] anims = { stand = <key> }``, a
+    cutscene ``animation`` step, ... RELAUNCH to register (DictionaryPatch loads at startup).
+
+    ``key=None`` reuses the key already registered to this ANH name (idempotent re-deploy) or allocates
+    the next free key in the 16-bit-safe 60000-65535 band; an explicit key must fit 16 bits too (a field
+    anim id is u16 in both the .eb and the engine -- an oversized key silently truncates and never
+    attaches). Re-registering a key REPLACES its line (a duplicate key would double-Add in AnimationDB)."""
+    from . import extract
+    geo, gid, _tint = extract.resolve_geo(str(model_token))
+    parts = geo.split("_")                        # GEO <grp> <form> <token>
+    if len(parts) < 4:
+        raise AnimError(f"can't derive an ANH name from {geo!r}")
+    sfx = "".join(ch for ch in str(suffix).upper() if ch.isalnum() or ch == "_")
+    if not sfx:
+        raise AnimError(f"bad anim name suffix {suffix!r} (letters/digits/underscore)")
+    anh = f"ANH_{parts[1]}_{parts[2]}_{parts[3]}_{sfx}"
+    from .._animdb_all import ANIMATIONS as _stock
+    if anh in set(_stock.values()):
+        # AnimationDB is a TwoWayDictionary: re-registering a REAL clip name at a new key hijacks the
+        # stock name->key lookup (folder derivation goes through TryGetKey(name)) and mis-routes the
+        # real clip. e.g. --suffix B on BBA collides with her stock pose ANH_NPC_F1_BBA_B.
+        raise AnimError(f"{anh} is a real FF9 clip name -- pick a different suffix "
+                        f"(registering it at a new key would hijack the stock name->key lookup)")
+    dp = Path(mod_folder) / "DictionaryPatch.txt"
+    registered = _anim_key_registry(dp)
+    if key is not None:
+        k = int(key)
+        if not 0 < k <= _NEW_ANIM_KEY_MAX:
+            raise AnimError(f"anim key {k} does not fit a field anim slot (16-bit, max {_NEW_ANIM_KEY_MAX}"
+                            f") -- the .eb and the engine would silently truncate it and no clip would "
+                            f"attach; mint keys in the {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} band")
+    else:
+        k = next((kk for kk, nm in registered.items() if nm == anh), None)   # re-deploy reuses its key
+        if k is None:
+            k = _NEW_ANIM_KEY_BASE
+            while k in registered:
+                k += 1
+            if k > _NEW_ANIM_KEY_MAX:
+                raise AnimError(f"no free anim key left in {_NEW_ANIM_KEY_BASE}-{_NEW_ANIM_KEY_MAX} "
+                                f"(this folder's DictionaryPatch registers them all)")
+    dest = anim_disc_path(mod_folder, gid, k)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(clip_to_anim_json(clip), encoding="utf-8", newline="\n")
+    directive = f"3DModelAnimation {k} {anh}"
+    lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
+    if directive not in lines:
+        # replace, never dup: a duplicate KEY double-Adds in AnimationDB; a duplicate NAME (same clip
+        # re-registered at an explicit new key) leaves a stale name->key row shadowing the new one
+        lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")
+                 and not (ln.startswith("3DModelAnimation ") and ln.endswith(f" {anh}"))]
+        lines.append(directive)
+        dp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    return {"geo": geo, "geo_id": gid, "key": k, "name": anh, "path": str(dest),
+            "directive": directive, "dictionary_patch": str(dp)}

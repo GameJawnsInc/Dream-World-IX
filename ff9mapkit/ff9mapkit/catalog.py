@@ -184,6 +184,97 @@ def animation_actions(name_or_id) -> list:
     return sorted(animations_for_model(name_or_id).items())
 
 
+# --------------------------------------- where a clip lives on disc (the engine folder redirect) -----
+# A clip's p0data5 folder is derived from the anim NAME, not from the model playing it (Memoria
+# ``AnimationFactory.GetRenameAnimationPath`` -> ``GetRenameAnimationDirectory``): the name's model tokens
+# ``ANH_<group>_<form>_<token>_*`` name the folder-OWNING model ``GEO_<group>_<form>_<token>``, and that
+# model's id is the ``Animations/<id>/`` folder -- with two hardcoded exceptions for token-models that are
+# not in the GEO table at all. So ``GEO_NPC_F1_BBA`` (10) plays its catalog idle=560 (``ANH_NPC_F0_BBA_IDLE``)
+# out of the DONOR folder ``Animations/112/`` (``GEO_NPC_F0_BBA``'s); the engine binds clips by bone NAME, so
+# a same-rig-family donor clip plays cleanly. (The engine's ``animationPathTable`` is NOT part of this: its
+# only lookup sits behind an ``animationMapping.ContainsKey`` guard that is provably empty whenever
+# ``GetAnimationFolder`` runs -- ``LoadAnimationUseInEvent`` clears the mapping before the loop and fills it
+# after -- so the live redirect is name-tokens -> GEO id, which is what we replicate.)
+#
+# AnimationDB also carries ~4.7k DUPLICATE rows (two ids sharing one ANH name). The engine loads clips by
+# NAME (``AnimationDB.TryGetKey`` -> one canonical id) and only that sibling exists on disc -- e.g. the world
+# Zidane's catalog idle1=4715 vs the on-disc 4716, or BBA's b=8900 vs the on-disc 9363. So resolving a
+# requested id must fall through its same-name siblings (:func:`animation_aliases`) before giving up.
+
+_ANIM_FOLDER_SPECIAL = {"GEO_MON_B3_110": 347, "GEO_MON_B3_109": 5461}   # GetRenameAnimationDirectory hardcodes
+_MODEL_ID_BY_NAME: dict = {}                # lazy GEO name -> id (the engine's FF9BattleDB.GEO.TryGetKey)
+_ANIM_IDS_BY_NAME: dict = {}                # lazy ANH name -> sorted [ids] (the duplicate-row sibling index)
+
+
+def _model_id_by_name(name: str) -> Optional[int]:
+    if not _MODEL_ID_BY_NAME:
+        _MODEL_ID_BY_NAME.update({nm: mid for mid, nm in MODELS.items()})
+    return _MODEL_ID_BY_NAME.get(name)
+
+
+def animation_aliases(anim_id) -> list:
+    """Every AnimationDB id sharing this id's ANH name -- itself first, then its duplicate-row siblings
+    ascending (``animation_aliases(8900) -> [8900, 9363]``, both ``ANH_NPC_F0_BBA_B``). An id the table
+    doesn't know returns ``[id]`` (a minted/custom key is its own only candidate); a non-numeric id ``[]``."""
+    try:
+        aid = int(anim_id)
+    except (TypeError, ValueError):
+        return []
+    nm = ANIMATIONS.get(aid)
+    if nm is None:
+        return [aid]
+    if not _ANIM_IDS_BY_NAME:
+        by: dict = {}
+        for k, v in ANIMATIONS.items():
+            by.setdefault(v, []).append(k)
+        for ids in by.values():
+            ids.sort()
+        _ANIM_IDS_BY_NAME.update(by)
+    return [aid] + [k for k in _ANIM_IDS_BY_NAME.get(nm, ()) if k != aid]
+
+
+def animation_folder(anim_id) -> Optional[int]:
+    """The model id whose ``Animations/<id>/`` folder the ENGINE loads this clip from -- the anim name's
+    token-derived owner (``animation_folder(560) -> 112``: ``ANH_NPC_F0_BBA_IDLE`` belongs to
+    ``GEO_NPC_F0_BBA``), honoring the two hardcoded monster exceptions (``MON_B3_110 -> 347``,
+    ``MON_B3_109 -> 5461``). None for an unknown id, a non-``ANH_`` name, or a token-model the GEO table
+    lacks (the engine's by-name load would miss those too)."""
+    nm = animation_name(anim_id)
+    s = _split_anh(nm) if nm else None
+    if not s:
+        return None
+    owner = f"GEO_{s[0]}_{s[1]}_{s[2]}"
+    if owner in _ANIM_FOLDER_SPECIAL:
+        return _ANIM_FOLDER_SPECIAL[owner]
+    return _model_id_by_name(owner)
+
+
+def locate_animation(anim_id, model_id, disc) -> Optional[tuple]:
+    """Where a requested clip PHYSICALLY exists for ``model_id`` -> ``(anim_key, folder_id)``, or None.
+
+    ``disc`` maps ``{folder_id: iterable-of-anim-keys}`` (the caller's scan of p0data5 --
+    ``models._gltf_io.anim_disc_map`` -- or any offline stand-in). Engine-faithful resolution order, per
+    same-name candidate (:func:`animation_aliases`, requested id first):
+
+    1. the model's OWN id folder -- ``AddAnimToGameObject(addAutoAnim)`` bulk-loads it regardless of what
+       the clip is named (BBA's two native clips are F0-named yet live in her ``Animations/10/``);
+    2. the name-token DONOR folder (:func:`animation_folder`, i.e. ``GetRenameAnimationDirectory``).
+
+    So a phantom duplicate id resolves to its on-disc sibling (8900 -> (9363, 112)), and a donor-folder
+    action resolves to the folder the engine actually reads (560 -> (560, 112) for model 10)."""
+    try:
+        own = int(model_id) if model_id is not None else None
+    except (TypeError, ValueError):
+        own = None
+    for cand in animation_aliases(anim_id):
+        if own is not None and cand in (disc.get(own) or ()):
+            return cand, own
+        folder = animation_folder(cand)
+        if folder is not None and folder != own and cand in (disc.get(folder) or ()):
+            return cand, folder
+    return None
+
+
 # the five field-NPC animation slots the injector drives (``content.npc.ANIM_ORDER``) and the join
 # action each is resolved from. The engine plays a clip by NAME, so any id naming the right clip works.
 NPC_SLOT_ACTION = {"stand": "idle", "walk": "walk", "run": "run", "left": "turn_l", "right": "turn_r"}

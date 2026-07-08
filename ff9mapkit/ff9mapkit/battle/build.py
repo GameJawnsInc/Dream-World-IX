@@ -29,6 +29,7 @@ from . import camera_codec as _camera_codec
 from . import camera_data as _camera_data
 from . import event_data as _event_data
 from . import fbx as _fbx
+from . import skinmint as _skinmint
 from . import scene_codec as _scene_codec
 from . import scene_data as _scene_data
 from . import scenelint as _scenelint
@@ -215,6 +216,11 @@ def validate_battle(project: BattleProject) -> list[str]:
                         _reskin.reskin_spec(e)
                     except _scene_data.SceneEditError as ex:
                         problems.append(str(ex))
+                if isinstance(e, dict) and e.get("skin") is not None:   # palette-swap SHAPE check; install-free
+                    try:
+                        _skinmint.skin_spec(e)
+                    except _scene_data.SceneEditError as ex:
+                        problems.append(str(ex))
             ai_patches, ai_funcs = sc.get("ai_patch"), sc.get("ai_function")
             ai_phases, ai_inserts = sc.get("ai_phase"), sc.get("ai_insert")
             eb0 = sd / "eb" / f"{LANGS[0]}.eb.bytes"
@@ -303,6 +309,7 @@ class BattleResult:
     warnings: list                     # list[str]
     written: list = field(default_factory=list)   # list[Path] -- every file emitted into the layout
     lint: list = field(default_factory=list)       # list[scenelint.Finding] -- offline balance notes
+    extra_dict_lines: list = field(default_factory=list)   # list[str] -- e.g. a skin mint's 3DModel line
 
 
 def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> BattleResult:
@@ -323,6 +330,7 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
 
     bm = project.bm
     dict_line = None
+    skin_dlines: list = []
     bp: list[str] = []
     warnings: list[str] = []
     lint: list = []
@@ -343,6 +351,16 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
             warnings += reskin_warns
             raw16, scene_warns = _scene_data.apply_scene_edits(raw16, scene_cfg)
             warnings += scene_warns
+        if scene_cfg:                                # palette-swap mints (AFTER edits: a body re-skin composes)
+            try:
+                raw16, skin_dlines, skin_written, skin_warns = _skinmint.apply_skins(
+                    raw16, scene_cfg, layout, game=game, base_dir=project.base_dir)
+            except _skinmint.SkinError as ex:
+                raise BattleBuildError(f"[[scene.enemy]] skin: {ex}")
+            except (RuntimeError, FileNotFoundError, ValueError) as ex:   # install/model read failures
+                raise BattleBuildError(f"[[scene.enemy]] skin: {ex}")
+            warnings += skin_warns
+            written += skin_written
         (scene_out / "dbfile0000.raw16.bytes").write_bytes(raw16)
         # offline BALANCE lint of the final (tuned) scene -- "I can't see the game" leverage. Advisory only:
         # a lint failure must NEVER crash the build, so degrade to no findings on ANY error.
@@ -453,7 +471,7 @@ def build_battlemap(project: BattleProject, layout: ModLayout, *, game=None) -> 
         bp.append(f"BattleBackground {bbg}")
 
     return BattleResult(bbg=bbg, dict_line=dict_line, battle_patch_lines=bp, warnings=warnings,
-                        written=written, lint=lint)
+                        written=written, lint=lint, extra_dict_lines=skin_dlines)
 
 
 def _emit_player_data(projects, layout, *, game=None) -> tuple:
@@ -523,7 +541,8 @@ def build_battle_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", 
     results = [build_battlemap(p, layout, game=game) for p in projects]
     player_written, player_warns = _emit_player_data(projects, layout, game=game)
 
-    dlines = [r.dict_line for r in results if r.dict_line]
+    dlines = [r.dict_line for r in results if r.dict_line] \
+        + [ln for r in results for ln in r.extra_dict_lines]
     if dlines:
         # append to any existing DictionaryPatch (so a co-built field mod isn't clobbered)
         prior = (layout.dictionary_patch.read_text(encoding="utf-8").splitlines()

@@ -66,40 +66,46 @@ def _sign_continuous(quats):
 
 # ---------------------------------------------------------------- animation clip selection
 
-def _select_anim_keys(geo, geo_id, anims, p0d5_env):
-    """Resolve which clips to embed -> [(action_label, animKey)] present on disc. ``anims`` is 'auto' (the
-    model's named idle/walk/run/turn clips, topped up from its own folder so a model whose catalog ids don't
-    line up with the on-disc keys still animates), 'all' (every clip in its folder), 'none', or a comma/space
-    list of action labels / raw anim ids.
+# Neutral-rest first: 'stand' is the plain standing pose; 'idle1'/'idle2' are periodic FIDGETS (e.g.
+# Zidane's idle1 is a yawn), so they must not lead. Anything not listed sorts after (disc/pick order).
+_ON_FOOT_ORDER = ("stand", "idle", "idle1", "idle2", "walk", "run", "turn", "turn_l", "turn_r")
+_ONFOOT_RANK = {a: i for i, a in enumerate(_ON_FOOT_ORDER)}
 
-    Note: FF9's action->animKey map isn't always the on-disc key (the engine redirects name->folder->key via
-    AnimationDB + GetRenameAnimationDirectory), so a labelled action may miss on disc; the top-up covers it."""
+
+def _select_anim_keys(geo, geo_id, anims, p0d5_env):
+    """Resolve which clips to embed -> [(action_label, animKey, folder_id)] present on disc. ``anims`` is
+    'auto' (the model's named idle/walk/run/turn clips), 'all' (every clip in its OWN folder), 'none', or a
+    comma/space list of action labels / raw anim ids.
+
+    A clip is located the way the ENGINE locates it (``catalog.locate_animation``): the model's own id
+    folder first, then the AnimationDB name-token redirect to a DONOR model's folder (Memoria
+    ``GetRenameAnimationDirectory``), falling through same-name duplicate ids. So ``GEO_NPC_F1_BBA``'s
+    catalog idle=560 embeds from ``Animations/112/`` (``GEO_NPC_F0_BBA``'s folder) instead of silently
+    dropping -- Memoria binds clips by bone NAME, so a same-rig-family donor clip binds cleanly. 'auto'
+    prefers own-folder clips and donor-locates only the core actions the own folder lacks; explicit labels
+    and raw ids always follow the redirect."""
     if anims in (None, "none", "off"):
         return []
-    on_disc = sorted({int(k.lower().split("/")[-1].removesuffix(".anim"))
-                      for k, p in p0d5_env.container.items()
-                      if p.type.name == "AnimationClip" and f"/animations/{geo_id}/" in k.lower()})
-    on_disc_set = set(on_disc)
+    gid = int(geo_id)
+    disc = _gltf_io.anim_disc_map(p0d5_env)                    # {folder_id: set(animKey)} -- one pass
+    on_disc = sorted(disc.get(gid) or ())                      # the model's OWN folder
     actions = catalog.animations_for_model(geo) or {}          # {action_label: anim_id}
     picked: list = []
     if anims == "all":
-        picked = [(str(k), k) for k in on_disc]
+        picked = [(str(k), k, gid) for k in on_disc]
     elif anims in ("auto", "", "default"):
+        on_disc_set = set(on_disc)
         for act in DEFAULT_ACTIONS:
             aid = actions.get(act)
             if aid is not None and aid in on_disc_set:
-                picked.append((act, aid))
-        if len({a for _, a in picked}) < 3:                    # thin/mismatched catalog -> top up from the folder
+                picked.append((act, aid, gid))
+        if len({a for _, a, _ in picked}) < 3:                 # thin/mismatched catalog -> top up from the folder
             # Prefer ON-FOOT locomotion clips (idle/stand/run/walk/turn) over mount/misc, and give every clip a
             # FRIENDLY label (its ANH action suffix) instead of a raw numeric id -- so an overworld WALKER like
             # Zidane comes in standing with readable Action names, not straddling an (absent) chocobo with clips
             # named "1143". (His lowest-id clips are the chocobo-RIDING ones -- disc order alone surfaced those.)
-            seen = {a for _, a in picked}
+            seen = {a for _, a, _ in picked}
             id_to_label = {aid: lbl for lbl, aid in actions.items()}
-            # Neutral-rest first: 'stand' is the plain standing pose; 'idle1'/'idle2' are periodic FIDGETS
-            # (e.g. Zidane's idle1 is a yawn), so they must not lead. Anything not listed sorts after (disc order).
-            _ON_FOOT_ORDER = ("stand", "idle", "idle1", "idle2", "walk", "run", "turn", "turn_l", "turn_r")
-            _onfoot_rank = {a: i for i, a in enumerate(_ON_FOOT_ORDER)}
 
             def _lbl(k):
                 lbl = id_to_label.get(k)
@@ -111,25 +117,41 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
 
             rank = {k: i for i, k in enumerate(on_disc)}
             cand = [(_lbl(k), k) for k in on_disc if k not in seen]
-            cand.sort(key=lambda lk: (_onfoot_rank.get(lk[0], len(_ON_FOOT_ORDER)), rank[lk[1]]))  # neutral-first
+            cand.sort(key=lambda lk: (_ONFOOT_RANK.get(lk[0], len(_ON_FOOT_ORDER)), rank[lk[1]]))  # neutral-first
             for lbl, aid in cand:
                 if len(picked) >= 4:
                     break
-                picked.append((lbl, aid))
+                picked.append((lbl, aid, gid))
                 seen.add(aid)
+        # Donor fill: core actions the own folder does NOT cover, located via the engine redirect -- the
+        # GEO_NPC_F1_BBA class (2 niche native clips; idle/walk/run/turns all live in the F0 donor's folder).
+        have = {lbl for lbl, _, _ in picked}
+        seen_keys = {a for _, a, _ in picked}
+        for act in DEFAULT_ACTIONS:
+            if act in have:
+                continue
+            aid = actions.get(act)
+            loc = catalog.locate_animation(aid, gid, disc) if aid is not None else None
+            if loc and loc[0] not in seen_keys:
+                picked.append((act, loc[0], loc[1]))
+                seen_keys.add(loc[0])
+        # neutral-first overall: idle/walk/run/turns lead, niche natives follow (stable within a rank)
+        picked.sort(key=lambda t: _ONFOOT_RANK.get(t[0], len(_ON_FOOT_ORDER)))
     else:
         toks = [t for t in str(anims).replace(",", " ").split() if t]
         for t in toks:
-            if t.isdigit() and int(t) in on_disc_set:
-                picked.append((t, int(t)))
-            elif t in actions and actions[t] in on_disc_set:
-                picked.append((t, actions[t]))
+            aid = int(t) if t.isdigit() else actions.get(t)
+            loc = catalog.locate_animation(aid, gid, disc) if aid is not None else None
+            if loc:
+                # a raw id is labelled by the key that actually resolved (a phantom duplicate id lands on
+                # its on-disc sibling, and the label must match what's really embedded)
+                picked.append((t if not t.isdigit() else str(loc[0]), loc[0], loc[1]))
     # de-dup by animKey, keep first label
     seen, out = set(), []
-    for lbl, aid in picked:
+    for lbl, aid, folder in picked:
         if aid not in seen:
             seen.add(aid)
-            out.append((lbl, aid))
+            out.append((lbl, aid, folder))
     return out
 
 
@@ -287,8 +309,9 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
         selected = _select_anim_keys(model["geo"], model["geo_id"], anims, env5)
     gltf_anims: list = []
     anim_labels: list = []
-    for label, key in selected:
-        clip = _gltf_io.read_clip(env5, model["geo_id"], key)
+    donor_anims: dict = {}                                     # folder_id -> [labels] embedded from a DONOR folder
+    for label, key, folder in selected:
+        clip = _gltf_io.read_clip(env5, folder, key)
         if not clip or not clip["bones"]:
             continue
         samplers, channels = [], []
@@ -340,6 +363,8 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
             gltf_anims.append({"name": name, "samplers": samplers, "channels": channels,
                                "extras": {"ff9_anim_key": key, "ff9_anim_label": name}})
             anim_labels.append(name)
+            if folder != model["geo_id"]:
+                donor_anims.setdefault(folder, []).append(name)
 
     # --- assemble ---
     gltf = {
@@ -369,7 +394,11 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
             "bones": len(bones), "meshes": len(meshes),
             "primitives": sum(len(gm["primitives"]) for gm in gltf_meshes),
             "verts": sum(len(m["verts"]) for m in meshes), "textures": len(gltf_images),
-            "anims": anim_labels, "scale": s, "warnings": warnings}
+            "anims": anim_labels, "scale": s, "warnings": warnings,
+            # clips embedded from a DONOR model's folder via the engine's AnimationDB redirect (label lists
+            # keyed by folder, with the folder-owning GEO name for the CLI's provenance note)
+            "donor_anims": [{"folder": f, "model": (catalog.model(f).name if catalog.model(f) else None),
+                             "labels": labels} for f, labels in sorted(donor_anims.items())]}
 
 
 # ================================================================ RETURN path: glTF -> kit Model struct

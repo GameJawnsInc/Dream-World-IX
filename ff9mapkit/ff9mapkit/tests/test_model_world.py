@@ -60,14 +60,16 @@ def test_auto_anim_selection_prefers_on_foot_with_friendly_labels():
     # so naive disc-order surfaced those with numeric names -> the model imported straddling an absent chocobo.
     keys = [1143, 1144, 1418, 4716, 4717, 4719, 4722, 4723, 4726, 4728, 8143, 8145, 8147, 8149, 8152, 8154]
     sel = gltf._select_anim_keys("GEO_SUB_W0_001", 310, "auto", _FakeEnv(310, keys))
-    labels = [lbl for lbl, _ in sel]
+    labels = [lbl for lbl, _, _ in sel]
     assert all(not lbl.isdigit() for lbl in labels), labels          # friendly action labels, not raw ids
     assert {"idle1", "stand", "run"} <= set(labels)                  # on-foot clips chosen over lower-id riding
     assert labels[0] == "stand"                                      # NEUTRAL rest first (not idle1 -- a yawn)
     assert labels.index("stand") < labels.index("idle1")             # fidget clips don't lead
+    # a rich OWN folder is never bypassed for a donor: every pick stays in Animations/310/
+    assert all(folder == 310 for _, _, folder in sel), sel
     # a raw-id / list request still works and stays numeric-addressable
     one = gltf._select_anim_keys("GEO_SUB_W0_001", 310, "4722", _FakeEnv(310, keys))
-    assert one == [("4722", 4722)]
+    assert one == [("4722", 4722, 310)]
 
 
 def test_world_form_models_are_all_sub_group():

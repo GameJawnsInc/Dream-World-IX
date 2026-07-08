@@ -1282,6 +1282,22 @@ def validate(project: FieldProject) -> list[str]:
                         _itemdata.encode_category(v)
                     except ValueError as e:
                         problems.append(f"[[weapon]] {nm!r} category: {e}")
+                elif k == "model":                     # a GEO_WEP name (string) or a mint table -- the deep
+                    if isinstance(v, str):             # checks run fail-loud at build (resolve_weapon_models)
+                        if not v.upper().startswith("GEO_WEP_"):
+                            problems.append(f"[[weapon]] {nm!r} model {v!r} is not a weapon model "
+                                            f"(GEO_WEP_* -- battle weapons are static type-6 meshes)")
+                    elif isinstance(v, dict):
+                        mid = v.get("id")
+                        if not isinstance(mid, int) or isinstance(mid, bool) or not 6000 <= mid <= 32767:
+                            problems.append(f"[[weapon]] {nm!r} model.id must be an int in the mint band "
+                                            f"6000..32767, got {mid!r}")
+                        elif v.get("hue") is None and v.get("tint") is None and not v.get("textures"):
+                            problems.append(f"[[weapon]] {nm!r} model id={mid} does nothing -- give at "
+                                            f"least one of hue / tint / textures")
+                    else:
+                        problems.append(f"[[weapon]] {nm!r} model must be a GEO_WEP name or a mint table "
+                                        f"{{ id = ..., hue/tint/textures = ... }}, got {v!r}")
                 elif isinstance(v, bool) or not isinstance(v, int):
                     problems.append(f"[[{kind}]] {nm!r} {k} must be an integer, got {v!r}")
                 elif v < 0:
@@ -2031,6 +2047,37 @@ class LintReport:
         return not self.errors and not self.warnings
 
 
+def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
+    """Scripts-DLL toolchain gate: a ``[[playable]]`` custom ability with ``script = {template/body}`` mints a
+    battle FORMULA that must be COMPILED into ``Memoria.Scripts.<Mod>.dll`` at build time, so it needs a C#
+    compiler (``csc``). Surface a MISSING compiler at LINT (early + actionable) instead of letting the build die
+    mid-compile (``_emit_scripts`` -> ``ScriptCompileError``). Only fires when the channel is actually used -- no
+    scripted ability -> the whole thing is inert -> no requirement. This is a deliberate departure from lint's
+    "install-free" rule (unlike the FF9 install, which lint never requires so you can author on a machine without
+    the game): the compiler probe is cheap (a few dir globs) and the whole point is to fail early. Reported as a
+    build-blocking error (a scripted field genuinely cannot build here). project-ff9-scripts-dll."""
+    pl = project.raw.get("playable")
+    if pl is None:
+        return
+    try:
+        specs = _playable.parse_all(pl)
+    except _playable.PlayableError:
+        return                                            # a broken [[playable]] is already reported by validate()
+    scripts = (_playable.script_seeds(specs) + _playable.field_script_seeds(specs)
+               + _playable.status_script_seeds(specs))
+    if not scripts:
+        return                                            # no `script = {...}` ability -> the Scripts-DLL channel is inert
+    from .battle import scriptcompile as _scomp
+    if _scomp.toolchain_available():
+        return
+    names = ", ".join(sorted({str(s.get("name", "?")) for s in scripts}))
+    out.append(
+        f"scripted custom ability ({names}) needs a C# compiler (csc) to build its `script = {{...}}` battle "
+        f"formula into Memoria.Scripts.<Mod>.dll, but none was found -- the build would fail at compile time. "
+        f"Install Visual Studio Build Tools (Roslyn csc) or point $FF9_CSC at a csc.exe (the always-present .NET "
+        r"Framework csc at C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe works too).")
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -2039,6 +2086,7 @@ def lint_all(project: FieldProject) -> LintReport:
     failure recorded as an error (so one broken section never masks the others). This is the single source
     of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
     rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
+    _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
     # -> TypeError, a truncated .bgi -> struct.error, ...). A linter must NEVER traceback on bad input --
@@ -5310,12 +5358,16 @@ def _emit_battle_data(projects, layout) -> list:
     # a custom ability's `status = [...]` auto-mints a StatusSets row -> MERGE it with any author [[status_set]] (one
     # StatusSets.csv writer; a minted action's status_index points at one of these, so they ride the same build).
     status_sets = status_sets + _playable.status_set_seeds(_specs)
-    if not actions and not statuses and not status_sets and not magic_sword_sets and not new_actions:
+    # a custom ability's `status = [{template/body}]` mints a NEW StatusData row (id 33-63) so the engine can inflict
+    # the custom status -> MERGE it into the same StatusData.csv delta as the [[status]] retunes (one writer). (P7)
+    new_statuses = _playable.status_data_seeds(_specs)
+    if not (actions or statuses or status_sets or magic_sword_sets or new_actions or new_statuses):
         return []
     from .battle import actiondelta as _adelta
     try:
         return _adelta.write_battle_data(layout, actions=actions, statuses=statuses, status_sets=status_sets,
-                                         magic_sword_sets=magic_sword_sets, new_actions=new_actions)
+                                         magic_sword_sets=magic_sword_sets, new_actions=new_actions,
+                                         new_statuses=new_statuses)
     except _adelta.ActionDeltaError as ex:
         raise BuildError(str(ex))
 
@@ -5416,6 +5468,46 @@ def _emit_ability_features(projects, layout) -> list:
         return _af.write_ability_features(layout, feats)          # game defaults to the configured install
     except _af.AbilityFeatureError as ex:
         raise BuildError(str(ex))
+
+
+def _emit_scripts(projects, layout, mod_name) -> list:
+    """Emit + compile the minted battle-FORMULA DLL from every ``[[playable]]`` custom ability that carries
+    ``script = {template/body}`` -> ``Scripts/Sources/*.cs`` + ``Memoria.Scripts.<mod_name>.dll`` (the Scripts-DLL
+    channel, project-ff9-scripts-dll). No scripted abilities -> a NO-OP (the whole channel is inert, so a normal
+    build never touches a compiler). ``parse_all`` is deterministic, so each script's ``[BattleScript(id)]`` matches
+    the Actions.csv ``scriptId`` cell repointed in :func:`_emit_battle_data`. The DLL loads once at the title screen
+    -> a RELAUNCH is required (F6 won't reload it); the caller/deploy surfaces that. Compiles against the INSTALLED
+    engine (version-coupled), so it needs the FF9 install + a C# compiler; raises BuildError if either is missing."""
+    playables = []
+    for p in projects:
+        b = p.raw.get("playable", [])
+        playables += b if isinstance(b, list) else [b]
+    try:
+        specs = _playable.parse_all(playables)
+    except _playable.PlayableError as ex:
+        raise BuildError(str(ex))
+    scripts = _playable.script_seeds(specs)
+    field_scripts = _playable.field_script_seeds(specs)   # paired [FieldAbilityScript] effects (P7), same DLL + scriptId
+    status_scripts = _playable.status_script_seeds(specs)  # custom [StatusScript] behaviours (P7), same DLL
+    if not scripts and not field_scripts and not status_scripts:
+        # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
+        # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
+        # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
+        import shutil as _sh
+        _sh.rmtree(layout.scripts_dir, ignore_errors=True)
+        return []
+    from .battle import scriptsource as _ssrc, scriptcompile as _scomp
+    try:
+        warnings = list(_ssrc.write_scripts(layout, scripts, field_scripts, status_scripts))   # ONE wipe -> all .cs
+        _scomp.compile_scripts(layout, mod_name)
+    except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
+        raise BuildError(str(ex))
+    made = (f"{len(scripts)} battle formula(s)"
+            + (f" + {len(field_scripts)} field effect(s)" if field_scripts else "")
+            + (f" + {len(status_scripts)} status behaviour(s)" if status_scripts else ""))
+    warnings.append(f"scripted abilities: built Memoria.Scripts.{mod_name}.dll ({made}). "
+                    f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
+    return warnings
 
 
 def _emit_battle_patch(projects) -> tuple:
@@ -5555,14 +5647,16 @@ def _emit_synthesis(projects, layout) -> list:
     return warnings
 
 
-def _emit_item_data(projects, layout) -> list:
+def _emit_item_data(projects, layout) -> tuple:
     """Emit the mod-GLOBAL item-stat deltas (``Data/Items/{Weapons,Armors,Items,Stats,ItemEffects}.csv``) from every
     built field's ``[[weapon]]`` / ``[[armor]]`` / ``[[item]]`` / ``[[equip_bonus]]`` / ``[[item_effect]]`` blocks.
     The engine merges these by id (whole-row), so any field may tune any item; the same item tuned in several blocks
     merges (later overrides per field) -- warned for visibility. Reads the install's base rows (a delta carries the
-    full base row); no install -> warn + skip. No blocks anywhere -> nothing written. Returns warnings."""
+    full base row); no install -> warn + skip. No blocks anywhere -> nothing written. Returns
+    ``(warnings, mint_directives)`` -- a ``[[weapon]] model`` mint's `3DModel` lines join the build's mint_lines."""
     from .content import itemdata as _itemdata
     warnings: list = []
+    directives: list = []
     buckets = {"weapon": [], "armor": [], "item": [], "equip_bonus": [], "item_effect": []}
     seen: dict = {}
     for kind in buckets:
@@ -5580,13 +5674,15 @@ def _emit_item_data(projects, layout) -> list:
                 seen[key] = _field_name(p)
                 buckets[kind].append(b)
     if not any(buckets.values()):
-        return warnings
+        return warnings, directives
     try:
-        _itemdata.write_item_data(layout, buckets["weapon"], buckets["armor"], buckets["item"],
-                                  buckets["equip_bonus"], buckets["item_effect"])
+        directives, wmodel_warns = _itemdata.write_item_data(
+            layout, buckets["weapon"], buckets["armor"], buckets["item"],
+            buckets["equip_bonus"], buckets["item_effect"])
+        warnings += wmodel_warns
     except ValueError as e:                                # e.g. unknown item name / not-a-weapon / no install
         warnings.append(f"item-data patch skipped: {e}")
-    return warnings
+    return warnings, directives
 
 
 def _emit_item_text(projects) -> tuple:
@@ -5790,6 +5886,7 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
     charname_lines = _playable.name_directive_lines(_pspecs)
+    status_icon_lines = _playable.status_icon_directive_lines(_pspecs)   # BuffIcon/DebuffIcon for custom statuses (P7)
     # Crash guard: a bare `[party] add = [12]` for a custom-band id (12-15) that NO [[playable]] defines anywhere
     # in the mod would emit B_PARTYADD(12) but allocate no PLAYER -> partyadd() null-derefs at field load. The
     # recruit=true / add-by-name paths can't hit this (they carry/require a definition); only a raw numeric id
@@ -5806,8 +5903,9 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
                                  f"recruit = true on it). Without a definition the game crashes when the field "
                                  f"loads (no PLAYER is allocated for id {m}).")
 
-    layout.dictionary_patch.write_text("\n".join(_dictionary_lines(results, charname_lines)) + "\n",
-                                       encoding="utf-8", newline="\n")
+    layout.dictionary_patch.write_text(
+        "\n".join(_dictionary_lines(results, charname_lines + status_icon_lines)) + "\n",
+        encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
@@ -5846,11 +5944,13 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
     start_warnings = _emit_start_state(projects, layout, entry_project)
     start_warnings += _emit_shops(projects, layout)
     start_warnings += _emit_synthesis(projects, layout)
-    start_warnings += _emit_item_data(projects, layout)
+    item_warns, weapon_mint_lines = _emit_item_data(projects, layout)
+    start_warnings += item_warns
     start_warnings += _emit_battle_data(projects, layout)
     start_warnings += _emit_character_data(projects, layout)
     start_warnings += _emit_portraits(projects, layout)
     start_warnings += _emit_ability_features(projects, layout)
+    start_warnings += _emit_scripts(projects, layout, mod_name)
     start_warnings += bp_warnings
     start_warnings += text_warnings
 
@@ -5872,9 +5972,13 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
             "location_lines": [r.location_line for r in results if r.location_line],
             # [[mint]] `3DModel <id> <name>` directives (order-preserving dedup) -- deploy_field.py /
             # deploy_campaign append these to DictionaryPatch AND the staged Models/<type>/<id>/ FBX ships.
-            "mint_lines": list(dict.fromkeys(ml for r in results
-                                             for ml in (getattr(r, "mint_lines", []) or []))),
+            "mint_lines": list(dict.fromkeys([ml for r in results
+                                              for ml in (getattr(r, "mint_lines", []) or [])]
+                                             + weapon_mint_lines)),
             # [[playable]] `CharacterDefaultName <id> <SYM> <name>` directives (the 13th+ character's name, per
             # language) -- mod-global; deploy_field.py merges them by (id, lang) so a re-deploy replaces cleanly.
             "charname_lines": list(charname_lines),
+            # custom-status `BuffIcon`/`DebuffIcon <statusId> <spriteIndex>` directives (P7) -- mod-global; ride the
+            # same DictionaryPatch, registered at launch so the icon shows in every status display.
+            "status_icon_lines": list(status_icon_lines),
             "warnings": [w for r in results for w in r.warnings] + start_warnings}

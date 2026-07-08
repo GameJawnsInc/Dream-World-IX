@@ -291,6 +291,13 @@ def _build(name, entries, fields_map, *, kind, max_id, note, game):
 # the tuning fields -> the spell casts + animates as the donor but with Iviv's own power/element/mp. (project-ff9-ability-preset-system)
 _CUSTOM_ACTION_MIN = 192
 _CUSTOM_ACTION_MAX = 223
+# A minted BATTLE FORMULA (a `script = {template/body}` on a custom ability) gets a NEW scriptId in the engine's
+# BattleExtendedScripts DICT band -- the base scripts pack 0-109 in a 256-slot array, so >=256 lands in the
+# unbounded dict (ScriptsLoader; project-ff9-scripts-dll, proven in-game). It is INDEPENDENT of the ability id
+# (192-223): the ability's Actions.csv `scriptId` cell is repointed at this id, and scriptsource emits a matching
+# [BattleScript(id)] into Memoria.Scripts.<Mod>.dll. Allocated in content.playable.parse_all (deterministic).
+_CUSTOM_SCRIPT_MIN = 256
+_CUSTOM_SCRIPT_MAX = 511
 # The tuning fields an inline custom ability may override (a SAFE subset of ACTION_FIELDS): all range-guarded numeric /
 # element / enum columns. `status_index` is EXCLUDED from the AUTHOR-facing overrides -- it points at a StatusSets ROW
 # and the engine indexes add_status[statusIndex] with a DIRECT (KeyNotFound-throwing) indexer at cast, so a bad set = a
@@ -351,9 +358,22 @@ def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
                 cells[ci] = _encode_value(k, v, ACTION_FIELDS[k], warnings=warnings)
             except ActionDeltaError as ex:
                 raise ActionDeltaError(f"{ctx} {name!r} {ex}")
+        # a KIT-INJECTED script_id (256+) = a minted Memoria.Scripts.<Mod>.dll formula (`script = {template/body}`);
+        # REPOINT the cloned row's scriptId at it (replacing the donor's stock formula) -- done BEFORE the status
+        # check below so that check inspects the EFFECTIVE scriptId (else a `status` + minted-script combo would warn
+        # against the donor, not the formula that actually runs). Trusted: the DLL is compiled the SAME build
+        # (build._emit_scripts) and parse_all is deterministic, so the id matches its [BattleScript]. The author never
+        # sets this directly (a scalar `script`/`script_id` override still routes to an EXISTING formula via
+        # ACTION_FIELDS; a TABLE `script` is pulled out + minted in playable.parse_all).
+        sci = nr.get("script_id")
+        if sci is not None:
+            scr2 = cols.get("scriptid")
+            if scr2 is not None and scr2 < len(cells):
+                cells[scr2] = str(_to_int(sci, f"{ctx} script_id"))
         # a KIT-INJECTED status_index = the id of an auto-minted StatusSets row (from `status = [...]`) -> SAFE because
         # that row is emitted in the SAME build. The author can't set status_index directly (excluded above). Warn on
-        # the two silent-no-op traps: rate=0 (the HitRate gate never passes) + a non-status-applying donor script.
+        # the silent-no-op traps: rate=0 (the HitRate gate never passes) + a script that doesn't APPLY statuses (the
+        # donor's, OR a minted 256+ formula -- only the 'magic_damage' template calls TryAlter*Statuses).
         si = nr.get("status_index")
         if si is not None:
             sc = cols.get("statusindex")
@@ -364,8 +384,14 @@ def _apply_new_actions(new_rows, rows, cols, names, warnings) -> list:
                     warnings.append(f"{ctx} {name!r}: inflicts a status but rate=0 -> it will (almost) never land; "
                                     f"give it a rate (e.g. rate = 50)")
                 if scr is not None and scr < len(cells) and cells[scr].strip() not in _STATUS_APPLYING_SCRIPTS:
-                    warnings.append(f"{ctx} {name!r}: inflicts a status but the donor's script ({cells[scr].strip()}) "
-                                    f"may not APPLY it -- clone a status-applying magic donor (e.g. from = \"Bio\")")
+                    _sid = cells[scr].strip()
+                    if _sid.isdigit() and int(_sid) >= _CUSTOM_SCRIPT_MIN:
+                        warnings.append(f"{ctx} {name!r}: inflicts a status but its minted `script` formula won't "
+                                        f"APPLY it -- a scripted formula must call TryAlter*Statuses (only the "
+                                        f"'magic_damage' template does). Drop `status` here, or drop `script`.")
+                    else:
+                        warnings.append(f"{ctx} {name!r}: inflicts a status but the donor's script ({_sid}) may not "
+                                        f"APPLY it -- clone a status-applying magic donor (e.g. from = \"Bio\")")
         rows[aid] = cells
         minted.append(aid)
     return minted
@@ -391,11 +417,87 @@ def build_actions_delta(entries, *, new_rows=(), game=None) -> tuple:
     return _render(options, legend, rows, changed, note=note), warnings
 
 
-def build_status_delta(entries, *, game=None) -> tuple:
-    note = ("# ff9mapkit [[status]] -- a partial StatusData.csv delta (merged over the base by the engine; "
-            "the #! lines below are load-bearing).")
-    return _build("StatusData.csv", entries, STATUS_FIELDS, kind="status", max_id=_STATUS_MAX_ID,
-                  note=note, game=game)
+_CUSTOM_STATUS_MIN = 33     # BattleStatusId.CustomStatus1..31 = 33-63: the mod-reservable custom-status band (its own
+_CUSTOM_STATUS_MAX = 63     # 64-bit BattleStatus bit). A minted status needs a StatusData ROW here or btl_stat.cs:71
+#                             (statusDatabase[statusId] on apply) KeyNotFound-crashes. project-ff9-scripts-dll (P7).
+# A CustomStatusN row's BEHAVIOURAL fields are always neutralised (its behaviour lives in the [StatusScript], its
+# panel icon in the BuffIcon DictionaryPatch): no tick / no auto-expire (both engine-excluded for custom bits) / no
+# clears / no immunities. The ON-MODEL visual (SPS particle / SHP over-model indicator / Color tint, btl_stat.cs:78-81)
+# is INHERITED from an `over_model` donor status's row when given, else turned off.
+_STATUS_DATA_BEHAV_NEUTRAL = {"oprcount": "0", "conticount": "0", "clearonapply": "", "immunityprovided": ""}
+_STATUS_DATA_VISUAL_OFF = {"spseffect": "-1", "shpeffect": "-1", "colorkind": "-1"}   # no particle / over-model / tint
+
+
+def _mint_status_rows(new_rows, rows, cols) -> list:
+    """Mint NEW custom-status StatusData rows (33-63). Clone the ``over_model`` donor status's row -- so the custom
+    status INHERITS its ON-MODEL visual (the SPS particle / SHP over-model indicator like Haste's chevron / Color
+    tint, btl_stat.cs:78-81) -- re-id, rename, and neutralise the BEHAVIOURAL fields. No ``over_model`` -> a neutral
+    base row with the visual OFF (inert data). Adds each into ``rows`` in place; returns the minted ids."""
+    if not new_rows:
+        return []
+    names = _name_index(rows, cols)                  # base-status comment name -> [ids] (the visual donor lookup)
+    idc, cmtc = cols.get("id"), cols.get("comment", 0)
+    minted, seen = [], set()
+    for n, nr in enumerate(new_rows if isinstance(new_rows, list) else [new_rows]):
+        ctx = f"custom status #{n}"
+        if not isinstance(nr, dict):
+            raise ActionDeltaError(f"{ctx} must be a table")
+        sid = _to_int(nr.get("id"), f"{ctx} id")
+        if not _CUSTOM_STATUS_MIN <= sid <= _CUSTOM_STATUS_MAX:
+            raise ActionDeltaError(f"{ctx}: status id {sid} out of the custom band "
+                                   f"{_CUSTOM_STATUS_MIN}-{_CUSTOM_STATUS_MAX} (0-32 are the base statuses)")
+        if sid in seen or sid in rows:
+            raise ActionDeltaError(f"{ctx}: status id {sid} is already defined")
+        seen.add(sid)
+        name = re.sub(r"[;\r\n]+", " ", str(nr.get("name", f"Status {sid}"))).strip() or f"Status {sid}"
+        over = nr.get("over_model")
+        donor_id = None
+        if over:                                     # borrow this vanilla status's on-model visual (SPS/SHP/Color)
+            ids = names.get(str(over).strip().lower())
+            if not ids:
+                raise ActionDeltaError(f"{ctx} {name!r}: over_model {over!r} is not a base status (borrow the on-model "
+                                       f"visual of a vanilla status, e.g. \"Haste\"/\"Slow\" [chevron], \"Berserk\" [tint])")
+            donor_id = ids[0]
+        cells = list(rows[donor_id] if donor_id is not None else rows[min(rows)])
+        if idc is not None and idc < len(cells):
+            cells[idc] = str(sid)
+        if cmtc < len(cells):
+            cells[cmtc] = name
+        for col, val in _STATUS_DATA_BEHAV_NEUTRAL.items():
+            ci = cols.get(col)
+            if ci is not None and ci < len(cells):
+                cells[ci] = val
+        if donor_id is None:                         # no visual donor -> turn the on-model visual OFF (fully inert)
+            for col, val in _STATUS_DATA_VISUAL_OFF.items():
+                ci = cols.get(col)
+                if ci is not None and ci < len(cells):
+                    cells[ci] = val
+        if cells and cells[-1].lstrip().startswith("#"):
+            cells[-1] = f"# {name}"
+        rows[sid] = cells
+        minted.append(sid)
+    return minted
+
+
+def build_status_delta(entries, *, new_rows=(), game=None) -> tuple:
+    """``[[status]]`` retunes (existing ids 0-32) + minted NEW custom statuses (``new_rows``, ids 33-63) -> ONE
+    partial StatusData.csv delta ``(text, warnings)``. Both share one emission so neither clobbers the other -- the
+    engine merges per-id over the base (0-32 from the base, 33-63 added). A custom status's row is inert data; its
+    behaviour lives in a ``[StatusScript]`` in Memoria.Scripts.<Mod>.dll (project-ff9-scripts-dll P7)."""
+    note = ("# ff9mapkit [[status]] / custom status -- a partial StatusData.csv delta (merged per-id over the base; "
+            "the #! lines below are load-bearing). Custom statuses (33-63) are inert data; behaviour is in the "
+            "Memoria.Scripts.<Mod>.dll [StatusScript].")
+    try:
+        options, legend, cols, rows = _read_raw(_csv_path("StatusData.csv", game))
+    except (FileNotFoundError, OSError, RuntimeError) as ex:
+        raise ActionDeltaError(f"[[status]] needs your FF9 install to read the base StatusData.csv ({ex})")
+    if not cols or not rows:
+        raise ActionDeltaError("could not parse the base StatusData.csv (no id column / no rows)")
+    changed, warnings = _apply_entries(entries or [], rows, cols, _name_index(rows, cols), STATUS_FIELDS,
+                                       kind="status", max_id=_STATUS_MAX_ID)
+    minted = _mint_status_rows(new_rows or [], rows, cols)
+    changed = list(changed) + [m for m in minted if m not in changed]
+    return _render(options, legend, rows, changed, note=note), warnings
 
 
 def build_status_sets(entries, *, game=None) -> tuple:
@@ -497,19 +599,24 @@ def validate_magic_sword_sets(entries) -> list:
 
 
 def write_battle_data(layout, *, actions=None, statuses=None, status_sets=None, magic_sword_sets=None,
-                      new_actions=None, game=None) -> list:
+                      new_actions=None, new_statuses=None, game=None) -> list:
     """Emit the Actions / StatusData / StatusSets / MagicSwordSets CSV deltas into ``layout`` (mod-write stage).
     Returns warnings. Written cp1252 (byte-faithful with the base) + LF; the engine StreamReader is EOL-agnostic.
     ``new_actions`` mints custom NEW abilities (id >=192) into the SAME Actions.csv delta as the ``[[battle_action]]``
-    retunes -- one emission, so neither clobbers the other."""
+    retunes; ``new_statuses`` mints custom NEW statuses (id 33-63) into the SAME StatusData.csv delta as the
+    ``[[status]]`` retunes -- one emission each, so neither clobbers the other."""
     warnings: list = []
     if actions or new_actions:                              # Actions.csv: retunes + minted custom abilities, ONE file
         text, w = build_actions_delta(actions or [], new_rows=new_actions or [], game=game)
         layout.actions_csv.parent.mkdir(parents=True, exist_ok=True)
         layout.actions_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
         warnings += w
-    for entries, path, builder in ((statuses, layout.status_data_csv, build_status_delta),
-                                   (status_sets, layout.status_sets_csv, build_status_sets),
+    if statuses or new_statuses:                            # StatusData.csv: retunes + minted custom statuses, ONE file
+        text, w = build_status_delta(statuses or [], new_rows=new_statuses or [], game=game)
+        layout.status_data_csv.parent.mkdir(parents=True, exist_ok=True)
+        layout.status_data_csv.write_text(text, encoding="cp1252", errors="replace", newline="\n")
+        warnings += w
+    for entries, path, builder in ((status_sets, layout.status_sets_csv, build_status_sets),
                                    (magic_sword_sets, layout.magic_sword_sets_csv, build_magic_sword_sets)):
         if entries:
             text, w = builder(entries, game=game)
