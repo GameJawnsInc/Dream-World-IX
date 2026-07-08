@@ -126,9 +126,13 @@ New `.cs` files must be added to the csproj `<Compile Include>`. See memory `pro
   the **s23–s33 FORK-DONOR REMAP suite** — every engine gate hardcoded on a real `fldMapNo` (or FBG name) is
   wrapped so it fires for a custom FORK id. Four gate classes, four levers: `== N` compare + local-alias
   `mapNo` (`EffectiveFieldId`, s23/s24/s29/s30), NAME-keyed (`EffectiveFieldName`, s31/s32), and lookup-arg
-  (`FieldLocationName`, s33; this also backs the authorable `[field] location`). Patches in `memoria-patches/`;
-  the per-site census + verification debt (which patches are still ⚠ IN-GAME UNVERIFIED) live in
-  **`ff9mapkit/docs/FORK_IDGATE_MAP.md`** → [[project-ff9-doeventcode-fork-gates]], [[project-ff9-fork-verification-harness]].
+  (`FieldLocationName`, s33; this also backs the authorable `[field] location`). Plus **s34** (loose-mesh
+  overworld override) + **s35** (overlay-texture-cache — kills the slow see-through overlay fade on field
+  re-entry / battle-return, ★ in-game proven 2026-07-07). Patches in `memoria-patches/`; the per-site census +
+  verification debt live in **`ff9mapkit/docs/FORK_IDGATE_MAP.md`**. The **fork-gate verification harness**
+  (`tools/verify_fork_gates.py`) bakes each s29 gate's seed + observability verdict — finding: only 2507 is
+  crisply cold-fork-testable (proven); the rest fire mid-beat, so the low-signal-party + ending-only gates are
+  accepted as code-verified. → [[project-ff9-doeventcode-fork-gates]], [[project-ff9-fork-verification-harness]].
 - **⚠ ENGINE-INDEPENDENCE IS SPLIT (durable):** a *novel* field (BG-borrow / from-scratch) runs on **stock**
   Memoria; a **FORKED field REQUIRES the s23–s33 suite** (else it loses Dante's off-mesh exemption, narrow-map
   width, the fake-battle return, the softlock fixes, etc.). So **the shipped faithful-opening ships our CUSTOM
