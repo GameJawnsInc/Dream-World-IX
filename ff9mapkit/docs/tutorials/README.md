@@ -19,6 +19,7 @@ The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the 
 | 09 | [Custom battle background](09-battle-background.md) | Fork a 3D battle map, retexture/reshape it, fight in it | UnityPy |
 | 10 | [Edit a character model](10-custom-model.md) | Round-trip a model through Blender (mesh + textures) | Blender 4.2+ |
 | 11 | [Edit an animation](../ANIMATION_EDITING.md) | Keyframe-edit a real animation clip in Blender | Blender 4.2+ |
+| 12 | [Create a creature from scratch](12-creature-from-scratch.md) | An original mesh + rig + animset on a minted id, placed as an NPC | UnityPy |
 
 Pillars without a tutorial yet (reference docs instead):
 

@@ -161,6 +161,21 @@ def test_deploy_new_anim_moving_a_name_to_an_explicit_key_leaves_one_line(tmp_pa
     assert text.count("ANH_NPC_F1_BBA_SPIN") == 1 and "3DModelAnimation 61000 ANH_NPC_F1_BBA_SPIN" in text
 
 
+def test_deploy_new_anim_resolves_a_minted_model_from_dictionarypatch(tmp_path):
+    # a MINTED model (no stock GEO row) resolves through the mod folder's own 3DModel line --
+    # the same registry the engine extends FF9BattleDB.GEO from at startup
+    (tmp_path / "DictionaryPatch.txt").write_text("3DModel 6300 GEO_NPC_F1_M300\n", encoding="utf-8")
+    clip = anim.new_clip(BONES, anim.synth_spin_curves(frames=2))
+    man = anim.deploy_new_anim("GEO_NPC_F1_M300", clip, tmp_path, suffix="IDLE")
+    assert man["geo_id"] == 6300 and man["name"] == "ANH_NPC_F1_M300_IDLE" and man["key"] == 60_000
+    f = tmp_path / "StreamingAssets" / "Assets" / "Resources" / "Animations" / "6300" / "60000.anim"
+    assert f.is_file()
+    man2 = anim.deploy_new_anim("6300", clip, tmp_path, suffix="IDLE")          # by minted ID too
+    assert man2["key"] == 60_000                                                # same name -> same key
+    with pytest.raises(ValueError, match="deploy its \\[\\[mint\\]\\] first"):
+        anim.deploy_new_anim("GEO_NPC_F1_M999", clip, tmp_path, suffix="IDLE")
+
+
 def test_npc_anim_setter_rejects_an_oversized_id():
     from ff9mapkit.content import npc
     assert npc._anim_op(0x33, 60_000).endswith((60_000).to_bytes(2, "little"))

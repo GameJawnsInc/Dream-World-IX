@@ -176,14 +176,16 @@ if _src_manifest.is_file():
     print("  + custom [music] theme(s) -> RELAUNCH to register the new song id(s) + set MusicVolume > 0")
 mint_lines = info.get("mint_lines", [])
 # `3DModel <id> <NAME>` register a GEO id; `3DModelAnimation <key> <ANH_NAME>` register a custom anim (custom_battle_
-# anims). Drop stale ids by GEO id, and stale anim registrations by the GEO middle-block their ANH name shares.
-mint_ids = {ml.split()[1] for ml in mint_lines if ml.startswith("3DModel ") and len(ml.split()) >= 2}
-mint_geo_blocks = {"_".join(ml.split()[2].split("_")[1:4]) for ml in mint_lines      # MAIN_B0_M100 from GEO_MAIN_B0_M100
-                   if ml.startswith("3DModel ") and len(ml.split()) >= 3}
-def _stale_anim(ln):                                       # a 3DModelAnimation line for a mint being redeployed
+# anims). Drop stale registrations by the EXACT GEO id / anim key THIS deploy owns (carried in mint_lines) -- NEVER
+# by the GEO middle-block an ANH name shares. A block-wide drop also wiped a FOREIGN `3DModelAnimation` line that
+# merely shares a minted model's block -- e.g. a clip `ff9mapkit model-anim-new` wrote straight into DictionaryPatch
+# BETWEEN deploys (the vanished key 60001 on field 30057). Exact id/key matching leaves those foreign lines intact.
+from ff9mapkit import dictpatch as _dp
+mint_ids = _dp.mint_model_ids(mint_lines)
+mint_anim_keys = _dp.mint_anim_keys(mint_lines)
+def _stale_anim(ln):                                       # a 3DModelAnimation line THIS deploy re-registers (own key)
     p = ln.split()
-    return (ln.startswith("3DModelAnimation ") and len(p) >= 3
-            and "_".join(p[-1].split("_")[1:4]) in mint_geo_blocks)
+    return ln.startswith("3DModelAnimation ") and len(p) >= 2 and p[1] in mint_anim_keys
 charname_lines = info.get("charname_lines", [])   # [[playable]] CharacterDefaultName <id> <SYM> <name> (per-lang)
 charname_keys = {(p[1], p[2]) for p in (ln.split() for ln in charname_lines) if len(p) >= 3}   # (char-id, lang)
 status_icon_lines = info.get("status_icon_lines", [])   # [[playable]] custom-status Buff/DebuffIcon <statusId> <sprite>
@@ -191,10 +193,11 @@ status_icon_ids = {p[1] for p in (ln.split() for ln in status_icon_lines) if len
 def _stale_icon(ln):                                       # a Buff/DebuffIcon line for a custom status being redeployed
     p = ln.split()
     return len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in status_icon_ids
-dp = [ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+_dp_before = live.dictionary_patch.read_text(encoding="utf-8").splitlines()
+dp = [ln for ln in _dp_before
       if ln.strip() and ln.split()[1:2] != [str(FID)]           # drop this field's old FieldScene/LocationName
-      and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # drop stale mint ids
-      and not _stale_anim(ln)                                                                  # drop stale anim regs
+      and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # drop THIS deploy's mint ids
+      and not _stale_anim(ln)                                                                  # drop THIS deploy's anim keys
       and not _stale_icon(ln)                                                                  # drop stale status icons
       and not (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # drop stale names
                and (ln.split()[1], ln.split()[2]) in charname_keys)]
@@ -204,6 +207,12 @@ dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId>
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
+_dropped = _dp.foreign_registrations_dropped(_dp_before, dp)   # a foreign 3DModel/3DModelAnimation line this deploy shouldn't touch
+if _dropped:
+    print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own -- a foreign "
+          "3DModel/3DModelAnimation line (e.g. a `model-anim-new` clip) was lost. Re-add after deploy:")
+    for _dl in _dropped:
+        print(f"       {_dl}")
 _n_model = sum(1 for ml in mint_lines if ml.startswith("3DModel "))
 _n_anim = sum(1 for ml in mint_lines if ml.startswith("3DModelAnimation "))
 if _n_model:
@@ -431,39 +440,29 @@ if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
 _mint_ids_repr = repr(sorted(mint_ids))              # this deploy's minted GEO ids (drop their 3DModel lines on revert)
-_mint_blk_repr = repr(sorted(mint_geo_blocks))        # their GEO middle-blocks (drop matching 3DModelAnimation lines)
+_mint_anim_keys_repr = repr(sorted(mint_anim_keys))   # this deploy's OWN 3DModelAnimation keys (drop only THESE on revert)
 revert = f'''#!/usr/bin/env python3
 import sys, shutil
 from pathlib import Path
 sys.path.insert(0, r"{KIT}")
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
+from ff9mapkit import dictpatch as _dp
 STAMP="{STAMP}"; BK=Path(r"{BK}"); live=ModLayout(find_game_path()/"{MOD_FOLDER}")
-# surgical DictionaryPatch revert: drop THIS id's line + THIS deploy's mint registrations (3DModel <mintId> and
-# 3DModelAnimation <key> <ANH_..middle..>) from the CURRENT live file (preserving any line another tool -- e.g.
-# deploy_battle's "BattleScene <sceneid>" -- added into the SAME mod folder since this deploy), then restore this
-# id's prior registration from the pre-deploy backup if it had one. A wholesale snapshot-restore (the old
-# behavior) re-clobbered those co-deployed lines -> a black screen. (The staged Models//Animations/ FBX+clip
-# trees are LEFT on disk -- inert once unregistered -- matching the mint deploy's copytree.)
-_MINT_IDS=set({_mint_ids_repr}); _MINT_BLK=set({_mint_blk_repr})
-def _revkeep(ln):
-    p=ln.split()
-    if not ln.strip(): return False
-    if p[1:2]==["{FID}"]: return False
-    if ln.startswith("3DModel ") and p[1:2] and p[1] in _MINT_IDS: return False
-    if ln.startswith("3DModelAnimation ") and len(p)>=3 and "_".join(p[-1].split("_")[1:4]) in _MINT_BLK: return False
-    return True
-_dpkeep=[ln for ln in live.dictionary_patch.read_text(encoding="utf-8").splitlines() if _revkeep(ln)]
+# surgical DictionaryPatch revert: drop THIS id's line + THIS deploy's OWN mint registrations (3DModel <mintId> by
+# exact id and 3DModelAnimation <key> by exact key) from the CURRENT live file -- preserving any FOREIGN line another
+# tool added into the SAME mod folder since this deploy (deploy_battle's "BattleScene <sceneid>", or a
+# `model-anim-new` clip that merely SHARES a minted model's GEO block -- an exact-key drop leaves it be). Then
+# restore this id's prior registration from the pre-deploy backup if it had one. A wholesale snapshot-restore (the
+# old behavior) re-clobbered co-deployed lines; a GEO-BLOCK drop (the older-still behavior) wiped foreign clip lines
+# like key 60001. (The staged Models//Animations/ FBX+clip trees are LEFT on disk -- inert once unregistered.)
+_MINT_IDS=set({_mint_ids_repr}); _MINT_ANIM_KEYS=set({_mint_anim_keys_repr})
+_dp_before=live.dictionary_patch.read_text(encoding="utf-8").splitlines()
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
-if _dpbak.exists():
-    # restore to the PRE-deploy state: re-add this id's prior FieldScene/LocationName AND any mint 3DModel/
-    # 3DModelAnimation this revert dropped that PRE-EXISTED this deploy (so reverting one field can't strip a
-    # registration another field had already made -- the shared-character-on-two-fields case). Lines THIS deploy
-    # added fresh aren't in the backup, so they stay gone. (_revkeep is False for exactly the lines we dropped.)
-    _seen=set(_dpkeep)
-    for ln in _dpbak.read_text(encoding="utf-8").splitlines():
-        if ln.strip() and not _revkeep(ln) and ln not in _seen:
-            _dpkeep.append(ln); _seen.add(ln)
+_bak=_dpbak.read_text(encoding="utf-8").splitlines() if _dpbak.exists() else []
+_dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid="{FID}", model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS)
 live.dictionary_patch.write_text("\\n".join(_dpkeep)+"\\n", encoding="utf-8", newline="\\n")
+for _dl in _lost:   # belt-and-suspenders: a foreign line this revert shouldn't have touched
+    print(f"  !! WARNING: revert dropped a DictionaryPatch line it does not own: {{_dl}}")
 shutil.rmtree(live.fieldmap_dir("{FBG}"), ignore_errors=True)
 mc=live.mapconfig_path("EVT_{name}")
 if mc.exists(): mc.unlink()

@@ -21,8 +21,23 @@ from pathlib import Path
 
 from . import campaign as C
 from . import deploystack as DS
+from . import dictpatch as DP
 from . import newgame
 from .config import LANGS, ModLayout, find_game_path
+
+
+def _foreign_regs_wiped(live, dist_root) -> list:
+    """The FOREIGN ``3DModel``/``3DModelAnimation`` DictionaryPatch registrations a wholesale replace of
+    ``live`` (a :class:`ModLayout`) with ``dist_root`` would silently drop -- present in the live folder,
+    absent from the dist. A safety net for the ``model-anim-new``-between-deploys footgun."""
+    live_dp = live.dictionary_patch
+    dist_dp = Path(dist_root) / "DictionaryPatch.txt"
+    if not live_dp.exists():
+        return []
+    before = live_dp.read_text(encoding="utf-8").splitlines()
+    after = dist_dp.read_text(encoding="utf-8").splitlines() if dist_dp.exists() else []
+    return DP.foreign_registrations_dropped(before, after)
+
 
 # Start-state learn lists (a FILE SET) read highest-priority-wins -> promoted alongside the start CSVs.
 _PRESET_STEMS = {"Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant", "Cinna1",
@@ -280,6 +295,17 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     snap.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(live_root, snap)
     out(f"snapshot {live_root} -> {snap}")
+    # foreign-registration guard: a WHOLESALE replace drops any 3DModel/3DModelAnimation line the dist doesn't
+    # carry -- e.g. a clip `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch. The
+    # snapshot restores them on REVERT, but the forward install silently loses them -> WARN loudly (CLAUDE.md
+    # deploy footgun, 2026-07-08). Only reported; the wholesale replace is the campaign-owns-the-folder model.
+    _lost = _foreign_regs_wiped(live, dist_root)
+    if _lost:
+        out("  !! WARNING: this wholesale install DROPS DictionaryPatch registration(s) not in the built dist "
+            "(e.g. `model-anim-new` clips added to this folder since the last deploy). RE-ADD them after, or "
+            "author them into the campaign. Reversible via the snapshot. Lost:")
+        for _l in _lost:
+            out(f"       {_l}")
     shutil.rmtree(live_root, ignore_errors=True)
     shutil.copytree(dist_root, live_root)
     out(f"installed dist -> {live_root}  ({len(plan.members)} fields)")
@@ -788,6 +814,12 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
     rev.write_text(_render_folder_revert(live_root, snap, stamp), encoding="utf-8", newline="\n")
     captured.append(str(rev))
     _flush()
+    _lost = _foreign_regs_wiped(ModLayout(live_root), merged)   # model-anim-new-between-deploys footgun (snapshot reverts it)
+    if _lost:
+        out("  !! WARNING: this wholesale install DROPS DictionaryPatch registration(s) not in the merged dist "
+            "(e.g. `model-anim-new` clips added to this folder since the last deploy). RE-ADD them after. Lost:")
+        for _l in _lost:
+            out(f"       {_l}")
     try:
         shutil.rmtree(live_root, ignore_errors=True)
         shutil.copytree(merged, live_root)

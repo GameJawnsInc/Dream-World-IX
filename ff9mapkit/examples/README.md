@@ -13,6 +13,7 @@ Worked `field.toml` projects. Build any with `ff9mapkit build <path>` (see
 | [`capstone/`](capstone) | A **New Game that boots straight into a custom field** with its starting **beat, party, bag, and gear** all seeded from one entry `field.toml`. |
 | [`items-equipment/`](items-equipment) | Exercises **every item/equipment lever** the kit ships — each a pure data patch on stock Memoria (no engine DLL). |
 | [`world_hub/`](world_hub) | A playable **journey selector** field: pick a journey, optionally seed it, and warp in (World-Hub MVP scaffold). |
+| [`boletta/`](boletta) | A **creature from scratch** — original mesh + rig + texture + animset (zero FF9 bytes) on a minted model id, placed as a talking NPC. In-game proven. |
 
 For the complete capability list see [`docs/FEATURES.md`](../docs/FEATURES.md); for how the hard parts
 work, [`docs/TECHNICAL.md`](../docs/TECHNICAL.md).
