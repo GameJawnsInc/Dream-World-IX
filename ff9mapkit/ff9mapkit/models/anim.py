@@ -613,6 +613,27 @@ def _anim_key_registry(dp: "Path") -> dict:
     return reg
 
 
+def _resolve_minted_model(token: str, mod_folder) -> tuple:
+    """A MINTED model token (name or id) -> (geo_name, geo_id) via the mod folder's ``3DModel`` lines --
+    the same registry the engine extends FF9BattleDB.GEO from at startup. Raises with a pointer at the
+    [[mint]] step when the token is neither stock nor registered here."""
+    dp = Path(mod_folder) / "DictionaryPatch.txt"
+    mints: dict = {}
+    if dp.exists():
+        for ln in dp.read_text(encoding="utf-8").splitlines():
+            parts = ln.split()
+            if len(parts) == 3 and parts[0] == "3DModel" and parts[1].isdigit():
+                mints[int(parts[1])] = parts[2]
+    tok = str(token).strip()
+    if tok.isdigit() and int(tok) in mints:
+        return mints[int(tok)], int(tok)
+    for mid, name in mints.items():
+        if name.upper() == tok.upper():
+            return name, mid
+    raise AnimError(f"unknown model {token!r}: not a stock GEO name/id and no `3DModel` line for it in "
+                    f"{dp} -- for a minted model, deploy its [[mint]] first, then mint clips for it")
+
+
 def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | None" = None,
                     suffix: str = "CUSTOM1", game=None) -> dict:
     """Ship one NEW clip for a model: write ``Animations/<geoId>/<key>.anim`` (loose, engine-probed) and
@@ -624,9 +645,17 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
     ``key=None`` reuses the key already registered to this ANH name (idempotent re-deploy) or allocates
     the next free key in the 16-bit-safe 60000-65535 band; an explicit key must fit 16 bits too (a field
     anim id is u16 in both the .eb and the engine -- an oversized key silently truncates and never
-    attaches). Re-registering a key REPLACES its line (a duplicate key would double-Add in AnimationDB)."""
+    attaches). Re-registering a key REPLACES its line (a duplicate key would double-Add in AnimationDB).
+
+    ``model_token`` may be a MINTED model (a ``3DModel`` line in this mod folder's DictionaryPatch --
+    the same registry the engine learns mints from at startup): deploy the ``[[mint]]`` first, then
+    mint clips for it; the clip folder is the minted id's (``GetRenameAnimationDirectory`` resolves the
+    minted name through the runtime-extended GEO table exactly like a stock one)."""
     from . import extract
-    geo, gid, _tint = extract.resolve_geo(str(model_token))
+    try:
+        geo, gid, _tint = extract.resolve_geo(str(model_token))
+    except ValueError:
+        geo, gid = _resolve_minted_model(str(model_token), mod_folder)
     parts = geo.split("_")                        # GEO <grp> <form> <token>
     if len(parts) < 4:
         raise AnimError(f"can't derive an ANH name from {geo!r}")
