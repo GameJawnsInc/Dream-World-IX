@@ -281,6 +281,43 @@ def test_patch_recover_captures_exact_offlattice_floats():
     assert tw.apply("beach1", keep) == keep
 
 
+def test_vertex_displace_moves_all_instances_weld_preserving():
+    wl = (488.0, 0.1953125, -1125.29296875)                 # off-lattice real-style float
+    b1 = [[(wl, NRM, (0.1, 0.45), (12920.0, 0, 0, 0)),
+           _v(492, 0.2, -1128), _v(488, 1.16, -1121.2)]]
+    s2 = [[(wl, NRM, (0.5, 0.5), (212.0, 0, 0, 0)),
+           _v(492, 0.2, -1128), _v(488, 0.0, -1129.3)]]
+    tw = TR.VertexDisplace(moves={(488.0, 0.1953, -1125.293): (0.0, 0.0, -1.2)}, expected=2)
+    ob1 = tw.apply("beach1", b1[0])
+    os2 = tw.apply("sea2", s2[0])
+    assert tw.gate()["ok"] is True and tw.applied == 2 and tw.folds == 0
+    # both instances moved by the SAME delta from the exact float -> still coincident (weld kept)
+    assert ob1[0][0] == os2[0][0] == (488.0, 0.1953125, -1125.29296875 - 1.2)
+    # UV / tangent / normal untouched (the texture stretches, shading stays)
+    assert ob1[0][2] == (0.1, 0.45) and ob1[0][3] == (12920.0, 0, 0, 0) and ob1[0][1] == NRM
+    # untouched polys pass through as the same object
+    other = [_v(0, 0, 0), _v(4, 0, 0), _v(0, 0, -4)]
+    assert tw.apply("terrain", other) is other
+
+
+def test_vertex_displace_fold_gate_and_scope():
+    # a displacement that drives a vert across the tile = flipped winding -> gate fails
+    tri = [_v(0, 0, 0), _v(4, 0, 0), _v(0, 0, -4)]
+    tw = TR.VertexDisplace(moves={(0.0, 0.0, 0.0): (0.0, 0.0, -10.0)}, expected=1)
+    tw.apply("sea2", tri)
+    g = tw.gate()
+    assert g["folds"] == 1 and g["ok"] is False
+    # part-scoped displacement ignores other parts
+    tw2 = TR.VertexDisplace(moves={(0.0, 0.0, 0.0): (0.0, 0.0, -1.0)}, expected=1, part="sea2")
+    assert tw2.apply("terrain", tri) is tri
+    tw2.apply("sea2", tri)
+    assert tw2.gate()["ok"] is True
+    # a missed key -> count gate fails loud
+    tw3 = TR.VertexDisplace(moves={(99.0, 0.0, 0.0): (0.0, 0.0, -1.0)}, expected=1)
+    tw3.apply("sea2", tri)
+    assert tw3.gate()["ok"] is False
+
+
 def test_patch_recover_raises_on_uncaptured_corner():
     tw = TR.PatchRecover(part="beach1", drop=lambda poly: False,
                          corners={"A": (0.0, 0.0)}, fan=[("A", "A", "A")],

@@ -230,6 +230,74 @@ class PatchRecover:
                 "expected": self.expected_drops, "ok": self.dropped == self.expected_drops}
 
 
+class VertexDisplace:
+    """Tweak class 3 (frontier: the multi-column GEOMETRIC waterline move) -- displace exact
+    donor verts, weld-preserving by construction: every instance of a keyed position, in EVERY
+    part (``part=None``), moves by the same delta, so coincident beach1/sea2/... weld verts stay
+    coincident and the weld audit stays at zero. UVs, tangents and normals are left VERBATIM --
+    the texture STRETCHES over the moved geometry, which is exactly how real shore-conforming
+    tiles absorb lateral waterline variation (measured: real interior waterline verts sit up to
+    ~1.5u off the 4u lattice; the swash ribbon's width varies 3.3-6.7u; sea2's wash is uniform
+    so its strain is invisible).
+
+    ``moves`` maps an exact donor-frame position ``(x, y, z)`` (a ``key_decimals``-rounding
+    LOOKUP key, like :class:`PatchRecover` corners -- the true float is read from the mesh,
+    never retyped) to a ``(dx, dy, dz)`` delta. THE ENVELOPE LAWS (do not exceed blindly):
+    move only INTERIOR verts (end-assembly welds -- cap bands, corner/sea1 contacts -- are
+    load-bearing); keep amplitudes within the measured real envelope; displacement must not
+    fold a tile (the per-tri WINDING gate here trips if a touched tri's XZ orientation flips
+    or collapses). ``expected`` gates the exact number of moved vert INSTANCES."""
+
+    def __init__(self, *, moves: dict, expected: int, part: str | None = None,
+                 key_decimals: int = 4):
+        self.part = part
+        self.key_decimals = int(key_decimals)
+        self.moves = {self._key(k): tuple(v) for k, v in dict(moves).items()}
+        self.expected = int(expected)
+        self.applied = 0
+        self.folds = 0
+
+    def _key(self, p):
+        return (round(p[0], self.key_decimals), round(p[1], self.key_decimals),
+                round(p[2], self.key_decimals))
+
+    @staticmethod
+    def _area2(poly):
+        a = 0.0
+        for i in range(1, len(poly) - 1):
+            a += ((poly[i][0][0] - poly[0][0][0]) * (poly[i + 1][0][2] - poly[0][0][2])
+                  - (poly[i + 1][0][0] - poly[0][0][0]) * (poly[i][0][2] - poly[0][0][2]))
+        return a
+
+    def apply(self, part: str, poly):
+        if self.part is not None and part != self.part:
+            return poly
+        out = []
+        touched = False
+        for (pos, nrm, uv, tan) in poly:
+            d = self.moves.get(self._key(pos))
+            if d is not None:
+                pos = (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
+                touched = True
+                self.applied += 1
+            out.append((pos, nrm, uv, tan))
+        if not touched:
+            return poly
+        a0, a1 = self._area2(poly), self._area2(out)
+        # a plan-degenerate source tri (a real wall face) cannot "fold" in plan -- skip those
+        if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+            self.folds += 1                        # flipped or collapsed tile -- gate fails
+        return out
+
+    def emit(self) -> list:
+        return []
+
+    def gate(self) -> dict:
+        return {"gate": f"displace[{self.part or 'all'}]", "applied": self.applied,
+                "expected": self.expected, "folds": self.folds,
+                "ok": self.applied == self.expected and self.folds == 0}
+
+
 def _soup_block_mesh(name: str, cell, tris, *, disc: int, lod: str) -> BlockMesh:
     """A BlockMesh from (pos, nrm, uv, tan) triangles in the block-LOCAL frame -- fresh verts per
     tri (unindexed, matching the stock world blocks), all four channels carried."""
