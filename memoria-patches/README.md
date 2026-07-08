@@ -32,6 +32,12 @@ the original field's tuned behavior. This is the set that makes a forked field p
 |---|---|
 | `s34-worldmap-mesh-override.patch` | Load a world-map block TERRAIN mesh from a loose **`.ff9mesh`** file in a mod folder instead of the baked Resources mesh — so overworld geometry can be edited **without** an AssetBundle repack (FF9 is Unity 5.2.3; `AssetManager.LoadFromDisc<Mesh>` is unsupported, so there is no other loose-mesh hook). New class `Memoria.World.WorldMeshOverride` (reads the kit's [`ff9mapkit.world.mesh`](../ff9mapkit/ff9mapkit/world/mesh.py) format) + a hook in **`WMWorld.RegisterBlockComponent`** — the RUNTIME block-stream path. ⚠ The first cut hooked `WMWorldPrefabMaker.LoadMesh`, which is reachable only from `LoadModelAsset` — an **editor-only prefab-builder with ZERO runtime callers** (the overworld loads a *pre-built* WorldDisc prefab and streams blocks via `WMWorld.LoadBlock`), so it never fired. The live hook reads `block.InitialX/InitialY` (grid coords) + `transform.name` to build the override path, and swaps the `MeshFilter.sharedMesh` (render) **and** the `mesh` fed to `WMBlock.AddWalkMesh` (collision + the `tangent.x` entry id) — one object. Identity-safe: no override file → stock mesh. **Also add `<Compile Include="Memoria\World\WorldMeshOverride.cs" />` to the csproj.** ★ Built + deployed 2026-06-30 (re-hooked + rebuilt clean); IN-GAME UNVERIFIED — awaiting the `world-deploy --spike` playtest. The foundation for Path C (geometry-edit the real world) and Path D (a minted continent's geometry). → `project-ff9-worldmap-feasibility`. |
 
+## Performance / quality — shipped in the bundle, not a fidelity patch
+
+| File | What it fixes |
+|---|---|
+| `s35-overlay-texture-cache.patch` | An overlay-PNG **decode cache** for pure-`.bgx` scenes. `BGSCENE_DEF.ProcessMemoriaOverlay` builds a fresh `BGSCENE_DEF` per field load and re-decodes every overlay PNG from disc on EVERY (re)entry + battle-return — a slow, visibly see-through fade. Adds a `static Dictionary<String, Texture2D> MemoriaOverlayTextureCache`; the `Image` overlay op reuses the decoded `Texture2D` by resolved path (the static reference also keeps the textures alive across the battle scene change, so `Resources.UnloadUnusedAssets` won't free them). Self-heals: a destroyed texture reads Unity-null and reloads. Identity-safe (same pixels, just cached) → smoother field loads + battle returns. Was `deferred-overlay-texture-cache.patch`; promoted 2026-07-07. ★ Built + deployed (full custom engine rebuild, DLLs backed up); IN-GAME UNVERIFIED — awaiting the re-entry/battle-return fade playtest. |
+
 ## Dev tooling — shipped in the bundle, but NOT a fidelity patch
 
 | File | What it is |
@@ -54,7 +60,6 @@ live set above (the F6 menu replaced the single-key reload/reset hotkeys).
 | File | What it is |
 |---|---|
 | `upstream/fieldcreator-png-export-path.patch` (+ `upstream/UPSTREAM.md`) | A standalone Memoria bug fix (FieldCreatorScene PNG export path). Not required by the kit's CLI pipeline; offered upstream. |
-| `deferred-overlay-texture-cache.patch` | An optional overlay-PNG decode cache (smoother field loads / battle returns). Nice-to-have, not required. |
 
 ---
 

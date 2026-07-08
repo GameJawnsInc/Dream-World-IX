@@ -26,21 +26,34 @@ gates an adversarial review found = **14 lines** (2507 & 1656 each have 2 sites;
 
 ⚠ **The 10 s29 wraps are NOT YET PROVEN IN-GAME.** They were BATCHED on the confidence that the transform is
 identical to the ~15 already-proven s24 wraps — all 10 fire only at **disc-2-to-4 beats**, past the current
-disc-1 playtest, so none could be verified yet. **Each still needs a per-site in-game check when its zone is
-forked**: fork the field at its beat (`[startup] scenario=N`), walk the cutscene, confirm no hang. Checklist:
+disc-1 playtest, so none could be verified yet.
 
-| | field | site | in-game check |
-|---|---|---|---|
-| ✅ s24 | 105 / 2504 / 2605 · 100 | `FieldMapActorController.cs:923` · `DialogManager.cs:214`+`fldfmv.cs` | proven earlier (disc 1) |
-| ⬜ s29 | 1656 | `FieldMap.cs:1495` + `:1972` | Iifa scroll: player binds, camera tracks |
-| ⬜ s29 | 768 | `EventEngine.updateModelsToBeAdded.cs:80` | Burmecia: after-Beatrix actors reposition |
-| ⬜ s29 | 2200 | `EventEngine.cs:657` | Gulug Stone party-clear, no leftover softlock |
-| ⬜ s29 | 2207 | `EventEngine.cs:667` + `FieldMapActorController.cs:799` | Oeilvert forced team + collision-unstick skip (Zidane summoned past stairs) |
-| ⬜ s29 | 2301 | `EventEngine.cs:687` | Esto Gaza priest cutscene (normal actor present) |
-| ⬜ s29 | 2362 | `EventEngine.cs:700` | Gulug bottom forced team |
-| ⬜ s29 | 2507 | `FieldMap.cs:102` + `:139` | Ipsen ladder/stair walkmesh + NPC-collision disable |
-| ⬜ s29 | 2512 | `FieldMap.cs:1966` | Ipsen scroll crutch |
-| ⬜ s29 | 3009 / 3010 | `Dialog.cs:820` / `:826` (+ `VoicePlayer.cs:251`, VA-only) | Epilogue Stage dialog control handoff |
+★ **VERIFICATION HARNESS (`tools/verify_fork_gates.py`, 2026-07-07)** — bakes each gate's seed (from
+`fork-report`) + an **observability verdict**, and emits the per-target fork+deploy+F6 playbook. The
+load-bearing finding: unlike the proven **2507** (its walkmesh hotfix fires at field **LOAD**, so a cold fork
++ F6 warp reaches it), the other s29 gates fire mid-**cutscene / post-battle / on an abnormal party** — states
+a cold fork boots PAST. So they are mostly **not crisply F6-testable**, which is why they stayed unverified.
+Run `py tools/verify_fork_gates.py --list` for the table, `--emit <field>` for a target's playbook. Checklist
+(the `verdict` column = why / how testable):
+
+| | field | site | verdict | in-game check |
+|---|---|---|---|---|
+| ✅ s24 | 105 / 2504 / 2605 · 100 | `FieldMapActorController.cs:923` · `DialogManager.cs:214`+`fldfmv.cs` | proven | disc 1 |
+| ✅ s29 | 2507 | `FieldMap.cs:102` + `:139` | crisp-at-load | ★ PROVEN 2026-06-23 (traversal A/B; also caught a kit bug) |
+| ⬜ s29 | 2512 | `FieldMap.cs:1966` | needs-scripted | Ipsen scroll crutch — fires only in the scripted scroll |
+| ⬜ s29 | 1656 | `FieldMap.cs:1495` + `:1972` | needs-scripted | Iifa vine scroll (poor testbed — the 1655/1663 saga) |
+| ⬜ s29 | 768 | `EventEngine.updateModelsToBeAdded.cs:80` | needs-scripted | Burmecia post-Beatrix reposition (needs the battle) |
+| ⬜ s29 | 2200 | `EventEngine.cs:657` | low-signal-party | Gulug-Stone party-clear — invisible with a normal party |
+| ⬜ s29 | 2207 | `EventEngine.cs:667` + `FieldMapActorController.cs:799` | low-signal-party | Oeilvert forced team + collision-unstick |
+| ⬜ s29 | 2301 | `EventEngine.cs:687` | low-signal-party | Esto Gaza priest — needs an abnormal party |
+| ⬜ s29 | 2362 | `EventEngine.cs:700` | low-signal-party | Gulug bottom forced team |
+| ⬜ s29 | 3009 / 3010 | `Dialog.cs:820` / `:826` (+ `VoicePlayer.cs:251`, VA-only) | ending-only | Epilogue Stage — untestable outside an ending run |
+
+**Recommended disposition:** the **low-signal-party** + **ending-only** gates (2200/2207/2301/2362/3009/3010) are
+code-verified + identity-safe and should be **accepted as mechanism-proven** — the same call the harness made for
+the s33 BGM-fallback ("not an audible test") and mesh-combine ("too subtle") siblings. The **needs-scripted**
+gates (2512/1656/768) are verified opportunistically **when their zone is forked for real** (the harness emits
+the playbook). Only **2507** was crisply cold-fork-testable, and it passed.
 
 ⚠ A party-shape guard (2200 / 2207 / 2301 / 2362) FORCES a party composition (gated on the exact ScenarioCounter)
 — so a fork gets that forced party at that beat. Intended fidelity, but verify it doesn't fight a `[party]` /
