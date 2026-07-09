@@ -511,6 +511,41 @@ def test_row_insert_clones_non_grass_family_owner(monkeypatch):
     assert min(uv[0] for uv in east) > max(uv[0] for uv in west) - 1e-9
 
 
+def test_row_insert_wash_stretch_switches_to_east_at_family_boundary():
+    """The side rule: when the owner is the wash family's BOUNDARY tile (gradient) and the
+    east tile is wash interior, the fill stretches from the EAST tile's west half instead --
+    the restored seam lands on the gradient side, the self-tear hides in the uniform core
+    (in-game 2026-07-09: the west fill's gradient stutter vs the clean east fill)."""
+    LINE = 92.0
+    U0, U1 = 0.394, 0.454
+    STRIPS = [(0.369, 0.399), (0.399, 0.431), (0.431, 0.462), (0.462, 0.493)]
+    def tile(x0, x1, z0, z1, u0, u1, v0, v1):
+        return [[((x0, 1.0, z0), (0, 1, 0), (u0, v0), (12544.0, 0, 0, 1)),
+                 ((x1, 1.0, z0), (0, 1, 0), (u1, v0), (12544.0, 0, 0, 1)),
+                 ((x1, 1.0, z1), (0, 1, 0), (u1, v1), (12544.0, 0, 0, 1))],
+                [((x0, 1.0, z0), (0, 1, 0), (u0, v0), (12544.0, 0, 0, 1)),
+                 ((x1, 1.0, z1), (0, 1, 0), (u1, v1), (12544.0, 0, 0, 1)),
+                 ((x0, 1.0, z1), (0, 1, 0), (u0, v1), (12544.0, 0, 0, 1))]]
+    def scrub(x0, x1, strip):
+        v0, v1 = STRIPS[strip]
+        return tile(x0, x1, -100.0, -96.0, U0, U1, v0, v1)
+    tw = TR.RowInsert("terrain", line=LINE)
+    tiles = (tile(84.0, 88.0, -100.0, -96.0, 0.004, 0.064, 0.77, 0.80)   # GRASS west of owner
+             + scrub(88.0, 92.0, 1) + scrub(92.0, 96.0, 2) + scrub(96.0, 100.0, 3))
+    for t in tiles:
+        tw.apply("terrain", [tuple(v) for v in t])
+    fill = tw.emit()
+    assert len(fill) == 4
+    # stretched from the EAST tile (strip 2): west edge = its west-edge u (the restored seam
+    # against the gradient owner), east edge = its mid u (the tear inside the uniform core)
+    vs = [v[2][1] for t in fill for v in t]
+    assert min(vs) >= STRIPS[2][0] - 1e-6 and max(vs) <= STRIPS[2][1] + 1e-6
+    west = [v[2][0] for t in fill for v in t if abs(v[0][0] - LINE) < 1e-6]
+    east = [v[2][0] for t in fill for v in t if abs(v[0][0] - (LINE + 4.0)) < 1e-6]
+    assert all(abs(u - U0) < 1e-6 for u in west)
+    assert all(abs(u - (U0 + U1) / 2.0) < 1e-6 for u in east)
+
+
 def test_chain_row_inserts_cumulative_lines():
     """Callers give donor-frame lines; the helper sorts west-to-east and shifts each later
     cut by every earlier cut's delta (a later tweak sees already-shifted geometry)."""

@@ -390,6 +390,8 @@ class RowInsert:
         self.seam: dict = {}              # rounded pos -> exact (pos, nrm)
         self.west_edges: list = []        # (vert_a, vert_b, owner_poly) from WEST tris
         self.east_grass_q: dict = {}      # cell_z -> the shifted east grass tile's quadrant
+        self.east_edges: list = []        # (vert_a, vert_b, SHIFTED poly) from EAST tris
+        self.cell_rects: dict = {}        # final (cellx, cellz) -> topo-0 family rect key
         self.emitted = 0
 
     def _key(self, p):
@@ -401,30 +403,53 @@ class RowInsert:
         from .extract import decode_id
         cx = sum(v[0][0] for v in poly) / len(poly)
         on_line = [v for v in poly if abs(v[0][0] - self.line) <= self.eps]
+        topo0 = decode_id(int(round(poly[0][3][0])))["topograph"] == 0
         if cx > self.line:
             self.shifted += 1
             for v in on_line:             # the shifted half's seam verts (pre-shift positions)
                 self.seam.setdefault(self._key(v[0]), (v[0], v[1]))
-            if on_line and decode_id(int(round(poly[0][3][0])))["topograph"] == 0:
+            if on_line and topo0:
                 cz = math.floor((sum(v[0][2] for v in poly) / len(poly)) / 4.0)
                 self.east_grass_q.setdefault(cz, _quad_of_uv(poly[0][2]))
-            return [((p[0] + self.delta, p[1], p[2]), n, uv, tan) for (p, n, uv, tan) in poly]
+            shifted = [((p[0] + self.delta, p[1], p[2]), n, uv, tan)
+                       for (p, n, uv, tan) in poly]
+            if len(on_line) >= 2:
+                self.east_edges.append((on_line[0], on_line[1], shifted))
+            if topo0:
+                self._map_cell(shifted)
+            return shifted
         self.kept += 1
         for v in on_line:
             self.seam.setdefault(self._key(v[0]), (v[0], v[1]))
         if len(on_line) >= 2:
             self.west_edges.append((on_line[0], on_line[1], poly))
+        if topo0:
+            self._map_cell(poly)
         return poly
 
-    def _owner(self, zmid):
+    def _map_cell(self, poly):
+        """Record a topo-0 lattice tile's family rect at its FINAL cell (for the emit-time
+        neighbour-family probe -- which side of a wash fill is the family boundary)."""
+        r = _cell_rect(poly)
+        if r is None:
+            return
+        n = len(poly)
+        cell = (math.floor(sum(v[0][0] for v in poly) / n / 4.0),
+                math.floor(sum(v[0][2] for v in poly) / n / 4.0))
+        self.cell_rects.setdefault(cell, r[0])
+
+    def _pick(self, edges, zmid):
         best = None
-        for (a, b, poly) in self.west_edges:
+        for (a, b, poly) in edges:
             z0, z1 = sorted((a[0][2], b[0][2]))
             if z0 - 0.05 <= zmid <= z1 + 0.05:
                 span = z1 - z0
                 if best is None or span < best[0]:
                     best = (span, poly)
         return best[1] if best else None
+
+    def _owner(self, zmid):
+        return self._pick(self.west_edges, zmid)
 
     def emit(self) -> list:
         if not self.seam:
@@ -446,14 +471,25 @@ class RowInsert:
                 continue
             r = _cell_rect(owner)
             if r is not None and not (0.0 <= r[0][0] and r[0][2] <= 0.13):
-                # NON-GRASS mains family (the (9,17) scrub band + kin): NOT an interchangeable
-                # anti-tiling set -- the strips differ in wash intensity and the designers PAINT
-                # a blob by placing specific strips per cell (measured: no position lock, no
-                # edge continuity, adjacent repeats attested 3/15). A variant-avoid pick inside
-                # a painted wash maximizes contrast = hard rectangles (in-game 2026-07-09).
-                # The faithful fill CONTINUES the local material: clone the west owner's field
-                # translated into the gap (the owner tile repeated -- repeats are real usage).
-                cell_fill[cell] = ("clone", r[1])
+                # NON-GRASS mains family (the (9,17) scrub band + kin): a PAINTED WASH, not an
+                # interchangeable anti-tiling set -- per-cell re-picks or re-orients fight the
+                # paint (hard rectangles / reversed ramps, in-game 2026-07-09). The faithful
+                # fill STRETCHES a neighbour tile's half to 2x width, restoring the original
+                # painted seam at one fill boundary and hiding the self-tear inside the tile.
+                # SIDE RULE: the self-tear must land in UNIFORM material -- if the owner is
+                # the family's boundary tile (gradient) and the east tile is wash interior,
+                # stretch from the EAST tile instead (in-game 2026-07-09: the west fill's
+                # gradient stutter vs the clean east fill).
+                okey = r[0]
+                east_poly = self._pick(self.east_edges, (pa[2] + pb[2]) / 2.0)
+                er = _cell_rect(east_poly) if east_poly is not None else None
+                ekey = er[0] if er else None
+                fam = lambda a, b: (a is not None and b is not None
+                                    and (a[0], a[2]) == (b[0], b[2]))
+                owner_bnd = not fam(self.cell_rects.get((cell[0] - 2, cell[1])), okey)
+                east_bnd = not fam(self.cell_rects.get((cell[0] + 2, cell[1])), ekey)
+                side = "E" if (owner_bnd and not east_bnd and fam(okey, ekey)) else "W"
+                cell_fill[cell] = ("stretch", side)
                 continue
             avoid = {_quad_of_uv(owner[0][2]), self.east_grass_q.get(cell[1]), prev_q}
             choices = [q for q in ((0, 0), (0, 1), (1, 0), (1, 1)) if q not in avoid]
@@ -488,17 +524,23 @@ class RowInsert:
                     mu = lambda p: tuple(G.mains_uv(p[0], p[2], cell, quad, ori))
                 else:
                     # painted-wash fill = the STRETCH law (the co-move apron precedent): map
-                    # the fill onto the owner's EAST HALF at 2x width. The fill's east edge
-                    # then carries the owner's original east-edge UVs -- the real painted
-                    # owner->east seam is RESTORED byte-for-byte at the fill boundary; tone
-                    # continues on both sides; no stamp duplicate, no re-pick, no re-orient
-                    # (a variant re-pick maximizes contrast, a 180 clone reverses the wash's
-                    # internal tonal ramp -- both read as hard rectangles, 2026-07-09).
-                    # Soft-clamped into the owner's measured rect (no atlas gutters).
-                    (ou0, ov0, ou1, ov1) = mode[1]
-                    def mu(p, uvf=uvf, ou0=ou0, ov0=ov0, ou1=ou1, ov1=ov1):
-                        fu, fv = uvf(self.line - self.delta / 2.0
-                                     + (p[0] - self.line) / 2.0, p[2])
+                    # the fill onto a neighbour tile's half at 2x width. One fill boundary
+                    # then carries that tile's original edge UVs -- the real painted seam is
+                    # RESTORED byte-for-byte there -- and the self-tear hides inside the tile
+                    # (the side rule above puts it in uniform material).
+                    side = mode[1]
+                    src = owner
+                    if side == "E":
+                        src = self._pick(self.east_edges, (pa[2] + pb[2]) / 2.0) or owner
+                        if src is owner:
+                            side = "W"
+                    uvf_s = uvf if src is owner else _affine_uv(src)
+                    rct = _cell_rect(src)
+                    (ou0, ov0, ou1, ov1) = rct[1] if rct else (0.0, 0.0, 1.0, 1.0)
+                    x_src = (self.line - self.delta / 2.0 if side == "W"
+                             else self.line + self.delta)
+                    def mu(p, uvf_s=uvf_s, x_src=x_src, ou0=ou0, ov0=ov0, ou1=ou1, ov1=ov1):
+                        fu, fv = uvf_s(x_src + (p[0] - self.line) / 2.0, p[2])
                         return (min(ou1, max(ou0, fu)), min(ov1, max(ov0, fv)))
                 wa = (pa, na, mu(pa))
                 wb = (pb, nb, mu(pb))
