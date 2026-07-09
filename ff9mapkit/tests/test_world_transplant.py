@@ -1371,3 +1371,31 @@ def test_cut_census_relief_law_spares_proven_lines():
     # verts ON the line) -- proven in-game there, but the law can't tell mild from severe;
     # the build stays deployed as proven (the 508/touches-shallows precedent)
     assert cen[1056.0]["risks"] == ["conforming-on-line"]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_second_donor_screen_10_17_carryable_not_growable():
+    """SECOND-DONOR SCREEN (2026-07-09): a slide-window scan (margin>=2u, sizes 2x2..4x4)
+    over every data-bearing block found (10,17)+2x2 the best non-(9,5) candidate -- 2 real
+    data cells, 22.7u margin, 5.5u relief (under the 6.0u cap), zero objects -- but it is
+    CARRYABLE, not GROWABLE: every land line on either axis is blocked, and NOT by relief.
+    x-lines: `conforming-on-line` (this donor has a real sea1 shore system, unlike (9,5)'s
+    bare cliff+deep-water) + `spills-into-empty` (2 of its 4 rect cells are ocean -- the
+    OTHER empty-cell risk, never given an extrusion fix the way `gap-vacation` was).
+    z-lines: nonzero straddlers on BOTH candidates -- this donor's mesh isn't 4u-lattice-
+    aligned in z at all (real coastal terrain, unlike (9,5)'s clean grid). Net: the (9,5)
+    family's small-clean-multi-block-landmass property does NOT generalize; deployed
+    (identity carry, no tweaks) at (9,3)+2x2 as the second real multi-cell reference."""
+    s = TR.transplant_region("UNUSED", cell=(9, 3), donor=(10, 17), size=(2, 2),
+                             shift=(0.0, 0.0), land_margin=2.0, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    assert s["carried"]["terrain"] == 63 and s["carried"]["sea1"] == 4
+
+    censuses = {axis: {c["line"]: c for c in TR.cut_census((10, 17), size=(2, 2), axis=axis)}
+                for axis in ("x", "z")}
+    x_land = {l: c for l, c in censuses["x"].items() if c["grows_land"]}
+    assert len(x_land) == 4 and all(not c["ok"] for c in x_land.values())
+    assert all("conforming-on-line" in c["risks"] and "spills-into-empty" in c["risks"]
+              for l, c in x_land.items() if c["straddlers"] == 0)
+    z_land = {l: c for l, c in censuses["z"].items() if c["grows_land"]}
+    assert len(z_land) == 2 and all(c["straddlers"] > 0 for c in z_land.values())
