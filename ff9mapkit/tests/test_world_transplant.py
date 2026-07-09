@@ -205,6 +205,38 @@ def test_transplant_rot_keeps_sea_normals_rotates_land(monkeypatch):
     assert captured["Sea4"][0][0][1] == NRM                                # sea normal untouched
 
 
+def test_transplant_carries_vertical_wall_tris(monkeypatch):
+    """THE WALL LAW (in-game 2026-07-09, the (9,5) forest island: 'the top renders, the
+    vertical portion doesn't'): real VERTICAL faces -- forest sides, topo-38 -- have ZERO plan
+    area, so the degenerate-sliver filter must test TRUE 3D area, never plan area. A clip
+    sliver (collinear verts) still drops; a wall quad still carries."""
+    wall = [[((100.0, 0.0, -96.0), (0.0, 0.0, 1.0), (0.1, 0.1), (9728.0, 0, 0, 1)),
+             ((104.0, 0.0, -96.0), (0.0, 0.0, 1.0), (0.9, 0.1), (9728.0, 0, 0, 1)),
+             ((104.0, 4.0, -96.0), (0.0, 0.0, 1.0), (0.9, 0.9), (9728.0, 0, 0, 1))],
+            [((100.0, 0.0, -96.0), (0.0, 0.0, 1.0), (0.1, 0.1), (9728.0, 0, 0, 1)),
+             ((104.0, 4.0, -96.0), (0.0, 0.0, 1.0), (0.9, 0.9), (9728.0, 0, 0, 1)),
+             ((100.0, 4.0, -96.0), (0.0, 0.0, 1.0), (0.1, 0.9), (9728.0, 0, 0, 1))]]
+    blocks = _island_donor()
+    blocks[(1, 1, "terrain")] = blocks[(1, 1, "terrain")] + wall
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), dry_run=True,
+                      census_samples=8, land_margin=0.0)
+    assert s["carried"]["terrain"] == 4                      # island quad + BOTH wall tris
+    s2 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), shift=(0.0, 0.0),
+                              dry_run=True, census_samples=8, land_margin=0.0)
+    assert s2["carried"]["terrain"] == 4
+    # a true LINE sliver (all verts collinear in 3D -- what clipping produces) still drops
+    sliver = [[((10.0, 0.0, -50.0), NRM, (0.5, 0.5), (12800.0, 0, 0, 1)),
+               ((20.0, 0.0, -50.0), NRM, (0.5, 0.5), (12800.0, 0, 0, 1)),
+               ((15.0, 0.0, -50.0), NRM, (0.5, 0.5), (12800.0, 0, 0, 1))]]
+    blocks2 = _island_donor()
+    blocks2[(1, 1, "terrain")] = blocks2[(1, 1, "terrain")] + sliver
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    s3 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), dry_run=True,
+                       census_samples=8, land_margin=0.0)
+    assert s3["carried"]["terrain"] == 2
+
+
 def test_transplant_blanks_fully_clipped_donor_part(monkeypatch):
     blocks = _island_donor()
     # a beach1 sliver hugging the frame edge: survives the plane clips but dies at the
@@ -898,7 +930,8 @@ def test_transplant_region_2x3_island():
         (cx, cy) = (int(v) for v in key.split(","))
         assert meta["donor"] == [cx, cy - 4]              # natural sidecar, 4 rows north
         assert meta["carried"]["terrain"] > 0 and meta["carried"]["sea4"] > 0
-    assert s["carried"]["terrain"] == 879 and s["carried"]["sea4"] == 1993
+    # 917 = 879 flat/sloped + the 38 vertical topo-38 forest-wall tris (the wall law)
+    assert s["carried"]["terrain"] == 917 and s["carried"]["sea4"] == 1993
     assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
     census = next(g for g in s["gates"] if g["gate"] == "census")
     assert census["introduced"] == 0 and census["samples"] == 2880

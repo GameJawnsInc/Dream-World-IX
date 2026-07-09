@@ -41,7 +41,10 @@ PARTS = ("terrain", "beach1", "sea1", "sea2", "sea3", "sea5", "sea4")
 #: uniform byte-constant shared by every tile regardless of tile rotation -- they stay).
 LAND_PARTS = frozenset({"terrain", "beach1"})
 FRAME_EPS = 0.05                     # bounds-gate tolerance at the cell frame planes
-MIN_TRI_AREA2 = 0.02                 # post-clip degenerate-sliver filter (2x the xz area)
+MIN_TRI_AREA2 = 0.02                 # post-clip degenerate-sliver filter (2x the TRUE 3D area:
+#   a clip sliver's verts are collinear in 3D, but a real VERTICAL wall tri -- forest sides,
+#   topo-38, the (9,5) island -- has ZERO PLAN area and real 3D area; a plan-area test silently
+#   drops it ("the top renders, the vertical portion doesn't", in-game 2026-07-09))
 PROVEN_DONOR = (7, 17)               # the in-game-proven beach island (E tongue in (8,17))
 
 _DIRS = {"E": (1, 0), "N": (0, 1), "W": (-1, 0), "S": (0, -1)}
@@ -98,6 +101,17 @@ def clip_poly(poly, axis: int, plane: float, keep_below: bool) -> list:
         if (da < 0) != (db < 0):
             res.append(_lerp_vert(a, b, da / (da - db)))
     return res
+
+
+def _tri_area2_3d(t3) -> float:
+    """2x a triangle's TRUE 3D area (the cross-product magnitude) -- the degenerate-sliver
+    discriminator. Never test PLAN area here: real vertical faces (forest walls) are
+    plan-degenerate but real geometry."""
+    (ax, ay, az) = t3[0][0]
+    (ux, uy, uz) = (t3[1][0][0] - ax, t3[1][0][1] - ay, t3[1][0][2] - az)
+    (vx, vy, vz) = (t3[2][0][0] - ax, t3[2][0][1] - ay, t3[2][0][2] - az)
+    (cx, cy, cz) = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
+    return math.sqrt(cx * cx + cy * cy + cz * cz)
 
 
 def _rot_xz(x: float, z: float, nrot: int):
@@ -952,9 +966,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                 continue
             for j in range(1, len(poly) - 1):
                 t3 = [poly[0], poly[j], poly[j + 1]]
-                area2 = abs((t3[1][0][0] - t3[0][0][0]) * (t3[2][0][2] - t3[0][0][2])
-                            - (t3[2][0][0] - t3[0][0][0]) * (t3[1][0][2] - t3[0][0][2]))
-                if area2 > MIN_TRI_AREA2:
+                if _tri_area2_3d(t3) > MIN_TRI_AREA2:
                     for v in t3:
                         bb[0] = min(bb[0], v[0][0]); bb[1] = max(bb[1], v[0][0])
                         bb[2] = min(bb[2], v[0][2]); bb[3] = max(bb[3], v[0][2])
@@ -1278,9 +1290,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                         continue
                     for k in range(1, len(q) - 1):
                         t3 = [q[0], q[k], q[k + 1]]
-                        area2 = abs((t3[1][0][0] - t3[0][0][0]) * (t3[2][0][2] - t3[0][0][2])
-                                    - (t3[2][0][0] - t3[0][0][0]) * (t3[1][0][2] - t3[0][0][2]))
-                        if area2 > MIN_TRI_AREA2:
+                        if _tri_area2_3d(t3) > MIN_TRI_AREA2:
                             survived = True
                             for v in t3:
                                 bb[0] = min(bb[0], v[0][0]); bb[1] = max(bb[1], v[0][0])
