@@ -558,7 +558,7 @@ are clean slides now; the 2-cut slid clone deployed at (2,4)+2×2 beside the (9,
 in-game "looks good" + the slide proven by OFFLINE DIFFERENTIAL on the deployed bytes (slid land ==
 identity land +8 vertex-for-vertex; sea4 delta −16 == 112 fills − 128 drops exactly; east edge tops at the
 border, empty column has NO override — the differential-vs-a-reference-deploy is the verification recipe for
-"visually identical by design" tweaks). **THE FUSE LAW (2026-07-09, deployed awaiting playtest): cross-donor
+"visually identical by design" tweaks). **THE FUSE LAW (2026-07-09, ★ in-game proven 2026-07-09 — "i don't see any seams along z=-640"): cross-donor
 LAYOUTS** — a "continent" is several complete verbatim donors in adjacent target rects, each keeping its own
 coast (land never knits — coastlines are components; the WATER knits: sea4 is anti-tiling, sea4-vs-sea4 borders
 are always legal). `world-fuse <layout.toml>` + `fuse.fuse_layout()`: every placement gates clean, rects don't
