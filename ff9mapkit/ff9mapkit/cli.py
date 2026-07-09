@@ -2426,45 +2426,15 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         strips = args.strips.strip().lower()
         if strips not in ("auto", "all", "none"):
             strips = tuple(d.strip() for d in args.strips.split(","))
-        tweaks = []
-        for axis, arg, chain in (("x", args.grow_cut, TR.chain_row_inserts),
-                                 ("z", args.grow_cut_z, TR.chain_row_inserts_z)):
-            if not arg:
-                continue
-            flag = "--grow-cut-z" if axis == "z" else "--grow-cut"
-            lines = [float(v) for v in arg.split(",")]
-            boundaries = ()
-            spill_clips = ()
-            if (snx, sny) != (1, 1):
-                # a REGION cut is census-validated here (the component laws are the only
-                # eyes) and its empty-cell boundary fills + spill clips are auto-wired
-                # from the census.
-                cen = {c["line"]: c for c in TR.cut_census((dx, dy), size=(snx, sny),
-                                                           disc=args.disc, game=args.game,
-                                                           axis=axis)}
-                for ln in lines:
-                    if ln not in cen:
-                        raise ValueError(f"{flag} {ln:g}: not an interior 4u {axis} lattice "
-                                         f"line of the donor rect ({dx},{dy})+{snx}x{sny}")
-                    if not cen[ln]["clean"]:
-                        why = ", ".join(cen[ln]["risks"]) or \
-                            f"straddlers={cen[ln]['straddlers']}"
-                        raise ValueError(f"{flag} {ln:g}: not census-clean ({why}) -- "
-                                         f"a cut may not cross a coast component")
-                bset = {tuple(t) for ln in lines for t in cen[ln]["boundary_fills"]}
-                boundaries = sorted(bset)
-                wl = "z" if axis == "x" else "x"
-                if boundaries:
-                    print("empty-cell boundary fills (census-certified open water): "
-                          + "  ".join(f"{axis}={b:g} {wl}[{a0:g},{a1:g}]"
-                                      for (b, a0, a1) in boundaries))
-                sset = {tuple(t) for ln in lines for t in cen[ln]["spill_clips"]}
-                spill_clips = sorted(sset)
-                if spill_clips:
-                    print("empty-cell spill clips (census-certified water-column budget): "
-                          + "  ".join(f"{axis}={p:g} {wl}[{a0:g},{a1:g}] budget {b:g}"
-                                      for (p, a0, a1, b) in spill_clips))
-            tweaks.extend(chain(lines, boundaries=boundaries, spill_clips=spill_clips))
+        # region grow cuts are census-validated with boundary fills + spill clips
+        # auto-wired (the shared world-transplant/world-fuse core in transplant.py)
+        tweaks, notes = TR.build_grow_tweaks(
+            (dx, dy), (snx, sny),
+            grow_cut=(args.grow_cut.split(",") if args.grow_cut else ()),
+            grow_cut_z=(args.grow_cut_z.split(",") if args.grow_cut_z else ()),
+            disc=args.disc, game=args.game)
+        for n in notes:
+            print(n)
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                   tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                   game=args.game, census_samples=args.samples, dry_run=args.dry_run)
@@ -2721,6 +2691,80 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
               "cell -- an \"!\" action prompt fires the warp. (Mesh overrides need the WorldMeshOverride engine patch.)"
               % info.get("disc", args.disc))
     return 0
+
+
+def _cmd_world_fuse(args: argparse.Namespace) -> int:
+    """Validate + deploy a multi-placement transplant LAYOUT (the cross-donor FUSE): several
+    verbatim landmasses in adjacent target rects, every shared border certified open water
+    (see world/fuse.py -- the fuse law). Layout = a toml of [[placement]] tables."""
+    import tomllib
+    from .world import fuse as FU, transplant as TR
+    try:
+        with open(args.layout, "rb") as fh:
+            doc = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"cannot read {args.layout}: {e}", file=sys.stderr)
+        return 2
+    rows = doc.get("placement", [])
+    if not rows:
+        print("the layout has no [[placement]] tables", file=sys.stderr)
+        return 2
+    try:
+        placements = []
+        for i, row in enumerate(rows):
+            for req in ("cell", "donor", "size"):
+                if req not in row:
+                    raise ValueError(f"[[placement]] #{i}: missing '{req}'")
+            pl = {"cell": tuple(int(v) for v in row["cell"]),
+                  "donor": tuple(int(v) for v in row["donor"]),
+                  "size": tuple(int(v) for v in row["size"]),
+                  "rot": int(row.get("rot", 0))}
+            sh = row.get("shift", (0.0, 0.0))
+            pl["shift"] = "auto" if sh == "auto" else tuple(float(v) for v in sh)
+            if "land_margin" in row:
+                pl["land_margin"] = float(row["land_margin"])
+            if "strips" in row:
+                pl["strips"] = row["strips"]
+            tweaks, notes = TR.build_grow_tweaks(pl["donor"], pl["size"],
+                                                 grow_cut=row.get("grow_cut", ()),
+                                                 grow_cut_z=row.get("grow_cut_z", ()),
+                                                 disc=args.disc, game=args.game)
+            for n in notes:
+                print(f"placement #{i}: {n}")
+            if tweaks:
+                pl["tweaks"] = tweaks
+            placements.append(pl)
+        out = FU.fuse_layout(args.mod_folder, placements, disc=args.disc, game=args.game,
+                             allow_overwrite=args.allow_overwrite, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    head = "LAYOUT PLAN (dry run -- nothing written)" if out["dry_run"] else \
+        ("fused layout deployed" if out["clean"] else "layout REFUSED -- nothing written")
+    print(f"{head}: {len(out['placements'])} placement(s)")
+    for i, s in enumerate(out["placements"]):
+        (rnx, rny) = s["size"]
+        print(f"  #{i}: donor {tuple(s['donor'])}+{rnx}x{rny} -> cell {tuple(s['cell'])} "
+              f"(rot {s['rot']}, clean={s['clean']})")
+    for g in out["fuse_gates"]:
+        mark = "ok" if g["ok"] else "FAIL"
+        extra = ""
+        if g["gate"].startswith("fuse["):
+            extra = f"  plane={g['plane']:g} rows={g['rows']}"
+            if g["n_bad"]:
+                extra += f" bad={g['n_bad']} e.g. {g['bad'][0]}"
+            if g.get("grade_jumps"):
+                extra += f" grade-jumps={g['grade_jumps']} (reported, not failing)"
+        elif g["gate"] == "existing-overrides" and g["n_files"]:
+            extra = f"  {g['n_files']} file(s) already deployed at target cells" + \
+                ("" if g["ok"] else " -- pass --allow-overwrite to re-deploy over them")
+        elif g["gate"].startswith("placement") and not g["ok"]:
+            extra = f"  failing gates: {', '.join(g['bad'])}"
+        print(f"  GATE {g['gate']}: {mark}{extra}")
+    if out["deployed"]:
+        print(f"deployed {len(out['deployed'])} file(s); RELAUNCH (or exit+re-enter the "
+              f"overworld) to apply. Needs the CUSTOM engine (s34 + Donor.txt).")
+    return 0 if out["clean"] else 2
 
 
 def _cmd_world_environment(args: argparse.Namespace) -> int:
@@ -5165,6 +5209,23 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--dry-run", action="store_true",
                      help="compute + print the full plan (dispatchers, case, tiles, building) without writing anything")
     wen.set_defaults(func=_cmd_world_entrance)
+
+    wfu = sub.add_parser("world-fuse",
+                         help="validate + deploy a multi-placement transplant LAYOUT (the cross-donor FUSE): "
+                              "several verbatim landmasses in adjacent target rects, every shared border "
+                              "certified open water row-by-row. Needs the WorldMeshOverride engine patch.")
+    wfu.add_argument("layout", help="a .toml of [[placement]] tables: cell=[X,Y] donor=[DX,DY] size=[NX,NY] "
+                                    "(optional rot / shift / land_margin / strips / grow_cut / grow_cut_z)")
+    wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
+    wfu.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wfu.add_argument("--allow-overwrite", action="store_true",
+                     help="deploy even where target cells already have override files on disk (re-deploying "
+                          "the same layout is the normal iteration flow; without this flag a collision refuses "
+                          "so an unrelated island can't be silently clobbered)")
+    wfu.add_argument("--dry-run", action="store_true",
+                     help="validate the whole layout (placement gates + rect overlap + fuse borders + "
+                          "collisions) and print the verdicts without writing anything")
+    wfu.set_defaults(func=_cmd_world_fuse)
 
     wev = sub.add_parser("world-environment",
                          help="author overworld WEATHER / effects: emit Memoria's Environment.txt (force mist on/off, "

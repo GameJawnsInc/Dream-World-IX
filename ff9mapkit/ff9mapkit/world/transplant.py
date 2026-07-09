@@ -1338,6 +1338,58 @@ def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float =
     return out
 
 
+def build_grow_tweaks(donor, size, *, grow_cut=(), grow_cut_z=(), disc: int = 1,
+                      lod: str = "0_1", game=None):
+    """Build the census-validated tweak list for region grow cuts on both axes, with
+    boundary fills + spill clips AUTO-WIRED from the census -- the shared core of the
+    ``world-transplant --grow-cut`` and ``world-fuse`` layout paths. Region lines
+    (``size != (1,1)``) must be census-clean; single-cell lines pass through raw (the
+    byte-proven single-cell path has no region census). Returns ``(tweaks, notes)``
+    where ``notes`` are printable info lines; raises ``ValueError`` for a line that is
+    not an interior lattice line or not census-clean."""
+    (snx, sny) = (int(size[0]), int(size[1]))
+    (dx, dy) = donor
+    tweaks = []
+    notes = []
+    for axis, arg, chain in (("x", grow_cut, chain_row_inserts),
+                             ("z", grow_cut_z, chain_row_inserts_z)):
+        if not arg:
+            continue
+        flag = "--grow-cut-z" if axis == "z" else "--grow-cut"
+        lines = [float(v) for v in arg]
+        boundaries = ()
+        spill_clips = ()
+        if (snx, sny) != (1, 1):
+            cen = {c["line"]: c for c in cut_census((dx, dy), size=(snx, sny),
+                                                    disc=disc, lod=lod, game=game,
+                                                    axis=axis)}
+            for ln in lines:
+                if ln not in cen:
+                    raise ValueError(f"{flag} {ln:g}: not an interior 4u {axis} lattice "
+                                     f"line of the donor rect ({dx},{dy})+{snx}x{sny}")
+                if not cen[ln]["clean"]:
+                    why = ", ".join(cen[ln]["risks"]) or \
+                        f"straddlers={cen[ln]['straddlers']}"
+                    raise ValueError(f"{flag} {ln:g}: not census-clean ({why}) -- "
+                                     f"a cut may not cross a coast component")
+            wl = "z" if axis == "x" else "x"
+            boundaries = sorted({tuple(t) for ln in lines
+                                 for t in cen[ln]["boundary_fills"]})
+            if boundaries:
+                notes.append("empty-cell boundary fills (census-certified open water): "
+                             + "  ".join(f"{axis}={b:g} {wl}[{a0:g},{a1:g}]"
+                                         for (b, a0, a1) in boundaries))
+            spill_clips = sorted({tuple(t) for ln in lines
+                                  for t in cen[ln]["spill_clips"]})
+            if spill_clips:
+                notes.append("empty-cell spill clips (census-certified water-column "
+                             "budget): "
+                             + "  ".join(f"{axis}={p:g} {wl}[{a0:g},{a1:g}] budget {b:g}"
+                                         for (p, a0, a1, b) in spill_clips))
+        tweaks.extend(chain(lines, boundaries=boundaries, spill_clips=spill_clips))
+    return tweaks, notes
+
+
 #: The z-adapter frame constant: the proper rotation ``(x, z) -> (-z, x - _ZC)`` maps world
 #: coords (x >= 0, z <= 0) onto the same conventions (rotated x' = -z >= 0, z' = x - _ZC < 0
 #: for any world x < _ZC = 64*32, beyond the 24x20 grid) -- so a donor-frame z-plane becomes
@@ -2262,6 +2314,45 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                   "ok": not bholes})
     clean = all(g["ok"] for g in gates)
 
+    # FRAME BORDER PROFILES (the cross-donor FUSE law's input, 2026-07-09): per frame edge,
+    # per 4u row along it, the parts with a tri EDGE on the plane (>=2 on-plane verts; an
+    # edge spanning several rows contributes to each) + an on-lattice flag, plus which
+    # border cells deploy at all. `fuse_census` reads two placements' facing profiles to
+    # certify their shared border (see world/fuse.py) -- rows are REGION-frame indices
+    # (`floor(region_coord / 4)`); world rows = region rows offset by the rect anchor.
+    frame_profile: dict = {}
+    for (ename, faxis, fplane, ecells) in (
+            ("W", 0, 0.0, [(0, j) for j in range(th)]),
+            ("E", 0, float(ext_r[0]), [(tw - 1, j) for j in range(th)]),
+            ("N", 2, 0.0, [(i, 0) for i in range(tw)]),
+            ("S", 2, -float(ext_r[1]), [(i, th - 1) for i in range(tw)])):
+        rows: dict = {}
+        lat_bad: set = set()
+        edep = []
+        along = 2 if faxis == 0 else 0
+        for (i, j) in ecells:
+            if (i, j) not in deploy_meshes:
+                continue                      # stays prefab: no profile rows to speak of
+            edep.append(j if faxis == 0 else i)
+            for p in parts:
+                for t in cell_tris[(i, j)][p]:
+                    onp = [v for v in t if abs(v[0][faxis] - fplane) <= 1e-4]
+                    if len(onp) < 2:
+                        continue
+                    lo = min(v[0][along] for v in onp)
+                    hi = max(v[0][along] for v in onp)
+                    for r in range(math.floor(lo / 4.0 + 1e-9),
+                                   max(math.floor(lo / 4.0 + 1e-9) + 1,
+                                       math.ceil(hi / 4.0 - 1e-9))):
+                        rows.setdefault(r, set()).add(p)
+                        if any(abs(v[0][along] / 4.0 - round(v[0][along] / 4.0)) > 2.5e-4
+                               for v in onp):
+                            lat_bad.add(r)
+        frame_profile[ename] = {"plane": fplane, "deployed": sorted(edep),
+                                "rows": {str(r): {"parts": sorted(rows[r]),
+                                                  "lattice": r not in lat_bad}
+                                         for r in sorted(rows)}}
+
     summary = {"op": "transplant-region", "donor": [dbx, dby], "size": [nx, ny],
                "cell": [bx, by], "tsize": [tw, th], "rot": rot, "shift": [sh_x, sh_z],
                "window": {"x": list(win_x), "z": list(win_z)},
@@ -2270,6 +2361,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                "clipped_out": clipped_out,
                "cells": {f"{bx + i},{by + j}": cell_meta[(i, j)] for (i, j) in tcells
                          if (i, j) in cell_meta},
+               "frame_profile": frame_profile,
                "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
     if dry_run or not clean:
         return summary
