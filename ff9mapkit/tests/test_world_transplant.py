@@ -546,6 +546,33 @@ def test_row_insert_wash_stretch_switches_to_east_at_family_boundary():
     assert all(abs(u - (U0 + U1) / 2.0) < 1e-6 for u in east)
 
 
+def test_cut_census_component_laws(monkeypatch):
+    """cut_census bakes the full cut-line law: zero straddlers, grows land, and no component
+    crossings -- beach both-sides, beach end-cap ON the line, painted-wash patch crossing,
+    object-ground displacement ((9,17) measured ZERO usable lines; (7,17) exactly one)."""
+    blocks = {
+        # land tiles astride x=88 and x=96 (both lattice-clean)
+        (1, 1, "terrain"): (_quad(84.0, 88.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.03, 0.78))
+                            + _quad(88.0, 92.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.09, 0.81))
+                            + _quad(92.0, 96.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.03, 0.81))
+                            + _quad(96.0, 100.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.09, 0.78))),
+        (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+        # a foam ribbon ending exactly ON x=96 (end-cap) and entirely west of x=100
+        (1, 1, "beach1"): _quad(92.0, 96.0, -110.0, -106.0, y=1.2, idall=7680.0),
+        # an object whose ground lies east of x=88
+        (1, 1, "object"): _quad(90.0, 94.0, -104.0, -100.0, y=2.0),
+    }
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1))}
+    # sea4 spans the whole cell -> every lattice line except tile edges straddles... the
+    # full-cell quad's fan triangulation straddles interior lines; assert the law fields
+    c88 = cen[88.0]
+    assert c88["grows_land"] is True
+    assert "displaces-object-ground" in c88["risks"]
+    c96 = cen[96.0]
+    assert "beach-end-on-line" in c96["risks"]
+
+
 def test_chain_row_inserts_cumulative_lines():
     """Callers give donor-frame lines; the helper sorts west-to-east and shifts each later
     cut by every earlier cut's delta (a later tweak sees already-shifted geometry)."""

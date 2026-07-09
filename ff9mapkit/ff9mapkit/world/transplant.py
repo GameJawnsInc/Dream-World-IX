@@ -360,8 +360,10 @@ class RowInsert:
     paired into quads whose west edge = the exact seam verts and east edge = the same verts
     ``+delta`` -- bit-identical welds to both halves BY IDENTITY (no interpolation, no hand
     geometry). Pick ``line`` with a crossing census: it must cross ZERO shore-conforming
-    structures (lattice lines through grass/lip/open water qualify; never through a beach).
-    For a z-axis insertion, rotate the transplant 90 degrees instead -- ``line`` is x-only.
+    structures (lattice lines through grass/lip/open water qualify; never through a beach
+    or a painted wash -- :func:`cut_census` bakes the full component law). ``line`` is
+    x-only, and tweaks run BEFORE rotation, so the transplant's ``rot`` cannot re-aim the
+    cut at a donor z-line -- a z-axis insertion needs an axis-aware RowInsert (not built).
 
     Fill UVs are per structure class (the in-game-proven laws): topo-58 cliff = the decoded
     rock vocabulary (a u-mirror of the west owner -- "both senses used" is real -- with V
@@ -572,6 +574,96 @@ class RowInsert:
         return {"gate": f"rowinsert[{self.part}]", "shifted": self.shifted,
                 "emitted": self.emitted,
                 "ok": self.shifted == 0 or self.kept == 0 or self.emitted > 0}
+
+
+def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: str = "0_1",
+               game=None) -> list:
+    """Component-aware RowInsert cut-line census over a donor block (+ its 8u neighbour
+    strips). For each interior 4u lattice line returns a dict: ``line``, ``straddlers``
+    (tris crossing the line -- must be 0), ``grows_land`` (the line passes through
+    grass/sand/cliff, so an insertion actually lengthens the island), and ``risks``:
+
+    - ``crosses-beach``: the beach1 system has tris strictly on BOTH sides -- the line
+      passes through the beach assembly (end welds are load-bearing; never cut it).
+    - ``crosses-wash``: a CONNECTED patch of non-grass topo-0 tiles (a painted wash,
+      e.g. the (9,17) scrub blob) has cells on both sides. A wash is PAINT -- per-cell
+      fills cannot continue it faithfully (four fill strategies falsified in-game
+      2026-07-09); treat it as a component and cut around it.
+    - ``displaces-object-ground``: the donor has a prefab-anchored Object whose footprint
+      lies east of the line (its ground would shift under the static object).
+
+    A usable growth line has ``straddlers == 0``, ``grows_land`` and no ``risks``."""
+    from .extract import decode_id
+    (dbx, dby) = donor
+    x0, x1 = 64.0 * dbx, 64.0 * (dbx + 1)
+    polys = []
+    for p in parts:
+        for tri in world_tris(dbx, dby, p, disc=disc, lod=lod, game=game):
+            polys.append((p, list(tri)))
+        for (nx, ny), axis, plane, below in (
+                ((dbx + 1, dby), 0, x1 + extra, True), ((dbx - 1, dby), 0, x0 - extra, False),
+                ((dbx, dby - 1), 2, -64.0 * dby + extra, True),
+                ((dbx, dby + 1), 2, -64.0 * (dby + 1) - extra, False)):
+            if not (0 <= nx < GRID_X and 0 <= ny < GRID_Y):
+                continue
+            for tri in world_tris(nx, ny, p, disc=disc, lod=lod, game=game):
+                c = clip_poly(list(tri), axis, plane, below)
+                if len(c) >= 3:
+                    polys.append((p, c))
+    obj = world_tris(dbx, dby, "object", disc=disc, lod=lod, game=game)
+    obj_xmax = max(v[0][0] for t in obj for v in t) if obj else None
+    foam = [poly for (p, poly) in polys if p == "beach1"]
+    wash_cells = set()
+    for (p, poly) in polys:
+        if p != "terrain" or decode_id(int(round(poly[0][3][0])))["topograph"] != 0:
+            continue
+        r = _cell_rect(poly)
+        if r and not r[0][2] <= 0.13:
+            n = len(poly)
+            wash_cells.add((math.floor(sum(v[0][0] for v in poly) / n / 4.0),
+                            math.floor(sum(v[0][2] for v in poly) / n / 4.0)))
+    patches = []
+    left = set(wash_cells)
+    while left:
+        comp = {left.pop()}
+        stack = list(comp)
+        while stack:
+            (cx, cz) = stack.pop()
+            for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nb = (cx + d[0], cz + d[1])
+                if nb in left:
+                    left.discard(nb); comp.add(nb); stack.append(nb)
+        patches.append(comp)
+    out = []
+    for i in range(1, 16):
+        line = x0 + 4.0 * i
+        strad = sum(1 for (p, poly) in polys
+                    if min(v[0][0] for v in poly) < line - 1e-4
+                    and max(v[0][0] for v in poly) > line + 1e-4)
+        grows = any(p == "terrain"
+                    and decode_id(int(round(poly[0][3][0])))["topograph"] in (0, 31, 58)
+                    and sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) >= 2
+                    for (p, poly) in polys)
+        risks = []
+        fw = sum(1 for t in foam if max(v[0][0] for v in t) <= line + 1e-4)
+        fe = sum(1 for t in foam if min(v[0][0] for v in t) >= line - 1e-4)
+        if foam and fw and fe:
+            risks.append("crosses-beach")
+        # the beach END-CAP rule (the (9,17) x=632 disqualification): foam/sand tiles ENDING
+        # exactly on the line -- a seam extrusion there re-draws the end-weld assembly
+        if any((p == "beach1" or (p == "terrain"
+                                  and decode_id(int(round(poly[0][3][0])))["topograph"] == 31))
+               and sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) >= 2
+               for (p, poly) in polys):
+            risks.append("beach-end-on-line")
+        if any(any(4.0 * c[0] + 4.0 <= line + 1e-6 for c in comp)
+               and any(4.0 * c[0] >= line - 1e-6 for c in comp) for comp in patches):
+            risks.append("crosses-wash")
+        if obj_xmax is not None and line < obj_xmax - 1e-6:
+            risks.append("displaces-object-ground")
+        out.append({"line": line, "straddlers": strad, "grows_land": grows, "risks": risks,
+                    "ok": strad == 0 and grows and not risks})
+    return out
 
 
 def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float = 0.4,
