@@ -497,15 +497,18 @@ def test_row_insert_clones_non_grass_family_owner(monkeypatch):
     assert len(fill) == 4                                    # relief fan (topo-0 ground family)
     us = [v[2][0] for t in fill for v in t]
     vs = [v[2][1] for t in fill for v in t]
-    # the CLONE of the owner (strip 1): exactly the owner's rect, never grass, never a sibling
+    # the STRETCH of the owner (strip 1): inside the owner's rect, never grass, no sibling
     assert min(us) >= U0 - 1e-6 and max(us) <= U1 + 1e-6
     assert min(vs) >= STRIPS[1][0] - 1e-6 and max(vs) <= STRIPS[1][1] + 1e-6
-    # the field is the owner's mapping translated: west edge shows the owner's west-edge UVs
+    # the fill maps the owner's EAST HALF at 2x width: west edge = the owner's mid-tile u,
+    # east edge = the owner's east-edge u -- the original owner->east seam is RESTORED
+    umid = (U0 + U1) / 2.0
     west = [v[2] for t in fill for v in t if abs(v[0][0] - LINE) < 1e-6]
-    assert all(abs(uv[0] - U0) < 1e-6 for uv in west)
-    # handedness preserved: u still increases west->east on the fill quad
-    east_u = [v[2][0] for t in fill for v in t if abs(v[0][0] - (LINE + 4.0)) < 1e-6]
-    assert min(east_u) > max(uv[0] for uv in west) - 1e-9
+    assert all(abs(uv[0] - umid) < 1e-6 for uv in west)
+    east = [v[2] for t in fill for v in t if abs(v[0][0] - (LINE + 4.0)) < 1e-6]
+    assert all(abs(uv[0] - U1) < 1e-6 for uv in east)
+    # orientation/handedness unchanged (no flip): u still ramps west->east, v untouched by x
+    assert min(uv[0] for uv in east) > max(uv[0] for uv in west) - 1e-9
 
 
 def test_chain_row_inserts_cumulative_lines():

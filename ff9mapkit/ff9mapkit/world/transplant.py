@@ -487,13 +487,18 @@ class RowInsert:
                     quad, ori = mode[1], mode[2]
                     mu = lambda p: tuple(G.mains_uv(p[0], p[2], cell, quad, ori))
                 else:
-                    # owner-clone fill: the OWNER's field translated one column east -- the
-                    # owner tile repeated verbatim (continues the painted wash; keeps
-                    # orientation + handedness). Soft-clamped into the owner's own measured
-                    # rect so a conforming owner's extrapolation can't reach atlas gutters.
+                    # painted-wash fill = the STRETCH law (the co-move apron precedent): map
+                    # the fill onto the owner's EAST HALF at 2x width. The fill's east edge
+                    # then carries the owner's original east-edge UVs -- the real painted
+                    # owner->east seam is RESTORED byte-for-byte at the fill boundary; tone
+                    # continues on both sides; no stamp duplicate, no re-pick, no re-orient
+                    # (a variant re-pick maximizes contrast, a 180 clone reverses the wash's
+                    # internal tonal ramp -- both read as hard rectangles, 2026-07-09).
+                    # Soft-clamped into the owner's measured rect (no atlas gutters).
                     (ou0, ov0, ou1, ov1) = mode[1]
                     def mu(p, uvf=uvf, ou0=ou0, ov0=ov0, ou1=ou1, ov1=ov1):
-                        fu, fv = uvf(p[0] - self.delta, p[2])
+                        fu, fv = uvf(self.line - self.delta / 2.0
+                                     + (p[0] - self.line) / 2.0, p[2])
                         return (min(ou1, max(ou0, fu)), min(ov1, max(ov0, fv)))
                 wa = (pa, na, mu(pa))
                 wb = (pb, nb, mu(pb))
