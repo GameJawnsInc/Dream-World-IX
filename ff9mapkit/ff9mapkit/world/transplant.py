@@ -612,6 +612,10 @@ def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: st
 
     - ``crosses-beach``: the beach1 system has tris strictly on BOTH sides -- the line
       passes through the beach assembly (end welds are load-bearing; never cut it).
+    - ``touches-shallows``: the line crosses OR touches the SHORE-BOUND shallow system
+      (sea1/sea2 -- shore-conforming Wang bands, COPY-ONLY like the beach): a fill there
+      duplicates a transition column = the "inner band" artifact (in-game 2026-07-09).
+      Open-water bands (sea3/sea5/sea4) are synthesizable language and stay fair game.
     - ``crosses-wash``: a CONNECTED patch of non-grass topo-0 tiles (a painted wash,
       e.g. the (9,17) scrub blob) has cells on both sides. A wash is PAINT -- per-cell
       fills cannot continue it faithfully (four fill strategies falsified in-game
@@ -683,6 +687,15 @@ def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: st
                and sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) >= 2
                for (p, poly) in polys):
             risks.append("beach-end-on-line")
+        # the SHALLOW-SYSTEM rule: sea1/sea2 are shore-bound (COPY-ONLY) -- disqualify a line
+        # that crosses them (straddle can't happen on a clean line; edges ON the line count:
+        # extruding the system's boundary column duplicates a transition strip)
+        if any(p in ("sea1", "sea2")
+               and (sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) >= 2
+                    or (min(v[0][0] for v in poly) < line - 1e-4
+                        and max(v[0][0] for v in poly) > line + 1e-4))
+               for (p, poly) in polys):
+            risks.append("touches-shallows")
         if any(any(4.0 * c[0] + 4.0 <= line + 1e-6 for c in comp)
                and any(4.0 * c[0] >= line - 1e-6 for c in comp) for comp in patches):
             risks.append("crosses-wash")
