@@ -540,12 +540,13 @@ relief) but the check is live for a future donor whose highland patch survives t
 ★ deployed:** `world-entrance --building` proved the pillar stack composes — a synthesized watchtower + a warp
 (→ field 300) placed directly on the (9,9)+2×3 island clone (cell (19,21)/block(9,10)), `read_block_stacked`
 correctly layered onto the prior transplant (confirmed: post-entrance terrain still carries exactly the
-transplant's 104 tris for that cell). Awaiting playtest. Rider fixes same day: building-footprint collision is
+transplant's 104 tris for that cell). Rider fixes same day: building-footprint collision is
 now EXACT (`split_retarget_by_polygon` splits straddling terrain tris at the hull — the centroid
-over/under-shoot fixed, the tower's 36.0 sq-unit footprint bit-exact, `54b4e1d`; the entrance trigger-tile
+over/under-shoot fixed, the tower's 36.0 sq-unit footprint bit-exact, `54b4e1d`, ★ in-game proven 2026-07-09
+"watchtower collision is fixed"; the entrance trigger-tile
 exclusion is exact BY ORDER — the split runs first, pinned `3ed64ae`) + `world-entrance --texture/--tile/
 --tile-uv` CLI passthrough (`6096b21` — no more direct-API bypass to texture a building). **THE SPILL-CLIP LAW
-(2026-07-09, deployed awaiting playtest): `spills-into-empty` KILLED** the way gap-vacation was — a cut's spill
+(2026-07-09, ★ in-game clean): `spills-into-empty` KILLED** the way gap-vacation was — a cut's spill
 into an empty donor cell is CLIPPED at the cell's fixed border (`SpillClip`/`SpillClipZ`, per-part tweaks
 appended by `chain_row_inserts[_z](spill_clips=)`; pure clipping of real bytes, zero synthesis; the empty cell
 stays TRUE prefab ocean, deploys nothing) when the census certifies a water-column BUDGET (the run of
@@ -553,8 +554,11 @@ border-profile-identical open-water columns − 1 — the run's last column beco
 so the border language is preserved by construction; `cut_census` → `spill_clips (plane,z0,z1,budget)` rows;
 CLI `--grow-cut` auto-wires; apply-time gate re-certifies every dropped tri). The unlock: an empty neighbour
 column = usable SLACK for any donor whose water butts its own block border — (10,17)+2×2's 8 dead water lines
-are clean slides now; the 2-cut slid clone (island +8u east inside its rect, exact 64-tri drops per window, all
-gates green) deployed at (2,4)+2×2 beside the (9,3) identity reference. Next = cross-donor boundary welding for
+are clean slides now; the 2-cut slid clone deployed at (2,4)+2×2 beside the (9,3) identity reference — ★
+in-game "looks good" + the slide proven by OFFLINE DIFFERENTIAL on the deployed bytes (slid land ==
+identity land +8 vertex-for-vertex; sea4 delta −16 == 112 fills − 128 drops exactly; east edge tops at the
+border, empty column has NO override — the differential-vs-a-reference-deploy is the verification recipe for
+"visually identical by design" tweaks). Next = cross-donor boundary welding for
 a TRUE fused continent (open) / band-crossing re-Wang / cliff-face transition study (user checklist item);
 scale up with a real modelled building (the watchtower is a hand-authored primitive).
 
