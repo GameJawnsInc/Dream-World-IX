@@ -32,6 +32,7 @@ DEFAULT_FOV = 42.0
 DEFAULT_DISTANCE = 3000.0
 Z_BASE = 4000                                  # far overlay Z for the opaque background
 Z_FOREGROUND = 500                             # a near occluder (smaller Z = drawn in front of the actor)
+CONTACT_Z_BIAS = 2                             # anchored occluder: keep the actor on top AT the contact line
 
 
 class ImageFieldError(ValueError):
@@ -61,6 +62,49 @@ def unproject_floor(cam: _cam.Cam, contour_px) -> list:
                 f"camera — trace the floor BELOW the horizon, or steepen the pitch")
         out.append((C[0] + s * ray[0], C[2] + s * ray[2]))
     return out
+
+
+def occluder_z(cam: _cam.Cam, contact_px) -> int:
+    """Overlay Z for a foreground occluder standing on the floor at canvas pixel ``contact_px``.
+
+    The engine sorts an actor against overlays by OT depth = resz/4 + depthOffset
+    (FieldMapActor.cs:122), and an overlay quad sits at its Position Z in those same units. So
+    anchoring a cut-out's Z to the ACTOR depth at its ground-contact point makes occlusion flip
+    exactly there: walk in front (nearer) -> the actor draws over it; walk behind -> it draws over
+    the actor. +CONTACT_Z_BIAS keeps the actor on top at the contact line itself (standing at the
+    object's base means standing in front of its body)."""
+    try:
+        (X, Z), = unproject_floor(cam, [tuple(contact_px)])
+    except ImageFieldError as e:
+        raise ImageFieldError(f"foreground contact point: {e}") from e
+    z = int(round(_cam.depth((X, 0.0, Z), cam))) + CONTACT_Z_BIAS
+    if z >= Z_BASE:
+        raise ImageFieldError(
+            f"foreground contact ({contact_px[0]:.0f},{contact_px[1]:.0f}) computes overlay z={z}, at/behind "
+            f"the base layer (z={Z_BASE}) so it could never occlude the actor — trace the point where the "
+            f"object MEETS THE FLOOR (its base), not somewhere up its body")
+    return z
+
+
+def parse_foreground_spec(spec) -> dict:
+    """Normalize a foreground spec -> ``{"image": path, "z": int|None, "contact": (cx, cy)|None}``.
+
+    Accepts a bare path, the CLI form ``path@cx,cy`` (ground-contact canvas pixel -> anchored Z via
+    :func:`occluder_z`), or a dict with ``image`` + optional ``z``/``contact``. A trailing ``@cx,cy``
+    only counts as a contact anchor when it parses as two numbers, so paths containing '@' still work."""
+    if isinstance(spec, dict):
+        c = spec.get("contact")
+        return {"image": spec["image"], "z": spec.get("z"), "contact": tuple(c) if c else None}
+    s = str(spec)
+    if "@" in s:
+        path, _, tail = s.rpartition("@")
+        parts = tail.split(",")
+        if len(parts) == 2:
+            try:
+                return {"image": path, "z": None, "contact": (float(parts[0]), float(parts[1]))}
+            except ValueError:
+                pass
+    return {"image": s, "z": None, "contact": None}
 
 
 # ----------------------------------------------------------------- polygon helpers (stdlib)
@@ -169,6 +213,136 @@ def _cover_to_canvas(img, w: int, h: int):
     return img.resize((w * UPSCALE, h * UPSCALE), Image.LANCZOS)
 
 
+# ----------------------------------------------------------------- the floor tracer (--trace)
+_TRACE_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>ff9mapkit floor tracer — __TITLE__</title><style>
+body{background:#16181d;color:#d8dbe2;font:14px/1.5 system-ui,sans-serif;margin:0;padding:16px}
+#wrap{display:flex;gap:16px;flex-wrap:wrap}
+#stage{position:relative;width:768px;height:896px;flex:none;cursor:crosshair;outline:1px solid #333}
+#stage img,#stage canvas{position:absolute;left:0;top:0;width:768px;height:896px}
+#side{max-width:560px;min-width:320px}
+button{background:#2b3040;color:#d8dbe2;border:1px solid #444;border-radius:4px;padding:4px 12px;margin:2px;cursor:pointer}
+button.on{background:#4a5578;border-color:#7a8ac0}
+textarea{width:100%;height:120px;background:#0e1013;color:#9fd49f;border:1px solid #333;font:12px/1.4 monospace;box-sizing:border-box}
+.tip{color:#9aa1ad;font-size:12.5px}.warn{color:#e0a05a}
+input[type=range]{width:220px;vertical-align:middle}
+</style></head><body>
+<h3 style="margin:4px 0">ff9mapkit image-field tracer — __TITLE__</h3>
+<div class="tip">This is the EXACT 384&times;448 canvas crop the build will use (shown 2&times;). Click the floor
+outline in order (a closed walkable polygon, BELOW the yellow horizon line). Toggle to <b>contact</b> mode to mark
+where each foreground object MEETS the floor (its base) — that anchors its occlusion depth. Then copy the command.</div>
+<div id="wrap"><div id="stage"><img id="im" src="__IMGURI__"><canvas id="cv" width="768" height="896"></canvas></div>
+<div id="side">
+  <p>Mode: <button id="mFloor" class="on">floor polygon</button> <button id="mContact">contact points</button>
+     <button id="undo">undo</button> <button id="clear">clear</button></p>
+  <p>Camera pitch: <input type="range" id="pitch" min="__PMIN__" max="__PMAX__" value="__PITCH0__" step="1">
+     <span id="pv"></span>&deg; <span class="tip">(horizon y=<span id="hv"></span> — slide until the horizon
+     matches the image's own eye level; floor points must stay below it)</span></p>
+  <p class="tip">cursor: <span id="cur">—</span> (logical canvas px) · drag a point to adjust · fov __FOV__ /
+     distance __DIST__ baked at generation (re-run --trace to change them)</p>
+  <p id="warn" class="warn"></p>
+  <textarea id="cmd" readonly></textarea><br><button id="copy">copy command</button>
+  <p class="tip">Contact markers emit <code>--foreground "fgN.png@cx,cy"</code> placeholders — save each object's
+  cut-out (full-canvas PNG with alpha, e.g. erase everything but the object in an editor) and swap in its filename.</p>
+</div></div>
+<script>
+const HORIZONS=__HORIZONS__, IMGARG=__IMGARG__, S=2, DEF={pitch:26,fov:42,distance:3000};
+const FOV=__FOVJS__, DIST=__DISTJS__, OUTNAME=__OUTNAME__;
+let pitch=__PITCH0__, mode='floor', floor=[], contacts=[], drag=null;
+const cv=document.getElementById('cv'), cx2=cv.getContext('2d');
+const r1=v=>Math.round(v*10)/10, fmt=p=>r1(p.x)+','+r1(p.y);
+function lists(){return mode==='floor'?floor:contacts}
+function pos(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)/S, y:(e.clientY-r.top)/S}}
+function redraw(){
+  cx2.clearRect(0,0,768,896);
+  const hy=HORIZONS[pitch]*S;
+  cx2.strokeStyle='#e8c84a';cx2.setLineDash([8,5]);cx2.beginPath();cx2.moveTo(0,hy);cx2.lineTo(768,hy);cx2.stroke();
+  cx2.setLineDash([]);cx2.fillStyle='#e8c84a';cx2.font='12px monospace';cx2.fillText('horizon',6,hy-5);
+  if(floor.length){cx2.strokeStyle='#6ee06e';cx2.lineWidth=1.5;cx2.beginPath();
+    cx2.moveTo(floor[0].x*S,floor[0].y*S);for(const p of floor.slice(1))cx2.lineTo(p.x*S,p.y*S);cx2.stroke();
+    if(floor.length>2){const a=floor[floor.length-1],b=floor[0];cx2.setLineDash([4,4]);cx2.beginPath();
+      cx2.moveTo(a.x*S,a.y*S);cx2.lineTo(b.x*S,b.y*S);cx2.stroke();cx2.setLineDash([])}}
+  floor.forEach((p,i)=>{const bad=p.y<HORIZONS[pitch];cx2.fillStyle=bad?'#e05a5a':'#6ee06e';
+    cx2.beginPath();cx2.arc(p.x*S,p.y*S,4,0,7);cx2.fill();cx2.fillText(i,p.x*S+6,p.y*S-4)});
+  contacts.forEach((p,i)=>{cx2.strokeStyle='#5ab8e0';cx2.lineWidth=2;cx2.beginPath();
+    cx2.moveTo(p.x*S-6,p.y*S);cx2.lineTo(p.x*S+6,p.y*S);cx2.moveTo(p.x*S,p.y*S-6);cx2.lineTo(p.x*S,p.y*S+6);
+    cx2.stroke();cx2.fillStyle='#5ab8e0';cx2.fillText('fg'+i,p.x*S+7,p.y*S+11)});
+  document.getElementById('pv').textContent=pitch;
+  document.getElementById('hv').textContent=r1(HORIZONS[pitch]);
+  const bad=floor.filter(p=>p.y<HORIZONS[pitch]).length;
+  document.getElementById('warn').textContent=bad?bad+' floor point(s) above the horizon (red) — the build will refuse them':'';
+  cmd()}
+function q(s){return '"'+s+'"'}
+function cmd(){
+  const parts=['py -m ff9mapkit image-field',q(IMGARG)];
+  if(floor.length>=3)parts.push('--floor',q(floor.map(fmt).join(' ')));
+  parts.push('--out',q(OUTNAME));
+  if(pitch!==DEF.pitch)parts.push('--pitch',pitch);
+  if(FOV!==DEF.fov)parts.push('--fov',FOV);
+  if(DIST!==DEF.distance)parts.push('--distance',DIST);
+  contacts.forEach((p,i)=>parts.push('--foreground',q('fg'+i+'.png@'+fmt(p))));
+  document.getElementById('cmd').value=floor.length>=3?parts.join(' '):'(trace at least 3 floor points)'}
+cv.addEventListener('mousedown',e=>{const p=pos(e);
+  for(const L of [floor,contacts])for(const t of L)
+    if(Math.hypot(t.x-p.x,t.y-p.y)<5){drag=t;return}
+  lists().push(p);redraw()});
+cv.addEventListener('mousemove',e=>{const p=pos(e);
+  document.getElementById('cur').textContent=fmt(p);
+  if(drag){drag.x=p.x;drag.y=p.y;redraw()}});
+window.addEventListener('mouseup',()=>drag=null);
+document.getElementById('pitch').oninput=e=>{pitch=+e.target.value;redraw()};
+function setMode(m){mode=m;document.getElementById('mFloor').classList.toggle('on',m==='floor');
+  document.getElementById('mContact').classList.toggle('on',m==='contact')}
+document.getElementById('mFloor').onclick=()=>setMode('floor');
+document.getElementById('mContact').onclick=()=>setMode('contact');
+document.getElementById('undo').onclick=()=>{lists().pop();redraw()};
+document.getElementById('clear').onclick=()=>{floor=[];contacts=[];redraw()};
+document.getElementById('copy').onclick=()=>{const t=document.getElementById('cmd');t.select();
+  (navigator.clipboard?navigator.clipboard.writeText(t.value):document.execCommand('copy'))};
+redraw();
+</script></body></html>
+"""
+
+
+def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
+                     distance: float = DEFAULT_DISTANCE, pitch_band=(6, 48)) -> dict:
+    """Emit a self-contained click-to-trace page for ``image_path`` (the real-photo on-ramp).
+
+    Shows the EXACT 384x448 cover-crop :func:`build_image_field` will use (the same
+    ``_cover_to_canvas`` code), a pitch slider whose HORIZON LINE is precomputed per integer pitch
+    from the real camera math (floor points must stay below it — and matching the line to the
+    photo's own eye level is a crude pitch estimator), floor-polygon + foreground-contact tracing,
+    and the ready-to-run ``image-field`` command. No network, no deps; open in any browser."""
+    import base64
+    import io
+    import json
+    from PIL import Image
+    src = Image.open(image_path).convert("RGB")
+    disp = _cover_to_canvas(src, CANVAS_W, CANVAS_H).resize((CANVAS_W * 2, CANVAS_H * 2), Image.LANCZOS)
+    buf = io.BytesIO()
+    disp.save(buf, "JPEG", quality=88)
+    uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    lo, hi = int(pitch_band[0]), int(pitch_band[1])
+    horizons = {p: round(_cam.horizon_canvas_y(
+        _guide.make_camera(float(p), distance, fov_x_deg=fov, range_wh=(CANVAS_W, CANVAS_H))), 1)
+        for p in range(lo, hi + 1)}
+    stem = Path(image_path).stem
+    html = (_TRACE_HTML
+            .replace("__TITLE__", Path(image_path).name)
+            .replace("__IMGURI__", uri)
+            .replace("__HORIZONS__", json.dumps(horizons))
+            .replace("__IMGARG__", json.dumps(str(image_path)))
+            .replace("__OUTNAME__", json.dumps(f"{stem}-field"))
+            .replace("__PMIN__", str(lo)).replace("__PMAX__", str(hi))
+            .replace("__PITCH0__", str(int(round(pitch))))
+            .replace("__FOVJS__", f"{fov:g}").replace("__DISTJS__", f"{distance:g}")
+            .replace("__FOV__", f"{fov:g}").replace("__DIST__", f"{distance:g}"))
+    out = Path(out_html)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8", newline="\n")
+    return {"html": str(out), "horizon": horizons[int(round(pitch))]}
+
+
 # ----------------------------------------------------------------- orchestrator
 def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="PICTURE",
                       field_id: int = 4003, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
@@ -201,11 +375,19 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
     _cover_to_canvas(base, CANVAS_W, CANVAS_H).save(out / "art" / "base.png")
 
     layers = [("art/base.png", Z_BASE)]
+    fg_manifest, layer_notes = [], {}
     for i, fg in enumerate(foreground or []):
-        fp, z = (fg["image"], int(fg.get("z", Z_FOREGROUND))) if isinstance(fg, dict) else (fg, Z_FOREGROUND)
-        fim = Image.open(fp).convert("RGBA")
+        spec = parse_foreground_spec(fg)
+        if spec["contact"] is not None:                # anchored: occlusion flips at the contact line
+            z = occluder_z(cam, spec["contact"])
+            cx, cy = spec["contact"]
+            layer_notes[f"art/fg{i}.png"] = f"# occluder anchored at floor contact ({cx:g},{cy:g}) -> actor-depth z"
+        else:
+            z = int(spec["z"]) if spec["z"] is not None else Z_FOREGROUND
+        fim = Image.open(spec["image"]).convert("RGBA")
         _cover_to_canvas(fim, CANVAS_W, CANVAS_H).save(out / "art" / f"fg{i}.png")
         layers.append((f"art/fg{i}.png", z))
+        fg_manifest.append({"image": str(spec["image"]), "z": z, "contact": spec["contact"]})
 
     # 3) emit the field.toml (camera + obj-walkmesh + layers + player)
     lines = [f"# EXPERIMENTAL image->field (auto-generated from {Path(image_path).name})",
@@ -214,6 +396,8 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
              f"range = [{CANVAS_W}, {CANVAS_H}]", "",
              "[walkmesh]", 'obj = "walkmesh.obj"', 'frame = "world"', ""]
     for img_rel, z in layers:
+        if img_rel in layer_notes:
+            lines.append(layer_notes[img_rel])
         lines += ["[[layers]]", f'image = "{img_rel}"', f"z = {z}"]
     lines += ["", "[player]", f"spawn = [{int(round(spawn[0]))}, {int(round(spawn[1]))}]", ""]
     toml_path = out / f"{name}.field.toml"
@@ -221,4 +405,4 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
 
     return {"toml": str(toml_path), "walkmesh": str(out / "walkmesh.obj"),
             "world_floor": world, "spawn": spawn, "verts": len(verts), "faces": len(faces),
-            "layers": layers}
+            "layers": layers, "foreground": fg_manifest}
