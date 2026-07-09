@@ -894,6 +894,77 @@ def test_region_refusals(monkeypatch):
         TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), dry_run=True)
 
 
+# ------------------------------------------------- region growth (cut laws on a multi-cell base)
+
+def test_cut_census_region_empty_cell_laws(monkeypatch):
+    """A REGION cut's shift is global, but the seam extrusion fills only AT the line -- so an
+    empty donor cell creates unfillable discontinuities (the (9,5)+2x3 row-0 hole, 2026-07-09):
+    east-neighbour data slides off a shared border (`gap-vacation`), west-neighbour data slides
+    INTO the empty cell (`spills-into-empty`). Lines east of the empty cell stay clean."""
+    blocks = {  # donor rect (1,1)+3x1: EMPTY | data | data
+        (2, 1, "terrain"): _quad(140.0, 156.0, -104.0, -88.0, y=1.0),
+        (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0),
+        (3, 1, "terrain"): _quad(192.0, 204.0, -104.0, -88.0, y=1.0),
+        (3, 1, "sea4"): _quad(192.0, 256.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(3, 1))}
+    assert len(cen) == 47                                      # every interior 4u line of 3 cells
+    # cell (1,1) is empty, (2,1) east of it has data: lines <= their border x=128 vacate a gap
+    assert "gap-vacation" in cen[80.0]["risks"] and "gap-vacation" in cen[128.0]["risks"]
+    assert "gap-vacation" not in cen[132.0]["risks"]
+    # the mirror law needs data WEST of an empty cell: rect (2,1)+2x1 = data | empty... reuse
+    blocks2 = {(2, 1, "terrain"): _quad(140.0, 156.0, -104.0, -88.0, y=1.0),
+               (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    cen2 = {c["line"]: c for c in TR.cut_census((2, 1), size=(2, 1))}
+    assert "spills-into-empty" in cen2[160.0]["risks"]         # west-of-the-empty-cell border
+    assert "spills-into-empty" in cen2[192.0]["risks"]         # exactly at it
+    assert all("gap-vacation" not in c["risks"] for c in cen2.values())
+
+
+def test_census_backmap_inverts_row_insert(monkeypatch):
+    """The miss-backmap must UNDO RowInsert cuts before querying the donor -- else the donor's
+    own in-situ misses shift out from under it and misread as introduced (the x=107/115
+    misclassification, 2026-07-09). Donor (2,1) misses on its east half in situ; after a cut
+    the same holes sit +4 east and must still classify INHERITED."""
+    blocks = {(1, 1, "terrain"): (_quad(88.0, 92.0, -100.0, -96.0, y=1.0, idall=12544.0,
+                                        uv=(0.03, 0.78))
+                                  + _quad(92.0, 96.0, -100.0, -96.0, y=1.0, idall=12544.0,
+                                          uv=(0.09, 0.81))),
+              (1, 1, "sea4"): (_quad(64.0, 92.0, -128.0, -64.0, idall=232.0)
+                               + _quad(92.0, 128.0, -128.0, -64.0, idall=232.0)),
+              (2, 1, "sea4"): _quad(128.0, 160.0, -128.0, -64.0, idall=232.0)}  # east half MISSES
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             tweaks=TR.chain_row_inserts([92.0]), land_margin=0.0,
+                             census_samples=8, dry_run=True)
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["miss"] > 0 and census["introduced"] == 0
+    assert census["inherited"] == census["miss"] and s["clean"] is True, s["gates"]
+
+
+def test_row_insert_inverse_x():
+    tw = TR.RowInsert("terrain", line=92.0)
+    assert tw.inverse_x(88.0) == 88.0                          # west of the cut: identity
+    assert tw.inverse_x(100.0) == 96.0                         # shifted content maps back -4
+    assert tw.inverse_x(94.0) == 92.0                          # the fill column maps to the seam
+    inv = TR._tweak_inverse_x(TR.chain_row_inserts([88.0, 92.0], parts=("terrain",)))
+    assert inv(104.0) == 96.0                                  # both cuts undone, east-to-west
+
+
+def test_split_frame_pairs():
+    """A near-miss pair with BOTH verts on the same frame plane is a clip-boundary T-junction
+    (benign -- the surface is continuous up to the frame); interior pairs remain cracks."""
+    at_frame = ((127.976562, 0.0, -75.824219), (128.0, 0.0, -75.825243))
+    interior = ((64.0, 9.28, -108.35), (64.042969, 9.30, -108.355469))
+    inn, fr = TR._split_frame_pairs([at_frame, interior], (0.0, 128.0), (0.0, -192.0))
+    assert fr == [at_frame] and inn == [interior]
+    # BOTH verts must sit in the band -- one on the plane, one just outside stays interior
+    half = ((60.0, 0.0, -0.02), (60.01, 0.0, -0.06))
+    inn2, fr2 = TR._split_frame_pairs([half], (0.0, 128.0), (0.0, -192.0))
+    assert inn2 == [half] and fr2 == []
+
+
 # ---------------------------------------------------------------- game-data-gated
 
 def _game_ready() -> bool:
@@ -935,3 +1006,41 @@ def test_transplant_region_2x3_island():
     assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
     census = next(g for g in s["gates"] if g["gate"] == "census")
     assert census["introduced"] == 0 and census["samples"] == 2880
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_region_growth_cut_config():
+    """The first REGION growth cut attempt (2026-07-09, in-game FAILED and reverted): on the
+    (9,5)+2x3 rect every line at-or-west of the empty corner's border x=640 is gap-vacation,
+    and the one structurally-clean line -- 672 -- crosses the 26.5u MOUNTAIN, which the fill
+    extrusion cannot faithfully cross ("seaming errors on both sides of the mountain") -- now
+    the `crosses-relief` law, so this rect has ZERO usable growth lines. The mechanics gates
+    themselves stay green on the 672 config (fills across the region, tweak-inverted backmap,
+    the single weld pair a benign frame T-junction) -- kept as the region-cut mechanics
+    regression; the LAW is what rejects it."""
+    cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3))}
+    assert [l for l, c in cen.items() if c["ok"]] == []
+    assert "gap-vacation" in cen[640.0]["risks"] and "gap-vacation" in cen[592.0]["risks"]
+    assert "crosses-relief" in cen[672.0]["risks"] and "crosses-relief" in cen[640.0]["risks"]
+    s = TR.transplant_region("UNUSED", cell=(11, 1), donor=(9, 5), size=(2, 3),
+                             shift=(0.0, 0.0), tweaks=TR.chain_row_inserts([672.0]),
+                             land_margin=0.0, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    ri = next(g for g in s["gates"] if g["gate"] == "rowinsert[terrain]")
+    assert ri["shifted"] == 310 and ri["emitted"] == 50
+    weld = next(g for g in s["gates"] if g["gate"] == "weld-audit")
+    assert weld["pairs"] == 0 and weld["frame_pairs"] == 1
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["inherited"] == 2 and census["introduced"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_cut_census_relief_law_spares_proven_lines():
+    """The relief threshold must NOT disqualify the in-game-proven single-cell cuts (their
+    on-line land y-spans measured <= 3.5u vs the mountain's 26.5u). It DOES flag this donor's
+    never-cut 7u headland line 1028 -- conservative, never falsified there."""
+    cen = {c["line"]: c for c in TR.cut_census((16, 17))}
+    assert cen[1056.0]["ok"] is True and cen[1060.0]["ok"] is True
+    assert "crosses-relief" not in cen[1056.0]["risks"]
+    assert "crosses-relief" not in cen[1060.0]["risks"]
+    assert "crosses-relief" in cen[1028.0]["risks"]

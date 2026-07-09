@@ -2374,9 +2374,12 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         strips = args.strips.strip().lower()
         if strips not in ("auto", "all", "none"):
             strips = tuple(d.strip() for d in args.strips.split(","))
+        tweaks = ()
+        if args.grow_cut:
+            tweaks = TR.chain_row_inserts([float(v) for v in args.grow_cut.split(",")])
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
-                  extra=args.extra, land_margin=args.land_margin, disc=args.disc, game=args.game,
-                  census_samples=args.samples, dry_run=args.dry_run)
+                  tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
+                  game=args.game, census_samples=args.samples, dry_run=args.dry_run)
         if (snx, sny) == (1, 1):
             summary = TR.transplant(args.mod_folder, **kw)          # the byte-proven single-cell path
         else:
@@ -4874,6 +4877,13 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--rot", type=int, default=0, choices=(0, 90, 180, 270),
                      help="rotate about the cell (with --size: the region) centre -- 90-degree multiples keep "
                           "the 4u tile lattice (and the Wang ocean) fully verbatim (default 0)")
+    wtp.add_argument("--grow-cut", default=None, metavar="X[,X..]",
+                     help="RowInsert GROWTH cuts at these DONOR-frame x lattice lines (comma-separated; each "
+                          "census-clean per `cut_census` -- straddle-0, no component risks). Each cut inserts "
+                          "one 4u column: everything east shifts +4 and the vacated column is filled per the "
+                          "learned tile laws. Composes with --size (a region cut's shift crosses interior "
+                          "borders and its fill spans rows). Growth eats the land margin -- usually needs "
+                          "--land-margin 0.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
