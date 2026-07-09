@@ -646,6 +646,39 @@ def test_entrance_missing_building_rejected_before_write(tmp_path):
                            building={"obj": str(tmp_path / "nope.obj")}, dry_run=True)
 
 
+def test_entrance_cli_texture_passthrough(tmp_path, capsys, monkeypatch):
+    """world-entrance forwards --texture/--tile/--tile-uv into the building dict (2026-07-09: texturing a
+    building on a transplanted cell needed TWO manual build_from_obj bypasses because the flags simply
+    weren't plumbed through the CLI); texture flags without --building are rejected up front."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import entrance as EN
+    # the spec parsers (shared with world-mesh-build)
+    assert cli._parse_tile_spec("52:0") == (52, 0)
+    with pytest.raises(ValueError, match="TOPOGRAPH:VARIANT"):
+        cli._parse_tile_spec("52")
+    assert cli._parse_tile_uv_spec("0.1,0.2,0.3,0.4") == (0.1, 0.2, 0.3, 0.4)
+    with pytest.raises(ValueError, match="umin,vmin"):
+        cli._parse_tile_uv_spec("0.1,0.2")
+    # texture flags without --building = a hard arg error, not a silent no-op
+    rc = cli.main(["world-entrance", "--cell", "19", "21", "--field", "300", "--mod-folder", "X", "--texture"])
+    assert rc == 2 and "--building" in capsys.readouterr().err
+    # the parsed flags land in the building dict author_entrance receives
+    captured = {}
+
+    def fake_author(**kw):
+        captured.update(kw)
+        return {"tag_hex": "0x0000", "field": 300, "dry_run": True, "cell": (19, 21), "case": 4,
+                "dest_note": "", "dispatchers_written": [], "dispatchers_skipped": [], "langs": [],
+                "tiles_set": 1, "block": (9, 10), "event": 1, "backups": []}
+
+    monkeypatch.setattr(EN, "author_entrance", fake_author)
+    rc = cli.main(["world-entrance", "--cell", "19", "21", "--field", "300", "--mod-folder", "X",
+                   "--building", str(tmp_path / "t.obj"), "--tile", "52:0", "--dry-run"])
+    assert rc == 0
+    b = captured["building"]
+    assert b["tile"] == (52, 0) and b["tile_uv"] is None and b["texture"] is False   # --tile implies texture downstream
+
+
 def test_entrance_flatten_pad_capped_to_building(tmp_path):
     """A --flatten-pad wider than the building is capped to the footprint, so the flat (step-prone) ground stays
     under the impassable structure instead of leaving a walkable edge-step you get stuck on."""

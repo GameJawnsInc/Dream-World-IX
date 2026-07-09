@@ -351,8 +351,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
     id (1-3). ``trigger_at``/``trigger_radius`` place the event-tile cluster (default: the cell centre, r=14, kept
-    inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?}``) additionally models +
-    seats a structure in the cell. ``block_footprint`` (default True) makes the TERRAIN under the building impassable
+    inside the 32u cell). ``building`` (a dict ``{obj, at?, seat?, keep_block?, topograph?, texture?, tile?,
+    tile_uv?}``) additionally models + seats a structure in the cell; the texture keys forward to
+    :func:`ff9mapkit.world.blendio.build_from_obj` (stamp real atlas tiles / one picked tile / a custom UV rect
+    onto UV-less faces -- seated against the STACKED terrain, so it works on a transplanted cell too). ``block_footprint`` (default True) makes the TERRAIN under the building impassable
     (topo 59) so the player stops at its edge and can't wander into a hollow model's interior and get boxed -- the
     terrain conforms to the ground, so it blocks reliably where a flat prop base would bury/float on uneven land.
     Uses :func:`ff9mapkit.world.mesh.split_retarget_by_polygon` (EXACT -- splits a straddling terrain triangle at
@@ -470,7 +472,9 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
         keep = building.get("keep_block", True)
         if dry_run:
             summary["building"] = {"obj": building["obj"], "at": list(b_at), "seat": building.get("seat", True),
-                                   "keep_block": keep, "topograph": building.get("topograph", 59), "planned": True}
+                                   "keep_block": keep, "topograph": building.get("topograph", 59),
+                                   "texture": bool(building.get("texture") or building.get("tile") is not None
+                                                   or building.get("tile_uv") is not None), "planned": True}
         else:
             from . import blendio as BIO
             stock = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="object", game=game,
@@ -478,6 +482,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
             summary["building"] = BIO.build_from_obj(
                 building["obj"], into_block=(bx, by), mod_folder=mod_folder, disc=disc, part="object", lod=lod,
                 topograph=building.get("topograph", 59), at=b_at, seat=building.get("seat", True),
-                keep_block=keep, solid_base=building.get("solid_base", False), stock_bm=stock, terrain_bm=ter,
-                game=game)
+                keep_block=keep, solid_base=building.get("solid_base", False),
+                texture=building.get("texture", False), tile=building.get("tile"),
+                tile_uv=building.get("tile_uv"), stock_bm=stock, terrain_bm=ter, game=game)
     return summary

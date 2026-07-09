@@ -2182,26 +2182,32 @@ def _cmd_world_mesh_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_tile_spec(spec: str) -> tuple:
+    """``TOPO:VARIANT`` -> ``(topo, variant)``; shared by world-mesh-build and world-entrance --tile."""
+    try:
+        t, v = spec.split(":")
+        return (int(t), int(v))
+    except ValueError:
+        raise ValueError("--tile must be TOPOGRAPH:VARIANT (e.g. 52:0); see `world-atlas-catalog`") from None
+
+
+def _parse_tile_uv_spec(spec: str) -> tuple:
+    """``Umin,Vmin,Umax,Vmax`` -> a 4-float tuple; shared by world-mesh-build and world-entrance --tile-uv."""
+    try:
+        uv = tuple(float(x) for x in spec.split(","))
+    except ValueError:
+        uv = ()
+    if len(uv) != 4:
+        raise ValueError("--tile-uv must be umin,vmin,umax,vmax (from `world-atlas-add-tile`)")
+    return uv
+
+
 def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
     """Rebuild an edited OBJ into a block's loose .ff9mesh override + deploy (Object=building; IDALL stamped uniform)."""
     from .world import blendio as BIO
     try:
-        tile = None
-        if args.tile:
-            try:
-                t, v = args.tile.split(":")
-                tile = (int(t), int(v))
-            except ValueError:
-                print("--tile must be TOPOGRAPH:VARIANT (e.g. 52:0); see `world-atlas-catalog`", file=sys.stderr)
-                return 2
-        tile_uv = None
-        if args.tile_uv:
-            try:
-                tile_uv = tuple(float(x) for x in args.tile_uv.split(","))
-                assert len(tile_uv) == 4
-            except (ValueError, AssertionError):
-                print("--tile-uv must be umin,vmin,umax,vmax (from `world-atlas-add-tile`)", file=sys.stderr)
-                return 2
+        tile = _parse_tile_spec(args.tile) if args.tile else None
+        tile_uv = _parse_tile_uv_spec(args.tile_uv) if args.tile_uv else None
         info = BIO.build_from_obj(args.obj, into_block=tuple(args.into_block), mod_folder=args.mod_folder,
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
                                   at=(tuple(args.at) if args.at else None), seat=args.seat,
@@ -2649,11 +2655,16 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if (args.field is None) == (args.case is None):
         print("give a destination: exactly one of --field <id> or --case <n> (see `world-locate`)", file=sys.stderr)
         return 2
+    if (args.texture or args.tile or args.tile_uv) and not args.building:
+        print("--texture/--tile/--tile-uv texture the --building mesh -- pass --building <obj> too", file=sys.stderr)
+        return 2
     building = None
-    if args.building:
-        building = {"obj": args.building, "at": (tuple(args.building_at) if args.building_at else None),
-                    "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph}
     try:
+        if args.building:
+            building = {"obj": args.building, "at": (tuple(args.building_at) if args.building_at else None),
+                        "seat": not args.no_seat, "keep_block": not args.replace_town, "topograph": args.topograph,
+                        "texture": args.texture, "tile": (_parse_tile_spec(args.tile) if args.tile else None),
+                        "tile_uv": (_parse_tile_uv_spec(args.tile_uv) if args.tile_uv else None)}
         info = EN.author_entrance(
             cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case, event=args.event,
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
@@ -2684,9 +2695,13 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info.get("building"):
         b = info["building"]
         if b.get("planned"):
-            print(f"  building (planned): {b['obj']} at {tuple(b['at'])} seat={b['seat']} keep_block={b['keep_block']}")
+            print(f"  building (planned): {b['obj']} at {tuple(b['at'])} seat={b['seat']} keep_block={b['keep_block']}"
+                  + (" texture=True" if b.get("texture") else ""))
         else:
             print(f"  building: {b['verts']} verts / {b['tris']} tris (kept stock town: {b['kept_stock']}) -> {b['dest']}")
+            if args.texture or args.tile or args.tile_uv:
+                print("  textured the building's UV-less faces"
+                      f"{' (applied)' if b.get('textured') else ' (nothing to stamp -- OBJ already has UVs)'}")
     for note in info.get("notes", []):
         print(f"  note: {note}")
     if info.get("warning"):
@@ -5115,6 +5130,17 @@ def build_parser() -> argparse.ArgumentParser:
                           "(default: keep e.g. an existing town)")
     wen.add_argument("--topograph", type=int, default=59,
                      help="topograph stamped on the building's tiles (default 59 = impassable structure)")
+    wen.add_argument("--texture", action="store_true",
+                     help="stamp real atlas tiles onto the building's UV-less faces from the learned palette (same "
+                          "as world-mesh-build --texture; a Blender OBJ without UVs otherwise renders [0,0] white). "
+                          "Keep faces near real-tile scale (~1-2u panels) -- the stamp doesn't rescale, so a big "
+                          "face smears one small tile across itself")
+    wen.add_argument("--tile", metavar="TOPO:VARIANT",
+                     help="force ONE specific atlas tile on the building's new faces (e.g. 52:0 = a castle wall); "
+                          "pick from `world-atlas-catalog`. Implies --texture")
+    wen.add_argument("--tile-uv", metavar="Umin,Vmin,Umax,Vmax",
+                     help="stamp a CUSTOM UV rect on the building's new faces (a tile painted via "
+                          "`world-atlas-add-tile`)")
     wen.add_argument("--hollow-building", action="store_true",
                      help="don't block the building's footprint -- by default the TERRAIN under the building is made "
                           "impassable so you stop at its edge and can't wander into a hollow 3D model (courtyards/gaps) "
