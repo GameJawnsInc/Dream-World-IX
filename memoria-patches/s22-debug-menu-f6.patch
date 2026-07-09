@@ -20,10 +20,10 @@ index c0c537ca..538d9432 100644
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..f880467e
+index 00000000..3df0cad9
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,1956 @@
+@@ -0,0 +1,2159 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -99,8 +99,14 @@ index 00000000..f880467e
 +    private String _wzText = "0";       // [ff9mapkit] overworld teleport target Z (world units, NEGATIVE going down the grid)
 +    private String _dumpBxText = "";    // [ff9mapkit] block-dump cell X (blank = the block under the player)
 +    private String _dumpByText = "";    // [ff9mapkit] block-dump cell Y
++    private String _forceWorldText = "9009";  // [ff9mapkit] debug: reload the overworld on a chosen dispatcher (9000-9012)
++    private Int32 _discPriorSC = -1;    // [ff9mapkit] disc switch: prior ScenarioCounter to restore on toggle-back (-1 = none saved)
++    private Int32 _discPriorWorld = -1; // [ff9mapkit] disc switch: prior wldMapNo to restore on toggle-back
++    private Boolean _vehicleForceAll;   // [ff9mapkit] debug override: enable EVERY vehicle mode regardless of the per-state allow-list (may CRASH). Session-only, default OFF -- never persisted, so it can't stay silently armed.
 +    private Boolean _worldBoxesInit;    // auto-fill the teleport boxes with the live pos on the first World-tab draw (avoids the 0,0 ocean-corner default)
 +    private String _flagText = "8000";
++    private String _byteIdxText = "190";    // [ff9mapkit] Flags tab byte poke: index into gEventGlobal (190 = vehicle mode)
++    private String _byteValText = "0";      // [ff9mapkit] Flags tab byte poke: the 0-255 value to write
 +    private String _itemText = "236";       // a Potion, by default
 +    private String _itemCountText = "1";
 +    private String _gilText = "10000";
@@ -623,6 +629,21 @@ index 00000000..f880467e
 +            FlagWrite(false);
 +        GUILayout.EndHorizontal();
 +
++        // [ff9mapkit] Byte-level poke: the bit row above only flips a single bit. Many event vars are whole BYTES
++        // (190 = vehicle mode 0-9, 191 = chocobo tier) -- read/write the full 0-255 value at a byte index here.
++        Section("Byte value (gEventGlobal)");
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("byte", _label, GUILayout.Width(32f));
++        _byteIdxText = GUILayout.TextField(_byteIdxText, 6, _field, GUILayout.Width(60f));
++        GUILayout.Label("=", _label, GUILayout.Width(14f));
++        _byteValText = GUILayout.TextField(_byteValText, 4, _field, GUILayout.Width(48f));
++        if (GUILayout.Button("Get", _button, GUILayout.Width(46f)))
++            ByteGet();
++        if (GUILayout.Button("Set", _primary, GUILayout.Width(46f)))
++            ByteWrite();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Full 0-255 byte at index (190 = vehicle mode, 191 = chocobo tier). Get fills the value box.", _hint);
++
 +        Section("Snapshot the whole flag state");
 +        GUILayout.BeginHorizontal();
 +        if (GUILayout.Button("Save", _button, GUILayout.Width(90f)))
@@ -700,17 +721,22 @@ index 00000000..f880467e
 +
 +        Section("Vehicle");
 +        Int32 cur = CurrentControlNo();
-+        Int32 allowMask = VehicleAllowMask();
-+        GUILayout.Label("current: " + VehicleName(cur) + "   -   world state " + WorldMapNo(), _hint);
-+        VehicleButton("On foot", 0, allowMask);
-+        VehicleButton("Chocobo — plains", 1, allowMask);
-+        VehicleButton("Chocobo — mountains", 4, allowMask);
-+        VehicleButton("Chocobo — all terrain", 5, allowMask);
-+        VehicleButton("Chocobo — flying", 6, allowMask);
-+        VehicleButton("Blue Narciss — boat", 7, allowMask);
-+        VehicleButton("Hilda Garde III — airship", 8, allowMask);
-+        VehicleButton("Invincible — airship", 9, allowMask);
-+        GUILayout.Label("Only safe on free-roam states (WORLD02/10/11); elsewhere only On foot is offered.", _hint);
++        Int32 realMask = VehicleAllowMask();
++        Int32 allowMask = _vehicleForceAll ? AllVehicleModes : realMask;
++        GUILayout.Label("current: " + VehicleName(cur) + " [190]=" + cur + "   -   world state " + WorldMapNo(), _hint);
++        if (GUILayout.Button((_vehicleForceAll ? "[x]  " : "[  ]  ") + "Ignore allow-list (debug — may CRASH)", _toggleBtn))
++            _vehicleForceAll = !_vehicleForceAll;
++        VehicleButton("On foot", 0, allowMask, realMask);
++        VehicleButton("Chocobo — plains", 1, allowMask, realMask);
++        VehicleButton("Chocobo — mountains", 4, allowMask, realMask);
++        VehicleButton("Chocobo — all terrain", 5, allowMask, realMask);
++        VehicleButton("Chocobo — flying", 6, allowMask, realMask);
++        VehicleButton("Blue Narciss — boat", 7, allowMask, realMask);
++        VehicleButton("Hilda Garde III — airship", 8, allowMask, realMask);
++        VehicleButton("Invincible — airship", 9, allowMask, realMask);
++        GUILayout.Label(_vehicleForceAll
++            ? "OVERRIDE ON — every mode clickable; a FORCED (red) mode drives an unhandled nav arm and will likely CalcStack-crash. Reload a state (e.g. 9009) above, then force-test here."
++            : "Normally safe only on WORLD02/10/11 (else On foot). Toggle the override to force-test a state's modes.", _hint);
 +
 +        Section("Disc & control");
 +        Byte disc = 0;
@@ -721,7 +747,26 @@ index 00000000..f880467e
 +        if (GUILayout.Button("Restore control", _danger))
 +            RestoreControl();
 +        GUILayout.EndHorizontal();
-+        GUILayout.Label("Disc switch is coarse (no ScenarioCounter advance). Restore control unfreezes a stuck player.", _hint);
++        GUILayout.Label("Disc 4 = ScenarioCounter >= 11090 (re-derived every world load). Switch sets SC + reloads = a story-state jump; toggle back restores your prior SC. Restore control unfreezes a stuck player.", _hint);
++
++        // [ff9mapkit] Debug: RE-ENTER the overworld on a chosen dispatcher (9000-9012) -- a faithful full scene
++        // reload (the same deferred shutdown->Replace("WorldMap") path a real field->world exit takes), NOT a
++        // live hot-swap. Lets a tester reach any of the 13 world states without a story-consistent exit/SC combo.
++        // Does NOT bypass VehicleAllowByWorld above -- forcing a non-foot mode after landing can still crash on
++        // a non-benign state; that's a SEPARATE, still-open bug this helps investigate, not fixes.
++        Section("Reload overworld on state (debug)");
++        GUILayout.BeginHorizontal();
++        _forceWorldText = GUILayout.TextField(_forceWorldText, 5, _field, GUILayout.Width(64f));
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
++            ForceWorldState(_forceWorldText);
++        GUILayout.EndHorizontal();
++        GUILayout.BeginHorizontal();
++        ForceWorldButton("9000"); ForceWorldButton("9002"); ForceWorldButton("9003"); ForceWorldButton("9005");
++        GUILayout.EndHorizontal();
++        GUILayout.BeginHorizontal();
++        ForceWorldButton("9007"); ForceWorldButton("9008"); ForceWorldButton("9009"); ForceWorldButton("9011");
++        GUILayout.EndHorizontal();
++        GUILayout.Label("Full reload (fades, ~1s) -- lands at the state's spawn, not your exact spot. Also fixes a scene left corrupted by an earlier build.", _hint);
 +
 +        // [ff9mapkit] Recovery for the overworld 'no controlled actor' BLACK SCREEN (project-ff9-overworld-actor-brick).
 +        Section("Recovery");
@@ -951,6 +996,66 @@ index 00000000..f880467e
 +        catch (Exception) { return -1; }
 +    }
 +
++    // [ff9mapkit] Debug-only dispatcher hot-swap button (a fixed id, e.g. "9009").
++    private void ForceWorldButton(String id)
++    {
++        if (GUILayout.Button(id, _button, GUILayout.Width(56f)))
++            ForceWorldState(id);
++    }
++
++    // [ff9mapkit] RELOAD the overworld on a chosen dispatcher the FAITHFUL way -- the SAME deferred
++    // shutdown->SceneDirector.Replace("WorldMap") path the engine runs on a real field->world entry, mirroring the
++    // WorldWarp idiom above (just aimed back at the World scene). We set wldMapNo (WMScriptDirector.HonoAwake reads
++    // it to pick the EVT_WORLD_WORLDxx dispatcher), then arm the world tick's shutdown branch: nextMode=3 makes
++    // ff9ShutdownStateWorldMap's switch (case 1 field / 2 battle only) NO-OP, leaving mode==3, so WMScriptDirector's
++    // 20fps loop (cs:225) reloads the WorldMap scene instead of leaving it; attr|=0x1000 arms that branch (cs:191).
++    // The scene reload TEARS DOWN every actor/block/camera and rebuilds from scratch via HonoAwake ->
++    // ff9InitStateWorldMap(wldMapNo) -- which is why this can't duplicate the player (a raw ff9InitStateWorldMap on
++    // the LIVE scene did -- the old bug) and also RECOVERS a scene already corrupted that way. Deferring to the tick
++    // (vs calling Replace here) fires the teardown on the game loop, not mid-OnGUI. The player lands at the
++    // dispatcher's Main_Init spawn (the saved overworld position), not necessarily the exact spot under you --
++    // expected for a re-entry. Does NOT bypass VehicleAllowByWorld; forcing a non-foot mode after landing can still
++    // crash on a non-benign state (the separate, still-open bug this helps test).
++    private void ForceWorldState(String text)
++    {
++        if (!Int32.TryParse(text.Trim(), out Int32 id) || id < 9000 || id > 9012)
++        {
++            _status = "reload world: need an id 9000-9012";
++            return;
++        }
++        try
++        {
++            if (!ArmWorldReload(id))
++            {
++                _status = "reload world: overworld only";
++                return;
++            }
++            _status = "reloading overworld -> " + id + " ...";
++        }
++        catch (Exception ex)
++        {
++            _status = "reload world FAILED: " + ex.Message;
++            global::Debug.Log("[ff9mk] reload world state failed: " + ex);
++        }
++    }
++
++    // [ff9mapkit] Arm a deferred full WorldMap reload onto dispatcher `wldMapId`: set wldMapNo (HonoAwake reads it to
++    // pick the dispatcher), nextMode=3 (so ff9ShutdownStateWorldMap no-ops, leaving mode==3), attr|=0x1000 (arms the
++    // world tick's shutdown+Replace("WorldMap") branch). The scene fully rebuilds -> no duplicate actors. Fires on the
++    // game tick, not mid-OnGUI. Returns false when not on the overworld. Shared by the reload button + the disc switch.
++    private Boolean ArmWorldReload(Int32 wldMapId)
++    {
++        FF9StateSystem sys = PersistenSingleton<FF9StateSystem>.Instance;
++        if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.WorldHUD || sys.mode != 3)
++            return false;
++        FF9StateSystem.Common.FF9.wldMapNo = (Int16)wldMapId;
++        FF9StateSystem.World.FF9World.map.nextMode = 3;
++        sys.attr |= 4096u;
++        _controlHeld = false;                                       // drop stale control bookkeeping (same as WorldWarp)
++        _open = false;                                              // the transition takes over; HonoAwake rebuilds the scene
++        return true;
++    }
++
 +    // The allowed-vehicle bitmask for the current world state. An unlisted state -> FootOnly, the crash-safe
 +    // default (every dispatcher handles case 0 = on foot; only the benign no-nav states allow more).
 +    private static Int32 VehicleAllowMask()
@@ -963,7 +1068,7 @@ index 00000000..f880467e
 +        return mode >= 0 && mode <= 9 && (VehicleAllowMask() & (1 << mode)) != 0;
 +    }
 +
-+    private void VehicleButton(String label, Int32 mode, Int32 allowMask)
++    private void VehicleButton(String label, Int32 mode, Int32 allowMask, Int32 realMask)
 +    {
 +        Boolean on = CurrentControlNo() == mode;
 +        if ((allowMask & (1 << mode)) == 0)
@@ -976,7 +1081,11 @@ index 00000000..f880467e
 +            GUI.enabled = prev;
 +            return;
 +        }
-+        if (GUILayout.Button((on ? "* " : "- ") + label, on ? _tabOn : _button))
++        // Clickable ONLY because the debug override is on (the real allow-list wouldn't permit it here) -> flag it
++        // red + "FORCED" so the tester knows this is the crash-candidate, not a genuinely-safe mode.
++        Boolean forced = (realMask & (1 << mode)) == 0;
++        String suffix = forced ? "   — FORCED (may crash)" : "";
++        if (GUILayout.Button((on ? "* " : "- ") + label + suffix, on ? _tabOn : (forced ? _danger : _button)))
 +            SetVehicle(mode);
 +    }
 +
@@ -991,7 +1100,8 @@ index 00000000..f880467e
 +            }
 +            // [ff9mapkit] Refuse a mode the loaded WORLDxx dispatcher can't handle -- forcing it crashes the world
 +            // event script (CalcStack underflow). The buttons already grey these out; this is the belt-and-braces guard.
-+            if (!VehicleAllowed(mode))
++            // The debug override (_vehicleForceAll) deliberately bypasses BOTH gates to force-test a state in-game.
++            if (!_vehicleForceAll && !VehicleAllowed(mode))
 +            {
 +                _status = "mode " + mode + " " + VehicleName(mode) + " isn't handled by world state "
 +                          + WorldMapNo() + " — would crash. Use gold-chocobo flight (6) where offered.";
@@ -1003,6 +1113,13 @@ index 00000000..f880467e
 +                _status = "vehicle swap: no gEventGlobal";
 +                return;
 +            }
++            // [ff9mapkit] Stop the OUTGOING vehicle's looping idle SE before switching. w_movementChange() only
++            // self-clears the boat (previousTransport==7); an airship layers SE 38 (engine hum) + its own se and is
++            // normally silenced by the game's SP1/SP2 dismount paths, which this direct poke bypasses -> without this
++            // the hum never stops and STACKS on repeated swaps. Mirrors ff9.w_movementChangeSP2's cleanup (ff9.cs:6023).
++            if (ff9.w_moveCHRControlPtr != null && ff9.w_moveCHRControlPtr.se != 0)
++                ff9.w_musicSEStop(ff9.w_moveCHRControlPtr.se);
++            ff9.w_musicSEStop(38);        // airship engine-hum layer (harmless no-op when not playing)
 +            g[190] = (Byte)mode;
 +            ff9.w_movementChange();       // re-reads gEventGlobal[190] (non-Bee scene) -> applies the profile
 +            _status = "movement mode -> " + mode + "  " + VehicleName(mode) + "   (close the menu and move)";
@@ -1303,20 +1420,58 @@ index 00000000..f880467e
 +
 +    // Disc 1<->4 toggle via the stock debug path (w_frameSetParameter 501 up / 502 down, WMBeeMenu.cs:127-139).
 +    // 501 also runs ResetBlockForms + w_worldChangeBlockSet + sets w_frameScenePtr; SetDisc issues the fade+reload.
++    // [ff9mapkit] REAL disc switch (rewired 2026-07-08). ═══ THE EXACT MECHANIC ═══ There is NO independent disc
++    // flag: disc 4 IS ScenarioCounter >= 11090. ScenarioCounter = gEventGlobal[0-1] (EventState.cs:16), and WMWorld
++    // RE-DERIVES the disc from it via GetDisc() on EVERY world load (WorldConfiguration.cs:240 `SC>=11090?4:1`,
++    // WMWorld.cs:136). So the OLD w_frameSetParameter(501/502) path was a permanent no-op -- it reloaded the WMBee
++    // *debug* scene ("WorldMapDebug") and the SC-derived disc snapped straight back to 1 on that very reload, leaving
++    // the button stuck showing "Disc 1 -> Disc 4". The REAL switch = set ScenarioCounter into the target band, then
++    // reload the LIVE overworld (the deferred WorldMap reload). Because disc follows SC, it now persists. CAVEAT: SC
++    // is the master story counter -- moving it flips every SC-gated thing (exit-cascade dispatcher, entrance tables,
++    // vehicle availability, events), so this is a STORY-STATE JUMP. To keep it reversible we SAVE the prior SC + world
++    // going up and RESTORE them coming back. Reloads onto 9009 (the safe all-actor superset dispatcher) for disc 4.
 +    private void ToggleDisc()
 +    {
 +        try
 +        {
-+            if (ff9.w_frameDisc == 1)
-+                ff9.w_frameSetParameter(501, 11090);   // disc1 -> disc4 (>= 11090 threshold)
-+            else if (ff9.w_frameDisc == 4)
-+                ff9.w_frameSetParameter(502, 0);        // disc4 -> disc1 (reset)
++            Int32 sc = FF9StateSystem.EventState.ScenarioCounter;
++            Byte disc = ff9.w_frameDisc;
++            if (disc == 1)              // disc 1 -> 4
++            {
++                _discPriorSC = sc;
++                _discPriorWorld = WorldMapNo();
++                FF9StateSystem.EventState.ScenarioCounter = 11090;     // GetDisc: SC>=11090 -> disc 4
++                if (!ArmWorldReload(9009))                             // 9009 = safe superset dispatcher (all actors)
++                {
++                    FF9StateSystem.EventState.ScenarioCounter = sc;    // revert the SC bump if we can't reload
++                    _discPriorSC = -1;
++                    _discPriorWorld = -1;
++                    _status = "disc switch: overworld only";
++                    return;
++                }
++                _status = "disc 1 -> 4: SC " + sc + " -> 11090, reloading 9009 (story-state jump; toggle back to restore)";
++            }
++            else if (disc == 4)         // disc 4 -> 1
++            {
++                Int32 restoreSC = _discPriorSC >= 0 ? _discPriorSC : 1;
++                Int32 restoreWorld = _discPriorWorld >= 9000 ? _discPriorWorld : 9011;
++                FF9StateSystem.EventState.ScenarioCounter = restoreSC;
++                if (!ArmWorldReload(restoreWorld))
++                {
++                    FF9StateSystem.EventState.ScenarioCounter = sc;
++                    _status = "disc switch: overworld only";
++                    return;
++                }
++                _status = (_discPriorSC >= 0)
++                    ? "disc 4 -> 1: restored SC " + restoreSC + ", reloading " + restoreWorld + "."
++                    : "disc 4 -> 1: no saved state -> SC=1 on 9011 (story-state changed!).";
++                _discPriorSC = -1;
++                _discPriorWorld = -1;
++            }
 +            else
 +            {
-+                _status = "disc switch: unexpected disc " + ff9.w_frameDisc;
-+                return;
++                _status = "disc switch: unexpected disc " + disc;
 +            }
-+            _status = "disc switch requested — world reloads (fade)";
 +        }
 +        catch (Exception err)
 +        {
@@ -1606,6 +1761,54 @@ index 00000000..f880467e
 +        Int32 mask = 1 << (n & 7);
 +        g[b] = (Byte)(on ? (g[b] | mask) : (g[b] & ~mask));
 +        _status = "flag " + n + " = " + (on ? 1 : 0);
++    }
++
++    // [ff9mapkit] Read a whole BYTE (0-255) from gEventGlobal[idx] into the value box (vs the bit-only Get above).
++    private void ByteGet()
++    {
++        if (!Int32.TryParse(_byteIdxText, out Int32 idx))
++        {
++            _status = "byte: bad index";
++            return;
++        }
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        if (g == null || idx < 0 || idx >= g.Length)
++        {
++            _status = "byte " + idx + " out of range";
++            return;
++        }
++        Int32 v = g[idx];
++        _byteValText = v.ToString();
++        _status = "byte " + idx + " = " + v;
++    }
++
++    // [ff9mapkit] Write a whole BYTE (0-255) to gEventGlobal[idx]. For vehicle mode (190), prefer the Vehicle
++    // section's buttons (they also call w_movementChange to apply the profile); a raw poke here sets the value only.
++    private void ByteWrite()
++    {
++        if (!Int32.TryParse(_byteIdxText, out Int32 idx))
++        {
++            _status = "byte: bad index";
++            return;
++        }
++        if (!Int32.TryParse(_byteValText, out Int32 v))
++        {
++            _status = "byte: bad value";
++            return;
++        }
++        if (v < 0 || v > 255)
++        {
++            _status = "byte value must be 0-255";
++            return;
++        }
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        if (g == null || idx < 0 || idx >= g.Length)
++        {
++            _status = "byte " + idx + " out of range";
++            return;
++        }
++        g[idx] = (Byte)v;
++        _status = "byte " + idx + " = " + v;
 +    }
 +
 +    private void Snapshot()
