@@ -403,7 +403,8 @@ class RowInsert:
     structures (lattice lines through grass/lip/open water qualify; never through a beach
     or a painted wash -- :func:`cut_census` bakes the full component law). ``line`` is
     x-only, and tweaks run BEFORE rotation, so the transplant's ``rot`` cannot re-aim the
-    cut at a donor z-line -- a z-axis insertion needs an axis-aware RowInsert (not built).
+    cut at a donor z-line -- a z-axis insertion is :class:`RowInsertZ` (the exact-rotation
+    adapter over this class).
 
     Fill UVs are per structure class (the in-game-proven laws): topo-58 cliff = the decoded
     rock vocabulary (a u-mirror of the west owner -- "both senses used" is real -- with V
@@ -762,18 +763,44 @@ def _split_border_pairs(pairs, planes_x, planes_z, tol: float = 0.05, exact: flo
     border; the re-partition clip mints bit-exact ON-plane verts, so a float within ``tol``
     of the border pairs with a clip vert while the SURFACE stays continuous through it (the
     float lies on the clipped edge both cells share) -- a benign clip T-junction, same class
-    as the frame variant. A pair with BOTH verts bit-exactly ON the plane is two cells
-    DISAGREEING about the shared border profile -- impossible while the clip ``t`` is
+    as the frame variant. Border pairs are judged as CLUSTERS (union-find on shared verts):
+    a float so close to the border that BOTH its edges' cut verts land within ``tol`` of
+    each other also mints an on-plane/on-plane pair, but its cluster carries the off-plane
+    WITNESS vert (the (9,5) z-cut's A-C-B corner sliver, 2026-07-09) -- benign, duplicated
+    identically on both cells. A cluster whose EVERY vert is bit-exactly ON the plane is two
+    cells DISAGREEING about the shared border profile -- impossible while the clip ``t`` is
     bit-identical on both sides, so it stays a CRACK and fails."""
-    def cls(a, b, v, axis):
-        if not (abs(a[axis] - v) <= tol and abs(b[axis] - v) <= tol):
-            return None
-        return "t" if (abs(a[axis] - v) > exact or abs(b[axis] - v) > exact) else "crack"
-    cracks, ts = [], []
+    def plane_of(a, b):
+        for axis, planes in ((0, planes_x), (2, planes_z)):
+            for v in planes:
+                if abs(a[axis] - v) <= tol and abs(b[axis] - v) <= tol:
+                    return (axis, v)
+        return None
+    cracks, border = [], []
     for (a, b) in pairs:
-        kinds = ({cls(a, b, v, 0) for v in planes_x} | {cls(a, b, v, 2) for v in planes_z})
-        kinds.discard(None)
-        (ts if kinds == {"t"} else cracks).append((a, b))
+        pl = plane_of(a, b)
+        if pl is None:
+            cracks.append((a, b))          # away from every border: the plain crack law
+        else:
+            border.append(((a, b), pl))
+    parent: dict = {}
+
+    def find(x):
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for ((a, b), _pl) in border:
+        parent[find(a)] = find(b)
+    clusters: dict = {}
+    for entry in border:
+        clusters.setdefault(find(entry[0][0]), []).append(entry)
+    ts = []
+    for plist in clusters.values():
+        benign = any(abs(w[axis] - v) > exact
+                     for ((a, b), (axis, v)) in plist for w in (a, b))
+        (ts if benign else cracks).extend(p for (p, _pl) in plist)
     return cracks, ts
 
 
@@ -796,15 +823,21 @@ def _tweak_inverse_x(tweaks):
 
 
 def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int = 1,
-               lod: str = "0_1", game=None) -> list:
+               lod: str = "0_1", game=None, axis: str = "x") -> list:
     """Component-aware RowInsert cut-line census over a donor block (+ its 8u neighbour
     strips) -- or, with ``size = (nx, ny)``, over a whole DONOR RECT (the multi-cell carry's
     frame): every donor cell is gathered whole, strips come from beyond the REGION's outer
     borders only, and the sweep covers every interior 4u line of the region -- INCLUDING the
     interior block borders (they are ordinary lattice lines to a region cut; the component
-    laws below judge them like any other). For each line returns a dict: ``line``,
-    ``straddlers`` (tris crossing the line -- must be 0), ``grows_land`` (the line passes
-    through grass/sand/cliff, so an insertion actually lengthens the island), and ``risks``:
+    laws below judge them like any other). ``axis="z"`` sweeps the region's interior
+    z-lattice planes instead (for :class:`RowInsertZ` cuts: content SOUTH of a line shifts
+    southward) via the exact-rotation adapter -- the gathered soup rotates into the frame
+    where z-lines are x-lines, the ONE proven sweep runs, and lines/windows map back, so
+    every component law transposes automatically (``line`` is then a z plane and
+    ``boundary_fills`` triples are ``(plane_z, x0, x1)``). For each line returns a dict:
+    ``line``, ``straddlers`` (tris crossing the line -- must be 0), ``grows_land`` (the line
+    passes through grass/sand/cliff, so an insertion actually lengthens the island), and
+    ``risks``:
 
     - ``crosses-beach``: the beach1 system has tris strictly on BOTH sides -- the line
       passes through the beach assembly (end welds are load-bearing; never cut it).
@@ -853,15 +886,28 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                 for tri in world_tris(dbx + i, dby + j, p, disc=disc, lod=lod, game=game):
                     cell_has_data[(i, j)] = True
                     polys.append((p, list(tri)))
-        for (nx, ny), axis, plane, below in strip_specs:
+        for (nx, ny), caxis, plane, below in strip_specs:
             if not (0 <= nx < GRID_X and 0 <= ny < GRID_Y):
                 continue
             for tri in world_tris(nx, ny, p, disc=disc, lod=lod, game=game):
-                c = clip_poly(list(tri), axis, plane, below)
+                c = clip_poly(list(tri), caxis, plane, below)
                 if len(c) >= 3:
                     polys.append((p, c))
     obj = [t for j in range(rny) for i in range(rnx)
            for t in world_tris(dbx + i, dby + j, "object", disc=disc, lod=lod, game=game)]
+    if axis not in ("x", "z"):
+        raise ValueError("axis must be 'x' or 'z'")
+    if axis == "z":
+        # THE EXACT-ROTATION ADAPTER (see RowInsertZ): rotate the gathered soup into the
+        # frame where z-planes are x-planes and run the one proven sweep on it. The donor
+        # rect re-indexes to the fake anchor (dby, _ZC/64 - dbx - rnx), size (rny, rnx);
+        # lines + boundary windows map back after the sweep.
+        polys = [(p, _z_in_poly(poly)) for (p, poly) in polys]
+        obj = [_z_in_poly(t) for t in obj]
+        cell_has_data = {(j, rnx - 1 - i): v for (i, j), v in cell_has_data.items()}
+        (dbx, dby) = (dby, int(_ZC) // 64 - dbx - rnx)
+        (rnx, rny) = (rny, rnx)
+        x0 = 64.0 * dbx
     obj_xmax = max(v[0][0] for t in obj for v in t) if obj else None
     foam = [poly for (p, poly) in polys if p == "beach1"]
     wash_cells = set()
@@ -978,6 +1024,12 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                     "boundary_fills": sorted(bfills),
                     "clean": strad == 0 and not risks,
                     "ok": strad == 0 and grows and not risks})
+    for c in out:
+        c["axis"] = axis
+        if axis == "z":                # map the rotated frame back to world z / x-windows
+            c["line"] = -c["line"]
+            c["boundary_fills"] = sorted([-b, w0 + _ZC, w1 + _ZC]
+                                         for (b, w0, w1) in c["boundary_fills"])
     return out
 
 
@@ -1011,6 +1063,108 @@ def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float =
             out.append(RowInsert(p, line=ln + i * delta, delta=delta, relief=relief,
                                  seed=seed + 0x9E37 * i, eps=eps, boundaries=cut_b))
     return out
+
+
+#: The z-adapter frame constant: the proper rotation ``(x, z) -> (-z, x - _ZC)`` maps world
+#: coords (x >= 0, z <= 0) onto the same conventions (rotated x' = -z >= 0, z' = x - _ZC < 0
+#: for any world x < _ZC = 64*32, beyond the 24x20 grid) -- so a donor-frame z-plane becomes
+#: an x-plane and the whole PROVEN x-cut machinery applies verbatim. Swap + sign flip + a
+#: power-of-two shift are all BIT-EXACT in float64 on float32-derived donor coords, so the
+#: round trip preserves every weld-by-identity law.
+_ZC = 2048.0
+
+
+def _z_in_poly(poly):
+    """World -> the z-adapter frame (positions only; normals/uvs/tangents pass through --
+    RowInsert copies them vert-to-fill without interpreting axes)."""
+    return [((-p[2], p[1], p[0] - _ZC), n, uv, tan) for (p, n, uv, tan) in poly]
+
+
+def _z_out_poly(poly):
+    """The z-adapter frame -> world (exact inverse of :func:`_z_in_poly`)."""
+    return [((p[2] + _ZC, p[1], -p[0]), n, uv, tan) for (p, n, uv, tan) in poly]
+
+
+class RowInsertZ:
+    """Tweak class 4z -- the z-axis GROWTH SEED: insert a whole ``delta``-unit lattice ROW at
+    donor-frame plane ``z = line``. Everything SOUTH of the line (centroid z < line) shifts
+    ``-delta`` (southward, toward the south frame -- the slack side), and the vacated row is
+    filled by the seam-profile extrusion, exactly the :class:`RowInsert` laws.
+
+    Implemented as the EXACT-ROTATION ADAPTER: positions rotate into a frame where the cut IS
+    the proven x-cut (``(x, z) -> (-z, x - _ZC)`` -- a swap + sign flip + power-of-two shift,
+    bit-exact both ways, so seam welds stay identity-exact), the inner :class:`RowInsert` does
+    all the work, and emissions rotate back. Normals/UVs/tangents pass through untouched;
+    fill UVs are authored in the rotated frame, i.e. legal 90-degree-rotated tile variants
+    (the real anti-tiling and Wang sets use all four orientations). Every x-law -- fill
+    families, windows, the boundary extrusion -- transposes automatically and inherits future
+    fixes.
+
+    ``boundaries`` triples are ``(plane_z, x0, x1)``: an empty cell's SOUTH border (its
+    south neighbour's data slides off it) + the empty cell's column x-window -- take them
+    from :func:`cut_census` ``axis="z"`` ``boundary_fills``."""
+
+    def __init__(self, part: str, *, line: float, delta: float = 4.0, eps: float = 1e-4,
+                 relief: float = 0.4, seed: int = 0xF95, boundaries=()):
+        self.part = part
+        self.line = float(line)
+        self.delta = float(delta)
+        self._rw = RowInsert(part, line=-self.line, delta=self.delta, eps=eps, relief=relief,
+                             seed=seed,
+                             boundaries=[(-float(b), float(x0) - _ZC, float(x1) - _ZC)
+                                         for (b, x0, x1) in boundaries])
+
+    def apply(self, part: str, poly):
+        if part != self.part:
+            return poly
+        rp = self._rw.apply(part, _z_in_poly(poly))
+        return None if rp is None else _z_out_poly(rp)
+
+    def emit(self) -> list:
+        return [_z_out_poly(t) for t in self._rw.emit()]
+
+    def inverse_z(self, z: float) -> float:
+        """Map a POST-cut z back to its donor-frame witness (shifted content maps back
+        ``+delta``; the fill row maps to the seam line)."""
+        return -self._rw.inverse_x(-z)
+
+    def gate(self) -> dict:
+        d = self._rw.gate()
+        d["gate"] = f"rowinsertz[{self.part}]"
+        if "boundary_fills" in d:      # inner keys are rotated planes -- present world z
+            d["boundary_fills"] = {f"{-float(k):g}": v for k, v in d["boundary_fills"].items()}
+        return d
+
+
+def chain_row_inserts_z(lines, *, parts=PARTS, delta: float = 4.0, relief: float = 0.4,
+                        seed: int = 0xF95, eps: float = 1e-4, boundaries=()) -> list:
+    """z-axis :func:`chain_row_inserts`: ``lines`` are DONOR-frame z cut planes, sorted
+    NORTH-to-SOUTH; content shifts southward, so a later (more southern) cut's donor line
+    rides ``- i*delta`` (the mirror of the x chain's ``+ i*delta``), and each boundary
+    plane a cut owes (its line at-or-north of it) rides the same correction."""
+    bnds = [(float(b), float(x0), float(x1)) for (b, x0, x1) in boundaries]
+    out = []
+    for i, ln in enumerate(sorted((float(l) for l in lines), reverse=True)):
+        cut_b = [(b - i * delta, x0, x1) for (b, x0, x1) in bnds if ln >= b - 1e-6]
+        for p in parts:
+            out.append(RowInsertZ(p, line=ln - i * delta, delta=delta, relief=relief,
+                                  seed=seed + 0x9E37 * i, eps=eps, boundaries=cut_b))
+    return out
+
+
+def _tweak_inverse_z(tweaks):
+    """The composed z-INVERSE of a tweak list's RowInsertZ cuts (south-to-north, undoing the
+    north-to-south application) -- the census miss-backmap's z counterpart."""
+    cuts = sorted({(tw.line, tw.delta) for tw in tweaks if isinstance(tw, RowInsertZ)})
+
+    def inv(z: float) -> float:
+        for (line, delta) in cuts:
+            if z <= line - delta:
+                z += delta
+            elif z < line:
+                z = line
+        return z
+    return inv
 
 
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
@@ -1280,6 +1434,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         oz = [v[0][2] for t in obj_tris for v in t]
         moved = (nrot != 0 or sh_x != 0.0 or sh_z != 0.0
                  or any(isinstance(tw, RowInsert) and tw.line < max(ox) - 1e-6
+                        for tw in tweaks)
+                 or any(isinstance(tw, RowInsertZ) and tw.line > min(oz) + 1e-6
                         for tw in tweaks))
         gates.append({"gate": "object-anchor", "x": [min(ox), max(ox)],
                       "z": [min(oz), max(oz)], "moved": moved,
@@ -1306,10 +1462,12 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
             donor_meshes.append((part_name(p), _soup_block_mesh(f"donor {p}", (dbx, dby), loc,
                                                                 disc=disc, lod=lod)))
         tinv = _tweak_inverse_x(tweaks)
+        tinv_z = _tweak_inverse_z(tweaks)
         for (mx, mz) in cen["miss"]:
             ux, uz = mx - sh_x, mz - sh_z
             dlx, dlz = _rot_xz(ux, uz, (4 - nrot) % 4)
             dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx      # undo RowInsert cuts (donor world x)
+            dlz = tinv_z(dlz - 64.0 * dby) + 64.0 * dby    # undo RowInsertZ cuts (donor world z)
             if not (-FRAME_EPS <= dlx <= 64.0 + FRAME_EPS
                     and -64.0 - FRAME_EPS <= dlz <= FRAME_EPS):
                 introduced.append((mx, mz))            # maps outside the donor frame: a strip hole
@@ -1651,6 +1809,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         oz = [v[0][2] for t in obj_by_cell[c] for v in t]
         moved = (nrot != 0 or sh_x != 0.0 or sh_z != 0.0
                  or any(isinstance(tw_, RowInsert) and tw_.line < max(ox) - 1e-6
+                        for tw_ in tweaks)
+                 or any(isinstance(tw_, RowInsertZ) and tw_.line > min(oz) + 1e-6
                         for tw_ in tweaks))
         gates.append({"gate": f"object-anchor[{dbx + c[0]},{dby + c[1]}]",
                       "x": [min(ox), max(ox)], "z": [min(oz), max(oz)], "moved": moved,
@@ -1697,9 +1857,11 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     introduced = []
     inherited = 0
     tinv = _tweak_inverse_x(tweaks)
+    tinv_z = _tweak_inverse_z(tweaks)
     for (mx, mz) in misses:
         dlx, dlz = _rot_region_xz(mx - sh_x, mz - sh_z, inv_rot, ext_r, ext)
         dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx          # undo RowInsert cuts (donor world x)
+        dlz = tinv_z(dlz - 64.0 * dby) + 64.0 * dby        # undo RowInsertZ cuts (donor world z)
         if not (-FRAME_EPS <= dlx <= ext[0] + FRAME_EPS
                 and -ext[1] - FRAME_EPS <= dlz <= FRAME_EPS):
             introduced.append((mx, mz))               # maps outside the region: a strip hole

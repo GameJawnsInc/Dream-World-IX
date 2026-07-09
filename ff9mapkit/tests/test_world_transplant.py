@@ -1003,13 +1003,130 @@ def test_chain_row_inserts_boundary_composition():
 def test_split_border_pairs():
     """Interior-border weld classification (the non-easternmost-cut law): an off-lattice float
     next to a bit-exact clip vert on the border plane is a benign clip T-junction (the 592
-    build's two undiagnosed x=64 pairs); two verts BOTH bit-exactly on the plane = the cells
-    disagree about the shared profile = a crack; pairs away from any border stay cracks."""
+    build's two undiagnosed x=64 pairs); an all-on-plane CLUSTER with no off-plane witness =
+    the cells disagree about the shared profile = a crack; pairs away from any border stay
+    cracks. Clusters judge together: a float so close to the border that both its edges' cut
+    verts pair with each other (the (9,5) z-cut's A-C-B corner sliver) is still ONE benign
+    T-junction -- the off-plane witness vindicates the whole cluster."""
     t_pair = ((63.976562, 2.0, -100.35), (64.0, 2.0, -100.351563))
     crack = ((64.0, 2.0, -80.0), (64.0, 2.04, -80.01))
     off = ((30.0, 0.0, -20.0), (30.01, 0.0, -20.0))
     cracks, ts = TR._split_border_pairs([t_pair, crack, off], (64.0,), ())
-    assert ts == [t_pair] and cracks == [crack, off]
+    assert ts == [t_pair] and sorted(cracks) == sorted([crack, off])
+    # the corner-sliver cluster: A, B exact on-plane, C the off-plane witness (real values
+    # from the (9,5)+2x3 z=-352 build's row border)
+    A, B = (87.266514, 10.256452, -64.0), (87.286678, 10.269531, -64.0)
+    C = (87.28125, 10.269531, -64.019531)
+    cracks2, ts2 = TR._split_border_pairs([(A, B), (A, C), (B, C)], (), (-64.0,))
+    assert cracks2 == [] and sorted(ts2) == sorted([(A, B), (A, C), (B, C)])
+    # the same A-B pair WITHOUT its witness stays a crack (profile disagreement)
+    cracks3, ts3 = TR._split_border_pairs([(A, B)], (), (-64.0,))
+    assert cracks3 == [(A, B)] and ts3 == []
+
+
+def test_z_frame_roundtrip_exact():
+    """The z-adapter frame map is a swap + sign flip + power-of-two shift -- BIT-EXACT both
+    ways on off-lattice donor floats (the weld-by-identity laws depend on it)."""
+    poly = [_v(496.046875, 3.2109375, -1120.828125), _v(0.0, 0.0, -0.015625),
+            _v(1535.984375, 26.5, -64.0)]
+    back = TR._z_out_poly(TR._z_in_poly(poly))
+    assert [v[0] for v in back] == [v[0] for v in poly]
+    assert TR._z_in_poly(poly)[0][0] == (1120.828125, 3.2109375, 496.046875 - 2048.0)
+
+
+def test_row_insert_z_grows_island_south(monkeypatch):
+    """The z-axis growth seed (the exact-rotation adapter over the proven x-cut): a whole
+    lattice ROW inserted at a z plane -- everything south shifts -delta, the vacated row is
+    seam-extruded, welds bit-exact, and the island grows southward by delta."""
+    LINE = -96.0
+    blocks = {
+        # two grass tiles astride the z cut line (topo 0 -> mains fill + relief center)
+        (1, 1, "terrain"): (_quad(88.0, 92.0, -96.0, -92.0, y=1.0, idall=12544.0, uv=(0.03, 0.78))
+                            + _quad(88.0, 92.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.09, 0.81))),
+        # sea4 as two slabs meeting exactly ON the line (mirror-affine fill)
+        (1, 1, "sea4"): (_quad(64.0, 128.0, -96.0, -64.0, idall=228.0)
+                         + _quad(64.0, 128.0, -128.0, -96.0, idall=228.0)),
+    }
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    tweaks = [TR.RowInsertZ(p, line=LINE) for p in TR.PARTS]
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), land_margin=0.0,
+                      tweaks=tweaks, dry_run=True, census_samples=8)
+    assert s["clean"] is True, s["gates"]
+    gt = next(g for g in s["gates"] if g["gate"] == "rowinsertz[terrain]")
+    gs = next(g for g in s["gates"] if g["gate"] == "rowinsertz[sea4]")
+    assert gt["shifted"] == 2 and gt["emitted"] == 4          # grass relief fan
+    assert gs["shifted"] == 2 and gs["emitted"] == 2          # flat mirror fill
+    # the island grew south by exactly delta: the south grass tile now ends at -104 -> local -40
+    lf = next(g for g in s["gates"] if g["gate"] == "land-fit")
+    assert lf["bbox"][2] == pytest.approx(-40.0)
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    # every fill tri is up-facing in WORLD frame (winding survives the rotation round trip)
+    for t in tweaks[[tw.part for tw in tweaks].index("sea4")].emit():
+        ux, uz = t[1][0][0] - t[0][0][0], t[1][0][2] - t[0][0][2]
+        vx, vz = t[2][0][0] - t[0][0][0], t[2][0][2] - t[0][0][2]
+        assert uz * vx - ux * vz > 0
+
+
+def test_row_insert_z_inverse_and_chain():
+    """inverse_z mirrors inverse_x southward; chain_row_inserts_z applies north-to-south
+    with the -i*delta correction, and a cut south of a boundary plane never owes it."""
+    tw = TR.RowInsertZ("terrain", line=-96.0)
+    assert tw.inverse_z(-90.0) == -90.0                        # north of the cut: identity
+    assert tw.inverse_z(-104.0) == -100.0                      # shifted content maps back +4
+    assert tw.inverse_z(-98.0) == -96.0                        # the fill row maps to the seam
+    tws = TR.chain_row_inserts_z([-96.0, -88.0], parts=("sea4",),
+                                 boundaries=[(-128.0, 64.0, 128.0), (-92.0, 64.0, 128.0)])
+    assert [t.line for t in tws] == [-88.0, -100.0]
+    assert sorted(tws[0].gate()["boundary_fills"]) == ["-128", "-92"]
+    assert sorted(tws[1].gate()["boundary_fills"]) == ["-132"]   # -92 not owed; -128 rides -4
+    inv = TR._tweak_inverse_z(tws)
+    assert inv(-112.0) == -104.0                               # both cuts undone, south-to-north
+    with pytest.raises(ValueError):
+        TR.RowInsertZ("sea4", line=-96.0, boundaries=[(-90.0, 64.0, 128.0)])  # north of the cut
+
+
+def test_cut_census_axis_z(monkeypatch):
+    """axis='z' sweeps the region's interior z planes via the exact-rotation adapter; the
+    component + empty-cell laws transpose (a data-south-neighbour border is fillable when
+    pure water; a land z-line grows southward; spills fires south of a data cell)."""
+    blocks = {(1, 2, "terrain"): _quad(88.0, 104.0, -168.0, -152.0, y=1.0),
+              (1, 2, "sea4"): (_quad(64.0, 128.0, -152.0, -128.0, idall=228.0)
+                               + _quad(64.0, 128.0, -192.0, -152.0, idall=228.0))}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    # rect (1,1)+1x2: EMPTY north cell over the data south cell
+    cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(1, 2), axis="z")}
+    assert len(cen) == 31 and all(c["axis"] == "z" for c in cen.values())
+    assert cen[-100.0]["clean"] is True and cen[-100.0]["risks"] == []
+    assert cen[-100.0]["boundary_fills"] == [[-128.0, 64.0, 128.0]]
+    assert cen[-100.0]["ok"] is False                          # water: a slide line
+    assert cen[-152.0]["ok"] is True and cen[-152.0]["grows_land"] is True   # a land z-line
+    assert cen[-152.0]["boundary_fills"] == []                 # south of the empty border
+    # spills transposed: rect (1,2)+1x2 = data north | empty south
+    cen2 = {c["line"]: c for c in TR.cut_census((1, 2), size=(1, 2), axis="z")}
+    assert "spills-into-empty" in cen2[-160.0]["risks"]
+
+
+def test_region_z_boundary_fill_covers_gap(monkeypatch):
+    """The multi-boundary extrusion transposed: a z-cut through the empty north cell slides
+    the south cell's content off their border; the boundary fill extrudes the border profile
+    southward and the region census stays hole-free."""
+    blocks = {(1, 2, "terrain"): _quad(88.0, 104.0, -168.0, -152.0, y=1.0),
+              (1, 2, "sea4"): (_quad(64.0, 128.0, -152.0, -128.0, idall=228.0)
+                               + _quad(64.0, 128.0, -192.0, -152.0, idall=228.0))}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(1, 2), axis="z")}
+    tweaks = TR.chain_row_inserts_z([-100.0], boundaries=cen[-100.0]["boundary_fills"])
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 2), shift=(0.0, 0.0),
+                             tweaks=tweaks, land_margin=0.0, census_samples=8, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    ri = next(g for g in s["gates"] if g["gate"] == "rowinsertz[sea4]")
+    assert ri["boundary_fills"] == {"-128": 2}                 # one band, two tris
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0
+    # the band sits exactly in the vacated row [-132, -128], inside the empty cell's x-window
+    fill = tweaks[[tw.part for tw in tweaks].index("sea4")].emit()
+    band = [t for t in fill if all(v[0][2] <= -128.0 + 1e-6 for v in t)]
+    assert band and all(-132.0 - 1e-6 <= v[0][2] for t in band for v in t)
 
 
 def test_census_backmap_inverts_row_insert(monkeypatch):
@@ -1152,6 +1269,37 @@ def test_region_water_slide_cut_config():
     census = next(g for g in s["gates"] if g["gate"] == "census")
     assert census["inherited"] == 2 and census["introduced"] == 0
     assert sorted(s["cells"]) == ["11,2", "11,3", "12,1", "12,2", "12,3"]   # (11,1) skipped
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_region_z_slide_cut_config():
+    """THE Z-AXIS VARIANT on the real (9,5)+2x3 island (deployed 2026-07-09): every land
+    z-line is ALSO crosses-relief -- the mountain blocks both axes, so this donor's land is
+    un-growable on any axis (a component fact, not a mechanics gap). Clean z SLIDE lines
+    exist; -352 hugs the island's north shore and exercises the TRANSPOSED multi-boundary
+    fill at the empty corner cell's SOUTH border z=-384 (window x[576,640]). The island
+    slides 4u SOUTH whole; the A-C-B corner-sliver weld cluster at the row border (a float
+    so close to the border that both its edges' cut verts pair) classifies benign."""
+    cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3), axis="z")}
+    assert [l for l, c in cen.items() if c["ok"]] == []        # no land z-growth either
+    for line in (-384.0, -416.0, -448.0):
+        assert "crosses-relief" in cen[line]["risks"]
+    assert cen[-352.0]["clean"] is True and cen[-352.0]["risks"] == []
+    assert cen[-352.0]["boundary_fills"] == [[-384.0, 576.0, 640.0]]
+    tweaks = TR.chain_row_inserts_z([-352.0], boundaries=cen[-352.0]["boundary_fills"])
+    s = TR.transplant_region("UNUSED", cell=(0, 4), donor=(9, 5), size=(2, 3),
+                             shift=(0.0, 0.0), tweaks=tweaks, land_margin=0.0, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    ri = next(g for g in s["gates"] if g["gate"] == "rowinsertz[sea4]")
+    assert ri["shifted"] == 1880 and ri["emitted"] == 68       # 36 line + 32 boundary tris
+    assert ri["boundary_fills"] == {"-384": 32}
+    rt = next(g for g in s["gates"] if g["gate"] == "rowinsertz[terrain]")
+    assert rt["shifted"] == 917 and rt["emitted"] == 0         # the island slides whole
+    weld = next(g for g in s["gates"] if g["gate"] == "weld-audit")
+    assert weld["pairs"] == 0 and weld["border_t_pairs"] == 5
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["inherited"] == 2 and census["introduced"] == 0
+    assert sorted(s["cells"]) == ["0,5", "0,6", "1,4", "1,5", "1,6"]      # (0,4) skipped
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

@@ -2400,30 +2400,37 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         strips = args.strips.strip().lower()
         if strips not in ("auto", "all", "none"):
             strips = tuple(d.strip() for d in args.strips.split(","))
-        tweaks = ()
-        if args.grow_cut:
-            lines = [float(v) for v in args.grow_cut.split(",")]
+        tweaks = []
+        for axis, arg, chain in (("x", args.grow_cut, TR.chain_row_inserts),
+                                 ("z", args.grow_cut_z, TR.chain_row_inserts_z)):
+            if not arg:
+                continue
+            flag = "--grow-cut-z" if axis == "z" else "--grow-cut"
+            lines = [float(v) for v in arg.split(",")]
             boundaries = ()
             if (snx, sny) != (1, 1):
                 # a REGION cut is census-validated here (the component laws are the only
                 # eyes) and its empty-cell boundary fills are auto-wired from the census.
                 cen = {c["line"]: c for c in TR.cut_census((dx, dy), size=(snx, sny),
-                                                           disc=args.disc, game=args.game)}
+                                                           disc=args.disc, game=args.game,
+                                                           axis=axis)}
                 for ln in lines:
                     if ln not in cen:
-                        raise ValueError(f"--grow-cut {ln:g}: not an interior 4u lattice "
+                        raise ValueError(f"{flag} {ln:g}: not an interior 4u {axis} lattice "
                                          f"line of the donor rect ({dx},{dy})+{snx}x{sny}")
                     if not cen[ln]["clean"]:
                         why = ", ".join(cen[ln]["risks"]) or \
                             f"straddlers={cen[ln]['straddlers']}"
-                        raise ValueError(f"--grow-cut {ln:g}: not census-clean ({why}) -- "
+                        raise ValueError(f"{flag} {ln:g}: not census-clean ({why}) -- "
                                          f"a cut may not cross a coast component")
                 bset = {tuple(t) for ln in lines for t in cen[ln]["boundary_fills"]}
                 boundaries = sorted(bset)
                 if boundaries:
+                    wl = "z" if axis == "x" else "x"
                     print("empty-cell boundary fills (census-certified open water): "
-                          + "  ".join(f"x={b:g} z[{z0:g},{z1:g}]" for (b, z0, z1) in boundaries))
-            tweaks = TR.chain_row_inserts(lines, boundaries=boundaries)
+                          + "  ".join(f"{axis}={b:g} {wl}[{a0:g},{a1:g}]"
+                                      for (b, a0, a1) in boundaries))
+            tweaks.extend(chain(lines, boundaries=boundaries))
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                   tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                   game=args.game, census_samples=args.samples, dry_run=args.dry_run)
@@ -4940,6 +4947,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "empty-cell boundary fills (certified open water) are wired automatically -- a "
                           "clean pure-water line is a legal SLIDE cut. Growth eats the land margin -- "
                           "usually needs --land-margin 0.")
+    wtp.add_argument("--grow-cut-z", default=None, metavar="Z[,Z..]",
+                     help="z-axis growth cuts at these DONOR-frame z lattice planes (negative values -- "
+                          "use --grow-cut-z=-384 form; census `cut_census axis='z'`). Each cut inserts one "
+                          "4u ROW: everything SOUTH shifts -4 and the vacated row is filled per the same "
+                          "tile laws (the exact-rotation adapter over the proven x-cut). Composes with "
+                          "--grow-cut; region lines are census-validated + boundary fills auto-wired.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
