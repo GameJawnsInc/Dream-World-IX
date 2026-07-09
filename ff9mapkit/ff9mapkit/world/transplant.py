@@ -611,18 +611,68 @@ class RowInsert:
                 self.emitted += 1
         return out
 
+    def inverse_x(self, x: float) -> float:
+        """Map a POST-cut x back to its donor-frame witness (the census miss-backmap's tweak
+        inverse): shifted content maps back ``-delta``; a point in the FILL column maps to the
+        seam line (the fill's donor witness is the seam profile itself)."""
+        if x >= self.line + self.delta:
+            return x - self.delta
+        if x > self.line:
+            return self.line
+        return x
+
     def gate(self) -> dict:
         return {"gate": f"rowinsert[{self.part}]", "shifted": self.shifted,
                 "emitted": self.emitted,
                 "ok": self.shifted == 0 or self.kept == 0 or self.emitted > 0}
 
 
-def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: str = "0_1",
-               game=None) -> list:
+def _split_frame_pairs(weld, planes_x, planes_z, tol: float = 0.05):
+    """Split a weld-audit pair list into (interior, frame) pairs. A pair whose BOTH verts lie
+    within ``tol`` of the SAME frame plane is a T-JUNCTION AT THE CLIP BOUNDARY -- the frame
+    cut runs through off-lattice donor verts (a shifted build puts real shore floats next to
+    the frame), leaving two near verts on a surface that is still continuous up to the frame,
+    where the neighbouring cell's own render takes over. Benign by construction (learned
+    2026-07-09: the 672-cut's single pair, flat water at x=128). INTERIOR near-misses remain
+    the crack law and must stay zero."""
+    def near(p, v, axis):
+        return abs(p[axis] - v) <= tol
+    interior, frame = [], []
+    for (a, b) in weld:
+        onframe = (any(near(a, v, 0) and near(b, v, 0) for v in planes_x)
+                   or any(near(a, v, 2) and near(b, v, 2) for v in planes_z))
+        (frame if onframe else interior).append((a, b))
+    return interior, frame
+
+
+def _tweak_inverse_x(tweaks):
+    """The composed x-INVERSE of a tweak list's RowInsert cuts (east-to-west, undoing the
+    west-to-east application), for the census miss-backmap: a miss at a post-cut x must be
+    tested against the donor at its PRE-cut witness, else the donor's own in-situ misses
+    shift out from under the backmap and misread as introduced."""
+    cuts = sorted({(tw.line, tw.delta) for tw in tweaks if isinstance(tw, RowInsert)},
+                  reverse=True)
+
+    def inv(x: float) -> float:
+        for (line, delta) in cuts:
+            if x >= line + delta:
+                x -= delta
+            elif x > line:
+                x = line
+        return x
+    return inv
+
+
+def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int = 1,
+               lod: str = "0_1", game=None) -> list:
     """Component-aware RowInsert cut-line census over a donor block (+ its 8u neighbour
-    strips). For each interior 4u lattice line returns a dict: ``line``, ``straddlers``
-    (tris crossing the line -- must be 0), ``grows_land`` (the line passes through
-    grass/sand/cliff, so an insertion actually lengthens the island), and ``risks``:
+    strips) -- or, with ``size = (nx, ny)``, over a whole DONOR RECT (the multi-cell carry's
+    frame): every donor cell is gathered whole, strips come from beyond the REGION's outer
+    borders only, and the sweep covers every interior 4u line of the region -- INCLUDING the
+    interior block borders (they are ordinary lattice lines to a region cut; the component
+    laws below judge them like any other). For each line returns a dict: ``line``,
+    ``straddlers`` (tris crossing the line -- must be 0), ``grows_land`` (the line passes
+    through grass/sand/cliff, so an insertion actually lengthens the island), and ``risks``:
 
     - ``crosses-beach``: the beach1 system has tris strictly on BOTH sides -- the line
       passes through the beach assembly (end welds are load-bearing; never cut it).
@@ -640,22 +690,32 @@ def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: st
     A usable growth line has ``straddlers == 0``, ``grows_land`` and no ``risks``."""
     from .extract import decode_id
     (dbx, dby) = donor
-    x0, x1 = 64.0 * dbx, 64.0 * (dbx + 1)
+    (rnx, rny) = (int(size[0]), int(size[1]))
+    x0, x1 = 64.0 * dbx, 64.0 * (dbx + rnx)
+    strip_specs = []
+    for j in range(rny):
+        strip_specs.append(((dbx + rnx, dby + j), 0, x1 + extra, True))
+        strip_specs.append(((dbx - 1, dby + j), 0, x0 - extra, False))
+    for i in range(rnx):
+        strip_specs.append(((dbx + i, dby - 1), 2, -64.0 * dby + extra, True))
+        strip_specs.append(((dbx + i, dby + rny), 2, -64.0 * (dby + rny) - extra, False))
     polys = []
+    cell_has_data = {(i, j): False for i in range(rnx) for j in range(rny)}
     for p in parts:
-        for tri in world_tris(dbx, dby, p, disc=disc, lod=lod, game=game):
-            polys.append((p, list(tri)))
-        for (nx, ny), axis, plane, below in (
-                ((dbx + 1, dby), 0, x1 + extra, True), ((dbx - 1, dby), 0, x0 - extra, False),
-                ((dbx, dby - 1), 2, -64.0 * dby + extra, True),
-                ((dbx, dby + 1), 2, -64.0 * (dby + 1) - extra, False)):
+        for j in range(rny):
+            for i in range(rnx):
+                for tri in world_tris(dbx + i, dby + j, p, disc=disc, lod=lod, game=game):
+                    cell_has_data[(i, j)] = True
+                    polys.append((p, list(tri)))
+        for (nx, ny), axis, plane, below in strip_specs:
             if not (0 <= nx < GRID_X and 0 <= ny < GRID_Y):
                 continue
             for tri in world_tris(nx, ny, p, disc=disc, lod=lod, game=game):
                 c = clip_poly(list(tri), axis, plane, below)
                 if len(c) >= 3:
                     polys.append((p, c))
-    obj = world_tris(dbx, dby, "object", disc=disc, lod=lod, game=game)
+    obj = [t for j in range(rny) for i in range(rnx)
+           for t in world_tris(dbx + i, dby + j, "object", disc=disc, lod=lod, game=game)]
     obj_xmax = max(v[0][0] for t in obj for v in t) if obj else None
     foam = [poly for (p, poly) in polys if p == "beach1"]
     wash_cells = set()
@@ -680,7 +740,7 @@ def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: st
                     left.discard(nb); comp.add(nb); stack.append(nb)
         patches.append(comp)
     out = []
-    for i in range(1, 16):
+    for i in range(1, 16 * rnx):
         line = x0 + 4.0 * i
         strad = sum(1 for (p, poly) in polys
                     if min(v[0][0] for v in poly) < line - 1e-4
@@ -715,6 +775,24 @@ def cut_census(donor, *, parts=PARTS, extra: float = 8.0, disc: int = 1, lod: st
             risks.append("crosses-wash")
         if obj_xmax is not None and line < obj_xmax - 1e-6:
             risks.append("displaces-object-ground")
+        # the EMPTY-CELL laws (a REGION cut's shift is global -- learned 2026-07-09, the
+        # (9,5)+2x3 row-0 hole): the seam extrusion fills only AT the line, so any other
+        # coverage discontinuity the shift creates goes unfilled. An empty donor cell whose
+        # EAST in-rect neighbour has data: a line at-or-west of their border slides the
+        # neighbour's content off it -- a delta-wide bare strip (`gap-vacation`). An empty
+        # cell whose WEST in-rect neighbour has data: a line at-or-west of the empty cell's
+        # west border pushes content INTO it -- a nearly-empty deployed cell (`spills-into-empty`).
+        for (ci, cj), has in cell_has_data.items():
+            if has:
+                continue
+            if (ci + 1, cj) in cell_has_data and cell_has_data[(ci + 1, cj)] \
+                    and line <= 64.0 * (dbx + ci + 1) + 1e-6:
+                if "gap-vacation" not in risks:
+                    risks.append("gap-vacation")
+            if (ci - 1, cj) in cell_has_data and cell_has_data[(ci - 1, cj)] \
+                    and line <= 64.0 * (dbx + ci) + 1e-6:
+                if "spills-into-empty" not in risks:
+                    risks.append("spills-into-empty")
         out.append({"line": line, "straddlers": strad, "grows_land": grows, "risks": risks,
                     "ok": strad == 0 and grows and not risks})
     return out
@@ -1015,8 +1093,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                       "ok": (not moved) or allow_object_misalign})
     for tw in tweaks:
         gates.append(tw.gate())
-    weld = M.weld_audit(meshes)
-    gates.append({"gate": "weld-audit", "pairs": len(weld), "ok": not weld})
+    weld_in, weld_fr = _split_frame_pairs(M.weld_audit(meshes), (0.0, 64.0), (0.0, -64.0))
+    gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
+                  "ok": not weld_in})
     from . import placement as P
     cen = P.census(meshes, samples=census_samples)
     # a real donor may MISS in situ (e.g. under a cliff headland's wall shadow -- no up-facing
@@ -1033,9 +1112,11 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                     for v in t] for t in donor_by_part[p]]
             donor_meshes.append((part_name(p), _soup_block_mesh(f"donor {p}", (dbx, dby), loc,
                                                                 disc=disc, lod=lod)))
+        tinv = _tweak_inverse_x(tweaks)
         for (mx, mz) in cen["miss"]:
             ux, uz = mx - sh_x, mz - sh_z
             dlx, dlz = _rot_xz(ux, uz, (4 - nrot) % 4)
+            dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx      # undo RowInsert cuts (donor world x)
             if not (-FRAME_EPS <= dlx <= 64.0 + FRAME_EPS
                     and -64.0 - FRAME_EPS <= dlz <= FRAME_EPS):
                 introduced.append((mx, mz))            # maps outside the donor frame: a strip hole
@@ -1384,8 +1465,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     for tw_ in tweaks:
         gates.append(tw_.gate())
     gates.append({"gate": "prefab-parts", "bad": prefab_bad, "ok": not prefab_bad})
-    weld = M.weld_audit(audit_meshes)
-    gates.append({"gate": "weld-audit", "pairs": len(weld), "ok": not weld})
+    weld_in, weld_fr = _split_frame_pairs(M.weld_audit(audit_meshes),
+                                          (0.0, ext_r[0]), (0.0, -ext_r[1]))
+    gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
+                  "ok": not weld_in})
 
     # region census, engine-faithful: each probe consults only its CONTAINING cell's meshes
     # (the engine raycasts the containing block); a probe over an undeployed cell is skipped
@@ -1418,8 +1501,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                 misses.append((px, pz))
     introduced = []
     inherited = 0
+    tinv = _tweak_inverse_x(tweaks)
     for (mx, mz) in misses:
         dlx, dlz = _rot_region_xz(mx - sh_x, mz - sh_z, inv_rot, ext_r, ext)
+        dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx          # undo RowInsert cuts (donor world x)
         if not (-FRAME_EPS <= dlx <= ext[0] + FRAME_EPS
                 and -ext[1] - FRAME_EPS <= dlz <= FRAME_EPS):
             introduced.append((mx, mz))               # maps outside the region: a strip hole
