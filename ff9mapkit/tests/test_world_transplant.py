@@ -1429,18 +1429,151 @@ def test_cut_census_relief_law_spares_proven_lines():
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
-def test_second_donor_screen_10_17_carryable_not_growable():
-    """SECOND-DONOR SCREEN (2026-07-09): a slide-window scan (margin>=2u, sizes 2x2..4x4)
-    over every data-bearing block found (10,17)+2x2 the best non-(9,5) candidate -- 2 real
-    data cells, 22.7u margin, 5.5u relief (under the 6.0u cap), zero objects -- but it is
-    CARRYABLE, not GROWABLE: every land line on either axis is blocked, and NOT by relief.
-    x-lines: `conforming-on-line` (this donor has a real sea1 shore system, unlike (9,5)'s
-    bare cliff+deep-water) + `spills-into-empty` (2 of its 4 rect cells are ocean -- the
-    OTHER empty-cell risk, never given an extrusion fix the way `gap-vacation` was).
-    z-lines: nonzero straddlers on BOTH candidates -- this donor's mesh isn't 4u-lattice-
-    aligned in z at all (real coastal terrain, unlike (9,5)'s clean grid). Net: the (9,5)
-    family's small-clean-multi-block-landmass property does NOT generalize; deployed
-    (identity carry, no tweaks) at (9,3)+2x2 as the second real multi-cell reference."""
+def test_spillclip_apply_and_gate_semantics():
+    """SpillClip drops content that crossed the empty cell's border inside its z-window,
+    passes through content west of the plane / in a data row / beyond the cell's own east
+    border (foreign refill strips), clips a plane-straddler exactly, re-certifies at apply
+    time (a dropped LAND poly fails the gate), and keeps a z-window straddler INTACT while
+    failing the gate (never silently mangle geometry)."""
+    sc = TR.SpillClip("sea4", plane=64.0, z0=-64.0, z1=0.0)
+    west = _quad(56.0, 60.0, -32.0, -28.0)[0]
+    assert sc.apply("sea4", west) is west
+    other_part = _quad(64.0, 68.0, -32.0, -28.0)[0]
+    assert sc.apply("terrain", other_part) is other_part      # another instance's business
+    assert sc.apply("sea4", _quad(64.0, 68.0, -32.0, -28.0)[0]) is None    # the spill: dropped
+    data_row = _quad(64.0, 68.0, -96.0, -92.0)[0]
+    assert sc.apply("sea4", data_row) is data_row
+    strip = _quad(132.0, 136.0, -32.0, -28.0)[0]
+    assert sc.apply("sea4", strip) is strip                    # beyond x_hi: refill slack
+    kept = sc.apply("sea4", _quad(60.0, 68.0, -32.0, -28.0)[0])
+    assert kept is not None and max(v[0][0] for v in kept) <= 64.0 + 1e-9
+    g = sc.gate()
+    assert g["ok"] and g["dropped"] == 1 and g["clipped"] == 1 and g["z_straddle"] == 0
+    land = TR.SpillClip("terrain", plane=64.0, z0=-64.0, z1=0.0)
+    assert land.apply("terrain", _quad(64.0, 68.0, -32.0, -28.0)[0]) is None
+    assert land.gate()["ok"] is False                          # land in the drop = uncertified
+    zc = TR.SpillClip("sea4", plane=64.0, z0=-64.0, z1=0.0)
+    zs = _quad(64.0, 68.0, -66.0, -62.0)[0]                    # centroid in-window, crosses z0
+    assert zc.apply("sea4", zs) is zs
+    gz = zc.gate()
+    assert gz["ok"] is False and gz["z_straddle"] == 1
+
+
+def test_spillclipz_clips_southward_spill():
+    """The exact-rotation adapter: a z-cut spills SOUTHWARD across an empty cell's north
+    border; SpillClipZ drops it inside the column x-window, passes content north of the
+    plane and beyond the cell (the next block south), exact round-trip coordinates."""
+    sz = TR.SpillClipZ("sea4", plane=-64.0, x0=0.0, x1=64.0)
+    north = _quad(28.0, 32.0, -60.0, -56.0)[0]
+    out = sz.apply("sea4", north)
+    assert [v[0] for v in out] == [v[0] for v in north]        # bit-exact round trip
+    assert sz.apply("sea4", _quad(28.0, 32.0, -68.0, -64.0)[0]) is None    # the spill
+    beyond = _quad(28.0, 32.0, -132.0, -128.0)[0]
+    assert [v[0] for v in sz.apply("sea4", beyond)] == [v[0] for v in beyond]
+    g = sz.gate()
+    assert g["ok"] and g["dropped"] == 1 and g["gate"] == "spillclipz[sea4]@-64"
+
+
+def test_spill_clip_budget_certification():
+    """The budget = the run of border-profile-identical open-water columns minus one (the
+    last must remain as the new prefab-facing border); land, off-lattice verts, or a
+    profile change end the run; empty columns count (nothing to spill is trivially safe)."""
+    plane, z0, z1 = 64.0, -64.0, 0.0
+
+    def cols(*parts_by_col):
+        polys = []
+        for m, p in enumerate(parts_by_col, start=1):   # col m spans [plane-4m, plane-4(m-1)]
+            if p is None:
+                continue
+            for r in range(16):
+                for t in _quad(plane - 4.0 * m, plane - 4.0 * (m - 1),
+                               -4.0 * (r + 1), -4.0 * r):
+                    polys.append((p, t))
+        return polys
+
+    assert TR._spill_clip_budget(cols("sea4", "sea4", "sea4", "sea4"), plane, z0, z1) == 3
+    assert TR._spill_clip_budget(cols("sea4", "sea4", "sea5"), plane, z0, z1) == 1
+    assert TR._spill_clip_budget(cols("terrain", "sea4"), plane, z0, z1) == 0
+    assert TR._spill_clip_budget(cols(None, None), plane, z0, z1) >= 2
+    off = cols("sea4", "sea4") + [("sea4", [_v(62.3, 0, -30.0), _v(64.0, 0, -30.0),
+                                            _v(64.0, 0, -34.0)])]
+    assert TR._spill_clip_budget(off, plane, z0, z1) == 0      # off-lattice border column
+
+
+def test_chain_spill_clips_validation_and_order():
+    """chain_row_inserts appends SpillClips AFTER every RowInsert (they must see the shifted
+    content), one per part per window; a chain deeper than the certified budget or a cut
+    whose fill band would land east of the plane (emissions bypass later tweaks) refuses."""
+    clips = [(704.0, -1152.0, -1088.0, 3)]
+    tweaks = TR.chain_row_inserts([648.0, 652.0], spill_clips=clips)
+    kinds = [type(t).__name__ for t in tweaks]
+    assert kinds == ["RowInsert"] * (2 * len(TR.PARTS)) + ["SpillClip"] * len(TR.PARTS)
+    with pytest.raises(ValueError, match="exceed its certified"):
+        TR.chain_row_inserts([644.0, 648.0, 652.0, 656.0], spill_clips=clips)
+    with pytest.raises(ValueError, match="too close to spill plane"):
+        TR.chain_row_inserts([700.0, 704.0], spill_clips=clips)
+    zclips = [(-1088.0, 640.0, 704.0, 2)]
+    ztweaks = TR.chain_row_inserts_z([-1000.0], spill_clips=zclips)
+    assert sum(1 for t in ztweaks if isinstance(t, TR.SpillClipZ)) == len(TR.PARTS)
+    with pytest.raises(ValueError, match="exceed its certified"):
+        TR.chain_row_inserts_z([-1000.0, -1004.0, -1008.0], spill_clips=zclips)
+    with pytest.raises(ValueError, match="too close to spill plane"):
+        TR.chain_row_inserts_z([-1088.0, -1084.0], spill_clips=zclips)
+
+
+def test_cut_census_spill_certification_hermetic(monkeypatch):
+    """A 2x1 rect with a data west cell + empty east cell: a pure-sea4 lattice-tiled border
+    certifies `spill_clips` (risk lifted; budget = the identical-column run minus the new
+    border column); a border whose water changes part AT the border (a sea5 grade column)
+    breaks profile identity and keeps `spills-into-empty`."""
+    def tiles(x0, x1, part_uv_idall=228.0):
+        out = []
+        x = x0
+        while x < x1 - 1e-9:
+            z = -128.0
+            while z < -64.0 - 1e-9:
+                out += _quad(x, x + 4.0, z, z + 4.0, idall=part_uv_idall)
+                z += 4.0
+            x += 4.0
+        return out
+
+    donor = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0),
+             (1, 1, "sea4"): (_quad(64.0, 88.0, -128.0, -64.0, idall=228.0)
+                              + _quad(88.0, 104.0, -128.0, -104.0, idall=228.0)
+                              + _quad(88.0, 104.0, -88.0, -64.0, idall=228.0)
+                              + tiles(104.0, 128.0))}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(donor))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(2, 1))}
+    c = cen[72.0]
+    assert "spills-into-empty" not in c["risks"]
+    assert c["spill_clips"] == [[128.0, -128.0, -64.0, 5]]     # 6 identical sea4 cols; terrain ends the run
+    # a sea5 border column (grade boundary AT the border) breaks profile identity: risk stays
+    donor2 = dict(donor)
+    donor2[(1, 1, "sea4")] = (_quad(64.0, 88.0, -128.0, -64.0, idall=228.0)
+                              + _quad(88.0, 104.0, -128.0, -104.0, idall=228.0)
+                              + _quad(88.0, 104.0, -88.0, -64.0, idall=228.0)
+                              + tiles(104.0, 124.0))
+    donor2[(1, 1, "sea5")] = tiles(124.0, 128.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(donor2))
+    cen2 = {c2["line"]: c2 for c2 in TR.cut_census((1, 1), size=(2, 1))}
+    assert "spills-into-empty" in cen2[72.0]["risks"]
+    assert cen2[72.0]["spill_clips"] == []
+
+
+def test_second_donor_screen_10_17_carryable_and_slide_growable():
+    """SECOND-DONOR SCREEN (2026-07-09) + THE SPILLS-INTO-EMPTY KILL (same day): a
+    slide-window scan (margin>=2u, sizes 2x2..4x4) over every data-bearing block found
+    (10,17)+2x2 the best non-(9,5) candidate -- 2 real data cells, 22.7u margin, 5.5u
+    relief (under the 6.0u cap), zero objects. LAND growth stays blocked: x land lines by
+    `conforming-on-line` (a real sea1 shore system, unlike (9,5)'s bare cliff+deep-water),
+    z land lines by nonzero straddlers (the mesh isn't 4u-lattice-aligned in z). But the
+    empty east column's border (x=704) certifies a 3-column pure-sea4 SpillClip budget --
+    so its 8 pure-water x lines, previously ALL dead to `spills-into-empty` (a cut would
+    deploy the empty cells as nearly-empty overrides over sailable prefab ocean), are now
+    census-CLEAN SLIDE cuts: the island repositions +k*4u east inside its rect, the
+    spilled certified water columns drop at the border, and the empty cells stay TRUE
+    SeaBlockPrefab ocean. Deployed (identity carry) at (9,3)+2x2 as the second real
+    multi-cell reference."""
     s = TR.transplant_region("UNUSED", cell=(9, 3), donor=(10, 17), size=(2, 2),
                              shift=(0.0, 0.0), land_margin=2.0, dry_run=True)
     assert s["clean"] is True, s["gates"]
@@ -1450,7 +1583,32 @@ def test_second_donor_screen_10_17_carryable_not_growable():
                 for axis in ("x", "z")}
     x_land = {l: c for l, c in censuses["x"].items() if c["grows_land"]}
     assert len(x_land) == 4 and all(not c["ok"] for c in x_land.values())
-    assert all("conforming-on-line" in c["risks"] and "spills-into-empty" in c["risks"]
+    assert all("conforming-on-line" in c["risks"] and "spills-into-empty" not in c["risks"]
               for l, c in x_land.items() if c["straddlers"] == 0)
     z_land = {l: c for l, c in censuses["z"].items() if c["grows_land"]}
     assert len(z_land) == 2 and all(c["straddlers"] > 0 for c in z_land.values())
+    # the unlocked slide lines: clean, each certifying BOTH empty-cell windows at x=704
+    slides = {l: c for l, c in censuses["x"].items() if c["clean"] and c["spill_clips"]}
+    assert len(slides) == 8
+    assert all(c["spill_clips"] == [[704.0, -1216.0, -1152.0, 3], [704.0, -1152.0, -1088.0, 3]]
+               for c in slides.values())
+
+
+def test_second_donor_10_17_two_cut_slide_config():
+    """The end-to-end 2-cut slide on the real (10,17)+2x2 (lines 648+652, budget 3): every
+    gate passes, each window's SpillClip drops EXACTLY the spilled 2 sea4 columns (64 tris,
+    512 sq-units = 8u x 64u -- the x_hi cell bound keeps foreign east refill strips out of
+    the ledger), nothing in any other part is touched, and only the two data cells deploy --
+    the empty east column stays genuine prefab ocean."""
+    clips = [(704.0, -1216.0, -1152.0, 3), (704.0, -1152.0, -1088.0, 3)]
+    tweaks = TR.chain_row_inserts([648.0, 652.0], spill_clips=clips)
+    s = TR.transplant_region("UNUSED", cell=(9, 3), donor=(10, 17), size=(2, 2),
+                             shift=(0.0, 0.0), land_margin=2.0, tweaks=tweaks, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    sc = [g for g in s["gates"] if g["gate"].startswith("spillclip[")]
+    assert len(sc) == 2 * len(TR.PARTS)
+    drops = [g for g in sc if g["dropped"] or g["clipped"]]
+    assert [g["gate"] for g in drops] == ["spillclip[sea4]@704"] * 2
+    assert all(g["dropped"] == 64 and g["clipped"] == 0
+               and g["area2"] == pytest.approx(1024.0) for g in drops)
+    assert sorted(s["cells"]) == ["9,3", "9,4"]            # the empty east column never deploys

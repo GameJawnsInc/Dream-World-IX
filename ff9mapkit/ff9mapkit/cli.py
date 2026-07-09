@@ -2434,9 +2434,11 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             flag = "--grow-cut-z" if axis == "z" else "--grow-cut"
             lines = [float(v) for v in arg.split(",")]
             boundaries = ()
+            spill_clips = ()
             if (snx, sny) != (1, 1):
                 # a REGION cut is census-validated here (the component laws are the only
-                # eyes) and its empty-cell boundary fills are auto-wired from the census.
+                # eyes) and its empty-cell boundary fills + spill clips are auto-wired
+                # from the census.
                 cen = {c["line"]: c for c in TR.cut_census((dx, dy), size=(snx, sny),
                                                            disc=args.disc, game=args.game,
                                                            axis=axis)}
@@ -2451,12 +2453,18 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                                          f"a cut may not cross a coast component")
                 bset = {tuple(t) for ln in lines for t in cen[ln]["boundary_fills"]}
                 boundaries = sorted(bset)
+                wl = "z" if axis == "x" else "x"
                 if boundaries:
-                    wl = "z" if axis == "x" else "x"
                     print("empty-cell boundary fills (census-certified open water): "
                           + "  ".join(f"{axis}={b:g} {wl}[{a0:g},{a1:g}]"
                                       for (b, a0, a1) in boundaries))
-            tweaks.extend(chain(lines, boundaries=boundaries))
+                sset = {tuple(t) for ln in lines for t in cen[ln]["spill_clips"]}
+                spill_clips = sorted(sset)
+                if spill_clips:
+                    print("empty-cell spill clips (census-certified water-column budget): "
+                          + "  ".join(f"{axis}={p:g} {wl}[{a0:g},{a1:g}] budget {b:g}"
+                                      for (p, a0, a1, b) in spill_clips))
+            tweaks.extend(chain(lines, boundaries=boundaries, spill_clips=spill_clips))
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                   tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                   game=args.game, census_samples=args.samples, dry_run=args.dry_run)

@@ -528,9 +528,9 @@ corrected line is **−332** (not −352); the island was REDEPLOYED with both f
 clean at both defect zones. **SECOND-DONOR SCREEN (2026-07-09):** a direct land-fit slide-window scan (not the
 component heuristic) over every data block confirms (9,5)'s clean-small-multi-block-island property does NOT
 generalize — nearly every other multi-block landmass is a fragment of a bigger connected coastline. Best
-alternative **(10,17)+2×2** (5.5u relief, under the cap, zero objects) carries clean but is NOT growable on
-either axis — blocked by `spills-into-empty` (the `gap-vacation` sibling, never given an extrusion fix) and
-`conforming-on-line`/z-lattice-misalignment, not relief; deployed (identity) at (9,3)+2×2 as a reference. **THE
+alternative **(10,17)+2×2** (5.5u relief, under the cap, zero objects) carries clean; its LAND lines stay
+blocked (`conforming-on-line`/z-lattice-misalignment, not relief) but its 8 water lines are now clean SLIDES
+via the SPILL-CLIP law below; deployed (identity) at (9,3)+2×2 as a reference. **THE
 BAKED-TERRAIN LAW** closes the "highland fill vocabulary" investigation: topo 17/38/49 turn out to have NO
 discrete tile language (92–100% UV-placement-unique within one donor, 65–97% unique map-wide) — hand-painted
 murals, the same class as a topo-0 wash. `cut_census` gains a generic (not topo-id-hardcoded) `crosses-baked-
@@ -540,10 +540,23 @@ relief) but the check is live for a future donor whose highland patch survives t
 ★ deployed:** `world-entrance --building` proved the pillar stack composes — a synthesized watchtower + a warp
 (→ field 300) placed directly on the (9,9)+2×3 island clone (cell (19,21)/block(9,10)), `read_block_stacked`
 correctly layered onto the prior transplant (confirmed: post-entrance terrain still carries exactly the
-transplant's 104 tris for that cell). Awaiting playtest. Next = give `spills-into-empty` the same extrusion
-treatment `gap-vacation` got (the cheaper growth unlock) / cross-donor boundary welding for a TRUE fused
-continent (open) / band-crossing re-Wang / cliff-face transition study (user checklist item); scale up with a
-real modelled building (Blender unavailable this session — the watchtower is a hand-authored primitive).
+transplant's 104 tris for that cell). Awaiting playtest. Rider fixes same day: building-footprint collision is
+now EXACT (`split_retarget_by_polygon` splits straddling terrain tris at the hull — the centroid
+over/under-shoot fixed, the tower's 36.0 sq-unit footprint bit-exact, `54b4e1d`; the entrance trigger-tile
+exclusion is exact BY ORDER — the split runs first, pinned `3ed64ae`) + `world-entrance --texture/--tile/
+--tile-uv` CLI passthrough (`6096b21` — no more direct-API bypass to texture a building). **THE SPILL-CLIP LAW
+(2026-07-09, deployed awaiting playtest): `spills-into-empty` KILLED** the way gap-vacation was — a cut's spill
+into an empty donor cell is CLIPPED at the cell's fixed border (`SpillClip`/`SpillClipZ`, per-part tweaks
+appended by `chain_row_inserts[_z](spill_clips=)`; pure clipping of real bytes, zero synthesis; the empty cell
+stays TRUE prefab ocean, deploys nothing) when the census certifies a water-column BUDGET (the run of
+border-profile-identical open-water columns − 1 — the run's last column becomes the new prefab-facing border,
+so the border language is preserved by construction; `cut_census` → `spill_clips (plane,z0,z1,budget)` rows;
+CLI `--grow-cut` auto-wires; apply-time gate re-certifies every dropped tri). The unlock: an empty neighbour
+column = usable SLACK for any donor whose water butts its own block border — (10,17)+2×2's 8 dead water lines
+are clean slides now; the 2-cut slid clone (island +8u east inside its rect, exact 64-tri drops per window, all
+gates green) deployed at (2,4)+2×2 beside the (9,3) identity reference. Next = cross-donor boundary welding for
+a TRUE fused continent (open) / band-crossing re-Wang / cliff-face transition study (user checklist item);
+scale up with a real modelled building (the watchtower is a hand-authored primitive).
 
 **Latest:** kit **1.0.0b13** (public betas b3–b9: PyPI + uv-bootstrap Windows installer + `ff9mapkit setup` + Steam/GOG game-detect + GUI-works-installed; **b7** = installer bundles+installs the engine patches [backed-up/version-aware], installed-GUI campaign/journey deploy + New-Game wiring [`ff9mapkit deploy-campaign`/`deploy-journey`/`newgame`; deploy orchestration extracted into `ff9mapkit/deploy.py`+`newgame.py`, the `tools/deploy_*.py` are now thin shims], Workspace app icon; **b8** = installed Workspace lights up the dev test-slot/F6 loop against a checkout via `$FF9_REPO`/cwd-walk [`jobs.resolve_dev_repo`], installer Finished-page wording fix; **b9** = Workspace UX pass [app-wide combo wheel-guard, destination-aware Revert, campaign-Map legend/tooltips, copy/affordance cleanups] + an opt-in, install-aware update check [version chip + once-a-day PyPI check, `ff9mapkit/update_check.py`]; **b10** = Workspace settings pass — a 7-theme picker [Light/Dark + Nord/Dracula/Solarized Dark/Light/Gruvbox, `editor/theme.py` + `prefs.py`, live preview, persisted], Preferences + About dialogs [⚙ menu], a one-click "Upgrade & restart" for installed copies [detached uv-upgrade helper, `_run_upgrade`/`_UPGRADE_PS1`], light-theme tone-down + installer Finished-page clip fix → [[project-ff9-gui-makeover]]; **b11** = maintenance bump, no functional change [cut to give b10's one-click updater a live target to upgrade to]; **b12** = TWO new pillars — custom 3D **MODELS** [`model-gltf`/`-import`/`-mint`/`-anim` + Blender-authored mesh & animation editing + one-click add-on Import/Export Model, all DLL-free → [[project-ff9-custom-models]]] and custom **OVERWORLD** [`world-terrain`/`-reclaim`/`-coast`/`-water`/`-entrance`/`-encounters`/texturing/minimap + F6-on-overworld + the s34 engine patch → [[project-ff9-worldmap-feasibility]]]; F6 got a 4-tab redesign + a "Reload + anims" button; **`world-water`** synthesizes faithful graded open-ocean water from a depth field [marching-band Sea3/Sea5/Sea4, byte-proven UVs, world-coord seam-matching; `world/water.py` → [[project-ff9-overworld-terrain-authoring]]]; **b13** = the biggest content release yet — a **13th & 14th playable character** (`[[playable]]` with bespoke ability kits / minted commands / custom active abilities + status + effect, custom battle model + editable animset + portrait → [[project-ff9-13th-character]], [[project-ff9-ability-preset-system]]), the **Scripts-DLL** battle-formula / field-effect / status-behaviour surfaces + Overload battle telemetry ([[project-ff9-scripts-dll]], [[project-ff9-overload-hooks]]), custom-models round 2 (Models GUI + `model-mint`/`model-anim-new` + the from-scratch creature Boletta → [[project-ff9-custom-models]]), synthetic **overworld** (`world-water` faithful oceans + `world-island` multi-cell cliff landmasses + `world-reclaim --profile cliff` + save overworld-position → [[project-ff9-overworld-coast-mosaic]]), custom **music/SFX** (DLL-free → [[project-ff9-sound-music]]), palette-swap enemies + custom weapon models, rotating-cast NPCs (`[[npc]] scenario_min/max`), EXPERIMENTAL **image→field** ([[project-ff9-image-to-field]]), a Workspace GUI pass + the 2026-07-07 docs overhaul; the **engine bundle is UNCHANGED from b12** — s35 overlay-cache, the s22 block-dump, and s36 multiplayer are held for b14), 3031 tests (`py -m pytest -n 6`). The install-path features are NOT in-game proven on an installed copy yet (user playtests on the laptop). See `git log` + `[[project-ff9-installer-packaging]]` for the onboarding/installer state.
 

@@ -744,6 +744,90 @@ class RowInsert:
         return d
 
 
+class SpillClip:
+    """Tweak class 5 -- the ``spills-into-empty`` kill (2026-07-09, the (10,17) unlock; the
+    sibling of the multi-boundary extrusion's ``gap-vacation`` kill). A REGION cut's shift is
+    global: an EMPTY donor cell whose WEST neighbour has data receives the neighbour's east
+    columns across their shared border -- deploying the empty cell as a nearly-empty override
+    over what was TRUE sailable SeaBlockPrefab ocean (a 60u hole in the sea). This clips the
+    SHIFTED assembly at the empty cell's fixed border plane (donor-frame ``x = plane``) inside
+    the empty cell's row z-window ``[z0, z1]``: the spilled columns are DROPPED, so the empty
+    cell stays genuine prefab ocean and deploys nothing.
+
+    Why dropping is FAITHFUL: the census (``cut_census`` ``spill_clips``) certifies a column
+    BUDGET first -- the dropped columns and the column that becomes the new border must be
+    consecutive open-water columns with an IDENTICAL per-row part profile (all on-lattice, no
+    straddlers), so after the clip the prefab-facing border speaks bit-for-bit the same
+    language class it did in situ (the new border column is the donor's own next water
+    column; rigid translation preserves every internal Wang adjacency, and prefab sea does
+    not vertex-couple across the border -- the donor's own data/prefab seam is the existing
+    in-game-proven precedent). Pure clipping of real bytes: no UV synthesis, no new geometry.
+
+    Order in the tweak list: AFTER every RowInsert (it must see the shifted content);
+    :func:`chain_row_inserts` ``spill_clips=`` appends + validates this (cut count within the
+    budget; no fill band east of the plane -- emissions bypass later tweaks, so a fill that
+    crossed the plane would dodge this clip). One instance per PART per window; the gate
+    fails if anything dropped was NOT open water (apply-time re-certification) or if a poly
+    straddled the z-window while crossing the plane (never silently mangle geometry)."""
+
+    def __init__(self, part: str, *, plane: float, z0: float, z1: float, eps: float = 1e-4):
+        self.part = part
+        self.plane = float(plane)
+        self.x_hi = self.plane + 64.0        # the empty CELL's east border: the clip zone is the
+        #                                      cell's own footprint -- foreign refill strips beyond
+        #                                      it (a west shift's slack) pass through untouched
+        self.z0, self.z1 = min(float(z0), float(z1)), max(float(z0), float(z1))
+        self.eps = float(eps)
+        self.dropped = 0
+        self.dropped_area2 = 0.0
+        self.clipped = 0
+        self.z_straddle = 0
+
+    def apply(self, part: str, poly):
+        if part != self.part:
+            return poly
+        xs = [v[0][0] for v in poly]
+        if max(xs) <= self.plane + self.eps or min(xs) >= self.x_hi - self.eps:
+            return poly                      # fully west of the border / beyond the cell: untouched
+        zs = [v[0][2] for v in poly]
+        zm = sum(zs) / len(zs)
+        if not (self.z0 - self.eps <= zm <= self.z1 + self.eps):
+            return poly                      # a data row (outside the empty cell's window)
+        if min(zs) < self.z0 - self.eps or max(zs) > self.z1 + self.eps:
+            self.z_straddle += 1             # crossing the window row while crossing the plane:
+            return poly                      # keep it intact and FAIL the gate (donor tiles never
+        #                                      straddle block borders -- this would be new geometry)
+        area = sum(_tri_area2_3d([poly[0], poly[k], poly[k + 1]])
+                   for k in range(1, len(poly) - 1))
+        if min(xs) >= self.plane - self.eps:
+            self.dropped += 1                # wholly across the border: the certified water column
+            self.dropped_area2 += area
+            return None
+        kept = clip_poly(poly, 0, self.plane, True)   # defensive: census-clean columns have no
+        self.clipped += 1                             # straddlers, but a clip here stays exact
+        if len(kept) < 3:
+            self.dropped += 1
+            self.dropped_area2 += area
+            return None
+        self.dropped_area2 += max(0.0, area - sum(_tri_area2_3d([kept[0], kept[k], kept[k + 1]])
+                                                  for k in range(1, len(kept) - 1)))
+        return kept
+
+    def emit(self) -> list:
+        return []
+
+    def inverse_x(self, x: float) -> float:
+        return x                             # nothing west of the plane moves; east has no probes
+
+    def gate(self) -> dict:
+        ok = (self.z_straddle == 0
+              and (self.part in OPEN_WATER_PARTS
+                   or (self.dropped == 0 and self.clipped == 0)))
+        return {"gate": f"spillclip[{self.part}]@{self.plane:g}", "dropped": self.dropped,
+                "clipped": self.clipped, "area2": self.dropped_area2,
+                "z_straddle": self.z_straddle, "ok": ok}
+
+
 def _split_frame_pairs(weld, planes_x, planes_z, tol: float = 0.05):
     """Split a weld-audit pair list into (interior, frame) pairs. A pair whose BOTH verts lie
     within ``tol`` of the SAME frame plane is a T-JUNCTION AT THE CLIP BOUNDARY -- the frame
@@ -828,6 +912,55 @@ def _tweak_inverse_x(tweaks):
     return inv
 
 
+def _spill_clip_budget(polys, plane, z0, z1, *, max_cols: int = 8, eps: float = 1e-4) -> int:
+    """The certified :class:`SpillClip` column budget at an empty cell's west border: how
+    many 4u columns west of ``plane`` (inside the z-window) a chain of cuts may push across
+    the border and DROP. Column m (m=1 at the border) is valid iff every tile inside it is
+    OPEN WATER on the 4u lattice with no straddlers at its planes; the budget is the longest
+    run of columns whose per-row part PROFILE is identical to the border column's, minus one
+    (the last such column must remain, as the new prefab-facing border -- profile identity
+    means the border speaks bit-for-bit the same language after every certified drop, and
+    every internal adjacency is a rigid translation of real bytes). An EMPTY profile counts
+    (nothing to spill there is trivially safe)."""
+    profiles = []
+    for m in range(1, max_cols + 2):
+        x_hi = plane - 4.0 * (m - 1)
+        x_lo = plane - 4.0 * m
+        prof = {}
+        ok = True
+        for (p, poly) in polys:
+            xs = [v[0][0] for v in poly]
+            if max(xs) <= x_lo + eps or min(xs) >= x_hi - eps:
+                continue
+            zs = [v[0][2] for v in poly]
+            zm = sum(zs) / len(zs)
+            if not (z0 - eps <= zm <= z1 + eps):
+                continue
+            if min(xs) < x_lo - eps or max(xs) > x_hi + eps:
+                ok = False                   # straddles a column plane (shore-conforming)
+                break
+            if p not in OPEN_WATER_PARTS:
+                ok = False
+                break
+            if any(abs(v[0][0] / 4.0 - round(v[0][0] / 4.0)) > 2.5e-4
+                   or abs(v[0][2] / 4.0 - round(v[0][2] / 4.0)) > 2.5e-4 for v in poly):
+                ok = False                   # off-lattice verts (the lattice-seam law's kin)
+                break
+            row = math.floor(zm / 4.0)
+            if prof.setdefault(row, p) != p:
+                ok = False                   # two parts claim one row-cell
+                break
+        if not ok:
+            break
+        profiles.append(prof)
+    budget = 0
+    for m in range(1, len(profiles)):
+        if profiles[m] != profiles[0]:
+            break
+        budget = m
+    return budget
+
+
 def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int = 1,
                lod: str = "0_1", game=None, axis: str = "x") -> list:
     """Component-aware RowInsert cut-line census over a donor block (+ its 8u neighbour
@@ -881,7 +1014,13 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
       language. Any other language on the boundary (land/beach/shallows) keeps the risk:
       those fills are uncertified. ``spills-into-empty`` (west-neighbour content slides
       INTO the empty cell -- a nearly-empty deployed cell over what was sailable prefab
-      ocean) has no fill mechanic and always disqualifies.
+      ocean) is likewise flagged ONLY when the border is UNCLIPPABLE: a border whose
+      adjacent donor columns are consecutive open-water columns with an identical per-row
+      part profile (on-lattice, no straddlers) is instead reported in ``spill_clips`` as
+      ``(plane, z0, z1, budget)`` -- feed the triples to :func:`chain_row_inserts`
+      ``spill_clips=`` and a :class:`SpillClip` drops the spilled columns at the border so
+      the empty cell stays TRUE prefab ocean (``budget`` = how many cuts the certified
+      water run can absorb). Any other language at the border keeps the risk.
 
     A usable GROWTH line has ``ok`` (``straddlers == 0``, ``grows_land``, no ``risks``);
     ``clean`` drops the ``grows_land`` requirement -- a clean pure-water line is a legal
@@ -1004,6 +1143,16 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         bnd_info[(ci, cj)] = {"plane": plane, "z": (z0, z1),
                               "safe": bool(onb_parts) and onb_parts <= OPEN_WATER_PARTS
                               and onb_lattice}
+    # the WEST-border spill certification (SpillClip's): an empty cell whose west in-rect
+    # neighbour has data gets a certified water-column BUDGET at their shared border
+    spill_info: dict = {}
+    for (ci, cj), has in cell_has_data.items():
+        if has or not cell_has_data.get((ci - 1, cj)):
+            continue
+        plane = 64.0 * (dbx + ci)
+        z0, z1 = -64.0 * (dby + cj + 1), -64.0 * (dby + cj)
+        spill_info[(ci, cj)] = {"plane": plane, "z": (z0, z1),
+                                "budget": _spill_clip_budget(polys, plane, z0, z1)}
     out = []
     for i in range(1, 16 * rnx):
         line = x0 + 4.0 * i
@@ -1088,6 +1237,7 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         # data: a line at-or-west of the empty cell's west border pushes content INTO it --
         # a nearly-empty deployed cell (`spills-into-empty`, no fill mechanic).
         bfills = []
+        sclips = []
         for (ci, cj), has in cell_has_data.items():
             if has:
                 continue
@@ -1099,12 +1249,16 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                         bfills.append(t)
                 elif "gap-vacation" not in risks:
                     risks.append("gap-vacation")
-            if (ci - 1, cj) in cell_has_data and cell_has_data[(ci - 1, cj)] \
-                    and line <= 64.0 * (dbx + ci) + 1e-6:
-                if "spills-into-empty" not in risks:
+            sp = spill_info.get((ci, cj))
+            if sp is not None and line <= sp["plane"] + 1e-6:
+                if sp["budget"] >= 1:
+                    t = [sp["plane"], sp["z"][0], sp["z"][1], sp["budget"]]
+                    if t not in sclips:
+                        sclips.append(t)
+                elif "spills-into-empty" not in risks:
                     risks.append("spills-into-empty")
         out.append({"line": line, "straddlers": strad, "grows_land": grows, "risks": risks,
-                    "boundary_fills": sorted(bfills),
+                    "boundary_fills": sorted(bfills), "spill_clips": sorted(sclips),
                     "clean": strad == 0 and not risks,
                     "ok": strad == 0 and grows and not risks})
     for c in out:
@@ -1113,11 +1267,26 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
             c["line"] = -c["line"]
             c["boundary_fills"] = sorted([-b, w0 + _ZC, w1 + _ZC]
                                          for (b, w0, w1) in c["boundary_fills"])
+            c["spill_clips"] = sorted([-pl, w0 + _ZC, w1 + _ZC, bud]
+                                      for (pl, w0, w1, bud) in c["spill_clips"])
+    return out
+
+
+def _dedupe_spill_windows(spill_clips):
+    """Normalize census ``spill_clips`` rows to unique ``(plane, z0, z1, budget)`` windows."""
+    out = []
+    for t in spill_clips:
+        pl, z0, z1 = float(t[0]), float(t[1]), float(t[2])
+        budget = float(t[3]) if len(t) > 3 else math.inf
+        key = (pl, min(z0, z1), max(z0, z1))
+        if key not in [(s[0], s[1], s[2]) for s in out]:
+            out.append((key[0], key[1], key[2], budget))
     return out
 
 
 def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float = 0.4,
-                      seed: int = 0xF95, eps: float = 1e-4, boundaries=()) -> list:
+                      seed: int = 0xF95, eps: float = 1e-4, boundaries=(),
+                      spill_clips=()) -> list:
     """Compose several RowInsert cuts into one ``tweaks=`` list (multi-column growth).
 
     ``lines`` are DONOR-frame x cut lines, each census-clean per the RowInsert law.
@@ -1135,16 +1304,37 @@ def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float =
     previous cut left behind (RowInsert emissions bypass later tweaks, which is exactly
     why the correction lands each band where the prior band's east edge sits).
 
+    ``spill_clips`` are the census's ``(plane, z0, z1, budget)`` rows (an empty cell's WEST
+    border + its row z-window): one :class:`SpillClip` per part per window is appended AFTER
+    every cut (it must see the shifted content), after validating the chain against the
+    certified budget -- the number of cuts at-or-west of a plane may not exceed it, and no
+    cut may sit so close to the border that its fill band lands east of the plane (RowInsert
+    emissions bypass later tweaks, so such a fill would dodge the clip).
+
     A line given twice composes correctly (the second lands one column east) but yields
     two adjacent flat fill bands off one seam profile -- prefer spread-out lines.
     """
     bnds = [(float(b), float(z0), float(z1)) for (b, z0, z1) in boundaries]
     out = []
-    for i, ln in enumerate(sorted(float(l) for l in lines)):
+    slines = sorted(float(l) for l in lines)
+    for i, ln in enumerate(slines):
         cut_b = [(b + i * delta, z0, z1) for (b, z0, z1) in bnds if ln <= b + 1e-6]
         for p in parts:
             out.append(RowInsert(p, line=ln + i * delta, delta=delta, relief=relief,
                                  seed=seed + 0x9E37 * i, eps=eps, boundaries=cut_b))
+    for (pl, z0, z1, budget) in _dedupe_spill_windows(spill_clips):
+        owed = [ln for ln in slines if ln <= pl + 1e-6]
+        if len(owed) > budget:
+            raise ValueError(f"{len(owed)} cuts at-or-west of spill plane {pl:g} exceed its "
+                             f"certified water-column budget {budget:g} (cut_census "
+                             f"spill_clips) -- the drop would consume uncertified columns")
+        for i, ln in enumerate(owed):
+            if ln + (i + 1) * delta > pl + 1e-6:
+                raise ValueError(f"cut line {ln:g} sits too close to spill plane {pl:g} for "
+                                 f"a chain this deep -- its fill band would land east of the "
+                                 f"plane and bypass the SpillClip (fills skip later tweaks)")
+        for p in parts:
+            out.append(SpillClip(p, plane=pl, z0=z0, z1=z1, eps=eps))
     return out
 
 
@@ -1219,19 +1409,68 @@ class RowInsertZ:
         return d
 
 
+class SpillClipZ:
+    """z-axis :class:`SpillClip`: clip the shifted assembly at an empty donor cell's NORTH
+    border plane (donor-frame ``z = plane``; a z-cut shifts content SOUTHWARD, so it spills
+    into an empty cell across the empty cell's north border when the empty cell's NORTH
+    neighbour has data), inside the empty cell's column x-window ``[x0, x1]``. Implemented as
+    the exact-rotation adapter over :class:`SpillClip` -- same certification laws, take the
+    tuples from :func:`cut_census` ``axis="z"`` ``spill_clips``."""
+
+    def __init__(self, part: str, *, plane: float, x0: float, x1: float, eps: float = 1e-4):
+        self.part = part
+        self.plane = float(plane)
+        self._sc = SpillClip(part, plane=-self.plane, z0=float(x0) - _ZC,
+                             z1=float(x1) - _ZC, eps=eps)
+
+    def apply(self, part: str, poly):
+        if part != self.part:
+            return poly
+        rp = self._sc.apply(part, _z_in_poly(poly))
+        return None if rp is None else _z_out_poly(rp)
+
+    def emit(self) -> list:
+        return []
+
+    def gate(self) -> dict:
+        d = self._sc.gate()
+        d["gate"] = f"spillclipz[{self.part}]@{self.plane:g}"
+        return d
+
+
 def chain_row_inserts_z(lines, *, parts=PARTS, delta: float = 4.0, relief: float = 0.4,
-                        seed: int = 0xF95, eps: float = 1e-4, boundaries=()) -> list:
+                        seed: int = 0xF95, eps: float = 1e-4, boundaries=(),
+                        spill_clips=()) -> list:
     """z-axis :func:`chain_row_inserts`: ``lines`` are DONOR-frame z cut planes, sorted
     NORTH-to-SOUTH; content shifts southward, so a later (more southern) cut's donor line
     rides ``- i*delta`` (the mirror of the x chain's ``+ i*delta``), and each boundary
-    plane a cut owes (its line at-or-north of it) rides the same correction."""
+    plane a cut owes (its line at-or-north of it) rides the same correction.
+    ``spill_clips`` are the ``axis="z"`` census's ``(plane_z, x0, x1, budget)`` rows (an
+    empty cell's NORTH border + its column x-window): validated + appended as
+    :class:`SpillClipZ`, the mirror of the x chain's laws (a cut owes a plane when its line
+    is at-or-north of it; the fill band must stay north of the plane)."""
     bnds = [(float(b), float(x0), float(x1)) for (b, x0, x1) in boundaries]
     out = []
-    for i, ln in enumerate(sorted((float(l) for l in lines), reverse=True)):
+    slines = sorted((float(l) for l in lines), reverse=True)
+    for i, ln in enumerate(slines):
         cut_b = [(b - i * delta, x0, x1) for (b, x0, x1) in bnds if ln >= b - 1e-6]
         for p in parts:
             out.append(RowInsertZ(p, line=ln - i * delta, delta=delta, relief=relief,
                                   seed=seed + 0x9E37 * i, eps=eps, boundaries=cut_b))
+    for (pl, x0, x1, budget) in _dedupe_spill_windows(spill_clips):
+        owed = [ln for ln in slines if ln >= pl - 1e-6]
+        if len(owed) > budget:
+            raise ValueError(f"{len(owed)} cuts at-or-north of spill plane {pl:g} exceed its "
+                             f"certified water-column budget {budget:g} (cut_census "
+                             f"spill_clips) -- the drop would consume uncertified columns")
+        for i, ln in enumerate(owed):
+            if ln - (i + 1) * delta < pl - 1e-6:
+                raise ValueError(f"cut line {ln:g} sits too close to spill plane {pl:g} for "
+                                 f"a chain this deep -- its fill band would land south of "
+                                 f"the plane and bypass the SpillClipZ (fills skip later "
+                                 f"tweaks)")
+        for p in parts:
+            out.append(SpillClipZ(p, plane=pl, x0=x0, x1=x1, eps=eps))
     return out
 
 
