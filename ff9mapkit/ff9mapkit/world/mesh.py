@@ -1022,6 +1022,135 @@ def retarget_tiles(bm, *, event=None, area=None, topograph=None, center=None, ra
     return changed
 
 
+def _hp_side(ea, eb, p):
+    """Signed area x2 of (ea, eb, p) in the XZ plane -- >=0 iff p is LEFT of directed edge
+    ea->eb (the CCW-hull convention: left = inside)."""
+    return (eb[0] - ea[0]) * (p[2] - ea[1]) - (eb[1] - ea[1]) * (p[0] - ea[0])
+
+
+def _lerp_tuple4(a, b, t):
+    p = tuple(a[0][k] + t * (b[0][k] - a[0][k]) for k in range(3))
+    n = tuple(a[1][k] + t * (b[1][k] - a[1][k]) for k in range(3))
+    uv = tuple(a[2][k] + t * (b[2][k] - a[2][k]) for k in range(2))
+    tn = tuple(a[3][k] + t * (b[3][k] - a[3][k]) for k in range(4))
+    return (p, n, uv, tn)
+
+
+def _clip_edge(poly, ea, eb, *, keep_left: bool, eps: float = 1e-9):
+    """Sutherland-Hodgman clip of ``poly`` (a list of ``(pos, nrm, uv, tan)`` tuples, world XZ
+    in ``pos``) against the half-plane of directed edge ``ea->eb``: ``keep_left=True`` keeps
+    the LEFT side (CCW-hull inside), ``False`` keeps the RIGHT (outside)."""
+    out = []
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        sa, sb = _hp_side(ea, eb, a[0]), _hp_side(ea, eb, b[0])
+        da, db = (sa, sb) if keep_left else (-sa, -sb)
+        if da >= -eps:
+            out.append(a)
+        if (da >= -eps) != (db >= -eps):
+            out.append(_lerp_tuple4(a, b, da / (da - db)))
+    return out
+
+
+def _poly_area2_xz(poly) -> float:
+    a = 0.0
+    n = len(poly)
+    for i in range(n):
+        (x0, _, z0), (x1, _, z1) = poly[i][0], poly[(i + 1) % n][0]
+        a += x0 * z1 - x1 * z0
+    return abs(a)
+
+
+def split_retarget_by_polygon(bm, polygon, *, topograph, event=None, area=None,
+                              world_origin=(0.0, 0.0), eps: float = 1e-6) -> "BlockMesh":
+    """Geometrically EXACT sibling of :func:`retarget_tiles`'s ``only_polygon`` path. A real
+    donor terrain triangle can be much BIGGER than a small building footprint (measured: this
+    project's transplanted highland terrain has a median tri area of ~6 sq-units against a
+    36 sq-unit 6x6 tower base) -- `retarget_tiles` decides the WHOLE triangle by a single
+    CENTROID-in-polygon test, so a straddling triangle either over-blocks (its far corner
+    sticks out past the building) or under-blocks (its near corner falls short) by up to half
+    its own size. "some collision, but not aligned" (in-game 2026-07-09).
+
+    This SPLITS every straddling triangle instead: Sutherland-Hodgman half-plane clip against
+    each edge of ``polygon`` (a CCW convex XZ hull, e.g. :func:`_building_world_hull`'s output)
+    gives the exact INSIDE fragment (retargeted to ``topograph``); the OUTSIDE remainder is
+    recovered as up to ``len(polygon)`` disjoint fragments via the standard BSP decomposition
+    (fragment ``i`` = inside edges ``0..i-1``, outside edge ``i`` -- together with the INSIDE
+    fragment these exactly partition the original triangle, no gaps, no overlaps) and keeps
+    the triangle's ORIGINAL topograph. A fully-inside or fully-outside triangle takes the cheap
+    single-piece path (no split). Returns a NEW BlockMesh (same channels as ``bm``); ``bm`` is
+    untouched. Geometry OUTSIDE the polygon is bit-identical to the source (only clipped-and-
+    rejoined pieces are new triangles -- an unaffected triangle is copied verbatim)."""
+    from .extract import decode_id, encode_id, BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    poly = [tuple(p) for p in polygon]
+    ne = len(poly)
+    ox, oz = world_origin
+    V, N, U, T = bm.verts, bm.normals, bm.uvs, bm.tangents
+    pos, nrm, uv, tan, flat, tris_out = [], [], [], [], [], []
+    changed = 0
+
+    def emit_tri(t3):
+        base = len(pos)
+        for (p, n_, u, tn) in t3:
+            pos.append(list(p)); nrm.append(list(n_)); uv.append(list(u)); tan.append(list(tn))
+            flat.append(len(pos) - 1)
+        tris_out.append([base, base + 1, base + 2])
+
+    def emit_fan(poly4, stamp_idall=None):
+        for k in range(1, len(poly4) - 1):
+            tri = [poly4[0], poly4[k], poly4[k + 1]]
+            if stamp_idall is not None:
+                tri = [(p, n_, u, (stamp_idall,) + tuple(tn[1:])) for (p, n_, u, tn) in tri]
+            emit_tri(tri)
+
+    for tri in bm.tris:
+        t3 = [((V[i][0] + ox, V[i][1], V[i][2] + oz), tuple(N[i]) if N else (0.0, 1.0, 0.0),
+              tuple(U[i]) if U else (0.0, 0.0), tuple(T[i]) if T else (1.0, 0.0, 0.0, 1.0))
+              for i in tri]
+        d = decode_id(int(round(t3[0][3][0])))
+        new_idall = float(encode_id(d["event"] if event is None else event,
+                                    d["area"] if area is None else area, topograph, d["flags"]))
+        inside = t3
+        for i in range(ne):
+            inside = _clip_edge(inside, poly[i], poly[(i + 1) % ne], keep_left=True)
+            if len(inside) < 3:
+                break
+        full_area = _poly_area2_xz(t3)
+        inside_area = _poly_area2_xz(inside) if len(inside) >= 3 else 0.0
+        if inside_area <= eps:                              # entirely outside: unchanged
+            emit_fan([((p[0][0] - ox, p[0][1], p[0][2] - oz), p[1], p[2], p[3]) for p in t3])
+            continue
+        if inside_area >= full_area - eps:                  # entirely inside: cheap retarget
+            emit_fan([((p[0][0] - ox, p[0][1], p[0][2] - oz), p[1], p[2], p[3]) for p in t3],
+                     stamp_idall=new_idall)
+            changed += 1
+            continue
+        # straddling: the exact inside fragment (retargeted) + the exact outside fragments
+        # (original topo, BSP-decomposed against each hull edge)
+        changed += 1
+        emit_fan([((p[0][0] - ox, p[0][1], p[0][2] - oz), p[1], p[2], p[3]) for p in inside],
+                 stamp_idall=new_idall)
+        for i in range(ne):
+            frag = t3
+            for j in range(i):
+                frag = _clip_edge(frag, poly[j], poly[(j + 1) % ne], keep_left=True)
+                if len(frag) < 3:
+                    break
+            if len(frag) < 3:
+                continue
+            frag = _clip_edge(frag, poly[i], poly[(i + 1) % ne], keep_left=False)
+            if len(frag) < 3 or _poly_area2_xz(frag) <= eps:
+                continue
+            emit_fan([((p[0][0] - ox, p[0][1], p[0][2] - oz), p[1], p[2], p[3]) for p in frag])
+
+    return BlockMesh(name=bm.name, disc=bm.disc, x=bm.x, y=bm.y, lod=bm.lod, vcount=len(pos),
+                     stride=bm.stride, channels=dict(bm.channels),
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=flat, tris=tris_out, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                     submeshes=[])
+
+
 def weld_audit(meshes, *, tol: float = 0.05) -> list:
     """NEAR-MISS vertex census across mesh parts -- the hairline-crack gate. Any two vertices (from any parts:
     cracks live BETWEEN parts too) closer than ``tol`` world units but not identical are a crack candidate: the

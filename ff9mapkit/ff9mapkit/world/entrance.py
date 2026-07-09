@@ -437,8 +437,15 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
     hull = _building_world_hull(building, (cwx, cwz)) if building else None   # the building's tight world outline
     n_block = 0
     if hull and block_footprint:                            # make the terrain UNDER the building impassable (conforms
-        n_block = M.retarget_tiles(ter, topograph=59, only_polygon=hull,   # to the ground; the tight HULL avoids an
-                                   world_origin=W.block_world_origin(bx, by))   # invisible collision skirt beyond it)
+        from .extract import decode_id                       # to the ground; the tight HULL avoids an invisible skirt)
+        # split_retarget_by_polygon (not the whole-triangle-centroid retarget_tiles) so the
+        # blocked boundary traces the hull EXACTLY -- a real donor terrain triangle can be far
+        # bigger than a small building footprint, and a centroid test over/under-shoots the
+        # visible edge by up to half a triangle ("some collision, but not aligned", 2026-07-09)
+        ter = M.split_retarget_by_polygon(ter, hull, topograph=59,
+                                          world_origin=W.block_world_origin(bx, by))
+        n_block = sum(1 for tri in ter.tris
+                     if decode_id(int(round(ter.tangents[tri[0]][0])))["topograph"] == 59)
     n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
                                center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
                                exclude_polygon=hull)         # triggers OUTSIDE the building outline (walkable beside it)
