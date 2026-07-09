@@ -1175,6 +1175,61 @@ def test_cut_census_lattice_seam_law(monkeypatch):
     assert "gap-vacation" in cen3[100.0]["risks"] and cen3[100.0]["boundary_fills"] == []
 
 
+def _painted(x0, x1, z0, z1, *, y, idall, uv_fn):
+    """A terrain quad whose UV comes from a per-vertex generator (real affine field,
+    unlike `_quad`'s single uniform uv) -- the shape `_cell_rect` needs to fingerprint a
+    tile's family."""
+    a = (x0, y, z1); b = (x1, y, z1); c = (x1, y, z0); d = (x0, y, z0)
+    corners = [a, b, c, d]
+    verts = [(p, NRM, uv_fn(p[0], p[2]), (idall, 0.0, 0.0, 1.0)) for p in corners]
+    return [[verts[0], verts[1], verts[3]], [verts[1], verts[2], verts[3]]]
+
+
+def test_cut_census_baked_terrain_law(monkeypatch):
+    """THE BAKED-TERRAIN LAW (the highland-vocabulary decode, 2026-07-09): a terrain
+    family RowInsert has no dedicated fill for (not grass/sand/cliff) whose UV rect has NO
+    sibling elsewhere in the scanned donor+strip area is a hand-painted mural -- same class
+    as a topo-0 wash, detected generically by UV-rect uniqueness rather than a hardcoded
+    topo id, so a genuinely REPEATING rock patch stays fair game while a one-off painted
+    tile flags."""
+    from ff9mapkit.world.extract import encode_id
+    BAKED_ID = float(encode_id(event=0, area=0, topograph=40))     # a singleton mural tile
+    TILED_ID = float(encode_id(event=0, area=0, topograph=41))     # a repeating rock tile
+
+    # a REPEATING family: the SAME local (u,v) pattern (position MOD 4) reused at two
+    # ADJACENT 4u cells -- two real siblings, so the shared line between them stays clean
+    # even though this topo has no dedicated RowInsert fill either
+    def tiled_uv(x, z):
+        return ((x % 4.0) / 4.0 * 0.1 + 0.2, (z % 4.0) / -4.0 * 0.1 + 0.5)
+    tiled_a = _painted(80.0, 84.0, -100.0, -96.0, y=1.0, idall=TILED_ID, uv_fn=tiled_uv)
+    tiled_b = _painted(84.0, 88.0, -100.0, -96.0, y=1.0, idall=TILED_ID, uv_fn=tiled_uv)
+
+    # a BAKED singleton, isolated (not touching the tiled pair): uv is a function of
+    # ABSOLUTE position -- no other cell shares this exact rect (a one-off painted mural
+    # tile, like the real topo 17/38/49); BOTH its edges (92 and 96) touch only itself
+    def baked_uv(x, z):
+        return (x / 2000.0, z / -2000.0)
+    baked = _painted(92.0, 96.0, -100.0, -96.0, y=1.0, idall=BAKED_ID, uv_fn=baked_uv)
+
+    blocks = {(1, 1, "terrain"): tiled_a + tiled_b + baked}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1))}
+    assert "crosses-baked-terrain" not in cen[84.0]["risks"]  # the repeating rock: clean
+    assert "crosses-baked-terrain" in cen[92.0]["risks"]      # the singleton mural: flags
+    assert "crosses-baked-terrain" in cen[96.0]["risks"]      # its OTHER edge: flags too
+
+    # the SAME baked tile, now with a real sibling elsewhere in the donor+strip scan (its
+    # neighbour E of the donor happens to reuse the identical mural rect -- an artist
+    # copy-paste, shifted 40u so the rect matches exactly) -- no longer a singleton
+    sibling_uv = lambda x, z: baked_uv(x - 40.0, z)
+    blocks2 = {(1, 1, "terrain"): tiled_a + tiled_b + baked,
+              (2, 1, "terrain"): _painted(132.0, 136.0, -100.0, -96.0, y=1.0, idall=BAKED_ID,
+                                          uv_fn=sibling_uv)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    cen2 = {c["line"]: c for c in TR.cut_census((1, 1))}
+    assert "crosses-baked-terrain" not in cen2[92.0]["risks"]
+
+
 def test_census_backmap_inverts_row_insert(monkeypatch):
     """The miss-backmap must UNDO RowInsert cuts before querying the donor -- else the donor's
     own in-situ misses shift out from under it and misread as introduced (the x=107/115

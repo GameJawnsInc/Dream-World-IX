@@ -29,6 +29,7 @@ override plus the donor sidecar. RELAUNCH (or exit + re-enter the overworld) to 
 """
 from __future__ import annotations
 
+import collections
 import math
 
 from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
@@ -854,6 +855,15 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
       e.g. the (9,17) scrub blob) has cells on both sides. A wash is PAINT -- per-cell
       fills cannot continue it faithfully (four fill strategies falsified in-game
       2026-07-09); treat it as a component and cut around it.
+    - ``crosses-baked-terrain``: the line has an on-line TERRAIN tile from a family
+      RowInsert has no dedicated fill for (not grass/sand/cliff) whose UV rect is a
+      SINGLETON in the scanned donor+strip area (no sibling tile shares it). The
+      highland/rock-wall topos (17/38/49 -- the "highland vocabulary" investigated
+      2026-07-09) turned out to have NO discrete tile language to decode: measured across
+      an 80-block map sample, topo 49 is 97% unique per-cell UV placement and topo 38 is
+      65% unique (within one donor the ratio is starker still) -- these are hand-PAINTED
+      murals, the same class as a wash, just detected by uniqueness instead of a
+      hardcoded topo id (so a genuinely tileable rock PATCH elsewhere stays fair game).
     - ``displaces-object-ground``: the donor has a prefab-anchored Object whose footprint
       lies east of the line (its ground would shift under the static object).
     - ``conforming-on-line``: an open-water part has an OFF-LATTICE vert ON the line -- a
@@ -941,6 +951,31 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                 if nb in left:
                     left.discard(nb); comp.add(nb); stack.append(nb)
         patches.append(comp)
+    # THE BAKED-TERRAIN LAW (the topo 17/38/49 "highland vocabulary" decode, 2026-07-09):
+    # unlike grass (topo 0, a small reusable quadrant set) and cliff (topo 58, a decoded
+    # rock language), the highland/rock-wall families have NO discrete tile vocabulary to
+    # discover -- measured across an 80-block map sample, topo 49 is 97% UNIQUE per-cell UV
+    # placement and topo 38 is 65% unique; within a single donor the ratio is even starker
+    # (the (9,5) island's own topo 17/38/49 measure 92-100% unique). These are hand-PAINTED
+    # murals, structurally the SAME CLASS as a non-grass topo-0 wash -- no per-cell UV
+    # synthesis (mirror, clone, or otherwise) can continue them faithfully, independent of
+    # relief. Detected generically (not by hardcoded topo id, matching how a real donor
+    # elsewhere might reuse a small tileable rock patch legitimately): any TERRAIN family
+    # RowInsert has no dedicated fill for (not 0/31/58) whose family rect has NO sibling
+    # anywhere in the scanned donor+strip area is baked-unique.
+    baked_cells_of_rect = collections.defaultdict(set)
+    for (p, poly) in polys:
+        if p != "terrain":
+            continue
+        if decode_id(int(round(poly[0][3][0])))["topograph"] in (0, 31, 58):
+            continue
+        r = _cell_rect(poly)
+        if r is None:
+            continue
+        n = len(poly)
+        cell = (math.floor(sum(v[0][0] for v in poly) / n / 4.0),
+               math.floor(sum(v[0][2] for v in poly) / n / 4.0))
+        baked_cells_of_rect[r[0]].add(cell)          # a quad's 2 tris share ONE cell -- dedupe
     # the boundary WATER-SAFETY scan (the multi-boundary extrusion's certification): an
     # empty cell's east border is FILLABLE iff every on-plane edge inside the empty row's
     # z-window speaks open water -- the languages the boundary fill is proven in -- AND its
@@ -1011,6 +1046,18 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         if any(any(4.0 * c[0] + 4.0 <= line + 1e-6 for c in comp)
                and any(4.0 * c[0] >= line - 1e-6 for c in comp) for comp in patches):
             risks.append("crosses-wash")
+        baked = False
+        for (p, poly) in polys:
+            if p != "terrain" or decode_id(int(round(poly[0][3][0])))["topograph"] in (0, 31, 58):
+                continue
+            if sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) < 2:
+                continue
+            r = _cell_rect(poly)
+            if r and len(baked_cells_of_rect.get(r[0], ())) <= 1:
+                baked = True
+                break
+        if baked:
+            risks.append("crosses-baked-terrain")
         # THE LATTICE-SEAM LAW (in-game 2026-07-09, the (9,5) z=-352 cut: "stretched"
         # cliff-adjacent water tiles): open water's DEFAULT fill is the UNCLAMPED
         # plan-affine mirror -- between OFF-LATTICE seam verts (a shore-conforming water
