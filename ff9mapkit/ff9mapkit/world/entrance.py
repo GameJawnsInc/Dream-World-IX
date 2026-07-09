@@ -451,9 +451,12 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
                                           world_origin=W.block_world_origin(bx, by))
         n_block = sum(1 for tri in ter.tris
                      if decode_id(int(round(ter.tangents[tri[0]][0])))["topograph"] == 59)
+    # triggers OUTSIDE the building outline (walkable beside it). ORDER MATTERS: the footprint split above
+    # already partitioned every straddling triangle at the hull, so this centroid-based exclusion is EXACT
+    # here by construction -- do not stamp events before the split, or straddlers leak triggers under the wall
     n_tiles = M.retarget_tiles(ter, event=event, area=(the_case if set_tile_area else None),
                                center=at, radius=trigger_radius, world_origin=W.block_world_origin(bx, by),
-                               exclude_polygon=hull)         # triggers OUTSIDE the building outline (walkable beside it)
+                               exclude_polygon=hull)
     summary["tiles_set"] = n_tiles
     summary["footprint_blocked"] = n_block
     summary["pad_flattened"] = n_flat

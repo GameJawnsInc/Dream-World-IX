@@ -107,6 +107,34 @@ def test_original_topo_and_geometry_preserved_outside_hull():
     assert all(0.3 - 1e-6 <= u <= 0.9 + 1e-6 and 0.1 - 1e-6 <= v <= 0.7 + 1e-6 for (u, v) in outside_uvs)
 
 
+def test_event_stamp_after_split_exclusion_is_exact_by_construction():
+    """author_entrance's ORDER -- footprint split FIRST, event stamping (exclude_polygon=hull) SECOND --
+    makes the centroid-based trigger exclusion EXACT with no further change: the split leaves no
+    straddling triangle, so every fragment the stamp sees is wholly in or wholly out of the hull.
+    Composed check on a straddling source triangle: zero event-tile area intersects the hull, and no
+    blocked (topo-59) fragment carries the event."""
+    tri = [[_v(0, 0, 0), _v(10, 0, 0), _v(0, 0, 10)]]
+    bm = M.split_retarget_by_polygon(_soup(tri), SQUARE, topograph=59)
+    n = M.retarget_tiles(bm, event=1, area=5, center=(4.0, 4.0), radius=50.0, exclude_polygon=SQUARE)
+    assert n > 0                                             # fragments beside the building DO get the trigger
+    ev_area_inside = 0.0
+    for t in bm.tris:
+        d = decode_id(int(round(bm.tangents[t[0]][0])))
+        if d["topograph"] == 59:
+            assert d["event"] == 0                           # never a trigger under the building
+            continue
+        if d["event"] != 1:
+            continue
+        poly = [(tuple(bm.verts[i]), NRM, (0.0, 0.0), (0.0, 0.0, 0.0, 0.0)) for i in t]
+        for k in range(len(SQUARE)):                         # true intersection area with the hull
+            poly = M._clip_edge(poly, SQUARE[k], SQUARE[(k + 1) % len(SQUARE)], keep_left=True)
+            if not poly:
+                break
+        if poly:
+            ev_area_inside += M._poly_area2_xz(poly) / 2.0
+    assert ev_area_inside == pytest.approx(0.0, abs=1e-9)
+
+
 def test_object_anchor_footprint_matches_real_terrain_alignment_bug(monkeypatch):
     """Reproduces the exact in-game symptom on a MINIATURE version of the real donor: a big
     real-style terrain triangle whose centroid lands OUTSIDE a small building hull but whose
