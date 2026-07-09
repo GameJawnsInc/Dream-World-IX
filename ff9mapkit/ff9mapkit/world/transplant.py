@@ -554,10 +554,37 @@ class RowInsert:
                 nl = math.sqrt(sum(c * c for c in nm)) or 1.0
                 center = ((pcx, pcy, pcz), tuple(c / nl for c in nm), mu((pcx, pcy, pcz)))
             else:
-                wa = (pa, na, uvf(pa[0], pa[2]))
-                wb = (pb, nb, uvf(pb[0], pb[2]))
-                ea = (pe_a, na, uvf(2 * self.line - pe_a[0], pa[2]))
-                eb = (pe_b, nb, uvf(2 * self.line - pe_b[0], pb[2]))
+                # a WANG transition strip (sea5/sea1: full-u x one v-quarter) is DIRECTIONAL --
+                # the plan-affine mirror reverses its orientation (a tip pointing east becomes
+                # one pointing west = "the sea isn't properly tiled", in-game 2026-07-09).
+                # Real bands repeat their strip along the band with orientation preserved, so
+                # the strip fill is a translate-CLONE clamped into the strip rect. Pure
+                # quadrant bands + the sand apron keep the mirror (proven, avoids repeats).
+                strip_rect = None
+                rct = _cell_rect(owner)
+                if rct is not None:
+                    (ru0, rv0, ru1, rv1) = rct[1]
+                    if ru1 - ru0 > 0.6:
+                        from .water import UFULL, VSTRIP
+                        vmid = (max(0.0, rv0) + min(1.0, rv1)) / 2.0
+                        k = min(range(4), key=lambda i: abs((VSTRIP[i][0] + VSTRIP[i][1]) / 2.0
+                                                            - vmid))
+                        if VSTRIP[k][0] - 0.06 <= vmid <= VSTRIP[k][1] + 0.06:
+                            strip_rect = (UFULL[0], VSTRIP[k][0], UFULL[1], VSTRIP[k][1])
+                if strip_rect is not None:
+                    (su0, sv0, su1, sv1) = strip_rect
+                    def mu(p, uvf=uvf, su0=su0, sv0=sv0, su1=su1, sv1=sv1):
+                        fu, fv = uvf(p[0] - self.delta, p[2])
+                        return (min(su1, max(su0, fu)), min(sv1, max(sv0, fv)))
+                    wa = (pa, na, mu(pa))
+                    wb = (pb, nb, mu(pb))
+                    ea = (pe_a, na, mu(pe_a))
+                    eb = (pe_b, nb, mu(pe_b))
+                else:
+                    wa = (pa, na, uvf(pa[0], pa[2]))
+                    wb = (pb, nb, uvf(pb[0], pb[2]))
+                    ea = (pe_a, na, uvf(2 * self.line - pe_a[0], pa[2]))
+                    eb = (pe_b, nb, uvf(2 * self.line - pe_b[0], pb[2]))
             tris = (((wa, wb, center), (wb, eb, center), (eb, ea, center), (ea, wa, center))
                     if center is not None else ((wa, wb, ea), (eb, ea, wb)))
             for tri in tris:

@@ -573,6 +573,36 @@ def test_cut_census_component_laws(monkeypatch):
     assert "beach-end-on-line" in c96["risks"]
 
 
+def test_row_insert_wang_strip_fill_preserves_orientation():
+    """A Wang transition strip (sea5/sea1) is DIRECTIONAL: the fill must translate-clone the
+    owner (same u-direction, inside the strip rect) -- the old mirror reversed the tile's
+    orientation ('the sea isn't properly tiled', in-game 2026-07-09)."""
+    from ff9mapkit.world.water import UFULL, VSTRIP
+    LINE = 92.0
+    (v0, v1) = VSTRIP[1]
+    def strip_tile(x0, x1):
+        # full-u strip tile, u increasing with x, v spanning strip 1
+        return [[((x0, 0.0, -100.0), (0, 1, 0), (UFULL[0], v0), (228.0, 0, 0, 1)),
+                 ((x1, 0.0, -100.0), (0, 1, 0), (UFULL[1], v0), (228.0, 0, 0, 1)),
+                 ((x1, 0.0, -96.0), (0, 1, 0), (UFULL[1], v1), (228.0, 0, 0, 1))],
+                [((x0, 0.0, -100.0), (0, 1, 0), (UFULL[0], v0), (228.0, 0, 0, 1)),
+                 ((x1, 0.0, -96.0), (0, 1, 0), (UFULL[1], v1), (228.0, 0, 0, 1)),
+                 ((x0, 0.0, -96.0), (0, 1, 0), (UFULL[0], v1), (228.0, 0, 0, 1))]]
+    tw = TR.RowInsert("sea5", line=LINE)
+    for t in strip_tile(88.0, 92.0) + strip_tile(92.0, 96.0):
+        tw.apply("sea5", [tuple(v) for v in t])
+    fill = tw.emit()
+    assert len(fill) == 2
+    for t in fill:
+        vs = [v[2][1] for v in t]
+        assert min(vs) >= v0 - 1e-6 and max(vs) <= v1 + 1e-6      # stays in the strip
+        for a in range(3):
+            for b in range(3):
+                dx = t[b][0][0] - t[a][0][0]
+                if abs(dx) > 1.0:
+                    assert (t[b][2][0] - t[a][2][0]) / dx > 0     # u INCREASES with x, unmirrored
+
+
 def test_chain_row_inserts_cumulative_lines():
     """Callers give donor-frame lines; the helper sorts west-to-east and shifts each later
     cut by every earlier cut's delta (a later tweak sees already-shifted geometry)."""
