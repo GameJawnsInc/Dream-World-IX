@@ -205,6 +205,38 @@ def test_transplant_rot_keeps_sea_normals_rotates_land(monkeypatch):
     assert captured["Sea4"][0][0][1] == NRM                                # sea normal untouched
 
 
+def test_transplant_carries_vertical_wall_tris(monkeypatch):
+    """THE WALL LAW (in-game 2026-07-09, the (9,5) forest island: 'the top renders, the
+    vertical portion doesn't'): real VERTICAL faces -- forest sides, topo-38 -- have ZERO plan
+    area, so the degenerate-sliver filter must test TRUE 3D area, never plan area. A clip
+    sliver (collinear verts) still drops; a wall quad still carries."""
+    wall = [[((100.0, 0.0, -96.0), (0.0, 0.0, 1.0), (0.1, 0.1), (9728.0, 0, 0, 1)),
+             ((104.0, 0.0, -96.0), (0.0, 0.0, 1.0), (0.9, 0.1), (9728.0, 0, 0, 1)),
+             ((104.0, 4.0, -96.0), (0.0, 0.0, 1.0), (0.9, 0.9), (9728.0, 0, 0, 1))],
+            [((100.0, 0.0, -96.0), (0.0, 0.0, 1.0), (0.1, 0.1), (9728.0, 0, 0, 1)),
+             ((104.0, 4.0, -96.0), (0.0, 0.0, 1.0), (0.9, 0.9), (9728.0, 0, 0, 1)),
+             ((100.0, 4.0, -96.0), (0.0, 0.0, 1.0), (0.1, 0.9), (9728.0, 0, 0, 1))]]
+    blocks = _island_donor()
+    blocks[(1, 1, "terrain")] = blocks[(1, 1, "terrain")] + wall
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), dry_run=True,
+                      census_samples=8, land_margin=0.0)
+    assert s["carried"]["terrain"] == 4                      # island quad + BOTH wall tris
+    s2 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1), shift=(0.0, 0.0),
+                              dry_run=True, census_samples=8, land_margin=0.0)
+    assert s2["carried"]["terrain"] == 4
+    # a true LINE sliver (all verts collinear in 3D -- what clipping produces) still drops
+    sliver = [[((10.0, 0.0, -50.0), NRM, (0.5, 0.5), (12800.0, 0, 0, 1)),
+               ((20.0, 0.0, -50.0), NRM, (0.5, 0.5), (12800.0, 0, 0, 1)),
+               ((15.0, 0.0, -50.0), NRM, (0.5, 0.5), (12800.0, 0, 0, 1))]]
+    blocks2 = _island_donor()
+    blocks2[(1, 1, "terrain")] = blocks2[(1, 1, "terrain")] + sliver
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    s3 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), dry_run=True,
+                       census_samples=8, land_margin=0.0)
+    assert s3["carried"]["terrain"] == 2
+
+
 def test_transplant_blanks_fully_clipped_donor_part(monkeypatch):
     blocks = _island_donor()
     # a beach1 sliver hugging the frame edge: survives the plane clips but dies at the
@@ -646,6 +678,222 @@ def test_chained_row_inserts_grow_island_twice(monkeypatch):
     assert census["introduced"] == 0
 
 
+# ---------------------------------------------------------------- transplant_region (multi-cell)
+
+def _capture_deploys(monkeypatch):
+    """Patch the two deploy writers to capture (kind, part, cell, mesh-bytes) tuples."""
+    import json
+    deployed = []
+    monkeypatch.setattr(M, "deploy_override",
+                        lambda bm, **k: deployed.append(("override", k.get("part"), bm.x, bm.y,
+                                                         json.dumps(bm.chan_arrays, sort_keys=True),
+                                                         tuple(bm.flat_index))) or "p")
+    monkeypatch.setattr(M, "deploy_donor_sidecar",
+                        lambda dx, dy, **k: deployed.append(("sidecar", dx, dy, k["x"], k["y"])) or "d")
+    return deployed
+
+
+def _tongue_donor():
+    """Donor (1,1): land reaching the E border + its (2,1) tongue -- the proven island shape."""
+    return {(1, 1, "terrain"): _quad(100.0, 128.0, -104.0, -88.0, y=1.0),
+            (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+            (2, 1, "terrain"): _quad(128.0, 134.0, -104.0, -88.0, y=1.0),
+            (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+
+
+def test_region_1x1_byte_identical_to_transplant(monkeypatch):
+    """THE IDENTITY LAW: a 1x1 region is the single-cell transplant -- deployed mesh bytes and
+    the sidecar must be bit-identical to the in-game-proven transplant() across plain, rotated,
+    shifted and strip-refilled configurations (the island_morph byte-identity discipline)."""
+    blocks = _tongue_donor()
+    blocks[(1, 1, "beach1")] = _quad(98.0, 100.0, -104.0, -88.0, y=0.2, idall=7680.0)
+    for kw in (dict(), dict(rot=90), dict(shift=(-8.0, 0.0)), dict(rot=180)):
+        monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+        d1 = _capture_deploys(monkeypatch)
+        s1 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), census_samples=8,
+                           land_margin=0.0, **kw)
+        got1 = list(d1)
+        d1.clear()
+        s2 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(1, 1),
+                                  census_samples=8, land_margin=0.0, **kw)
+        assert s1["clean"] is True and s2["clean"] is True, (kw, s1["gates"], s2["gates"])
+        assert s1["shift"] == s2["shift"] and got1 == list(d1), kw
+
+
+def test_region_2x1_verbatim_carry(monkeypatch):
+    """The multi-cell unlock: a real 2-block landmass (each block carrying its own half of the
+    land, meeting at the shared border -- real block meshes never straddle their own frame)
+    carried whole to 2 adjacent ocean cells. Each target cell deploys its own overrides + its
+    NATURAL donor sidecar; the census covers both cells; the shared-border weld is exact."""
+    blocks = {(1, 1, "terrain"): _quad(100.0, 128.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (2, 1, "terrain"): _quad(128.0, 150.0, -104.0, -88.0, y=1.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    deployed = _capture_deploys(monkeypatch)
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8, land_margin=2.0)
+    assert s["clean"] is True, s["gates"]
+    assert s["tsize"] == [2, 1] and sorted(s["cells"]) == ["4,2", "5,2"]
+    assert s["cells"]["4,2"]["donor"] == [1, 1] and s["cells"]["5,2"]["donor"] == [2, 1]
+    assert s["cells"]["4,2"]["carried"]["terrain"] == 2 and s["cells"]["5,2"]["carried"]["terrain"] == 2
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0 and census["samples"] > 0
+    kinds = {(d[0], d[3], d[4]) for d in deployed if d[0] == "sidecar"}
+    assert ("sidecar", 4, 2) in kinds and ("sidecar", 5, 2) in kinds
+
+
+def test_region_shift_splits_straddlers_watertight(monkeypatch):
+    """An in-region shift carries tris ACROSS the interior border; the re-partition splits them
+    with bit-identical cut points on both sides (the _split_at_borders law) -- weld audit 0."""
+    blocks = {(1, 1, "terrain"): _quad(100.0, 128.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (2, 1, "terrain"): _quad(128.0, 150.0, -104.0, -88.0, y=1.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0),
+              # W neighbour strip data: opens the +x window so shift +4 refills the W edge...
+              # (tongue law: the window opens where the REGION's own land reaches the border --
+              # it doesn't here, so use explicit strips to keep the fixture small)
+              (0, 1, "sea4"): _quad(0.0, 64.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(4.0, 0.0),
+                             strips=("W",), census_samples=8, dry_run=True, land_margin=0.0)
+    assert s["clean"] is True, s["gates"]
+    # the (2,1) terrain quad now spans x 68..90 region-local: still one cell -- but the (1,1)
+    # sea4 + terrain shifted across x=64? terrain [100,128]+4 -> local [40,68]: STRADDLES.
+    assert s["cells"]["4,2"]["carried"]["terrain"] > 0 and s["cells"]["5,2"]["carried"]["terrain"] > 0
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0
+
+
+def test_region_prefab_parts_gate_and_fallback(monkeypatch):
+    """A target cell carrying a part its natural donor prefab LACKS (RegisterBlockComponent
+    binds by transform name -- the part would silently not render) must fall back to a donor
+    cell with a SUPERSET of parts, or fail the prefab-parts gate."""
+    # (1,1)'s terrain reaches x=150 (a hermetic straddle; real per-block meshes stay in-frame,
+    # but a shift/strip produces the same shape) -- cell (5,2) then carries terrain whose
+    # natural donor (2,1) is sea4-only
+    blocks = {(1, 1, "terrain"): _quad(100.0, 150.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8, dry_run=True, land_margin=0.0)
+    # fallback: (1,1) = {terrain, sea4} hosts cell (5,2)'s {terrain, sea4}; sea4 carried -> no blanks
+    assert next(g for g in s["gates"] if g["gate"] == "prefab-parts")["ok"] is True
+    assert s["cells"]["5,2"]["donor"] == [1, 1] and s["cells"]["5,2"]["blanked"] == []
+    # orphan the need: cell (5,2) now also carries sea3, which only (2,1) has -- so it needs
+    # {terrain, sea3, sea4}: (1,1) lacks sea3, (2,1) lacks terrain -> NO superset -> gate fails
+    blocks[(2, 1, "sea3")] = _quad(128.0, 192.0, -112.0, -64.0, idall=228.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s2 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                              census_samples=8, dry_run=True, land_margin=0.0)
+    g = next(g for g in s2["gates"] if g["gate"] == "prefab-parts")
+    assert g["ok"] is False and s2["clean"] is False
+    assert g["bad"][0]["cell"] == [5, 2] and "terrain" in g["bad"][0]["need"]
+    assert g["bad"][0]["natural"] == [2, 1]
+
+
+def test_region_skips_empty_target_cells(monkeypatch):
+    """A donor rect cell that is pure ocean carries nothing -- its target cell deploys NOTHING
+    (no override, no sidecar) and stays true SeaBlockPrefab ocean; census skips it."""
+    blocks = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    deployed = _capture_deploys(monkeypatch)
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8)
+    assert s["clean"] is True, s["gates"]
+    assert sorted(s["cells"]) == ["4,2"]                      # (5,2) skipped whole
+    assert all(d[2] != 5 for d in deployed if d[0] == "override")
+    assert all(d[3] != 5 for d in deployed if d[0] == "sidecar")
+
+
+def test_region_rot90_swaps_rect_and_maps_sidecars(monkeypatch):
+    """rot 90 turns a 2x1 donor rect into a 1x2 target rect; each target cell's sidecar is the
+    donor cell it maps BACK to through the inverse region transform."""
+    blocks = _tongue_donor()
+    blocks[(2, 1, "terrain")] = _quad(128.0, 140.0, -104.0, -88.0, y=1.0)
+    blocks[(2, 1, "sea4")] = _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), rot=90,
+                             shift=(0.0, 0.0), census_samples=8, dry_run=True, land_margin=0.0,
+                             strips="none")
+    assert s["clean"] is True, s["gates"]
+    assert s["tsize"] == [1, 2] and sorted(s["cells"]) == ["4,2", "4,3"]
+    # under one CCW quarter-turn the region's west donor cell lands in the SOUTH target cell
+    assert s["cells"]["4,3"]["donor"] == [1, 1] and s["cells"]["4,2"]["donor"] == [2, 1]
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+
+
+def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
+    """An OBJECT-bearing donor cell must not be picked as the sidecar for a foreign target cell
+    (its prefab Object would ghost-render there); its own natural cell at identity transform is
+    legitimate (the verbatim carry brings the object along)."""
+    blocks = {(1, 1, "terrain"): _quad(100.0, 150.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              (1, 1, "object"): _quad(104.0, 112.0, -100.0, -92.0, y=2.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8, dry_run=True)
+    # cell (5,2) needs terrain (the straddle): natural (2,1) lacks it; the only superset donor
+    # is (1,1) but it bears an Object -> excluded -> prefab-parts FAILS (no silent ghost)
+    g = next(g for g in s["gates"] if g["gate"] == "prefab-parts")
+    assert g["ok"] is False and g["bad"][0]["cell"] == [5, 2]
+    # identity transform keeps the object cell's own target legitimate: object-anchor ok
+    oa = next(g for g in s["gates"] if g["gate"].startswith("object-anchor"))
+    assert oa["ok"] is True and oa["moved"] is False
+    # a shift moves the ground under the prefab-anchored object -> anchor gate refuses
+    blocks2 = dict(blocks)
+    blocks2[(2, 1, "terrain")] = _quad(128.0, 136.0, -104.0, -88.0, y=1.0)   # E tongue for window
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    s2 = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                              rot=90, census_samples=8, dry_run=True)
+    oa2 = next(g for g in s2["gates"] if g["gate"].startswith("object-anchor"))
+    assert oa2["ok"] is False and oa2["moved"] is True
+
+
+def test_region_census_backmaps_through_the_region_transform(monkeypatch):
+    """Misses backmap through the inverse region transform to the DONOR's per-cell meshes:
+    in-situ donor misses are inherited (clean); a hole the donor never had is introduced."""
+    blocks = {(1, 1, "terrain"): _quad(88.0, 104.0, -104.0, -88.0, y=1.0),
+              (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
+              # donor (2,1) covers only its WEST half -- the east half misses IN SITU
+              (2, 1, "sea4"): _quad(128.0, 160.0, -128.0, -64.0, idall=232.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             census_samples=8, dry_run=True)
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["miss"] > 0 and census["introduced"] == 0
+    assert census["inherited"] == census["miss"] and s["clean"] is True, s["gates"]
+
+
+def test_region_refusals(monkeypatch):
+    blocks = _tongue_donor()
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    with pytest.raises(ValueError, match="size must be"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(0, 1), dry_run=True)
+    with pytest.raises(ValueError, match="donor rect"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(23, 1), size=(2, 1), dry_run=True)
+    with pytest.raises(ValueError, match="target rect"):
+        TR.transplant_region("MOD", cell=(23, 2), donor=(1, 1), size=(2, 1), dry_run=True)
+    # rot 90 swaps the target rect: 1x2 must fit vertically
+    with pytest.raises(ValueError, match="target rect"):
+        TR.transplant_region("MOD", cell=(4, 19), donor=(1, 1), size=(2, 1), rot=90, dry_run=True)
+    # a real block anywhere in the target rect refuses (unless expert-overridden)
+    blocks2 = dict(blocks)
+    blocks2[(5, 2, "terrain")] = _quad(320.0, 384.0, -192.0, -128.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    with pytest.raises(ValueError, match="REAL world block"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), dry_run=True)
+    # an all-ocean donor rect refuses
+    monkeypatch.setattr(TR, "world_tris", _fake_world({}))
+    with pytest.raises(ValueError, match="no block mesh data"):
+        TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), dry_run=True)
+
+
 # ---------------------------------------------------------------- game-data-gated
 
 def _game_ready() -> bool:
@@ -664,3 +912,26 @@ def test_transplant_proven_island_rot90():
     assert s["clean"] is True, s["gates"]
     assert s["strips"] == ["E"] and s["shift"] == [0.0, -8.0]
     assert all(s["carried"][p] > 0 for p in TR.PARTS)
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_transplant_region_2x3_island():
+    """The multi-cell carry configuration (first deployed 2026-07-09): the (9,5)+2x3 cliff
+    island -- the game's ONLY fully-clean multi-block landmass (zero foreign land in its rect,
+    no objects, 4u margin; screened by land-component flood fill over all 260 data blocks) --
+    carried verbatim (identity transform) to the (9,9)+2x3 ocean rect. 5 data cells deploy
+    with natural per-cell donor sidecars, the rect's empty corner cell is skipped, the
+    cross-cell weld audit is 0 and the census introduces no misses."""
+    s = TR.transplant_region("UNUSED", cell=(9, 9), donor=(9, 5), size=(2, 3),
+                             shift=(0.0, 0.0), dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    assert sorted(s["cells"]) == ["10,10", "10,11", "10,9", "9,10", "9,11"]   # (9,9) skipped
+    for key, meta in s["cells"].items():
+        (cx, cy) = (int(v) for v in key.split(","))
+        assert meta["donor"] == [cx, cy - 4]              # natural sidecar, 4 rows north
+        assert meta["carried"]["terrain"] > 0 and meta["carried"]["sea4"] > 0
+    # 917 = 879 flat/sloped + the 38 vertical topo-38 forest-wall tris (the wall law)
+    assert s["carried"]["terrain"] == 917 and s["carried"]["sea4"] == 1993
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0 and census["samples"] == 2880
