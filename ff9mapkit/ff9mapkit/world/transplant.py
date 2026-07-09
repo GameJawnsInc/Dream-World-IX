@@ -298,6 +298,189 @@ class VertexDisplace:
                 "ok": self.applied == self.expected and self.folds == 0}
 
 
+def _quad_of_uv(uv):
+    """Which mains 2x2 quadrant a grass tile's uv sits in (the neighbour-avoid policy's probe)."""
+    return (0 if uv[0] < 0.0654 else 1, 0 if uv[1] < 0.7993 else 1)
+
+
+def _h01(x: float, z: float) -> float:
+    """Deterministic position hash (the shader-style frac(sin) convention -- resume-safe)."""
+    s = math.sin(x * 12.9898 + z * 78.233) * 43758.5453
+    return s - math.floor(s)
+
+
+def _affine_uv(poly):
+    """Plan-affine (u,v) field from a tri's first 3 verts -- exact at its verts. Only valid
+    where the real mapping IS plan-affine (flat lattice tiles); steep faces and
+    handedness-bearing families need their decoded vocabulary instead."""
+    (p0, p1, p2) = [poly[i][0] for i in range(3)]
+    (t0, t1, t2) = [poly[i][2] for i in range(3)]
+    d = (p1[0] - p0[0]) * (p2[2] - p0[2]) - (p2[0] - p0[0]) * (p1[2] - p0[2])
+    if abs(d) < 1e-9:
+        return lambda x, z: tuple(t0)
+    def f(x, z):
+        w1 = ((x - p0[0]) * (p2[2] - p0[2]) - (p2[0] - p0[0]) * (z - p0[2])) / d
+        w2 = ((p1[0] - p0[0]) * (z - p0[2]) - (x - p0[0]) * (p1[2] - p0[2])) / d
+        w0 = 1.0 - w1 - w2
+        return (w0 * t0[0] + w1 * t1[0] + w2 * t2[0], w0 * t0[1] + w1 * t1[1] + w2 * t2[1])
+    return f
+
+
+class RowInsert:
+    """Tweak class 4 -- the GROWTH SEED (structural; in-game proven 2026-07-08: the (9,17)
+    island grown by one lattice column, measured +4u between landmarks, seam invisible).
+
+    Insert a whole ``delta``-unit lattice column at donor-frame plane ``x = line``: every tri
+    whose centroid lies east of the line shifts ``+delta`` (soups are unindexed, so
+    shared-position verts split per tri -- everything east, junction assemblies included,
+    moves INTACT with zero surgery), and the vacated gap is filled by an EXTRUSION of the
+    seam profile: seam verts are collected from BOTH halves' tris on the line, z-ordered and
+    paired into quads whose west edge = the exact seam verts and east edge = the same verts
+    ``+delta`` -- bit-identical welds to both halves BY IDENTITY (no interpolation, no hand
+    geometry). Pick ``line`` with a crossing census: it must cross ZERO shore-conforming
+    structures (lattice lines through grass/lip/open water qualify; never through a beach).
+    For a z-axis insertion, rotate the transplant 90 degrees instead -- ``line`` is x-only.
+
+    Fill UVs are per structure class (the in-game-proven laws): topo-58 cliff = the decoded
+    rock vocabulary (a u-mirror of the west owner -- "both senses used" is real -- with V
+    riding each vert's height, never plan-affine); topo-0 grass = real mains language
+    (neighbour-aware quadrant choice avoiding the ACTUAL west/east tiles + the previous cell,
+    one handedness) plus a RELIEF centre vert per quad (a +-0.2u deterministic hash, the
+    measured real 4u-neighbour roll; the quad boundary -- every weld -- stays bit-exact);
+    everything else (flat water/apron tiles) = the plan-affine mirror, exact there.
+
+    One instance per PART (the tweak protocol emits per part):
+    ``tweaks=[RowInsert(p, line=608.0) for p in PARTS]``."""
+
+    def __init__(self, part: str, *, line: float, delta: float = 4.0, eps: float = 1e-4,
+                 relief: float = 0.4, seed: int = 0xF95):
+        self.part = part
+        self.line = float(line)
+        self.delta = float(delta)
+        self.eps = float(eps)
+        self.relief = float(relief)
+        self.seed = int(seed)
+        self.shifted = 0
+        self.kept = 0
+        self.seam: dict = {}              # rounded pos -> exact (pos, nrm)
+        self.west_edges: list = []        # (vert_a, vert_b, owner_poly) from WEST tris
+        self.east_grass_q: dict = {}      # cell_z -> the shifted east grass tile's quadrant
+        self.emitted = 0
+
+    def _key(self, p):
+        return (round(p[0], 4), round(p[1], 4), round(p[2], 4))
+
+    def apply(self, part: str, poly):
+        if part != self.part:
+            return poly
+        from .extract import decode_id
+        cx = sum(v[0][0] for v in poly) / len(poly)
+        on_line = [v for v in poly if abs(v[0][0] - self.line) <= self.eps]
+        if cx > self.line:
+            self.shifted += 1
+            for v in on_line:             # the shifted half's seam verts (pre-shift positions)
+                self.seam.setdefault(self._key(v[0]), (v[0], v[1]))
+            if on_line and decode_id(int(round(poly[0][3][0])))["topograph"] == 0:
+                cz = math.floor((sum(v[0][2] for v in poly) / len(poly)) / 4.0)
+                self.east_grass_q.setdefault(cz, _quad_of_uv(poly[0][2]))
+            return [((p[0] + self.delta, p[1], p[2]), n, uv, tan) for (p, n, uv, tan) in poly]
+        self.kept += 1
+        for v in on_line:
+            self.seam.setdefault(self._key(v[0]), (v[0], v[1]))
+        if len(on_line) >= 2:
+            self.west_edges.append((on_line[0], on_line[1], poly))
+        return poly
+
+    def _owner(self, zmid):
+        best = None
+        for (a, b, poly) in self.west_edges:
+            z0, z1 = sorted((a[0][2], b[0][2]))
+            if z0 - 0.05 <= zmid <= z1 + 0.05:
+                span = z1 - z0
+                if best is None or span < best[0]:
+                    best = (span, poly)
+        return best[1] if best else None
+
+    def emit(self) -> list:
+        if not self.seam:
+            return []
+        import random
+        from . import grassland as G
+        from .extract import decode_id
+        rng = random.Random(self.seed)
+        pts = sorted(self.seam.values(), key=lambda pn: pn[0][2])
+        cell_x = math.floor((self.line + self.delta / 2.0) / 4.0)
+        cell_quad, cell_ori = {}, {}
+        prev = None
+        for (pa, na), (pb, nb) in zip(pts, pts[1:]):
+            owner = self._owner((pa[2] + pb[2]) / 2.0)
+            if owner is None or decode_id(int(round(owner[0][3][0])))["topograph"] != 0:
+                continue
+            cell = (cell_x, math.floor(((pa[2] + pb[2]) / 2.0) / 4.0))
+            if cell in cell_quad:
+                continue
+            avoid = {_quad_of_uv(owner[0][2]), self.east_grass_q.get(cell[1]), prev}
+            choices = [q for q in ((0, 0), (0, 1), (1, 0), (1, 1)) if q not in avoid]
+            cell_quad[cell] = choices[rng.randrange(len(choices))]
+            cell_ori[cell] = (0, 90, 180, 270)[rng.randrange(4)]
+            prev = cell_quad[cell]
+
+        out = []
+        for (pa, na), (pb, nb) in zip(pts, pts[1:]):
+            if abs(pb[2] - pa[2]) < 0.05:
+                continue                  # coincident-z duplicates (a wall seam) -- nothing to fill
+            owner = self._owner((pa[2] + pb[2]) / 2.0)
+            if owner is None:
+                continue                  # no west tile spans this z-range
+            uvf = _affine_uv(owner)
+            idall = owner[0][3]
+            topo = decode_id(int(round(idall[0])))["topograph"]
+            pe_a = (pa[0] + self.delta, pa[1], pa[2])
+            pe_b = (pb[0] + self.delta, pb[1], pb[2])
+            center = None
+            cell = (cell_x, math.floor(((pa[2] + pb[2]) / 2.0) / 4.0))
+            if topo == 58:
+                far = max((v for v in owner), key=lambda v: abs(v[0][0] - self.line))
+                u_far = far[2][0]
+                wa = (pa, na, uvf(pa[0], pa[2]))
+                wb = (pb, nb, uvf(pb[0], pb[2]))
+                ea = (pe_a, na, (u_far, wa[2][1]))
+                eb = (pe_b, nb, (u_far, wb[2][1]))
+            elif topo == 0 and cell in cell_quad:
+                quad, ori = cell_quad[cell], cell_ori[cell]
+                mu = lambda p: tuple(G.mains_uv(p[0], p[2], cell, quad, ori))
+                wa = (pa, na, mu(pa))
+                wb = (pb, nb, mu(pb))
+                ea = (pe_a, na, mu(pe_a))
+                eb = (pe_b, nb, mu(pe_b))
+                pcx, pcz = self.line + self.delta / 2.0, (pa[2] + pb[2]) / 2.0
+                pcy = (pa[1] + pb[1]) / 2.0 + (_h01(pcx, pcz) - 0.5) * self.relief
+                nm = tuple((a + b) / 2.0 for a, b in zip(na, nb))
+                nl = math.sqrt(sum(c * c for c in nm)) or 1.0
+                center = ((pcx, pcy, pcz), tuple(c / nl for c in nm), mu((pcx, pcy, pcz)))
+            else:
+                wa = (pa, na, uvf(pa[0], pa[2]))
+                wb = (pb, nb, uvf(pb[0], pb[2]))
+                ea = (pe_a, na, uvf(2 * self.line - pe_a[0], pa[2]))
+                eb = (pe_b, nb, uvf(2 * self.line - pe_b[0], pb[2]))
+            tris = (((wa, wb, center), (wb, eb, center), (eb, ea, center), (ea, wa, center))
+                    if center is not None else ((wa, wb, ea), (eb, ea, wb)))
+            for tri in tris:
+                t3 = [(p, n, uv, tuple(idall)) for (p, n, uv) in tri]
+                ux, uz = t3[1][0][0] - t3[0][0][0], t3[1][0][2] - t3[0][0][2]
+                vx, vz = t3[2][0][0] - t3[0][0][0], t3[2][0][2] - t3[0][0][2]
+                if uz * vx - ux * vz <= 0:                     # enforce up-facing winding
+                    t3 = [t3[0], t3[2], t3[1]]
+                out.append(t3)
+                self.emitted += 1
+        return out
+
+    def gate(self) -> dict:
+        return {"gate": f"rowinsert[{self.part}]", "shifted": self.shifted,
+                "emitted": self.emitted,
+                "ok": self.shifted == 0 or self.kept == 0 or self.emitted > 0}
+
+
 def _soup_block_mesh(name: str, cell, tris, *, disc: int, lod: str) -> BlockMesh:
     """A BlockMesh from (pos, nrm, uv, tan) triangles in the block-LOCAL frame -- fresh verts per
     tri (unindexed, matching the stock world blocks), all four channels carried."""

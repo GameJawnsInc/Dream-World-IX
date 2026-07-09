@@ -530,7 +530,12 @@ footprint with corner verts CAPTURED bit-exact from the dropped tris (the proven
 hand-type geometry: real donor verts are off-lattice floats, and any rounded coordinate renders as a hairline crack.
 ★ IN-GAME PROVEN 2026-07-08: the (7,17)+(8,17) island at cell (4,2), rotated 90°, auto-shifted (0,−8), de-quested +
 beach-shrunk — indistinguishable from the game's own coast ("that's it"); the kit build is byte-identical to the
-proven artifact, per part. **Requires the custom engine (s34 + `Donor.txt`); RELAUNCH.**
+proven artifact, per part. Two further library tweak classes are in-game proven on transplants: `VertexDisplace`
+(weld-preserving geometric vertex moves — a fine-adjustment tool, ~±2.5u envelope) and `RowInsert` (the GROWTH seed,
+★ 2026-07-08: a whole 4u lattice column inserted at a crossing-census-clean cut line — split-shift + a seam-profile
+extrusion whose welds are bit-exact by identity, with per-class UV fill [cliff vocabulary / neighbour-aware mains +
+relief / plan-affine mirror]; the island measurably grows +4u, seam invisible). **Requires the custom engine (s34 +
+`Donor.txt`); RELAUNCH.**
 
 ### Custom graded OCEAN water — `world-water` (synthesize open water from scratch, validated 17/17 tile-shape, ★ in-game "looks good" 2026-07-05)
 

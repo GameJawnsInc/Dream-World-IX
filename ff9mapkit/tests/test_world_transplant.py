@@ -376,6 +376,70 @@ def test_transplant_runs_tweaks_and_gates_their_scope(monkeypatch):
     assert next(g for g in s2["gates"] if g["gate"] == "retile[terrain]")["ok"] is False
 
 
+def test_row_insert_grows_island_with_bitexact_welds(monkeypatch):
+    """The growth seed (in-game proven 2026-07-08): split-shift at a lattice line + seam-profile
+    extrusion -- welds bit-exact by identity, per-class UV fill, the island grows by delta."""
+    LINE = 92.0
+    blocks = {
+        # two grass tiles astride the cut line (topo 0 -> mains fill + relief center)
+        (1, 1, "terrain"): (_quad(88.0, 92.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.03, 0.78))
+                            + _quad(92.0, 96.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.09, 0.81))),
+        # sea4 as two lattice slabs meeting exactly ON the line (mirror-affine fill)
+        (1, 1, "sea4"): (_quad(64.0, 92.0, -128.0, -64.0, idall=232.0)
+                         + _quad(92.0, 128.0, -128.0, -64.0, idall=232.0)),
+    }
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    tweaks = [TR.RowInsert(p, line=LINE) for p in TR.PARTS]
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), land_margin=0.0,
+                      tweaks=tweaks, dry_run=True, census_samples=8)
+    assert s["clean"] is True, s["gates"]
+    tw = {t.part: t for t in tweaks}
+    # terrain: 2 tris kept, 2 shifted, grass fill = a 4-tri relief fan
+    assert tw["terrain"].kept == 2 and tw["terrain"].shifted == 2 and tw["terrain"].emitted == 4
+    assert tw["sea4"].emitted == 2                          # flat mirror fill
+    assert s["carried"]["terrain"] == 8
+    # the island grew by exactly delta: the east grass tile now ends at 96+4 -> local 36
+    lf = next(g for g in s["gates"] if g["gate"] == "land-fit")
+    assert lf["bbox"][1] == pytest.approx(36.0)
+    # weld audit already gated inside transplant (bit-exact-by-identity) -- assert it explicitly
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+
+
+def test_row_insert_grass_fill_speaks_the_mains_language(monkeypatch):
+    LINE = 92.0
+    blocks = {
+        (1, 1, "terrain"): (_quad(88.0, 92.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.03, 0.78))
+                            + _quad(92.0, 96.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.09, 0.81))),
+        (1, 1, "sea4"): (_quad(64.0, 92.0, -128.0, -64.0, idall=232.0)
+                         + _quad(92.0, 128.0, -128.0, -64.0, idall=232.0)),
+    }
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    tw = TR.RowInsert("terrain", line=LINE)
+    for t in blocks[(1, 1, "terrain")]:
+        tw.apply("terrain", [tuple(v) for v in t])
+    fill = tw.emit()
+    assert len(fill) == 4                                   # the relief fan
+    from ff9mapkit.world.grassland import GRASS_U_HALF, GRASS_V_HALF
+    u_all = [v[2][0] for t in fill for v in t]
+    v_all = [v[2][1] for t in fill for v in t]
+    assert min(u_all) >= GRASS_U_HALF[0][0] - 0.16 and max(u_all) <= GRASS_U_HALF[1][1] + 0.16
+    assert min(v_all) >= GRASS_V_HALF[0][0] - 0.16 and max(v_all) <= GRASS_V_HALF[1][1] + 0.16
+    # the chosen quadrant avoids BOTH real neighbours ((0,0) west, (1,1) east)
+    picked = {_uv_quad(v[2]) for t in fill for v in t if abs(v[0][0] - 94.0) > 1.5}
+    # boundary verts may bleed; probe the fan centre vert instead
+    centre = [v for t in fill for v in t if abs(v[0][0] - 94.0) < 0.5]
+    assert centre and _uv_quad(centre[0][2]) not in {(0, 0), (1, 1)}
+    # every fill tri is up-facing (winding enforced at emit)
+    for t in fill:
+        ux, uz = t[1][0][0] - t[0][0][0], t[1][0][2] - t[0][0][2]
+        vx, vz = t[2][0][0] - t[0][0][0], t[2][0][2] - t[0][0][2]
+        assert uz * vx - ux * vz > 0
+
+
+def _uv_quad(uv):
+    return (0 if uv[0] < 0.0654 else 1, 0 if uv[1] < 0.7993 else 1)
+
+
 # ---------------------------------------------------------------- game-data-gated
 
 def _game_ready() -> bool:
