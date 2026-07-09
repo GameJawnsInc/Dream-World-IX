@@ -394,6 +394,76 @@ def _strip_rect(poly):
     return None
 
 
+#: THE LEARNED WANG TABLE (byte-learned 2026-07-09, the band-crossing re-Wang study): a real
+#: Wang transition tile's (v-strip index, dihedral orientation) <-> its DEEP-EDGE-SET, in the
+#: KIT'S OWN tile-decode frame (fx = 0 at min-x, fz = 0 at min-z of the 4u cell; orientation
+#: names = water.py's OMAPS rotations composed with an optional rect-u flip "+f"). Learned by
+#: constraint intersection over 221 real sea5/sea1 tiles across 10 blocks: ZERO contradictions,
+#: every sea5 key pins to EXACTLY ONE edge-set, and sea1's observations all match sea5's values
+#: (sea1 = the same language one rung down, confirming the island_morph v2 finding). This is
+#: the empirical mapping -- shipped in the decode frame rather than derived through water.py's
+#: synthesis conventions, because a frame-convention mismatch is exactly what a derivation
+#: would silently get wrong (the study's pass-1 lesson). The determinism (a strip tile is a
+#: PURE FUNCTION of which neighbours sit on the deeper band, no hidden state) is the soundness
+#: license for RE-DERIVING tiles after a structural edit instead of copying them.
+STRIP_EDGESET = {
+    (0, "r0+f"): frozenset("W"), (0, "r90+f"): frozenset("S"),
+    (0, "r180+f"): frozenset("E"), (0, "r270+f"): frozenset("N"),
+    (1, "r0+f"): frozenset("NW"), (1, "r90+f"): frozenset("SW"),
+    (1, "r180+f"): frozenset("ES"), (1, "r270+f"): frozenset("EN"),
+    (2, "r0+f"): frozenset("NSW"), (2, "r90+f"): frozenset("ESW"),
+    (2, "r180+f"): frozenset("ENS"), (2, "r270+f"): frozenset("ENW"),
+    (3, "r0+f"): frozenset("SW"), (3, "r90+f"): frozenset("ES"),
+    (3, "r180+f"): frozenset("EN"), (3, "r270+f"): frozenset("NW"),
+}
+#: deep-edge-set -> [(strip, orientation), ...] (corner sets have the two byte-observed
+#: seam-variants, matching DEEPSET2TILE's variant structure).
+EDGESET2STRIP: dict = {}
+for _k, _es in STRIP_EDGESET.items():
+    EDGESET2STRIP.setdefault(_es, []).append(_k)
+
+
+def _dih_maps():
+    """The kit-frame dihedral-8 orientation maps ``(fx, fz) -> (a, b)`` (rect position):
+    water.py's 4 rotations + each composed with a rect-u flip (``+f``)."""
+    from .water import OMAPS
+    maps = dict(OMAPS)
+    for rname, m in list(OMAPS.items()):
+        maps[rname + "+f"] = (lambda mm: (lambda fx, fz:
+                              ((lambda ab: (1 - ab[0], ab[1]))(mm(fx, fz)))))(m)
+    return maps
+
+
+def strip_edge_set(poly, *, eps: float = 0.04):
+    """Decode a lattice Wang-strip tile's DEEP-EDGE-SET from its corner UVs (the
+    :data:`STRIP_EDGESET` inverse decode): match the tile's ``(fx, fz) -> uv`` mapping
+    against the 8 dihedral placements of each of the 4 v-strips and look the winner up in
+    the learned table. Returns the ``frozenset`` of deep edges, or ``None`` for a
+    non-strip / non-lattice / unmatched tile."""
+    from .water import UFULL, VSTRIP
+    n = len(poly)
+    cx = 4.0 * math.floor(sum(v[0][0] for v in poly) / n / 4.0)
+    cz = 4.0 * math.floor(sum(v[0][2] for v in poly) / n / 4.0)
+    uvf = _affine_uv(poly)
+    corners = {}
+    for fx in (0, 1):
+        for fz in (0, 1):
+            corners[(fx, fz)] = uvf(cx + 4.0 * fx, cz + 4.0 * fz)
+    best = None
+    for k in range(4):
+        (u0, u1), (v0, v1) = UFULL, VSTRIP[k]
+        for oname, om in _dih_maps().items():
+            err = 0.0
+            for (fx, fz), (u, v) in corners.items():
+                a, b = om(fx, fz)
+                err = max(err, abs(u0 + a * (u1 - u0) - u), abs(v0 + b * (v1 - v0) - v))
+            if best is None or err < best[2]:
+                best = (k, oname, err)
+    if best is None or best[2] > eps:
+        return None
+    return STRIP_EDGESET.get((best[0], best[1]))
+
+
 class RowInsert:
     """Tweak class 4 -- the GROWTH SEED (structural; in-game proven 2026-07-08: the (9,17)
     island grown by one lattice column, measured +4u between landmarks, seam invisible).

@@ -1560,6 +1560,56 @@ def test_cut_census_spill_certification_hermetic(monkeypatch):
     assert cen2[72.0]["spill_clips"] == []
 
 
+def test_learned_wang_table_validates_on_real_bytes():
+    """THE LEARNED WANG TABLE (band-crossing re-Wang step 1, 2026-07-09): a real Wang strip
+    tile is a PURE FUNCTION of which neighbours sit on the deeper band -- byte-learned over
+    221 tiles / 10 blocks with ZERO contradictions. Assert it live on two real blocks: every
+    decodable lattice sea5/sea1 tile's learned edge-set is consistent with its pure-band
+    neighbours (deep exactly toward the deeper band, never toward the shallower), and the
+    decode itself succeeds on >=80% of strip tiles (the rest are shore-conforming
+    subdivided geometry, legitimately non-lattice)."""
+    import collections
+    import math as _m
+    deep_of = {"sea5": "sea4", "sea1": "sea3"}
+    shal_of = {"sea5": "sea3", "sea1": "sea2"}
+
+    def cells_of(tris):
+        out = {}
+        for t in tris:
+            xs = [v[0][0] for v in t]
+            zs = [v[0][2] for v in t]
+            if not all(abs(c / 4.0 - round(c / 4.0)) < 2.5e-4 for c in xs + zs) \
+                    or max(xs) - min(xs) > 4.0 + 1e-4 or max(zs) - min(zs) > 4.0 + 1e-4:
+                continue
+            out.setdefault((_m.floor(round(min(xs)) / 4.0), _m.floor(round(min(zs)) / 4.0)),
+                           []).append(t)
+        return out
+
+    for (bx, by) in ((8, 4), (7, 17)):
+        occ = {}
+        for nx in range(bx - 1, bx + 2):
+            for ny in range(by - 1, by + 2):
+                for p in ("sea1", "sea2", "sea3", "sea5", "sea4"):
+                    for c in cells_of(list(TR.world_tris(nx, ny, p))):
+                        occ.setdefault(c, p)
+        checked = decoded = 0
+        for part in ("sea5", "sea1"):
+            for (cx, cz), tris in cells_of(list(TR.world_tris(bx, by, part))).items():
+                checked += 1
+                es = TR.strip_edge_set(tris[0])
+                if es is None:
+                    continue
+                decoded += 1
+                for (d, (dx, dz)) in (("E", (1, 0)), ("W", (-1, 0)),
+                                      ("N", (0, 1)), ("S", (0, -1))):
+                    nb = occ.get((cx + dx, cz + dz))
+                    if nb == deep_of[part]:
+                        assert d in es, (bx, by, part, cx, cz, d, sorted(es))
+                    elif nb == shal_of[part]:
+                        assert d not in es, (bx, by, part, cx, cz, d, sorted(es))
+        assert checked > 0 and decoded >= 0.8 * checked, (bx, by, checked, decoded)
+
+
 def test_second_donor_screen_10_17_carryable_and_slide_growable():
     """SECOND-DONOR SCREEN (2026-07-09) + THE SPILLS-INTO-EMPTY KILL (same day): a
     slide-window scan (margin>=2u, sizes 2x2..4x4) over every data-bearing block found
