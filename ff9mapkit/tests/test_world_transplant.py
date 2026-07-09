@@ -1010,13 +1010,18 @@ def test_transplant_region_2x3_island():
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_region_growth_cut_config():
-    """The first REGION growth cut (deployed 2026-07-09): the (9,5)+2x3 census finds exactly
-    ONE clean line -- 672 (every line at-or-west of the empty corner cell's border x=640 is
-    gap-vacation) -- and the cut there gates clean: fills emitted across the region, misses
-    all inherited via the tweak-inverted backmap, the only weld pair a benign frame T-junction."""
+    """The first REGION growth cut attempt (2026-07-09, in-game FAILED and reverted): on the
+    (9,5)+2x3 rect every line at-or-west of the empty corner's border x=640 is gap-vacation,
+    and the one structurally-clean line -- 672 -- crosses the 26.5u MOUNTAIN, which the fill
+    extrusion cannot faithfully cross ("seaming errors on both sides of the mountain") -- now
+    the `crosses-relief` law, so this rect has ZERO usable growth lines. The mechanics gates
+    themselves stay green on the 672 config (fills across the region, tweak-inverted backmap,
+    the single weld pair a benign frame T-junction) -- kept as the region-cut mechanics
+    regression; the LAW is what rejects it."""
     cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3))}
-    assert [l for l, c in cen.items() if c["ok"]] == [672.0]
+    assert [l for l, c in cen.items() if c["ok"]] == []
     assert "gap-vacation" in cen[640.0]["risks"] and "gap-vacation" in cen[592.0]["risks"]
+    assert "crosses-relief" in cen[672.0]["risks"] and "crosses-relief" in cen[640.0]["risks"]
     s = TR.transplant_region("UNUSED", cell=(11, 1), donor=(9, 5), size=(2, 3),
                              shift=(0.0, 0.0), tweaks=TR.chain_row_inserts([672.0]),
                              land_margin=0.0, dry_run=True)
@@ -1027,3 +1032,15 @@ def test_region_growth_cut_config():
     assert weld["pairs"] == 0 and weld["frame_pairs"] == 1
     census = next(g for g in s["gates"] if g["gate"] == "census")
     assert census["inherited"] == 2 and census["introduced"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_cut_census_relief_law_spares_proven_lines():
+    """The relief threshold must NOT disqualify the in-game-proven single-cell cuts (their
+    on-line land y-spans measured <= 3.5u vs the mountain's 26.5u). It DOES flag this donor's
+    never-cut 7u headland line 1028 -- conservative, never falsified there."""
+    cen = {c["line"]: c for c in TR.cut_census((16, 17))}
+    assert cen[1056.0]["ok"] is True and cen[1060.0]["ok"] is True
+    assert "crosses-relief" not in cen[1056.0]["risks"]
+    assert "crosses-relief" not in cen[1060.0]["risks"]
+    assert "crosses-relief" in cen[1028.0]["risks"]

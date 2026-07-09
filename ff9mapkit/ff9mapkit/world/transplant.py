@@ -41,6 +41,11 @@ PARTS = ("terrain", "beach1", "sea1", "sea2", "sea3", "sea5", "sea4")
 #: uniform byte-constant shared by every tile regardless of tile rotation -- they stay).
 LAND_PARTS = frozenset({"terrain", "beach1"})
 FRAME_EPS = 0.05                     # bounds-gate tolerance at the cell frame planes
+MAX_CUT_RELIEF = 6.0                 # cut-line law: max on-line LAND y-span a RowInsert may cross
+#   (in-game 2026-07-09, the (9,5) mountain: a cut's fill is the seam profile extruded 4u -- through
+#   STEEP relief that is a flat terrace band + skipped-segment holes, "seaming errors on both sides
+#   of the mountain". Proven cuts crossed <= 3.5u (grass/sand/coastal-cliff lip); the mountain was
+#   26.5u. High relief is a COMPONENT, like the beach: cut around it, never through.)
 MIN_TRI_AREA2 = 0.02                 # post-clip degenerate-sliver filter (2x the TRUE 3D area:
 #   a clip sliver's verts are collinear in 3D, but a real VERTICAL wall tri -- forest sides,
 #   topo-38, the (9,5) island -- has ZERO PLAN area and real 3D area; a plan-area test silently
@@ -750,6 +755,14 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                     and sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) >= 2
                     for (p, poly) in polys)
         risks = []
+        # the RELIEF law: a cut's fill is the seam profile extruded delta-wide -- through steep
+        # relief that is a terrace band + holes. Gate the on-line LAND y-span (proven <= 3.5u).
+        on_ys = []
+        for (p, poly) in polys:
+            if p in LAND_PARTS and sum(1 for w in poly if abs(w[0][0] - line) <= 1e-4) >= 2:
+                on_ys.extend(v[0][1] for v in poly)
+        if on_ys and max(on_ys) - min(on_ys) > MAX_CUT_RELIEF:
+            risks.append("crosses-relief")
         fw = sum(1 for t in foam if max(v[0][0] for v in t) <= line + 1e-4)
         fe = sum(1 for t in foam if min(v[0][0] for v in t) >= line - 1e-4)
         if foam and fw and fe:
