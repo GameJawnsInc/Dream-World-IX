@@ -46,10 +46,15 @@ MAX_CUT_RELIEF = 6.0                 # cut-line law: max on-line LAND y-span a R
 #   STEEP relief that is a flat terrace band + skipped-segment holes, "seaming errors on both sides
 #   of the mountain". Proven cuts crossed <= 3.5u (grass/sand/coastal-cliff lip); the mountain was
 #   26.5u. High relief is a COMPONENT, like the beach: cut around it, never through.)
-MIN_TRI_AREA2 = 0.02                 # post-clip degenerate-sliver filter (2x the TRUE 3D area:
+MIN_TRI_AREA2 = 1e-6                 # post-clip degenerate-sliver filter (2x the TRUE 3D area:
 #   a clip sliver's verts are collinear in 3D, but a real VERTICAL wall tri -- forest sides,
 #   topo-38, the (9,5) island -- has ZERO PLAN area and real 3D area; a plan-area test silently
-#   drops it ("the top renders, the vertical portion doesn't", in-game 2026-07-09))
+#   drops it ("the top renders, the vertical portion doesn't", in-game 2026-07-09)).
+#   THE HAIRLINE LAW (in-game 2026-07-09, the (0,4) z-slide: "a seam in the cliff" at a row
+#   border): a shifted off-lattice vert 0.004u from a re-partition plane makes the clip mint a
+#   THIN-BUT-REAL fragment; the old 0.02 threshold dropped it = a hairline coverage hole along
+#   the border (the proven x-slide survived only because ITS fragments were ~0.02u wide). True
+#   collinear clip degenerates measure ~1e-9; real hairline fragments are surface and carry.
 PROVEN_DONOR = (7, 17)               # the in-game-proven beach island (E tongue in (8,17))
 #: The synthesizable OPEN-WATER tile languages (world-water-proven). Shore-bound bands
 #: (beach1/sea1/sea2) are COPY-ONLY components; these three are fair game for fills.
@@ -851,6 +856,11 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
       2026-07-09); treat it as a component and cut around it.
     - ``displaces-object-ground``: the donor has a prefab-anchored Object whose footprint
       lies east of the line (its ground would shift under the static object).
+    - ``conforming-on-line``: an open-water part has an OFF-LATTICE vert ON the line -- a
+      shore-conforming water tile touches it, and the water fill's unclamped plan-affine
+      mirror extrapolates between off-lattice seam verts (wrapped-atlas "stretched" tiles,
+      in-game 2026-07-09). Terrain off-lattice verts stay legal (those fill families are
+      position-generated or clamped).
     - ``gap-vacation`` / ``spills-into-empty``: the EMPTY-CELL laws (a region cut's shift
       is global but the seam extrusion fills only at its planes). ``gap-vacation`` -- an
       empty cell's east-neighbour data slides off their shared border -- is now flagged
@@ -933,8 +943,10 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         patches.append(comp)
     # the boundary WATER-SAFETY scan (the multi-boundary extrusion's certification): an
     # empty cell's east border is FILLABLE iff every on-plane edge inside the empty row's
-    # z-window speaks open water -- the languages the boundary fill is proven in. Any
-    # land/beach/shallow edge there makes the gap unfillable (gap-vacation stands).
+    # z-window speaks open water -- the languages the boundary fill is proven in -- AND its
+    # on-plane verts sit on the 4u lattice along the plane (the lattice-seam law below:
+    # the mirror fill extrapolates between off-lattice seam verts). Any land/beach/shallow
+    # edge or off-lattice vert there makes the gap unfillable (gap-vacation stands).
     bnd_info: dict = {}
     for (ci, cj), has in cell_has_data.items():
         if has or not cell_has_data.get((ci + 1, cj)):
@@ -942,15 +954,21 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         plane = 64.0 * (dbx + ci + 1)
         z0, z1 = -64.0 * (dby + cj + 1), -64.0 * (dby + cj)
         onb_parts = set()
+        onb_lattice = True
         for (p, poly) in polys:
             onb = [v for v in poly if abs(v[0][0] - plane) <= 1e-4]
-            if len(onb) < 2:
+            if not onb:
                 continue
             zm = sum(v[0][2] for v in onb) / len(onb)
-            if z0 - 1e-4 <= zm <= z1 + 1e-4:
+            if not (z0 - 1e-4 <= zm <= z1 + 1e-4):
+                continue
+            if len(onb) >= 2:
                 onb_parts.add(p)
+            if any(abs(v[0][2] / 4.0 - round(v[0][2] / 4.0)) > 2.5e-4 for v in onb):
+                onb_lattice = False
         bnd_info[(ci, cj)] = {"plane": plane, "z": (z0, z1),
-                              "safe": bool(onb_parts) and onb_parts <= OPEN_WATER_PARTS}
+                              "safe": bool(onb_parts) and onb_parts <= OPEN_WATER_PARTS
+                              and onb_lattice}
     out = []
     for i in range(1, 16 * rnx):
         line = x0 + 4.0 * i
@@ -993,6 +1011,24 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         if any(any(4.0 * c[0] + 4.0 <= line + 1e-6 for c in comp)
                and any(4.0 * c[0] >= line - 1e-6 for c in comp) for comp in patches):
             risks.append("crosses-wash")
+        # THE LATTICE-SEAM LAW (in-game 2026-07-09, the (9,5) z=-352 cut: "stretched"
+        # cliff-adjacent water tiles): open water's DEFAULT fill is the UNCLAMPED
+        # plan-affine mirror -- between OFF-LATTICE seam verts (a shore-conforming water
+        # tile touching the line) it extrapolates outside the owner tile and wraps the
+        # atlas. An off-lattice on-line vert in an open-water part INSIDE the region frame
+        # = shore-conforming geometry ON the line = a component crossing (a strip vert
+        # beyond the frame is excluded -- its fills clip away at the frame). Terrain
+        # off-lattice verts stay legal (grass/rock/wash fills are position-generated or
+        # clamped -- the proven (16,17) 1060 cut; conservative: 1056's shore-contact
+        # water now flags).
+        zr0, zr1 = -64.0 * (dby + rny), -64.0 * dby
+        if any(p in OPEN_WATER_PARTS
+               and any(abs(v[0][0] - line) <= 1e-4
+                       and zr0 - 1e-4 <= v[0][2] <= zr1 + 1e-4
+                       and abs(v[0][2] / 4.0 - round(v[0][2] / 4.0)) > 2.5e-4
+                       for v in poly)
+               for (p, poly) in polys):
+            risks.append("conforming-on-line")
         if obj_xmax is not None and line < obj_xmax - 1e-6:
             risks.append("displaces-object-ground")
         # the EMPTY-CELL laws (a REGION cut's shift is global -- learned 2026-07-09, the
@@ -1375,6 +1411,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     carried: dict = {}
     clipped_out: dict = {}
     part_tris: dict = {}
+    dropped_area2 = 0.0
     for p in parts:
         land = p in LAND_PARTS
         tris = []
@@ -1391,7 +1428,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                 continue
             for j in range(1, len(poly) - 1):
                 t3 = [poly[0], poly[j], poly[j + 1]]
-                if _tri_area2_3d(t3) > MIN_TRI_AREA2:
+                a2 = _tri_area2_3d(t3)
+                if a2 > MIN_TRI_AREA2:
                     for v in t3:
                         bb[0] = min(bb[0], v[0][0]); bb[1] = max(bb[1], v[0][0])
                         bb[2] = min(bb[2], v[0][2]); bb[3] = max(bb[3], v[0][2])
@@ -1399,6 +1437,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                             lbc[0] = min(lbc[0], v[0][0]); lbc[1] = max(lbc[1], v[0][0])
                             lbc[2] = min(lbc[2], v[0][2]); lbc[3] = max(lbc[3], v[0][2])
                     tris.append(t3)
+                else:
+                    dropped_area2 += a2
         part_tris[p] = tris
         carried[p] = len(tris)
         clipped_out[p] = n_clip
@@ -1445,6 +1485,11 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     weld_in, weld_fr = _split_frame_pairs(M.weld_audit(meshes), (0.0, 64.0), (0.0, -64.0))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
                   "ok": not weld_in})
+    # THE CLIP-DROP gate (the hairline law's root accounting, 2026-07-09): the sliver
+    # filter may only discard TRUE degenerates (collinear clip products, ~1e-9 each) --
+    # any real dropped area is a coverage hole in the making (the (0,4) z-slide's 0.001u-
+    # deep border seam was invisible to every probe grid but plain in this ledger).
+    gates.append({"gate": "clip-drop", "area2": dropped_area2, "ok": dropped_area2 < 1e-3})
     from . import placement as P
     cen = P.census(meshes, samples=census_samples)
     # a real donor may MISS in situ (e.g. under a cliff headland's wall shadow -- no up-facing
@@ -1697,6 +1742,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     cell_tris = {c: {p: [] for p in parts} for c in tcells}
     carried: dict = {}
     clipped_out: dict = {}
+    dropped_area2 = 0.0
     for p in parts:
         land = p in LAND_PARTS
         n_clip = 0
@@ -1722,7 +1768,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                         continue
                     for k in range(1, len(q) - 1):
                         t3 = [q[0], q[k], q[k + 1]]
-                        if _tri_area2_3d(t3) > MIN_TRI_AREA2:
+                        a2 = _tri_area2_3d(t3)
+                        if a2 <= MIN_TRI_AREA2:
+                            dropped_area2 += a2
+                        else:
                             survived = True
                             for v in t3:
                                 bb[0] = min(bb[0], v[0][0]); bb[1] = max(bb[1], v[0][0])
@@ -1824,6 +1873,9 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                                            tuple(-64.0 * j for j in range(1, th)))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
                   "border_t_pairs": len(weld_bt), "ok": not weld_in})
+    # THE CLIP-DROP gate (the hairline law's root accounting -- see transplant()): real
+    # dropped area = a hole in the making, at ANY thinness a probe grid could step over.
+    gates.append({"gate": "clip-drop", "area2": dropped_area2, "ok": dropped_area2 < 1e-3})
 
     # region census, engine-faithful: each probe consults only its CONTAINING cell's meshes
     # (the engine raycasts the containing block); a probe over an undeployed cell is skipped
@@ -1874,6 +1926,54 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
             introduced.append((mx, mz))
     gates.append({"gate": "census", "miss": len(misses), "inherited": inherited,
                   "introduced": len(introduced), "samples": probed, "ok": not introduced})
+
+    # BORDER MICRO-CENSUS (the hairline law's eyes, 2026-07-09): the coarse census grid
+    # cannot see a hairline gap at a re-partition plane (the (0,4) z-slide's 0.8u x 0.004u
+    # dropped-sliver hole read in-game as "a seam in the cliff"). Probe pairs straddling
+    # every interior border at 0.5u steps: ANY missing side that does not backmap to a
+    # donor miss is a border HOLE (the proven hole missed on BOTH sides -- each cell had
+    # lost its own hairline fragment, so a one-sided-only parity test stays blind). A
+    # side over an undeployed cell is the prefab boundary -- skipped (the sea prefab
+    # renders there). The inset must be NARROWER than the gaps it hunts -- the proven
+    # hole was only ~0.001u deep, so 0.0005; but ANY finite inset can be stepped over,
+    # which is why the clip-drop ledger above is the root gate for the dropped-sliver
+    # class and this probe net covers the others (a missing fill, a shifted band).
+    def _donor_misses_at(px, pz):
+        dlx, dlz = _rot_region_xz(px - sh_x, pz - sh_z, inv_rot, ext_r, ext)
+        dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx
+        dlz = tinv_z(dlz - 64.0 * dby) + 64.0 * dby
+        if not (-FRAME_EPS <= dlx <= ext[0] + FRAME_EPS
+                and -ext[1] - FRAME_EPS <= dlz <= FRAME_EPS):
+            return False
+        dc = (min(nx - 1, max(0, math.floor(dlx / 64.0))),
+              min(ny - 1, max(0, math.floor(-dlz / 64.0))))
+        return bool(donor_meshes[dc]) and P.place(donor_meshes[dc], dlx, dlz)[1] == "MISS"
+
+    bd = 0.0005
+    bholes = []
+    bprobed = 0
+    bplanes = ([(0, 64.0 * i) for i in range(1, tw)]
+               + [(2, -64.0 * j) for j in range(1, th)])
+    for (baxis, plane) in bplanes:
+        span = ext_r[1] if baxis == 0 else ext_r[0]
+        for k in range(int(span / 0.5)):
+            t = 0.25 + 0.5 * k
+            pa = (plane - bd, -t) if baxis == 0 else (t, plane + bd)
+            pb = (plane + bd, -t) if baxis == 0 else (t, plane - bd)
+            res = []
+            for (px, pz) in (pa, pb):
+                tc = (min(tw - 1, max(0, math.floor(px / 64.0))),
+                      min(th - 1, max(0, math.floor(-pz / 64.0))))
+                ml = census_meshes.get(tc)
+                res.append(None if ml is None else P.place(ml, px, pz)[1])
+            if None in res:
+                continue                      # an undeployed side: the prefab boundary
+            bprobed += 1
+            for (r, (px, pz)) in zip(res, (pa, pb)):
+                if r == "MISS" and not _donor_misses_at(px, pz):
+                    bholes.append((px, pz))
+    gates.append({"gate": "border-census", "holes": len(bholes), "probed": bprobed,
+                  "ok": not bholes})
     clean = all(g["ok"] for g in gates)
 
     summary = {"op": "transplant-region", "donor": [dbx, dby], "size": [nx, ny],

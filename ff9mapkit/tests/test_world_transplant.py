@@ -239,10 +239,11 @@ def test_transplant_carries_vertical_wall_tris(monkeypatch):
 
 def test_transplant_blanks_fully_clipped_donor_part(monkeypatch):
     blocks = _island_donor()
-    # a beach1 sliver hugging the frame edge: survives the plane clips but dies at the
-    # degenerate-area gate -> the whole donor part is gone and MUST be blanked (else the donor
-    # prefab's original beach renders unshifted underneath)
-    blocks[(1, 1, "beach1")] = _quad(127.999, 128.0, -100.0, -96.0, idall=12920.0)
+    # a TRULY degenerate beach1 (zero width -- collinear verts) dies at the degenerate-area
+    # gate -> the whole donor part is gone and MUST be blanked (else the donor prefab's
+    # original beach renders unshifted underneath). THE HAIRLINE LAW: a merely THIN quad is
+    # real surface now and carries -- only true degenerates drop.
+    blocks[(1, 1, "beach1")] = _quad(128.0, 128.0, -100.0, -96.0, idall=12920.0)
     deployed = []
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
     monkeypatch.setattr(M, "deploy_override",
@@ -1129,6 +1130,51 @@ def test_region_z_boundary_fill_covers_gap(monkeypatch):
     assert band and all(-132.0 - 1e-6 <= v[0][2] for t in band for v in t)
 
 
+def test_hairline_fragment_carries_and_ledger_gates(monkeypatch):
+    """THE HAIRLINE LAW (in-game 2026-07-09, "a seam in the cliff"): a thin-but-real clip
+    fragment is surface and must CARRY -- only true collinear degenerates drop. The clip-drop
+    ledger gate accounts every dropped area2 (real dropped area = a hole in the making)."""
+    blocks = _island_donor()
+    # a 0.005u-wide sliver at the frame edge: REAL surface under the hairline law
+    blocks[(1, 1, "beach1")] = _quad(127.995, 128.0, -100.0, -96.0, idall=12920.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), census_samples=8, land_margin=0.0,
+                      dry_run=True)
+    assert s["blanked"] == [] and s["carried"]["beach1"] >= 1        # carried, not blanked
+    cd = next(g for g in s["gates"] if g["gate"] == "clip-drop")
+    assert cd["ok"] is True and cd["area2"] < 1e-3
+
+
+def test_cut_census_lattice_seam_law(monkeypatch):
+    """THE LATTICE-SEAM LAW: an off-lattice on-line vert in an OPEN-WATER part flags
+    `conforming-on-line` (the unclamped mirror fill wraps the atlas between off-lattice
+    seam verts -- the "stretched" tiles, in-game 2026-07-09); TERRAIN off-lattice verts
+    stay legal (grass/rock/wash fills are position-generated or clamped)."""
+    base = {(1, 1, "sea4"): (_quad(64.0, 92.0, -128.0, -64.0, idall=228.0)
+                             + _quad(92.0, 128.0, -128.0, -64.0, idall=228.0))}
+    # a shore-conforming water tri touching the line at an off-lattice z
+    conform = [[_v(92.0, 0.0, -90.35, idall=228.0), _v(92.0, 0.0, -94.0, idall=228.0),
+                _v(96.0, 0.0, -94.0, idall=228.0)]]
+    blocks = dict(base)
+    blocks[(1, 1, "sea4")] = base[(1, 1, "sea4")] + conform
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1))}
+    assert "conforming-on-line" in cen[92.0]["risks"]
+    # the same off-lattice vert as TERRAIN does not flag
+    blocks2 = dict(base)
+    blocks2[(1, 1, "terrain")] = [[_v(92.0, 1.0, -90.35), _v(92.0, 1.0, -94.0),
+                                   _v(96.0, 1.0, -94.0)]]
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks2))
+    cen2 = {c["line"]: c for c in TR.cut_census((1, 1))}
+    assert "conforming-on-line" not in cen2[92.0]["risks"]
+    # a boundary with an off-lattice on-plane water vert is UNFILLABLE (gap-vacation)
+    blocks3 = {(2, 1, "sea4"): (_quad(128.0, 192.0, -128.0, -90.35, idall=228.0)
+                                + _quad(128.0, 192.0, -90.35, -64.0, idall=228.0))}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks3))
+    cen3 = {c["line"]: c for c in TR.cut_census((1, 1), size=(2, 1))}
+    assert "gap-vacation" in cen3[100.0]["risks"] and cen3[100.0]["boundary_fills"] == []
+
+
 def test_census_backmap_inverts_row_insert(monkeypatch):
     """The miss-backmap must UNDO RowInsert cuts before querying the donor -- else the donor's
     own in-situ misses shift out from under it and misread as introduced (the x=107/115
@@ -1250,10 +1296,12 @@ def test_region_water_slide_cut_config():
     interior weld pairs at the x=64 border (the rejected build's undiagnosed signature)
     classify as benign clip T-junctions."""
     cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3))}
-    for line in (580.0, 592.0, 608.0):
+    for line in (580.0, 592.0, 604.0):
         assert cen[line]["clean"] is True and cen[line]["risks"] == []
         assert cen[line]["boundary_fills"] == [[640.0, -384.0, -320.0]]
         assert cen[line]["ok"] is False                    # pure water: a slide, not growth
+    # 608 hugs the west shore: an off-lattice water vert sits ON it (the lattice-seam law)
+    assert cen[608.0]["risks"] == ["conforming-on-line"]
     tweaks = TR.chain_row_inserts([592.0], boundaries=cen[592.0]["boundary_fills"])
     s = TR.transplant_region("UNUSED", cell=(11, 1), donor=(9, 5), size=(2, 3),
                              shift=(0.0, 0.0), tweaks=tweaks, land_margin=0.0, dry_run=True)
@@ -1273,25 +1321,29 @@ def test_region_water_slide_cut_config():
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_region_z_slide_cut_config():
-    """THE Z-AXIS VARIANT on the real (9,5)+2x3 island (deployed 2026-07-09): every land
-    z-line is ALSO crosses-relief -- the mountain blocks both axes, so this donor's land is
-    un-growable on any axis (a component fact, not a mechanics gap). Clean z SLIDE lines
-    exist; -352 hugs the island's north shore and exercises the TRANSPOSED multi-boundary
-    fill at the empty corner cell's SOUTH border z=-384 (window x[576,640]). The island
-    slides 4u SOUTH whole; the A-C-B corner-sliver weld cluster at the row border (a float
-    so close to the border that both its edges' cut verts pair) classifies benign."""
+    """THE Z-AXIS VARIANT on the real (9,5)+2x3 island (redeployed 2026-07-09 at line -332
+    after the -352 build's two in-game defects): every land z-line is ALSO crosses-relief --
+    the mountain blocks both axes, so this donor's land is un-growable on any axis (a
+    component fact, not a mechanics gap). The first z-line tried, -352, hugged the north
+    shore: shore-conforming water verts ON it made the mirror fill wrap the atlas
+    ("stretched" tiles in-game) -- now the LATTICE-SEAM law flags it `conforming-on-line`.
+    The legal -332 slide exercises the TRANSPOSED multi-boundary fill at the empty corner
+    cell's SOUTH border z=-384 (window x[576,640], lattice-certified). The island slides 4u
+    SOUTH whole; the A-C-B corner-sliver weld cluster at the row border classifies benign;
+    the clip-drop ledger and border micro-census (the hairline law's gates) run clean."""
     cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3), axis="z")}
     assert [l for l, c in cen.items() if c["ok"]] == []        # no land z-growth either
     for line in (-384.0, -416.0, -448.0):
         assert "crosses-relief" in cen[line]["risks"]
-    assert cen[-352.0]["clean"] is True and cen[-352.0]["risks"] == []
-    assert cen[-352.0]["boundary_fills"] == [[-384.0, 576.0, 640.0]]
-    tweaks = TR.chain_row_inserts_z([-352.0], boundaries=cen[-352.0]["boundary_fills"])
+    assert cen[-352.0]["risks"] == ["conforming-on-line"]      # the in-game-failed line
+    assert cen[-332.0]["clean"] is True and cen[-332.0]["risks"] == []
+    assert cen[-332.0]["boundary_fills"] == [[-384.0, 576.0, 640.0]]
+    tweaks = TR.chain_row_inserts_z([-332.0], boundaries=cen[-332.0]["boundary_fills"])
     s = TR.transplant_region("UNUSED", cell=(0, 4), donor=(9, 5), size=(2, 3),
                              shift=(0.0, 0.0), tweaks=tweaks, land_margin=0.0, dry_run=True)
     assert s["clean"] is True, s["gates"]
     ri = next(g for g in s["gates"] if g["gate"] == "rowinsertz[sea4]")
-    assert ri["shifted"] == 1880 and ri["emitted"] == 68       # 36 line + 32 boundary tris
+    assert ri["shifted"] == 2066 and ri["emitted"] == 68       # 36 line + 32 boundary tris
     assert ri["boundary_fills"] == {"-384": 32}
     rt = next(g for g in s["gates"] if g["gate"] == "rowinsertz[terrain]")
     assert rt["shifted"] == 917 and rt["emitted"] == 0         # the island slides whole
@@ -1299,6 +1351,9 @@ def test_region_z_slide_cut_config():
     assert weld["pairs"] == 0 and weld["border_t_pairs"] == 5
     census = next(g for g in s["gates"] if g["gate"] == "census")
     assert census["inherited"] == 2 and census["introduced"] == 0
+    assert next(g for g in s["gates"] if g["gate"] == "clip-drop")["ok"] is True
+    bc = next(g for g in s["gates"] if g["gate"] == "border-census")
+    assert bc["holes"] == 0 and bc["probed"] == 640
     assert sorted(s["cells"]) == ["0,5", "0,6", "1,4", "1,5", "1,6"]      # (0,4) skipped
 
 
@@ -1308,7 +1363,11 @@ def test_cut_census_relief_law_spares_proven_lines():
     on-line land y-spans measured <= 3.5u vs the mountain's 26.5u). It DOES flag this donor's
     never-cut 7u headland line 1028 -- conservative, never falsified there."""
     cen = {c["line"]: c for c in TR.cut_census((16, 17))}
-    assert cen[1056.0]["ok"] is True and cen[1060.0]["ok"] is True
+    assert cen[1060.0]["ok"] is True
     assert "crosses-relief" not in cen[1056.0]["risks"]
     assert "crosses-relief" not in cen[1060.0]["risks"]
     assert "crosses-relief" in cen[1028.0]["risks"]
+    # the lattice-seam law conservatively flags 1056's shore-contact water (off-lattice
+    # verts ON the line) -- proven in-game there, but the law can't tell mild from severe;
+    # the build stays deployed as proven (the 508/touches-shallows precedent)
+    assert cen[1056.0]["risks"] == ["conforming-on-line"]
