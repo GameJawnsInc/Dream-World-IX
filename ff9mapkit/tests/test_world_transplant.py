@@ -1637,21 +1637,27 @@ def test_second_donor_screen_10_17_carryable_and_slide_growable():
               for l, c in x_land.items() if c["straddlers"] == 0)
     z_land = {l: c for l, c in censuses["z"].items() if c["grows_land"]}
     assert len(z_land) == 2 and all(c["straddlers"] > 0 for c in z_land.values())
-    # the unlocked slide lines: clean, each certifying BOTH empty-cell windows at x=704
+    # the unlocked slide lines: clean, each certifying BOTH empty-cell windows at x=704.
+    # (Initially 8; the strip-across-line law -- the learned Wang table's census dividend --
+    # retro-flagged 648-688: their west seam owners are sea5 strips with E/W-pointing deep
+    # edges, so the translate-clone fill would duplicate a transition column. 692-704 sit in
+    # the pure-sea4 far field and stay legal.)
     slides = {l: c for l, c in censuses["x"].items() if c["clean"] and c["spill_clips"]}
-    assert len(slides) == 8
+    assert sorted(slides) == [692.0, 696.0, 700.0, 704.0]
     assert all(c["spill_clips"] == [[704.0, -1216.0, -1152.0, 3], [704.0, -1152.0, -1088.0, 3]]
                for c in slides.values())
+    assert censuses["x"][648.0]["risks"] == ["strip-across-line"]
 
 
 def test_second_donor_10_17_two_cut_slide_config():
-    """The end-to-end 2-cut slide on the real (10,17)+2x2 (lines 648+652, budget 3): every
-    gate passes, each window's SpillClip drops EXACTLY the spilled 2 sea4 columns (64 tris,
-    512 sq-units = 8u x 64u -- the x_hi cell bound keeps foreign east refill strips out of
-    the ledger), nothing in any other part is touched, and only the two data cells deploy --
-    the empty east column stays genuine prefab ocean."""
+    """The end-to-end 2-cut slide on the real (10,17)+2x2 (lines 692+696 -- the law-compliant
+    pure-sea4 pair; the first deploy's 648+652 were retro-flagged by strip-across-line):
+    every gate passes, each window's SpillClip drops EXACTLY the spilled 2 sea4 columns (64
+    tris, 512 sq-units = 8u x 64u -- the x_hi cell bound keeps foreign east refill strips out
+    of the ledger), nothing in any other part is touched, and only the two data cells deploy
+    -- the empty east column stays genuine prefab ocean."""
     clips = [(704.0, -1216.0, -1152.0, 3), (704.0, -1152.0, -1088.0, 3)]
-    tweaks = TR.chain_row_inserts([648.0, 652.0], spill_clips=clips)
+    tweaks = TR.chain_row_inserts([692.0, 696.0], spill_clips=clips)
     s = TR.transplant_region("UNUSED", cell=(9, 3), donor=(10, 17), size=(2, 2),
                              shift=(0.0, 0.0), land_margin=2.0, tweaks=tweaks, dry_run=True)
     assert s["clean"] is True, s["gates"]

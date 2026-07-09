@@ -1262,6 +1262,19 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                         and max(v[0][0] for v in poly) > line + 1e-4))
                for (p, poly) in polys):
             risks.append("touches-shallows")
+        # THE STRIP-ACROSS-LINE law (the learned Wang table's census dividend, 2026-07-09):
+        # a Wang strip OWNING the west seam whose deep edge points E/W has its transition
+        # band running PARALLEL to the cut -- the translate-clone fill duplicates the
+        # transition column (a 2-wide blend band real data never shows; previously
+        # allowed-but-wrong). A strip whose deep edges are pure N/S extends ALONG its run
+        # instead (the in-game-proven clone). Corner sets touch E/W -> conservative-flag.
+        if any(p in OPEN_WATER_PARTS
+               and sum(1 for v in poly if abs(v[0][0] - line) <= 1e-4) >= 2
+               and sum(v[0][0] for v in poly) / len(poly) < line
+               and (es := strip_edge_set(poly)) is not None
+               and (es & {"E", "W"})
+               for (p, poly) in polys):
+            risks.append("strip-across-line")
         if any(any(4.0 * c[0] + 4.0 <= line + 1e-6 for c in comp)
                and any(4.0 * c[0] >= line - 1e-6 for c in comp) for comp in patches):
             risks.append("crosses-wash")
