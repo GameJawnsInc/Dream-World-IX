@@ -116,3 +116,84 @@ def test_build_rejects_int16_overflow(tmp_path):
     floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
     with pytest.raises(IF.ImageFieldError, match="Int16"):
         IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out", distance=80000)
+
+
+# ---------------------------------------------------------------- anchored occluders (contact -> Z)
+
+def test_occluder_z_is_actor_depth_at_contact():
+    """The anchor law: overlay Z = the engine's actor OT depth (resz/4 + depthOffset,
+    FieldMapActor.cs:122) at the un-projected contact point, +bias — so occlusion flips exactly at
+    the contact line."""
+    cam = _cam()
+    contact = (230.0, 320.0)
+    z = IF.occluder_z(cam, contact)
+    (X, Z), = IF.unproject_floor(cam, [contact])
+    assert z == round(C.depth((X, 0.0, Z), cam)) + IF.CONTACT_Z_BIAS
+
+
+def test_occluder_z_monotonic_with_screen_depth():
+    """Lower on the canvas = nearer the camera = smaller overlay Z (drawn further in front)."""
+    cam = _cam()
+    z_near = IF.occluder_z(cam, (192, 430))
+    z_mid = IF.occluder_z(cam, (192, 320))
+    z_far = IF.occluder_z(cam, (192, 200))
+    assert z_near < z_mid < z_far
+
+
+def test_occluder_z_rejects_above_horizon_and_too_far():
+    cam = _cam()
+    hy = C.horizon_canvas_y(cam)
+    with pytest.raises(IF.ImageFieldError, match="contact point"):
+        IF.occluder_z(cam, (192, hy - 10))
+    # just below the horizon the floor runs to near-infinity -> z blows past the base layer band
+    with pytest.raises(IF.ImageFieldError, match="base layer"):
+        IF.occluder_z(cam, (192, hy + 0.01))
+
+
+def test_parse_foreground_spec_forms():
+    assert IF.parse_foreground_spec("pillar.png") == {"image": "pillar.png", "z": None, "contact": None}
+    assert IF.parse_foreground_spec("pillar.png@230,320") == \
+        {"image": "pillar.png", "z": None, "contact": (230.0, 320.0)}
+    # an '@' in the path is only an anchor when the tail parses as two numbers
+    assert IF.parse_foreground_spec("shots@home/pillar.png") == \
+        {"image": "shots@home/pillar.png", "z": None, "contact": None}
+    assert IF.parse_foreground_spec({"image": "p.png", "z": 42}) == \
+        {"image": "p.png", "z": 42, "contact": None}
+    assert IF.parse_foreground_spec({"image": "p.png", "contact": [230, 320]}) == \
+        {"image": "p.png", "z": None, "contact": (230, 320)}
+
+
+def test_build_with_anchored_foreground(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (90, 80, 70)).save(tmp_path / "src.png")
+    Image.new("RGBA", (384, 448), (0, 0, 0, 0)).save(tmp_path / "fg.png")
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    man = IF.build_image_field(tmp_path / "src.png", floor, tmp_path / "out",
+                               foreground=[f"{tmp_path / 'fg.png'}@230,320"], name="OCCL")
+    cam = _cam()
+    want_z = IF.occluder_z(cam, (230.0, 320.0))
+    assert man["foreground"] == [{"image": str(tmp_path / "fg.png"), "z": want_z, "contact": (230.0, 320.0)}]
+    toml = (tmp_path / "out" / "OCCL.field.toml").read_text()
+    assert f"z = {want_z}" in toml and "occluder anchored at floor contact (230,320)" in toml
+    assert (tmp_path / "out" / "art" / "fg0.png").is_file()
+    # the flip must be reachable: z sits strictly between the actor depth at the floor's front and back
+    d_front = C.depth((0.0, 0.0, min(p[1] for p in man["world_floor"])), cam)
+    d_back = C.depth((0.0, 0.0, max(p[1] for p in man["world_floor"])), cam)
+    assert d_front < want_z < d_back
+
+
+# ---------------------------------------------------------------- the floor tracer (--trace)
+
+def test_write_trace_html(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (800, 600), (40, 90, 120)).save(tmp_path / "photo.png")
+    man = IF.write_trace_html(tmp_path / "photo.png", tmp_path / "trace.html", pitch=26)
+    html = (tmp_path / "trace.html").read_text(encoding="utf-8")
+    assert "data:image/jpeg;base64," in html                       # the exact cover-crop, embedded
+    assert "ff9mapkit image-field" in html                          # the command template
+    assert '"26":' in html and '"6":' in html and '"48":' in html   # per-pitch horizon table
+    # the horizon it reports matches the camera math for the default pitch
+    hy = C.horizon_canvas_y(guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
+    assert abs(man["horizon"] - hy) < 0.11                          # table values are rounded to 0.1

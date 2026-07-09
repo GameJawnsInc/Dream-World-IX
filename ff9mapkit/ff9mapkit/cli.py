@@ -1520,7 +1520,29 @@ def _cmd_model_anim_new(args: argparse.Namespace) -> int:
 
 def _cmd_image_field(args: argparse.Namespace) -> int:
     """EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced floor polygon."""
+    from pathlib import Path
+
     from . import imagefield
+    if args.trace:
+        out_html = (Path(args.out) / "trace.html" if args.out
+                    else Path(args.image).with_name(Path(args.image).stem + ".trace.html"))
+        try:
+            man = imagefield.write_trace_html(args.image, out_html, pitch=args.pitch,
+                                              fov=args.fov, distance=args.distance)
+        except (imagefield.ImageFieldError, ValueError, FileNotFoundError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(f"[EXPERIMENTAL] floor tracer -> {man['html']}")
+        print("Open it in a browser: click the floor outline (below the horizon line), optionally mark each "
+              "foreground object's ground-contact point, then copy the emitted image-field command.")
+        return 0
+    if not args.floor:
+        print("--floor is required to build (or run with --trace first to click-trace it in a browser)",
+              file=sys.stderr)
+        return 2
+    if not args.out:
+        print("--out is required to build (the output project dir)", file=sys.stderr)
+        return 2
     try:
         floor = []
         for tok in str(args.floor).replace(";", " ").split():
@@ -1539,6 +1561,10 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
     print(f"[EXPERIMENTAL] synthesized {args.name} -> {man['toml']}")
     print(f"  walkmesh: {man['verts']} verts / {man['faces']} tris; spawn "
           f"({man['spawn'][0]:.0f}, {man['spawn'][1]:.0f}); {len(man['layers'])} layer(s)")
+    for f in man.get("foreground", []):
+        if f["contact"]:
+            print(f"  occluder {Path(f['image']).name}: contact ({f['contact'][0]:g},{f['contact'][1]:g}) "
+                  f"-> z {f['z']} (walk in front = actor on top; walk behind = occluded)")
     print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then F6 -> Warp 30058)")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
@@ -4527,10 +4553,15 @@ def build_parser() -> argparse.ArgumentParser:
                          help="EXPERIMENTAL: synthesize a walkable FF9 field from an image + a hand-traced "
                               "floor polygon (Pillow-only; the floor is un-projected into a walkmesh)")
     imf.add_argument("image", help="the source image (becomes the painted background)")
-    imf.add_argument("--floor", required=True,
+    imf.add_argument("--floor", default=None,
                      help="the floor outline as canvas-pixel points 'cx,cy cx,cy ...' (384x448, top-left, "
-                          "Y-down; >=3 points, below the horizon)")
-    imf.add_argument("--out", required=True, help="output project dir (writes <name>.field.toml + walkmesh.obj + art/)")
+                          "Y-down; >=3 points, below the horizon); omit and use --trace to click-trace it")
+    imf.add_argument("--trace", action="store_true",
+                     help="emit a self-contained click-to-trace HTML page (the exact canvas crop + a pitch-"
+                          "linked horizon line) instead of building; it prints the ready image-field command")
+    imf.add_argument("--out", default=None,
+                     help="output project dir (writes <name>.field.toml + walkmesh.obj + art/; with --trace, "
+                          "where trace.html goes — default: next to the image)")
     imf.add_argument("--name", default="PICTURE", help="field name / project stem (default PICTURE)")
     imf.add_argument("--id", type=int, default=4003, help="field id to stamp in the toml (default 4003)")
     imf.add_argument("--pitch", type=float, default=26.0,
@@ -4539,7 +4570,9 @@ def build_parser() -> argparse.ArgumentParser:
     imf.add_argument("--distance", type=float, default=3000.0,
                      help="camera distance (default 3000; smaller = closer/larger floor)")
     imf.add_argument("--foreground", action="append", default=None,
-                     help="a near-occluder cut-out PNG (full-canvas, alpha); repeatable (drawn in front of the actor)")
+                     help="a near-occluder cut-out PNG (full-canvas, alpha); repeatable. Bare path = always in "
+                          "front of the actor; 'path@cx,cy' anchors it at its floor-contact canvas pixel so "
+                          "occlusion flips there (walk in front = actor on top, walk behind = occluded)")
     imf.set_defaults(func=_cmd_image_field)
 
     mp = sub.add_parser("model-preview",
