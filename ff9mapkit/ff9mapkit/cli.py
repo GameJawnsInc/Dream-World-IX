@@ -2376,7 +2376,28 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             strips = tuple(d.strip() for d in args.strips.split(","))
         tweaks = ()
         if args.grow_cut:
-            tweaks = TR.chain_row_inserts([float(v) for v in args.grow_cut.split(",")])
+            lines = [float(v) for v in args.grow_cut.split(",")]
+            boundaries = ()
+            if (snx, sny) != (1, 1):
+                # a REGION cut is census-validated here (the component laws are the only
+                # eyes) and its empty-cell boundary fills are auto-wired from the census.
+                cen = {c["line"]: c for c in TR.cut_census((dx, dy), size=(snx, sny),
+                                                           disc=args.disc, game=args.game)}
+                for ln in lines:
+                    if ln not in cen:
+                        raise ValueError(f"--grow-cut {ln:g}: not an interior 4u lattice "
+                                         f"line of the donor rect ({dx},{dy})+{snx}x{sny}")
+                    if not cen[ln]["clean"]:
+                        why = ", ".join(cen[ln]["risks"]) or \
+                            f"straddlers={cen[ln]['straddlers']}"
+                        raise ValueError(f"--grow-cut {ln:g}: not census-clean ({why}) -- "
+                                         f"a cut may not cross a coast component")
+                bset = {tuple(t) for ln in lines for t in cen[ln]["boundary_fills"]}
+                boundaries = sorted(bset)
+                if boundaries:
+                    print("empty-cell boundary fills (census-certified open water): "
+                          + "  ".join(f"x={b:g} z[{z0:g},{z1:g}]" for (b, z0, z1) in boundaries))
+            tweaks = TR.chain_row_inserts(lines, boundaries=boundaries)
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                   tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                   game=args.game, census_samples=args.samples, dry_run=args.dry_run)
@@ -4882,8 +4903,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "census-clean per `cut_census` -- straddle-0, no component risks). Each cut inserts "
                           "one 4u column: everything east shifts +4 and the vacated column is filled per the "
                           "learned tile laws. Composes with --size (a region cut's shift crosses interior "
-                          "borders and its fill spans rows). Growth eats the land margin -- usually needs "
-                          "--land-margin 0.")
+                          "borders and its fill spans rows); REGION lines are census-validated here and any "
+                          "empty-cell boundary fills (certified open water) are wired automatically -- a "
+                          "clean pure-water line is a legal SLIDE cut. Growth eats the land margin -- "
+                          "usually needs --land-margin 0.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
