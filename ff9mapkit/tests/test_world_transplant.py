@@ -235,6 +235,19 @@ def test_transplant_refuses_deploy_when_not_clean(monkeypatch):
     assert s["clean"] is False and s["deployed"] == [] and deployed == []
 
 
+def test_transplant_refuses_real_target_cell(monkeypatch):
+    """The target must be OPEN OCEAN: a cell with real block data is part of the game's world,
+    and overriding it replaces real continent geometry (the (5,2)/(6,2) incident)."""
+    blocks = _island_donor()
+    blocks[(4, 2, "terrain")] = _quad(256.0, 320.0, -192.0, -128.0)   # the TARGET is real land
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    with pytest.raises(ValueError, match="REAL world block"):
+        TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True)
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8,
+                      allow_real_target=True)
+    assert s["clean"] is True                       # explicit expert override still works
+
+
 def test_transplant_rejects_ocean_donor_and_bad_grid(monkeypatch):
     monkeypatch.setattr(TR, "world_tris", _fake_world({}))
     with pytest.raises(ValueError, match="no block mesh data"):

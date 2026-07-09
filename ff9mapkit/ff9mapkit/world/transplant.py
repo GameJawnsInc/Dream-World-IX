@@ -319,7 +319,7 @@ def _soup_block_mesh(name: str, cell, tris, *, disc: int, lod: str) -> BlockMesh
 def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", parts=PARTS,
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
-               dry_run: bool = False) -> dict:
+               allow_real_target: bool = False, dry_run: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -353,6 +353,18 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         raise ValueError(f"cell ({bx},{by}) out of the {GRID_X}x{GRID_Y} overworld grid")
     if not (0 <= dbx < GRID_X and 0 <= dby < GRID_Y):
         raise ValueError(f"donor ({dbx},{dby}) out of the {GRID_X}x{GRID_Y} overworld grid")
+    # THE TARGET must be OPEN OCEAN (no per-block mesh assets -- it renders from the shared
+    # SeaBlockPrefab). A cell with real data is part of the game's world: overriding it replaces
+    # real continent/coast geometry and shreds the whole area (proven the hard way, 2026-07-08).
+    if not allow_real_target:
+        occupied = {p: len(world_tris(bx, by, p, disc=disc, lod=lod, game=game))
+                    for p in parts}
+        occupied = {p: n for p, n in occupied.items() if n}
+        if occupied:
+            raise ValueError(f"target cell ({bx},{by}) is a REAL world block ({occupied}) -- "
+                             f"transplanting onto it would replace real game geometry. Pick an "
+                             f"empty open-ocean cell (no block mesh data), or pass "
+                             f"allow_real_target=True if you really mean it")
     if rot not in (0, 90, 180, 270):
         raise ValueError("rot must be 0, 90, 180 or 270 -- 90-degree multiples keep the 4u tile "
                          "lattice (and the Wang ocean) fully verbatim; free angles do not")
