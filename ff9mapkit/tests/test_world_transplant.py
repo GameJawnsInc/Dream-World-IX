@@ -471,10 +471,11 @@ def test_object_anchor_gate(monkeypatch):
     assert next(g for g in s5["gates"] if g["gate"] == "object-anchor")["ok"] is True
 
 
-def test_row_insert_fills_non_grass_family_from_inventory(monkeypatch):
-    """A topo-0 owner OUTSIDE the grass rect (the (9,17) u~0.39 scrub band) must be filled
-    from its OWN family's sibling rects (same u-range, neighbour-avoiding, single handedness
-    preserved) -- NOT with grass quadrants (the 'harsh meadow cuts' defect, 2026-07-09)."""
+def test_row_insert_clones_non_grass_family_owner(monkeypatch):
+    """A topo-0 owner OUTSIDE the grass rect (the (9,17) u~0.39 scrub band) is a PAINTED-WASH
+    family, not an interchangeable variant set -- the fill must CONTINUE the local material by
+    cloning the west owner's field (a variant-avoid pick maximizes contrast = the hard-edged
+    'meadow marks', in-game 2026-07-09). Never grass quadrants either."""
     LINE = 92.0
     U0, U1 = 0.394, 0.454
     STRIPS = [(0.369, 0.399), (0.399, 0.431), (0.431, 0.462), (0.462, 0.493)]
@@ -496,16 +497,15 @@ def test_row_insert_fills_non_grass_family_from_inventory(monkeypatch):
     assert len(fill) == 4                                    # relief fan (topo-0 ground family)
     us = [v[2][0] for t in fill for v in t]
     vs = [v[2][1] for t in fill for v in t]
-    # stays inside the family's u-column -- never the grass rect
+    # the CLONE of the owner (strip 1): exactly the owner's rect, never grass, never a sibling
     assert min(us) >= U0 - 1e-6 and max(us) <= U1 + 1e-6
-    # picks a sibling v-strip avoiding the owner (strip 1) and the shifted east tile (strip 2)
-    smin, smax = min(vs), max(vs)
-    hit = [i for i, (v0, v1) in enumerate(STRIPS) if v0 - 1e-6 <= smin and smax <= v1 + 1e-6]
-    assert hit and hit[0] not in (1, 2)
+    assert min(vs) >= STRIPS[1][0] - 1e-6 and max(vs) <= STRIPS[1][1] + 1e-6
+    # the field is the owner's mapping translated: west edge shows the owner's west-edge UVs
+    west = [v[2] for t in fill for v in t if abs(v[0][0] - LINE) < 1e-6]
+    assert all(abs(uv[0] - U0) < 1e-6 for uv in west)
     # handedness preserved: u still increases west->east on the fill quad
     east_u = [v[2][0] for t in fill for v in t if abs(v[0][0] - (LINE + 4.0)) < 1e-6]
-    west_u = [v[2][0] for t in fill for v in t if abs(v[0][0] - LINE) < 1e-6]
-    assert min(east_u) > max(west_u) - 1e-9
+    assert min(east_u) > max(uv[0] for uv in west) - 1e-9
 
 
 def test_chain_row_inserts_cumulative_lines():

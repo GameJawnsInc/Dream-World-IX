@@ -365,11 +365,14 @@ class RowInsert:
 
     Fill UVs are per structure class (the in-game-proven laws): topo-58 cliff = the decoded
     rock vocabulary (a u-mirror of the west owner -- "both senses used" is real -- with V
-    riding each vert's height, never plan-affine); topo-0 grass = real mains language
+    riding each vert's height, never plan-affine); topo-0 GRASS = real mains language
     (neighbour-aware quadrant choice avoiding the ACTUAL west/east tiles + the previous cell,
-    one handedness) plus a RELIEF centre vert per quad (a +-0.2u deterministic hash, the
-    measured real 4u-neighbour roll; the quad boundary -- every weld -- stays bit-exact);
-    everything else (flat water/apron tiles) = the plan-affine mirror, exact there.
+    one handedness); topo-0 NON-grass (the painted-wash families, e.g. the (9,17) scrub band)
+    = a CLONE of the west owner's field translated into the gap (continuing the local wash --
+    a variant-avoid pick there maximizes contrast = hard rectangles, in-game 2026-07-09).
+    Every topo-0 fill gets a RELIEF centre vert per quad (a +-0.2u deterministic hash, the
+    measured real 4u-neighbour roll; the quad boundary -- every weld -- stays bit-exact).
+    Everything else (flat water/apron tiles) = the plan-affine mirror, exact there.
 
     One instance per PART (the tweak protocol emits per part):
     ``tweaks=[RowInsert(p, line=608.0) for p in PARTS]``."""
@@ -387,8 +390,6 @@ class RowInsert:
         self.seam: dict = {}              # rounded pos -> exact (pos, nrm)
         self.west_edges: list = []        # (vert_a, vert_b, owner_poly) from WEST tris
         self.east_grass_q: dict = {}      # cell_z -> the shifted east grass tile's quadrant
-        self.east_rect: dict = {}         # cell_z -> the shifted east tile's family rect key
-        self.fam_inv: dict = {}           # rect key -> (count, exact rect) family inventory
         self.emitted = 0
 
     def _key(self, p):
@@ -400,23 +401,13 @@ class RowInsert:
         from .extract import decode_id
         cx = sum(v[0][0] for v in poly) / len(poly)
         on_line = [v for v in poly if abs(v[0][0] - self.line) <= self.eps]
-        topo0 = decode_id(int(round(poly[0][3][0])))["topograph"] == 0
-        if topo0:
-            r = _cell_rect(poly)          # family INVENTORY: every ground tile's rect variant
-            if r is not None:
-                key, exact = r
-                cnt, _ = self.fam_inv.get(key, (0, exact))
-                self.fam_inv[key] = (cnt + 1, exact)
         if cx > self.line:
             self.shifted += 1
             for v in on_line:             # the shifted half's seam verts (pre-shift positions)
                 self.seam.setdefault(self._key(v[0]), (v[0], v[1]))
-            if on_line and topo0:
+            if on_line and decode_id(int(round(poly[0][3][0])))["topograph"] == 0:
                 cz = math.floor((sum(v[0][2] for v in poly) / len(poly)) / 4.0)
                 self.east_grass_q.setdefault(cz, _quad_of_uv(poly[0][2]))
-                r = _cell_rect(poly)
-                if r is not None:
-                    self.east_rect.setdefault(cz, r[0])
             return [((p[0] + self.delta, p[1], p[2]), n, uv, tan) for (p, n, uv, tan) in poly]
         self.kept += 1
         for v in on_line:
@@ -445,7 +436,7 @@ class RowInsert:
         pts = sorted(self.seam.values(), key=lambda pn: pn[0][2])
         cell_x = math.floor((self.line + self.delta / 2.0) / 4.0)
         cell_fill: dict = {}    # cell -> ("mains", quad, ori) | ("rect", exact sibling rect)
-        prev_q = prev_r = None
+        prev_q = None
         for (pa, na), (pb, nb) in zip(pts, pts[1:]):
             owner = self._owner((pa[2] + pb[2]) / 2.0)
             if owner is None or decode_id(int(round(owner[0][3][0])))["topograph"] != 0:
@@ -455,23 +446,14 @@ class RowInsert:
                 continue
             r = _cell_rect(owner)
             if r is not None and not (0.0 <= r[0][0] and r[0][2] <= 0.13):
-                # NON-GRASS mains family (meadow / the 1x4 v-strip scrub set / ...): fill from
-                # the donor's OWN family inventory -- a sibling rect sharing the owner's u-range
-                # (else v-range), avoiding the actual west/east neighbours + the previous cell.
-                # Measured law ((9,17) scrub, 2026-07-09): single handedness, 0 repeat
-                # neighbours in 20 adjacent pairs -- same policy as the grass mains, new rects.
-                okey = r[0]
-                sibs = [(k, e) for k, (c, e) in self.fam_inv.items()
-                        if (k[0], k[2]) == (okey[0], okey[2])]
-                if len(sibs) < 2:
-                    sibs = [(k, e) for k, (c, e) in self.fam_inv.items()
-                            if (k[1], k[3]) == (okey[1], okey[3])]
-                avoid = {okey, self.east_rect.get(cell[1]), prev_r}
-                choices = [e for (k, e) in sibs if k not in avoid] or [r[1]]
-                pick = choices[rng.randrange(len(choices))]
-                cell_fill[cell] = ("rect", pick)
-                prev_r = (round(pick[0], 3), round(pick[1], 3),
-                          round(pick[2], 3), round(pick[3], 3))
+                # NON-GRASS mains family (the (9,17) scrub band + kin): NOT an interchangeable
+                # anti-tiling set -- the strips differ in wash intensity and the designers PAINT
+                # a blob by placing specific strips per cell (measured: no position lock, no
+                # edge continuity, adjacent repeats attested 3/15). A variant-avoid pick inside
+                # a painted wash maximizes contrast = hard rectangles (in-game 2026-07-09).
+                # The faithful fill CONTINUES the local material: clone the west owner's field
+                # translated into the gap (the owner tile repeated -- repeats are real usage).
+                cell_fill[cell] = ("clone", r[1])
                 continue
             avoid = {_quad_of_uv(owner[0][2]), self.east_grass_q.get(cell[1]), prev_q}
             choices = [q for q in ((0, 0), (0, 1), (1, 0), (1, 1)) if q not in avoid]
@@ -505,16 +487,14 @@ class RowInsert:
                     quad, ori = mode[1], mode[2]
                     mu = lambda p: tuple(G.mains_uv(p[0], p[2], cell, quad, ori))
                 else:
-                    # sibling-rect fill: the OWNER's field translated one column east (keeps
-                    # orientation + the family's single handedness), retargeted into the
-                    # chosen sibling rect, clamped inside it (no atlas gutters).
-                    (ou0, ov0, ou1, ov1) = _cell_rect(owner)[1]
-                    odu, odv = (ou1 - ou0) or 1.0, (ov1 - ov0) or 1.0
-                    def mu(p, uvf=uvf, R=mode[1], ou0=ou0, ov0=ov0, odu=odu, odv=odv):
+                    # owner-clone fill: the OWNER's field translated one column east -- the
+                    # owner tile repeated verbatim (continues the painted wash; keeps
+                    # orientation + handedness). Soft-clamped into the owner's own measured
+                    # rect so a conforming owner's extrapolation can't reach atlas gutters.
+                    (ou0, ov0, ou1, ov1) = mode[1]
+                    def mu(p, uvf=uvf, ou0=ou0, ov0=ov0, ou1=ou1, ov1=ov1):
                         fu, fv = uvf(p[0] - self.delta, p[2])
-                        a = min(1.0, max(0.0, (fu - ou0) / odu))
-                        b = min(1.0, max(0.0, (fv - ov0) / odv))
-                        return (R[0] + a * (R[2] - R[0]), R[1] + b * (R[3] - R[1]))
+                        return (min(ou1, max(ou0, fu)), min(ov1, max(ov0, fv)))
                 wa = (pa, na, mu(pa))
                 wb = (pb, nb, mu(pb))
                 ea = (pe_a, na, mu(pe_a))
