@@ -440,6 +440,74 @@ def _uv_quad(uv):
     return (0 if uv[0] < 0.0654 else 1, 0 if uv[1] < 0.7993 else 1)
 
 
+def test_object_anchor_gate(monkeypatch):
+    """A donor Object (cave/town) renders from the PREFAB at its original pose -- the kit
+    doesn't carry it. Any rot/shift/RowInsert displacing the ground under its footprint must
+    be refused (the (9,17) cave tear, 2026-07-09) unless explicitly overridden."""
+    blocks = _island_donor()
+    blocks[(1, 1, "object")] = _quad(90.0, 96.0, -100.0, -94.0, y=2.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    # untransformed carry: object region untouched -> ok
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), dry_run=True,
+                      census_samples=8)
+    oa = next(g for g in s["gates"] if g["gate"] == "object-anchor")
+    assert oa["ok"] is True and oa["moved"] is False and oa["x"] == [90.0, 96.0]
+    # a rotation (like a shift) moves the ground under the static object -> refused
+    s2 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), rot=90, shift=(0.0, 0.0),
+                       dry_run=True, census_samples=8)
+    oa2 = next(g for g in s2["gates"] if g["gate"] == "object-anchor")
+    assert oa2["ok"] is False and s2["clean"] is False
+    # a RowInsert west of the footprint's east edge displaces ground under it -> refused;
+    # east of the footprint leaves it verbatim -> ok
+    s3 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), land_margin=0.0,
+                       tweaks=TR.chain_row_inserts([92.0]), dry_run=True, census_samples=8)
+    assert next(g for g in s3["gates"] if g["gate"] == "object-anchor")["ok"] is False
+    s4 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), land_margin=0.0,
+                       tweaks=TR.chain_row_inserts([96.0]), dry_run=True, census_samples=8)
+    assert next(g for g in s4["gates"] if g["gate"] == "object-anchor")["ok"] is True
+    # expert override
+    s5 = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), rot=90, shift=(0.0, 0.0),
+                       allow_object_misalign=True, dry_run=True, census_samples=8)
+    assert next(g for g in s5["gates"] if g["gate"] == "object-anchor")["ok"] is True
+
+
+def test_row_insert_fills_non_grass_family_from_inventory(monkeypatch):
+    """A topo-0 owner OUTSIDE the grass rect (the (9,17) u~0.39 scrub band) must be filled
+    from its OWN family's sibling rects (same u-range, neighbour-avoiding, single handedness
+    preserved) -- NOT with grass quadrants (the 'harsh meadow cuts' defect, 2026-07-09)."""
+    LINE = 92.0
+    U0, U1 = 0.394, 0.454
+    STRIPS = [(0.369, 0.399), (0.399, 0.431), (0.431, 0.462), (0.462, 0.493)]
+    def scrub(x0, x1, z0, z1, strip):
+        v0, v1 = STRIPS[strip]
+        # linear-in-position field: u west->east across [U0,U1], v north->south across strip
+        return [[((x0, 1.0, z0), (0, 1, 0), (U0, v0), (12544.0, 0, 0, 1)),
+                 ((x1, 1.0, z0), (0, 1, 0), (U1, v0), (12544.0, 0, 0, 1)),
+                 ((x1, 1.0, z1), (0, 1, 0), (U1, v1), (12544.0, 0, 0, 1))],
+                [((x0, 1.0, z0), (0, 1, 0), (U0, v0), (12544.0, 0, 0, 1)),
+                 ((x1, 1.0, z1), (0, 1, 0), (U1, v1), (12544.0, 0, 0, 1)),
+                 ((x0, 1.0, z1), (0, 1, 0), (U0, v1), (12544.0, 0, 0, 1))]]
+    tw = TR.RowInsert("terrain", line=LINE)
+    tiles = (scrub(84.0, 88.0, -100.0, -96.0, 0) + scrub(88.0, 92.0, -100.0, -96.0, 1)
+             + scrub(92.0, 96.0, -100.0, -96.0, 2) + scrub(96.0, 100.0, -100.0, -96.0, 3))
+    for t in tiles:
+        tw.apply("terrain", [tuple(v) for v in t])
+    fill = tw.emit()
+    assert len(fill) == 4                                    # relief fan (topo-0 ground family)
+    us = [v[2][0] for t in fill for v in t]
+    vs = [v[2][1] for t in fill for v in t]
+    # stays inside the family's u-column -- never the grass rect
+    assert min(us) >= U0 - 1e-6 and max(us) <= U1 + 1e-6
+    # picks a sibling v-strip avoiding the owner (strip 1) and the shifted east tile (strip 2)
+    smin, smax = min(vs), max(vs)
+    hit = [i for i, (v0, v1) in enumerate(STRIPS) if v0 - 1e-6 <= smin and smax <= v1 + 1e-6]
+    assert hit and hit[0] not in (1, 2)
+    # handedness preserved: u still increases west->east on the fill quad
+    east_u = [v[2][0] for t in fill for v in t if abs(v[0][0] - (LINE + 4.0)) < 1e-6]
+    west_u = [v[2][0] for t in fill for v in t if abs(v[0][0] - LINE) < 1e-6]
+    assert min(east_u) > max(west_u) - 1e-9
+
+
 def test_chain_row_inserts_cumulative_lines():
     """Callers give donor-frame lines; the helper sorts west-to-east and shifts each later
     cut by every earlier cut's delta (a later tweak sees already-shifted geometry)."""
