@@ -1523,31 +1523,51 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
     from pathlib import Path
 
     from . import imagefield
+    if args.auto_floor and args.floor:
+        print("pick one: --floor (hand-traced) or --auto-floor (detected)", file=sys.stderr)
+        return 2
+    auto = None
+    if args.auto_floor:
+        try:
+            auto = imagefield.auto_floor(args.image, pitch=args.pitch, fov=args.fov, distance=args.distance)
+        except (imagefield.ImageFieldError, FileNotFoundError) as e:
+            if not args.trace:
+                print(str(e), file=sys.stderr)
+                return 2
+            print(f"note: {e}  (tracer opens un-seeded)")
     if args.trace:
         out_html = (Path(args.out) / "trace.html" if args.out
                     else Path(args.image).with_name(Path(args.image).stem + ".trace.html"))
         try:
-            man = imagefield.write_trace_html(args.image, out_html, pitch=args.pitch,
-                                              fov=args.fov, distance=args.distance)
+            man = imagefield.write_trace_html(args.image, out_html, pitch=args.pitch, fov=args.fov,
+                                              distance=args.distance, floor0=(auto or {}).get("floor"))
         except (imagefield.ImageFieldError, ValueError, FileNotFoundError) as e:
             print(str(e), file=sys.stderr)
             return 2
         print(f"[EXPERIMENTAL] floor tracer -> {man['html']}")
+        if auto:
+            print(f"  auto floor-seed pre-loaded: {len(auto['floor'])} points "
+                  f"({auto['area_frac']:.0%} of the canvas) -- drag/undo to refine, then copy the command.")
         print("Open it in a browser: click the floor outline (below the horizon line), optionally mark each "
               "foreground object's ground-contact point, then copy the emitted image-field command.")
         return 0
-    if not args.floor:
-        print("--floor is required to build (or run with --trace first to click-trace it in a browser)",
+    if not (args.floor or auto):
+        print("--floor is required to build (or --auto-floor to detect it, or --trace to click-trace it)",
               file=sys.stderr)
         return 2
     if not args.out:
         print("--out is required to build (the output project dir)", file=sys.stderr)
         return 2
     try:
-        floor = []
-        for tok in str(args.floor).replace(";", " ").split():
-            cx, cy = tok.split(",")
-            floor.append((float(cx), float(cy)))
+        if auto:
+            floor = auto["floor"]
+            print(f"auto floor-seed: {len(floor)} points ({auto['area_frac']:.0%} of the canvas) -- "
+                  f"refine by hand via:  --floor \"{' '.join(f'{x:g},{y:g}' for x, y in floor)}\"")
+        else:
+            floor = []
+            for tok in str(args.floor).replace(";", " ").split():
+                cx, cy = tok.split(",")
+                floor.append((float(cx), float(cy)))
         if len(floor) < 3:
             print("--floor needs >=3 'cx,cy' canvas-pixel points (the floor outline)", file=sys.stderr)
             return 2
@@ -4559,6 +4579,10 @@ def build_parser() -> argparse.ArgumentParser:
     imf.add_argument("--trace", action="store_true",
                      help="emit a self-contained click-to-trace HTML page (the exact canvas crop + a pitch-"
                           "linked horizon line) instead of building; it prints the ready image-field command")
+    imf.add_argument("--auto-floor", dest="auto_floor", action="store_true",
+                     help="detect the floor polygon from the image (seeded region grow from the bottom-"
+                          "centre; needs numpy; refuses when unsure). Combine with --trace to pre-load the "
+                          "tracer with the detected polygon for hand refinement")
     imf.add_argument("--out", default=None,
                      help="output project dir (writes <name>.field.toml + walkmesh.obj + art/; with --trace, "
                           "where trace.html goes — default: next to the image)")

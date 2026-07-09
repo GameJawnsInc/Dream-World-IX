@@ -201,16 +201,143 @@ def write_walkmesh_obj(verts, faces, path) -> None:
 
 
 # ----------------------------------------------------------------- image layers (Pillow)
-def _cover_to_canvas(img, w: int, h: int):
-    """Cover-crop ``img`` to the w:h aspect (fill, centre-crop the overflow), then resize to w*UPSCALE."""
+def _cover_crop(img, w: int, h: int):
+    """Cover-crop ``img`` to exactly w x h: scale to fill the aspect, centre-crop the overflow."""
     from PIL import Image
     iw, ih = img.size
     scale = max(w / iw, h / ih)
     rw, rh = round(iw * scale), round(ih * scale)
     img = img.resize((rw, rh), Image.LANCZOS)
     left, top = (rw - w) // 2, (rh - h) // 2
-    img = img.crop((left, top, left + w, top + h))
-    return img.resize((w * UPSCALE, h * UPSCALE), Image.LANCZOS)
+    return img.crop((left, top, left + w, top + h))
+
+
+def _cover_to_canvas(img, w: int, h: int):
+    """Cover-crop ``img`` to the w:h aspect at the 4x painted-layer size (w*UPSCALE x h*UPSCALE).
+
+    The crop happens AT 4x, so a high-res source keeps its detail up to 1536x1792 (cropping at the
+    logical 384x448 and re-upscaling would throw that detail away first)."""
+    return _cover_crop(img, w * UPSCALE, h * UPSCALE)
+
+
+# ----------------------------------------------------------------- auto floor-seed (numpy tier)
+SEED_BOX = (112, 396, 272, 436)        # (x0, y0, x1, y1): the bottom-centre strip the floor model seeds from
+SEED_MAX_SPREAD = 0.055                # refuse if the seed strip's per-channel MAD mean exceeds this
+AUTO_FLOOR_MAX_VERTS = 14
+
+
+def _dp_simplify(points, eps: float) -> list:
+    """Douglas-Peucker on an open chain (endpoints kept)."""
+    if len(points) < 3:
+        return list(points)
+    (ax, ay), (bx, by) = points[0], points[-1]
+    dx, dy = bx - ax, by - ay
+    L = math.hypot(dx, dy) or 1.0
+    dmax, imax = -1.0, 0
+    for i in range(1, len(points) - 1):
+        px, py = points[i]
+        d = abs(dx * (py - ay) - dy * (px - ax)) / L
+        if d > dmax:
+            dmax, imax = d, i
+    if dmax <= eps:
+        return [points[0], points[-1]]
+    return _dp_simplify(points[:imax + 1], eps)[:-1] + _dp_simplify(points[imax:], eps)
+
+
+def auto_floor(image_path, *, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
+               distance: float = DEFAULT_DISTANCE, max_vertices: int = AUTO_FLOOR_MAX_VERTS) -> dict:
+    """Detect the floor polygon from the image itself (the numpy tier of the design).
+
+    Seeded region grow: model the floor's colour from the bottom-centre strip (robust median/MAD —
+    a photo's floor is usually the homogeneous surface the camera stands on), take the colour-close
+    pixels, CLOSE small gaps (plank seams / tile grout lines), keep the connected component the seed
+    lives in, and turn its per-row extents into a polygon (going down the left edge and up the right
+    makes it simple by construction — interior islands like furniture legs get bridged, which is the
+    right call for a SEED the human refines in the tracer). The top is clamped below the camera
+    horizon, then both chains are Douglas-Peucker'd down to ``max_vertices``.
+
+    REFUSAL-BIASED (the design's honesty gate): raises :class:`ImageFieldError` with the reason when
+    the seed strip isn't floor-like, the region doesn't reach the bottom of the frame, it's
+    implausibly small/large, or too little of it survives the horizon clamp. The hand-traced
+    ``--floor`` / ``--trace`` path is always the override."""
+    try:
+        import numpy as np
+    except ImportError as e:
+        raise ImageFieldError("auto floor-seed needs numpy (py -m pip install numpy, or the "
+                              "ff9mapkit[image] extra) -- or hand-trace the floor with --trace") from e
+    from PIL import Image, ImageFilter
+    src = Image.open(image_path).convert("RGB")
+    im = _cover_crop(src, CANVAS_W, CANVAS_H).filter(ImageFilter.GaussianBlur(2.0))
+    a = np.asarray(im, dtype=np.float32) / 255.0                     # (H, W, 3)
+    H, W = CANVAS_H, CANVAS_W
+
+    x0, y0, x1, y1 = SEED_BOX
+    seed = a[y0:y1, x0:x1].reshape(-1, 3)
+    med = np.median(seed, axis=0)
+    mad = np.median(np.abs(seed - med), axis=0)
+    spread = float(mad.mean())
+    if spread > SEED_MAX_SPREAD:
+        raise ImageFieldError(
+            f"auto floor-seed: the bottom-centre of the image doesn't look like a uniform floor "
+            f"(colour spread {spread:.3f} > {SEED_MAX_SPREAD}) -- hand-trace it with --trace")
+
+    tol = np.maximum(mad * 4.0, 0.035)                               # per-channel tolerance, floored
+    cand = (np.abs(a - med) <= tol).all(axis=2)
+    m = Image.fromarray((cand * 255).astype("uint8"), "L")           # close seams/grout so the grow crosses them
+    m = m.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))
+    cand = np.asarray(m) > 127
+
+    from collections import deque
+    comp = np.zeros_like(cand)
+    q = deque()
+    sy, sx = np.nonzero(cand[y0:y1, x0:x1])
+    for yy, xx in zip(sy[::7], sx[::7]):                             # a sparse sample of seed pixels suffices
+        q.append((int(yy) + y0, int(xx) + x0))
+    while q:
+        y, x = q.popleft()
+        if comp[y, x] or not cand[y, x]:
+            continue
+        comp[y, x] = True
+        if y > 0: q.append((y - 1, x))
+        if y < H - 1: q.append((y + 1, x))
+        if x > 0: q.append((y, x - 1))
+        if x < W - 1: q.append((y, x + 1))
+
+    frac = float(comp.mean())
+    if frac < 0.05:
+        raise ImageFieldError(f"auto floor-seed: the isolated floor region is too small "
+                              f"({frac:.0%} of the canvas) -- hand-trace it with --trace")
+    if frac > 0.80:
+        raise ImageFieldError(f"auto floor-seed: {frac:.0%} of the image matches the floor colour -- no "
+                              f"distinct floor boundary to detect; hand-trace it with --trace")
+    if int(comp[H - 12:, :].any(axis=0).sum()) < 0.20 * W:
+        raise ImageFieldError("auto floor-seed: the detected region doesn't reach the bottom of the "
+                              "frame (is the floor visible at the camera's feet?) -- hand-trace it with --trace")
+
+    cam = _guide.make_camera(pitch, distance, fov_x_deg=fov, range_wh=(CANVAS_W, CANVAS_H))
+    top_min = int(math.ceil(_cam.horizon_canvas_y(cam) + 4))         # keep the polygon un-projectable
+    if top_min > 0:
+        comp[:min(top_min, H), :] = False
+
+    rows = np.nonzero(comp.any(axis=1))[0]
+    if rows.size < 60:
+        raise ImageFieldError(f"auto floor-seed: only {rows.size} floor rows survive below the camera "
+                              f"horizon -- steepen --pitch, or hand-trace it with --trace")
+    left = [(float(np.nonzero(comp[r])[0].min()), float(r)) for r in rows]
+    right = [(float(np.nonzero(comp[r])[0].max()), float(r)) for r in rows]
+    while left and (right[0][0] - left[0][0]) < 12:                  # trim a sliver-thin far tip
+        left.pop(0), right.pop(0)
+
+    eps = 2.0
+    while True:
+        lp, rp = _dp_simplify(left, eps), _dp_simplify(right, eps)
+        if len(lp) + len(rp) <= max_vertices or eps > 64:
+            break
+        eps *= 2.0
+    poly = [(round(x, 1), round(y, 1)) for x, y in lp + rp[::-1]]
+    poly = [p for i, p in enumerate(poly) if i == 0 or p != poly[i - 1]]
+    return {"floor": poly, "area_frac": frac, "seed_spread": spread, "eps": eps,
+            "rows": (int(rows[0]), int(rows[-1]))}
 
 
 # ----------------------------------------------------------------- the floor tracer (--trace)
@@ -248,7 +375,7 @@ where each foreground object MEETS the floor (its base) — that anchors its occ
 <script>
 const HORIZONS=__HORIZONS__, IMGARG=__IMGARG__, S=2, DEF={pitch:26,fov:42,distance:3000};
 const FOV=__FOVJS__, DIST=__DISTJS__, OUTNAME=__OUTNAME__;
-let pitch=__PITCH0__, mode='floor', floor=[], contacts=[], drag=null;
+let pitch=__PITCH0__, mode='floor', floor=__FLOOR0__, contacts=[], drag=null;
 const cv=document.getElementById('cv'), cx2=cv.getContext('2d');
 const r1=v=>Math.round(v*10)/10, fmt=p=>r1(p.x)+','+r1(p.y);
 function lists(){return mode==='floor'?floor:contacts}
@@ -305,20 +432,21 @@ redraw();
 
 
 def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT_FOV,
-                     distance: float = DEFAULT_DISTANCE, pitch_band=(6, 48)) -> dict:
+                     distance: float = DEFAULT_DISTANCE, pitch_band=(6, 48), floor0=None) -> dict:
     """Emit a self-contained click-to-trace page for ``image_path`` (the real-photo on-ramp).
 
-    Shows the EXACT 384x448 cover-crop :func:`build_image_field` will use (the same
-    ``_cover_to_canvas`` code), a pitch slider whose HORIZON LINE is precomputed per integer pitch
-    from the real camera math (floor points must stay below it — and matching the line to the
-    photo's own eye level is a crude pitch estimator), floor-polygon + foreground-contact tracing,
-    and the ready-to-run ``image-field`` command. No network, no deps; open in any browser."""
+    Shows the EXACT 384x448 cover-crop :func:`build_image_field` will use (the same cover-crop
+    code), a pitch slider whose HORIZON LINE is precomputed per integer pitch from the real camera
+    math (floor points must stay below it — and matching the line to the photo's own eye level is a
+    crude pitch estimator), floor-polygon + foreground-contact tracing, and the ready-to-run
+    ``image-field`` command. ``floor0`` pre-loads a starting polygon (the :func:`auto_floor` seed —
+    every auto mask routes through this hand override). No network, no deps; any browser."""
     import base64
     import io
     import json
     from PIL import Image
     src = Image.open(image_path).convert("RGB")
-    disp = _cover_to_canvas(src, CANVAS_W, CANVAS_H).resize((CANVAS_W * 2, CANVAS_H * 2), Image.LANCZOS)
+    disp = _cover_crop(src, CANVAS_W * 2, CANVAS_H * 2)     # the same crop geometry, at display res
     buf = io.BytesIO()
     disp.save(buf, "JPEG", quality=88)
     uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
@@ -327,9 +455,11 @@ def write_trace_html(image_path, out_html, *, pitch: float = DEFAULT_PITCH, fov:
         _guide.make_camera(float(p), distance, fov_x_deg=fov, range_wh=(CANVAS_W, CANVAS_H))), 1)
         for p in range(lo, hi + 1)}
     stem = Path(image_path).stem
+    seed_pts = [{"x": float(x), "y": float(y)} for (x, y) in (floor0 or [])]
     html = (_TRACE_HTML
             .replace("__TITLE__", Path(image_path).name)
             .replace("__IMGURI__", uri)
+            .replace("__FLOOR0__", json.dumps(seed_pts))
             .replace("__HORIZONS__", json.dumps(horizons))
             .replace("__IMGARG__", json.dumps(str(image_path)))
             .replace("__OUTNAME__", json.dumps(f"{stem}-field"))

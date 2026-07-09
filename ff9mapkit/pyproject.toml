@@ -39,6 +39,10 @@ dev = ["pytest>=7", "pytest-xdist>=3"]
 # `ff9mapkit save-edit` (the RECREATE verb) reads/writes FF9's AES-encrypted save; pycryptodome is
 # imported lazily, so it's only needed for that command (and the save tests skip without it).
 save = ["pycryptodome>=3.10"]
+# `image-field --auto-floor` (the EXPERIMENTAL image->field pillar) detects the floor polygon from the
+# image via a numpy seeded region grow. Imported lazily -- the hand-traced --floor / --trace paths are
+# Pillow-only and never need it (and its tests skip without it).
+image = ["numpy>=1.24"]
 # UnityPy reads FF9's p0data*.bin Unity assetbundles -- needed for the headline import/fork commands
 # (extract-templates, import, import-all, import-chain, list-fields, battle-import). Imported lazily, so
 # the from-scratch authoring path never needs it. Declaring it here lets `pip install ff9mapkit[assets]`

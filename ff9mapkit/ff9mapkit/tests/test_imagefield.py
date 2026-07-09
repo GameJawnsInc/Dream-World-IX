@@ -183,6 +183,79 @@ def test_build_with_anchored_foreground(tmp_path):
     assert d_front < want_z < d_back
 
 
+# ---------------------------------------------------------------- auto floor-seed (numpy tier)
+
+def _paint_room(tmp_path, with_pillar=True):
+    """The synth proof-room recipe: distinct wall band + a floor trapezoid with GRID LINES (the
+    plank/grout hard case the closing step must bridge) + optionally a pillar interrupting it."""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (384, 448), (38, 42, 58))
+    dr = ImageDraw.Draw(img)
+    dr.rectangle([0, 0, 384, 139], fill=(52, 56, 76))
+    floor = [(130, 140), (254, 140), (364, 440), (20, 440)]
+    dr.polygon(floor, fill=(158, 132, 96))
+    for y in range(160, 440, 25):                                   # grout lines across the floor
+        dr.line([(0, y), (384, y)], fill=(120, 96, 66), width=1)
+    if with_pillar:
+        dr.rectangle([213, 108, 247, 320], fill=(148, 150, 160))
+    p = tmp_path / "room.png"
+    img.save(p)
+    return p, floor
+
+
+def _poly_mask(poly, size=(384, 448)):
+    from PIL import Image, ImageDraw
+    m = Image.new("1", size, 0)
+    ImageDraw.Draw(m).polygon([tuple(p) for p in poly], fill=1)
+    return m
+
+
+def test_auto_floor_finds_the_trapezoid(tmp_path):
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    src, truth = _paint_room(tmp_path)
+    got = IF.auto_floor(src)
+    assert 3 <= len(got["floor"]) <= IF.AUTO_FLOOR_MAX_VERTS
+    a = np.asarray(_poly_mask(got["floor"]), dtype=bool)
+    b = np.asarray(_poly_mask(truth), dtype=bool)
+    iou = (a & b).sum() / (a | b).sum()
+    assert iou >= 0.80, f"IoU {iou:.2f} vs the painted floor"
+    # and the seed must be buildable end-to-end (simple polygon, below horizon, Int16-safe)
+    man = IF.build_image_field(src, got["floor"], tmp_path / "out", name="AUTOFLR")
+    assert man["faces"] >= 2
+
+
+def test_auto_floor_refuses_no_boundary(tmp_path):
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (384, 448), (120, 110, 100)).save(tmp_path / "flat.png")   # one colour everywhere
+    with pytest.raises(IF.ImageFieldError, match="no\\s+distinct floor boundary"):
+        IF.auto_floor(tmp_path / "flat.png")
+
+
+def test_auto_floor_refuses_noisy_seed(tmp_path):
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image
+    rng = np.random.default_rng(9)
+    # COARSE block noise: per-pixel static would blur toward uniform grey and dodge the seed gate
+    blocks = rng.integers(0, 255, (56, 48, 3), dtype=np.uint8)
+    Image.fromarray(blocks).resize((384, 448), Image.NEAREST).save(tmp_path / "noise.png")
+    with pytest.raises(IF.ImageFieldError, match="uniform floor"):
+        IF.auto_floor(tmp_path / "noise.png")
+
+
+def test_auto_floor_without_numpy_errors_cleanly(tmp_path, monkeypatch):
+    pytest.importorskip("PIL")
+    import sys
+    from PIL import Image
+    Image.new("RGB", (384, 448)).save(tmp_path / "x.png")
+    monkeypatch.setitem(sys.modules, "numpy", None)                 # import numpy -> ImportError
+    with pytest.raises(IF.ImageFieldError, match="needs numpy"):
+        IF.auto_floor(tmp_path / "x.png")
+
+
 # ---------------------------------------------------------------- the floor tracer (--trace)
 
 def test_write_trace_html(tmp_path):
@@ -197,3 +270,14 @@ def test_write_trace_html(tmp_path):
     # the horizon it reports matches the camera math for the default pitch
     hy = C.horizon_canvas_y(guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))
     assert abs(man["horizon"] - hy) < 0.11                          # table values are rounded to 0.1
+    assert "floor=[]" in html.replace(" ", "")                      # un-seeded by default
+
+
+def test_write_trace_html_preseeded(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    Image.new("RGB", (800, 600), (40, 90, 120)).save(tmp_path / "photo.png")
+    IF.write_trace_html(tmp_path / "photo.png", tmp_path / "t.html",
+                        floor0=[(130, 140), (254, 140), (364, 440), (20, 440)])
+    html = (tmp_path / "t.html").read_text(encoding="utf-8")
+    assert '{"x": 130.0, "y": 140.0}' in html                       # the seed polygon is pre-loaded
