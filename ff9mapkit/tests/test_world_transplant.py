@@ -897,10 +897,12 @@ def test_region_refusals(monkeypatch):
 # ------------------------------------------------- region growth (cut laws on a multi-cell base)
 
 def test_cut_census_region_empty_cell_laws(monkeypatch):
-    """A REGION cut's shift is global, but the seam extrusion fills only AT the line -- so an
-    empty donor cell creates unfillable discontinuities (the (9,5)+2x3 row-0 hole, 2026-07-09):
-    east-neighbour data slides off a shared border (`gap-vacation`), west-neighbour data slides
-    INTO the empty cell (`spills-into-empty`). Lines east of the empty cell stay clean."""
+    """A REGION cut's shift is global, but the seam extrusion fills only at its planes -- so an
+    empty donor cell creates discontinuities (the (9,5)+2x3 row-0 hole, 2026-07-09): east-
+    neighbour data slides off a shared border, west-neighbour data slides INTO the empty cell
+    (`spills-into-empty`, always disqualifying). A vacated border whose on-plane content is pure
+    OPEN WATER is FILLABLE (reported in `boundary_fills`, the multi-boundary extrusion); any
+    other language on it keeps `gap-vacation`. Lines east of the empty cell stay clean."""
     blocks = {  # donor rect (1,1)+3x1: EMPTY | data | data
         (2, 1, "terrain"): _quad(140.0, 156.0, -104.0, -88.0, y=1.0),
         (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0),
@@ -910,8 +912,18 @@ def test_cut_census_region_empty_cell_laws(monkeypatch):
     cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(3, 1))}
     assert len(cen) == 47                                      # every interior 4u line of 3 cells
     # cell (1,1) is empty, (2,1) east of it has data: lines <= their border x=128 vacate a gap
-    assert "gap-vacation" in cen[80.0]["risks"] and "gap-vacation" in cen[128.0]["risks"]
-    assert "gap-vacation" not in cen[132.0]["risks"]
+    # -- the border is pure sea4, so the gap is FILLABLE, not a risk
+    assert cen[80.0]["risks"] == [] and cen[80.0]["boundary_fills"] == [[128.0, -128.0, -64.0]]
+    assert cen[128.0]["boundary_fills"] == [[128.0, -128.0, -64.0]]
+    assert cen[80.0]["clean"] is True and cen[80.0]["ok"] is False     # water: a SLIDE line
+    assert cen[132.0]["boundary_fills"] == []                  # east of the border: no gap
+    # an UNFILLABLE border -- land ends exactly ON it -- keeps the gap-vacation risk
+    blocks_land = dict(blocks)
+    blocks_land[(2, 1, "terrain")] = _quad(128.0, 156.0, -104.0, -88.0, y=1.0)
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks_land))
+    cen_l = {c["line"]: c for c in TR.cut_census((1, 1), size=(3, 1))}
+    assert "gap-vacation" in cen_l[80.0]["risks"] and cen_l[80.0]["boundary_fills"] == []
+    assert cen_l[80.0]["clean"] is False
     # the mirror law needs data WEST of an empty cell: rect (2,1)+2x1 = data | empty... reuse
     blocks2 = {(2, 1, "terrain"): _quad(140.0, 156.0, -104.0, -88.0, y=1.0),
                (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
@@ -920,6 +932,84 @@ def test_cut_census_region_empty_cell_laws(monkeypatch):
     assert "spills-into-empty" in cen2[160.0]["risks"]         # west-of-the-empty-cell border
     assert "spills-into-empty" in cen2[192.0]["risks"]         # exactly at it
     assert all("gap-vacation" not in c["risks"] for c in cen2.values())
+
+
+def test_region_boundary_fill_covers_empty_cell_gap(monkeypatch):
+    """THE MULTI-BOUNDARY SEAM EXTRUSION (the gap-vacation kill, 2026-07-09): a cut west of an
+    empty cell's east border slides the east cell's content off it; the boundary fill extrudes
+    the east side's seam profile ``+delta`` into the vacated band -- west edge = the bit-exact
+    pre-shift boundary profile (the original SeaBlockPrefab join), east edge welding to the
+    shifted content BY IDENTITY -- and the placement census stays hole-free."""
+    blocks = {(2, 1, "terrain"): _quad(152.0, 168.0, -104.0, -88.0, y=1.0),
+              (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=228.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(2, 1))}
+    assert cen[100.0]["clean"] is True and cen[100.0]["risks"] == []
+    assert cen[100.0]["boundary_fills"] == [[128.0, -128.0, -64.0]]
+    tweaks = TR.chain_row_inserts([100.0], boundaries=cen[100.0]["boundary_fills"])
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
+                             tweaks=tweaks, land_margin=0.0, census_samples=8, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0
+    ri = next(g for g in s["gates"] if g["gate"] == "rowinsert[sea4]")
+    assert ri["boundary_fills"] == {"128": 2}          # one full-height band = two tris
+    rt = next(g for g in s["gates"] if g["gate"] == "rowinsert[terrain]")
+    assert rt["ok"] is True and rt["boundary_fills"] == {"128": 0}   # owes nothing at water
+    # the fill band's verts: west edge bit-exact ON the plane, east edge = the same profile
+    # +delta (identity with the shifted content)
+    fill = [t for t in tweaks[[tw.part for tw in tweaks].index("sea4")].emit()]
+    xs = sorted({round(v[0][0], 6) for t in fill for v in t})
+    assert xs == [128.0, 132.0]
+
+
+def test_region_boundary_fill_windowed_to_empty_rows(monkeypatch):
+    """The fill's z-window law: only the EMPTY cell's row gets boundary bands -- a data row
+    crossing the same border shifts contiguously and must NOT be double-covered (the line
+    fill owns its gap there instead)."""
+    blocks = {(2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=228.0),
+              (1, 2, "sea4"): (_quad(64.0, 100.0, -192.0, -128.0, idall=228.0)
+                               + _quad(100.0, 128.0, -192.0, -128.0, idall=228.0)),
+              (2, 2, "sea4"): _quad(128.0, 192.0, -192.0, -128.0, idall=228.0)}
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    cen = {c["line"]: c for c in TR.cut_census((1, 1), size=(2, 2))}
+    assert cen[100.0]["clean"] is True
+    assert cen[100.0]["boundary_fills"] == [[128.0, -128.0, -64.0]]   # row 0's window only
+    tweaks = TR.chain_row_inserts([100.0], boundaries=cen[100.0]["boundary_fills"])
+    s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 2), shift=(0.0, 0.0),
+                             tweaks=tweaks, land_margin=0.0, census_samples=8, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    ri = next(g for g in s["gates"] if g["gate"] == "rowinsert[sea4]")
+    assert ri["boundary_fills"] == {"128": 2}          # the empty row's band only
+    assert ri["emitted"] == 4                          # + the row-1 LINE fill (2 tris)
+    # every boundary-band tri sits inside the empty row's z-window
+    fill = tweaks[[tw.part for tw in tweaks].index("sea4")].emit()
+    band = [t for t in fill if all(v[0][0] >= 128.0 - 1e-6 for v in t)]
+    assert band and all(-128.0 - 1e-6 <= v[0][2] <= -64.0 + 1e-6 for t in band for v in t)
+
+
+def test_chain_row_inserts_boundary_composition():
+    """Boundary planes ride the same cumulative +i*delta correction as the lines (each cut's
+    band tiles against the one before), and a cut east of a plane never owes it a fill."""
+    tws = TR.chain_row_inserts([100.0, 108.0], parts=("sea4",),
+                               boundaries=[(128.0, -128.0, -64.0), (104.0, -128.0, -64.0)])
+    assert [tw.line for tw in tws] == [100.0, 112.0]
+    assert [st["plane"] for st in tws[0]._bnd] == [104.0, 128.0]
+    assert [st["plane"] for st in tws[1]._bnd] == [132.0]      # 104 < 108: not owed
+    with pytest.raises(ValueError):
+        TR.RowInsert("sea4", line=100.0, boundaries=[(96.0, -128.0, -64.0)])
+
+
+def test_split_border_pairs():
+    """Interior-border weld classification (the non-easternmost-cut law): an off-lattice float
+    next to a bit-exact clip vert on the border plane is a benign clip T-junction (the 592
+    build's two undiagnosed x=64 pairs); two verts BOTH bit-exactly on the plane = the cells
+    disagree about the shared profile = a crack; pairs away from any border stay cracks."""
+    t_pair = ((63.976562, 2.0, -100.35), (64.0, 2.0, -100.351563))
+    crack = ((64.0, 2.0, -80.0), (64.0, 2.04, -80.01))
+    off = ((30.0, 0.0, -20.0), (30.01, 0.0, -20.0))
+    cracks, ts = TR._split_border_pairs([t_pair, crack, off], (64.0,), ())
+    assert ts == [t_pair] and cracks == [crack, off]
 
 
 def test_census_backmap_inverts_row_insert(monkeypatch):
@@ -1010,17 +1100,16 @@ def test_transplant_region_2x3_island():
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_region_growth_cut_config():
-    """The first REGION growth cut attempt (2026-07-09, in-game FAILED and reverted): on the
-    (9,5)+2x3 rect every line at-or-west of the empty corner's border x=640 is gap-vacation,
-    and the one structurally-clean line -- 672 -- crosses the 26.5u MOUNTAIN, which the fill
-    extrusion cannot faithfully cross ("seaming errors on both sides of the mountain") -- now
-    the `crosses-relief` law, so this rect has ZERO usable growth lines. The mechanics gates
-    themselves stay green on the 672 config (fills across the region, tweak-inverted backmap,
-    the single weld pair a benign frame T-junction) -- kept as the region-cut mechanics
-    regression; the LAW is what rejects it."""
+    """The first REGION growth cut attempt (2026-07-09, in-game FAILED and reverted): the one
+    structurally-clean line -- 672 -- crosses the 26.5u MOUNTAIN, which the fill extrusion
+    cannot faithfully cross ("seaming errors on both sides of the mountain") -- now the
+    `crosses-relief` law, so this rect has ZERO usable land-GROWTH lines even after the
+    multi-boundary unlock (640/672 are the only land lines and both cross the relief). The
+    mechanics gates themselves stay green on the 672 config (fills across the region,
+    tweak-inverted backmap, the single weld pair a benign frame T-junction) -- kept as the
+    region-cut mechanics regression; the LAW is what rejects it."""
     cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3))}
     assert [l for l, c in cen.items() if c["ok"]] == []
-    assert "gap-vacation" in cen[640.0]["risks"] and "gap-vacation" in cen[592.0]["risks"]
     assert "crosses-relief" in cen[672.0]["risks"] and "crosses-relief" in cen[640.0]["risks"]
     s = TR.transplant_region("UNUSED", cell=(11, 1), donor=(9, 5), size=(2, 3),
                              shift=(0.0, 0.0), tweaks=TR.chain_row_inserts([672.0]),
@@ -1029,9 +1118,40 @@ def test_region_growth_cut_config():
     ri = next(g for g in s["gates"] if g["gate"] == "rowinsert[terrain]")
     assert ri["shifted"] == 310 and ri["emitted"] == 50
     weld = next(g for g in s["gates"] if g["gate"] == "weld-audit")
-    assert weld["pairs"] == 0 and weld["frame_pairs"] == 1
+    assert weld["pairs"] == 0 and weld["frame_pairs"] == 1 and weld["border_t_pairs"] == 0
     census = next(g for g in s["gates"] if g["gate"] == "census")
     assert census["inherited"] == 2 and census["introduced"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_region_water_slide_cut_config():
+    """THE MULTI-BOUNDARY UNLOCK on the real (9,5)+2x3 island (deployed 2026-07-09): the flat
+    pure-sea4 lines 580-608 -- previously ALL disqualified by gap-vacation from the empty
+    corner cell -- are now census-CLEAN slide cuts, each requiring one boundary fill at the
+    empty cell's east border x=640 (window = the empty row z[-384,-320], certified pure open
+    water). The 592 cut slides the whole island +4u east in proven water language; its two
+    interior weld pairs at the x=64 border (the rejected build's undiagnosed signature)
+    classify as benign clip T-junctions."""
+    cen = {c["line"]: c for c in TR.cut_census((9, 5), size=(2, 3))}
+    for line in (580.0, 592.0, 608.0):
+        assert cen[line]["clean"] is True and cen[line]["risks"] == []
+        assert cen[line]["boundary_fills"] == [[640.0, -384.0, -320.0]]
+        assert cen[line]["ok"] is False                    # pure water: a slide, not growth
+    tweaks = TR.chain_row_inserts([592.0], boundaries=cen[592.0]["boundary_fills"])
+    s = TR.transplant_region("UNUSED", cell=(11, 1), donor=(9, 5), size=(2, 3),
+                             shift=(0.0, 0.0), tweaks=tweaks, land_margin=0.0, dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    ri = next(g for g in s["gates"] if g["gate"] == "rowinsert[sea4]")
+    assert ri["shifted"] == 1829 and ri["emitted"] == 96   # 64 line + 32 boundary tris
+    assert ri["boundary_fills"] == {"640": 32}
+    rt = next(g for g in s["gates"] if g["gate"] == "rowinsert[terrain]")
+    assert rt["shifted"] == 917 and rt["emitted"] == 0     # the island slides whole
+    assert rt["ok"] is True and rt["boundary_fills"] == {"640": 0}
+    weld = next(g for g in s["gates"] if g["gate"] == "weld-audit")
+    assert weld["pairs"] == 0 and weld["border_t_pairs"] == 2
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["inherited"] == 2 and census["introduced"] == 0
+    assert sorted(s["cells"]) == ["11,2", "11,3", "12,1", "12,2", "12,3"]   # (11,1) skipped
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

@@ -51,6 +51,9 @@ MIN_TRI_AREA2 = 0.02                 # post-clip degenerate-sliver filter (2x th
 #   topo-38, the (9,5) island -- has ZERO PLAN area and real 3D area; a plan-area test silently
 #   drops it ("the top renders, the vertical portion doesn't", in-game 2026-07-09))
 PROVEN_DONOR = (7, 17)               # the in-game-proven beach island (E tongue in (8,17))
+#: The synthesizable OPEN-WATER tile languages (world-water-proven). Shore-bound bands
+#: (beach1/sea1/sea2) are COPY-ONLY components; these three are fair game for fills.
+OPEN_WATER_PARTS = frozenset({"sea3", "sea5", "sea4"})
 
 _DIRS = {"E": (1, 0), "N": (0, 1), "W": (-1, 0), "S": (0, -1)}
 _DIR_OF = {v: k for k, v in _DIRS.items()}
@@ -367,6 +370,24 @@ def _cell_rect(poly):
             exact)
 
 
+def _strip_rect(poly):
+    """The Wang transition-strip UV rect a tile belongs to (full-u x one v-quarter), or
+    ``None`` for a non-strip tile. Strips are DIRECTIONAL: their fills must translate-clone,
+    never mirror (a mirrored tip points the wrong way -- in-game 2026-07-09)."""
+    rct = _cell_rect(poly)
+    if rct is None:
+        return None
+    (ru0, rv0, ru1, rv1) = rct[1]
+    if ru1 - ru0 <= 0.6:
+        return None
+    from .water import UFULL, VSTRIP
+    vmid = (max(0.0, rv0) + min(1.0, rv1)) / 2.0
+    k = min(range(4), key=lambda i: abs((VSTRIP[i][0] + VSTRIP[i][1]) / 2.0 - vmid))
+    if VSTRIP[k][0] - 0.06 <= vmid <= VSTRIP[k][1] + 0.06:
+        return (UFULL[0], VSTRIP[k][0], UFULL[1], VSTRIP[k][1])
+    return None
+
+
 class RowInsert:
     """Tweak class 4 -- the GROWTH SEED (structural; in-game proven 2026-07-08: the (9,17)
     island grown by one lattice column, measured +4u between landmarks, seam invisible).
@@ -395,11 +416,26 @@ class RowInsert:
     measured real 4u-neighbour roll; the quad boundary -- every weld -- stays bit-exact).
     Everything else (flat water/apron tiles) = the plan-affine mirror, exact there.
 
+    MULTI-BOUNDARY seam extrusion (``boundaries``, the gap-vacation kill, 2026-07-09): a
+    REGION cut's shift is global but the line extrusion fills only AT the line -- an EMPTY
+    donor cell whose east neighbour has data leaves a delta-wide bare strip at their border
+    (the ``gap-vacation`` law). Each ``(plane, z0, z1)`` triple names such a border plane and
+    the empty cell's row z-window: the east side's seam profile is collected ON the plane
+    (pre-shift -- so the fill's west edge reproduces the original SeaBlockPrefab boundary
+    profile bit-exactly) and extruded ``+delta``, welding to the shifted content BY IDENTITY,
+    exactly the line mechanic at a second plane. Fills emit only inside the z-window (the
+    data rows are covered by the shift itself); UVs come from the SHIFTED east owner --
+    mirror about the weld plane ``plane + delta`` (the proven flat-water law, continuous at
+    the weld), or the translate-clone for a directional Wang strip. Take the triples from
+    :func:`cut_census` ``boundary_fills`` (it certifies the boundary is pure OPEN WATER --
+    a fill in any other language is uncertified); a plane west of the line is refused
+    (content west of the line never moves, no gap can open there).
+
     One instance per PART (the tweak protocol emits per part):
     ``tweaks=[RowInsert(p, line=608.0) for p in PARTS]``."""
 
     def __init__(self, part: str, *, line: float, delta: float = 4.0, eps: float = 1e-4,
-                 relief: float = 0.4, seed: int = 0xF95):
+                 relief: float = 0.4, seed: int = 0xF95, boundaries=()):
         self.part = part
         self.line = float(line)
         self.delta = float(delta)
@@ -414,6 +450,18 @@ class RowInsert:
         self.east_edges: list = []        # (vert_a, vert_b, SHIFTED poly) from EAST tris
         self.cell_rects: dict = {}        # final (cellx, cellz) -> topo-0 family rect key
         self.emitted = 0
+        self._bnd: list = []              # empty-cell boundary fills, grouped per plane
+        by_plane: dict = {}
+        for (b, z0, z1) in boundaries:
+            b, z0, z1 = float(b), float(z0), float(z1)
+            if b < self.line - self.eps:
+                raise ValueError(f"fill boundary {b:g} lies west of the cut line "
+                                 f"{self.line:g} -- content west of the line never moves, "
+                                 f"no gap can open there")
+            by_plane.setdefault(b, []).append((min(z0, z1), max(z0, z1)))
+        for b in sorted(by_plane):
+            self._bnd.append({"plane": b, "windows": by_plane[b], "seam": {},
+                              "east": [], "emitted": 0})
 
     def _key(self, p):
         return (round(p[0], 4), round(p[1], 4), round(p[2], 4))
@@ -436,6 +484,15 @@ class RowInsert:
                        for (p, n, uv, tan) in poly]
             if len(on_line) >= 2:
                 self.east_edges.append((on_line[0], on_line[1], shifted))
+            for st in self._bnd:          # empty-cell boundary seams (pre-shift positions)
+                if cx <= st["plane"]:
+                    continue
+                on_b = [v for v in poly if abs(v[0][0] - st["plane"]) <= self.eps]
+                for v in on_b:            # seam verts only inside the empty-cell z-windows
+                    if any(z0 - 1e-6 <= v[0][2] <= z1 + 1e-6 for (z0, z1) in st["windows"]):
+                        st["seam"].setdefault(self._key(v[0]), (v[0], v[1]))
+                if len(on_b) >= 2:
+                    st["east"].append((on_b[0], on_b[1], shifted))
             if topo0:
                 self._map_cell(shifted)
             return shifted
@@ -473,7 +530,7 @@ class RowInsert:
         return self._pick(self.west_edges, zmid)
 
     def emit(self) -> list:
-        if not self.seam:
+        if not self.seam and not any(st["seam"] for st in self._bnd):
             return []
         import random
         from . import grassland as G
@@ -579,17 +636,7 @@ class RowInsert:
                 # Real bands repeat their strip along the band with orientation preserved, so
                 # the strip fill is a translate-CLONE clamped into the strip rect. Pure
                 # quadrant bands + the sand apron keep the mirror (proven, avoids repeats).
-                strip_rect = None
-                rct = _cell_rect(owner)
-                if rct is not None:
-                    (ru0, rv0, ru1, rv1) = rct[1]
-                    if ru1 - ru0 > 0.6:
-                        from .water import UFULL, VSTRIP
-                        vmid = (max(0.0, rv0) + min(1.0, rv1)) / 2.0
-                        k = min(range(4), key=lambda i: abs((VSTRIP[i][0] + VSTRIP[i][1]) / 2.0
-                                                            - vmid))
-                        if VSTRIP[k][0] - 0.06 <= vmid <= VSTRIP[k][1] + 0.06:
-                            strip_rect = (UFULL[0], VSTRIP[k][0], UFULL[1], VSTRIP[k][1])
+                strip_rect = _strip_rect(owner)
                 if strip_rect is not None:
                     (su0, sv0, su1, sv1) = strip_rect
                     def mu(p, uvf=uvf, su0=su0, sv0=sv0, su1=su1, sv1=sv1):
@@ -614,6 +661,53 @@ class RowInsert:
                     t3 = [t3[0], t3[2], t3[1]]
                 out.append(t3)
                 self.emitted += 1
+
+        # the MULTI-BOUNDARY fills: extrude the east side's seam profile at each empty-cell
+        # border plane, inside the empty cell's row z-window only (data rows are covered by
+        # the shift itself). The owner is the SHIFTED east tile: mirror about the weld plane
+        # (continuous there, the proven flat-water law) or translate-clone for a Wang strip
+        # (samples the owner's field at p.x + delta = the tile's ORIGINAL texels in place).
+        for st in self._bnd:
+            if not st["seam"]:
+                continue
+            plane = st["plane"]
+            weld_x = plane + self.delta
+            pts = sorted(st["seam"].values(), key=lambda pn: pn[0][2])
+            for (pa, na), (pb, nb) in zip(pts, pts[1:]):
+                if abs(pb[2] - pa[2]) < 0.05:
+                    continue              # coincident-z duplicates (a wall seam)
+                zmid = (pa[2] + pb[2]) / 2.0
+                if not any(z0 - 1e-6 <= zmid <= z1 + 1e-6 for (z0, z1) in st["windows"]):
+                    continue              # a data row: the shift keeps it contiguous
+                owner = self._pick(st["east"], zmid)
+                if owner is None:
+                    continue              # no east tile spans this z-range
+                uvf = _affine_uv(owner)
+                idall = owner[0][3]
+                pe_a = (pa[0] + self.delta, pa[1], pa[2])
+                pe_b = (pb[0] + self.delta, pb[1], pb[2])
+                strip_rect = _strip_rect(owner)
+                if strip_rect is not None:
+                    (su0, sv0, su1, sv1) = strip_rect
+                    def mu(p, uvf=uvf, su0=su0, sv0=sv0, su1=su1, sv1=sv1):
+                        fu, fv = uvf(p[0] + self.delta, p[2])
+                        return (min(su1, max(su0, fu)), min(sv1, max(sv0, fv)))
+                else:
+                    def mu(p, uvf=uvf, weld_x=weld_x):
+                        return uvf(2.0 * weld_x - p[0], p[2])
+                wa = (pa, na, mu(pa))
+                wb = (pb, nb, mu(pb))
+                ea = (pe_a, na, mu(pe_a))
+                eb = (pe_b, nb, mu(pe_b))
+                for tri in ((wa, wb, ea), (eb, ea, wb)):
+                    t3 = [(p, n, uv, tuple(idall)) for (p, n, uv) in tri]
+                    ux, uz = t3[1][0][0] - t3[0][0][0], t3[1][0][2] - t3[0][0][2]
+                    vx, vz = t3[2][0][0] - t3[0][0][0], t3[2][0][2] - t3[0][0][2]
+                    if uz * vx - ux * vz <= 0:                 # enforce up-facing winding
+                        t3 = [t3[0], t3[2], t3[1]]
+                    out.append(t3)
+                    self.emitted += 1
+                    st["emitted"] += 1
         return out
 
     def inverse_x(self, x: float) -> float:
@@ -627,9 +721,20 @@ class RowInsert:
         return x
 
     def gate(self) -> dict:
-        return {"gate": f"rowinsert[{self.part}]", "shifted": self.shifted,
-                "emitted": self.emitted,
-                "ok": self.shifted == 0 or self.kept == 0 or self.emitted > 0}
+        # line obligation: content split AT the line (a non-empty seam, both sides present)
+        # must have produced fill. A part nothing of which touches the line (a water line
+        # through a terrain-free column) owes no fill -- the on-line part fills there.
+        ok = (self.shifted == 0 or self.kept == 0 or not self.seam or self.emitted > 0)
+        d = {"gate": f"rowinsert[{self.part}]", "shifted": self.shifted,
+             "emitted": self.emitted, "ok": ok}
+        if self._bnd:
+            # boundary obligation: a plane with east seam content on a shifted build must
+            # fill (holes are also census-caught; this names the responsible tweak)
+            d["boundary_fills"] = {f"{st['plane']:g}": st["emitted"] for st in self._bnd}
+            d["ok"] = ok and (self.shifted == 0
+                              or all(st["emitted"] > 0 or not st["seam"]
+                                     for st in self._bnd))
+        return d
 
 
 def _split_frame_pairs(weld, planes_x, planes_z, tol: float = 0.05):
@@ -648,6 +753,28 @@ def _split_frame_pairs(weld, planes_x, planes_z, tol: float = 0.05):
                    or any(near(a, v, 2) and near(b, v, 2) for v in planes_z))
         (frame if onframe else interior).append((a, b))
     return interior, frame
+
+
+def _split_border_pairs(pairs, planes_x, planes_z, tol: float = 0.05, exact: float = 1e-6):
+    """Split interior weld pairs at INTERIOR block-border planes into ``(cracks, t_pairs)``
+    -- the non-easternmost-cut law (the rejected 592 build's two undiagnosed x=64 pairs,
+    2026-07-09). A region cut's shift slides off-lattice donor floats next to an interior
+    border; the re-partition clip mints bit-exact ON-plane verts, so a float within ``tol``
+    of the border pairs with a clip vert while the SURFACE stays continuous through it (the
+    float lies on the clipped edge both cells share) -- a benign clip T-junction, same class
+    as the frame variant. A pair with BOTH verts bit-exactly ON the plane is two cells
+    DISAGREEING about the shared border profile -- impossible while the clip ``t`` is
+    bit-identical on both sides, so it stays a CRACK and fails."""
+    def cls(a, b, v, axis):
+        if not (abs(a[axis] - v) <= tol and abs(b[axis] - v) <= tol):
+            return None
+        return "t" if (abs(a[axis] - v) > exact or abs(b[axis] - v) > exact) else "crack"
+    cracks, ts = [], []
+    for (a, b) in pairs:
+        kinds = ({cls(a, b, v, 0) for v in planes_x} | {cls(a, b, v, 2) for v in planes_z})
+        kinds.discard(None)
+        (ts if kinds == {"t"} else cracks).append((a, b))
+    return cracks, ts
 
 
 def _tweak_inverse_x(tweaks):
@@ -691,8 +818,22 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
       2026-07-09); treat it as a component and cut around it.
     - ``displaces-object-ground``: the donor has a prefab-anchored Object whose footprint
       lies east of the line (its ground would shift under the static object).
+    - ``gap-vacation`` / ``spills-into-empty``: the EMPTY-CELL laws (a region cut's shift
+      is global but the seam extrusion fills only at its planes). ``gap-vacation`` -- an
+      empty cell's east-neighbour data slides off their shared border -- is now flagged
+      ONLY when the boundary is UNFILLABLE: a boundary whose on-plane content in the empty
+      row is pure OPEN WATER (sea3/sea5/sea4) is instead reported in ``boundary_fills`` as
+      ``(plane, z0, z1)`` triples -- feed them to :func:`chain_row_inserts`
+      ``boundaries=`` and the multi-boundary seam extrusion fills the gap in proven water
+      language. Any other language on the boundary (land/beach/shallows) keeps the risk:
+      those fills are uncertified. ``spills-into-empty`` (west-neighbour content slides
+      INTO the empty cell -- a nearly-empty deployed cell over what was sailable prefab
+      ocean) has no fill mechanic and always disqualifies.
 
-    A usable growth line has ``straddlers == 0``, ``grows_land`` and no ``risks``."""
+    A usable GROWTH line has ``ok`` (``straddlers == 0``, ``grows_land``, no ``risks``);
+    ``clean`` drops the ``grows_land`` requirement -- a clean pure-water line is a legal
+    SLIDE cut (it widens the water and repositions everything east of it, growing the
+    assembly without lengthening the land)."""
     from .extract import decode_id
     (dbx, dby) = donor
     (rnx, rny) = (int(size[0]), int(size[1]))
@@ -744,6 +885,26 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
                 if nb in left:
                     left.discard(nb); comp.add(nb); stack.append(nb)
         patches.append(comp)
+    # the boundary WATER-SAFETY scan (the multi-boundary extrusion's certification): an
+    # empty cell's east border is FILLABLE iff every on-plane edge inside the empty row's
+    # z-window speaks open water -- the languages the boundary fill is proven in. Any
+    # land/beach/shallow edge there makes the gap unfillable (gap-vacation stands).
+    bnd_info: dict = {}
+    for (ci, cj), has in cell_has_data.items():
+        if has or not cell_has_data.get((ci + 1, cj)):
+            continue
+        plane = 64.0 * (dbx + ci + 1)
+        z0, z1 = -64.0 * (dby + cj + 1), -64.0 * (dby + cj)
+        onb_parts = set()
+        for (p, poly) in polys:
+            onb = [v for v in poly if abs(v[0][0] - plane) <= 1e-4]
+            if len(onb) < 2:
+                continue
+            zm = sum(v[0][2] for v in onb) / len(onb)
+            if z0 - 1e-4 <= zm <= z1 + 1e-4:
+                onb_parts.add(p)
+        bnd_info[(ci, cj)] = {"plane": plane, "z": (z0, z1),
+                              "safe": bool(onb_parts) and onb_parts <= OPEN_WATER_PARTS}
     out = []
     for i in range(1, 16 * rnx):
         line = x0 + 4.0 * i
@@ -789,30 +950,39 @@ def cut_census(donor, *, size=(1, 1), parts=PARTS, extra: float = 8.0, disc: int
         if obj_xmax is not None and line < obj_xmax - 1e-6:
             risks.append("displaces-object-ground")
         # the EMPTY-CELL laws (a REGION cut's shift is global -- learned 2026-07-09, the
-        # (9,5)+2x3 row-0 hole): the seam extrusion fills only AT the line, so any other
+        # (9,5)+2x3 row-0 hole): the seam extrusion fills only at its planes, so any other
         # coverage discontinuity the shift creates goes unfilled. An empty donor cell whose
         # EAST in-rect neighbour has data: a line at-or-west of their border slides the
-        # neighbour's content off it -- a delta-wide bare strip (`gap-vacation`). An empty
-        # cell whose WEST in-rect neighbour has data: a line at-or-west of the empty cell's
-        # west border pushes content INTO it -- a nearly-empty deployed cell (`spills-into-empty`).
+        # neighbour's content off it -- a delta-wide bare strip. WATER-SAFE boundaries are
+        # fillable by the multi-boundary extrusion (reported in `boundary_fills`); any other
+        # language keeps `gap-vacation`. An empty cell whose WEST in-rect neighbour has
+        # data: a line at-or-west of the empty cell's west border pushes content INTO it --
+        # a nearly-empty deployed cell (`spills-into-empty`, no fill mechanic).
+        bfills = []
         for (ci, cj), has in cell_has_data.items():
             if has:
                 continue
-            if (ci + 1, cj) in cell_has_data and cell_has_data[(ci + 1, cj)] \
-                    and line <= 64.0 * (dbx + ci + 1) + 1e-6:
-                if "gap-vacation" not in risks:
+            info = bnd_info.get((ci, cj))
+            if info is not None and line <= info["plane"] + 1e-6:
+                if info["safe"]:
+                    t = [info["plane"], info["z"][0], info["z"][1]]
+                    if t not in bfills:
+                        bfills.append(t)
+                elif "gap-vacation" not in risks:
                     risks.append("gap-vacation")
             if (ci - 1, cj) in cell_has_data and cell_has_data[(ci - 1, cj)] \
                     and line <= 64.0 * (dbx + ci) + 1e-6:
                 if "spills-into-empty" not in risks:
                     risks.append("spills-into-empty")
         out.append({"line": line, "straddlers": strad, "grows_land": grows, "risks": risks,
+                    "boundary_fills": sorted(bfills),
+                    "clean": strad == 0 and not risks,
                     "ok": strad == 0 and grows and not risks})
     return out
 
 
 def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float = 0.4,
-                      seed: int = 0xF95, eps: float = 1e-4) -> list:
+                      seed: int = 0xF95, eps: float = 1e-4, boundaries=()) -> list:
     """Compose several RowInsert cuts into one ``tweaks=`` list (multi-column growth).
 
     ``lines`` are DONOR-frame x cut lines, each census-clean per the RowInsert law.
@@ -822,14 +992,24 @@ def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float =
     correction -- callers think only in the unmodified donor frame. Each cut derives a
     distinct seed so its grass fill rolls its own quadrants and relief.
 
+    ``boundaries`` are the census's ``boundary_fills`` triples ``(plane, z0, z1)`` in the
+    DONOR frame (an empty cell's east border + its row z-window): each cut at-or-west of
+    a plane extrudes one delta-band there, with the same cumulative ``+ i*delta``
+    correction as the lines -- the per-cut bands tile ``[B, B+d], [B+d, B+2d], ...``
+    against the stationary empty side, each welding BY IDENTITY to the content the
+    previous cut left behind (RowInsert emissions bypass later tweaks, which is exactly
+    why the correction lands each band where the prior band's east edge sits).
+
     A line given twice composes correctly (the second lands one column east) but yields
     two adjacent flat fill bands off one seam profile -- prefer spread-out lines.
     """
+    bnds = [(float(b), float(z0), float(z1)) for (b, z0, z1) in boundaries]
     out = []
     for i, ln in enumerate(sorted(float(l) for l in lines)):
+        cut_b = [(b + i * delta, z0, z1) for (b, z0, z1) in bnds if ln <= b + 1e-6]
         for p in parts:
             out.append(RowInsert(p, line=ln + i * delta, delta=delta, relief=relief,
-                                 seed=seed + 0x9E37 * i, eps=eps))
+                                 seed=seed + 0x9E37 * i, eps=eps, boundaries=cut_b))
     return out
 
 
@@ -1480,8 +1660,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     gates.append({"gate": "prefab-parts", "bad": prefab_bad, "ok": not prefab_bad})
     weld_in, weld_fr = _split_frame_pairs(M.weld_audit(audit_meshes),
                                           (0.0, ext_r[0]), (0.0, -ext_r[1]))
+    weld_in, weld_bt = _split_border_pairs(weld_in, tuple(64.0 * i for i in range(1, tw)),
+                                           tuple(-64.0 * j for j in range(1, th)))
     gates.append({"gate": "weld-audit", "pairs": len(weld_in), "frame_pairs": len(weld_fr),
-                  "ok": not weld_in})
+                  "border_t_pairs": len(weld_bt), "ok": not weld_in})
 
     # region census, engine-faithful: each probe consults only its CONTAINING cell's meshes
     # (the engine raycasts the containing block); a probe over an undeployed cell is skipped
