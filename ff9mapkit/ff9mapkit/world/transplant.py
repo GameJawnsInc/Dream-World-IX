@@ -728,6 +728,17 @@ def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float =
     return out
 
 
+def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
+    """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
+    ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
+    are multiples of 64, so the half-extent pivot sits on the 4u lattice and the lattice maps to
+    itself. A 1x1 region (ext = ext_r = (64, 64)) is arithmetically :func:`_rot_xz`."""
+    dx, dz = x - ext[0] / 2.0, z + ext[1] / 2.0
+    for _ in range(nrot):
+        dx, dz = -dz, dx
+    return ext_r[0] / 2.0 + dx, -ext_r[1] / 2.0 + dz
+
+
 def _soup_block_mesh(name: str, cell, tris, *, disc: int, lod: str) -> BlockMesh:
     """A BlockMesh from (pos, nrm, uv, tan) triangles in the block-LOCAL frame -- fresh verts per
     tri (unindexed, matching the stock world blocks), all four channels carried."""
@@ -1039,4 +1050,399 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     summary["deployed"].append(str(M.deploy_donor_sidecar(dbx, dby, mod_folder=mod_folder,
                                                           disc=disc, x=bx, y=by, lod=lod,
                                                           game=game)))
+    return summary
+
+
+def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0, shift="auto",
+                      parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
+                      land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
+                      census_samples: int = 24, allow_real_target: bool = False,
+                      allow_object_misalign: bool = False, dry_run: bool = False) -> dict:
+    """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
+    blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
+    ``cell``, as ONE rigid assembly -- rotated by ``rot`` about the REGION centre (a 90/270
+    rotation swaps the target rect to ny x nx) and shifted by ``shift`` (0-mod-4). This is the
+    unlock past the single-donor growth ceiling: a real 2-block landmass (191 adjacent pairs have
+    land crossing a shared border) carries as a unit instead of one block + 8u tongue strips.
+
+    The pipeline generalizes :func:`transplant` (which stays byte-identical for ``size=(1,1)`` --
+    tested): GATHER every donor cell whole + ``extra``-unit strips along the REGION's outer
+    borders only (interior borders are complete by construction -- both sides are carried);
+    tweaks apply in donor WORLD coords (protocol unchanged); ROTATE about the region centre;
+    SHIFT within the coverage-feasible window (the island-tongue law, per region border); then
+    RE-PARTITION at the target rect's 64u block borders (the :func:`clip_poly` cut ``t`` is
+    bit-identical on both sides of a shared border, so cross-border seams are watertight by
+    construction -- the ``_split_at_borders`` law).
+
+    PER-CELL DEPLOY (the s34 contract): each data-bearing target cell gets its own sub-mesh
+    overrides + a ``Donor.txt`` sidecar naming a donor-rect block whose PREFAB hosts them. The
+    sidecar donor must carry a SUPERSET of the cell's parts (RegisterBlockComponent binds by
+    transform name -- a part the prefab lacks silently doesn't render: the ``prefab-parts``
+    gate), any prefab part NOT carried is blanked, and a Terrain override always deploys
+    (``HasLandOverride`` keys the divert on it). An OBJECT-bearing donor cell is never used as
+    the sidecar for a foreign target cell (its prefab Object would ghost there); at identity
+    transform its own target cell legitimately renders it. A target cell with no tris at all is
+    skipped whole -- it stays true SeaBlockPrefab ocean.
+
+    GATES (region-aware; all must pass or the deploy is refused): frame bounds; land fit within
+    ``land_margin`` of the REGION's outer frame (interior borders exempt -- a real 2-block
+    landmass crosses them); object-anchor per donor cell; each tweak's exact scope; the weld
+    audit over the whole region IN REGION FRAME (cross-border cracks live between cells);
+    prefab-parts; and the placement census -- engine-faithful (each probe consults only its
+    CONTAINING cell's meshes, like the engine's per-block raycast), misses backmapped through
+    the inverse transform to the donor's per-cell meshes (no INTRODUCED misses; a backmap into
+    a data-less donor cell is introduced -- in situ that point was sailable SeaBlockPrefab
+    ocean, on a deployed cell it would be a void + vehicle wall)."""
+    (bx, by) = cell
+    (dbx, dby) = donor
+    (nx, ny) = (int(size[0]), int(size[1]))
+    if nx < 1 or ny < 1:
+        raise ValueError(f"size must be at least 1x1 -- got {nx}x{ny}")
+    if rot not in (0, 90, 180, 270):
+        raise ValueError("rot must be 0, 90, 180 or 270 -- 90-degree multiples keep the 4u tile "
+                         "lattice (and the Wang ocean) fully verbatim; free angles do not")
+    nrot = rot // 90
+    (tw, th) = (nx, ny) if nrot % 2 == 0 else (ny, nx)
+    if not (0 <= dbx and dbx + nx <= GRID_X and 0 <= dby and dby + ny <= GRID_Y):
+        raise ValueError(f"donor rect ({dbx},{dby})+{nx}x{ny} out of the {GRID_X}x{GRID_Y} "
+                         f"overworld grid")
+    if not (0 <= bx and bx + tw <= GRID_X and 0 <= by and by + th <= GRID_Y):
+        raise ValueError(f"target rect ({bx},{by})+{tw}x{th} (rot {rot}) out of the "
+                         f"{GRID_X}x{GRID_Y} overworld grid")
+    tweaks = list(tweaks)
+    parts = tuple(parts)
+    ext = (64.0 * nx, 64.0 * ny)                     # donor-region extent
+    ext_r = (64.0 * tw, 64.0 * th)                   # rotated/target-region extent
+    dcells = [(i, j) for j in range(ny) for i in range(nx)]
+    tcells = [(i, j) for j in range(th) for i in range(tw)]
+
+    if not allow_real_target:
+        for (i, j) in tcells:
+            occupied = {p: len(world_tris(bx + i, by + j, p, disc=disc, lod=lod, game=game))
+                        for p in parts}
+            occupied = {p: n for p, n in occupied.items() if n}
+            if occupied:
+                raise ValueError(f"target cell ({bx + i},{by + j}) is a REAL world block "
+                                 f"({occupied}) -- transplanting onto it would replace real game "
+                                 f"geometry. Pick empty open-ocean cells, or pass "
+                                 f"allow_real_target=True if you really mean it")
+
+    donor_cell_part = {(i, j): {p: world_tris(dbx + i, dby + j, p, disc=disc, lod=lod, game=game)
+                                for p in parts} for (i, j) in dcells}
+    donor_cell_has = {c: {p for p in parts if donor_cell_part[c][p]} for c in dcells}
+    if not any(donor_cell_has[c] for c in dcells):
+        raise ValueError(f"donor rect ({dbx},{dby})+{nx}x{ny} has no block mesh data -- open "
+                         f"ocean renders from the shared SeaBlockPrefab; pick a rect containing "
+                         f"a real landmass (world-coast --list browses coastal donors)")
+    obj_by_cell = {c: world_tris(dbx + c[0], dby + c[1], "object", disc=disc, lod=lod, game=game)
+                   for c in dcells}
+
+    # 1) GATHER (donor WORLD coords): every donor cell whole + an `extra`-wide strip along each
+    #    OUTER region border from the blocks beyond it (interior borders are complete -- both
+    #    sides are carried whole). The island-tongue law is tested against the REGION border.
+    strip_specs = {
+        "E": [((dbx + nx, dby + j), 0, 64.0 * (dbx + nx) + extra, True) for j in range(ny)],
+        "W": [((dbx - 1, dby + j), 0, 64.0 * dbx - extra, False) for j in range(ny)],
+        "N": [((dbx + i, dby - 1), 2, -64.0 * dby + extra, True) for i in range(nx)],
+        "S": [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)]}
+    borders = {"E": (0, 64.0 * (dbx + nx), -1.0), "W": (0, 64.0 * dbx, 1.0),
+               "N": (2, -64.0 * dby, -1.0), "S": (2, -64.0 * (dby + ny), 1.0)}
+    tongue = {d for d, (axis, plane, sgn) in borders.items()
+              if any(sgn * (v[0][axis] - plane) <= 1.0
+                     for c in dcells for p in parts if p in LAND_PARTS
+                     for tri in donor_cell_part[c][p] for v in tri)}
+    if strips == "auto":
+        gathered, windowed = set(strip_specs), tongue
+    elif strips == "all":
+        gathered = windowed = set(strip_specs)
+    elif strips in ("none", None):
+        gathered = windowed = set()
+    else:
+        gathered = windowed = {str(d).upper() for d in strips}
+        if not gathered <= set(strip_specs):
+            raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of E/W/N/S -- got {strips!r}")
+    raw: dict = {}
+    strips_with_data: set = set()
+    for p in parts:
+        srcs = [(None, donor_cell_part[c][p], None) for c in dcells]
+        for dname, specs in strip_specs.items():
+            if dname not in gathered:
+                continue
+            for ((nx2, ny2), axis, plane, below) in specs:
+                if 0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y:
+                    srcs.append((dname, world_tris(nx2, ny2, p, disc=disc, lod=lod, game=game),
+                                 (axis, plane, below)))
+        polys = []
+        for (dname, tris, clip) in srcs:
+            for tri in tris:
+                poly = list(tri)
+                if clip is not None:
+                    poly = clip_poly(poly, *clip)
+                    if len(poly) < 3:
+                        continue
+                    strips_with_data.add(dname)
+                for tw_ in tweaks:
+                    poly = tw_.apply(p, poly)
+                    if poly is None:
+                        break
+                if poly is None:
+                    continue
+                polys.append((dname, poly))
+        for tw_ in tweaks:
+            if tw_.part == p:
+                polys.extend((None, e) for e in tw_.emit())
+        raw[p] = polys
+
+    # 2) ROTATE about the donor REGION centre; LAND normals rotate, sea normals keep the shared
+    #    byte constant. The unit-land bbox (auto-shift + land-fit) counts the donors' own land +
+    #    windowed tongue strips only, in the ROTATED (target-region) frame.
+    lb = [math.inf, -math.inf, math.inf, -math.inf]
+    rot_polys: dict = {}
+    for p in parts:
+        land = p in LAND_PARTS
+        rp = []
+        for (dname, poly) in raw[p]:
+            unit_land = land and (dname is None or dname in windowed)
+            tp = []
+            for (wpos, nrm, uvv, tan) in poly:
+                rx, rz = _rot_region_xz(wpos[0] - 64.0 * dbx, wpos[2] + 64.0 * dby, nrot,
+                                        ext, ext_r)
+                if land:
+                    rnx, rnz = _rot_dir(nrm[0], nrm[2], nrot)
+                    nrm = (rnx, nrm[1], rnz)
+                if unit_land:
+                    lb[0] = min(lb[0], rx); lb[1] = max(lb[1], rx)
+                    lb[2] = min(lb[2], rz); lb[3] = max(lb[3], rz)
+                tp.append(((rx, wpos[1], rz), nrm, uvv, tan))
+            rp.append(tp)
+        rot_polys[p] = rp
+
+    # 3) SHIFT within the coverage-feasible window (per REGION border, same law as transplant).
+    avail = {_DIR_OF[(round(rdx), round(rdz))]
+             for (rdx, rdz) in (_rot_dir(*_DIRS[d], nrot)
+                                for d in (strips_with_data & windowed))}
+    win_x = ((-extra if "E" in avail else 0.0), (extra if "W" in avail else 0.0))
+    win_z = ((-extra if "N" in avail else 0.0), (extra if "S" in avail else 0.0))
+    if shift in (None, "auto"):
+        if math.isinf(lb[0]):
+            sh_x = sh_z = 0.0
+        else:
+            sh_x = max(win_x[0], min(win_x[1],
+                                     4.0 * round((ext_r[0] / 2.0 - (lb[0] + lb[1]) / 2.0) / 4.0)))
+            sh_z = max(win_z[0], min(win_z[1],
+                                     4.0 * round((-ext_r[1] / 2.0 - (lb[2] + lb[3]) / 2.0) / 4.0)))
+    else:
+        sh_x, sh_z = float(shift[0]), float(shift[1])
+        if sh_x % 4.0 or sh_z % 4.0:
+            raise ValueError(f"shift ({sh_x:+g},{sh_z:+g}) must be multiples of 4 -- 0-mod-4 keeps "
+                             f"every 4u lattice tile (the Wang ocean included) fully verbatim")
+        if not (win_x[0] - 1e-9 <= sh_x <= win_x[1] + 1e-9
+                and win_z[0] - 1e-9 <= sh_z <= win_z[1] + 1e-9):
+            raise ValueError(f"shift ({sh_x:+g},{sh_z:+g}) outside the coverage-feasible window "
+                             f"x[{win_x[0]:g},{win_x[1]:g}] z[{win_z[0]:g},{win_z[1]:g}] -- the "
+                             f"only refill data beyond the region frame is its neighbours' "
+                             f"{extra:g}u edge strips (with data: {sorted(avail) or 'none'})")
+
+    # 4) SHIFT + RE-PARTITION at the target rect's block borders. Both halves of a border-
+    #    straddling tri share bit-identical cut points (the clip `t` is the same expression on
+    #    either side), so the border weld is exact by construction. Everything is kept in the
+    #    REGION frame here -- the weld audit + census must see cross-border geometry in ONE
+    #    frame; translation to block-local happens only at BlockMesh construction.
+    bb = [math.inf, -math.inf, math.inf, -math.inf]
+    lbc = [math.inf, -math.inf, math.inf, -math.inf]
+    cell_tris = {c: {p: [] for p in parts} for c in tcells}
+    carried: dict = {}
+    clipped_out: dict = {}
+    for p in parts:
+        land = p in LAND_PARTS
+        n_clip = 0
+        n_kept = 0
+        for poly0 in rot_polys[p]:
+            poly = [((v[0][0] + sh_x, v[0][1], v[0][2] + sh_z), v[1], v[2], v[3]) for v in poly0]
+            xs = [v[0][0] for v in poly]
+            zs = [v[0][2] for v in poly]
+            i0 = max(0, math.floor((min(xs) + 1e-9) / 64.0))
+            i1 = min(tw - 1, math.floor((max(xs) - 1e-9) / 64.0))
+            j0 = max(0, math.floor((-max(zs) + 1e-9) / 64.0))
+            j1 = min(th - 1, math.floor((-min(zs) - 1e-9) / 64.0))
+            survived = False
+            for j in range(j0, j1 + 1):
+                for i in range(i0, i1 + 1):
+                    q = poly
+                    for (axis, plane, below) in ((0, 64.0 * i, False), (0, 64.0 * (i + 1), True),
+                                                 (2, -64.0 * (j + 1), False), (2, -64.0 * j, True)):
+                        q = clip_poly(q, axis, plane, below)
+                        if len(q) < 3:
+                            break
+                    if len(q) < 3:
+                        continue
+                    for k in range(1, len(q) - 1):
+                        t3 = [q[0], q[k], q[k + 1]]
+                        area2 = abs((t3[1][0][0] - t3[0][0][0]) * (t3[2][0][2] - t3[0][0][2])
+                                    - (t3[2][0][0] - t3[0][0][0]) * (t3[1][0][2] - t3[0][0][2]))
+                        if area2 > MIN_TRI_AREA2:
+                            survived = True
+                            for v in t3:
+                                bb[0] = min(bb[0], v[0][0]); bb[1] = max(bb[1], v[0][0])
+                                bb[2] = min(bb[2], v[0][2]); bb[3] = max(bb[3], v[0][2])
+                                if land:
+                                    lbc[0] = min(lbc[0], v[0][0]); lbc[1] = max(lbc[1], v[0][0])
+                                    lbc[2] = min(lbc[2], v[0][2]); lbc[3] = max(lbc[3], v[0][2])
+                            cell_tris[(i, j)][p].append(t3)
+                            n_kept += 1
+            if not survived:
+                n_clip += 1
+        carried[p] = n_kept
+        clipped_out[p] = n_clip
+
+    # 5) PER-CELL sidecar donors + blanking + region-frame audit/census mesh lists.
+    #    The natural sidecar = the donor cell the target cell maps back to (its prefab hosted
+    #    exactly this geometry in situ); a fallback donor must carry a SUPERSET of the cell's
+    #    parts and must NOT bear an Object (a foreign cell would ghost-render its prefab Object).
+    from . import mesh as M
+    inv_rot = (4 - nrot) % 4
+    cell_meta: dict = {}
+    prefab_bad: list = []
+    deploy_meshes: dict = {}                  # (i, j) -> [(part_name, block-local BlockMesh)]
+    audit_meshes: list = []                   # region-frame soups, all cells (the weld gate's)
+    census_meshes: dict = {}                  # (i, j) -> [(part_name, region-frame BlockMesh)]
+    for (i, j) in tcells:
+        need = [p for p in parts if cell_tris[(i, j)][p]]
+        if not need:
+            continue                          # stays true SeaBlockPrefab ocean -- nothing deploys
+        ccx, ccz = 64.0 * i + 32.0, -64.0 * j - 32.0
+        dlx, dlz = _rot_region_xz(ccx - sh_x, ccz - sh_z, inv_rot, ext_r, ext)
+        nat = (min(nx - 1, max(0, math.floor(dlx / 64.0))),
+               min(ny - 1, max(0, math.floor(-dlz / 64.0))))
+        pick = None
+        if set(need) <= donor_cell_has[nat]:
+            pick = nat
+        else:
+            for c in dcells:
+                if c != nat and not obj_by_cell[c] and set(need) <= donor_cell_has[c]:
+                    pick = c
+                    break
+        if pick is None:
+            prefab_bad.append({"cell": [bx + i, by + j], "need": need,
+                               "natural": [dbx + nat[0], dby + nat[1]]})
+            continue
+        blanked = sorted(donor_cell_has[pick] - set(need), key=parts.index)
+        meshes = []
+        for p in parts:
+            nm = f"Block[{bx + i}][{by + j}] {part_name(p)}"
+            if cell_tris[(i, j)][p]:
+                loc = [[((v[0][0] - 64.0 * i, v[0][1], v[0][2] + 64.0 * j), v[1], v[2], v[3])
+                        for v in t] for t in cell_tris[(i, j)][p]]
+                bm = _soup_block_mesh(nm, (bx + i, by + j), loc, disc=disc, lod=lod)
+                reg = _soup_block_mesh(nm, (bx + i, by + j), cell_tris[(i, j)][p],
+                                       disc=disc, lod=lod)
+            elif p in donor_cell_has[pick]:
+                bm = M.hidden_block_mesh(name=nm, disc=disc, x=bx + i, y=by + j, lod=lod)
+                reg = bm
+            else:
+                continue
+            meshes.append((part_name(p), bm))
+            audit_meshes.append((part_name(p), reg))
+            census_meshes.setdefault((i, j), []).append((part_name(p), reg))
+        deploy_meshes[(i, j)] = meshes
+        cell_meta[(i, j)] = {"cell": [bx + i, by + j], "donor": [dbx + pick[0], dby + pick[1]],
+                             "carried": {p: len(cell_tris[(i, j)][p]) for p in need},
+                             "blanked": blanked}
+
+    # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
+    gates = []
+    gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
+                  "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
+                         and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
+    lb_c = None if math.isinf(lbc[0]) else list(lbc)
+    gates.append({"gate": "land-fit", "bbox": lb_c, "margin": land_margin,
+                  "ok": lb_c is None or (lb_c[0] >= land_margin
+                                         and lb_c[1] <= ext_r[0] - land_margin
+                                         and lb_c[2] >= -ext_r[1] + land_margin
+                                         and lb_c[3] <= -land_margin)})
+    for c in dcells:
+        if not obj_by_cell[c]:
+            continue
+        ox = [v[0][0] for t in obj_by_cell[c] for v in t]
+        oz = [v[0][2] for t in obj_by_cell[c] for v in t]
+        moved = (nrot != 0 or sh_x != 0.0 or sh_z != 0.0
+                 or any(isinstance(tw_, RowInsert) and tw_.line < max(ox) - 1e-6
+                        for tw_ in tweaks))
+        gates.append({"gate": f"object-anchor[{dbx + c[0]},{dby + c[1]}]",
+                      "x": [min(ox), max(ox)], "z": [min(oz), max(oz)], "moved": moved,
+                      "ok": (not moved) or allow_object_misalign})
+    for tw_ in tweaks:
+        gates.append(tw_.gate())
+    gates.append({"gate": "prefab-parts", "bad": prefab_bad, "ok": not prefab_bad})
+    weld = M.weld_audit(audit_meshes)
+    gates.append({"gate": "weld-audit", "pairs": len(weld), "ok": not weld})
+
+    # region census, engine-faithful: each probe consults only its CONTAINING cell's meshes
+    # (the engine raycasts the containing block); a probe over an undeployed cell is skipped
+    # (true SeaBlockPrefab ocean in-game). Misses backmap to the donor's per-cell meshes.
+    from . import placement as P
+    donor_meshes: dict = {}
+    for c in dcells:
+        dml = []
+        for p in parts:
+            if not donor_cell_part[c][p]:
+                continue
+            loc = [[((v[0][0] - 64.0 * dbx, v[0][1], v[0][2] + 64.0 * dby), v[1], v[2], v[3])
+                    for v in t] for t in donor_cell_part[c][p]]
+            dml.append((part_name(p), _soup_block_mesh(f"donor {p}", c, loc, disc=disc, lod=lod)))
+        donor_meshes[c] = dml
+    sx_n, sz_n = census_samples * tw, census_samples * th
+    probed = 0
+    misses = []
+    for a in range(sx_n):
+        for b_ in range(sz_n):
+            px = 2.0 + (ext_r[0] - 4.0) * a / (sx_n - 1)
+            pz = -ext_r[1] + 2.0 + (ext_r[1] - 4.0) * b_ / (sz_n - 1)
+            tc = (min(tw - 1, max(0, math.floor(px / 64.0))),
+                  min(th - 1, max(0, math.floor(-pz / 64.0))))
+            ml = census_meshes.get(tc)
+            if ml is None:
+                continue
+            probed += 1
+            if P.place(ml, px, pz)[1] == "MISS":
+                misses.append((px, pz))
+    introduced = []
+    inherited = 0
+    for (mx, mz) in misses:
+        dlx, dlz = _rot_region_xz(mx - sh_x, mz - sh_z, inv_rot, ext_r, ext)
+        if not (-FRAME_EPS <= dlx <= ext[0] + FRAME_EPS
+                and -ext[1] - FRAME_EPS <= dlz <= FRAME_EPS):
+            introduced.append((mx, mz))               # maps outside the region: a strip hole
+            continue
+        dc = (min(nx - 1, max(0, math.floor(dlx / 64.0))),
+              min(ny - 1, max(0, math.floor(-dlz / 64.0))))
+        if donor_meshes[dc] and P.place(donor_meshes[dc], dlx, dlz)[1] == "MISS":
+            inherited += 1                            # the donor misses there in situ too
+        else:
+            introduced.append((mx, mz))
+    gates.append({"gate": "census", "miss": len(misses), "inherited": inherited,
+                  "introduced": len(introduced), "samples": probed, "ok": not introduced})
+    clean = all(g["ok"] for g in gates)
+
+    summary = {"op": "transplant-region", "donor": [dbx, dby], "size": [nx, ny],
+               "cell": [bx, by], "tsize": [tw, th], "rot": rot, "shift": [sh_x, sh_z],
+               "window": {"x": list(win_x), "z": list(win_z)},
+               "strips": sorted(strips_with_data & windowed),
+               "coverage_strips": sorted(strips_with_data - windowed), "carried": carried,
+               "clipped_out": clipped_out,
+               "cells": {f"{bx + i},{by + j}": cell_meta[(i, j)] for (i, j) in tcells
+                         if (i, j) in cell_meta},
+               "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
+    if dry_run or not clean:
+        return summary
+    for (i, j) in tcells:
+        if (i, j) not in deploy_meshes:
+            continue
+        for (pn, bm) in deploy_meshes[(i, j)]:
+            summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder,
+                                                             game=game, lod=lod, part=pn)))
+        (sdx, sdy) = cell_meta[(i, j)]["donor"]
+        summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
+                                                              disc=disc, x=bx + i, y=by + j,
+                                                              lod=lod, game=game)))
     return summary

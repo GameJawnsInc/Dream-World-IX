@@ -2368,25 +2368,40 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     try:
         bx, by = (int(v) for v in args.cell.split(","))
         dx, dy = (int(v) for v in args.donor.split(","))
+        snx, sny = (int(v) for v in args.size.lower().split("x"))
         shift = "auto" if args.shift.strip().lower() == "auto" \
             else tuple(float(v) for v in args.shift.split(","))
         strips = args.strips.strip().lower()
         if strips not in ("auto", "all", "none"):
             strips = tuple(d.strip() for d in args.strips.split(","))
-        summary = TR.transplant(args.mod_folder, cell=(bx, by), donor=(dx, dy), rot=args.rot,
-                                shift=shift, strips=strips, extra=args.extra,
-                                land_margin=args.land_margin, disc=args.disc, game=args.game,
-                                census_samples=args.samples, dry_run=args.dry_run)
+        kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
+                  extra=args.extra, land_margin=args.land_margin, disc=args.disc, game=args.game,
+                  census_samples=args.samples, dry_run=args.dry_run)
+        if (snx, sny) == (1, 1):
+            summary = TR.transplant(args.mod_folder, **kw)          # the byte-proven single-cell path
+        else:
+            summary = TR.transplant_region(args.mod_folder, size=(snx, sny), **kw)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
     sx, sz = summary["shift"]
-    print(f"verbatim transplant: donor block {tuple(summary['donor'])} -> cell {tuple(summary['cell'])} "
-          f"(rot {summary['rot']} deg, shift {sx:+g},{sz:+g}; tongue strips: "
-          f"{','.join(summary['strips']) or 'none'}; coverage strips: "
-          f"{','.join(summary['coverage_strips']) or 'none'})")
+    if summary["op"] == "transplant-region":
+        (rnx, rny), (rtw, rth) = summary["size"], summary["tsize"]
+        print(f"verbatim REGION transplant: donor rect {tuple(summary['donor'])}+{rnx}x{rny} -> "
+              f"target rect {tuple(summary['cell'])}+{rtw}x{rth} (rot {summary['rot']} deg, "
+              f"shift {sx:+g},{sz:+g}; tongue strips: {','.join(summary['strips']) or 'none'}; "
+              f"coverage strips: {','.join(summary['coverage_strips']) or 'none'})")
+    else:
+        print(f"verbatim transplant: donor block {tuple(summary['donor'])} -> cell {tuple(summary['cell'])} "
+              f"(rot {summary['rot']} deg, shift {sx:+g},{sz:+g}; tongue strips: "
+              f"{','.join(summary['strips']) or 'none'}; coverage strips: "
+              f"{','.join(summary['coverage_strips']) or 'none'})")
     print("  carried: " + "  ".join(f"{p}:{n}" for p, n in summary["carried"].items()))
-    if summary["blanked"]:
+    for key, meta in summary.get("cells", {}).items():
+        blank = f"  blanked: {','.join(meta['blanked'])}" if meta["blanked"] else ""
+        print(f"  cell {key}: donor prefab {tuple(meta['donor'])}  "
+              + "  ".join(f"{p}:{n}" for p, n in meta["carried"].items()) + blank)
+    if summary.get("blanked"):
         print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
     for g in summary["gates"]:
         detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
@@ -4849,10 +4864,16 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--cell", required=True, metavar="BX,BY", help="target ocean cell (grid 24x20)")
     wtp.add_argument("--donor", required=True, metavar="DX,DY",
                      help="the real donor block to carry; 7,17 is the proven beach island "
-                          "(world-coast --list browses coastal donors)")
+                          "(world-coast --list browses coastal donors). With --size, the donor RECT's "
+                          "min-x,min-y anchor cell.")
+    wtp.add_argument("--size", default="1x1", metavar="NXxNY",
+                     help="carry a MULTI-CELL donor rect of NXxNY blocks as ONE rigid assembly (e.g. 2x1 = a "
+                          "real 2-block landmass); --cell anchors the target rect (swaps to NYxNX under rot "
+                          "90/270), each target cell gets its own overrides + Donor.txt sidecar, interior "
+                          "borders re-partition watertight. Default 1x1 = the proven single-cell path.")
     wtp.add_argument("--rot", type=int, default=0, choices=(0, 90, 180, 270),
-                     help="rotate about the cell centre -- 90-degree multiples keep the 4u tile lattice (and "
-                          "the Wang ocean) fully verbatim (default 0)")
+                     help="rotate about the cell (with --size: the region) centre -- 90-degree multiples keep "
+                          "the 4u tile lattice (and the Wang ocean) fully verbatim (default 0)")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
