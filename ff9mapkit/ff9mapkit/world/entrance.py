@@ -355,6 +355,9 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
     seats a structure in the cell. ``block_footprint`` (default True) makes the TERRAIN under the building impassable
     (topo 59) so the player stops at its edge and can't wander into a hollow model's interior and get boxed -- the
     terrain conforms to the ground, so it blocks reliably where a flat prop base would bury/float on uneven land.
+    Uses :func:`ff9mapkit.world.mesh.split_retarget_by_polygon` (EXACT -- splits a straddling terrain triangle at
+    the hull boundary) rather than a whole-triangle centroid test, so the blocked edge traces the building's real
+    footprint bit-exactly regardless of how coarse the underlying donor terrain's own triangulation is.
     ``flatten_pad=radius`` optionally flattens a pad under the building. ``fresh`` re-reads the block from pristine
     p0data (ignoring a prior deployed override) so re-doing a block doesn't COMPOUND. ``dry_run`` reports the plan."""
     from ..eb.model import EbScript
