@@ -497,17 +497,18 @@ cut_census SHIPPED (`--size` + `--grow-cut`) with 3 new laws (empty-cell `gap-va
 tweak-inverted census backmap; benign frame-T-junction weld split) — but the first region growth cut ✗ FAILED
 in-game → **THE RELIEF LAW** (`crosses-relief`, `MAX_CUT_RELIEF=6.0`: a cut's fill is a seam-profile extrusion —
 through steep relief it's a terrace band + holes; proven cuts ≤3.5u, the mountain 26.5u; high relief = a
-COMPONENT, cut around, never through); net: (9,5)+2×3 has ZERO usable x-GROWTH lines. **MULTI-BOUNDARY SEAM
-EXTRUSION BUILT 2026-07-09 (the gap-vacation kill; deployed awaiting playtest):** `RowInsert(boundaries=[(plane,
-z0,z1)])` extrudes the east side's seam profile at an empty cell's border too (west edge = the bit-exact pre-shift
-prefab-boundary profile, fills windowed to the empty rows, UVs mirror/clone the SHIFTED east owner; per-cut bands
-tile `+i*delta` like the lines); `cut_census` certifies a boundary FILLABLE iff pure open water (sea3/5/4) →
-`boundary_fills` triples + a `clean` flag (`gap-vacation` now = unfillable only; `ok` still = grows land); CLI
-`--grow-cut` census-validates region lines + auto-wires the fills; + the INTERIOR BORDER-T weld law
-(`_split_border_pairs`: one-vert-off-plane near a clip vert = benign T-junction — the rejected 592 build's 2
-undiagnosed x=64 pairs, now classified; both-exact-on-plane = crack, still fails). On (9,5)+2×3 the 8 flat WATER
-lines 580–608 are now census-clean SLIDE cuts; the 592 slide (whole island +4u east, 32 boundary tris, all gates
-green) deployed at (11,1)+2×3. Land-growth lines there stay ZERO (relief blocks 640/672). Next = z-axis RowInsert /
+COMPONENT, cut around, never through); net: (9,5)+2×3 has ZERO usable x-GROWTH lines. **★ MULTI-BOUNDARY SEAM
+EXTRUSION in-game proven 2026-07-09 ("no artifacts at any of the three spots" — the gap-vacation kill):**
+`RowInsert(boundaries=[(plane,z0,z1)])` extrudes the east side's seam profile at an empty cell's border too (west
+edge = the bit-exact pre-shift prefab-boundary profile, fills windowed to the empty rows, UVs mirror/clone the
+SHIFTED east owner; per-cut bands tile `+i*delta` like the lines); `cut_census` certifies a boundary FILLABLE iff
+pure open water (sea3/5/4) → `boundary_fills` triples + a `clean` flag (`gap-vacation` now = unfillable only;
+`ok` still = grows land); CLI `--grow-cut` census-validates region lines + auto-wires the fills; + the INTERIOR
+BORDER-T weld law ★ (`_split_border_pairs`: one-vert-off-plane near a clip vert = benign T-junction — the
+rejected 592 build's 2 undiagnosed x=64 pairs were never a defect; both-exact-on-plane = crack, still fails). On
+(9,5)+2×3 the 8 flat WATER lines 580–608 are census-clean SLIDE cuts; the ★ 592 slide (whole island +4u east, 32
+boundary tris — the first working RowInsert on a MULTI-CELL base) deployed at (11,1)+2×3, all three inspection
+spots clean. Land-growth lines there stay ZERO (relief blocks 640/672). Next = z-axis RowInsert /
 the topo-17/38/49 highland fill vocabulary (hard) / band-crossing re-Wang / cliff-face transition study (user
 checklist item); scale to a real CONTINENT (towns+entrances via `world-entrance --building`).
 
