@@ -224,6 +224,10 @@ def _cover_to_canvas(img, w: int, h: int):
 SEED_BOX = (112, 396, 272, 436)        # (x0, y0, x1, y1): the bottom-centre strip the floor model seeds from
 SEED_MAX_SPREAD = 0.055                # refuse if the seed strip's per-channel MAD mean exceeds this
 AUTO_FLOOR_MAX_VERTS = 14
+MAX_SEED_DEPTH_FACTOR = 1.0            # rows un-projecting deeper than factor*distance are untraceably far
+COLLAPSE_FRACTION = 0.55               # a row narrower than this fraction of the running-median width ...
+COLLAPSE_ROWS = 8                      # ... for this many consecutive rows = a doorway constriction: cut
+WIDTH_WINDOW = 60                      # rows in the running width median
 
 
 def _dp_simplify(points, eps: float) -> list:
@@ -315,14 +319,41 @@ def auto_floor(image_path, *, pitch: float = DEFAULT_PITCH, fov: float = DEFAULT
                               "frame (is the floor visible at the camera's feet?) -- hand-trace it with --trace")
 
     cam = _guide.make_camera(pitch, distance, fov_x_deg=fov, range_wh=(CANVAS_W, CANVAS_H))
-    top_min = int(math.ceil(_cam.horizon_canvas_y(cam) + 4))         # keep the polygon un-projectable
+    # clamp the far edge: below the horizon AND within a traceable world depth (near the horizon a
+    # single canvas row spans hundreds of world units -- same-material floor running away through a
+    # far doorway would otherwise drag the polygon to the horizon, the user's hallway failure)
+    y_cap = _cam.to_canvas((0.0, 0.0, MAX_SEED_DEPTH_FACTOR * distance), cam)[1]
+    top_min = int(math.ceil(max(_cam.horizon_canvas_y(cam) + 4, y_cap)))
     if top_min > 0:
         comp[:min(top_min, H), :] = False
 
     rows = np.nonzero(comp.any(axis=1))[0]
     if rows.size < 60:
         raise ImageFieldError(f"auto floor-seed: only {rows.size} floor rows survive below the camera "
-                              f"horizon -- steepen --pitch, or hand-trace it with --trace")
+                              f"horizon/depth cap -- steepen --pitch, or hand-trace it with --trace")
+
+    # walk bottom -> top; terminate at a SUSTAINED abrupt width collapse. Perspective narrowing is
+    # gradual (a few percent over tens of rows); the floor squeezing through a doorway into another
+    # room halves in a handful of rows -- cut there and keep only this room's floor.
+    kept, widths, collapse = [], [], 0
+    for r in rows[::-1]:
+        xs = np.nonzero(comp[r])[0]
+        w = float(xs[-1] - xs[0])
+        recent = sorted(widths[-WIDTH_WINDOW:])
+        if recent and w < COLLAPSE_FRACTION * recent[len(recent) // 2]:
+            collapse += 1
+            if collapse >= COLLAPSE_ROWS:
+                kept = kept[:len(kept) - (collapse - 1)]             # drop the constriction rows too
+                break
+        else:
+            collapse = 0
+        kept.append(int(r))
+        widths.append(w)
+    if len(kept) < 40:
+        raise ImageFieldError("auto floor-seed: the floor region collapses just above the seed strip "
+                              "(a constriction right at the camera?) -- hand-trace it with --trace")
+    rows = kept[::-1]
+
     left = [(float(np.nonzero(comp[r])[0].min()), float(r)) for r in rows]
     right = [(float(np.nonzero(comp[r])[0].max()), float(r)) for r in rows]
     while left and (right[0][0] - left[0][0]) < 12:                  # trim a sliver-thin far tip

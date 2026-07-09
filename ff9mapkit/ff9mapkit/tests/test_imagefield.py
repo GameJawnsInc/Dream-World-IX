@@ -246,6 +246,42 @@ def test_auto_floor_refuses_noisy_seed(tmp_path):
         IF.auto_floor(tmp_path / "noise.png")
 
 
+def test_auto_floor_cuts_at_a_doorway_constriction(tmp_path):
+    """The real-photo hallway failure: SAME-material floor continuing through a doorway must not
+    drag the polygon into the far room -- the sustained width collapse (doorway ~0.38x the local
+    hallway width here) terminates the walk at the constriction."""
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (384, 448), (60, 62, 80))
+    dr = ImageDraw.Draw(img)
+    F = (150, 125, 92)
+    dr.polygon([(150, 170), (234, 170), (330, 447), (54, 447)], fill=F)     # this room's floor
+    dr.polygon([(172, 120), (212, 120), (212, 170), (172, 170)], fill=F)    # a 40px doorway gap
+    dr.polygon([(90, 122), (294, 122), (294, 160), (90, 160)], fill=F)      # the far room (wide again)
+    p = tmp_path / "hall.png"
+    img.save(p)
+    got = IF.auto_floor(p)
+    top = min(y for _, y in got["floor"])
+    assert top >= 160, f"polygon reached y={top}: it followed the floor through the doorway"
+
+
+def test_auto_floor_depth_cap(tmp_path):
+    """Floor colour running to the canvas top (a corridor to the horizon) is clamped at the world-
+    depth cap (1x camera distance -> canvas y ~116 at the default camera), not at the image top."""
+    pytest.importorskip("numpy")
+    pytest.importorskip("PIL")
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (384, 448), (60, 62, 80))
+    ImageDraw.Draw(img).polygon([(100, 40), (284, 40), (340, 447), (44, 447)], fill=(150, 125, 92))
+    p = tmp_path / "deep.png"
+    img.save(p)
+    got = IF.auto_floor(p)
+    top = min(y for _, y in got["floor"])
+    hy_cap = C.to_canvas((0.0, 0.0, 3000.0), guide.make_camera(26.0, 3000.0, fov_x_deg=42.0))[1]
+    assert top >= hy_cap - 1, f"polygon top y={top} passed the depth cap ({hy_cap:.0f})"
+
+
 def test_auto_floor_without_numpy_errors_cleanly(tmp_path, monkeypatch):
     pytest.importorskip("PIL")
     import sys
