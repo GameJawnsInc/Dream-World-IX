@@ -481,6 +481,28 @@ class RowInsert:
                 "ok": self.shifted == 0 or self.kept == 0 or self.emitted > 0}
 
 
+def chain_row_inserts(lines, *, parts=PARTS, delta: float = 4.0, relief: float = 0.4,
+                      seed: int = 0xF95, eps: float = 1e-4) -> list:
+    """Compose several RowInsert cuts into one ``tweaks=`` list (multi-column growth).
+
+    ``lines`` are DONOR-frame x cut lines, each census-clean per the RowInsert law.
+    Tweaks apply in list order, so a later (more eastern) cut sees geometry the earlier
+    cuts have already shifted: its effective line is its donor line plus every earlier
+    cut's delta. This helper sorts the lines west-to-east and applies that cumulative
+    correction -- callers think only in the unmodified donor frame. Each cut derives a
+    distinct seed so its grass fill rolls its own quadrants and relief.
+
+    A line given twice composes correctly (the second lands one column east) but yields
+    two adjacent flat fill bands off one seam profile -- prefer spread-out lines.
+    """
+    out = []
+    for i, ln in enumerate(sorted(float(l) for l in lines)):
+        for p in parts:
+            out.append(RowInsert(p, line=ln + i * delta, delta=delta, relief=relief,
+                                 seed=seed + 0x9E37 * i, eps=eps))
+    return out
+
+
 def _soup_block_mesh(name: str, cell, tris, *, disc: int, lod: str) -> BlockMesh:
     """A BlockMesh from (pos, nrm, uv, tan) triangles in the block-LOCAL frame -- fresh verts per
     tri (unindexed, matching the stock world blocks), all four channels carried."""

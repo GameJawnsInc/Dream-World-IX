@@ -440,6 +440,49 @@ def _uv_quad(uv):
     return (0 if uv[0] < 0.0654 else 1, 0 if uv[1] < 0.7993 else 1)
 
 
+def test_chain_row_inserts_cumulative_lines():
+    """Callers give donor-frame lines; the helper sorts west-to-east and shifts each later
+    cut by every earlier cut's delta (a later tweak sees already-shifted geometry)."""
+    tweaks = TR.chain_row_inserts([92.0, 88.0], parts=("terrain",))
+    assert [tw.line for tw in tweaks] == [88.0, 96.0]
+    assert tweaks[0].seed != tweaks[1].seed                 # each cut rolls its own grass
+    # per-part fan-out preserves cut order (all of cut 1 before any of cut 2)
+    tweaks3 = TR.chain_row_inserts([100.0], parts=("terrain", "sea4"))
+    assert [(tw.part, tw.line) for tw in tweaks3] == [("terrain", 100.0), ("sea4", 100.0)]
+
+
+def test_chained_row_inserts_grow_island_twice(monkeypatch):
+    """Two chained cuts (adjacent clean lines, the (9,17) 604+608 pattern): both fills emitted,
+    everything east of both nets +2*delta, welds bit-exact by identity throughout."""
+    blocks = {
+        (1, 1, "terrain"): (_quad(84.0, 88.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.03, 0.78))
+                            + _quad(88.0, 92.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.09, 0.81))
+                            + _quad(92.0, 96.0, -100.0, -96.0, y=1.0, idall=12544.0, uv=(0.03, 0.81))),
+        (1, 1, "sea4"): (_quad(64.0, 88.0, -128.0, -64.0, idall=232.0)
+                         + _quad(88.0, 92.0, -128.0, -64.0, idall=232.0)
+                         + _quad(92.0, 128.0, -128.0, -64.0, idall=232.0)),
+    }
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    tweaks = TR.chain_row_inserts([88.0, 92.0])
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(0.0, 0.0), land_margin=0.0,
+                      tweaks=tweaks, dry_run=True, census_samples=8)
+    assert s["clean"] is True, s["gates"]
+    cut1 = {tw.part: tw for tw in tweaks if tw.line == 88.0}
+    cut2 = {tw.part: tw for tw in tweaks if tw.line == 96.0}
+    # cut 1 splits [84,88] | [88,96]; cut 2 then splits at 96: keeps [84,88]+[92,96](orig 88-92),
+    # shifts [96,100](orig 92-96) -- each cut fills one grass cell (a 4-tri relief fan)
+    assert cut1["terrain"].kept == 2 and cut1["terrain"].shifted == 4
+    assert cut2["terrain"].kept == 4 and cut2["terrain"].shifted == 2
+    assert cut1["terrain"].emitted == 4 and cut2["terrain"].emitted == 4
+    # the island grew by exactly 2*delta: orig land [84,96] -> [84,104] = local [20,40]
+    lf = next(g for g in s["gates"] if g["gate"] == "land-fit")
+    assert lf["bbox"][0] == pytest.approx(20.0) and lf["bbox"][1] == pytest.approx(40.0)
+    # both fills + all shifted geometry weld bit-exact (the identity law survives chaining)
+    assert next(g for g in s["gates"] if g["gate"] == "weld-audit")["pairs"] == 0
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] == 0
+
+
 # ---------------------------------------------------------------- game-data-gated
 
 def _game_ready() -> bool:
