@@ -328,13 +328,15 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     Sutherland-Hodgman clipped at the cell frame so shore-conforming tiles keep their inside part
     exactly.
 
-    ``strips="auto"`` carries a neighbour strip ONLY where the donor's own LAND reaches that
-    border -- the island's tongue continues there, so the strip is part of the island UNIT.
-    Neighbour blocks are real world-map blocks with their own content (a FOREIGN landmass' edge,
-    someone else's coast): carrying them silently pollutes the transplant, so they never come
-    along unless asked -- pass an explicit direction set (e.g. ``("E", "N")``), ``"all"``, or
-    ``"none"``. The shift window follows the carried strips: shifting may only vacate an edge a
-    carried strip refills, by at most ``extra`` units.
+    ``strips="auto"`` (default) gathers an edge strip from EVERY data-bearing neighbour for
+    BORDER COVERAGE (in situ, a neighbour's shore-conforming tiles straddle the border; without
+    them the border sub-tile slivers read as census holes) -- but the SHIFT WINDOW opens only
+    toward borders the donor's own LAND reaches (the island-tongue rule). Neighbour blocks are
+    real world-map blocks with their own content (a FOREIGN landmass' edge): at zero shift their
+    strips clip away entirely, and a shift can only pull in the donor's own land continuation --
+    so foreign content never enters the frame. ``"none"`` disables strips; ``"all"`` opens the
+    window to every data-bearing strip; an explicit set (e.g. ``("E", "N")``) gathers + windows
+    exactly those (expert mode).
 
     GATES (every one must pass or the deploy is REFUSED -- inspect ``summary["gates"]``):
     frame bounds; land fit within ``land_margin`` (an ISLAND default -- pass ``land_margin=0`` for
@@ -365,21 +367,23 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                    "N": ((dbx, dby - 1), 2, -64.0 * dby + extra, True),
                    "S": ((dbx, dby + 1), 2, -64.0 * (dby + 1) - extra, False)}
     donor_by_part = {p: world_tris(dbx, dby, p, disc=disc, lod=lod, game=game) for p in parts}
+    # the island-tongue rule: a strip belongs to the donor's own land UNIT iff its land
+    # reaches that border -- only those strips may open the shift window
+    borders = {"E": (0, 64.0 * (dbx + 1), -1.0), "W": (0, 64.0 * dbx, 1.0),
+               "N": (2, -64.0 * dby, -1.0), "S": (2, -64.0 * (dby + 1), 1.0)}
+    tongue = {d for d, (axis, plane, sgn) in borders.items()
+              if any(sgn * (v[0][axis] - plane) <= 1.0
+                     for p in parts if p in LAND_PARTS
+                     for tri in donor_by_part[p] for v in tri)}
     if strips == "auto":
-        # a strip is part of the island UNIT iff the donor's own land reaches that border
-        borders = {"E": (0, 64.0 * (dbx + 1), -1.0), "W": (0, 64.0 * dbx, 1.0),
-                   "N": (2, -64.0 * dby, -1.0), "S": (2, -64.0 * (dby + 1), 1.0)}
-        selected = {d for d, (axis, plane, sgn) in borders.items()
-                    if any(sgn * (v[0][axis] - plane) <= 1.0
-                           for p in parts if p in LAND_PARTS
-                           for tri in donor_by_part[p] for v in tri)}
+        gathered, windowed = set(strip_specs), tongue
     elif strips == "all":
-        selected = set(strip_specs)
+        gathered = windowed = set(strip_specs)
     elif strips in ("none", None):
-        selected = set()
+        gathered = windowed = set()
     else:
-        selected = {str(d).upper() for d in strips}
-        if not selected <= set(strip_specs):
+        gathered = windowed = {str(d).upper() for d in strips}
+        if not gathered <= set(strip_specs):
             raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of E/W/N/S -- got {strips!r}")
     raw: dict = {}
     donor_has_part: dict = {}
@@ -389,7 +393,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         donor_has_part[p] = bool(donor_tris)
         srcs = [(None, donor_tris, None)]
         for dname, ((nx2, ny2), axis, plane, below) in strip_specs.items():
-            if dname in selected and 0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y:
+            if dname in gathered and 0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y:
                 srcs.append((dname, world_tris(nx2, ny2, p, disc=disc, lod=lod, game=game),
                              (axis, plane, below)))
         polys = []
@@ -407,10 +411,10 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                         break
                 if poly is None:
                     continue
-                polys.append(poly)
+                polys.append((dname, poly))
         for tw in tweaks:
             if tw.part == p:
-                polys.extend(tw.emit())
+                polys.extend((None, e) for e in tw.emit())
         raw[p] = polys
     if not any(donor_has_part.values()):
         raise ValueError(f"donor ({dbx},{dby}) has no block mesh data -- open ocean renders from the "
@@ -418,18 +422,22 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
 
     # 2) ROTATE about the donor-local cell centre; LAND normals rotate (real slopes), sea normals
     #    keep the uniform byte constant every real tile shares regardless of tile rotation.
-    lb = [math.inf, -math.inf, math.inf, -math.inf]          # rotated LAND bbox (pre-shift)
+    #    The auto-shift land bbox counts the donor's OWN land + its tongue strips only -- a
+    #    foreign (non-tongue) strip's land must not steer the centring or the land-fit.
+    lb = [math.inf, -math.inf, math.inf, -math.inf]          # rotated UNIT-land bbox (pre-shift)
     rot_polys: dict = {}
     for p in parts:
         land = p in LAND_PARTS
         rp = []
-        for poly in raw[p]:
+        for (dname, poly) in raw[p]:
+            unit_land = land and (dname is None or dname in windowed)
             tp = []
             for (wpos, nrm, uvv, tan) in poly:
                 rx, rz = _rot_xz(wpos[0] - 64.0 * dbx, wpos[2] + 64.0 * dby, nrot)
                 if land:
                     rnx, rnz = _rot_dir(nrm[0], nrm[2], nrot)
                     nrm = (rnx, nrm[1], rnz)
+                if unit_land:
                     lb[0] = min(lb[0], rx); lb[1] = max(lb[1], rx)
                     lb[2] = min(lb[2], rz); lb[3] = max(lb[3], rz)
                 tp.append(((rx, wpos[1], rz), nrm, uvv, tan))
@@ -437,10 +445,11 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
         rot_polys[p] = rp
 
     # 3) SHIFT within the coverage-feasible window: shifting vacates a frame edge, and the only
-    #    refill data beyond the donor frame is a neighbour strip whose ROTATED image sits at that
-    #    edge -- so each edge allows up to `extra` units iff its strip actually has data.
+    #    refill data beyond the donor frame is a WINDOWED (tongue) strip whose ROTATED image sits
+    #    at that edge -- so each edge allows up to `extra` units iff its strip actually has data.
     avail = {_DIR_OF[(round(rdx), round(rdz))]
-             for (rdx, rdz) in (_rot_dir(*_DIRS[d], nrot) for d in strips_with_data)}
+             for (rdx, rdz) in (_rot_dir(*_DIRS[d], nrot)
+                                for d in (strips_with_data & windowed))}
     win_x = ((-extra if "E" in avail else 0.0), (extra if "W" in avail else 0.0))
     win_z = ((-extra if "N" in avail else 0.0), (extra if "S" in avail else 0.0))
     if shift in (None, "auto"):
@@ -463,10 +472,12 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
 
     # 4) SHIFT + CLIP at the four frame planes + fan-triangulate (degenerate slivers skipped).
     bb = [math.inf, -math.inf, math.inf, -math.inf]
+    lbc = [math.inf, -math.inf, math.inf, -math.inf]         # POST-clip land bbox (the gate's)
     carried: dict = {}
     clipped_out: dict = {}
     part_tris: dict = {}
     for p in parts:
+        land = p in LAND_PARTS
         tris = []
         n_clip = 0
         for poly0 in rot_polys[p]:
@@ -487,6 +498,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                     for v in t3:
                         bb[0] = min(bb[0], v[0][0]); bb[1] = max(bb[1], v[0][0])
                         bb[2] = min(bb[2], v[0][2]); bb[3] = max(bb[3], v[0][2])
+                        if land:
+                            lbc[0] = min(lbc[0], v[0][0]); lbc[1] = max(lbc[1], v[0][0])
+                            lbc[2] = min(lbc[2], v[0][2]); lbc[3] = max(lbc[3], v[0][2])
                     tris.append(t3)
         part_tris[p] = tris
         carried[p] = len(tris)
@@ -510,27 +524,53 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
 
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
-    lb_s = None if math.isinf(lb[0]) else [lb[0] + sh_x, lb[1] + sh_x, lb[2] + sh_z, lb[3] + sh_z]
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
-    gates.append({"gate": "land-fit", "bbox": lb_s, "margin": land_margin,
-                  "ok": lb_s is None or (lb_s[0] >= land_margin and lb_s[1] <= 64.0 - land_margin
-                                         and lb_s[2] >= -64.0 + land_margin
-                                         and lb_s[3] <= -land_margin)})
+    lb_c = None if math.isinf(lbc[0]) else list(lbc)
+    gates.append({"gate": "land-fit", "bbox": lb_c, "margin": land_margin,
+                  "ok": lb_c is None or (lb_c[0] >= land_margin and lb_c[1] <= 64.0 - land_margin
+                                         and lb_c[2] >= -64.0 + land_margin
+                                         and lb_c[3] <= -land_margin)})
     for tw in tweaks:
         gates.append(tw.gate())
     weld = M.weld_audit(meshes)
     gates.append({"gate": "weld-audit", "pairs": len(weld), "ok": not weld})
     from . import placement as P
     cen = P.census(meshes, samples=census_samples)
-    gates.append({"gate": "census", "miss": len(cen["miss"]),
-                  "samples": census_samples * census_samples, "ok": not cen["miss"]})
+    # a real donor may MISS in situ (e.g. under a cliff headland's wall shadow -- no up-facing
+    # ground there in the real game either). The transplant law: no INTRODUCED misses -- every
+    # miss must map back (inverse shift+rot) to a point where the DONOR ITSELF misses.
+    introduced = []
+    inherited = 0
+    if cen["miss"]:
+        donor_meshes = []
+        for p in parts:
+            if not donor_by_part[p]:
+                continue
+            loc = [[((v[0][0] - 64.0 * dbx, v[0][1], v[0][2] + 64.0 * dby), v[1], v[2], v[3])
+                    for v in t] for t in donor_by_part[p]]
+            donor_meshes.append((part_name(p), _soup_block_mesh(f"donor {p}", (dbx, dby), loc,
+                                                                disc=disc, lod=lod)))
+        for (mx, mz) in cen["miss"]:
+            ux, uz = mx - sh_x, mz - sh_z
+            dlx, dlz = _rot_xz(ux, uz, (4 - nrot) % 4)
+            if not (-FRAME_EPS <= dlx <= 64.0 + FRAME_EPS
+                    and -64.0 - FRAME_EPS <= dlz <= FRAME_EPS):
+                introduced.append((mx, mz))            # maps outside the donor frame: a strip hole
+            elif P.place(donor_meshes, dlx, dlz)[1] == "MISS":
+                inherited += 1
+            else:
+                introduced.append((mx, mz))
+    gates.append({"gate": "census", "miss": len(cen["miss"]), "inherited": inherited,
+                  "introduced": len(introduced), "samples": census_samples * census_samples,
+                  "ok": not introduced})
     clean = all(g["ok"] for g in gates)
 
     summary = {"op": "transplant", "donor": [dbx, dby], "cell": [bx, by], "rot": rot,
                "shift": [sh_x, sh_z], "window": {"x": list(win_x), "z": list(win_z)},
-               "strips": sorted(strips_with_data), "carried": carried,
+               "strips": sorted(strips_with_data & windowed),
+               "coverage_strips": sorted(strips_with_data - windowed), "carried": carried,
                "clipped_out": clipped_out, "blanked": blanked, "gates": gates,
                "clean": clean, "dry_run": dry_run, "deployed": []}
     if dry_run or not clean:

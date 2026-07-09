@@ -104,13 +104,29 @@ def test_transplant_basic_clean(monkeypatch):
     assert all(g["ok"] for g in s["gates"])
 
 
-def test_transplant_census_catches_coverage_hole(monkeypatch):
+def test_transplant_census_inherited_misses_pass(monkeypatch):
+    """A donor that misses IN SITU (e.g. under a cliff's wall shadow) may keep those misses --
+    the transplant law is no INTRODUCED misses, not miss==0 (real donors carry legit misses)."""
     blocks = _island_donor()
-    del blocks[(1, 1, "sea4")]                       # island with NO water -> census holes
+    del blocks[(1, 1, "sea4")]                       # the donor itself misses on all its water
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
     s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8)
     census = next(g for g in s["gates"] if g["gate"] == "census")
-    assert s["clean"] is False and census["ok"] is False and census["miss"] > 0
+    assert census["miss"] > 0 and census["introduced"] == 0
+    assert census["inherited"] == census["miss"] and census["ok"] is True
+    assert s["clean"] is True
+
+
+def test_transplant_census_fails_on_introduced_hole(monkeypatch):
+    """A shift that vacates an edge the strip only PARTIALLY refills = a hole the donor never
+    had -> introduced misses -> refused."""
+    blocks = _island_donor(land_x=(104.0, 128.0))                  # tongue at the E border
+    blocks[(2, 1, "sea4")] = _quad(128.0, 192.0, -96.0, -64.0, idall=232.0)   # HALF-height strip
+    monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(-8.0, 0.0), dry_run=True,
+                      census_samples=8)
+    census = next(g for g in s["gates"] if g["gate"] == "census")
+    assert census["introduced"] > 0 and census["ok"] is False and s["clean"] is False
 
 
 def test_transplant_shift_window_from_strip_data(monkeypatch):
@@ -209,13 +225,13 @@ def test_transplant_blanks_fully_clipped_donor_part(monkeypatch):
 
 
 def test_transplant_refuses_deploy_when_not_clean(monkeypatch):
-    blocks = _island_donor()
-    del blocks[(1, 1, "sea4")]
+    blocks = _island_donor(land_x=(104.0, 128.0))
+    blocks[(2, 1, "sea4")] = _quad(128.0, 192.0, -96.0, -64.0, idall=232.0)   # half-height strip
     deployed = []
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
     monkeypatch.setattr(M, "deploy_override", lambda bm, **k: deployed.append(1))
     monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: deployed.append(1))
-    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), census_samples=8)     # NOT dry_run
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), shift=(-8.0, 0.0), census_samples=8)
     assert s["clean"] is False and s["deployed"] == [] and deployed == []
 
 

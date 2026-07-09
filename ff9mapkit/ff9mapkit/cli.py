@@ -2382,8 +2382,9 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         return 2
     sx, sz = summary["shift"]
     print(f"verbatim transplant: donor block {tuple(summary['donor'])} -> cell {tuple(summary['cell'])} "
-          f"(rot {summary['rot']} deg, shift {sx:+g},{sz:+g}; neighbour strips: "
-          f"{','.join(summary['strips']) or 'none'})")
+          f"(rot {summary['rot']} deg, shift {sx:+g},{sz:+g}; tongue strips: "
+          f"{','.join(summary['strips']) or 'none'}; coverage strips: "
+          f"{','.join(summary['coverage_strips']) or 'none'})")
     print("  carried: " + "  ".join(f"{p}:{n}" for p, n in summary["carried"].items()))
     if summary["blanked"]:
         print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
