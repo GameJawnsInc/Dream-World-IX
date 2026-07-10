@@ -148,11 +148,10 @@ def test_beach_bump_builds_and_gates():
     statistics (a waterline-only bow pinched the wash 4.0 -> 0.8u = the in-game seam).
     The RIBBON GATE still refuses a landward bow that pinches the swash."""
     from ff9mapkit.world import coastmorph as CM
-    tws = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
-    parts = {t.part: t.expected for t in tws}
-    assert parts["beach1"] == 18                              # the waterline foam welds
-    assert parts["sea2"] == 48 and parts["sea1"] == 34        # welds + the tapered field
-    assert "sea3" in parts and "terrain" not in parts
+    (disp,) = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
+    # taper + pure DRAG (one part=None displacement over the depth-scaled ~24.5u reach) --
+    # water tolerates SMALL strain (<=16%, the strain gate), not re-evaluation at field scale
+    assert disp.part is None and disp.expected == 190
     with pytest.raises(ValueError, match="RIBBON GATE"):
         CM.beach_bump(DONOR, BEACH_START, BEACH_END, -2.0)
 

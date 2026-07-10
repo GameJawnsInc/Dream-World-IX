@@ -539,7 +539,10 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     # d(s) * cos^2-taper of its cross-shore distance, so each band compresses only
     # fractionally and the ladder keeps its real statistics. Weld-safe by construction: the
     # delta is a pure function of position, so shared band-boundary verts agree across parts.
-    TAPER_REACH = 12.0
+    # the reach scales with depth: max cross-shore strain = depth*pi/(2*reach), so reach =
+    # depth*pi/(2*0.16) caps every tile's strain at ~16% (round-3's fixed 12u reach gave
+    # ~33% at D=2.5 -- the strain gate caught it)
+    TAPER_REACH = max(12.0, abs(depth) * math.pi / 0.32)
 
     def chain_param(p):
         """(along-shore profile displacement d(s), signed cross-shore distance f)."""
@@ -628,13 +631,31 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
         if w0 > 0.5 and w1 < 0.6 * w0:
             raise ValueError(f"BAND GATE: the wash band pinches {w0:.1f} -> {w1:.1f}u at "
                              f"({p[0]:.0f},{p[2]:.0f}) despite the taper -- reduce depth")
-    tweaks = [TR.VertexDisplace(moves=moves, expected=sum(
-        _pk(v[0]) in {_pk(q) for q in moves} for t3 in beach for v in t3), part="beach1")]
-    for name in ("sea2", "sea1", "sea3", "sea5", "sea4"):
-        n = sum(_pk(v[0]) in keyed for t3 in others[name] for v in t3)
-        if n:
-            tweaks.append(TR.SeaBump(moves=water_moves, expected=n, part=name))
-    return tweaks
+    # THE STRAIN GATE + the mechanism law (in-game rounds 1-3, 2026-07-10): water tolerates
+    # SMALL strain, not sharp strain, and never extrapolated re-evaluation. Under the taper
+    # every tile strains <=~15%, so verbatim DRAG is correct (zero uv discontinuities by
+    # construction); per-tile re-evaluation at field scale extrapolates past tile footprints
+    # -- the clamp binds (smush) and every tile pins to its OWN map while geometry slides
+    # (border tiling). Gate: every touched water edge's plan length stays within [0.75,1.33].
+    for name in ("sea1", "sea2", "sea3", "sea5", "sea4"):
+        for t3 in others[name]:
+            if not any(_pk(v[0]) in keyed for v in t3):
+                continue
+            ps0 = [v[0] for v in t3]
+            ps1 = [( (p[0] + keyed[_pk(p)][0], p[1], p[2] + keyed[_pk(p)][2])
+                     if _pk(p) in keyed else p) for p in ps0]
+            for i in range(3):
+                l0 = math.hypot(ps0[i][0] - ps0[(i + 1) % 3][0],
+                                ps0[i][2] - ps0[(i + 1) % 3][2])
+                l1 = math.hypot(ps1[i][0] - ps1[(i + 1) % 3][0],
+                                ps1[i][2] - ps1[(i + 1) % 3][2])
+                if l0 > 0.5 and not (0.75 <= l1 / l0 <= 1.33):
+                    raise ValueError(f"STRAIN GATE: a {name} edge strains x{l1 / l0:.2f} "
+                                     f"near ({ps0[i][0]:.0f},{ps0[i][2]:.0f}) -- the taper "
+                                     f"should cap strain at ~15%; reduce depth")
+    n_all = sum(_pk(v[0]) in keyed
+                for tris in [beach] + list(others.values()) for t3 in tris for v in t3)
+    return [TR.VertexDisplace(moves=water_moves, expected=n_all)]
 
 
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
