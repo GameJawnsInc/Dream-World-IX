@@ -33,6 +33,11 @@ from .extract import decode_id
 #: probe ladders, deepest first -- the first rung that builds AND certifies in-place
 #: is the verb's ceiling for that window
 BEACH_LADDER = (2.5, 2.0, 1.5, 1.0, 0.5)
+#: the full-assembly slide reaches past the drag envelope (its own gates bind:
+#: class/slope/strip-census/water); landward-only v1, and its lawful depths are NOT
+#: monotone (the (7,17) band-gate valley: -2..-2.5 refuse while -3..-5.5 build), so
+#: deepest-first probing is essential -- a shallow refusal must not settle the ladder
+SLIDE_LADDER = (6.0, 5.0, 4.0, 3.0, 2.5, 2.0, 1.5, 1.0)
 CLIFF_LADDERS = {
     "cliff-bump": (2.5, 2.0, 1.5, 1.0),
     "cliff-headland": (8.0, 6.0, 4.0, 3.0),
@@ -258,7 +263,7 @@ def _probe_cliff(fn, cell, run, ladder, *, game=None, depth_limit=16):
 
 def scan_block(bx, by, *, verbs=None, disc=1, lod="0_1", game=None):
     """Scan one real block: discovered windows, each with per-verb probed ceilings."""
-    verbs = set(verbs or ("beach-bump", "beach-reshape",
+    verbs = set(verbs or ("beach-bump", "beach-reshape", "beach-slide",
                           "cliff-bump", "cliff-headland", "cliff-bay"))
     cell = (bx, by)
     windows = (beach_windows(bx, by, disc=disc, lod=lod, game=game)
@@ -277,6 +282,17 @@ def scan_block(bx, by, *, verbs=None, disc=1, lod="0_1", game=None):
                 w["probes"][verb] = {"seaward": sea, "landward": land,
                                      "seaward_binding": sea_r, "landward_binding": land_r,
                                      "window": (w["start"], w["end"])}
+            if "beach-slide" in verbs:
+                # the full-assembly slide is LANDWARD-ONLY v1 (a verb constant, not a
+                # window fact -- don't burn 8 builds proving it seaward per window)
+                land, land_r = _probe(CM.beach_slide, cell, w["start"], w["end"],
+                                      tuple(-d for d in SLIDE_LADDER), game=game)
+                w["probes"]["beach-slide"] = {
+                    "seaward": None, "landward": land,
+                    "seaward_binding": "landward-only v1: a seaward slide vacates the "
+                                       "berm strip behind the band (no fill language)",
+                    "landward_binding": land_r,
+                    "window": (w["start"], w["end"])}
         else:
             for verb, ladder in CLIFF_LADDERS.items():
                 if verb not in verbs:

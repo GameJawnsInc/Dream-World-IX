@@ -393,6 +393,14 @@ def test_coast_scanner_finds_the_proven_windows():
     assert "SHAPE-CLASS" in bump["seaward_binding"]
     assert bump["landward"] == -2.5
     assert beach["probes"]["beach-reshape"]["landward"] == -1.0
+    # the full-assembly slide: landward-only v1, and its ceiling on this window is the
+    # verb's own hard cap (-6) -- every gate (class/slope/strip-census/graded-ladder
+    # water re-lay/T-vertex) clears; deepest-first probing matters (the -2..-2.5
+    # band-gate valley must not settle the ladder)
+    slide = beach["probes"]["beach-slide"]
+    assert slide["seaward"] is None
+    assert "landward-only" in slide["seaward_binding"]
+    assert slide["landward"] == -6.0
     cliff = next(w for w in ws if w["kind"] == "cliff")
     assert cliff["probes"]["cliff-headland"]["depth"] == 8.0
     assert cliff["probes"]["cliff-bay"]["depth"] == 6.0
