@@ -283,6 +283,19 @@ def test_headland_refuses_an_illegal_gap_count():
         CM.cliff_headland(DONOR, START, (504.0, -1110.765625), 6.0)
 
 
+def test_cliff_clearance_gate():
+    """THE CLEARANCE GATE -- the cliff shape law: cliffs are class-free (a headland on a
+    bay rim read clean in-game, (16,9)) and push shear is harmless (the wall REBUILDS --
+    81-degree crest shear proven), so the real hazard is the pushed outline PINCHING.
+    (21,10)'s first headland window at D=8 pushes to ~1.2u of itself (was the riskiest
+    line in the pre-gate catalog); the proven wild rim (16,9) D=8 (5.6u clear) passes."""
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="CLEARANCE GATE"):
+        CM.cliff_headland((21, 10), (1344.9609, -651.6719), (1344.0, -662.543), 8.0)
+    tw = CM.cliff_headland((16, 9), (1064.0, -640.0), (1024.0, -588.0), 8.0)
+    assert len(tw) == 5
+
+
 def test_coast_scanner_finds_the_proven_windows():
     """The coast window scanner on (7,17): re-discovers the proven morph windows with
     the proven ceilings, probing the REAL builders (the gates are the oracle) and
