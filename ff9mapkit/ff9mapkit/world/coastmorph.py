@@ -1584,6 +1584,66 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             if tw is not None]
 
 
+def _outline_min_clear(pts):
+    """Min distance between NON-ADJACENT segments of an ordered xz outline polyline."""
+    def segd(p1, p2, q1, q2):
+        best = 1e18
+        for a, (b, c) in ((p1, (q1, q2)), (p2, (q1, q2)), (q1, (p1, p2)), (q2, (p1, p2))):
+            ex, ez = c[0] - b[0], c[1] - b[1]
+            L2 = ex * ex + ez * ez or 1.0
+            t = max(0.0, min(1.0, ((a[0] - b[0]) * ex + (a[1] - b[1]) * ez) / L2))
+            best = min(best, math.hypot(a[0] - b[0] - t * ex, a[1] - b[1] - t * ez))
+        return best
+    best = 1e18
+    for i in range(len(pts) - 1):
+        for j in range(i + 3, len(pts) - 1):
+            best = min(best, segd(pts[i], pts[i + 1], pts[j], pts[j + 1]))
+    return best
+
+
+def _clearance_gate(win, new_base, d_cols):
+    """THE CLEARANCE GATE -- the cliff SHAPE law (2026-07-10). Measured over the proven
+    deploys + the full catalog: cliffs are CLASS-FREE (a headland on a bay rim read clean
+    in-game, (16,9)) and push-direction SHEAR is harmless (drop-don't-drag REBUILDS the
+    wall natively, so the global normal is a pure outline parameter -- 81-degree crest
+    shear proven at (16,9)). The real hazard on a wrapping window is the pushed outline
+    PINCHING: the catalog's (21,10) D=8 came within 1.7u of itself (a wall-against-wall
+    sliver channel); every proven point sits >= 5.6u. Gate: >= 4u (the lattice grain)
+    against (a) the outline's own non-adjacent segments -- with the ride-never-tighten
+    escape for windows whose STOCK outline is already close -- and (b) the block's other
+    cliff-base verts, tested from MOVED segments only (both endpoints displaced > 0.5u,
+    so a pinned end's natural 4u gap to the run's continuation never false-trips)."""
+    old2 = [(p[0], p[2]) for p in win.base]
+    new2 = [(p[0], p[2]) for p in new_base]
+    c_old = _outline_min_clear(old2)
+    c_new = _outline_min_clear(new2)
+    if c_new < 4.0 and c_new < c_old - 0.01:
+        raise ValueError(f"CLEARANCE GATE: the pushed outline pinches to {c_new:.1f}u "
+                         f"against itself (stock {c_old:.1f}u) -- a wall-against-wall "
+                         f"sliver; reduce depth or shrink the window")
+    win_k = {_pk(p) for p in win.base}
+    other = [(v[0][0], v[0][2]) for t3 in win.cliff for v in t3
+             if v[0][1] < BASE_Y_MAX and _pk(v[0]) not in win_k]
+    if not other:
+        return
+    moved = [abs(d) > 0.5 for d in d_cols]
+    worst = 1e18
+    for i in range(len(new2) - 1):
+        if not (i < len(moved) and i + 1 < len(moved) and moved[i] and moved[i + 1]):
+            continue
+        ex, ez = new2[i + 1][0] - new2[i][0], new2[i + 1][1] - new2[i][1]
+        L2 = ex * ex + ez * ez or 1.0
+        for q in other:
+            t = max(0.0, min(1.0, ((q[0] - new2[i][0]) * ex
+                                   + (q[1] - new2[i][1]) * ez) / L2))
+            worst = min(worst, math.hypot(q[0] - new2[i][0] - t * ex,
+                                          q[1] - new2[i][1] - t * ez))
+    if worst < 4.0:
+        raise ValueError(f"CLEARANCE GATE: the pushed outline comes within {worst:.1f}u "
+                         f"of the block's other cliff base -- a pinched channel; reduce "
+                         f"depth or shrink the window")
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved
@@ -1592,12 +1652,18 @@ def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     win = CliffWindow(donor, start, end, disc=disc, lod=lod, game=game)
     ts = win.arc_params()
     moves = {}
+    d_cols = [0.0]
     for i in range(1, len(win.base) - 1):
         d = depth * math.sin(math.pi * ts[i]) ** 2
+        d_cols.append(d)
         for p in (win.base[i], win.crease[i]):
             moves[p] = (d * win.nhat[0], 0.0, d * win.nhat[1])
+    d_cols.append(0.0)
     keyed = {_pk(p): v for p, v in moves.items()}
     _assert_pure_sea4(win, keyed, disc=disc, lod=lod, game=game)
+    new_base = [(p[0] + d * win.nhat[0], p[1], p[2] + d * win.nhat[1])
+                for p, d in zip(win.base, d_cols)]
+    _clearance_gate(win, new_base, d_cols)
     # the offline fold precheck (the ~2.5u envelope law, made a build-time refusal)
     for tris in (win.terr, win.sea4):
         for t3 in tris:
@@ -1886,6 +1952,7 @@ def _cliff_reshape(donor, start, end, profile, *, disc: int = 1, lod: str = "0_1
         cz = math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0)
         cell_quad.setdefault((cx, cz), TR._quad_of_uv(t3[0][2]))
     d_cols = [bump_of(t_) for t_ in params]
+    _clearance_gate(win, new_base, d_cols)
     bay_segs = [(new_crease[i], new_crease[i + 1]) for i in range(len(new_crease) - 1)
                 if min(d_cols[i], d_cols[i + 1]) < -0.25]
 
