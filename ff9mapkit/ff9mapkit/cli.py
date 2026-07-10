@@ -2437,13 +2437,15 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print(n)
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
-        if args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes:
+        if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
+                or args.beach_bump):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
             for spec, fn in ((args.cliff_bump, CM.cliff_bump),
                              (args.cliff_headland, CM.cliff_headland),
-                             (args.cliff_bay, CM.cliff_bay)):
+                             (args.cliff_bay, CM.cliff_bay),
+                             (args.beach_bump, CM.beach_bump)):
                 if not spec:
                     continue
                 s0, s1, sd = spec.split(":")
@@ -5079,6 +5081,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "wall column per gap (the window's gap count must be a multiple of 4, the "
                           "deterministic-U-ramp law), native lattice grass re-fill, sea zipped back to the "
                           "new outline. Every law gate (crack/grain/water-density/ledger) runs offline.")
+    wtp.add_argument("--beach-bump", default=None, metavar="X0,Z0:X1,Z1:D",
+                     help="the BEACH conforming bow (the beach frontier's rung 1): bow a sandy shore's "
+                          "WATERLINE (beach1's seaward boundary -- every vert welded with sea2) by a sin^2 "
+                          "profile of depth D (+ = seaward). Foam and wash drag together; the swash ribbon "
+                          "breathes within the real 3.3-6.7u envelope (the RIBBON GATE refuses a bow that "
+                          "pinches or overstretches it). Endpoints = two waterline verts (donor frame).")
     wtp.add_argument("--cliff-lobes", default=None, metavar="X0,Z0:X1,Z1:D1,D2,..",
                      help="COMPOSED morphs in ONE window: a piecewise profile of sin^2 lobes, one per "
                           "signed depth (+ = seaward headland, - = landward bay; '3.5,-5,6.5' = a bay "

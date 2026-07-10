@@ -447,6 +447,127 @@ def _grass_fill(win, drop_grass, new_crease, ck, cell_quad):
     return grass_emit
 
 
+def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The BEACH conforming bow -- the waterline move on a sandy shore (the beach frontier's
+    rung 1). A beach is an INTERLEAVED RAMP ASSEMBLY: sand terrain -> beach1 foam (the swash
+    ribbon, Y 0.2..1.2) -> sea2 wash, welded at two chains -- the WATERLINE (beach1's seaward
+    boundary, every vert shared bit-exact with sea2) and the SAND SEAM (shared with terrain),
+    with load-bearing multi-part END-CAP welds. The bow displaces interior WATERLINE verts
+    (sin^2 profile, + = seaward) across EVERY part sharing them (part=None), so foam and wash
+    stay welded; UVs drag VERBATIM -- the real swash ribbon's width varies 3.3-6.7u naturally,
+    which is exactly why lateral waterline strain is invisible (the proven VertexDisplace
+    semantics). Gates: end-caps must stay fixed, the ribbon must stay inside the real width
+    envelope, and no touched tile may fold."""
+    from .extract import decode_id as _did
+    beach = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
+    if not beach:
+        raise ValueError(f"donor {donor} has no beach1 mesh -- not a sandy shore")
+    others = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game)
+              for p in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4")}
+    reg = {name: {_pk(v[0]) for t3 in tris for v in t3} for name, tris in others.items()}
+
+    # beach1's boundary loop -> the waterline run (sea2-welded) vs the sand seam
+    e_count = defaultdict(int)
+    pos_of = {}
+    for t3 in beach:
+        ps = [v[0] for v in t3]
+        for v in t3:
+            pos_of.setdefault(_pk(v[0]), v[0])
+        for i in range(3):
+            e_count[frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3])))] += 1
+    adj = defaultdict(list)
+    for e, c in e_count.items():
+        if c == 1:
+            a, b = tuple(e)
+            adj[a].append(b)
+            adj[b].append(a)
+
+    def snap(p):
+        best, bd = None, 0.8
+        for k in adj:
+            d = math.hypot(pos_of[k][0] - p[0], pos_of[k][2] - p[1])
+            if d < bd:
+                best, bd = k, d
+        if best is None:
+            raise ValueError(f"no beach1 boundary vert within 0.8u of {p}")
+        return best
+    ks, ke = snap(start), snap(end)
+    chain = None
+    for first in adj[ks]:
+        trial, prev = [ks, first], ks
+        while trial[-1] != ke and len(trial) <= 4096:
+            nxts = [n for n in adj[trial[-1]] if n != prev]
+            if not nxts:
+                break
+            prev = trial[-1]
+            trial.append(nxts[0])
+        if trial[-1] == ke:
+            # prefer the WATERLINE side: every interior vert sea2-welded, none terrain-welded
+            if all(k in reg["sea2"] and k not in reg["terrain"] for k in trial[1:-1]):
+                chain = trial
+                break
+    if chain is None:
+        raise ValueError("start/end do not bound a waterline run (interior verts must be "
+                         "sea2-welded and terrain-free -- pick the foam line, not the sand "
+                         "seam, and keep end-caps outside the interior)")
+    pts = [pos_of[k] for k in chain]
+
+    # seaward normal: away from the sand centroid
+    sand = [t for t in others["terrain"] if _did(int(round(t[0][3][0])))["topograph"] == 31]
+    src = sand or others["terrain"]
+    cc = (sum(v[0][0] for t3 in src for v in t3) / (3 * len(src)),
+          sum(v[0][2] for t3 in src for v in t3) / (3 * len(src)))
+    t = (pts[-1][0] - pts[0][0], pts[-1][2] - pts[0][2])
+    tl = math.hypot(*t) or 1.0
+    nh = (-t[1] / tl, t[0] / tl)
+    mid = pts[len(pts) // 2]
+    if ((mid[0] + nh[0] - cc[0]) ** 2 + (mid[2] + nh[1] - cc[1]) ** 2
+            < (mid[0] - nh[0] - cc[0]) ** 2 + (mid[2] - nh[1] - cc[1]) ** 2):
+        nh = (-nh[0], -nh[1])
+
+    acc, arcs = 0.0, [0.0]
+    for a, b in zip(pts, pts[1:]):
+        acc += math.dist(a, b)
+        arcs.append(acc)
+    moves = {}
+    for i in range(1, len(pts) - 1):
+        d = depth * math.sin(math.pi * arcs[i] / acc) ** 2
+        moves[pts[i]] = (d * nh[0], 0.0, d * nh[1])
+    keyed = {_pk(p): v for p, v in moves.items()}
+
+    # THE RIBBON GATE: each moved waterline vert's distance to the sand seam must stay
+    # inside the real swash envelope (measured 3.3-6.7u; band widened for donor variety)
+    sand_seam = [pos_of[k] for k in adj if k in reg["terrain"]]
+    for p in list(moves):
+        d0 = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in sand_seam)
+        dd = moves[p]
+        d1 = min(math.hypot(p[0] + dd[0] - q[0], p[2] + dd[2] - q[2]) for q in sand_seam)
+        if not (2.6 <= d1 <= 8.2):
+            raise ValueError(f"RIBBON GATE: the bow moves the swash ribbon to {d1:.1f}u at "
+                             f"({p[0]:.0f},{p[2]:.0f}) -- outside the real 3.3-6.7u envelope "
+                             f"(pre-move {d0:.1f}); reduce depth")
+
+    # fold precheck across every part (the local envelope, offline)
+    for tris in [beach] + list(others.values()):
+        for t3 in tris:
+            if not any(_pk(v[0]) in keyed for v in t3):
+                continue
+            out = []
+            for (pos, nrm, uv, tan) in t3:
+                dd = keyed.get(_pk(pos))
+                if dd is not None:
+                    pos = (pos[0] + dd[0], pos[1] + dd[1], pos[2] + dd[2])
+                out.append((pos, nrm, uv, tan))
+            a0 = TR.VertexDisplace._area2(list(t3))
+            a1 = TR.VertexDisplace._area2(out)
+            if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+                raise ValueError(f"depth {depth:g} folds a shore tile -- the waterline "
+                                 f"envelope is geometric; reduce depth")
+    n_all = sum(_pk(v[0]) in keyed for tris in [beach] + list(others.values())
+                for t3 in tris for v in t3)
+    return [TR.VertexDisplace(moves=moves, expected=n_all)]
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved

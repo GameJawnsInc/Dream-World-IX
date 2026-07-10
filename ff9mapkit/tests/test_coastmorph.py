@@ -136,6 +136,29 @@ def test_lobes_reach_gate_refuses_the_shallow_ladder():
         CM.cliff_lobes(DONOR, (476.0, -1108.9), LOBES_END, (3.5, -5.0, 6.5))
 
 
+#: the (7,17) S-beach waterline run (deployed with the D=2.5 seaward bow at (11,8) 2026-07-10)
+BEACH_START = (476.0, -1124.0)
+BEACH_END = (504.0, -1132.0)
+
+
+def test_beach_bump_builds_and_gates():
+    """The beach frontier's rung 1: the waterline bow. Interior verts are beach1<->sea2
+    welds (part=None moves both); the RIBBON GATE holds the swash inside the real
+    3.3-6.7u envelope -- a landward bow that pinches it refuses."""
+    from ff9mapkit.world import coastmorph as CM
+    (disp,) = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
+    assert disp.part is None and disp.expected == 37          # the deployed proven counts
+    with pytest.raises(ValueError, match="RIBBON GATE"):
+        CM.beach_bump(DONOR, BEACH_START, BEACH_END, -2.0)
+
+
+def test_beach_bump_refuses_a_non_waterline_run():
+    from ff9mapkit.world import coastmorph as CM
+    # sand-seam endpoints (the landward boundary) are not a waterline run
+    with pytest.raises(ValueError, match="waterline"):
+        CM.beach_bump(DONOR, (480.0, -1120.0), (496.0, -1125.0), 2.0)
+
+
 def test_structural_refuses_a_grassless_top():
     from ff9mapkit.world import coastmorph as CM
     # the (9,5) continent-island-A donor has ZERO grass (highland/mural top families) --
