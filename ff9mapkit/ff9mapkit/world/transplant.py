@@ -2100,7 +2100,7 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     coastmorph fields pin block-frame verts). Reversible: delete the deployed files."""
     from . import mesh as M
     bx, by = cell
-    raw = {}
+    raw, originals = {}, {}
     for p in parts:
         tris = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
         if not tris:
@@ -2125,7 +2125,28 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
                     polys.extend(list(e) for e in em)
         if touched:
             raw[p] = polys
+            originals[p] = tris
     gates = [tw.gate() for tw in tweaks]
+
+    # IN-PLACE-specific gates: the cell keeps its REAL neighbours, so (a) every vert on
+    # the block frame welds to a neighbour block's coincident vert -- the frame vert SET
+    # must be byte-unchanged; (b) nothing may spill past the cell (the transplant's bounds
+    # gate, in-place flavour: an emitted structural outline must stay in the block).
+    def _frame_set(polys):
+        out = set()
+        for poly in polys:
+            for v in poly:
+                lx, lz = v[0][0] - 64.0 * bx, v[0][2] + 64.0 * by
+                if min(abs(lx), abs(lx - 64.0), abs(lz), abs(lz + 64.0)) < 0.01:
+                    out.add((round(v[0][0], 4), round(v[0][1], 4), round(v[0][2], 4)))
+        return out
+    for p in sorted(raw):
+        fw_ok = _frame_set(raw[p]) == _frame_set(originals[p])
+        oob = sum(1 for poly in raw[p] for v in poly
+                  if not (-0.01 <= v[0][0] - 64.0 * bx <= 64.01
+                          and -64.01 <= v[0][2] + 64.0 * by <= 0.01))
+        gates.append({"gate": f"in-place-frame[{p}]", "welds": "unchanged" if fw_ok
+                      else "CHANGED", "out_of_cell": oob, "ok": fw_ok and oob == 0})
     clean = all(g.get("ok", True) for g in gates)
     summary = {"op": "morph-in-place", "cell": [bx, by], "touched": sorted(raw),
                "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
