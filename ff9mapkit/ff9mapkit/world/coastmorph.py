@@ -453,11 +453,13 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     ribbon, Y 0.2..1.2) -> sea2 wash, welded at two chains -- the WATERLINE (beach1's seaward
     boundary, every vert shared bit-exact with sea2) and the SAND SEAM (shared with terrain),
     with load-bearing multi-part END-CAP welds. The bow displaces interior WATERLINE verts
-    (sin^2 profile, + = seaward) across EVERY part sharing them (part=None), so foam and wash
-    stay welded; UVs drag VERBATIM -- the real swash ribbon's width varies 3.3-6.7u naturally,
-    which is exactly why lateral waterline strain is invisible (the proven VertexDisplace
-    semantics). Gates: end-caps must stay fixed, the ribbon must stay inside the real width
-    envelope, and no touched tile may fold."""
+    (sin^2 profile, + = seaward) in BOTH welded parts: the FOAM drags verbatim (it is
+    edge-anchored -- the swash ribbon's width varies 3.3-6.7u naturally, so foam strain is
+    real behaviour and the white band must follow the line), but the sea2 WASH re-evaluates
+    through its own tile map (:class:`transplant.SeaBump`) -- dragged wash UVs smush the
+    water pattern (in-game 2026-07-10, the cliff-bump lesson repeating on the beach: WATER
+    NEVER DRAGS, on any band). Gates: end-caps must stay fixed, the ribbon must stay inside
+    the real width envelope, and no touched tile may fold."""
     from .extract import decode_id as _did
     beach = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
     if not beach:
@@ -563,9 +565,16 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
             if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
                 raise ValueError(f"depth {depth:g} folds a shore tile -- the waterline "
                                  f"envelope is geometric; reduce depth")
-    n_all = sum(_pk(v[0]) in keyed for tris in [beach] + list(others.values())
-                for t3 in tris for v in t3)
-    return [TR.VertexDisplace(moves=moves, expected=n_all)]
+    n_foam = sum(_pk(v[0]) in keyed for t3 in beach for v in t3)
+    n_wash = sum(_pk(v[0]) in keyed for t3 in others["sea2"] for v in t3)
+    n_other = sum(_pk(v[0]) in keyed for name, tris in others.items() if name != "sea2"
+                  for t3 in tris for v in t3)
+    if n_other:
+        raise ValueError(f"{n_other} moved waterline instance(s) belong to parts other than "
+                         f"beach1/sea2 -- a part-scoped move would crack there; pick a run "
+                         f"whose interior welds only foam and wash")
+    return [TR.VertexDisplace(moves=moves, expected=n_foam, part="beach1"),
+            TR.SeaBump(moves=moves, expected=n_wash, part="sea2")]
 
 
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):

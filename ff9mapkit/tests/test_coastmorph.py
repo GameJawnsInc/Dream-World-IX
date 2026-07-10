@@ -143,11 +143,13 @@ BEACH_END = (504.0, -1132.0)
 
 def test_beach_bump_builds_and_gates():
     """The beach frontier's rung 1: the waterline bow. Interior verts are beach1<->sea2
-    welds (part=None moves both); the RIBBON GATE holds the swash inside the real
+    welds -- the FOAM drags (edge-anchored), the WASH re-evaluates through its own tile map
+    (water never drags, on any band); the RIBBON GATE holds the swash inside the real
     3.3-6.7u envelope -- a landward bow that pinches it refuses."""
     from ff9mapkit.world import coastmorph as CM
-    (disp,) = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
-    assert disp.part is None and disp.expected == 37          # the deployed proven counts
+    foam, wash = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
+    assert foam.part == "beach1" and wash.part == "sea2"
+    assert foam.expected + wash.expected == 37                # the proven weld instances
     with pytest.raises(ValueError, match="RIBBON GATE"):
         CM.beach_bump(DONOR, BEACH_START, BEACH_END, -2.0)
 
