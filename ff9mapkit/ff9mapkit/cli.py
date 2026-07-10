@@ -2438,14 +2438,15 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
-                or args.beach_bump):
+                or args.beach_bump or args.beach_rebuild or args.beach_reshape):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
             for spec, fn in ((args.cliff_bump, CM.cliff_bump),
                              (args.cliff_headland, CM.cliff_headland),
                              (args.cliff_bay, CM.cliff_bay),
-                             (args.beach_bump, CM.beach_bump)):
+                             (args.beach_bump, CM.beach_bump),
+                             (args.beach_reshape, CM.beach_reshape)):
                 if not spec:
                     continue
                 s0, s1, sd = spec.split(":")
@@ -2453,6 +2454,12 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 p1 = tuple(float(v) for v in s1.split(","))
                 tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd),
                                            disc=args.disc, game=args.game)
+            if args.beach_rebuild:
+                s0, s1 = args.beach_rebuild.split(":")
+                p0 = tuple(float(v) for v in s0.split(","))
+                p1 = tuple(float(v) for v in s1.split(","))
+                tweaks = list(tweaks) + CM.beach_rebuild(
+                    (dx, dy), p0, p1, disc=args.disc, game=args.game)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -5101,6 +5108,20 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--beach-rebuild", default=None, metavar="X0,Z0:X1,Z1",
+                     help="STRUCTURAL beach, identity mode (in-game proven ~indistinguishable): drop the "
+                          "window's shore ladder (foam run tiles / sea2 wash / sea1 Wang ring) and re-derive "
+                          "it from pure language over the SAME verts -- the generative proof that reshaping "
+                          "is a controlled delta. Endpoints = two waterline verts (donor frame).")
+    wtp.add_argument("--beach-reshape", default=None, metavar="X0,Z0:X1,Z1:D",
+                     help="the STRUCTURAL beach SHAPE morph: move the waterline by a sin^2 profile of depth "
+                          "D (+ = seaward) and RE-LAY the ladder over the new footprint -- zero water strain "
+                          "(the bow drags; this re-derives): foam run tiles over the moved chain, the wash "
+                          "re-laid with a width-driven lattice boundary, the sea1/sea3 patchwork transported "
+                          "by a per-column pullback with the EDGE-SHADE FIELD re-solved (transported shades "
+                          "preferred, flips minimized over the learned table). The sand chain never moves "
+                          "(painted wash behind the seam -- the baked-terrain law), so depth stays "
+                          "ribbon-capped like the bow; the win is strain-free structure.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")

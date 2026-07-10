@@ -163,6 +163,79 @@ def test_beach_bump_refuses_a_non_waterline_run():
         CM.beach_bump(DONOR, (480.0, -1120.0), (496.0, -1125.0), 2.0)
 
 
+def _tweak_hash(tweaks):
+    import hashlib as _h
+    sig = []
+    for t in tweaks:
+        if hasattr(t, "keys"):
+            sig.append((t.part, sorted(sorted(k) for k in t.keys)))
+        else:
+            sig.append((t.part, sorted(
+                tuple(round(c, 6) for v in t3 for c in (list(v[0]) + list(v[2])))
+                for t3 in t.tris)))
+    return _h.sha256(repr(sig).encode()).hexdigest()[:16]
+
+
+def test_beach_rebuild_golden():
+    """Identity mode (rung 2 step 1, in-game proven ~indistinguishable 2026-07-10) -- the
+    full tweak hash also pins the helper extraction as behavior-preserving."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_rebuild(DONOR, BEACH_START, BEACH_END)
+    assert [(t.part, getattr(t, "expected", None) or len(t.tris)) for t in tw] == [
+        ("beach1", 14), ("sea2", 18), ("sea1", 26),
+        ("beach1", 14), ("sea2", 18), ("sea1", 26)]
+    assert _tweak_hash(tw) == "47e3e88cd30b4002"
+
+
+def test_beach_reshape_golden_transport():
+    """The SHAPE morph (rung 2 step 2) at the depth where the band TRANSPORT fires: one
+    column shifts a lattice row, the wash grows over a sea1 cell, the sea3 sandwich cell
+    slides one row seaward (sea1 emitted over it by the learned table, sea3 re-emitted by
+    its learned quadrant/dihedral-8 language), and the edge-shade solver repairs exactly
+    the Wang agreements the new map forces."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 1.5)
+    led = [(t.part, ("drop", t.expected) if hasattr(t, "keys") else ("emit", len(t.tris)))
+           for t in tw]
+    assert led == [("beach1", ("drop", 14)), ("sea2", ("drop", 18)),
+                   ("sea1", ("drop", 6)), ("sea3", ("drop", 2)),
+                   ("beach1", ("emit", 15)), ("sea2", ("emit", 21)),
+                   ("sea1", ("emit", 4)), ("sea3", ("emit", 2))]
+    assert _tweak_hash(tw) == "706c3729028acb00"
+
+
+def test_beach_reshape_identity_is_a_rebuild():
+    """Depth 0 degenerates to a pure re-derivation: no band shifts, no sea1/sea3 changes,
+    the same drop scope as identity mode."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 0.0)
+    assert [(t.part, hasattr(t, "keys")) for t in tw] == [
+        ("beach1", True), ("sea2", True), ("beach1", False), ("sea2", False)]
+
+
+def test_beach_reshape_landward_transport():
+    """A landward morph slides the band UP: the wash sheds a row, the vacated cells re-lay
+    as sea1, and a sea1 cell returns to sea3 (both directions of the pullback are lawful)."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -1.0)
+    parts = [(t.part, hasattr(t, "keys")) for t in tw]
+    assert ("sea3", False) in parts and ("sea1", False) in parts
+
+
+def test_beach_reshape_refusals():
+    from ff9mapkit.world import coastmorph as CM
+    # the wash-width ceiling: col 488's mid-column vert cannot keep the band lawful with a
+    # 4u-quantized boundary (the true v1 ceiling at this window)
+    with pytest.raises(ValueError, match="BAND GATE"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 2.0)
+    # the swash envelope still rules (the sand chain never moves -- baked-terrain law)
+    with pytest.raises(ValueError, match="RIBBON GATE"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 3.5)
+    # sand-seam endpoints are not a waterline run
+    with pytest.raises(ValueError, match="matched waterline/sand columns|waterline"):
+        CM.beach_reshape(DONOR, (480.0, -1120.0), (496.0, -1125.0), 1.0)
+
+
 def test_structural_refuses_a_grassless_top():
     from ff9mapkit.world import coastmorph as CM
     # the (9,5) continent-island-A donor has ZERO grass (highland/mural top families) --

@@ -666,23 +666,22 @@ FOAM_V_SAND = 0.0156
 FOAM_V_WATER = 0.4531
 
 
-def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=None):
-    """The STRUCTURAL beach machinery, identity mode (rung 2, step 1): DROP the window's
-    shore ladder (foam run tiles + sea2 wash + the sea1 Wang ring) and RE-DERIVE it from
-    pure language over the SAME vertex set -- foam by the run-tile rule, sea2 as quadrant
-    mains + affine-continued conforming zip, sea1 by the LEARNED WANG TABLE in emission
-    mode (deep-edge-sets from the band map -> EDGESET2STRIP). The generative proof: if the
-    rebuilt window reads verbatim in-game, reshaping the chains becomes a controlled delta.
-    Self-check: every derived sea1 edge-set must equal the real tile's decode."""
-    from .water import UFULL, VSTRIP, URECT, VRECT
+def _up_tri(tri):
+    """Wind a tri up-facing in plan -- the emission convention across the shore ladder."""
+    ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
+    vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
+    return [tri[0], tri[2], tri[1]] if uz * vx - ux * vz <= 0 else tri
+
+
+def _beach_window(donor, start, end, *, disc=1, lod="0_1", game=None):
+    """Decode the beach ramp assembly + a window's matched chains (waterline W / sand S,
+    x-sorted lattice columns) -- the shared opening of the structural beach machinery."""
     beach = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
     parts = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game)
              for p in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4")}
     if not beach:
         raise ValueError(f"donor {donor} has no beach1 mesh")
     reg = {n: {_pk(v[0]) for t3 in t for v in t3} for n, t in parts.items()}
-
-    # the two chains (waterline / sand seam), decoded exactly as beach_bump does
     e_count = defaultdict(int)
     pos_of = {}
     for t3 in beach:
@@ -697,6 +696,11 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
                          key=lambda p: p[0])
     sand_chain = sorted((pos_of[k] for k in bnd if k in reg["terrain"]),
                         key=lambda p: p[0])
+    for p_, nm in ((start, "start"), (end, "end")):
+        if min((math.hypot(q[0] - p_[0], q[2] - p_[1]) for q in water_chain),
+               default=9e9) > 0.8:
+            raise ValueError(f"{nm} {tuple(p_)} is not on the waterline chain -- pick the "
+                             f"foam line (beach1's seaward boundary), not the sand seam")
     x0, x1 = sorted((start[0], end[0]))
     W = [p for p in water_chain if x0 - 0.1 <= p[0] <= x1 + 0.1]
     S = [p for p in sand_chain if x0 - 0.1 <= p[0] <= x1 + 0.1]
@@ -704,6 +708,98 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
         raise ValueError(f"the window needs matched waterline/sand columns "
                          f"(got {len(W)}/{len(S)}) -- pick a mid-beach run clear of the "
                          f"end-caps")
+    return beach, parts, reg, W, S, x0, x1
+
+
+def _mains_factory():
+    """Per-cell anti-tiling MAINS picks (2x2 quadrant + rotation, deterministic hash) as a
+    ``cell -> uvf(x, z)`` factory; one shared pick store per build. The proven sea2 wash
+    vocabulary (sea3 has its OWN quadrant language -- :func:`_sea3_factory`)."""
+    from .water import URECT, VRECT, OMAPS
+    cell_pick = {}
+
+    def mains_map(cell):
+        (ci, cj) = cell
+        if cell not in cell_pick:
+            h = TR._h01(4.0 * ci + 1.7, 4.0 * cj + 2.3)
+            cell_pick[cell] = ((int(h * 2) % 2, int(h * 4) % 2),
+                               ("r0", "r90", "r180", "r270")[
+                                   int(TR._h01(4.0 * ci + 3.1, 4.0 * cj + 0.9) * 4) % 4])
+        (uh, vh), rname = cell_pick[cell]
+        m = OMAPS[rname]
+        (u0, u1), (v0, v1) = URECT[uh], VRECT[vh]
+
+        def uvf(x, z):
+            fx = (x - 4.0 * ci) / 4.0
+            fz = (z - 4.0 * cj) / 4.0
+            a, b = m(fx, fz)
+            return (u0 + a * (u1 - u0), v0 + b * (v1 - v0))
+        return uvf
+    return mains_map
+
+
+#: SEA3's learned quadrant language (byte-learned 2026-07-10, ~90 cells over 4 coastal
+#: blocks, every fit err 0.0000): u-halves like sea4's but its OWN v split at 0.50794, and
+#: placement over DIHEDRAL-8 (flips are real -- a rotation-4 fit misses half the tiles).
+#: Real tiles also carry optional ~2-texel border-inset rect variants with no structural
+#: correlation; the un-inset base appears in bulk on every half, so emission uses bases
+#: only and the decode fit accepts insets within eps.
+SEA3_URECT = [(0.0, 0.50394), (0.50394, 0.99213)]
+SEA3_VRECT = [(0.0, 0.50794), (0.50794, 1.0)]
+
+
+def _sea3_factory():
+    """Per-cell anti-tiling SEA3 picks (quadrant + dihedral-8, deterministic hash) as a
+    ``cell -> uvf(x, z)`` factory."""
+    maps8 = TR._dih_maps()
+    onames = sorted(maps8)
+
+    def sea3_map(cell):
+        (ci, cj) = cell
+        h = TR._h01(4.0 * ci + 2.9, 4.0 * cj + 1.3)
+        (u0, u1) = SEA3_URECT[int(h * 2) % 2]
+        (v0, v1) = SEA3_VRECT[int(h * 4) % 2]
+        m = maps8[onames[int(TR._h01(4.0 * ci + 0.7, 4.0 * cj + 3.7) * 8) % 8]]
+
+        def uvf(x, z):
+            fx = (x - 4.0 * ci) / 4.0
+            fz = (z - 4.0 * cj) / 4.0
+            a, b = m(fx, fz)
+            return (u0 + a * (u1 - u0), v0 + b * (v1 - v0))
+        return uvf
+    return sea3_map
+
+
+def _strip_uvf(cell, es):
+    """The learned-table EMISSION: a deep-edge-set -> a placed strip tile's uv map (variant
+    picked by the deterministic cell hash)."""
+    from .water import UFULL, VSTRIP
+    variants = TR.EDGESET2STRIP.get(es)
+    if not variants:
+        raise ValueError(f"sea1 cell {cell}: edge-set {sorted(es)} has no learned strip")
+    k, oname = variants[int(TR._h01(4.0 * cell[0] + 0.3, 4.0 * cell[1] + 2.9)
+                            * len(variants)) % len(variants)]
+    m = TR._dih_maps()[oname]
+    (su0, su1), (sv0, sv1) = UFULL, VSTRIP[k]
+
+    def uvf(x, z):
+        fx = (x - 4.0 * cell[0]) / 4.0
+        fz = (z - 4.0 * cell[1]) / 4.0
+        a, b = m(fx, fz)
+        return (su0 + a * (su1 - su0), sv0 + b * (sv1 - sv0))
+    return uvf
+
+
+def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The STRUCTURAL beach machinery, identity mode (rung 2, step 1): DROP the window's
+    shore ladder (foam run tiles + sea2 wash + the sea1 Wang ring) and RE-DERIVE it from
+    pure language over the SAME vertex set -- foam by the run-tile rule, sea2 as quadrant
+    mains + affine-continued conforming zip, sea1 by the LEARNED WANG TABLE in emission
+    mode (deep-edge-sets from the band map -> EDGESET2STRIP). The generative proof: if the
+    rebuilt window reads verbatim in-game, reshaping the chains becomes a controlled delta.
+    Self-check: every derived sea1 edge-set must equal the real tile's decode."""
+    beach, parts, reg, W, S, x0, x1 = _beach_window(donor, start, end,
+                                                    disc=disc, lod=lod, game=game)
 
     def in_win(t3):
         return all(x0 - 0.1 <= v[0][0] <= x1 + 0.1 for v in t3)
@@ -730,11 +826,6 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
             raise ValueError(f"rebuild references ({x},{z}) -- not an original shore vert")
         return p
 
-    def up_tri(tri):
-        ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
-        vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
-        return [tri[0], tri[2], tri[1]] if uz * vx - ux * vz <= 0 else tri
-
     # --- (a) FOAM: per-column run tiles between the chains ---
     foam_emit = []
     for i in range(len(W) - 1):
@@ -742,8 +833,8 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
         uv = {id(sl): (FOAM_U[0], FOAM_V_SAND), id(sr): (FOAM_U[1], FOAM_V_SAND),
               id(wl): (FOAM_U[0], FOAM_V_WATER), id(wr): (FOAM_U[1], FOAM_V_WATER)}
         for tri_pts in ((wr, wl, sl), (wr, sl, sr)):
-            foam_emit.append(up_tri([(p, nrm_ex["beach1"], uv[id(p)], id_ex["beach1"])
-                                     for p in tri_pts]))
+            foam_emit.append(_up_tri([(p, nrm_ex["beach1"], uv[id(p)], id_ex["beach1"])
+                                      for p in tri_pts]))
 
     # --- band map (identity: the real footprints) + cell registries ---
     def cell_of(t3):
@@ -768,42 +859,22 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
     lat2 = [t for t in drop_sea2 if all(on_lat(v) for v in t)]
     conf2 = [t for t in drop_sea2 if not all(on_lat(v) for v in t)]
     sea2_emit = []
-    cell_pick = {}
-
-    def mains_map(cell, ori_seed):
-        (ci, cj) = cell
-        if cell not in cell_pick:
-            h = TR._h01(4.0 * ci + 1.7, 4.0 * cj + 2.3)
-            cell_pick[cell] = ((int(h * 2) % 2, int(h * 4) % 2),
-                              ("r0", "r90", "r180", "r270")[
-                                  int(TR._h01(4.0 * ci + 3.1, 4.0 * cj + 0.9) * 4) % 4])
-        (uh, vh), rname = cell_pick[cell]
-        from .water import OMAPS
-        m = OMAPS[rname]
-        (u0, u1), (v0, v1) = URECT[uh], VRECT[vh]
-
-        def uvf(x, z):
-            fx = (x - 4.0 * ci) / 4.0
-            fz = (z - 4.0 * cj) / 4.0
-            a, b = m(fx, fz)
-            return (u0 + a * (u1 - u0), v0 + b * (v1 - v0))
-        return uvf
+    mains_map = _mains_factory()
     for t3 in lat2:
         c = cell_of(t3)
-        uvf = mains_map(c, 0)
+        uvf = mains_map(c)
         tri = [ (v[0], nrm_ex["sea2"], uvf(v[0][0], v[0][2]), id_ex["sea2"]) for v in t3]
-        sea2_emit.append(up_tri(tri))
+        sea2_emit.append(_up_tri(tri))
     # conforming: re-emit each conforming tri through its landward lattice cell's map
     for t3 in conf2:
         cx = sum(v[0][0] for v in t3) / 3.0
         cz = sum(v[0][2] for v in t3) / 3.0
         c = (math.floor(cx / 4.0), math.floor(cz / 4.0))
-        uvf = mains_map(c, 0)
+        uvf = mains_map(c)
         tri = [(v[0], nrm_ex["sea2"], uvf(v[0][0], v[0][2]), id_ex["sea2"]) for v in t3]
-        sea2_emit.append(up_tri(tri))
+        sea2_emit.append(_up_tri(tri))
 
     # --- (c) SEA1: the Wang ring by the learned table (emission mode + decode self-check) ---
-    maps8 = TR._dih_maps()
     sea1_cells = {}
     for t3 in drop_sea1:
         sea1_cells.setdefault(cell_of(t3), []).append(t3)
@@ -822,9 +893,6 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
                              f"{[sorted(d) for d in decs]} -- a conforming ring cell; keep "
                              f"it outside the window")
         es = next(iter(decs))
-        variants = TR.EDGESET2STRIP.get(es)
-        if not variants:
-            raise ValueError(f"sea1 cell {c}: edge-set {sorted(es)} has no learned strip")
         # boundary sanity: an edge facing sea3+ must be deep (the field's boundary condition)
         cx0, cz0 = 4.0 * c[0], 4.0 * c[1]
         for d, pts in (("E", ((cx0 + 5.0, cz0 + 2.0),)), ("W", ((cx0 - 1.0, cz0 + 2.0),)),
@@ -832,19 +900,10 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
             if max(band_at(*p) for p in pts) > band_rank["sea1"] and d not in es:
                 raise ValueError(f"sea1 cell {c}: edge {d} faces a deeper band but the "
                                  f"field reads shallow -- the donor decode is off")
-        k, oname = variants[int(TR._h01(4.0 * c[0] + 0.3, 4.0 * c[1] + 2.9)
-                                * len(variants)) % len(variants)]
-        m = maps8[oname]
-        (su0, su1), (sv0, sv1) = UFULL, (VSTRIP[k][0], VSTRIP[k][1])
-
-        def uvf(x, z, m=m, su0=su0, su1=su1, sv0=sv0, sv1=sv1, c=c):
-            fx = (x - 4.0 * c[0]) / 4.0
-            fz = (z - 4.0 * c[1]) / 4.0
-            a, b = m(fx, fz)
-            return (su0 + a * (su1 - su0), sv0 + b * (sv1 - sv0))
+        uvf = _strip_uvf(c, es)
         for t3 in tris:
             tri = [(v[0], nrm_ex["sea1"], uvf(v[0][0], v[0][2]), id_ex["sea1"]) for v in t3]
-            sea1_emit.append(up_tri(tri))
+            sea1_emit.append(_up_tri(tri))
 
     # --- gates: per-part crack (hole boundary == emissions' once-edges) ---
     for name, dropped, emitted in (("beach1", drop_foam, foam_emit),
@@ -866,6 +925,478 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
             TR.EmitTris("beach1", foam_emit),
             TR.EmitTris("sea2", sea2_emit),
             TR.EmitTris("sea1", sea1_emit)]
+
+
+def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The STRUCTURAL beach SHAPE morph (rung 2, step 2) -- move the WATERLINE and re-derive
+    the whole shore ladder over the new footprint from pure language (ZERO water strain --
+    the bow DRAGS everything within its ~10x-depth reach; this re-lays):
+
+    * the FOAM re-derives as run tiles over the moved chain (the step-1 vocabulary);
+    * the WASH re-lays per column with a WIDTH-DRIVEN lattice boundary: each column picks
+      the C1 shift that keeps its waterline->C1 widths nearest the donor's own, so the band
+      map keeps REAL width statistics instead of straining (the ladder-taper law, honored
+      structurally); the conforming zip is row-clipped (T-junction-free by construction);
+    * the sea1/sea3 PATCHWORK TRANSPORTS by a per-column lattice pullback -- a shifted
+      column's band pattern slides with the shore and stops where the pulled pattern
+      reconciles with the existing one -- and THE EDGE-SHADE FIELD re-solves over the new
+      map: transported shades preferred, flips minimized (a small exact search), domain =
+      the learned table's 12 edge-sets, so the 4 non-table configs are unreachable.
+
+    The SAND chain never moves: behind this donor class the seam terrain interleaves
+    topo-31 sand with PAINTED-WASH murals (topo-0, x1 uv signatures) -- the baked-terrain
+    law, no fill language -- so depth stays ribbon-capped (~+-2.5u) like the bow. v1 scope:
+    a south-facing (seaward = -z), z-dominant shore in donor frame (the transplant's rot
+    places it any way in the world); single cell."""
+    beach, parts, reg, W, S, x0, x1 = _beach_window(donor, start, end,
+                                                    disc=disc, lod=lod, game=game)
+    n = len(W)
+    if any(abs(W[i + 1][0] - W[i][0] - 4.0) > 0.01 for i in range(n - 1)):
+        raise ValueError("the waterline window is not uniform 4u lattice columns -- the "
+                         "band map is x-quantized; v1 reshapes column-quantized shores")
+    if sum(p[2] for p in W) / n >= sum(p[2] for p in S) / n:
+        raise ValueError("v1 reshapes south-facing shores (seaward = -z in donor frame); "
+                         "the transplant's rot places the result any way in the world")
+    if abs(W[-1][2] - W[0][2]) > 0.75 * abs(W[-1][0] - W[0][0]):
+        raise ValueError("the shore is not z-dominant across the window -- v1 scope")
+
+    # the displaced waterline: a pure-z sin^2 profile (+depth = seaward). Lattice x is
+    # PRESERVED -- the staircase band map is x-quantized, so a structural morph on an
+    # x-running shore is z-free / x-pinned; endpoints never move (end welds load-bearing).
+    acc, arcs = 0.0, [0.0]
+    for a, b in zip(W, W[1:]):
+        acc += math.dist(a, b)
+        arcs.append(acc)
+    dz = [-depth * math.sin(math.pi * s_ / acc) ** 2 for s_ in arcs]
+    dz[0] = dz[-1] = 0.0
+    W2 = [(p[0], p[1], p[2] + d) for p, d in zip(W, dz)]
+
+    # THE RIBBON GATE (the swash keeps the real envelope; the sand never moves)
+    for i in range(1, n - 1):
+        w0 = min(math.hypot(W[i][0] - q[0], W[i][2] - q[2]) for q in S)
+        w1 = min(math.hypot(W2[i][0] - q[0], W2[i][2] - q[2]) for q in S)
+        if not (2.6 <= w1 <= 8.2) or not (0.55 * w0 <= w1 <= 1.8 * w0):
+            raise ValueError(f"RIBBON GATE: the reshape moves the swash to {w1:.1f}u at "
+                             f"({W[i][0]:.0f},{W[i][2]:.0f}) (pre {w0:.1f}) -- outside the "
+                             f"real envelope; reduce depth")
+
+    # --- the cell census (a bounded working region around the window) ---
+    def cell_of(t3):
+        return (math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+                math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
+
+    def on_lat(v, eps=0.02):
+        return (abs(v[0][0] / 4 - round(v[0][0] / 4)) < eps
+                and abs(v[0][2] / 4 - round(v[0][2] / 4)) < eps)
+    xlo, xhi = x0 - 8.0, x1 + 8.0
+    zhi = max(p[2] for p in S) + 8.0
+    zlo = min(p[2] for p in W) - 40.0
+    owner, cell_tris, cell_conf = {}, defaultdict(list), set()
+    for name in ("sea2", "sea1", "sea3", "sea5"):
+        for t3 in parts[name]:
+            c = cell_of(t3)
+            if not (xlo <= 4.0 * c[0] <= xhi and zlo <= 4.0 * c[1] <= zhi):
+                continue
+            cell_tris[(name, c)].append(t3)
+            if all(on_lat(v) for v in t3):
+                prev = owner.get(c)
+                if prev not in (None, name):
+                    raise ValueError(f"cell {c} carries lattice tiles of {prev} AND {name}"
+                                     f" -- an interleave the v1 census cannot own")
+                owner[c] = name
+            else:
+                cell_conf.add((name, c))
+    shade = {}
+    for (name, c), tris in cell_tris.items():
+        if name != "sea1":
+            continue
+        decs = {TR.strip_edge_set(t3) for t3 in tris}
+        decs.discard(None)
+        if len(decs) == 1:
+            shade[c] = next(iter(decs))
+
+    # --- the wash boundary, width-driven per column (the band map keeps real statistics) ---
+    def col_ci(i):
+        return int(round(W[i][0])) // 4
+    sea2_rows = defaultdict(list)
+    for c, nm in owner.items():
+        if nm == "sea2":
+            sea2_rows[c[0]].append(c[1])
+    old_c1, new_c1, s_col = {}, {}, {}
+    for i in range(n - 1):
+        ci = col_ci(i)
+        if sea2_rows.get(ci):
+            old_c1[i] = 4.0 * min(sea2_rows[ci])
+        else:
+            old_c1[i] = 4.0 * math.floor(min(W[i][2], W[i + 1][2]) / 4.0)
+        cands = (0,) if i in (0, n - 2) else (0, 1, -1, 2)
+        best = None
+        for s_ in cands:
+            c1 = old_c1[i] - 4.0 * s_
+            ok, dev = True, 0.0
+            # the ABSOLUTE real envelope is the law (the donor's wash occupies 2.4-8u and
+            # its own columns jump 4<->8 between neighbours, so a ratio-to-old gate is a
+            # false law; dev-minimization keeps the new map nearest the donor's) -- with a
+            # small-excursion escape for verts that START outside it (the beach's natural
+            # end taper runs 2.4 -> 0; those columns may only wiggle, never re-band)
+            for w1_, w0_ in (((W2[i][2] - c1), (W[i][2] - old_c1[i])),
+                             ((W2[i + 1][2] - c1), (W[i + 1][2] - old_c1[i]))):
+                if not ((2.4 <= w1_ <= 8.4)
+                        or (w1_ >= -0.01 and w1_ <= 8.4 and abs(w1_ - w0_) <= 1.2)):
+                    ok = False
+                dev += abs(w1_ - w0_)
+            if ok and (best is None or (dev, abs(s_)) < best[:2]):
+                best = (dev, abs(s_), s_)
+        if best is None:
+            raise ValueError(f"BAND GATE: no lattice wash boundary keeps column "
+                             f"{W[i][0]:.0f}..{W[i + 1][0]:.0f} inside the real width "
+                             f"envelope -- reduce depth")
+        s_col[i] = best[2]
+        new_c1[i] = old_c1[i] - 4.0 * best[2]
+
+    # --- the patchwork pullback (band pattern slides with the shore, reconciles below) ---
+    changes, wash_new = {}, {}
+    for i in range(n - 1):
+        t = s_col[i]
+        if t == 0:
+            continue
+        ci = col_ci(i)
+        jo, jn = int(round(old_c1[i] / 4)), int(round(new_c1[i] / 4))
+        for j in range(jn, jo):                      # rows the wash grows over (seaward)
+            if owner.get((ci, j)) is None:
+                raise ValueError(f"wash growth hits an unowned cell ({ci},{j})")
+            wash_new[(ci, j)] = owner[(ci, j)]
+        for k in range(8):
+            j = jn - 1 - k
+            c, src = (ci, j), (ci, j + t)
+            po, eo = owner.get(src), owner.get(c)
+            if po is None or eo is None:
+                raise ValueError(f"the pullback walks off the census at ({ci},{j})")
+            if "sea5" in (po, eo):
+                raise ValueError(f"the pullback reaches sea5 at ({ci},{j}) -- v1 scope; "
+                                 f"reduce depth")
+            ps, es = shade.get(src), shade.get(c)
+            if po == eo and (po != "sea1" or (ps is not None and ps == es)):
+                break                                # reconciled: below stays verbatim
+            if po == "sea1" and ps is None:
+                raise ValueError(f"pullback source ({ci},{j + t}) is sea1 but undecodable")
+            changes[c] = (po, ps if po == "sea1" else None)
+        else:
+            raise ValueError(f"column {W[i][0]:.0f}.. never reconciles within 8 rows -- "
+                             f"reduce depth")
+
+    def new_owner(c):
+        if c in wash_new:
+            return "sea2"
+        if c in changes:
+            return changes[c][0]
+        return owner.get(c)
+
+    # band-adjacency legality over the touched neighbourhood (the ladder must not skip)
+    for c in set(wash_new) | set(changes):
+        for d_ in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            pair = {new_owner(c), new_owner((c[0] + d_[0], c[1] + d_[1]))}
+            if None in pair:
+                continue
+            if pair in ({"sea2", "sea3"}, {"sea2", "sea5"}, {"sea1", "sea5"},
+                        {"sea2", "sea4"}, {"sea1", "sea4"}):
+                raise ValueError(f"BAND LADDER: the new map makes {sorted(pair)} adjacent "
+                                 f"at {c} -- an unreal grade jump; reduce depth")
+
+    # --- THE EDGE-SHADE FIELD: transported, then re-solved (min-flip exact search) ---
+    core = {c for c, (b, _) in changes.items() if b == "sea1"}
+    frontier = set()
+    for c in set(changes) | set(wash_new):
+        for d_ in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nb = (c[0] + d_[0], c[1] + d_[1])
+            if (new_owner(nb) == "sea1" and nb not in core and nb not in changes
+                    and x0 - 0.1 <= 4.0 * nb[0] and 4.0 * nb[0] + 4 <= x1 + 0.1):
+                frontier.add(nb)
+    cells = sorted(core | frontier)
+    cellset = set(cells)
+    EDGE = {"E": (1, 0), "W": (-1, 0), "N": (0, 1), "S": (0, -1)}
+    OPP = {"E": "W", "W": "E", "N": "S", "S": "N"}
+    prefer = {c: (changes[c][1] if c in core else shade.get(c)) for c in cells}
+    pins = {}
+    for c in cells:
+        for e, d_ in EDGE.items():
+            nb = (c[0] + d_[0], c[1] + d_[1])
+            b = new_owner(nb)
+            if b in ("sea3", "sea5", "sea4"):
+                pins[(c, e)] = True                  # deep faces deeper
+            elif b != "sea1":
+                pins[(c, e)] = False                 # wash / beach / land side: shallow
+            elif nb not in cellset:                  # a verbatim sea1 neighbour: pin to it
+                nes = shade.get(nb)
+                if nes is None:
+                    raise ValueError(f"cell {c} edge {e}: verbatim sea1 neighbour {nb} is "
+                                     f"undecodable -- shift the window")
+                pins[(c, e)] = OPP[e] in nes
+    domain = sorted(TR.EDGESET2STRIP, key=lambda es: (len(es), sorted(es)))
+    best = [None, len(cells) + 1]
+
+    def _bt(idx, assign, flips):
+        if flips >= best[1]:
+            return
+        if idx == len(cells):
+            best[0], best[1] = dict(assign), flips
+            return
+        c = cells[idx]
+        for es in sorted(domain, key=lambda e_: e_ != prefer[c]):
+            ok = True
+            for e, d_ in EDGE.items():
+                p = pins.get((c, e))
+                if p is not None and (e in es) != p:
+                    ok = False
+                    break
+                nb = (c[0] + d_[0], c[1] + d_[1])
+                if nb in assign and (e in es) != (OPP[e] in assign[nb]):
+                    ok = False
+                    break
+            if ok:
+                assign[c] = es
+                _bt(idx + 1, assign, flips + (es != prefer[c]))
+                del assign[c]
+    _bt(0, {}, 0)
+    if best[0] is None:
+        raise ValueError("EDGE-SHADE SOLVER: no table-valid field fits the new band map -- "
+                         "the transported shades cannot be repaired; reduce depth or shift "
+                         "the window")
+    solved = best[0]
+    flipped = sorted(c for c in frontier if solved[c] != prefer[c])
+
+    # --- drops ---
+    def in_win(t3):
+        return all(x0 - 0.1 <= v[0][0] <= x1 + 0.1 for v in t3)
+    for name in ("beach1", "sea2", "sea1", "sea3"):
+        tris = beach if name == "beach1" else parts[name]
+        for t3 in tris:
+            xs = [v[0][0] for v in t3]
+            if not in_win(t3) and any(x0 + 0.1 < x_ < x1 - 0.1 for x_ in xs):
+                raise ValueError(f"a {name} tri straddles the window frame -- the window "
+                                 f"must cut at clean column boundaries")
+    zdeep = min(min(old_c1.values()), min(new_c1.values()))
+    drop_foam = [t for t in beach if in_win(t)]
+    drop_sea2 = [t for t in parts["sea2"] if in_win(t)
+                 and sum(v[0][2] for v in t) / 3.0 > zdeep - 0.1]
+    drop_sea1, drop_sea3 = [], []
+    for c in sorted(set(changes) | set(wash_new) | set(flipped)):
+        old_b = owner[c]
+        if old_b == "sea2":
+            continue                                 # already in the wash drop set
+        for t3 in cell_tris[(old_b, c)]:
+            if not all(on_lat(v) for v in t3):
+                raise ValueError(f"changed cell {c} carries a conforming {old_b} tri -- "
+                                 f"shift the window off the conforming ring")
+            (drop_sea1 if old_b == "sea1" else drop_sea3).append(t3)
+
+    # --- emissions ---
+    posY = {}
+    for name in ("terrain", "sea1", "sea2", "sea3", "sea5", "beach1"):
+        for t3 in (beach if name == "beach1" else parts[name]):
+            for v in t3:
+                posY.setdefault((round(v[0][0], 4), round(v[0][2], 4)), v[0][1])
+    w2y = {(round(p[0], 4), round(p[2], 4)): p[1] for p in W2}
+
+    def corner(x, z):
+        k = (round(x, 4), round(z, 4))
+        if k in w2y:                                 # a (possibly moved) waterline vert
+            return (x, w2y[k], z)
+        if abs(x - x0) < 0.05 or abs(x - x1) < 0.05:  # the frame welds to unchanged mesh
+            return (x, posY.get(k, 0.0), z)
+        return (x, 0.0, z)                           # interior open water
+    nrm_ex, id_ex = {}, {}
+    for name in ("beach1", "sea2", "sea1", "sea3"):
+        for t3 in (beach if name == "beach1" else parts[name]):
+            nrm_ex[name], id_ex[name] = t3[0][1], tuple(t3[0][3])
+            break
+    foam_emit, sea2_emit, sea1_emit, sea3_emit = [], [], [], []
+    for i in range(n - 1):
+        sl, sr, wl_, wr_ = S[i], S[i + 1], W2[i], W2[i + 1]
+        # the moved waterline can cross a lattice row mid-column; the conforming zip splits
+        # there, so the foam MUST carry the same vert (identical floats) or the shared
+        # waterline becomes a T-junction. UVs stay exact: the run tile is bilinear in x.
+        wline = [wl_]
+        zmin, zmax = sorted((wl_[2], wr_[2]))
+        k = math.floor(zmin / 4.0) + 1
+        cross = []
+        while 4.0 * k < zmax - 1e-9:
+            if 4.0 * k > zmin + 1e-9:
+                t_ = (4.0 * k - wl_[2]) / (wr_[2] - wl_[2])
+                cross.append((wl_[0] + t_ * (wr_[0] - wl_[0]),
+                              wl_[1] + t_ * (wr_[1] - wl_[1]), 4.0 * k))
+            k += 1
+        wline += sorted(cross, key=lambda p: p[0]) + [wr_]
+
+        def foam_uv(p, v):
+            return (FOAM_U[0] + (p[0] - wl_[0]) / (wr_[0] - wl_[0])
+                    * (FOAM_U[1] - FOAM_U[0]), v)
+        polys = [(sl, wline[k_], wline[k_ + 1]) for k_ in range(len(wline) - 1)]
+        polys.append((sl, wline[-1], sr))
+        for tp in polys:
+            tri = []
+            for p in tp:
+                v_ = FOAM_V_SAND if p in (sl, sr) else FOAM_V_WATER
+                tri.append((p, nrm_ex["beach1"], foam_uv(p, v_), id_ex["beach1"]))
+            foam_emit.append(_up_tri(tri))
+    mains_map = _mains_factory()
+
+    def emit_cell(part_, out, c, uvf):
+        q = [corner(4.0 * c[0], 4.0 * c[1]), corner(4.0 * c[0] + 4, 4.0 * c[1]),
+             corner(4.0 * c[0] + 4, 4.0 * c[1] + 4), corner(4.0 * c[0], 4.0 * c[1] + 4)]
+        for tp in ((q[0], q[1], q[2]), (q[0], q[2], q[3])):
+            out.append(_up_tri([(p, nrm_ex[part_], uvf(p[0], p[2]), id_ex[part_])
+                                for p in tp]))
+
+    def clip_band(pts, z0_, z1_):
+        """Sutherland-Hodgman clip of a convex xz polygon to the row band [z0_, z1_] --
+        the conforming zip splits at every lattice row line it spans (no T-junctions)."""
+        for keep, zb in ((lambda p: p[2] >= z0_ - 1e-9, z0_),
+                         (lambda p: p[2] <= z1_ + 1e-9, z1_)):
+            out, m_ = [], len(pts)
+            for a_i in range(m_):
+                a, b = pts[a_i], pts[(a_i + 1) % m_]
+                if keep(a):
+                    out.append(a)
+                if keep(a) != keep(b):
+                    t_ = (zb - a[2]) / (b[2] - a[2])
+                    out.append((a[0] + t_ * (b[0] - a[0]), a[1] + t_ * (b[1] - a[1]), zb))
+            pts = out
+            if not pts:
+                return []
+        return pts
+    for i in range(n - 1):
+        wa, wb = W2[i], W2[i + 1]
+        ci = col_ci(i)
+        zline = 4.0 * math.floor(min(wa[2], wb[2]) / 4.0)
+        if zline < new_c1[i] - 0.01:
+            raise ValueError(f"column {W[i][0]:.0f}..: the waterline undercuts its own "
+                             f"wash boundary -- the band search should have refused")
+
+        def ramp_y(x, z, wa=wa, wb=wb):
+            """The shore ramp FIELD: the wash y ramps waterline->0 within the waterline's
+            OWN row at that x (the donor's conf vocabulary), flat 0 below -- a field, so
+            shared verts agree across pieces and columns (watertight by construction)."""
+            t_ = (x - wa[0]) / (wb[0] - wa[0])
+            zw = wa[2] + t_ * (wb[2] - wa[2])
+            yw = wa[1] + t_ * (wb[1] - wa[1])
+            zf = 4.0 * math.floor(zw / 4.0)
+            if zw - zf < 1e-6:
+                return yw if z >= zw - 1e-6 else 0.0
+            return yw * max(0.0, min(1.0, (z - zf) / (zw - zf)))
+        # the conforming zip, clipped row by row (side edges split at every lattice line)
+        quad = [wa, wb, (wb[0], 0.0, zline), (wa[0], 0.0, zline)]
+        j = int(round(4.0 * math.floor(max(wa[2], wb[2]) / 4.0) / 4))
+        while 4.0 * j >= zline - 0.01:
+            piece = clip_band(quad, 4.0 * j, 4.0 * j + 4.0)
+            piece = [p for k_, p in enumerate(piece)
+                     if math.hypot(p[0] - piece[k_ - 1][0], p[2] - piece[k_ - 1][2]) > 1e-6]
+            piece = [(p[0], ramp_y(p[0], p[2]), p[2]) for p in piece]
+            if len(piece) >= 3:
+                uvf = mains_map((ci, j))
+                for k_ in range(1, len(piece) - 1):
+                    t3 = [(piece[0], nrm_ex["sea2"], uvf(piece[0][0], piece[0][2]),
+                           id_ex["sea2"]),
+                          (piece[k_], nrm_ex["sea2"], uvf(piece[k_][0], piece[k_][2]),
+                           id_ex["sea2"]),
+                          (piece[k_ + 1], nrm_ex["sea2"],
+                           uvf(piece[k_ + 1][0], piece[k_ + 1][2]), id_ex["sea2"])]
+                    if TR._tri_area2_3d(t3) > 1e-6:
+                        sea2_emit.append(_up_tri(t3))
+            j -= 1
+        # the full wash rows from the zip floor down to the new boundary
+        j = int(round(zline / 4)) - 1
+        while 4.0 * (j + 1) > new_c1[i] + 0.01:
+            emit_cell("sea2", sea2_emit, (ci, j), mains_map((ci, j)))
+            j -= 1
+    sea3_map = _sea3_factory()
+    for c in sorted(set(changes) | set(flipped)):
+        b = changes[c][0] if c in changes else "sea1"
+        if b == "sea1":
+            emit_cell("sea1", sea1_emit, c, _strip_uvf(c, solved[c]))
+        elif b == "sea3":
+            emit_cell("sea3", sea3_emit, c, sea3_map(c))
+
+    # sea3 language self-check: the LEARNED quadrant/dihedral-8 fit must hold on REAL
+    # nearby sea3 tiles before we emit any (inset rect variants pass within eps)
+    if sea3_emit:
+        maps8 = TR._dih_maps()
+
+        def sea3_fit(t3, eps=0.05):
+            uvf_ = TR._affine_uv(t3)
+            cx = 4.0 * math.floor(sum(v[0][0] for v in t3) / 3 / 4.0)
+            cz = 4.0 * math.floor(sum(v[0][2] for v in t3) / 3 / 4.0)
+            err_best = 1e9
+            for (u0, u1) in SEA3_URECT:
+                for (v0, v1) in SEA3_VRECT:
+                    for m_ in maps8.values():
+                        err = 0.0
+                        for fx in (0, 1):
+                            for fz in (0, 1):
+                                a_, b_ = m_(fx, fz)
+                                u, v = uvf_(cx + 4.0 * fx, cz + 4.0 * fz)
+                                err = max(err, abs(u0 + a_ * (u1 - u0) - u),
+                                          abs(v0 + b_ * (v1 - v0) - v))
+                        err_best = min(err_best, err)
+            return err_best <= eps
+        samples = [t3 for (nm, c), tris in sorted(cell_tris.items()) if nm == "sea3"
+                   and (nm, c) not in cell_conf for t3 in tris][:8]
+        if not samples or not all(sea3_fit(t3) for t3 in samples):
+            raise ValueError("sea3 here does not read as the learned quadrant language -- "
+                             "refuse rather than emit an unverified band")
+
+    # --- gates: union crack + water density + the ledger ---
+    def once(tris):
+        ec = defaultdict(int)
+        for t3 in tris:
+            ps = [v[0] for v in t3]
+            for i2 in range(3):
+                ec[frozenset((_pk(ps[i2]), _pk(ps[(i2 + 1) % 3])))] += 1
+        return {e for e, cn in ec.items() if cn == 1}
+    all_drop = drop_foam + drop_sea2 + drop_sea1 + drop_sea3
+    all_emit = foam_emit + sea2_emit + sea1_emit + sea3_emit
+    if once(all_drop) != once(all_emit):
+        raise ValueError("CRACK GATE: the reshaped ladder's outer boundary does not match "
+                         "the dropped hole -- a weld or T-junction defect")
+
+    def uv_sv(t3):
+        (p0, _, uv0, _), (p1, _, uv1, _), (p2, _, uv2, _) = t3
+        d1 = (p1[0] - p0[0], p1[2] - p0[2])
+        d2 = (p2[0] - p0[0], p2[2] - p0[2])
+        e1 = (uv1[0] - uv0[0], uv1[1] - uv0[1])
+        e2 = (uv2[0] - uv0[0], uv2[1] - uv0[1])
+        det = d1[0] * d2[1] - d1[1] * d2[0]
+        if abs(det) < 1e-9:
+            return None
+        inv = ((d2[1] / det, -d2[0] / det), (-d1[1] / det, d1[0] / det))
+        a, b = (e1[0] * inv[0][0] + e2[0] * inv[1][0], e1[0] * inv[0][1] + e2[0] * inv[1][1])
+        c, d = (e1[1] * inv[0][0] + e2[1] * inv[1][0], e1[1] * inv[0][1] + e2[1] * inv[1][1])
+        s1 = a * a + b * b + c * c + d * d
+        s2 = math.hypot(a * a + b * b - c * c - d * d, 2 * (a * c + b * d))
+        return (math.sqrt(max((s1 + s2) / 2, 0.0)), math.sqrt(max((s1 - s2) / 2, 0.0)))
+    for name, dropped, emitted in (("sea2", drop_sea2, sea2_emit),
+                                   ("sea1", drop_sea1 or parts["sea1"], sea1_emit),
+                                   ("sea3", drop_sea3 or parts["sea3"], sea3_emit)):
+        if not emitted:
+            continue
+        real_sv = [sv for t3 in dropped if (sv := uv_sv(t3))]
+        lo_env = min(s[1] for s in real_sv) * 0.7
+        hi_env = max(s[0] for s in real_sv) * 1.3
+        for t3 in emitted:
+            sv = uv_sv(t3)
+            if sv and (sv[0] > hi_env or sv[1] < lo_env):
+                raise ValueError(f"WATER DENSITY GATE [{name}]: an emitted tri's uv "
+                                 f"density {sv} is outside the real envelope "
+                                 f"[{lo_env:.4f},{hi_env:.4f}] -- stretch/smush")
+    return [tw for tw in (TR.DropTris("beach1", drop_foam),
+                          TR.DropTris("sea2", drop_sea2),
+                          TR.DropTris("sea1", drop_sea1) if drop_sea1 else None,
+                          TR.DropTris("sea3", drop_sea3) if drop_sea3 else None,
+                          TR.EmitTris("beach1", foam_emit),
+                          TR.EmitTris("sea2", sea2_emit),
+                          TR.EmitTris("sea1", sea1_emit) if sea1_emit else None,
+                          TR.EmitTris("sea3", sea3_emit) if sea3_emit else None)
+            if tw is not None]
 
 
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
