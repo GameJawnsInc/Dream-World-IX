@@ -109,8 +109,9 @@ def set_restore_session(on: bool) -> None:
 
 
 def layout() -> dict:
-    """The saved window layout: ``{"geometry": b64, "state": b64, "central_split": [ints]}`` — any subset;
-    garbage-tolerant like every pref (a corrupt value is just dropped)."""
+    """The saved window layout: ``{"geometry": b64, "state": b64, "central_split": [ints],
+    "console_split": [ints], "console_collapsed": bool}`` — any subset; garbage-tolerant like every pref
+    (a corrupt value is just dropped)."""
     val = get("layout", {})
     if not isinstance(val, dict):
         return {}
@@ -118,9 +119,12 @@ def layout() -> dict:
     for k in ("geometry", "state"):
         if isinstance(val.get(k), str) and val[k]:
             out[k] = val[k]
-    cs = val.get("central_split")
-    if isinstance(cs, list) and cs and all(isinstance(x, int) and x >= 0 for x in cs):
-        out["central_split"] = cs
+    for k in ("central_split", "console_split"):
+        sizes = val.get(k)
+        if isinstance(sizes, list) and sizes and all(isinstance(x, int) and x >= 0 for x in sizes):
+            out[k] = sizes
+    if val.get("console_collapsed") is True:
+        out["console_collapsed"] = True
     return out
 
 

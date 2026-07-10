@@ -15,7 +15,6 @@ _QSS = Template(
     """
     * { outline: 0; }
     QWidget { background-color: $bg; color: $text; font-family: "Segoe UI"; font-size: 13px; }
-    QMainWindow::separator { background: $border; width: 1px; height: 1px; }
 
     /* Toolbar metrics are deliberately COMPACT (spacing 6 / button padding 10): every action plus the
        search pill and the gear menu must FIT at the default 1280px window -- overflowing items land in
@@ -122,9 +121,6 @@ _QSS = Template(
     QMenu::item { padding: 6px 22px; border-radius: 4px; }
     QMenu::item:selected { background: $accent; color: $accent_fg; }
     QMenu::separator { height: 1px; background: $border; margin: 4px 6px; }
-
-    QDockWidget { color: $muted; }
-    QDockWidget::title { background: $surface; padding: 6px 9px; border-bottom: 1px solid $border; }
 
     QScrollBar:vertical { background: $bg; width: 12px; margin: 0; }
     QScrollBar::handle:vertical { background: $scroll; border-radius: 5px; min-height: 28px; }

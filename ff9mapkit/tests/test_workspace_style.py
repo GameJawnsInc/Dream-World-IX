@@ -27,6 +27,14 @@ def test_qss_styles_the_core_widgets():
         assert sel in css
 
 
+def test_qss_carries_no_dock_rules():
+    # The shell has no QDockWidget any more (the console is a collapsible splitter pane), so these
+    # selectors are dead -- and QMainWindow::separator is what could paint a band across the window.
+    css = style.qss(theme.DARK)
+    for sel in ("QDockWidget", "QMainWindow::separator"):
+        assert sel not in css
+
+
 def test_qss_greys_a_disabled_accent_button():
     # a disabled accent button (Save with nothing to save) must override the #accent blue -- the id
     # selector out-ranks the generic :disabled rule, so it needs its own #accent:disabled.

@@ -1,7 +1,7 @@
 """The PySide6 workspace shell (Qt UI) -- Phase 3 of the GUI makeover.
 
-One dockable window: a left project tree (journey > campaign > field > object), a clickable breadcrumb,
-a central document area, a right inspector, and a bottom Output/Problems dock. It reuses the kit's
+One window: a left project tree (journey > campaign > field > object), a clickable breadcrumb, a central
+document area, a right inspector, and a collapsible bottom Output/Problems console. It reuses the kit's
 tk-free backends verbatim -- :mod:`..editor.feedback` (Verdict/Problem), :mod:`..editor.breadcrumb`
 (Crumb/trail), :mod:`..campaign` (CampaignPlan/graph), :mod:`..editor.model` (FieldDoc) -- so only this
 view layer is Qt. Long jobs stream via ``QProcess`` (the Qt analogue of the tkinter apps' thread+queue).
@@ -25,7 +25,7 @@ from PySide6.QtGui import (
     QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
 )
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QFileDialog,
+    QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
     QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -57,6 +57,8 @@ from .widgets import PlaceholderListWidget, install_wheel_guard
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
+_LAYOUT_VERSION = 2                                # bump when saveState()'s object graph changes (2 = no docks)
+_DEFAULT_CONSOLE_SPLIT = [560, 220]                # [documents, console] px when nothing is persisted
 
 # The detached PowerShell helper for the one-click "Upgrade & restart" (see Workspace._run_upgrade). It
 # waits for the app to exit so uv isn't fighting a locked venv, upgrades, then relaunches the GUI. All
@@ -358,7 +360,7 @@ class _UpdateSignals(QObject):
 
 class Workspace(QMainWindow):
     """The shell: a project tree (left) + document tabs (center) + inspector (right) + Output/Problems
-    dock (bottom), with a breadcrumb above. Open a campaign.toml to populate it."""
+    console (bottom, collapsible), with a breadcrumb above. Open a campaign.toml to populate it."""
 
     def __init__(self, pal):
         super().__init__()
@@ -409,10 +411,10 @@ class Workspace(QMainWindow):
         self._root_items = []                                 # so toggling the dot never resizes/shifts a row
         self._build_toolbar()
         self._build_central()
-        self._build_dock()
+        self._build_console()
         self.statusBar().showMessage("Open a campaign.toml to begin.")
         self._build_version_label()
-        self._restore_layout()                     # window/dock/splitter from the last session (best-effort)
+        self._restore_layout()                     # window/splitters/console from last session (best-effort)
 
     # ---- version + update check ----
     def _build_version_label(self):
@@ -875,8 +877,15 @@ class Workspace(QMainWindow):
         self._refresh_deploy_btn()
         v.addWidget(crumb_row)
 
+        # The console (Problems · Output) is the bottom pane of a VERTICAL splitter, not a QDockWidget --
+        # see _build_console. Floating/re-docking it was never useful and its drag machinery mis-sized the
+        # panes above it; a splitter pane with a collapse toggle is what the panel always wanted to be.
+        vsplit = QSplitter(Qt.Vertical)
+        v.addWidget(vsplit, 1)
+        self._vsplit = vsplit
+
         split = QSplitter(Qt.Horizontal)
-        v.addWidget(split, 1)
+        vsplit.addWidget(split)
 
         tree_col = QWidget()                       # the tree + its filter box, one splitter pane
         tv = QVBoxLayout(tree_col)
@@ -920,7 +929,7 @@ class Workspace(QMainWindow):
         self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
                                thumbs=self.thumbs.cached)               # nodes show the real art when cached
         self.tabs.addTab(self.map, "Map")
-        # the save docs route their console output to the bottom Output panel when docked (so the doc body
+        # the save docs route their console output to the shared bottom Output panel (so the doc body
         # reclaims that height); standalone (output=None) they'd keep an in-pane console.
         self.story_state = StoryStateDoc(self.pal, output=self._save_output)       # save STATE layer (5b-i)
         self.tabs.addTab(self.story_state, "Story State")
@@ -983,27 +992,47 @@ class Workspace(QMainWindow):
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
 
-    def _dock_header(self, text):
-        """A small bold caption for a dock panel (replaces the old tab labels, since both panels now show
+    def _panel_header(self, text):
+        """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
         at once)."""
         lab = QLabel(text)
         lab.setStyleSheet(f"color:{self.pal['text']};font-weight:600;")
         return lab
 
-    def _build_dock(self):
+    def _build_console(self):
         # Problems + Output were tabs (one visible at a time), but they're almost always wanted TOGETHER (a
-        # job streams to Output while its verdict lands in Problems). So show both side-by-side in one dock,
+        # job streams to Output while its verdict lands in Problems). So show both side-by-side in one panel,
         # split by a draggable divider.
-        dock = QDockWidget("Problems  ·  Output")
-        dock.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
-        self.dock = dock
+        panel = QWidget()
+        panel_v = QVBoxLayout(panel)
+        panel_v.setContentsMargins(0, 0, 0, 0)
+        panel_v.setSpacing(0)
+
+        head = QWidget()                            # the always-visible title strip = the collapse control
+        head.setStyleSheet(f"background:{self.pal['surface']};"
+                           f"border-top:1px solid {self.pal['border']};")
+        hh = QHBoxLayout(head)
+        hh.setContentsMargins(4, 0, 4, 0)
+        self._console_btn = QToolButton()
+        self._console_btn.setAutoRaise(True)
+        self._console_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._console_btn.setStyleSheet(
+            f"QToolButton {{ background:transparent; border:0; padding:5px 6px; "
+            f"color:{self.pal['muted']}; font-weight:600; }}"
+            f"QToolButton:hover {{ color:{self.pal['text']}; }}")
+        self._console_btn.clicked.connect(lambda: self._toggle_console())
+        hh.addWidget(self._console_btn)
+        hh.addStretch(1)
+        self._console_head = head
+        panel_v.addWidget(head)
+
         split = QSplitter(Qt.Horizontal)
 
         prob_page = QWidget()                       # left: the lint verdict banner + the Problems rows
         pv = QVBoxLayout(prob_page)
         pv.setContentsMargins(8, 8, 8, 8)
         pv.setSpacing(6)
-        pv.addWidget(self._dock_header("Problems"))
+        pv.addWidget(self._panel_header("Problems"))
         self.banner = QLabel("")
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
@@ -1018,9 +1047,9 @@ class Workspace(QMainWindow):
         ov = QVBoxLayout(out_page)
         ov.setContentsMargins(8, 8, 8, 8)
         ov.setSpacing(6)
-        head = QHBoxLayout()
-        head.addWidget(self._dock_header("Output"))
-        head.addStretch(1)
+        out_head = QHBoxLayout()
+        out_head.addWidget(self._panel_header("Output"))
+        out_head.addStretch(1)
         self._out_wrap = QPushButton("Wrap")
         self._out_wrap.setCheckable(True)
         self._out_wrap.setToolTip("Toggle line wrapping (long deploy lines vs a horizontal scroll)")
@@ -1034,8 +1063,8 @@ class Workspace(QMainWindow):
         out_clear.clicked.connect(lambda: self.output.clear())
         for b in (self._out_wrap, out_copy, out_clear):
             b.setFixedHeight(24)
-            head.addWidget(b)
-        ov.addLayout(head)
+            out_head.addWidget(b)
+        ov.addLayout(out_head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
@@ -1047,18 +1076,60 @@ class Workspace(QMainWindow):
         split.setSizes([360, 720])                  # Output starts wider (build/deploy logs run long); draggable
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
-        self.dock_split = split
+        split.setMinimumHeight(120)
+        self.console_split = split
+        self.console_body = split
+        panel_v.addWidget(split, 1)
 
-        dock.setWidget(split)
-        self.addDockWidget(Qt.BottomDockWidgetArea, dock)
-        dock.setMinimumHeight(150)
+        self.console_panel = panel
+        self._vsplit.addWidget(panel)
+        self._vsplit.setCollapsible(0, False)        # the documents never collapse to nothing
+        self._vsplit.setCollapsible(1, False)        # the console collapses via the header toggle, not a drag
+        self._vsplit.setStretchFactor(0, 1)          # extra window height goes to the documents
+        self._vsplit.setStretchFactor(1, 0)
+        self._vsplit.setSizes(_DEFAULT_CONSOLE_SPLIT)
+        self._console_open = True                    # the state of record: a not-yet-shown body reads
+        self._console_sizes = None                   # isVisible() == False, which would flip the arrow
+        self._sync_console_btn()                     # the last EXPANDED [docs, console] split, for re-expand
 
-    def _raise_dock(self):
+    # ---- the collapsible console (was a QDockWidget) ----
+    def _console_head_h(self):
+        return self._console_head.sizeHint().height()
+
+    def _sync_console_btn(self):
+        self._console_btn.setText(("▾  " if self._console_open else "▸  ") + "Problems  ·  Output")
+        self._console_btn.setToolTip("Collapse the console panel" if self._console_open
+                                     else "Expand the console panel")
+
+    def _toggle_console(self, expand=None):
+        """Collapse/expand the bottom console to its header strip. The panel is a splitter pane, so
+        collapsing means: hide the body, pin the pane to the header's height, and hand the reclaimed
+        pixels back to the documents above."""
+        want = (not self._console_open) if expand is None else bool(expand)
+        if want == self._console_open:
+            return
+        self._console_open = want
+        sizes = self._vsplit.sizes()
+        total = sum(sizes)
+        head = self._console_head_h()
+        if want:
+            self.console_body.setVisible(True)
+            self.console_panel.setMaximumHeight(16777215)     # QWIDGETSIZE_MAX -- release the pin
+            con = (self._console_sizes or _DEFAULT_CONSOLE_SPLIT)[1]
+            self._vsplit.setSizes([max(total - con, 200), con])
+        else:
+            if len(sizes) == 2 and sizes[1] > head:
+                self._console_sizes = sizes                   # remember where the divider was
+            self.console_body.setVisible(False)
+            self.console_panel.setMaximumHeight(head)
+            self._vsplit.setSizes([max(total - head, 200), head])
+        self._sync_console_btn()
+
+    def _raise_console(self):
         """Both panels are always visible now (side-by-side splitter), so 'focus Problems/Output' just means
-        make sure the dock itself is shown -- e.g. if the user floated or closed it."""
-        if getattr(self, "dock", None) is not None:
-            self.dock.setVisible(True)
-            self.dock.raise_()
+        make sure the console itself is expanded -- e.g. if the user collapsed it."""
+        if getattr(self, "console_panel", None) is not None:
+            self._toggle_console(expand=True)
 
     def _welcome(self):
         """The 'Start here' HOME (do-now #4): a live front door that names every entry point in hierarchy
@@ -1314,7 +1385,7 @@ class Workspace(QMainWindow):
         self.act_check.setEnabled(True)            # Check = lint the journey manifest
         self.act_lint_cli.setEnabled(False)
         self._populate_journey()
-        self._lint_journey()                       # the namespace guarantee -> Problems dock, on open
+        self._lint_journey()                       # the namespace guarantee -> Problems panel, on open
         self._mount_journey_overview()
         self.tabs.setCurrentWidget(self.doc_scroll)
         self.statusBar().showMessage(f"Journey {self.journey_name} — {len(manifest.journeys)} journey(s) — {path}")
@@ -1586,7 +1657,7 @@ class Workspace(QMainWindow):
                                              "set the entry (STEP 2; cross-campaign links auto-wire at deploy).")
 
     def _lint_journey(self):
-        """Lint the open journeys.toml -> the Problems dock (the GLOBAL id/flag-disjointness guarantee)."""
+        """Lint the open journeys.toml -> the Problems panel (the GLOBAL id/flag-disjointness guarantee)."""
         try:
             from .. import journey as J
             errs, warns = J.lint_manifest(self.manifest)
@@ -2474,10 +2545,10 @@ class Workspace(QMainWindow):
                                 [fb.Problem(fb.ERROR, str(e))])
 
     def _save_output(self, text):
-        """Sink for the docked save editors' Preview/Apply output -> the bottom Output panel (console's
-        natural home), so a docked save doc doesn't spend its body height on its own console box."""
+        """Sink for the embedded save editors' Preview/Apply output -> the bottom Output panel (console's
+        natural home), so an embedded save doc doesn't spend its body height on its own console box."""
         self.output.setPlainText(text)
-        self._raise_dock()
+        self._raise_console()
 
     def _project_flag_names(self) -> dict:
         """``{absolute gEventGlobal bit: authored [[flag]] name}`` for the OPEN project (loose field / campaign /
@@ -5016,7 +5087,7 @@ class Workspace(QMainWindow):
 
     def closeEvent(self, event):                   # noqa: N802 (Qt override)
         if self._maybe_prompt_unsaved():
-            self._save_layout()                    # window/dock/splitter come back next launch
+            self._save_layout()                    # window/splitters/console come back next launch
             event.accept()
         else:
             event.ignore()
@@ -5441,26 +5512,37 @@ class Workspace(QMainWindow):
             walk(self.tree.topLevelItem(i))
 
     def _restore_layout(self):
-        """Apply the persisted window geometry / dock state / central splitter (best-effort; a stale or
-        corrupt value falls back to the built-in defaults)."""
+        """Apply the persisted window geometry / toolbar state / splitter sizes + console collapse
+        (best-effort; a stale or corrupt value falls back to the built-in defaults)."""
         lay = prefs.layout()
         try:
             from PySide6.QtCore import QByteArray
             if lay.get("geometry"):
                 self.restoreGeometry(QByteArray.fromBase64(lay["geometry"].encode("ascii")))
             if lay.get("state"):
-                self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")))
+                # version 2 == the post-dock layout; a v1 blob (which named the old QDockWidget)
+                # is REFUSED by Qt rather than half-applied.
+                self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
                 self._central_split.setSizes(lay["central_split"])
+            if lay.get("console_split"):
+                self._console_sizes = list(lay["console_split"])
+                self._vsplit.setSizes(self._console_sizes)
+            if lay.get("console_collapsed"):
+                self._toggle_console(expand=False)
         except Exception:   # noqa: BLE001  (never let a bad layout block launch)
             pass
 
     def _save_layout(self):
         try:
+            collapsed = not self._console_open
+            sizes = self._console_sizes if collapsed else self._vsplit.sizes()
             prefs.set_layout({
                 "geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
-                "state": bytes(self.saveState().toBase64()).decode("ascii"),
+                "state": bytes(self.saveState(_LAYOUT_VERSION).toBase64()).decode("ascii"),
                 "central_split": [int(x) for x in self._central_split.sizes()],
+                "console_split": [int(x) for x in (sizes or [])],
+                "console_collapsed": collapsed,
             })
         except Exception:   # noqa: BLE001
             pass
@@ -6130,7 +6212,7 @@ class Workspace(QMainWindow):
             it = QListWidgetItem(f"{'✕' if p.severity == fb.ERROR else '⚠'}  {p.message}")
             it.setForeground(QBrush(QColor(self.pal["error"] if p.severity == fb.ERROR else self.pal["warn"])))
             self.problems.addItem(it)
-        self._raise_dock()
+        self._raise_console()
 
     def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
                 fail_hint="See the Output panel.", on_finished=None):
@@ -6146,7 +6228,7 @@ class Workspace(QMainWindow):
         self.output.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {subject}\n"
                                     f"$ {' '.join(str(a) for a in argv[1:])}")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
-        self._raise_dock()
+        self._raise_console()
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
         self.proc.setProgram(str(argv[0]))
@@ -6183,7 +6265,7 @@ class Workspace(QMainWindow):
 # --------------------------------------------------------------------------- entry point + smoke
 def _smoke(win):
     """Offline self-test: build a 3-member campaign (one unreachable + a dangling edge), open it, and
-    check the tree, the breadcrumb, lazy object load, and the Problems dock -- the Qt analogue of the
+    check the tree, the breadcrumb, lazy object load, and the Problems panel -- the Qt analogue of the
     tkinter campaign-editor smoke. Runs under QT_QPA_PLATFORM=offscreen."""
     import tempfile
     # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
@@ -6847,6 +6929,21 @@ def _smoke(win):
     assert win.problems.count() >= 1
     assert any("GHOST" in win.problems.item(i).text() for i in range(win.problems.count()))
     nprob = win.problems.count()
+
+    # The console is a COLLAPSIBLE splitter pane, not a dock: collapsing pins the panel to its header
+    # strip and hands the pixels to the documents; _raise_console (what a job start calls) re-expands it.
+    from PySide6.QtWidgets import QDockWidget
+    assert not win.findChildren(QDockWidget)   # zero docks == zero dock-drag artifacts (the phantom band)
+    # isVisibleTo(parent), not isVisible(): the smoke never show()s the window.
+    def _body_shown():
+        return win.console_body.isVisibleTo(win.console_panel)
+    assert win._console_open and _body_shown()
+    win._toggle_console()                      # click the header caret
+    assert not win._console_open and not _body_shown()
+    assert win.console_panel.maximumHeight() == win._console_head_h()
+    win._raise_console()                       # a starting job must never stream into a hidden console
+    assert win._console_open and _body_shown()
+    console_ok = "collapse/expand + re-expand-on-job"
 
     # Open Field: a STANDALONE authored field (cutscene + choice) -- no campaign needed
     af = d / "AUTHORED.field.toml"
@@ -7864,7 +7961,7 @@ def _smoke(win):
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ MODELS tab (catalog browser + filters + detail + glb/anim/mint/reskin actions + deployed "
           f"inventory + .glb drop) + [[playable]] form (flat keys; nested ability kit survives a save) "
-          f"+ Ctrl-K palette, Problems dock ({nprob} rows); QProcess wired "
+          f"+ Ctrl-K palette, Problems panel ({nprob} rows) + CONSOLE {console_ok} (no docks); QProcess wired "
           f"+ live theme switch ({len(_THEMES)} palettes) + Preferences/About commands")
 
 

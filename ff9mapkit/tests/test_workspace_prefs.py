@@ -12,7 +12,7 @@ import shutil                                         # noqa: E402
 import subprocess                                      # noqa: E402
 
 from PySide6.QtWidgets import (                         # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox)
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget)
 
 from ff9mapkit.editor import theme                    # noqa: E402
 from ff9mapkit.editor.theme import pick_palette       # noqa: E402
@@ -249,3 +249,42 @@ def test_restore_session_and_layout_prefs(prefs_file):
     assert p.layout() == {"geometry": "QUJD", "state": "REVG", "central_split": [300, 640, 240]}
     p.set_layout({"geometry": 7, "central_split": ["x", -1]})   # garbage -> dropped per-key
     assert p.layout() == {}
+
+
+def test_layout_prefs_carry_the_console_pane(prefs_file):
+    p = prefs_file
+    p.set_layout({"console_split": [560, 220], "console_collapsed": True})
+    assert p.layout() == {"console_split": [560, 220], "console_collapsed": True}
+    p.set_layout({"console_split": [560, 220], "console_collapsed": False})
+    assert p.layout() == {"console_split": [560, 220]}           # only a TRUE collapse is persisted
+    p.set_layout({"console_split": "tall", "console_collapsed": "yes"})   # garbage -> dropped per-key
+    assert p.layout() == {}
+
+
+def test_console_collapses_to_its_header_and_re_expands(app):
+    w = _win(app)
+    w.show()                                                     # the splitter needs a layout pass
+    assert w._console_open and not w.findChildren(QDockWidget)   # no docks == no dock-drag artifacts
+    open_h = w._vsplit.sizes()[1]
+    assert open_h > w._console_head_h()
+
+    w._toggle_console()                                          # click the header caret
+    assert not w._console_open and not w.console_body.isVisible()
+    assert w.console_panel.maximumHeight() == w._console_head_h()
+
+    w._raise_console()                                           # a job starting must re-open the console
+    assert w._console_open and w.console_body.isVisible()
+    assert w._vsplit.sizes()[1] == open_h                        # restored to where the user left the divider
+    w.close()
+
+
+def test_console_collapse_state_round_trips_through_prefs(app, monkeypatch):
+    w = _win(app)
+    w.show()
+    saved = {}
+    monkeypatch.setattr(shell.prefs, "set_layout", saved.update)
+    w._toggle_console()
+    w._save_layout()
+    assert saved["console_collapsed"] is True
+    assert saved["console_split"][1] > w._console_head_h()       # the EXPANDED sizes, not the collapsed pin
+    w.close()
