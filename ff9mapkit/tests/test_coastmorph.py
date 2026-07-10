@@ -142,11 +142,11 @@ BEACH_END = (504.0, -1132.0)
 
 
 def test_beach_bump_builds_and_gates():
-    """The beach frontier's rung 1: the LADDER-TAPER bow. The foam drags (edge-anchored);
-    every seaward water band moves as a cos^2-tapered field through its own tile map
-    (SeaBump -- water never drags, on any band), so the ladder keeps its real band-width
-    statistics (a waterline-only bow pinched the wash 4.0 -> 0.8u = the in-game seam).
-    The RIBBON GATE still refuses a landward bow that pinches the swash."""
+    """The beach frontier's rung 1: the LADDER-TAPER bow. The whole shore system moves as
+    one cos^2-tapered DRAG field (depth-scaled reach caps strain at ~16%), so the ladder
+    keeps its real band-width statistics (a waterline-only bow pinched the wash 4.0 -> 0.8u
+    = the round-1 seam; per-tile re-evaluation at field scale = round 3's clamp smush +
+    border tiling). The RIBBON GATE still refuses a landward bow that pinches the swash."""
     from ff9mapkit.world import coastmorph as CM
     (disp,) = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
     # taper + pure DRAG (one part=None displacement over the depth-scaled ~24.5u reach) --
