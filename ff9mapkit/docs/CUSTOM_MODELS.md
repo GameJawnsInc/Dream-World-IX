@@ -319,6 +319,19 @@ and `AnimationClip`s directly.
 > texture from a higher-priority `FolderNames` folder. (Battle models load on battle ENTRY, not via
 > F6 — relaunch to pick up a fresh loose override.)
 
+> **Alias models (character battle forms, alt outfits) resolve through the engine's rename chain.**
+> ~71 catalog ids ship no prefab under their own id — a character's battle-form BODY is the very
+> prefab its field form loads (`GEO_MAIN_B0_000` → `GEO_MAIN_F0_ZDN` = `Models/2/98/`; the
+> `battle_model0/1` children are a small battle-only overlay like Zidane's daggers, hidden on
+> fields), bosses borrow character bodies, Zidane's alt outfits share 98. The kit replays the chain
+> (`CheckUpscale` → `GetRenameModelPath`, baked as `_modelalias.py`): exports read the donor prefab
+> (a battle form exports the body **plus** its battle overlay and the requested id's own battle
+> animset), and overrides deploy to the **donor's** folder — the only path the engine probes — which
+> every form sharing that prefab picks up (field AND battle; the kit strips `battle_model*`/
+> `field_model*` meshes from overrides, since a loose FBX flattens the subtree names the engine
+> hides by). A handful of catalog ids (the `GEO_MAIN_B2_*` band, 43 total) have geometry nowhere —
+> those refuse with an "UNSHIPPED model" error; they never shipped a PC prefab.
+
 **Discount the stale wiki claim.** The Memoria wiki line *"3D models may not be replaced by external
 files"* is contradicted by the current source — `CreateModel` demonstrably loads a loose `.fbx`
 first. Trust the source, not the wiki.

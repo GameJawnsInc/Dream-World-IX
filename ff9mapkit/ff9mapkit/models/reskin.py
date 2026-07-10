@@ -111,8 +111,11 @@ def deploy_reskin(token: str, png_paths, mod_folder, *, game=None) -> dict:
         raise ValueError("reskin refused:\n  " + "\n  ".join(errors))
     from PIL import Image
     notes = _optout_warnings(model["geo"])
+    notes.extend(mexport._shared_prefab_warnings(model))
+    # the engine's PNG probe runs in the PREFAB's folder (the model dir post-alias) -- for an aliased
+    # battle form the reskin must land at the donor prefab's dir, shared with its other forms
     dest = Path(mod_folder).joinpath("StreamingAssets", "Assets", "Resources",
-                                     *mexport.model_dir_parts(model["type_int"], model["geo_id"]))
+                                     *mexport.model_dir_parts(*mexport.deploy_target(model)))
     dest.mkdir(parents=True, exist_ok=True)
     deployed = []
     for p in ok:

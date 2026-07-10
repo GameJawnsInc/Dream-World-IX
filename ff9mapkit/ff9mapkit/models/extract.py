@@ -26,6 +26,7 @@ import struct
 from pathlib import Path
 
 from .. import config
+from .._modelalias import DBALL_SWITCH, GEOID_SPECIALS, REVERT_UPSCALE, SUB_TYPE_GEO_IDS, UPSCALE
 from .._modeldb import MODELS
 
 _NAME_TO_ID = {name: mid for mid, name in MODELS.items()}
@@ -72,6 +73,62 @@ def resolve_geo(token: str) -> tuple[str, int, int]:
     return name, gid, tint
 
 
+def resolve_prefab(token: str) -> tuple[str, int, int]:
+    """Where a model's GEOMETRY actually ships: token -> (prefab_name, prefab_id, prefab_type_int).
+
+    ~103 of the 710 GEO catalog ids have NO prefab under their own id -- a character BATTLE form's
+    body is the very prefab its FIELD form loads (``GEO_MAIN_B0_000`` -> 98 = ``GEO_MAIN_F0_ZDN``),
+    bosses borrow character bodies, Zidane's alt outfits share 98, three accessories point at their
+    F1 twin. The engine finds the donor by ``CheckUpscale`` -> ``GetRenameModelPath``
+    (ModelFactory.cs); this replays that chain from the baked ``_modelalias`` tables:
+
+      1. ``UPSCALE`` maps the requested name into the HD-rename space,
+      2. ``REVERT_UPSCALE`` (falling back to ``DBALL_SWITCH`` + a second revert =
+         ``GetNameFromFF9DBALL``) maps it back to the name whose prefab ships,
+      3. the id comes from ``GEOID_SPECIALS`` (two names the GEO table never lists) else the GEO
+         table; the type dir from the POST-UPSCALE name's group (that's what the engine's
+         ``GetModelType(upscalePath)`` reads), with the ``GEO_WEP`` + ``SUB_TYPE_GEO_IDS`` overrides.
+
+    Identity is untouched: :func:`resolve_geo` keeps returning the REQUESTED (name, id, type) --
+    animations key off the requested id (``animations/5414`` = Zidane's 36 battle clips; the prefab
+    id 98 holds his 400 FIELD clips) and every mint/anim/deploy caller depends on that. Only the two
+    prefab lookups (and the loose-override target, which the engine probes POST-alias) go through
+    here. An un-aliased model returns its own identity unchanged."""
+    geo, gid, tint = resolve_geo(token)
+    up = UPSCALE.get(geo, geo)                                 # CheckUpscale
+    resolved = REVERT_UPSCALE.get(up)                          # GetRenameModelPath...
+    if resolved is None:
+        r = DBALL_SWITCH.get(up, up)                           # ...via GetNameFromFF9DBALL
+        resolved = REVERT_UPSCALE.get(r, r)
+    pgid = GEOID_SPECIALS.get(resolved, _NAME_TO_ID.get(resolved, -1))   # GetGEOID
+    if pgid == -1:
+        return geo, gid, tint                                  # unresolvable -> the requested identity
+    if resolved.startswith("GEO_WEP"):
+        return resolved, pgid, _TYPE_INT["wep"]
+    ptint = _TYPE_INT.get(up.split("_")[1].lower(), tint)      # type dir = the POST-UPSCALE name's group
+    if pgid in SUB_TYPE_GEO_IDS:
+        ptint = _TYPE_INT["sub"]                               # the two mask prefabs live in models/5/
+    return resolved, pgid, ptint
+
+
+def is_battle_form(geo_name: str) -> bool:
+    """True for a BATTLE-form GEO name (``GEO_MAIN_B0_*`` / ``GEO_MON_B3_*`` / any ``B*`` form token).
+    Decides which overlay subtree a prefab walk hides -- the engine shows ``battle_model*`` and hides
+    ``field_model*`` in battle, and the reverse on a field (ModelFactory.CreateModel:179-198)."""
+    parts = str(geo_name).split("_")
+    return len(parts) > 2 and parts[2].startswith("B")
+
+
+def overlay_hide_prefixes(geo_name: str) -> tuple:
+    """The overlay-subtree name prefixes a prefab walk HIDES for this requested form. Field/world forms
+    hide ``battle_model*`` (the old behavior, unchanged); battle forms hide ``field_model*`` and KEEP
+    the battle overlay -- except ``GEO_MAIN_B0_001`` (ZIDANE_SWORD), where the engine ADDITIONALLY
+    hides the Orichalcum overlay (BattlePlayerCharacter.HideZidaneOrichalcum) -> body only."""
+    if str(geo_name).upper() == "GEO_MAIN_B0_001":
+        return ("battle_model", "field_model")
+    return ("field_model",) if is_battle_form(geo_name) else ("battle_model",)
+
+
 # ---- typetree navigation helpers (UnityPy 1.25: container values are PPtrs; resolve via assetsfile) ----
 
 def _pid(x):
@@ -97,6 +154,7 @@ class _Bundle:
     pathid->ObjectReader + typetree cache."""
 
     def __init__(self, game=None, data_index: int = 4):
+        self.data_index = data_index
         self.env = _unitypy().load(str(_p0data(data_index, game)))
         # any container PPtr shares the same SerializedFile -> its .objects is the pathid table
         first = next(iter(self.env.container.values()))
@@ -235,23 +293,47 @@ def _decode_mesh_tt(bundle: _Bundle, mesh_pid):
             "submeshes": submeshes, "skin": skin, "bindposes": bindposes, "vcount": vcount}
 
 
+def _open_prefab(token: str, game=None, bundle: "_Bundle | None" = None) -> tuple:
+    """Resolve ``token`` to its shipping PREFAB and open it -> (geo, gid, tint, prefab_geo, prefab_id,
+    prefab_tint, bundle, root_pid). The single gate both prefab walks go through.
+
+    The container lookup runs on the PREFAB identity (:func:`resolve_prefab`) -- the fix for the ~103
+    catalog ids with no own-id prefab (character battle forms, boss aliases, Zidane's alt outfits): the
+    old requested-id lookup raised a fake ``models/2/5414/5414.fbx`` miss for them. A passed ``bundle``
+    is reused only when it holds the right p0data archive. 43 ids have geometry NOWHERE (PSX-era
+    leftovers, e.g. the whole unused ``GEO_MAIN_B2_*`` band) -> an actionable refusal, not a fake path."""
+    geo, gid, tint = resolve_geo(token)
+    pgeo, pgid, ptint = resolve_prefab(token)
+    didx = _model_bundle_index(ptint)
+    b = bundle if bundle is not None and getattr(bundle, "data_index", didx) == didx else \
+        _Bundle(game, data_index=didx)
+    root_pid = b.find_prefab_go(ptint, pgid)
+    if root_pid is None:
+        sub = "battlemap/battlemodel/6" if ptint == 6 else f"models/{ptint}"
+        where = f"{sub}/{pgid}/{pgid}.fbx in p0data{didx}.bin"
+        if (pgeo, pgid) == (geo, gid):
+            raise FileNotFoundError(
+                f"{geo} (id {gid}) is an UNSHIPPED model: no geometry on disc (nothing at {where}, and "
+                f"no donor in the engine's alias tables). The GEO catalog lists PSX-era leftover ids "
+                f"that never shipped a PC prefab -- this one cannot be exported or previewed.")
+        raise FileNotFoundError(
+            f"{geo} (id {gid}) resolves to donor prefab {pgeo} (id {pgid}) but {where} is missing -- "
+            f"damaged install?")
+    return geo, gid, tint, pgeo, pgid, ptint, b, root_pid
+
+
 def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     """Walk a real model prefab -> raw bones + per-SMR meshes (NO bind correction applied yet).
 
     Shared by :func:`read_model` (which applies the correction + reads textures) and
     :func:`bind_diagnostics` (which characterizes the bind-space variation). Returns a dict:
-      geo, geo_id, type_int, bundle, bones[], root_bone, smrs[] where each smr is
-      {name, mesh(decoded), idx_to_num, mat_stems, weights, samples=[(bone_name, m_BindPose)]}.
+      geo, geo_id, type_int, prefab_geo/prefab_id/prefab_tint (where the geometry ships -- differs
+      from the requested identity for alias models), bundle, bones[], root_bone, smrs[] where each
+      smr is {name, mesh(decoded), idx_to_num, mat_stems, weights, samples=[(bone_name, m_BindPose)]}.
     Bone weights are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent); ``samples`` carry the
     m_BindPose per bone of THIS mesh (kept per-SMR so the correction can be computed mesh-by-mesh).
     Pass ``bundle`` to reuse an already-loaded p0data4 across many models (bulk sweeps)."""
-    geo, gid, tint = resolve_geo(token)
-    b = bundle if bundle is not None else _Bundle(game, data_index=_model_bundle_index(tint))
-    root_pid = b.find_prefab_go(tint, gid)
-    if root_pid is None:
-        sub = "battlemap/battlemodel/6" if tint == 6 else f"models/{tint}"
-        raise FileNotFoundError(
-            f"{geo} (id {gid}) not found at {sub}/{gid}/{gid}.fbx in p0data{_model_bundle_index(tint)}.bin")
+    geo, gid, tint, pgeo, pgid, ptint, b, root_pid = _open_prefab(token, game, bundle)
     root_tt = b.tt(root_pid)
 
     # --- walk the transform hierarchy: collect bones + SkinnedMeshRenderers ---
@@ -259,19 +341,23 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     bone_pid_to_name: dict = {}      # transform pathid -> bone name (for skin remap)
     smr_pids: list = []              # (smr_pathid, enclosing_mesh_go_name)  enclosing = nearest ANCESTOR mesh GO
 
-    def walk(tr_pid, tr_tt, parent_name, in_battle, enclosing_mesh):
+    # A character prefab bundles per-MODE overlay subtrees next to the shared body (mesh*): the engine
+    # hides ``battle_model*`` on a field load and ``field_model*`` in battle (ModelFactory.CreateModel).
+    # Mirror that from the REQUESTED form (overlay_hide_prefixes): a field/world form drops the battle
+    # overlay (unchanged behavior), a battle form drops the field overlay and KEEPS the battle one
+    # (Zidane's B0_000 = body + the 103-vert Orichalcum daggers -- the body itself is mesh0/1, the same
+    # prefab the field loads). Mixing overlay + body bind spaces is safe: the correction is computed
+    # PER MESH (read_model). Bones are the shared skeleton, so they're kept regardless.
+    hide_prefixes = overlay_hide_prefixes(geo)
+
+    def walk(tr_pid, tr_tt, parent_name, in_hidden, enclosing_mesh):
         if not tr_tt:
             return
         go_pid = _pid(tr_tt.get("m_GameObject", {}))
         go_tt = b.tt(go_pid)
         name = go_tt.get("m_Name") if go_tt else None
         is_bone = bool(name and re.fullmatch(r"bone\d+", str(name)))
-        # A character prefab bundles BOTH field (mesh*) and battle (battle_model*) geometry; the engine
-        # HIDES the battle_model subtree in field mode (ModelFactory.CreateModel disables it). Exclude it
-        # from a FIELD export -- else we'd export hidden geometry AND pollute the bind-pose correction
-        # with the battle bind space (which differs -> the correction goes inconsistent). Bones are the
-        # shared skeleton, so they're kept regardless.
-        here_battle = in_battle or bool(name and str(name).lower().startswith("battle_model"))
+        here_hidden = in_hidden or bool(name and str(name).lower().startswith(hide_prefixes))
         if is_bone:
             bones.append({
                 "name": name, "parent": parent_name,
@@ -281,7 +367,7 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
             })
             bone_pid_to_name[tr_pid] = name
         has_smr = False
-        if go_tt and not here_battle:
+        if go_tt and not here_hidden:
             for tn, pid in b.components(go_tt):
                 if tn == "SkinnedMeshRenderer":
                     smr_pids.append((pid, enclosing_mesh))   # this SMR's nearest ancestor mesh GO
@@ -294,7 +380,7 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
         child_enclosing = name if has_smr else enclosing_mesh
         for ch in tr_tt.get("m_Children", []):
             cpid = _pid(ch)
-            walk(cpid, b.tt(cpid), child_parent, here_battle, child_enclosing)
+            walk(cpid, b.tt(cpid), child_parent, here_hidden, child_enclosing)
 
     root_tpid, root_ttr = b.transform_of(root_tt)
     walk(root_tpid, root_ttr, None, False, None)
@@ -335,6 +421,7 @@ def _collect(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
                      "mesh_parent": mesh_parent})
 
     return {"geo": geo, "geo_id": gid, "type_int": tint, "bundle": b,
+            "prefab_geo": pgeo, "prefab_id": pgid, "prefab_tint": ptint,
             "bones": bones, "root_bone": root_bone, "smrs": smrs}
 
 
@@ -342,7 +429,10 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
     """Read a real model prefab -> the Model struct consumed by :mod:`ff9mapkit.models.fbx_skin`.
 
     ``token`` is a GEO name (``GEO_NPC_F0_...``) or a model id. Returns a dict:
-      geo, geo_id, type_int, root_bone, bones[], meshes[], materials[], textures{stem: PIL.Image}.
+      geo, geo_id, type_int (the REQUESTED identity -- what animations key off), prefab_geo/
+      prefab_id/prefab_tint (where the geometry SHIPS -- differs for the ~60 alias models, e.g.
+      ``GEO_MAIN_B0_000`` -> prefab 98; also the loose-override folder the engine probes), root_bone,
+      bones[], meshes[], materials[], textures{stem: PIL.Image}.
     Bone weights in each mesh are REMAPPED to FF9 bone NUMBERS (skeleton-order-independent).
     Pass ``bundle`` to reuse an already-loaded p0data4 across many models (bulk sweeps)."""
     c = _collect(token, game, bundle=bundle)
@@ -395,9 +485,11 @@ def read_model(token: str, game=None, bundle: "_Bundle | None" = None) -> dict:
                 me["normals"] = [_mat3_vec(R, n) for n in me["normals"]]
         meshes.append(me)
 
-    textures = _read_textures(b, c["geo_id"], texture_stems)
+    textures = _read_textures(b, c["prefab_id"], texture_stems)   # stems live under the PREFAB's folder
+    _swap_alt_outfit_textures(c["geo"], c["geo_id"], b, textures)
     non_null = [g for g in per_mesh_G if g is not None]
     return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"], "root_bone": c["root_bone"],
+            "prefab_geo": c["prefab_geo"], "prefab_id": c["prefab_id"], "prefab_tint": c["prefab_tint"],
             "bones": bones, "meshes": meshes, "materials": materials, "textures": textures,
             "bind_correction": non_null[0] if non_null else None, "per_mesh_bind": per_mesh_G}
 
@@ -410,13 +502,7 @@ def read_static_model(token: str, game=None, bundle: "_Bundle | None" = None) ->
     deformation), so the emitter / ``model-gltf`` / ``model-import`` all work unchanged. Weapons attach to
     the character's hand bone in battle code (``btl_eqp``), so the model itself is just a rigid mesh at the
     origin. No bind correction (a static mesh has no ``m_BindPose`` — its verts are already model-space)."""
-    geo, gid, tint = resolve_geo(token)
-    b = bundle if bundle is not None else _Bundle(game, data_index=_model_bundle_index(tint))
-    root_pid = b.find_prefab_go(tint, gid)
-    if root_pid is None:
-        sub = "battlemap/battlemodel/6" if tint == 6 else f"models/{tint}"
-        raise FileNotFoundError(
-            f"{geo} (id {gid}) not found at {sub}/{gid}/{gid}.fbx in p0data{_model_bundle_index(tint)}.bin")
+    geo, gid, tint, pgeo, pgid, ptint, b, root_pid = _open_prefab(token, game, bundle)
 
     found: list = []                 # (mesh_pid, [mat_pids], go_name), pre-order
     seen: set = set()
@@ -470,10 +556,74 @@ def read_static_model(token: str, game=None, bundle: "_Bundle | None" = None) ->
             "uvs": mesh["uvs"], "submeshes": subs,
             "weights": [[(0, 1.0)] for _ in mesh["verts"]],   # every vert 100% -> bone000
             "parent": None})
-    textures = _read_textures(b, gid, texture_stems)
+    textures = _read_textures(b, pgid, texture_stems)             # stems live under the PREFAB's folder
+    _swap_alt_outfit_textures(geo, gid, b, textures)
     return {"geo": geo, "geo_id": gid, "type_int": tint, "root_bone": "bone000",
+            "prefab_geo": pgeo, "prefab_id": pgid, "prefab_tint": ptint,
             "bones": bones, "meshes": meshes, "materials": materials, "textures": textures,
             "bind_correction": None, "per_mesh_bind": [None] * len(meshes)}
+
+
+_ALT_TEXTURE_FORMS = {"GEO_MAIN_F3_ZDN", "GEO_MAIN_F4_ZDN", "GEO_MAIN_F5_ZDN"}
+
+
+def _swap_alt_outfit_textures(geo: str, gid: int, bundle: _Bundle, textures: dict) -> None:
+    """Zidane's alt outfits (F3/F4/F5) share prefab 98 but carry their OWN art: the engine loads
+    ``models/2/{gid}/{gid}_{n}.png`` and reassigns it over the prefab texture, keeping the OLD texture
+    name (ModelFactory.CreateModel:75-91). Mirror that: swap each prefab stem's IMAGE for the
+    requested-id image with the same ``_{n}`` suffix, keeping the stem KEY (material references and
+    on-disc texture names stay the prefab's, exactly like the engine). Missing alt art -> keep the
+    prefab image. No-op for every other model."""
+    if geo not in _ALT_TEXTURE_FORMS or not textures:
+        return
+    want = {f"{gid}_{stem.rsplit('_', 1)[-1]}": stem for stem in textures}
+    alt = _read_textures(bundle, gid, set(want))
+    for alt_stem, stem in want.items():
+        if alt_stem in alt:
+            textures[stem] = alt[alt_stem]
+
+
+_OVERLAY_PREFIXES = ("battle_model", "field_model")
+
+
+def strip_overlay_meshes(model: dict, warn=None) -> list:
+    """Drop the engine's per-mode overlay meshes (``battle_model*`` / ``field_model*``) from a Model
+    struct before a LOOSE-OVERRIDE deploy of a real id. Mutates in place; returns the dropped names.
+
+    WHY: a shared character prefab carries both modes' geometry, and at load the engine hides the
+    wrong mode's subtree BY NAME -- ``GetChildByName("battle_model")``, an exact match on the subtree
+    ROOT. The loose-FBX importer flattens every mesh to a direct child named after the MESH
+    (``battle_model0``), so that hide can never fire on an override: a deployed overlay would render
+    in BOTH modes (field Zidane grows the battle-only Orichalcum daggers). Stripping matches what a
+    field-form override always shipped (body only); battle loses only the cosmetic overlay. To keep an
+    overlay mesh in both modes deliberately, rename it in Blender first. Materials no surviving
+    submesh references are compacted away (the FBX emitter writes EVERY ``materials[]`` row, and a
+    dangling one would shift the engine importer's material indexing) and their textures pruned."""
+    meshes = model.get("meshes") or []
+    drop = [me for me in meshes if str(me.get("name", "")).lower().startswith(_OVERLAY_PREFIXES)]
+    if not drop:
+        return []
+    drop_ids = {id(me) for me in drop}
+    model["meshes"] = [me for me in meshes if id(me) not in drop_ids]
+    mats = model.get("materials") or []
+    used = sorted({sub["material_idx"] for me in model["meshes"] for sub in me.get("submeshes") or []
+                   if 0 <= sub.get("material_idx", -1) < len(mats)})
+    remap = {old: new for new, old in enumerate(used)}
+    model["materials"] = [mats[i] for i in used]
+    for me in model["meshes"]:
+        for sub in me.get("submeshes") or []:
+            if sub.get("material_idx") in remap:
+                sub["material_idx"] = remap[sub["material_idx"]]
+    stems = {m.get("texture") for m in model["materials"] if m.get("texture")}
+    if isinstance(model.get("textures"), dict):
+        model["textures"] = {k: v for k, v in model["textures"].items() if k in stems}
+    dropped = [me["name"] for me in drop]
+    if warn:
+        warn(f"stripped {len(dropped)} overlay mesh(es) ({', '.join(dropped)}): the engine hides an "
+             f"overlay by its subtree NAME, which a loose-FBX override flattens away -- deployed, it "
+             f"would render in BOTH field and battle. The override ships the shared body (what a "
+             f"field-form override always shipped); rename the mesh in Blender to keep it deliberately.")
+    return dropped
 
 
 def merge_nested_child_meshes(model: dict, warn=None) -> list:

@@ -202,7 +202,8 @@ def _skinned_struct(token: str, game=None, bundle=None, *, pose: bool = True, en
                        "normals": normals if src_normals else None,
                        "uvs": mesh["uvs"], "submeshes": subs})
 
-    textures = extract._read_textures(c["bundle"], c["geo_id"], texture_stems)
+    textures = extract._read_textures(c["bundle"], c["prefab_id"], texture_stems)   # stems live under the PREFAB
+    extract._swap_alt_outfit_textures(c["geo"], c["geo_id"], c["bundle"], textures)
     return {"geo": c["geo"], "geo_id": c["geo_id"], "type_int": c["type_int"],
             "bones": c["bones"], "meshes": meshes, "materials": materials, "textures": textures}
 
