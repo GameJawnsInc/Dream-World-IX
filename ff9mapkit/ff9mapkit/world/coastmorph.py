@@ -1644,6 +1644,62 @@ def _clearance_gate(win, new_base, d_cols):
                          f"depth or shrink the window")
 
 
+def strips_rebuild(donor, parts=("sea1", "sea5"), *, disc: int = 1, lod: str = "0_1",
+                   game=None):
+    """The STRIP-BAND identity rebuild -- SEA5 EMISSION proven the way sea1 was (the
+    beach_rebuild pattern, block-wide): DROP every DECODABLE Wang strip cell of the given
+    bands and RE-DERIVE its tiles from the learned table over the same verts. The
+    edge-shade field is READ from the donor (shape data); the tile comes from
+    EDGESET2STRIP in emission mode with a hash-picked variant, so the rebuild is
+    indistinguishable-BY-DESIGN (fresh anti-tiling picks), not byte-identical.
+
+    The census behind it (2026-07-10, 140 blocks): sea5 decodes 1644/1763 lattice cells
+    through the table with ZERO inconsistent cells and ZERO boundary violations over 3875
+    band edges (sea1 baseline: 208/208) -- the learned table IS both strip bands' one
+    language (sea1 = sea5's one rung down, now generative for both). The ~7% residual:
+    INSET-RECT strip variants (edges shaved 1-8 texels -- the sea3-inset family, no
+    structural correlation) and conforming ring tris -- both stay VERBATIM, like the
+    ring cells the beach rebuild leaves in place. Self-check: every emitted cell must
+    re-decode to its source edge-set."""
+    out = []
+    for part in parts:
+        tris_all = TR.world_tris(*donor, part, disc=disc, lod=lod, game=game)
+        if not tris_all:
+            continue
+
+        def on_lat(v, eps=0.02):
+            return (abs(v[0][0] / 4 - round(v[0][0] / 4)) < eps
+                    and abs(v[0][2] / 4 - round(v[0][2] / 4)) < eps)
+        cells = defaultdict(list)
+        for t3 in tris_all:
+            if all(on_lat(v) for v in t3):
+                c = (math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+                     math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
+                cells[c].append(t3)
+        drop, emit = [], []
+        for c, tris in sorted(cells.items()):
+            decs = {TR.strip_edge_set(t3) for t3 in tris}
+            decs.discard(None)
+            if len(decs) != 1:
+                continue                    # conforming / inset-variant residual: verbatim
+            es = next(iter(decs))
+            uvf = _strip_uvf(c, es)
+            new_tris = [[(v[0], v[1], uvf(v[0][0], v[0][2]), v[3]) for v in t3]
+                        for t3 in tris]
+            got = {TR.strip_edge_set(t3) for t3 in new_tris}
+            got.discard(None)
+            if got != {es}:
+                raise ValueError(f"{part} cell {c}: the emitted strip re-decodes to "
+                                 f"{[sorted(g) for g in got]} instead of {sorted(es)} -- "
+                                 f"the emission self-check failed")
+            drop.extend(tris)
+            emit.extend(new_tris)
+        if not drop:
+            raise ValueError(f"donor {donor} has no decodable {part} strip cells")
+        out += [TR.DropTris(part, drop), TR.EmitTris(part, emit)]
+    return out
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved
