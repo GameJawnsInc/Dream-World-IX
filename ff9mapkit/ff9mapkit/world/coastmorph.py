@@ -777,6 +777,98 @@ def _up_tri(tri):
     return [tri[0], tri[2], tri[1]] if uz * vx - ux * vz <= 0 else tri
 
 
+def _merge_loops(pieces, kd: int = 9):
+    """Merge one source tri's BSP fragments back into boundary LOOP(s) (internal edges
+    appear twice with bit-identical verts -- same clip lines, same interpolation -- and
+    cancel; boundary edges appear once and chain). THE T-VERTEX LAW (in-game 2026-07-10,
+    'a small seam ... only visible from certain camera angles'): fragment interfaces run
+    along the strip quads' INFINITE edge lines, so emitting fragments directly plants
+    mid-edge verts on edges shared with UNSPLIT neighbours -- classic angle-dependent
+    rasterization pinholes. Re-triangulating the merged loop uses only loop verts."""
+    edges = {}
+    for piece in pieces:
+        m = len(piece)
+        for k in range(m):
+            a, b = piece[k], piece[(k + 1) % m]
+            ka, kb = _pk(a[0], kd), _pk(b[0], kd)
+            if ka == kb:
+                continue
+            edges.setdefault(frozenset((ka, kb)), []).append((ka, a, b))
+    nxt = {}
+    for insts in edges.values():
+        if len(insts) == 1:
+            ka, a, b = insts[0]
+            nxt[ka] = (a, b, _pk(b[0], kd))
+    loops, seen = [], set()
+    for start in list(nxt):
+        if start in seen:
+            continue
+        loop, k = [], start
+        while k in nxt and k not in seen:
+            seen.add(k)
+            a, b, kb = nxt[k]
+            loop.append(a)
+            k = kb
+        if len(loop) >= 3 and k == start:
+            loops.append(loop)
+    return loops
+
+
+def _drop_collinear(loop, keep_keys, eps: float = 1e-6):
+    """Remove a loop's collinear (plan) verts EXCEPT load-bearing chain verts -- the
+    spurious quad-line-extension verts on straight perimeter edges are exactly what
+    plants T-vertices against unsplit neighbours. Clip verts are 3D-collinear on their
+    source edge (lerp), so plan collinearity is safe to judge by."""
+    out = list(loop)
+    changed = True
+    while changed and len(out) > 3:
+        changed = False
+        for k in range(len(out)):
+            b = out[k]
+            if _pk(b[0]) in keep_keys:
+                continue
+            a, c = out[k - 1], out[(k + 1) % len(out)]
+            cr = ((b[0][0] - a[0][0]) * (c[0][2] - a[0][2])
+                  - (c[0][0] - a[0][0]) * (b[0][2] - a[0][2]))
+            if abs(cr) < eps * max(1.0, math.hypot(c[0][0] - a[0][0],
+                                                   c[0][2] - a[0][2])):
+                del out[k]
+                changed = True
+                break
+    return out
+
+
+def _ear_clip(loop):
+    """Triangulate a simple (possibly non-convex) xz loop using ONLY its own verts."""
+    pts = list(loop)
+    a2 = sum(pts[k][0][0] * pts[(k + 1) % len(pts)][0][2]
+             - pts[(k + 1) % len(pts)][0][0] * pts[k][0][2] for k in range(len(pts)))
+    if a2 < 0:
+        pts.reverse()
+
+    def cross(a, b, c):
+        return ((b[0][0] - a[0][0]) * (c[0][2] - a[0][2])
+                - (c[0][0] - a[0][0]) * (b[0][2] - a[0][2]))
+    out, guard = [], 0
+    while len(pts) > 3 and guard < 4096:
+        guard += 1
+        for k in range(len(pts)):
+            a, b, c = pts[k - 1], pts[k], pts[(k + 1) % len(pts)]
+            if cross(a, b, c) <= 1e-9:
+                continue                             # reflex or degenerate corner
+            if any(p is not a and p is not b and p is not c
+                   and _pip_xz(p[0][0], p[0][2], (a, b, c)) for p in pts):
+                continue                             # another vert inside the ear
+            out.append([a, b, c])
+            del pts[k]
+            break
+        else:
+            break                                    # no ear found (degenerate loop)
+    if len(pts) == 3:
+        out.append(list(pts))
+    return out
+
+
 def _beach_window(donor, start, end, *, disc=1, lod="0_1", game=None):
     """Decode the beach ramp assembly + a window's matched chains (waterline W / sand S,
     x-sorted lattice columns) -- the shared opening of the structural beach machinery."""
@@ -1674,8 +1766,12 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                 raise ValueError(f"the translated land chain leaves the painted terrain "
                                  f"at ({L[i][0]:.0f},{zt:.1f}) -- no berm surface to "
                                  f"conform to; reduce depth")
-            moves[L[i]] = (0.0, yt - L[i][1], dz[i])
-            L2[i] = (L[i][0], yt, zt)
+            d_ = (0.0, yt - L[i][1], dz[i])
+            moves[L[i]] = d_
+            # L2 = pos+delta EXACTLY as VertexDisplace computes it at apply time -- the
+            # canonical floats every clipped/emitted vert must weld to (a+(b-a) != b in
+            # floats; the ulp mismatch was half the playtest seam)
+            L2[i] = (L[i][0] + d_[0], L[i][1] + d_[1], L[i][2] + d_[2])
         # THE SLOPE GATE: the translated band's cross profile must stay a real beach
         # ramp (map-wide rise/run envelope 0.097..0.579 over 32 beaches)
         for i in range(n):
@@ -1771,7 +1867,7 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             if _clip_quads(t3)[0] > 1e-4:
                 raise ValueError("the consumed strip reaches the block's prefab Object "
                                  "ground (the object-anchor law) -- reduce depth")
-        consumed_total, sliver = 0.0, 0.0
+        consumed_total, clipped = 0.0, []
         for t3 in other:
             consumed, pieces = _clip_quads(t3)
             if consumed <= 1e-6:
@@ -1786,16 +1882,7 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                                  "sum to the original -- a clip defect")
             consumed_total += consumed
             ter_drop.append(list(t3))
-            for piece in pieces:
-                for k_ in range(1, len(piece) - 1):
-                    tri = [piece[0], piece[k_], piece[k_ + 1]]
-                    if _poly_area2_xz(tri) <= 1e-6:
-                        sliver += _poly_area2_xz(tri) / 2.0
-                        continue
-                    ter_emit.append(_up_tri(tri))
-        if sliver > 5e-4:
-            raise ValueError("CLIP-DROP LEDGER: real berm area lost to sliver filtering "
-                             "(the hairline law)")
+            clipped.append((t3, pieces, kept))
         if abs(consumed_total - strip_area) > max(0.01 * strip_area, 0.02):
             raise ValueError(f"STRIP COVERAGE: the consumed strip ({strip_area:.2f} sq-u) "
                              f"is only {consumed_total:.2f} painted terrain -- the band "
@@ -1807,10 +1894,142 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             if any(_pk(v[0]) in mvk for v in t3) and _key_set(t3) not in drop_ks:
                 raise ValueError("a berm tri rides a moved chain vert but escapes the "
                                  "strip clip -- the drag this verb exists to remove")
+
+        # THE T-VERTEX LAW (in-game 2026-07-10, 'a small seam where the transition tile
+        # hits the grass, only visible from certain camera angles'): re-triangulate each
+        # clipped tri's KEPT region from its MERGED boundary loop -- the raw BSP
+        # fragments split along the strip quads' infinite edge lines and plant mid-edge
+        # verts on edges shared with UNSPLIT grass neighbours (classic angle-dependent
+        # rasterization pinholes).
+        l2_keep = {_pk(p) for p in L2} | {_pk(p) for p in L}
+        for t3, pieces, kept in clipped:
+            tris_out = []
+            for loop in _merge_loops(pieces):
+                loop = _drop_collinear(loop, l2_keep)
+                tris_out += _ear_clip(loop)
+            area_out = sum(_poly_area2_xz(t_) / 2.0 for t_ in tris_out)
+            if abs(area_out - kept) > 1e-3 * max(1.0, kept):
+                raise ValueError("LOOP LEDGER: a clipped berm tri's re-triangulated "
+                                 "loops do not cover its kept area -- a merge defect "
+                                 "(the hairline law's T-vertex flavour)")
+            ter_emit += [_up_tri(t_) for t_ in tris_out]
+        # canonical snap: crossing verts shared by two clipped tris are computed by
+        # independent interpolations (t vs 1-t) -- collapse ulp twins to ONE float triple
+        # (bit-exact welds; positions only, UVs stay per-tile)
+        canon = {_pk(p, 6): tuple(p) for p in L2}
+
+        def _snap(v):
+            tgt = canon.setdefault(_pk(v[0], 6), tuple(v[0]))
+            return v if tgt == tuple(v[0]) else (tgt, v[1], v[2], v[3])
+        ter_emit = [[_snap(v) for v in t3] for t3 in ter_emit]
+
+        # the band's land edge must carry the SAME verts as the mural pieces' cut edge:
+        # subdivide the hosting band tri at every mid-segment cut crossing (verbatim
+        # texture -- the tile is affine, so edge UVs interpolate exactly)
+        mvround = {_pk(k): tuple(d) for k, d in moves.items()}
+        seg_cuts = defaultdict(dict)
+        for t3e in ter_emit:
+            for v in t3e:
+                p = v[0]
+                for i in range(n - 1):
+                    A, B = L2[i], L2[i + 1]
+                    ex, ez = B[0] - A[0], B[2] - A[2]
+                    el2 = ex * ex + ez * ez
+                    if el2 < 1e-9:
+                        continue
+                    t_ = ((p[0] - A[0]) * ex + (p[2] - A[2]) * ez) / el2
+                    if not (1e-4 < t_ < 1 - 1e-4):
+                        continue
+                    if abs(ex * (p[2] - A[2]) - ez * (p[0] - A[0])) \
+                            > 1e-6 * max(1.0, math.hypot(ex, ez)):
+                        continue
+                    seg_cuts[i][round(t_, 9)] = p
+        for i, cuts in sorted(seg_cuts.items()):
+            ka, kb = _pk(L[i]), _pk(L[i + 1])
+            hosts = [t3 for t3 in sand_in if {ka, kb} <= {_pk(v[0]) for v in t3}]
+            if len(hosts) != 1:
+                raise ValueError(f"column {L[i][0]:.0f}: cut crossings on the new chain "
+                                 f"but {len(hosts)} band tris host the land edge")
+            host = hosts[0]
+            ter_drop.append(list(host))
+            tv = []
+            for v in host:
+                d_ = mvround.get(_pk(v[0]))
+                pos = (v[0][0] + d_[0], v[0][1] + d_[1], v[0][2] + d_[2]) if d_ else v[0]
+                tv.append((pos, v[1], v[2], v[3]))
+            byk = {_pk(v[0]): tvv for v, tvv in zip(host, tv)}
+            va2, vb2 = byk[ka], byk[kb]
+            vc2 = next(tvv for v, tvv in zip(host, tv) if _pk(v[0]) not in (ka, kb))
+
+            def _edge_attr(t_):
+                nrm = tuple(va2[1][j] + t_ * (vb2[1][j] - va2[1][j]) for j in range(3))
+                uv = tuple(va2[2][j] + t_ * (vb2[2][j] - va2[2][j]) for j in range(2))
+                tan = tuple(va2[3][j] + t_ * (vb2[3][j] - va2[3][j]) for j in range(4))
+                return nrm, uv, tan
+            pts = [va2]
+            for t_, p in sorted(cuts.items()):
+                nrm, uv, tan = _edge_attr(t_)
+                pts.append((tuple(p), nrm, uv, tan))
+            pts.append(vb2)
+            for v0, v1 in zip(pts, pts[1:]):
+                ter_emit.append(_up_tri([vc2, v0, v1]))
         seam_moves = moves
-        drop_all_keys = drop_ks | {_key_set(t) for t in
-                                   drop_foam + drop_sea2 + drop_sea1 + drop_sea3
-                                   + drop_sea5 + drop_sea4}
+        drop_all_keys = ({_key_set(t) for t in ter_drop}
+                         | {_key_set(t) for t in
+                            drop_foam + drop_sea2 + drop_sea1 + drop_sea3
+                            + drop_sea5 + drop_sea4})
+
+        # THE T-VERTEX GATE: in the touched neighbourhood, no NEW/MOVED vert may sit
+        # strictly inside another terrain edge and no vert mid a NEW edge -- the offline
+        # oracle for the pinhole class the playtest caught (pre-existing donor
+        # T-junctions are not ours to judge: only pairs involving our delta are gated)
+        final = [(True, t3) for t3 in ter_emit]
+        for t3 in parts["terrain"]:
+            if _key_set(t3) in drop_all_keys:
+                continue
+            movedt = False
+            out_ = []
+            for v in t3:
+                d_ = mvround.get(_pk(v[0]))
+                if d_:
+                    movedt = True
+                    out_.append(((v[0][0] + d_[0], v[0][1] + d_[1], v[0][2] + d_[2]),
+                                 v[1], v[2], v[3]))
+                else:
+                    out_.append(v)
+            final.append((movedt, out_))
+        xlo_, xhi_ = x0 - 6.0, x1 + 6.0
+        zlo_ = min(p[2] for p in L) - 2.0
+        zhi_ = max(p[2] for p in L2) + 8.0
+        near = [(nw, t3) for nw, t3 in final
+                if any(xlo_ <= v[0][0] <= xhi_ and zlo_ <= v[0][2] <= zhi_ for v in t3)]
+        new_vk = {_pk(v[0], 6) for nw, t3 in near if nw for v in t3}
+        vset = {}
+        for _, t3 in near:
+            for v in t3:
+                vset.setdefault(_pk(v[0], 6), v[0])
+        for nw, t3 in near:
+            for k2 in range(3):
+                a, b = t3[k2][0], t3[(k2 + 1) % 3][0]
+                ka2, kb2 = _pk(a, 6), _pk(b, 6)
+                ex, ey, ez = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+                el2 = ex * ex + ez * ez
+                if el2 < 1e-12:
+                    continue
+                for kp, p in vset.items():
+                    if kp in (ka2, kb2) or (not nw and kp not in new_vk):
+                        continue
+                    t_ = ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / el2
+                    if not (1e-4 < t_ < 1 - 1e-4):
+                        continue
+                    dx = a[0] + t_ * ex - p[0]
+                    dzz = a[2] + t_ * ez - p[2]
+                    if dx * dx + dzz * dzz < 1e-10 \
+                            and abs(a[1] + t_ * ey - p[1]) < 1e-3:
+                        raise ValueError(
+                            f"T-VERTEX GATE: vert ({p[0]:.3f},{p[2]:.3f}) sits mid-edge "
+                            f"on another terrain tri -- an angle-dependent pinhole (the "
+                            f"playtest seam class)")
         n_seam = 0
         for name in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4"):
             for t3 in parts[name]:

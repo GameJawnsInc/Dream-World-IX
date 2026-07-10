@@ -274,7 +274,12 @@ def test_beach_slide_golden():
     strip clips at the translated chain (18 mural tris -> 26 pieces), and the vacated
     shore re-lays ALL the way down the graded ladder (wash + sea1 ring + sea3 + sea5 by
     the learned table + a sea4 row -- sea4 grows landward, reconciling at the block
-    frame where prefab ocean knits)."""
+    frame where prefab ocean knits). THE T-VERTEX LAW (the playtest seam, in-game
+    2026-07-10): kept berm regions re-triangulate from MERGED loops (no fragment-
+    interface verts on shared edges), every emitted vert snaps to the canonical
+    pos+delta floats, and the band's land edge subdivides at the genuine cut crossings
+    (7 band tris re-emitted here) so both sides of the new chain carry identical verts;
+    the T-VERTEX GATE then certifies the touched neighbourhood pinhole-free."""
     from ff9mapkit.world import coastmorph as CM
     from ff9mapkit.world.extract import decode_id
     tw = CM.beach_slide(DONOR, BEACH_START, BEACH_END, -4.0)
@@ -284,13 +289,13 @@ def test_beach_slide_golden():
             else ("displace", t.expected)) for t in tw]
     assert led == [("beach1", ("drop", 14)), ("sea2", ("drop", 18)),
                    ("sea1", ("drop", 22)), ("sea3", ("drop", 2)),
-                   ("sea5", ("drop", 10)), ("terrain", ("drop", 18)),
-                   (None, ("displace", 42)),
+                   ("sea5", ("drop", 10)), ("terrain", ("drop", 25)),
+                   (None, ("displace", 23)),
                    ("beach1", ("emit", 16)), ("sea2", ("emit", 24)),
                    ("sea1", ("emit", 22)), ("sea3", ("emit", 4)),
                    ("sea5", ("emit", 10)), ("sea4", ("emit", 4)),
-                   ("terrain", ("emit", 26))]
-    assert _tweak_hash(tw) == "b86f68ebd7a9e9c4"
+                   ("terrain", ("emit", 43))]
+    assert _tweak_hash(tw) == "f66e2b6520b562b0"
     # BAND RIGIDITY: every moved vert in one column (seam + land + interior) shares one
     # dz -- the band translates, never strains (widths/density/pins by construction)
     disp = next(t for t in tw if hasattr(t, "moves"))
@@ -301,13 +306,14 @@ def test_beach_slide_golden():
     # seam verts ride flat (dy=0); land verts re-conform UP the berm (landward is higher)
     dys = sorted(round(d[1], 3) for d in disp.moves.values())
     assert dys[0] == 0.0 and dys[-1] > 0.3
-    # the berm clip drops ONLY non-sand terrain (the band itself is never dropped)
+    # the berm clip drops 18 mural tris; the ONLY dropped sand tris are the 7 cut-line
+    # hosts, re-emitted subdivided at the mural pieces' crossing verts (verbatim texture)
     ter_drop = next(t for t in tw if hasattr(t, "keys") and t.part == "terrain")
     from ff9mapkit.world import transplant as TR
     sand_keys = {frozenset(CM._pk(v[0]) for v in t3)
                  for t3 in TR.world_tris(*DONOR, "terrain")
                  if decode_id(int(round(t3[0][3][0])))["topograph"] == 31}
-    assert not (ter_drop.keys & sand_keys)
+    assert len(ter_drop.keys & sand_keys) == 7
 
 
 def test_beach_slide_refusals():
