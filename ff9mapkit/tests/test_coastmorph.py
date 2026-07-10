@@ -187,7 +187,7 @@ def test_beach_rebuild_golden():
     assert [(t.part, getattr(t, "expected", None) or len(t.tris)) for t in tw] == [
         ("beach1", 14), ("sea2", 18), ("sea1", 26),
         ("beach1", 14), ("sea2", 18), ("sea1", 26)]
-    assert _tweak_hash(tw) == "47e3e88cd30b4002"
+    assert _tweak_hash(tw) == "0ebffe558640a7d0"
 
 
 def test_beach_reshape_golden_transport():
@@ -210,7 +210,7 @@ def test_beach_reshape_golden_transport():
                    (None, ("displace", 20)),
                    ("beach1", ("emit", 16)), ("sea2", ("emit", 24)),
                    ("sea1", ("emit", 6)), ("sea3", ("emit", 2))]
-    assert _tweak_hash(tw) == "2c3780152ae58a4a"
+    assert _tweak_hash(tw) == "2efc3ce72e461cc0"
 
 
 def test_beach_reshape_identity_is_a_rebuild():

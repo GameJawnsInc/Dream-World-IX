@@ -659,11 +659,47 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
 
 
 #: the FOAM RUN tile (byte-decoded 2026-07-10 from (7,17)): one half-texture per 4u column,
-#: repeating; v = the cross-shore ramp. The END-CAP band (v 0.5312-0.9375) is separate and
-#: NEVER re-derived (end welds are load-bearing -- caps stay verbatim outside the window).
+#: repeating; v = the cross-shore ramp. The END-CAP band (v 0.5312-0.9375) is a SEPARATE
+#: taper graphic carried by the beach's two TERMINAL columns (u 0.0156 at the terminal
+#: end -> 0.5 at the run junction, mirrored per end) -- it narrows the foam into the
+#: coast and hides the strip's straight end (user-called in-game 2026-07-10: a run-tile
+#: cap reads as a hard straight line at the beach end). Emission therefore TRANSPORTS
+#: each column's own corner UVs from the donor (:func:`_foam_corner_uvs`) instead of
+#: assuming the run constants; these constants remain as the decoded reference.
 FOAM_U = (0.0156, 0.5)
 FOAM_V_SAND = 0.0156
 FOAM_V_WATER = 0.4531
+
+
+def _foam_corner_uvs(drop_foam, S, W):
+    """Per foam column, the donor's OWN corner UVs keyed sand-left/sand-right/water-left/
+    water-right (identity transport: run columns decode to the learned run constants, the
+    beach's terminal columns to their CAP taper corners -- and a different beach's atlas
+    layout carries over untouched). A chain vert shared by two columns carries DIFFERENT
+    uv per column (the cap<->run junction), so the decode is per-column."""
+    cols = []
+    for i in range(len(W) - 1):
+        xa, xb = W[i][0], W[i + 1][0]
+        m = {}
+        for t3 in drop_foam:
+            if xa - 0.1 <= sum(v[0][0] for v in t3) / 3.0 <= xb + 0.1:
+                for v in t3:
+                    m.setdefault(_pk(v[0]), (v[2][0], v[2][1]))
+        cs = {}
+        for tag, p in (("sl", S[i]), ("sr", S[i + 1]), ("wl", W[i]), ("wr", W[i + 1])):
+            uv = m.get(_pk(p))
+            if uv is None:
+                raise ValueError(f"foam column {i}: chain vert ({p[0]:.0f},{p[2]:.1f}) "
+                                 f"is not on any of the column's foam tris")
+            cs[tag] = uv
+        # the donor's own quad DIAGONAL (it alternates per column; the interior affine
+        # differs per split, so identity means reproducing it)
+        kwl, ksr = _pk(W[i]), _pk(S[i + 1])
+        cs["diag"] = "wl-sr" if any(
+            xa - 0.1 <= sum(v[0][0] for v in t3) / 3.0 <= xb + 0.1
+            and {kwl, ksr} <= {_pk(v[0]) for v in t3} for t3 in drop_foam) else "sl-wr"
+        cols.append(cs)
+    return cols
 
 
 def _up_tri(tri):
@@ -826,13 +862,17 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
             raise ValueError(f"rebuild references ({x},{z}) -- not an original shore vert")
         return p
 
-    # --- (a) FOAM: per-column run tiles between the chains ---
+    # --- (a) FOAM: per-column tiles between the chains, corner UVs transported from the
+    # donor (run columns = the learned run tile; terminal columns = the CAP taper) ---
     foam_emit = []
+    corner_uvs = _foam_corner_uvs(drop_foam, S, W)
     for i in range(len(W) - 1):
         sl, sr, wl, wr = S[i], S[i + 1], W[i], W[i + 1]
-        uv = {id(sl): (FOAM_U[0], FOAM_V_SAND), id(sr): (FOAM_U[1], FOAM_V_SAND),
-              id(wl): (FOAM_U[0], FOAM_V_WATER), id(wr): (FOAM_U[1], FOAM_V_WATER)}
-        for tri_pts in ((wr, wl, sl), (wr, sl, sr)):
+        cs = corner_uvs[i]
+        uv = {id(sl): cs["sl"], id(sr): cs["sr"], id(wl): cs["wl"], id(wr): cs["wr"]}
+        split = ((sr, wl, sl), (sr, wr, wl)) if cs["diag"] == "wl-sr" \
+            else ((wr, wl, sl), (wr, sl, sr))
+        for tri_pts in split:
             foam_emit.append(_up_tri([(p, nrm_ex["beach1"], uv[id(p)], id_ex["beach1"])
                                       for p in tri_pts]))
 
@@ -1252,11 +1292,14 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             nrm_ex[name], id_ex[name] = t3[0][1], tuple(t3[0][3])
             break
     foam_emit, sea2_emit, sea1_emit, sea3_emit = [], [], [], []
+    corner_uvs = _foam_corner_uvs(drop_foam, S, W)
     for i in range(n - 1):
         sl, sr, wl_, wr_ = S2[i], S2[i + 1], W2[i], W2[i + 1]
+        cs = corner_uvs[i]
         # the moved waterline can cross a lattice row mid-column; the conforming zip splits
         # there, so the foam MUST carry the same vert (identical floats) or the shared
-        # waterline becomes a T-junction. UVs stay exact: the run tile is bilinear in x.
+        # waterline becomes a T-junction. UVs stay exact: each foam tile (run OR cap) is
+        # bilinear in x over its transported donor corners.
         wline = [wl_]
         zmin, zmax = sorted((wl_[2], wr_[2]))
         k = math.floor(zmin / 4.0) + 1
@@ -1269,16 +1312,21 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             k += 1
         wline += sorted(cross, key=lambda p: p[0]) + [wr_]
 
-        def foam_uv(p, v):
-            return (FOAM_U[0] + (p[0] - wl_[0]) / (wr_[0] - wl_[0])
-                    * (FOAM_U[1] - FOAM_U[0]), v)
-        polys = [(sl, wline[k_], wline[k_ + 1]) for k_ in range(len(wline) - 1)]
-        polys.append((sl, wline[-1], sr))
+        def foam_uv(p, water):
+            fx = (p[0] - wl_[0]) / (wr_[0] - wl_[0])
+            (u0, v0), (u1, v1) = (cs["wl"], cs["wr"]) if water else (cs["sl"], cs["sr"])
+            return (u0 + fx * (u1 - u0), v0 + fx * (v1 - v0))
+        if cs["diag"] == "wl-sr":                    # fan from sr = the donor's diagonal
+            polys = [(sr, wline[k_], wline[k_ + 1]) for k_ in range(len(wline) - 1)]
+            polys.append((sr, sl, wline[0]))
+        else:                                        # fan from sl
+            polys = [(sl, wline[k_], wline[k_ + 1]) for k_ in range(len(wline) - 1)]
+            polys.append((sl, wline[-1], sr))
         for tp in polys:
             tri = []
             for p in tp:
-                v_ = FOAM_V_SAND if p in (sl, sr) else FOAM_V_WATER
-                tri.append((p, nrm_ex["beach1"], foam_uv(p, v_), id_ex["beach1"]))
+                tri.append((p, nrm_ex["beach1"], foam_uv(p, p not in (sl, sr)),
+                            id_ex["beach1"]))
             foam_emit.append(_up_tri(tri))
     mains_map = _mains_factory()
 
