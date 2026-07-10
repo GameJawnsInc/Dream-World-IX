@@ -110,6 +110,22 @@ def appearance_notes(token, *, minted: bool = False) -> list:
         return []
     notes: list = []
 
+    # Alias models (a battle form / alt outfit / F1 variant with no own-id prefab): the geometry ships
+    # in a DONOR prefab (extract.resolve_prefab -- offline, baked from ModelFactory's rename tables).
+    try:
+        from .extract import resolve_prefab
+        pgeo, pgid, _pt = resolve_prefab(name)
+    except Exception:   # noqa: BLE001 -- an unknown/unsupported name has no prefab note
+        pgeo = name
+    if pgeo != name:
+        if minted:
+            notes.append(f"geometry ships in donor prefab {pgeo} (id {pgid}) -- the mint copies that body "
+                         f"(animations still come from THIS id's animset).")
+        else:
+            notes.append(f"SHARED PREFAB: this form's geometry ships in {pgeo} (id {pgid}) -- an override "
+                         f"deploys to ITS folder and affects every form loading that prefab (field AND "
+                         f"battle). Animations stay this id's own animset.")
+
     if name in GARNET_HAIR_SWAP:
         if minted:
             notes.append("MINT bypasses the engine hair-swap (it's name-keyed) -> BOTH long_hair AND short_hair "

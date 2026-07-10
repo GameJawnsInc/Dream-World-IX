@@ -58,6 +58,7 @@ public tables, i.e. the same data Memoria already publishes, *not* extracted fro
 | `_animdb.py` | the 8 playable characters' anim id → name (cutscene gestures) | `FF9DBAll.AnimationDB` | `python -m ff9mapkit._regen_animdb` |
 | `_animdb_all.py` | **all** anim ids → names (Info Hub model→animation join) | `FF9DBAll.AnimationDB` | `python -m ff9mapkit._regen_animdb_all` |
 | `_modeldb.py` | actor/field model id → `GEO_…` name (Info Hub `models`) | `FF9BattleDB.GEO` | `python -m ff9mapkit._regen_modeldb` |
+| `_modelalias.py` | model name → donor‑prefab name (the engine's rename chain: which prefab a battle form / alt outfit actually loads) | `ModelFactory` (upscaleTable, revertUpscaleTable, GetNameFromFF9DBALL, GetGEOID, GetRenameModelPath) | `python -m ff9mapkit._regen_modelalias` |
 | `_scenedb.py` | battle‑scene name → encounter id (Info Hub `scenes`) | `FF9BattleDB.SceneData` | `python -m ff9mapkit._regen_scenedb` |
 | `_itemdb.py` | item id → name | `RegularItem` (Memoria enum) | — |
 

@@ -750,16 +750,23 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
     file exported by ``model-gltf``), so a round-tripped edit needs no --like. ``like="<GEO>"`` uses the v1
     mesh-splice (keep the source's rig + textures, take only edited geometry -- vertex count must match); a
     glTF with no stamp AND no ``like`` falls back to a full re-rig (needs ``geo_id`` for the target id/type).
-    ``geo_id`` overrides the target id (default: the source id -> a straight override; or a mint id >=6000)."""
+    ``geo_id`` overrides the target id LITERALLY (a mint id >=6000, or an explicit folder pick); the default
+    straight-override target is the source's PREFAB identity -- the folder ``SearchAssetOnDisc`` probes
+    post-alias, so an aliased battle form (GEO_MAIN_B0_000 -> 98) lands where the engine actually looks,
+    with the per-mode overlay meshes stripped (see extract.strip_overlay_meshes)."""
     stamp_geo, stamp_scale = source_from_gltf(gltf_path)
     if like is None and geo_id is None and stamp_geo is not None:
         like = stamp_geo                                     # auto: a glTF we exported knows its own source
     if scale is None:
         scale = float(stamp_scale) if stamp_scale is not None else DEFAULT_SCALE
 
+    pre_warnings: list = []
     if like:
         _geo, src_id, type_int = extract.resolve_geo(like)
-        tid = int(geo_id) if geo_id is not None else src_id
+        if geo_id is not None:
+            tid = int(geo_id)
+        else:
+            _pgeo, tid, type_int = extract.resolve_prefab(like)   # the folder the engine probes post-alias
         try:
             model = apply_gltf_edit(like, gltf_path, scale=scale, game=game)     # v1: pristine rig, splice geometry
             mode = "mesh-splice"
@@ -777,6 +784,8 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
             # part Blender renamed past recognition).
             _restore_mesh_names(edited["meshes"], orig["meshes"])
             model = {"geo": orig["geo"], "geo_id": orig["geo_id"], "type_int": orig["type_int"],
+                     "prefab_geo": orig.get("prefab_geo"), "prefab_id": orig.get("prefab_id"),
+                     "prefab_tint": orig.get("prefab_tint"),
                      "root_bone": orig["root_bone"], "bones": orig["bones"],
                      "meshes": edited["meshes"], "materials": edited["materials"],
                      "textures": edited["textures"] or orig["textures"]}
@@ -793,6 +802,13 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
         tid = int(geo_id)
         mode = "re-rig"
 
+    if like and geo_id is None:
+        # straight override of a real id: strip per-mode overlay meshes (battle_model*/field_model*) --
+        # the engine's name-hide can't fire on a flattened loose FBX, so a deployed overlay would render
+        # in BOTH field and battle (see extract.strip_overlay_meshes). Mints (--id) keep everything.
+        extract.strip_overlay_meshes(model, warn=pre_warnings.append)
+        pre_warnings.extend(export._shared_prefab_warnings(model))
+
     dest = Path(mod_folder).joinpath(*export._RES, *export.model_dir_parts(type_int, tid))
     info = _emit_model_to(model, dest, tid)
     # Round-trip the animations too: write back only clips whose curves changed (spliced onto the pristine
@@ -805,4 +821,5 @@ def deploy_edit(gltf_path, mod_folder, *, like=None, geo_id=None, scale=None, ga
         except (RuntimeError, FileNotFoundError, ValueError, KeyError) as e:
             anims = {"written": [], "skipped": [], "error": str(e)}
     return {"id": tid, "type_int": type_int, "mode": mode, "source": like, "path": info["fbx"],
-            "textures": info["textures"], "merge_warnings": info.get("merge_warnings", []), "anims": anims}
+            "textures": info["textures"],
+            "merge_warnings": pre_warnings + info.get("merge_warnings", []), "anims": anims}

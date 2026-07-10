@@ -449,18 +449,25 @@ class ModelsDoc(QWidget):
         if m.field:
             sub += "  ·  field-placeable"
         self.d_sub.setText(sub)
-        self._refresh_facts(m)
-        png = self.thumbs.cached(m.name) or self.thumbs.request(m.name)
+        absent = self._refresh_facts(m)
+        png = None if absent else (self.thumbs.cached(m.name) or self.thumbs.request(m.name))
         if png:
             self._set_detail_image(png)
         else:
             self.d_img.setPixmap(QPixmap())
-            self.d_img.setText("rendering…" if thumbs_mod.enabled() else "previews off")
+            self.d_img.setText("no geometry" if absent else
+                               ("rendering…" if thumbs_mod.enabled() else "previews off"))
 
-    def _refresh_facts(self, m):
+    def _refresh_facts(self, m) -> bool:
+        """Fill the facts/notes labels; True if the model is a known UNSHIPPED id (no geometry on disc)."""
         meta = thumbs_mod.model_thumb_meta(m.id)
         acts = catalog.animations_for_model(m.id)
         facts = []
+        absent = bool(meta and meta.get("absent"))
+        if absent:
+            facts.append("UNSHIPPED id: no geometry on disc (a PSX-era catalog leftover) — "
+                         "nothing to preview, export, or reskin")
+            meta = None
         if meta:
             facts.append(f"{meta.get('bones', '?')} bones · {meta.get('meshes', '?')} mesh part(s) · "
                          f"{meta.get('verts', '?')} verts · {len(meta.get('textures') or [])} texture(s)")
@@ -476,6 +483,7 @@ class ModelsDoc(QWidget):
             self.d_anims.setText(f"Actions: {head}{more}")
         else:
             self.d_anims.setText("Actions: none catalogued (a numbered battle-only token or a static prop)")
+        return absent
 
     def _set_detail_image(self, png):
         pm = QPixmap(png)

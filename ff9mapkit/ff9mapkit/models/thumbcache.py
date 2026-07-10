@@ -56,6 +56,9 @@ def build_model_thumb(token, ctx: "dict | None" = None) -> "str | None":
     png, meta = model_thumb_paths(m.id)
     if png.is_file():
         return str(png)
+    prior = model_thumb_meta(m.id)
+    if prior and prior.get("absent"):
+        return None                              # a known unshipped id -- don't re-probe the install
     from . import anim as manim
     from . import extract, preview
     ctx = ctx if ctx is not None else {}
@@ -67,8 +70,16 @@ def build_model_thumb(token, ctx: "dict | None" = None) -> "str | None":
             ctx["env5"] = manim._load_env5(None)
         except Exception:   # noqa: BLE001 -- no p0data5 -> render the rest pose instead of failing
             ctx["env5"] = None
-    struct = preview._skinned_struct(m.name, bundle=ctx[didx], env5=ctx["env5"],
-                                     pose=ctx["env5"] is not None)
+    try:
+        struct = preview._skinned_struct(m.name, bundle=ctx[didx], env5=ctx["env5"],
+                                         pose=ctx["env5"] is not None)
+    except FileNotFoundError as e:
+        # an UNSHIPPED catalog id (no geometry on disc anywhere -- the GEO_MAIN_B2_* band etc.):
+        # remember WHY in the sidecar so the Models tab can say so instead of a bare un-thumbnailed miss
+        meta.parent.mkdir(parents=True, exist_ok=True)
+        meta.write_text(json.dumps({"geo": m.name, "id": m.id, "absent": True, "error": str(e)}),
+                        encoding="utf-8")
+        return None
     img = preview.render_model(struct, size=MODEL_THUMB)
     png.parent.mkdir(parents=True, exist_ok=True)
     tmp = png.with_suffix(".tmp.png")
