@@ -2435,6 +2435,21 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             disc=args.disc, game=args.game)
         for n in notes:
             print(n)
+        # the cliff-coast morphs build their tweak sets from the donor bytes, every law
+        # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
+        if args.cliff_bump or args.cliff_headland:
+            from .world import coastmorph as CM
+            if (snx, sny) != (1, 1):
+                raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
+            for spec, fn in ((args.cliff_bump, CM.cliff_bump),
+                             (args.cliff_headland, CM.cliff_headland)):
+                if not spec:
+                    continue
+                s0, s1, sd = spec.split(":")
+                p0 = tuple(float(v) for v in s0.split(","))
+                p1 = tuple(float(v) for v in s1.split(","))
+                tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd),
+                                           disc=args.disc, game=args.game)
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                   tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                   game=args.game, census_samples=args.samples, dry_run=args.dry_run)
@@ -5044,6 +5059,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "4u ROW: everything SOUTH shifts -4 and the vacated row is filled per the same "
                           "tile laws (the exact-rotation adapter over the proven x-cut). Composes with "
                           "--grow-cut; region lines are census-validated + boundary fills auto-wired.")
+    wtp.add_argument("--cliff-bump", default=None, metavar="X0,Z0:X1,Z1:D",
+                     help="CLIFF-COAST MORPH rung 1 (in-game proven 2026-07-09): bow the cliff-base outline "
+                          "run between the two DONOR-frame endpoints seaward by a sin^2 profile of depth D "
+                          "(units; the conforming envelope is ~2.5 -- a depth that would fold a waterline "
+                          "tile is refused offline). Land UVs drag; water re-evaluates through its own tile "
+                          "map (no caustic stretch). Needs a pure-sea4 shore (the cliff seam law).")
+    wtp.add_argument("--cliff-headland", default=None, metavar="X0,Z0:X1,Z1:D",
+                     help="CLIFF-COAST MORPH rung 2 (in-game proven 2026-07-09): rebuild the window's wall "
+                          "over a sin^2-pushed outline of depth D as a structural PROMONTORY -- one inserted "
+                          "wall column per gap (the window's gap count must be a multiple of 4, the "
+                          "deterministic-U-ramp law), native lattice grass re-fill, sea zipped back to the "
+                          "new outline. Every law gate (crack/grain/water-density/ledger) runs offline.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")

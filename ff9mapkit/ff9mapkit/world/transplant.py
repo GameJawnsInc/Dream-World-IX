@@ -1624,6 +1624,110 @@ def _tweak_inverse_z(tweaks):
     return inv
 
 
+class DropTris:
+    """Tweak class 6 -- drop an EXACT set of donor tris (matched by their rounded vertex-key
+    sets, read from the mesh, never hand-typed). The scope gate requires every listed tri to
+    have been seen and dropped. The generic half of a drop-and-refill edit (the coast-morph
+    pillar's DROP-DON'T-DRAG law: a surviving tri whose vert drags far smears its texture --
+    drop it and re-fill natively instead)."""
+
+    def __init__(self, part: str, tris, key_decimals: int = 4):
+        self.part = part
+        self.kd = int(key_decimals)
+        self.keys = {self._key_set(t) for t in tris}
+        self.expected = len(tris)
+        self.dropped = 0
+
+    def _key_set(self, poly):
+        return frozenset((round(v[0][0], self.kd), round(v[0][1], self.kd),
+                          round(v[0][2], self.kd)) for v in poly)
+
+    def apply(self, part: str, poly):
+        if part == self.part and len(poly) == 3 and self._key_set(poly) in self.keys:
+            self.dropped += 1
+            return None
+        return poly
+
+    def emit(self) -> list:
+        return []
+
+    def gate(self) -> dict:
+        return {"gate": f"drop[{self.part}]", "applied": self.dropped,
+                "expected": self.expected, "ok": self.dropped == self.expected}
+
+
+class EmitTris:
+    """Tweak class 7 -- emit a precomputed list of (pos, normal, uv, tangent) triangles into
+    one part (donor world frame; the transplant transform carries them like donor tris). The
+    generic refill half of a drop-and-refill edit; emissions bypass other tweaks' apply."""
+
+    def __init__(self, part: str, tris):
+        self.part = part
+        self.tris = [list(t) for t in tris]
+
+    def apply(self, part: str, poly):
+        return poly
+
+    def emit(self) -> list:
+        return [list(t) for t in self.tris]
+
+    def gate(self) -> dict:
+        return {"gate": f"emit[{self.part}]", "applied": len(self.tris),
+                "expected": len(self.tris), "ok": True}
+
+
+class SeaBump:
+    """Tweak class 8 -- the WATER displace (in-game proven 2026-07-09, the coast-morph bump):
+    move keyed water verts like :class:`VertexDisplace` but RE-EVALUATE each moved vert's UV
+    through the tile's OWN (original) affine, so the caustic texture stays pinned in world
+    space and the waterline simply cuts it at a new place. Dragged water UVs compress the
+    pattern over the shrunken tile (stretched/smushed in-game); land drags fine at the same
+    amplitude, water does not. Neighbours share the same map, so re-evaluation introduces
+    zero seams by construction. The fold gate matches VertexDisplace's."""
+
+    def __init__(self, *, moves: dict, expected: int, part: str = "sea4",
+                 key_decimals: int = 4):
+        self.part = part
+        self.kd = int(key_decimals)
+        self.moves = {self._key(k): tuple(v) for k, v in dict(moves).items()}
+        self.expected = int(expected)
+        self.applied = 0
+        self.folds = 0
+
+    def _key(self, p):
+        return (round(p[0], self.kd), round(p[1], self.kd), round(p[2], self.kd))
+
+    def apply(self, part: str, poly):
+        if part != self.part or not any(self._key(v[0]) in self.moves for v in poly):
+            return poly
+        uvf = _affine_uv(poly)                         # the ORIGINAL tile map
+        us = [v[2][0] for v in poly]
+        vs = [v[2][1] for v in poly]
+        out = []
+        for (pos, nrm, uv, tan) in poly:
+            d = self.moves.get(self._key(pos))
+            if d is not None:
+                pos = (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
+                nu, nv = uvf(pos[0], pos[2])
+                uv = (min(max(nu, min(us) - 0.02), max(us) + 0.02),
+                      min(max(nv, min(vs) - 0.02), max(vs) + 0.02))
+                self.applied += 1
+            out.append((pos, nrm, uv, tan))
+        a0 = VertexDisplace._area2(poly)
+        a1 = VertexDisplace._area2(out)
+        if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+            self.folds += 1
+        return out
+
+    def emit(self) -> list:
+        return []
+
+    def gate(self) -> dict:
+        return {"gate": f"seabump[{self.part}]", "applied": self.applied,
+                "expected": self.expected, "folds": self.folds,
+                "ok": self.applied == self.expected and self.folds == 0}
+
+
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
     ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
