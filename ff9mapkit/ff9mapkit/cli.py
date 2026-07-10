@@ -5248,7 +5248,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="scan the whole map's coastal blocks (minutes; prints progress)")
     wms.add_argument("--verbs", default=None,
                      help="comma list to probe (default all): beach-bump,beach-reshape,"
-                          "cliff-bump,cliff-headland,cliff-bay")
+                          "beach-slide,cliff-bump,cliff-headland,cliff-bay")
     wms.add_argument("--mod-folder", default=None,
                      help="printed into the ready-to-run deploy lines (display only)")
     wms.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
