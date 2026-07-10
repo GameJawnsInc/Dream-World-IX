@@ -330,3 +330,63 @@ def expr_obj_uid_offsets(raw: bytes, start: int, end: int) -> list:
             else:
                 pos += argsize(op, i)
     return out
+
+
+def _expr_const_offsets(raw: bytes, pos: int, operand_index: int, out: list) -> int:
+    """Walk one expression token stream (mirrors :func:`read_expr`), appending
+    ``(abs_payload_off, value, operand_index)`` for every 2-byte ``0x7D`` (B_CONST) literal; returns new_pos.
+    ``abs_payload_off`` is the offset of the literal's first (low) byte -- an in-place LE overwrite there is
+    length-preserving by construction. 4-byte ``0x7E`` (B_CONST4) literals are skipped, not collected."""
+    while True:
+        o = raw[pos]; pos += 1
+        isconst = o in (0x7D, 0x7E)
+        isvar = o >= 0xC0 or o in (0x29, 0x5F, 0x78, 0x79, 0x7A)
+        if not isconst and not isvar:
+            if o == 0x7F:
+                break
+            continue
+        if o == 0x7E:
+            pos += 4
+        elif o >= 0xE0 or o in (0x78, 0x7D):
+            if o == 0x7D:
+                out.append((pos, raw[pos] | (raw[pos + 1] << 8), operand_index))
+            pos += 2
+        else:
+            pos += 1
+    return pos
+
+
+def instr_expr_consts(raw: bytes, ins: Instr) -> list:
+    """``[(abs_payload_off, value, operand_index), ...]`` for every 2-byte ``B_CONST`` (0x7D) literal inside
+    *ins*'s EXPRESSION operands, in byte order. Re-decodes the instruction exactly like :func:`read_code`
+    but tracking positions; the walk SELF-VERIFIES by landing on ``ins.end`` (a mismatch raises ValueError,
+    never a silent wrong offset). Immediate operands carry no expression consts. The write-side companion of
+    the ``op7D(lo,hi)`` tokens :func:`read_expr` renders -- logic_edit's ``expr_literal`` kind patches these."""
+    pos = ins.off
+    op = raw[pos]; pos += 1
+    if op == 0xFF:
+        op = 0x100 | raw[pos]; pos += 1
+    ac = OP_ARG_COUNT[op] if op < len(OP_ARG_COUNT) else 0
+    arg_flag = 0
+    if op >= 0x10 and ac != 0:
+        arg_flag = raw[pos]; pos += 1
+    if op == 0x05:
+        arg_flag = 1
+    if ac < 0:
+        ac = raw[pos]; pos += 1
+        if op == 0x0D:
+            ac |= raw[pos] << 8; pos += 1
+        if op == 0x06:
+            ac = 1 + 2 * ac
+        elif op in (0x0B, 0x0D):
+            ac = 2 + ac
+    out: list = []
+    for i in range(ac):
+        if arg_flag & (1 << i):
+            pos = _expr_const_offsets(raw, pos, i, out)
+        else:
+            pos += argsize(op, i)
+    if pos != ins.end:
+        raise ValueError(f"instr_expr_consts: operand walk ended at {pos}, expected {ins.end} "
+                         f"(op {op:#x} @{ins.off} -- decode disagreement with read_code)")
+    return out

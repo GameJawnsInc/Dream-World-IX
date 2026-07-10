@@ -1409,3 +1409,41 @@ Works on **synthesize** *and* **verbatim** forks, by different mechanisms:
 
 - **Synthesize** (from-scratch field): appends a tiny init entry `{RunSoundCode(0, song); return}` and activates it on room entry (+ a tag-10 copy so it resumes after battle).
 - **Verbatim fork**: **REPLACES** the donor's own field BGM in place. Every immediate field-BGM `RunSoundCode` of the donor's song — both the **PLAY** (`code 0`) *and* the **LOAD** (`code 1792`), in Main_Init and any after-battle/tag-10 resume — is rewritten to `song`, a length-preserving operand swap. Rescoring the LOAD is essential: patch only the PLAY and the engine keeps the *old* song resident and keeps playing it. The new track replaces, never stacks. A call referencing a *different* song id (a cutscene track, an SFX) is untouched. If the donor is silent or scores its BGM by a computed value (no immediate `RunSoundCode(0, song)`), there is nothing to replace — the build errors and `lint` flags it (author a synthesized field to *add* music to a silent room).
+
+## `[chocobo]` (optional — Chocobo Hot & Cold prize pool & timer)
+
+Re-author the **Chocobo Hot & Cold** minigame's dig **prize pool** and **timer** on a **verbatim fork
+of a forest field** — 2950 (Chocobo's Forest), 2951 (Lagoon) or 2952 (Air Garden). Start from an
+export of the field's real pool, then edit values:
+
+```
+ff9mapkit chocobo-export 2950        # or: ch_fst, or a path to your fork's field.toml
+```
+
+paste the printed block into the fork's `field.toml`, and change the slots you care about:
+
+```toml
+[chocobo.tuning]
+timer = 120              # in-game seconds = timer * difficulty + 1  (vanilla 60)
+
+[[chocobo.prize]]        # slot 12 -- tier 4
+slot = 12
+item = "Elixir"          # what this slot awards when the RNG lands on it
+```
+
+| key | meaning |
+|---|---|
+| `[chocobo.tuning]` `timer` | the game-clock seed (seconds; the engine shows `timer * difficulty + 1`). |
+| `[[chocobo.prize]]` `slot` | which of the **35 prize slots** (the export lists them all, tier-annotated). |
+| … `item` | award an item, by name or id (`"Elixir"`, `239`). |
+| … `gil` | award gil instead (1–28999) — paid out immediately at the dig. |
+| … `nothing = true` | the dig finds nothing. |
+| … `value` | raw escape hatch (the engine routes `<1000` = item id, `1000+N` = N gil, `30001` = nothing). |
+
+Slots you **omit stay vanilla**; applying an unedited export is byte-identical. Because the game reads
+one runtime prize variable for the award **and** the *"You found X!"* popup **and** the end-of-game
+tally, a slot edit changes all of them together — the popup can never announce a different item than
+you receive. Drop **odds** and dig-spot **coordinates** are not on this lane (they live in RNG jump
+tables / coordinate formulas). Only meaningful on a **verbatim** forest fork (`lint`/Check flags it
+elsewhere); deploy **in-place onto the real field id** (e.g. `--id 2950 --text-block 945`) to keep the
+minigame's engine-drawn HUD.

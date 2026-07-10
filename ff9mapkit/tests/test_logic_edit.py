@@ -741,3 +741,61 @@ def test_editable_effects_out_of_range_and_empty():
     assert LE.editable_effects(_eb(RET), 9, 0) == []               # no such entry
     assert LE.editable_effects(_eb(RET), 0, 7) == []               # no such tag
     assert LE.editable_effects(_eb(RET), 0, 0) == []               # a routine with no editable values
+
+
+# ---- expr_literal: a 2-byte B_CONST inside an expression operand ----
+SLOT218 = bytes([0x05, 0xDE, 20, 0x7D, 218, 0, 0x2C, 0x7F])        # {opDE(20) op7D(218,0) op2C op7F}
+TIMER60 = bytes([0x69, 0x01, 0x7D, 60, 0, 0xD1, 36, 0x12, 0x7D, 1, 0, 0x14, 0x7F])   # {60*diff+1}
+
+
+def test_expr_literal_patches_inside_expression():
+    """The value classes imm()-based kinds are blind to: a `{var const op2C}` assign's literal."""
+    src = _eb(SLOT218 + TIMER60 + RET)
+    out = LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "op": 0x05,
+                                      "old": 218, "new": 30001}])
+    assert len(out) == len(src) and eblint.errors(eblint.lint_eb(out)) == []
+    eb = EbScript.from_bytes(out)
+    ins = next(i for i in eb.instrs(eb.entries[0].funcs[0]) if i.op == 0x05)
+    assert ins.args[0] == "{opDE(20) op7D(49,117) op2C op7F}"      # 30001 = 49 + 117*256
+
+
+def test_expr_literal_op_filter_and_expr_guard():
+    src = _eb(SLOT218 + TIMER60 + RET)
+    # op filter: old=60 exists only in the ChangeTimerTime expression
+    out = LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "op": 0x69,
+                                      "old": 60, "new": 120}])
+    eb = EbScript.from_bytes(out)
+    tins = next(i for i in eb.instrs(eb.entries[0].funcs[0]) if i.op == 0x69)
+    assert tins.args[0].startswith("{op7D(120,0)")
+    # expr guard alone (no op) pins the instruction by its exact decoded text
+    out2 = LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0,
+                                       "expr": "{opDE(20) op7D(218,0) op2C op7F}", "old": 218, "new": 5}])
+    eb2 = EbScript.from_bytes(out2)
+    assert next(i for i in eb2.instrs(eb2.entries[0].funcs[0]) if i.op == 0x05).args[0] \
+        == "{opDE(20) op7D(5,0) op2C op7F}"
+    # a non-matching expr guard -> no hits -> clean refusal
+    with pytest.raises(LE.LogicEditError, match="found no"):
+        LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0,
+                                    "expr": "{opDE(20) op7D(999,0) op2C op7F}", "old": 218, "new": 5}])
+
+
+def test_expr_literal_ambiguity_needs_nth():
+    src = _eb(SLOT218 + SLOT218 + RET)
+    with pytest.raises(LE.LogicEditError, match="ambiguous"):
+        LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "old": 218, "new": 5}])
+    out = LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "old": 218, "new": 5,
+                                      "nth": 1}])
+    eb = EbScript.from_bytes(out)
+    vals = [i.args[0] for i in eb.instrs(eb.entries[0].funcs[0]) if i.op == 0x05]
+    assert vals == ["{opDE(20) op7D(218,0) op2C op7F}", "{opDE(20) op7D(5,0) op2C op7F}"]
+
+
+def test_expr_literal_guards_refuse():
+    src = _eb(SLOT218 + RET)
+    with pytest.raises(LE.LogicEditError, match="found no"):       # old-value drift
+        LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "old": 999, "new": 1}])
+    with pytest.raises(LE.LogicEditError, match="doesn't fit"):    # u16 overflow
+        LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "old": 218, "new": 70000}])
+    with pytest.raises(LE.LogicEditError, match="must be a string"):
+        LE.apply_logic_edits(src, [{"kind": "expr_literal", "entry": 0, "tag": 0, "old": 218, "new": 1,
+                                    "expr": 42}])

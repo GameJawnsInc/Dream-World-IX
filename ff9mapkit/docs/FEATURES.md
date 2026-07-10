@@ -25,6 +25,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Fork-fidelity preview before forking (`fork-report`, `--explain`) — roster/story axes, suggested `[startup]` | ✓ | [FORK_REPORT](FORK_REPORT.md) |
 | Bulk archive import of the whole game (`import-all`), donor discovery (`find-field`, `find-rooms`) | ✓ | [README](../README.md) |
 | Edit a verbatim fork's script in place (`logic-map`, `lint-eb`, `[[logic_edit]]`/`[[logic_add]]`) | ✓ | [FIELD logic-map](FORMAT.md) |
+| Chocobo Hot & Cold prize pool + timer (`chocobo-export`, `[chocobo]` on a verbatim forest fork) | ✓ | [FORMAT](FORMAT.md) |
 | Non-Zidane donors + walk-as swap (`--swap-player`), party control (`[party]`) | ✓ | [FORMAT](FORMAT.md) |
 
 ## Camera
