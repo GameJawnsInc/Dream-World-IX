@@ -1035,7 +1035,8 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
             TR.EmitTris("sea1", sea1_emit)]
 
 
-def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None,
+                  _assembly: bool = False):
     """The STRUCTURAL beach SHAPE morph (rung 2, step 2) -- slide the beach ASSEMBLY (sand
     seam + waterline together) and re-derive the whole shore ladder over the new footprint
     from pure language (ZERO water strain -- the bow DRAGS everything within its
@@ -1063,9 +1064,15 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
     cliff-bump 2.5u precedent -- which also caps depth). v1 scope: a south-facing
     (seaward = -z), z-dominant shore in donor frame (the transplant's rot places it any
     way in the world); single cell."""
-    if abs(depth) > 2.6:
+    if not _assembly and abs(depth) > 2.6:
         raise ValueError("the sand-slide DRAGS the berm -- the land-drag envelope caps "
-                         "depth at ~2.5 (the cliff-bump precedent)")
+                         "depth at ~2.5 (the cliff-bump precedent); past it, use "
+                         "beach_slide (the full-assembly slide)")
+    if _assembly and not (-6.0 <= depth < 0):
+        raise ValueError("beach_slide v1 slides LANDWARD only (-6 <= depth < 0): a "
+                         "seaward slide vacates the berm strip BEHIND the band, and a "
+                         "painted-wash berm has no fill language (the baked-terrain "
+                         "refusal) -- the grass-berm seaward rung is a later vocabulary")
     beach, parts, reg, W, S, x0, x1 = _beach_window(donor, start, end,
                                                     disc=disc, lod=lod, game=game)
     n = len(W)
@@ -1141,7 +1148,7 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
     zhi = max(p[2] for p in S) + 8.0
     zlo = min(p[2] for p in W) - 40.0
     owner, cell_tris, cell_conf = {}, defaultdict(list), set()
-    for name in ("sea2", "sea1", "sea3", "sea5"):
+    for name in ("sea2", "sea1", "sea3", "sea5", "sea4"):
         for t3 in parts[name]:
             c = cell_of(t3)
             if not (xlo <= 4.0 * c[0] <= xhi and zlo <= 4.0 * c[1] <= zhi):
@@ -1157,7 +1164,7 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                 cell_conf.add((name, c))
     shade = {}
     for (name, c), tris in cell_tris.items():
-        if name != "sea1":
+        if name not in ("sea1", "sea5"):
             continue
         decs = {TR.strip_edge_set(t3) for t3 in tris}
         decs.discard(None)
@@ -1219,17 +1226,26 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             j = jn - 1 - k
             c, src = (ci, j), (ci, j + t)
             po, eo = owner.get(src), owner.get(c)
+            if (po is None and eo == "sea4"
+                    and src[1] < int(-(donor[1] + 1) * 64 / 4)):
+                break        # the block frame: beyond is prefab open ocean -- sea4 knits
             if po is None or eo is None:
                 raise ValueError(f"the pullback walks off the census at ({ci},{j})")
-            if "sea5" in (po, eo):
-                raise ValueError(f"the pullback reaches sea5 at ({ci},{j}) -- v1 scope; "
-                                 f"reduce depth")
             ps, es = shade.get(src), shade.get(c)
-            if po == eo and (po != "sea1" or (ps is not None and ps == es)):
+            # a strip band (sea1/sea5 -- ONE learned language, sea1 = sea5's a rung
+            # down) reconciles only shade-to-shade; sea3 (anti-tiling quadrants) and
+            # sea4 (open water, the knit law) reconcile band-to-band. THE GRADED-LADDER
+            # RE-LAY: a full-row slide shifts the whole ladder, so the walk re-labels
+            # sea5's top rows too and terminates in sea4 -- the customer sea5 emission
+            # was proven for (strips_rebuild, 2026-07-10).
+            if po == eo and (po not in ("sea1", "sea5")
+                             or (ps is not None and ps == es)):
                 break                                # reconciled: below stays verbatim
-            if po == "sea1" and ps is None:
-                raise ValueError(f"pullback source ({ci},{j + t}) is sea1 but undecodable")
-            changes[c] = (po, ps if po == "sea1" else None)
+            if po in ("sea1", "sea5") and ps is None:
+                raise ValueError(f"pullback source ({ci},{j + t}) is {po} but "
+                                 f"undecodable (an inset/conforming residual) -- "
+                                 f"shift the window")
+            changes[c] = (po, ps if po in ("sea1", "sea5") else None)
         else:
             raise ValueError(f"column {W[i][0]:.0f}.. never reconciles within 8 rows -- "
                              f"reduce depth")
@@ -1247,72 +1263,89 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             pair = {new_owner(c), new_owner((c[0] + d_[0], c[1] + d_[1]))}
             if None in pair:
                 continue
-            if pair in ({"sea2", "sea3"}, {"sea2", "sea5"}, {"sea1", "sea5"},
+            # {sea1, sea5} is NOT illegal: the real (7,17) ring carries it at
+            # (122,-286)|(123,-286) -- the two strip fields' edge shades explain it
+            # (each band's edge toward the other reads deep/shallow consistently)
+            if pair in ({"sea2", "sea3"}, {"sea2", "sea5"},
                         {"sea2", "sea4"}, {"sea1", "sea4"}):
                 raise ValueError(f"BAND LADDER: the new map makes {sorted(pair)} adjacent "
                                  f"at {c} -- an unreal grade jump; reduce depth")
 
-    # --- THE EDGE-SHADE FIELD: transported, then re-solved (min-flip exact search) ---
-    core = {c for c, (b, _) in changes.items() if b == "sea1"}
-    frontier = set()
-    for c in set(changes) | set(wash_new):
-        for d_ in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nb = (c[0] + d_[0], c[1] + d_[1])
-            if (new_owner(nb) == "sea1" and nb not in core and nb not in changes
-                    and x0 - 0.1 <= 4.0 * nb[0] and 4.0 * nb[0] + 4 <= x1 + 0.1):
-                frontier.add(nb)
-    cells = sorted(core | frontier)
-    cellset = set(cells)
+    # --- THE EDGE-SHADE FIELDS: transported, then re-solved per STRIP band (min-flip
+    # exact search). sea1 and sea5 carry the SAME learned language (sea1 = sea5's one
+    # rung down, the strip-family closure) but are SEPARATE Wang fields: sea1's deep
+    # side is sea3/sea5/sea4, sea5's deep side is sea4 only. ---
     EDGE = {"E": (1, 0), "W": (-1, 0), "N": (0, 1), "S": (0, -1)}
     OPP = {"E": "W", "W": "E", "N": "S", "S": "N"}
-    prefer = {c: (changes[c][1] if c in core else shade.get(c)) for c in cells}
-    pins = {}
-    for c in cells:
-        for e, d_ in EDGE.items():
-            nb = (c[0] + d_[0], c[1] + d_[1])
-            b = new_owner(nb)
-            if b in ("sea3", "sea5", "sea4"):
-                pins[(c, e)] = True                  # deep faces deeper
-            elif b != "sea1":
-                pins[(c, e)] = False                 # wash / beach / land side: shallow
-            elif nb not in cellset:                  # a verbatim sea1 neighbour: pin to it
-                nes = shade.get(nb)
-                if nes is None:
-                    raise ValueError(f"cell {c} edge {e}: verbatim sea1 neighbour {nb} is "
-                                     f"undecodable -- shift the window")
-                pins[(c, e)] = OPP[e] in nes
     domain = sorted(TR.EDGESET2STRIP, key=lambda es: (len(es), sorted(es)))
-    best = [None, len(cells) + 1]
-
-    def _bt(idx, assign, flips):
-        if flips >= best[1]:
-            return
-        if idx == len(cells):
-            best[0], best[1] = dict(assign), flips
-            return
-        c = cells[idx]
-        for es in sorted(domain, key=lambda e_: e_ != prefer[c]):
-            ok = True
-            for e, d_ in EDGE.items():
-                p = pins.get((c, e))
-                if p is not None and (e in es) != p:
-                    ok = False
-                    break
+    solved_by_band, band_of, flipped = {}, {}, []
+    for band, deeper in (("sea1", ("sea3", "sea5", "sea4")), ("sea5", ("sea4",))):
+        core = {c for c, (b, _) in changes.items() if b == band}
+        frontier = set()
+        for c in set(changes) | set(wash_new):
+            for d_ in EDGE.values():
                 nb = (c[0] + d_[0], c[1] + d_[1])
-                if nb in assign and (e in es) != (OPP[e] in assign[nb]):
-                    ok = False
-                    break
-            if ok:
-                assign[c] = es
-                _bt(idx + 1, assign, flips + (es != prefer[c]))
-                del assign[c]
-    _bt(0, {}, 0)
-    if best[0] is None:
-        raise ValueError("EDGE-SHADE SOLVER: no table-valid field fits the new band map -- "
-                         "the transported shades cannot be repaired; reduce depth or shift "
-                         "the window")
-    solved = best[0]
-    flipped = sorted(c for c in frontier if solved[c] != prefer[c])
+                if (new_owner(nb) == band and nb not in core and nb not in changes
+                        and x0 - 0.1 <= 4.0 * nb[0] and 4.0 * nb[0] + 4 <= x1 + 0.1):
+                    frontier.add(nb)
+        if not core and not frontier:
+            solved_by_band[band] = {}
+            continue
+        cells = sorted(core | frontier)
+        cellset = set(cells)
+        prefer = {c: (changes[c][1] if c in core else shade.get(c)) for c in cells}
+        pins = {}
+        for c in cells:
+            for e, d_ in EDGE.items():
+                nb = (c[0] + d_[0], c[1] + d_[1])
+                b = new_owner(nb)
+                if b in deeper:
+                    pins[(c, e)] = True              # deep faces deeper
+                elif b is None and band == "sea5":
+                    pass                             # off-census open water: unpinned
+                elif b != band:
+                    pins[(c, e)] = False             # the shallow side
+                elif nb not in cellset:              # a verbatim same-band neighbour: pin
+                    nes = shade.get(nb)
+                    if nes is None:
+                        raise ValueError(f"cell {c} edge {e}: verbatim {band} neighbour "
+                                         f"{nb} is undecodable -- shift the window")
+                    pins[(c, e)] = OPP[e] in nes
+        best = [None, len(cells) + 1]
+
+        def _bt(idx, assign, flips):
+            if flips >= best[1]:
+                return
+            if idx == len(cells):
+                best[0], best[1] = dict(assign), flips
+                return
+            c = cells[idx]
+            for es in sorted(domain, key=lambda e_: e_ != prefer[c]):
+                ok = True
+                for e, d_ in EDGE.items():
+                    p = pins.get((c, e))
+                    if p is not None and (e in es) != p:
+                        ok = False
+                        break
+                    nb = (c[0] + d_[0], c[1] + d_[1])
+                    if nb in assign and (e in es) != (OPP[e] in assign[nb]):
+                        ok = False
+                        break
+                if ok:
+                    assign[c] = es
+                    _bt(idx + 1, assign, flips + (es != prefer[c]))
+                    del assign[c]
+        _bt(0, {}, 0)
+        if best[0] is None:
+            raise ValueError(f"EDGE-SHADE SOLVER [{band}]: no table-valid field fits the "
+                             f"new band map -- the transported shades cannot be repaired; "
+                             f"reduce depth or shift the window")
+        solved_by_band[band] = best[0]
+        for c in frontier:
+            band_of[c] = band
+        flipped += sorted(c for c in frontier if best[0][c] != prefer[c])
+    for c, (b, _) in changes.items():
+        band_of[c] = b
 
     # --- drops ---
     def in_win(t3):
@@ -1328,7 +1361,7 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
     drop_foam = [t for t in beach if in_win(t)]
     drop_sea2 = [t for t in parts["sea2"] if in_win(t)
                  and sum(v[0][2] for v in t) / 3.0 > zdeep - 0.1]
-    drop_sea1, drop_sea3 = [], []
+    drop_band = {"sea1": [], "sea3": [], "sea5": [], "sea4": []}
     for c in sorted(set(changes) | set(wash_new) | set(flipped)):
         old_b = owner[c]
         if old_b == "sea2":
@@ -1337,11 +1370,13 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             if not all(on_lat(v) for v in t3):
                 raise ValueError(f"changed cell {c} carries a conforming {old_b} tri -- "
                                  f"shift the window off the conforming ring")
-            (drop_sea1 if old_b == "sea1" else drop_sea3).append(t3)
+            drop_band[old_b].append(t3)
+    drop_sea1, drop_sea3, drop_sea5, drop_sea4 = (
+        drop_band[b] for b in ("sea1", "sea3", "sea5", "sea4"))
 
     # --- emissions ---
     posY = {}
-    for name in ("terrain", "sea1", "sea2", "sea3", "sea5", "beach1"):
+    for name in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4", "beach1"):
         for t3 in (beach if name == "beach1" else parts[name]):
             for v in t3:
                 posY.setdefault((round(v[0][0], 4), round(v[0][2], 4)), v[0][1])
@@ -1355,11 +1390,12 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             return (x, posY.get(k, 0.0), z)
         return (x, 0.0, z)                           # interior open water
     nrm_ex, id_ex = {}, {}
-    for name in ("beach1", "sea2", "sea1", "sea3"):
+    for name in ("beach1", "sea2", "sea1", "sea3", "sea5", "sea4"):
         for t3 in (beach if name == "beach1" else parts[name]):
             nrm_ex[name], id_ex[name] = t3[0][1], tuple(t3[0][3])
             break
     foam_emit, sea2_emit, sea1_emit, sea3_emit = [], [], [], []
+    sea5_emit, sea4_emit = [], []
     corner_uvs = _foam_corner_uvs(drop_foam, S, W)
     for i in range(n - 1):
         sl, sr, wl_, wr_ = S2[i], S2[i + 1], W2[i], W2[i + 1]
@@ -1468,11 +1504,16 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             j -= 1
     sea3_map = _sea3_factory()
     for c in sorted(set(changes) | set(flipped)):
-        b = changes[c][0] if c in changes else "sea1"
-        if b == "sea1":
-            emit_cell("sea1", sea1_emit, c, _strip_uvf(c, solved[c]))
+        b = band_of[c]
+        if b in ("sea1", "sea5"):
+            emit_cell(b, sea1_emit if b == "sea1" else sea5_emit, c,
+                      _strip_uvf(c, solved_by_band[b][c]))
         elif b == "sea3":
             emit_cell("sea3", sea3_emit, c, sea3_map(c))
+        elif b == "sea4":
+            emit_cell("sea4", sea4_emit, c, mains_map(c))
+        elif b == "sea2":
+            emit_cell("sea2", sea2_emit, c, mains_map(c))
 
     # sea3 language self-check: the LEARNED quadrant/dihedral-8 fit must hold on REAL
     # nearby sea3 tiles before we emit any (inset rect variants pass within eps)
@@ -1502,27 +1543,283 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             raise ValueError("sea3 here does not read as the learned quadrant language -- "
                              "refuse rather than emit an unverified band")
 
-    # --- the BERM DRAG: terrain tris keep welding to the slid sand seam (land drags --
-    # the proven fine-adjustment mechanism; the emitted foam's seam verts are the SAME
-    # floats, so the weld is bit-exact by construction) ---
-    seam_moves = {S[i]: (0.0, 0.0, dz[i]) for i in range(1, n - 1) if abs(dz[i]) > 1e-9}
-    seam_mv_k = {_pk(p): d for p, d in seam_moves.items()}
-    n_seam = 0
-    for t3 in parts["terrain"]:
-        if not any(_pk(v[0]) in seam_mv_k for v in t3):
-            continue
-        n_seam += sum(_pk(v[0]) in seam_mv_k for v in t3)
-        out = []
-        for (pos, nrm, uv, tan) in t3:
-            d_ = seam_mv_k.get(_pk(pos))
-            if d_ is not None:
-                pos = (pos[0] + d_[0], pos[1] + d_[1], pos[2] + d_[2])
-            out.append((pos, nrm, uv, tan))
-        a0 = TR.VertexDisplace._area2(list(t3))
-        a1 = TR.VertexDisplace._area2(out)
-        if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
-            raise ValueError(f"depth {depth:g} folds a berm tile -- the sand-slide "
-                             f"envelope is geometric; reduce depth")
+    # sea5 emission self-check (the strips_rebuild recipe): every emitted strip cell must
+    # re-decode to its solved edge-set through the learned table
+    for c in sorted({c for c in set(changes) | set(flipped)
+                     if band_of[c] == "sea5"}):
+        cell_new = [t3 for t3 in sea5_emit
+                    if (math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+                        math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0)) == c]
+        got = {TR.strip_edge_set(t3) for t3 in cell_new}
+        got.discard(None)
+        if got != {solved_by_band["sea5"][c]}:
+            raise ValueError(f"sea5 cell {c}: the emitted strip re-decodes to "
+                             f"{[sorted(g) for g in got]} instead of "
+                             f"{sorted(solved_by_band['sea5'][c])} -- the emission "
+                             f"self-check failed")
+    # sea4 language self-check: real nearby sea4 tiles must read as the mains quadrant
+    # language before we emit any. COASTAL sea4 places its quadrants over DIHEDRAL-8
+    # (byte-measured on (7,17) 2026-07-10: a rotation-4 fit misses the mirrored half at
+    # err ~0.49 -- the exact sea3 lesson recurring); the emission's rotation-4 picks are
+    # a lawful subset.
+    if sea4_emit:
+        from .water import URECT as W_URECT, VRECT as W_VRECT
+        maps8 = TR._dih_maps()
+
+        def sea4_fit(t3, eps=0.05):
+            uvf_ = TR._affine_uv(t3)
+            cx = 4.0 * math.floor(sum(v[0][0] for v in t3) / 3 / 4.0)
+            cz = 4.0 * math.floor(sum(v[0][2] for v in t3) / 3 / 4.0)
+            err_best = 1e9
+            for (u0, u1) in W_URECT:
+                for (v0, v1) in W_VRECT:
+                    for m_ in maps8.values():
+                        err = 0.0
+                        for fx in (0, 1):
+                            for fz in (0, 1):
+                                a_, b_ = m_(fx, fz)
+                                u, v = uvf_(cx + 4.0 * fx, cz + 4.0 * fz)
+                                err = max(err, abs(u0 + a_ * (u1 - u0) - u),
+                                          abs(v0 + b_ * (v1 - v0) - v))
+                        err_best = min(err_best, err)
+            return err_best <= eps
+        samples = [t3 for (nm, c), tris in sorted(cell_tris.items()) if nm == "sea4"
+                   and (nm, c) not in cell_conf for t3 in tris][:8]
+        if not samples or not all(sea4_fit(t3) for t3 in samples):
+            raise ValueError("sea4 here does not read as the mains quadrant language -- "
+                             "refuse rather than emit an unverified band")
+
+    ter_drop, ter_emit = [], []
+    if not _assembly:
+        # --- the BERM DRAG: terrain tris keep welding to the slid sand seam (land drags
+        # -- the proven fine-adjustment mechanism; the emitted foam's seam verts are the
+        # SAME floats, so the weld is bit-exact by construction) ---
+        seam_moves = {S[i]: (0.0, 0.0, dz[i]) for i in range(1, n - 1)
+                      if abs(dz[i]) > 1e-9}
+        seam_mv_k = {_pk(p): d for p, d in seam_moves.items()}
+        n_seam = 0
+        for t3 in parts["terrain"]:
+            if not any(_pk(v[0]) in seam_mv_k for v in t3):
+                continue
+            n_seam += sum(_pk(v[0]) in seam_mv_k for v in t3)
+            out = []
+            for (pos, nrm, uv, tan) in t3:
+                d_ = seam_mv_k.get(_pk(pos))
+                if d_ is not None:
+                    pos = (pos[0] + d_[0], pos[1] + d_[1], pos[2] + d_[2])
+                out.append((pos, nrm, uv, tan))
+            a0 = TR.VertexDisplace._area2(list(t3))
+            a1 = TR.VertexDisplace._area2(out)
+            if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+                raise ValueError(f"depth {depth:g} folds a berm tile -- the sand-slide "
+                                 f"envelope is geometric; reduce depth")
+    else:
+        # --- THE FULL-ASSEMBLY SLIDE (beach_slide): the whole ladder rides one profile.
+        # THE FULL-ASSEMBLY LAW (byte-measured 2026-07-10): the sand band is a chain-to-
+        # chain RIBBON in the foam's own grammar -- run columns stretch ONE v-rect
+        # (land 0.5664/74 -> seam 0.5947/57) over real widths 1.8..6.6u ONLY, row B
+        # (0.6006->0.625) is strictly TERMINAL (end columns/wedges, 56/56 map-wide), and
+        # the only multi-row shape is the double-sided spit fold ((3,11), both edges at
+        # the seam value). So a widened band has NO lawful fill: past the drag envelope
+        # the band must MOVE, not stretch -- land chain + seam + waterline together, the
+        # band's tris verbatim (width/density/pins preserved by construction), the berm
+        # strip it moves into CLIPPED at the translated chain (pure bytes, the SpillClip
+        # precedent), the vacated shore re-laid by the language machinery above. ---
+        from .mesh import _clip_edge, _poly_area2_xz  # the proven exact-footprint splitters
+        sand = [t for t in parts["terrain"]
+                if decode_id(int(round(t[0][3][0])))["topograph"] == 31]
+        other = [t for t in parts["terrain"]
+                 if decode_id(int(round(t[0][3][0])))["topograph"] != 31]
+        sand_in = []
+        for t3 in sand:
+            if in_win(t3):
+                sand_in.append(t3)
+            elif any(x0 + 0.1 < v[0][0] < x1 - 0.1 for v in t3):
+                raise ValueError("a sand tri straddles the window frame -- the window "
+                                 "must cover whole band columns")
+        other_k = {_pk(v[0]) for t3 in other for v in t3}
+        seam_set = {_pk(p) for p in S}
+        land_map, inter_map = {}, {}
+        for t3 in sand_in:
+            for v in t3:
+                k = _pk(v[0])
+                if k in seam_set:
+                    continue
+                (land_map if k in other_k else inter_map).setdefault(k, v[0])
+        L = sorted(land_map.values(), key=lambda p: p[0])
+        if len(L) != n or any(abs(L[i][0] - S[i][0]) > 0.05 for i in range(n)):
+            raise ValueError(f"the sand band's LAND chain does not column-match the seam "
+                             f"({len(L)} vs {n} verts) -- beach_slide needs the "
+                             f"(7,17)-class one-quad ribbon")
+
+        def surf_y(x, z):
+            for t3 in other:
+                if _pip_xz(x, z, t3):
+                    (a, b, c) = (v[0] for v in t3)
+                    d_ = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])
+                    if abs(d_) < 1e-9:
+                        continue
+                    w1 = ((x - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (z - a[2])) / d_
+                    w2 = ((b[0] - a[0]) * (z - a[2]) - (x - a[0]) * (b[2] - a[2])) / d_
+                    return a[1] + w1 * (b[1] - a[1]) + w2 * (c[1] - a[1])
+            return None
+        moves = {S[i]: (0.0, 0.0, dz[i]) for i in range(1, n - 1) if abs(dz[i]) > 1e-9}
+        L2 = list(L)
+        for i in range(n):
+            if abs(dz[i]) <= 1e-9:
+                continue
+            zt = L[i][2] + dz[i]
+            yt = surf_y(L[i][0], zt)
+            if yt is None:
+                raise ValueError(f"the translated land chain leaves the painted terrain "
+                                 f"at ({L[i][0]:.0f},{zt:.1f}) -- no berm surface to "
+                                 f"conform to; reduce depth")
+            moves[L[i]] = (0.0, yt - L[i][1], dz[i])
+            L2[i] = (L[i][0], yt, zt)
+        # THE SLOPE GATE: the translated band's cross profile must stay a real beach
+        # ramp (map-wide rise/run envelope 0.097..0.579 over 32 beaches)
+        for i in range(n):
+            run = math.hypot(L2[i][0] - S2[i][0], L2[i][2] - S2[i][2])
+            if run < 0.5:
+                raise ValueError(f"column {L[i][0]:.0f}: the slide pinches the band")
+            sl = (L2[i][1] - S2[i][1]) / run
+            if not (0.08 <= sl <= 0.60):
+                raise ValueError(f"SLOPE GATE: column {L[i][0]:.0f} slides onto a "
+                                 f"{sl:.2f} rise/run berm (real envelope 0.10..0.58) -- "
+                                 f"the beach would climb off-language; reduce depth")
+        for k, p in inter_map.items():
+            i = max(0, min(n - 2, next((j for j in range(n - 1)
+                                        if p[0] <= L[j + 1][0] + 0.01), n - 2)))
+            t_ = (p[0] - L[i][0]) / max(L[i + 1][0] - L[i][0], 1e-6)
+            t_ = max(0.0, min(1.0, t_))
+            dzh = dz[i] + t_ * (dz[i + 1] - dz[i])
+            if abs(dzh) <= 1e-9:
+                continue
+            sz = S[i][2] + t_ * (S[i + 1][2] - S[i][2])
+            lz = L[i][2] + t_ * (L[i + 1][2] - L[i][2])
+            fr = max(0.0, min(1.0, (p[2] - sz) / (lz - sz) if abs(lz - sz) > 1e-6 else 0.0))
+            dyl = (moves.get(L[i], (0, 0, 0))[1]
+                   + t_ * (moves.get(L[i + 1], (0, 0, 0))[1]
+                           - moves.get(L[i], (0, 0, 0))[1]))
+            moves[p] = (0.0, fr * dyl, dzh)
+
+        # the consumed strip (old chain -> translated chain), one convex trapezoid per
+        # column; every berm tri it touches is clipped at the new chain -- pure bytes
+        quads = []
+        for i in range(n - 1):
+            if max(abs(dz[i]), abs(dz[i + 1])) <= 1e-9:
+                continue
+            q = [(L[i][0], L[i][2]), (L[i + 1][0], L[i + 1][2]),
+                 (L2[i + 1][0], L2[i + 1][2]), (L2[i][0], L2[i][2])]
+            # the end columns pin (dz=0) so an end trapezoid degenerates to a triangle;
+            # a repeated vertex makes a zero-length BSP edge that keeps EVERYTHING (the
+            # double-count defect) -- dedupe consecutive verts
+            q = [p for j, p in enumerate(q)
+                 if abs(p[0] - q[j - 1][0]) > 1e-9 or abs(p[1] - q[j - 1][1]) > 1e-9]
+            if len(q) < 3:
+                continue
+            nq = len(q)
+            a2 = sum(q[j][0] * q[(j + 1) % nq][1] - q[(j + 1) % nq][0] * q[j][1]
+                     for j in range(nq))
+            if abs(a2) <= 1e-9:
+                continue
+            if a2 < 0:
+                q.reverse()
+            quads.append((q, abs(a2) / 2.0))
+        strip_area = sum(a for _, a in quads)
+
+        def _clip_quads(t3):
+            """(consumed_area, kept_pieces) of one tri vs the strip polygons -- SH inside
+            + the BSP outside decomposition (split_retarget_by_polygon's proven pattern).
+            Each strip polygon is convex by construction (a pure-z translation trapezoid,
+            deduped)."""
+            pieces, consumed = [list(t3)], 0.0
+            for q, _a in quads:
+                nq = len(q)
+                nxt = []
+                for piece in pieces:
+                    inside = piece
+                    for j in range(nq):
+                        inside = _clip_edge(inside, q[j], q[(j + 1) % nq], keep_left=True)
+                        if len(inside) < 3:
+                            break
+                    ia = _poly_area2_xz(inside) / 2.0 if len(inside) >= 3 else 0.0
+                    if ia <= 1e-6:
+                        nxt.append(piece)
+                        continue
+                    consumed += ia
+                    for j in range(nq):
+                        frag = piece
+                        for jj in range(j):
+                            frag = _clip_edge(frag, q[jj], q[(jj + 1) % nq],
+                                              keep_left=True)
+                            if len(frag) < 3:
+                                break
+                        if len(frag) < 3:
+                            continue
+                        frag = _clip_edge(frag, q[j], q[(j + 1) % nq], keep_left=False)
+                        if len(frag) >= 3 and _poly_area2_xz(frag) > 2e-6:
+                            nxt.append(frag)
+                pieces = nxt
+            return consumed, pieces
+        sand_in_keys = {_key_set(t) for t in sand_in}
+        for t3 in sand:
+            if _key_set(t3) not in sand_in_keys and _clip_quads(t3)[0] > 1e-4:
+                raise ValueError("the consumed strip reaches ANOTHER sand band -- a "
+                                 "component within reach; reduce depth or the window")
+        for t3 in TR.world_tris(*donor, "object", disc=disc, lod=lod, game=game):
+            if _clip_quads(t3)[0] > 1e-4:
+                raise ValueError("the consumed strip reaches the block's prefab Object "
+                                 "ground (the object-anchor law) -- reduce depth")
+        consumed_total, sliver = 0.0, 0.0
+        for t3 in other:
+            consumed, pieces = _clip_quads(t3)
+            if consumed <= 1e-6:
+                continue
+            plan2 = _poly_area2_xz(t3)
+            if plan2 < 0.02 or TR._tri_area2_3d(list(t3)) > 2.0 * plan2:
+                raise ValueError("the consumed strip cuts a STEEP face -- relief is a "
+                                 "component, cut around it never through; reduce depth")
+            kept = sum(_poly_area2_xz(p) / 2.0 for p in pieces)
+            if abs(plan2 / 2.0 - consumed - kept) > 1e-4 * max(1.0, plan2 / 2.0):
+                raise ValueError("PARTITION LEDGER: a clipped berm tri's pieces do not "
+                                 "sum to the original -- a clip defect")
+            consumed_total += consumed
+            ter_drop.append(list(t3))
+            for piece in pieces:
+                for k_ in range(1, len(piece) - 1):
+                    tri = [piece[0], piece[k_], piece[k_ + 1]]
+                    if _poly_area2_xz(tri) <= 1e-6:
+                        sliver += _poly_area2_xz(tri) / 2.0
+                        continue
+                    ter_emit.append(_up_tri(tri))
+        if sliver > 5e-4:
+            raise ValueError("CLIP-DROP LEDGER: real berm area lost to sliver filtering "
+                             "(the hairline law)")
+        if abs(consumed_total - strip_area) > max(0.01 * strip_area, 0.02):
+            raise ValueError(f"STRIP COVERAGE: the consumed strip ({strip_area:.2f} sq-u) "
+                             f"is only {consumed_total:.2f} painted terrain -- the band "
+                             f"would slide into a hole; reduce depth")
+        # no survivor may reference a moved vert (drop-don't-drag, the escape check)
+        mvk = {_pk(p) for p in moves}
+        drop_ks = {_key_set(t) for t in ter_drop}
+        for t3 in other:
+            if any(_pk(v[0]) in mvk for v in t3) and _key_set(t3) not in drop_ks:
+                raise ValueError("a berm tri rides a moved chain vert but escapes the "
+                                 "strip clip -- the drag this verb exists to remove")
+        seam_moves = moves
+        drop_all_keys = drop_ks | {_key_set(t) for t in
+                                   drop_foam + drop_sea2 + drop_sea1 + drop_sea3
+                                   + drop_sea5 + drop_sea4}
+        n_seam = 0
+        for name in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4"):
+            for t3 in parts[name]:
+                if _key_set(t3) in drop_all_keys:
+                    continue
+                n_seam += sum(1 for v in t3 if _pk(v[0]) in mvk)
+        for t3 in beach:
+            if _key_set(t3) not in drop_all_keys:
+                n_seam += sum(1 for v in t3 if _pk(v[0]) in mvk)
 
     # --- gates: union crack (move-aware) + water density + the ledger ---
     def once(tris):
@@ -1532,8 +1829,8 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             for i2 in range(3):
                 ec[frozenset((_pk(ps[i2]), _pk(ps[(i2 + 1) % 3])))] += 1
         return {e for e, cn in ec.items() if cn == 1}
-    all_drop = drop_foam + drop_sea2 + drop_sea1 + drop_sea3
-    all_emit = foam_emit + sea2_emit + sea1_emit + sea3_emit
+    all_drop = drop_foam + drop_sea2 + drop_sea1 + drop_sea3 + drop_sea5 + drop_sea4
+    all_emit = foam_emit + sea2_emit + sea1_emit + sea3_emit + sea5_emit + sea4_emit
     # the sand-seam boundary MOVED with the slide: map the dropped hole's seam verts
     # through the move before comparing (the dragged terrain sits at the new positions)
     mv = {_pk(S[i]): _pk(S2[i]) for i in range(n)}
@@ -1559,7 +1856,9 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
         return (math.sqrt(max((s1 + s2) / 2, 0.0)), math.sqrt(max((s1 - s2) / 2, 0.0)))
     for name, dropped, emitted in (("sea2", drop_sea2, sea2_emit),
                                    ("sea1", drop_sea1 or parts["sea1"], sea1_emit),
-                                   ("sea3", drop_sea3 or parts["sea3"], sea3_emit)):
+                                   ("sea3", drop_sea3 or parts["sea3"], sea3_emit),
+                                   ("sea5", drop_sea5 or parts["sea5"], sea5_emit),
+                                   ("sea4", drop_sea4 or parts["sea4"], sea4_emit)):
         if not emitted:
             continue
         real_sv = [sv for t3 in dropped if (sv := uv_sv(t3))]
@@ -1575,13 +1874,42 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                           TR.DropTris("sea2", drop_sea2),
                           TR.DropTris("sea1", drop_sea1) if drop_sea1 else None,
                           TR.DropTris("sea3", drop_sea3) if drop_sea3 else None,
+                          TR.DropTris("sea5", drop_sea5) if drop_sea5 else None,
+                          TR.DropTris("sea4", drop_sea4) if drop_sea4 else None,
+                          TR.DropTris("terrain", ter_drop) if ter_drop else None,
                           TR.VertexDisplace(moves=seam_moves, expected=n_seam)
                           if seam_moves else None,
                           TR.EmitTris("beach1", foam_emit),
                           TR.EmitTris("sea2", sea2_emit),
                           TR.EmitTris("sea1", sea1_emit) if sea1_emit else None,
-                          TR.EmitTris("sea3", sea3_emit) if sea3_emit else None)
+                          TR.EmitTris("sea3", sea3_emit) if sea3_emit else None,
+                          TR.EmitTris("sea5", sea5_emit) if sea5_emit else None,
+                          TR.EmitTris("sea4", sea4_emit) if sea4_emit else None,
+                          TR.EmitTris("terrain", ter_emit) if ter_emit else None)
             if tw is not None]
+
+
+def beach_slide(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+    """THE FULL-ASSEMBLY SLIDE (Path B resolved, 2026-07-10) -- TRUE beach movement past
+    the +-2.5u drag cap. The banked 'mirror continuation' fill was FALSIFIED by the sand
+    census: the run band's one v-rect stretches over real widths 1.8..6.6u ONLY, row B is
+    strictly terminal (56/56 tris map-wide sit at ends/wedges), the sole multi-row shape
+    is the double-sided spit fold, and run-seam verts pin to 0.5947/0.5957 with zero
+    exceptions -- so a WIDENED single-sided band has no lawful fill at any width past the
+    drag envelope. What the artists do instead is move the WHOLE ladder with the coast.
+    Hence: the land chain rides the same sin^2 profile as the seam + waterline (the HUG
+    law completed one chain landward), the sand band translates VERBATIM (width, texel
+    density and both chain pins preserved by construction), the berm strip it moves into
+    is CLIPPED at the translated chain (pure real bytes -- the SpillClip/watchtower
+    precedent, T-junctions on-line by construction), the band's y re-conforms to the
+    clipped berm surface (SLOPE GATE: the real 0.10..0.58 rise/run envelope), and the
+    vacated shore re-lays through beach_reshape's proven water machinery (wash re-band +
+    patchwork pullback + edge-shade re-solve + density/crack gates). LANDWARD-ONLY v1
+    (depth < 0, the pocket-deepening direction): a seaward slide vacates the strip BEHIND
+    the band, which on (7,17)-class berms is a painted wash -- no fill language (the
+    baked-terrain refusal); the grass-berm seaward rung is the next vocabulary."""
+    return beach_reshape(donor, start, end, depth, disc=disc, lod=lod, game=game,
+                         _assembly=True)
 
 
 def _outline_min_clear(pts):

@@ -265,6 +265,65 @@ def test_beach_reshape_refusals():
         CM.beach_reshape(DONOR, (480.0, -1120.0), (496.0, -1125.0), 1.0)
 
 
+def test_beach_slide_golden():
+    """THE FULL-ASSEMBLY SLIDE (Path B resolved 2026-07-10) at the target depth -4.0 --
+    past both old caps (drag fold -1.5 / hard 2.6). THE FULL-ASSEMBLY LAW (the sand
+    census): the run band's one v-rect stretches over 1.8-6.6u only, row B is strictly
+    terminal, run-seam v pins to 0.5947/0.5957 with zero exceptions -- a widened band has
+    no lawful fill, so the WHOLE ladder moves: the band translates verbatim, the berm
+    strip clips at the translated chain (18 mural tris -> 26 pieces), and the vacated
+    shore re-lays ALL the way down the graded ladder (wash + sea1 ring + sea3 + sea5 by
+    the learned table + a sea4 row -- sea4 grows landward, reconciling at the block
+    frame where prefab ocean knits)."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import decode_id
+    tw = CM.beach_slide(DONOR, BEACH_START, BEACH_END, -4.0)
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in tw]
+    assert led == [("beach1", ("drop", 14)), ("sea2", ("drop", 18)),
+                   ("sea1", ("drop", 22)), ("sea3", ("drop", 2)),
+                   ("sea5", ("drop", 10)), ("terrain", ("drop", 18)),
+                   (None, ("displace", 42)),
+                   ("beach1", ("emit", 16)), ("sea2", ("emit", 24)),
+                   ("sea1", ("emit", 22)), ("sea3", ("emit", 4)),
+                   ("sea5", ("emit", 10)), ("sea4", ("emit", 4)),
+                   ("terrain", ("emit", 26))]
+    assert _tweak_hash(tw) == "b86f68ebd7a9e9c4"
+    # BAND RIGIDITY: every moved vert in one column (seam + land + interior) shares one
+    # dz -- the band translates, never strains (widths/density/pins by construction)
+    disp = next(t for t in tw if hasattr(t, "moves"))
+    byx = {}
+    for (x, y, z), d in disp.moves.items():
+        byx.setdefault(round(x, 1), set()).add(round(d[2], 6))
+    assert all(len(s) == 1 for s in byx.values())
+    # seam verts ride flat (dy=0); land verts re-conform UP the berm (landward is higher)
+    dys = sorted(round(d[1], 3) for d in disp.moves.values())
+    assert dys[0] == 0.0 and dys[-1] > 0.3
+    # the berm clip drops ONLY non-sand terrain (the band itself is never dropped)
+    ter_drop = next(t for t in tw if hasattr(t, "keys") and t.part == "terrain")
+    from ff9mapkit.world import transplant as TR
+    sand_keys = {frozenset(CM._pk(v[0]) for v in t3)
+                 for t3 in TR.world_tris(*DONOR, "terrain")
+                 if decode_id(int(round(t3[0][3][0])))["topograph"] == 31}
+    assert not (ter_drop.keys & sand_keys)
+
+
+def test_beach_slide_refusals():
+    from ff9mapkit.world import coastmorph as CM
+    # LANDWARD-ONLY v1: a seaward slide vacates the berm strip BEHIND the band, and a
+    # painted-wash berm has no fill language (the baked-terrain refusal)
+    with pytest.raises(ValueError, match="LANDWARD only"):
+        CM.beach_slide(DONOR, BEACH_START, BEACH_END, 2.0)
+    with pytest.raises(ValueError, match="LANDWARD only"):
+        CM.beach_slide(DONOR, BEACH_START, BEACH_END, -6.5)
+    # the -2.0..-2.5 valley: the wash width-envelope (BAND GATE) refuses fractional-row
+    # slides on the 6.7u/4.0u jump column; full-row depths (-3.0+) re-band cleanly
+    with pytest.raises(ValueError, match="BAND GATE"):
+        CM.beach_slide(DONOR, BEACH_START, BEACH_END, -2.0)
+
+
 def test_structural_refuses_a_grassless_top():
     from ff9mapkit.world import coastmorph as CM
     # the (9,5) continent-island-A donor has ZERO grass (highland/mural top families) --

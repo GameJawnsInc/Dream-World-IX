@@ -2439,7 +2439,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
                 or args.beach_bump or args.beach_rebuild or args.beach_reshape
-                or args.strips_rebuild):
+                or args.beach_slide or args.strips_rebuild):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2447,7 +2447,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                              (args.cliff_headland, CM.cliff_headland),
                              (args.cliff_bay, CM.cliff_bay),
                              (args.beach_bump, CM.beach_bump),
-                             (args.beach_reshape, CM.beach_reshape)):
+                             (args.beach_reshape, CM.beach_reshape),
+                             (args.beach_slide, CM.beach_slide)):
                 if not spec:
                     continue
                 s0, s1, sd = spec.split(":")
@@ -5207,6 +5208,15 @@ def build_parser() -> argparse.ArgumentParser:
                           "gates direction: a beach may deepen its own curvature (a pocket deepens landward, "
                           "a headland-nose grows seaward) but never cross its chord toward the opposite "
                           "class -- the coast behind it sets the class.")
+    wtp.add_argument("--beach-slide", default=None, metavar="X0,Z0:X1,Z1:D",
+                     help="the FULL-ASSEMBLY beach slide -- true beach movement past the +-2.5u drag cap: "
+                          "the LAND CHAIN rides the same sin^2 profile as the sand seam + waterline (the "
+                          "hug law completed), the sand band translates VERBATIM (width/texel density/chain "
+                          "pins preserved by construction -- the sand census proved a widened band has no "
+                          "lawful fill: one v-rect stretches 1.8-6.6u only, row B is terminal-only), the "
+                          "berm strip it moves into is CLIPPED at the translated chain (pure bytes), the "
+                          "band y re-conforms (slope gate 0.10-0.58), and the vacated shore re-lays through "
+                          "the beach-reshape water machinery. LANDWARD ONLY v1 (D < 0, pocket deepening).")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
