@@ -1560,6 +1560,82 @@ def test_cut_census_spill_certification_hermetic(monkeypatch):
     assert cen2[72.0]["spill_clips"] == []
 
 
+def test_cliff_transition_laws_on_real_bytes():
+    """THE CLIFF-FACE TRANSITION STUDY (checklist item, 2026-07-09), pinned live: on a real
+    coastal block, (a) THE LIP TEXEL LAW -- every grass|cliff TOP crease edge sits on the one
+    global painted lip row (face UV v ~= 0.89; the synth constants in
+    terrain._apply_cliff_rock_uvs, 0.893/0.923, were derived independently from a wall
+    survey and agree); (b) THE CONFORMING-CREASE LAW -- lip grass is crease-conforming
+    deformed geometry, not lattice tiles (map-wide: 99%); (c) THE FREE-BASE LAW -- no
+    face BASE edge is shared with walkable terrain (faces terminate free at/below the
+    waterline; topo-58 is coastal-only, inland terraces are painted highland relief)."""
+    import collections
+    import math as _m
+    from ff9mapkit.world.extract import decode_id as _dec
+
+    def _key(p):
+        return (round(p[0], 3), round(p[1], 3), round(p[2], 3))
+
+    tris = [t for b in ((16, 17), (9, 17)) for t in TR.world_tris(*b, "terrain")]
+    topos = [_dec(int(round(t[0][3][0])))["topograph"] for t in tris]
+    edges = collections.defaultdict(list)
+    for i, t in enumerate(tris):
+        for a in range(3):
+            e = frozenset((_key(t[a][0]), _key(t[(a + 1) % 3][0])))
+            if len(e) == 2:
+                edges[e].append(i)
+    top_v, base_shared, lip_lattice, lip_conforming = [], 0, 0, 0
+    for e, owners in edges.items():
+        tset = {topos[i] for i in owners}
+        if len(owners) < 2 or 58 not in tset or len(tset) < 2:
+            continue
+        ci = next(i for i in owners if topos[i] == 58)
+        oi = next(i for i in owners if topos[i] != 58)
+        ys = [v[0][1] for v in tris[ci]]
+        if max(ys) - min(ys) < 0.5:
+            continue
+        rel = ((sum(p[1] for p in e) / 2.0) - min(ys)) / (max(ys) - min(ys))
+        if rel < 0.3:
+            base_shared += 1
+        elif rel > 0.7 and topos[oi] == 0:
+            onv = [v[2][1] for v in tris[ci] if _key(v[0]) in e]
+            top_v.append(sum(onv) / len(onv))
+            g = tris[oi]
+            xs = [v[0][0] for v in g]
+            zs = [v[0][2] for v in g]
+            lat = (all(abs(c / 4.0 - round(c / 4.0)) < 2.5e-4 for c in xs + zs)
+                   and max(xs) - min(xs) <= 4.0 + 1e-4 and max(zs) - min(zs) <= 4.0 + 1e-4)
+            lip_lattice += lat
+            lip_conforming += not lat
+    assert len(top_v) >= 10
+    assert all(abs(v - 0.893) < 0.02 for v in top_v)             # the GRASS lip row
+    assert base_shared == 0                                       # the free-base law
+    assert lip_conforming > 3 * max(lip_lattice, 1)               # conforming-crease law
+    # THE LIP-ROW VOCABULARY: the row is keyed by the TOP family -- highland (17/38) tops
+    # use their own painted row (0.872), measured on the (9,5) island's data cells.
+    tris2 = [t for b in ((9, 6), (10, 6)) for t in TR.world_tris(*b, "terrain")]
+    topos2 = [_dec(int(round(t[0][3][0])))["topograph"] for t in tris2]
+    edges2 = collections.defaultdict(list)
+    for i, t in enumerate(tris2):
+        for a in range(3):
+            e = frozenset((_key(t[a][0]), _key(t[(a + 1) % 3][0])))
+            if len(e) == 2:
+                edges2[e].append(i)
+    hi_v = []
+    for e, owners in edges2.items():
+        tset = {topos2[i] for i in owners}
+        if len(owners) < 2 or 58 not in tset or not (tset & {17, 38}):
+            continue
+        ci = next(i for i in owners if topos2[i] == 58)
+        ys = [v[0][1] for v in tris2[ci]]
+        if max(ys) - min(ys) < 0.5:
+            continue
+        if ((sum(p[1] for p in e) / 2.0) - min(ys)) / (max(ys) - min(ys)) > 0.7:
+            onv = [v[2][1] for v in tris2[ci] if _key(v[0]) in e]
+            hi_v.append(sum(onv) / len(onv))
+    assert len(hi_v) >= 5 and all(abs(v - 0.872) < 0.02 for v in hi_v)
+
+
 def test_learned_wang_table_validates_on_real_bytes():
     """THE LEARNED WANG TABLE (band-crossing re-Wang step 1, 2026-07-09): a real Wang strip
     tile is a PURE FUNCTION of which neighbours sit on the deeper band -- byte-learned over
