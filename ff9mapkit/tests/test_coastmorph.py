@@ -163,6 +163,91 @@ def test_beach_bump_refuses_a_non_waterline_run():
         CM.beach_bump(DONOR, (480.0, -1120.0), (496.0, -1125.0), 2.0)
 
 
+def _tweak_hash(tweaks):
+    import hashlib as _h
+    sig = []
+    for t in tweaks:
+        if hasattr(t, "keys"):
+            sig.append((t.part, sorted(sorted(k) for k in t.keys)))
+        elif hasattr(t, "tris"):
+            sig.append((t.part, sorted(
+                tuple(round(c, 6) for v in t3 for c in (list(v[0]) + list(v[2])))
+                for t3 in t.tris)))
+        else:
+            sig.append(("displace", sorted(
+                (k, tuple(round(x, 6) for x in v)) for k, v in t.moves.items())))
+    return _h.sha256(repr(sig).encode()).hexdigest()[:16]
+
+
+def test_beach_rebuild_golden():
+    """Identity mode (rung 2 step 1, in-game proven ~indistinguishable 2026-07-10) -- the
+    full tweak hash also pins the helper extraction as behavior-preserving."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_rebuild(DONOR, BEACH_START, BEACH_END)
+    assert [(t.part, getattr(t, "expected", None) or len(t.tris)) for t in tw] == [
+        ("beach1", 14), ("sea2", 18), ("sea1", 26),
+        ("beach1", 14), ("sea2", 18), ("sea1", 26)]
+    assert _tweak_hash(tw) == "0ebffe558640a7d0"
+
+
+def test_beach_reshape_golden_transport():
+    """The SHAPE morph (rung 2 step 2) at the lawful depth where the band TRANSPORT
+    fires. THE HUG LAW: the ASSEMBLY slides (sand seam + waterline together, the berm
+    terrain drags) so the swash ribbon stays its near-constant within-beach width. THE
+    SHAPE-CLASS LAW: (7,17) is a POCKET beach (concave to its chord), so the lawful
+    direction is LANDWARD -- the pocket deepens, a column sheds a wash row, the vacated
+    cells re-lay as sea1 (learned table), a sea1 cell returns to sea3 (learned
+    quadrant/dihedral-8), and the edge-shade solver repairs exactly the Wang agreements
+    the new map forces."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -1.0)
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in tw]
+    assert led == [("beach1", ("drop", 14)), ("sea2", ("drop", 18)),
+                   ("sea1", ("drop", 6)),
+                   (None, ("displace", 20)),
+                   ("beach1", ("emit", 16)), ("sea2", ("emit", 24)),
+                   ("sea1", ("emit", 6)), ("sea3", ("emit", 2))]
+    assert _tweak_hash(tw) == "2efc3ce72e461cc0"
+
+
+def test_beach_reshape_identity_is_a_rebuild():
+    """Depth 0 degenerates to a pure re-derivation: no band shifts, no sea1/sea3 changes,
+    the same drop scope as identity mode."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 0.0)
+    assert [(t.part, hasattr(t, "keys")) for t in tw] == [
+        ("beach1", True), ("sea2", True), ("beach1", False), ("sea2", False)]
+
+
+def test_beach_reshape_shallow_landward_stays_conforming():
+    """A shallow landward morph (no band shift) still slides the assembly + re-lays the
+    foam/wash -- the degenerate no-transport case stays lawful."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -0.5)
+    parts = [(getattr(t, "part", None), hasattr(t, "keys")) for t in tw]
+    assert ("sea3", True) not in parts and ("sea1", True) not in parts
+
+
+def test_beach_reshape_refusals():
+    from ff9mapkit.world import coastmorph as CM
+    # THE SHAPE-CLASS GATE: (7,17) is a pocket beach -- EVERY seaward depth crosses its
+    # chord toward the convex class (the in-game 'extruded ends' read, made a refusal)
+    with pytest.raises(ValueError, match="SHAPE-CLASS GATE"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 1.0)
+    # the berm's own geometric fold limit (the sand-slide compresses the berm landward)
+    with pytest.raises(ValueError, match="folds a berm tile"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -1.5)
+    # the sand-slide drags the berm -- the land-drag envelope caps depth outright
+    with pytest.raises(ValueError, match="land-drag envelope"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 3.5)
+    # sand-seam endpoints are not a waterline run
+    with pytest.raises(ValueError, match="matched waterline/sand columns|waterline"):
+        CM.beach_reshape(DONOR, (480.0, -1120.0), (496.0, -1125.0), 1.0)
+
+
 def test_structural_refuses_a_grassless_top():
     from ff9mapkit.world import coastmorph as CM
     # the (9,5) continent-island-A donor has ZERO grass (highland/mural top families) --
