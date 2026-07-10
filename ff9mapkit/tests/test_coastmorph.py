@@ -283,6 +283,23 @@ def test_headland_refuses_an_illegal_gap_count():
         CM.cliff_headland(DONOR, START, (504.0, -1110.765625), 6.0)
 
 
+def test_strips_rebuild_golden():
+    """SEA5 EMISSION -- the strip-band identity rebuild: every decodable sea1 + sea5 cell
+    of (7,17) re-derived from the learned table (the emission self-check re-decodes every
+    emitted cell in-function). Positions identity, UVs re-derived -- the deployed-bytes
+    differential vs a verbatim clone shows UV-only changes on decoded cells."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.strips_rebuild(DONOR)
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("sea1", 26), ("sea1", 26), ("sea5", 61), ("sea5", 61)]
+    assert _tweak_hash(tw) == _tweak_hash(CM.strips_rebuild(DONOR))  # deterministic
+    # positions are identity: every emitted tri's vertex set exists in the stock mesh
+    emit1 = next(t for t in tw if not hasattr(t, "keys") and t.part == "sea1")
+    from ff9mapkit.world import transplant as TR
+    stock = {frozenset(CM._pk(v[0]) for v in t3) for t3 in TR.world_tris(*DONOR, "sea1")}
+    assert all(frozenset(CM._pk(v[0]) for v in t3) in stock for t3 in emit1.tris)
+
+
 def test_cliff_clearance_gate():
     """THE CLEARANCE GATE -- the cliff shape law: cliffs are class-free (a headland on a
     bay rim read clean in-game, (16,9)) and push shear is harmless (the wall REBUILDS --
