@@ -1,0 +1,31 @@
+# continent_v1.toml -- the FIRST CUSTOM CONTINENT: four verbatim donor islands fused
+# into one archipelago in the open SW ocean pocket of the disc-1 overworld (block cells
+# rows 12-19, cols 0-5 -- clear of every real landmass and every prior scratch deploy).
+#
+# Deploy (needs the custom engine's WorldMeshOverride patch):
+#   py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap --dry-run   # validate
+#   py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap             # deploy
+#
+# In-game proven 2026-07-09: all four islands render + walk; the A/B strait at z=-960
+# (the one fuse-certified shared border, 32 rows) is seam-free.
+
+[[placement]]      # A -- the cliff/highland island (the proven (9,5) donor, verbatim)
+cell = [0, 12]
+donor = [9, 5]
+size = [2, 3]
+
+[[placement]]      # B -- the shore/shallow-water island (the proven (10,17) donor), FUSED south of A
+cell = [0, 15]
+donor = [10, 17]
+size = [2, 2]
+
+[[placement]]      # C -- the real beach island (7,17), standalone, 2-cell buffer from A/B
+cell = [3, 18]
+donor = [7, 17]
+size = [1, 1]
+land_margin = 0.0   # required: (7,17)'s land legitimately reaches its own E frame edge (a real hard-cut coast)
+
+[[placement]]      # D -- Uaho (0,0), the all-cliff airship/flying-chocobo-only islet, standalone
+cell = [5, 19]
+donor = [0, 0]
+size = [1, 1]
