@@ -77,6 +77,32 @@ def test_headland_golden_build():
     assert h[:16] == GOLDEN_HASH
 
 
+#: the bay's proven-build hash (D=6 on the same window; deployed at (12,9) 2026-07-10)
+GOLDEN_BAY_HASH = "232a4c1c4dd2b634"
+
+
+def test_bay_golden_build():
+    from ff9mapkit.world import coastmorph as CM
+    drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_bay(DONOR, START, END, 6.0)
+    # 8 wall + 15 grass dropped (the crease-footprint extension) / 11 sea / zero survivors
+    assert drop_t.expected == 23 and drop_s.expected == 11
+    assert disp.expected == 0
+    assert len(emit_t.tris) == 29 and len(emit_s.tris) == 15
+    def sig(tris, uv=True):
+        return sorted(tuple(round(c, 6) for v in t3 for c in
+                            (list(v[0]) + (list(v[2]) if uv else []))) for t3 in tris)
+    h = hashlib.sha256(repr(sig(emit_t.tris, uv=False) + sig(emit_s.tris)).encode()).hexdigest()
+    assert h[:16] == GOLDEN_BAY_HASH
+
+
+def test_bay_refuses_a_component_reach():
+    from ff9mapkit.world import coastmorph as CM
+    # at depth 8 the bay's inland outline reaches past the window's grass component --
+    # the containment gate refuses (the component laws, made a build-time refusal)
+    with pytest.raises(ValueError, match="escapes the drop sets"):
+        CM.cliff_bay(DONOR, START, END, 8.0)
+
+
 def test_headland_refuses_an_illegal_gap_count():
     from ff9mapkit.world import coastmorph as CM
     # a 3-gap sub-window (492..504) breaks the deterministic-U-ramp mod-4 law

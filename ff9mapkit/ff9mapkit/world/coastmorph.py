@@ -303,6 +303,22 @@ def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
     outline with ONE inserted column per gap (the gap count must be a multiple of 4 -- the
     deterministic-U-ramp law), re-fill the grass wedge natively on the 4u lattice, and zip
     the sea back to the new outline. Every law gate runs here at build time."""
+    return _cliff_reshape(donor, start, end, depth, 1.0, disc=disc, lod=lod, game=game)
+
+
+def cliff_bay(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The structural BAY -- the promontory's inward mirror: the outline is pushed LANDWARD,
+    the wedge consumes grass instead of sea (the grass drop set extends by wedge overlap,
+    exactly as the sea side does for a headland), the rebuilt wall lines the bay's rim, and
+    the sea zips landward over the vacated wedge. Zip tris beyond any dropped sea tile take
+    the nearest tile's map TRANSLATE-CLONED (evaluated at the position shifted back into the
+    source tile's own 4u cell -- the proven water fill vocabulary, never raw extrapolation).
+    Same laws, same gates; the sea ledger flips (emitted - dropped == the wedge)."""
+    return _cliff_reshape(donor, start, end, depth, -1.0, disc=disc, lod=lod, game=game)
+
+
+def _cliff_reshape(donor, start, end, depth, sign, *, disc: int = 1, lod: str = "0_1",
+                   game=None):
     win = CliffWindow(donor, start, end, disc=disc, lod=lod, game=game)
     ncols = len(win.base)
     gaps = ncols - 1
@@ -346,13 +362,13 @@ def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
                 return tuple(a[k] + f * (b[k] - a[k]) for k in range(3))
             acc += seg
         return chain[-1]
-    bump_of = lambda t_: depth * math.sin(math.pi * t_) ** 2
+    bump_of = lambda t_: sign * depth * math.sin(math.pi * t_) ** 2
     new_base, new_crease = [], []
     for t_, (kind, i) in zip(params, kinds):
         d = bump_of(t_)
         if kind == "old":
-            nb = win.moved(win.base[i], d) if d > 1e-9 else win.base[i]
-            nc = win.moved(win.crease[i], d) if d > 1e-9 else win.crease[i]
+            nb = win.moved(win.base[i], d) if abs(d) > 1e-9 else win.base[i]
+            nc = win.moved(win.crease[i], d) if abs(d) > 1e-9 else win.crease[i]
         else:
             nb = win.moved(interp_chain(win.base, t_ * LB), d)
             nb = (nb[0], 0.0, nb[2])
@@ -370,20 +386,48 @@ def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
             for p in (win.base[i], win.crease[i]):
                 head_moves[p] = (d * win.nhat[0], 0.0, d * win.nhat[1])
 
-    # --- the extended sea drop set: moved-vert fans + wedge overlap ---
+    # --- the extended drop sets: moved-vert fans + wedge overlap (the wedge consumes SEA
+    # for a headland and GRASS for a bay -- both sides get the symmetric overlap clause) ---
     wedge_poly = [(p[0], p[2]) for p in new_base] + \
                  [(p[0], p[2]) for p in reversed(win.base)]
-    drop_sea = []
-    for t3 in win.sea4:
-        ks = _key_set(t3)
-        if (ks & moved_bk or any(_in_poly(v[0][0], v[0][2], wedge_poly) for v in t3)
-                or any(_pip_xz(px, pz, t3) for (px, pz) in wedge_poly)):
-            drop_sea.append(t3)
-    for i, nb in enumerate(new_base[1:-1], 1):
-        if not any(_pip_xz(nb[0], nb[2], t3) for t3 in drop_sea):
-            raise ValueError(f"new outline vert {i} escapes the sea drop set -- depth too "
-                             f"large for the local water (extend impossible: non-sea4 or "
-                             f"frame within reach)")
+
+    def _pip_strict(px, pz, t3, eps=1e-6):
+        (ax, _, az), (bx, _, bz), (cx, _, cz) = (v[0] for v in t3)
+        d1 = (px - bx) * (az - bz) - (ax - bx) * (pz - bz)
+        d2 = (px - cx) * (bz - cz) - (bx - cx) * (pz - cz)
+        d3 = (px - ax) * (cz - az) - (cx - ax) * (pz - az)
+        return (d1 > eps and d2 > eps and d3 > eps) or (d1 < -eps and d2 < -eps and d3 < -eps)
+
+    def _overlaps(t3, poly):
+        # STRICT interior only -- a tri merely TOUCHING the footprint boundary (a fixed
+        # window-end vert on its edge) must not drop; boundary-inclusive tests over-drop
+        cx = sum(v[0][0] for v in t3) / 3.0
+        cz = sum(v[0][2] for v in t3) / 3.0
+        return (_in_poly(cx, cz, poly)
+                or any(_in_poly(v[0][0], v[0][2], poly) for v in t3)
+                or any(_pip_strict(px, pz, t3) for (px, pz) in poly))
+    # the sea overlap keeps the PROVEN headland semantics exactly (boundary-inclusive --
+    # shore-touching tiles are fan members anyway); only the grass path is strict
+    drop_sea = [t3 for t3 in win.sea4
+                if _key_set(t3) & moved_bk
+                or any(_in_poly(v[0][0], v[0][2], wedge_poly) for v in t3)
+                or any(_pip_xz(px, pz, t3) for (px, pz) in wedge_poly)]
+    # grass is consumed up to the CREASE line (the land component begins there, one wall-run
+    # inland of the base) -- a bay's grass overlap tests the crease-based footprint
+    crease_poly = [(p[0], p[2]) for p in new_crease] + \
+                  [(p[0], p[2]) for p in reversed(win.crease)]
+    have = {_key_set(t) for t in drop_grass}
+    drop_grass = drop_grass + [t3 for t3 in win.grass
+                               if _key_set(t3) not in have and _overlaps(t3, crease_poly)]
+    # every interior outline vert (base AND crease) must land in DROPPED territory (sea for
+    # a headland, grass/wall for a bay) -- else the refill polygons cannot contain it
+    dropped_all = drop_sea + drop_wall + drop_grass
+    for chain in (new_base, new_crease):
+        for i, nb in enumerate(chain[1:-1], 1):
+            if not any(_pip_xz(nb[0], nb[2], t3) for t3 in dropped_all):
+                raise ValueError(f"new outline vert {i} escapes the drop sets -- depth too "
+                                 f"large for the local terrain/water (a component or frame "
+                                 f"within reach)")
 
     # --- wall emissions: per-quad corner copy by LEFT-COLUMN PHASE (wrap seams come free) ---
     def quad_corners(qi):
@@ -555,9 +599,14 @@ def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
         cell_tile.setdefault((math.floor(cx / 4.0), math.floor(cz / 4.0)), t3)
 
     def tile_for(cx, cz):
+        """The zip tri's source tile + a translate offset: the centroid's own cell if a
+        dropped tile covers it (offset zero -- the proven headland path), else the nearest
+        dropped tile TRANSLATE-CLONED by the integer 4u cell delta (the proven water fill
+        vocabulary -- the map is evaluated inside the source tile's own footprint, never
+        raw-extrapolated tiles away; a bay's new water sits beyond every dropped tile)."""
         c = (math.floor(cx / 4.0), math.floor(cz / 4.0))
         if c in cell_tile:
-            return cell_tile[c]
+            return cell_tile[c], (0.0, 0.0)
         best, bd = None, 1e18
         for t3 in drop_sea:
             tx = sum(v[0][0] for v in t3) / 3.0
@@ -565,18 +614,23 @@ def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
             d2 = (cx - tx) ** 2 + (cz - tz) ** 2
             if d2 < bd:
                 best, bd = t3, d2
-        return best
+        bx_ = sum(v[0][0] for v in best) / 3.0
+        bz_ = sum(v[0][2] for v in best) / 3.0
+        bc = (math.floor(bx_ / 4.0), math.floor(bz_ / 4.0))
+        return best, (4.0 * (c[0] - bc[0]), 4.0 * (c[1] - bc[1]))
     idall_sea = tuple(drop_sea[0][0][3])
     ring_nrm = nrm_of[bk[len(bk) // 2]]
     sea_ring = []
     for (pa, pb, pc) in zip_tris:
         cx = (pa[0] + pb[0] + pc[0]) / 3.0
         cz = (pa[2] + pb[2] + pc[2]) / 3.0
-        uvf = TR._affine_uv(tile_for(cx, cz))
+        src, (ox, oz) = tile_for(cx, cz)
+        uvf = TR._affine_uv(src)
         # PURE affine, no clamp: the tri carries EXACTLY a real tile's map (a clamp squashes
         # far verts onto the bbox edge = smear); extrapolation lands in a sibling quadrant of
         # the same tiling water texture -- content, not gutter.
-        t3 = [(p, ring_nrm, tuple(uvf(p[0], p[2])), idall_sea) for p in (pa, pb, pc)]
+        t3 = [(p, ring_nrm, tuple(uvf(p[0] - ox, p[2] - oz)), idall_sea)
+              for p in (pa, pb, pc)]
         ux, uz = t3[1][0][0] - t3[0][0][0], t3[1][0][2] - t3[0][0][2]
         vx, vz = t3[2][0][0] - t3[0][0][0], t3[2][0][2] - t3[0][0][2]
         if uz * vx - ux * vz <= 0:
@@ -621,8 +675,9 @@ def cliff_headland(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
         (x1, z1), (x2, z2) = wedge_poly[i], wedge_poly[(i + 1) % len(wedge_poly)]
         poly_a += x1 * z2 - x2 * z1
     poly_a = abs(poly_a) / 2.0
-    if abs((plan_area(drop_sea) - plan_area(sea_ring)) - poly_a) > 1.0:
-        raise ValueError("LEDGER: dropped sea - emitted sea != the new land wedge")
+    # the sea ledger is SIGNED: a headland's land consumes sea, a bay's sea gains the wedge
+    if abs(sign * (plan_area(drop_sea) - plan_area(sea_ring)) - poly_a) > 1.0:
+        raise ValueError("LEDGER: |dropped sea - emitted sea| != the wedge")
 
     surv = _count_instances(win, {_pk(p) for p in head_moves},
                             exclude_sets=[_key_set(t) for t in

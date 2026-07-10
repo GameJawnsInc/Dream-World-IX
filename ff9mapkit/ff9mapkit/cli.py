@@ -2437,12 +2437,13 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print(n)
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
-        if args.cliff_bump or args.cliff_headland:
+        if args.cliff_bump or args.cliff_headland or args.cliff_bay:
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
             for spec, fn in ((args.cliff_bump, CM.cliff_bump),
-                             (args.cliff_headland, CM.cliff_headland)):
+                             (args.cliff_headland, CM.cliff_headland),
+                             (args.cliff_bay, CM.cliff_bay)):
                 if not spec:
                     continue
                 s0, s1, sd = spec.split(":")
@@ -5071,6 +5072,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "wall column per gap (the window's gap count must be a multiple of 4, the "
                           "deterministic-U-ramp law), native lattice grass re-fill, sea zipped back to the "
                           "new outline. Every law gate (crack/grain/water-density/ledger) runs offline.")
+    wtp.add_argument("--cliff-bay", default=None, metavar="X0,Z0:X1,Z1:D",
+                     help="the promontory's inward mirror: carve a structural BAY of depth D into the window "
+                          "-- the wedge consumes grass (crease-footprint drops + native re-fill of the rim "
+                          "ring), the rebuilt wall lines the cove, the sea zips landward over the vacated "
+                          "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
+                          "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
+                          "reaches a land component is refused offline.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
