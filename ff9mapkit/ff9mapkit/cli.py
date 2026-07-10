@@ -2541,6 +2541,40 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_morphs(args: argparse.Namespace) -> int:
+    """The coast window scanner: discovered morph windows + probed per-verb ceilings."""
+    from .world import coastscan as CS
+    verbs = tuple(v.strip() for v in args.verbs.split(",")) if args.verbs else None
+    mod = args.mod_folder or "<MOD>"
+    try:
+        if args.block:
+            bx, by = (int(v) for v in args.block.split(","))
+            cells = [(bx, by)]
+        elif getattr(args, "all", False):
+            cells = [(x, y) for y in range(20) for x in range(24)]
+        else:
+            raise ConfigError("pass --block BX,BY or --all")
+        total = 0
+        for (bx, by) in cells:
+            try:
+                windows = CS.scan_block(bx, by, verbs=verbs, disc=args.disc,
+                                        game=args.game)
+            except Exception as e:                  # a corrupt/edge block never kills a sweep
+                print(f"({bx},{by}): scan error -- {e}", file=sys.stderr)
+                continue
+            if windows:
+                print(CS.format_catalog(windows, mod_folder=mod))
+                total += len(windows)
+            elif args.block:
+                print(f"({bx},{by}): no beach or cliff windows found")
+        if len(cells) > 1:
+            print(f"-- {total} windows across the sweep")
+    except (ValueError, ConfigError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
     grass tile language (mains + meadow stamps + rolling relief), gated offline (geometry, UV language, and
@@ -5179,6 +5213,25 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wtp.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wtp.set_defaults(func=_cmd_world_transplant)
+
+    wms = sub.add_parser("world-morphs",
+                         help="the COAST WINDOW SCANNER: walk a real block's beach waterline runs + cliff "
+                              "base runs and print the lawful morph windows with per-verb depth CEILINGS -- "
+                              "probed by calling the real builders down a depth ladder (the offline gates ARE "
+                              "the law) and certified via an in-place dry-run, so every line deploys as "
+                              "printed with world-transplant --in-place. A verb with no lawful rung reports "
+                              "its binding refusal instead.")
+    wms.add_argument("--block", default=None, metavar="BX,BY",
+                     help="scan one block (grid 24x20)")
+    wms.add_argument("--all", action="store_true",
+                     help="scan the whole map's coastal blocks (minutes; prints progress)")
+    wms.add_argument("--verbs", default=None,
+                     help="comma list to probe (default all): beach-bump,beach-reshape,"
+                          "cliff-bump,cliff-headland,cliff-bay")
+    wms.add_argument("--mod-folder", default=None,
+                     help="printed into the ready-to-run deploy lines (display only)")
+    wms.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wms.set_defaults(func=_cmd_world_morphs)
 
     wis = sub.add_parser("world-island",
                          help="synthesize a fully-CUSTOM cliff island/landmass on open ocean: organic coastline + "

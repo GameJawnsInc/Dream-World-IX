@@ -295,13 +295,16 @@ def _count_instances(win, keys, exclude_sets=()):
 
 def _assert_pure_sea4(win, keyed, *, disc, lod, game):
     """The window's moved waterline verts may touch ONLY terrain + sea4 -- a coincident vert
-    in another water part would stay behind under the part-scoped tweaks = a weld crack."""
+    in another water part would stay behind under the part-scoped tweaks = a weld crack.
+    The refusal NAMES the offending vert (positional -- the coast window scanner steers
+    its sub-window search by it, like the ``window gap K`` decode refusals)."""
     for part in ("sea1", "sea2", "sea3", "sea5", "beach1"):
         tris = TR.world_tris(*win.donor, part, disc=disc, lod=lod, game=game)
-        n = sum(_pk(v[0]) in keyed for t3 in tris for v in t3)
-        if n:
-            raise ValueError(f"the morph window's waterline touches {part} ({n} vert "
-                             f"instance(s)) -- cliff morphs need a pure-sea4 shore "
+        hits = [v[0] for t3 in tris for v in t3 if _pk(v[0]) in keyed]
+        if hits:
+            raise ValueError(f"the morph window's waterline touches {part} ({len(hits)} "
+                             f"vert instance(s), first at ({hits[0][0]:.4f},"
+                             f"{hits[0][2]:.4f})) -- cliff morphs need a pure-sea4 shore "
                              f"(the cliff seam law); pick a different run")
 
 

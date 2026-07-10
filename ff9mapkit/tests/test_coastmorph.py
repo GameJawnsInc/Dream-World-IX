@@ -283,6 +283,40 @@ def test_headland_refuses_an_illegal_gap_count():
         CM.cliff_headland(DONOR, START, (504.0, -1110.765625), 6.0)
 
 
+def test_coast_scanner_finds_the_proven_windows():
+    """The coast window scanner on (7,17): re-discovers the proven morph windows with
+    the proven ceilings, probing the REAL builders (the gates are the oracle) and
+    certifying each ceiling through a morph_in_place dry-run. The cliff search is
+    refusal-steered: 'window gap K' and 'touches seaX first at (X,Z)' refusals name the
+    cut points, so the maximal island base run converges to the lawful NE window."""
+    from ff9mapkit.world import coastscan as CS
+    ws = CS.scan_block(*DONOR)
+    beach = next(w for w in ws if w["kind"] == "beach")
+    assert beach["class"] == "pocket"
+    bump = beach["probes"]["beach-bump"]
+    assert bump["seaward"] is None                   # the shape-class law
+    assert "SHAPE-CLASS" in bump["seaward_binding"]
+    assert bump["landward"] == -2.5
+    assert beach["probes"]["beach-reshape"]["landward"] == -1.0
+    cliff = next(w for w in ws if w["kind"] == "cliff")
+    assert cliff["probes"]["cliff-headland"]["depth"] == 8.0
+    assert cliff["probes"]["cliff-bay"]["depth"] == 6.0
+    assert cliff["probes"]["cliff-bump"]["depth"] == 2.0
+    # every discovered cliff window shares the proven NE run
+    assert cliff["probes"]["cliff-headland"]["window"][0][0] == 480.0
+
+
+def test_coast_scanner_nose_block():
+    """(18,15): the scanner reports the in-game-proven nose ceiling (+2.5 seaward, the
+    deployed in-place morph) and the reshape's structural refusal on a free-form shore."""
+    from ff9mapkit.world import coastscan as CS
+    ws = CS.scan_block(18, 15, verbs=("beach-bump", "beach-reshape"))
+    beach = next(w for w in ws if w["kind"] == "beach")
+    assert beach["class"] == "nose"
+    assert beach["probes"]["beach-bump"]["seaward"] == 2.5
+    assert "lattice columns" in beach["probes"]["beach-reshape"]["seaward_binding"]
+
+
 def test_headland_grain_and_widths_stay_lawful():
     from ff9mapkit.world import coastmorph as CM
     _, _, _, emit_t, _ = CM.cliff_headland(DONOR, START, END, 8.0)
