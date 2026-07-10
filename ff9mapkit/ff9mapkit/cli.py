@@ -2437,7 +2437,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             print(n)
         # the cliff-coast morphs build their tweak sets from the donor bytes, every law
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
-        if args.cliff_bump or args.cliff_headland or args.cliff_bay:
+        if args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes:
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2451,6 +2451,13 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 p1 = tuple(float(v) for v in s1.split(","))
                 tweaks = list(tweaks) + fn((dx, dy), p0, p1, float(sd),
                                            disc=args.disc, game=args.game)
+            if args.cliff_lobes:
+                s0, s1, sd = args.cliff_lobes.split(":")
+                p0 = tuple(float(v) for v in s0.split(","))
+                p1 = tuple(float(v) for v in s1.split(","))
+                tweaks = list(tweaks) + CM.cliff_lobes(
+                    (dx, dy), p0, p1, [float(v) for v in sd.split(",")],
+                    disc=args.disc, game=args.game)
         kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                   tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                   game=args.game, census_samples=args.samples, dry_run=args.dry_run)
@@ -5072,6 +5079,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "wall column per gap (the window's gap count must be a multiple of 4, the "
                           "deterministic-U-ramp law), native lattice grass re-fill, sea zipped back to the "
                           "new outline. Every law gate (crack/grain/water-density/ledger) runs offline.")
+    wtp.add_argument("--cliff-lobes", default=None, metavar="X0,Z0:X1,Z1:D1,D2,..",
+                     help="COMPOSED morphs in ONE window: a piecewise profile of sin^2 lobes, one per "
+                          "signed depth (+ = seaward headland, - = landward bay; '3.5,-5,6.5' = a bay "
+                          "between two headlands). One reshape = walls, fills and sea zip continuous "
+                          "across the lobes by construction. Every law gate applies to the whole "
+                          "composition (reach, crack/grain with the ring-extension ladder, water "
+                          "density, signed ledger).")
     wtp.add_argument("--cliff-bay", default=None, metavar="X0,Z0:X1,Z1:D",
                      help="the promontory's inward mirror: carve a structural BAY of depth D into the window "
                           "-- the wedge consumes grass (crease-footprint drops + native re-fill of the rim "

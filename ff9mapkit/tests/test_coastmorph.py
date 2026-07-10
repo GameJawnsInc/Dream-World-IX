@@ -103,10 +103,45 @@ def test_bay_refuses_a_component_reach():
         CM.cliff_bay(DONOR, START, END, 8.0)
 
 
+#: the composed morph's window (480..508, spanning the REFINED-crease fan gap at 480-484)
+#: and its proven-build hash (deployed at (10,9) 2026-07-10)
+LOBES_START = (480.0, -1110.99)
+LOBES_END = (508.0, -1113.6796875)
+GOLDEN_LOBES_HASH = "1c5dab560c183654"
+
+
+def test_lobes_golden_build():
+    """A bay between two headlands as ONE composed reshape -- exercises the refined-fan gap
+    decode, the free equal-arc resample (the pinned scheme degenerates on multi-lobe
+    profiles), the phase-table wall UVs, and the grass ring-extension ladder."""
+    import hashlib as _h
+    from ff9mapkit.world import coastmorph as CM
+    drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_lobes(
+        DONOR, LOBES_START, LOBES_END, (3.5, -5.0, 6.5))
+    assert drop_t.expected == 39 and drop_s.expected == 23
+    assert disp.expected == 0
+    assert len(emit_t.tris) == 47 and len(emit_s.tris) == 23
+    def sig(tris, uv=True):
+        return sorted(tuple(round(c, 6) for v in t3 for c in
+                            (list(v[0]) + (list(v[2]) if uv else []))) for t3 in tris)
+    h = _h.sha256(repr(sig(emit_t.tris, uv=False) + sig(emit_s.tris)).encode()).hexdigest()
+    assert h[:16] == GOLDEN_LOBES_HASH
+
+
+def test_lobes_reach_gate_refuses_the_shallow_ladder():
+    from ff9mapkit.world import coastmorph as CM
+    # a window starting one column further west pushes its first headland lobe's footprint
+    # into the sea5 band -- the REACH gate refuses (non-sea4 within the morph's reach)
+    with pytest.raises(ValueError, match="reaches sea"):
+        CM.cliff_lobes(DONOR, (476.0, -1108.9), LOBES_END, (3.5, -5.0, 6.5))
+
+
 def test_headland_refuses_an_illegal_gap_count():
     from ff9mapkit.world import coastmorph as CM
-    # a 3-gap sub-window (492..504) breaks the deterministic-U-ramp mod-4 law
-    with pytest.raises(ValueError, match="multiple of 4"):
+    # a 3-gap sub-window (492..504) cannot satisfy the deterministic U-ramp: its clean
+    # gaps cover only 3 of the 4 texture phases (the free resample lifts the old strict
+    # mod-4 window rule, but a pattern for every phase must exist in-window)
+    with pytest.raises(ValueError, match="texture phases"):
         CM.cliff_headland(DONOR, START, (504.0, -1110.765625), 6.0)
 
 
