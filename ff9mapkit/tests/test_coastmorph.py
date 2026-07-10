@@ -318,16 +318,49 @@ def test_beach_slide_golden():
 
 def test_beach_slide_refusals():
     from ff9mapkit.world import coastmorph as CM
-    # LANDWARD-ONLY v1: a seaward slide vacates the berm strip BEHIND the band, and a
-    # painted-wash berm has no fill language (the baked-terrain refusal)
-    with pytest.raises(ValueError, match="LANDWARD only"):
-        CM.beach_slide(DONOR, BEACH_START, BEACH_END, 2.0)
+    # SEAWARD on the pocket: the shape-class law refuses (a pocket may not bow toward
+    # the convex class) -- the free-form seaward path carries the same gate
+    with pytest.raises(ValueError, match="SHAPE-CLASS GATE"):
+        CM.beach_slide(DONOR, BEACH_START, BEACH_END, 0.5)
     with pytest.raises(ValueError, match="LANDWARD only"):
         CM.beach_slide(DONOR, BEACH_START, BEACH_END, -6.5)
     # the -2.0..-2.5 valley: the wash width-envelope (BAND GATE) refuses fractional-row
     # slides on the 6.7u/4.0u jump column; full-row depths (-3.0+) re-band cleanly
     with pytest.raises(ValueError, match="BAND GATE"):
         CM.beach_slide(DONOR, BEACH_START, BEACH_END, -2.0)
+
+
+def test_beach_slide_seaward_golden():
+    """The SEAWARD slide (the grass-berm nose rung, free-form) on the proven (18,15)
+    nose at its probed ceiling +2.5: the band's 15 sand tris DROP and re-emit
+    TRANSLATED VERBATIM (drop-don't-drag -- grass never moves, the GRASS-PIN law), the
+    water rides the bump's proven ladder-taper field (269 displaced instances), and
+    the vacated strip re-fills with 12 NATIVE GRASS tris (_grass_fill_region, the
+    headland vocabulary; crack + grain gated). The island gains real grass area --
+    TRUE seaward land growth. Deeper rungs refuse on WATER STRAIN at the block frame
+    (the binding law of this window, not the berm the slide freed)."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world.extract import decode_id
+    tw = CM.beach_slide(NOSE_SLIDE_DONOR, NOSE_SLIDE_START, NOSE_SLIDE_END, 2.5)
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in tw]
+    assert led == [("terrain", ("drop", 15)), (None, ("displace", 269)),
+                   ("terrain", ("emit", 27))]
+    assert _tweak_hash(tw) == "0513432ef7d69bc2"
+    emit = next(t for t in tw if hasattr(t, "tris"))
+    n_sand = sum(1 for t3 in emit.tris
+                 if decode_id(int(round(t3[0][3][0])))["topograph"] == 31)
+    assert (n_sand, len(emit.tris) - n_sand) == (15, 12)
+    # water strain at the frame binds the deeper rung
+    with pytest.raises(ValueError, match="STRAIN GATE"):
+        CM.beach_slide(NOSE_SLIDE_DONOR, NOSE_SLIDE_START, NOSE_SLIDE_END, 3.0)
+
+
+NOSE_SLIDE_DONOR = (18, 15)
+NOSE_SLIDE_START = (1198.0273, -997.3633)
+NOSE_SLIDE_END = (1173.1484, -1013.8867)
 
 
 def test_structural_refuses_a_grassless_top():
@@ -398,8 +431,7 @@ def test_coast_scanner_finds_the_proven_windows():
     # water re-lay/T-vertex) clears; deepest-first probing matters (the -2..-2.5
     # band-gate valley must not settle the ladder)
     slide = beach["probes"]["beach-slide"]
-    assert slide["seaward"] is None
-    assert "landward-only" in slide["seaward_binding"]
+    assert slide["seaward"] is None                  # a pocket: class/hug refuse seaward
     assert slide["landward"] == -6.0
     cliff = next(w for w in ws if w["kind"] == "cliff")
     assert cliff["probes"]["cliff-headland"]["depth"] == 8.0
@@ -411,13 +443,19 @@ def test_coast_scanner_finds_the_proven_windows():
 
 def test_coast_scanner_nose_block():
     """(18,15): the scanner reports the in-game-proven nose ceiling (+2.5 seaward, the
-    deployed in-place morph) and the reshape's structural refusal on a free-form shore."""
+    deployed in-place morph), the reshape's structural refusal on a free-form shore,
+    and the SEAWARD SLIDE's probed ceiling (+2.5, water-strain-bound at the frame --
+    the grass-berm nose rung: verbatim band + native grass growth at bump depth)."""
     from ff9mapkit.world import coastscan as CS
-    ws = CS.scan_block(18, 15, verbs=("beach-bump", "beach-reshape"))
+    ws = CS.scan_block(18, 15, verbs=("beach-bump", "beach-reshape", "beach-slide"))
     beach = next(w for w in ws if w["kind"] == "beach")
     assert beach["class"] == "nose"
     assert beach["probes"]["beach-bump"]["seaward"] == 2.5
     assert "lattice columns" in beach["probes"]["beach-reshape"]["seaward_binding"]
+    slide = beach["probes"]["beach-slide"]
+    assert slide["seaward"] == 2.5
+    # landward on a nose: the class law refuses every rung (the mirror of the pocket)
+    assert slide["landward"] is None
 
 
 def test_headland_grain_and_widths_stay_lawful():

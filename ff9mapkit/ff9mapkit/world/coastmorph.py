@@ -334,6 +334,17 @@ def _grass_fill(win, drop_grass, new_crease, ck, cell_quad):
         raise ValueError("crease run not contiguous on the grass hole boundary")
     outer_cr = new_crease if crease_run[0] == ck[0] else list(reversed(new_crease))
     bpts3 = list(outer_cr) + [gpos[k] for k in gloop[nrun:]]
+    idall_grass = tuple(drop_grass[0][0][3])
+    return _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass)
+
+
+def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
+    """The native lattice grass fill over ONE closed boundary loop ``bpts3`` (3D verts,
+    ordered) -- the region-generic core shared by the cliff structural morphs
+    (:func:`_grass_fill`) and the beach slide's vacated-strip fill: 4u interior lattice,
+    Delaunay, per-cell mains with the avoid-same policy vs ``cell_quad`` (the REAL
+    neighbouring tiles' quadrant picks), the CRACK GATE (fill once-edges == the loop
+    exactly) and the GRAIN GATE."""
     poly2 = [(p[0], p[2]) for p in bpts3]
 
     def lattice_interior(clearance):
@@ -373,7 +384,6 @@ def _grass_fill(win, drop_grass, new_crease, ck, cell_quad):
             if d2 < bd:
                 best, bd = p, d2
         return gnrm.get(_pk(best), (0.0, 1.0, 0.0))
-    idall_grass = tuple(drop_grass[0][0][3])
     poly_edges = {frozenset((_pk(bpts3[i]), _pk(bpts3[(i + 1) % len(bpts3)])))
                   for i in range(len(bpts3))}
 
@@ -450,27 +460,12 @@ def _grass_fill(win, drop_grass, new_crease, ck, cell_quad):
     return grass_emit
 
 
-def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
-    """The BEACH conforming bow -- the waterline move on a sandy shore (the beach frontier's
-    rung 1). A beach is an INTERLEAVED RAMP ASSEMBLY: sand terrain -> beach1 foam (the swash
-    ribbon, Y 0.2..1.2) -> sea2 wash, welded at two chains -- the WATERLINE (beach1's seaward
-    boundary, every vert shared bit-exact with sea2) and the SAND SEAM (shared with terrain),
-    with load-bearing multi-part END-CAP welds. The bow is ONE displacement FIELD over the
-    whole assembly (sin^2 along-shore profile, + = seaward): the waterline at factor 1, the
-    seaward water tapered over the depth-scaled reach (the LADDER TAPER -- strain <=~16%,
-    verbatim drag), and -- THE HUG LAW (user-called in-game 2026-07-10; within-beach swash
-    width is near-constant map-wide) -- the LANDWARD side rides too: flat factor across the
-    swash + sand seam, cos^2 decay over the berm, so the foam line stays parallel to the
-    sand's hard edge and the berm terrain DRAGS (the proven land fine-adjustment mechanism,
-    which also caps |depth| at ~2.5). THE SHAPE-CLASS GATE rules direction: a beach may
-    deepen its own chord-relative curvature (a nose grows seaward, a pocket landward), never
-    cross toward the opposite class. Frame verts are PINNED (a moved block-frame vert opens
-    a sliver against the neighbour prefab); the strain gate judges the pin's cost. Works on
-    FREE-FORM shores (conforming waterlines, unmatched chains) -- the chain-walk decoder
-    has no lattice-column assumption, unlike :func:`beach_reshape`."""
-    if abs(depth) > 2.6:
-        raise ValueError("the assembly bow DRAGS the berm -- the land-drag envelope caps "
-                         "depth at ~2.5 (the cliff-bump precedent)")
+def _freeform_window(donor, start, end, *, disc=1, lod="0_1", game=None):
+    """The FREE-FORM shore window decode (chain-walk, no lattice-column assumption) --
+    the shared opening of :func:`beach_bump` and the seaward :func:`beach_slide`:
+    beach1's boundary loop, the waterline run between the snapped endpoints (interior
+    verts sea2-welded, terrain-free), the seaward normal by THE DEFINITIVE RULE (minus
+    the mean per-vert wl->nearest-seam direction), and the arc parameterization."""
     beach = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
     if not beach:
         raise ValueError(f"donor {donor} has no beach1 mesh -- not a sandy shore")
@@ -546,6 +541,34 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     for a, b in zip(pts, pts[1:]):
         acc += math.dist(a, b)
         arcs.append(acc)
+    return beach, others, reg, pos_of, adj, pts, nh, arcs, acc, seam_all
+
+
+def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The BEACH conforming bow -- the waterline move on a sandy shore (the beach frontier's
+    rung 1). A beach is an INTERLEAVED RAMP ASSEMBLY: sand terrain -> beach1 foam (the swash
+    ribbon, Y 0.2..1.2) -> sea2 wash, welded at two chains -- the WATERLINE (beach1's seaward
+    boundary, every vert shared bit-exact with sea2) and the SAND SEAM (shared with terrain),
+    with load-bearing multi-part END-CAP welds. The bow is ONE displacement FIELD over the
+    whole assembly (sin^2 along-shore profile, + = seaward): the waterline at factor 1, the
+    seaward water tapered over the depth-scaled reach (the LADDER TAPER -- strain <=~16%,
+    verbatim drag), and -- THE HUG LAW (user-called in-game 2026-07-10; within-beach swash
+    width is near-constant map-wide) -- the LANDWARD side rides too: flat factor across the
+    swash + sand seam, cos^2 decay over the berm, so the foam line stays parallel to the
+    sand's hard edge and the berm terrain DRAGS (the proven land fine-adjustment mechanism,
+    which also caps |depth| at ~2.5). THE SHAPE-CLASS GATE rules direction: a beach may
+    deepen its own chord-relative curvature (a nose grows seaward, a pocket landward), never
+    cross toward the opposite class. Frame verts are PINNED (a moved block-frame vert opens
+    a sliver against the neighbour prefab); the strain gate judges the pin's cost. Works on
+    FREE-FORM shores (conforming waterlines, unmatched chains) -- the chain-walk decoder
+    has no lattice-column assumption, unlike :func:`beach_reshape`."""
+    if abs(depth) > 2.6:
+        raise ValueError("the assembly bow DRAGS the berm -- the land-drag envelope caps "
+                         "depth at ~2.5 (the cliff-bump precedent); past it, use "
+                         "beach_slide (the full-assembly slide)")
+    (beach, others, reg, pos_of, adj, pts, nh,
+     arcs, acc, seam_all) = _freeform_window(donor, start, end,
+                                             disc=disc, lod=lod, game=game)
 
     # THE LADDER TAPER (in-game 2026-07-10: a waterline-only bow pinches the sea2 wash band
     # OUT of the real width envelope -- 4.0u -> 0.8u at the apex, tilt x3 -- so the band
@@ -775,6 +798,41 @@ def _up_tri(tri):
     ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
     vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
     return [tri[0], tri[2], tri[1]] if uz * vx - ux * vz <= 0 else tri
+
+
+def _tvertex_gate(near):
+    """THE T-VERTEX GATE: over ``near`` = [(is_new, t3), ...], no NEW/MOVED vert may sit
+    strictly inside another terrain edge and no vert mid a NEW edge -- the offline
+    oracle for angle-dependent rasterization pinholes (the playtest seam class).
+    Pre-existing donor T-junctions are not ours to judge: only pairs involving our
+    delta are gated."""
+    new_vk = {_pk(v[0], 6) for nw, t3 in near if nw for v in t3}
+    vset = {}
+    for _, t3 in near:
+        for v in t3:
+            vset.setdefault(_pk(v[0], 6), v[0])
+    for nw, t3 in near:
+        for k2 in range(3):
+            a, b = t3[k2][0], t3[(k2 + 1) % 3][0]
+            ka2, kb2 = _pk(a, 6), _pk(b, 6)
+            ex, ey, ez = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+            el2 = ex * ex + ez * ez
+            if el2 < 1e-12:
+                continue
+            for kp, p in vset.items():
+                if kp in (ka2, kb2) or (not nw and kp not in new_vk):
+                    continue
+                t_ = ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / el2
+                if not (1e-4 < t_ < 1 - 1e-4):
+                    continue
+                dx = a[0] + t_ * ex - p[0]
+                dzz = a[2] + t_ * ez - p[2]
+                if dx * dx + dzz * dzz < 1e-10 \
+                        and abs(a[1] + t_ * ey - p[1]) < 1e-3:
+                    raise ValueError(
+                        f"T-VERTEX GATE: vert ({p[0]:.3f},{p[2]:.3f}) sits mid-edge "
+                        f"on another terrain tri -- an angle-dependent pinhole (the "
+                        f"playtest seam class)")
 
 
 def _merge_loops(pieces, kd: int = 9):
@@ -2001,35 +2059,9 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
         xlo_, xhi_ = x0 - 6.0, x1 + 6.0
         zlo_ = min(p[2] for p in L) - 2.0
         zhi_ = max(p[2] for p in L2) + 8.0
-        near = [(nw, t3) for nw, t3 in final
-                if any(xlo_ <= v[0][0] <= xhi_ and zlo_ <= v[0][2] <= zhi_ for v in t3)]
-        new_vk = {_pk(v[0], 6) for nw, t3 in near if nw for v in t3}
-        vset = {}
-        for _, t3 in near:
-            for v in t3:
-                vset.setdefault(_pk(v[0], 6), v[0])
-        for nw, t3 in near:
-            for k2 in range(3):
-                a, b = t3[k2][0], t3[(k2 + 1) % 3][0]
-                ka2, kb2 = _pk(a, 6), _pk(b, 6)
-                ex, ey, ez = b[0] - a[0], b[1] - a[1], b[2] - a[2]
-                el2 = ex * ex + ez * ez
-                if el2 < 1e-12:
-                    continue
-                for kp, p in vset.items():
-                    if kp in (ka2, kb2) or (not nw and kp not in new_vk):
-                        continue
-                    t_ = ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / el2
-                    if not (1e-4 < t_ < 1 - 1e-4):
-                        continue
-                    dx = a[0] + t_ * ex - p[0]
-                    dzz = a[2] + t_ * ez - p[2]
-                    if dx * dx + dzz * dzz < 1e-10 \
-                            and abs(a[1] + t_ * ey - p[1]) < 1e-3:
-                        raise ValueError(
-                            f"T-VERTEX GATE: vert ({p[0]:.3f},{p[2]:.3f}) sits mid-edge "
-                            f"on another terrain tri -- an angle-dependent pinhole (the "
-                            f"playtest seam class)")
+        _tvertex_gate([(nw, t3) for nw, t3 in final
+                       if any(xlo_ <= v[0][0] <= xhi_ and zlo_ <= v[0][2] <= zhi_
+                              for v in t3)])
         n_seam = 0
         for name in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4"):
             for t3 in parts[name]:
@@ -2123,12 +2155,317 @@ def beach_slide(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", ga
     precedent, T-junctions on-line by construction), the band's y re-conforms to the
     clipped berm surface (SLOPE GATE: the real 0.10..0.58 rise/run envelope), and the
     vacated shore re-lays through beach_reshape's proven water machinery (wash re-band +
-    patchwork pullback + edge-shade re-solve + density/crack gates). LANDWARD-ONLY v1
-    (depth < 0, the pocket-deepening direction): a seaward slide vacates the strip BEHIND
-    the band, which on (7,17)-class berms is a painted wash -- no fill language (the
-    baked-terrain refusal); the grass-berm seaward rung is the next vocabulary."""
+    patchwork pullback + edge-shade re-solve + density/crack gates).
+
+    SEAWARD (depth > 0) is the GRASS-BERM NOSE rung (:func:`_beach_slide_seaward`), on
+    the FREE-FORM chain machinery: the map-wide census (2026-07-10) found the
+    lattice-column beach class = {(7,17)} exactly (a pocket, landward-only by the
+    shape-class law), while every true nose is free-form conforming -- so the seaward
+    slide rides :func:`beach_bump`'s in-game-proven displacement field instead (the
+    ladder taper seaward, factor 1 across the assembly), with the two changes that
+    define the slide: the BAND translates instead of stretching (drop-don't-drag: every
+    sand tri touching a moved vert re-emits translated; grass never moves -- the
+    GRASS-PIN law), and the vacated strip behind the band re-fills with NATIVE GRASS
+    (:func:`_grass_fill_region`, the headland fill vocabulary; a mural berm refuses --
+    the baked-terrain law)."""
+    if depth >= 0:
+        return _beach_slide_seaward(donor, start, end, depth, disc=disc, lod=lod,
+                                    game=game)
     return beach_reshape(donor, start, end, depth, disc=disc, lod=lod, game=game,
                          _assembly=True)
+
+
+def _beach_slide_seaward(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1",
+                         game=None):
+    """The seaward FULL-ASSEMBLY SLIDE on a free-form grass-berm shore -- see
+    :func:`beach_slide`. Landward of the waterline everything rides at factor 1 (the
+    hug law completed); seaward water follows the proven ladder taper; the band's
+    verbatim texture translates; grass is PINNED and the vacated strip grass-fills."""
+    if not (0.5 <= depth <= 6.0):
+        raise ValueError("the seaward slide takes 0.5 <= depth <= 6")
+    (beach, others, reg, pos_of, adj, pts, nh,
+     arcs, acc, seam_all) = _freeform_window(donor, start, end,
+                                             disc=disc, lod=lod, game=game)
+    topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
+    sand = [t for t in others["terrain"] if topo(t) == 31]
+    gother = [t for t in others["terrain"] if topo(t) != 31]
+    grass_k = {_pk(v[0]) for t3 in gother for v in t3}
+    TAPER_REACH = max(12.0, depth * math.pi / 0.32)
+
+    def chain_param(p):
+        best, bs, bf = 1e18, 0.0, 0.0
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            ex, ez = b[0] - a[0], b[2] - a[2]
+            L2 = ex * ex + ez * ez or 1.0
+            tt = max(0.0, min(1.0, ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / L2))
+            qx, qz = a[0] + tt * ex, a[2] + tt * ez
+            d2 = (p[0] - qx) ** 2 + (p[2] - qz) ** 2
+            if d2 < best:
+                best = d2
+                bs = arcs[i] + tt * (arcs[i + 1] - arcs[i])
+                side = (p[0] - qx) * nh[0] + (p[2] - qz) * nh[1]
+                bf = math.copysign(math.sqrt(d2), side)
+        return depth * math.sin(math.pi * bs / acc) ** 2, bf
+    fx0, fx1 = 64.0 * donor[0], 64.0 * donor[0] + 64.0
+    fz0, fz1 = -64.0 * donor[1] - 64.0, -64.0 * donor[1]
+
+    def near_frame(p, eps=1.5):
+        return (min(p[0] - fx0, fx1 - p[0]) < eps or min(p[2] - fz0, fz1 - p[2]) < eps)
+    moves = {}
+    for i in range(1, len(pts) - 1):
+        if near_frame(pts[i], eps=0.05):
+            raise ValueError(f"waterline vert ({pts[i][0]:.0f},{pts[i][2]:.0f}) sits on "
+                             f"the block frame -- shrink the window off the frame")
+        d = depth * math.sin(math.pi * arcs[i] / acc) ** 2
+        moves[pts[i]] = (d * nh[0], 0.0, d * nh[1])
+    # water: the seaward ladder taper; foam: rides at factor 1 (the whole assembly).
+    # TERRAIN NEVER ENTERS THE MOVES DICT -- the band re-emits, grass is pinned.
+    wl_keys = {_pk(p) for p in moves}
+    for name in ("sea1", "sea2", "sea3", "sea5", "sea4", "beach1"):
+        for t3 in (beach if name == "beach1" else others[name]):
+            for v in t3:
+                k = _pk(v[0])
+                if k in wl_keys or near_frame(v[0]):
+                    continue
+                d, f = chain_param(v[0])
+                if abs(d) < 1e-6:
+                    continue
+                if f > 0.05:
+                    if f >= TAPER_REACH or name == "beach1":
+                        continue
+                    fac = math.cos(math.pi / 2.0 * f / TAPER_REACH) ** 2
+                elif name == "beach1":
+                    fac = 1.0                        # the foam rides whole
+                else:
+                    continue                         # landward water: none exists
+                if abs(d * fac) < 0.05:
+                    continue
+                moves[v[0]] = (d * fac * nh[0], 0.0, d * fac * nh[1])
+                wl_keys.add(k)
+    keyed = {_pk(p): v for p, v in moves.items()}
+    # THE GRASS-PIN LAW: no displaced vert may have a live instance in a non-sand
+    # terrain tri (grass never drags -- the fill bridges instead)
+    for k in keyed:
+        if k in grass_k:
+            raise ValueError("a displaced vert is welded to the grass berm (an end-cap "
+                             "corner mid-window?) -- the slide window must reach the "
+                             "beach's pinned end-caps; grass never drags")
+
+    # the BAND: per-vert factor-1 ride; drop-don't-drag closure (every sand tri touching
+    # a moved vert re-emits translated, so no survivor references a moved vert)
+    ride = {}
+    for t3 in sand:
+        for v in t3:
+            k = _pk(v[0])
+            if k in ride or near_frame(v[0], eps=0.05):
+                continue
+            if k in keyed:
+                ride[k] = keyed[k]
+                continue
+            d, f = chain_param(v[0])
+            if abs(d) < 0.05:
+                continue
+            ride[k] = (d * nh[0], 0.0, d * nh[1])
+    band_drop, band_emit = [], []
+    for t3 in sand:
+        if not any(_pk(v[0]) in ride for v in t3):
+            continue
+        band_drop.append(list(t3))
+        out = []
+        for (p, nrm, uv, tan) in t3:
+            d_ = ride.get(_pk(p))
+            if d_ is not None:
+                p = (p[0] + d_[0], p[1] + d_[1], p[2] + d_[2])
+            out.append((p, nrm, uv, tan))
+        a0 = TR.VertexDisplace._area2(list(t3))
+        a1 = TR.VertexDisplace._area2(out)
+        if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+            raise ValueError(f"depth {depth:g} folds a band tile -- reduce depth")
+        band_emit.append(out)
+    if not band_drop:
+        raise ValueError("the window moves no sand -- not a beach slide")
+
+    # the vacated strip: the band's old sand-grass boundary polyline vs its translated
+    # twin, one fill loop per moved stretch (pinch points split lobes)
+    grass_edges = set()
+    for t3 in gother:
+        ps = [v[0] for v in t3]
+        for i in range(3):
+            grass_edges.add(frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3]))))
+    badj, bpos = defaultdict(set), {}
+    for t3 in band_drop:
+        ps = [v[0] for v in t3]
+        for i in range(3):
+            a, b = ps[i], ps[(i + 1) % 3]
+            e = frozenset((_pk(a), _pk(b)))
+            if e in grass_edges:
+                badj[_pk(a)].add(_pk(b))
+                badj[_pk(b)].add(_pk(a))
+                bpos.setdefault(_pk(a), a)
+                bpos.setdefault(_pk(b), b)
+    if not badj:
+        raise ValueError("the moved band shares no boundary with the berm terrain -- "
+                         "not a grass-backed beach (a spit?); no strip to fill")
+    ends = [k for k, ns in badj.items() if len(ns) == 1]
+    if len(ends) != 2 or any(len(ns) > 2 for ns in badj.values()):
+        raise ValueError("the sand-grass boundary is not one open polyline -- the "
+                         "window must cover a mid-beach run clear of forks")
+    poly, seen_k = [ends[0]], {ends[0]}
+    while True:
+        nxts = [n for n in badj[poly[-1]] if n not in seen_k]
+        if not nxts:
+            break
+        poly.append(nxts[0])
+        seen_k.add(nxts[0])
+    old_poly = [bpos[k] for k in poly]
+    if any(k in ride for k in (poly[0], poly[-1])):
+        raise ValueError("the sand-grass boundary still moves at the window's edge -- "
+                         "extend the window to the beach's pinned end-caps")
+
+    # berm census: the fill vocabulary must exist (grass mains behind the strip)
+    grass_real = [t3 for t3 in gother
+                  if all(any(lo - 0.012 <= v[2][0] <= hi + 0.012
+                             for (lo, hi) in G.GRASS_U_HALF + G.MEADOW_U_HALF)
+                         and any(lo - 0.012 <= v[2][1] <= hi + 0.012
+                                 for (lo, hi) in G.GRASS_V_HALF)
+                         for v in t3)
+                  and any(min(math.hypot(v[0][0] - p[0], v[0][2] - p[2])
+                              for p in old_poly) < 14.0 for v in t3)]
+    if len(grass_real) < 3:
+        raise ValueError("the berm behind this beach carries no grass mains (a painted "
+                         "wash) -- the baked-terrain law: no fill language; the slide "
+                         "needs a grass-berm nose")
+    cell_quad = {}
+    for t3 in grass_real:
+        cx = math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0)
+        cz = math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0)
+        cell_quad.setdefault((cx, cz), TR._quad_of_uv(t3[0][2]))
+    gnrm = {}
+    for t3 in gother:
+        for v in t3:
+            gnrm.setdefault(_pk(v[0]), tuple(v[1]))
+    idall_grass = tuple(grass_real[0][0][3])
+    fill_emit = []
+    i0 = 0
+    for i1 in range(1, len(poly)):
+        if poly[i1] in ride and i1 < len(poly) - 1:
+            continue
+        # [i0..i1] closes a stretch when its interior moved and its ends are pinned
+        if i1 - i0 >= 1 and any(poly[k] in ride for k in range(i0 + 1, i1)):
+            seg_old = old_poly[i0:i1 + 1]
+            seg_new = []
+            for p in seg_old:
+                d_ = ride.get(_pk(p))
+                seg_new.append((p[0] + d_[0], p[1] + d_[1], p[2] + d_[2])
+                               if d_ else p)
+            bpts3 = seg_old + list(reversed(seg_new[1:-1]))
+            fill_emit += _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass)
+        if poly[i1] not in ride:
+            i0 = i1
+
+    # --- the gates (the bump's proven set + the slide's own) ---
+    def _mvp(p):
+        d_ = keyed.get(_pk(p)) or ride.get(_pk(p))
+        return (p[0] + d_[0], p[1], p[2] + d_[2]) if d_ else p
+    for p in pts[1:-1]:
+        d0 = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in seam_all)
+        pm = _mvp(p)
+        d1 = min(math.hypot(pm[0] - q[0], pm[2] - q[2])
+                 for q in (_mvp(q) for q in seam_all))
+        if abs(d1 - d0) > 0.6 or (2.6 <= d0 <= 8.2 and not (2.6 <= d1 <= 8.2)):
+            raise ValueError(f"RIBBON/HUG GATE: the slide moves the swash {d0:.1f} -> "
+                             f"{d1:.1f}u at ({p[0]:.0f},{p[2]:.0f}) -- the ribbon must "
+                             f"ride the sand edge inside the real envelope; reduce depth")
+    a2, b2 = pts[0], pts[-1]
+    ex2, ez2 = b2[0] - a2[0], b2[2] - a2[2]
+    L2_ = math.hypot(ex2, ez2) or 1.0
+    nx2, nz2 = -ez2 / L2_, ex2 / L2_
+    if nx2 * nh[0] + nz2 * nh[1] < 0:
+        nx2, nz2 = -nx2, -nz2
+
+    def _dev2(p):
+        return (p[0] - a2[0]) * nx2 + (p[2] - a2[2]) * nz2
+    d0s = [_dev2(p) for p in pts[1:-1]]
+    d1s = [_dev2(_mvp(p)) for p in pts[1:-1]]
+    sea_cap = 0.25 * L2_ if max(d0s) > 0.5 else max(d0s) + 0.3
+    land_cap = -0.48 * L2_ if min(d0s) < -0.5 else min(d0s) - 0.3
+    if max(d1s) > sea_cap + 1e-6 or min(d1s) < land_cap - 1e-6:
+        klass = "convex (headland-nose)" if max(d0s) > 0.5 else \
+                "concave (pocket)" if min(d0s) < -0.5 else "straight"
+        raise ValueError(f"SHAPE-CLASS GATE: this beach is {klass} (chord devs "
+                         f"{min(d0s):.1f}..{max(d0s):.1f} over {L2_:.0f}u); the slide "
+                         f"takes it to {min(d1s):.1f}..{max(d1s):.1f}, past its class "
+                         f"envelope [{land_cap:.1f},{sea_cap:.1f}]")
+    band_drop_ks = {_key_set(t) for t in band_drop}
+    for tris in [beach] + list(others.values()):
+        for t3 in tris:
+            if _key_set(t3) in band_drop_ks:
+                continue
+            if not any(_pk(v[0]) in keyed for v in t3):
+                continue
+            out = []
+            for (p, nrm, uv, tan) in t3:
+                dd = keyed.get(_pk(p))
+                if dd is not None:
+                    p = (p[0] + dd[0], p[1] + dd[1], p[2] + dd[2])
+                out.append((p, nrm, uv, tan))
+            a0 = TR.VertexDisplace._area2(list(t3))
+            a1 = TR.VertexDisplace._area2(out)
+            if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+                raise ValueError(f"depth {depth:g} folds a shore tile -- reduce depth")
+    reg_pk = {n: {_pk(v[0]) for t3 in t for v in t3} for n, t in others.items()}
+    c1 = [pos_of.get(k) or next(v[0] for t3 in others["sea2"] for v in t3
+                                if _pk(v[0]) == k)
+          for k in (reg_pk["sea2"] & reg_pk["sea1"])]
+    for p in pts[1:-1]:
+        if not c1:
+            break
+        w0 = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in c1)
+        pm = _mvp(p)
+        w1 = min(math.hypot(pm[0] - q[0], pm[2] - q[2]) for q in (_mvp(q) for q in c1))
+        if w0 > 0.5 and w1 < 0.6 * w0:
+            raise ValueError(f"BAND GATE: the wash band pinches {w0:.1f} -> {w1:.1f}u at "
+                             f"({p[0]:.0f},{p[2]:.0f}) despite the taper -- reduce depth")
+    for name in ("sea1", "sea2", "sea3", "sea5", "sea4"):
+        for t3 in others[name]:
+            if not any(_pk(v[0]) in keyed for v in t3):
+                continue
+            ps0 = [v[0] for v in t3]
+            ps1 = [((p[0] + keyed[_pk(p)][0], p[1], p[2] + keyed[_pk(p)][2])
+                    if _pk(p) in keyed else p) for p in ps0]
+            for i in range(3):
+                l0 = math.hypot(ps0[i][0] - ps0[(i + 1) % 3][0],
+                                ps0[i][2] - ps0[(i + 1) % 3][2])
+                l1 = math.hypot(ps1[i][0] - ps1[(i + 1) % 3][0],
+                                ps1[i][2] - ps1[(i + 1) % 3][2])
+                if l0 > 0.5 and not (0.75 <= l1 / l0 <= 1.33):
+                    raise ValueError(f"STRAIN GATE: a {name} edge strains x{l1 / l0:.2f} "
+                                     f"near ({ps0[i][0]:.0f},{ps0[i][2]:.0f}) -- reduce "
+                                     f"depth")
+    # THE T-VERTEX GATE over the touched terrain neighbourhood
+    xs = [p[0] for p in old_poly]
+    zs = [p[2] for p in old_poly]
+    xlo_, xhi_ = min(xs) - 8.0, max(xs) + 8.0
+    zlo_, zhi_ = min(zs) - 8.0 - depth, max(zs) + 8.0 + depth
+    final = [(True, t3) for t3 in band_emit + fill_emit]
+    for t3 in others["terrain"]:
+        if _key_set(t3) in band_drop_ks:
+            continue
+        final.append((False, list(t3)))
+    _tvertex_gate([(nw, t3) for nw, t3 in final
+                   if any(xlo_ <= v[0][0] <= xhi_ and zlo_ <= v[0][2] <= zhi_
+                          for v in t3)])
+
+    n_all = 0
+    for tris in [beach] + list(others.values()):
+        for t3 in tris:
+            if _key_set(t3) in band_drop_ks:
+                continue
+            n_all += sum(1 for v in t3 if _pk(v[0]) in keyed)
+    return [TR.DropTris("terrain", band_drop),
+            TR.VertexDisplace(moves=moves, expected=n_all),
+            TR.EmitTris("terrain", band_emit + fill_emit)]
 
 
 def _outline_min_clear(pts):

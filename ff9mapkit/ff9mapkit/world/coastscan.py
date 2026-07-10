@@ -34,10 +34,12 @@ from .extract import decode_id
 #: is the verb's ceiling for that window
 BEACH_LADDER = (2.5, 2.0, 1.5, 1.0, 0.5)
 #: the full-assembly slide reaches past the drag envelope (its own gates bind:
-#: class/slope/strip-census/water); landward-only v1, and its lawful depths are NOT
-#: monotone (the (7,17) band-gate valley: -2..-2.5 refuse while -3..-5.5 build), so
-#: deepest-first probing is essential -- a shallow refusal must not settle the ladder
+#: class/slope/strip-census/water); its lawful landward depths are NOT monotone (the
+#: (7,17) band-gate valley: -2..-2.5 refuse while -3..-5.5 build), so deepest-first
+#: probing is essential -- a shallow refusal must not settle the ladder. The seaward
+#: side (the grass-berm nose rung, free-form) binds on water strain / shape class.
 SLIDE_LADDER = (6.0, 5.0, 4.0, 3.0, 2.5, 2.0, 1.5, 1.0)
+SLIDE_SEA_LADDER = (4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0)
 CLIFF_LADDERS = {
     "cliff-bump": (2.5, 2.0, 1.5, 1.0),
     "cliff-headland": (8.0, 6.0, 4.0, 3.0),
@@ -187,7 +189,8 @@ _STRUCTURAL = re.compile(
     r"window gap|outline vert|touches (sea|beach)|no grass mains|"
     r"not a waterline run|not on the waterline chain|uniform 4u lattice|"
     r"z-dominant|south-facing|no beach1|no topo-58|matched waterline/sand|"
-    r"has no sand seam|sits on the block frame")
+    r"has no sand seam|sits on the block frame|one open polyline|"
+    r"pinned end-caps|welded to the grass|no strip to fill")
 
 
 def _probe(builder, cell, start, end, ladder, *, game=None):
@@ -283,15 +286,13 @@ def scan_block(bx, by, *, verbs=None, disc=1, lod="0_1", game=None):
                                      "seaward_binding": sea_r, "landward_binding": land_r,
                                      "window": (w["start"], w["end"])}
             if "beach-slide" in verbs:
-                # the full-assembly slide is LANDWARD-ONLY v1 (a verb constant, not a
-                # window fact -- don't burn 8 builds proving it seaward per window)
+                sea, sea_r = _probe(CM.beach_slide, cell, w["start"], w["end"],
+                                    SLIDE_SEA_LADDER, game=game)
                 land, land_r = _probe(CM.beach_slide, cell, w["start"], w["end"],
                                       tuple(-d for d in SLIDE_LADDER), game=game)
                 w["probes"]["beach-slide"] = {
-                    "seaward": None, "landward": land,
-                    "seaward_binding": "landward-only v1: a seaward slide vacates the "
-                                       "berm strip behind the band (no fill language)",
-                    "landward_binding": land_r,
+                    "seaward": sea, "landward": land,
+                    "seaward_binding": sea_r, "landward_binding": land_r,
                     "window": (w["start"], w["end"])}
         else:
             for verb, ladder in CLIFF_LADDERS.items():
