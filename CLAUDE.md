@@ -584,7 +584,12 @@ family [49|58 negligible], no bevel, sharp ~66° crease, grass rolls ~9° into i
 face base edges land on walkable terrain map-wide — topo-58 is coastal-only, bases terminate free at the
 waterline; inland terraces are painted murals). Synth cliffs are correct for grass tops (0.893 = the shipped
 constant, independently re-derived); a non-grass-top synth must switch rows. Both rows + the laws locked by a
-game-gated test. **THE REAL-BUILDING PATH (2026-07-09, deployed ⏳):** the watchtower replaced by a REAL stock
+game-gated test. **F6 TRI-COORDINATE READOUT (2026-07-09, `264b666`, ★ in-game proven — "the F6 readout
+works"):** ended a recurring coordinate-confusion problem — F6 showed `RealPosition` (absolute un-wrapped;
+diverges from every kit coordinate once the overworld wraps). The Position section now leads with the
+CANONICAL wrapped triple every kit tool speaks: `world (x,z) · block [x][y] (⌊x/64⌋,⌊−z/64⌋) · cell (x,z)
+(⌊x/32⌋,⌊−z/32⌋)`; raw pos shows only when `[wrapped]`; Copy position copies the canonical pair. → F6 memory.
+**THE REAL-BUILDING PATH (2026-07-09, ★ in-game proven — "looks right and has collision, warp works"):** the watchtower replaced by a REAL stock
 overworld structure (block (20,10), 220 tris after trim_floor) — exported OBJs carry real atlas UVs through the
 whole loop (`export_obj`→Blender 5.1→`world-entrance --building`, no `--texture` needed; the round trip was
 already vt-clean, zero kit changes); 63 stock Object blocks surveyed, candidates in the session scratchpad
