@@ -169,10 +169,13 @@ def _tweak_hash(tweaks):
     for t in tweaks:
         if hasattr(t, "keys"):
             sig.append((t.part, sorted(sorted(k) for k in t.keys)))
-        else:
+        elif hasattr(t, "tris"):
             sig.append((t.part, sorted(
                 tuple(round(c, 6) for v in t3 for c in (list(v[0]) + list(v[2])))
                 for t3 in t.tris)))
+        else:
+            sig.append(("displace", sorted(
+                (k, tuple(round(x, 6) for x in v)) for k, v in t.moves.items())))
     return _h.sha256(repr(sig).encode()).hexdigest()[:16]
 
 
@@ -188,20 +191,25 @@ def test_beach_rebuild_golden():
 
 
 def test_beach_reshape_golden_transport():
-    """The SHAPE morph (rung 2 step 2) at the depth where the band TRANSPORT fires: one
-    column shifts a lattice row, the wash grows over a sea1 cell, the sea3 sandwich cell
-    slides one row seaward (sea1 emitted over it by the learned table, sea3 re-emitted by
-    its learned quadrant/dihedral-8 language), and the edge-shade solver repairs exactly
-    the Wang agreements the new map forces."""
+    """The SHAPE morph (rung 2 step 2) at the depth where the band TRANSPORT fires: the
+    ASSEMBLY slides (sand seam + waterline together -- THE HUG LAW: within-beach swash
+    width is near-constant, so the ribbon rides the sand edge; the berm terrain drags),
+    one column shifts a lattice row, the wash grows over a sea1 cell, the sea3 sandwich
+    cell slides one row seaward (sea1 emitted over it by the learned table, sea3
+    re-emitted by its learned quadrant/dihedral-8 language), and the edge-shade solver
+    repairs exactly the Wang agreements the new map forces."""
     from ff9mapkit.world import coastmorph as CM
     tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 1.5)
-    led = [(t.part, ("drop", t.expected) if hasattr(t, "keys") else ("emit", len(t.tris)))
-           for t in tw]
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in tw]
     assert led == [("beach1", ("drop", 14)), ("sea2", ("drop", 18)),
                    ("sea1", ("drop", 6)), ("sea3", ("drop", 2)),
+                   (None, ("displace", 20)),
                    ("beach1", ("emit", 15)), ("sea2", ("emit", 21)),
                    ("sea1", ("emit", 4)), ("sea3", ("emit", 2))]
-    assert _tweak_hash(tw) == "706c3729028acb00"
+    assert _tweak_hash(tw) == "f839f444701e29c2"
 
 
 def test_beach_reshape_identity_is_a_rebuild():
@@ -228,8 +236,8 @@ def test_beach_reshape_refusals():
     # 4u-quantized boundary (the true v1 ceiling at this window)
     with pytest.raises(ValueError, match="BAND GATE"):
         CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 2.0)
-    # the swash envelope still rules (the sand chain never moves -- baked-terrain law)
-    with pytest.raises(ValueError, match="RIBBON GATE"):
+    # the sand-slide drags the berm -- the land-drag envelope caps depth
+    with pytest.raises(ValueError, match="land-drag envelope"):
         CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 3.5)
     # sand-seam endpoints are not a waterline run
     with pytest.raises(ValueError, match="matched waterline/sand columns|waterline"):

@@ -928,9 +928,10 @@ def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=No
 
 
 def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
-    """The STRUCTURAL beach SHAPE morph (rung 2, step 2) -- move the WATERLINE and re-derive
-    the whole shore ladder over the new footprint from pure language (ZERO water strain --
-    the bow DRAGS everything within its ~10x-depth reach; this re-lays):
+    """The STRUCTURAL beach SHAPE morph (rung 2, step 2) -- slide the beach ASSEMBLY (sand
+    seam + waterline together) and re-derive the whole shore ladder over the new footprint
+    from pure language (ZERO water strain -- the bow DRAGS everything within its
+    ~10x-depth reach; this re-lays):
 
     * the FOAM re-derives as run tiles over the moved chain (the step-1 vocabulary);
     * the WASH re-lays per column with a WIDTH-DRIVEN lattice boundary: each column picks
@@ -943,11 +944,20 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
       map: transported shades preferred, flips minimized (a small exact search), domain =
       the learned table's 12 edge-sets, so the 4 non-table configs are unreachable.
 
-    The SAND chain never moves: behind this donor class the seam terrain interleaves
-    topo-31 sand with PAINTED-WASH murals (topo-0, x1 uv signatures) -- the baked-terrain
-    law, no fill language -- so depth stays ribbon-capped (~+-2.5u) like the bow. v1 scope:
-    a south-facing (seaward = -z), z-dominant shore in donor frame (the transplant's rot
-    places it any way in the world); single cell."""
+    THE HUG LAW (user-called in-game 2026-07-10, byte-confirmed map-wide): within one
+    beach the swash ribbon is near-CONSTANT (median range 1.26u over 32 real beaches;
+    donor (7,17) = 0.38u around 4.0) -- the 3.3-6.7u envelope is CROSS-beach spread, a
+    false within-beach law. The artists pull the foam line in PARALLEL to the sand's hard
+    edge, so a widened ribbon reads wrong even when every band is lawful. Hence the
+    ASSEMBLY SLIDES: the sand seam moves WITH the waterline (index-paired columns, same
+    profile -- the connector-assembly law), the ribbon is preserved by construction, and
+    the berm terrain DRAGS (land drag is the proven fine-adjustment mechanism, the
+    cliff-bump 2.5u precedent -- which also caps depth). v1 scope: a south-facing
+    (seaward = -z), z-dominant shore in donor frame (the transplant's rot places it any
+    way in the world); single cell."""
+    if abs(depth) > 2.6:
+        raise ValueError("the sand-slide DRAGS the berm -- the land-drag envelope caps "
+                         "depth at ~2.5 (the cliff-bump precedent)")
     beach, parts, reg, W, S, x0, x1 = _beach_window(donor, start, end,
                                                     disc=disc, lod=lod, game=game)
     n = len(W)
@@ -970,15 +980,17 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
     dz = [-depth * math.sin(math.pi * s_ / acc) ** 2 for s_ in arcs]
     dz[0] = dz[-1] = 0.0
     W2 = [(p[0], p[1], p[2] + d) for p, d in zip(W, dz)]
+    S2 = [(p[0], p[1], p[2] + d) for p, d in zip(S, dz)]
 
-    # THE RIBBON GATE (the swash keeps the real envelope; the sand never moves)
+    # THE HUG GATE: the assembly slide preserves the ribbon by construction; this catches
+    # slope pathologies (the min-dist can wiggle where adjacent columns' dz differ)
     for i in range(1, n - 1):
         w0 = min(math.hypot(W[i][0] - q[0], W[i][2] - q[2]) for q in S)
-        w1 = min(math.hypot(W2[i][0] - q[0], W2[i][2] - q[2]) for q in S)
-        if not (2.6 <= w1 <= 8.2) or not (0.55 * w0 <= w1 <= 1.8 * w0):
-            raise ValueError(f"RIBBON GATE: the reshape moves the swash to {w1:.1f}u at "
-                             f"({W[i][0]:.0f},{W[i][2]:.0f}) (pre {w0:.1f}) -- outside the "
-                             f"real envelope; reduce depth")
+        w1 = min(math.hypot(W2[i][0] - q[0], W2[i][2] - q[2]) for q in S2)
+        if abs(w1 - w0) > 0.6:
+            raise ValueError(f"HUG GATE: the slide changes the swash {w0:.1f} -> {w1:.1f}u "
+                             f"at ({W[i][0]:.0f},{W[i][2]:.0f}) -- the ribbon must ride "
+                             f"the sand edge (within-beach width is near-constant)")
 
     # --- the cell census (a bounded working region around the window) ---
     def cell_of(t3):
@@ -1212,7 +1224,7 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             break
     foam_emit, sea2_emit, sea1_emit, sea3_emit = [], [], [], []
     for i in range(n - 1):
-        sl, sr, wl_, wr_ = S[i], S[i + 1], W2[i], W2[i + 1]
+        sl, sr, wl_, wr_ = S2[i], S2[i + 1], W2[i], W2[i + 1]
         # the moved waterline can cross a lattice row mid-column; the conforming zip splits
         # there, so the foam MUST carry the same vert (identical floats) or the shared
         # waterline becomes a T-junction. UVs stay exact: the run tile is bilinear in x.
@@ -1345,7 +1357,29 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
             raise ValueError("sea3 here does not read as the learned quadrant language -- "
                              "refuse rather than emit an unverified band")
 
-    # --- gates: union crack + water density + the ledger ---
+    # --- the BERM DRAG: terrain tris keep welding to the slid sand seam (land drags --
+    # the proven fine-adjustment mechanism; the emitted foam's seam verts are the SAME
+    # floats, so the weld is bit-exact by construction) ---
+    seam_moves = {S[i]: (0.0, 0.0, dz[i]) for i in range(1, n - 1) if abs(dz[i]) > 1e-9}
+    seam_mv_k = {_pk(p): d for p, d in seam_moves.items()}
+    n_seam = 0
+    for t3 in parts["terrain"]:
+        if not any(_pk(v[0]) in seam_mv_k for v in t3):
+            continue
+        n_seam += sum(_pk(v[0]) in seam_mv_k for v in t3)
+        out = []
+        for (pos, nrm, uv, tan) in t3:
+            d_ = seam_mv_k.get(_pk(pos))
+            if d_ is not None:
+                pos = (pos[0] + d_[0], pos[1] + d_[1], pos[2] + d_[2])
+            out.append((pos, nrm, uv, tan))
+        a0 = TR.VertexDisplace._area2(list(t3))
+        a1 = TR.VertexDisplace._area2(out)
+        if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
+            raise ValueError(f"depth {depth:g} folds a berm tile -- the sand-slide "
+                             f"envelope is geometric; reduce depth")
+
+    # --- gates: union crack (move-aware) + water density + the ledger ---
     def once(tris):
         ec = defaultdict(int)
         for t3 in tris:
@@ -1355,7 +1389,11 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
         return {e for e, cn in ec.items() if cn == 1}
     all_drop = drop_foam + drop_sea2 + drop_sea1 + drop_sea3
     all_emit = foam_emit + sea2_emit + sea1_emit + sea3_emit
-    if once(all_drop) != once(all_emit):
+    # the sand-seam boundary MOVED with the slide: map the dropped hole's seam verts
+    # through the move before comparing (the dragged terrain sits at the new positions)
+    mv = {_pk(S[i]): _pk(S2[i]) for i in range(n)}
+    moved_drop = {frozenset(mv.get(k, k) for k in e) for e in once(all_drop)}
+    if moved_drop != once(all_emit):
         raise ValueError("CRACK GATE: the reshaped ladder's outer boundary does not match "
                          "the dropped hole -- a weld or T-junction defect")
 
@@ -1392,6 +1430,8 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                           TR.DropTris("sea2", drop_sea2),
                           TR.DropTris("sea1", drop_sea1) if drop_sea1 else None,
                           TR.DropTris("sea3", drop_sea3) if drop_sea3 else None,
+                          TR.VertexDisplace(moves=seam_moves, expected=n_seam)
+                          if seam_moves else None,
                           TR.EmitTris("beach1", foam_emit),
                           TR.EmitTris("sea2", sea2_emit),
                           TR.EmitTris("sea1", sea1_emit) if sea1_emit else None,

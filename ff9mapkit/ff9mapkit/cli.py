@@ -5114,14 +5114,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "it from pure language over the SAME verts -- the generative proof that reshaping "
                           "is a controlled delta. Endpoints = two waterline verts (donor frame).")
     wtp.add_argument("--beach-reshape", default=None, metavar="X0,Z0:X1,Z1:D",
-                     help="the STRUCTURAL beach SHAPE morph: move the waterline by a sin^2 profile of depth "
-                          "D (+ = seaward) and RE-LAY the ladder over the new footprint -- zero water strain "
-                          "(the bow drags; this re-derives): foam run tiles over the moved chain, the wash "
-                          "re-laid with a width-driven lattice boundary, the sea1/sea3 patchwork transported "
-                          "by a per-column pullback with the EDGE-SHADE FIELD re-solved (transported shades "
-                          "preferred, flips minimized over the learned table). The sand chain never moves "
-                          "(painted wash behind the seam -- the baked-terrain law), so depth stays "
-                          "ribbon-capped like the bow; the win is strain-free structure.")
+                     help="the STRUCTURAL beach SHAPE morph: slide the beach ASSEMBLY (sand seam + waterline "
+                          "together -- THE HUG LAW: within-beach swash width is near-constant, the foam line "
+                          "rides the sand edge) by a sin^2 profile of depth D (+ = seaward) and RE-LAY the "
+                          "water ladder over the new footprint, strain-free: foam run tiles over the moved "
+                          "chains, the wash re-laid with a width-driven lattice boundary, the sea1/sea3 "
+                          "patchwork transported by a per-column pullback with the EDGE-SHADE FIELD re-solved "
+                          "(transported shades preferred, flips minimized over the learned table). The berm "
+                          "terrain DRAGS (the land-drag envelope caps depth at ~2.5).")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")
