@@ -658,6 +658,216 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     return [TR.VertexDisplace(moves=water_moves, expected=n_all)]
 
 
+#: the FOAM RUN tile (byte-decoded 2026-07-10 from (7,17)): one half-texture per 4u column,
+#: repeating; v = the cross-shore ramp. The END-CAP band (v 0.5312-0.9375) is separate and
+#: NEVER re-derived (end welds are load-bearing -- caps stay verbatim outside the window).
+FOAM_U = (0.0156, 0.5)
+FOAM_V_SAND = 0.0156
+FOAM_V_WATER = 0.4531
+
+
+def beach_rebuild(donor, start, end, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The STRUCTURAL beach machinery, identity mode (rung 2, step 1): DROP the window's
+    shore ladder (foam run tiles + sea2 wash + the sea1 Wang ring) and RE-DERIVE it from
+    pure language over the SAME vertex set -- foam by the run-tile rule, sea2 as quadrant
+    mains + affine-continued conforming zip, sea1 by the LEARNED WANG TABLE in emission
+    mode (deep-edge-sets from the band map -> EDGESET2STRIP). The generative proof: if the
+    rebuilt window reads verbatim in-game, reshaping the chains becomes a controlled delta.
+    Self-check: every derived sea1 edge-set must equal the real tile's decode."""
+    from .water import UFULL, VSTRIP, URECT, VRECT
+    beach = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
+    parts = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game)
+             for p in ("terrain", "sea1", "sea2", "sea3", "sea5", "sea4")}
+    if not beach:
+        raise ValueError(f"donor {donor} has no beach1 mesh")
+    reg = {n: {_pk(v[0]) for t3 in t for v in t3} for n, t in parts.items()}
+
+    # the two chains (waterline / sand seam), decoded exactly as beach_bump does
+    e_count = defaultdict(int)
+    pos_of = {}
+    for t3 in beach:
+        ps = [v[0] for v in t3]
+        for v in t3:
+            pos_of.setdefault(_pk(v[0]), v[0])
+        for i in range(3):
+            e_count[frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3])))] += 1
+    bnd = {k for e, c in e_count.items() if c == 1 for k in e}
+    water_chain = sorted((pos_of[k] for k in bnd
+                          if k in reg["sea2"] and k not in reg["terrain"]),
+                         key=lambda p: p[0])
+    sand_chain = sorted((pos_of[k] for k in bnd if k in reg["terrain"]),
+                        key=lambda p: p[0])
+    x0, x1 = sorted((start[0], end[0]))
+    W = [p for p in water_chain if x0 - 0.1 <= p[0] <= x1 + 0.1]
+    S = [p for p in sand_chain if x0 - 0.1 <= p[0] <= x1 + 0.1]
+    if len(W) < 3 or len(W) != len(S):
+        raise ValueError(f"the window needs matched waterline/sand columns "
+                         f"(got {len(W)}/{len(S)}) -- pick a mid-beach run clear of the "
+                         f"end-caps")
+
+    def in_win(t3):
+        return all(x0 - 0.1 <= v[0][0] <= x1 + 0.1 for v in t3)
+    drop_foam = [t for t in beach if in_win(t)]
+    drop_sea2 = [t for t in parts["sea2"] if in_win(t)]
+    drop_sea1 = [t for t in parts["sea1"] if in_win(t)]
+    if not (drop_foam and drop_sea2 and drop_sea1):
+        raise ValueError("the window does not cover a full foam/wash/ring ladder")
+
+    # original positions by key (identity: the vertex SET is fixed; only topology + UVs
+    # re-derive) + per-part normals/idall exemplars
+    posY = {}
+    nrm_ex, id_ex = {}, {}
+    for name, tris in (("beach1", drop_foam), ("sea2", drop_sea2), ("sea1", drop_sea1)):
+        for t3 in tris:
+            for v in t3:
+                posY.setdefault(_pk((v[0][0], 0, v[0][2]))[::2], v[0])
+            nrm_ex.setdefault(name, t3[0][1])
+            id_ex.setdefault(name, tuple(t3[0][3]))
+
+    def P(x, z):
+        p = posY.get((round(x, 4), round(z, 4)))
+        if p is None:
+            raise ValueError(f"rebuild references ({x},{z}) -- not an original shore vert")
+        return p
+
+    def up_tri(tri):
+        ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
+        vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
+        return [tri[0], tri[2], tri[1]] if uz * vx - ux * vz <= 0 else tri
+
+    # --- (a) FOAM: per-column run tiles between the chains ---
+    foam_emit = []
+    for i in range(len(W) - 1):
+        sl, sr, wl, wr = S[i], S[i + 1], W[i], W[i + 1]
+        uv = {id(sl): (FOAM_U[0], FOAM_V_SAND), id(sr): (FOAM_U[1], FOAM_V_SAND),
+              id(wl): (FOAM_U[0], FOAM_V_WATER), id(wr): (FOAM_U[1], FOAM_V_WATER)}
+        for tri_pts in ((wr, wl, sl), (wr, sl, sr)):
+            foam_emit.append(up_tri([(p, nrm_ex["beach1"], uv[id(p)], id_ex["beach1"])
+                                     for p in tri_pts]))
+
+    # --- band map (identity: the real footprints) + cell registries ---
+    def cell_of(t3):
+        return (math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+                math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
+    band_rank = {"sea2": 0, "sea1": 1, "sea3": 2, "sea5": 3, "sea4": 4}
+
+    def band_at(px, pz):
+        """The DEEPEST band whose tile covers the point -- the interleaved shore means one
+        4u cell can carry tris of two bands (the teardown's two-meshes-per-cell fact), so
+        cell labels mislabel edges; coverage sampling is the honest band field."""
+        for name in ("sea4", "sea5", "sea3", "sea1", "sea2"):
+            for t3 in parts[name]:
+                if _pip_xz(px, pz, t3):
+                    return band_rank[name]
+        return -1                                    # land / beach side
+
+    # --- (b) SEA2: lattice mains + affine-continued conforming zip to the waterline ---
+    def on_lat(v, eps=0.02):
+        return (abs(v[0][0] / 4 - round(v[0][0] / 4)) < eps
+                and abs(v[0][2] / 4 - round(v[0][2] / 4)) < eps)
+    lat2 = [t for t in drop_sea2 if all(on_lat(v) for v in t)]
+    conf2 = [t for t in drop_sea2 if not all(on_lat(v) for v in t)]
+    sea2_emit = []
+    cell_pick = {}
+
+    def mains_map(cell, ori_seed):
+        (ci, cj) = cell
+        if cell not in cell_pick:
+            h = TR._h01(4.0 * ci + 1.7, 4.0 * cj + 2.3)
+            cell_pick[cell] = ((int(h * 2) % 2, int(h * 4) % 2),
+                              ("r0", "r90", "r180", "r270")[
+                                  int(TR._h01(4.0 * ci + 3.1, 4.0 * cj + 0.9) * 4) % 4])
+        (uh, vh), rname = cell_pick[cell]
+        from .water import OMAPS
+        m = OMAPS[rname]
+        (u0, u1), (v0, v1) = URECT[uh], VRECT[vh]
+
+        def uvf(x, z):
+            fx = (x - 4.0 * ci) / 4.0
+            fz = (z - 4.0 * cj) / 4.0
+            a, b = m(fx, fz)
+            return (u0 + a * (u1 - u0), v0 + b * (v1 - v0))
+        return uvf
+    for t3 in lat2:
+        c = cell_of(t3)
+        uvf = mains_map(c, 0)
+        tri = [ (v[0], nrm_ex["sea2"], uvf(v[0][0], v[0][2]), id_ex["sea2"]) for v in t3]
+        sea2_emit.append(up_tri(tri))
+    # conforming: re-emit each conforming tri through its landward lattice cell's map
+    for t3 in conf2:
+        cx = sum(v[0][0] for v in t3) / 3.0
+        cz = sum(v[0][2] for v in t3) / 3.0
+        c = (math.floor(cx / 4.0), math.floor(cz / 4.0))
+        uvf = mains_map(c, 0)
+        tri = [(v[0], nrm_ex["sea2"], uvf(v[0][0], v[0][2]), id_ex["sea2"]) for v in t3]
+        sea2_emit.append(up_tri(tri))
+
+    # --- (c) SEA1: the Wang ring by the learned table (emission mode + decode self-check) ---
+    maps8 = TR._dih_maps()
+    sea1_cells = {}
+    for t3 in drop_sea1:
+        sea1_cells.setdefault(cell_of(t3), []).append(t3)
+    sea1_emit = []
+    for c, tris in sorted(sea1_cells.items()):
+        # THE EDGE-SHADE FIELD IS SHAPE DATA (2026-07-10): thick interleaved sea1 regions
+        # carry directional strips on INTERIOR cells too -- edge states are SHADES that must
+        # agree across tiles (the Wang rule), so they cannot be derived from a neighbour-band
+        # map (the thin-band special case). Identity mode READS the field from the donor's
+        # own tiles (like the cliff morph read the crease polyline); a future shape morph
+        # transports/re-solves it. The TILES still re-derive from the learned table.
+        decs = {TR.strip_edge_set(t3) for t3 in tris}
+        decs.discard(None)
+        if len(decs) != 1:
+            raise ValueError(f"sea1 cell {c}: inconsistent/undecodable edge-shade field "
+                             f"{[sorted(d) for d in decs]} -- a conforming ring cell; keep "
+                             f"it outside the window")
+        es = next(iter(decs))
+        variants = TR.EDGESET2STRIP.get(es)
+        if not variants:
+            raise ValueError(f"sea1 cell {c}: edge-set {sorted(es)} has no learned strip")
+        # boundary sanity: an edge facing sea3+ must be deep (the field's boundary condition)
+        cx0, cz0 = 4.0 * c[0], 4.0 * c[1]
+        for d, pts in (("E", ((cx0 + 5.0, cz0 + 2.0),)), ("W", ((cx0 - 1.0, cz0 + 2.0),)),
+                       ("N", ((cx0 + 2.0, cz0 + 5.0),)), ("S", ((cx0 + 2.0, cz0 - 1.0),))):
+            if max(band_at(*p) for p in pts) > band_rank["sea1"] and d not in es:
+                raise ValueError(f"sea1 cell {c}: edge {d} faces a deeper band but the "
+                                 f"field reads shallow -- the donor decode is off")
+        k, oname = variants[int(TR._h01(4.0 * c[0] + 0.3, 4.0 * c[1] + 2.9)
+                                * len(variants)) % len(variants)]
+        m = maps8[oname]
+        (su0, su1), (sv0, sv1) = UFULL, (VSTRIP[k][0], VSTRIP[k][1])
+
+        def uvf(x, z, m=m, su0=su0, su1=su1, sv0=sv0, sv1=sv1, c=c):
+            fx = (x - 4.0 * c[0]) / 4.0
+            fz = (z - 4.0 * c[1]) / 4.0
+            a, b = m(fx, fz)
+            return (su0 + a * (su1 - su0), sv0 + b * (sv1 - sv0))
+        for t3 in tris:
+            tri = [(v[0], nrm_ex["sea1"], uvf(v[0][0], v[0][2]), id_ex["sea1"]) for v in t3]
+            sea1_emit.append(up_tri(tri))
+
+    # --- gates: per-part crack (hole boundary == emissions' once-edges) ---
+    for name, dropped, emitted in (("beach1", drop_foam, foam_emit),
+                                   ("sea2", drop_sea2, sea2_emit),
+                                   ("sea1", drop_sea1, sea1_emit)):
+        def once(tris):
+            ec = defaultdict(int)
+            for t3 in tris:
+                ps = [v[0] for v in t3]
+                for i in range(3):
+                    ec[frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3])))] += 1
+            return {e for e, cn in ec.items() if cn == 1}
+        if once(dropped) != once(emitted):
+            raise ValueError(f"CRACK GATE [{name}]: the rebuilt window's boundary does not "
+                             f"match the dropped hole")
+    return [TR.DropTris("beach1", drop_foam),
+            TR.DropTris("sea2", drop_sea2),
+            TR.DropTris("sea1", drop_sea1),
+            TR.EmitTris("beach1", foam_emit),
+            TR.EmitTris("sea2", sea2_emit),
+            TR.EmitTris("sea1", sea1_emit)]
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved
