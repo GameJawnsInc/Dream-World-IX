@@ -2087,6 +2087,62 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     return summary
 
 
+def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
+                   lod: str = "0_1", game=None, dry_run: bool = False) -> dict:
+    """Apply tweak objects to a REAL world cell IN PLACE -- the coast-morph demonstrator
+    path for shores no single-cell transplant can carry (a nose beach's landmass is always
+    a coastline fragment; only (7,17)'s pocket is fully in-block). Reads the cell's own
+    parts, runs the tweak pipeline, and deploys loose overrides for the TOUCHED parts
+    only, keyed to the SAME cell: the s34 per-part override loads for any streamed block
+    (``transform.name``-keyed -- real land cells included; ``world-terrain`` is the
+    Terrain-only precedent). No Donor.txt, no placement census, no land-fit: the cell
+    keeps its real neighbours, so tweaks must be frame-safe by construction (the
+    coastmorph fields pin block-frame verts). Reversible: delete the deployed files."""
+    from . import mesh as M
+    bx, by = cell
+    raw = {}
+    for p in parts:
+        tris = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
+        if not tris:
+            continue
+        polys, touched = [], False
+        for tri in tris:
+            poly = list(tri)
+            for tw in tweaks:
+                p2 = tw.apply(p, poly)
+                if p2 is not poly:
+                    touched = True
+                poly = p2
+                if poly is None:
+                    break
+            if poly is not None:
+                polys.append(poly)
+        for tw in tweaks:
+            if getattr(tw, "part", None) == p:
+                em = tw.emit()
+                if em:
+                    touched = True
+                    polys.extend(list(e) for e in em)
+        if touched:
+            raw[p] = polys
+    gates = [tw.gate() for tw in tweaks]
+    clean = all(g.get("ok", True) for g in gates)
+    summary = {"op": "morph-in-place", "cell": [bx, by], "touched": sorted(raw),
+               "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
+    if not raw:
+        raise ValueError("no tweak touched this cell -- nothing to morph in place")
+    if dry_run or not clean:
+        return summary
+    for p in sorted(raw):
+        loc = [[((v[0][0] - 64.0 * bx, v[0][1], v[0][2] + 64.0 * by), v[1], v[2], v[3])
+                for v in poly] for poly in raw[p]]
+        nm = f"Block[{bx}][{by}] {part_name(p)}"
+        bm = _soup_block_mesh(nm, (bx, by), loc, disc=disc, lod=lod)
+        summary["deployed"].append(str(M.deploy_override(
+            bm, mod_folder=mod_folder, game=game, lod=lod, part=part_name(p))))
+    return summary
+
+
 def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0, shift="auto",
                       parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,

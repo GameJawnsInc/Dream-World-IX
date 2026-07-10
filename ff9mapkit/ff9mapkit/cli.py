@@ -2467,16 +2467,45 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 tweaks = list(tweaks) + CM.cliff_lobes(
                     (dx, dy), p0, p1, [float(v) for v in sd.split(",")],
                     disc=args.disc, game=args.game)
-        kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
-                  tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
-                  game=args.game, census_samples=args.samples, dry_run=args.dry_run)
-        if (snx, sny) == (1, 1):
-            summary = TR.transplant(args.mod_folder, **kw)          # the byte-proven single-cell path
+        if args.in_place:
+            if (bx, by) != (dx, dy):
+                raise ConfigError("--in-place morphs the donor's own REAL cell: --cell "
+                                  "must equal --donor")
+            if not tweaks:
+                raise ConfigError("--in-place needs at least one morph flag to apply")
+            summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
+                                        disc=args.disc, game=args.game,
+                                        dry_run=args.dry_run)
         else:
-            summary = TR.transplant_region(args.mod_folder, size=(snx, sny), **kw)
+            kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
+                      tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
+                      game=args.game, census_samples=args.samples, dry_run=args.dry_run)
+            if (snx, sny) == (1, 1):
+                summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
+            else:
+                summary = TR.transplant_region(args.mod_folder, size=(snx, sny), **kw)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
+    if summary["op"] == "morph-in-place":
+        print(f"IN-PLACE morph: real cell {tuple(summary['cell'])} "
+              f"(touched parts: {', '.join(summary['touched'])})")
+        for g in summary["gates"]:
+            detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items()
+                               if k not in ("gate", "ok"))
+            print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
+        if not summary["clean"]:
+            print("NOT CLEAN -- deploy refused", file=sys.stderr)
+            return 2
+        if args.dry_run:
+            print("dry run: gates CLEAN -- re-run without --dry-run to deploy")
+            return 0
+        print("deployed:")
+        for q in summary["deployed"]:
+            print("  " + q)
+        print("  Needs the CUSTOM engine (s34). RELAUNCH (or exit+re-enter the overworld) "
+              "to apply; revert = delete the deployed files.")
+        return 0
     sx, sz = summary["shift"]
     if summary["op"] == "transplant-region":
         (rnx, rny), (rtw, rth) = summary["size"], summary["tsize"]
@@ -5108,6 +5137,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--in-place", action="store_true",
+                     help="morph the donor's own REAL cell in place (--cell == --donor): apply the "
+                          "given morph flags to the cell's real parts and deploy loose per-part "
+                          "overrides keyed to that same cell (the s34 override loads for any streamed "
+                          "block). The route for shores no single-cell transplant can carry -- every "
+                          "nose beach's landmass is a coastline fragment. No census/land-fit (the cell "
+                          "keeps its real neighbours; morphs pin block-frame verts). Revert = delete "
+                          "the deployed files.")
     wtp.add_argument("--beach-rebuild", default=None, metavar="X0,Z0:X1,Z1",
                      help="STRUCTURAL beach, identity mode (in-game proven ~indistinguishable): drop the "
                           "window's shore ladder (foam run tiles / sea2 wash / sea1 Wang ring) and re-derive "
