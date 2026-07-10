@@ -452,15 +452,22 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     rung 1). A beach is an INTERLEAVED RAMP ASSEMBLY: sand terrain -> beach1 foam (the swash
     ribbon, Y 0.2..1.2) -> sea2 wash, welded at two chains -- the WATERLINE (beach1's seaward
     boundary, every vert shared bit-exact with sea2) and the SAND SEAM (shared with terrain),
-    with load-bearing multi-part END-CAP welds. The bow displaces interior WATERLINE verts
-    (sin^2 profile, + = seaward) in BOTH welded parts: the FOAM drags verbatim (it is
-    edge-anchored -- the swash ribbon's width varies 3.3-6.7u naturally, so foam strain is
-    real behaviour and the white band must follow the line), but the sea2 WASH re-evaluates
-    through its own tile map (:class:`transplant.SeaBump`) -- dragged wash UVs smush the
-    water pattern (in-game 2026-07-10, the cliff-bump lesson repeating on the beach: WATER
-    NEVER DRAGS, on any band). Gates: end-caps must stay fixed, the ribbon must stay inside
-    the real width envelope, and no touched tile may fold."""
-    from .extract import decode_id as _did
+    with load-bearing multi-part END-CAP welds. The bow is ONE displacement FIELD over the
+    whole assembly (sin^2 along-shore profile, + = seaward): the waterline at factor 1, the
+    seaward water tapered over the depth-scaled reach (the LADDER TAPER -- strain <=~16%,
+    verbatim drag), and -- THE HUG LAW (user-called in-game 2026-07-10; within-beach swash
+    width is near-constant map-wide) -- the LANDWARD side rides too: flat factor across the
+    swash + sand seam, cos^2 decay over the berm, so the foam line stays parallel to the
+    sand's hard edge and the berm terrain DRAGS (the proven land fine-adjustment mechanism,
+    which also caps |depth| at ~2.5). THE SHAPE-CLASS GATE rules direction: a beach may
+    deepen its own chord-relative curvature (a nose grows seaward, a pocket landward), never
+    cross toward the opposite class. Frame verts are PINNED (a moved block-frame vert opens
+    a sliver against the neighbour prefab); the strain gate judges the pin's cost. Works on
+    FREE-FORM shores (conforming waterlines, unmatched chains) -- the chain-walk decoder
+    has no lattice-column assumption, unlike :func:`beach_reshape`."""
+    if abs(depth) > 2.6:
+        raise ValueError("the assembly bow DRAGS the berm -- the land-drag envelope caps "
+                         "depth at ~2.5 (the cliff-bump precedent)")
     beach = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
     if not beach:
         raise ValueError(f"donor {donor} has no beach1 mesh -- not a sandy shore")
@@ -514,17 +521,22 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
                          "seam, and keep end-caps outside the interior)")
     pts = [pos_of[k] for k in chain]
 
-    # seaward normal: away from the sand centroid
-    sand = [t for t in others["terrain"] if _did(int(round(t[0][3][0])))["topograph"] == 31]
-    src = sand or others["terrain"]
-    cc = (sum(v[0][0] for t3 in src for v in t3) / (3 * len(src)),
-          sum(v[0][2] for t3 in src for v in t3) / (3 * len(src)))
+    # seaward normal: MINUS the mean wl->nearest-seam direction, per window vert (the
+    # definitive local rule -- a global sand centroid flips on multi-beach islands, and
+    # centroid mid-tests flip on curved runs: the (9,17)/(19,16) lessons, 2026-07-10)
+    seam_all = [pos_of[k] for k in adj if k in reg["terrain"]]
+    if not seam_all:
+        raise ValueError("the beach has no sand seam -- not a morphable shore")
+    sdx = sdz = 0.0
+    for p in pts:
+        q = min(seam_all, key=lambda q: math.hypot(p[0] - q[0], p[2] - q[2]))
+        dq = math.hypot(p[0] - q[0], p[2] - q[2]) or 1.0
+        sdx += (q[0] - p[0]) / dq
+        sdz += (q[2] - p[2]) / dq
     t = (pts[-1][0] - pts[0][0], pts[-1][2] - pts[0][2])
     tl = math.hypot(*t) or 1.0
     nh = (-t[1] / tl, t[0] / tl)
-    mid = pts[len(pts) // 2]
-    if ((mid[0] + nh[0] - cc[0]) ** 2 + (mid[2] + nh[1] - cc[1]) ** 2
-            < (mid[0] - nh[0] - cc[0]) ** 2 + (mid[2] - nh[1] - cc[1]) ** 2):
+    if nh[0] * sdx + nh[1] * sdz > 0:
         nh = (-nh[0], -nh[1])
 
     acc, arcs = 0.0, [0.0]
@@ -561,37 +573,94 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
                 bf = math.copysign(math.sqrt(d2), side)
         return depth * math.sin(math.pi * bs / acc) ** 2, bf
 
+    fx0, fx1 = 64.0 * donor[0], 64.0 * donor[0] + 64.0
+    fz0, fz1 = -64.0 * donor[1] - 64.0, -64.0 * donor[1]
+
+    def near_frame(p, eps=1.5):
+        return (min(p[0] - fx0, fx1 - p[0]) < eps or min(p[2] - fz0, fz1 - p[2]) < eps)
     moves = {}                                    # the waterline chain (foam side, factor 1)
     for i in range(1, len(pts) - 1):
+        if near_frame(pts[i], eps=0.05):          # ON the frame = a neighbour weld: never
+            raise ValueError(f"waterline vert ({pts[i][0]:.0f},{pts[i][2]:.0f}) sits on "
+                             f"the block frame -- shrink the window off the frame")
         d = depth * math.sin(math.pi * arcs[i] / acc) ** 2
         moves[pts[i]] = (d * nh[0], 0.0, d * nh[1])
-    water_moves = dict(moves)                     # + the tapered seaward field
-    for name in ("sea1", "sea2", "sea3", "sea5", "sea4"):
-        for t3 in others[name]:
+    sand_seam = [pos_of[k] for k in adj if k in reg["terrain"]]
+    swash_flat = 1.0 + max(min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in sand_seam)
+                           for p in moves) if sand_seam and moves else 6.0
+    LAND_REACH = 8.0
+    water_moves = dict(moves)                     # + the tapered fields, both sides
+    for name in ("sea1", "sea2", "sea3", "sea5", "sea4", "terrain", "beach1"):
+        for t3 in (beach if name == "beach1" else others[name]):
             for v in t3:
                 k = _pk(v[0])
-                if k in {_pk(p) for p in water_moves}:
+                if k in {_pk(p) for p in water_moves} or near_frame(v[0]):
                     continue
                 d, f = chain_param(v[0])
-                if f <= 0.05 or f >= TAPER_REACH or abs(d) < 1e-6:
+                if abs(d) < 1e-6:
                     continue
-                fac = math.cos(math.pi / 2.0 * f / TAPER_REACH) ** 2
+                if f > 0.05:                      # seaward: the ladder taper
+                    if f >= TAPER_REACH or name in ("terrain", "beach1"):
+                        continue
+                    fac = math.cos(math.pi / 2.0 * f / TAPER_REACH) ** 2
+                elif f < -0.05:                   # landward: the assembly rides (hug)
+                    if name not in ("terrain", "beach1"):
+                        continue
+                    fl = -f
+                    if fl <= swash_flat:
+                        fac = 1.0
+                    elif fl < swash_flat + LAND_REACH:
+                        fac = math.cos(math.pi / 2.0 * (fl - swash_flat) / LAND_REACH) ** 2
+                    else:
+                        continue
+                else:                             # on the waterline but not a chain vert
+                    fac = 1.0 if name == "beach1" else \
+                        math.cos(math.pi / 2.0 * max(f, 0.0) / TAPER_REACH) ** 2
                 if abs(d * fac) < 0.05:
                     continue
                 water_moves[v[0]] = (d * fac * nh[0], 0.0, d * fac * nh[1])
     keyed = {_pk(p): v for p, v in water_moves.items()}
 
-    # THE RIBBON GATE: each moved waterline vert's distance to the sand seam must stay
-    # inside the real swash envelope (measured 3.3-6.7u; band widened for donor variety)
-    sand_seam = [pos_of[k] for k in adj if k in reg["terrain"]]
+    def _mvp(p):
+        d_ = keyed.get(_pk(p))
+        return (p[0] + d_[0], p[1], p[2] + d_[2]) if d_ else p
+
+    # THE RIBBON + HUG GATES: the swash stays inside the real absolute envelope AND rides
+    # the (moved) sand edge -- within-beach width is near-constant (the hug law)
     for p in list(moves):
         d0 = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in sand_seam)
-        dd = moves[p]
-        d1 = min(math.hypot(p[0] + dd[0] - q[0], p[2] + dd[2] - q[2]) for q in sand_seam)
-        if not (2.6 <= d1 <= 8.2):
-            raise ValueError(f"RIBBON GATE: the bow moves the swash ribbon to {d1:.1f}u at "
-                             f"({p[0]:.0f},{p[2]:.0f}) -- outside the real 3.3-6.7u envelope "
-                             f"(pre-move {d0:.1f}); reduce depth")
+        pm = _mvp(p)
+        d1 = min(math.hypot(pm[0] - q[0], pm[2] - q[2]) for q in (_mvp(q) for q in sand_seam))
+        # the hug always binds; the absolute envelope only binds verts that START inside
+        # it (a verbatim outlier -- e.g. a wide frame tail -- may ride, never re-band)
+        if abs(d1 - d0) > 0.6 or (2.6 <= d0 <= 8.2 and not (2.6 <= d1 <= 8.2)):
+            raise ValueError(f"RIBBON/HUG GATE: the bow moves the swash {d0:.1f} -> "
+                             f"{d1:.1f}u at ({p[0]:.0f},{p[2]:.0f}) -- the ribbon must "
+                             f"ride the sand edge inside the real envelope; reduce depth")
+
+    # THE SHAPE-CLASS GATE: deepen the beach's own chord-relative curvature, never cross
+    # toward the opposite class (the coast behind sets the class)
+    a2, b2 = pts[0], pts[-1]
+    ex2, ez2 = b2[0] - a2[0], b2[2] - a2[2]
+    L2 = math.hypot(ex2, ez2) or 1.0
+    nx2, nz2 = -ez2 / L2, ex2 / L2
+    if nx2 * nh[0] + nz2 * nh[1] < 0:            # align with the seaward normal
+        nx2, nz2 = -nx2, -nz2
+
+    def _dev2(p):
+        return (p[0] - a2[0]) * nx2 + (p[2] - a2[2]) * nz2
+    d0s = [_dev2(p) for p in pts[1:-1]]
+    d1s = [_dev2(_mvp(p)) for p in pts[1:-1]]
+    sea_cap = 0.25 * L2 if max(d0s) > 0.5 else max(d0s) + 0.3
+    land_cap = -0.48 * L2 if min(d0s) < -0.5 else min(d0s) - 0.3
+    if max(d1s) > sea_cap + 1e-6 or min(d1s) < land_cap - 1e-6:
+        klass = "convex (headland-nose)" if max(d0s) > 0.5 else \
+                "concave (pocket)" if min(d0s) < -0.5 else "straight"
+        raise ValueError(f"SHAPE-CLASS GATE: this beach is {klass} (chord devs "
+                         f"{min(d0s):.1f}..{max(d0s):.1f} over {L2:.0f}u); the bow takes "
+                         f"it to {min(d1s):.1f}..{max(d1s):.1f}, past its class envelope "
+                         f"[{land_cap:.1f},{sea_cap:.1f}] -- a beach may deepen its own "
+                         f"curvature, never cross toward the opposite class")
 
     # fold precheck across every part (the local envelope, offline)
     for tris in [beach] + list(others.values()):
@@ -609,10 +678,6 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
             if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
                 raise ValueError(f"depth {depth:g} folds a shore tile -- the waterline "
                                  f"envelope is geometric; reduce depth")
-    n_terr = sum(_pk(v[0]) in keyed for t3 in others["terrain"] for v in t3)
-    if n_terr:
-        raise ValueError(f"{n_terr} moved instance(s) belong to TERRAIN -- the sand must "
-                         f"not move; pick a waterline run clear of the sand seam")
     # THE BAND GATE: no shore band may compress below ~60% of its verbatim width (the
     # ladder-taper's whole point -- the pinched wash was the in-game seam)
     reg_pk = {n: {_pk(v[0]) for t3 in t for v in t3} for n, t in others.items()}
@@ -1050,8 +1115,8 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
         return (p[0] - a_[0]) * nx_ + (p[2] - a_[2]) * nz_
     d0 = [_dev(p) for p in W[1:-1]]
     d1 = [_dev(p) for p in W2[1:-1]]
-    sea_cap = 0.35 * L_ if max(d0) > 0.5 else max(d0) + 0.3
-    land_cap = -0.35 * L_ if min(d0) < -0.5 else min(d0) - 0.3
+    sea_cap = 0.25 * L_ if max(d0) > 0.5 else max(d0) + 0.3
+    land_cap = -0.48 * L_ if min(d0) < -0.5 else min(d0) - 0.3
     if max(d1) > sea_cap + 1e-6 or min(d1) < land_cap - 1e-6:
         klass = "convex (headland-nose)" if max(d0) > 0.5 else \
                 "concave (pocket)" if min(d0) < -0.5 else "straight"

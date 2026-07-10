@@ -141,19 +141,36 @@ BEACH_START = (476.0, -1124.0)
 BEACH_END = (504.0, -1132.0)
 
 
+#: the (3,11) NOSE window (the map's one single-cell-carryable convex beach; the definitive
+#: per-vert seam-direction census re-classed the "+45%" runs as pocket misreads -- true
+#: noses are GENTLE, map max ~+19% of length, while pockets run to ~-46%)
+NOSE_DONOR = (3, 11)
+NOSE_START = (204.3789, -744.3672)
+NOSE_END = (224.0, -761.4375)
+
+
 def test_beach_bump_builds_and_gates():
-    """The beach frontier's rung 1: the LADDER-TAPER bow. The whole shore system moves as
-    one cos^2-tapered DRAG field (depth-scaled reach caps strain at ~16%), so the ladder
-    keeps its real band-width statistics (a waterline-only bow pinched the wash 4.0 -> 0.8u
-    = the round-1 seam; per-tile re-evaluation at field scale = round 3's clamp smush +
-    border tiling). The RIBBON GATE still refuses a landward bow that pinches the swash."""
+    """The ASSEMBLY bow (rung 1, hug-law form): one displacement field -- waterline at
+    factor 1, seaward water over the depth-scaled ladder taper (strain <=~16%, verbatim
+    drag), and the landward side riding (flat across the swash, cos^2 over the berm) so
+    the ribbon stays its near-constant within-beach width. THE SHAPE-CLASS GATE rules
+    direction per donor: (7,17) is a pocket (landward-only), (3,11)'s nose grows seaward."""
     from ff9mapkit.world import coastmorph as CM
-    (disp,) = CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
-    # taper + pure DRAG (one part=None displacement over the depth-scaled ~24.5u reach) --
-    # water tolerates SMALL strain (<=16%, the strain gate), not re-evaluation at field scale
-    assert disp.part is None and disp.expected == 190
-    with pytest.raises(ValueError, match="RIBBON GATE"):
-        CM.beach_bump(DONOR, BEACH_START, BEACH_END, -2.0)
+    # the pocket: seaward refuses (class), landward passes (the assembly slides)
+    with pytest.raises(ValueError, match="SHAPE-CLASS GATE"):
+        CM.beach_bump(DONOR, BEACH_START, BEACH_END, 2.5)
+    (disp,) = CM.beach_bump(DONOR, BEACH_START, BEACH_END, -1.0)
+    assert disp.part is None and disp.expected == 211
+    # the nose: seaward passes to the window's hug ceiling (a bend vert breaks at 2.0)
+    (disp,) = CM.beach_bump(NOSE_DONOR, NOSE_START, NOSE_END, 1.5)
+    assert disp.expected == 173
+    with pytest.raises(ValueError, match="RIBBON/HUG GATE"):
+        CM.beach_bump(NOSE_DONOR, NOSE_START, NOSE_END, 2.0)
+    with pytest.raises(ValueError, match="SHAPE-CLASS GATE"):
+        CM.beach_bump(NOSE_DONOR, NOSE_START, NOSE_END, -1.5)
+    # land drags => the land-drag envelope caps depth outright
+    with pytest.raises(ValueError, match="land-drag envelope"):
+        CM.beach_bump(DONOR, BEACH_START, BEACH_END, 3.5)
 
 
 def test_beach_bump_refuses_a_non_waterline_run():
