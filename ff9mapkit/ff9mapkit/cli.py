@@ -5121,7 +5121,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "chains, the wash re-laid with a width-driven lattice boundary, the sea1/sea3 "
                           "patchwork transported by a per-column pullback with the EDGE-SHADE FIELD re-solved "
                           "(transported shades preferred, flips minimized over the learned table). The berm "
-                          "terrain DRAGS (the land-drag envelope caps depth at ~2.5).")
+                          "terrain DRAGS (the land-drag envelope caps depth at ~2.5). THE SHAPE-CLASS LAW "
+                          "gates direction: a beach may deepen its own curvature (a pocket deepens landward, "
+                          "a headland-nose grows seaward) but never cross its chord toward the opposite "
+                          "class -- the coast behind it sets the class.")
     wtp.add_argument("--shift", default="auto",
                      help="in-cell shift 'dx,dz' in units, each a multiple of 4, clamped to what the donor's "
                           "neighbour strips can refill; default auto = centre the land in the cell")

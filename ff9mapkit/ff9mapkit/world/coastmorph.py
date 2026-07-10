@@ -992,6 +992,35 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                              f"at ({W[i][0]:.0f},{W[i][2]:.0f}) -- the ribbon must ride "
                              f"the sand edge (within-beach width is near-constant)")
 
+    # THE SHAPE-CLASS GATE (user-called in-game 2026-07-10, byte-confirmed over 37 real
+    # waterline runs): a beach's convexity class is INHERITED from the coastline it aprons
+    # -- headland-nose beaches bow seaward of their cap-to-cap chord (up to +46% of
+    # length), pocket beaches stay landward of it. A morph may DEEPEN the beach's own
+    # curvature (up to the map-wide class envelope, ~35% of length) but must never push
+    # past its own extreme toward the OPPOSITE class: a pocket that crosses its chord
+    # reads as the beach peeling off the coast (the v2 'extruded ends'), because the land
+    # behind it is still concave. Devs are chord-relative, seaward-positive.
+    a_, b_ = W[0], W[-1]
+    ex_, ez_ = b_[0] - a_[0], b_[2] - a_[2]
+    L_ = math.hypot(ex_, ez_) or 1.0
+    nx_, nz_ = -ez_ / L_, ex_ / L_
+    if nz_ > 0:                                       # seaward = -z on this shore class
+        nx_, nz_ = -nx_, -nz_
+    def _dev(p):
+        return (p[0] - a_[0]) * nx_ + (p[2] - a_[2]) * nz_
+    d0 = [_dev(p) for p in W[1:-1]]
+    d1 = [_dev(p) for p in W2[1:-1]]
+    sea_cap = 0.35 * L_ if max(d0) > 0.5 else max(d0) + 0.3
+    land_cap = -0.35 * L_ if min(d0) < -0.5 else min(d0) - 0.3
+    if max(d1) > sea_cap + 1e-6 or min(d1) < land_cap - 1e-6:
+        klass = "convex (headland-nose)" if max(d0) > 0.5 else \
+                "concave (pocket)" if min(d0) < -0.5 else "straight"
+        raise ValueError(f"SHAPE-CLASS GATE: this beach is {klass} (chord devs "
+                         f"{min(d0):.1f}..{max(d0):.1f} over {L_:.0f}u); the morph takes "
+                         f"it to {min(d1):.1f}..{max(d1):.1f}, past its class envelope "
+                         f"[{land_cap:.1f},{sea_cap:.1f}] -- a beach may deepen its own "
+                         f"curvature, never cross toward the opposite class")
+
     # --- the cell census (a bounded working region around the window) ---
     def cell_of(t3):
         return (math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),

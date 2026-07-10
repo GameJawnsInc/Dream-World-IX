@@ -191,25 +191,26 @@ def test_beach_rebuild_golden():
 
 
 def test_beach_reshape_golden_transport():
-    """The SHAPE morph (rung 2 step 2) at the depth where the band TRANSPORT fires: the
-    ASSEMBLY slides (sand seam + waterline together -- THE HUG LAW: within-beach swash
-    width is near-constant, so the ribbon rides the sand edge; the berm terrain drags),
-    one column shifts a lattice row, the wash grows over a sea1 cell, the sea3 sandwich
-    cell slides one row seaward (sea1 emitted over it by the learned table, sea3
-    re-emitted by its learned quadrant/dihedral-8 language), and the edge-shade solver
-    repairs exactly the Wang agreements the new map forces."""
+    """The SHAPE morph (rung 2 step 2) at the lawful depth where the band TRANSPORT
+    fires. THE HUG LAW: the ASSEMBLY slides (sand seam + waterline together, the berm
+    terrain drags) so the swash ribbon stays its near-constant within-beach width. THE
+    SHAPE-CLASS LAW: (7,17) is a POCKET beach (concave to its chord), so the lawful
+    direction is LANDWARD -- the pocket deepens, a column sheds a wash row, the vacated
+    cells re-lay as sea1 (learned table), a sea1 cell returns to sea3 (learned
+    quadrant/dihedral-8), and the edge-shade solver repairs exactly the Wang agreements
+    the new map forces."""
     from ff9mapkit.world import coastmorph as CM
-    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 1.5)
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -1.0)
     led = [(getattr(t, "part", None),
             ("drop", t.expected) if hasattr(t, "keys")
             else ("emit", len(t.tris)) if hasattr(t, "tris")
             else ("displace", t.expected)) for t in tw]
     assert led == [("beach1", ("drop", 14)), ("sea2", ("drop", 18)),
-                   ("sea1", ("drop", 6)), ("sea3", ("drop", 2)),
+                   ("sea1", ("drop", 6)),
                    (None, ("displace", 20)),
-                   ("beach1", ("emit", 15)), ("sea2", ("emit", 21)),
-                   ("sea1", ("emit", 4)), ("sea3", ("emit", 2))]
-    assert _tweak_hash(tw) == "f839f444701e29c2"
+                   ("beach1", ("emit", 16)), ("sea2", ("emit", 24)),
+                   ("sea1", ("emit", 6)), ("sea3", ("emit", 2))]
+    assert _tweak_hash(tw) == "2c3780152ae58a4a"
 
 
 def test_beach_reshape_identity_is_a_rebuild():
@@ -221,22 +222,25 @@ def test_beach_reshape_identity_is_a_rebuild():
         ("beach1", True), ("sea2", True), ("beach1", False), ("sea2", False)]
 
 
-def test_beach_reshape_landward_transport():
-    """A landward morph slides the band UP: the wash sheds a row, the vacated cells re-lay
-    as sea1, and a sea1 cell returns to sea3 (both directions of the pullback are lawful)."""
+def test_beach_reshape_shallow_landward_stays_conforming():
+    """A shallow landward morph (no band shift) still slides the assembly + re-lays the
+    foam/wash -- the degenerate no-transport case stays lawful."""
     from ff9mapkit.world import coastmorph as CM
-    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -1.0)
-    parts = [(t.part, hasattr(t, "keys")) for t in tw]
-    assert ("sea3", False) in parts and ("sea1", False) in parts
+    tw = CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -0.5)
+    parts = [(getattr(t, "part", None), hasattr(t, "keys")) for t in tw]
+    assert ("sea3", True) not in parts and ("sea1", True) not in parts
 
 
 def test_beach_reshape_refusals():
     from ff9mapkit.world import coastmorph as CM
-    # the wash-width ceiling: col 488's mid-column vert cannot keep the band lawful with a
-    # 4u-quantized boundary (the true v1 ceiling at this window)
-    with pytest.raises(ValueError, match="BAND GATE"):
-        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 2.0)
-    # the sand-slide drags the berm -- the land-drag envelope caps depth
+    # THE SHAPE-CLASS GATE: (7,17) is a pocket beach -- EVERY seaward depth crosses its
+    # chord toward the convex class (the in-game 'extruded ends' read, made a refusal)
+    with pytest.raises(ValueError, match="SHAPE-CLASS GATE"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 1.0)
+    # the berm's own geometric fold limit (the sand-slide compresses the berm landward)
+    with pytest.raises(ValueError, match="folds a berm tile"):
+        CM.beach_reshape(DONOR, BEACH_START, BEACH_END, -1.5)
+    # the sand-slide drags the berm -- the land-drag envelope caps depth outright
     with pytest.raises(ValueError, match="land-drag envelope"):
         CM.beach_reshape(DONOR, BEACH_START, BEACH_END, 3.5)
     # sand-seam endpoints are not a waterline run
