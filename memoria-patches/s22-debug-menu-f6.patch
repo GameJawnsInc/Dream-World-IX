@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
-index c0c537ca..538d9432 100644
+index c0c537ca..df1f1c2a 100644
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
 @@ -1071,6 +1071,7 @@
@@ -10,20 +10,24 @@ index c0c537ca..538d9432 100644
      <Compile Include="Global\UI\UILabel.cs" />
      <Compile Include="Global\UI\UILocalize.cs" />
      <Compile Include="Global\UI\UIManager.cs" />
-@@ -1374,6 +1375,7 @@
+@@ -1374,8 +1375,11 @@
      <Compile Include="Memoria\Test\Values\Unity\Vector3Message.cs" />
      <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
      <Compile Include="Memoria\World\WorldConfiguration.cs" />
 +    <Compile Include="Memoria\World\WorldMeshOverride.cs" />
      <Compile Include="Memoria\World\WorldEffect.cs" />
      <Compile Include="Memoria\World\WorldPlace.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..3df0cad9
+index 00000000..b2b903c9
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,2159 @@
+@@ -0,0 +1,2199 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -1154,11 +1158,28 @@ index 00000000..3df0cad9
 +        }
 +    }
 +
-+    // Live overworld state read-out (read-only). RealPosition = ABSOLUTE (un-wrapped) world pos, the value the
-+    // minimap + w_frameGetParameter use; cells are 32u (z divides by -32); block = InitialX/Y content identity vs
-+    // CurrentX/Y wrapped screen slot; IDALL/topograph under the player via m_moveActorID. w_moveActorPtr overrides
-+    // Unity ==, so guard with the (UnityEngine.Object)null form (and originalActor separately — m_moveActorID
-+    // doesn't guard it).
++    // [ff9mapkit] THE CANONICAL WRAPPED WORLD FRAME — the one every kit tool and mesh file speaks
++    // (Block[x][y].ff9mesh, world-transplant donors, world-entrance --cell, world-teleport spots).
++    // RealPosition is the ABSOLUTE un-wrapped position (it keeps counting across the world wrap), so
++    // after crossing a wrap boundary the raw pos disagrees with the files/blocks frame. Normalize
++    // x into [0, 1536) and z into (-1280, 0]; then block = (x/64, -z/64) [24x20 grid, the .ff9mesh
++    // file names] and cell = (x/32, -z/32) [48x40 grid, the entrance-trigger tags].
++    private static void CanonicalWorld(Vector3 wp, out Single cx, out Single cz)
++    {
++        cx = wp.x % 1536f;
++        if (cx < 0f)
++            cx += 1536f;
++        cz = wp.z % 1280f;
++        if (cz > 0f)
++            cz -= 1280f;
++    }
++
++    // Live overworld state read-out (read-only). Leads with the CANONICAL triple (world / block /
++    // cell — the coordinates all authoring tools use); the raw un-wrapped pos shows only when it
++    // differs (i.e. the world has wrapped), plus the engine's own block identity (init = content,
++    // cur = wrapped screen slot) as diagnostics. IDALL/topograph under the player via
++    // m_moveActorID. w_moveActorPtr overrides Unity ==, so guard with the (UnityEngine.Object)null
++    // form (and originalActor separately — m_moveActorID doesn't guard it).
 +    private static String WorldReadout()
 +    {
 +        try
@@ -1167,21 +1188,27 @@ index 00000000..3df0cad9
 +            if (a == (UnityEngine.Object)null || a.originalActor == null)
 +                return "(no controlled actor yet)";
 +            Vector3 wp = a.RealPosition;
-+            Int32 cellX = (Int32)(wp.x / 32f);
-+            Int32 cellZ = (Int32)(wp.z / -32f);
++            Single cwx, cwz;
++            CanonicalWorld(wp, out cwx, out cwz);
++            Int32 bX = (Int32)(cwx / 64f), bY = (Int32)(-cwz / 64f);
++            Int32 cellX = (Int32)(cwx / 32f), cellZ = (Int32)(-cwz / 32f);
 +            Int32 idall = ff9.m_moveActorID;
 +            Int32 ev = ff9.m_GetIDEvent(idall), area = ff9.m_GetIDArea(idall), topo = ff9.m_GetIDTopograph(idall);
-+            String blk = "blk (--)";
++            String blk = "engine blk (--)";
 +            WMWorld w = ff9.world;
 +            if (w != null)
 +            {
 +                WMBlock b = w.GetAbsoluteBlock(a.transform);
 +                if (b != null)
-+                    blk = String.Format("blk init({0},{1}) cur({2},{3})", b.InitialX, b.InitialY, b.CurrentX, b.CurrentY);
++                    blk = String.Format("engine blk init({0},{1}) cur({2},{3})", b.InitialX, b.InitialY, b.CurrentX, b.CurrentY);
 +            }
++            String wrapped = (Math.Abs(cwx - wp.x) > 0.5f || Math.Abs(cwz - wp.z) > 0.5f)
++                ? String.Format("   raw ({0:F0}, {1:F0}) [wrapped]", wp.x, wp.z)
++                : "";
 +            return String.Format(
-+                "pos ({0:F0}, {1:F0}, {2:F0})   cell ({3}, {4})\n{5}\nIDALL 0x{6:X4}   ev {7}  area {8}  topo {9}",
-+                wp.x, wp.y, wp.z, cellX, cellZ, blk, idall, ev, area, topo);
++                "world ({0:F0}, {1:F0})   block [{2}][{3}]   cell ({4}, {5})\n"
++                + "y {6:F1}{7}   {8}\nIDALL 0x{9:X4}   ev {10}  area {11}  topo {12}",
++                cwx, cwz, bX, bY, cellX, cellZ, wp.y, wrapped, blk, idall, ev, area, topo);
 +        }
 +        catch (Exception e)
 +        {
@@ -1197,10 +1224,14 @@ index 00000000..3df0cad9
 +            if (a == (UnityEngine.Object)null)
 +                return;
 +            Vector3 wp = a.RealPosition;
-+            _wxText = ((Int32)wp.x).ToString();
-+            _wzText = ((Int32)wp.z).ToString();
-+            GUIUtility.systemCopyBuffer = (Int32)wp.x + ", " + (Int32)wp.z;
-+            _status = "copied world (" + (Int32)wp.x + ", " + (Int32)wp.z + ") -> boxes + clipboard";
++            Single cwx, cwz;
++            CanonicalWorld(wp, out cwx, out cwz);   // canonical: teleport-ready + matches the tools
++            _wxText = ((Int32)cwx).ToString();
++            _wzText = ((Int32)cwz).ToString();
++            GUIUtility.systemCopyBuffer = (Int32)cwx + ", " + (Int32)cwz;
++            _status = String.Format("copied world ({0}, {1})  block [{2}][{3}]  cell ({4}, {5}) -> boxes + clipboard",
++                (Int32)cwx, (Int32)cwz, (Int32)(cwx / 64f), (Int32)(-cwz / 64f),
++                (Int32)(cwx / 32f), (Int32)(-cwz / 32f));
 +        }
 +        catch (Exception)
 +        {
@@ -1933,7 +1964,20 @@ index 00000000..3df0cad9
 +            Byte disc = 0;
 +            try { disc = ff9.w_frameDisc; } catch (Exception) { }
 +            Int32 cn = CurrentControlNo();
-+            return String.Format("overworld  (disc {0})   mode {1} {2}", disc, cn, VehicleName(cn));
++            String wat = "";
++            try
++            {
++                WMActor a = ff9.w_moveActorPtr;
++                if (a != (UnityEngine.Object)null)
++                {
++                    Single cwx, cwz;
++                    CanonicalWorld(a.RealPosition, out cwx, out cwz);
++                    wat = String.Format("   @ ({0:F0}, {1:F0})  blk[{2}][{3}]",
++                        cwx, cwz, (Int32)(cwx / 64f), (Int32)(-cwz / 64f));
++                }
++            }
++            catch (Exception) { }
++            return String.Format("overworld  (disc {0})   mode {1} {2}{3}", disc, cn, VehicleName(cn), wat);
 +        }
 +        Int32 id = FF9StateSystem.Common.FF9.fldMapNo;
 +        String name;
