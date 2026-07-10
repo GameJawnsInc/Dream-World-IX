@@ -320,6 +320,21 @@ class VertexDisplace:
     def emit(self) -> list:
         return []
 
+    def census_inverse(self, x: float, z: float):
+        """Approximate donor pre-image of a DISPLACED-region point (donor world XZ) -- the
+        census backmap hook: a pre-existing donor hole near a moved shore TRANSLATES with
+        the displacement and would otherwise shift out from under the identity backmap and
+        misread as introduced (the RowInsert-inverse phenomenon, displacement flavour).
+        Nearest-moved-vert field: exact at the verts, adequate between them at bow scale."""
+        best, bd = None, 1e18
+        for (kx, ky, kz), d in self.moves.items():
+            d2 = (x - (kx + d[0])) ** 2 + (z - (kz + d[2])) ** 2
+            if d2 < bd:
+                best, bd = d, d2
+        if best is None or bd > (6.0 + max(abs(best[0]), abs(best[2]))) ** 2:
+            return x, z
+        return x - best[0], z - best[2]
+
     def gate(self) -> dict:
         return {"gate": f"displace[{self.part or 'all'}]", "applied": self.applied,
                 "expected": self.expected, "folds": self.folds,
@@ -2038,6 +2053,11 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
             dlx, dlz = _rot_xz(ux, uz, (4 - nrot) % 4)
             dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx      # undo RowInsert cuts (donor world x)
             dlz = tinv_z(dlz - 64.0 * dby) + 64.0 * dby    # undo RowInsertZ cuts (donor world z)
+            for tw_ in tweaks:                             # undo displacement fields (bows)
+                inv = getattr(tw_, "census_inverse", None)
+                if inv is not None:
+                    wx, wz = inv(dlx + 64.0 * dbx, dlz - 64.0 * dby)
+                    dlx, dlz = wx - 64.0 * dbx, wz + 64.0 * dby
             if not (-FRAME_EPS <= dlx <= 64.0 + FRAME_EPS
                     and -64.0 - FRAME_EPS <= dlz <= FRAME_EPS):
                 introduced.append((mx, mz))            # maps outside the donor frame: a strip hole
@@ -2439,6 +2459,11 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         dlx, dlz = _rot_region_xz(mx - sh_x, mz - sh_z, inv_rot, ext_r, ext)
         dlx = tinv(dlx + 64.0 * dbx) - 64.0 * dbx          # undo RowInsert cuts (donor world x)
         dlz = tinv_z(dlz - 64.0 * dby) + 64.0 * dby        # undo RowInsertZ cuts (donor world z)
+        for tw_ in tweaks:                                 # undo displacement fields (bows)
+            inv = getattr(tw_, "census_inverse", None)
+            if inv is not None:
+                wx, wz = inv(dlx + 64.0 * dbx, dlz - 64.0 * dby)
+                dlx, dlz = wx - 64.0 * dbx, wz + 64.0 * dby
         if not (-FRAME_EPS <= dlx <= ext[0] + FRAME_EPS
                 and -ext[1] - FRAME_EPS <= dlz <= FRAME_EPS):
             introduced.append((mx, mz))               # maps outside the region: a strip hole

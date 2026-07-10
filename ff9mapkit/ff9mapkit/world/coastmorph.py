@@ -542,6 +542,14 @@ def _cliff_reshape(donor, start, end, profile, *, disc: int = 1, lod: str = "0_1
     drop_grass = [t for t in win.grass
                   if _key_set(t) & (moved_ck | refined_keys)
                   or any({ck[i], ck[i + 1]} <= _key_set(t) for i in range(gaps))]
+    if not drop_grass:
+        # THE BAKED-TERRAIN REFUSAL: no grass behind the window's crease = a painted-mural
+        # top family (highland 17/38/49 etc., e.g. the whole (9,5) island) -- there is NO
+        # tile language to re-fill with (the baked-terrain law), so structural morphs
+        # cannot hold here. The conforming bow (cliff_bump) still applies: it drags.
+        raise ValueError("the window's top carries no grass mains -- a painted-mural family "
+                         "(the baked-terrain law: no fill language). Structural morphs need "
+                         "a grass top; cliff_bump (the conforming bow) still applies")
     _assert_pure_sea4(win, moved_bk | moved_ck | refined_keys, disc=disc, lod=lod, game=game)
 
     # --- the new outline. PINNED scheme first (the proven arithmetic: old columns

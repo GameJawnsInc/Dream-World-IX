@@ -136,6 +136,15 @@ def test_lobes_reach_gate_refuses_the_shallow_ladder():
         CM.cliff_lobes(DONOR, (476.0, -1108.9), LOBES_END, (3.5, -5.0, 6.5))
 
 
+def test_structural_refuses_a_grassless_top():
+    from ff9mapkit.world import coastmorph as CM
+    # the (9,5) continent-island-A donor has ZERO grass (highland/mural top families) --
+    # the baked-terrain law: no fill language, so structural morphs refuse cleanly and
+    # only the conforming bow applies. Window = a clean run on block (10,6).
+    with pytest.raises(ValueError, match="no grass mains"):
+        CM.cliff_headland((10, 6), (695.6, -407.9), (680.0, -436.0), 6.0)
+
+
 def test_headland_refuses_an_illegal_gap_count():
     from ff9mapkit.world import coastmorph as CM
     # a 3-gap sub-window (492..504) cannot satisfy the deterministic U-ramp: its clean
