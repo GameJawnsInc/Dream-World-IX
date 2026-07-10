@@ -531,11 +531,52 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     for a, b in zip(pts, pts[1:]):
         acc += math.dist(a, b)
         arcs.append(acc)
-    moves = {}
+
+    # THE LADDER TAPER (in-game 2026-07-10: a waterline-only bow pinches the sea2 wash band
+    # OUT of the real width envelope -- 4.0u -> 0.8u at the apex, tilt x3 -- so the band
+    # boundary reads as a hard seam; real shores keep band widths in PROPORTION). The bow is
+    # a decaying FIELD: the waterline moves d(s); every SEAWARD water vert within reach moves
+    # d(s) * cos^2-taper of its cross-shore distance, so each band compresses only
+    # fractionally and the ladder keeps its real statistics. Weld-safe by construction: the
+    # delta is a pure function of position, so shared band-boundary verts agree across parts.
+    TAPER_REACH = 12.0
+
+    def chain_param(p):
+        """(along-shore profile displacement d(s), signed cross-shore distance f)."""
+        best, bs, bf = 1e18, 0.0, 0.0
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            ex, ez = b[0] - a[0], b[2] - a[2]
+            L2 = ex * ex + ez * ez or 1.0
+            tt = max(0.0, min(1.0, ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / L2))
+            qx, qz = a[0] + tt * ex, a[2] + tt * ez
+            d2 = (p[0] - qx) ** 2 + (p[2] - qz) ** 2
+            if d2 < best:
+                best = d2
+                bs = arcs[i] + tt * (arcs[i + 1] - arcs[i])
+                side = (p[0] - qx) * nh[0] + (p[2] - qz) * nh[1]
+                bf = math.copysign(math.sqrt(d2), side)
+        return depth * math.sin(math.pi * bs / acc) ** 2, bf
+
+    moves = {}                                    # the waterline chain (foam side, factor 1)
     for i in range(1, len(pts) - 1):
         d = depth * math.sin(math.pi * arcs[i] / acc) ** 2
         moves[pts[i]] = (d * nh[0], 0.0, d * nh[1])
-    keyed = {_pk(p): v for p, v in moves.items()}
+    water_moves = dict(moves)                     # + the tapered seaward field
+    for name in ("sea1", "sea2", "sea3", "sea5", "sea4"):
+        for t3 in others[name]:
+            for v in t3:
+                k = _pk(v[0])
+                if k in {_pk(p) for p in water_moves}:
+                    continue
+                d, f = chain_param(v[0])
+                if f <= 0.05 or f >= TAPER_REACH or abs(d) < 1e-6:
+                    continue
+                fac = math.cos(math.pi / 2.0 * f / TAPER_REACH) ** 2
+                if abs(d * fac) < 0.05:
+                    continue
+                water_moves[v[0]] = (d * fac * nh[0], 0.0, d * fac * nh[1])
+    keyed = {_pk(p): v for p, v in water_moves.items()}
 
     # THE RIBBON GATE: each moved waterline vert's distance to the sand seam must stay
     # inside the real swash envelope (measured 3.3-6.7u; band widened for donor variety)
@@ -565,16 +606,35 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
             if abs(a0) > 0.02 and (a0 * a1 <= 0.0 or abs(a1) < 0.02):
                 raise ValueError(f"depth {depth:g} folds a shore tile -- the waterline "
                                  f"envelope is geometric; reduce depth")
-    n_foam = sum(_pk(v[0]) in keyed for t3 in beach for v in t3)
-    n_wash = sum(_pk(v[0]) in keyed for t3 in others["sea2"] for v in t3)
-    n_other = sum(_pk(v[0]) in keyed for name, tris in others.items() if name != "sea2"
-                  for t3 in tris for v in t3)
-    if n_other:
-        raise ValueError(f"{n_other} moved waterline instance(s) belong to parts other than "
-                         f"beach1/sea2 -- a part-scoped move would crack there; pick a run "
-                         f"whose interior welds only foam and wash")
-    return [TR.VertexDisplace(moves=moves, expected=n_foam, part="beach1"),
-            TR.SeaBump(moves=moves, expected=n_wash, part="sea2")]
+    n_terr = sum(_pk(v[0]) in keyed for t3 in others["terrain"] for v in t3)
+    if n_terr:
+        raise ValueError(f"{n_terr} moved instance(s) belong to TERRAIN -- the sand must "
+                         f"not move; pick a waterline run clear of the sand seam")
+    # THE BAND GATE: no shore band may compress below ~60% of its verbatim width (the
+    # ladder-taper's whole point -- the pinched wash was the in-game seam)
+    reg_pk = {n: {_pk(v[0]) for t3 in t for v in t3} for n, t in others.items()}
+    beach_pk = {_pk(v[0]) for t3 in beach for v in t3}
+    c1 = [pos_of.get(k) or next(v[0] for t3 in others["sea2"] for v in t3 if _pk(v[0]) == k)
+          for k in (reg_pk["sea2"] & reg_pk["sea1"])]
+    def _mv(p):
+        d = keyed.get(_pk(p))
+        return (p[0] + d[0], p[1], p[2] + d[2]) if d else p
+    for p in list(moves):
+        if not c1:
+            break
+        w0 = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in c1)
+        pm = _mv(p)
+        w1 = min(math.hypot(pm[0] - q[0], pm[2] - q[2]) for q in (_mv(q) for q in c1))
+        if w0 > 0.5 and w1 < 0.6 * w0:
+            raise ValueError(f"BAND GATE: the wash band pinches {w0:.1f} -> {w1:.1f}u at "
+                             f"({p[0]:.0f},{p[2]:.0f}) despite the taper -- reduce depth")
+    tweaks = [TR.VertexDisplace(moves=moves, expected=sum(
+        _pk(v[0]) in {_pk(q) for q in moves} for t3 in beach for v in t3), part="beach1")]
+    for name in ("sea2", "sea1", "sea3", "sea5", "sea4"):
+        n = sum(_pk(v[0]) in keyed for t3 in others[name] for v in t3)
+        if n:
+            tweaks.append(TR.SeaBump(moves=water_moves, expected=n, part=name))
+    return tweaks
 
 
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
