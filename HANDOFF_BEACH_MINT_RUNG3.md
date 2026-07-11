@@ -8,8 +8,9 @@
 > updated brief §Frontier and the coast-mosaic memory), and DEPLOYED at cell
 > **(10,4)** (a (7,17) clone; probe = beach-west ring cell (116,-281) sea3→sea1;
 > references = the (11,6)/(11,7) mints). Deployed-bytes differential vs (11,7) is
-> exactly the 3 probed cells' water. **Awaiting the playtest** — then merge to
-> master and continue at §3 step 4 (the full ladder composition).
+> exactly the 3 probed cells' water. **★ IN-GAME PROVEN 2026-07-11** ("reads as
+> faithful compared to the verbatim") — merged to master; next is §3 step 4
+> (the full ladder composition around a synthesized beach).
 
 **Written:** 2026-07-11, end of a session that shipped rungs 1–2a of BEACH-MINT and
 cracked rung 3's blocker. **Why this file exists:** the work continues in a *new*
