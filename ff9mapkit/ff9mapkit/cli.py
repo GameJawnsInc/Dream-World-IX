@@ -1457,11 +1457,16 @@ def _cmd_model_gltf(args: argparse.Namespace) -> int:
     from .models import gltf as mgltf
     out = args.out or f"{str(args.model).replace('/', '_')}.glb"
     try:
-        man = mgltf.export_gltf(args.model, out, anims=args.anims, scale=args.scale, game=args.game)
+        man = mgltf.export_gltf(args.model, out, anims=args.anims, scale=args.scale, game=args.game,
+                                bone_labels=not getattr(args, "plain_bones", False))
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
     print(f"exported {man['geo']} (id {man['geo_id']}) -> {man['path']}")
+    nlab = man.get("bone_labels") or 0
+    if nlab:
+        print(f"  bones wear anatomical display labels (bone012_R_hand -- {nlab} labeled; cosmetic only, "
+              f"--plain-bones for raw names)")
     print(f"  {man['bones']} bones / {man['meshes']} mesh part(s) / {man['verts']} verts / "
           f"{man['textures']} texture(s) / anims: {', '.join(man['anims']) or 'none'}")
     for d in man.get("donor_anims") or []:
@@ -4782,6 +4787,10 @@ def build_parser() -> argparse.ArgumentParser:
                          "embedded automatically")
     mg.add_argument("--scale", type=float, default=0.01,
                     help="uniform scale bake (default 0.01: FF9's hundreds-of-units models -> a few Blender metres)")
+    mg.add_argument("--plain-bones", action="store_true",
+                    help="name bones raw boneNNN instead of the default labeled bone012_R_hand form "
+                         "(labels are anatomical guesses derived from the rig family's rest pose -- a "
+                         "display layer only; either naming round-trips through model-import/-anim-new)")
     mg.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
     mg.set_defaults(func=_cmd_model_gltf)
 

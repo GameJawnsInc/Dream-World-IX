@@ -130,9 +130,14 @@ def _desample(raw: list, interp: str) -> list:
 
 
 def _node_bone_num(node: dict):
-    """glTF node -> FF9 bone NUMBER (from its ``boneNNN`` name, tolerating a Blender ``.001`` dedup suffix)."""
-    nm = re.sub(r"\.\d+$", "", str(node.get("name") or ""))
-    return extract._bone_num(nm)
+    """glTF node -> FF9 bone NUMBER: from its name -- raw ``boneNNN`` or the exporter's labeled
+    ``boneNNN_R_hand`` (either with a Blender ``.001`` dedup suffix) -- else the ``ff9_bone_num``
+    extra (survives Blender as a bone custom property)."""
+    from .bone_labels import bone_num_lenient
+    n = bone_num_lenient(node.get("name"))
+    if n is None:
+        n = (node.get("extras") or {}).get("ff9_bone_num")
+    return int(n) if n is not None else None
 
 
 def parse_gltf_animations(gltf: dict, blob: bytes, *, scale: float = DEFAULT_SCALE) -> list:

@@ -158,14 +158,21 @@ def _select_anim_keys(geo, geo_id, anims, p0d5_env):
 # ---------------------------------------------------------------- exporter
 
 def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SCALE, game=None,
-                label_overrides=None, _model=None) -> dict:
+                label_overrides=None, bone_labels: bool = True, _model=None) -> dict:
     """Write a ``.glb`` for ``token`` (GEO name or id) at ``out_path``. Returns a manifest (counts + anims).
+    ``bone_labels`` decorates each bone NODE NAME with its plain-language anatomical guess
+    (``bone012`` -> ``bone012_R_hand``, the baked family consensus -- see models/bone_labels.py) so the
+    Blender outliner is legible; purely cosmetic (the raw number stays in the name + ``ff9_bone_num``
+    extras, and every return path parses either form). Pass False for raw ``boneNNN`` names.
     ``_model`` is an internal hook to pass a pre-read struct (bulk sweeps) and skip the p0data4 read."""
     model = _model if _model is not None else extract.read_model(token, game=game)
     bones = model["bones"]
     meshes = model["meshes"]
     materials = model["materials"]
     s = float(scale)
+    from . import bone_labels as _bl
+    labels = _bl.labels_for(bones, prefab_id=model.get("prefab_id"),
+                            geo=model.get("geo")) if bone_labels else {}
 
     # bone bookkeeping: node index (bones first, then the mesh nodes), joint index (position in skin.joints),
     # bone NUMBER -> joint index (weights are keyed by FF9 bone number).
@@ -199,9 +206,16 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
             "skeleton": node_of[model["root_bone"]]}
 
     # --- nodes: bones (TRS + children) then the mesh node (mesh + skin) ---
+    # A bone node's NAME is the raw boneNNN decorated with its anatomical label (bone012_R_hand)
+    # when one is known -- display only. The FF9 bone number rides in BOTH the name prefix and the
+    # ff9_bone_num extra (Blender round-trips node extras as bone custom properties), so the return
+    # path never depends on the label.
     nodes: list = []
     for b in bones:
-        n = {"name": b["name"]}
+        n = {"name": _bl.decorate(b["name"], labels)}
+        num = extract._bone_num(b["name"])
+        if num is not None:
+            n["extras"] = {"ff9_bone_num": num}
         t = _cpos(b["pos"], s)
         r = _cquat(b["rot"])
         sc = b["scale"]
@@ -391,6 +405,7 @@ def export_gltf(token: str, out_path, *, anims="auto", scale: float = DEFAULT_SC
     out.parent.mkdir(parents=True, exist_ok=True)
     _gltf_io.write_glb(gltf, buf.blob, out)
     return {"geo": model["geo"], "geo_id": model["geo_id"], "path": str(out),
+            "bone_labels": len(labels),
             "bones": len(bones), "meshes": len(meshes),
             "primitives": sum(len(gm["primitives"]) for gm in gltf_meshes),
             "verts": sum(len(m["verts"]) for m in meshes), "textures": len(gltf_images),
@@ -509,9 +524,14 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
     """Parse a glTF ``.glb``/``.gltf`` back into the kit's Model struct (the shape ``fbx_skin.emit_skinned_fbx``
     consumes), applying the inverse (negate-Y, /scale) conversion. Full round-trip: skeleton + skin + mesh.
 
-    Skeleton nodes MUST be named ``boneNNN`` (the kit's bone-number key); a skin joint that isn't fails loud.
+    Skeleton nodes carry the bone number in their NAME -- raw ``boneNNN`` or the label-decorated
+    ``boneNNN_R_hand`` our exporter stamps (either may wear a Blender ``.001`` dedup suffix); the
+    ``ff9_bone_num`` node extra is the fallback. A skin joint with none of those fails loud. The
+    parsed skeleton is CANONICALIZED back to raw ``boneNNN`` names (labels never reach the engine
+    -- the FBX importer reads the trailing digits of the bone name).
     Weights are re-keyed to FF9 bone NUMBER via the joint->node->name map, pruned + capped at 4."""
     s = float(scale)
+    from . import bone_labels as _bl
     gltf, blob = _gltf_io.read_glb(path)
     nodes = gltf.get("nodes", [])
     skins = gltf.get("skins", [])
@@ -528,11 +548,14 @@ def import_gltf(path, *, scale: float = DEFAULT_SCALE) -> dict:
     name_of = {ni: nodes[ni].get("name", f"node{ni}") for ni in range(len(nodes))}
 
     def bone_name(ni):
-        nm = name_of[ni]
-        if not re.fullmatch(r"bone\d+", str(nm)):
-            raise ValueError(f"glTF skin joint node {nm!r} isn't named boneNNN -- can't map it to an FF9 bone. "
-                             f"Rename armature bones back to bone000.. (don't rename/add non-FF9 bones).")
-        return nm
+        num = _bl.bone_num_lenient(name_of[ni])
+        if num is None:
+            num = (nodes[ni].get("extras") or {}).get("ff9_bone_num") if ni < len(nodes) else None
+        if num is None:
+            raise ValueError(f"glTF skin joint node {name_of[ni]!r} isn't named boneNNN (or a labeled "
+                             f"boneNNN_...) -- can't map it to an FF9 bone. Rename armature bones back to "
+                             f"bone000.. (don't rename/add non-FF9 bones; the kit's _label suffixes are fine).")
+        return f"bone{int(num):03d}"
 
     joint_set = set(joints)
     bones = []

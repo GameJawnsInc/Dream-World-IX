@@ -36,7 +36,8 @@ class FF9MK_OT_import_model(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, f"glTF import failed ({e}); is the glTF 2.0 importer enabled?")
             return {"CANCELLED"}
         self.report({"INFO"}, f"imported {bpy.path.basename(self.filepath)}: edit the mesh/pose/clips, "
-                              f"then Export FF9 Model. (Don't rename the bone000.. bones.)")
+                              f"then Export FF9 Model. (Keep the boneNNN bone names -- the kit's "
+                              f"bone012_R_hand label suffixes are fine, but don't rename/add your own.)")
         return {"FINISHED"}
 
 

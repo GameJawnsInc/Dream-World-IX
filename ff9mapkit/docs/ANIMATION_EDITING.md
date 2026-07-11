@@ -35,7 +35,11 @@ carries the clip as a Blender **Action** named `run`.
 - **Add-on:** FF9 Map Kit sidebar (`N`) ▸ *3D Model* ▸ **Import Model** ▸ pick `vivi_run.glb`.
 - **or** File ▸ Import ▸ glTF 2.0.
 
-She comes in Y-up at ~0.01 scale (a few metres tall). You'll see the armature (`bone000…`) + her mesh parts.
+She comes in Y-up at ~0.01 scale (a few metres tall). You'll see the armature + her mesh parts. Bones come
+in with readable anatomical suffixes — `bone000_root`, `bone016_R_hand`, `bone023_crest_01` (Vivi's hat tip)
+— derived automatically from the rig's rest pose. The suffix is a **display label only**: the engine still
+binds by the `boneNNN` number, and the kit parses either form on the way back. (`model-gltf --plain-bones`
+exports raw `boneNNN` names if you prefer.)
 
 ## 3. Find the animation
 
@@ -112,8 +116,9 @@ Revert by deleting the written files under `FF9CustomMap\StreamingAssets\Assets\
   frozen. To change *part* of a motion, **keep the bone's existing keyframes** and modify only the ones you
   want (or Auto-Key and re-pose at those frames) — don't delete the rest of the curve. The export replaces a
   bone's whole curve with whatever keys you ship, so sparse keys = a held pose.
-- **Never rename the `bone000…` bones.** The engine binds animation to bones **by name**; a renamed bone
-  animates nothing.
+- **Keep the `bone000…` bone names.** The engine binds animation to bones **by name**; a renamed bone
+  animates nothing. The kit's own label suffixes (`bone016_R_hand`) are fine — the number prefix is what
+  matters on the way back — but don't invent your own names or add non-FF9 bones.
 - **Keep the Action name** (`run`, `walk`, `idle`, …) — or its numeric anim key. The exporter routes each
   clip back to the right slot by that name (a stamped key, with a name→key fallback). A clip renamed to
   something unrecognized is **skipped with a warning** (never silently, but it won't ship).
