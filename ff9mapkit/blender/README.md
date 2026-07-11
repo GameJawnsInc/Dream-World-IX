@@ -187,8 +187,10 @@ whatever `ff9mapkit` you have.
    clips.
 2. **Import Model** → pick that `.glb` (it's plain glTF, so *File ▸ Import ▸ glTF 2.0* works too).
 3. **Edit** — reshape the mesh, tweak weights, or pose/keyframe a clip (switch to the *Animation*
-   workspace to scrub). Each FF9 part is its own named object; **don't rename the `bone000…` bones** —
-   the engine binds animation by that name.
+   workspace to scrub). Each FF9 part is its own named object, and bones come in with readable
+   anatomical suffixes (`bone012_R_hand` — the kit's display labels; `--plain-bones` at export turns
+   them off). **Keep the `boneNNN…` bone names** (label suffix included is fine) — the engine binds
+   animation by the bone *number* in that name; don't invent your own names or add non-FF9 bones.
 4. **Export Model** → a Save dialog for the `.glb` (optionally fill **Mod folder** / **Like** / **Mesh
    only** / **Selected only**). It writes the `.glb` with the exact glTF settings the kit expects and
    **copies the ready-to-run command to your clipboard**, e.g.

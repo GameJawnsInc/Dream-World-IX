@@ -4,10 +4,11 @@ Engine fact (pinned 6b8bb2d5, ``ScriptsLoader.ProcessType``): Memoria registers 
 into a ``Dictionary<Type, Type>`` keyed BY INTERFACE -- within one DLL the LAST-processed type silently wins an
 interface, and ``Assembly.GetTypes()`` order is unspecified. So exactly ONE class per interface may exist across
 a mod's sources, or behavior is nondeterministic. This module makes that structural: features (battle telemetry,
-``[difficulty]`` scaling, future death rules / rebalance) are PLAIN STATIC classes with no interfaces, and the
+``[difficulty]``, ``[rebalance]``, ``[deathrules]``) are PLAIN STATIC classes with no interfaces, and the
 kit regenerates a single ``Sources/Overload/0000_OverloadHub.cs`` -- the only ``IOverload*`` implementer --
 composing them at hand-authored splice points (mutators before observers, so telemetry's roster log shows
-difficulty-scaled stats). Where a hook displaces an engine inline "// Default method", the hub carries the
+difficulty-scaled stats). VOID hooks compose any number of features; a RETURNING hook (OnGameOver -> the
+cancel-the-game-over verdict) is SINGLE-OWNER -- the hub returns the one owning feature's expression. Where a hook displaces an engine inline "// Default method", the hub carries the
 VERBATIM transcription (moved here from the in-game-proven telemetry source).
 
 Every compile of the mod scripts DLL funnels through :func:`compile_tree` / :func:`compile_live`: refresh the
@@ -33,14 +34,23 @@ _HOOK_IFACE = {
     "OnBattleScriptStart": "IOverloadOnBattleScriptStartScript",
     "OnBattleScriptEnd": "IOverloadOnBattleScriptEndScript",
     "OnDamageFinalChanges": "IOverloadDamageModifierScript",
+    "OnGameOver": "IOverloadOnGameOverScript",
 }
+
+# RETURNING hooks: the engine acts on the hook's return value (OnGameOver: true = cancel the game over), so
+# two features can't both decide -- the hook is SINGLE-OWNER (render_hub enforces it) and the registry value
+# is a C# EXPRESSION the hub returns, not a spliced statement. UnitCheckPoint (-> BattleStatus) joins here
+# when its feature lands.
+RETURNING_HOOKS = frozenset({"OnGameOver"})
 
 # The feature registry. Each entry:
 #   dir/file   -- Sources/<dir>/<file>; the file's PRESENCE marks the feature active (the deploy probe).
 #   order      -- splice order within a hook slot: MUTATORS (scale stats) before OBSERVERS (log them).
 #   live_owned -- True = installed into the LIVE mod by a CLI tool (survives deploys via the stickiness
 #                 recompile); False = BUILD-owned declarative content (rides the built DLL; deploy REPLACES it).
-#   hooks      -- {hook method: the C# statement the hub splices (fully qualified, so the hub needs no usings)}.
+#   hooks      -- {hook method: the C# the hub emits (fully qualified, so the hub needs no usings)}. For a
+#                 VOID hook the value is a spliced STATEMENT (any number compose, in order); for a RETURNING
+#                 hook (RETURNING_HOOKS) it is the EXPRESSION the hub returns -- one owner only.
 #   render     -- optional zero-arg callable returning the CURRENT kit's source text; compile paths re-render
 #                 it so a live file left by an older kit is refreshed (the old telemetry .cs implemented the
 #                 interfaces itself -- re-rendering is what upgrades it past the collision gate).
@@ -67,6 +77,19 @@ FEATURES = (
         "live_owned": False,
         "hooks": {"OnDamageFinalChanges": "Memoria.Scripts.Overload.RebalanceOverload.OnDamageFinalChanges(v);"},
         "render": None,                  # knobs are baked from [rebalance] at build time -- not re-renderable
+    },
+    {
+        "name": "deathrules",
+        "dir": "DeathRules",
+        "file": "9600_DeathRules.cs",
+        "order": 30,                     # after the stat/damage mutators; owns the RETURNING OnGameOver verdict
+        "live_owned": False,
+        "hooks": {
+            "OnBattleInit": "Memoria.Scripts.Overload.DeathRulesOverload.OnBattleInit();",
+            # RETURNING hook: an EXPRESSION, not a statement -- the hub emits `return <this>;`
+            "OnGameOver": "Memoria.Scripts.Overload.DeathRulesOverload.OnGameOver(state, dyingPC)",
+        },
+        "render": None,                  # knobs are baked from [deathrules] at build time -- not re-renderable
     },
     {
         "name": "telemetry",
@@ -115,6 +138,14 @@ def build_owned_dirs() -> tuple:
     would resurrect removed declarative content at the next live recompile), while LIVE-owned feature dirs
     (telemetry) survive a deploy untouched."""
     return ("Battle",) + tuple(f["dir"] for f in FEATURES if not f["live_owned"]) + (HUB_DIRNAME,)
+
+
+def flag_expr_cs(flag_index: int) -> str:
+    """The bare C# CONDITION testing a save-backed ``gEventGlobal`` bit (true = set) -- the same bit math as
+    :func:`flag_gate_cs`, for a feature that can't early-return on a clear flag because its VANILLA path must
+    still run then (e.g. [deathrules] keeps the transcribed Eiko default alive while the rule sleeps)."""
+    byte, mask = flag_index >> 3, 1 << (flag_index & 7)
+    return f"(FF9StateSystem.EventState.gEventGlobal[{byte}] & {mask}) != 0"
 
 
 def flag_gate_cs(flag_index, *, label: str = "", indent: str = " " * 16) -> str:
@@ -234,15 +265,34 @@ _M_ONBATTLESCRIPTEND = """\
 __CALLS__
         }"""
 
+# RETURNING-hook template: __OWNER__ is the ONE owning feature's verdict expression. No verbatim engine
+# default here -- when no feature owns the interface the hub doesn't implement it at all (the engine's
+# inline default runs untouched), and when one does, reproducing the displaced default is the FEATURE's
+# job (it decides how much of it to keep).
+_M_ONGAMEOVER = """\
+        // Game-over boundary (btl_sys.CheckBattlePhase: the LAST player just went down). RETURNING hook,
+        // single-owner: the owning feature's verdict is the return value -- true = CANCEL the game over
+        // (the engine skips its defeat tail: SEQ_MENU_OFF_DEFEAT + "Annihilated" + menu-off +
+        // KillAllCommand), false = the defeat proceeds. Claiming this interface DISPLACES the engine
+        // default (Eiko's automatic Rebirth Flame, btl_sys.cs "Default method") -- the feature transcribes
+        // whatever part of it it keeps.
+        public Boolean OnGameOver(FF9StateBattleSystem state, BattleUnit dyingPC)
+        {
+            try { return __OWNER__; } catch { }
+            return false; // fail-safe: the vanilla defeat runs (canceling with no revive queued would stall)
+        }"""
+
 _HOOK_TEMPLATES = {
     "OnBattleInit": _M_ONBATTLEINIT,
     "OnBattleScriptStart": _M_ONBATTLESCRIPTSTART,
     "OnDamageFinalChanges": _M_ONDAMAGEFINALCHANGES,
     "OnBattleScriptEnd": _M_ONBATTLESCRIPTEND,
+    "OnGameOver": _M_ONGAMEOVER,
 }
 
 # fixed emission order (stable output; interface list + method order deterministic)
-_HOOK_ORDER = ("OnBattleInit", "OnBattleScriptStart", "OnDamageFinalChanges", "OnBattleScriptEnd")
+_HOOK_ORDER = ("OnBattleInit", "OnBattleScriptStart", "OnDamageFinalChanges", "OnBattleScriptEnd",
+               "OnGameOver")
 
 
 def hub_interfaces(features) -> list:
@@ -267,7 +317,18 @@ def render_hub(features) -> "str | None":
     for hook in _HOOK_ORDER:
         if _HOOK_IFACE[hook] not in ifaces:
             continue
-        calls = [f["hooks"][hook] for f in features if hook in f["hooks"]]
+        owners = [f for f in features if hook in f["hooks"]]
+        if hook in RETURNING_HOOKS:
+            # the engine acts on the return value -- two features can't both decide, so refuse loudly
+            # (the registry is kit-owned, but this is the invariant a future feature must not break)
+            if len(owners) > 1:
+                raise ScriptCompileError(
+                    f"Overload hook {hook} RETURNS a verdict, so it is single-owner -- but "
+                    f"{', '.join(f['name'] for f in owners)} all claim it. One feature must own a "
+                    f"returning hook; compose behaviors inside that feature instead.")
+            methods.append(_HOOK_TEMPLATES[hook].replace("__OWNER__", owners[0]["hooks"][hook]))
+            continue
+        calls = [f["hooks"][hook] for f in owners]
         # each spliced call is try/catch-wrapped: a feature must never break a battle, even if its own
         # guards are missing (belt and suspenders -- the feature bodies swallow too)
         spliced = "\n".join(f"            try {{ {c} }} catch {{ }}" for c in calls)

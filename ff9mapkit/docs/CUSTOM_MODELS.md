@@ -144,6 +144,25 @@ The **round-trip identity** `read_model → export_gltf → import_gltf` reprodu
 forward+inverse are consistent. The full WarpedEdge loop now exists end-to-end (`model-gltf` → Blender →
 `model-import`); only in-game proof of an actual edit remains.
 
+**★ Bone display labels (2026-07-11).** `bone012` means nothing in Blender's outliner, so `model-gltf` now
+names each bone node with a plain-language anatomical suffix — `bone000_root`, `bone012_R_hand`,
+`bone024_tail_01`, `bone022_rubber_band` (Garnet's scrunchie, labeled from its mesh name) — derived
+automatically from the rig's REST POSE, no ML: rigs cluster into families by topology signature (bone count +
+parent edges, the same signal that makes cross-model clip reuse work), each family member is labeled by
+directional heuristics (the centre spine/neck/head path, L/R mirror limbs, legs by ground reach, tails by the
++z veer, wings, quadruped front/hind rows), and the family votes so one outlier rig can't corrupt a shared
+template. Conventions were pinned empirically: FF9 models face **−z** with up = **−y**, and **+x is the
+character's RIGHT** — 11 of 12 party battle rigs put their `BattleParameters.csv` WeaponBone at the extreme +x
+bone (Freya's rig is genuinely left-handed), and Zidane's Orichalcum off-hand overlay binds to his −x hand,
+matching the engine's `Attachment == 6` second-weapon table. Results are baked into `_bonelabeldb.py`
+(`tools/regen_bone_labels.py`; numeric topology + label strings only, provenance-clean) covering **83% of all
+FF9 bones** (11.6k of 14k across 389 rigs); a custom rig with an unknown signature gets live heuristics, and
+anything unparseable stays raw (`unlabeled beats confidently wrong`). **Purely cosmetic**: the number rides in
+both the name prefix and an `ff9_bone_num` node extra, every return path (`model-import`, `model-anim-new`)
+parses labeled or raw names (plus Blender's `.001` suffixes), the emitted FBX always uses raw `boneNNN` (the
+engine reads the trailing digits), and a labeled `.glb` imports byte-identically to a `--plain-bones` one.
+Kit: `models/bone_labels.py`; opt out with `model-gltf --plain-bones`.
+
 **★★ Multi-mesh characters — per-part named export (2026-07-03).** Making a *main character* like Garnet
 robust exposed two engine facts + one export flaw:
 - **The loose-FBX importer FLATTENS all meshes to siblings** under the base object (`ModelImporter.cs:390-391`:

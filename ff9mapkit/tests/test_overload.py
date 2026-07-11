@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ff9mapkit.battle import difficulty, overload, rebalance, telemetry
+from ff9mapkit.battle import deathrules, difficulty, overload, rebalance, telemetry
 from ff9mapkit.battle.scriptcompile import ScriptCompileError
 from ff9mapkit.config import ModLayout
 
@@ -400,11 +400,165 @@ def test_emit_scripts_difficulty_and_rebalance_coexist(tmp_path, monkeypatch):
     assert any("difficulty" in w and "rebalance" in w for w in warnings)
 
 
+# ---- the RETURNING-hook hub mode + [deathrules] -----------------------------------------------------------
+def test_hub_deathrules_returning_hook():
+    """OnGameOver is a RETURNING hook: the hub must RETURN the one owner's verdict expression (no void
+    splice), carry the soft-lock-safe false fallback, and claim the OnBattleInit reset too."""
+    src = overload.render_hub([_feat("deathrules")])
+    assert "IOverloadOnGameOverScript" in src and "IOverloadOnBattleInitScript" in src
+    assert "try { return Memoria.Scripts.Overload.DeathRulesOverload.OnGameOver(state, dyingPC); } catch { }" in src
+    assert "return false;" in src                         # the fail-safe: a vanilla defeat, never a stall
+    assert "try { Memoria.Scripts.Overload.DeathRulesOverload.OnBattleInit(); } catch { }" in src
+    # unclaimed calc interfaces stay unclaimed -> the engine inline defaults run untouched
+    assert "IOverloadDamageModifierScript" not in src
+    assert src.count("{") == src.count("}")
+
+
+def test_hub_returning_hook_is_single_owner():
+    """Two features claiming a RETURNING hook is a hard error (the engine acts on ONE verdict)."""
+    a = {"name": "a", "order": 1, "hooks": {"OnGameOver": "A.OnGameOver(state, dyingPC)"}}
+    b = {"name": "b", "order": 2, "hooks": {"OnGameOver": "B.OnGameOver(state, dyingPC)"}}
+    with pytest.raises(ScriptCompileError, match="single-owner"):
+        overload.render_hub([a, b])
+    assert "A.OnGameOver" in overload.render_hub([a])     # one owner renders fine
+
+
+def test_deathrules_in_build_owned_dirs():
+    assert "DeathRules" in overload.build_owned_dirs()
+
+
+# ---- [deathrules] parse -----------------------------------------------------------------------------------
+def test_deathrules_parse_and_rejects():
+    spec = deathrules.parse_table({"second_wind": True, "chance": 60, "keep_rebirth_flame": False,
+                                   "flag": "Mercy_Mode"}, name_map={"mercy_mode": 8601})
+    assert spec.second_wind and spec.chance == 60 and not spec.keep_rebirth_flame and spec.flag == 8601
+    with pytest.raises(deathrules.DeathRulesError, match="unknown key"):
+        deathrules.parse_table({"second_wind": True, "revive": True})
+    with pytest.raises(deathrules.DeathRulesError, match="true or false"):
+        deathrules.parse_table({"second_wind": 1})
+    with pytest.raises(deathrules.DeathRulesError, match="whole percent"):
+        deathrules.parse_table({"second_wind": True, "chance": 0.5})
+    with pytest.raises(deathrules.DeathRulesError, match="out of range"):
+        deathrules.parse_table({"second_wind": True, "chance": 0})
+    with pytest.raises(deathrules.DeathRulesError, match="chance only applies"):
+        deathrules.parse_table({"keep_rebirth_flame": False, "chance": 50})
+    with pytest.raises(deathrules.DeathRulesError, match="does nothing"):
+        deathrules.parse_table({"second_wind": False})
+    with pytest.raises(deathrules.DeathRulesError, match="does nothing"):
+        deathrules.parse_table({})
+    with pytest.raises(deathrules.DeathRulesError, match="unknown flag name"):
+        deathrules.parse_table({"second_wind": True, "flag": "nope"})
+    with pytest.raises(deathrules.DeathRulesError, match="out of range"):
+        deathrules.parse_table({"second_wind": True, "flag": 99999})
+
+
+def test_deathrules_collect_dedupes_and_conflicts():
+    a = SimpleNamespace(raw={"deathrules": {"second_wind": True}})
+    b = SimpleNamespace(raw={"deathrules": {"second_wind": True}})
+    c = SimpleNamespace(raw={"deathrules": {"second_wind": True, "chance": 50}})
+    assert deathrules.collect([SimpleNamespace(raw={})]) is None
+    spec, carrier = deathrules.collect([a, b])
+    assert spec.second_wind and carrier is a
+    with pytest.raises(deathrules.DeathRulesError, match="DIFFERENT settings"):
+        deathrules.collect([a, c])
+
+
+# ---- [deathrules] render ----------------------------------------------------------------------------------
+def test_deathrules_render_pins_eiko_transcription():
+    """Owning OnGameOver DISPLACES the engine default -- the Eiko Rebirth Flame block must be transcribed
+    VERBATIM (btl_sys.CheckBattlePhase 'Default method') or installing [deathrules] would change vanilla
+    gameplay for parties carrying Eiko."""
+    src = deathrules.render(deathrules.DeathRulesSpec(second_wind=True))
+    for verbatim in (
+        "(CharacterId)btl.bi.slot_no == CharacterId.Eiko",
+        "btl_stat.CheckStatus(btl, BattleStatusConst.NoRebirthFlame)",
+        "btl_cmd.CheckSpecificCommand(btl, BattleCommandId.SysLastPhoenix)",
+        "ff9item.FF9Item_GetCount(RegularItem.PhoenixPinion) > Comn.random8()",
+        "UIManager.Battle.FF9BMenu_EnableMenu(true);",
+        "btl_cmd.SetCommand(btl.cmd[0], BattleCommandId.SysLastPhoenix, (Int32)BattleAbilityId.RebirthFlame, btl_scrp.GetBattleID(0U), 1u);",
+    ):
+        assert verbatim in src, verbatim
+    assert "if (VanillaRebirthFlame(state))" in src        # default KEPT by default
+    assert src.count("{") == src.count("}")
+    assert "IOverload" not in src                          # a plain static feature class (the hub owns interfaces)
+
+
+def test_deathrules_render_second_wind_mechanism():
+    """The second wind reuses the ENGINE's revive mechanism (queue SysLastPhoenix/RebirthFlame on the fallen
+    unit + re-enable the menu), once per battle, with the vanilla pending-revive guard FIRST."""
+    src = deathrules.render(deathrules.DeathRulesSpec(second_wind=True))
+    i_pending = src.index("btl_cmd.CheckSpecificCommand2(BattleCommandId.SysLastPhoenix)")
+    i_used = src.index("if (_secondWindUsed)")
+    assert i_pending < i_used                              # a queued revive cancels the wipe even when spent
+    assert "dyingPC.Data.cmd[0]" in src                    # the fallen unit carries the command (vanilla: dead Eiko)
+    assert "_secondWindUsed = false;" in src               # OnBattleInit recharge
+    assert "Comn.random16()" not in src                    # chance=100 -> no roll emitted
+    solo = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, chance=60))
+    assert "Comn.random16() % 100 >= 60" in solo
+
+
+def test_deathrules_render_gate_and_eiko_matrix():
+    """Flag semantics: bit CLEAR = fully VANILLA, Eiko included -- so the gate is a tested CONDITION
+    (flag_expr_cs), never the shared early-return, and Eiko-removal is suspended while the rule sleeps."""
+    expr = overload.flag_expr_cs(8600)
+    assert expr == "(FF9StateSystem.EventState.gEventGlobal[1075] & 1) != 0"
+    gated = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, flag=8600, flag_label="mercy"))
+    assert f"Boolean ruleActive = {expr};" in gated
+    assert "if (!ruleActive)\n                    return false;" in gated   # asleep -> vanilla defeat
+    # keep=false under a gate: vanilla Eiko still fires while the rule sleeps
+    gated_no_eiko = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, keep_rebirth_flame=False,
+                                                                flag=8600, flag_label="mercy"))
+    assert "if (!ruleActive && VanillaRebirthFlame(state))" in gated_no_eiko
+    # keep=false with NO gate: the removal is unconditional (and commented as intentional)
+    no_eiko = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, keep_rebirth_flame=False))
+    assert "intentionally REMOVED" in no_eiko
+    assert "if (VanillaRebirthFlame(state))" not in no_eiko
+    for src in (gated, gated_no_eiko, no_eiko):
+        assert src.count("{") == src.count("}")
+
+
+def test_deathrules_write_source_lifecycle(tmp_path):
+    layout = ModLayout(root=tmp_path / "FF9CustomMap")
+    cs = deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True))
+    assert cs.is_file()
+    assert deathrules.write_source(layout, None) is None
+    assert not deathrules.deathrules_dir(layout).exists()
+
+
+# ---- [deathrules] build + validate wiring -----------------------------------------------------------------
+def test_validate_reports_bad_deathrules(tmp_path):
+    from ff9mapkit.build import FieldProject, validate
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + "\n[deathrules]\nsecond_wind = true\nchance = 200\n", encoding="utf-8")
+    assert any("out of range" in x for x in validate(FieldProject.load(p)))
+    p.write_text(BASE + '\n[deathrules]\nsecond_wind = true\nflag = "mercy_mode"\n'
+                 '\n[[flag]]\nname = "mercy_mode"\nindex = 8601\n', encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []            # named flag resolves through the [[flag]] registry
+
+
+def test_emit_scripts_deathrules_only(tmp_path, monkeypatch):
+    """[deathrules] alone (no scripted abilities, no scalers) still builds the DLL (hub + rules)."""
+    calls = _mock_compiles(monkeypatch)
+    from ff9mapkit.build import _emit_scripts
+    layout = ModLayout(root=tmp_path / "mod")
+    proj = SimpleNamespace(raw={"deathrules": {"second_wind": True}})
+    warnings = _emit_scripts([proj], layout, "FF9CustomMap")
+    assert any("deathrules" in w for w in warnings)
+    srcs, _ = calls[-1]
+    assert any(deathrules.DEATHRULES_BASENAME in s for s in srcs) and any(overload.HUB_BASENAME in s for s in srcs)
+    hub = overload.hub_cs(layout).read_text(encoding="utf-8")
+    assert "return Memoria.Scripts.Overload.DeathRulesOverload.OnGameOver(state, dyingPC);" in hub
+    # de-ruled rebuild drops the tree
+    assert _emit_scripts([SimpleNamespace(raw={})], layout, "FF9CustomMap") == []
+    assert not layout.scripts_dir.exists()
+
+
 # ---- the money test: the WHOLE tree compiles against the LIVE engine (install + csc gated) ---------------
 def test_tree_compiles_against_live_engine(tmp_path):
-    """Hub + telemetry + difficulty + rebalance in one DLL -- proves every emitted C# member exists PUBLIC in
-    the installed Assembly-CSharp (BattleUnit.Magic/IsPlayer/HpDamage, EventState.gEventGlobal,
-    CalcFlag.HpAlteration/HpRecovery, the transcribed defaults...)."""
+    """Hub + telemetry + difficulty + rebalance + deathrules in one DLL -- proves every emitted C# member
+    exists PUBLIC in the installed Assembly-CSharp (BattleUnit.Magic/IsPlayer/HpDamage/Data,
+    EventState.gEventGlobal, CalcFlag.HpAlteration/HpRecovery, btl_cmd.SetCommand/CheckSpecificCommand2,
+    btl_scrp.GetBattleID, ff9item.FF9Item_GetCount, Comn.random8/16, the transcribed defaults...)."""
     from ff9mapkit.battle import scriptcompile
     if not scriptcompile.toolchain_available():
         pytest.skip("no C# compiler (csc) to build the hook DLL")
@@ -420,5 +574,9 @@ def test_tree_compiles_against_live_engine(tmp_path):
                                                               flag=8600, flag_label="hard_mode"))
     rebalance.write_source(layout, rebalance.RebalanceSpec(player=1.5, enemy=0.75,
                                                            flag=8600, flag_label="hard_mode"))
+    # every deathrules construct: gate expr + chance roll + second wind + the gated-Eiko branch
+    deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True, chance=60,
+                                                              keep_rebirth_flame=False,
+                                                              flag=8601, flag_label="mercy_mode"))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0

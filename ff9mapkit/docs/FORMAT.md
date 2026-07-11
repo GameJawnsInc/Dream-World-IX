@@ -1435,6 +1435,25 @@ damage to **9999** right after this hook unless you set `[Battle] BreakDamageLim
 
 ---
 
+## `[deathrules]` (optional — game-over rules)
+
+Owns the **party-wipe verdict**: when the last player goes down, decide whether the game over proceeds.
+Same Overload/scripts-DLL plumbing as `[difficulty]`/`[rebalance]`: compiles at build (needs `csc`),
+**relaunch** to load. Full story: [SCRIPTS_DLL.md §12](SCRIPTS_DLL.md).
+
+| key | meaning |
+|---|---|
+| `second_wind` | `true` = cancel the wipe **once per battle** with a full Phoenix party revive (the engine's own Rebirth Flame command — the same mechanism as Eiko's vanilla auto-revive). Recharges each battle; a second wipe in the same battle is a normal game over. Default `false`. |
+| `chance` | percent chance the second wind fires (whole `1`–`100`; default `100`). Only legal with `second_wind = true`. |
+| `keep_rebirth_flame` | default `true`: Eiko's vanilla auto-Phoenix is kept (the kit transcribes the displaced engine default). `false` **removes** it — with no `second_wind`, wipes become strictly final (hardcore). |
+| `flag` | optional gate on a `gEventGlobal` bit (a `[[flag]]` name or index). Bit clear = **fully vanilla** — Eiko's auto-revive still fires even with `keep_rebirth_flame = false` (the rule is asleep, not half-applied). Toggles **live**: the next wipe obeys the new state. Omit = always on. |
+
+Mod-global like its siblings; the block must change *something* (`second_wind = true` and/or
+`keep_rebirth_flame = false`). Fail-safe by construction: any runtime hiccup degrades to a vanilla defeat,
+never a canceled game over with nobody revived.
+
+---
+
 ## `[music]` (optional)
 
 | key | meaning |

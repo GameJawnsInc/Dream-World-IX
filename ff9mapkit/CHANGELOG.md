@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[deathrules]`: declarative game-over rules (the first RETURNING Overload hook)
+- A **`[deathrules]`** table in `field.toml` owns the party-wipe verdict (`OnGameOver`): **`second_wind`**
+  cancels the wipe once per battle with a full Phoenix party revive — the engine's own `SysLastPhoenix`/
+  `RebirthFlame` command queued exactly the way the vanilla Eiko default queues it, recharging each battle —
+  with an optional **`chance`** (whole percent) roll; **`keep_rebirth_flame = false`** removes Eiko's vanilla
+  auto-revive (hardcore). Owning the hook displaces the engine's Eiko default, so the kit transcribes it
+  verbatim and keeps it unless turned off. The optional **`flag`** gate means *fully vanilla* while clear
+  (Eiko included — the rule sleeps, it isn't half-applied) and toggles live: the next wipe obeys the new
+  state. Fail-safe by construction (any hiccup = a vanilla defeat, never a canceled wipe with nobody
+  revived). Mod-global, relaunch-scoped, lint gate names it. In-game proven 2026-07-11 (first wipe →
+  Phoenix revive at partial HP, second wipe same battle → normal game over, next battle → recharged).
+  Known behavior: the revive plays the full Rebirth Flame summon animation (it's the real engine command)
+  — a short-animation knob is a noted follow-up for authored contexts.
+  ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md), [FORMAT.md `[deathrules]`](docs/FORMAT.md))
+- The Overload hub gained a **returning-hook mode**: hooks whose return value the engine acts on
+  (`OnGameOver` → cancel-the-game-over) are single-owner — the hub returns the one owning feature's verdict
+  expression and refuses a tree where two features claim one (`render_hub`); void hooks still compose any
+  number of features. New `overload.flag_expr_cs` (the gate as a testable condition, for features whose
+  vanilla path must run while the flag is clear).
+
 ### Added — `[rebalance]`: declarative HP-damage multiplier
 - A **`[rebalance]`** table in `field.toml` scales the final HP-damage number by the caster's side —
   `player_damage` / `enemy_damage` (`0.05`–`20.0`) — with the same optional **`flag`** gate as

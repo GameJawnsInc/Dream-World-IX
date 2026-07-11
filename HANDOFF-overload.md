@@ -19,12 +19,21 @@ and in-game proven**:
 | **battle telemetry** (`telemetry.py`, CLI `battle-telemetry`) | OnBattleInit/Start/DamageFinalChanges/End | observer (dev tool) | ★ proven |
 | **`[difficulty]`** (`difficulty.py`) | OnBattleInit | mutator — enemy HP/Str/Mgc scaling | ★★ proven, both variants |
 | **`[rebalance]`** (`rebalance.py`) | OnDamageFinalChanges | mutator — player/enemy HP-damage × | ★★ proven, both variants |
+| **`[deathrules]`** (`deathrules.py`) | OnGameOver (+OnBattleInit reset) | RETURNING single-owner — game-over verdict | ★ in-game proven 2026-07-11 (always-on second wind) |
 
-**What's left:** two more candidate features — **death rules** (`OnGameOver`) and **Trance/low-HP**
-(`UnitCheckPoint`). Both need one shared hub extension first (a **returning-hook mode**, below). Nothing is
-blocked; it's greenfield with a clear plan.
+**The returning-hook hub mode is BUILT** (2026-07-11): `RETURNING_HOOKS` in `overload.py` — the hub emits
+`try { return <owner-expr>; } catch { } return <fail-safe>;`, single-owner enforced in `render_hub`
+(ScriptCompileError names the claimants), registry value = an EXPRESSION (no `;`) for a returning hook. New
+`flag_expr_cs` (the gate as a testable condition — for features whose VANILLA path must still run when the
+flag is clear). The whole tree (hub + all 4 features) compiles against the live engine
+(`test_tree_compiles_against_live_engine`, ran + passed).
 
-`master` is ~72 commits ahead of `origin` — **the user handles pushes.** Do not push.
+**What's left:** the **Trance/low-HP** feature (`UnitCheckPoint` — dive DONE, see below); optionally a
+warp-on-defeat `[deathrules]` mode (a user design call); a **short-animation knob** for the second wind
+(user-flagged: the revive plays the full Rebirth Flame summon — cool in FF9, "could get obnoxious in an
+authored context"; needs a dive into which revive ability/command carries a shorter choreography).
+
+`master` is ahead of `origin` — **the user handles pushes.** Do not push.
 
 ---
 
@@ -99,46 +108,64 @@ can have only ONE owner** (see the extension below).
 
 ## NEXT WORK
 
-### 0. The prerequisite: a RETURNING-HOOK hub mode
+### 0. ✔ DONE (2026-07-11) — the RETURNING-HOOK hub mode
 
-The current hub only emits **void** methods that splice void feature calls (any number, composed). The next
-two features hook **returning** interfaces (`OnGameOver`→bool, `UnitCheckPoint`→BattleStatus). A returning
-hook is inherently **single-owner** (two features can't both decide game-over). So extend `overload.py`:
+Built as planned, with one deliberate deviation from the sketch: when **no** feature owns a returning
+interface the hub does **not** implement it at all (the engine's inline default runs untouched — more
+transparent than transcribing it), so verbatim-default transcription is the OWNING FEATURE's job. Single
+owner enforced in `render_hub`; fail-safe per hook baked into the template (`OnGameOver` → `false`: a
+vanilla defeat, never a canceled wipe with nobody revived = soft-lock). Tests mirror the void path
+(`test_hub_deathrules_returning_hook`, `test_hub_returning_hook_is_single_owner`).
 
-- Add a hook-template variant that emits `public <Ret> <Method>(<args>) { <verbatim-default-or>
-  return <TheOneFeature>.<Method>(<args>); }`. When **no** feature owns the interface, the method body is the
-  **verbatim engine default** (so the hub is transparent); when one owns it, the method returns the feature's
-  verdict.
-- Enforce single-owner in the registry/render (error if two features claim a returning hook).
-- The feature's static method returns the verdict AND does its effect. It must reproduce any part of the
-  default it wants to keep (returning `true` on OnGameOver skips the engine's game-over tail entirely — see
-  below).
+### 1. ★ IN-GAME PROVEN (2026-07-11) — `[deathrules]` on `OnGameOver` (btl_sys.cs:87)
 
-This is the one real design step. Keep it minimal — a second template shape + an owner check. Mirror the void
-path's tests in `tests/test_overload.py`.
+`ff9mapkit/ff9mapkit/battle/deathrules.py` + build wiring + docs (SCRIPTS_DLL.md §12, FORMAT.md,
+FEATURES.md, CHANGELOG). Knobs: `second_wind` (cancel the wipe ONCE per battle by queueing the engine's own
+`SysLastPhoenix`/`RebirthFlame` on the fallen `dyingPC` + `FF9BMenu_EnableMenu(true)` — the exact vanilla
+Eiko mechanism, so no hand-rolled revive state), `chance` (whole percent, roll = `Comn.random16() % 100`),
+`keep_rebirth_flame` (default true — the Eiko default transcribed VERBATIM as
+`VanillaRebirthFlame(state)`; false removes it), `flag` (gate; **clear = FULLY vanilla including Eiko** —
+uses `flag_expr_cs` into a `ruleActive` local, NOT the shared early-return gate, because the vanilla path
+must still run while the rule sleeps). Once-per-battle = a static `_secondWindUsed` reset at `OnBattleInit`;
+the vanilla pending-revive guard (`CheckSpecificCommand2(SysLastPhoenix)` → keep the battle alive) runs
+FIRST. Facts learned in the dive: the Eiko default's `return`s exit `CheckBattlePhase` entirely (= the
+hook's `true`), and a dead unit CAN carry the queued command (vanilla queues it on the dead Eiko's
+`cmd[0]`).
 
-### 1. Death rules — `[deathrules]` / similar, hook `OnGameOver` (btl_sys.cs:87)
+**★ Playtest PASSED 2026-07-11** (`scratch/deathrules_test.field.toml`, always-on variant, new game →
+4003): first wipe → the Rebirth Flame summon plays → party resurrects at ~50 HP; second wipe same battle →
+normal game over screen; continue → next battle → identical behavior (recharged). User: "all clear."
+NOT separately playtested (mechanism-identical to ★-proven sibling gates / verbatim-transcribed code):
+the `flag` round, `chance`, `keep_rebirth_flame = false` with an Eiko party. **User-flagged follow-up:**
+the revive plays the FULL Rebirth Flame summon animation (vanilla `RebirthFlame` choreography — we queue
+the real command, so we inherit it); fine for FF9 flavor, "could get obnoxious in an authored context" —
+a short-animation knob (different revive command/ability with lighter btlseq choreography, or a minted
+one) needs its own dive before promising TOML.
 
-Fires when the party is downed. Returning `true` → engine does `return;` and **skips its game-over tail**
-(`btl_sys.cs:118-124`: sets `SEQ_MENU_OFF_DEFEAT`, "Annihilated" message, disables menu, `KillAllCommand`).
-Returning `false` → game over proceeds.
+**Deferred design option (user gameplay call, NOT built):** warp-on-defeat (return to the World Hub / a
+field instead of a hard game over). Riskier: there is no sanctioned battle-exit path from inside this hook
+(would need flee/battle-end sequencing) — needs its own engine dive before promising a TOML knob.
 
-**The default you displace is the Eiko Rebirth Flame auto-revive** (btl_sys.cs:95-116). If a feature owns
-this interface it REPLACES that block — so to keep Eiko working for anyone carrying her, transcribe it
-verbatim into the feature (or into the hub's no-owner default; since a returning hook is override-only, the
-feature itself should reproduce Eiko unless the design intentionally removes it). **Read btl_sys.cs:87-124
-firsthand before writing anything** — the exact structure (loop for an Eiko unit, `NoRebirthFlame` check,
-`PhoenixPinion` count vs `random8()`, `SetCommand(SysLastPhoenix, RebirthFlame)`) matters.
+### 2. Trance / low-HP — hook `UnitCheckPoint` (btl_para.cs:94-116) — SOURCE-DIVE DONE 2026-07-11
 
-Design options (a user gameplay call — ask before building): a one-time party revive (roguelike "second
-wind"), or return-to-World-Hub instead of a hard Game Over (`[[flag]]`-gated). Probably declarative
-`[deathrules]` (a TOML shape like the other features), not a CLI tool — it's shipped content.
+What the site actually is: `CheckPointDataStatus(BattleUnit)`, called from `CheckPointData` for a unit
+whose HP/MP just changed. Facts:
 
-### 2. Trance / low-HP — hook `UnitCheckPoint` (btl_para.cs:98), returns `BattleStatus`
-
-Least-scoped; the survey note ("LowHP status/UI colors") is thin. **Do its own `btl_para.cs:98` source-dive
-first** to learn what the returned `BattleStatus` controls before designing. Also a returning hook → uses the
-same hub extension as #1.
+- **`cur.hp == 0` → `BattleStatus.Death` is returned BEFORE the hook** — a feature cannot save a unit at 0
+  HP from death here (death-prevention belongs elsewhere, e.g. a damage mutator).
+- The **returned `BattleStatus` only matters for its `Death` bit**: the caller checks
+  `(status & BattleStatus.Death) != 0` → `AlterStatus(Death)`. So a feature CAN kill a unit by returning
+  Death (e.g. "doom at low HP" hardcore rules); returning `LowHP` vs `0` changes nothing at the call site.
+- Everything else is SIDE EFFECTS inside the default, which an owner must reproduce: the LowHP threshold
+  (`IsPlayer && CurrentHp * 6 <= MaximumHp` → add/remove `BattleStatus.LowHP` via `btl_stat.Alter/
+  RemoveStatus`), the UI colors (`unit.UIColorHP` yellow/white, `UIColorMP` at `MaximumMp / 6f`).
+- So the honest feature here is a **`[lowhp]`-style threshold/status feature** (change the 1/6 LowHP
+  fraction, which feeds LowHP-gated SA abilities + the yellow HP color; optionally a death-at-threshold
+  hardcore rule), NOT "Trance" — the Trance gauge does not live at this site. Single-owner returning hook →
+  the same hub mode as `[deathrules]` (add `UnitCheckPoint` to `RETURNING_HOOKS` + a template whose
+  fail-safe returns `0`... careful: the fail-safe must NOT skip the default's side effects — probably the
+  feature transcribes the default and the hub fail-safe just returns `0` after a swallowed exception).
+- Design is a gameplay call (what knobs are worth shipping?) — ask the user before building.
 
 ---
 
@@ -170,15 +197,18 @@ The Scripts DLL is **version-coupled** and loads **once at the title screen**.
 8. **`backups/` is auto-created** now (was a fresh-worktree crash). Back up
    `Memoria.Scripts.<Mod>.dll` before compiling over it if you care about the prior build.
 
-**Playtest fields used:** `scratch/difficulty_test.field.toml`, `scratch/rebalance_test.field.toml`
-(2×/0.5×, Evil Forest scene 67, flag-gate lines to uncomment).
+**Playtest fields used:** `scratch/difficulty_test.field.toml`, `scratch/rebalance_test.field.toml`,
+`scratch/deathrules_test.field.toml` (Evil Forest scene 67, flag-gate lines to uncomment; scratch/ is
+gitignored — these live in MASTER's working tree only).
 
 ---
 
 ## Key files & references
 
-- `ff9mapkit/ff9mapkit/battle/overload.py` — the hub, registry, flag gate, collision gate, compile paths.
-- `ff9mapkit/ff9mapkit/battle/difficulty.py` / `rebalance.py` — the two declarative features (mirror these).
+- `ff9mapkit/ff9mapkit/battle/overload.py` — the hub, registry, RETURNING_HOOKS, flag gates, collision gate,
+  compile paths.
+- `ff9mapkit/ff9mapkit/battle/difficulty.py` / `rebalance.py` / `deathrules.py` — the three declarative
+  features (mirror these; deathrules is the returning-hook exemplar).
 - `ff9mapkit/ff9mapkit/battle/telemetry.py` — the observer feature + JSONL reader/`--report`.
 - `ff9mapkit/ff9mapkit/build.py` — `_emit_scripts` (collect+write+compile), `validate()`, the lint `csc` gate.
 - `tools/deploy_field.py` — the reversible deploy + generic stickiness + the DLL-lock / backups fixes.
