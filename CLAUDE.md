@@ -727,8 +727,16 @@ welds), the seam chain + topology + every UV synthesized (no fan transport; sand
 cap emitters, foam stamps + BL caps); gated by the ribbon/slope/swash envelopes + THE ASSEMBLY
 BOUNDARY gate; (7,17)'s width ladder probes 4.6 as the swash ceiling; the (11,7) clone carries
 the beach fully re-minted at width 2.5 vs the donor's ~4.1 — the first fully kit-authored beach
-assembly in-game. Rung 2 = the virgin-shore mint (synthetic chains + berm clip + ladder re-lay).
-31 golden tests → [[project-ff9-overworld-coast-mosaic]].
+assembly in-game. **Rung 2a (built + deployed 2026-07-11, awaiting playtest at (11,6))**: the
+FREE-FOOTPRINT mint — `--beach-mint WIDTH|auto[:LAND]` synthesizes the LAND CHAIN too (interior
+L pushed landward, berm-surface conformed, the berm BSP-CLIPPED at the new synthetic chain with
+fan-subdivided band columns + the UNION crack gate; (7,17) ladder 0.6–2.6, ribbon-refused at
+3.0; zero water delta by deployed-bytes differential). The TRUE virgin-shore mint re-runged to
+rung 3 — blocked on ONE unclosed vocabulary (band-convergence conforming strips have no
+emission rule); the window study's laws (berm topo-0 only · the lattice adjacency table — sea3
+never touches sea4 · beaches never share verts, 4.06u grass-tongue separators · all 5
+wash-fronted virgin pockets one column short) live in the memory. 33 golden tests →
+[[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven on ALL
