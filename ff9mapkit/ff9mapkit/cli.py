@@ -2440,7 +2440,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
                 or args.beach_bump or args.beach_rebuild or args.beach_reshape
                 or args.beach_slide or args.strips_rebuild or args.sand_rebuild
-                or args.cap_rebuild):
+                or args.cap_rebuild or args.beach_mint):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2472,6 +2472,11 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             if args.cap_rebuild:
                 tweaks = list(tweaks) + CM.cap_rebuild(
                     (dx, dy), disc=args.disc, game=args.game)
+            if args.beach_mint:
+                w = None if args.beach_mint.strip().lower() == "auto" \
+                    else float(args.beach_mint)
+                tweaks = list(tweaks) + CM.beach_mint(
+                    (dx, dy), width=w, disc=args.disc, game=args.game)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -5227,6 +5232,16 @@ def build_parser() -> argparse.ArgumentParser:
                           "-- indistinguishable by design). Inset-rect variants (~7%% of sea5, the "
                           "sea3-inset family) and conforming ring tris stay verbatim. Every emitted "
                           "cell self-checks by re-decode.")
+    wtp.add_argument("--beach-mint", default=None, metavar="WIDTH|auto",
+                     help="BEACH-MINT rung 1: re-mint the donor's beach sand+foam assembly from "
+                          "chain specs -- interfaces pinned (land chain/waterline/end welds), "
+                          "everything between synthesized (a smooth seam chain at the given "
+                          "band WIDTH in world units, eased from the pinned ends; 'auto' keeps "
+                          "the end-width profile), clean column topology (no fan transport), "
+                          "fresh sand P/Q + foam run/BL-cap language walks. Gated by the ribbon/"
+                          "slope/swash envelopes, the assembly-boundary gate, T-vertex and "
+                          "per-tri re-decode. Rung-1 class: the block's single x-monotone "
+                          "column beach.")
     wtp.add_argument("--cap-rebuild", action="store_true",
                      help="the END-CAP identity rebuild (the cap-law completeness proof): every "
                           "lawful foam end cap and sand row-B cap re-emits through the learned "

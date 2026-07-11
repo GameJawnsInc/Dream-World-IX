@@ -3041,6 +3041,207 @@ def cap_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
     return out
 
 
+#: mint gates -- the byte-measured beach envelopes (the ribbon law / the slope gate /
+#: the cross-beach swash envelope)
+MINT_BAND_W = (1.8, 6.6)
+MINT_SLOPE = (0.097, 0.579)
+MINT_SWASH = (3.3, 6.7)
+
+
+def beach_mint(donor, *, width=None, disc: int = 1, lod: str = "0_1", game=None):
+    """BEACH-MINT rung 1 (the shore-vocabulary capstone's first composition): re-mint a
+    real beach's sand band + foam ASSEMBLY from chain specs -- everything between the
+    pinned INTERFACES is synthesized. Pinned (verts shared with parts the mint does not
+    touch): the land chain L (grass welds), the waterline W (sea2 welds), and the two
+    end columns' outer verts (the coast/wash/ring welds). Synthesized: the interior
+    SAND SEAM chain (repositioned to a smooth ``width`` profile eased from the pinned
+    end widths, on the L->W ramp), the clean column topology (the donor's conforming
+    fan and subdivisions are NOT copied -- gentle bends carry clean ribbon quads, the
+    (17,10) pocket precedent), and every UV by language walk: sand run columns hash-
+    pick P/Q per column (the sand_rebuild-proven freedom), sand caps via
+    :func:`emit_sand_cap`, foam run stamps + BL caps via :func:`emit_foam_cap`
+    (THE SLOT LAW: BL is the mint default -- the universal fade).
+
+    Gates: the ribbon width envelope per column, the band slope gate, the swash
+    envelope, the T-VERTEX gate against the pinned interfaces, per-tri language
+    re-decode, and the ASSEMBLY BOUNDARY gate -- the emitted sand+foam union's outer
+    boundary must equal the dropped assembly's exactly (every outer edge is pinned,
+    so any mismatch is a synthesis crack). Rung-1 class: the block's single
+    x-monotone column beach (the (7,17) class)."""
+    foam_all = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
+    terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
+    if not foam_all:
+        raise ValueError(f"donor {donor} has no beach1 mesh -- not a sandy shore")
+    sand = [t3 for t3 in terr
+            if decode_id(int(round(t3[0][3][0])))["topograph"] == 31]
+    other_k = {_pk(v[0]) for t3 in terr for v in t3
+               if decode_id(int(round(t3[0][3][0])))["topograph"] != 31}
+    foam_k = {_pk(v[0]) for t3 in foam_all for v in t3}
+    sea2_k = {_pk(v[0])
+              for t3 in TR.world_tris(*donor, "sea2", disc=disc, lod=lod, game=game)
+              for v in t3}
+    if not sand:
+        raise ValueError(f"donor {donor} has no sand band")
+    family = _foam_family(foam_all)
+    if family is None:
+        raise ValueError(f"donor {donor}: no lawful foam run family decodes")
+
+    # --- chain acquisition (whole band, caps in scope) ---
+    sand_verts = {}
+    for t3 in sand:
+        for v in t3:
+            sand_verts.setdefault(_pk(v[0]), v[0])
+    # the end SL pinch verts weld to terrain too -- foam-welded wins (they are S ends)
+    L = sorted((p for k, p in sand_verts.items()
+                if k in other_k and k not in foam_k), key=lambda p: p[0])
+    S_don = sorted((p for k, p in sand_verts.items() if k in foam_k),
+                   key=lambda p: p[0])
+    foam_verts = {}
+    for t3 in foam_all:
+        for v in t3:
+            foam_verts.setdefault(_pk(v[0]), v[0])
+    W = sorted((p for k, p in foam_verts.items()
+                if k in sea2_k and k not in other_k), key=lambda p: p[0])
+    n = len(L)
+    if not (len(S_don) == n and len(W) == n and n >= 4):
+        raise ValueError(f"the beach is not the rung-1 column class "
+                         f"(L/S/W = {len(L)}/{len(S_don)}/{len(W)} verts)")
+    if any(L[i][0] >= L[i + 1][0] for i in range(n - 1)):
+        raise ValueError("the land chain is not x-monotone -- rung-1 class only")
+    # donor pin constants (per-band lawful reads)
+    run_pins = cap_pins = None
+    for t3 in sand:
+        d = _sand_tri_decode(t3)
+        if d is None:
+            continue
+        vs = sorted({round(v[2][1], 4) for v in t3})
+        if d[0] == "run" and run_pins is None and len(vs) == 2:
+            run_pins = vs
+        if d[0] == "cap" and cap_pins is None and len(vs) == 2:
+            cap_pins = vs
+    if run_pins is None or cap_pins is None:
+        raise ValueError("the donor band does not carry both run and cap pins")
+
+    # --- the synthetic sand seam: width profile eased between the pinned ends ---
+    def plan(p, q):
+        return math.hypot(p[0] - q[0], p[2] - q[2])
+    w_end = (plan(L[0], S_don[0]), plan(L[-1], S_don[-1]))
+    S = [S_don[0]]
+    for i in range(1, n - 1):
+        t_ = i / (n - 1.0)
+        base = w_end[0] + (w_end[1] - w_end[0]) * t_
+        if width is not None:
+            ease = math.sin(math.pi * t_) ** 2
+            base = base + (float(width) - base) * ease
+        d = plan(L[i], W[i])
+        if d < 1e-6:
+            raise ValueError(f"column {i}: land chain touches the waterline")
+        f = base / d
+        S.append((L[i][0] + (W[i][0] - L[i][0]) * f,
+                  L[i][1] + (W[i][1] - L[i][1]) * f,
+                  L[i][2] + (W[i][2] - L[i][2]) * f))
+    S.append(S_don[-1])
+
+    # --- gates: ribbon / slope / swash per column ---
+    for i in range(n):
+        bw = plan(L[i], S[i])
+        if not (MINT_BAND_W[0] - 0.05 <= bw <= MINT_BAND_W[1] + 0.05):
+            raise ValueError(f"column {i}: band width {bw:.2f}u is outside the ribbon "
+                             f"envelope {MINT_BAND_W} -- pick a lawful width")
+        sl = abs(L[i][1] - S[i][1]) / max(bw, 1e-6)
+        if not (MINT_SLOPE[0] - 0.02 <= sl <= MINT_SLOPE[1] + 0.02):
+            raise ValueError(f"column {i}: band slope {sl:.2f} rise/run is outside the "
+                             f"envelope {MINT_SLOPE}")
+        sw = plan(S[i], W[i])
+        if not (MINT_SWASH[0] - 0.05 <= sw <= MINT_SWASH[1] + 0.05):
+            raise ValueError(f"column {i}: swash width {sw:.2f}u is outside the "
+                             f"envelope {MINT_SWASH} -- the width consumes the wash")
+
+    # --- emission ---
+    s_nrm = sand[0][0][1]
+    s_id = tuple(sand[0][0][3])
+    f_nrm = foam_all[0][0][1]
+    f_id = tuple(foam_all[0][0][3])
+    sand_emit, foam_emit = [], []
+    for i in range(n - 1):
+        lj, lf = (L[i + 1], L[i]) if i == 0 else (L[i], L[i + 1])
+        sj, sf = (S[i + 1], S[i]) if i == 0 else (S[i], S[i + 1])
+        wj, wf = (W[i + 1], W[i]) if i == 0 else (W[i], W[i + 1])
+        diag_s = "sj-lf" if i % 2 else "lj-sf"
+        diag_f = "wj-sf" if i % 2 else "sj-wf"
+        if i in (0, n - 2):                # the end columns are the CAPS
+            sand_emit += emit_sand_cap(lj, sj, lf, sf, land_pin=cap_pins[0],
+                                       seam_pin=cap_pins[1], diag=diag_s,
+                                       nrm=s_nrm, idall=s_id)
+            foam_emit += emit_foam_cap(sj, wj, sf, wf, slot="BL", family=family,
+                                       diag=diag_f, nrm=f_nrm, idall=f_id)
+        else:                              # run columns: fresh language walks
+            rect = 0 if TR._h01(L[i][0] + 2.9, L[i][2] + 1.3) < 0.5 else 1
+            u0, u1 = SAND_ULAT[rect], SAND_ULAT[rect + 1]
+            uv = {id(L[i]): (u0, run_pins[0]), id(L[i + 1]): (u1, run_pins[0]),
+                  id(S[i]): (u0, run_pins[1]), id(S[i + 1]): (u1, run_pins[1])}
+            split = ((S[i], L[i + 1], L[i]), (S[i], S[i + 1], L[i + 1])) if i % 2 \
+                else ((L[i], S[i + 1], S[i]), (L[i], L[i + 1], S[i + 1]))
+            for tri_pts in split:
+                sand_emit.append(_up_tri([(p, s_nrm, uv[id(p)], s_id)
+                                          for p in tri_pts]))
+            fam_bl = FOAM_FAMILIES[family]["BL"]
+            fuv = {id(S[i]): (fam_bl[0], family[0]),
+                   id(S[i + 1]): (0.5, family[0]),
+                   id(W[i]): (fam_bl[0], family[1]),
+                   id(W[i + 1]): (0.5, family[1])}
+            fsplit = ((W[i], S[i + 1], S[i]), (W[i], W[i + 1], S[i + 1])) if i % 2 \
+                else ((S[i], W[i + 1], W[i]), (S[i], S[i + 1], W[i + 1]))
+            for tri_pts in fsplit:
+                foam_emit.append(_up_tri([(p, f_nrm, fuv[id(p)], f_id)
+                                          for p in tri_pts]))
+
+    # --- self-check: every emitted tri decodes in its language ---
+    for t3 in sand_emit:
+        if _sand_tri_decode(t3) is None:
+            raise ValueError("a minted sand tri does not decode -- the emission "
+                             "self-check failed")
+    for t3 in foam_emit:
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        if not ((max(us) <= 0.502 and max(vs) <= 0.502)
+                or (max(us) <= 0.502 and min(vs) >= 0.498)):
+            raise ValueError("a minted foam tri is outside the run/BL windows -- the "
+                             "emission self-check failed")
+
+    # --- THE ASSEMBLY BOUNDARY gate: (a) every emitted once-edge must be a PINNED
+    # edge (a once-edge on a synthetic vert = a crack inside the assembly), and
+    # (b) the donor's pinned-vert boundary is preserved exactly. The donor's own
+    # seam-subdivision asymmetries (the fan side subdividing an S edge the foam side
+    # does not) involve non-pinned verts and are excluded by construction. ---
+    def once_edges(tris):
+        ec = defaultdict(int)
+        for t3 in tris:
+            for a in range(3):
+                ec[frozenset((_pk(t3[a][0]), _pk(t3[(a + 1) % 3][0])))] += 1
+        return {e for e, c in ec.items() if c == 1}
+    pinned = {_pk(p) for p in L} | {_pk(p) for p in W} | {_pk(S[0]), _pk(S[-1])}
+    emit_once = once_edges(sand_emit + foam_emit)
+    if any(not all(k in pinned for k in e) for e in emit_once):
+        raise ValueError("ASSEMBLY BOUNDARY gate: a minted boundary edge sits on a "
+                         "synthetic vert -- a crack inside the assembly")
+    don_once = {e for e in once_edges(sand + foam_all)
+                if all(k in pinned for k in e)}
+    if don_once != emit_once:
+        raise ValueError("ASSEMBLY BOUNDARY gate: the minted assembly's pinned outer "
+                         "boundary differs from the donor's -- the interface moved")
+    # T-vertices against the pinned neighbours (grass + wash near the assembly)
+    keys = {k for t3 in sand + foam_all for v in t3 for k in (_pk(v[0]),)}
+    near = [(True, t3) for t3 in sand_emit + foam_emit]
+    for t3 in terr:
+        if any(_pk(v[0]) in keys for v in t3) and t3 not in sand:
+            near.append((False, t3))
+    _tvertex_gate(near)
+
+    return [TR.DropTris("terrain", sand), TR.EmitTris("terrain", sand_emit),
+            TR.DropTris("beach1", foam_all), TR.EmitTris("beach1", foam_emit)]
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved
