@@ -1415,6 +1415,26 @@ differ from `1.0`.
 
 ---
 
+## `[rebalance]` (optional — a global HP-damage multiplier)
+
+Scales the **final HP-damage number** by the caster's side. Where `[difficulty]` scales enemy *stats* (which
+feed the formula), this is a flat post-formula multiplier — and the only way to scale what the **party**
+deals. Same Overload/scripts-DLL plumbing as `[difficulty]`: compiles at build (needs `csc`), **relaunch**
+to load. Full story: [SCRIPTS_DLL.md §12](SCRIPTS_DLL.md).
+
+| key | meaning |
+|---|---|
+| `player_damage` | × HP damage dealt **by players** (`0.05`–`20.0`; unset = `1.0`). |
+| `enemy_damage` | × HP damage dealt **by enemies**. |
+| `flag` | optional gate on a `gEventGlobal` bit (a `[[flag]]` name or index), read fresh per battle — same as `[difficulty]`. Omit = always on. |
+
+Only **pure HP damage** is scaled (healing / recovery / MP untouched). Two honest limits: the engine clamps
+damage to **9999** right after this hook unless you set `[Battle] BreakDamageLimit = 1` in `Memoria.ini`
+(the kit won't force a global engine config from a mod), and the `IsDmg9999` cheat forces player damage to
+9999 regardless. Mod-global, at least one scale must differ from `1.0`. Composes with `[difficulty]`.
+
+---
+
 ## `[music]` (optional)
 
 | key | meaning |

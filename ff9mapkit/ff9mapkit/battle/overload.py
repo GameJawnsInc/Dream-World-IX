@@ -60,6 +60,15 @@ FEATURES = (
         "render": None,                  # knobs are baked from [difficulty] at build time -- not re-renderable
     },
     {
+        "name": "rebalance",
+        "dir": "Rebalance",
+        "file": "9700_Rebalance.cs",
+        "order": 20,                     # mutator: scales the final HP damage before observers log it
+        "live_owned": False,
+        "hooks": {"OnDamageFinalChanges": "Memoria.Scripts.Overload.RebalanceOverload.OnDamageFinalChanges(v);"},
+        "render": None,                  # knobs are baked from [rebalance] at build time -- not re-renderable
+    },
+    {
         "name": "telemetry",
         "dir": "Telemetry",
         "file": "9900_BattleTelemetry.cs",
@@ -106,6 +115,23 @@ def build_owned_dirs() -> tuple:
     would resurrect removed declarative content at the next live recompile), while LIVE-owned feature dirs
     (telemetry) survive a deploy untouched."""
     return ("Battle",) + tuple(f["dir"] for f in FEATURES if not f["live_owned"]) + (HUB_DIRNAME,)
+
+
+def flag_gate_cs(flag_index, *, label: str = "", indent: str = " " * 16) -> str:
+    """The shared C# early-return gate a flag-gateable feature emits at the TOP of its hook body: run only
+    while a save-backed ``gEventGlobal`` BIT is set (a "hard mode" the author toggles via [startup]/an event
+    /F6 -> Flags). ``flag_index`` None -> ``""`` (always-on, no gate). Sits inside the feature's own
+    try/catch, so an out-of-range index throws -> caught -> vanilla. ``label`` is the author's raw flag
+    spelling (wrapped in parens for the comment when it differs from the index). Cross-feature: both
+    [difficulty] and [rebalance] emit an identical gate, so the codegen lives here once."""
+    if flag_index is None:
+        return ""
+    lbl = f" ({label})" if label and label != str(flag_index) else ""
+    byte, mask = flag_index >> 3, 1 << (flag_index & 7)
+    return (f"{indent}// hard-mode gate: scale only while gEventGlobal bit {flag_index} is set{lbl}\n"
+            f"{indent}Byte[] g = FF9StateSystem.EventState.gEventGlobal;\n"
+            f"{indent}if ((g[{byte}] & {mask}) == 0)\n"
+            f"{indent}    return;\n")
 
 
 # ---- the hub C# ----------------------------------------------------------------------------------------

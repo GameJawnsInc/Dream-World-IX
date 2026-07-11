@@ -150,13 +150,6 @@ namespace Memoria.Scripts.Overload
 }}
 """
 
-_GATE = """\
-                // hard-mode gate: scale only while gEventGlobal bit {flag} is set{label}
-                Byte[] g = FF9StateSystem.EventState.gEventGlobal;
-                if ((g[{byte}] & {mask}) == 0)
-                    return;
-"""
-
 # LOGICAL HP (btl_para.Get/SetLogicalHP under the properties): max first, then current clamped to it.
 _HP = """\
                     UInt32 maxHp = (UInt32)Math.Min(9999999.0, Math.Max(1.0, u.MaximumHp * {s}));
@@ -190,8 +183,9 @@ def render(spec: DifficultySpec) -> str:
     if spec.magic != 1.0:
         parts.append(f"Magic x{_num(spec.magic)}")
     if spec.flag is not None:
+        from . import overload as _ovl
         label = f" ({spec.flag_label})" if spec.flag_label and spec.flag_label != str(spec.flag) else ""
-        gate = _GATE.format(flag=spec.flag, label=label, byte=spec.flag >> 3, mask=1 << (spec.flag & 7))
+        gate = _ovl.flag_gate_cs(spec.flag, label=spec.flag_label)
         gate_comment = (f"Gated on gEventGlobal bit {spec.flag}{label}: bit CLEAR (or any state hiccup) = "
                         f"vanilla; toggle live via F6 -> Flags.")
     else:
