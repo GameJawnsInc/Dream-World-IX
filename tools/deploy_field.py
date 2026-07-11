@@ -349,7 +349,16 @@ if _src_dll.exists():
     _had_dll = _live_dll.exists()
     if _had_dll:
         shutil.copyfile(_live_dll, BK / f"{_src_dll.name}.preDEPLOY.{STAMP}")
-    shutil.copyfile(_src_dll, _live_dll)
+    try:
+        shutil.copyfile(_src_dll, _live_dll)
+    except OSError as _dllerr:
+        # A running FF9 process memory-maps its loaded Scripts DLL (Assembly.LoadFile) -> Windows refuses to
+        # open it for writing (surfaces as a confusing errno, not a plain PermissionError). The backup above
+        # already succeeded and nothing live was touched -- just a blocked write, not a corrupted deploy.
+        print(f"\n!! could not write {_live_dll.name}: {_dllerr}\n"
+              f"   FF9 is very likely still RUNNING with this DLL loaded (it stays mapped even at the title "
+              f"screen). Fully QUIT the game (not just return to title), then re-run this deploy.", file=sys.stderr)
+        sys.exit(2)
     csv_reverts.append((_src_dll.stem, str(_live_dll), _had_dll))    # stem+".dll" -> the revert codegen's {label}{ext}
     # carry the build stamp (which engine the DLL was compiled against) so the health check / a redeploy can WARN
     # on version drift before the game throws a MissingMemberException at cast (project-ff9-scripts-dll).
