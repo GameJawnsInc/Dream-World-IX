@@ -2863,6 +2863,17 @@ class Workspace(QMainWindow):
             self._muted("a read-only view of the shipped .eb — edit it in place (Phase 2), not here"),
             self._muted("'?' marks a target chosen at runtime (computed / dynamic-caller) — unresolvable offline")])
         from .. import logic_map as LM
+        try:                                            # a Hot & Cold forest fork -> a high-level authoring node
+            from ..content import chocobo as _choco     # ABOVE the raw routine list (hidden on every other field)
+            if _choco.scan(eb) is not None:
+                cn = self._mk("chocobo_root", "🐤  Chocobo Hot & Cold — prizes & timer", "chocobo")
+                cn.setData(0, _DETAIL, [
+                    "Author the dig PRIZE POOL + the game TIMER for this forest.",
+                    self._muted("35 prize slots + the timer, edited in place (a [chocobo] block) — the popup, the "
+                                "award, and the end-tally all read one value, so they can't disagree.")])
+                grp.addChild(cn)
+        except Exception:                               # noqa: BLE001 -- scan never blocks the logic map
+            pass
         by_entry = {}
         for n in lm.nodes:
             by_entry.setdefault(n.entry, []).append(n)
@@ -3112,6 +3123,8 @@ class Workspace(QMainWindow):
                 self._open_editor(member, "field", "field")
             elif p[0] == "logic_node":             # a verbatim routine -> the in-place [[logic_edit]] panel
                 self._open_editor(member, "logic_node", p[2])
+            elif p[0] == "chocobo_root":           # the Chocobo Hot & Cold prize/timer form (forest forks only)
+                self._mount_chocobo(member)
             elif p[0] == "undef_spatial":          # a scene-placed entity with no field def -> inspect only
                 pass                               # (the Inspector explains; double-click / context = Define)
             elif p[0] not in _LOGIC_KINDS:         # an object/group under it -> edit by its key
@@ -4099,6 +4112,367 @@ class Workspace(QMainWindow):
         self._reconcile_logic_dirty(member)
         self._checkpoint(member, "reset logic edits", f"logic_n:{entry}:{tag}")
         self._mount_logic_node(member, entry, tag)
+
+    # ---- Chocobo Hot & Cold: the dig prize-pool / timer form (a [chocobo] block on a forest fork) ----
+    def _mount_chocobo(self, member):
+        """The Chocobo Hot & Cold authoring panel: the game TIMER + the 35 dig-prize slots (grouped by RNG
+        tier), each editable to an item / gil / nothing. Writes a ``[chocobo]`` block into the member's
+        field.toml; every commit is dry-run-validated (resolve → apply → eblint) exactly like the build's
+        ``_validate_chocobo``. Only reachable on a verbatim forest fork (the tree node is scan-gated)."""
+        from ..content import chocobo as CH
+        self._clear_doc()
+        self._set_editor_tab("Chocobo Hot & Cold")
+        try:
+            eb, _entries, _lang = self._member_logic_inputs(member)
+            sc = CH.scan(eb)
+        except Exception as e:                          # noqa: BLE001
+            self._doc_placeholder(f"Could not load the script for {member}: {e}")
+            return
+        if sc is None:
+            self._doc_placeholder("This field has no Chocobo Hot & Cold dig-prize pool "
+                                  "(only the forest forks 2950 / 2951 / 2952 do).")
+            return
+        self._chocobo_scan = getattr(self, "_chocobo_scan", {})
+        self._chocobo_scan[member] = sc                 # cache the scan for the row/dialog handlers
+        self._header(f"{member}  ·  Chocobo Hot & Cold",
+                     "The dig PRIZE POOL + the game TIMER for this forest. Editing a slot authors a [chocobo] "
+                     "block; the popup, the award, and the end-tally all read one value, so they always agree. "
+                     "Slots you leave alone stay vanilla. Run Check, then Build & Deploy.")
+        reason = protected_reason(self.member_paths[member])
+        if reason:
+            self.doc_host_lay.addWidget(self._warn_label(
+                f"⚠ {reason}. Save a copy in a folder of your own to author edits."))
+        cfg = self._doc(member).data.get("chocobo") or {}
+        # Timer row (always one).
+        self.doc_host_lay.addWidget(self._chocobo_timer_row(member, sc, cfg))
+        # Prize slots, grouped by RNG tier (5 = rarest → 1 = common), each tier a collapsed disclosure so the
+        # panel opens compact (35 rows would be a wall). The tier's edited-count shows on its header.
+        edited = sum(1 for s in sc.slots if CH.prize_entry(cfg, s.index) is not None)
+        self.doc_host_lay.addWidget(self._muted_label(
+            f"{len(sc.slots)} prize slots" + (f" · {edited} edited" if edited else "")))
+        tiers = sorted({s.tier for s in sc.slots}, key=lambda t: (t is None, -(t or 0)))
+        for tier in tiers:
+            slots = [s for s in sc.slots if s.tier == tier]
+            ne = sum(1 for s in slots if CH.prize_entry(cfg, s.index) is not None)
+            title = (f"Tier {tier}" if tier is not None else "Prizes") + f" — {len(slots)} slot(s)" \
+                + (f", {ne} edited" if ne else "")
+            rows = [self._chocobo_slot_row(member, sc, s, cfg) for s in slots]
+            self.doc_host_lay.addWidget(self._collapsible_rows(title, rows, open_=bool(ne)))
+        self._active_save = lambda m=member: self._save_chocobo(m)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 8, 0, 0)
+        save = QPushButton("Save")
+        save.setObjectName("accent")
+        save.clicked.connect(lambda _=False: self._save_chocobo(member))
+        row.addWidget(save)
+        rst = QPushButton("Reset")
+        rst.setToolTip("Discard ALL unsaved Chocobo edits on this field (revert to the last save)")
+        rst.clicked.connect(lambda _=False: self._reset_chocobo(member))
+        row.addWidget(rst)
+        row.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(row)
+        self.doc_host_lay.addWidget(holder)
+        self.doc_host_lay.addStretch(1)
+
+    def _collapsible_rows(self, title, rows, *, open_=False):
+        """A disclosure section holding interactive WIDGET rows (vs :meth:`_collapsible`, which holds text).
+        Used to fold the 35 chocobo prize slots into per-tier groups."""
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 2, 0, 0)
+        lay.setSpacing(2)
+        btn = QToolButton()
+        btn.setText(title)
+        btn.setCheckable(True)
+        btn.setChecked(open_)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        btn.setArrowType(Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
+        btn.setStyleSheet("QToolButton { border:none; font-weight:600; text-align:left; }")
+        body = QWidget()
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(12, 0, 0, 0)
+        bl.setSpacing(1)
+        for r in rows:
+            bl.addWidget(r)
+        body.setVisible(open_)
+
+        def _toggle(checked):
+            body.setVisible(checked)
+            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+        btn.toggled.connect(_toggle)
+        lay.addWidget(btn)
+        lay.addWidget(body)
+        return box
+
+    def _chocobo_value_str(self, value):
+        """Friendly rendering of a raw prize value: an item name, N gil, 'nothing', else a raw id."""
+        from ..content import chocobo as CH
+        from .. import items
+        if value == CH.NOTHING:
+            return "nothing"
+        if value >= CH.GIL_BASE:
+            return f"{value - CH.GIL_BASE} gil"
+        return items.name_of(value) or f"item #{value}"
+
+    def _chocobo_entry_value(self, entry):
+        """The integer a pending prize entry resolves to, or None if it can't (shown as-is then)."""
+        from ..content import chocobo as CH
+        try:
+            return CH.resolved_value(entry)
+        except CH.ChocoboError:
+            return None
+
+    def _chocobo_timer_row(self, member, sc, cfg):
+        from ..content import chocobo as CH
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 2, 0, 6)
+        clean = (self._clean.get(member) or {}).get("chocobo") or {}
+        authored = (cfg.get("tuning") or {}).get("timer")
+        saved = (clean.get("tuning") or {}).get("timer")
+        vanilla = sc.timer.value if sc.timer is not None else None
+        if authored is not None and authored != vanilla:
+            state = ("saved", self.pal["muted"]) if authored == saved else ("unsaved", self.pal["warn"])
+            secs = authored + 1
+            txt = f"Timer  →  <b>{authored}</b> (~{secs // 60}:{secs % 60:02d})  " \
+                  f'<span style="color:{state[1]};">({state[0]})</span>'
+        elif vanilla is not None:
+            secs = vanilla + 1
+            txt = f"Timer  <span style='color:{self.pal['muted']};'>= {vanilla} (~{secs // 60}:{secs % 60:02d})</span>"
+        else:
+            txt = "Timer  <span style='color:%s;'>(none in this field)</span>" % self.pal["muted"]
+        lbl = QLabel(txt)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setWordWrap(True)
+        h.addWidget(lbl, 1)
+        if sc.timer is not None:
+            edit = QPushButton("Edit…")
+            edit.clicked.connect(lambda _=False: self._edit_chocobo_timer(member))
+            h.addWidget(edit)
+            if authored is not None:
+                rv = QPushButton("Revert")
+                rv.clicked.connect(lambda _=False: self._commit_chocobo(
+                    member, CH.set_timer(self._doc(member).data.get("chocobo"), None)))
+                h.addWidget(rv)
+        return w
+
+    def _chocobo_slot_row(self, member, sc, slot, cfg):
+        from ..content import chocobo as CH
+        w = QWidget()
+        h = QHBoxLayout(w)
+        h.setContentsMargins(0, 1, 0, 1)
+        clean = (self._clean.get(member) or {}).get("chocobo") or {}
+        entry = CH.prize_entry(cfg, slot.index)
+        saved_entry = CH.prize_entry(clean, slot.index)
+        if entry is not None:
+            state = ("saved", self.pal["muted"]) if entry == saved_entry else ("unsaved", self.pal["warn"])
+            v = self._chocobo_entry_value(entry)
+            shown = self._chocobo_value_str(v) if v is not None else "?"
+            txt = f"slot {slot.index}  →  <b>{_esc(shown)}</b>  " \
+                  f'<span style="color:{state[1]};">({state[0]})</span>'
+        else:
+            txt = f"slot {slot.index}  <span style='color:{self.pal['muted']};'>= " \
+                  f"{_esc(self._chocobo_value_str(slot.value))}</span>"
+        lbl = QLabel(txt)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setWordWrap(True)
+        h.addWidget(lbl, 1)
+        edit = QPushButton("Edit…")
+        edit.clicked.connect(lambda _=False, s=slot: self._edit_chocobo_slot(member, s))
+        h.addWidget(edit)
+        if entry is not None:
+            rv = QPushButton("Revert")
+            rv.clicked.connect(lambda _=False, s=slot: self._commit_chocobo(
+                member, CH.set_prize(self._doc(member).data.get("chocobo"), s.index, None)))
+            h.addWidget(rv)
+        return w
+
+    def _edit_chocobo_timer(self, member):
+        from ..content import chocobo as CH
+        sc = self._chocobo_scan.get(member)
+        cur = (self._doc(member).data.get("chocobo", {}).get("tuning") or {}).get("timer")
+        vanilla = sc.timer.value if sc and sc.timer else 60
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Chocobo timer")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel("Game timer seed (in-game seconds = seed × difficulty + 1)"))
+        ed = QLineEdit(str(cur if cur is not None else vanilla))
+        ed.setMinimumWidth(120)
+        form.addRow("Seconds", ed)
+        hint = self._muted_label("")
+        form.addRow(hint)
+
+        def on_change(*_):
+            t = ed.text().strip()
+            if t.isdigit() and 1 <= int(t) <= 0xFFFF:
+                secs = int(t) + 1
+                hint.setText(f"→ ~{secs // 60}:{secs % 60:02d} on the clock at difficulty 1")
+            else:
+                hint.setText("⚠ enter a whole number 1–65535")
+        ed.textChanged.connect(on_change)
+        ed.selectAll()
+        on_change()
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        t = ed.text().strip()
+        if not (t.isdigit() and 1 <= int(t) <= 0xFFFF):
+            self._show_problems(fb.Verdict(fb.ERROR, "Bad timer"),
+                                [fb.Problem(fb.ERROR, "timer must be a whole number 1–65535")])
+            return
+        val = None if (sc and sc.timer and int(t) == sc.timer.value) else int(t)
+        self._commit_chocobo(member, CH.set_timer(self._doc(member).data.get("chocobo"), val))
+
+    def _edit_chocobo_slot(self, member, slot):
+        from ..content import chocobo as CH
+        cur = CH.prize_entry(self._doc(member).data.get("chocobo"), slot.index)
+        entry = self._chocobo_prize_dialog(slot, cur)
+        if entry is None:                                # cancel
+            return
+        if entry == "__revert__":                        # back to vanilla
+            self._commit_chocobo(member, CH.set_prize(self._doc(member).data.get("chocobo"), slot.index, None))
+            return
+        # a set that resolves back to the vanilla value -> just clear the override (keeps the block clean)
+        try:
+            if CH.resolved_value(entry) == slot.value:
+                self._commit_chocobo(member, CH.set_prize(self._doc(member).data.get("chocobo"), slot.index, None))
+                return
+        except CH.ChocoboError:
+            pass
+        self._commit_chocobo(member, CH.set_prize(self._doc(member).data.get("chocobo"), slot.index, entry))
+
+    def _chocobo_prize_dialog(self, slot, current=None):
+        """Modal editor for one prize slot: Item / Gil / Nothing (+ Vanilla to revert). ``current`` is the
+        slot's existing override (prefilled), if any. Returns an entry dict
+        ({"item":…}|{"gil":…}|{"nothing":True}), the string ``"__revert__"``, or None on cancel."""
+        from ..content import chocobo as CH
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Prize — slot {slot.index}")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"Slot {slot.index} · vanilla = {self._chocobo_value_str(slot.value)}"
+                           + (f" · tier {slot.tier}" if slot.tier is not None else "")))
+        kind = QComboBox()
+        kind.addItems(["Item", "Gil", "Nothing", "Vanilla (revert)"])
+        form.addRow("Award", kind)
+        ed = QLineEdit()
+        ed.setMinimumWidth(220)
+        form.addRow("Value", ed)
+        hint = self._muted_label("")
+        form.addRow(hint)
+
+        def build_entry():
+            k = kind.currentIndex()
+            if k == 0:
+                return {"item": ed.text().strip()}
+            if k == 1:
+                t = ed.text().strip()
+                return {"gil": int(t)} if t.lstrip("-").isdigit() else {"gil": t}
+            if k == 2:
+                return {"nothing": True}
+            return "__revert__"
+
+        def on_change(*_):
+            k = kind.currentIndex()
+            ed.setEnabled(k in (0, 1))
+            if k == 2:
+                hint.setText("→ the dig finds nothing")
+                return
+            if k == 3:
+                hint.setText(f"→ vanilla ({self._chocobo_value_str(slot.value)})")
+                return
+            try:
+                v = CH.resolved_value(build_entry())
+                hint.setText(f"→ {self._chocobo_value_str(v)}")
+            except CH.ChocoboError as e:
+                hint.setText(f"⚠ {e}")
+        kind.currentIndexChanged.connect(on_change)
+        ed.textChanged.connect(on_change)
+        if current:                                      # prefill from the slot's existing override
+            if "item" in current:
+                kind.setCurrentIndex(0); ed.setText(str(current["item"]))
+            elif "gil" in current:
+                kind.setCurrentIndex(1); ed.setText(str(current["gil"]))
+            elif "nothing" in current:
+                kind.setCurrentIndex(2)
+            elif "value" in current:
+                kind.setCurrentIndex(1); ed.setText(str(current["value"]))
+        on_change()
+        form.addRow(self._ok_cancel(dlg))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        entry = build_entry()
+        if entry == "__revert__":
+            return "__revert__"
+        try:
+            CH.resolved_value(entry)                     # validate before returning
+        except CH.ChocoboError as e:
+            self._show_problems(fb.Verdict(fb.ERROR, "Bad prize"), [fb.Problem(fb.ERROR, str(e))])
+            return None
+        return entry
+
+    def _commit_chocobo(self, member, cfg):
+        """Write ``cfg`` (a [chocobo] block) into the member's doc AFTER a clean dry-run (resolve → apply →
+        eblint against the LOCAL .eb, mirroring build._validate_chocobo). Nothing written on a bad value."""
+        err = self._validate_chocobo_candidate(member, cfg)
+        if err:
+            self._show_problems(fb.Verdict(fb.ERROR, "Edit not applied — it wouldn't build"),
+                                [fb.Problem(fb.ERROR, err)])
+            return
+        doc = self._doc(member)
+        if cfg and (cfg.get("prize") or cfg.get("tuning")):
+            doc.data["chocobo"] = cfg
+        else:
+            doc.data.pop("chocobo", None)
+        self._reconcile_logic_dirty(member)              # kind-agnostic: touch iff doc != saved baseline
+        self._checkpoint(member, "edit chocobo", "chocobo")
+        self._mount_chocobo(member)
+
+    def _validate_chocobo_candidate(self, member, cfg):
+        """Dry-run a [chocobo] cfg against the member's LOCAL .eb (mirrors build._validate_chocobo). Returns an
+        error string, or None if it resolves + the composed .eb lints clean."""
+        from ..content import chocobo as CH
+        from .. import logic_edit as LE
+        from .. import eblint
+        try:
+            eb, _entries, _lang = self._member_logic_inputs(member)
+            edits = CH.resolve_edits(eb, cfg)
+            errs = eblint.errors(eblint.lint_eb(LE.apply_logic_edits(eb, edits)))
+            if errs:
+                return f"composed .eb: {errs[0]}"
+        except (CH.ChocoboError, LE.LogicEditError) as ex:
+            return str(ex)
+        except Exception as ex:                          # noqa: BLE001
+            return f"{type(ex).__name__}: {ex}"
+        return None
+
+    def _save_chocobo(self, member):
+        reason = protected_reason(self.member_paths[member])
+        if reason:
+            self._show_problems(fb.Verdict(fb.ERROR, "Can't save here"),
+                                [fb.Problem(fb.ERROR, f"{reason}. Save a copy in a folder of your own.")])
+            return
+        try:
+            self._doc(member).save()
+        except Exception as e:                           # noqa: BLE001
+            self._show_problems(fb.Verdict(fb.ERROR, "Save failed"), [fb.Problem(fb.ERROR, str(e))])
+            return
+        self._mark_clean(member)
+        self._checkpoint(member, "save chocobo", "chocobo")
+        self._mount_chocobo(member)
+        self._show_problems(fb.Verdict(fb.OK, f"Saved {member} · Chocobo Hot & Cold",
+                                       f"wrote {self.member_paths[member].name}"), [])
+
+    def _reset_chocobo(self, member):
+        clean = self._clean.get(member, {})
+        doc = self._doc(member)
+        if "chocobo" in clean:
+            doc.data["chocobo"] = copy.deepcopy(clean["chocobo"])
+        else:
+            doc.data.pop("chocobo", None)
+        self._reconcile_logic_dirty(member)
+        self._checkpoint(member, "reset chocobo", "chocobo")
+        self._mount_chocobo(member)
 
     # ---- [[logic_add]] authoring: length-changing effects (give item/gil, set flag, show line) ----
     def _routine_adds(self, member, entry, tag):
@@ -5427,7 +5801,7 @@ class Workspace(QMainWindow):
         self.insp_title.setText(label)
         self.insp_body.setToolTip("")                       # full path (if any) goes on hover, not inline
         self._inspect_path = None
-        if kind in _LOGIC_KINDS:                            # a read-only logic-map node -> show its decoded detail
+        if kind in _LOGIC_KINDS or kind == "chocobo_root":  # a logic-map node / the chocobo entry -> its detail
             detail = item.data(0, _DETAIL) or []
             self.insp_body.setText("<br>".join(detail) if detail else self._muted("— (no decoded detail)"))
             return
