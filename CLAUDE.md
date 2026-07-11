@@ -733,11 +733,17 @@ FREE-FOOTPRINT mint — `--beach-mint WIDTH|auto[:LAND]` synthesizes the LAND CH
 L pushed landward, berm-surface conformed, the berm BSP-CLIPPED at the new synthetic chain with
 fan-subdivided band columns + the UNION crack gate; (7,17) ladder 0.6–2.6, ribbon-refused at
 3.0; zero water delta by deployed-bytes differential). The TRUE virgin-shore mint re-runged to
-rung 3 — blocked on ONE unclosed vocabulary (band-convergence conforming strips have no
-emission rule); the window study's laws (berm topo-0 only · the lattice adjacency table — sea3
-never touches sea4 · beaches never share verts, 4.06u grass-tongue separators · all 5
-wash-fronted virgin pockets one column short) live in the memory. 33 golden tests →
-[[project-ff9-overworld-coast-mosaic]].
+rung 3; the window study's laws (berm topo-0 only · the lattice adjacency table — sea3 never
+touches sea4 · beaches never share verts, 4.06u grass-tongue separators · all 5 wash-fronted
+virgin pockets one column short) live in the memory. **Rung 3's blocker CRACKED same day (offline):
+THE DEFORMED-TILE RECT LAW** — a strip tile's uv map = a ≤2u×≤2v snap-rect ASSIGNED TO ITS CORNER
+VERTS independent of deformation (the map deforms WITH the tile — why position-evaluated fits
+falsified) + positional edge-lerps on inserted verts; one snap vocabulary for both tiers (sea1
+lattice 186/186, conforming ~95%, residual named+verbatim); the sea1 convergence fans are pure
+corner assignment, and the virgin ladder can skip sea3 ({1,5} is real) — `_deformed_strip_groups`
++ `conforming_rebuild` (identity round-trip, zero drift on proven donors) shipped; the first FRESH
+deformed-tile emission (the one-cell band-conversion probe) = rung 3's in-game step. 35 golden
+tests → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven on ALL

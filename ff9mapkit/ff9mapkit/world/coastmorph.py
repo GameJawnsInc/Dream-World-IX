@@ -2584,6 +2584,217 @@ def strips_rebuild(donor, parts=("sea1", "sea5"), *, disc: int = 1, lod: str = "
     return out
 
 
+#: THE DEFORMED-TILE RECT LAW (byte-learned 2026-07-11 -- the conforming-tier study,
+#: the rung-3 convergence-fan vocabulary): a strip tile's UV map is a <=2u x <=2v
+#: RECT of snap values ASSIGNED TO ITS CORNER VERTS, independent of geometric
+#: deformation -- the coast outline drags a tile's verts and the uvs STAY at their
+#: corner values (why every position-evaluated fit failed: the map deforms WITH the
+#: tile). Clip-INSERTED verts carry EDGE-LERPED uvs at the position's own parameter
+#: (the Sutherland-Hodgman signature). The value vocabulary is one small snap set
+#: shared by BOTH tiers (lattice tiles decode 186/186 sea1, 1622/1624 sea5 through
+#: the same law); the conforming residual (~5%: rotated groups pending the
+#: transposed test, cross-group lerp anchors, oddballs) stays verbatim.
+STRIP_U_SNAPS = (0.0, 33.0, 65.0, 1008.0)
+STRIP_V_SNAPS = (0.0, 16.0, 242.0, 250.0, 258.0, 274.0, 282.0, 508.0, 516.0, 524.0,
+                 742.0, 758.0, 766.0, 774.0, 782.0, 790.0, 1000.0, 1024.0)
+_SNAP_EPS_T = 2.5                     # texels/1024
+
+
+def _snap_t(val, snaps):
+    t = val * 1024
+    for s in snaps:
+        if abs(t - s) <= _SNAP_EPS_T:
+            return s
+    return None
+
+
+def _deformed_strip_groups(tris):
+    """Decode a strip band's tris (both tiers) into DEFORMED-TILE groups under the
+    rect law. Groups = union-find over uv-equal shared edges with the ROW-BOUNDARY
+    guard (adjacent rows share a v-continuous edge; a merge may never exceed one
+    <=2 x <=2 rect). Yields ``(member_tris, kind, detail)`` with kind ``"rect"``
+    (corners + explained lerp verts: detail = {poskey: (anchorA, anchorB, t)})
+    or ``"residual"`` (rotated / cross-group-anchored / oddball: keep verbatim)."""
+    def uvr(v):
+        return (round(v[2][0], 4), round(v[2][1], 4))
+
+    def tri_rect(t3, ori):
+        su, sv = (STRIP_U_SNAPS, STRIP_V_SNAPS) if ori == 0 \
+            else (STRIP_V_SNAPS, STRIP_U_SNAPS)
+        us, vs = set(), set()
+        for v in t3:
+            a, b = _snap_t(v[2][0], su), _snap_t(v[2][1], sv)
+            if a is not None:
+                us.add(a)
+            if b is not None:
+                vs.add(b)
+        return us, vs
+    parent = list(range(len(tris)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    edge_insts = defaultdict(list)
+    for i, t3 in enumerate(tris):
+        for a in range(3):
+            b = (a + 1) % 3
+            key = frozenset((_pk(t3[a][0]), _pk(t3[b][0])))
+            edge_insts[key].append((i, {_pk(t3[a][0]): uvr(t3[a]),
+                                        _pk(t3[b][0]): uvr(t3[b])}))
+    comp_rect = {i: tri_rect(tris[i], 0) for i in range(len(tris))}
+    for key, insts in edge_insts.items():
+        for (i, uva), (j, uvb) in zip(insts, insts[1:]):
+            if uva != uvb:
+                continue
+            ri, rj = find(i), find(j)
+            if ri == rj:
+                continue
+            gu = comp_rect[ri][0] | comp_rect[rj][0]
+            gv = comp_rect[ri][1] | comp_rect[rj][1]
+            if len(gu) <= 2 and len(gv) <= 2:
+                parent[rj] = ri
+                comp_rect[ri] = (gu, gv)
+    groups = defaultdict(list)
+    for i in range(len(tris)):
+        groups[find(i)].append(i)
+    for root, mem in sorted(groups.items(),
+                            key=lambda kv: min(_pk(tris[i][0][0]) for i in kv[1])):
+        gtris = [tris[i] for i in mem]
+        uv_of = {}                    # poskey -> (pos, RAW uv floats)
+        bad = False
+        for t3 in gtris:
+            for v in t3:
+                k = _pk(v[0])
+                if k in uv_of and (round(uv_of[k][1][0], 4),
+                                   round(uv_of[k][1][1], 4)) != uvr(v):
+                    bad = True
+                uv_of.setdefault(k, (v[0], (v[2][0], v[2][1])))
+        if bad:
+            yield gtris, "residual", None
+            continue
+        done = None
+        for ori in (0, 1):                 # unrotated, then the transposed roles
+            su, sv = (STRIP_U_SNAPS, STRIP_V_SNAPS) if ori == 0 \
+                else (STRIP_V_SNAPS, STRIP_U_SNAPS)
+            corners, unknown = {}, {}
+            for k, (p, uv) in uv_of.items():
+                a, b = _snap_t(uv[0], su), _snap_t(uv[1], sv)
+                if a is not None and b is not None:
+                    corners[k] = (p, uv, (a, b))
+                else:
+                    unknown[k] = (p, uv)
+            if not corners:
+                continue
+            us = {c[2][0] for c in corners.values()}
+            vs = {c[2][1] for c in corners.values()}
+            if len(us) > 2 or len(vs) > 2:
+                continue
+            explained = {k: (p, uv) for k, (p, uv, _s) in corners.items()}
+            lerps = {}
+            changed = True
+            while changed and unknown:
+                changed = False
+                ex = list(explained.items())
+                for k, (p, uv) in list(unknown.items()):
+                    for (ka, (pa, ua)), (kb, (pb, ub)) in (
+                            (ex[i2], ex[j2]) for i2 in range(len(ex))
+                            for j2 in range(len(ex)) if i2 != j2):
+                        dx, dz = pb[0] - pa[0], pb[2] - pa[2]
+                        L2 = dx * dx + dz * dz
+                        if L2 < 1e-9:
+                            continue
+                        t_ = ((p[0] - pa[0]) * dx + (p[2] - pa[2]) * dz) / L2
+                        if not (-1e-3 < t_ < 1 + 1e-3):
+                            continue
+                        if math.hypot(pa[0] + t_ * dx - p[0],
+                                      pa[2] + t_ * dz - p[2]) > 0.02:
+                            continue
+                        lu = ua[0] + t_ * (ub[0] - ua[0])
+                        lv = ua[1] + t_ * (ub[1] - ua[1])
+                        if abs(lu - uv[0]) * 1024 <= _SNAP_EPS_T \
+                                and abs(lv - uv[1]) * 1024 <= _SNAP_EPS_T:
+                            lerps[k] = (ka, kb, t_)
+                            explained[k] = (p, uv)
+                            del unknown[k]
+                            changed = True
+                            break
+                    if k in lerps:
+                        continue
+            if not unknown:
+                done = (corners, lerps)
+                break
+        if done is None:
+            yield gtris, "residual", None
+        else:
+            yield gtris, "rect", done
+
+
+def conforming_rebuild(donor, parts=("sea1", "sea5"), *, disc: int = 1,
+                       lod: str = "0_1", game=None):
+    """The DEFORMED-TILE identity rebuild (the rect law's completeness proof, the
+    cap_rebuild pattern): every decodable CONFORMING strip group re-derives through
+    the law -- corner verts take their snap-rect assignment (canonical snap floats),
+    inserted verts take EDGE-LERPS recomputed from their own positions -- under an
+    internal EQUALITY gate (4dp): tiles have no positional freedom under the law, so
+    the round-trip IS the proof that corner assignment + positional lerps fully
+    explain the conforming tier. Residual groups (rotated-ambiguous, cross-group
+    anchors, oddballs) stay verbatim, like the inset variants in strips_rebuild."""
+    out = []
+    for part in parts:
+        tris_all = TR.world_tris(*donor, part, disc=disc, lod=lod, game=game)
+        if not tris_all:
+            continue
+
+        def on_lat(v, eps=0.02):
+            return (abs(v[0][0] / 4 - round(v[0][0] / 4)) < eps
+                    and abs(v[0][2] / 4 - round(v[0][2] / 4)) < eps)
+        drop, emit = [], []
+        for gtris, kind, detail in _deformed_strip_groups(tris_all):
+            if kind != "rect":
+                continue
+            if all(all(on_lat(v) for v in t3) for t3 in gtris):
+                continue                   # lattice tiles are strips_rebuild's scope
+            corners, lerps = detail
+            # corners TRANSPORT their exact donor floats (the snap classes are the
+            # law's structure, not the engine floats); the derivation content = the
+            # rect structure + the POSITIONAL lerps recomputed below
+            new_uv = {}
+            for k, (p, uv, _snapped) in corners.items():
+                new_uv[k] = uv
+            guard = 0
+            while len(new_uv) < len(corners) + len(lerps) and guard < 8:
+                guard += 1
+                for k, (ka, kb, t_) in lerps.items():
+                    if k in new_uv or ka not in new_uv or kb not in new_uv:
+                        continue
+                    ua, ub = new_uv[ka], new_uv[kb]
+                    new_uv[k] = (ua[0] + t_ * (ub[0] - ua[0]),
+                                 ua[1] + t_ * (ub[1] - ua[1]))
+            if len(new_uv) < len(corners) + len(lerps):
+                continue                   # a lerp chain that never grounded: verbatim
+            new_tris = [[(v[0], v[1], new_uv[_pk(v[0])], v[3]) for v in t3]
+                        for t3 in gtris]
+            for t3o, t3n in zip(gtris, new_tris):
+                for vo, vn in zip(t3o, t3n):
+                    if abs(vo[2][0] - vn[2][0]) * 1024 > _SNAP_EPS_T \
+                            or abs(vo[2][1] - vn[2][1]) * 1024 > _SNAP_EPS_T:
+                        raise ValueError(
+                            f"{part} group at {_pk(gtris[0][0][0])}: the law "
+                            f"derivation strays from the donor bytes -- the "
+                            f"round-trip gate failed")
+            drop.extend(gtris)
+            emit.extend(new_tris)
+        if not drop:
+            raise ValueError(f"donor {donor} has no decodable conforming {part} "
+                             f"groups")
+        out += [TR.DropTris(part, drop), TR.EmitTris(part, emit)]
+    if not out:
+        raise ValueError(f"donor {donor} carries none of {parts}")
+    return out
+
+
 #: THE SAND-BAND LANGUAGE (byte-learned 2026-07-10, Path A -- the census over every
 #: topo-31 band map-wide: 14 connected bands, 437 tris across 27 blocks; each law below
 #: held with ZERO exceptions):
