@@ -2473,10 +2473,12 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 tweaks = list(tweaks) + CM.cap_rebuild(
                     (dx, dy), disc=args.disc, game=args.game)
             if args.beach_mint:
-                w = None if args.beach_mint.strip().lower() == "auto" \
-                    else float(args.beach_mint)
+                spec = args.beach_mint.strip().lower()
+                wpart, _, lpart = spec.partition(":")
+                w = None if wpart == "auto" else float(wpart)
+                lnd = float(lpart) if lpart else None
                 tweaks = list(tweaks) + CM.beach_mint(
-                    (dx, dy), width=w, disc=args.disc, game=args.game)
+                    (dx, dy), width=w, land=lnd, disc=args.disc, game=args.game)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -5254,16 +5256,22 @@ def build_parser() -> argparse.ArgumentParser:
                           "-- indistinguishable by design). Inset-rect variants (~7%% of sea5, the "
                           "sea3-inset family) and conforming ring tris stay verbatim. Every emitted "
                           "cell self-checks by re-decode.")
-    wtp.add_argument("--beach-mint", default=None, metavar="WIDTH|auto",
-                     help="BEACH-MINT rung 1: re-mint the donor's beach sand+foam assembly from "
+    wtp.add_argument("--beach-mint", default=None, metavar="WIDTH|auto[:LAND]",
+                     help="BEACH-MINT: re-mint the donor's beach sand+foam assembly from "
                           "chain specs -- interfaces pinned (land chain/waterline/end welds), "
                           "everything between synthesized (a smooth seam chain at the given "
                           "band WIDTH in world units, eased from the pinned ends; 'auto' keeps "
                           "the end-width profile), clean column topology (no fan transport), "
-                          "fresh sand P/Q + foam run/BL-cap language walks. Gated by the ribbon/"
-                          "slope/swash envelopes, the assembly-boundary gate, T-vertex and "
-                          "per-tri re-decode. Rung-1 class: the block's single x-monotone "
-                          "column beach.")
+                          "fresh sand P/Q + foam run/BL-cap language walks. The optional "
+                          ":LAND suffix (rung 2a, the free-footprint mint) synthesizes the "
+                          "LAND CHAIN too: interior L verts push LAND units landward (sin^2 "
+                          "eased, cap ends pinned) conforming to the berm surface, the berm "
+                          "is CLIPPED at the new chain (pure real bytes, the beach_slide "
+                          "machinery) and the widened band takes the strip. Gated by the "
+                          "ribbon/slope/swash envelopes, the assembly-boundary gate, T-vertex, "
+                          "per-tri re-decode, and (with LAND) the clip ledgers (partition/"
+                          "coverage/steep-face/object-anchor/drop-don't-drag). Rung-1 class: "
+                          "the block's single x-monotone column beach.")
     wtp.add_argument("--cap-rebuild", action="store_true",
                      help="the END-CAP identity rebuild (the cap-law completeness proof): every "
                           "lawful foam end cap and sand row-B cap re-emits through the learned "

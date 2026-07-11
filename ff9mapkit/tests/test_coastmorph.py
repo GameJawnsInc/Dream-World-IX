@@ -501,6 +501,58 @@ def test_beach_mint_golden():
     assert len(new - stock) == 6            # the 6 interior seam verts are SYNTHETIC
 
 
+def test_beach_mint_land_golden():
+    """RUNG 2a -- the FREE-FOOTPRINT mint, landward: the interior LAND CHAIN is
+    synthetic too (sin^2 eased, cap ends pinned, berm-surface conformed) and the berm
+    is CLIPPED at the new chain (the beach_slide machinery). At land=2.4 on (7,17):
+    16 sand + 18 berm tris drop, 24 band + 26 clipped-piece tris emit, the area
+    ledger is exact (band growth == consumed berm), every band land-edge vert is
+    bit-exact in a clipped piece, and the foam is byte-identical to the land=None
+    mint (land only touches terrain)."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.beach_mint(DONOR, land=2.4)
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("terrain", 34), ("terrain", 50), ("beach1", 14), ("beach1", 14)]
+    assert _tweak_hash(tw) == "7049a91ba729b787"
+    assert _tweak_hash(tw) == _tweak_hash(CM.beach_mint(DONOR, land=2.4))
+    # the exact area ledger: band growth over the land=None mint == consumed berm
+    from ff9mapkit.world import transplant as TR
+    from ff9mapkit.world.extract import decode_id
+    topo31 = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"] == 31
+
+    def area(tris):
+        s = 0.0
+        for t3 in tris:
+            (ax, _, az), (bx, _, bz), (cx, _, cz) = (v[0] for v in t3)
+            s += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2.0
+        return s
+    terr = TR.world_tris(*DONOR, "terrain")
+    grown = area([t for t in tw[1].tris if topo31(t)]) \
+        - area(CM.beach_mint(DONOR)[1].tris)
+    consumed = area([t for t in terr if CM._key_set(t) in tw[0].keys
+                     and not topo31(t)]) \
+        - area([t for t in tw[1].tris if not topo31(t)])
+    assert abs(grown - consumed) < 0.05
+    # every band land-edge vert welds a clipped piece BIT-exactly (the T-vertex law)
+    land_vs = {0.5664, 0.5674, 0.5977, 0.5986, 0.5996, 0.6006, 0.6045, 0.6123}
+    pieces = {tuple(v[0]) for t3 in tw[1].tris if not topo31(t3) for v in t3}
+    edge = {tuple(v[0]) for t3 in tw[1].tris if topo31(t3) for v in t3
+            if round(v[2][1], 4) in land_vs}
+    assert edge <= pieces
+    # foam untouched by land=
+    assert repr(tw[3].tris) == repr(CM.beach_mint(DONOR)[3].tris)
+
+
+def test_beach_mint_land_probes_the_ribbon_ceiling():
+    """The land knob's lawful ceiling on (7,17) is the RIBBON envelope (band width
+    tops out at 6.6): 2.6 builds, 3.0 refuses; composition with width= works."""
+    from ff9mapkit.world import coastmorph as CM
+    CM.beach_mint(DONOR, land=2.6)
+    CM.beach_mint(DONOR, width=3.0, land=2.0)
+    with pytest.raises(ValueError, match="ribbon"):
+        CM.beach_mint(DONOR, land=3.0)
+
+
 def test_beach_mint_probes_the_swash_ceiling():
     """The width knob's lawful ceiling on (7,17) is set by the SWASH envelope (band +
     swash share the pinned L->W corridor): 4.6 builds, 5.0 refuses."""
