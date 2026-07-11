@@ -130,7 +130,7 @@
 - **THE EXACT FOOTPRINT-CUT (rung 3)** — the assembly is ONE simple polygon; kept = the exact tri-minus-polygon arrangement (BSP leaves T-points at in-tri footprint corners) → "BEACH-MINT RUNG 3".
 - **THE REFLEX CAP DIAGONAL** — a pinned real crease-base pair makes a cap quad reflex; only the reflex-vertex diagonal is interior, the emitter's split must match → "BEACH-MINT RUNG 3".
 - **THE EDGE-LEVEL RING TRIGGER** — the ring re-band fires on a sea3 tile sharing a geometric EDGE with minted foam; introduced-only → "BEACH-MINT RUNG 3".
-- **THE FOAM-COLUMN ENVELOPE** — real foam run columns span 0.92–6.27u along-shore (map-wide census); short columns are real grammar → "BEACH-MINT RUNG 3".
+- **THE FOAM-COLUMN ENVELOPE + THE COLUMN-SCALE READ** — real foam run columns span 0.92–6.27u along-shore (map-wide census); short columns are real grammar, but an ALL-minimum-column beach reads dense/squished (in-game) — pick windows allowing ~3-4u columns → "BEACH-MINT RUNG 3".
 - **CAP-END GEOMETRY IS TRANSPORTED LAW** — real crease-base cap pins bypass the synth band/slope envelopes → "BEACH-MINT RUNG 3".
 
 ## F. Strips / Wang / deformed-tile languages
