@@ -398,6 +398,44 @@ def test_strips_rebuild_golden():
     assert all(frozenset(CM._pk(v[0]) for v in t3) in stock for t3 in emit1.tris)
 
 
+def test_sand_rebuild_golden():
+    """SAND EMISSION (Path A, byte-learned 2026-07-10) -- the sand-band identity rebuild
+    on the proven beach: (7,17)'s closed run columns re-derive from the learned two-rect
+    strip (the P quad + the real Q+=Q- mirror-fold group, 6 tris), while the caps (row B,
+    the end-cap-assembly rung), the bend-fan halves and the frame splits stay verbatim
+    (the closure freeze). UV-x-only: positions identity, v ribbon pins byte-unchanged."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.sand_rebuild(DONOR)
+    drop, emit = tw
+    assert (drop.part, drop.expected) == ("terrain", 6)
+    assert len(emit.tris) == 6
+    assert _tweak_hash(tw) == _tweak_hash(CM.sand_rebuild(DONOR))  # deterministic
+    stock = {frozenset(CM._pk(v[0]) for v in t3): t3
+             for t3 in TR.world_tris(*DONOR, "terrain")}
+    assert all(frozenset(CM._pk(v[0]) for v in t3) in stock for t3 in emit.tris)
+    # the ribbon pins survive byte-exact; every emitted column re-decodes as a run tile
+    assert {round(v[2][1], 4) for t3 in emit.tris for v in t3} == {0.5664, 0.5947}
+    assert all((CM._sand_tri_decode(t3) or ("", 0))[0] == "run" for t3 in emit.tris)
+    # the FLIP is a real re-derivation on every tri (never a silent donor coincidence):
+    # (7,17)'s P quad re-derives on Q and its Q+=Q- fold group on P
+    for t3 in emit.tris:
+        ref = stock[frozenset(CM._pk(v[0]) for v in t3)]
+        s = sorted(range(3), key=lambda i: CM._pk(t3[i][0]))
+        r = sorted(range(3), key=lambda i: CM._pk(ref[i][0]))
+        assert max(abs(t3[s[i]][2][0] - ref[r[i]][2][0]) for i in range(3)) > 0.01
+        assert all(abs(t3[s[i]][2][1] - ref[r[i]][2][1]) < 1e-7 for i in range(3))
+
+
+def test_sand_rebuild_freezes_a_frame_fragment():
+    """(13,10) carries only the frame-straddling tail of the (12,11)/(13,11) band: every
+    column fails the closure freeze (a non-port, non-chain boundary edge on the block
+    frame), so the rebuild refuses rather than half-emit a split column."""
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="no closed decodable sand columns"):
+        CM.sand_rebuild((13, 10))
+
+
 def test_cliff_clearance_gate():
     """THE CLEARANCE GATE -- the cliff shape law: cliffs are class-free (a headland on a
     bay rim read clean in-game, (16,9)) and push shear is harmless (the wall REBUILDS --
