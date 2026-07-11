@@ -1,8 +1,9 @@
 """Battle-calc telemetry via the Scripts-DLL Overload channel (ff9mapkit battle-telemetry).
 
-Offline tests pin the emitted C# hook (the 4 IOverload* interfaces + the transcribed engine defaults), the
-install/remove lifecycle (compile mocked), and the JSONL parser/summarizer. A csc+install-gated test proves
-the rendered hook actually compiles against the LIVE engine's managed DLLs.
+Offline tests pin the emitted C# (a plain STATIC feature class -- the IOverload* interfaces + transcribed
+engine defaults live in the Overload HUB, tested in test_overload.py), the install/remove lifecycle
+(compile mocked), and the JSONL parser/summarizer. A csc+install-gated test proves the rendered feature +
+hub actually compile against the LIVE engine's managed DLLs.
 """
 from __future__ import annotations
 
@@ -10,35 +11,35 @@ import json
 
 import pytest
 
-from ff9mapkit.battle import scriptcompile, telemetry
+from ff9mapkit.battle import overload, scriptcompile, telemetry
 from ff9mapkit.config import ModLayout
 
 
 # ---- the emitted C# (no install) ---------------------------------------------------------------
 def test_source_shape():
     src = telemetry.telemetry_source()
-    # the 4 Overload hooks, one class
-    for interf in ("IOverloadOnBattleInitScript", "IOverloadOnBattleScriptStartScript",
-                   "IOverloadOnBattleScriptEndScript", "IOverloadDamageModifierScript"):
-        assert interf in src
+    # a plain static feature class: the hub owns the interfaces (one implementer per interface per DLL),
+    # so the feature source must carry NO IOverload token (that's also what the collision gate scans for)
+    assert "IOverload" not in src
+    assert "public static class BattleTelemetry" in src
+    for method in ("LogBattleInit()", "LogCalc(BattleCalculator v)",
+                   "LogResult(BattleCalculator v)", "LogApplied(BattleCalculator v)"):
+        assert method in src                                    # the hub's splice targets
     assert "namespace Memoria.Scripts.Telemetry" in src
     assert src.count("{") == src.count("}")                     # balanced (the .format brace-doubling survived)
     assert "{basename}" not in src and "{jsonl}" not in src     # every placeholder substituted
     assert telemetry.JSONL_BASENAME in src
-
-
-def test_source_transcribed_defaults_present():
-    """The hooks that DISPLACE an engine inline default must carry the transcription (else installing
-    telemetry would change gameplay): backstab/kill-frozen (Start), reflect multiplier (FinalChanges),
-    x1.5 stack + Attack=1 (the DamageModifier pair)."""
-    src = telemetry.telemetry_source()
-    assert "TryKillFrozen()" in src
-    assert "BonusBackstabAndPenaltyLongDistanceVisually()" in src
-    assert "GetReflectMultiplierOnTarget" in src
-    assert "v.Context.Attack = v.Context.Attack * 3 >> 1;" in src
-    assert "v.Context.Attack = 1;" in src
-    # every telemetry write is swallowed -- the hook must never break a battle
+    # every telemetry write is swallowed -- the feature must never break a battle
     assert src.count("catch { }") >= 4
+
+
+def test_source_carries_no_engine_defaults():
+    """The displaced engine defaults (backstab/kill-frozen, reflect, the DamageModifier pair) moved to the
+    hub VERBATIM -- duplicating them here would run them twice. Pinned in test_overload.py instead."""
+    src = telemetry.telemetry_source()
+    assert "TryKillFrozen" not in src
+    assert "GetReflectMultiplierOnTarget" not in src
+    assert "v.Context.Attack" not in src
 
 
 # ---- install / remove lifecycle (compile mocked; no install, no csc) ----------------------------
@@ -49,7 +50,7 @@ def _mock_compiles(monkeypatch):
         from pathlib import Path
         Path(out_dll).parent.mkdir(parents=True, exist_ok=True)
         Path(out_dll).write_bytes(b"MZ fake dll")
-    monkeypatch.setattr(telemetry, "compile_sources", fake)
+    monkeypatch.setattr(overload, "compile_sources", fake)      # the ONE compile path (overload.compile_tree)
     return calls
 
 
@@ -62,9 +63,9 @@ def test_install_writes_source_and_compiles_all(tmp_path, monkeypatch):
     (layout.scripts_sources_dir / "0256_XScript.cs").write_text("// formula", encoding="utf-8")
     dll = telemetry.install(mod)
     assert telemetry.installed(layout)
-    assert telemetry.telemetry_cs(layout).read_text(encoding="utf-8").count("IOverload") >= 4
     srcs, out = calls[-1]
     assert any("0256_XScript.cs" in s for s in srcs) and any(telemetry.TELEMETRY_BASENAME in s for s in srcs)
+    assert any(overload.HUB_BASENAME in s for s in srcs)        # the hub rides along (it owns the interfaces)
     assert out.endswith("Memoria.Scripts.FF9CustomMap.dll")     # DLL name derives from the FOLDER name
     assert str(dll) == out
 
@@ -85,7 +86,7 @@ def test_remove_recompiles_or_deletes(tmp_path, monkeypatch):
     calls = _mock_compiles(monkeypatch)
     mod = tmp_path / "FF9CustomMap"
     layout = ModLayout(root=mod)
-    # case 1: other formulas remain -> recompile without the hook
+    # case 1: other formulas remain -> recompile without the hook (and without the now-feature-less hub)
     layout.scripts_sources_dir.mkdir(parents=True)
     (layout.scripts_sources_dir / "0256_XScript.cs").write_text("// formula", encoding="utf-8")
     telemetry.install(mod)
@@ -93,8 +94,10 @@ def test_remove_recompiles_or_deletes(tmp_path, monkeypatch):
     assert dll is not None and not telemetry.installed(layout)
     srcs, _ = calls[-1]
     assert not any(telemetry.TELEMETRY_BASENAME in s for s in srcs)
+    assert not any(overload.HUB_BASENAME in s for s in srcs)    # no features -> no hub dir either
     # case 2: telemetry was the only content -> the DLL (+ stamp) is deleted outright
     (layout.scripts_sources_dir / "0256_XScript.cs").unlink()
+    layout.scripts_sources_dir.rmdir()                          # an empty Battle dir also counts as "nothing"
     telemetry.install(mod)
     dll_path = layout.scripts_dll("FF9CustomMap")
     scriptcompile._stamp_path(dll_path).write_text("{}", encoding="utf-8")
@@ -155,7 +158,7 @@ def test_summarize_strips_ff9_text_tags():
     assert "Goblin Punch" in text and "[STRT" not in text
 
 
-# ---- the money test: the rendered hook compiles against the LIVE engine (install + csc gated) ---
+# ---- the money test: the rendered feature + hub compile against the LIVE engine (install + csc gated) ---
 def test_hook_compiles_against_live_engine(tmp_path):
     if not scriptcompile.toolchain_available():
         pytest.skip("no C# compiler (csc) to build the hook DLL")
@@ -163,8 +166,10 @@ def test_hook_compiles_against_live_engine(tmp_path):
         scriptcompile._managed_dir(None)
     except Exception:
         pytest.skip("no FF9 install for the managed DLLs")
-    cs = tmp_path / telemetry.TELEMETRY_BASENAME
+    # telemetry as it actually ships: the static feature class + the hub that implements the interfaces
+    layout = ModLayout(root=tmp_path / "TelemetryProbe")
+    cs = telemetry.telemetry_cs(layout)
+    cs.parent.mkdir(parents=True)
     cs.write_text(telemetry.telemetry_source(), encoding="utf-8", newline="\n")
-    out = tmp_path / "Memoria.Scripts.TelemetryProbe.dll"
-    scriptcompile.compile_sources([cs], out)
-    assert out.is_file() and out.stat().st_size > 0
+    out = overload.compile_tree(layout, "TelemetryProbe")
+    assert out is not None and out.is_file() and out.stat().st_size > 0

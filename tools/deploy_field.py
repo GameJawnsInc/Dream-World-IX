@@ -359,19 +359,32 @@ if _src_dll.exists():
             shutil.copyfile(_live_stamp, BK / f"{_live_stamp.name}.preDEPLOY.{STAMP}")
         shutil.copyfile(_src_stamp, _live_stamp)
         csv_reverts.append((_live_stamp.stem, str(_live_stamp), _had_stamp))    # stem+".json" -> revert {label}{ext}
-    if tl.scripts_sources_dir.is_dir():
-        shutil.copytree(tl.scripts_sources_dir, live.scripts_sources_dir, dirs_exist_ok=True)
-    print(f"  + {_src_dll.name} (custom battle formula DLL) -> RELAUNCH to load (once at title, not F6)")
-    # TELEMETRY STICKINESS: the build compiles its DLL from the build's Sources/Battle only, so a live
-    # battle-telemetry hook (ff9mapkit battle-telemetry) would be silently dropped by the copy above ->
-    # recompile the live DLL from ALL live sources (Battle + Telemetry) to fold it back in.
-    from ff9mapkit.battle import telemetry as _tele
-    if _tele.installed(live):
+    # Sources are runtime-INERT (the game loads only the DLL) -- shipped for provenance + live recompiles.
+    # BUILD-owned dirs (Battle formulas, [difficulty], the Overload hub) are REPLACED wholesale: a stale live
+    # copy of a removed feature would silently resurrect it at the next live recompile. LIVE-owned feature
+    # dirs (battle telemetry) are never touched by the copy.
+    from ff9mapkit.battle import overload as _ovl
+    _src_srcroot = tl.scripts_dir / "Sources"
+    _build_dirs = set(_ovl.build_owned_dirs())
+    if _src_srcroot.is_dir():                             # anything the BUILD emitted is build-owned by definition
+        _build_dirs |= {d.name for d in _src_srcroot.iterdir() if d.is_dir()}
+    for _dname in sorted(_build_dirs):
+        _src_d, _live_d = _src_srcroot / _dname, live.scripts_dir / "Sources" / _dname
+        shutil.rmtree(_live_d, ignore_errors=True)
+        if _src_d.is_dir():
+            shutil.copytree(_src_d, _live_d)
+    print(f"  + {_src_dll.name} (mod scripts DLL) -> RELAUNCH to load (once at title, not F6)")
+    # HOOK STICKINESS (generic -- one path for telemetry + whatever Overload feature comes next): the build's
+    # DLL was compiled from the BUILD's sources alone, so a LIVE-owned Overload feature (battle telemetry)
+    # would be silently dropped by the copy above -> regenerate the hub + recompile the live DLL from ALL
+    # live sources to fold it back in (ff9mapkit.battle.overload.compile_live).
+    if _ovl.has_live_extras(live):
+        _names = ", ".join(f["name"] for f in _ovl.live_extras(live))
         try:
-            _tele.recompile_live(live.root, game=GAME)
-            print(f"  + recompiled {_live_dll.name} WITH the live battle-telemetry hook (it stays on)")
+            _ovl.compile_live(live.root, game=GAME)
+            print(f"  + recompiled {_live_dll.name} WITH the live Overload feature(s): {_names} (they stay on)")
         except _scomp.ScriptCompileError as _te:
-            print(f"  !! could not fold the battle-telemetry hook back into {_live_dll.name}: {_te}")
+            print(f"  !! could not fold the live Overload feature(s) ({_names}) back into {_live_dll.name}: {_te}")
     _drift = _scomp.engine_drift_warning(_live_dll, game=GAME)       # normally quiet (just built vs this install)
     if _drift:
         print(f"  !! {_drift}")

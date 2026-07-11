@@ -1,59 +1,51 @@
 """Battle-calc TELEMETRY via the Scripts-DLL **Overload** channel (dev tool, not shipped content).
 
 Memoria's per-mod ``Memoria.Scripts.<Mod>.dll`` can implement ``IOverload*`` interfaces -- engine choke points
-that are OVERRIDE-ONLY: a registered implementation replaces the engine's inline "// Default method" at the
-call site (``ScriptsLoader.ProcessType`` walks ``GetInterfaces()``; no attribute). This module emits ONE C#
-class implementing four of them to log every battle calc as a JSON line, then compiles it into the LIVE mod
-folder's scripts DLL:
+that are OVERRIDE-ONLY and registered ONE implementer per interface per DLL (last-wins, silently). So the
+interface plumbing lives in the kit-generated **Overload hub** (:mod:`overload`, ``Sources/Overload/``), and
+this module is a plain STATIC feature class the hub calls at its splice points -- composable with other
+Overload features (e.g. the declarative ``[difficulty]`` scaler, which the hub runs FIRST so the logged roster
+shows the scaled stats the player actually fights). The events, one JSON line each:
 
-- ``IOverloadOnBattleInitScript``      -- battle boundary + full unit roster (pure addition, no default).
-- ``IOverloadOnBattleScriptStartScript`` -- one ``calc`` event per formula invocation, BOTH directions, before
-  the formula runs (a calc with no matching ``result`` = miss/guard/no-effect -> hit rates fall out for free).
-  Displaces a real default (backstab/weapon-element/kill-frozen) -- transcribed VERBATIM below.
-- ``IOverloadDamageModifierScript``    -- ``OnDamageFinalChanges`` = the last write to HpDamage on the HIT
-  branch, both directions -> the ``result`` event (computed, PRE-cap damage). The interface's other two
-  methods carry transcribed defaults (x1.5 stack / Attack=1).
-- ``IOverloadOnBattleScriptEndScript`` -- the ``applied`` event (post-``SetDamage`` numbers + target HP after).
-  Engine quirk: its call site sits AFTER an early return when the target is a player
-  (``SBattleCalculator.cs``), so ``applied`` exists only for enemy-targeted calcs -- join on ``result`` for
-  both directions.
+- ``battle``  -- battle boundary + full unit roster (hub ``OnBattleInit``; the call site has no engine default).
+- ``calc``    -- one per formula invocation, BOTH directions, before the formula runs (a calc with no matching
+  ``result`` = miss/guard/no-effect -> hit rates fall out for free). The displaced engine default
+  (backstab/weapon-element/kill-frozen) is transcribed VERBATIM in the hub, after this log call.
+- ``result``  -- computed PRE-cap damage on the HIT branch, both directions (hub ``OnDamageFinalChanges``,
+  after the verbatim reflect-multiplier default). The interface's other two methods' defaults ride the hub.
+- ``applied`` -- post-``SetDamage`` numbers + target HP after. Engine quirk: the call site sits AFTER an early
+  return when the target is a player, so ``applied`` exists only for enemy-targeted calcs -- join on
+  ``result`` for both directions.
 
 The JSONL lands at ``<game>/ff9mk_battle_telemetry.jsonl`` (anchored beside ``StreamingAssets``). Every log
 call is wrapped in ``try/catch`` -- telemetry must NEVER break a battle. RELAUNCH-scoped like the whole
 scripts channel (loaded once at title; F6 won't reload it).
 
 Source placement: ``Scripts/Sources/Telemetry/`` -- a SIBLING of ``Sources/Battle`` so a field build's
-``write_scripts`` wipe (which owns ``Sources/Battle`` only) never deletes it. The stickiness hole is the
-DEPLOY: ``deploy_field.py`` copies a freshly-built DLL compiled from the build's ``Sources/Battle`` alone,
-which would silently drop the hook -- so deploy recompiles the live DLL WITH telemetry when it sees the
-Telemetry source (:func:`installed` / :func:`recompile_live`).
-
-Why the transcription is safe: the displaced defaults are engine code I copied line-for-line (marked in the
-C#); the ONE known behavioral edge is the engine's own override-path quirk -- when ``OnBattleScriptStart``
-returns true the engine skips its ``BattleVoice.CurrentCalc = null`` reset (vanilla default paths null it) --
-harmless (reassigned at the next calc), documented here so nobody re-diagnoses it.
+``write_scripts`` wipe (which owns ``Sources/Battle`` only) never deletes it. The deploy-stickiness hole
+(a fresh deploy copies a DLL compiled without the hook) is closed generically by ``deploy_field.py`` calling
+:func:`overload.compile_live` whenever a live-owned feature is present (:func:`installed` feeds that probe).
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from .scriptcompile import ScriptCompileError, compile_sources
+from .scriptcompile import ScriptCompileError  # noqa: F401  (re-exported for the CLI's error handling)
 
 TELEMETRY_BASENAME = "9900_BattleTelemetry.cs"
 JSONL_BASENAME = "ff9mk_battle_telemetry.jsonl"
 
-# The hook. Engine facts verified against the pinned Memoria source (6b8bb2d5):
-# - the 4 interfaces + registration: Memoria/Scripts/ScriptsLoader.cs:343-365 (interface-keyed, override-only);
-# - OnBattleScriptStart default transcribed from SBattleCalculator.CalcMain:74-99 ("Default method");
-# - OnDamageFinalChanges default from SBattleCalculator.DamageFinalChanges:374-383 (PRIVATE there -> transcribed);
-# - OnDamageModifierChange / OnDamageDrasticReduction defaults from CalcContext.cs:58-70 / :82-83;
-# - OnBattleScriptEnd + OnBattleInit call sites have NO default (pure tail hooks).
+# The feature class. Engine facts verified against the pinned Memoria source (6b8bb2d5); the IOverload*
+# interfaces + the transcribed displaced defaults live in the hub (overload.py), not here -- this class is
+# pure logging, callable from the hub's splice points.
 _TELEMETRY_SOURCE = """\
 // {basename} -- emitted by `ff9mapkit battle-telemetry` (kit {kit_version}). DEV TOOL, not shipped content.
 // Logs every battle calc as one JSON line to <game>/{jsonl}. Remove with `ff9mapkit battle-telemetry --off`.
-// Where a hook displaces an engine inline default, the default is transcribed VERBATIM (marked) so gameplay
-// is unchanged. Every telemetry write is try/catch-swallowed -- it must never break a battle.
+// A plain STATIC feature class: the engine hooks live in the kit-generated Overload hub
+// (Sources/Overload/), which calls these Log* methods at its splice points -- after mutator features
+// (e.g. [difficulty]), so the logged roster shows the stats the player actually fights. Every telemetry
+// write is try/catch-swallowed -- it must never break a battle.
 using System;
 using System.IO;
 using System.Text;
@@ -62,8 +54,7 @@ using Memoria.Data;
 
 namespace Memoria.Scripts.Telemetry
 {{
-    public sealed class BattleTelemetry : IOverloadOnBattleInitScript, IOverloadOnBattleScriptStartScript,
-        IOverloadOnBattleScriptEndScript, IOverloadDamageModifierScript
+    public static class BattleTelemetry
     {{
         private static StreamWriter _writer;
         private static Int64 _battle;
@@ -110,8 +101,8 @@ namespace Memoria.Scripts.Telemetry
             b.Append('}}');
         }}
 
-        // Battle boundary: right after every BattleUnit is initialised. No engine default (pure addition).
-        public void OnBattleInit()
+        // "battle" event: boundary + full roster. Called by the hub's OnBattleInit (no engine default there).
+        public static void LogBattleInit()
         {{
             try
             {{
@@ -136,9 +127,9 @@ namespace Memoria.Scripts.Telemetry
             catch {{ }}
         }}
 
-        // One event per calc, BEFORE the formula runs, both directions. A calc with no matching
+        // "calc" event: one per calc, BEFORE the formula runs, both directions. A calc with no matching
         // "result" line = miss / guard / no-effect, so hit rates need no extra hook.
-        public Boolean OnBattleScriptStart(BattleCalculator v)
+        public static void LogCalc(BattleCalculator v)
         {{
             try
             {{
@@ -157,41 +148,12 @@ namespace Memoria.Scripts.Telemetry
                 Emit(b.ToString());
             }}
             catch {{ }}
-            // ---- engine default, transcribed VERBATIM from SBattleCalculator.CalcMain ("Default method") ----
-            // (Engine quirk at the call site, NOT ours: on a `true` return the engine skips its
-            //  BattleVoice.CurrentCalc=null reset that the inline default paths perform -- harmless,
-            //  CurrentCalc is reassigned at the next calc.)
-            if (Configuration.Battle.CustomBattleFlagsMeaning == 1)
-            {{
-                if (v.Command.IsShortRange)
-                {{
-                    v.BonusBackstabAndPenaltyLongDistanceVisually();
-                    if ((v.Command.AbilityCategory & 8) != 0 && v.Target.IsUnderAnyStatus(BattleStatus.Vanish)) // Is Physical
-                        v.Context.Flags |= BattleCalcFlags.Miss;
-                }}
-                if ((v.Command.AbilityType & 0x10) != 0 && v.Caster.IsPlayer) // Use weapon properties
-                    v.ApplyElementFullStack(v.Caster.WeaponElement, v.Caster.WeaponElement);
-                if ((v.Context.Flags & (BattleCalcFlags.Miss | BattleCalcFlags.Guard)) != 0)
-                    return true;
-            }}
-            if ((v.Command.AbilityCategory & 8) != 0 && v.Target.TryKillFrozen()) // Is Physical
-                return true;
-            return false;
         }}
 
-        // COMPUTED (pre-cap) damage -- fires on the HIT branch for BOTH directions, right before the
-        // 9999-cap / SetDamage application.
-        public void OnDamageFinalChanges(BattleCalculator v)
+        // "result" event: COMPUTED (pre-cap) damage -- the hub calls this on the HIT branch for BOTH
+        // directions, right after the verbatim reflect-multiplier default.
+        public static void LogResult(BattleCalculator v)
         {{
-            // ---- engine default, transcribed VERBATIM from SBattleCalculator.DamageFinalChanges (private) ----
-            if (v.Target.Flags != 0)
-            {{
-                Int32 reflectMultiplier = v.Command.GetReflectMultiplierOnTarget(v.Target.Id);
-                if ((v.Target.Flags & CalcFlag.HpAlteration) != 0)
-                    v.Target.HpDamage *= reflectMultiplier;
-                if ((v.Target.Flags & CalcFlag.MpAlteration) != 0)
-                    v.Target.MpDamage *= reflectMultiplier;
-            }}
             try
             {{
                 StringBuilder b = new StringBuilder(256);
@@ -208,10 +170,9 @@ namespace Memoria.Scripts.Telemetry
             catch {{ }}
         }}
 
-        // APPLIED damage + target HP after application. Engine quirk: the call site sits after an early
-        // return when the TARGET is a player, so this fires for enemy-targeted calcs only. Pure tail hook
-        // (no engine default to reproduce).
-        public void OnBattleScriptEnd(BattleCalculator v)
+        // "applied" event: APPLIED damage + target HP after application (enemy-targeted only -- the
+        // engine's call-site quirk, see the hub).
+        public static void LogApplied(BattleCalculator v)
         {{
             try
             {{
@@ -226,30 +187,13 @@ namespace Memoria.Scripts.Telemetry
             }}
             catch {{ }}
         }}
-
-        // ---- IOverloadDamageModifierScript's other two methods: engine defaults transcribed VERBATIM ----
-        public void OnDamageModifierChange(BattleCalculator v, Int32 previousValue, Int32 bonus)
-        {{
-            // (CalcContext.DamageModifierCount setter "Default method": x1.5 per step up, /2 per step down)
-            if (bonus >= 0)
-                for (Int32 i = 0; i < bonus; i++)
-                    v.Context.Attack = v.Context.Attack * 3 >> 1;
-            else
-                for (Int32 i = 0; i < -bonus; i++)
-                    v.Context.Attack >>= 1;
-        }}
-
-        public void OnDamageDrasticReduction(BattleCalculator v)
-        {{
-            v.Context.Attack = 1; // (CalcContext.DecreaseAttackDrastically "Default method")
-        }}
     }}
 }}
 """
 
 
 def telemetry_source() -> str:
-    """The C# hook source (kit-version-stamped header)."""
+    """The C# feature-class source (kit-version-stamped header)."""
     from .. import __version__
     return _TELEMETRY_SOURCE.format(basename=TELEMETRY_BASENAME, kit_version=__version__, jsonl=JSONL_BASENAME)
 
@@ -269,59 +213,40 @@ def installed(layout) -> bool:
     return telemetry_cs(layout).is_file()
 
 
-def _all_sources(layout) -> list:
-    """Every ``.cs`` under the mod's ``Scripts/Sources`` (Battle formulas + Telemetry), sorted."""
-    d = layout.scripts_dir / "Sources"
-    return sorted(d.glob("**/*.cs")) if d.is_dir() else []
-
-
 def install(mod_root, *, game=None) -> Path:
-    """Write the hook source into the LIVE mod at ``mod_root`` and (re)compile the mod scripts DLL from ALL
-    its sources (existing battle formulas + telemetry). The DLL name derives from the folder NAME (the
-    ``FolderNames`` entry) -- a mismatch is silently never loaded, so it is not a parameter.
-    Returns the DLL path. RELAUNCH to load (once at title, not F6)."""
+    """Write the feature source into the LIVE mod at ``mod_root`` and (re)compile the mod scripts DLL from
+    ALL its sources via the Overload hub (existing battle formulas + features + the regenerated hub). The
+    DLL name derives from the folder NAME (the ``FolderNames`` entry) -- a mismatch is silently never
+    loaded, so it is not a parameter. Returns the DLL path. RELAUNCH to load (once at title, not F6)."""
     from ..config import ModLayout
+    from . import overload
     mod_root = Path(mod_root)
     layout = ModLayout(root=mod_root)
     cs = telemetry_cs(layout)
     cs.parent.mkdir(parents=True, exist_ok=True)
     cs.write_text(telemetry_source(), encoding="utf-8", newline="\n")
-    out_dll = layout.scripts_dll(mod_root.name)
-    compile_sources(_all_sources(layout), out_dll, game=game)
-    return out_dll
+    return overload.compile_live(mod_root, game=game)
 
 
 def remove(mod_root, *, game=None) -> "Path | None":
-    """Delete the hook source; recompile the DLL from the remaining battle-formula sources, or delete the
-    DLL (+ its build stamp) when telemetry was the only content. Returns the DLL path if one remains."""
+    """Delete the feature source; recompile the DLL from the remaining sources (the hub regenerates without
+    telemetry, or disappears too), or delete the DLL (+ its build stamp) when nothing remains. Returns the
+    DLL path if one remains."""
     from ..config import ModLayout
-    from .scriptcompile import _stamp_path
+    from . import overload
     mod_root = Path(mod_root)
     layout = ModLayout(root=mod_root)
     cs = telemetry_cs(layout)
     if cs.is_file():
         cs.unlink()
-    remaining = _all_sources(layout)
-    out_dll = layout.scripts_dll(mod_root.name)
-    if remaining:
-        compile_sources(remaining, out_dll, game=game)
-        return out_dll
-    for p in (out_dll, _stamp_path(out_dll)):
-        if p.is_file():
-            p.unlink()
-    return None
+    return overload.compile_live(mod_root, game=game)
 
 
-def recompile_live(mod_root, *, game=None) -> Path:
-    """Recompile the LIVE mod DLL from all live sources -- the deploy-stickiness hook: a field deploy copies
-    a DLL compiled from the build's ``Sources/Battle`` alone, silently dropping the telemetry hook; deploy
-    calls this when :func:`installed` to fold it back in."""
-    from ..config import ModLayout
-    mod_root = Path(mod_root)
-    layout = ModLayout(root=mod_root)
-    out_dll = layout.scripts_dll(mod_root.name)
-    compile_sources(_all_sources(layout), out_dll, game=game)
-    return out_dll
+def recompile_live(mod_root, *, game=None) -> "Path | None":
+    """Recompile the LIVE mod DLL from all live sources (hub regenerated) -- kept as a thin alias of
+    :func:`overload.compile_live` for callers that reached telemetry directly."""
+    from . import overload
+    return overload.compile_live(mod_root, game=game)
 
 
 # ---- the read side: parse + summarize the captured JSONL (the balance-analyzer seed) --------------------
