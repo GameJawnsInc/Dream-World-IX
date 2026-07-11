@@ -5228,13 +5228,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "sea3-inset family) and conforming ring tris stay verbatim. Every emitted "
                           "cell self-checks by re-decode.")
     wtp.add_argument("--cap-rebuild", action="store_true",
-                     help="the END-CAP identity rebuild with SLOT-FLIP freshness: every lawful "
-                          "foam end cap re-emits through the learned cap laws on the OTHER cap "
-                          "graphic (BL taper-band <-> TR run-fade, family-consistent snaps -- the "
-                          "style freedom the census licenses) and every lawful sand row-B cap "
-                          "re-emits byte-identically through the sand cap law (the round-trip IS "
-                          "the proof; rect Q is forced). Spit/river-mouth (BR), subdivided and "
-                          "frame-split caps stay verbatim.")
+                     help="the END-CAP identity rebuild (the cap-law completeness proof): every "
+                          "lawful foam end cap and sand row-B cap re-emits through the learned "
+                          "cap laws with the donor's own slot + snaps, byte-equality gated -- "
+                          "caps have zero lawful freedom beyond their texel snaps, so the "
+                          "round-trip IS the proof (the slot-flip experiment was falsified "
+                          "in-game: the TR curl-out graphic never fades, so slots transport). "
+                          "Spit/river-mouth (BR), subdivided and frame-split caps stay verbatim.")
     wtp.add_argument("--sand-rebuild", action="store_true",
                      help="the SAND-BAND identity rebuild (the beach's third discrete language, "
                           "byte-learned map-wide): drop every closed decodable topo-31 run column "
