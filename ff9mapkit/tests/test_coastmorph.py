@@ -684,3 +684,66 @@ def test_headland_grain_and_widths_stay_lawful():
     longest = max(max(math.dist(t3[i][0], t3[(i + 1) % 3][0]) for i in range(3))
                   for t3 in emit_t.tris[16:])                # the grass fill
     assert longest <= CM.MAX_GRAIN
+
+
+#: the band-conversion probe's build hash ((116,-281) sea3 -> sea1 on (7,17))
+GOLDEN_BAND_CONVERT_HASH = "7200da988a77d486"
+
+
+def test_band_convert_golden():
+    """RUNG 3, step 1 -- THE ONE-CELL BAND-CONVERSION on (7,17)'s beach-west ring
+    ((116,-281) sea3 -> sea1, the virgin mint's ring re-band in miniature): C emits
+    as a fresh lattice strip tile for its depth-fact edge-set {S,W}, and the two
+    CONFORMING sea1 neighbours re-emit under their new shade fields via the
+    deformed-tile rect law -- (117,-281) {S,W} -> {S} (row 3 -> row 0) and
+    (116,-280) {N,S,W} -> {N,W}: the first genuinely FRESH deformed-tile emissions
+    (rects chosen, not transported). Geometry/normals/IDALL verbatim."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.band_convert(DONOR, (116, -281), "sea1")
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("sea3", 2), ("sea1", 2), ("sea1", 4), ("sea1", 4)]
+    assert _tweak_hash(tw) == GOLDEN_BAND_CONVERT_HASH
+    assert _tweak_hash(tw) == _tweak_hash(CM.band_convert(DONOR, (116, -281), "sea1"))
+    # geometry, normals and IDALL transport VERBATIM -- only uvs (and C's part)
+    # change: every emitted tri's (pos, normal, tangent) signature exists in stock
+    stock = {p: TR.world_tris(*DONOR, p) for p in ("sea1", "sea3")}
+
+    def sig(t3):
+        return tuple(sorted((CM._pk(v[0]), tuple(v[1]), tuple(v[3])) for v in t3))
+    old_sigs = {sig(t3) for p in stock for t3 in stock[p]}
+    assert all(sig(t3) in old_sigs for t in (tw[1], tw[3]) for t3 in t.tris)
+    # C's tile: a lattice quad on the block's own exact floats, decoding to {S, W}
+    cuv = {(round(v[2][0] * 1024, 1), round(v[2][1] * 1024, 1))
+           for t3 in tw[1].tris for v in t3}
+    assert cuv == {(0.0, 766.0), (0.0, 1024.0), (1007.7, 766.0), (1007.7, 1024.0)}
+    assert all(TR.strip_edge_set(t3) == frozenset("SW") for t3 in tw[1].tris)
+    # the re-emissions are FRESH: every re-emitted tile's uv rect differs from the
+    # donor's original at that tile (the row change is the visible law choice)
+    old_uv = {frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                        for v in t3) for t3 in stock["sea1"]}
+    assert all(frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                         for v in t3) not in old_uv for t3 in tw[3].tris)
+    # ... and re-decode as one rect group each under the deformed-tile law
+    kinds = [k for _g, k, _d in CM._deformed_strip_groups(tw[3].tris)]
+    assert kinds and all(k == "rect" for k in kinds)
+
+
+def test_band_convert_refusals():
+    """The v1 scope refusals, each an actionable law: a 4-deep open-ocean cell has
+    no lawful strip; the sea4->sea5 site beside the one-deep ring tile CASCADES
+    (the neighbour's edge-set would empty); a strip-band source needs its own
+    re-band; a frame-ring cell's shade field crosses blocks; a mixed-dialect block
+    refuses at the vocabulary."""
+    import pytest
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="no learned strip"):
+        CM.band_convert(DONOR, (114, -283), "sea5")      # open sea4: edge-set {E,N,S,W}
+    with pytest.raises(ValueError, match="cascades"):
+        CM.band_convert(DONOR, (116, -283), "sea5")      # (117,-283) {W} would empty
+    with pytest.raises(ValueError, match="non-strip band"):
+        CM.band_convert(DONOR, (115, -281), "sea1")      # sea5 source: out of v1 scope
+    with pytest.raises(ValueError, match="frame ring"):
+        CM.band_convert(DONOR, (112, -281), "sea1")
+    with pytest.raises(ValueError, match="mixed strip v-dialect"):
+        CM.band_convert((18, 15), (300, -245), "sea1")

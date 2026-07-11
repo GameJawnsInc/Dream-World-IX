@@ -742,9 +742,17 @@ VERTS independent of deformation (the map deforms WITH the tile — why position
 falsified) + positional edge-lerps on inserted verts; one snap vocabulary for both tiers (sea1
 lattice 186/186, conforming ~95%, residual named+verbatim); the sea1 convergence fans are pure
 corner assignment, and the virgin ladder can skip sea3 ({1,5} is real) — `_deformed_strip_groups`
-+ `conforming_rebuild` (identity round-trip, zero drift on proven donors) shipped; the first FRESH
-deformed-tile emission (the one-cell band-conversion probe) = rung 3's in-game step. 35 golden
-tests → [[project-ff9-overworld-coast-mosaic]].
++ `conforming_rebuild` (identity round-trip, zero drift on proven donors) shipped. **★ THE
+BAND-CONVERSION PROBE in-game proven 2026-07-11 ("reads as faithful compared to the verbatim"):
+`band_convert` / `world-transplant --band-convert CX,CZ:PART`** — one lattice sea3 cell re-bands to
+sea1 and the affected conforming neighbours RE-EMIT under their new deep-edge-sets (rects CHOSEN,
+not transported — the FRESH deformed-tile emission, proven at (10,4) [(7,17) clone, the beach-west
+ring cell (116,-281)] vs the (11,6)/(11,7) references; the deployed-bytes differential = exactly
+the 3 probed cells' water); its 3 laws: the DISCRETE ROLE-DECODE (corner-snap match through
+nearest-cell-corner roles = exactly ONE (row, orientation), 29/29), the per-block byte-read float
+dialect (mixed-dialect blocks refuse), THE SHADE-AGREEMENT LAW (deep-claims two-sided in-band
+[back-to-back pinches real], == depth fact cross-band; null-clean on every decodable block).
+37 golden tests → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven on ALL

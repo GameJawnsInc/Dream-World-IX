@@ -2445,7 +2445,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
                 or args.beach_bump or args.beach_rebuild or args.beach_reshape
                 or args.beach_slide or args.strips_rebuild or args.sand_rebuild
-                or args.cap_rebuild or args.beach_mint):
+                or args.cap_rebuild or args.beach_mint or args.band_convert):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2484,6 +2484,12 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 lnd = float(lpart) if lpart else None
                 tweaks = list(tweaks) + CM.beach_mint(
                     (dx, dy), width=w, land=lnd, disc=args.disc, game=args.game)
+            if args.band_convert:
+                cspec, _, tpart = args.band_convert.strip().partition(":")
+                ccx, ccz = (int(v) for v in cspec.split(","))
+                tweaks = list(tweaks) + CM.band_convert(
+                    (dx, dy), (ccx, ccz), tpart.strip().lower(),
+                    disc=args.disc, game=args.game)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -5281,6 +5287,17 @@ def build_parser() -> argparse.ArgumentParser:
                           "per-tri re-decode, and (with LAND) the clip ledgers (partition/"
                           "coverage/steep-face/object-anchor/drop-don't-drag). Rung-1 class: "
                           "the block's single x-monotone column beach.")
+    wtp.add_argument("--band-convert", default=None, metavar="CX,CZ:PART",
+                     help="THE ONE-CELL BAND-CONVERSION (rung 3's probe -- the first FRESH "
+                          "deformed-tile emission): re-band one LATTICE water cell of a "
+                          "non-strip band (sea3/sea4) into strip band PART (sea1/sea5) and "
+                          "re-emit every affected strip neighbour under its new deep-edge-set "
+                          "via THE DEFORMED-TILE RECT LAW (rects CHOSEN from the learned Wang "
+                          "table for the new shade field, block-observed exact floats -- the "
+                          "virgin mint's ring re-band in miniature). CX,CZ = a donor-frame 4u "
+                          "cell index. Geometry/normals/IDALL transport verbatim; gated by the "
+                          "shade-agreement law (pre null test + post), adjacency law, re-decode "
+                          "and geometry-identity.")
     wtp.add_argument("--cap-rebuild", action="store_true",
                      help="the END-CAP identity rebuild (the cap-law completeness proof): every "
                           "lawful foam end cap and sand row-B cap re-emits through the learned "
