@@ -17,7 +17,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   number). Mod-global, relaunch-scoped, lint gate names it. ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md),
   [FORMAT.md `[rebalance]`](docs/FORMAT.md))
 - The `gEventGlobal`-bit flag gate is now a shared `overload.flag_gate_cs` helper (byte-identical to
-  `[difficulty]`'s prior inline gate; both features emit it).
+  `[difficulty]`'s prior inline gate; both features emit it). Flag-gate granularity follows the hook: a
+  `[rebalance]` toggle takes effect **per hit** (live mid-battle), a `[difficulty]` toggle **per battle**
+  (next battle) — both in-game proven 2026-07-11.
 
 ### Added — `[difficulty]`: declarative enemy scaling ("hard mode")
 - A **`[difficulty]`** table in `field.toml` scales every enemy once per battle — `enemy_hp` /
