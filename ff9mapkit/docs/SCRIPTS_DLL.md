@@ -413,7 +413,7 @@ every compile — never edit it) and builds features as plain static classes the
 **mutators before observers** (a difficulty scaler runs before telemetry logs the roster, so the log shows
 the stats you actually fight). Where a hook displaces an engine default (backstab/kill-frozen, the ×1.5
 damage-modifier stack, the reflect multiplier), the default is **transcribed verbatim** into the hub —
-gameplay is unchanged unless a feature changes it on purpose. Two features exist today:
+gameplay is unchanged unless a feature changes it on purpose. Three features exist today:
 
 ### Battle telemetry (dev tool — `ff9mapkit battle-telemetry`)
 
@@ -457,6 +457,26 @@ seed it from `[startup]`/an event for a hard-mode journey, or toggle it live wit
 testing; the bit clear (or any state hiccup) means *vanilla*, never a broken battle. Like the whole channel
 it compiles at build time (needs `csc` — the lint gate names it) and loads once at title (**relaunch**).
 
+### `[rebalance]` — declarative damage multiplier (shipped content)
+
+Scales the **final HP-damage number** by the caster's side, at the last write before the engine applies it.
+Where `[difficulty]` scales enemy *stats* (which feed the formula), `[rebalance]` is a flat post-formula
+multiplier — and the only way to scale what the **party** deals.
+
+```toml
+[rebalance]
+player_damage = 1.5   # x HP damage dealt BY players (party hits harder)
+enemy_damage = 0.75   # x HP damage dealt by enemies (softer incoming hits)
+flag = "hard_mode"    # OPTIONAL gate (same shape as [difficulty])
+```
+
+Same `0.05`–`20.0` range, same mod-global + flag-gate rules. Only **pure HP damage** is touched — healing,
+recovery, and MP are left alone. Two honest limits worth knowing: the engine clamps damage to **9999** right
+after this hook unless the player set `[Battle] BreakDamageLimit = 1` in `Memoria.ini`, so a multiplier reads
+through below 9999 and is capped above it (the kit won't force a global engine config from a mod hook); and
+the `IsDmg9999` cheat forces *player* damage to 9999 after this regardless of the scale. `[difficulty]` and
+`[rebalance]` **compose** — use difficulty to make enemies tankier/tougher, rebalance to dial the raw numbers.
+
 One caveat shared with the whole channel: if a *second* stacked mod folder ships its own implementation of
 the same `IOverload*` interface, the higher-priority folder's wins silently. Within one mod the kit refuses
 a hand-dropped `.cs` that collides with the hub (a clear compile-time error instead of a coin flip).
@@ -475,4 +495,4 @@ a hand-dropped `.cs` that collides with the hub (a clear compile-time error inst
 
 **Key refs:** `ScriptsLoader.cs:215-311,343-365`, `SBattleCalculator.cs:63,109-131,200,323`, `TitleUI.cs:1528` ·
 `ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `overload.py` (the hub), `telemetry.py`,
-`difficulty.py`, `content/playable.py`, `build.py` (`_emit_scripts`).
+`difficulty.py`, `rebalance.py`, `content/playable.py`, `build.py` (`_emit_scripts`).

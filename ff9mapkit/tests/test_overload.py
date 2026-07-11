@@ -1,11 +1,11 @@
-"""The Overload hub + the declarative [difficulty] feature (project-ff9-overload-hooks).
+"""The Overload hub + the declarative [difficulty] / [rebalance] features (project-ff9-overload-hooks).
 
 Engine fact under test: Memoria registers IOverload* implementations ONE per interface per DLL (last-wins,
 type order unspecified), so the kit emits exactly one hub class and composes features as plain statics.
 Offline tests pin the hub's transcribed engine defaults (moved verbatim from the in-game-proven telemetry
-source), the splice order (mutators before observers), the collision gate, the [difficulty] parse/render,
-and the build/deploy wiring (compile mocked). A csc+install-gated test proves the whole tree (hub +
-telemetry + difficulty) compiles against the LIVE engine's managed DLLs.
+source), the splice order (mutators before observers), the collision gate, the shared flag gate, the
+[difficulty] + [rebalance] parse/render, and the build/deploy wiring (compile mocked). A csc+install-gated
+test proves the whole tree (hub + telemetry + difficulty + rebalance) compiles against the LIVE engine.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ff9mapkit.battle import difficulty, overload, telemetry
+from ff9mapkit.battle import difficulty, overload, rebalance, telemetry
 from ff9mapkit.battle.scriptcompile import ScriptCompileError
 from ff9mapkit.config import ModLayout
 
@@ -277,10 +277,134 @@ def test_emit_scripts_difficulty_only(tmp_path, monkeypatch):
     assert not layout.scripts_dir.exists()
 
 
+# ---- the shared flag gate ---------------------------------------------------------------------------------
+def test_flag_gate_shared_helper():
+    """difficulty + rebalance emit an IDENTICAL gEventGlobal-bit gate -- the codegen lives once in overload."""
+    assert overload.flag_gate_cs(None) == ""             # None -> always-on, no gate
+    g = overload.flag_gate_cs(8600, label="hard_mode")
+    assert "g[1075] & 1" in g and "(hard_mode)" in g and g.endswith("return;\n")
+    # a numeric label (== the index) is not parenthesized twice
+    assert "(8600)" not in overload.flag_gate_cs(8600, label="8600")
+    # the two features' rendered gates match byte-for-byte
+    d = difficulty.render(difficulty.DifficultySpec(hp=2.0, flag=8600, flag_label="hard_mode"))
+    r = rebalance.render(rebalance.RebalanceSpec(player=2.0, flag=8600, flag_label="hard_mode"))
+    assert g in d and g in r
+
+
+# ---- [rebalance] parse ------------------------------------------------------------------------------------
+def test_rebalance_parse_and_rejects():
+    spec = rebalance.parse_table({"player_damage": 1.5, "enemy_damage": 0.75, "flag": "Hard_Mode"},
+                                 name_map={"hard_mode": 8600})
+    assert spec.player == 1.5 and spec.enemy == 0.75 and spec.flag == 8600
+    with pytest.raises(rebalance.RebalanceError, match="unknown key"):
+        rebalance.parse_table({"player_damage": 1.5, "enemy_hp": 2.0})   # a difficulty key here is unknown
+    with pytest.raises(rebalance.RebalanceError, match="out of range"):
+        rebalance.parse_table({"player_damage": 99.0})
+    with pytest.raises(rebalance.RebalanceError, match="does nothing"):
+        rebalance.parse_table({"player_damage": 1.0, "enemy_damage": 1.0})
+    with pytest.raises(rebalance.RebalanceError, match="must be a number"):
+        rebalance.parse_table({"enemy_damage": True})
+    with pytest.raises(rebalance.RebalanceError, match="unknown flag name"):
+        rebalance.parse_table({"player_damage": 1.5, "flag": "nope"})
+
+
+def test_rebalance_collect_dedupes_and_conflicts():
+    a = SimpleNamespace(raw={"rebalance": {"player_damage": 1.5}})
+    b = SimpleNamespace(raw={"rebalance": {"player_damage": 1.5}})
+    c = SimpleNamespace(raw={"rebalance": {"player_damage": 2.0}})
+    assert rebalance.collect([SimpleNamespace(raw={})]) is None
+    spec, carrier = rebalance.collect([a, b])
+    assert spec.player == 1.5 and carrier is a
+    with pytest.raises(rebalance.RebalanceError, match="DIFFERENT settings"):
+        rebalance.collect([a, c])
+
+
+# ---- [rebalance] render -----------------------------------------------------------------------------------
+def test_rebalance_render_direction_and_guards():
+    src = rebalance.render(rebalance.RebalanceSpec(player=1.5, enemy=0.75))
+    # direction chosen by the caster; both scales baked in
+    assert "v.Caster.IsPlayer ? 1.5 : 0.75" in src
+    # only pure HP damage -- heal/recover skipped
+    assert "CalcFlag.HpAlteration) == 0" in src and "CalcFlag.HpRecovery) != 0" in src
+    assert "v.Target.HpDamage = (Int32)scaled;" in src
+    assert "scaled > 9999999.0" in src               # overflow clamp
+    assert "BreakDamageLimit" in src                 # the 9999-cap caveat is documented in-source
+    assert "IOverload" not in src                    # a plain static feature class (the hub owns interfaces)
+    assert src.count("{") == src.count("}")
+    # a 1.0 scale is elided from the summary but the C# still guards scale==1.0 at runtime
+    solo = rebalance.render(rebalance.RebalanceSpec(enemy=2.0))
+    assert "enemy x2" in solo and "player x" not in solo
+    assert "v.Caster.IsPlayer ? 1 : 2" in solo       # player stays 1.0 -> the runtime scale==1.0 guard no-ops it
+
+
+def test_rebalance_write_source_lifecycle(tmp_path):
+    layout = ModLayout(root=tmp_path / "FF9CustomMap")
+    cs = rebalance.write_source(layout, rebalance.RebalanceSpec(player=1.5))
+    assert cs.is_file()
+    assert rebalance.write_source(layout, None) is None
+    assert not rebalance.rebalance_dir(layout).exists()
+
+
+# ---- [rebalance] hub composition + build wiring -----------------------------------------------------------
+def test_hub_rebalance_before_telemetry_in_damage_hook():
+    """rebalance MUTATES HpDamage, telemetry OBSERVES it -- so in OnDamageFinalChanges the rebalance call must
+    come before telemetry's LogResult, and both after the verbatim reflect-multiplier default."""
+    src = overload.render_hub([_feat("telemetry"), _feat("rebalance")])   # any input order
+    i_reflect = src.index("GetReflectMultiplierOnTarget")
+    i_reb = src.index("RebalanceOverload.OnDamageFinalChanges(v)")
+    i_tel = src.index("BattleTelemetry.LogResult(v)")
+    assert i_reflect < i_reb < i_tel
+    assert "IOverloadDamageModifierScript" in src
+
+
+def test_rebalance_in_build_owned_dirs():
+    assert "Rebalance" in overload.build_owned_dirs()
+
+
+def test_validate_reports_bad_rebalance(tmp_path):
+    from ff9mapkit.build import FieldProject, validate
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + "\n[rebalance]\nplayer_damage = 99.0\n", encoding="utf-8")
+    assert any("out of range" in x for x in validate(FieldProject.load(p)))
+    p.write_text(BASE + '\n[rebalance]\nenemy_damage = 0.5\nflag = "hard_mode"\n'
+                 '\n[[flag]]\nname = "hard_mode"\nindex = 8600\n', encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []
+
+
+def test_emit_scripts_rebalance_only(tmp_path, monkeypatch):
+    """[rebalance] alone (no scripted abilities, no [difficulty]) still builds the DLL (hub + scaler)."""
+    calls = _mock_compiles(monkeypatch)
+    from ff9mapkit.build import _emit_scripts
+    layout = ModLayout(root=tmp_path / "mod")
+    proj = SimpleNamespace(raw={"rebalance": {"player_damage": 1.5}})
+    warnings = _emit_scripts([proj], layout, "FF9CustomMap")
+    assert any("rebalance" in w for w in warnings)
+    srcs, out = calls[-1]
+    assert any(rebalance.REBALANCE_BASENAME in s for s in srcs) and any(overload.HUB_BASENAME in s for s in srcs)
+    # de-rebalanced rebuild drops the tree
+    assert _emit_scripts([SimpleNamespace(raw={})], layout, "FF9CustomMap") == []
+    assert not layout.scripts_dir.exists()
+
+
+def test_emit_scripts_difficulty_and_rebalance_coexist(tmp_path, monkeypatch):
+    """Both blocks on one mod -> both feature sources + the hub, one DLL."""
+    calls = _mock_compiles(monkeypatch)
+    from ff9mapkit.build import _emit_scripts
+    layout = ModLayout(root=tmp_path / "mod")
+    proj = SimpleNamespace(raw={"difficulty": {"enemy_hp": 2.0}, "rebalance": {"player_damage": 1.5}})
+    warnings = _emit_scripts([proj], layout, "FF9CustomMap")
+    srcs, _ = calls[-1]
+    assert any(difficulty.DIFFICULTY_BASENAME in s for s in srcs)
+    assert any(rebalance.REBALANCE_BASENAME in s for s in srcs)
+    assert any(overload.HUB_BASENAME in s for s in srcs)
+    assert any("difficulty" in w and "rebalance" in w for w in warnings)
+
+
 # ---- the money test: the WHOLE tree compiles against the LIVE engine (install + csc gated) ---------------
 def test_tree_compiles_against_live_engine(tmp_path):
-    """Hub + telemetry + difficulty in one DLL -- proves every emitted C# member exists PUBLIC in the
-    installed Assembly-CSharp (BattleUnit.Magic, EventState.gEventGlobal, the transcribed defaults...)."""
+    """Hub + telemetry + difficulty + rebalance in one DLL -- proves every emitted C# member exists PUBLIC in
+    the installed Assembly-CSharp (BattleUnit.Magic/IsPlayer/HpDamage, EventState.gEventGlobal,
+    CalcFlag.HpAlteration/HpRecovery, the transcribed defaults...)."""
     from ff9mapkit.battle import scriptcompile
     if not scriptcompile.toolchain_available():
         pytest.skip("no C# compiler (csc) to build the hook DLL")
@@ -294,5 +418,7 @@ def test_tree_compiles_against_live_engine(tmp_path):
     cs.write_text(telemetry.telemetry_source(), encoding="utf-8", newline="\n")
     difficulty.write_source(layout, difficulty.DifficultySpec(hp=1.5, attack=1.25, magic=1.1,
                                                               flag=8600, flag_label="hard_mode"))
+    rebalance.write_source(layout, rebalance.RebalanceSpec(player=1.5, enemy=0.75,
+                                                           flag=8600, flag_label="hard_mode"))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0

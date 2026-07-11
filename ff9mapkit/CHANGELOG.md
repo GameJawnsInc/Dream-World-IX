@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[rebalance]`: declarative HP-damage multiplier
+- A **`[rebalance]`** table in `field.toml` scales the final HP-damage number by the caster's side —
+  `player_damage` / `enemy_damage` (`0.05`–`20.0`) — with the same optional **`flag`** gate as
+  `[difficulty]`. Where `[difficulty]` scales enemy *stats*, this is a flat post-formula multiplier and
+  the only way to scale what the **party** deals; the two compose. Only pure HP damage is touched
+  (healing/recovery/MP untouched). Honest limits documented in-source + docs: the engine clamps to 9999
+  after the hook unless `[Battle] BreakDamageLimit = 1` in `Memoria.ini`, and the `IsDmg9999` cheat forces
+  player damage to 9999. Rides the Overload channel's `OnDamageFinalChanges` as a **mutator** (runs after
+  the verbatim reflect-multiplier default, before telemetry's observer — so a capture logs the rebalanced
+  number). Mod-global, relaunch-scoped, lint gate names it. ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md),
+  [FORMAT.md `[rebalance]`](docs/FORMAT.md))
+- The `gEventGlobal`-bit flag gate is now a shared `overload.flag_gate_cs` helper (byte-identical to
+  `[difficulty]`'s prior inline gate; both features emit it).
+
 ### Added — `[difficulty]`: declarative enemy scaling ("hard mode")
 - A **`[difficulty]`** table in `field.toml` scales every enemy once per battle — `enemy_hp` /
   `enemy_attack` / `enemy_magic` (`0.05`–`20.0`), players untouched — with an optional **`flag`** gate

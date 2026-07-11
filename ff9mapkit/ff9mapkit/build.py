@@ -1208,6 +1208,13 @@ def validate(project: FieldProject) -> list[str]:
             _difficulty.parse_table(dif, name_map=story_names)
         except _difficulty.DifficultyError as e:
             problems.append(str(e))
+    reb = project.raw.get("rebalance")                    # [rebalance]: HP-damage multiplier via the Overload hub
+    if reb is not None:
+        from .battle import rebalance as _rebalance
+        try:
+            _rebalance.parse_table(reb, name_map=story_names)
+        except _rebalance.RebalanceError as e:
+            problems.append(str(e))
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -2138,6 +2145,8 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
             consumers.append(f"scripted custom ability ({names})")
     if project.raw.get("difficulty") is not None:
         consumers.append("[difficulty] enemy scaling")
+    if project.raw.get("rebalance") is not None:
+        consumers.append("[rebalance] damage scaling")
     if not consumers:
         return                                            # the Scripts-DLL channel is inert on this field
     from .battle import scriptcompile as _scomp
@@ -5639,16 +5648,21 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         specs = _playable.parse_all(playables)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
-    from .battle import difficulty as _difficulty
+    from .battle import difficulty as _difficulty, rebalance as _rebalance
     try:
         _dif = _difficulty.collect(projects)              # the mod's ONE [difficulty] spec (or None)
     except _difficulty.DifficultyError as ex:
         raise BuildError(str(ex))
+    try:
+        _reb = _rebalance.collect(projects)               # the mod's ONE [rebalance] spec (or None)
+    except _rebalance.RebalanceError as ex:
+        raise BuildError(str(ex))
     dif_spec = _dif[0] if _dif else None
+    reb_spec = _reb[0] if _reb else None
     scripts = _playable.script_seeds(specs)
     field_scripts = _playable.field_script_seeds(specs)   # paired [FieldAbilityScript] effects (P7), same DLL + scriptId
     status_scripts = _playable.status_script_seeds(specs)  # custom [StatusScript] behaviours (P7), same DLL
-    if not scripts and not field_scripts and not status_scripts and dif_spec is None:
+    if not scripts and not field_scripts and not status_scripts and dif_spec is None and reb_spec is None:
         # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
         # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
         # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
@@ -5659,6 +5673,7 @@ def _emit_scripts(projects, layout, mod_name) -> list:
     try:
         warnings = list(_ssrc.write_scripts(layout, scripts, field_scripts, status_scripts))   # ONE wipe -> all .cs
         _difficulty.write_source(layout, dif_spec)        # emit or REMOVE (build-owned, like Sources/Battle)
+        _rebalance.write_source(layout, reb_spec)         # emit or REMOVE (build-owned)
         _ovl.compile_tree(layout, mod_name)               # hub regenerated + everything compiled together
     except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
         raise BuildError(str(ex))
@@ -5666,7 +5681,8 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         ([f"{len(scripts)} battle formula(s)"] if scripts else [])
         + ([f"{len(field_scripts)} field effect(s)"] if field_scripts else [])
         + ([f"{len(status_scripts)} status behaviour(s)"] if status_scripts else [])
-        + (["[difficulty] enemy scaling"] if dif_spec is not None else []))
+        + (["[difficulty] enemy scaling"] if dif_spec is not None else [])
+        + (["[rebalance] damage scaling"] if reb_spec is not None else []))
     warnings.append(f"scripted content: built Memoria.Scripts.{mod_name}.dll ({made}). "
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
     return warnings
