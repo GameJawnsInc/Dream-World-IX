@@ -2584,6 +2584,178 @@ def strips_rebuild(donor, parts=("sea1", "sea5"), *, disc: int = 1, lod: str = "
     return out
 
 
+#: THE SAND-BAND LANGUAGE (byte-learned 2026-07-10, Path A -- the census over every
+#: topo-31 band map-wide: 14 connected bands, 437 tris across 27 blocks; each law below
+#: held with ZERO exceptions):
+#:
+#: * **u-strip** -- the whole band lives in atlas u [270, 396]/1024, split at 334 into two
+#:   rects P = [270, 334] and Q = [334, 396]; every run/cap tri spans exactly ONE rect
+#:   (never both outer edges), interior verts interpolate affinely (lawful subdivision).
+#: * **v-ribbon** (the sand-ribbon law, re-confirmed): run columns stretch one v-rect,
+#:   land-chain pin 580 or 581 /1024 -> seam-chain pin 609 or 610; the pins are per-BAND
+#:   constants (a band picks one of each, independently). The CAP band (row B) is
+#:   strictly terminal: land 612-615 -> seam 640-642.
+#: * **THE ONE-SHADE LAW** -- at a column boundary (a u-constant PORT edge) any lattice
+#:   edge may abut any other: all pairs are byte-observed (share x36, wrap 3867|2637 x32,
+#:   3262|2637 x18, 3867|3262 x12, ...) and the atlas texel columns at the three edges
+#:   differ no more than sand differs from itself 8px away (12.8/15.9/17.1 vs baseline
+#:   11.8-17.8) -- homogeneous noise, so a fresh restart anywhere is invisible. The CAP
+#:   band is the opposite (a directional taper gradient, 38-69 vs ~17-27): caps are only
+#:   lawful in rect Q, 0.3867 edge facing the beach END (all 19 clean real caps).
+#: * **Grain** -- in the land-on-left frame ~86% of run tiles read u-increasing (P+ 44 /
+#:   Q+ 42 vs P- 8 / Q- 6); mirror FOLDS (Q+ = Q- sharing an outer edge) are real but
+#:   rare. Emission transports the donor's orientation and re-picks only the RECT --
+#:   a lawful subset, the strips-emission precedent.
+SAND_ULAT = (270.0 / 1024, 334.0 / 1024, 396.0 / 1024)
+#: decode anchors (4dp census values; per-band quarter-texel snap variants)
+SAND_V_LAND = (0.5664, 0.5674)
+SAND_V_SEAM = (0.5947, 0.5957)
+SAND_V_CAP_LAND = (0.5977, 0.5986, 0.5996, 0.6006, 0.6045, 0.6123)
+SAND_V_CAP_SEAM = (0.625, 0.626, 0.627)
+_SAND_EPS_V = 0.0022
+_SAND_EPS_U = 0.004
+
+
+def _sand_vclass(v):
+    """A sand vert's v-band role, or ``None`` off every pin (the conforming tier)."""
+    for name, anchors in (("run_land", SAND_V_LAND), ("run_seam", SAND_V_SEAM),
+                          ("cap_land", SAND_V_CAP_LAND), ("cap_seam", SAND_V_CAP_SEAM)):
+        if any(abs(v - a) <= _SAND_EPS_V for a in anchors):
+            return name
+    return None
+
+
+def _sand_tri_decode(t3):
+    """``(tier, rect)`` for a decodable sand tri -- tier ``run``/``cap`` with every v on
+    that tier's chain pins and every u inside ONE u-rect; ``None`` = the conforming /
+    spit-fold / skew-cap residual (stays verbatim, like the strips' inset variants)."""
+    cls = [_sand_vclass(v[2][1]) for v in t3]
+    if any(c is None for c in cls):
+        return None
+    tier = "run" if all(c.startswith("run") for c in cls) else \
+        "cap" if all(c.startswith("cap") for c in cls) else None
+    if tier is None:
+        return None
+    us = [v[2][0] for v in t3]
+    rects = [r for r in (0, 1)
+             if all(SAND_ULAT[r] - _SAND_EPS_U <= u <= SAND_ULAT[r + 1] + _SAND_EPS_U
+                    for u in us)]
+    if not rects:
+        return None
+    if tier == "cap" and rects != [1]:
+        return None                       # the taper gradient only exists in rect Q
+    # a tri hugging the shared edge 334 decodes to either rect; pick by span midpoint
+    r = rects[0] if len(rects) == 1 else \
+        (0 if (min(us) + max(us)) / 2.0 < SAND_ULAT[1] else 1)
+    return (tier, r)
+
+
+def sand_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The SAND-BAND identity rebuild (Path A shipped) -- the strips_rebuild recipe on the
+    beach's third discrete language: DROP every closed decodable sand column group and
+    RE-DERIVE its u's from the learned strip, same verts, v/normals/positions byte-
+    unchanged. Freshness = a deterministic per-group RECT FLIP (P <-> Q): a two-way
+    hash pick can silently coincide with the donor and prove nothing (the (7,17)
+    two-group coincidence), while the flip makes every emitted group a REAL
+    re-derivation -- all-same-rect runs are byte-real ((17,9)'s east run) and every
+    flipped boundary lands in the observed pair set, so the flip is lawful by the
+    ONE-SHADE law. The donor's orientation, folds and subdivisions TRANSPORT through
+    the 1-D u-affine.
+
+    Grouping: tris union over uv-equal shared edges OF THE SAME RECT (merges a quad's
+    diagonal, subdivision edges and the real mirror folds; never merges across the
+    P+=Q+ wallpaper share). THE CLOSURE FREEZE: a group emits only if every non-internal
+    edge is a PORT (u-constant) or a CHAIN edge (v-equal) -- half-quads against the
+    conforming tier and columns split by a block frame both fail it and stay verbatim
+    (both are real: (7,17)'s bend fan, the (17,9)/(17,10) frame-straddling column).
+    RUN groups only: the row-B CAP tiles belong to the end-cap ASSEMBLY rung (the other
+    beach-mint prerequisite) and stay verbatim here, like the conforming tier.
+    Self-check: every emitted tri must re-decode to its group's fresh rect."""
+    terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
+    sand = [t3 for t3 in terr
+            if decode_id(int(round(t3[0][3][0])))["topograph"] == 31]
+    if not sand:
+        raise ValueError(f"donor {donor} has no topo-31 sand band -- not a sandy shore")
+    dec = [_sand_tri_decode(t3) for t3 in sand]
+
+    def uv4(v):
+        return (round(v[2][0], 4), round(v[2][1], 4))
+
+    # union decodable tris over uv-equal same-rect shared edges
+    idx = [i for i, d in enumerate(dec) if d is not None]
+    parent = {i: i for i in idx}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    edge_insts = defaultdict(list)        # poskey-pair -> [(tri, {poskey: uv4})]
+    for i in idx:
+        t3 = sand[i]
+        for a in range(3):
+            b = (a + 1) % 3
+            key = frozenset((_pk(t3[a][0]), _pk(t3[b][0])))
+            edge_insts[key].append((i, {_pk(t3[a][0]): uv4(t3[a]),
+                                        _pk(t3[b][0]): uv4(t3[b])}))
+    for key, insts in edge_insts.items():
+        if len(insts) != 2:
+            continue
+        (i, uva), (j, uvb) = insts
+        if dec[i][1] == dec[j][1] and uva == uvb:
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[rj] = ri
+    groups = defaultdict(list)
+    for i in idx:
+        groups[find(i)].append(i)
+
+    # closure freeze + emission
+    drop, emit = [], []
+    for root, mem in sorted(groups.items(),
+                            key=lambda kv: min(_pk(sand[i][0][0]) for i in kv[1])):
+        tier, rect = dec[mem[0]]
+        if tier != "run" or any(dec[i] != (tier, rect) for i in mem):
+            continue                      # caps verbatim; a mixed group = decode artifact
+        ec = defaultdict(int)
+        einfo = {}
+        for i in mem:
+            t3 = sand[i]
+            for a in range(3):
+                b = (a + 1) % 3
+                key = frozenset((_pk(t3[a][0]), _pk(t3[b][0])))
+                ec[key] += 1
+                einfo[key] = (abs(t3[a][2][0] - t3[b][2][0]) <= 1e-4,   # port: u const
+                              abs(t3[a][2][1] - t3[b][2][1]) <= 1e-4)   # chain: v const
+        closed = all(ec[k] == 2 or einfo[k][0] or einfo[k][1] for k in ec)
+        if not closed:
+            continue                      # half-quad / frame-split: verbatim residual
+        us = [v[2][0] for i in mem for v in sand[i]]
+        d0, d1 = min(us), max(us)
+        if abs(d0 - SAND_ULAT[rect]) > _SAND_EPS_U \
+                or abs(d1 - SAND_ULAT[rect + 1]) > _SAND_EPS_U:
+            continue                      # ports must span the FULL rect (never stretch)
+        new_rect = 1 - rect
+        e0, e1 = SAND_ULAT[new_rect], SAND_ULAT[new_rect + 1]
+        scale = (e1 - e0) / (d1 - d0)
+        new_tris = []
+        for i in mem:
+            new_tris.append([(v[0], v[1], (e0 + (v[2][0] - d0) * scale, v[2][1]), v[3])
+                             for v in sand[i]])
+        for t3 in new_tris:
+            got = _sand_tri_decode(t3)
+            if got != ("run", new_rect):
+                raise ValueError(f"sand group at {_pk(sand[mem[0]][0][0])}: the emitted "
+                                 f"column re-decodes to {got} instead of "
+                                 f"('run', {new_rect}) -- the emission self-check failed")
+        drop.extend(sand[i] for i in mem)
+        emit.extend(new_tris)
+    if not drop:
+        raise ValueError(f"donor {donor} has no closed decodable sand columns")
+    return [TR.DropTris("terrain", drop), TR.EmitTris("terrain", emit)]
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved
