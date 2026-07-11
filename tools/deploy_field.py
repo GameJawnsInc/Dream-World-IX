@@ -108,6 +108,7 @@ if not live.mod_description.exists():
 if not live.dictionary_patch.exists():
     live.dictionary_patch.write_text("", encoding="utf-8", newline="\n")
 BK = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backups")))
+BK.mkdir(parents=True, exist_ok=True)                 # gitignored -- absent in a fresh clone/worktree
 STAMP = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 shutil.copyfile(live.dictionary_patch, BK / f"DictionaryPatch.txt.preDEPLOY.{STAMP}")
 for L in LANGS:
