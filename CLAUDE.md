@@ -727,7 +727,7 @@ welds), the seam chain + topology + every UV synthesized (no fan transport; sand
 cap emitters, foam stamps + BL caps); gated by the ribbon/slope/swash envelopes + THE ASSEMBLY
 BOUNDARY gate; (7,17)'s width ladder probes 4.6 as the swash ceiling; the (11,7) clone carries
 the beach fully re-minted at width 2.5 vs the donor's ~4.1 — the first fully kit-authored beach
-assembly in-game. **Rung 2a (built + deployed 2026-07-11, awaiting playtest at (11,6))**: the
+assembly in-game. **★ Rung 2a IN-GAME PROVEN 2026-07-11 (the (11,6) land-2.4 mint)**: the
 FREE-FOOTPRINT mint — `--beach-mint WIDTH|auto[:LAND]` synthesizes the LAND CHAIN too (interior
 L pushed landward, berm-surface conformed, the berm BSP-CLIPPED at the new synthetic chain with
 fan-subdivided band columns + the UNION crack gate; (7,17) ladder 0.6–2.6, ribbon-refused at
