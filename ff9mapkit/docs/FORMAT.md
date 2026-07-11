@@ -1456,6 +1456,23 @@ never a canceled game over with nobody revived.
 
 ---
 
+## `[lowhp]` (optional — the LowHP threshold)
+
+Reparameterizes when a player counts as **"HP is low"** (vanilla: at or below **1/6** of max HP): the point
+where the HP number turns **yellow** and the engine's `LowHP` status applies — the status that HP-is-low
+supporting abilities and AI key on. Same Overload/scripts-DLL plumbing as its siblings: compiles at build
+(needs `csc`), **relaunch** to load. Full story: [SCRIPTS_DLL.md §12](SCRIPTS_DLL.md).
+
+| key | meaning |
+|---|---|
+| `threshold` | the LowHP fraction of max HP — a `"N/D"` string (kept exact; denominator ≤ 100) or a number in `(0, 1)` (snapped to the nearest ≤ 1/100-granularity fraction). Required; `1/6` refuses (that's vanilla). The comparison is exact integer math, the same shape as the engine's. |
+| `flag` | optional gate on a `gEventGlobal` bit (a `[[flag]]` name or index). Bit clear = the vanilla 1/6. Toggles **live** (the check runs on every HP/MP change). Omit = always on. |
+
+Players only, like vanilla; the MP color rule (yellow at ≤ 1/6 max MP) is untouched. Mod-global; a wipe
+rule this is not — a unit at 0 HP is dead before this check runs.
+
+---
+
 ## `[music]` (optional)
 
 | key | meaning |

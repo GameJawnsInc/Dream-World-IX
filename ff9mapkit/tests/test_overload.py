@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ff9mapkit.battle import deathrules, difficulty, overload, rebalance, telemetry
+from ff9mapkit.battle import deathrules, difficulty, lowhp, overload, rebalance, telemetry
 from ff9mapkit.battle.scriptcompile import ScriptCompileError
 from ff9mapkit.config import ModLayout
 
@@ -597,6 +597,126 @@ def test_emit_scripts_deathrules_only(tmp_path, monkeypatch):
     assert not layout.scripts_dir.exists()
 
 
+# ---- [lowhp] on the UnitCheckPoint returning hook ---------------------------------------------------------
+def test_hub_lowhp_returning_hook():
+    """UnitCheckPoint is the second RETURNING hook: single-owner verdict expression, fail-safe 0 (no forced
+    status -- the caller only acts on the Death bit, and the side effects retry at the next checkpoint)."""
+    src = overload.render_hub([_feat("lowhp")])
+    assert "IOverloadUnitCheckPointScript" in src
+    assert "try { return Memoria.Scripts.Overload.LowHPOverload.UpdatePointStatus(unit); } catch { }" in src
+    assert "return 0;" in src
+    assert "IOverloadOnGameOverScript" not in src         # unclaimed -> the engine inline default runs
+    assert src.count("{") == src.count("}")
+    assert "LowHP" in overload.build_owned_dirs()
+
+
+# ---- [lowhp] parse ----------------------------------------------------------------------------------------
+def test_lowhp_parse_fractions_and_rejects():
+    assert (lambda s: (s.num, s.den))(lowhp.parse_table({"threshold": "1/3"})) == (1, 3)
+    assert (lambda s: (s.num, s.den))(lowhp.parse_table({"threshold": 0.5})) == (1, 2)
+    assert (lambda s: (s.num, s.den))(lowhp.parse_table({"threshold": 0.333})) == (1, 3)   # floats snap
+    spec = lowhp.parse_table({"threshold": "2/5", "flag": "Hard_Mode"}, name_map={"hard_mode": 8600})
+    assert (spec.num, spec.den, spec.flag) == (2, 5, 8600)
+    with pytest.raises(lowhp.LowHPError, match="threshold is required"):
+        lowhp.parse_table({})
+    with pytest.raises(lowhp.LowHPError, match="vanilla 1/6"):
+        lowhp.parse_table({"threshold": "1/6"})
+    with pytest.raises(lowhp.LowHPError, match="out of range"):
+        lowhp.parse_table({"threshold": 1.0})
+    with pytest.raises(lowhp.LowHPError, match="out of range"):
+        lowhp.parse_table({"threshold": "0/3"})
+    with pytest.raises(lowhp.LowHPError, match="too fine-grained"):
+        lowhp.parse_table({"threshold": "7/200"})         # an explicit fine string refuses (floats snap)
+    with pytest.raises(lowhp.LowHPError, match="must look like"):
+        lowhp.parse_table({"threshold": "a third"})
+    with pytest.raises(lowhp.LowHPError, match="must be a fraction"):
+        lowhp.parse_table({"threshold": True})
+    with pytest.raises(lowhp.LowHPError, match="unknown key"):
+        lowhp.parse_table({"threshold": "1/3", "mp": 0.5})
+    with pytest.raises(lowhp.LowHPError, match="unknown flag name"):
+        lowhp.parse_table({"threshold": "1/3", "flag": "nope"})
+
+
+def test_lowhp_collect_dedupes_and_conflicts():
+    a = SimpleNamespace(raw={"lowhp": {"threshold": "1/3"}})
+    b = SimpleNamespace(raw={"lowhp": {"threshold": "1/3"}})
+    c = SimpleNamespace(raw={"lowhp": {"threshold": "1/2"}})
+    assert lowhp.collect([SimpleNamespace(raw={})]) is None
+    spec, carrier = lowhp.collect([a, b])
+    assert (spec.num, spec.den) == (1, 3) and carrier is a
+    with pytest.raises(lowhp.LowHPError, match="DIFFERENT settings"):
+        lowhp.collect([a, c])
+
+
+# ---- [lowhp] render ---------------------------------------------------------------------------------------
+def test_lowhp_render_pins_default_and_compare():
+    """Owning UnitCheckPoint displaces the whole default -- the LowHP/UI side effects must be transcribed
+    VERBATIM (btl_para.CheckPointDataStatus 'Default method') with only the threshold comparison changed."""
+    src = lowhp.render(lowhp.LowHPSpec(num=1, den=3))
+    assert "unit.CurrentHp * 3 <= unit.MaximumHp;" in src  # num=1 keeps the vanilla `* den <= Max` shape
+    for verbatim in (
+        "unit.UIColorHP = FF9TextTool.Yellow;",
+        "if (!btl_stat.CheckStatus(unit, BattleStatus.LowHP))",
+        "btl_stat.AlterStatus(unit, BattleStatusId.LowHP);",
+        "unit.UIColorHP = FF9TextTool.White;",
+        "btl_stat.RemoveStatus(unit, BattleStatusId.LowHP);",
+        "unit.UIColorMP = unit.CurrentMp <= unit.MaximumMp / 6f ? FF9TextTool.Yellow : FF9TextTool.White;",
+        "return isLowHP ? BattleStatus.LowHP : 0;",
+    ):
+        assert verbatim in src, verbatim
+    assert "IOverload" not in src                          # a plain static feature class (the hub owns interfaces)
+    assert "try {" not in src                              # deliberately bare: the hub's wrapper is the fail-safe
+    assert src.count("{") == src.count("}")
+    # a non-unit numerator multiplies both sides
+    both = lowhp.render(lowhp.LowHPSpec(num=2, den=5))
+    assert "unit.CurrentHp * 5 <= unit.MaximumHp * 2" in both
+
+
+def test_lowhp_render_gate_picks_threshold():
+    """Flag semantics: bit CLEAR = the vanilla 1/6 (the same transcribed side effects still run) -- the gate
+    only picks the comparison, and its own try/catch degrades to vanilla."""
+    src = lowhp.render(lowhp.LowHPSpec(num=1, den=2, flag=8600, flag_label="hard_mode"))
+    assert f"ruleActive = {overload.flag_expr_cs(8600)};" in src
+    assert "(ruleActive ? unit.CurrentHp * 2 <= unit.MaximumHp : unit.CurrentHp * 6 <= unit.MaximumHp)" in src
+    assert src.count("{") == src.count("}")
+
+
+def test_lowhp_write_source_lifecycle(tmp_path):
+    layout = ModLayout(root=tmp_path / "FF9CustomMap")
+    cs = lowhp.write_source(layout, lowhp.LowHPSpec(num=1, den=3))
+    assert cs.is_file()
+    assert lowhp.write_source(layout, None) is None
+    assert not lowhp.lowhp_dir(layout).exists()
+
+
+# ---- [lowhp] build + validate wiring ----------------------------------------------------------------------
+def test_validate_reports_bad_lowhp(tmp_path):
+    from ff9mapkit.build import FieldProject, validate
+    p = tmp_path / "f.field.toml"
+    p.write_text(BASE + '\n[lowhp]\nthreshold = "1/6"\n', encoding="utf-8")
+    assert any("vanilla 1/6" in x for x in validate(FieldProject.load(p)))
+    p.write_text(BASE + '\n[lowhp]\nthreshold = "1/3"\nflag = "hard_mode"\n'
+                 '\n[[flag]]\nname = "hard_mode"\nindex = 8600\n', encoding="utf-8")
+    assert validate(FieldProject.load(p)) == []            # named flag resolves through the [[flag]] registry
+
+
+def test_emit_scripts_lowhp_only(tmp_path, monkeypatch):
+    """[lowhp] alone still builds the DLL (hub + threshold class)."""
+    calls = _mock_compiles(monkeypatch)
+    from ff9mapkit.build import _emit_scripts
+    layout = ModLayout(root=tmp_path / "mod")
+    proj = SimpleNamespace(raw={"lowhp": {"threshold": "1/3"}})
+    warnings = _emit_scripts([proj], layout, "FF9CustomMap")
+    assert any("lowhp" in w for w in warnings)
+    srcs, _ = calls[-1]
+    assert any(lowhp.LOWHP_BASENAME in s for s in srcs) and any(overload.HUB_BASENAME in s for s in srcs)
+    hub = overload.hub_cs(layout).read_text(encoding="utf-8")
+    assert "return Memoria.Scripts.Overload.LowHPOverload.UpdatePointStatus(unit);" in hub
+    # de-thresholded rebuild drops the tree
+    assert _emit_scripts([SimpleNamespace(raw={})], layout, "FF9CustomMap") == []
+    assert not layout.scripts_dir.exists()
+
+
 # ---- the money test: the WHOLE tree compiles against the LIVE engine (install + csc gated) ---------------
 def test_tree_compiles_against_live_engine(tmp_path):
     """Hub + telemetry + difficulty + rebalance + deathrules in one DLL -- proves every emitted C# member
@@ -622,6 +742,8 @@ def test_tree_compiles_against_live_engine(tmp_path):
     deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True, chance=60,
                                                               keep_rebirth_flame=False,
                                                               flag=8601, flag_label="mercy_mode"))
+    # [lowhp] gated + non-unit numerator (UIColor/FF9TextTool/AlterStatus surface + the compare ternary)
+    lowhp.write_source(layout, lowhp.LowHPSpec(num=2, den=5, flag=8602, flag_label="hard_mode"))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0
     # ...and the SHORT-animation variant's C# surface (BattleUnit ctor, RemoveStatus(BattleUnit,

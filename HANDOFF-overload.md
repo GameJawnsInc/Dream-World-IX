@@ -19,7 +19,8 @@ and in-game proven**:
 | **battle telemetry** (`telemetry.py`, CLI `battle-telemetry`) | OnBattleInit/Start/DamageFinalChanges/End | observer (dev tool) | ★ proven |
 | **`[difficulty]`** (`difficulty.py`) | OnBattleInit | mutator — enemy HP/Str/Mgc scaling | ★★ proven, both variants |
 | **`[rebalance]`** (`rebalance.py`) | OnDamageFinalChanges | mutator — player/enemy HP-damage × | ★★ proven, both variants |
-| **`[deathrules]`** (`deathrules.py`) | OnGameOver (+OnBattleInit reset) | RETURNING single-owner — game-over verdict | ★ in-game proven 2026-07-11 (always-on second wind) |
+| **`[deathrules]`** (`deathrules.py`) | OnGameOver (+OnBattleInit reset) | RETURNING single-owner — game-over verdict | ★ proven 2026-07-11, BOTH second-wind variants (full Phoenix + short) |
+| **`[lowhp]`** (`lowhp.py`) | UnitCheckPoint | RETURNING single-owner — LowHP threshold | built + offline-proven 2026-07-11, **awaiting playtest** (`scratch/lowhp_test.field.toml`) |
 
 **The returning-hook hub mode is BUILT** (2026-07-11): `RETURNING_HOOKS` in `overload.py` — the hub emits
 `try { return <owner-expr>; } catch { } return <fail-safe>;`, single-owner enforced in `render_hub`
@@ -28,10 +29,16 @@ and in-game proven**:
 flag is clear). The whole tree (hub + all 4 features) compiles against the live engine
 (`test_tree_compiles_against_live_engine`, ran + passed).
 
-**What's left:** the short-anim playtest (below); the **Trance/low-HP** feature (`UnitCheckPoint` — dive
-DONE, see below); optionally a warp-on-defeat `[deathrules]` mode (a user design call).
+**What's left:** the `[lowhp]` playtest; the warp-on-defeat `[deathrules]` mode — dive STARTED 2026-07-11:
+the stock-compatible exit is the FLEE path (`btl_cmd.cs:1048` sets `btl_seq = SEQ_MENU_OFF_ESCAPE` →
+`battle.cs:441-446`: `BTL_RESULT_ESCAPE` + `PHASE_CLOSE` + the escape fade → control returns to the FIELD,
+whose tag-10 Main_Reinit runs). Sketch: at OnGameOver revive minimally (the proven short-anim recipe) + set
+the escape sequence + set a GLOB "party_wiped" bit; the FIELD side (kit tag-10 / logic-map injection on
+verbatim forks) checks the bit → fade + `Field(<hub>)` + clear. Open design questions (user calls): warp
+target (fixed id / World Hub / per-field), arrival HP, a flee-style gil penalty, key shape.
 
-### The SHORT-ANIMATION second wind — BUILT 2026-07-11, awaiting playtest
+### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
+### set fraction; 2nd wipe → game over; next battle → recharged)
 
 The user-flagged follow-up ("the full Rebirth Flame summon could get obnoxious in an authored context") is
 built: **`animation = "short"`** + **`revive_hp`** (fraction of max, default 0.2, floor 1 HP). The dive
@@ -168,7 +175,21 @@ one) needs its own dive before promising TOML.
 field instead of a hard game over). Riskier: there is no sanctioned battle-exit path from inside this hook
 (would need flee/battle-end sequencing) — needs its own engine dive before promising a TOML knob.
 
-### 2. Trance / low-HP — hook `UnitCheckPoint` (btl_para.cs:94-116) — SOURCE-DIVE DONE 2026-07-11
+### 2. ✔ BUILT (2026-07-11), awaiting playtest — `[lowhp]` on `UnitCheckPoint`
+
+`ff9mapkit/ff9mapkit/battle/lowhp.py` + wiring + docs. `threshold` = an exact fraction ("N/D" string kept
+exact with den ≤ 100; numbers snap via `Fraction.limit_denominator(100)`) — emitted as the engine's own
+integer-comparison shape (`CurrentHp * den <= MaximumHp * num`, no float drift; den ≤ 100 keeps UInt32
+overflow-free at the 9,999,999 HP ceiling). The displaced default's side effects transcribed verbatim
+(LowHP status add/remove, HP color yellow/white, the MP color rule untouched); the body is deliberately
+BARE (it IS the vanilla body) — the hub's returning-hook wrapper is the fail-safe (exception → 0; side
+effects retry at the next checkpoint, which fires per HP/MP change → the flag gate toggles LIVE).
+⚠ Emitted-C# gotcha caught by the money test: `FF9TextTool` is NOT global — it needs
+`using Assets.Sources.Scripts.UI.Common;` (the same using btl_para.cs itself carries).
+**Playtest:** `scratch/lowhp_test.field.toml` (threshold 1/2 → HP number yellow at ≤ half max, no dying
+required; MP color = the control; round 2 = the live flag toggle).
+
+### The original UnitCheckPoint dive (btl_para.cs:94-116) — DONE 2026-07-11
 
 What the site actually is: `CheckPointDataStatus(BattleUnit)`, called from `CheckPointData` for a unit
 whose HP/MP just changed. Facts:

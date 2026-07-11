@@ -4,11 +4,12 @@ Engine fact (pinned 6b8bb2d5, ``ScriptsLoader.ProcessType``): Memoria registers 
 into a ``Dictionary<Type, Type>`` keyed BY INTERFACE -- within one DLL the LAST-processed type silently wins an
 interface, and ``Assembly.GetTypes()`` order is unspecified. So exactly ONE class per interface may exist across
 a mod's sources, or behavior is nondeterministic. This module makes that structural: features (battle telemetry,
-``[difficulty]``, ``[rebalance]``, ``[deathrules]``) are PLAIN STATIC classes with no interfaces, and the
-kit regenerates a single ``Sources/Overload/0000_OverloadHub.cs`` -- the only ``IOverload*`` implementer --
-composing them at hand-authored splice points (mutators before observers, so telemetry's roster log shows
-difficulty-scaled stats). VOID hooks compose any number of features; a RETURNING hook (OnGameOver -> the
-cancel-the-game-over verdict) is SINGLE-OWNER -- the hub returns the one owning feature's expression. Where a hook displaces an engine inline "// Default method", the hub carries the
+``[difficulty]``, ``[rebalance]``, ``[deathrules]``, ``[lowhp]``) are PLAIN STATIC classes with no
+interfaces, and the kit regenerates a single ``Sources/Overload/0000_OverloadHub.cs`` -- the only
+``IOverload*`` implementer -- composing them at hand-authored splice points (mutators before observers, so
+telemetry's roster log shows difficulty-scaled stats). VOID hooks compose any number of features; a
+RETURNING hook (OnGameOver -> the cancel-the-game-over verdict; UnitCheckPoint -> the checkpoint status) is
+SINGLE-OWNER -- the hub returns the one owning feature's expression. Where a hook displaces an engine inline "// Default method", the hub carries the
 VERBATIM transcription (moved here from the in-game-proven telemetry source).
 
 Every compile of the mod scripts DLL funnels through :func:`compile_tree` / :func:`compile_live`: refresh the
@@ -35,13 +36,14 @@ _HOOK_IFACE = {
     "OnBattleScriptEnd": "IOverloadOnBattleScriptEndScript",
     "OnDamageFinalChanges": "IOverloadDamageModifierScript",
     "OnGameOver": "IOverloadOnGameOverScript",
+    "UnitCheckPoint": "IOverloadUnitCheckPointScript",
 }
 
-# RETURNING hooks: the engine acts on the hook's return value (OnGameOver: true = cancel the game over), so
-# two features can't both decide -- the hook is SINGLE-OWNER (render_hub enforces it) and the registry value
-# is a C# EXPRESSION the hub returns, not a spliced statement. UnitCheckPoint (-> BattleStatus) joins here
-# when its feature lands.
-RETURNING_HOOKS = frozenset({"OnGameOver"})
+# RETURNING hooks: the engine acts on the hook's return value (OnGameOver: true = cancel the game over;
+# UnitCheckPoint: the returned BattleStatus's DEATH bit kills the unit), so two features can't both decide --
+# the hook is SINGLE-OWNER (render_hub enforces it) and the registry value is a C# EXPRESSION the hub
+# returns, not a spliced statement.
+RETURNING_HOOKS = frozenset({"OnGameOver", "UnitCheckPoint"})
 
 # The feature registry. Each entry:
 #   dir/file   -- Sources/<dir>/<file>; the file's PRESENCE marks the feature active (the deploy probe).
@@ -90,6 +92,16 @@ FEATURES = (
             "OnGameOver": "Memoria.Scripts.Overload.DeathRulesOverload.OnGameOver(state, dyingPC)",
         },
         "render": None,                  # knobs are baked from [deathrules] at build time -- not re-renderable
+    },
+    {
+        "name": "lowhp",
+        "dir": "LowHP",
+        "file": "9500_LowHP.cs",
+        "order": 40,                     # owns the RETURNING UnitCheckPoint verdict (no shared-hook ordering)
+        "live_owned": False,
+        # RETURNING hook: an EXPRESSION, not a statement -- the hub emits `return <this>;`
+        "hooks": {"UnitCheckPoint": "Memoria.Scripts.Overload.LowHPOverload.UpdatePointStatus(unit)"},
+        "render": None,                  # knobs are baked from [lowhp] at build time -- not re-renderable
     },
     {
         "name": "telemetry",
@@ -282,17 +294,31 @@ _M_ONGAMEOVER = """\
             return false; // fail-safe: the vanilla defeat runs (canceling with no revive queued would stall)
         }"""
 
+_M_UNITCHECKPOINT = """\
+        // HP/MP checkpoint (btl_para.CheckPointDataStatus: fires on every unit HP/MP change). RETURNING
+        // hook, single-owner: the caller acts ONLY on the returned status's DEATH bit (and cur.hp == 0
+        // already returned Death BEFORE this hook runs -- a feature cannot save a 0-HP unit here); the
+        // LowHP status + the HP/MP UI colors are SIDE EFFECTS of the displaced default (btl_para.cs
+        // "Default method") that the owning feature must reproduce. Fail-safe 0 = no forced status (the
+        // side effects retry at the next checkpoint -- this hook fires per HP/MP change).
+        public BattleStatus UpdatePointStatus(BattleUnit unit)
+        {
+            try { return __OWNER__; } catch { }
+            return 0;
+        }"""
+
 _HOOK_TEMPLATES = {
     "OnBattleInit": _M_ONBATTLEINIT,
     "OnBattleScriptStart": _M_ONBATTLESCRIPTSTART,
     "OnDamageFinalChanges": _M_ONDAMAGEFINALCHANGES,
     "OnBattleScriptEnd": _M_ONBATTLESCRIPTEND,
     "OnGameOver": _M_ONGAMEOVER,
+    "UnitCheckPoint": _M_UNITCHECKPOINT,
 }
 
 # fixed emission order (stable output; interface list + method order deterministic)
 _HOOK_ORDER = ("OnBattleInit", "OnBattleScriptStart", "OnDamageFinalChanges", "OnBattleScriptEnd",
-               "OnGameOver")
+               "OnGameOver", "UnitCheckPoint")
 
 
 def hub_interfaces(features) -> list:

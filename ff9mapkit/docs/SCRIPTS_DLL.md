@@ -519,6 +519,26 @@ the hook fires at wipe time, so the flag toggles the rules **live** — the very
 Mod-global + build rules identical to `[difficulty]`/`[rebalance]`. Fail-safe: any hiccup returns `false` (a
 vanilla defeat) — never a canceled game over with nobody revived, which would stall the battle.
 
+### `[lowhp]` — the LowHP threshold (shipped content)
+
+Owns the **HP/MP checkpoint verdict** (`UnitCheckPoint` — the second returning, single-owner hook) to
+reparameterize when a player counts as *"HP is low"*: vanilla is at or below **1/6** of max HP, the point
+where the HP number turns yellow and the engine's `LowHP` status applies (the status HP-is-low supporting
+abilities and AI key on).
+
+```toml
+[lowhp]
+threshold = "1/3"     # the LowHP fraction of max HP (vanilla 1/6): "N/D" string (exact, denominator
+                      # <= 100) or a number in (0, 1) (snapped to <= 1/100 granularity)
+flag = "hard_mode"    # OPTIONAL gate: bit clear = the vanilla 1/6; toggles LIVE (per HP/MP change)
+```
+
+The displaced default's side effects (add/remove `LowHP`, the yellow/white HP color, the MP color rule) are
+transcribed verbatim with only the threshold comparison changed — exact integer math in the engine's own
+`* 6` shape, so there's no float-boundary drift. Players only, like vanilla. Two honest scope notes: a unit
+at 0 HP is dead *before* this check runs (this is not a death-prevention hook), and the checkpoint's return
+value only matters for its `Death` bit — everything player-visible here is the side effects.
+
 One caveat shared with the whole channel: if a *second* stacked mod folder ships its own implementation of
 the same `IOverload*` interface, the higher-priority folder's wins silently. Within one mod the kit refuses
 a hand-dropped `.cs` that collides with the hub (a clear compile-time error instead of a coin flip).

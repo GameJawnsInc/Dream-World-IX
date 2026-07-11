@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[lowhp]`: reparameterize the LowHP threshold
+- A **`[lowhp]`** table in `field.toml` changes when a player counts as "HP is low" (vanilla: at or below
+  1/6 of max HP — the yellow HP number + the engine `LowHP` status that HP-is-low supporting abilities and
+  AI key on). `threshold` takes an exact `"N/D"` fraction (denominator ≤ 100) or a number in `(0, 1)`
+  (snapped to ≤ 1/100 granularity); the emitted comparison is exact integer math in the engine's own `* 6`
+  shape, so there is no float-boundary drift. Optional `flag` gate: bit clear = the vanilla 1/6, toggling
+  **live** (the checkpoint runs on every HP/MP change). Rides the Overload channel's second RETURNING hook,
+  `UnitCheckPoint` — single-owner; the displaced default's side effects (LowHP status add/remove, HP/MP UI
+  colors) are transcribed verbatim with only the threshold changed, and the hub's fail-safe returns `0` (no
+  forced status; the side effects retry at the next checkpoint). Facts pinned by the dive: a 0-HP unit is
+  dead *before* the hook (not a death-prevention site), and the caller acts only on the returned `Death`
+  bit. ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md), [FORMAT.md `[lowhp]`](docs/FORMAT.md))
+
 ### Added — `[deathrules]` short-animation second wind
 - **`animation = "short"`** on the second wind skips the full Rebirth Flame summon (flagged as potentially
   obnoxious in an authored context): instead of queueing the Phoenix command, the fallen party is revived
@@ -14,7 +27,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the revive HP, a **`revive_hp`** fraction knob comes with it (of max HP, `(0, 1]`, floor 1 HP, default
   `0.2`). `animation = "full"` (the default) is the in-game-proven Phoenix variant, emitted unchanged. Only
   dead players revive (petrify stays, like the Phoenix ability); a wipe with nobody revivable falls through
-  to a vanilla defeat.
+  to a vanilla defeat. In-game proven 2026-07-11 (no summon; the party stands up at the set fraction;
+  second wipe → game over; next battle → recharged).
 
 ## [1.0.0b15] - 2026-07-11 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
 

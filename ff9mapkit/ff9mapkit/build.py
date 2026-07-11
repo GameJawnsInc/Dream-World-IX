@@ -1222,6 +1222,13 @@ def validate(project: FieldProject) -> list[str]:
             _deathrules.parse_table(dr, name_map=story_names)
         except _deathrules.DeathRulesError as e:
             problems.append(str(e))
+    lh = project.raw.get("lowhp")                         # [lowhp]: LowHP threshold via the Overload hub
+    if lh is not None:
+        from .battle import lowhp as _lowhp
+        try:
+            _lowhp.parse_table(lh, name_map=story_names)
+        except _lowhp.LowHPError as e:
+            problems.append(str(e))
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -2156,6 +2163,8 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
         consumers.append("[rebalance] damage scaling")
     if project.raw.get("deathrules") is not None:
         consumers.append("[deathrules] game-over rules")
+    if project.raw.get("lowhp") is not None:
+        consumers.append("[lowhp] threshold")
     if not consumers:
         return                                            # the Scripts-DLL channel is inert on this field
     from .battle import scriptcompile as _scomp
@@ -5657,7 +5666,8 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         specs = _playable.parse_all(playables)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
-    from .battle import deathrules as _deathrules, difficulty as _difficulty, rebalance as _rebalance
+    from .battle import deathrules as _deathrules, difficulty as _difficulty, lowhp as _lowhp, \
+        rebalance as _rebalance
     try:
         _dif = _difficulty.collect(projects)              # the mod's ONE [difficulty] spec (or None)
     except _difficulty.DifficultyError as ex:
@@ -5670,14 +5680,19 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         _dr = _deathrules.collect(projects)               # the mod's ONE [deathrules] spec (or None)
     except _deathrules.DeathRulesError as ex:
         raise BuildError(str(ex))
+    try:
+        _lh = _lowhp.collect(projects)                    # the mod's ONE [lowhp] spec (or None)
+    except _lowhp.LowHPError as ex:
+        raise BuildError(str(ex))
     dif_spec = _dif[0] if _dif else None
     reb_spec = _reb[0] if _reb else None
     dr_spec = _dr[0] if _dr else None
+    lh_spec = _lh[0] if _lh else None
     scripts = _playable.script_seeds(specs)
     field_scripts = _playable.field_script_seeds(specs)   # paired [FieldAbilityScript] effects (P7), same DLL + scriptId
     status_scripts = _playable.status_script_seeds(specs)  # custom [StatusScript] behaviours (P7), same DLL
     if (not scripts and not field_scripts and not status_scripts and dif_spec is None and reb_spec is None
-            and dr_spec is None):
+            and dr_spec is None and lh_spec is None):
         # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
         # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
         # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
@@ -5690,6 +5705,7 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         _difficulty.write_source(layout, dif_spec)        # emit or REMOVE (build-owned, like Sources/Battle)
         _rebalance.write_source(layout, reb_spec)         # emit or REMOVE (build-owned)
         _deathrules.write_source(layout, dr_spec)         # emit or REMOVE (build-owned)
+        _lowhp.write_source(layout, lh_spec)              # emit or REMOVE (build-owned)
         _ovl.compile_tree(layout, mod_name)               # hub regenerated + everything compiled together
     except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
         raise BuildError(str(ex))
@@ -5699,7 +5715,8 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         + ([f"{len(status_scripts)} status behaviour(s)"] if status_scripts else [])
         + (["[difficulty] enemy scaling"] if dif_spec is not None else [])
         + (["[rebalance] damage scaling"] if reb_spec is not None else [])
-        + (["[deathrules] game-over rules"] if dr_spec is not None else []))
+        + (["[deathrules] game-over rules"] if dr_spec is not None else [])
+        + (["[lowhp] threshold"] if lh_spec is not None else []))
     warnings.append(f"scripted content: built Memoria.Scripts.{mod_name}.dll ({made}). "
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
     return warnings
