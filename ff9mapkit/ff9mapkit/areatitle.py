@@ -31,8 +31,9 @@ def _manifest(game_key: str | None = None) -> dict:
         UnityPy = extract._unitypy()
     except Exception:
         return {}
-    game = config.find_game_path(game_key)
-    if game is None:
+    try:
+        game = config.find_game_path(game_key)
+    except config.ConfigError:
         return {}
     candidates = [game / "x64" / "FF9_Data" / "resources.assets",
                   game / "FF9_Data" / "resources.assets",

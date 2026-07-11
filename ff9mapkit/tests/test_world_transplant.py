@@ -17,6 +17,14 @@ from ff9mapkit.world import mesh as M, transplant as TR
 NRM = (0.0, 1.0, 0.0)
 
 
+def _game_ready() -> bool:
+    from ff9mapkit import config
+    try:
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
 def _v(x, y, z, uv=(0.5, 0.5), idall=12800.0, nrm=NRM):
     return ((float(x), float(y), float(z)), nrm, tuple(uv), (float(idall), 0.0, 0.0, 1.0))
 
@@ -1560,6 +1568,7 @@ def test_cut_census_spill_certification_hermetic(monkeypatch):
     assert cen2[72.0]["spill_clips"] == []
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_cliff_transition_laws_on_real_bytes():
     """THE CLIFF-FACE TRANSITION STUDY (checklist item, 2026-07-09), pinned live: on a real
     coastal block, (a) THE LIP TEXEL LAW -- every grass|cliff TOP crease edge sits on the one
@@ -1636,6 +1645,7 @@ def test_cliff_transition_laws_on_real_bytes():
     assert len(hi_v) >= 5 and all(abs(v - 0.872) < 0.02 for v in hi_v)
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_learned_wang_table_validates_on_real_bytes():
     """THE LEARNED WANG TABLE (band-crossing re-Wang step 1, 2026-07-09): a real Wang strip
     tile is a PURE FUNCTION of which neighbours sit on the deeper band -- byte-learned over
@@ -1686,6 +1696,7 @@ def test_learned_wang_table_validates_on_real_bytes():
         assert checked > 0 and decoded >= 0.8 * checked, (bx, by, checked, decoded)
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_second_donor_screen_10_17_carryable_and_slide_growable():
     """SECOND-DONOR SCREEN (2026-07-09) + THE SPILLS-INTO-EMPTY KILL (same day): a
     slide-window scan (margin>=2u, sizes 2x2..4x4) over every data-bearing block found
@@ -1725,6 +1736,7 @@ def test_second_donor_screen_10_17_carryable_and_slide_growable():
     assert censuses["x"][648.0]["risks"] == ["strip-across-line"]
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_second_donor_10_17_two_cut_slide_config():
     """The end-to-end 2-cut slide on the real (10,17)+2x2 (lines 692+696 -- the law-compliant
     pure-sea4 pair; the first deploy's 648+652 were retro-flagged by strip-across-line):

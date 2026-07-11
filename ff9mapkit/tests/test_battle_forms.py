@@ -110,6 +110,7 @@ def _one_enemy_raw16(**stats):
 
 
 def test_donor_baseline_resolves_type_and_reads_stats():
+    pytest.importorskip("PySide6")   # ff9mapkit.workspace.battledoc needs the GUI extra
     from ff9mapkit.workspace.battledoc import donor_baseline
     raw16 = _one_enemy_raw16(hp=1500, strength=22, magic=7, gil=84, exp=33, level=12)
     # explicit type
@@ -124,12 +125,14 @@ def test_donor_baseline_resolves_type_and_reads_stats():
 
 
 def test_mes_strings_splits_and_strips_prefixes():
+    pytest.importorskip("PySide6")   # ff9mapkit.workspace.battledoc needs the GUI extra
     from ff9mapkit.workspace.battledoc import _mes_strings
     raw = b"[STRT=33,1]Goblin[ENDN][STRT=27,1]Fang[ENDN][STRT=28,1]Knife[ENDN]"
     assert _mes_strings(raw) == ["Goblin", "Fang", "Knife"]   # [STRT=..] stripped, split on [ENDN], trailing empty dropped
 
 
 def test_donor_scene_facts_decodes_flags_and_counts():
+    pytest.importorskip("PySide6")   # ff9mapkit.workspace.battledoc needs the GUI extra
     from ff9mapkit.battle import scene_codec as sc
     from ff9mapkit.workspace.battledoc import donor_scene_facts
     mon = sc.MonParm.unpack(bytes(116))
@@ -145,6 +148,7 @@ def test_donor_scene_facts_decodes_flags_and_counts():
 
 
 def test_donor_baseline_none_when_type_out_of_range_or_unparseable():
+    pytest.importorskip("PySide6")   # ff9mapkit.workspace.battledoc needs the GUI extra
     from ff9mapkit.battle import scene_codec as sc
     from ff9mapkit.workspace.battledoc import donor_baseline
     raw16 = _one_enemy_raw16(hp=10)

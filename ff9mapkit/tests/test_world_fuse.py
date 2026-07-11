@@ -13,6 +13,14 @@ from ff9mapkit.world import fuse as FU, transplant as TR
 NRM = (0.0, 1.0, 0.0)
 
 
+def _game_ready() -> bool:
+    from ff9mapkit import config
+    try:
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
 def _v(x, y, z, uv=(0.5, 0.5), idall=12800.0):
     return ((float(x), float(y), float(z)), NRM, tuple(uv), (float(idall), 0.0, 0.0, 1.0))
 
@@ -114,6 +122,7 @@ def test_fuse_layout_rect_overlap_refuses(monkeypatch):
     assert not ov["ok"] and ov["pairs"] == [[0, 1]]
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_fuse_real_two_island_layout():
     """THE FIRST CROSS-DONOR FUSE (real data): (9,5)+2x3 stacked on (10,17)+2x2 in the free
     ocean columns 0-1 rows 7-11 -- the shared border at z=-640 is pure sea4 / prefab on

@@ -123,7 +123,10 @@ INITIAL_ITEMS = HIGHEST_WINS_CSVS[0]   # "StreamingAssets/Data/Items/InitialItem
 
 
 def _mk_csv(game, folder, relpath):
-    p = game / folder / relpath.replace("/", "\\")
+    # relpath is forward-slash-separated (matches check_csv_shadow's own normalization); pathlib
+    # nests it correctly on every platform. A literal "\\" only nests on Windows -- on POSIX it's
+    # just a character, so it wrote a single flat file instead of the expected nested path.
+    p = game / folder / relpath
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("236;5;# Potion\n", encoding="utf-8")
 
