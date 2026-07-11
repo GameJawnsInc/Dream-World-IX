@@ -54,8 +54,16 @@ from one table (playtest: `scratch/deathrules_test.field.toml`, warp-to-self rou
 - **COVERAGE LAW:** the DLL is mod-global; the check is per-field. An uncovered encounter field's wipe
   revives + flees but does NOT warp and leaves the marker set (→ a spurious warp after the NEXT battle in
   a covered field). `_emit_scripts` warns, NAMING the uncovered fields — repeat the identical block.
-- Playtest risk flag: `Field()` from a tag-10 context — grounded on then_warp/talk-handler warps (14+
-  shipping fields) but tag-10 specifically is unproven until this playtest.
+- ★ PLAYTEST 2026-07-11: "mechanically it's good" — wipe → no game over → warp fires, gil docks,
+  victories don't warp. **`Field()` from tag-10 IS PROVEN** (a new reusable .eb fact). ⚠ Two user-flagged
+  design opens: (1) the flee fade starts WHILE the get-up animations play (the escape branch has no motion
+  wait for living players — a true wait needs an engine patch, breaking stock-compat); (2) the ATB window —
+  enemies can act during the escape fade (vanilla "die while fleeing"), so a revived unit can be re-killed
+  → OnGameOver refires → a SECOND gil dock. Candidates: the DOUBLE-DOCK GUARD (per-battle
+  `_defeatWarpFired`: refire re-revives + re-flees, never re-docks — a pure bug fix) · the "QUIET DEFEAT"
+  variant (drop `SetDefaultIdle`: nobody gets up, the battle fades over the fallen party — kills the
+  sequencing clash, shrinks the window) · a smaller `btl_escape_fade` for a snappier exit. Design call
+  pending.
 
 ### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
 ### set fraction; 2nd wipe → game over; next battle → recharged)
