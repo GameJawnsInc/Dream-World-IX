@@ -299,3 +299,63 @@ def resolve_edits(eb_bytes, cfg: dict) -> list:
         if tv != sc.timer.value:
             edits.append(_edit_for(sc.timer, tv))
     return edits
+
+
+# --------------------------------------------------- GUI authoring helpers --
+# Pure dict-in/dict-out edits on a ``[chocobo]`` cfg (never mutate the input), so the Workspace form can
+# build a candidate block, dry-run it (resolve_edits + eblint), and only then write it into the field.toml
+# -- mirroring logic_edit.upsert_edits. A prize ENTRY is a small dict: {"item": name/id} | {"gil": N} |
+# {"nothing": True} | {"value": N} (the slot key is added here). Timer is one int under [chocobo.tuning].
+def _clone_cfg(cfg: "dict | None") -> dict:
+    import copy
+    return copy.deepcopy(cfg) if cfg else {}
+
+
+def prize_entry(cfg: "dict | None", slot: int) -> "dict | None":
+    """The authored ``[[chocobo.prize]]`` entry for ``slot`` in ``cfg`` (its override), or ``None`` when the
+    slot is left vanilla."""
+    for p in (cfg or {}).get("prize") or []:
+        if isinstance(p, dict) and p.get("slot") == slot:
+            return p
+    return None
+
+
+def set_prize(cfg: "dict | None", slot: int, entry: "dict | None") -> dict:
+    """Return a NEW cfg with ``slot``'s prize set to ``entry`` (item/gil/nothing/value; the ``slot`` key is
+    added) or REMOVED when ``entry`` is None (revert to vanilla). Slots stay sorted; an empty ``prize`` list
+    drops the key so a fully-reverted block leaves no noise."""
+    out = _clone_cfg(cfg)
+    prizes = [p for p in (out.get("prize") or [])
+              if not (isinstance(p, dict) and p.get("slot") == slot)]
+    if entry is not None:
+        e = {"slot": int(slot)}
+        e.update({k: v for k, v in entry.items() if k != "slot"})
+        prizes.append(e)
+    prizes.sort(key=lambda p: p.get("slot", 0))
+    if prizes:
+        out["prize"] = prizes
+    else:
+        out.pop("prize", None)
+    return out
+
+
+def set_timer(cfg: "dict | None", value: "int | None") -> dict:
+    """Return a NEW cfg with ``[chocobo.tuning] timer`` set to ``value`` (or removed when None). An empty
+    tuning table drops the key."""
+    out = _clone_cfg(cfg)
+    tuning = dict(out.get("tuning") or {})
+    if value is None:
+        tuning.pop("timer", None)
+    else:
+        tuning["timer"] = int(value)
+    if tuning:
+        out["tuning"] = tuning
+    else:
+        out.pop("tuning", None)
+    return out
+
+
+def resolved_value(entry: dict) -> int:
+    """The integer prize value an authored entry resolves to (item id / 1000+gil / 30001 / raw). Raises
+    :class:`ChocoboError` on a bad entry -- the GUI uses it for the live '→ value' hint + pre-write check."""
+    return _prize_new_value(entry if "slot" in entry else {**entry, "slot": 0})

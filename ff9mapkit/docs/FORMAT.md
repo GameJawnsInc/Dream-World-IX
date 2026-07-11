@@ -1447,3 +1447,8 @@ you receive. Drop **odds** and dig-spot **coordinates** are not on this lane (th
 tables / coordinate formulas). Only meaningful on a **verbatim** forest fork (`lint`/Check flags it
 elsewhere); deploy **in-place onto the real field id** (e.g. `--id 2950 --text-block 945`) to keep the
 minigame's engine-drawn HUD.
+
+**In the Workspace app:** expand a forest fork's **Script (verbatim .eb)** node — a
+**🐤 Chocobo Hot & Cold** entry appears at the top (only on the three forest fields; hidden everywhere
+else). It opens a form with the timer and all 35 prize slots grouped by tier; **Edit…** on a slot picks
+Item / Gil / Nothing, each change dry-run-validated before it's written into the `[chocobo]` block.

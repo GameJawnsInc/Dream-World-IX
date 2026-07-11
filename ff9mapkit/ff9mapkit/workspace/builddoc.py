@@ -46,6 +46,8 @@ class BuildDoc(QWidget):
         self.manifest = None                           # the journey manifest when kind == "journey"
         self.field_id = None
         self.field_name = None
+        self.inplace_target = None                      # {donor,name,text_block,is_forest} for a verbatim fork of a real field
+        self._inplace_available = False                 # in-place radio is live (a fork of a real field + dev tools)
         self.mod_folder, self.worktree_id = jobs.detect_deploy_target(self.repo)
         self.game_mod = jobs.detect_game_mod()
         self._build_ui()
@@ -112,6 +114,12 @@ class BuildDoc(QWidget):
         gv = QVBoxLayout(box)
         self.tg = QButtonGroup(self)
         tid = self.worktree_id or 4003
+        # In-place: only meaningful for a verbatim fork of a REAL field -> hidden until such a project loads
+        # (set_field fills the label + shows it). Placed FIRST so it reads as the preferred route for a fork.
+        self.rb_inplace = QRadioButton("In-place on the real field")
+        self.rb_inplace.setVisible(False)
+        self.tg.addButton(self.rb_inplace)
+        self.rb_inplace.toggled.connect(self._update_dest)
         self.rb_test = QRadioButton(f"Test slot {tid} — quick + reversible; play via F6 → Warp"
                                     + ("  (or New Game → hut door)" if tid == 4003 else ""))
         self.rb_test.setChecked(self.has_tools)        # installed copy: no F6 dev engine -> default to Install to game
@@ -135,6 +143,7 @@ class BuildDoc(QWidget):
             self.tg.addButton(rb)
             rb.toggled.connect(self._update_dest)
         self.other.textChanged.connect(self._update_dest)
+        gv.addWidget(self.rb_inplace)
         gv.addWidget(self.rb_test)
         gv.addWidget(self.rb_game)
         gv.addLayout(of)
@@ -278,6 +287,7 @@ class BuildDoc(QWidget):
         self.manifest = payload if kind == "journey" else None
         if kind == "field":
             self.field_id, self.field_name = jobs.field_id_name(path) if path else (None, None)
+            self.inplace_target = jobs.field_inplace_target(path) if path else None
             if self.field_id is not None and not self.newgame_id.text().strip():
                 self.newgame_id.setText(str(self.field_id))   # convenience: prefill the New-Game target once
         self._render_kind()
@@ -331,14 +341,44 @@ class BuildDoc(QWidget):
                 self.status.setText(f"Field project: {Path(p).name}")
             else:
                 self.status.setText("Pick a field, campaign, journey, or battle file.")
+            self._sync_inplace()
             self._update_dest()
+
+    def _sync_inplace(self):
+        """Show/label the In-place radio for a verbatim fork of a real field, and DEFAULT to it (the usual
+        intent for such a fork -- and mandatory for a Chocobo forest, whose HUD is hardcoded on the donor id).
+        Needs the dev test-slot tooling; on an installed copy it stays hidden (no reversible test folder)."""
+        t = self.inplace_target
+        show = bool(t) and self.has_tools
+        self._inplace_available = show                  # the logic gate (isVisible() is unreliable off-screen / off-tab)
+        self.rb_inplace.setVisible(show)
+        if not show:
+            if self.rb_inplace.isChecked():            # a prior fork's default -> fall back to a live option
+                (self.rb_test if self.has_tools else self.rb_game if self.game_mod else self.rb_other).setChecked(True)
+            return
+        forest = " (Chocobo forest — keeps the dig HUD)" if t["is_forest"] else ""
+        self.rb_inplace.setText(f"In-place on field {t['donor']} — reversible; keeps the real field's "
+                                f"id/name/HUD{forest}")
+        self.rb_inplace.setToolTip(
+            f"Deploys under the donor's own id {t['donor']} (text block {t['text_block']}) into "
+            f"{self.mod_folder}, so the engine loads this in place of the real field. Reach it the normal "
+            f"way, or F6 → Warp {t['donor']}. Reversible.")
+        self.rb_inplace.setChecked(True)               # the preferred route for a fork of a real field
 
     def _update_dest(self, *_):
         if self.kind != "field":
             return
         tid = self.worktree_id or 4003
         own = self.field_id if self.field_id is not None else "?"
-        if self.rb_test.isChecked():
+        if self._inplace_available and self.rb_inplace.isChecked():
+            t = self.inplace_target
+            msg = (f"→ deploys IN PLACE on field {t['donor']} in {self.mod_folder} (reversible). The engine "
+                   f"loads this instead of the real field — reach it the normal way, or F6 → Warp {t['donor']}."
+                   + ("  Keeps the Chocobo dig HUD." if t["is_forest"] else ""))
+            self.rev.setEnabled(True)              # the deploy writes a per-id revert script
+            self.rev.setToolTip(f"Undo the last in-place deploy on field {t['donor']} (restores its previous "
+                                "contents).")
+        elif self.rb_test.isChecked():
             msg = (f"→ deploys to field {tid} in {self.mod_folder} (your test slot; reversible). "
                    f"Your field's own id ({own}) is overridden — reach it via F6 → Warp to {tid}.")
             self.rev.setEnabled(True)              # the test deploy writes a revert script
@@ -588,6 +628,19 @@ class BuildDoc(QWidget):
             self._go_field(f)
 
     def _go_field(self, field):
+        if self._inplace_available and self.rb_inplace.isChecked():
+            if not self._require_tools("Deploy in place"):
+                return
+            t = self.inplace_target
+            hud = "\n\nKeeps the Chocobo dig HUD (hardcoded on the real forest id)." if t["is_forest"] else ""
+            if self._confirm(f"Deploy in place on field {t['donor']}",
+                             f"Build and deploy this fork IN PLACE on field {t['donor']} ({self.mod_folder})? "
+                             f"The engine loads it instead of the real field (reversible).{hud}"):
+                self._stream(jobs.deploy_field_inplace_argv(self.repo, field, t), cwd=self.repo,
+                             subject=f"Deploy in place on field {t['donor']}",
+                             ok_headline=f"Deployed in place on field {t['donor']} ({self.mod_folder})",
+                             ok_next=f"In-game: reach it the normal way, or F6 → Warp {t['donor']}.")
+            return
         if self.rb_test.isChecked():
             if not self._require_tools("Deploy to test slot"):
                 return

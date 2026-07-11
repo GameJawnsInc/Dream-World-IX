@@ -55,6 +55,28 @@ def field_id_name(path):
         return (None, None)
 
 
+def field_inplace_target(path):
+    """For a VERBATIM fork of a REAL field, the in-place deploy target: a dict
+    ``{donor, name, text_block, is_forest}`` -- deploy the fork under the donor's OWN id (so the engine
+    loads it in place of the real field, keeping any id-hardcoded behaviour like the Chocobo HUD), keeping
+    the donor's registered text block (``EVENT_ID_TO_MES`` -- the HUD zone gate for the forests). Returns
+    ``None`` when the project isn't a verbatim fork of a real field (nothing to deploy in place). ``name``
+    is the fork's own name (the FieldScene FBG-override; the HUD keys on id + zone, not name)."""
+    try:
+        d = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    vb = d.get("verbatim_eb") or {}
+    donor = vb.get("donor")
+    if not isinstance(donor, int) or donor >= 4000:            # only a fork of a real (locked-band) field
+        return None
+    f = d.get("field", {}) or {}
+    from .._fieldtext import EVENT_ID_TO_MES
+    tb = EVENT_ID_TO_MES.get(donor, f.get("text_block") or 1073)
+    return {"donor": donor, "name": f.get("name") or Path(path).stem,
+            "text_block": tb, "is_forest": donor in (2950, 2951, 2952)}
+
+
 # --------------------------------------------------------------------------- install / deploy targets
 def detect_game_mod():
     """The game's ``FF9CustomMap`` folder, or ``None`` if the install can't be found."""
@@ -267,6 +289,17 @@ def pack_argv(mod_root, out_zip, *, name=None):
 def deploy_field_argv(repo_root, field):
     """Reversibly deploy a field.toml into this worktree's test slot (``tools/deploy_field.py``)."""
     return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]
+
+
+def deploy_field_inplace_argv(repo_root, field, target):
+    """Reversibly deploy a verbatim fork IN PLACE on its donor id (``target`` from
+    :func:`field_inplace_target`): ``deploy_field.py <field> --id <donor> --name <name> --text-block <tb>``.
+    The mod folder defaults from ``.ff9deploy.toml`` (the worktree's reversible test folder). Overriding
+    ``--id`` to the donor + keeping its registered text block is what makes the engine load this in place of
+    the real field (and keeps the Chocobo HUD, which is hardcoded on the donor id + zone 945)."""
+    return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field),
+            "--id", str(target["donor"]), "--name", str(target["name"]),
+            "--text-block", str(target["text_block"])]
 
 
 def deploy_campaign_argv(repo_root, path, *, wire_newgame=False):
