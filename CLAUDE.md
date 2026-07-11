@@ -170,7 +170,7 @@ The full technical detail this file only summarizes lives in the project-memory 
 - Sound: custom music/SFX, DLL-free → [[project-ff9-sound-music]] · GUI/Workspace + onboarding/installer → [[project-ff9-gui-makeover]], [[project-ff9-installer-packaging]] · Multiplayer ghost-sync (s36; held for b14) → [[project-ff9-multiplayer-injector]] · Image→field EXPERIMENTAL → [[project-ff9-image-to-field]]
 
 **Frontier:** beach-mint rung 3 (the virgin-shore mint) at the census winner **(9,17)** → [[project-ff9-overworld-coast-mosaic]]; declarative `[[platform]]`; the story-event director (#13) — authoring side proven → [[project-ff9-fork-fidelity-worklist]].
-**Latest:** kit **1.0.0b13**, 3031 tests (`py -m pytest -n 6`); the engine bundle is unchanged from b12 (s35, the s22 block-dump, s36 multiplayer held for b14); install-path features not yet in-game proven on an installed copy. Full changelog → `git log`.
+**Latest:** kit **1.0.0b14**, 3283 tests (`py -m pytest -n 6`) — the Overload battle-balance hub (`[difficulty]`/`[rebalance]`/`[deathrules]`), Chocobo Hot & Cold, the first hand-built continent + the coast-morph pillar + beach-mint (shore vocabulary now closed), battle-model export gap closed, bone display labels, image-field `--auto-floor`/real-photo proof, and the skills+brief refactor (§9); the engine bundle is unchanged from b12/b13 (s35, the s22 block-dump, s36 multiplayer still held for a from-source rebuild). Full changelog → `ff9mapkit/CHANGELOG.md` / `git log`.
 
 ---
 

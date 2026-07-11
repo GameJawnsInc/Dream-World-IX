@@ -3,7 +3,87 @@
 All notable changes to `ff9mapkit`. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning is [SemVer](https://semver.org). The Blender add-on has its own version, kept in lockstep.
 
-## [Unreleased]
+## [1.0.0b14] - 2026-07-11 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
+
+### Added — Chocobo Hot & Cold: custom dig prizes on a verbatim forest fork
+- A new declarative **`[chocobo]`** table sets the Chocobo's Forest dig prizes and timer tuning
+  (`[[chocobo.prize]]` / `[chocobo.tuning]`) on a `--verbatim` forest fork, via `chocobo-export` +
+  a new generic `[[logic_edit]] kind = "expr_literal"` edit primitive (in-expression-literal patching,
+  reusable beyond chocobo). Popup text, the item actually given, and the tally all agree by
+  construction. In-game proven on **all three Chocobo Forests** (2026-07-10): Elixir (2950),
+  Phoenix Down (2951), Magic Tag (2952). Warp-in for testing is one F6 Flags-batch preset.
+- The F6 debug menu's Flags tab gained a **BATCH story-flag operator**: bit/byte/word operations in
+  one click, all-or-nothing, with named presets — the general tool this chocobo work needed and now
+  ships for any story-flag testing.
+
+### Added — the coast-morph pillar: reshape any verbatim coastline in place
+- **Cliff morphs**: `--cliff-bump` (a conforming bow, ≤2.5u), `--cliff-headland` (a structural
+  promontory, wall rebuilt over a pushed outline), `--cliff-bay` (the inward mirror), and
+  `--cliff-lobes` (composed multi-lobe coastlines — a bay between two headlands in one window) on
+  any `world-transplant`ed coastline.
+- **Beach morphs**: `--beach-bump` (the first morph on a sandy shore — a whole-assembly cosine-tapered
+  drag field), `--beach-reshape` (structural shape morph — the sand/waterline/berm assembly slides as
+  a unit, the water ladder re-lays through the learned Wang tables), and `--beach-slide` (full-assembly
+  translation, growing a beach seaward with native grass fill).
+- **`--in-place`** deploys any of the above directly onto the REAL, already-shipped map coastline — no
+  carrying/transplanting required first. A new **`ff9mapkit world-morphs --block BX,BY | --all`**
+  scanner probes every real coastline window and catalogs **324 lawful morph windows map-wide** (297
+  cliff, 27 beach), each with a ready-to-run `--in-place` deploy line.
+- All in-game proven across 2026-07-09 through 2026-07-10, including on the live custom continent
+  (below) through its `world-fuse` placement.
+
+### Added — beach-mint: author a wholly new beach, not just carry one
+- **`--beach-mint WIDTH|auto[:LAND]`** re-mints a real beach's sand+foam assembly from chain specs at
+  any width — the seam chain, topology, and every UV are synthesized (no fan-transport from the
+  donor), gated by the ribbon/slope/swash envelope laws. `:LAND` additionally synthesizes a new land
+  chain (the berm pushed landward and BSP-clipped at the synthetic boundary) — a fully kit-authored
+  beach, not a carried one. In-game proven 2026-07-11 (rungs 1 and 2a).
+- Underpinning this: the **sand-band edge table** (`sand_rebuild`) and the **end-cap foam/sand tables**
+  (`cap_rebuild`) were fully byte-learned map-wide and proven to regenerate every real beach
+  byte-for-byte — **the shore tile vocabulary is now closed**.
+
+### Added — the first hand-built continent
+- Four real FF9 islands — a cliff/highland island, a shore island, a real sandy beach, and Uaho (FF9's
+  own air-only islet) — fused into one seamless multi-island archipelago in open ocean via
+  **`world-fuse`**, each carried verbatim and stitched at every shared border with zero seams. In-game
+  proven 2026-07-09 ("all 4 islands render and walk fine, no seam at the strait"); ships as a worked
+  example, `ff9mapkit/examples/continent-v1/`.
+- New growth primitives underneath: `world-transplant --size NxM` carries a multi-cell landmass as one
+  rigid assembly; `RowInsert`/`chain_row_inserts` grow an island by inserting real lattice columns
+  (bit-exact seam extrusion); `spill-clip` unlocks growth using an empty neighboring cell's water as
+  slack, without synthesizing new bytes.
+
+### Added — battle-model export gap closed (all 71 alias ids)
+- `extract.resolve_prefab` now replays the engine's own battle-model alias-resolution chain (boss
+  forms, alternate outfits, field-avatar aliases), so all **71** shipped alias ids export, preview,
+  reskin, and deploy engine-faithfully (a battle form = the shared field body + a battle overlay + its
+  own animset; overrides land at the donor prefab folder). The 43 genuinely-unshipped ids now refuse
+  with an actionable message. Byte-identical baselines confirmed offline (2026-07-10).
+
+### Added — bone semantic display labels (`model-gltf`)
+- Exported skeletons now carry anatomical bone names (e.g. `bone012_R_hand`) for 83% of FF9's rigs,
+  derived from family-clustered rest-pose heuristics (`+x` = right, face = `−z`, pinned via weapon-hand
+  anchors); binding is untouched, `--plain-bones` opts back out. Makes hand-editing a skinned mesh in
+  Blender far easier to navigate. Offline-proven 2026-07-11.
+
+### Added — image-field: `--auto-floor`, anchored occluders, real-photo proof
+- **`--auto-floor`** (numpy seeded region grow, refusal-biased) auto-detects the walkable floor region
+  instead of requiring a hand-traced polygon, and pre-loads the `--trace` browser tool for correction.
+- **Anchored occluders** (`--foreground img.png@cx,cy`) now depth-sort against the player correctly —
+  a cut-out's Z is set to the actor's own OT depth at its floor-contact point, so walking behind an
+  object hides behind it and walking in front draws over it.
+- A full-resolution cover-crop fix sharpens the deployed background (earlier builds shipped a softened
+  image); rebuild any pre-existing `image-field` project to pick it up.
+- *In-game proven on a real photograph* (2026-07-09) via the `--trace` tracer — the user's own hallway,
+  walkable in FF9.
+
+### Added — F6: overworld vehicle/disc tooling + the canonical coordinate readout
+- New overworld vehicle-mode swap and disc-switch tooling in F6's Go tab, reverse-engineered from the
+  dispatcher tables.
+- The Position readout now leads with the canonical WRAPPED coordinate triple every kit tool speaks
+  (`world (x,z) · block [x][y] (⌊x/64⌋,⌊−z/64⌋) · cell (x,z) (⌊x/32⌋,⌊−z/32⌋)`) instead of the engine's
+  raw unwrapped position — ending a recurring coordinate-confusion class of bug. Copy position copies
+  the canonical pair. In-game proven 2026-07-09.
 
 ### Added — `[deathrules]`: declarative game-over rules (the first RETURNING Overload hook)
 - A **`[deathrules]`** table in `field.toml` owns the party-wipe verdict (`OnGameOver`): **`second_wind`**
@@ -65,6 +145,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   folded back into a freshly deployed DLL through one code path (`overload.compile_live`), and
   build-owned script sources (`Battle`, `Difficulty`, the hub) are now **replaced** on deploy so removed
   declarative content can't resurrect from a stale live copy.
+
+### Changed — housekeeping
+- 11 project-scoped Claude Code skills added under `.claude/skills/` (deploy loop, `.eb` scripting,
+  forking, scenes, overworld, battles, characters, models, engine builds, campaigns, items/saves) as
+  load-on-demand agent procedures; the repo-root `CLAUDE.md` agent brief was slimmed from 785 to 186
+  lines to route into them. Internal AI-agent tooling — no effect on the toolkit itself.
+- The release CI workflow now gates the GitHub Release + PyPI publish on the full test suite passing
+  and the git tag matching `pyproject.toml`'s version, and smoke-installs the built wheel into a clean
+  venv before anything is published.
 
 ## [1.0.0b13] - 2026-07-08 — 14th playable character, Scripts-DLL scripting, custom models & creatures, synthetic overworld
 
