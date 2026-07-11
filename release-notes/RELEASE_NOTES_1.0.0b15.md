@@ -1,4 +1,4 @@
-# Dream World IX 1.0.0b14 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
+# Dream World IX 1.0.0b15 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
 
 **Dream World IX** is a toolkit for building brand-new playable *Final Fantasy IX* content — and faithfully forking the real game — for the [Memoria engine](https://github.com/Albeoris/Memoria) (Steam/GOG FF9). This release adds a declarative battle-balance rules engine, closes the last gaps in custom overworld authoring (the first fully custom continent, cliff and beach reshaping, a closed shore-tile vocabulary), and reopens the Chocobo Hot & Cold minigame for custom prizes — 183 commits and 3283 passing tests since b13, all DLL-free.
 
@@ -58,10 +58,10 @@ The experimental `image-field` command (turn any picture into a walkable FF9 roo
 
 ## Engine bundle
 
-**The b14 public engine bundle is UNCHANGED from b12/b13** — same fork-fidelity patch set (**s23–s33**) plus the **s34** overworld mesh-override plus the F6 in-game debug menu, shipped as `dwix-custom-memoria-*.zip`.
+**The b15 public engine bundle is UNCHANGED from b12/b13** — same fork-fidelity patch set (**s23–s33**) plus the **s34** overworld mesh-override plus the F6 in-game debug menu, shipped as `dwix-custom-memoria-*.zip`.
 
-- **If you already have the b12 or b13 engine, you do NOT need to re-download it.** Every b14 pillar above is either DLL-free or runs on the existing bundle (the continent/coast-morph/chocobo work all reuses the already-shipped s34 override).
-- A newer overlay-texture-cache patch (**s35**) and an F6 diagnostic addition exist in the patch set but are not yet in this public bundle — held for a future from-source engine rebuild, same as the b13 → b14 gap. Nothing in this release depends on them.
+- **If you already have the b12 or b13 engine, you do NOT need to re-download it.** Every b15 pillar above is either DLL-free or runs on the existing bundle (the continent/coast-morph/chocobo work all reuses the already-shipped s34 override).
+- A newer overlay-texture-cache patch (**s35**) and an F6 diagnostic addition exist in the patch set but are not yet in this public bundle — held for a future from-source engine rebuild. Nothing in this release depends on them.
 - A **novel** (from-scratch / BG-borrow) field runs on **stock Memoria**, as do most of this release's headline pillars.
 - A **forked** field, and the overworld synthesis/reshape commands, need the shipped s23–s34 suite (all present in the unchanged bundle).
 

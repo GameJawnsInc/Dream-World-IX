@@ -3,7 +3,11 @@
 All notable changes to `ff9mapkit`. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning is [SemVer](https://semver.org). The Blender add-on has its own version, kept in lockstep.
 
-## [1.0.0b14] - 2026-07-11 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
+## [1.0.0b15] - 2026-07-11 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
+
+> v1.0.0b14 was tagged and pushed but never published -- the release CI's Linux test job caught 4
+> pre-existing gaps in tests added over the prior few days (never run on a bare, no-install/no-GUI
+> machine before). Fixed same-day (commit `740d334`); this is the same content re-cut as b15.
 
 ### Added — Chocobo Hot & Cold: custom dig prizes on a verbatim forest fork
 - A new declarative **`[chocobo]`** table sets the Chocobo's Forest dig prizes and timer tuning
