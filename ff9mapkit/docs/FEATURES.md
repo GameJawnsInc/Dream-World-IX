@@ -108,6 +108,7 @@ the `s34` mesh-override patch ([ENGINE.md](ENGINE.md)).
 | Pair a **field effect** (`script.field`) so a scripted ability heals/cures out of combat too — same DLL, same scriptId | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | **`[difficulty]`** — declarative enemy scaling / flag-gated "hard mode" (HP/attack/magic, once per battle; players untouched) | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | **`[rebalance]`** — declarative HP-damage multiplier by side (player_damage / enemy_damage, flag-gateable) | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
+| **`[deathrules]`** — declarative game-over rules (once-per-battle second-wind Phoenix revive + chance, Eiko auto-revive removal, flag-gateable) | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | Battle-calc **telemetry** to a JSONL + balance report (`battle-telemetry`, dev tool) | ✓ | [SCRIPTS_DLL](SCRIPTS_DLL.md) |
 | Reshape a battle map in Blender (add-on Import/Export Battle Map) | ✓ | [blender/README](../blender/README.md) |
 

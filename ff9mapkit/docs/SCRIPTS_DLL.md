@@ -413,7 +413,10 @@ every compile — never edit it) and builds features as plain static classes the
 **mutators before observers** (a difficulty scaler runs before telemetry logs the roster, so the log shows
 the stats you actually fight). Where a hook displaces an engine default (backstab/kill-frozen, the ×1.5
 damage-modifier stack, the reflect multiplier), the default is **transcribed verbatim** into the hub —
-gameplay is unchanged unless a feature changes it on purpose. Three features exist today:
+gameplay is unchanged unless a feature changes it on purpose. Hooks whose **return value** the engine acts
+on (like `OnGameOver`, where `true` cancels the game over) are **single-owner**: exactly one feature supplies
+the verdict, and that feature transcribes whatever part of the displaced default it keeps. Four features
+exist today:
 
 ### Battle telemetry (dev tool — `ff9mapkit battle-telemetry`)
 
@@ -483,6 +486,33 @@ with F6 → Flags takes effect *immediately, mid-battle*; `[difficulty]` gates a
 so its bit only bites from the *next* battle. Pick the block whose cadence matches the effect you want (a live
 mid-fight damage swing → rebalance; a per-encounter difficulty toggle → difficulty). ★ Both in-game proven.
 
+### `[deathrules]` — declarative game-over rules (shipped content)
+
+Owns the **party-wipe verdict** (`OnGameOver` — a returning, single-owner hook): when the last player goes
+down, the feature decides whether the game over proceeds or is canceled.
+
+```toml
+[deathrules]
+second_wind = true          # cancel the wipe ONCE per battle: the party is revived by the same engine
+                            # mechanism as Eiko's auto-Phoenix (a queued system Rebirth Flame)
+chance = 60                 # OPTIONAL percent chance the second wind fires (whole 1-100; default 100)
+keep_rebirth_flame = false  # OPTIONAL: false REMOVES Eiko's vanilla auto-revive (default true = kept)
+flag = "mercy_mode"         # OPTIONAL gate (same shape as the siblings)
+```
+
+The **second wind** is a roguelike mercy rule: the first wipe of a battle triggers a full Phoenix party
+revive (the engine's own `Rebirth Flame` command, queued exactly the way the vanilla Eiko default queues it —
+no hand-rolled state edits), then recharges at the next battle; a second wipe in the same battle is a normal
+game over. `keep_rebirth_flame = false` is the hardcore mirror: it removes Eiko's vanilla auto-revive (with
+no `second_wind` it makes wipes strictly final). Owning the hook *displaces* the Eiko default, so the kit
+transcribes it verbatim and keeps it unless you turn it off.
+
+`flag` semantics differ from the siblings **on purpose**: bit clear means *fully vanilla* — Eiko's auto-revive
+still fires even when `keep_rebirth_flame = false`, because the rule is asleep, not half-applied. Granularity:
+the hook fires at wipe time, so the flag toggles the rules **live** — the very next wipe obeys the new state.
+Mod-global + build rules identical to `[difficulty]`/`[rebalance]`. Fail-safe: any hiccup returns `false` (a
+vanilla defeat) — never a canceled game over with nobody revived, which would stall the battle.
+
 One caveat shared with the whole channel: if a *second* stacked mod folder ships its own implementation of
 the same `IOverload*` interface, the higher-priority folder's wins silently. Within one mod the kit refuses
 a hand-dropped `.cs` that collides with the hub (a clear compile-time error instead of a coin flip).
@@ -499,6 +529,7 @@ a hand-dropped `.cs` that collides with the hub (a clear compile-time error inst
   7-phase build plan. `project-ff9-ability-preset-system` / `project-ff9-13th-character` — the ability-kit stack
   this builds on.
 
-**Key refs:** `ScriptsLoader.cs:215-311,343-365`, `SBattleCalculator.cs:63,109-131,200,323`, `TitleUI.cs:1528` ·
-`ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `overload.py` (the hub), `telemetry.py`,
-`difficulty.py`, `rebalance.py`, `content/playable.py`, `build.py` (`_emit_scripts`).
+**Key refs:** `ScriptsLoader.cs:215-311,343-365`, `SBattleCalculator.cs:63,109-131,200,323`, `btl_sys.cs:87`,
+`TitleUI.cs:1528` · `ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `overload.py` (the hub),
+`telemetry.py`, `difficulty.py`, `rebalance.py`, `deathrules.py`, `content/playable.py`, `build.py`
+(`_emit_scripts`).
