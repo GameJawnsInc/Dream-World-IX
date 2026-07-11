@@ -700,9 +700,10 @@ column-quantized nose windows exist, so `beach_slide(depth>0)` rides beach_bump'
 displacement field with the band re-emitted verbatim (drop-don't-drag), **grass PINNED** (the
 berm drag deleted) and the vacated strip re-filled with NATIVE GRASS (`_grass_fill_region`) —
 true seaward land growth; ceilings (18,15) +2.5 / (16,15) +3.5 (past the bump cap) / (3,13)
-+2.5; ★ in-game proven 2026-07-10 in-place at the real (18,15) ("the nose reads clean, new grass
-blends right in"). Path A (the full sand edge-table) stays the beach-mint prerequisite, later.
-24 golden tests → [[project-ff9-overworld-coast-mosaic]].
++2.5; ★ in-game proven 2026-07-10 in-place at BOTH the real (18,15) +2.5 AND (16,15) +3.5 (the
+map's biggest lawful nose growth, the first morph past the drag envelope's depth — "the nose
+reads clean, grass blends in fine"). Path A (the full sand edge-table) stays the beach-mint
+prerequisite, later. 24 golden tests → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven 2026-07-10**
