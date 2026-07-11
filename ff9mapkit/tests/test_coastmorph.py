@@ -501,6 +501,51 @@ def test_beach_mint_golden():
     assert len(new - stock) == 6            # the 6 interior seam verts are SYNTHETIC
 
 
+def test_deformed_rect_law_decodes_the_strip_tiers():
+    """THE DEFORMED-TILE RECT LAW (byte-learned 2026-07-11, the rung-3 convergence
+    study): a strip tile's uv map is a <=2u x <=2v snap-rect ASSIGNED TO ITS CORNERS
+    independent of geometric deformation (position-evaluated fits fail BECAUSE the
+    map deforms with the tile); inserted verts are positional edge-lerps. On the
+    proven coastal donors the law explains EVERY lattice group and every conforming
+    group of both strip bands."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    for donor in (DONOR, (3, 13), (9, 17)):
+        for part in ("sea1", "sea5"):
+            tris = TR.world_tris(*donor, part)
+            if not tris:
+                continue
+            kinds = [k for _g, k, _d in CM._deformed_strip_groups(tris)]
+            assert kinds and all(k == "rect" for k in kinds), (donor, part)
+    # (18,15) carries exactly two real residual sea1 groups (the map-wide ~5% class:
+    # rotated / cross-group-anchored) -- the law names its residual honestly
+    kinds = [k for _g, k, _d in CM._deformed_strip_groups(
+        TR.world_tris(18, 15, "sea1"))]
+    assert kinds.count("residual") == 2 and kinds.count("rect") >= 10
+
+
+def test_conforming_rebuild_golden():
+    """The rect law's completeness proof on (7,17): every conforming strip group
+    re-derives through corner assignment + positional lerps under the equality
+    gate; the emitted tris re-decode under the law; every emitted (pos, uv) is
+    identity to the donor at 4dp (these donors' groups are all-corner -- transport
+    verified structurally; the lerp tier is the rare map-wide residual)."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.conforming_rebuild(DONOR)
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("sea1", 10), ("sea1", 10), ("sea5", 8), ("sea5", 8)]
+    assert _tweak_hash(tw) == _tweak_hash(CM.conforming_rebuild(DONOR))
+    for part in ("sea1", "sea5"):
+        emit = next(t for t in tw if hasattr(t, "tris") and t.part == part)
+        stock = {frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                           for v in t3) for t3 in TR.world_tris(*DONOR, part)}
+        assert all(frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                             for v in t3) in stock for t3 in emit.tris)
+        kinds = [k for _g, k, _d in CM._deformed_strip_groups(emit.tris)]
+        assert all(k == "rect" for k in kinds)
+
+
 def test_beach_mint_land_golden():
     """RUNG 2a -- the FREE-FOOTPRINT mint, landward: the interior LAND CHAIN is
     synthetic too (sin^2 eased, cap ends pinned, berm-surface conformed) and the berm
