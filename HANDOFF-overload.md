@@ -19,7 +19,7 @@ and in-game proven**:
 | **battle telemetry** (`telemetry.py`, CLI `battle-telemetry`) | OnBattleInit/Start/DamageFinalChanges/End | observer (dev tool) | ★ proven |
 | **`[difficulty]`** (`difficulty.py`) | OnBattleInit | mutator — enemy HP/Str/Mgc scaling | ★★ proven, both variants |
 | **`[rebalance]`** (`rebalance.py`) | OnDamageFinalChanges | mutator — player/enemy HP-damage × | ★★ proven, both variants |
-| **`[deathrules]`** (`deathrules.py`) | OnGameOver (+OnBattleInit reset) | RETURNING single-owner — game-over verdict | built + offline-proven 2026-07-11, **awaiting playtest** (`scratch/deathrules_test.field.toml`) |
+| **`[deathrules]`** (`deathrules.py`) | OnGameOver (+OnBattleInit reset) | RETURNING single-owner — game-over verdict | ★ in-game proven 2026-07-11 (always-on second wind) |
 
 **The returning-hook hub mode is BUILT** (2026-07-11): `RETURNING_HOOKS` in `overload.py` — the hub emits
 `try { return <owner-expr>; } catch { } return <fail-safe>;`, single-owner enforced in `render_hub`
@@ -28,8 +28,10 @@ and in-game proven**:
 flag is clear). The whole tree (hub + all 4 features) compiles against the live engine
 (`test_tree_compiles_against_live_engine`, ran + passed).
 
-**What's left:** the `[deathrules]` playtest; the **Trance/low-HP** feature (`UnitCheckPoint` — dive DONE,
-see below); optionally a warp-on-defeat `[deathrules]` mode (a user design call).
+**What's left:** the **Trance/low-HP** feature (`UnitCheckPoint` — dive DONE, see below); optionally a
+warp-on-defeat `[deathrules]` mode (a user design call); a **short-animation knob** for the second wind
+(user-flagged: the revive plays the full Rebirth Flame summon — cool in FF9, "could get obnoxious in an
+authored context"; needs a dive into which revive ability/command carries a shorter choreography).
 
 `master` is ahead of `origin` — **the user handles pushes.** Do not push.
 
@@ -115,7 +117,7 @@ owner enforced in `render_hub`; fail-safe per hook baked into the template (`OnG
 vanilla defeat, never a canceled wipe with nobody revived = soft-lock). Tests mirror the void path
 (`test_hub_deathrules_returning_hook`, `test_hub_returning_hook_is_single_owner`).
 
-### 1. ✔ BUILT (2026-07-11), awaiting playtest — `[deathrules]` on `OnGameOver` (btl_sys.cs:87)
+### 1. ★ IN-GAME PROVEN (2026-07-11) — `[deathrules]` on `OnGameOver` (btl_sys.cs:87)
 
 `ff9mapkit/ff9mapkit/battle/deathrules.py` + build wiring + docs (SCRIPTS_DLL.md §12, FORMAT.md,
 FEATURES.md, CHANGELOG). Knobs: `second_wind` (cancel the wipe ONCE per battle by queueing the engine's own
@@ -130,10 +132,15 @@ FIRST. Facts learned in the dive: the Eiko default's `return`s exit `CheckBattle
 hook's `true`), and a dead unit CAN carry the queued command (vanilla queues it on the dead Eiko's
 `cmd[0]`).
 
-**Playtest:** `scratch/deathrules_test.field.toml` (rounds documented inside; deploy from master, RELAUNCH,
-quit fully before each redeploy). Prove: first wipe → Phoenix revive + battle continues; second wipe same
-battle → normal game over; next battle → recharged; flag round → live toggle; (optional) Eiko party with
-`keep_rebirth_flame = false` → no auto-Phoenix while the rule is active.
+**★ Playtest PASSED 2026-07-11** (`scratch/deathrules_test.field.toml`, always-on variant, new game →
+4003): first wipe → the Rebirth Flame summon plays → party resurrects at ~50 HP; second wipe same battle →
+normal game over screen; continue → next battle → identical behavior (recharged). User: "all clear."
+NOT separately playtested (mechanism-identical to ★-proven sibling gates / verbatim-transcribed code):
+the `flag` round, `chance`, `keep_rebirth_flame = false` with an Eiko party. **User-flagged follow-up:**
+the revive plays the FULL Rebirth Flame summon animation (vanilla `RebirthFlame` choreography — we queue
+the real command, so we inherit it); fine for FF9 flavor, "could get obnoxious in an authored context" —
+a short-animation knob (different revive command/ability with lighter btlseq choreography, or a minted
+one) needs its own dive before promising TOML.
 
 **Deferred design option (user gameplay call, NOT built):** warp-on-defeat (return to the World Hub / a
 field instead of a hard game over). Riskier: there is no sanctioned battle-exit path from inside this hook
