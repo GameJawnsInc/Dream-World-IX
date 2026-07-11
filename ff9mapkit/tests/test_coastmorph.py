@@ -475,6 +475,43 @@ def test_cap_rebuild_tr_round_trip():
                          for v in t3) in stock for t3 in emitf.tris)
 
 
+def test_beach_mint_golden():
+    """BEACH-MINT rung 1 -- (7,17)'s beach re-minted from chain specs: 16 donor sand
+    tris (incl. the 4-tri bend fan, NOT transported) become 14 clean column tris; the
+    UV sets are exactly the two languages; every interface vert is preserved; the
+    synthetic seam chain's interior verts are NEW positions at the requested width."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.beach_mint(DONOR, width=2.5)
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("terrain", 16), ("terrain", 14), ("beach1", 14), ("beach1", 14)]
+    assert _tweak_hash(tw) == _tweak_hash(CM.beach_mint(DONOR, width=2.5))
+    emits = next(t for t in tw if hasattr(t, "tris") and t.part == "terrain")
+    emitf = next(t for t in tw if hasattr(t, "tris") and t.part == "beach1")
+    assert {round(v[2][1], 4) for t3 in emits.tris for v in t3} \
+        == {0.5664, 0.5947, 0.6006, 0.625}
+    assert {round(v[2][0], 4) for t3 in emitf.tris for v in t3} == {0.0156, 0.5}
+    assert {round(v[2][1], 4) for t3 in emitf.tris for v in t3} \
+        == {0.0156, 0.4531, 0.5312, 0.9375}
+    # the seam moved: some minted verts must NOT exist in the stock mesh (synthesis),
+    # while every boundary edge vert must (the pinned interfaces)
+    stock = {CM._pk(v[0]) for t3 in TR.world_tris(*DONOR, "terrain") for v in t3} \
+        | {CM._pk(v[0]) for t3 in TR.world_tris(*DONOR, "beach1") for v in t3}
+    new = {CM._pk(v[0]) for t3 in emits.tris + emitf.tris for v in t3}
+    assert len(new - stock) == 6            # the 6 interior seam verts are SYNTHETIC
+
+
+def test_beach_mint_probes_the_swash_ceiling():
+    """The width knob's lawful ceiling on (7,17) is set by the SWASH envelope (band +
+    swash share the pinned L->W corridor): 4.6 builds, 5.0 refuses."""
+    from ff9mapkit.world import coastmorph as CM
+    CM.beach_mint(DONOR, width=4.6)
+    with pytest.raises(ValueError, match="swash width"):
+        CM.beach_mint(DONOR, width=5.0)
+    with pytest.raises(ValueError, match="ribbon"):
+        CM.beach_mint(DONOR, width=1.0)
+
+
 def test_cap_rebuild_refuses_the_spit():
     """(3,11) is the double-sided SPIT: its caps are the BR/subdivided tip vocabulary
     (out of the quad-cap laws' scope) and its sand caps ride the fold -- nothing

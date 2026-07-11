@@ -720,8 +720,15 @@ mint-facing emitters `emit_foam_cap`/`emit_sand_cap` + `cap_rebuild` / `--cap-re
 identity round-trip under an internal byte-equality gate — **70 foam + 34 sand cap tris over
 27 blocks ALL byte-exact** (caps have zero freedom beyond snaps: the round-trip IS the
 completeness proof); spit/BR/subdivided/skewed/frame-split verbatim; (9,8) redeployed clean.
-The shore vocabulary is CLOSED — BEACH-MINT is now pure composition.
-29 golden tests → [[project-ff9-overworld-coast-mosaic]].
+The shore vocabulary is CLOSED. **★ BEACH-MINT RUNG 1 in-game proven 2026-07-11** ("passes the
+visual/seam test, looks narrower"): `beach_mint` / `--beach-mint WIDTH|auto` re-mints a real
+beach's sand+foam assembly from chain specs — interfaces pinned (land chain / waterline / end
+welds), the seam chain + topology + every UV synthesized (no fan transport; sand P/Q walks +
+cap emitters, foam stamps + BL caps); gated by the ribbon/slope/swash envelopes + THE ASSEMBLY
+BOUNDARY gate; (7,17)'s width ladder probes 4.6 as the swash ceiling; the (11,7) clone carries
+the beach fully re-minted at width 2.5 vs the donor's ~4.1 — the first fully kit-authored beach
+assembly in-game. Rung 2 = the virgin-shore mint (synthetic chains + berm clip + ladder re-lay).
+31 golden tests → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven on ALL
