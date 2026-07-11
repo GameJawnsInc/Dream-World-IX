@@ -30,7 +30,7 @@ raises ``ValueError`` with the failing law, mirroring ``build_grow_tweaks``.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from . import grassland as G
 from . import transplant as TR
@@ -2793,6 +2793,339 @@ def conforming_rebuild(donor, parts=("sea1", "sea5"), *, disc: int = 1,
     if not out:
         raise ValueError(f"donor {donor} carries none of {parts}")
     return out
+
+
+#: THE ONE-CELL BAND-CONVERSION (rung 3, step 1 -- the first FRESH deformed-tile
+#: emission; byte-grounded 2026-07-11 on donors (7,17)/(3,13)/(9,17)):
+#: * **THE DISCRETE ROLE-DECODE is exact**: every strip group (lattice AND
+#:   conforming) decodes to EXACTLY ONE (v-row, dihedral-8 orientation) by matching
+#:   every corner snap through its NEAREST-CELL-CORNER role (29/29 conforming
+#:   groups across the three donors, zero ambiguity, zero misses) -- stronger than
+#:   a least-squares frame fit, which misreads leaning convergence quads.
+#: * **the strip float dialect is per-BLOCK byte-read**: the proven donors all
+#:   speak the uniform dialect (u {0, 62/63}, v rows {0, 31/127, 63/127, 95/127,
+#:   1}), but emission NEVER types constants -- it reads the exact floats from the
+#:   block's own decoded groups and refuses a row it hasn't byte-observed.
+#: * **THE SHADE-AGREEMENT LAW** (the gate): a strip tile's deep-claim at a shared
+#:   4-adjacent edge must be TWO-SIDED within a band (both or neither -- real
+#:   back-to-back deep pinches exist, so claims may exceed the depth facts, never
+#:   one-sidedly) and must equal the depth FACT against a different band. The gate
+#:   runs on the PRE state (the donor must pass -- the null test) and the POST.
+#: * conversion transports geometry, normals and IDALL VERBATIM (water topograph =
+#:   movement/vehicle semantics; a band conversion is a uv + part edit), so the
+#:   frame weld set and T-vertex exposure are unchanged BY CONSTRUCTION.
+WATER_DEPTH = {"beach1": 1, "sea2": 2, "sea1": 3, "sea3": 4, "sea5": 5, "sea4": 6}
+#: THE LATTICE ADJACENCY LAW (owner-cell 4-adjacency, map-wide census 2026-07-11)
+_LAWFUL_ADJ = {frozenset(p) for p in (
+    ("sea2", "sea2"), ("sea2", "sea1"), ("sea1", "sea1"), ("sea1", "sea3"),
+    ("sea1", "sea5"), ("sea3", "sea3"), ("sea3", "sea5"), ("sea5", "sea5"),
+    ("sea5", "sea4"), ("sea4", "sea4"))}
+_OPP = {"E": "W", "W": "E", "N": "S", "S": "N"}
+#: v-row BOUNDARY snap families (texels/1024): family i | i+1 brackets row i
+_V_FAMILIES = ((0.0, 16.0), (242.0, 250.0, 258.0, 274.0, 282.0),
+               (508.0, 516.0, 524.0), (742.0, 758.0, 766.0, 774.0, 782.0, 790.0),
+               (1000.0, 1024.0))
+
+
+def _cell_of_tri(t3):
+    return (math.floor(sum(v[0][0] for v in t3) / 3.0 / 4.0),
+            math.floor(sum(v[0][2] for v in t3) / 3.0 / 4.0))
+
+
+def _corner_role(p, cell):
+    """A vert's corner ROLE (fx, fz) in {0,1}^2 = the nearest 4u-cell corner (exact on
+    lattice verts; unambiguous on conforming quads, whose drags stay under 2u)."""
+    fx = 0 if abs(p[0] - 4.0 * cell[0]) < abs(p[0] - 4.0 * (cell[0] + 1)) else 1
+    fz = 0 if abs(p[2] - 4.0 * cell[1]) < abs(p[2] - 4.0 * (cell[1] + 1)) else 1
+    return (fx, fz)
+
+
+def _v_family(t):
+    for i, fam in enumerate(_V_FAMILIES):
+        if any(abs(t - s) <= _SNAP_EPS_T for s in fam):
+            return i
+    return None
+
+
+def _strip_float_vocab(groups_by_part):
+    """The block's own strip float dialect, byte-read from its decoded rect groups:
+    ``(u_pair, {row_index: (v0, v1)})`` in exact raw floats. Refuses a mixed dialect
+    (two float pairs for one row) or an inset u variant -- v1 emits base tiles only."""
+    u_pairs, rows = set(), {}
+    for gs in groups_by_part.values():
+        for _gtris, kind, det in gs:
+            if kind != "rect":
+                continue
+            us = sorted({round(uv[0], 6) for (_p, uv, _s) in det[0].values()})
+            vs = sorted({round(uv[1], 6) for (_p, uv, _s) in det[0].values()})
+            if len(us) == 2:
+                u_pairs.add(tuple(us))
+            if len(vs) == 2:
+                fa, fb = _v_family(vs[0] * 1024), _v_family(vs[1] * 1024)
+                if fa is not None and fb == fa + 1:
+                    prev = rows.setdefault(fa, tuple(vs))
+                    if prev != tuple(vs):
+                        raise ValueError(
+                            f"mixed strip v-dialect in this block (row {fa}: "
+                            f"{prev} vs {tuple(vs)}) -- band conversion refuses")
+    if len(u_pairs) != 1:
+        raise ValueError(f"strip u-dialect not unique in this block ({sorted(u_pairs)}) "
+                         f"-- band conversion refuses")
+    return next(iter(u_pairs)), rows
+
+
+def _role_decode(corners, cell, u_pair, v_rows):
+    """THE DISCRETE ROLE-DECODE: the (row, orientation) placements that reproduce
+    EVERY corner uv through nearest-cell-corner roles (no least squares). The byte
+    survey found exactly one hit per real group."""
+    hits = []
+    for ri, (v0, v1) in sorted(v_rows.items()):
+        for oname, om in sorted(TR._dih_maps().items()):
+            ok = True
+            for _k, (p, uv, _s) in corners.items():
+                a, b = om(*_corner_role(p, cell))
+                if abs(u_pair[0] + a * (u_pair[1] - u_pair[0]) - uv[0]) * 1024 > _SNAP_EPS_T \
+                        or abs(v0 + b * (v1 - v0) - uv[1]) * 1024 > _SNAP_EPS_T:
+                    ok = False
+                    break
+            if ok:
+                hits.append((ri, oname))
+    return hits
+
+
+def _shade_gate(reg, water_of, center, label):
+    """THE SHADE-AGREEMENT LAW over the 5x5 neighbourhood of ``center``: same-band
+    deep-claims two-sided, cross-band claims == the depth fact. Cells with no water
+    data (terrain-only, out of block) and residual tiles are skipped -- the law only
+    judges pairs it can read both sides of."""
+    cx, cz = center
+    for (p, c), t in reg.items():
+        if t["es"] is None or max(abs(c[0] - cx), abs(c[1] - cz)) > 2:
+            continue
+        for dname, (dx, dz) in TR._DIRS.items():
+            n = (c[0] + dx, c[1] + dz)
+            claim = dname in t["es"]
+            nw = water_of(n)
+            if not nw:
+                continue
+            if p in nw:
+                nt = reg.get((p, n))
+                if nt is None or nt["es"] is None:
+                    continue
+                if claim != (_OPP[dname] in nt["es"]):
+                    raise ValueError(
+                        f"shade gate [{label}]: one-sided deep-claim between {p} "
+                        f"{c} and {n} -- the {dname} edge disagrees")
+            else:
+                fact = max(WATER_DEPTH[q] for q in nw) > WATER_DEPTH[p]
+                if claim != fact:
+                    raise ValueError(
+                        f"shade gate [{label}]: {p} {c} claims {dname} "
+                        f"{'deep' if claim else 'shallow'} against {sorted(nw)} at "
+                        f"{n} (fact: {'deep' if fact else 'shallow'})")
+
+
+def band_convert(donor, cell, to_part, *, disc: int = 1, lod: str = "0_1", game=None):
+    """RUNG 3, step 1 -- THE ONE-CELL BAND-CONVERSION PROBE: re-band one LATTICE
+    water cell of a non-strip band (sea3/sea4) into strip band ``to_part`` and
+    re-emit every affected strip neighbour under its new deep-edge-set via THE
+    DEFORMED-TILE RECT LAW. The neighbour re-emissions are the first genuinely
+    FRESH deformed-tile emissions -- their rects are CHOSEN from the learned Wang
+    table for the new shade field, not transported -- and the whole edit is the
+    exact miniature of the virgin mint's ring re-band (every virgin pocket is one
+    lattice column short).
+
+    ``cell`` is a donor-frame 4u lattice cell index ``(cx, cz)`` (world x in
+    ``[4cx, 4cx+4)``, z in ``[4cz, 4cz+4)``). Geometry/normals/IDALL transport
+    verbatim; only uvs and the part change. Every law gate raises ``ValueError``."""
+    if to_part not in ("sea1", "sea5"):
+        raise ValueError(f"band conversion targets a strip band (sea1/sea5), not {to_part}")
+    cx, cz = cell
+    bx, by = donor
+    if not (16 * bx < cx < 16 * bx + 15 and -16 * by - 16 < cz < -16 * by - 1):
+        raise ValueError(f"cell {cell} sits on block {donor}'s frame ring -- a frame "
+                         f"cell's shade field crosses into the neighbour block")
+    parts = ("beach1", "sea2", "sea1", "sea3", "sea5", "sea4")
+    tris = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game) for p in parts}
+    groups_by_part = {p: list(_deformed_strip_groups(tris[p])) for p in ("sea1", "sea5")}
+    u_pair, v_rows = _strip_float_vocab(groups_by_part)
+
+    owner = defaultdict(set)
+    by_cell = defaultdict(list)
+    for p in parts:
+        for t3 in tris[p]:
+            c = _cell_of_tri(t3)
+            owner[c].add(p)
+            by_cell[(p, c)].append(t3)
+
+    def water_of(c):
+        return {p for p in owner.get(c, ()) if p in WATER_DEPTH}
+
+    own_c = water_of((cx, cz))
+    if len(own_c) != 1:
+        raise ValueError(f"cell {cell} is owned by {sorted(own_c)} -- the one-cell "
+                         f"conversion needs exactly one water band there")
+    from_part = next(iter(own_c))
+    if from_part not in ("sea3", "sea4"):
+        raise ValueError(f"cell {cell} is {from_part} -- v1 converts FROM a non-strip "
+                         f"band (sea3/sea4) only (a strip source needs its own re-band)")
+    if from_part == to_part:
+        raise ValueError(f"cell {cell} already is {to_part}")
+    c_tris = by_cell[(from_part, (cx, cz))]
+
+    def on_lat(v, eps=0.02):
+        return (abs(v[0][0] / 4 - round(v[0][0] / 4)) < eps
+                and abs(v[0][2] / 4 - round(v[0][2] / 4)) < eps)
+    if not all(on_lat(v) for t3 in c_tris for v in t3):
+        raise ValueError(f"cell {cell}'s {from_part} tile is shore-conforming -- the "
+                         f"v1 probe converts a pure LATTICE cell")
+
+    # ---- the strip-tile registry: discrete role-decode of every strip group
+    reg = {}
+    for p, gs in groups_by_part.items():
+        for gtris, kind, det in gs:
+            c = Counter(_cell_of_tri(t) for t in gtris).most_common(1)[0][0]
+            ent = {"gtris": gtris, "det": det, "es": None, "row": None, "oname": None}
+            if kind == "rect":
+                hits = _role_decode(det[0], c, u_pair, v_rows)
+                if len(hits) == 1:
+                    ri, oname = hits[0]
+                    ent.update(row=ri, oname=oname,
+                               es=TR.STRIP_EDGESET.get((ri, oname)))
+            reg[(p, c)] = ent
+
+    _shade_gate(reg, water_of, cell, "pre")            # the donor must pass: null test
+
+    # ---- C's own new edge-set (pure depth facts -- a fresh tile carries no pinches)
+    es_c = frozenset(
+        dname for dname, (dx, dz) in TR._DIRS.items()
+        if water_of((cx + dx, cz + dz))
+        and max(WATER_DEPTH[q] for q in water_of((cx + dx, cz + dz))) > WATER_DEPTH[to_part])
+    if es_c not in TR.EDGESET2STRIP:
+        raise ValueError(f"cell {cell} -> {to_part} needs edge-set {sorted(es_c)}, "
+                         f"which has no learned strip -- not a lawful conversion site")
+
+    # ---- affected strip neighbours: claims toward C that must change
+    affected = []
+    for dname, (dx, dz) in TR._DIRS.items():
+        n = (cx + dx, cz + dz)
+        for p in ("sea1", "sea5"):
+            if p not in water_of(n):
+                continue
+            if p != to_part:
+                # the other strip band: its C-facing depth fact must not flip
+                if (WATER_DEPTH[from_part] > WATER_DEPTH[p]) \
+                        != (WATER_DEPTH[to_part] > WATER_DEPTH[p]):
+                    raise ValueError(f"conversion flips the {p} tile at {n}'s depth "
+                                     f"fact -- v1 re-emits only the target band")
+                continue
+            t = reg.get((p, n))
+            if t is None or t["es"] is None:
+                raise ValueError(f"the {p} tile at {n} does not role-decode -- its "
+                                 f"re-emission would not be law-derived; refusing")
+            if _OPP[dname] not in t["es"]:
+                continue                        # already shallow toward C: unaffected
+            es_new = frozenset(t["es"] - {_OPP[dname]})
+            if es_new not in TR.EDGESET2STRIP:
+                raise ValueError(
+                    f"the {p} tile at {n} would need edge-set {sorted(es_new)} "
+                    f"(no learned strip) -- the conversion cascades; refusing")
+            affected.append((p, n, t, es_new))
+    if not affected:
+        raise ValueError(f"cell {cell}: no affected {to_part} neighbour -- nothing "
+                         f"here exercises the deformed emission; pick a ring cell")
+
+    # ---- emission (block floats; hash-picked variant, the _strip_uvf pick formula)
+    def pick(esf, c):
+        variants = TR.EDGESET2STRIP[esf]
+        return variants[int(TR._h01(4.0 * c[0] + 0.3, 4.0 * c[1] + 2.9)
+                            * len(variants)) % len(variants)]
+
+    def emit_group(gtris, corners, lerps, c, ri, oname):
+        if ri not in v_rows:
+            raise ValueError(f"strip row {ri} is not byte-observed in this block -- "
+                             f"no exact floats to emit with")
+        om = TR._dih_maps()[oname]
+        v0, v1 = v_rows[ri]
+        new_uv = {}
+        for k, (p, _uv, _s) in corners.items():
+            a, b = om(*_corner_role(p, c))
+            new_uv[k] = (u_pair[0] + a * (u_pair[1] - u_pair[0]), v0 + b * (v1 - v0))
+        guard = 0
+        while len(new_uv) < len(corners) + len(lerps) and guard < 8:
+            guard += 1
+            for k, (ka, kb, t_) in lerps.items():
+                if k in new_uv or ka not in new_uv or kb not in new_uv:
+                    continue
+                ua, ub = new_uv[ka], new_uv[kb]
+                new_uv[k] = (ua[0] + t_ * (ub[0] - ua[0]), ua[1] + t_ * (ub[1] - ua[1]))
+        if len(new_uv) < len(corners) + len(lerps):
+            raise ValueError(f"a lerp chain in the tile at {c} never grounds -- refusing")
+        return [[(v[0], v[1], new_uv[_pk(v[0])], v[3]) for v in t3] for t3 in gtris]
+
+    ri_c, oname_c = pick(es_c, (cx, cz))
+    corners_c = {}
+    for t3 in c_tris:
+        for v in t3:
+            corners_c.setdefault(_pk(v[0]), (v[0], (v[2][0], v[2][1]), None))
+    if len(corners_c) != 4:
+        raise ValueError(f"cell {cell}'s {from_part} tile has {len(corners_c)} distinct "
+                         f"verts (want a clean 4-corner quad) -- refusing")
+    c_new = emit_group(c_tris, corners_c, {}, (cx, cz), ri_c, oname_c)
+
+    re_drop, re_emit, post_reg = [], [], dict(reg)
+    for p, n, t, es_new in affected:
+        ri_n, oname_n = pick(es_new, n)
+        corners, lerps = t["det"]
+        new_tris = emit_group(t["gtris"], corners, lerps, n, ri_n, oname_n)
+        re_drop.extend(t["gtris"])
+        re_emit.extend(new_tris)
+        post_reg[(p, n)] = {"gtris": new_tris, "det": None, "es": es_new,
+                            "row": ri_n, "oname": oname_n}
+    post_reg[(to_part, (cx, cz))] = {"gtris": c_new, "det": None, "es": es_c,
+                                     "row": ri_c, "oname": oname_c}
+
+    # ---- gates on the POST state
+    owner2 = defaultdict(set, {c: set(ps) for c, ps in owner.items()})
+    owner2[(cx, cz)] = (owner2[(cx, cz)] - {from_part}) | {to_part}
+
+    def water2(c):
+        return {p for p in owner2.get(c, ()) if p in WATER_DEPTH}
+    _shade_gate(post_reg, water2, cell, "post")
+    for c in list(owner2):
+        if max(abs(c[0] - cx), abs(c[1] - cz)) > 2:
+            continue
+        for dx, dz in ((1, 0), (0, 1)):
+            n = (c[0] + dx, c[1] + dz)
+            for a in water2(c) - {"beach1", "sea2"}:
+                for b in water2(n) - {"beach1", "sea2"}:
+                    if frozenset((a, b)) not in _LAWFUL_ADJ:
+                        raise ValueError(f"adjacency gate: {a} at {c} beside {b} at "
+                                         f"{n} is off-language after the conversion")
+    # re-decode gate: every emission re-reads as the intended tile
+    for (p, c), t in post_reg.items():
+        if t["det"] is not None:
+            continue
+        decoded = list(_deformed_strip_groups(t["gtris"]))
+        if len(decoded) != 1 or decoded[0][1] != "rect":
+            raise ValueError(f"re-decode gate: the emitted {p} tile at {c} does not "
+                             f"decode as one rect group")
+        hits = _role_decode(decoded[0][2][0], c, u_pair, v_rows)
+        if hits != [(t["row"], t["oname"])]:
+            raise ValueError(f"re-decode gate: the emitted {p} tile at {c} reads "
+                             f"{hits}, wanted {[(t['row'], t['oname'])]}")
+    for t3 in c_new:                             # the strips_rebuild-style self-check
+        if TR.strip_edge_set(t3) != es_c:
+            raise ValueError("re-decode gate: C's lattice tile does not decode to its "
+                             "edge-set through the learned table")
+    # geometry-identity gate (no T-vertex exposure by construction)
+    if sorted(_pk(v[0]) for t3 in re_emit + c_new for v in t3) \
+            != sorted(_pk(v[0]) for t3 in re_drop + c_tris for v in t3):
+        raise ValueError("geometry gate: emitted positions differ from dropped -- a "
+                         "band conversion must transport geometry verbatim")
+
+    return [TR.DropTris(from_part, c_tris), TR.EmitTris(to_part, c_new),
+            TR.DropTris(to_part, re_drop), TR.EmitTris(to_part, re_emit)]
 
 
 #: THE SAND-BAND LANGUAGE (byte-learned 2026-07-10, Path A -- the census over every
