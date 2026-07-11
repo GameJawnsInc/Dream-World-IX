@@ -622,13 +622,13 @@ def test_deathrules_parse_on_defeat():
 
 
 def test_deathrules_render_on_defeat():
-    """on_defeat = the short-anim revive recipe (W-suffixed locals) + the transcribed FLEE end + the wipe
-    marker -- and NO flee-stat pollution (no escape_no++, no BTL_FLAG_ABILITY_FLEE)."""
+    """on_defeat = the QUIET-DEFEAT revive (W-suffixed locals, deliberately NO stand-up: the battle fades
+    over the fallen party) + the double-dock guard + the transcribed FLEE end + the wipe marker -- and NO
+    flee-stat pollution (no escape_no++, no BTL_FLAG_ABILITY_FLEE)."""
     src = deathrules.render(deathrules.DeathRulesSpec(warp_to=1055, warp_gil_loss=0.1))
     for line in (
         "unitW.CurrentHp = Math.Max(1u, (UInt32)(unitW.MaximumHp * 0.2));",
         "btl_stat.RemoveStatus(unitW, BattleStatusId.Death);",
-        "btl_mot.SetDefaultIdle(fallenW);",
         f"gw[{deathrules.WIPE_FLAG_DEFAULT >> 3}] |= {1 << (deathrules.WIPE_FLAG_DEFAULT & 7)};",
         "UIManager.Battle.SetIdle();",
         "state.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;",
@@ -637,10 +637,21 @@ def test_deathrules_render_on_defeat():
         "UInt32 gilLostW = (UInt32)(FF9StateSystem.Common.FF9.party.gil * 0.1);",
     ):
         assert line in src, line
+    # the QUIET DEFEAT: no stand-up call in the on_defeat revive (the second-wind SHORT variant keeps its own)
+    assert "btl_mot.SetDefaultIdle(" not in src
+    # the DOUBLE-DOCK GUARD: gil + marker sit inside the once-per-wipe-exit block; the exit re-asserts
+    # unconditionally; the flag has its static + per-battle reset
+    assert "if (!_defeatWarpFired)" in src
+    assert src.index("_defeatWarpFired = true;") < src.index("gilLostW")
+    assert "private static Boolean _defeatWarpFired;" in src
+    assert "_defeatWarpFired = false;" in src
+    assert src.index("UIManager.Battle.SetIdle();") > src.index("}")  # the exit tail is OUTSIDE the guard
     assert "escape_no" not in src and "BTL_FLAG_ABILITY_FLEE" not in src
     assert src.count("{") == src.count("}")
     # no gil_loss -> no gil block at all
     assert "gilLostW" not in deathrules.render(deathrules.DeathRulesSpec(warp_to=1055))
+    # WITHOUT on_defeat the guard machinery is entirely absent (byte-stable proven builds)
+    assert "_defeatWarpFired" not in deathrules.render(deathrules.DeathRulesSpec(second_wind=True))
 
 
 def test_deathrules_render_second_wind_falls_through_to_on_defeat():
@@ -648,7 +659,8 @@ def test_deathrules_render_second_wind_falls_through_to_on_defeat():
     `return false` early-outs), and the two revive loops' locals don't collide."""
     src = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, animation="short", chance=60,
                                                       warp_to=1055))
-    assert "if (!_secondWindUsed && Comn.random16() % 100 < 60)" in src
+    # the wind never fires mid-wipe-exit (a re-kill during the fade must not re-roll a fresh Phoenix)
+    assert "if (!_defeatWarpFired && !_secondWindUsed && Comn.random16() % 100 < 60)" in src
     assert "return false; // spent this battle" not in src     # the straight-line early-out is gone
     assert "revived = " in src and "revivedW = " in src        # both loops coexist
     i_sw = src.index("_secondWindUsed = true;")

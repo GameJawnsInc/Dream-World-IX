@@ -54,16 +54,40 @@ from one table (playtest: `scratch/deathrules_test.field.toml`, warp-to-self rou
 - **COVERAGE LAW:** the DLL is mod-global; the check is per-field. An uncovered encounter field's wipe
   revives + flees but does NOT warp and leaves the marker set (→ a spurious warp after the NEXT battle in
   a covered field). `_emit_scripts` warns, NAMING the uncovered fields — repeat the identical block.
-- ★ PLAYTEST 2026-07-11: "mechanically it's good" — wipe → no game over → warp fires, gil docks,
-  victories don't warp. **`Field()` from tag-10 IS PROVEN** (a new reusable .eb fact). ⚠ Two user-flagged
-  design opens: (1) the flee fade starts WHILE the get-up animations play (the escape branch has no motion
-  wait for living players — a true wait needs an engine patch, breaking stock-compat); (2) the ATB window —
-  enemies can act during the escape fade (vanilla "die while fleeing"), so a revived unit can be re-killed
-  → OnGameOver refires → a SECOND gil dock. Candidates: the DOUBLE-DOCK GUARD (per-battle
-  `_defeatWarpFired`: refire re-revives + re-flees, never re-docks — a pure bug fix) · the "QUIET DEFEAT"
-  variant (drop `SetDefaultIdle`: nobody gets up, the battle fades over the fallen party — kills the
-  sequencing clash, shrinks the window) · a smaller `btl_escape_fade` for a snappier exit. Design call
-  pending.
+- ★ PLAYTEST round 1, 2026-07-11: "mechanically it's good" — wipe → no game over → warp fires, gil docks,
+  victories don't warp. **`Field()` from tag-10 IS PROVEN** (a new reusable .eb fact). User flagged: the
+  flee fade raced the get-up animations, and a mid-fade re-kill (enemies act during the escape fade —
+  vanilla "die while fleeing") could double-dock gil.
+- **QUIET DEFEAT + the DOUBLE-DOCK GUARD — BUILT 2026-07-11 (user-approved), awaiting round 2:** the
+  on_defeat revive no longer calls `SetDefaultIdle` (nobody stands up; the battle fades out over the
+  fallen party — they're on their feet at the destination because the field spawn owns motion), and a
+  per-battle `_defeatWarpFired` static makes a mid-fade re-kill re-assert the exit WITHOUT re-docking gil,
+  re-setting the marker, or re-rolling a fresh second wind (`!_defeatWarpFired` joined the wind's guard).
+  Builds without on_defeat stay byte-identical. A true get-up-THEN-flee was rejected: no per-frame mod
+  hook to delay the escape-set, the escape branch has no motion-wait for living players (an engine patch
+  would break stock-compat), and waiting would WIDEN the ATB window.
+
+### The OUTPOST system — "wake up at camp", strictly defined (dive DONE 2026-07-11, not yet built)
+
+The user's call: `warp_to` as a fixed id is not "camp" — modders need **"the last outpost visited"**.
+The enabling engine fact is FOUND: **op args can be EXPRESSIONS** — `EventEngine.getv2()` checks a per-op
+ARG-FLAG (`gArgFlag`): bit N set → arg N is an RPN expression run through `eBin.CalcExpr()` instead of an
+i16 literal (EventEngine.cs:1341-1353; this IS the "computed ids" mechanism the process rules warn grep
+can't see). So `Field(<var>)` is NATIVE — no dispatch ladder. The strict definition:
+
+- **The outpost var**: a kit-reserved `GLOB_UINT16` at `gEventGlobal` bytes **1060-1061** (bit band
+  8480-8495, between the chest auto-band and the 8508 wipe marker) holding a FIELD ID. `0` = "no outpost
+  visited yet" (gEventGlobal is zero on New Game). Save-backed, journey-wide (one global array).
+- **Registration**: a field declares **`[field] outpost = true`**; the build injects a startup-style
+  UNCONDITIONAL write into its Main_Init: `outpost_var = <its own id>` — every entry re-registers →
+  last-write-wins = "the LAST outpost the player ENTERED". Policy variants (register on save/inn instead)
+  stay modder-side: the var is documented, so an `[[event]]` write can own the policy.
+- **The warp**: the tag-10 wipe check becomes `marker → clear → fade → if (outpost_var != 0)
+  Field(<expr: outpost_var>) → Field(warp_to)` — the TOML `warp_to` demotes to the FALLBACK (a wipe
+  before any outpost). Arrival entrance: v1 = the destination's default spawn (a second reserved var for
+  a per-outpost entrance is the extension).
+- **Before building**: pin the exact argflag+expr byte encoding against ONE real field's computed-id op
+  (the kit's disasm/optables need the arg-flag lane too); same kit-built-fields-first coverage rule.
 
 ### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
 ### set fraction; 2nd wipe → game over; next battle → recharged)

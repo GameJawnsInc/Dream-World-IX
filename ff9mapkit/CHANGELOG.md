@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `on_defeat`: the QUIET DEFEAT + the double-dock guard
+- Playtest verdict on the first cut: mechanically proven (the wipe warps, no game over, gil docks,
+  victories don't warp — and `Field()` from a tag-10 context is now an established fact), but the flee
+  fade raced the get-up animations, and a mid-fade re-kill could dock gil twice. Both addressed:
+  the revive no longer stands the party up (**the quiet defeat** — the battle fades out over the fallen
+  party, who are on their feet at the destination because the field spawn owns motion there; this also
+  shrinks the re-hit window), and a per-battle **double-dock guard** (`_defeatWarpFired`) makes a re-kill
+  during the escape fade re-assert the exit without ever re-docking gil, re-setting the marker, or
+  re-rolling a fresh second wind. Builds without `on_defeat` are byte-identical to the proven ones.
+- A true "wait for the get-up, then flee" was rejected on engine grounds: no per-frame mod hook exists to
+  delay the escape, the engine's escape branch has no motion-wait for living players (an engine patch
+  would break the channel's stock-Memoria compatibility), and waiting would widen the ATB re-hit window.
+
 ### Added — `[deathrules] on_defeat`: warp instead of a game over
 - **`on_defeat = { warp_to = <field id>, hp = 0.2, gil_loss = 0.1, flag = ... }`** cancels the party wipe
   and sends the player somewhere instead of the Game Over screen — the roguelike "back to camp". A DLL +

@@ -262,11 +262,11 @@ namespace Memoria.Scripts.Overload
     public static class DeathRulesOverload
     {{
         private static Boolean _secondWindUsed;
-
+{warp_static}
         public static void OnBattleInit()
         {{
             _secondWindUsed = false; // the second wind recharges each battle
-        }}
+{warp_reset}        }}
 
         public static Boolean OnGameOver(FF9StateBattleSystem state, BattleUnit dyingPC)
         {{
@@ -381,13 +381,14 @@ _ROLL = """\
 
 # second wind WITH on_defeat behind it: spent (or a failed roll) must FALL THROUGH to the warp instead of
 # returning false, so the act tail sits inside a guard block (the straight-line proven templates are kept
-# byte-stable for the on_defeat-less case).
+# byte-stable for the on_defeat-less case). !_defeatWarpFired: once the wipe-exit is underway, a mid-fade
+# re-kill must NOT trigger a fresh Phoenix (the failed-roll case would otherwise re-roll every re-kill).
 _SECOND_WIND_GUARDED = """\
                 // ---- second wind: cancel the wipe ONCE per battle; spent (or a failed roll) falls
-                //      THROUGH to on_defeat below ----
+                //      THROUGH to on_defeat below; never fires mid-wipe-exit ----
                 if (btl_cmd.CheckSpecificCommand2(BattleCommandId.SysLastPhoenix))
                     return true; // a queued revive is still pending -- keep the battle alive (vanilla guard)
-                if (!_secondWindUsed{roll_cond})
+                if (!_defeatWarpFired && !_secondWindUsed{roll_cond})
                 {{
 {act}                }}
 """
@@ -400,26 +401,34 @@ _SECOND_WIND_GUARDED = """\
 # gil_loss knob below is deliberately a fraction of PARTY gil, unlike the flee default's fraction of the
 # battle's gil bonus, which is ~empty on a wipe).
 _ON_DEFEAT = """\
-                // ---- on_defeat: no game over -- revive minimally, FLEE the battle, and mark the wipe
-                //      (the field's tag-10 sees the mark, clears it, and warps to field {warp_to}) ----
+                // ---- on_defeat: no game over -- the QUIET DEFEAT. Revive the fallen internally but do
+                //      NOT stand them up: the battle simply fades out over the fallen party (no get-up
+                //      racing the flee), and they are on their feet at the destination because the field
+                //      spawn owns motion there. Then FLEE the battle and mark the wipe (the field's
+                //      tag-10 sees the mark, clears it, and warps to field {warp_to}). ----
                 Boolean revivedW = false;
                 for (BTL_DATA fallenW = state.btl_list.next; fallenW != null; fallenW = fallenW.next)
                 {{
                     if (fallenW.bi.player == 0)
                         continue;
                     if (fallenW.cur.hp != 0 && !btl_stat.CheckStatus(fallenW, BattleStatus.Death))
-                        continue; // petrify etc. stays -- only the DEAD get up
+                        continue; // petrify etc. stays -- only the DEAD are revived
                     BattleUnit unitW = new BattleUnit(fallenW);
                     unitW.CurrentHp = Math.Max(1u, (UInt32)(unitW.MaximumHp * {hp}));
                     btl_stat.RemoveStatus(unitW, BattleStatusId.Death); // die_seq/flags/texanim bookkeeping
-                    btl_mot.SetDefaultIdle(fallenW);                    // stand back up (the cancel-death recipe)
+                    // (deliberately NO SetDefaultIdle here -- the quiet-defeat visual)
                     revivedW = true;
                 }}
                 if (!revivedW)
                     return false; // nobody revivable (e.g. a full-petrify wipe) -- the defeat proceeds
                 FF9StateSystem.Settings.SetHPFull(); // the HP/MP-full booster support (no-op otherwise)
-{gil}                Byte[] gw = FF9StateSystem.EventState.gEventGlobal;
-                gw[{fbyte}] |= {fmask}; // the WIPE MARKER (bit {wipe_flag}) the field's tag-10 checks
+                if (!_defeatWarpFired)
+                {{
+                    // the DOUBLE-DOCK GUARD: enemies can still act during the escape fade (vanilla lets
+                    // you die while fleeing) -- a mid-fade re-kill re-runs this hook. The exit is kept
+                    // alive below either way; gil docks and the marker sets ONCE per wipe-exit.
+                    _defeatWarpFired = true;
+{gil}{marker}                }}
                 // the FLEE battle-end (SysEscape trigger, btl_cmd.cs:1035-1057, transcribed): the engine
                 // runs the run-away fade, then BTL_RESULT_ESCAPE + PHASE_CLOSE return control to the field
                 UIManager.Battle.SetIdle();
@@ -427,6 +436,11 @@ _ON_DEFEAT = """\
                 state.btl_seq = FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE;
                 btl_cmd.KillAllCommand(state);
                 return true;
+"""
+
+_ON_DEFEAT_MARKER = """\
+                Byte[] gw = FF9StateSystem.EventState.gEventGlobal;
+                gw[{fbyte}] |= {fmask}; // the WIPE MARKER (bit {wipe_flag}) the field's tag-10 checks
 """
 
 _ON_DEFEAT_GIL = """\
@@ -487,14 +501,22 @@ def render(spec: DeathRulesSpec) -> str:
             second_wind += _SECOND_WIND_GUARDED.format(roll_cond=roll_cond,
                                                        act=textwrap.indent(act, "    "))
     if spec.warp_to is not None:
-        gil = (_ON_DEFEAT_GIL.format(gil=f"{spec.warp_gil_loss:g}")
+        import textwrap
+        gil = (textwrap.indent(_ON_DEFEAT_GIL.format(gil=f"{spec.warp_gil_loss:g}"), "    ")
                if spec.warp_gil_loss > 0 else "")
-        second_wind += _ON_DEFEAT.format(warp_to=spec.warp_to, hp=f"{spec.warp_hp:g}", gil=gil,
-                                         fbyte=spec.wipe_flag >> 3, fmask=1 << (spec.wipe_flag & 7),
-                                         wipe_flag=spec.wipe_flag)
+        marker = textwrap.indent(
+            _ON_DEFEAT_MARKER.format(fbyte=spec.wipe_flag >> 3, fmask=1 << (spec.wipe_flag & 7),
+                                     wipe_flag=spec.wipe_flag), "    ")
+        second_wind += _ON_DEFEAT.format(warp_to=spec.warp_to, hp=f"{spec.warp_hp:g}",
+                                         gil=gil, marker=marker)
+    has_warp = spec.warp_to is not None
     return _SOURCE.format(basename=DEATHRULES_BASENAME, kit_version=__version__,
                           summary=", ".join(parts), gate_comment=gate_comment, gate=gate,
-                          eiko=eiko, second_wind=second_wind)
+                          eiko=eiko, second_wind=second_wind,
+                          warp_static=("        private static Boolean _defeatWarpFired; // a wipe-exit "
+                                       "is underway (on_defeat)" if has_warp else ""),
+                          warp_reset=("            _defeatWarpFired = false; // a new battle = a fresh "
+                                      "wipe-exit\n" if has_warp else ""))
 
 
 def field_prologue(spec: "DeathRulesSpec | None") -> bytes:
