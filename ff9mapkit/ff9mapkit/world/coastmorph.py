@@ -3048,7 +3048,8 @@ MINT_SLOPE = (0.097, 0.579)
 MINT_SWASH = (3.3, 6.7)
 
 
-def beach_mint(donor, *, width=None, disc: int = 1, lod: str = "0_1", game=None):
+def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
+               game=None):
     """BEACH-MINT rung 1 (the shore-vocabulary capstone's first composition): re-mint a
     real beach's sand band + foam ASSEMBLY from chain specs -- everything between the
     pinned INTERFACES is synthesized. Pinned (verts shared with parts the mint does not
@@ -3062,12 +3063,23 @@ def beach_mint(donor, *, width=None, disc: int = 1, lod: str = "0_1", game=None)
     :func:`emit_sand_cap`, foam run stamps + BL caps via :func:`emit_foam_cap`
     (THE SLOT LAW: BL is the mint default -- the universal fade).
 
+    RUNG 2a -- the FREE-FOOTPRINT mint, landward (``land``): the interior LAND CHAIN is
+    synthesized too. Each interior L vert pushes ``land * sin^2(pi t)`` landward along
+    its own cross-shore ray (cap ends stay pinned -- they weld the flanking wall/grass)
+    and CONFORMS to the berm surface; the berm is CLIPPED at the new chain (the
+    beach_slide landward machinery: convex strip clip in pure real bytes, merged-loop
+    re-triangulation, canonical float snaps) and the widened band takes the vacated
+    strip. The band's land edge SUBDIVIDES at every genuine clip crossing so both sides
+    carry identical verts (THE T-VERTEX LAW). Lawful on any painted berm -- clipping
+    transports real bytes, only fills need a tile language (the baked-terrain law).
+
     Gates: the ribbon width envelope per column, the band slope gate, the swash
     envelope, the T-VERTEX gate against the pinned interfaces, per-tri language
-    re-decode, and the ASSEMBLY BOUNDARY gate -- the emitted sand+foam union's outer
-    boundary must equal the dropped assembly's exactly (every outer edge is pinned,
-    so any mismatch is a synthesis crack). Rung-1 class: the block's single
-    x-monotone column beach (the (7,17) class)."""
+    re-decode, and the ASSEMBLY BOUNDARY gate -- the emitted union's outer boundary
+    must equal the dropped assembly's exactly (every outer edge is pinned, so any
+    mismatch is a synthesis crack); with ``land`` also the slide's clip ledgers
+    (partition / strip coverage / steep-face / object-anchor / drop-don't-drag).
+    Rung-1 class: the block's single x-monotone column beach (the (7,17) class)."""
     foam_all = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
     terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
     if not foam_all:
@@ -3142,13 +3154,172 @@ def beach_mint(donor, *, width=None, disc: int = 1, lod: str = "0_1", game=None)
                   L[i][2] + (W[i][2] - L[i][2]) * f))
     S.append(S_don[-1])
 
+    # --- rung 2a: the synthetic LAND chain + the berm clip ---
+    L2, ter_drop, ter_emit, seg_cuts = list(L), [], [], {}
+    if land is not None:
+        if not (0.3 <= float(land) <= 4.0):
+            raise ValueError("land takes 0.3 <= land <= 4.0 (the band width envelope "
+                             "binds long before 4)")
+        other = [t for t in terr
+                 if decode_id(int(round(t[0][3][0])))["topograph"] != 31]
+
+        def surf_y(x, z):
+            for t3 in other:
+                if _pip_xz(x, z, t3):
+                    (a, b, c) = (v[0] for v in t3)
+                    d_ = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])
+                    if abs(d_) < 1e-9:
+                        continue
+                    w1 = ((x - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (z - a[2])) / d_
+                    w2 = ((b[0] - a[0]) * (z - a[2]) - (x - a[0]) * (b[2] - a[2])) / d_
+                    return a[1] + w1 * (b[1] - a[1]) + w2 * (c[1] - a[1])
+            return None
+        for i in range(1, n - 1):
+            d = float(land) * math.sin(math.pi * i / (n - 1.0)) ** 2
+            if d < 0.02:
+                continue
+            m_ = plan(L[i], W[i])
+            px = L[i][0] + d * (L[i][0] - W[i][0]) / m_
+            pz = L[i][2] + d * (L[i][2] - W[i][2]) / m_
+            yt = surf_y(px, pz)
+            if yt is None:
+                raise ValueError(f"column {i}: the widened land chain leaves the "
+                                 f"painted terrain at ({px:.1f},{pz:.1f}) -- no berm "
+                                 f"surface to conform to; reduce land")
+            L2[i] = (px, yt, pz)
+
+        # the consumed strip (old chain -> new chain), clipped as convex TRIANGLES
+        # (an eased chain's column quads need not be convex; tris always are)
+        from .mesh import _clip_edge, _poly_area2_xz
+        strip_polys = []
+        for i in range(n - 1):
+            q = [(L[i][0], L[i][2]), (L[i + 1][0], L[i + 1][2]),
+                 (L2[i + 1][0], L2[i + 1][2]), (L2[i][0], L2[i][2])]
+            q = [p for j, p in enumerate(q)
+                 if abs(p[0] - q[j - 1][0]) > 1e-9 or abs(p[1] - q[j - 1][1]) > 1e-9]
+            if len(q) < 3:
+                continue
+            for tri2 in ([q[:3]] if len(q) == 3 else [q[:3], [q[0], q[2], q[3]]]):
+                a2 = sum(tri2[j][0] * tri2[(j + 1) % 3][1]
+                         - tri2[(j + 1) % 3][0] * tri2[j][1] for j in range(3))
+                if abs(a2) <= 1e-9:
+                    continue
+                if a2 < 0:
+                    tri2 = list(reversed(tri2))
+                strip_polys.append((tri2, abs(a2) / 2.0))
+        strip_area = sum(a for _, a in strip_polys)
+        if strip_area <= 1e-6:
+            raise ValueError("land displaces no interior column -- nothing to widen")
+
+        def _clip_strip(t3):
+            """(consumed_area, kept_pieces) of one berm tri vs the strip triangles --
+            the beach_slide BSP inside/outside decomposition, verbatim bytes."""
+            pieces, consumed = [list(t3)], 0.0
+            for q, _a in strip_polys:
+                nxt = []
+                for piece in pieces:
+                    inside = piece
+                    for j in range(3):
+                        inside = _clip_edge(inside, q[j], q[(j + 1) % 3], keep_left=True)
+                        if len(inside) < 3:
+                            break
+                    ia = _poly_area2_xz(inside) / 2.0 if len(inside) >= 3 else 0.0
+                    if ia <= 1e-6:
+                        nxt.append(piece)
+                        continue
+                    consumed += ia
+                    for j in range(3):
+                        frag = piece
+                        for jj in range(j):
+                            frag = _clip_edge(frag, q[jj], q[(jj + 1) % 3],
+                                              keep_left=True)
+                            if len(frag) < 3:
+                                break
+                        if len(frag) < 3:
+                            continue
+                        frag = _clip_edge(frag, q[j], q[(j + 1) % 3], keep_left=False)
+                        if len(frag) >= 3 and _poly_area2_xz(frag) > 2e-6:
+                            nxt.append(frag)
+                pieces = nxt
+            return consumed, pieces
+        for t3 in TR.world_tris(*donor, "object", disc=disc, lod=lod, game=game):
+            if _clip_strip(t3)[0] > 1e-4:
+                raise ValueError("the widened band reaches the block's prefab Object "
+                                 "ground (the object-anchor law) -- reduce land")
+        consumed_total, clipped = 0.0, []
+        for t3 in other:
+            consumed, pieces = _clip_strip(t3)
+            if consumed <= 1e-6:
+                continue
+            plan2 = _poly_area2_xz(t3)
+            if plan2 < 0.02 or TR._tri_area2_3d(list(t3)) > 2.0 * plan2:
+                raise ValueError("the widened band cuts a STEEP berm face -- relief "
+                                 "is a component, cut around it never through; "
+                                 "reduce land")
+            kept = sum(_poly_area2_xz(p) / 2.0 for p in pieces)
+            if abs(plan2 / 2.0 - consumed - kept) > 1e-4 * max(1.0, plan2 / 2.0):
+                raise ValueError("PARTITION LEDGER: a clipped berm tri's pieces do "
+                                 "not sum to the original -- a clip defect")
+            consumed_total += consumed
+            ter_drop.append(list(t3))
+            clipped.append((pieces, kept))
+        if abs(consumed_total - strip_area) > max(0.01 * strip_area, 0.02):
+            raise ValueError(f"STRIP COVERAGE: the widened band's strip "
+                             f"({strip_area:.2f} sq-u) is only {consumed_total:.2f} "
+                             f"painted berm -- the band would widen into a hole; "
+                             f"reduce land")
+        # no survivor may reference a vanished old chain vert (drop-don't-drag)
+        moved_k = {_pk(L[i]) for i in range(1, n - 1) if L2[i] != L[i]}
+        drop_ks = {_key_set(t) for t in ter_drop}
+        for t3 in other:
+            if any(_pk(v[0]) in moved_k for v in t3) and _key_set(t3) not in drop_ks:
+                raise ValueError("a berm tri rides a moved land-chain vert but escapes "
+                                 "the strip clip (an along-shore sliver) -- reduce "
+                                 "land or shift the profile")
+        # THE T-VERTEX LAW: re-triangulate each kept region from its MERGED loop, snap
+        # every vert to canonical floats, then subdivide the band's land edge at every
+        # genuine crossing so both sides carry IDENTICAL verts
+        keep_k = {_pk(p) for p in L2} | {_pk(p) for p in L}
+        for pieces, kept in clipped:
+            tris_out = []
+            for loop in _merge_loops(pieces):
+                loop = _drop_collinear(loop, keep_k)
+                tris_out += _ear_clip(loop)
+            area_out = sum(_poly_area2_xz(t_) / 2.0 for t_ in tris_out)
+            if abs(area_out - kept) > 1e-3 * max(1.0, kept):
+                raise ValueError("LOOP LEDGER: a clipped berm tri's re-triangulated "
+                                 "loops do not cover its kept area -- a merge defect")
+            ter_emit += [_up_tri(t_) for t_ in tris_out]
+        canon = {_pk(p, 6): tuple(p) for p in L2}
+
+        def _snap(v):
+            tgt = canon.setdefault(_pk(v[0], 6), tuple(v[0]))
+            return v if tgt == tuple(v[0]) else (tgt, v[1], v[2], v[3])
+        ter_emit = [[_snap(v) for v in t3] for t3 in ter_emit]
+        for t3e in ter_emit:
+            for v in t3e:
+                p = v[0]
+                for i in range(n - 1):
+                    A, B = L2[i], L2[i + 1]
+                    ex, ez = B[0] - A[0], B[2] - A[2]
+                    el2 = ex * ex + ez * ez
+                    if el2 < 1e-9:
+                        continue
+                    t_ = ((p[0] - A[0]) * ex + (p[2] - A[2]) * ez) / el2
+                    if not (1e-4 < t_ < 1 - 1e-4):
+                        continue
+                    if abs(ex * (p[2] - A[2]) - ez * (p[0] - A[0])) \
+                            > 1e-6 * max(1.0, math.hypot(ex, ez)):
+                        continue
+                    seg_cuts.setdefault(i, {})[round(t_, 9)] = p
+
     # --- gates: ribbon / slope / swash per column ---
     for i in range(n):
-        bw = plan(L[i], S[i])
+        bw = plan(L2[i], S[i])
         if not (MINT_BAND_W[0] - 0.05 <= bw <= MINT_BAND_W[1] + 0.05):
             raise ValueError(f"column {i}: band width {bw:.2f}u is outside the ribbon "
                              f"envelope {MINT_BAND_W} -- pick a lawful width")
-        sl = abs(L[i][1] - S[i][1]) / max(bw, 1e-6)
+        sl = abs(L2[i][1] - S[i][1]) / max(bw, 1e-6)
         if not (MINT_SLOPE[0] - 0.02 <= sl <= MINT_SLOPE[1] + 0.02):
             raise ValueError(f"column {i}: band slope {sl:.2f} rise/run is outside the "
                              f"envelope {MINT_SLOPE}")
@@ -3163,28 +3334,78 @@ def beach_mint(donor, *, width=None, disc: int = 1, lod: str = "0_1", game=None)
     f_nrm = foam_all[0][0][1]
     f_id = tuple(foam_all[0][0][3])
     sand_emit, foam_emit = [], []
+    # with ``land`` a column emits as a FAN from a seam corner: the land edge
+    # L2[i]->L2[i+1] subdivides at the clip crossings (u affine along the edge,
+    # v = the land pin) so band and clipped berm carry IDENTICAL verts
     for i in range(n - 1):
-        lj, lf = (L[i + 1], L[i]) if i == 0 else (L[i], L[i + 1])
+        lj, lf = (L2[i + 1], L2[i]) if i == 0 else (L2[i], L2[i + 1])
         sj, sf = (S[i + 1], S[i]) if i == 0 else (S[i], S[i + 1])
         wj, wf = (W[i + 1], W[i]) if i == 0 else (W[i], W[i + 1])
         diag_s = "sj-lf" if i % 2 else "lj-sf"
         diag_f = "wj-sf" if i % 2 else "sj-wf"
+        cuts = sorted(seg_cuts.get(i, {}).items())
         if i in (0, n - 2):                # the end columns are the CAPS
-            sand_emit += emit_sand_cap(lj, sj, lf, sf, land_pin=cap_pins[0],
-                                       seam_pin=cap_pins[1], diag=diag_s,
-                                       nrm=s_nrm, idall=s_id)
+            if land is None:
+                sand_emit += emit_sand_cap(lj, sj, lf, sf, land_pin=cap_pins[0],
+                                           seam_pin=cap_pins[1], diag=diag_s,
+                                           nrm=s_nrm, idall=s_id)
+            else:
+                # the cap fan: same laws as emit_sand_cap (rect Q, junction 0.3262 /
+                # free 0.3867, cap v pins), land edge subdivided at the crossings
+                uJ, uF = SAND_ULAT[1], SAND_ULAT[2]
+                ua = uJ if lj is L2[i] else uF          # u at L2[i] / L2[i+1]
+                ub = uF if lj is L2[i] else uJ
+                la, lb = L2[i], L2[i + 1]
+                el = plan(la, lb) or 1.0
+                uv_of = {id(sj): (uJ, cap_pins[1]), id(sf): (uF, cap_pins[1])}
+
+                def luv(p, ua=ua, ub=ub, la=la, el=el):
+                    f = plan(la, p) / el
+                    return (ua + f * (ub - ua), cap_pins[0])
+                apex, closing = (sj, (sj, sf, lf)) if diag_s == "sj-lf" \
+                    else (sf, (sf, sj, lj))
+                pts = [la] + [p for _, p in cuts] + [lb]
+                for p, q in zip(pts, pts[1:]):
+                    sand_emit.append(_up_tri([(apex, s_nrm, uv_of[id(apex)], s_id),
+                                              (p, s_nrm, luv(p), s_id),
+                                              (q, s_nrm, luv(q), s_id)]))
+                sand_emit.append(_up_tri([
+                    (closing[0], s_nrm, uv_of[id(closing[0])], s_id),
+                    (closing[1], s_nrm, uv_of[id(closing[1])], s_id),
+                    (closing[2], s_nrm, luv(closing[2]), s_id)]))
             foam_emit += emit_foam_cap(sj, wj, sf, wf, slot="BL", family=family,
                                        diag=diag_f, nrm=f_nrm, idall=f_id)
         else:                              # run columns: fresh language walks
-            rect = 0 if TR._h01(L[i][0] + 2.9, L[i][2] + 1.3) < 0.5 else 1
+            rect = 0 if TR._h01(L2[i][0] + 2.9, L2[i][2] + 1.3) < 0.5 else 1
             u0, u1 = SAND_ULAT[rect], SAND_ULAT[rect + 1]
-            uv = {id(L[i]): (u0, run_pins[0]), id(L[i + 1]): (u1, run_pins[0]),
-                  id(S[i]): (u0, run_pins[1]), id(S[i + 1]): (u1, run_pins[1])}
-            split = ((S[i], L[i + 1], L[i]), (S[i], S[i + 1], L[i + 1])) if i % 2 \
-                else ((L[i], S[i + 1], S[i]), (L[i], L[i + 1], S[i + 1]))
-            for tri_pts in split:
-                sand_emit.append(_up_tri([(p, s_nrm, uv[id(p)], s_id)
-                                          for p in tri_pts]))
+            if land is None:
+                uv = {id(L2[i]): (u0, run_pins[0]), id(L2[i + 1]): (u1, run_pins[0]),
+                      id(S[i]): (u0, run_pins[1]), id(S[i + 1]): (u1, run_pins[1])}
+                split = ((S[i], L2[i + 1], L2[i]), (S[i], S[i + 1], L2[i + 1])) \
+                    if i % 2 else ((L2[i], S[i + 1], S[i]),
+                                   (L2[i], L2[i + 1], S[i + 1]))
+                for tri_pts in split:
+                    sand_emit.append(_up_tri([(p, s_nrm, uv[id(p)], s_id)
+                                              for p in tri_pts]))
+            else:
+                la, lb = L2[i], L2[i + 1]
+                el = plan(la, lb) or 1.0
+
+                def luv(p, la=la, el=el, u0=u0, u1=u1):
+                    f = plan(la, p) / el
+                    return (u0 + f * (u1 - u0), run_pins[0])
+                suv = {id(S[i]): (u0, run_pins[1]), id(S[i + 1]): (u1, run_pins[1])}
+                apex, closing = (S[i], (S[i], S[i + 1], lb)) if i % 2 \
+                    else (S[i + 1], (S[i + 1], S[i], la))
+                pts = [la] + [p for _, p in cuts] + [lb]
+                for p, q in zip(pts, pts[1:]):
+                    sand_emit.append(_up_tri([(apex, s_nrm, suv[id(apex)], s_id),
+                                              (p, s_nrm, luv(p), s_id),
+                                              (q, s_nrm, luv(q), s_id)]))
+                sand_emit.append(_up_tri([
+                    (closing[0], s_nrm, suv[id(closing[0])], s_id),
+                    (closing[1], s_nrm, suv[id(closing[1])], s_id),
+                    (closing[2], s_nrm, luv(closing[2]), s_id)]))
             fam_bl = FOAM_FAMILIES[family]["BL"]
             fuv = {id(S[i]): (fam_bl[0], family[0]),
                    id(S[i + 1]): (0.5, family[0]),
@@ -3220,25 +3441,41 @@ def beach_mint(donor, *, width=None, disc: int = 1, lod: str = "0_1", game=None)
             for a in range(3):
                 ec[frozenset((_pk(t3[a][0]), _pk(t3[(a + 1) % 3][0])))] += 1
         return {e for e, c in ec.items() if c == 1}
-    pinned = {_pk(p) for p in L} | {_pk(p) for p in W} | {_pk(S[0]), _pk(S[-1])}
-    emit_once = once_edges(sand_emit + foam_emit)
-    if any(not all(k in pinned for k in e) for e in emit_once):
-        raise ValueError("ASSEMBLY BOUNDARY gate: a minted boundary edge sits on a "
-                         "synthetic vert -- a crack inside the assembly")
-    don_once = {e for e in once_edges(sand + foam_all)
-                if all(k in pinned for k in e)}
-    if don_once != emit_once:
-        raise ValueError("ASSEMBLY BOUNDARY gate: the minted assembly's pinned outer "
-                         "boundary differs from the donor's -- the interface moved")
+    if land is None:
+        pinned = {_pk(p) for p in L} | {_pk(p) for p in W} | {_pk(S[0]), _pk(S[-1])}
+        emit_once = once_edges(sand_emit + foam_emit)
+        if any(not all(k in pinned for k in e) for e in emit_once):
+            raise ValueError("ASSEMBLY BOUNDARY gate: a minted boundary edge sits on "
+                             "a synthetic vert -- a crack inside the assembly")
+        don_once = {e for e in once_edges(sand + foam_all)
+                    if all(k in pinned for k in e)}
+        if don_once != emit_once:
+            raise ValueError("ASSEMBLY BOUNDARY gate: the minted assembly's pinned "
+                             "outer boundary differs from the donor's -- the "
+                             "interface moved")
+    else:
+        # the UNION crack gate: with the berm clipped, the touched union's outer
+        # boundary (dropped originals vs emissions) must be preserved EXACTLY -- the
+        # old L edges are interior to the drop union, the new L2 edges interior to
+        # the emit union (band land edge == pieces' cut edge, vert for vert), so any
+        # missing crossing or moved interface breaks the equality
+        if once_edges(sand + foam_all + ter_drop) \
+                != once_edges(sand_emit + foam_emit + ter_emit):
+            raise ValueError("ASSEMBLY BOUNDARY gate: the widened assembly's outer "
+                             "boundary differs from the dropped union's -- a weld or "
+                             "T-junction defect at the berm clip")
     # T-vertices against the pinned neighbours (grass + wash near the assembly)
-    keys = {k for t3 in sand + foam_all for v in t3 for k in (_pk(v[0]),)}
-    near = [(True, t3) for t3 in sand_emit + foam_emit]
+    keys = {k for t3 in sand + foam_all + ter_drop for v in t3 for k in (_pk(v[0]),)}
+    drop_sets = {_key_set(t) for t in ter_drop}
+    near = [(True, t3) for t3 in sand_emit + foam_emit + ter_emit]
     for t3 in terr:
-        if any(_pk(v[0]) in keys for v in t3) and t3 not in sand:
+        if any(_pk(v[0]) in keys for v in t3) and t3 not in sand \
+                and _key_set(t3) not in drop_sets:
             near.append((False, t3))
     _tvertex_gate(near)
 
-    return [TR.DropTris("terrain", sand), TR.EmitTris("terrain", sand_emit),
+    return [TR.DropTris("terrain", sand + ter_drop),
+            TR.EmitTris("terrain", sand_emit + ter_emit),
             TR.DropTris("beach1", foam_all), TR.EmitTris("beach1", foam_emit)]
 
 
