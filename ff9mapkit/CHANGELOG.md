@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `[deathrules] on_defeat`: warp instead of a game over
+- **`on_defeat = { warp_to = <field id>, hp = 0.2, gil_loss = 0.1, flag = ... }`** cancels the party wipe
+  and sends the player somewhere instead of the Game Over screen — the roguelike "back to camp". A DLL +
+  FIELD composition built from one table: the DLL half revives the fallen quietly (the proven short-anim
+  death-changer recipe) at `hp` × max, optionally docks `gil_loss` × party gil, sets a kit-reserved
+  wipe-marker story bit (8508, `flag` overrides), and ends the battle through the engine's **own flee
+  sequence** (the `SysEscape` trigger transcribed — the run-away fade, no flee-stat pollution, no engine gil
+  cut); the FIELD half is a tag-10 (after-battle) prologue the build injects into every encounter field
+  carrying the block: marker set → clear it → the proven fade → `Field(warp_to)`. Composes with
+  `second_wind` (the wind fires first; spent or a failed `chance` roll falls through to the warp — the
+  proven straight-line second-wind C# stays byte-stable when `on_defeat` is absent). The build **names**
+  encounter fields missing the block (a wipe there revives + flees but cannot warp). Offline-proven (the
+  money test compiles the DLL surface against the live engine; the tag-10 prologue is byte-tested) —
+  awaiting in-game playtest.
+
 ### Added — `[lowhp]`: reparameterize the LowHP threshold
 - A **`[lowhp]`** table in `field.toml` changes when a player counts as "HP is low" (vanilla: at or below
   1/6 of max HP — the yellow HP number + the engine `LowHP` status that HP-is-low supporting abilities and
@@ -16,7 +31,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   colors) are transcribed verbatim with only the threshold changed, and the hub's fail-safe returns `0` (no
   forced status; the side effects retry at the next checkpoint). Facts pinned by the dive: a 0-HP unit is
   dead *before* the hook (not a death-prevention site), and the caller acts only on the returned `Death`
-  bit. ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md), [FORMAT.md `[lowhp]`](docs/FORMAT.md))
+  bit. In-game proven 2026-07-11 (threshold 1/2: the HP number goes yellow on the hit that puts a
+  character below half max). ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md), [FORMAT.md `[lowhp]`](docs/FORMAT.md))
 
 ### Added — `[deathrules]` short-animation second wind
 - **`animation = "short"`** on the second wind skips the full Rebirth Flame summon (flagged as potentially

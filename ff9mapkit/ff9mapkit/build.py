@@ -4454,7 +4454,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         eb = _enc.inject_encounter(eb, scene=int(e["scene"]), freq=int(e.get("freq", 255)),
                                    pattern=int(e.get("pattern", 1)),
                                    scenes=e.get("scenes"))
-        eb = _reinit.add_reinit(eb, with_fade=True)
+        # [deathrules] on_defeat: the wipe-warp check rides the tag-10 prologue (the DLL half set the
+        # marker bit at the canceled game over; this half clears it and warps). Parse errors are
+        # validate()'s to report -- a broken block simply injects nothing here.
+        _dr_prologue = b""
+        if project.raw.get("deathrules") is not None:
+            from .battle import deathrules as _dr
+            try:
+                _dr_prologue = _dr.field_prologue(_dr.parse_table(
+                    project.raw["deathrules"], name_map=_flags.collect_flag_defs(project.raw)))
+            except _dr.DeathRulesError:
+                pass
+        eb = _reinit.add_reinit(eb, with_fade=True, prologue=_dr_prologue)
 
     # field music (song is optional -- a [music] section with no song = no field music, skip it)
     if project.raw.get("music", {}).get("song") is not None:
@@ -5719,6 +5730,19 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         + (["[lowhp] threshold"] if lh_spec is not None else []))
     warnings.append(f"scripted content: built Memoria.Scripts.{mod_name}.dll ({made}). "
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
+    if dr_spec is not None and dr_spec.warp_to is not None:
+        # the on_defeat DLL half is mod-GLOBAL, but the field half (the tag-10 wipe-warp check) only lands
+        # on fields carrying the [deathrules] block -- a wipe in an uncovered encounter field revives+flees
+        # but does NOT warp and leaves the marker set (the NEXT battle in a covered field would then warp
+        # spuriously). Name the gaps.
+        uncovered = [str((p.raw.get("field") or {}).get("name", "?")) for p in projects
+                     if isinstance(p.raw, dict) and p.raw.get("encounter") is not None
+                     and p.raw.get("deathrules") is None]
+        if uncovered:
+            warnings.append(
+                f"[deathrules] on_defeat: encounter field(s) {', '.join(uncovered)} carry no [deathrules] "
+                f"block, so their after-battle handler lacks the wipe-warp check -- a wipe there won't warp "
+                f"and leaves the marker bit set. Repeat the IDENTICAL [deathrules] block on them.")
     return warnings
 
 

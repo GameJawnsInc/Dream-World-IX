@@ -20,7 +20,7 @@ and in-game proven**:
 | **`[difficulty]`** (`difficulty.py`) | OnBattleInit | mutator — enemy HP/Str/Mgc scaling | ★★ proven, both variants |
 | **`[rebalance]`** (`rebalance.py`) | OnDamageFinalChanges | mutator — player/enemy HP-damage × | ★★ proven, both variants |
 | **`[deathrules]`** (`deathrules.py`) | OnGameOver (+OnBattleInit reset) | RETURNING single-owner — game-over verdict | ★ proven 2026-07-11, BOTH second-wind variants (full Phoenix + short) |
-| **`[lowhp]`** (`lowhp.py`) | UnitCheckPoint | RETURNING single-owner — LowHP threshold | built + offline-proven 2026-07-11, **awaiting playtest** (`scratch/lowhp_test.field.toml`) |
+| **`[lowhp]`** (`lowhp.py`) | UnitCheckPoint | RETURNING single-owner — LowHP threshold | ★ in-game proven 2026-07-11 (1/2: yellow on the below-half hit) |
 
 **The returning-hook hub mode is BUILT** (2026-07-11): `RETURNING_HOOKS` in `overload.py` — the hub emits
 `try { return <owner-expr>; } catch { } return <fail-safe>;`, single-owner enforced in `render_hub`
@@ -29,13 +29,33 @@ and in-game proven**:
 flag is clear). The whole tree (hub + all 4 features) compiles against the live engine
 (`test_tree_compiles_against_live_engine`, ran + passed).
 
-**What's left:** the `[lowhp]` playtest; the warp-on-defeat `[deathrules]` mode — dive STARTED 2026-07-11:
-the stock-compatible exit is the FLEE path (`btl_cmd.cs:1048` sets `btl_seq = SEQ_MENU_OFF_ESCAPE` →
-`battle.cs:441-446`: `BTL_RESULT_ESCAPE` + `PHASE_CLOSE` + the escape fade → control returns to the FIELD,
-whose tag-10 Main_Reinit runs). Sketch: at OnGameOver revive minimally (the proven short-anim recipe) + set
-the escape sequence + set a GLOB "party_wiped" bit; the FIELD side (kit tag-10 / logic-map injection on
-verbatim forks) checks the bit → fade + `Field(<hub>)` + clear. Open design questions (user calls): warp
-target (fixed id / World Hub / per-field), arrival HP, a flee-style gil penalty, key shape.
+**What's left:** the `on_defeat` playtest (below); extending the on_defeat FIELD half to VERBATIM forks
+(the DLL half already covers them; the tag-10 check currently lands only on kit-BUILT encounter fields —
+the logic-map `insert_in_function` machinery is the known route into a verbatim fork's existing tag-10).
+
+### `on_defeat` — WARP instead of a game over — BUILT 2026-07-11, awaiting playtest
+
+`on_defeat = { warp_to = <field id>, hp = 0.2, gil_loss = 0.1, flag = ... }` — a DLL + FIELD composition
+from one table (playtest: `scratch/deathrules_test.field.toml`, warp-to-self round):
+
+- **DLL half** (`deathrules.py` render): revive the dead quietly (the ★-proven short-anim recipe,
+  W-suffixed locals so it coexists with a short second wind) at `hp`×max → optional `gil_loss`×party-gil
+  dock → set the WIPE MARKER (`gEventGlobal` bit **8508** default, kit-reserved, `on_defeat.flag`
+  overrides) → end the battle through the transcribed FLEE trigger (`btl_cmd.cs:1035-1057`: `SetIdle` +
+  `PHASE_MENU_OFF` + `SEQ_MENU_OFF_ESCAPE` + `KillAllCommand`, MINUS `escape_no++`/`BTL_FLAG_ABILITY_FLEE`
+  — no flee stats, no engine gil cut) → `battle.cs:327-357` plays the run-away fade → `:441` closes as
+  `BTL_RESULT_ESCAPE`. With `second_wind` the straight-line proven C# is kept when on_defeat is ABSENT;
+  when present the wind's act sits in a guard (`if (!_secondWindUsed && roll)`) so spent/failed-roll FALLS
+  THROUGH to the warp.
+- **FIELD half** (`deathrules.field_prologue` → `reinit.add_reinit(prologue=)`): every kit-built
+  `[encounter]` field carrying the block gets a tag-10 prologue — `if (GLOB[8508]) { clear;
+  <the proven fade>; Field(warp_to) }`. Clear-FIRST (can never loop); tag-10 runs after EVERY battle but
+  only a wipe sets the bit, so victories are untouched.
+- **COVERAGE LAW:** the DLL is mod-global; the check is per-field. An uncovered encounter field's wipe
+  revives + flees but does NOT warp and leaves the marker set (→ a spurious warp after the NEXT battle in
+  a covered field). `_emit_scripts` warns, NAMING the uncovered fields — repeat the identical block.
+- Playtest risk flag: `Field()` from a tag-10 context — grounded on then_warp/talk-handler warps (14+
+  shipping fields) but tag-10 specifically is unproven until this playtest.
 
 ### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
 ### set fraction; 2nd wipe → game over; next battle → recharged)

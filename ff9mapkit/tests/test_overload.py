@@ -597,6 +597,84 @@ def test_emit_scripts_deathrules_only(tmp_path, monkeypatch):
     assert not layout.scripts_dir.exists()
 
 
+# ---- [deathrules] on_defeat (warp instead of a game over) -------------------------------------------------
+def test_deathrules_parse_on_defeat():
+    spec = deathrules.parse_table({"on_defeat": {"warp_to": 6000, "hp": 0.3, "gil_loss": 0.1}})
+    assert (spec.warp_to, spec.warp_hp, spec.warp_gil_loss) == (6000, 0.3, 0.1)
+    assert spec.wipe_flag == deathrules.WIPE_FLAG_DEFAULT      # the kit-reserved marker bit
+    assert not spec.second_wind                                # on_defeat alone is a legal block
+    both = deathrules.parse_table({"second_wind": True, "on_defeat": {"warp_to": 6000}})
+    assert both.second_wind and both.warp_to == 6000 and both.warp_hp == 0.2
+    with pytest.raises(deathrules.DeathRulesError, match="must be an inline table"):
+        deathrules.parse_table({"on_defeat": 6000})
+    with pytest.raises(deathrules.DeathRulesError, match="unknown key"):
+        deathrules.parse_table({"on_defeat": {"warp_to": 6000, "field": 1}})
+    with pytest.raises(deathrules.DeathRulesError, match="must be a field id"):
+        deathrules.parse_table({"on_defeat": {}})
+    with pytest.raises(deathrules.DeathRulesError, match="out of range"):
+        deathrules.parse_table({"on_defeat": {"warp_to": 40000}})    # past the Int16 fldMapNo cap
+    with pytest.raises(deathrules.DeathRulesError, match="hp = 0 out of range"):
+        deathrules.parse_table({"on_defeat": {"warp_to": 6000, "hp": 0.0}})
+    with pytest.raises(deathrules.DeathRulesError, match="gil_loss = 1 out of range"):
+        deathrules.parse_table({"on_defeat": {"warp_to": 6000, "gil_loss": 1.0}})
+    with pytest.raises(deathrules.DeathRulesError, match="unknown flag name"):
+        deathrules.parse_table({"on_defeat": {"warp_to": 6000, "flag": "nope"}})
+
+
+def test_deathrules_render_on_defeat():
+    """on_defeat = the short-anim revive recipe (W-suffixed locals) + the transcribed FLEE end + the wipe
+    marker -- and NO flee-stat pollution (no escape_no++, no BTL_FLAG_ABILITY_FLEE)."""
+    src = deathrules.render(deathrules.DeathRulesSpec(warp_to=1055, warp_gil_loss=0.1))
+    for line in (
+        "unitW.CurrentHp = Math.Max(1u, (UInt32)(unitW.MaximumHp * 0.2));",
+        "btl_stat.RemoveStatus(unitW, BattleStatusId.Death);",
+        "btl_mot.SetDefaultIdle(fallenW);",
+        f"gw[{deathrules.WIPE_FLAG_DEFAULT >> 3}] |= {1 << (deathrules.WIPE_FLAG_DEFAULT & 7)};",
+        "UIManager.Battle.SetIdle();",
+        "state.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;",
+        "state.btl_seq = FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE;",
+        "btl_cmd.KillAllCommand(state);",
+        "UInt32 gilLostW = (UInt32)(FF9StateSystem.Common.FF9.party.gil * 0.1);",
+    ):
+        assert line in src, line
+    assert "escape_no" not in src and "BTL_FLAG_ABILITY_FLEE" not in src
+    assert src.count("{") == src.count("}")
+    # no gil_loss -> no gil block at all
+    assert "gilLostW" not in deathrules.render(deathrules.DeathRulesSpec(warp_to=1055))
+
+
+def test_deathrules_render_second_wind_falls_through_to_on_defeat():
+    """With on_defeat behind it, the second wind's spent/failed-roll paths FALL THROUGH to the warp (no
+    `return false` early-outs), and the two revive loops' locals don't collide."""
+    src = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, animation="short", chance=60,
+                                                      warp_to=1055))
+    assert "if (!_secondWindUsed && Comn.random16() % 100 < 60)" in src
+    assert "return false; // spent this battle" not in src     # the straight-line early-out is gone
+    assert "revived = " in src and "revivedW = " in src        # both loops coexist
+    i_sw = src.index("_secondWindUsed = true;")
+    i_od = src.index("// ---- on_defeat")
+    assert i_sw < i_od                                         # the wind fires first; on_defeat is the tail
+    assert src.count("{") == src.count("}")
+    # WITHOUT on_defeat the proven straight-line shape is byte-stable (the guard block is absent)
+    plain = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, chance=60))
+    assert "return false; // spent this battle" in plain and "revivedW" not in plain
+
+
+def test_emit_scripts_on_defeat_coverage_warning(tmp_path, monkeypatch):
+    """The DLL half is mod-global but the field half only lands on fields carrying the block -- the build
+    must NAME uncovered encounter fields."""
+    _mock_compiles(monkeypatch)
+    from ff9mapkit.build import _emit_scripts
+    layout = ModLayout(root=tmp_path / "mod")
+    covered = SimpleNamespace(raw={"field": {"name": "HUBROOM"}, "encounter": {"scene": 67},
+                                   "deathrules": {"on_defeat": {"warp_to": 6000}}})
+    uncovered = SimpleNamespace(raw={"field": {"name": "WILDS"}, "encounter": {"scene": 67}})
+    peaceful = SimpleNamespace(raw={"field": {"name": "TOWN"}})
+    warnings = _emit_scripts([covered, uncovered, peaceful], layout, "FF9CustomMap")
+    assert any("WILDS" in w and "wipe-warp" in w for w in warnings)
+    assert not any("TOWN" in w for w in warnings)              # no encounters -> no wipe possible -> no gap
+
+
 # ---- [lowhp] on the UnitCheckPoint returning hook ---------------------------------------------------------
 def test_hub_lowhp_returning_hook():
     """UnitCheckPoint is the second RETURNING hook: single-owner verdict expression, fail-safe 0 (no forced
@@ -746,9 +824,11 @@ def test_tree_compiles_against_live_engine(tmp_path):
     lowhp.write_source(layout, lowhp.LowHPSpec(num=2, den=5, flag=8602, flag_label="hard_mode"))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0
-    # ...and the SHORT-animation variant's C# surface (BattleUnit ctor, RemoveStatus(BattleUnit,
-    # BattleStatusId), btl_mot.SetDefaultIdle, Settings.SetHPFull, btl.cur.hp) -- recompile the tree with it
+    # ...and the SHORT-animation + on_defeat surface (BattleUnit ctor, RemoveStatus(BattleUnit,
+    # BattleStatusId), btl_mot.SetDefaultIdle, Settings.SetHPFull, btl.cur.hp, Common.FF9.party.gil,
+    # UIManager.Battle.SetIdle, btl_phase/btl_seq + the PHASE/SEQ consts, KillAllCommand) -- recompile
     deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True, animation="short",
-                                                              revive_hp=0.25))
+                                                              revive_hp=0.25, chance=60,
+                                                              warp_to=1055, warp_gil_loss=0.1))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0

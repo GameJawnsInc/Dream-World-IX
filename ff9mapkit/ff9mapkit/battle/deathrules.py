@@ -14,6 +14,24 @@ A field.toml (one per mod) declares::
     keep_rebirth_flame = false  # OPTIONAL: false REMOVES Eiko's vanilla auto-revive (default true = kept)
     flag = "mercy_mode"         # OPTIONAL gate: the rules apply only while this gEventGlobal BIT is set
                                 # (a [[flag]] name or a bit index; omit = always on)
+    on_defeat = { warp_to = 6000, hp = 0.2, gil_loss = 0.1 }
+                                # OPTIONAL: instead of a game over, revive minimally + FLEE the battle +
+                                # warp to field `warp_to` (see below). With second_wind too, the wind
+                                # fires first; spent / a failed roll falls through to the warp.
+
+**``on_defeat`` -- the warp-instead-of-game-over rule -- is a DLL + FIELD composition** (both halves built
+from this one table): the DLL half revives the dead minimally (the proven short-anim death-changer recipe,
+at ``hp`` x max), optionally docks ``gil_loss`` x party gil, sets a WIPE-MARKER ``gEventGlobal`` bit
+(default bit ``8508``, kit-reserved; override via ``on_defeat.flag``), and ends the battle through the
+engine's own FLEE sequence (the ``SysEscape`` trigger transcribed from ``btl_cmd.cs:1035-1057`` minus
+``escape_no``/``BTL_FLAG_ABILITY_FLEE`` -- no flee-stat pollution, no engine gil cut; ``battle.cs``'s
+``SEQ_MENU_OFF_ESCAPE`` then plays the run-away fade and returns control to the field). The FIELD half:
+every kit-built field with an ``[encounter]`` gets a tag-10 (Main_Reinit) prologue -- ``if (marker) {
+clear; fade; Field(warp_to) }`` (:func:`field_prologue`, injected by the build's ``add_reinit``). Clear-
+first so it can never loop; tag-10 runs after EVERY battle but only the wipe sets the bit. ⚠ COVERAGE: the
+DLL is mod-global -- a wipe in a field whose ``.eb`` lacks the check (no ``[deathrules]`` on it, or a
+verbatim fork) revives + flees but does NOT warp and leaves the marker set, which would warp spuriously
+after the next battle in a covered field; the build WARNS about uncovered encounter fields.
 
 The build renders it into a plain static C# class (``Sources/DeathRules/9600_DeathRules.cs``) that the
 kit-generated Overload hub RETURNS from ``OnGameOver`` (btl_sys.CheckBattlePhase: fires when the last player
@@ -67,9 +85,16 @@ from .. import flags as _flags
 DEATHRULES_BASENAME = "9600_DeathRules.cs"
 
 _BOOL_KEYS = ("second_wind", "keep_rebirth_flame")
-_KNOWN_KEYS = ("second_wind", "chance", "animation", "revive_hp", "keep_rebirth_flame", "flag")
+_KNOWN_KEYS = ("second_wind", "chance", "animation", "revive_hp", "keep_rebirth_flame", "flag", "on_defeat")
+_ON_DEFEAT_KEYS = ("warp_to", "hp", "gil_loss", "flag")
 _ANIMATIONS = ("full", "short")
 _FLAG_MAX = 2048 * 8 - 1                          # gEventGlobal is Byte[2048] -> bit indices 0..16383
+# The kit-reserved WIPE-MARKER bit (on_defeat's default `flag`): the DLL sets it at the canceled game
+# over, the field's tag-10 clears it and warps. 8508 sits just below the author band (>= 8512, flags.py
+# FIRST_SAFE_FLAG) and above every kit auto-band (event 8000+ / cutscene 8100 / choice 8200+ /
+# on_entry 8300+ / chest 8376+).
+WIPE_FLAG_DEFAULT = 8508
+_FIELD_ID_MAX = 32767                             # engine fldMapNo is Int16
 
 
 class DeathRulesError(ValueError):
@@ -86,6 +111,13 @@ class DeathRulesSpec:
     keep_rebirth_flame: bool = True
     flag: "int | None" = None       # resolved gEventGlobal bit index (gate), or None = always on
     flag_label: str = ""            # the author's spelling, for the emitted C# comment
+    # on_defeat (warp instead of a game over): None = absent. When second_wind is ALSO on, the wind
+    # fires first (once per battle); spent / a failed roll falls THROUGH to the warp.
+    warp_to: "int | None" = None    # the destination field id
+    warp_hp: float = 0.2            # arrival revive HP as a fraction of max (0 < x <= 1), floor 1 HP
+    warp_gil_loss: float = 0.0      # fraction of PARTY gil lost on the wipe ([0, 1); 0 = no penalty)
+    wipe_flag: int = WIPE_FLAG_DEFAULT   # the marker bit shared by the DLL and the field's tag-10
+    wipe_flag_label: str = ""
 
 
 def parse_table(table, *, name_map: "dict | None" = None) -> DeathRulesSpec:
@@ -128,10 +160,48 @@ def parse_table(table, *, name_map: "dict | None" = None) -> DeathRulesSpec:
     if "revive_hp" in table and animation != "short":
         raise DeathRulesError('[deathrules] revive_hp only applies to animation = "short" -- the full Phoenix '
                               "revive's HP is decided by the engine ability (or remove revive_hp)")
-    if not bools["second_wind"] and bools["keep_rebirth_flame"]:
-        raise DeathRulesError("[deathrules] the block does nothing (no second wind, Eiko's Rebirth Flame "
-                              "kept = vanilla); set second_wind = true and/or keep_rebirth_flame = false "
-                              "(or remove the table)")
+    od = table.get("on_defeat")
+    warp_to, warp_hp, warp_gil, wipe_flag, wipe_label = None, 0.2, 0.0, WIPE_FLAG_DEFAULT, ""
+    if od is not None:
+        if not isinstance(od, dict):
+            raise DeathRulesError("[deathrules] on_defeat must be an inline table "
+                                  "{ warp_to = <field id>, hp = 0.2, gil_loss = 0.1, flag = ... }")
+        od_unknown = sorted(set(od) - set(_ON_DEFEAT_KEYS))
+        if od_unknown:
+            raise DeathRulesError(f"[deathrules] on_defeat unknown key(s): {od_unknown} "
+                                  f"(expected {', '.join(_ON_DEFEAT_KEYS)})")
+        warp_to = od.get("warp_to")
+        if isinstance(warp_to, bool) or not isinstance(warp_to, int):
+            raise DeathRulesError(f"[deathrules] on_defeat.warp_to must be a field id (got {warp_to!r})")
+        if not (1 <= warp_to <= _FIELD_ID_MAX):
+            raise DeathRulesError(f"[deathrules] on_defeat.warp_to = {warp_to} out of range 1..{_FIELD_ID_MAX} "
+                                  f"(fldMapNo is Int16; the id must be a REGISTERED field)")
+        warp_hp = od.get("hp", 0.2)
+        if isinstance(warp_hp, bool) or not isinstance(warp_hp, (int, float)):
+            raise DeathRulesError(f"[deathrules] on_defeat.hp must be a fraction of max HP in (0, 1] "
+                                  f"(got {warp_hp!r})")
+        warp_hp = float(warp_hp)
+        if not (0.0 < warp_hp <= 1.0):
+            raise DeathRulesError(f"[deathrules] on_defeat.hp = {warp_hp:g} out of range (0, 1]")
+        warp_gil = od.get("gil_loss", 0.0)
+        if isinstance(warp_gil, bool) or not isinstance(warp_gil, (int, float)):
+            raise DeathRulesError(f"[deathrules] on_defeat.gil_loss must be a fraction of party gil in "
+                                  f"[0, 1) (got {warp_gil!r})")
+        warp_gil = float(warp_gil)
+        if not (0.0 <= warp_gil < 1.0):
+            raise DeathRulesError(f"[deathrules] on_defeat.gil_loss = {warp_gil:g} out of range [0, 1)")
+        if "flag" in od:
+            wipe_label = str(od["flag"])
+            try:
+                wipe_flag = _flags.resolve(od["flag"], name_map or {})
+            except ValueError as e:
+                raise DeathRulesError(f"[deathrules] on_defeat.flag: {e}")
+            if not (0 <= wipe_flag <= _FLAG_MAX):
+                raise DeathRulesError(f"[deathrules] on_defeat.flag {wipe_flag} out of range 0..{_FLAG_MAX}")
+    if not bools["second_wind"] and bools["keep_rebirth_flame"] and od is None:
+        raise DeathRulesError("[deathrules] the block does nothing (no second wind, no on_defeat, Eiko's "
+                              "Rebirth Flame kept = vanilla); set second_wind = true, on_defeat = {...} "
+                              "and/or keep_rebirth_flame = false (or remove the table)")
     flag = None
     label = ""
     if "flag" in table:
@@ -145,7 +215,9 @@ def parse_table(table, *, name_map: "dict | None" = None) -> DeathRulesSpec:
                                   f"2048 bytes); custom flags belong in the safe band >= {_flags.FIRST_SAFE_FLAG}")
     return DeathRulesSpec(second_wind=bools["second_wind"], chance=chance,
                           animation=animation, revive_hp=revive_hp,
-                          keep_rebirth_flame=bools["keep_rebirth_flame"], flag=flag, flag_label=label)
+                          keep_rebirth_flame=bools["keep_rebirth_flame"], flag=flag, flag_label=label,
+                          warp_to=warp_to, warp_hp=warp_hp, warp_gil_loss=warp_gil,
+                          wipe_flag=wipe_flag, wipe_flag_label=wipe_label)
 
 
 def collect(projects) -> "tuple[DeathRulesSpec, object] | None":
@@ -307,6 +379,64 @@ _ROLL = """\
                     return false; // the {chance}% roll failed -- the defeat proceeds
 """
 
+# second wind WITH on_defeat behind it: spent (or a failed roll) must FALL THROUGH to the warp instead of
+# returning false, so the act tail sits inside a guard block (the straight-line proven templates are kept
+# byte-stable for the on_defeat-less case).
+_SECOND_WIND_GUARDED = """\
+                // ---- second wind: cancel the wipe ONCE per battle; spent (or a failed roll) falls
+                //      THROUGH to on_defeat below ----
+                if (btl_cmd.CheckSpecificCommand2(BattleCommandId.SysLastPhoenix))
+                    return true; // a queued revive is still pending -- keep the battle alive (vanilla guard)
+                if (!_secondWindUsed{roll_cond})
+                {{
+{act}                }}
+"""
+
+# on_defeat: instead of the game over, revive minimally (the proven short-anim death-changer recipe, W-
+# suffixed locals so it coexists with a short second wind) + FLEE the battle + set the WIPE MARKER bit the
+# field's tag-10 checks (clear + fade + Field(warp_to) -- the kit injects that check into every built
+# field's after-battle handler). The battle-end is the SysEscape trigger transcribed (btl_cmd.cs:1035-1057)
+# MINUS escape_no++/BTL_FLAG_ABILITY_FLEE: not a player flee -- no flee stats, no engine gil cut (the
+# gil_loss knob below is deliberately a fraction of PARTY gil, unlike the flee default's fraction of the
+# battle's gil bonus, which is ~empty on a wipe).
+_ON_DEFEAT = """\
+                // ---- on_defeat: no game over -- revive minimally, FLEE the battle, and mark the wipe
+                //      (the field's tag-10 sees the mark, clears it, and warps to field {warp_to}) ----
+                Boolean revivedW = false;
+                for (BTL_DATA fallenW = state.btl_list.next; fallenW != null; fallenW = fallenW.next)
+                {{
+                    if (fallenW.bi.player == 0)
+                        continue;
+                    if (fallenW.cur.hp != 0 && !btl_stat.CheckStatus(fallenW, BattleStatus.Death))
+                        continue; // petrify etc. stays -- only the DEAD get up
+                    BattleUnit unitW = new BattleUnit(fallenW);
+                    unitW.CurrentHp = Math.Max(1u, (UInt32)(unitW.MaximumHp * {hp}));
+                    btl_stat.RemoveStatus(unitW, BattleStatusId.Death); // die_seq/flags/texanim bookkeeping
+                    btl_mot.SetDefaultIdle(fallenW);                    // stand back up (the cancel-death recipe)
+                    revivedW = true;
+                }}
+                if (!revivedW)
+                    return false; // nobody revivable (e.g. a full-petrify wipe) -- the defeat proceeds
+                FF9StateSystem.Settings.SetHPFull(); // the HP/MP-full booster support (no-op otherwise)
+{gil}                Byte[] gw = FF9StateSystem.EventState.gEventGlobal;
+                gw[{fbyte}] |= {fmask}; // the WIPE MARKER (bit {wipe_flag}) the field's tag-10 checks
+                // the FLEE battle-end (SysEscape trigger, btl_cmd.cs:1035-1057, transcribed): the engine
+                // runs the run-away fade, then BTL_RESULT_ESCAPE + PHASE_CLOSE return control to the field
+                UIManager.Battle.SetIdle();
+                state.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;
+                state.btl_seq = FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE;
+                btl_cmd.KillAllCommand(state);
+                return true;
+"""
+
+_ON_DEFEAT_GIL = """\
+                UInt32 gilLostW = (UInt32)(FF9StateSystem.Common.FF9.party.gil * {gil});
+                if (FF9StateSystem.Common.FF9.party.gil > gilLostW)
+                    FF9StateSystem.Common.FF9.party.gil -= gilLostW;
+                else
+                    FF9StateSystem.Common.FF9.party.gil = 0U;
+"""
+
 
 def render(spec: DeathRulesSpec) -> str:
     """The C# feature-class source for a validated spec."""
@@ -320,6 +450,11 @@ def render(spec: DeathRulesSpec) -> str:
         bits.append("full Phoenix summon" if spec.animation == "full"
                     else f"short (no summon, revive at {spec.revive_hp:g}x max HP)")
         parts.append(f"second wind ({', '.join(bits)})")
+    if spec.warp_to is not None:
+        od = f"on_defeat -> flee + warp to field {spec.warp_to} at {spec.warp_hp:g}x max HP"
+        if spec.warp_gil_loss > 0:
+            od += f", -{spec.warp_gil_loss:g}x party gil"
+        parts.append(od)
     parts.append("Eiko's Rebirth Flame " + ("kept" if spec.keep_rebirth_flame else "REMOVED"))
     if spec.flag is not None:
         label = f" ({spec.flag_label})" if spec.flag_label and spec.flag_label != str(spec.flag) else ""
@@ -339,15 +474,42 @@ def render(spec: DeathRulesSpec) -> str:
     if spec.flag is not None:
         second_wind += _RULE_ASLEEP
     if spec.second_wind:
-        roll = _ROLL.format(chance=spec.chance) if spec.chance < 100 else ""
-        second_wind += _SECOND_WIND_PRELUDE.format(roll=roll)
-        if spec.animation == "full":
-            second_wind += _SECOND_WIND_FULL
+        act = (_SECOND_WIND_FULL if spec.animation == "full"
+               else _SECOND_WIND_SHORT.format(hp=f"{spec.revive_hp:g}"))
+        if spec.warp_to is None:
+            # the on_defeat-less shape: straight-line, byte-stable with the in-game-proven builds
+            roll = _ROLL.format(chance=spec.chance) if spec.chance < 100 else ""
+            second_wind += _SECOND_WIND_PRELUDE.format(roll=roll) + act
         else:
-            second_wind += _SECOND_WIND_SHORT.format(hp=f"{spec.revive_hp:g}")
+            # with on_defeat behind it: spent / a failed roll FALLS THROUGH to the warp
+            roll_cond = (f" && Comn.random16() % 100 < {spec.chance}" if spec.chance < 100 else "")
+            import textwrap
+            second_wind += _SECOND_WIND_GUARDED.format(roll_cond=roll_cond,
+                                                       act=textwrap.indent(act, "    "))
+    if spec.warp_to is not None:
+        gil = (_ON_DEFEAT_GIL.format(gil=f"{spec.warp_gil_loss:g}")
+               if spec.warp_gil_loss > 0 else "")
+        second_wind += _ON_DEFEAT.format(warp_to=spec.warp_to, hp=f"{spec.warp_hp:g}", gil=gil,
+                                         fbyte=spec.wipe_flag >> 3, fmask=1 << (spec.wipe_flag & 7),
+                                         wipe_flag=spec.wipe_flag)
     return _SOURCE.format(basename=DEATHRULES_BASENAME, kit_version=__version__,
                           summary=", ".join(parts), gate_comment=gate_comment, gate=gate,
                           eiko=eiko, second_wind=second_wind)
+
+
+def field_prologue(spec: "DeathRulesSpec | None") -> bytes:
+    """The tag-10 (Main_Reinit) PROLOGUE for a field in an ``on_defeat`` mod: ``if (GLOB[wipe_flag]) {
+    clear it; <the proven fade>; Field(warp_to) }`` -- prepended to the after-battle handler so the flee-end
+    the DLL triggered at the canceled game over lands here and warps. Clear-FIRST so the warp can never
+    loop; the check lives in tag-10 (after EVERY battle), and only the deathrules DLL ever sets the bit, so
+    a normal victory sees it clear. ``b""`` when on_defeat is absent."""
+    if spec is None or spec.warp_to is None:
+        return b""
+    from ..content import event as _event, region as _region
+    return _region.if_block(
+        _region.cond_truthy(_region.GLOB_BOOL, spec.wipe_flag),
+        _region.set_var(_region.GLOB_BOOL, spec.wipe_flag, 0)
+        + _event.warp(spec.warp_to, fade=True))
 
 
 def deathrules_dir(layout) -> Path:

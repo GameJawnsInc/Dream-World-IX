@@ -519,6 +519,16 @@ the hook fires at wipe time, so the flag toggles the rules **live** — the very
 Mod-global + build rules identical to `[difficulty]`/`[rebalance]`. Fail-safe: any hiccup returns `false` (a
 vanilla defeat) — never a canceled game over with nobody revived, which would stall the battle.
 
+**`on_defeat`** — warp instead of a game over (`on_defeat = { warp_to = <field id>, hp = 0.2, gil_loss =
+0.1 }`): the fallen party revives quietly at `hp` × max HP, optionally loses `gil_loss` × its gil, and the
+battle ends through the engine's **own flee sequence** (the run-away fade — no flee-stat side effects, no
+double gil cut); back on the field, the after-battle handler warps to `warp_to` (a kit-built check the build
+injects into every encounter field carrying the block). Composes with `second_wind`: the wind fires first,
+and only a spent wind (or a failed `chance` roll) falls through to the warp — a roguelike "one free revive,
+then back to camp". The wipe marker rides a kit-reserved story bit (8508; override via `on_defeat.flag`).
+Coverage rule: repeat the identical `[deathrules]` block on **every** encounter field of the mod — the build
+names any gaps (a wipe in an uncovered field revives and flees but cannot warp).
+
 ### `[lowhp]` — the LowHP threshold (shipped content)
 
 Owns the **HP/MP checkpoint verdict** (`UnitCheckPoint` — the second returning, single-owner hook) to

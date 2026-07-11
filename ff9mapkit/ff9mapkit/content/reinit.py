@@ -26,9 +26,13 @@ REINIT_TAG = 10
 
 
 def add_reinit(eb_bytes, *, with_fade: bool = True, fade_frames: int = 16,
-               tag: int = REINIT_TAG) -> bytes:
-    """Add an entry-0 tag-10 handler (EnableMove; return), optionally with a fast fade-in."""
-    body = b""
+               tag: int = REINIT_TAG, prologue: bytes = b"") -> bytes:
+    """Add an entry-0 tag-10 handler (EnableMove; return), optionally with a fast fade-in.
+
+    ``prologue`` (default empty) is raw bytecode run FIRST -- before the fade-in/EnableMove -- e.g. the
+    ``[deathrules] on_defeat`` wipe-warp check (:func:`ff9mapkit.battle.deathrules.field_prologue`), which
+    may ``Field()``-transition away so nothing after it runs on that path."""
+    body = bytes(prologue)
     if with_fade:
         body += opcodes.fade_filter(2, fade_frames, 0, 0, 0, 0)   # SUB => fade-IN over N frames
     body += opcodes.ENABLE_MOVE + opcodes.RETURN

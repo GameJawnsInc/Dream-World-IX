@@ -205,6 +205,24 @@ def test_reinit_with_and_without_fade():
     assert _ops(EbScript.from_bytes(plain), 0, 10) == [0x2E, 0x04]
 
 
+def test_reinit_with_prologue():
+    """A prologue (the [deathrules] on_defeat wipe-warp check) runs FIRST in tag-10: cond-expr,
+    jump-if-false, clear-expr, the proven warp fade + sound + Field -- then the normal fade-in/
+    EnableMove/return tail."""
+    from ff9mapkit.battle import deathrules
+    pro = deathrules.field_prologue(deathrules.DeathRulesSpec(warp_to=1055))
+    out = reinit.add_reinit(CLEAN, with_fade=True, prologue=pro)
+    eb = EbScript.from_bytes(out)
+    assert eb.to_bytes() == out
+    ops = _ops(eb, 0, 10)
+    assert ops[0] == 0x05                            # the wipe-flag condition expr comes first
+    assert 0x2B in ops                               # Field(warp_to) present
+    assert ops.index(0x2B) < ops.index(0x2E)         # the warp branch sits before the normal EnableMove tail
+    assert ops[-2:] == [0x2E, 0x04]                  # ...which is unchanged (fade-in pinned by the sibling test)
+    assert deathrules.field_prologue(None) == b""    # no on_defeat -> byte-identical reinit (sibling test)
+    assert deathrules.field_prologue(deathrules.DeathRulesSpec(second_wind=True)) == b""
+
+
 def test_music_on_entry_and_reinit():
     out = music.add_field_music(CLEAN, 9)
     eb = EbScript.from_bytes(out)
