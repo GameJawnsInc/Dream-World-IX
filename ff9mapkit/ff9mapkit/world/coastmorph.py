@@ -2756,6 +2756,291 @@ def sand_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
     return [TR.DropTris("terrain", drop), TR.EmitTris("terrain", emit)]
 
 
+#: THE END-CAP LAWS (byte-learned 2026-07-11 -- the assembly census over all 40 beach1
+#: blocks: 50 foam cap groups; every whole cap derives from these laws, the residual is
+#: exactly frame-split fragments + the (3,11) spit + the BR slot):
+#:
+#: * The foam texture is a 64px 2x2 sheet: run swash TL [0,.5]x[0,.5]; TWO interchangeable
+#:   end-cap GRAPHICS -- **BL** [0,.5]x[.5,1] (the taper band BELOW the run tile; v jumps
+#:   at the junction) and **TR** [.5,1]x[0,.5] (the run band's rightward fade; v CONTINUES
+#:   the run rows, so its v snaps are FORCED to the block's run family). Both are squared
+#:   QUADS between the sand seam and the waterline (the old "wedge" reading was a weld
+#:   artifact -- the free-water corner often welds terrain at the pinch). BR = the
+#:   spit/river-mouth tip vocabulary (verbatim residual, like the sand spit fold).
+#: * Orientation is LAW: the junction edge carries the tile edge NEAREST the run graphic
+#:   (BL u=uJ~0.5; TR u~0.5/0.5156) and the free edge faces the beach end (BL u=uF~0;
+#:   TR u=0.9844) -- mirrored per end, both ends use the same graphic values.
+#: * The rest is per-cap TEXEL SNAPS, all byte-observed: BL uF in {0, 0.0156}, uJ in
+#:   {0.4844, 0.5}, vS in {0.5, 0.5156, 0.5312}, vW in {60..63}/64.
+#: * **THE TAPER ASYMMETRY (in-game falsified 2026-07-11 at the (9,8) slot-flip A/B --
+#:   "non-capped straight lines"):** the global beach texture (4 animated frames
+#:   ``11_0_128_*``, 128x64) is ONE curling-swash composition -- only the BL window
+#:   carries a true FADE (band collapses at u->0), while the TR window carries the
+#:   FULL-STRENGTH band curling waterward (strengthens toward u->1). A TR cap never
+#:   fades: it reads right only where the end's geometry carries the curl into the
+#:   water; on a straight squared end it reads as a non-capped hard cut. So the slot
+#:   is NOT a free style -- THE SLOT LAW: rebuilds TRANSPORT the donor's slot; mint
+#:   defaults to BL (the universal fade) and uses TR only as a deliberate curl-out.
+#: * The SAND cap (row B, Path A census): rect Q [0.3262, 0.3867], junction edge 0.3262,
+#:   free edge 0.3867, v = per-cap pins land {612..615}/1024 -> seam {640..642}/1024.
+#:
+#: Families keyed by the block's modal run-tile (vS_run, vW_run); each maps to its
+#: byte-observed BL snaps (uF, uJ, vS, vW) and TR junction-u. The (0.0156, 0.4531)
+#: family has no observed TR cap -- its TR values are LAW-FORCED (v continues the run
+#: rows), the generalization the A/B deploy tests.
+FOAM_FAMILIES = {
+    (0.0, 0.4844): {"BL": (0.0, 0.5, 0.5, 0.9844), "TR_UJ": 0.5},
+    (0.0156, 0.4688): {"BL": (0.0, 0.5, 0.53125, 0.953125), "TR_UJ": 0.515625},
+    (0.0156, 0.4531): {"BL": (0.015625, 0.5, 0.53125, 0.9375), "TR_UJ": 0.515625},
+    (0.0, 0.4531): {"BL": (0.0, 0.5, 0.53125, 0.9375), "TR_UJ": 0.5},
+}
+FOAM_TR_UT = 0.984375                 # the TR free edge (63/64)
+_CAP_EPS = 0.0022
+
+
+def _foam_family(foam_tris):
+    """The block's run family = the modal (vS, vW) over its TL run tiles."""
+    from collections import Counter
+    cnt = Counter()
+    for t3 in foam_tris:
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        if max(us) <= 0.502 and max(vs) <= 0.502:
+            cnt[(round(min(vs), 4), round(max(vs), 4))] += 1
+    for (v0, v1), _n in cnt.most_common():
+        for fam in FOAM_FAMILIES:
+            if abs(v0 - fam[0]) <= _CAP_EPS and abs(v1 - fam[1]) <= _CAP_EPS:
+                return fam
+    return None
+
+
+def emit_foam_cap(sj, wj, sf, wf, *, slot, family, diag="wj-sf", nrm=None, idall=None,
+                  snaps=None, interior=()):
+    """SYNTHESIZE a beach end-cap foam tile (the mint-facing emitter): corners
+    sand-junction / water-junction / sand-free / water-free (positions), the cap
+    ``slot`` (``"BL"`` the universal fade | ``"TR"`` the curl-out -- see THE TAPER
+    ASYMMETRY above: TR only where the end carries the curl into the water), the
+    block's run ``family`` key, and the quad ``diag`` (``"wj-sf"`` | ``"sj-wf"``, the
+    donor-alternating split). ``snaps=(uF, uJ, vS, vW)`` overrides the family's modal
+    snap scalars (the rebuild transports the donor cap's own). Returns the cap's
+    triangles."""
+    if snaps is not None:
+        uF, uJ, vS, vW = snaps
+    elif slot == "BL":
+        uF, uJ, vS, vW = FOAM_FAMILIES[family]["BL"]
+    else:
+        uF, uJ, vS, vW = FOAM_TR_UT, FOAM_FAMILIES[family]["TR_UJ"], family[0], family[1]
+    uv = {id(sj): (uJ, vS), id(wj): (uJ, vW), id(sf): (uF, vS), id(wf): (uF, vW)}
+    nrm = nrm or (0.0, 1.0, 0.0)
+    idall = idall or (0.0, 0.0, 0.0, 0.0)
+
+    def V(p):
+        return (p, nrm, uv[id(p)], idall)
+    split = ((wj, sf, sj), (wj, wf, sf)) if diag == "wj-sf" \
+        else ((sj, wf, wj), (sj, sf, wf))
+    tris = [_up_tri([V(p) for p in t]) for t in split]
+    if interior:
+        raise ValueError("interior subdivision emission is the rebuild's transport "
+                         "path -- the mint emitter takes clean corner quads")
+    return tris
+
+
+def emit_sand_cap(lj, sj, lf, sf, *, land_pin, seam_pin, diag="sj-lf", nrm=None,
+                  idall=None):
+    """SYNTHESIZE a sand row-B cap tile: corners land-junction / seam-junction /
+    land-free / seam-free; the per-cap v pins (byte-observed bands: land 612-615,
+    seam 640-642 /1024). u is LAW: rect Q with the junction edge at 0.3262 and the
+    free edge at 0.3867 (the taper points outward)."""
+    uJ, uF = SAND_ULAT[1], SAND_ULAT[2]
+    uv = {id(lj): (uJ, land_pin), id(sj): (uJ, seam_pin),
+          id(lf): (uF, land_pin), id(sf): (uF, seam_pin)}
+    nrm = nrm or (0.0, 1.0, 0.0)
+    idall = idall or (0.0, 0.0, 0.0, 0.0)
+
+    def V(p):
+        return (p, nrm, uv[id(p)], idall)
+    split = ((sj, lf, lj), (sj, sf, lf)) if diag == "sj-lf" \
+        else ((lj, sf, sj), (lj, lf, sf))
+    return [_up_tri([V(p) for p in t]) for t in split]
+
+
+def _foam_cap_groups(foam):
+    """Group a block's non-TL foam tris into cap groups (shared verts, same slot).
+    Yields ``(slot, [tri, ...])``."""
+    def slot_of(t3):
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        uu = "L" if max(us) <= 0.502 else ("R" if min(us) >= 0.498 else "X")
+        vv = "T" if max(vs) <= 0.502 else ("B" if min(vs) >= 0.498 else "X")
+        return vv + uu
+    caps = [(slot_of(t3), t3) for t3 in foam]
+    caps = [(s, t3) for s, t3 in caps if s in ("BL", "TR", "BR")]
+    used = [False] * len(caps)
+    for i in range(len(caps)):
+        if used[i]:
+            continue
+        grp = [caps[i][1]]
+        used[i] = True
+        keys = {_pk(v[0]) for v in caps[i][1]}
+        changed = True
+        while changed:
+            changed = False
+            for j in range(len(caps)):
+                if used[j] or caps[j][0] != caps[i][0]:
+                    continue
+                if keys & {_pk(v[0]) for v in caps[j][1]}:
+                    grp.append(caps[j][1])
+                    used[j] = True
+                    keys |= {_pk(v[0]) for v in caps[j][1]}
+                    changed = True
+        yield caps[i][0], grp
+
+
+#: 4dp census value -> the exact atlas float (64px v-texels / 128px u-texels); the
+#: byte gate proves every real cap corner sits EXACTLY on these.
+_CAP_CANON = {0.0: 0.0, 0.0156: 0.015625, 0.4531: 0.453125, 0.4688: 0.46875,
+              0.4844: 0.484375, 0.5: 0.5, 0.5156: 0.515625, 0.5312: 0.53125,
+              0.9375: 0.9375, 0.9531: 0.953125, 0.9688: 0.96875, 0.9844: 0.984375}
+
+
+def cap_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
+    """The END-CAP identity rebuild (the assembly rung's completeness proof): every
+    lawful foam cap re-emits through :func:`emit_foam_cap` with the donor's OWN slot
+    (THE SLOT LAW -- the slot-flip A/B falsified slot freedom in-game: TR never fades)
+    and its snap scalars identified to the exact canonical atlas floats, and every
+    lawful sand row-B cap re-emits through :func:`emit_sand_cap`. BOTH parts carry an
+    internal BYTE-EQUALITY gate: the emitted cap must equal the donor bytes exactly --
+    caps have zero lawful freedom beyond their snaps, so the round-trip IS the proof
+    that the laws are complete. Residual (BR spit vocabulary, frame-split fragments,
+    subdivided caps) stays verbatim."""
+    foam = TR.world_tris(*donor, "beach1", disc=disc, lod=lod, game=game)
+    if not foam:
+        raise ValueError(f"donor {donor} has no beach1 mesh -- not a sandy shore")
+    family = _foam_family(foam)
+    if family is None:
+        raise ValueError(f"donor {donor}: no lawful foam run family decodes")
+    run_keys = set()
+    for t3 in foam:
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        if max(us) <= 0.502 and max(vs) <= 0.502:
+            run_keys |= {_pk(v[0]) for v in t3}
+    drop_f, emit_f = [], []
+    for slot, grp in _foam_cap_groups(foam):
+        if slot == "BR" or len(grp) != 2:
+            continue                       # spit vocabulary / subdivided: verbatim
+        verts = {}
+        for t3 in grp:
+            for v in t3:
+                verts.setdefault(_pk(v[0]), v)
+        if len(verts) != 4:
+            continue
+        vl = list(verts.values())
+        rows = sorted({round(v[2][1], 4) for v in vl})
+        cols = sorted({round(v[2][0], 4) for v in vl})
+        if len(rows) != 2 or len(cols) != 2:
+            continue                       # skewed cap (a non-2x2 UV grid): verbatim
+        if slot == "BL":
+            uF_d, uJ_d = cols
+        else:
+            uJ_d, uF_d = cols
+        lawful = (uF_d in (0.0, 0.0156, 0.9844) and uJ_d in (0.4844, 0.5, 0.5156)
+                  and (slot != "BL" or (rows[0] in (0.5, 0.5156, 0.5312)
+                                        and rows[1] in (0.9375, 0.9531, 0.9688,
+                                                        0.9844)))
+                  and (slot != "TR" or (abs(rows[0] - family[0]) <= _CAP_EPS
+                                        and abs(rows[1] - family[1]) <= _CAP_EPS)))
+        if not lawful:
+            continue                       # frame-split / half caps: verbatim
+        # corners by (donor u ~ junction/free, donor v ~ sand/water row)
+        c = {}
+        for v in vl:
+            j = abs(v[2][0] - uJ_d) < abs(v[2][0] - uF_d)
+            s = abs(v[2][1] - rows[0]) < abs(v[2][1] - rows[1])
+            c[("J" if j else "F") + ("S" if s else "W")] = v
+        if len(c) != 4:
+            continue
+        # the donor's diagonal: which corner pair shares both tris
+        both = set.intersection(*({_pk(v[0]) for v in t3} for t3 in grp))
+        diag = "wj-sf" if both == {_pk(c["JW"][0]), _pk(c["FS"][0])} else "sj-wf"
+        nrm, idall = vl[0][1], tuple(vl[0][3])
+        snaps = (_CAP_CANON[uF_d], _CAP_CANON[uJ_d],
+                 _CAP_CANON[rows[0]], _CAP_CANON[rows[1]])
+        tris = emit_foam_cap(c["JS"][0], c["JW"][0], c["FS"][0], c["FW"][0],
+                             slot=slot, family=family, diag=diag, snaps=snaps,
+                             nrm=nrm, idall=idall)
+        want = {frozenset((_pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                          for v in t3) for t3 in grp}
+        got = {frozenset((_pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                         for v in t3) for t3 in tris}
+        if got != want:
+            raise ValueError(f"foam cap at {_pk(vl[0][0])}: the law derivation is not "
+                             f"byte-exact -- the round-trip gate failed")
+        drop_f.extend(grp)
+        emit_f.extend(tris)
+
+    # sand row-B caps: byte-identity through the emitter (rect Q forced = the proof)
+    terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
+    sand_caps = [t3 for t3 in terr
+                 if decode_id(int(round(t3[0][3][0])))["topograph"] == 31
+                 and _sand_tri_decode(t3) is not None
+                 and _sand_tri_decode(t3)[0] == "cap"]
+    drop_s, emit_s = [], []
+    grouped = []                          # [[keyset, [tris]], ...]
+    for t3 in sand_caps:
+        keys = frozenset(_pk(v[0]) for v in t3)
+        hit = next((g for g in grouped if g[0] & keys), None)
+        if hit is not None:
+            hit[0] = hit[0] | keys
+            hit[1].append(t3)
+        else:
+            grouped.append([keys, [t3]])
+    for keys, grp in grouped:
+        if len(grp) != 2:
+            continue
+        verts = {}
+        for t3 in grp:
+            for v in t3:
+                verts.setdefault(_pk(v[0]), v)
+        if len(verts) != 4:
+            continue
+        vl = list(verts.values())
+        us = sorted({round(v[2][0], 4) for v in vl})
+        vs = sorted({round(v[2][1], 4) for v in vl})
+        if len(us) != 2 or len(vs) != 2 or us != [0.3262, 0.3867]:
+            continue
+        c = {}
+        for v in vl:
+            j = abs(v[2][0] - 0.3262) < abs(v[2][0] - 0.3867)
+            land = abs(v[2][1] - vs[0]) < abs(v[2][1] - vs[1])
+            c[("J" if j else "F") + ("L" if land else "S")] = v
+        if len(c) != 4:
+            continue
+        both = set.intersection(*({_pk(v[0]) for v in t3} for t3 in grp))
+        diag = "sj-lf" if both == {_pk(c["JS"][0]), _pk(c["FL"][0])} else "lj-sf"
+        tris = emit_sand_cap(c["JL"][0], c["JS"][0], c["FL"][0], c["FS"][0],
+                             land_pin=c["JL"][2][1], seam_pin=c["JS"][2][1],
+                             diag=diag, nrm=vl[0][1], idall=tuple(vl[0][3]))
+        want = {frozenset((_pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                          for v in t3) for t3 in grp}
+        got = {frozenset((_pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                         for v in t3) for t3 in tris}
+        if got != want:
+            raise ValueError(f"sand cap at {_pk(vl[0][0])}: the law derivation is not "
+                             f"byte-exact -- the round-trip gate failed")
+        drop_s.extend(grp)
+        emit_s.extend(tris)
+
+    if not drop_f and not drop_s:
+        raise ValueError(f"donor {donor} has no lawful end caps")
+    out = []
+    if drop_f:
+        out += [TR.DropTris("beach1", drop_f), TR.EmitTris("beach1", emit_f)]
+    if drop_s:
+        out += [TR.DropTris("terrain", drop_s), TR.EmitTris("terrain", emit_s)]
+    return out
+
+
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):
     """The CONFORMING BOW (rung 1): displace the window's interior columns (crease + base +
     coincident water verts) seaward by ``depth * sin^2(pi t)``. Land UVs drag (approved

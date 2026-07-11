@@ -709,8 +709,19 @@ THE ONE-SHADE LAW — sand's 3 edges are one mutual shade class, every boundary 
 texel-verified homogeneous — caps pin to rect Q/0.3867-outward BECAUSE the cap band is a gradient);
 shipped as `sand_rebuild` / `world-transplant --sand-rebuild` (rect-FLIP identity rebuild + the
 closure freeze; 210 run tris over 22 blocks; ★ the (10,8) flipped clone vs the (13,8) identity
-"reads clean, matches" — sand emission generative like the strips). Remaining before beach-mint:
-the end-cap ASSEMBLY synthesis. 26 golden tests → [[project-ff9-overworld-coast-mosaic]].
+"reads clean, matches" — sand emission generative like the strips). **THE END-CAP LAWS
+byte-learned 2026-07-11 — slot freedom ★ FALSIFIED in-game, the corrected laws byte-proven:**
+the global beach texture (4 animated frames, 128×64) is ONE curling-swash composition; THE TAPER
+ASYMMETRY — only the BL window FADES (band n 13→4 at u→0), TR is the full-strength curl-out
+(the (9,8) BL→TR flip read as "the non-capped straight lines") → THE SLOT LAW: slots TRANSPORT,
+mint defaults to BL (the universal fade). Orientation is law, the rest per-cap texel snaps
+(4 run families in `FOAM_FAMILIES`, canonical floats in `_CAP_CANON`); shipped as the
+mint-facing emitters `emit_foam_cap`/`emit_sand_cap` + `cap_rebuild` / `--cap-rebuild` = the
+identity round-trip under an internal byte-equality gate — **70 foam + 34 sand cap tris over
+27 blocks ALL byte-exact** (caps have zero freedom beyond snaps: the round-trip IS the
+completeness proof); spit/BR/subdivided/skewed/frame-split verbatim; (9,8) redeployed clean.
+The shore vocabulary is CLOSED — BEACH-MINT is now pure composition.
+29 golden tests → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven on ALL

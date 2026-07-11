@@ -436,6 +436,54 @@ def test_sand_rebuild_freezes_a_frame_fragment():
         CM.sand_rebuild((13, 10))
 
 
+def test_cap_rebuild_golden():
+    """THE END-CAP LAWS (byte-learned 2026-07-11) -- the identity round-trip on the
+    proven beach: both of (7,17)'s BL foam caps and both sand row-B caps re-derive
+    from the laws + canonical snap floats BYTE-EXACTLY (the internal gates raise on
+    any incompleteness). THE SLOT LAW: slots transport -- the slot-flip experiment was
+    falsified in-game at (9,8) ("non-capped straight lines"): the beach texture is one
+    curling-swash composition and only the BL window fades (THE TAPER ASYMMETRY)."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.cap_rebuild(DONOR)
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("beach1", 4), ("beach1", 4), ("terrain", 4), ("terrain", 4)]
+    assert _tweak_hash(tw) == _tweak_hash(CM.cap_rebuild(DONOR))  # deterministic
+    # BOTH parts are byte-identity: every emitted (pos, uv) tri exists verbatim
+    for part in ("beach1", "terrain"):
+        emit = next(t for t in tw if hasattr(t, "tris") and t.part == part)
+        stock = {frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                           for v in t3) for t3 in TR.world_tris(*DONOR, part)}
+        assert all(frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                             for v in t3) in stock for t3 in emit.tris)
+    emitf = next(t for t in tw if hasattr(t, "tris") and t.part == "beach1")
+    assert {round(v[2][1], 4) for t3 in emitf.tris for v in t3} == {0.5312, 0.9375}
+
+
+def test_cap_rebuild_tr_round_trip():
+    """(16,5) uses the TR curl-out caps: the rebuild reproduces them byte-exactly
+    through the same emitter (slot transported, snaps canonical)."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.cap_rebuild((16, 5))
+    emitf = next(t for t in tw if hasattr(t, "tris"))
+    assert {round(v[2][1], 4) for t3 in emitf.tris for v in t3} == {0.0, 0.4844}
+    assert {round(v[2][0], 4) for t3 in emitf.tris for v in t3} == {0.5, 0.9844}
+    stock = {frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                       for v in t3) for t3 in TR.world_tris(16, 5, "beach1")}
+    assert all(frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                         for v in t3) in stock for t3 in emitf.tris)
+
+
+def test_cap_rebuild_refuses_the_spit():
+    """(3,11) is the double-sided SPIT: its caps are the BR/subdivided tip vocabulary
+    (out of the quad-cap laws' scope) and its sand caps ride the fold -- nothing
+    lawful to rebuild, so the tool refuses rather than half-emit."""
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="no lawful end caps"):
+        CM.cap_rebuild((3, 11))
+
+
 def test_cliff_clearance_gate():
     """THE CLEARANCE GATE -- the cliff shape law: cliffs are class-free (a headland on a
     bay rim read clean in-game, (16,9)) and push shear is harmless (the wall REBUILDS --
