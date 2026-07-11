@@ -3997,6 +3997,43 @@ def _cmd_logic_map(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_chocobo_export(args: argparse.Namespace) -> int:
+    """Export a Chocobo Hot & Cold forest's dig PRIZE POOL + TIMER as an editable ``[chocobo]`` block --
+    paste it into the verbatim fork's field.toml, edit values, build/deploy. Applying an unedited export
+    is byte-identical. Source: a real field (2950/2951/2952 or an FBG selector) or a verbatim project's
+    field.toml (scanned through the build's own compose, so slot coordinates match the build exactly)."""
+    _safe_console()
+    from .content import chocobo as CH
+    src = str(args.source)
+    note = ""
+    try:
+        if src.lower().endswith(".toml"):
+            from .build import FieldProject, compose_verbatim_eb
+            project = FieldProject.load(src)
+            data, _suffix = compose_verbatim_eb(project)
+            if data is None:
+                print("that field.toml has no [verbatim_eb] block with a valid `bin` -- [chocobo] only "
+                      "applies to a verbatim forest fork", file=sys.stderr)
+                return 2
+            note = f" ({project.name})"
+        else:
+            from . import forkreport as FR
+            from .extract import EventBundle
+            fid = FR.resolve_field_id(src, game=args.game)
+            data = EventBundle(args.game).eb_for_id(fid)
+            note = f" (field {fid})"
+    except (RuntimeError, FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    sc = CH.scan(data)
+    if sc is None:
+        print(f"no dig-prize pool found in{note or ' this field'} -- Chocobo Hot & Cold lives in fields "
+              "2950 (Forest) / 2951 (Lagoon) / 2952 (Air Garden)", file=sys.stderr)
+        return 2
+    print(CH.export_toml(sc, field_note=note))
+    return 0
+
+
 def _cmd_lint_eb(args: argparse.Namespace) -> int:
     """Structurally lint a field's ``.eb`` (decode / jump bounds / switch bounds / reachable terminator /
     dangling RunScript) -- the offline soundness check for a verbatim fork or an in-place edit. Accepts a
@@ -5752,6 +5789,12 @@ def build_parser() -> argparse.ArgumentParser:
     lmp.add_argument("--json", action="store_true",
                      help="emit the map as JSON (the generated [view]) instead of the readable transcript")
     lmp.set_defaults(func=_cmd_logic_map)
+
+    chx = sub.add_parser("chocobo-export",
+                         help="export a Chocobo Hot & Cold forest's dig PRIZE POOL + TIMER as an editable "
+                              "[chocobo] block (paste into the verbatim fork's field.toml; unedited = byte-identical)")
+    chx.add_argument("source", help="field id / FBG name (2950, ch_fst) or a verbatim project's field.toml")
+    chx.set_defaults(func=_cmd_chocobo_export)
 
     le = sub.add_parser("lint-eb",
                         help="structurally lint a field's .eb (decode / jump+switch bounds / reachable terminator / "

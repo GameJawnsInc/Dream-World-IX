@@ -213,6 +213,12 @@ class FieldProject:
         .eb), or ``[]`` when none -- a plain/synthesized field has none and the build stays byte-identical."""
         return self.raw.get("logic_add", []) or []
 
+    def chocobo(self):
+        """The ``[chocobo]`` block (the Chocobo Hot & Cold dig prize-pool / timer lane on a verbatim forest
+        fork -- content/chocobo.py), or ``{}`` when absent. Resolved at build into [[logic_edit]]
+        expr_literal swaps against the composed stream; no block -> byte-identical."""
+        return self.raw.get("chocobo") or {}
+
     def sps_edits(self):
         """The ``[[sps_edit]]`` list (Tier-1 re-skin of a carried ``.sps`` effect -- recolour/tint/scale/
         reposition), or ``[]`` when none. Only applies on the native-scene branch (it edits the donor's
@@ -504,6 +510,46 @@ def _logic_guard_params(project: FieldProject):
     return base, window, reserved
 
 
+def _chocobo_edits(project: "FieldProject", base: bytes) -> list:
+    """Resolve the project's ``[chocobo]`` block into [[logic_edit]] expr_literal dicts against *base* (the
+    composed verbatim stream -- the same bytes the logic_edit pass applies to). ``[]`` when the project has
+    no block. Raises :class:`content.chocobo.ChocoboError` on unsafe authoring."""
+    cfg = project.chocobo()
+    if not cfg:
+        return []
+    from .content import chocobo as _choco
+    return _choco.resolve_edits(base, cfg)
+
+
+def _validate_chocobo(project: FieldProject, problems: list) -> None:
+    """OFFLINE dry-run of ``[chocobo]`` (the Hot & Cold dig prize/timer lane) so a bad block -- or one on a
+    non-verbatim / non-forest field -- surfaces in `lint`/the Workspace Check, not only at full build.
+    Mirrors :func:`_validate_logic_edits` (compose -> resolve -> apply -> lint)."""
+    cfg = project.chocobo()
+    if not cfg:
+        return
+    if "verbatim_eb" not in project.raw:
+        problems.append("[chocobo] only applies to a VERBATIM fork ([verbatim_eb]) of a Chocobo Hot & Cold "
+                        "forest (2950/2951/2952); this field is synthesized from field.toml -- it would be "
+                        "ignored.")
+        return
+    from . import eblint as _eblint
+    from . import logic_edit as _le
+    from .content.chocobo import ChocoboError as _ChocoErr
+    try:
+        base, _suffix = compose_verbatim_eb(project)
+        if base is None:
+            problems.append("[chocobo] needs a [verbatim_eb] block with a valid `bin` (the fork's .eb); "
+                            "without it the block is ignored at build.")
+            return
+        out = _le.apply_logic_edits(base, _chocobo_edits(project, base))
+        problems += [f"[chocobo] composed .eb: {e}" for e in _eblint.errors(_eblint.lint_eb(out))]
+    except (_ChocoErr, _le.LogicEditError) as ex:
+        problems.append(f"[chocobo] {ex}")
+    except Exception as ex:                              # noqa: BLE001 -- never crash validate
+        problems.append(f"[chocobo] could not be validated: {type(ex).__name__}: {ex}")
+
+
 def _validate_logic_edits(project: FieldProject, problems: list) -> None:
     """OFFLINE dry-run of [[logic_edit]] (Phase-2 in-place edits) so a bad/drifted/overflowing edit -- or an edit
     on a non-verbatim field -- surfaces in `lint`/the Workspace Check, not only at full build. Mirrors the
@@ -672,7 +718,7 @@ def _validate_logic_adds(project: FieldProject, problems: list) -> None:
             problems.append("[[logic_add]] needs a [verbatim_eb] block with a valid `bin` (the fork's .eb); "
                             "without it the adds are ignored at build.")
             return
-        base = _le.apply_logic_edits(base, project.logic_edits())      # adds run AFTER edits (build order)
+        base = _le.apply_logic_edits(base, project.logic_edits() + _chocobo_edits(project, base))  # adds run AFTER edits (build order)
         gb, gw, rf = _logic_guard_params(project)
         from .config import LANGS as _LANGS
         la_txids, _la_suffix = _logic_add_message_plan(project, _LANGS)  # message txids match the build
@@ -713,7 +759,7 @@ def dry_run_logic_adds(project: FieldProject) -> "str | None":
         base, _suffix = compose_verbatim_eb(project)
         if base is None:
             return "[[logic_add]] needs a [verbatim_eb] block with a valid `bin` (the fork's .eb)."
-        base = _le.apply_logic_edits(base, project.logic_edits())     # adds run AFTER edits (build order)
+        base = _le.apply_logic_edits(base, project.logic_edits() + _chocobo_edits(project, base))  # adds run AFTER edits (build order)
         gb, gw, rf = _logic_guard_params(project)
         la_txids, _ = _logic_add_message_plan(project, _LANGS)
         out = _la.apply_logic_adds(base, adds, guard_base=gb, guard_window=gw, reserved_flags=rf,
@@ -759,6 +805,7 @@ def validate(project: FieldProject) -> list[str]:
     """Return a list of human-readable problems (empty => OK)."""
     problems = []
     _validate_logic_edits(project, problems)
+    _validate_chocobo(project, problems)
     _validate_logic_adds(project, problems)
     _validate_sps_edits(project, problems)
     _validate_sps_blocks(project, problems)
@@ -5225,6 +5272,14 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # the old value (re-decoding the FINAL bytes), so the field-load inserts above don't invalidate it. Each
         # edit is length-preserving, so the composed .eb is re-validated by the Phase-3 linter; a broken edit
         # fails the build (BuildError), never ships.
+        if project.chocobo():
+            # [chocobo] (the Hot & Cold dig prize/timer lane) resolves into expr_literal edits against the
+            # CURRENT composed stream and rides the same apply + lint gate as the author's own [[logic_edit]].
+            from .content.chocobo import ChocoboError as _ChocoErr
+            try:
+                verbatim_edits = list(verbatim_edits) + _chocobo_edits(project, verbatim_bytes)
+            except _ChocoErr as ex:
+                raise BuildError(f"[chocobo] in {project.name}: {ex}")
         if verbatim_edits:
             from . import eblint as _eblint
             from . import logic_edit as _logic_edit

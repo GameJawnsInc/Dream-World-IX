@@ -93,6 +93,9 @@ NAMED_WORDS = [
             "WorldConfiguration.cs:256"),
     WordVar("VegetableItemUsed", 181, 1, False, "Dead Pepper / vegetable item used flag (gates re-use).", "a",
             "ItemUI.cs:47,960"),
+    # (Choco's BEAK level -- dig strength, capped 99, DISTINCT from the byte-191 terrain ability -- is
+    #  Global Byte 139, but it is field-.eb-only state with no engine C# reader, so it stays out of this
+    #  engine-cited registry. -> content/chocobo.py + memory project-ff9-chocobo-hot-cold.)
     WordVar("MoveControl", 190, 1, True, "Current field/worldmap move-control (transport) index.", "a",
             "ff9.cs:5793"),
     WordVar("ChocoDigLevel", 191, 1, False, "Choco's dig ability level (set to 5 at milestones); also the "
@@ -144,8 +147,11 @@ STORY_REGIONS = [
               "census; EMinigame.cs"),
     BitRegion("chocobo_forest_state", 888, 895, "Chocobo Hot & Cold dig-spot / chocograph-found bits.", False,
               "b", "census; EMinigame.cs"),
-    BitRegion("chocograph_found_opened", 1040, 1087, "Chocograph 'found'/'opened' treasure bitfields "
-              "(choco-dig minigame).", False, "b", "census; ChocographUI.cs"),
+    BitRegion("chocograph_found_opened", 1472, 1519, "Chocograph 'found'/'opened' treasure bitfields "
+              "(choco-dig minigame): OPENED = bytes 184-186 (bits 1472-1495), FOUND = bytes 187-189 "
+              "(bits 1496-1519), each an Int24 LE over the 24 chocographs. (Was mis-registered at "
+              "1040-1087 / bytes ~130-135 by the census; the engine reads 184-189.)", False, "a",
+              "ChocographUI.cs:250-251"),
     BitRegion("chocobo_garden_state", 1156, 1159, "Chocobo Hot & Cold dig-progress flags.", False, "c", "census"),
     BitRegion("chocobo_air_garden_state", 1416, 1423, "Chocobo Hot & Cold / Air Garden unlock state "
               "(top of the choco-dig band, bytes 106-177).", False, "c", "census"),

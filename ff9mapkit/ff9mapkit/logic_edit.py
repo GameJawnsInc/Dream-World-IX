@@ -37,7 +37,8 @@ EXPR_OP = 0x05          # an expression statement (a GLOB flag read/write rides 
 SETTEXTVAR_OP = 0x66    # SetTextVariable(slot:u8, value:u16) -- feeds the "Received <item>!" DISPLAY id
 WINDOW_OPS = {0x1F: 2, 0x20: 2, 0x95: 3, 0x96: 3}   # Window op -> its txid operand index (dialogue.WINDOW_OPS)
 _ITEM_OPERAND = {"id": 0, "count": 1}
-_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display", "item_count", "switch_case")
+_EB_KINDS = ("field", "item", "gil", "txid", "flag_index", "operand", "item_display", "item_count", "switch_case",
+             "expr_literal")
 _SWITCH_OPS = (0x06, 0x0B, 0x0D)        # JMP_SWITCHEX (explicit) / JMP_SWITCH (contiguous) / 2-byte-count variant
 _TAIL_RE = re.compile(r"\[TAIL=([^\]]*)\]")
 
@@ -120,6 +121,43 @@ def _operand_edit(eb, buf, ed, op, operand_index, *, extra=None, what=None):
         raise LogicEditError(f"logic_edit cannot address {disasm.op_name(op)} operand {operand_index} "
                              "(a preceding operand is an expression)")
     _guarded_write(buf, ins.off + bo, disasm.argsize(op, operand_index), old, new)
+
+
+def _expr_literal_edit(eb, buf, ed):
+    """``kind="expr_literal"``: overwrite a 2-byte ``B_CONST`` (0x7D) literal INSIDE an expression operand --
+    the one value class every ``imm()``-based kind is blind to (a ``{var const op2C}`` assign like a Chocobo
+    Hot & Cold prize-table slot, a timer seed, an RNG threshold). Located semantically: entry/tag [+ ``op``,
+    the instruction opcode] [+ ``expr``, the instruction's exact decoded expression text as printed by
+    logic-map/disasm] + the ``old`` value; same-value hits need ``nth`` (byte order). Length-preserving by
+    construction (a B_CONST payload is always 2 bytes; ``new`` must fit u16)."""
+    f = _func(eb, ed)
+    old, new = _int(ed, "old"), _int(ed, "new")
+    op = _int(ed, "op", optional=True)
+    want_expr = ed.get("expr")
+    if want_expr is not None and not isinstance(want_expr, str):
+        raise LogicEditError("logic_edit (expr_literal) key 'expr' must be a string "
+                             "(the decoded expression text, e.g. \"{opDE(20) op7D(218,0) op2C op7F}\")")
+    hits = []
+    for ins in eb.instrs(f):
+        if op is not None and ins.op != op:
+            continue
+        ok_operands = None
+        if want_expr is not None:
+            ok_operands = {i for i, (a, isx) in enumerate(zip(ins.args, ins.arg_is_expr)) if isx and a == want_expr}
+            if not ok_operands:
+                continue
+        try:
+            consts = disasm.instr_expr_consts(eb.data, ins)
+        except ValueError as ex:                             # decode disagreement -> refuse, never mis-patch
+            raise LogicEditError(f"logic_edit (expr_literal) could not re-walk the instruction @{ins.off}: {ex}")
+        for c_off, c_val, c_operand in consts:
+            if c_val == old and (ok_operands is None or c_operand in ok_operands):
+                hits.append(c_off)
+    what = (f"expression const == {old} in entry{_req(ed, 'entry')}/tag{_req(ed, 'tag')}"
+            + (f" (op {op:#x})" if op is not None else "")
+            + (" (expr-matched)" if want_expr is not None else ""))
+    payload_off = _pick(hits, ed, what)
+    _guarded_write(buf, payload_off, 2, old, new)
 
 
 def _flag_width(idx: int) -> int:
@@ -334,6 +372,8 @@ def _apply_eb_edit(eb, buf, ed):
     elif kind == "operand":                                  # generic escape hatch: patch literal operand
         _operand_edit(eb, buf, ed, _int(ed, "op"), _int(ed, "operand"))   # `operand` of any op (caller owns
         #   the choice of op/operand/nth -- e.g. a hand-authored display patch; no slot guard)
+    elif kind == "expr_literal":                             # a 2-byte B_CONST INSIDE an expression operand
+        _expr_literal_edit(eb, buf, ed)                      #   (imm()-based kinds can't see these)
     elif kind == "item_display":                             # the "Received <item>!" DISPLAY half of a reward:
         slot = _int(ed, "slot", optional=True)               #   SetTextVariable(slot, item_id). FF9's item-get
         slot = 0 if slot is None else slot                   #   display is slot 0; pin it so a same-value
