@@ -747,3 +747,50 @@ def test_band_convert_refusals():
         CM.band_convert(DONOR, (112, -281), "sea1")
     with pytest.raises(ValueError, match="mixed strip v-dialect"):
         CM.band_convert((18, 15), (300, -245), "sea1")
+
+
+def test_virgin_mint_golden():
+    """BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT at the census winner (9,17), run
+    (153..155,-282): a new beach synthesized on the bare south face of the grass
+    peninsula, no donor beach to pin to. The ledger pins the full composition: the
+    berm clip (12 terrain dropped -> berm fragments + the minted sand band), the
+    foam assembly, the wash zip (sea2 fragments with continued uvs), the (155,-283)
+    sea1 drop under the swash, and THE RING RE-BAND -- the (156,-283) conforming
+    sea3 quad flips to sea1 by corner-role assignment (the deformed-tile rect law)
+    with the (156,-284) neighbour re-emitted under its new deep-edge-set {E,S}."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.virgin_mint((9, 17), (619.2, -1128.2), (623.8, -1127.6))
+    led = [(t.part, ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris))) for t in tw]
+    assert led == [("terrain", ("drop", 12)), ("terrain", ("emit", 34)),
+                   ("beach1", ("emit", 9)),
+                   ("sea2", ("drop", 2)), ("sea2", ("emit", 7)),
+                   ("sea1", ("drop", 4)), ("sea1", ("emit", 6)),
+                   ("sea3", ("drop", 2))]
+    assert _tweak_hash(tw) == "938c287a14bd6679"
+    # the ring re-band is present and generative: among the sea1 emissions, the
+    # re-banded (156,-283) CONFORMING quad carries the block's strip dialect
+    # (corner-role assignment -- a lattice decode cannot read a deformed tile;
+    # the builder's own re-decode gate pins the exact placement)
+    sea1_emit = next(t.tris for t in tw
+                     if getattr(t, "part", None) == "sea1" and hasattr(t, "tris"))
+    ring = [t3 for t3 in sea1_emit if CM._cell_of_tri(t3) == (156, -283)]
+    assert len(ring) == 2
+    us = {round(v[2][0], 6) for t3 in ring for v in t3}
+    assert us <= {0.0, 0.984127}                      # the block's strip u dialect
+    groups = list(CM._deformed_strip_groups(ring))
+    assert len(groups) == 1 and groups[0][1] == "rect"
+
+
+def test_virgin_mint_refusals():
+    """The refusal-steered envelope: anchors hugging the existing beach fail THE
+    GRASS-TONGUE LAW; a stub arc fails the along-shore column envelope; an
+    off-coast anchor refuses outright."""
+    import pytest
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="[Gg]rass-tongue"):
+        CM.virgin_mint((9, 17), (617.0, -1128.6), (623.8, -1127.6))
+    with pytest.raises(ValueError, match="along-shore envelope"):
+        CM.virgin_mint((9, 17), (622.5, -1127.7), (623.8, -1127.6))
+    with pytest.raises(ValueError, match="off the shoreline"):
+        CM.virgin_mint((9, 17), (600.0, -1100.0), (623.8, -1127.6))

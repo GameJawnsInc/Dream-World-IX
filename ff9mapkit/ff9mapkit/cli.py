@@ -2445,7 +2445,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
                 or args.beach_bump or args.beach_rebuild or args.beach_reshape
                 or args.beach_slide or args.strips_rebuild or args.sand_rebuild
-                or args.cap_rebuild or args.beach_mint or args.band_convert):
+                or args.cap_rebuild or args.beach_mint or args.band_convert
+                or args.virgin_mint):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2490,6 +2491,17 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 tweaks = list(tweaks) + CM.band_convert(
                     (dx, dy), (ccx, ccz), tpart.strip().lower(),
                     disc=args.disc, game=args.game)
+            if args.virgin_mint:
+                vparts = args.virgin_mint.strip().split(":")
+                p0 = tuple(float(v) for v in vparts[0].split(","))
+                p1 = tuple(float(v) for v in vparts[1].split(","))
+                vkw = {}
+                if len(vparts) > 2 and vparts[2]:
+                    vkw["width"] = float(vparts[2])
+                if len(vparts) > 3 and vparts[3]:
+                    vkw["swash"] = float(vparts[3])
+                tweaks = list(tweaks) + CM.virgin_mint(
+                    (dx, dy), p0, p1, disc=args.disc, game=args.game, **vkw)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -5287,6 +5299,26 @@ def build_parser() -> argparse.ArgumentParser:
                           "per-tri re-decode, and (with LAND) the clip ledgers (partition/"
                           "coverage/steep-face/object-anchor/drop-don't-drag). Rung-1 class: "
                           "the block's single x-monotone column beach.")
+    wtp.add_argument("--virgin-mint", default=None,
+                     metavar="X0,Z0:X1,Z1[:WIDTH[:SWASH]]",
+                     help="BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT: author a NEW "
+                          "beach on a bare grass coast (no donor beach to pin to). "
+                          "X0,Z0 / X1,Z1 = world anchors for the two cap pinch points "
+                          "on the shoreline (snapped to a real shore vert within 0.6u, "
+                          "else inserted on the shore edge). The chains synthesize from "
+                          "the grass edge (S rides the real shoreline with the prior "
+                          "height profile; L cuts landward into the topo-0 berm at the "
+                          "band WIDTH target, default 2.4; W pushes SWASH seaward into "
+                          "the wash, default 4.6, snapping to a real convergence vert "
+                          "when in reach). The berm clips at the footprint, touched "
+                          "water tiles drop and their outside fragments re-emit with "
+                          "continued uvs, sand+foam emit by the proven language walks, "
+                          "and the RING RE-BANDS where the mint leaves sea3 fronting "
+                          "wash (conforming quads included -- the deformed-tile rect "
+                          "law). Gated by the union crack gate, T-vertex, the lattice "
+                          "adjacency + shade-agreement laws, per-tri re-decodes, the "
+                          "band/slope/swash/column envelopes, and THE GRASS-TONGUE LAW "
+                          "(4.06u to every existing beach).")
     wtp.add_argument("--band-convert", default=None, metavar="CX,CZ:PART",
                      help="THE ONE-CELL BAND-CONVERSION (rung 3's probe -- the first FRESH "
                           "deformed-tile emission): re-band one LATTICE water cell of a "
