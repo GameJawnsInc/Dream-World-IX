@@ -35,9 +35,16 @@ geometry. **Ctrl-S** saves; Problems (bottom console) shows lint findings live.
 
 Open the **Build & Deploy** tab. Under **Build to (field)** choose:
 
+- **In-place on field N** — appears only for a **verbatim fork of a real field** (its
+  `[verbatim_eb] donor` is a base-game id). Deploys under the donor's own id so the engine loads your
+  fork *instead of* the real field — reach it the normal way (or F6 → Warp N). This is the route that
+  keeps engine behaviour hardcoded on the real id, most notably the **Chocobo Hot & Cold HUD** (a
+  forest fork of 2950/2951/2952 must go in-place, or the dig game plays with no HUD chrome). Reversible;
+  it's pre-selected for a fork of a real field.
 - **Test slot** — the fast dev loop (repo checkout + the engine bundle's F6 menu; grayed out on an
   installed copy unless `FF9_REPO` points at a checkout). **F9** does save-all + deploy in one
-  keystroke.
+  keystroke. Deploys under a throwaway scratch id — good for a novel field, but a fork loses its real
+  id here (use In-place instead).
 - **Install to game (shipping mod folder)** — builds and installs into the game's mod folder.
 - **Build only — to a folder** — a distributable mod folder; **Package (zip)…** wraps it for
   sharing.
