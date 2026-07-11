@@ -477,6 +477,12 @@ through below 9999 and is capped above it (the kit won't force a global engine c
 the `IsDmg9999` cheat forces *player* damage to 9999 after this regardless of the scale. `[difficulty]` and
 `[rebalance]` **compose** — use difficulty to make enemies tankier/tougher, rebalance to dial the raw numbers.
 
+**Flag-gate granularity differs between the two.** A gated feature is re-checked every time its hook fires,
+so the toggle latency follows the hook: `[rebalance]` gates at damage time (**per hit**), so flipping the bit
+with F6 → Flags takes effect *immediately, mid-battle*; `[difficulty]` gates at battle init (**per battle**),
+so its bit only bites from the *next* battle. Pick the block whose cadence matches the effect you want (a live
+mid-fight damage swing → rebalance; a per-encounter difficulty toggle → difficulty). ★ Both in-game proven.
+
 One caveat shared with the whole channel: if a *second* stacked mod folder ships its own implementation of
 the same `IOverload*` interface, the higher-priority folder's wins silently. Within one mod the kit refuses
 a hand-dropped `.cs` that collides with the hub (a clear compile-time error instead of a coin flip).
