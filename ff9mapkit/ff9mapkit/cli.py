@@ -3406,16 +3406,37 @@ def _cmd_battle_scene(args: argparse.Namespace) -> int:
 
 def _cmd_list_fields(args: argparse.Namespace) -> int:
     from . import extract
+    from . import catalog
     if args.players or args.non_zidane:
         return _list_fields_with_players(args)
     try:
-        rows = extract.list_fields(args.pattern, game=args.game)
-    except (RuntimeError, FileNotFoundError) as e:
-        print(str(e), file=sys.stderr)
+        rows = extract.list_fields(None, game=args.game)     # fetch all; filter below so a numeric ID query
+    except (RuntimeError, FileNotFoundError) as e:            # (e.g. `list-fields 2951`) matches too, not just
+        print(str(e), file=sys.stderr)                       # the FBG/MAPID name substring the index is keyed by
         return 2
+    folder_ids: dict = {}                                    # a shared background folder maps to several field
+    for fid, (fbg, _evt) in catalog.FIELD_BY_ID.items():     # ids (the same room at different story beats)
+        folder_ids.setdefault(fbg, []).append(fid)
+    for v in folder_ids.values():
+        v.sort()
+    pat = (args.pattern or "").lower()
+
+    def _match(folder, mapid, ids):
+        if not pat:
+            return True
+        if pat in folder or pat in mapid.lower():
+            return True
+        return any(pat in str(i) for i in ids)               # match by field ID (the id the number IS)
+
+    shown = 0
     for folder, area, mapid in rows:
-        print(f"  area {area:>2}  {mapid:<28}  ({folder})")
-    print(f"{len(rows)} field(s)")
+        ids = folder_ids.get(folder, [])
+        if not _match(folder, mapid, ids):
+            continue
+        idcol = ", ".join(str(i) for i in ids) if ids else "?"
+        print(f"  {idcol:<14}  area {area:>2}  {mapid:<28}  ({folder})")
+        shown += 1
+    print(f"{shown} field(s)")
     return 0
 
 
@@ -4675,7 +4696,8 @@ def build_parser() -> argparse.ArgumentParser:
     af.set_defaults(func=_cmd_add_field)
 
     lf = sub.add_parser("list-fields", help="list real FF9 fields available to import (needs UnityPy)")
-    lf.add_argument("pattern", nargs="?", default=None, help="substring filter (e.g. alex, treno, grgr)")
+    lf.add_argument("pattern", nargs="?", default=None,
+                    help="filter by FBG/MAPID name OR field id substring (e.g. alex, treno, 2951)")
     lf.add_argument("--players", action="store_true",
                     help="also show WHO you control in each field (reads each .eb; a full sweep is ~30s)")
     lf.add_argument("--non-zidane", action="store_true",
