@@ -24,10 +24,10 @@ index c0c537ca..df1f1c2a 100644
      <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..b2b903c9
+index 00000000..2b2011b2
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,2199 @@
+@@ -0,0 +1,2400 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -47,7 +47,9 @@ index 00000000..b2b903c9
 +//             (x,z) under the cursor to the clipboard (reuses FF9's own click-to-move math).
 +//   Cheats -- boosters (the F1-F4 toggles) + full-heal party + give item/gil.
 +//   Flags  -- get/set/clear a gEventGlobal story flag (matches the kit's set_flag: VariableType.Bit ->
-+//             gEventGlobal[N>>3] bit N&7); snapshot/restore the whole flag state; reset-all.
++//             gEventGlobal[N>>3] bit N&7); byte-level poke; a BATCH box applying many bit/byte/word ops in
++//             one click (all-or-nothing, persisted + named presets -- multi-flag warp-in recipes become one
++//             button); snapshot/restore the whole flag state; reset-all.
 +//   Time   -- a time-scale control (slow-mo / fast) for inspecting cutscenes & movement.
 +//   World  -- OVERWORLD only: WARP overworld->field via the game's own transition (also the reliable escape if an
 +//             entrance leaves you stuck); RESTORE control (unfreeze) if a script left you frozen; swap the
@@ -86,6 +88,8 @@ index 00000000..b2b903c9
 +    private const String PrefFavorites = "ff9mk_debug_favorites";   // CSV of tokens: "f:<id>" warp / "w:<x>:<z>" spot (legacy bare int = warp)
 +    private const String PrefDisableControl = "ff9mk_debug_disable_control"; // 0/1
 +    private const String PrefFont = "ff9mk_debug_font";          // menu font index (into FontChoices)
++    private const String PrefFlagBatch = "ff9mk_debug_flagbatch";       // the LIVE batch text (type a recipe once)
++    private const String PrefFlagBatches = "ff9mk_debug_flagbatches";   // named presets: "name::ops" joined by ";;"
 +    // Alexandria is FF9's own UI font, bundled (encrypted) by Memoria in EmbeddedAsset/FA; the game never instantiates
 +    // it (it loads TBUDGoStd), so we load it straight from the bundle. "System" = the built-in IMGUI font.
 +    private static readonly String[] FontChoices = { "Alexandria", "System" };
@@ -111,6 +115,15 @@ index 00000000..b2b903c9
 +    private String _flagText = "8000";
 +    private String _byteIdxText = "190";    // [ff9mapkit] Flags tab byte poke: index into gEventGlobal (190 = vehicle mode)
 +    private String _byteValText = "0";      // [ff9mapkit] Flags tab byte poke: the 0-255 value to write
++    // [ff9mapkit] Flags tab BATCH: apply many flag/byte/word writes in ONE click -- the multi-flag warp-in
++    // recipes (e.g. Chocobo Hot & Cold: "1520 1423 1112 809 810 b191=5") stop being 7 manual round-trips.
++    // The live text persists across launches; named presets are one-click (both via PlayerPrefs).
++    private String _batchText = "";
++    private String _batchName = "";
++    private struct FlagBatch { public String Name; public String Ops; }
++    private readonly List<FlagBatch> _batches = new List<FlagBatch>();
++    // One parsed batch op. Kind: 0 = bit (Value 0/1), 1 = byte (0-255), 2 = 16-bit word LE (0-65535).
++    private struct FlagOp { public Int32 Kind; public Int32 Index; public Int32 Value; }
 +    private String _itemText = "236";       // a Potion, by default
 +    private String _itemCountText = "1";
 +    private String _gilText = "10000";
@@ -175,6 +188,32 @@ index 00000000..b2b903c9
 +                if (TryDecodePin(tok.Trim(), out pin) && !PinsContains(pin))
 +                    _pins.Add(pin);
 +            }
++            _batchText = PlayerPrefs.GetString(PrefFlagBatch, "");
++            _batches.Clear();
++            foreach (String tok in PlayerPrefs.GetString(PrefFlagBatches, "").Split(new[] { ";;" }, StringSplitOptions.RemoveEmptyEntries))
++            {
++                Int32 sep = tok.IndexOf("::", StringComparison.Ordinal);
++                if (sep > 0 && sep + 2 < tok.Length)
++                    _batches.Add(new FlagBatch { Name = tok.Substring(0, sep), Ops = tok.Substring(sep + 2) });
++            }
++        }
++        catch (Exception)
++        {
++        }
++    }
++
++    // [ff9mapkit] Persist the flag-batch state (live text + named presets). Names are sanitized at save
++    // time (no ':' / ';'), so the "name::ops" ";;"-joined encoding can't be broken by user input.
++    private void SaveBatches()
++    {
++        try
++        {
++            PlayerPrefs.SetString(PrefFlagBatch, _batchText ?? "");
++            String[] parts = new String[_batches.Count];
++            for (Int32 i = 0; i < _batches.Count; i++)
++                parts[i] = _batches[i].Name + "::" + _batches[i].Ops;
++            PlayerPrefs.SetString(PrefFlagBatches, String.Join(";;", parts));
++            PlayerPrefs.Save();
 +        }
 +        catch (Exception)
 +        {
@@ -647,6 +686,41 @@ index 00000000..b2b903c9
 +            ByteWrite();
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("Full 0-255 byte at index (190 = vehicle mode, 191 = chocobo tier). Get fills the value box.", _hint);
++
++        // [ff9mapkit] BATCH: many writes in one click. A recipe like the Chocobo Hot & Cold warp-in
++        // ("1520 1423 1112 809 810 b191=5") is 7 manual round-trips without this. All ops validate
++        // BEFORE any applies (a typo changes nothing); the text + named presets survive relaunches.
++        Section("Batch (many ops in one click)");
++        _batchText = GUILayout.TextField(_batchText, 300, _field);
++        GUILayout.BeginHorizontal();
++        if (GUILayout.Button("Apply", _primary, GUILayout.Width(64f)))
++            ApplyFlagBatch(_batchText);
++        GUILayout.Label("as", _label, GUILayout.Width(22f));
++        _batchName = GUILayout.TextField(_batchName, 24, _field, GUILayout.Width(120f));
++        if (GUILayout.Button("Save preset", _button, GUILayout.Width(96f)))
++            SaveBatchPreset();
++        GUILayout.EndHorizontal();
++        GUILayout.Label("ops: 1520 = set bit · !1423 or 1423=0 = clear bit · b191=5 = byte · w0=7200 = 16-bit word. Space/comma separated.", _hint);
++        for (Int32 i = 0; i < _batches.Count; i++)
++        {
++            FlagBatch fb = _batches[i];
++            GUILayout.BeginHorizontal();
++            if (GUILayout.Button("★ " + fb.Name, _button))
++                ApplyFlagBatch(fb.Ops);
++            if (GUILayout.Button("edit", _button, GUILayout.Width(46f)))
++            {
++                _batchText = fb.Ops;
++                _batchName = fb.Name;
++            }
++            if (GUILayout.Button("×", _danger, GUILayout.Width(30f)))
++            {
++                _batches.RemoveAt(i);
++                SaveBatches();
++                GUILayout.EndHorizontal();
++                break;
++            }
++            GUILayout.EndHorizontal();
++        }
 +
 +        Section("Snapshot the whole flag state");
 +        GUILayout.BeginHorizontal();
@@ -1840,6 +1914,133 @@ index 00000000..b2b903c9
 +        }
 +        g[idx] = (Byte)v;
 +        _status = "byte " + idx + " = " + v;
++    }
++
++    // [ff9mapkit] Parse a whole batch string into ops -- PURELY syntactic, no game state touched. Tokens are
++    // space/comma separated, case-insensitive:  <n> / <n>=1  set bit n  ·  !<n> / <n>=0  clear bit n  ·
++    // b<i>=<v>  write byte i (0-255)  ·  w<i>=<v>  write the 16-bit LE word at byte i (0-65535).
++    // Returns false + a message naming the FIRST bad token; the caller applies nothing on failure.
++    private static Boolean TryParseFlagOps(String text, List<FlagOp> ops, out String err)
++    {
++        err = null;
++        foreach (String raw in (text ?? "").Split(new[] { ' ', ',', '\t' }, StringSplitOptions.RemoveEmptyEntries))
++        {
++            String tok = raw.Trim().ToLowerInvariant();
++            Int32 kind = 0;
++            Boolean negate = false;
++            String body = tok;
++            if (body.StartsWith("!", StringComparison.Ordinal)) { negate = true; body = body.Substring(1); }
++            if (body.StartsWith("b", StringComparison.Ordinal)) { kind = 1; body = body.Substring(1); }
++            else if (body.StartsWith("w", StringComparison.Ordinal)) { kind = 2; body = body.Substring(1); }
++            if (negate && kind != 0)
++            {
++                err = "'" + raw + "': ! only applies to a bit op";
++                return false;
++            }
++            String idxPart = body, valPart = null;
++            Int32 eq = body.IndexOf('=');
++            if (eq >= 0)
++            {
++                idxPart = body.Substring(0, eq);
++                valPart = body.Substring(eq + 1);
++            }
++            Int32 idx, val;
++            if (!Int32.TryParse(idxPart, out idx) || idx < 0)
++            {
++                err = "'" + raw + "': bad index";
++                return false;
++            }
++            if (valPart == null)
++                val = kind == 0 ? (negate ? 0 : 1) : -1;
++            else if (!Int32.TryParse(valPart, out val) || (negate && val != 0))
++            {
++                err = "'" + raw + "': bad value";
++                return false;
++            }
++            Int32 max = kind == 0 ? 1 : (kind == 1 ? 255 : 65535);
++            if (val < 0 || val > max)
++            {
++                err = "'" + raw + "': value must be 0-" + max + (kind == 0 ? " (bits: use b<i>=<v> for bytes)" : "");
++                return false;
++            }
++            ops.Add(new FlagOp { Kind = kind, Index = idx, Value = val });
++        }
++        if (ops.Count == 0)
++        {
++            err = "batch is empty";
++            return false;
++        }
++        return true;
++    }
++
++    // [ff9mapkit] Validate EVERY op against gEventGlobal's bounds, THEN apply them all -- all-or-nothing,
++    // so a typo'd recipe never half-applies (the failure mode that makes multi-flag setups undebuggable).
++    private void ApplyFlagBatch(String text)
++    {
++        List<FlagOp> ops = new List<FlagOp>();
++        String err;
++        if (!TryParseFlagOps(text, ops, out err))
++        {
++            _status = "batch: " + err;
++            return;
++        }
++        Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++        if (g == null)
++        {
++            _status = "batch: no event state";
++            return;
++        }
++        foreach (FlagOp op in ops)
++        {
++            Int32 last = op.Kind == 0 ? (op.Index >> 3) : (op.Kind == 1 ? op.Index : op.Index + 1);
++            if (last >= g.Length)
++            {
++                _status = "batch: " + (op.Kind == 0 ? "bit " : op.Kind == 1 ? "byte " : "word ") + op.Index + " out of range";
++                return;
++            }
++        }
++        foreach (FlagOp op in ops)
++        {
++            if (op.Kind == 0)
++            {
++                Int32 mask = 1 << (op.Index & 7);
++                g[op.Index >> 3] = (Byte)(op.Value != 0 ? (g[op.Index >> 3] | mask) : (g[op.Index >> 3] & ~mask));
++            }
++            else if (op.Kind == 1)
++                g[op.Index] = (Byte)op.Value;
++            else
++            {
++                g[op.Index] = (Byte)(op.Value & 0xFF);
++                g[op.Index + 1] = (Byte)(op.Value >> 8);
++            }
++        }
++        SaveBatches();                                   // remember the live text that worked
++        _status = "batch: " + ops.Count + " op" + (ops.Count == 1 ? "" : "s") + " applied";
++    }
++
++    // [ff9mapkit] Save the current batch text under the typed name (replaces a same-name preset). The ops
++    // are validated first -- a preset that can't parse would only fail later, at its one-click apply.
++    private void SaveBatchPreset()
++    {
++        String name = (_batchName ?? "").Replace(":", "").Replace(";", "").Trim();
++        if (name.Length == 0)
++        {
++            _status = "batch: name the preset first";
++            return;
++        }
++        List<FlagOp> ops = new List<FlagOp>();
++        String err;
++        if (!TryParseFlagOps(_batchText, ops, out err))
++        {
++            _status = "batch: " + err;
++            return;
++        }
++        for (Int32 i = _batches.Count - 1; i >= 0; i--)
++            if (String.Equals(_batches[i].Name, name, StringComparison.OrdinalIgnoreCase))
++                _batches.RemoveAt(i);
++        _batches.Add(new FlagBatch { Name = name, Ops = _batchText.Trim() });
++        SaveBatches();
++        _status = "batch: preset '" + name + "' saved";
 +    }
 +
 +    private void Snapshot()
