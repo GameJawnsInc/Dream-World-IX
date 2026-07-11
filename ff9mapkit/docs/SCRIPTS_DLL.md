@@ -403,12 +403,22 @@ Scripted formulas are the **last** lever, not the first — they carry the versi
 
 ---
 
-## 12. Battle telemetry — the Overload hooks (`ff9mapkit battle-telemetry`)
+## 12. The Overload channel — engine hooks, one hub per mod
 
 The same mod DLL can implement Memoria's **`IOverload*` interfaces** — engine choke points where a registered
-class *replaces* an inline engine default (`ScriptsLoader` registers by interface, no attribute needed). The
-kit uses four of them as a **dev tool**: a telemetry hook that logs every battle calc as one JSON line to
-`<game>/ff9mk_battle_telemetry.jsonl`, so battle balance can be analyzed offline instead of eyeballed.
+class *replaces* an inline engine default (`ScriptsLoader` registers by interface, no attribute needed).
+The engine keeps **one implementer per interface per DLL** (a last-wins dictionary, type order unspecified),
+so the kit emits exactly one **hub** class (`Scripts/Sources/Overload/0000_OverloadHub.cs`, regenerated on
+every compile — never edit it) and builds features as plain static classes the hub calls in a fixed order:
+**mutators before observers** (a difficulty scaler runs before telemetry logs the roster, so the log shows
+the stats you actually fight). Where a hook displaces an engine default (backstab/kill-frozen, the ×1.5
+damage-modifier stack, the reflect multiplier), the default is **transcribed verbatim** into the hub —
+gameplay is unchanged unless a feature changes it on purpose. Two features exist today:
+
+### Battle telemetry (dev tool — `ff9mapkit battle-telemetry`)
+
+Logs every battle calc as one JSON line to `<game>/ff9mk_battle_telemetry.jsonl`, so battle balance can be
+analyzed offline instead of eyeballed.
 
 ```
 ff9mapkit battle-telemetry FF9CustomMap     # install into a live mod folder -> RELAUNCH -> fight
@@ -422,14 +432,34 @@ before it runs — a calc with no matching `result` is a miss/guard/no-effect, s
 `result` (computed **pre-cap** damage on the hit branch, both directions), `applied` (post-cap damage + target
 HP after — enemy-targeted calcs only; the engine's call site early-returns for player targets).
 
-Safety: where a hook displaces an engine default (backstab/kill-frozen, the ×1.5 damage-modifier stack, the
-reflect multiplier), the default is **transcribed verbatim** into the emitted C# — gameplay is unchanged.
 Every log write is `try/catch`-swallowed, so the hook can never break a battle. The source lives at
 `Scripts/Sources/Telemetry/` (a sibling of `Sources/Battle`, so a field build never wipes it), and
-`deploy_field` re-folds the hook into a freshly deployed DLL automatically. One caveat shared with the whole
-channel: the DLL loads once at title — **relaunch** after install/remove. And like everything override-only:
-if a *second* stacked mod folder ships its own implementation of the same `IOverload*` interface, the
-higher-priority folder's wins silently.
+`deploy_field` re-folds any live Overload feature into a freshly deployed DLL automatically.
+
+### `[difficulty]` — declarative enemy scaling (shipped content)
+
+A journey/field author's "hard mode": one table in `field.toml` scales every **enemy** once per battle, at
+battle init (a hook with **no engine default** — nothing vanilla is displaced). Players are never touched.
+
+```toml
+[difficulty]
+enemy_hp = 1.5        # x max+current HP of every enemy
+enemy_attack = 1.25   # x Strength (physical)
+enemy_magic = 1.25    # x Magic
+flag = "hard_mode"    # OPTIONAL gate: scale only while this gEventGlobal BIT is set
+                      # (a [[flag]] name or a bit index; omit = always on)
+```
+
+Scales are `0.05`–`20.0` (unset = `1.0`); HP clamps at 9,999,999 logical, byte stats at 255. The block is
+**mod-global** (the DLL is per deployed folder): a campaign may repeat an *identical* block on several
+members, but two different blocks refuse at build. With `flag`, the gate is read fresh at every battle —
+seed it from `[startup]`/an event for a hard-mode journey, or toggle it live with **F6 → Flags** while
+testing; the bit clear (or any state hiccup) means *vanilla*, never a broken battle. Like the whole channel
+it compiles at build time (needs `csc` — the lint gate names it) and loads once at title (**relaunch**).
+
+One caveat shared with the whole channel: if a *second* stacked mod folder ships its own implementation of
+the same `IOverload*` interface, the higher-priority folder's wins silently. Within one mod the kit refuses
+a hand-dropped `.cs` that collides with the hub (a clear compile-time error instead of a coin flip).
 
 ---
 
@@ -444,5 +474,5 @@ higher-priority folder's wins silently.
   this builds on.
 
 **Key refs:** `ScriptsLoader.cs:215-311,343-365`, `SBattleCalculator.cs:63,109-131,200,323`, `TitleUI.cs:1528` ·
-`ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `telemetry.py`, `content/playable.py`, `build.py`
-(`_emit_scripts`).
+`ff9mapkit/battle/scriptsource.py`, `scriptcompile.py`, `overload.py` (the hub), `telemetry.py`,
+`difficulty.py`, `content/playable.py`, `build.py` (`_emit_scripts`).

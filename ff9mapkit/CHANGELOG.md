@@ -5,7 +5,30 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-_Nothing yet — changes land here, then get stamped at the next release._
+### Added — `[difficulty]`: declarative enemy scaling ("hard mode")
+- A **`[difficulty]`** table in `field.toml` scales every enemy once per battle — `enemy_hp` /
+  `enemy_attack` / `enemy_magic` (`0.05`–`20.0`), players untouched — with an optional **`flag`** gate
+  (a `[[flag]]` name or `gEventGlobal` bit index) so a journey can switch hard mode on/off at runtime
+  (seed via `[startup]`/an event; toggle live with F6 → Flags). Mod-global (one per deployed folder);
+  identical repeats across campaign members are allowed, conflicting blocks refuse at build. Compiles
+  into the mod scripts DLL via the Overload channel's `OnBattleInit` (a hook with **no engine default**
+  — nothing vanilla is displaced; any state hiccup degrades to vanilla). Relaunch-scoped like the whole
+  channel; the lint toolchain gate now also names `[difficulty]` when `csc` is missing.
+  ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md), [FORMAT.md `[difficulty]`](docs/FORMAT.md))
+
+### Changed — the Overload channel got a HUB (one `IOverload*` implementer per interface)
+- The engine registers Overload hooks **one implementer per interface per DLL** (last-wins, type order
+  unspecified), so the kit now emits a single regenerated `Sources/Overload/0000_OverloadHub.cs` that
+  implements the claimed interfaces (verbatim engine defaults included) and calls features — now plain
+  static classes — in a fixed order: **mutators before observers** (telemetry's roster log shows the
+  difficulty-scaled stats). Battle telemetry was refactored onto the hub (same events, same JSONL,
+  same CLI); a live telemetry source left by an older kit is auto-upgraded at the next compile.
+  A hand-dropped `.cs` colliding with the hub (or with another source) on an `IOverload*` interface is
+  now a clear compile-time refusal instead of a silent coin flip.
+- `deploy_field` deploy-stickiness is **generic**: ANY live-owned Overload feature (telemetry today) is
+  folded back into a freshly deployed DLL through one code path (`overload.compile_live`), and
+  build-owned script sources (`Battle`, `Difficulty`, the hub) are now **replaced** on deploy so removed
+  declarative content can't resurrect from a stale live copy.
 
 ## [1.0.0b13] - 2026-07-08 — 14th playable character, Scripts-DLL scripting, custom models & creatures, synthetic overworld
 
