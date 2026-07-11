@@ -14,8 +14,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   verbatim and keeps it unless turned off. The optional **`flag`** gate means *fully vanilla* while clear
   (Eiko included — the rule sleeps, it isn't half-applied) and toggles live: the next wipe obeys the new
   state. Fail-safe by construction (any hiccup = a vanilla defeat, never a canceled wipe with nobody
-  revived). Mod-global, relaunch-scoped, lint gate names it. Offline-proven (compiles against the live
-  engine; full render/parse/build test coverage) — awaiting in-game playtest.
+  revived). Mod-global, relaunch-scoped, lint gate names it. In-game proven 2026-07-11 (first wipe →
+  Phoenix revive at partial HP, second wipe same battle → normal game over, next battle → recharged).
+  Known behavior: the revive plays the full Rebirth Flame summon animation (it's the real engine command)
+  — a short-animation knob is a noted follow-up for authored contexts.
   ([SCRIPTS_DLL.md §12](docs/SCRIPTS_DLL.md), [FORMAT.md `[deathrules]`](docs/FORMAT.md))
 - The Overload hub gained a **returning-hook mode**: hooks whose return value the engine acts on
   (`OnGameOver` → cancel-the-game-over) are single-owner — the hub returns the one owning feature's verdict
