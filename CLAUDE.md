@@ -683,7 +683,7 @@ the catalog's 1.7u riskiest line → refuses; the scanner self-corrected to D=6 
 cells, 0 inconsistencies, 0 boundary violations over 3875 edges; `strips_rebuild` / `--strips-rebuild`
 re-derives every decodable sea1+sea5 cell (UV-only deltas, per-cell re-decode self-check; ~7% inset-rect
 residual verbatim). Shore vocabulary now lacks only the end-cap ASSEMBLY synthesis — the last rung
-before BEACH-MINT (the sand band closed 2026-07-10, see Path A below). **Path B RESOLVED by falsification (2026-07-10):** the sand band is a single-row
+before BEACH-MINT (the sand band closed ★ in-game 2026-07-11, see Path A below). **Path B RESOLVED by falsification (2026-07-10):** the sand band is a single-row
 chain-pinned RIBBON (one v-rect stretched over 1.8-6.6u — the old ±2.5 drag cap WAS the language
 envelope; row B strictly terminal; the (3,11) spit fold the only multi-row shape) — a widened band has
 NO lawful fill, so the growth verb is **`beach_slide` (`--beach-slide`), the FULL-ASSEMBLY SLIDE**: the
@@ -702,14 +702,14 @@ berm drag deleted) and the vacated strip re-filled with NATIVE GRASS (`_grass_fi
 true seaward land growth; ceilings (18,15) +2.5 / (16,15) +3.5 (past the bump cap) / (3,13)
 +2.5; ★ in-game proven 2026-07-10 in-place at BOTH the real (18,15) +2.5 AND (16,15) +3.5 (the
 map's biggest lawful nose growth, the first morph past the drag envelope's depth — "the nose
-reads clean, grass blends in fine"). **Path A DONE offline 2026-07-10 — the SAND-BAND edge table
+reads clean, grass blends in fine"). **★ Path A IN-GAME PROVEN 2026-07-11 — the SAND-BAND edge table
 byte-learned map-wide** (14 bands / 437 tris: two u-rects P/Q at atlas 270/334/396, per-band v pins,
 THE ONE-SHADE LAW — sand's 3 edges are one mutual shade class, every boundary pair byte-observed +
 texel-verified homogeneous — caps pin to rect Q/0.3867-outward BECAUSE the cap band is a gradient);
 shipped as `sand_rebuild` / `world-transplant --sand-rebuild` (rect-FLIP identity rebuild + the
-closure freeze; 210 run tris over 22 blocks; deployed (10,8) vs the (13,8) identity, uvx-only-6
-differential — awaiting playtest). Remaining before beach-mint: the end-cap ASSEMBLY synthesis.
-26 golden tests → [[project-ff9-overworld-coast-mosaic]].
+closure freeze; 210 run tris over 22 blocks; ★ the (10,8) flipped clone vs the (13,8) identity
+"reads clean, matches" — sand emission generative like the strips). Remaining before beach-mint:
+the end-cap ASSEMBLY synthesis. 26 golden tests → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven 2026-07-10**
