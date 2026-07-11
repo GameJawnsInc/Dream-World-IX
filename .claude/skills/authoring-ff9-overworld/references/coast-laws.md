@@ -127,6 +127,11 @@
 - **THE BERM LAW** — beach berms are topo-0 ONLY → "THE RUNG-2 WINDOW STUDY".
 - **THE LATTICE ADJACENCY LAW** — lawful band pairs only (full table in the memory): sea3 NEVER touches sea4 anywhere; {1,5} is real → "THE RUNG-2 WINDOW STUDY".
 - **BEACHES NEVER SHARE VERTS** — min separation 4.06u (the grass-tongue separator) → "THE RUNG-2 WINDOW STUDY".
+- **THE EXACT FOOTPRINT-CUT (rung 3)** — the assembly is ONE simple polygon; kept = the exact tri-minus-polygon arrangement (BSP leaves T-points at in-tri footprint corners) → "BEACH-MINT RUNG 3".
+- **THE REFLEX CAP DIAGONAL** — a pinned real crease-base pair makes a cap quad reflex; only the reflex-vertex diagonal is interior, the emitter's split must match → "BEACH-MINT RUNG 3".
+- **THE EDGE-LEVEL RING TRIGGER** — the ring re-band fires on a sea3 tile sharing a geometric EDGE with minted foam; introduced-only → "BEACH-MINT RUNG 3".
+- **THE FOAM-COLUMN ENVELOPE** — real foam run columns span 0.92–6.27u along-shore (map-wide census); short columns are real grammar → "BEACH-MINT RUNG 3".
+- **CAP-END GEOMETRY IS TRANSPORTED LAW** — real crease-base cap pins bypass the synth band/slope envelopes → "BEACH-MINT RUNG 3".
 
 ## F. Strips / Wang / deformed-tile languages
 
@@ -151,4 +156,4 @@
 - **The second-donor screen** — (9,5)'s clean-small-island property does NOT generalize; best alternative (10,17)+2×2 → "SECOND-DONOR SCREEN" / "★ THE SPILL-CLIP LAW".
 - **The morph catalog** — 324 windows map-wide; beach-reshape = exactly 1 lawful window map-wide, (7,17) → "★ THE SCANNER'S CLAIMS PROVEN IN-GAME".
 - **Slide ceilings** — landward column slide: exactly ONE lawful window map-wide ((7,17)); seaward free-form ceilings per donor → "THE FULL-ASSEMBLY SLIDE" (SCANNER-WIRED) / "THE SEAWARD SLIDE".
-- **Virgin-window censuses** — the post-band-convert WIDENED census: the whole map holds 3 windows, winner (9,17) run (153..155,−282) — don't re-sweep → "THE RUNG-2 WINDOW STUDY" / "THE WIDENED VIRGIN-WINDOW CENSUS".
+- **Virgin-window censuses** — the post-band-convert WIDENED census: the whole map holds 3 windows, winner (9,17) run (153..155,−282) — don't re-sweep; tri-level: the separation law halves (9,17)/(7,17)'s arcs, (3,13) NE is the roomiest alternate → "THE RUNG-2 WINDOW STUDY" / "THE WIDENED VIRGIN-WINDOW CENSUS" / "BEACH-MINT RUNG 3".
