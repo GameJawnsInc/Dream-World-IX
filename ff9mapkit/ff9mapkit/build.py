@@ -1201,6 +1201,13 @@ def validate(project: FieldProject) -> list[str]:
     pty = project.raw.get("party")                       # party membership ([party]: add/remove members)
     if pty is not None:
         _validate_party(pty, problems, play_reg)
+    dif = project.raw.get("difficulty")                  # [difficulty]: enemy scaling via the Overload hub
+    if dif is not None:
+        from .battle import difficulty as _difficulty
+        try:
+            _difficulty.parse_table(dif, name_map=story_names)
+        except _difficulty.DifficultyError as e:
+            problems.append(str(e))
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -2115,25 +2122,30 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
     scripted ability -> the whole thing is inert -> no requirement. This is a deliberate departure from lint's
     "install-free" rule (unlike the FF9 install, which lint never requires so you can author on a machine without
     the game): the compiler probe is cheap (a few dir globs) and the whole point is to fail early. Reported as a
-    build-blocking error (a scripted field genuinely cannot build here). project-ff9-scripts-dll."""
+    build-blocking error (a scripted field genuinely cannot build here). project-ff9-scripts-dll.
+    ``[difficulty]`` compiles into the same DLL (the Overload hub), so it trips the same gate."""
+    consumers = []                                        # what needs the compiler, for the error message
     pl = project.raw.get("playable")
-    if pl is None:
-        return
-    try:
-        specs = _playable.parse_all(pl)
-    except _playable.PlayableError:
-        return                                            # a broken [[playable]] is already reported by validate()
-    scripts = (_playable.script_seeds(specs) + _playable.field_script_seeds(specs)
-               + _playable.status_script_seeds(specs))
-    if not scripts:
-        return                                            # no `script = {...}` ability -> the Scripts-DLL channel is inert
+    if pl is not None:
+        try:
+            specs = _playable.parse_all(pl)
+            scripts = (_playable.script_seeds(specs) + _playable.field_script_seeds(specs)
+                       + _playable.status_script_seeds(specs))
+        except _playable.PlayableError:
+            scripts = []                                  # a broken [[playable]] is already reported by validate()
+        if scripts:
+            names = ", ".join(sorted({str(s.get("name", "?")) for s in scripts}))
+            consumers.append(f"scripted custom ability ({names})")
+    if project.raw.get("difficulty") is not None:
+        consumers.append("[difficulty] enemy scaling")
+    if not consumers:
+        return                                            # the Scripts-DLL channel is inert on this field
     from .battle import scriptcompile as _scomp
     if _scomp.toolchain_available():
         return
-    names = ", ".join(sorted({str(s.get("name", "?")) for s in scripts}))
     out.append(
-        f"scripted custom ability ({names}) needs a C# compiler (csc) to build its `script = {{...}}` battle "
-        f"formula into Memoria.Scripts.<Mod>.dll, but none was found -- the build would fail at compile time. "
+        f"{' + '.join(consumers)} needs a C# compiler (csc) to build the mod scripts DLL "
+        f"(Memoria.Scripts.<Mod>.dll), but none was found -- the build would fail at compile time. "
         f"Install Visual Studio Build Tools (Roslyn csc) or point $FF9_CSC at a csc.exe (the always-present .NET "
         r"Framework csc at C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe works too).")
 
@@ -5608,13 +5620,17 @@ def _emit_ability_features(projects, layout) -> list:
 
 
 def _emit_scripts(projects, layout, mod_name) -> list:
-    """Emit + compile the minted battle-FORMULA DLL from every ``[[playable]]`` custom ability that carries
-    ``script = {template/body}`` -> ``Scripts/Sources/*.cs`` + ``Memoria.Scripts.<mod_name>.dll`` (the Scripts-DLL
-    channel, project-ff9-scripts-dll). No scripted abilities -> a NO-OP (the whole channel is inert, so a normal
-    build never touches a compiler). ``parse_all`` is deterministic, so each script's ``[BattleScript(id)]`` matches
-    the Actions.csv ``scriptId`` cell repointed in :func:`_emit_battle_data`. The DLL loads once at the title screen
-    -> a RELAUNCH is required (F6 won't reload it); the caller/deploy surfaces that. Compiles against the INSTALLED
-    engine (version-coupled), so it needs the FF9 install + a C# compiler; raises BuildError if either is missing."""
+    """Emit + compile the mod scripts DLL (``Memoria.Scripts.<mod_name>.dll``, the Scripts-DLL channel,
+    project-ff9-scripts-dll) from every ``[[playable]]`` custom ability that carries ``script =
+    {template/body}`` PLUS the mod-global ``[difficulty]`` block (the Overload channel's declarative enemy
+    scaling, project-ff9-overload-hooks). Nothing scripted -> a NO-OP (the whole channel is inert, so a
+    normal build never touches a compiler). ``parse_all`` is deterministic, so each script's
+    ``[BattleScript(id)]`` matches the Actions.csv ``scriptId`` cell repointed in :func:`_emit_battle_data`.
+    All sources compile through :func:`overload.compile_tree` (regenerates the single ``IOverload*`` hub --
+    the engine registers ONE implementer per interface per DLL). The DLL loads once at the title screen
+    -> a RELAUNCH is required (F6 won't reload it); the caller/deploy surfaces that. Compiles against the
+    INSTALLED engine (version-coupled), so it needs the FF9 install + a C# compiler; raises BuildError if
+    either is missing."""
     playables = []
     for p in projects:
         b = p.raw.get("playable", [])
@@ -5623,26 +5639,35 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         specs = _playable.parse_all(playables)
     except _playable.PlayableError as ex:
         raise BuildError(str(ex))
+    from .battle import difficulty as _difficulty
+    try:
+        _dif = _difficulty.collect(projects)              # the mod's ONE [difficulty] spec (or None)
+    except _difficulty.DifficultyError as ex:
+        raise BuildError(str(ex))
+    dif_spec = _dif[0] if _dif else None
     scripts = _playable.script_seeds(specs)
     field_scripts = _playable.field_script_seeds(specs)   # paired [FieldAbilityScript] effects (P7), same DLL + scriptId
     status_scripts = _playable.status_script_seeds(specs)  # custom [StatusScript] behaviours (P7), same DLL
-    if not scripts and not field_scripts and not status_scripts:
+    if not scripts and not field_scripts and not status_scripts and dif_spec is None:
         # de-scripted rebuild: drop any stale Scripts tree (a prior build's .cs + Memoria.Scripts.<Mod>.dll) so a
         # PERSISTENT out dir (campaign/journey/GUI dist) doesn't ship an orphaned formula DLL after the last scripted
         # ability is removed. A fresh tmp build dir has no Scripts/ -> a harmless no-op.
         import shutil as _sh
         _sh.rmtree(layout.scripts_dir, ignore_errors=True)
         return []
-    from .battle import scriptsource as _ssrc, scriptcompile as _scomp
+    from .battle import scriptsource as _ssrc, scriptcompile as _scomp, overload as _ovl
     try:
         warnings = list(_ssrc.write_scripts(layout, scripts, field_scripts, status_scripts))   # ONE wipe -> all .cs
-        _scomp.compile_scripts(layout, mod_name)
+        _difficulty.write_source(layout, dif_spec)        # emit or REMOVE (build-owned, like Sources/Battle)
+        _ovl.compile_tree(layout, mod_name)               # hub regenerated + everything compiled together
     except (_ssrc.ScriptSourceError, _scomp.ScriptCompileError) as ex:
         raise BuildError(str(ex))
-    made = (f"{len(scripts)} battle formula(s)"
-            + (f" + {len(field_scripts)} field effect(s)" if field_scripts else "")
-            + (f" + {len(status_scripts)} status behaviour(s)" if status_scripts else ""))
-    warnings.append(f"scripted abilities: built Memoria.Scripts.{mod_name}.dll ({made}). "
+    made = ", ".join(
+        ([f"{len(scripts)} battle formula(s)"] if scripts else [])
+        + ([f"{len(field_scripts)} field effect(s)"] if field_scripts else [])
+        + ([f"{len(status_scripts)} status behaviour(s)"] if status_scripts else [])
+        + (["[difficulty] enemy scaling"] if dif_spec is not None else []))
+    warnings.append(f"scripted content: built Memoria.Scripts.{mod_name}.dll ({made}). "
                     f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
     return warnings
 

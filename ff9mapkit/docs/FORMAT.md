@@ -1396,6 +1396,25 @@ The lines are deduped by scene across the whole mod (the patch is scene-keyed an
 
 ---
 
+## `[difficulty]` (optional — enemy scaling / "hard mode")
+
+Scales every **enemy** once per battle, at battle init. Players are never touched. Compiles into the mod's
+scripts DLL (needs a C# compiler at build time — `lint` names it if missing) and loads once at title, so
+**relaunch** after deploying a change. Full story: [SCRIPTS_DLL.md §12](SCRIPTS_DLL.md).
+
+| key | meaning |
+|---|---|
+| `enemy_hp` | × every enemy's max **and** current HP (`0.05`–`20.0`; unset = `1.0`). Clamps at 9,999,999. |
+| `enemy_attack` | × every enemy's Strength (physical). Byte stat — clamps at 255. |
+| `enemy_magic` | × every enemy's Magic. Clamps at 255. |
+| `flag` | optional gate: scale only while this `gEventGlobal` **bit** is set — a `[[flag]]` name or a bit index. Omit = always on. Seed it from `[startup]`/an event for a hard-mode journey; toggle live with F6 → Flags while testing. Bit clear = vanilla. |
+
+The block is **mod-global** (one scaling hook per deployed folder): a campaign may repeat an *identical*
+block on several members, but two members with *different* settings refuse at build. At least one scale must
+differ from `1.0`.
+
+---
+
 ## `[music]` (optional)
 
 | key | meaning |
