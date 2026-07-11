@@ -2439,7 +2439,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         # gate offline (coastmorph.py -- the in-game-proven bump/headland pair)
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
                 or args.beach_bump or args.beach_rebuild or args.beach_reshape
-                or args.beach_slide or args.strips_rebuild or args.sand_rebuild):
+                or args.beach_slide or args.strips_rebuild or args.sand_rebuild
+                or args.cap_rebuild):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2467,6 +2468,9 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                     (dx, dy), disc=args.disc, game=args.game)
             if args.sand_rebuild:
                 tweaks = list(tweaks) + CM.sand_rebuild(
+                    (dx, dy), disc=args.disc, game=args.game)
+            if args.cap_rebuild:
+                tweaks = list(tweaks) + CM.cap_rebuild(
                     (dx, dy), disc=args.disc, game=args.game)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
@@ -5223,6 +5227,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "-- indistinguishable by design). Inset-rect variants (~7%% of sea5, the "
                           "sea3-inset family) and conforming ring tris stay verbatim. Every emitted "
                           "cell self-checks by re-decode.")
+    wtp.add_argument("--cap-rebuild", action="store_true",
+                     help="the END-CAP identity rebuild with SLOT-FLIP freshness: every lawful "
+                          "foam end cap re-emits through the learned cap laws on the OTHER cap "
+                          "graphic (BL taper-band <-> TR run-fade, family-consistent snaps -- the "
+                          "style freedom the census licenses) and every lawful sand row-B cap "
+                          "re-emits byte-identically through the sand cap law (the round-trip IS "
+                          "the proof; rect Q is forced). Spit/river-mouth (BR), subdivided and "
+                          "frame-split caps stay verbatim.")
     wtp.add_argument("--sand-rebuild", action="store_true",
                      help="the SAND-BAND identity rebuild (the beach's third discrete language, "
                           "byte-learned map-wide): drop every closed decodable topo-31 run column "

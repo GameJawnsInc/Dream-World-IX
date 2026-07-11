@@ -436,6 +436,52 @@ def test_sand_rebuild_freezes_a_frame_fragment():
         CM.sand_rebuild((13, 10))
 
 
+def test_cap_rebuild_golden():
+    """THE END-CAP LAWS (byte-learned 2026-07-11) -- cap_rebuild on the proven beach:
+    both of (7,17)'s BL foam caps flip to the TR run-fade graphic with the family's
+    LAW-FORCED rows (the (0.0156, 0.4531) family has no observed TR cap -- v must
+    continue the run rows; the A/B deploy tests exactly this generalization), and both
+    sand row-B caps re-emit byte-identically through emit_sand_cap (the internal
+    round-trip gate raises on any law incompleteness)."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    tw = CM.cap_rebuild(DONOR)
+    led = [(t.part, t.expected if hasattr(t, "keys") else len(t.tris)) for t in tw]
+    assert led == [("beach1", 4), ("beach1", 4), ("terrain", 4), ("terrain", 4)]
+    assert _tweak_hash(tw) == _tweak_hash(CM.cap_rebuild(DONOR))  # deterministic
+    emitf = next(t for t in tw if hasattr(t, "tris") and t.part == "beach1")
+    assert {round(v[2][1], 4) for t3 in emitf.tris for v in t3} == {0.0156, 0.4531}
+    assert {round(v[2][0], 4) for t3 in emitf.tris for v in t3} == {0.5156, 0.9844}
+    stock_f = {frozenset(CM._pk(v[0]) for v in t3)
+               for t3 in TR.world_tris(*DONOR, "beach1")}
+    assert all(frozenset(CM._pk(v[0]) for v in t3) in stock_f for t3 in emitf.tris)
+    # the sand caps are BYTE-IDENTITY: every emitted (pos, uv) tri exists verbatim
+    emits = next(t for t in tw if hasattr(t, "tris") and t.part == "terrain")
+    stock_t = {frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                         for v in t3) for t3 in TR.world_tris(*DONOR, "terrain")}
+    assert all(frozenset((CM._pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
+                         for v in t3) in stock_t for t3 in emits.tris)
+
+
+def test_cap_rebuild_flips_tr_to_bl():
+    """(16,5) uses the TR run-fade caps; the rebuild flips them onto the BL taper band
+    with its family's byte-observed snaps ((0, 0.4844) -> BL (0, 0.5, 0.5, 0.9844))."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.cap_rebuild((16, 5))
+    emitf = next(t for t in tw if hasattr(t, "tris"))
+    assert {round(v[2][1], 4) for t3 in emitf.tris for v in t3} == {0.5, 0.9844}
+    assert {round(v[2][0], 4) for t3 in emitf.tris for v in t3} == {0.0, 0.5}
+
+
+def test_cap_rebuild_refuses_the_spit():
+    """(3,11) is the double-sided SPIT: its caps are the BR/subdivided tip vocabulary
+    (out of the quad-cap laws' scope) and its sand caps ride the fold -- nothing
+    lawful to rebuild, so the tool refuses rather than half-emit."""
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="no lawful end caps"):
+        CM.cap_rebuild((3, 11))
+
+
 def test_cliff_clearance_gate():
     """THE CLEARANCE GATE -- the cliff shape law: cliffs are class-free (a headland on a
     bay rim read clean in-game, (16,9)) and push shear is harmless (the wall REBUILDS --
