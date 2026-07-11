@@ -751,7 +751,10 @@ the 3 probed cells' water); its 3 laws: the DISCRETE ROLE-DECODE (corner-snap ma
 nearest-cell-corner roles = exactly ONE (row, orientation), 29/29), the per-block byte-read float
 dialect (mixed-dialect blocks refuse), THE SHADE-AGREEMENT LAW (deep-claims two-sided in-band
 [back-to-back pinches real], == depth fact cross-band; null-clean on every decodable block).
-37 golden tests → [[project-ff9-overworld-coast-mosaic]].
+37 golden tests. The probe WIDENS the virgin-window space (no pre-existing wash needed — the ladder
+is re-layable): the post-probe census found the whole map holds **3 windows**, winner **(9,17) run
+(153..155,-282)** (sea3-room 4, beach separation 6.0-8.5u) — rung 3 proper = the full ladder
+composition there → [[project-ff9-overworld-coast-mosaic]].
 **Chocobo Hot & Cold** — the declarative `[chocobo]` dig prize/timer lane on a verbatim forest fork (`chocobo-export` +
 `[[chocobo.prize]]`/`[chocobo.tuning]` → `[[logic_edit]] kind="expr_literal"`, a NEW generic in-expression-literal edit
 kind; scan fits all 3 forests, 35 slots each; popup+give+tally agree by construction) — ★ **in-game proven on ALL
