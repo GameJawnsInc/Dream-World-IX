@@ -1,5 +1,16 @@
 # Handoff — BEACH-MINT rung 3 (the virgin-shore mint)
 
+> **STATUS UPDATE (2026-07-11, the continuation session — branch
+> `claude/handoff-beach-mint-rung3-4ac731`):** §3's step 1 is DONE — the one-cell
+> band-conversion probe is BUILT (`band_convert` in `coastmorph.py` + CLI
+> `world-transplant --band-convert CX,CZ:PART`, kit `0676004`), offline-gated (the
+> discrete role-decode / per-block float dialect / shade-agreement law — see the
+> updated brief §Frontier and the coast-mosaic memory), and DEPLOYED at cell
+> **(10,4)** (a (7,17) clone; probe = beach-west ring cell (116,-281) sea3→sea1;
+> references = the (11,6)/(11,7) mints). Deployed-bytes differential vs (11,7) is
+> exactly the 3 probed cells' water. **Awaiting the playtest** — then merge to
+> master and continue at §3 step 4 (the full ladder composition).
+
 **Written:** 2026-07-11, end of a session that shipped rungs 1–2a of BEACH-MINT and
 cracked rung 3's blocker. **Why this file exists:** the work continues in a *new*
 Claude session on a *different Anthropic account*, so nothing in that session's
