@@ -5066,6 +5066,11 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
             break
         c = viol
         c_tris = [t3 for t3 in surv["sea3"] if _cell_of_tri(t3) == c]
+        if not c_tris:
+            raise ValueError(f"ring re-band: the sea3 fronting the wash at {c} is a "
+                             f"PARTIAL tile (a cut fragment) -- a fragment carries "
+                             f"no 4-corner quad to re-band; outside the v1 language "
+                             f"(shrink the footprint off that tile)")
         corners_c = {}
         for t3 in c_tris:
             for v in t3:
