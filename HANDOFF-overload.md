@@ -28,10 +28,32 @@ and in-game proven**:
 flag is clear). The whole tree (hub + all 4 features) compiles against the live engine
 (`test_tree_compiles_against_live_engine`, ran + passed).
 
-**What's left:** the **Trance/low-HP** feature (`UnitCheckPoint` — dive DONE, see below); optionally a
-warp-on-defeat `[deathrules]` mode (a user design call); a **short-animation knob** for the second wind
-(user-flagged: the revive plays the full Rebirth Flame summon — cool in FF9, "could get obnoxious in an
-authored context"; needs a dive into which revive ability/command carries a shorter choreography).
+**What's left:** the short-anim playtest (below); the **Trance/low-HP** feature (`UnitCheckPoint` — dive
+DONE, see below); optionally a warp-on-defeat `[deathrules]` mode (a user design call).
+
+### The SHORT-ANIMATION second wind — BUILT 2026-07-11, awaiting playtest
+
+The user-flagged follow-up ("the full Rebirth Flame summon could get obnoxious in an authored context") is
+built: **`animation = "short"`** + **`revive_hp`** (fraction of max, default 0.2, floor 1 HP). The dive
+found the engine's OWN short revive — the death-changer status recipe:
+
+- `AutoLifeStatusScript.OnDeath` (Memoria/Scripts/DefaultStatus/): revive = `Target.CurrentHp = N` +
+  `btl_stat.RemoveStatus(Target, BattleStatusId.Death)`. **No VFX, no summon** — Auto-Life's whole visual
+  is the unit standing up.
+- `DeathStatusScript.Remove` (triggered by that RemoveStatus): ALL the un-death bookkeeping — `die_seq = 0`,
+  clears `death_f`/`stop_anim`/`cmd_idle`/`escape_key`/`killer_track`, restarts texanims when the unit is in
+  MP_DISABLE/MP_DOWN_DISABLE motion. This is why the direct revive is safe: the status system owns the state.
+- `btl_mot.DecidePlayerDieSequence`'s cancel branch (btl_mot.cs:449-457): after a death-changer fires it
+  calls `btl_mot.SetDefaultIdle(btl)` (stand back up) + `FF9StateSystem.Settings.SetHPFull()` (booster).
+- Timing is clean: when `OnGameOver` fires, every player is BattleEndFull and every Death-status unit has
+  `die_seq == 6` (CheckBattlePhase's own loop guarantees it) — the same state a mid-battle Phoenix Down
+  target is in.
+- `SysReraise` (the old Auto-Life command) is DUMMIED (`btl_cmd.cs:1092 "Unused anymore"`) — dead end; the
+  status-script path above is the modern mechanism.
+
+The feature composes exactly those verbatim pieces per dead player (petrify stays, like the Phoenix ability;
+nobody revivable → vanilla defeat). `animation = "full"` still emits the proven Phoenix variant unchanged.
+Both variants compile against the live engine (the money test compiles the tree twice).
 
 `master` is ahead of `origin` — **the user handles pushes.** Do not push.
 

@@ -493,18 +493,24 @@ down, the feature decides whether the game over proceeds or is canceled.
 
 ```toml
 [deathrules]
-second_wind = true          # cancel the wipe ONCE per battle: the party is revived by the same engine
-                            # mechanism as Eiko's auto-Phoenix (a queued system Rebirth Flame)
+second_wind = true          # cancel the wipe ONCE per battle: the party is revived
 chance = 60                 # OPTIONAL percent chance the second wind fires (whole 1-100; default 100)
+animation = "short"         # OPTIONAL: "full" (default) = the Phoenix summon plays; "short" = no
+                            # choreography, the party just stands back up
+revive_hp = 0.25            # OPTIONAL, "short" only: revive HP as a fraction of max (0 < x <= 1)
 keep_rebirth_flame = false  # OPTIONAL: false REMOVES Eiko's vanilla auto-revive (default true = kept)
 flag = "mercy_mode"         # OPTIONAL gate (same shape as the siblings)
 ```
 
-The **second wind** is a roguelike mercy rule: the first wipe of a battle triggers a full Phoenix party
-revive (the engine's own `Rebirth Flame` command, queued exactly the way the vanilla Eiko default queues it —
-no hand-rolled state edits), then recharges at the next battle; a second wipe in the same battle is a normal
-game over. `keep_rebirth_flame = false` is the hardcore mirror: it removes Eiko's vanilla auto-revive (with
-no `second_wind` it makes wipes strictly final). Owning the hook *displaces* the Eiko default, so the kit
+The **second wind** is a roguelike mercy rule: the first wipe of a battle revives the party, then recharges
+at the next battle; a second wipe in the same battle is a normal game over. Both revive flavors are
+engine-sanctioned, not hand-rolled: `animation = "full"` queues the engine's own `Rebirth Flame` command
+exactly the way the vanilla Eiko default queues it — the full Phoenix summon plays and the ability decides
+the revive HP; `animation = "short"` revives the fallen directly the way the engine's death-changer statuses
+(Auto-Life) do — no choreography at all, the party simply gets up at `revive_hp` × max HP (floor 1; only the
+*dead* revive — petrify stays, and a wipe with nobody revivable falls through to a normal defeat).
+`keep_rebirth_flame = false` is the hardcore mirror: it removes Eiko's vanilla auto-revive (with no
+`second_wind` it makes wipes strictly final). Owning the hook *displaces* the Eiko default, so the kit
 transcribes it verbatim and keeps it unless you turn it off.
 
 `flag` semantics differ from the siblings **on purpose**: bit clear means *fully vanilla* — Eiko's auto-revive

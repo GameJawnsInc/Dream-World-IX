@@ -3,6 +3,19 @@
 All notable changes to `ff9mapkit`. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning is [SemVer](https://semver.org). The Blender add-on has its own version, kept in lockstep.
 
+## [Unreleased]
+
+### Added — `[deathrules]` short-animation second wind
+- **`animation = "short"`** on the second wind skips the full Rebirth Flame summon (flagged as potentially
+  obnoxious in an authored context): instead of queueing the Phoenix command, the fallen party is revived
+  directly the way the engine's own death-changer statuses do (`AutoLifeStatusScript.OnDeath` +
+  `DeathStatusScript.Remove` + the `DecidePlayerDieSequence` cancel branch: set HP → `RemoveStatus(Death)` →
+  `SetDefaultIdle`) — no choreography, the party simply stands up. Since the engine ability no longer decides
+  the revive HP, a **`revive_hp`** fraction knob comes with it (of max HP, `(0, 1]`, floor 1 HP, default
+  `0.2`). `animation = "full"` (the default) is the in-game-proven Phoenix variant, emitted unchanged. Only
+  dead players revive (petrify stays, like the Phoenix ability); a wipe with nobody revivable falls through
+  to a vanilla defeat.
+
 ## [1.0.0b15] - 2026-07-11 — Battle balance rules, a hand-built continent, and Chocobo Hot & Cold
 
 > v1.0.0b14 was tagged and pushed but never published -- the release CI's Linux test job caught 4

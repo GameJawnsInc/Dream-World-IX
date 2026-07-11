@@ -4,9 +4,13 @@ feature, and the first on a RETURNING hook).
 A field.toml (one per mod) declares::
 
     [deathrules]
-    second_wind = true          # cancel the wipe ONCE per battle: the party is revived by the same engine
-                                # mechanism as Eiko's auto-Phoenix (a queued system Rebirth Flame)
+    second_wind = true          # cancel the wipe ONCE per battle: the party is revived
     chance = 60                 # OPTIONAL percent chance the second wind fires (whole 1-100; default 100)
+    animation = "short"         # OPTIONAL: "full" (default) = the queued Phoenix summon (the same engine
+                                # mechanism as Eiko's auto-Phoenix; the ability decides the revive HP);
+                                # "short" = no choreography, the party just stands up (see below)
+    revive_hp = 0.25            # OPTIONAL, "short" only: revive HP as a fraction of max (0 < x <= 1),
+                                # floored at 1 HP; default 0.2
     keep_rebirth_flame = false  # OPTIONAL: false REMOVES Eiko's vanilla auto-revive (default true = kept)
     flag = "mercy_mode"         # OPTIONAL gate: the rules apply only while this gEventGlobal BIT is set
                                 # (a [[flag]] name or a bit index; omit = always on)
@@ -19,12 +23,21 @@ siblings this feature IS the whole verdict: owning the interface displaces the e
 (Eiko's automatic Rebirth Flame), which is therefore transcribed VERBATIM into the class and kept unless
 ``keep_rebirth_flame = false``.
 
-**The second wind reuses the engine's own revive mechanism, not hand-rolled state edits:** the vanilla Eiko
-default cancels a wipe by queueing ``SysLastPhoenix``/``RebirthFlame`` on a (dead) player unit and re-enabling
-the battle menu -- the command system then runs the Phoenix revive. The feature queues the exact same command
-on the fallen ``dyingPC``. Once per battle: a static flag, reset at ``OnBattleInit``; after the revive is
-spent, the next wipe is a normal game over. A pending queued revive always cancels the wipe (the vanilla
-re-entry guard, ``CheckSpecificCommand2``).
+**Both second-wind variants reuse engine-sanctioned revive mechanisms, not invented state edits.**
+``animation = "full"`` (default, the in-game-proven original): the vanilla Eiko default cancels a wipe by
+queueing ``SysLastPhoenix``/``RebirthFlame`` on a (dead) player unit and re-enabling the battle menu -- the
+command system then runs the Phoenix revive (full summon choreography, ability-decided HP). The feature
+queues the exact same command on the fallen ``dyingPC``. ``animation = "short"`` (user-requested -- the
+summon "could get obnoxious in an authored context"): revive the dead players DIRECTLY the way the engine's
+own death-changer statuses do -- the exact composition of ``AutoLifeStatusScript.OnDeath`` (set ``CurrentHp``,
+``RemoveStatus(Death)``), ``DeathStatusScript.Remove`` (which that call triggers: ``die_seq = 0``, the
+death_f/stop_anim/cmd_idle flags, texanim restart), and ``btl_mot.DecidePlayerDieSequence``'s cancel branch
+(``SetDefaultIdle`` stands the unit up + ``Settings.SetHPFull`` for the booster). No choreography at all: the
+party simply gets up, at ``revive_hp`` x max HP (floor 1). Only the DEAD are revived (petrify stays, like the
+Phoenix ability); a wipe with nobody revivable (all petrified) falls through to a vanilla defeat. Once per
+battle either way: a static flag, reset at ``OnBattleInit``; after the revive is spent, the next wipe is a
+normal game over. A pending queued revive always cancels the wipe (the vanilla re-entry guard,
+``CheckSpecificCommand2``).
 
 **Gate semantics (differs from the siblings on purpose):** flag CLEAR must mean fully VANILLA -- and vanilla
 includes Eiko's auto-revive. So the gate cannot be the shared early-return (:func:`overload.flag_gate_cs`);
@@ -34,9 +47,11 @@ law): OnGameOver fires at wipe time, so the flag toggles the rules live -- the n
 no battle boundary needed.
 
 Engine facts (pinned 6b8bb2d5, all verified PUBLIC): ``FF9StateBattleSystem.btl_list``/``BTL_DATA.next/bi/
-cmd``; ``btl_stat.CheckStatus``; ``btl_cmd.CheckSpecificCommand/CheckSpecificCommand2/SetCommand``;
-``btl_scrp.GetBattleID``; ``ff9item.FF9Item_GetCount``; ``FF9.Comn.random8/random16``;
-``UIManager.Battle.FF9BMenu_EnableMenu``; ``BattleUnit.Data``. The whole body is try/catch-swallowed and the
+cmd/cur``; ``btl_stat.CheckStatus`` + ``RemoveStatus(BattleUnit, BattleStatusId)``;
+``btl_cmd.CheckSpecificCommand/CheckSpecificCommand2/SetCommand``; ``btl_scrp.GetBattleID``;
+``ff9item.FF9Item_GetCount``; ``FF9.Comn.random8/random16``; ``UIManager.Battle.FF9BMenu_EnableMenu``;
+``BattleUnit(BTL_DATA)``/``.Data``/``.CurrentHp``/``.MaximumHp``; ``FF9.btl_mot.SetDefaultIdle(BTL_DATA)``;
+``FF9StateSystem.Settings.SetHPFull``. The whole body is try/catch-swallowed and the
 hub's fail-safe returns ``false`` -- a deathrules bug degrades to a VANILLA defeat, never a soft-lock
 (canceling a wipe without queueing a revive would stall the battle with every player down). RELAUNCH-scoped
 like the whole scripts channel.
@@ -52,7 +67,8 @@ from .. import flags as _flags
 DEATHRULES_BASENAME = "9600_DeathRules.cs"
 
 _BOOL_KEYS = ("second_wind", "keep_rebirth_flame")
-_KNOWN_KEYS = ("second_wind", "chance", "keep_rebirth_flame", "flag")
+_KNOWN_KEYS = ("second_wind", "chance", "animation", "revive_hp", "keep_rebirth_flame", "flag")
+_ANIMATIONS = ("full", "short")
 _FLAG_MAX = 2048 * 8 - 1                          # gEventGlobal is Byte[2048] -> bit indices 0..16383
 
 
@@ -64,6 +80,9 @@ class DeathRulesError(ValueError):
 class DeathRulesSpec:
     second_wind: bool = False
     chance: int = 100               # percent; only meaningful with second_wind (100 = no roll emitted)
+    animation: str = "full"         # "full" = the queued Phoenix summon (engine-decided revive HP);
+                                    # "short" = the direct death-changer-style revive (no choreography)
+    revive_hp: float = 0.2          # short only: revive HP as a fraction of max (0 < x <= 1), floor 1 HP
     keep_rebirth_flame: bool = True
     flag: "int | None" = None       # resolved gEventGlobal bit index (gate), or None = always on
     flag_label: str = ""            # the author's spelling, for the emitted C# comment
@@ -73,7 +92,8 @@ def parse_table(table, *, name_map: "dict | None" = None) -> DeathRulesSpec:
     """Validate + resolve a raw ``[deathrules]`` table. Raises :class:`DeathRulesError` with an authoring-
     facing message; ``name_map`` is the project's ``[[flag]]`` name->index registry (for ``flag = "name"``)."""
     if not isinstance(table, dict):
-        raise DeathRulesError("[deathrules] must be a table (second_wind / chance / keep_rebirth_flame / flag)")
+        raise DeathRulesError("[deathrules] must be a table (second_wind / chance / animation / revive_hp / "
+                              "keep_rebirth_flame / flag)")
     unknown = sorted(set(table) - set(_KNOWN_KEYS))
     if unknown:
         raise DeathRulesError(f"[deathrules] unknown key(s): {unknown} (expected {', '.join(_KNOWN_KEYS)})")
@@ -91,6 +111,23 @@ def parse_table(table, *, name_map: "dict | None" = None) -> DeathRulesSpec:
     if "chance" in table and not bools["second_wind"]:
         raise DeathRulesError("[deathrules] chance only applies to the second wind -- set second_wind = true "
                               "(or remove chance)")
+    animation = table.get("animation", "full")
+    if animation not in _ANIMATIONS:
+        raise DeathRulesError(f"[deathrules] animation must be one of {'/'.join(_ANIMATIONS)} (got "
+                              f"{animation!r}); full = the Phoenix summon, short = the party just stands up")
+    if "animation" in table and not bools["second_wind"]:
+        raise DeathRulesError("[deathrules] animation only applies to the second wind -- set second_wind = "
+                              "true (or remove animation)")
+    revive_hp = table.get("revive_hp", 0.2)
+    if isinstance(revive_hp, bool) or not isinstance(revive_hp, (int, float)):
+        raise DeathRulesError(f"[deathrules] revive_hp must be a fraction of max HP in (0, 1] (got {revive_hp!r})")
+    revive_hp = float(revive_hp)
+    if not (0.0 < revive_hp <= 1.0):
+        raise DeathRulesError(f"[deathrules] revive_hp = {revive_hp:g} out of range (0, 1] (a fraction of "
+                              f"max HP; the revive floors at 1 HP)")
+    if "revive_hp" in table and animation != "short":
+        raise DeathRulesError('[deathrules] revive_hp only applies to animation = "short" -- the full Phoenix '
+                              "revive's HP is decided by the engine ability (or remove revive_hp)")
     if not bools["second_wind"] and bools["keep_rebirth_flame"]:
         raise DeathRulesError("[deathrules] the block does nothing (no second wind, Eiko's Rebirth Flame "
                               "kept = vanilla); set second_wind = true and/or keep_rebirth_flame = false "
@@ -107,6 +144,7 @@ def parse_table(table, *, name_map: "dict | None" = None) -> DeathRulesSpec:
             raise DeathRulesError(f"[deathrules] flag {flag} out of range 0..{_FLAG_MAX} (gEventGlobal is "
                                   f"2048 bytes); custom flags belong in the safe band >= {_flags.FIRST_SAFE_FLAG}")
     return DeathRulesSpec(second_wind=bools["second_wind"], chance=chance,
+                          animation=animation, revive_hp=revive_hp,
                           keep_rebirth_flame=bools["keep_rebirth_flame"], flag=flag, flag_label=label)
 
 
@@ -221,16 +259,46 @@ _RULE_ASLEEP = """\
                     return false; // rule asleep: the vanilla defeat proceeds
 """
 
-_SECOND_WIND = """\
-                // ---- second wind: cancel the wipe ONCE per battle via the same engine mechanism as the
-                //      Eiko default (queue the system Rebirth Flame -- the Phoenix party revive) ----
+_SECOND_WIND_PRELUDE = """\
+                // ---- second wind: cancel the wipe ONCE per battle ----
                 if (btl_cmd.CheckSpecificCommand2(BattleCommandId.SysLastPhoenix))
                     return true; // a queued revive is still pending -- keep the battle alive (vanilla guard)
                 if (_secondWindUsed)
                     return false; // spent this battle: a second wipe is a normal game over
-{roll}                _secondWindUsed = true;
+{roll}"""
+
+# animation = "full": the same engine mechanism as the Eiko default -- queue the system Rebirth Flame
+# (the Phoenix party revive, full summon choreography; the ability decides the revive HP).
+_SECOND_WIND_FULL = """\
+                _secondWindUsed = true;
                 UIManager.Battle.FF9BMenu_EnableMenu(true);
                 btl_cmd.SetCommand(dyingPC.Data.cmd[0], BattleCommandId.SysLastPhoenix, (Int32)BattleAbilityId.RebirthFlame, btl_scrp.GetBattleID(0U), 1u);
+                return true;
+"""
+
+# animation = "short": revive the fallen party DIRECTLY, the way the engine's own death-changer statuses do
+# (AutoLifeStatusScript.OnDeath sets HP + removes Death; DeathStatusScript.Remove does the un-death
+# bookkeeping -- die_seq/flags/texanims; DecidePlayerDieSequence's cancel branch stands the unit up via
+# SetDefaultIdle + calls Settings.SetHPFull for the booster). No choreography -- the party just gets up.
+_SECOND_WIND_SHORT = """\
+                Boolean revived = false;
+                for (BTL_DATA fallen = state.btl_list.next; fallen != null; fallen = fallen.next)
+                {{
+                    if (fallen.bi.player == 0)
+                        continue;
+                    if (fallen.cur.hp != 0 && !btl_stat.CheckStatus(fallen, BattleStatus.Death))
+                        continue; // petrify etc. stays -- like the Phoenix revive, only the DEAD get up
+                    BattleUnit unit = new BattleUnit(fallen);
+                    unit.CurrentHp = Math.Max(1u, (UInt32)(unit.MaximumHp * {hp}));
+                    btl_stat.RemoveStatus(unit, BattleStatusId.Death); // die_seq/flags/texanim bookkeeping
+                    btl_mot.SetDefaultIdle(fallen);                    // stand back up (the cancel-death recipe)
+                    revived = true;
+                }}
+                if (!revived)
+                    return false; // nobody revivable (e.g. a full-petrify wipe) -- the defeat proceeds
+                FF9StateSystem.Settings.SetHPFull(); // the HP/MP-full booster support (no-op otherwise)
+                _secondWindUsed = true;
+                UIManager.Battle.FF9BMenu_EnableMenu(true);
                 return true;
 """
 
@@ -246,8 +314,12 @@ def render(spec: DeathRulesSpec) -> str:
     from . import overload as _ovl
     parts = []
     if spec.second_wind:
-        parts.append("second wind (once per battle"
-                     + (f", {spec.chance}% chance)" if spec.chance < 100 else ")"))
+        bits = ["once per battle"]
+        if spec.chance < 100:
+            bits.append(f"{spec.chance}% chance")
+        bits.append("full Phoenix summon" if spec.animation == "full"
+                    else f"short (no summon, revive at {spec.revive_hp:g}x max HP)")
+        parts.append(f"second wind ({', '.join(bits)})")
     parts.append("Eiko's Rebirth Flame " + ("kept" if spec.keep_rebirth_flame else "REMOVED"))
     if spec.flag is not None:
         label = f" ({spec.flag_label})" if spec.flag_label and spec.flag_label != str(spec.flag) else ""
@@ -268,7 +340,11 @@ def render(spec: DeathRulesSpec) -> str:
         second_wind += _RULE_ASLEEP
     if spec.second_wind:
         roll = _ROLL.format(chance=spec.chance) if spec.chance < 100 else ""
-        second_wind += _SECOND_WIND.format(roll=roll)
+        second_wind += _SECOND_WIND_PRELUDE.format(roll=roll)
+        if spec.animation == "full":
+            second_wind += _SECOND_WIND_FULL
+        else:
+            second_wind += _SECOND_WIND_SHORT.format(hp=f"{spec.revive_hp:g}")
     return _SOURCE.format(basename=DEATHRULES_BASENAME, kit_version=__version__,
                           summary=", ".join(parts), gate_comment=gate_comment, gate=gate,
                           eiko=eiko, second_wind=second_wind)

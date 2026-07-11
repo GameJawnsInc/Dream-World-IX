@@ -89,7 +89,7 @@ Text-block/`.mes` shadowing across stacked folders (wrong text, right flags) →
 - **F6 debug menu** (Go / Cheats / Flags / Time; field + battle + overworld; ships in the bundle) → [[project-ff9-f6-overworld-debug]].
 - **Vivi hut = retired offline build-oracle** (the byte-exact golden test, `examples/vivi-hut/`); do NOT re-polish it in-game. (4003 = the shared test slot.)
 - **New Game lands via a stock field-70 override (`Field(<id>)`), NOT a DLL edit** — WIPED by every `deploy_campaign` wholesale-replace → RE-RUN `tools/wire_newgame_from_stock.py 6000` after each opening re-deploy. → the `building-ff9-campaigns` skill, [[project-ff9-new-game-entry]].
-- **Versions:** kit `1.0.0b13`, Blender add-on `0.9.20`. **Provenance gate CLEARED at HEAD** — zero Square-Enix bytes; templates regenerate from the user's own install (`ff9mapkit extract-templates`). → [[project-release-readiness]].
+- **Versions:** kit `1.0.0b15`, Blender add-on `0.9.23`. **Provenance gate CLEARED at HEAD** — zero Square-Enix bytes; templates regenerate from the user's own install (`ff9mapkit extract-templates`). → [[project-release-readiness]].
 
 ---
 

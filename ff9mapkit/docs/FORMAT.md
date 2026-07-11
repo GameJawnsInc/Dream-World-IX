@@ -1443,8 +1443,10 @@ Same Overload/scripts-DLL plumbing as `[difficulty]`/`[rebalance]`: compiles at 
 
 | key | meaning |
 |---|---|
-| `second_wind` | `true` = cancel the wipe **once per battle** with a full Phoenix party revive (the engine's own Rebirth Flame command — the same mechanism as Eiko's vanilla auto-revive). Recharges each battle; a second wipe in the same battle is a normal game over. Default `false`. |
+| `second_wind` | `true` = cancel the wipe **once per battle** with a party revive. Recharges each battle; a second wipe in the same battle is a normal game over. Default `false`. |
 | `chance` | percent chance the second wind fires (whole `1`–`100`; default `100`). Only legal with `second_wind = true`. |
+| `animation` | `"full"` (default) = the revive is the engine's own Rebirth Flame command (the same mechanism as Eiko's vanilla auto-revive) — the **full Phoenix summon** plays and the ability decides the revive HP. `"short"` = **no choreography**: the fallen party simply stands back up (the engine's death-changer revive recipe), at `revive_hp` × max HP. Only legal with `second_wind = true`. |
+| `revive_hp` | `"short"` only: revive HP as a fraction of max HP (`0 < x <= 1`, floored at 1 HP; default `0.2`). The `"full"` variant's HP is decided by the Rebirth Flame ability. |
 | `keep_rebirth_flame` | default `true`: Eiko's vanilla auto-Phoenix is kept (the kit transcribes the displaced engine default). `false` **removes** it — with no `second_wind`, wipes become strictly final (hardcore). |
 | `flag` | optional gate on a `gEventGlobal` bit (a `[[flag]]` name or index). Bit clear = **fully vanilla** — Eiko's auto-revive still fires even with `keep_rebirth_flame = false` (the rule is asleep, not half-applied). Toggles **live**: the next wipe obeys the new state. Omit = always on. |
 

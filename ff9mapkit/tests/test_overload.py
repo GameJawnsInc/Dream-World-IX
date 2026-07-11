@@ -517,6 +517,50 @@ def test_deathrules_render_gate_and_eiko_matrix():
         assert src.count("{") == src.count("}")
 
 
+def test_deathrules_parse_animation_and_revive_hp():
+    spec = deathrules.parse_table({"second_wind": True, "animation": "short", "revive_hp": 0.25})
+    assert spec.animation == "short" and spec.revive_hp == 0.25
+    assert deathrules.parse_table({"second_wind": True}).animation == "full"   # the proven default
+    with pytest.raises(deathrules.DeathRulesError, match="animation must be one of"):
+        deathrules.parse_table({"second_wind": True, "animation": "none"})
+    with pytest.raises(deathrules.DeathRulesError, match="animation only applies"):
+        deathrules.parse_table({"keep_rebirth_flame": False, "animation": "short"})
+    with pytest.raises(deathrules.DeathRulesError, match='revive_hp only applies to animation = "short"'):
+        deathrules.parse_table({"second_wind": True, "revive_hp": 0.5})
+    with pytest.raises(deathrules.DeathRulesError, match="out of range"):
+        deathrules.parse_table({"second_wind": True, "animation": "short", "revive_hp": 0.0})
+    with pytest.raises(deathrules.DeathRulesError, match="out of range"):
+        deathrules.parse_table({"second_wind": True, "animation": "short", "revive_hp": 1.5})
+    with pytest.raises(deathrules.DeathRulesError, match="must be a fraction"):
+        deathrules.parse_table({"second_wind": True, "animation": "short", "revive_hp": True})
+
+
+def test_deathrules_render_short_animation():
+    """animation="short" replaces the queued Phoenix with the engine's own death-changer revive recipe
+    (AutoLifeStatusScript.OnDeath + DeathStatusScript.Remove + DecidePlayerDieSequence's cancel branch):
+    set HP -> RemoveStatus(Death) -> SetDefaultIdle, dead players only, fall through when nobody revives."""
+    src = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, animation="short", revive_hp=0.25))
+    for line in (
+        "unit.CurrentHp = Math.Max(1u, (UInt32)(unit.MaximumHp * 0.25));",
+        "btl_stat.RemoveStatus(unit, BattleStatusId.Death);",
+        "btl_mot.SetDefaultIdle(fallen);",
+        "FF9StateSystem.Settings.SetHPFull();",
+        "if (!revived)",
+    ):
+        assert line in src, line
+    # only the DEAD revive (petrify stays), and the full-variant Phoenix queue is absent
+    assert "fallen.cur.hp != 0 && !btl_stat.CheckStatus(fallen, BattleStatus.Death)" in src
+    assert "dyingPC.Data.cmd[0]" not in src
+    # the shared prelude + once-per-battle machinery still present
+    assert "btl_cmd.CheckSpecificCommand2(BattleCommandId.SysLastPhoenix)" in src
+    assert "_secondWindUsed = true;" in src
+    assert src.count("{") == src.count("}")
+    # the FULL variant is unchanged: Phoenix queue present, no direct-revive loop
+    full = deathrules.render(deathrules.DeathRulesSpec(second_wind=True))
+    assert "dyingPC.Data.cmd[0]" in full and "SetDefaultIdle" not in full
+    assert full.count("{") == full.count("}")
+
+
 def test_deathrules_write_source_lifecycle(tmp_path):
     layout = ModLayout(root=tmp_path / "FF9CustomMap")
     cs = deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True))
@@ -574,9 +618,15 @@ def test_tree_compiles_against_live_engine(tmp_path):
                                                               flag=8600, flag_label="hard_mode"))
     rebalance.write_source(layout, rebalance.RebalanceSpec(player=1.5, enemy=0.75,
                                                            flag=8600, flag_label="hard_mode"))
-    # every deathrules construct: gate expr + chance roll + second wind + the gated-Eiko branch
+    # every deathrules construct: gate expr + chance roll + FULL second wind + the gated-Eiko branch
     deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True, chance=60,
                                                               keep_rebirth_flame=False,
                                                               flag=8601, flag_label="mercy_mode"))
+    out = overload.compile_tree(layout, "FF9CustomMap")
+    assert out is not None and out.is_file() and out.stat().st_size > 0
+    # ...and the SHORT-animation variant's C# surface (BattleUnit ctor, RemoveStatus(BattleUnit,
+    # BattleStatusId), btl_mot.SetDefaultIdle, Settings.SetHPFull, btl.cur.hp) -- recompile the tree with it
+    deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True, animation="short",
+                                                              revive_hp=0.25))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0
