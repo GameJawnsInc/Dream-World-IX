@@ -9,6 +9,22 @@ diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-C
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
+diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -172,6 +172,12 @@ public class UIKeyTrigger : MonoBehaviour
+                 Ff9mkDebugMenu.Toggle();
+                 return;
+             }
++            // [ff9mapkit s37] while the co-op assist panel awaits a battle command, the digit keys
++            // belong to IT -- swallow them here (the F6 pattern, before every game handler) so a
++            // digit bound to a game control (Alpha1 = the default help/Select binding) doesn't ALSO
++            // fire its game action alongside the assist command.
++            if (Memoria.Netsync.NetSyncBattle.SwallowAssistKey())
++                return;
+             HandleBoosterButton();
+             HandleDialogControlKeyPressCustomInput();
+         }
 diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
 index b4e27a1c..6393e5b7 100644
 --- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
@@ -828,10 +844,10 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/
  }
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
 new file mode 100644
-index 00000000..e21bf92b
+index 00000000..b5dbb534
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
-@@ -0,0 +1,636 @@
+@@ -0,0 +1,664 @@
 +using System;
 +using System.Collections.Generic;
 +using System.IO;
@@ -867,6 +883,11 @@ index 00000000..e21bf92b
 +
 +        // "the peer's battle panel is live" -- read by NetSyncClient to quiet the idle overlay
 +        public static Boolean PeerBattleLive { get; private set; }
++
++        // "the assist panel is awaiting MY command right now" -- read by the UIKeyTrigger hook so the
++        // digit keys are swallowed before any bound game key fires (Alpha1 = the default help/Select
++        // binding; a playtest press opened the help menu AND attacked).
++        public static Boolean AssistInputActive { get; private set; }
 +
 +        private const Int32 SampleMs = 150;        // battle-state sampling cadence (write loop re-sends at 30 Hz)
 +        private const Int32 StaleMs = 2000;        // parsed peer view older than this -> hide the panel
@@ -950,11 +971,31 @@ index 00000000..e21bf92b
 +            }
 +        }
 +
++        // UIKeyTrigger hook (F6-pattern early intercept): true when an assist key is down WHILE the
++        // assist panel is taking a command -- the caller then returns before the game's own key
++        // handlers run, so a digit bound to a game control can't double-fire. Cheap + never throws.
++        public static Boolean SwallowAssistKey()
++        {
++            if (!AssistInputActive)
++                return false;
++            try
++            {
++                if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0))
++                    return true;
++                for (Int32 d = 0; d < 8; d++)
++                    if (Input.GetKeyDown(KeyCode.Alpha1 + d) || Input.GetKeyDown(KeyCode.Keypad1 + d))
++                        return true;
++            }
++            catch { }
++            return false;
++        }
++
 +        // Config changed / transport dropped: forget everything volatile.
 +        public static void Reset()
 +        {
 +            _peerView = null;
 +            PeerBattleLive = false;
++            AssistInputActive = false;
 +            _remoteMenuFlag = false;
 +            _assistTick = Int32.MinValue;
 +            _pendingSlot = -1;
@@ -1015,6 +1056,7 @@ index 00000000..e21bf92b
 +                if (live && !inBattle)                     // both in battle at once -> spectate only, no assist
 +                {
 +                    Int32 mySlot = FirstReadyGuestSlot(_peerView);
++                    AssistInputActive = mySlot >= 0;
 +                    socket.SetLocalControl(BuildControl(mySlot >= 0));
 +                    Byte[] command = ReadAssistKeys(_peerView, mySlot);
 +                    if (command != null)
@@ -1022,6 +1064,7 @@ index 00000000..e21bf92b
 +                }
 +                else
 +                {
++                    AssistInputActive = false;
 +                    socket.SetLocalControl(null);
 +                    if (!live)
 +                        _peerView = null;
@@ -1073,6 +1116,7 @@ index 00000000..e21bf92b
 +                {
 +                    Int32 mySlot = FirstReadyGuestSlot(_peerView);
 +                    _loopMenuOpen = mySlot >= 0;
++                    AssistInputActive = _loopMenuOpen;
 +                    ParseControl(BuildControl(_loopMenuOpen));   // RemoteMenuOpen through the codec too
 +                    Byte[] command = ReadAssistKeys(_peerView, mySlot);
 +                    if (command != null)
