@@ -160,5 +160,21 @@ synthesis recipe for the terrace-wall rung:
 **⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
 quads; crest/body/base band rows; u-continuation with band wrap).
 
+## The TERRACE (deployed 2026-07-12, ⏳ awaits playtest — `terrace_build.py`)
+
+The composition test for both interior studies, on **island F, the terrace islet** (a new
+`world-island` mint at block (3,17), center (224,−1120), r26 seed 15, patchless — island E's
+free mains were exhausted by forest+meadows+hill). The terrace: a **mid-shelf** (topo 13,
+grass mains, y≈17, r≈6.5 — real shelves are this small) ringed by **three stacked wall
+courses** at the real 58° slope (topo 49 — foot-illegal blocks by TOPO, the faithful
+mechanism; no ramp per the NO-FOOT-PASS law), textured by the decoded band recipe: crest
+row 4 (cols 4–7) → body row 7 (cols 0–3) → base row 10 (cols 6–9), ONE 128px tile per
+~4.4u quad, u advancing with the 4-col band wrap. Tile rects are BYTE-READ modal (u0,v0,
+du,dv) per id from the decode (typing them from the lattice phase sampled Moguri's
+transparent gutters — the PER-BLOCK FLOAT DIALECT law biting again). Foot welds to the
+island by the proven carve machinery; the hole ring derives from DROPPED-ADJACENCY (exact —
+a geometric band filter caught the compact islet's own coast once-edges). Gates: rect
+membership, cracks 0, census MISS=0, shelf centre grounds topo 13 @ 16.74, atlas 0.
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
