@@ -64,9 +64,13 @@ steps = [
 [[npc]]
 name = "innkeeper"
 archetype = "innkeeper"
-anims = { stand = 654, walk = 655, run = 657, left = 17, right = 16 }   # the TMM catalog join mis-resolves
-# stand to 706 (not in the model's own clip list) -> the model renders INVISIBLE (in-game 2026-07-12);
-# these are GEO_NPC_F0_TMM's real clips (`ff9mapkit models GEO_NPC_F0_TMM`)
+anims = { stand = 654, walk = 655, run = 657, left = 17, right = 16 }   # GEO_NPC_F0_TMM's own canonical
+# clips (`ff9mapkit models GEO_NPC_F0_TMM`). TRUTH AUDIT 2026-07-12: the innkeeper renders INVISIBLE
+# (undiagnosed). This override was believed tested in-game, but the build silently DROPPED anims= on
+# archetype NPCs (fixed the same day, build._npc_model_kwargs) -- every run so far actually shipped the
+# auto-resolved stand=706 (verified in the deployed .eb). The line is live as of the fix; the next
+# deploy is the first real 654-vs-706 A/B. Engine reading says the two ids are name-equivalent, so if
+# the NPC is still invisible the cause is elsewhere (model/context), not the clip ids.
 pos = [0, -1100]
 scenario_min = 100
 scenario_max = 300           # gone once the Ember is taken (beat 300 onward)
@@ -80,6 +84,41 @@ pos = [-222, -1000]          # a step from the innkeeper's spot -- the windows t
 scenario_min = 300
 dialogue = "A warm hearth at last! You did this, didn't you?"
 speaker = "Pilgrim"
+
+# --- DIAGNOSTIC PROBES (temporary -- remove once the invisible-innkeeper mystery closes) ---
+# Two bare, windowless, scene-less NPCs on the PROVEN-visible spawn row ([player] spawn renders
+# there every load). Model is the ONLY variable between them:
+#   Probe A invisible + B visible  -> GEO_NPC_F0_TMM itself fails on this field (engine/model context)
+#   A + B both visible             -> models fine; the innkeeper's POSITION ([0,-1100], likely behind
+#                                     the inn-counter overlay) or his window/scene wiring is the bug
+#   A + B both invisible           -> field-level NPC rendering problem on HEARTH (beyond the innkeeper)
+[[npc]]
+name = "probe_tmm"
+model = "GEO_NPC_F0_TMM"
+pos = [-420, -1260]
+dialogue = "Probe A: a bare TMM stands here."
+speaker = "Probe A"
+
+[[npc]]
+name = "probe_csm"
+model = "GEO_NPC_F0_CSM"
+pos = [-560, -1260]
+dialogue = "Probe B: a bare CSM stands here."
+speaker = "Probe B"
+
+# ROUND 3: A + B both VISIBLE (+ real 2455 townsman visible) -> the TMM MODEL is cleared.
+# The innkeeper differs from A/B in exactly two ways: his POSITION [0,-1100] and his
+# scenario window [100,300) (his Init has two SC gates the probes lack). Probe C = a bare,
+# WINDOWLESS, scene-less TMM at the innkeeper's EXACT spot -> isolates POSITION/occlusion:
+#   C invisible -> [0,-1100] is occluded (behind the inn-counter overlay / off a depth band)
+#   C visible   -> position is fine -> the bug is the scenario window or cutscene-actor wiring
+#                  (OR the innkeeper was never a bug -- he's correctly gated out by SC state)
+[[npc]]
+name = "probe_tmm_innspot"
+model = "GEO_NPC_F0_TMM"
+pos = [0, -1100]
+dialogue = "Probe C: a bare TMM at the innkeeper's exact spot."
+speaker = "Probe C"
 
 # --- EXITS: the inn door leads out to the forest trail (donor zone, retargeted by hand) ---
 [[gateway]]

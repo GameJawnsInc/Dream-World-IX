@@ -30,11 +30,49 @@ def test_object_params_prefer_catalog_then_defaults():
 
 
 def test_npc_anims_real_clips_vs_byname_guard():
-    assert catalog.npc_anims(212) == NPC_PARAMS[212]["anims"]     # the real Stiltzkin clips
-    assert catalog.npc_anims(212, use_catalog=False) != NPC_PARAMS[212]["anims"] or \
-        catalog.npc_anims(212, use_catalog=False) == {}          # by-name path bypasses the catalog
+    got = catalog.npc_anims(212)                                  # Stiltzkin: an F3-MOG rig
+    assert {s: catalog.animation_name(v) for s, v in got.items()} == \
+        {s: catalog.animation_name(v) for s, v in NPC_PARAMS[212]["anims"].items()}  # his real F3 clips
+    assert got["stand"] == 1152                                   # ANH_NPC_F3_MOG_IDLE, canonical row
+    assert got != catalog.npc_anims(212, use_catalog=False)       # by-name would pick the F0 moogle set
     # vivi (GEO_MAIN, off-catalog) is identical either way -- its preset is by-name
     assert catalog.npc_anims("GEO_MAIN_F0_VIV") == catalog.npc_anims("GEO_MAIN_F0_VIV", use_catalog=False)
+
+
+def test_npc_anims_tmm_resolves_to_its_own_clips():
+    """GEO_NPC_F0_TMM (124): the baked modal stand was 706 -- a duplicate-row id of the model's own
+    idle 654 (both name ANH_NPC_F0_TMM_IDLE). The resolve must pin to the model's own clip list (what
+    ``ff9mapkit models GEO_NPC_F0_TMM`` prints). (The invisible stolen-ember innkeeper originally
+    blamed on 706 was a contaminated repro -- the explicit-anims A/B never shipped; the invisibility
+    is undiagnosed and NOT evidence about clip ids.)"""
+    want = {"stand": 654, "walk": 655, "run": 657, "left": 17, "right": 16}
+    assert catalog.npc_anims(124) == want
+    assert catalog.npc_anims("GEO_NPC_F0_TMM") == want
+
+
+def test_npc_anims_every_resolved_id_is_an_own_canonical_clip():
+    """The own-clip law: every auto-resolved slot id names a clip of the model's OWN (group, token)
+    family and is that name's CANONICAL row (the lowest duplicate-row alias -- the id ``ff9mapkit
+    models`` lists). Exempt slots: where a rig has NO own form of a movement gesture it keeps the real
+    observed donor clip verbatim (the frog rigs FRC/FRF play only FRM clips; MON FFF stands on EFM's
+    idle -- their own families have only b/p/cut clips)."""
+    slots = ("stand", "walk", "run", "left", "right")
+    keep_baked = {(174, s) for s in slots} | {(175, s) for s in slots} | {(530, "stand")}
+    for mid in NPC_PARAMS:
+        got = catalog.npc_anims(mid)
+        assert set(got) == set(slots), mid
+        m = catalog.model(mid)
+        for slot, aid in got.items():
+            if (mid, slot) in keep_baked:
+                assert aid == NPC_PARAMS[mid]["anims"][slot], (mid, slot)   # kept verbatim, documented
+                continue
+            nm = catalog.animation_name(aid)
+            grp, _form, tok, _act = catalog._split_anh(nm)
+            assert (grp, tok) == (m.group, m.token), (mid, slot, aid, nm)
+            assert aid == min(catalog.animation_aliases(aid)), (mid, slot, aid, nm)
+            # same-NAME repair only: the canonical id still plays the exact clip the real bake observed
+            assert nm == catalog.animation_name(NPC_PARAMS[mid]["anims"][slot]) or \
+                aid in catalog.animations_for_model(mid).values(), (mid, slot)
 
 
 def test_synthesized_human_npc_uses_catalog_params():
