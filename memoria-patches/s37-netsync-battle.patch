@@ -76,7 +76,7 @@ index 02ae22d4..fbe95901 100644
                              if (i > 0)
                              {
 diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
-index ec0c876e..cc09eee7 100644
+index ec0c876e..d35d766d 100644
 --- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
 +++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
 @@ -285,7 +285,8 @@ public partial class BattleHUD : UIScene
@@ -99,7 +99,7 @@ index ec0c876e..cc09eee7 100644
                  continue;
  
              if (_isAutoAttack)
-@@ -601,6 +603,175 @@ public partial class BattleHUD : UIScene
+@@ -601,6 +603,200 @@ public partial class BattleHUD : UIScene
          CurrentPlayerIndex = -1;
      }
  
@@ -147,6 +147,31 @@ index ec0c876e..cc09eee7 100644
 +        }
 +        catch { }
 +        return 0;
++    }
++
++    public Boolean NetMenuIsAbilityType(BattleCommandId cmdId)
++    {
++        try
++        {
++            return CharacterCommands.Commands.ContainsKey(cmdId) &&
++                   CharacterCommands.Commands[cmdId].Type == CharacterCommandType.Ability;
++        }
++        catch { return false; }
++    }
++
++    // The first USABLE ability of a command (what a real menu's first visible entry would be) --
++    // the validated form of NetFirstAbilitySub, for single-shot casts through Ability-type commands.
++    public Boolean NetFirstAbilityUsable(Int32 playerIndex, BattleCommandId cmdId, out Int32 subNo)
++    {
++        subNo = 0;
++        try
++        {
++            foreach (BattleAbilityId active in CharacterCommands.Commands[cmdId].EnumerateAbilities())
++                if (NetAbilityUsable(playerIndex, cmdId, (Int32)active, out subNo))
++                    return true;
++        }
++        catch { }
++        return false;
 +    }
 +
 +    // Live revalidation for a guest-cast ability: in this command's list, learned, and currently
@@ -309,22 +334,25 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
          private static String _sessionCode = "";
          private static Boolean _insecureTls;
-@@ -110,6 +114,9 @@ namespace Memoria.Netsync
+@@ -110,6 +114,12 @@ namespace Memoria.Netsync
                      port = n;
                  if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
                      field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
 +                Int32 guestSlots = 0;
 +                if (Int32.TryParse(ini.GetSetting("Netsync", "GuestSlots", "0"), out n))
 +                    guestSlots = n & 0x0F;
++                Int32 guestWait = 30000;   // max continuous gauge-freeze per guest turn (0 = unlimited)
++                if (Int32.TryParse(ini.GetSetting("Netsync", "GuestWaitMs", "30000"), out n) && n >= 0)
++                    guestWait = n;
                  String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
                  String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
                  Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
-@@ -137,14 +144,19 @@ namespace Memoria.Netsync
+@@ -137,14 +147,20 @@ namespace Memoria.Netsync
                      }
                  }
                  String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
 -                             "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
-+                             "|" + guestSlots + "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
++                             "|" + guestSlots + "|" + guestWait + "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
                  Boolean first = !_configLoaded;
                  _configLoaded = true;
                  if (sig == _cfgSig)
@@ -335,13 +363,14 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 +                _cfgSig = sig;
 +                NetSyncBattle.Enabled = _enabled;                                   // the battle lane's config mirror
 +                NetSyncBattle.GuestSlots = _guestSlots;
++                NetSyncBattle.GuestWaitMs = guestWait;
 +                NetSyncBattle.SelfTest = _role != "host" && _role != "client";
                  Log.Message("[NetSync] config enabled=" + _enabled + " role=" + _role + " field=" + _targetField +
 +                            (_guestSlots != 0 ? " guestSlots=" + _guestSlots : "") +
                              (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
                                                    : " peer=" + _peer + ":" + _port));
                  return !first;
-@@ -166,6 +178,7 @@ namespace Memoria.Netsync
+@@ -166,6 +182,7 @@ namespace Memoria.Netsync
                  _socket = null;
              }
              DespawnGhost();
@@ -349,7 +378,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              _ovlState = -1;
              _ovlDetail = 0;
              _ovlText = null;
-@@ -264,7 +277,10 @@ namespace Memoria.Netsync
+@@ -264,7 +281,10 @@ namespace Memoria.Netsync
              {
                  if (_role != "host" && _role != "client")
                  {
@@ -361,7 +390,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      if (!inScope)
                      {
                          DespawnGhost();
-@@ -342,9 +358,15 @@ namespace Memoria.Netsync
+@@ -342,9 +362,15 @@ namespace Memoria.Netsync
                          SetOverlay(OvlConnecting);
                      else if (rs.Valid && rs.Field > 0 && rs.Field != fld)
                          SetOverlay(OvlPeerElsewhere, rs.Field);          // connected; friend on another screen
@@ -377,7 +406,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              }
              catch (Exception err)
              {
-@@ -413,6 +435,7 @@ namespace Memoria.Netsync
+@@ -413,6 +439,7 @@ namespace Memoria.Netsync
  
          private void OnGUI()
          {
@@ -1030,10 +1059,10 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/
  }
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
 new file mode 100644
-index 00000000..b52fe434
+index 00000000..5e7eac9f
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
-@@ -0,0 +1,1239 @@
+@@ -0,0 +1,1270 @@
 +using System;
 +using System.Collections.Generic;
 +using System.IO;
@@ -1068,6 +1097,10 @@ index 00000000..b52fe434
 +        public static Boolean Enabled;      // [Netsync] Enabled
 +        public static Int32 GuestSlots;     // [Netsync] GuestSlots -- bitmask of MY party slots the PEER commands
 +        public static Boolean SelfTest;     // role=selftest -> loopback my own battle through the full codec
++        public static Int32 GuestWaitMs = 30000;   // [Netsync] GuestWaitMs -- max CONTINUOUS gauge-freeze per
++                                                   // guest turn in Wait/Turn-Based (0 = unlimited, vanilla
++                                                   // local-menu parity). Past it the battle flows Active-style
++                                                   // while the guest may still command whenever they pick.
 +
 +        // "the peer's battle panel is live" -- read by NetSyncClient to quiet the idle overlay
 +        public static Boolean PeerBattleLive { get; private set; }
@@ -1171,6 +1204,7 @@ index 00000000..b52fe434
 +        // host side of the control lane: the peer said their assist menu is open
 +        private static Boolean _remoteMenuFlag;
 +        private static Int32 _remoteMenuTick;
++        private static Int32 _menuOpenSince = Int32.MinValue;   // start of the CURRENT open episode (the GuestWaitMs cap)
 +        // ...and the peer is ACTIVELY ASSISTING at all (fresh control frames only flow while they
 +        // spectate my battle). Guest gone / disconnected / busy in their OWN battle -> this decays
 +        // and the slots REVERT TO LOCAL CONTROL (the fail-safe law).
@@ -1205,13 +1239,19 @@ index 00000000..b52fe434
 +
 +        // The peer's assist menu is open -> WAIT/Turn-Based ATB gates treat it like a local menu
 +        // (BattleHUD.IsNativeEnableAtb / FF9BMenu_IsEnableAtb). Decays on staleness so a hung or
-+        // disconnected guest can never freeze the host's battle.
++        // disconnected guest can never freeze the host's battle -- and an IDLE guest's freeze is
++        // capped at GuestWaitMs per turn (playtest concern: "the 2nd player can lock the
++        // authoritative server"; a vanilla local menu can too, but a remote player shouldn't).
 +        public static Boolean RemoteMenuOpen
 +        {
 +            get
 +            {
-+                return Enabled && GuestSlots != 0 && _remoteMenuFlag &&
-+                       (Environment.TickCount - _remoteMenuTick) < MenuStaleMs;
++                if (!Enabled || GuestSlots == 0 || !_remoteMenuFlag ||
++                    (Environment.TickCount - _remoteMenuTick) >= MenuStaleMs)
++                    return false;
++                if (GuestWaitMs > 0 && (Environment.TickCount - _menuOpenSince) > GuestWaitMs)
++                    return false;   // the guest is taking too long -- gauges resume (their command still lands)
++                return true;
 +            }
 +        }
 +
@@ -1968,8 +2008,11 @@ index 00000000..b52fe434
 +                return;
 +            }
 +            _assistTick = Environment.TickCount;   // any valid control frame = the guest is live + watching
-+            _remoteMenuFlag = payload[1] != 0;
-+            if (_remoteMenuFlag)
++            Boolean open = payload[1] != 0;
++            if (open && !_remoteMenuFlag)
++                _menuOpenSince = Environment.TickCount;   // a NEW open episode (the per-turn cap restarts)
++            _remoteMenuFlag = open;
++            if (open)
 +                _remoteMenuTick = Environment.TickCount;
 +        }
 +
@@ -2029,7 +2072,24 @@ index 00000000..b52fe434
 +                    BattleCommandId cmdId = hud.NetCommandForMenu(slot, action == ActAttack ? 0 : menu);
 +                    if (cmdId == BattleCommandId.None)
 +                        return;
-+                    Int32 subNo = hud.NetFirstAbilitySub(slot, cmdId);
++                    // A single-shot cast routed through an ABILITY-type command (the guest saw an empty
++                    // list) must pass the SAME learned/usable validation as a listed pick -- otherwise an
++                    // unlearned ability could be cast through the fallback (playtest finding: Swd Art with
++                    // an empty roster list auto-cast Darkside).
++                    Int32 subNo;
++                    if (hud.NetMenuIsAbilityType(cmdId))
++                    {
++                        if (!hud.NetFirstAbilityUsable(slot, cmdId, out subNo))
++                        {
++                            Log.Message("[NetSync] peer " + cmdId + " dropped (slot " + slot +
++                                        " has no usable ability in it -- empty-list fallback refused)");
++                            return;
++                        }
++                    }
++                    else
++                    {
++                        subNo = hud.NetFirstAbilitySub(slot, cmdId);
++                    }
 +                    if (action == ActAttack && !maskHasLiving)
 +                        mask = firstAliveEnemy != null ? firstAliveEnemy.Id : (UInt16)0;   // their pick died in flight
 +                    if (mask == 0)
