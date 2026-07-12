@@ -242,3 +242,6 @@ installer/THIRD-PARTY-NOTICES.txt
 
 # video/demo assets embedding SE texture bytes (provenance gate: never commit)
 video/
+
+# co-op room source (regenerable: ff9mapkit import 1953 --native; atlas/bgs are SE-derived)
+/scratch-coop-room/
