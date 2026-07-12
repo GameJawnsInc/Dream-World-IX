@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `on_defeat` covers VERBATIM forks
+- The wipe-warp check now also lands on **verbatim forks**: a fork carrying the `[deathrules]` block gets
+  the check **prepended into its donor's existing tag-10** after-battle handler (an offset-0
+  `insert_in_function` prepend — always safe, even over a jump table; part of `compose_verbatim_eb`, so
+  logic-edit discovery, the GUI dry-run, and the build all see one stream). A donor without a tag-10 has
+  no battles — nothing is injected. With outpost *registration* already riding the shared `[startup]`
+  path, a journey's real forked fields now participate fully: register as outposts AND warp on a wipe.
+  The build's coverage warning now also names verbatim members lacking the block (their battles are the
+  donor's, so it's a maybe-gap: battle-less donors can ignore it). Awaiting in-game playtest on a real
+  battle-donor fork.
+
 ### Added — the OUTPOST system: `on_defeat` warps to "the last camp visited"
 - **`[field] outpost = true`** marks a field as an outpost: on **every entry** it writes its own id into a
   kit-reserved save-backed var (`gEventGlobal` bytes 1060–1061; last-write-wins = *the last outpost the

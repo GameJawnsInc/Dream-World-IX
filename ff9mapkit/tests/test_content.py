@@ -242,6 +242,24 @@ def test_outpost_registration_in_main_init(tmp_path):
     assert _apply_startup(proj, CLEAN) == CLEAN      # no outpost, no [startup] -> byte-identical
 
 
+def test_apply_wipe_warp_into_existing_reinit():
+    """The verbatim twin of the add_reinit prologue: [deathrules] on_defeat prepends the wipe-warp check
+    into an EXISTING tag-10 (offset 0 -- always safe); no tag-10 (no battles) or no block -> byte-identical."""
+    from types import SimpleNamespace
+    from ff9mapkit.build import _apply_wipe_warp
+    dr = {"deathrules": {"on_defeat": {"warp_to": 407}}}
+    with_reinit = reinit.add_reinit(CLEAN, with_fade=True)         # a stand-in for a donor's real tag-10
+    out = _apply_wipe_warp(SimpleNamespace(raw=dr), with_reinit)
+    eb = EbScript.from_bytes(out)
+    ops = _ops(eb, 0, 10)
+    assert ops[0] == 0x05 and 0x2B in ops                          # the check runs FIRST, warp present
+    assert ops[-3:] == [0xEC, 0x2E, 0x04]                          # the donor's original tail is intact
+    assert eb.entry(1).func_by_tag(0) is not None                  # later entries survived the relocation
+    # no tag-10 (a battle-less donor) -> byte-identical; no [deathrules] -> byte-identical
+    assert _apply_wipe_warp(SimpleNamespace(raw=dr), CLEAN) == CLEAN
+    assert _apply_wipe_warp(SimpleNamespace(raw={}), with_reinit) == with_reinit
+
+
 def test_music_on_entry_and_reinit():
     out = music.add_field_music(CLEAN, 9)
     eb = EbScript.from_bytes(out)

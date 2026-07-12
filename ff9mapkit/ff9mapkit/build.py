@@ -2802,6 +2802,30 @@ class _FlagAlloc:
             "a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
 
+def _apply_wipe_warp(project, eb: bytes) -> bytes:
+    """Inject the ``[deathrules] on_defeat`` wipe-warp check into a VERBATIM fork's **existing** tag-10
+    Main_Reinit (prepend at body offset 0 -- always safe per :func:`ff9mapkit.eb.edit.insert_in_function`,
+    even over a jump table). The synthesize path gets the same check via ``add_reinit(prologue=)``; this is
+    its verbatim twin, so a fork's donor-native random battles are covered too. A donor without an entry-0
+    tag-10 has no after-battle re-entry (no battles) -> nothing to inject; no ``on_defeat`` (or a broken
+    block -- validate() reports it) -> byte-identical."""
+    dr = project.raw.get("deathrules")
+    if dr is None:
+        return eb
+    from .battle import deathrules as _dr
+    try:
+        pro = _dr.field_prologue(_dr.parse_table(dr, name_map=_flags.collect_flag_defs(project.raw)))
+    except _dr.DeathRulesError:
+        return eb
+    if not pro:
+        return eb
+    from .eb import EbScript
+    from .eb import edit as _ebedit
+    if EbScript.from_bytes(eb).entry(0).func_by_tag(10) is None:
+        return eb
+    return _ebedit.insert_in_function(eb, 0, 10, 0, pro)
+
+
 def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     """Prepend the ``[startup]`` presets (ScenarioCounter + gEventGlobal story bits) to Main_Init so every
     gate evaluated afterwards sees the asserted beat. Shared by :func:`build_script` (synthesize path) AND
@@ -3813,6 +3837,9 @@ def compose_verbatim_eb(project: FieldProject, *, langs=None, warnings=None):
                                                     warnings=warnings))
     eb = _field_load_inject("[[sps]]", project.name,
                             lambda: _apply_sps_triggers(project, eb, warnings=warnings))
+    # [deathrules] on_defeat: the wipe-warp check into the donor's EXISTING tag-10 (the verbatim twin of
+    # the synthesize path's add_reinit prologue) -- covers the donor's native random battles.
+    eb = _field_load_inject("[deathrules] on_defeat", project.name, lambda: _apply_wipe_warp(project, eb))
     return eb, oe_suffix
 
 
@@ -5751,6 +5778,17 @@ def _emit_scripts(projects, layout, mod_name) -> list:
                 f"[deathrules] on_defeat: encounter field(s) {', '.join(uncovered)} carry no [deathrules] "
                 f"block, so their after-battle handler lacks the wipe-warp check -- a wipe there won't warp "
                 f"and leaves the marker bit set. Repeat the IDENTICAL [deathrules] block on them.")
+        # verbatim members: their battles are the DONOR's (no kit [encounter] to detect), so name any
+        # member lacking the block as a softer maybe-gap -- if its donor has battles, the same hole applies.
+        verb_uncovered = [str((p.raw.get("field") or {}).get("name", "?")) for p in projects
+                          if isinstance(p.raw, dict) and p.raw.get("verbatim_eb") is not None
+                          and p.raw.get("deathrules") is None]
+        if verb_uncovered:
+            warnings.append(
+                f"[deathrules] on_defeat: verbatim member(s) {', '.join(verb_uncovered)} carry no "
+                f"[deathrules] block -- if their DONOR has battles, a wipe there won't warp (the check "
+                f"injects into a verbatim tag-10 only when the block is present). Battle-less donors can "
+                f"ignore this.")
     return warnings
 
 

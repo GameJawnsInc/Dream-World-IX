@@ -528,8 +528,11 @@ cut); back on the field, the after-battle handler warps to `warp_to` (a kit-buil
 into every encounter field carrying the block). Composes with `second_wind`: the wind fires first,
 and only a spent wind (or a failed `chance` roll) falls through to the warp — a roguelike "one free revive,
 then back to camp". The wipe marker rides a kit-reserved story bit (8508; override via `on_defeat.flag`).
-Coverage rule: repeat the identical `[deathrules]` block on **every** encounter field of the mod — the build
-names any gaps (a wipe in an uncovered field revives and flees but cannot warp).
+Coverage rule: repeat the identical `[deathrules]` block on **every** field of the mod where a battle can
+happen — kit `[encounter]` fields *and* verbatim forks whose donors have battles. A field carrying the block
+gets the after-battle check injected whichever kind it is (a synthesized field's generated handler, or a
+prepend into a verbatim donor's existing one); the build names any gaps (a wipe in an uncovered field
+revives and flees but cannot warp).
 
 **Outposts — "the last camp visited".** Mark any field with **`[field] outpost = true`** and a wipe warps
 to *the last outpost-marked field the player entered* instead of the fixed `warp_to` (which demotes to the

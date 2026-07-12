@@ -29,9 +29,23 @@ and in-game proven**:
 flag is clear). The whole tree (hub + all 4 features) compiles against the live engine
 (`test_tree_compiles_against_live_engine`, ran + passed).
 
-**What's left:** the `on_defeat` playtest (below); extending the on_defeat FIELD half to VERBATIM forks
-(the DLL half already covers them; the tag-10 check currently lands only on kit-BUILT encounter fields —
-the logic-map `insert_in_function` machinery is the known route into a verbatim fork's existing tag-10).
+**What's left:** the verbatim-coverage playtest (below). After it, the Overload channel has NO open items
+(the [lowhp] flag round and an on_defeat + Eiko-party combo remain un-playtested but are mechanism-identical
+to proven code).
+
+### VERBATIM tag-10 coverage — BUILT 2026-07-11, awaiting playtest
+
+The on_defeat check now lands on verbatim forks: `build._apply_wipe_warp` (in `compose_verbatim_eb`, so
+logic-edit discovery/GUI/build share one stream) prepends `deathrules.field_prologue` into the DONOR's
+existing entry-0 tag-10 via `insert_in_function(eb, 0, 10, 0, …)` — an offset-0 prepend, documented
+always-safe (IP-relative engine; even over a jump table). No tag-10 (battle-less donor) or no block →
+byte-identical. Outpost REGISTRATION already rode the shared `_apply_startup`, so verbatim members now
+participate fully (register + warp). The coverage warning also names verbatim members lacking the block
+(maybe-gaps — their battles are the donor's). **Playtest recipe:** `py -m ff9mapkit import <battle donor>
+--verbatim --out scratch/vwipe` → append the `[deathrules] on_defeat` block (+ optionally
+`[field] outpost = true`) to the generated toml → `py tools/deploy_field.py … --id 4003` → RELAUNCH →
+wipe in the donor's own random battles → expect the quiet-defeat instant exit + the warp; win a battle =
+no warp (the donor's original tag-10 tail must still run: fade-in + control back).
 
 ### `on_defeat` — WARP instead of a game over — BUILT 2026-07-11, awaiting playtest
 

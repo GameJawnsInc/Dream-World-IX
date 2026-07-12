@@ -683,9 +683,14 @@ def test_emit_scripts_on_defeat_coverage_warning(tmp_path, monkeypatch):
                                    "deathrules": {"on_defeat": {"warp_to": 6000}}})
     uncovered = SimpleNamespace(raw={"field": {"name": "WILDS"}, "encounter": {"scene": 67}})
     peaceful = SimpleNamespace(raw={"field": {"name": "TOWN"}})
-    warnings = _emit_scripts([covered, uncovered, peaceful], layout, "FF9CustomMap")
+    verbatim_gap = SimpleNamespace(raw={"field": {"name": "VFORK"}, "verbatim_eb": {"donor": 553}})
+    verbatim_ok = SimpleNamespace(raw={"field": {"name": "VHUB"}, "verbatim_eb": {"donor": 554},
+                                       "deathrules": {"on_defeat": {"warp_to": 6000}}})
+    warnings = _emit_scripts([covered, uncovered, peaceful, verbatim_gap, verbatim_ok], layout, "FF9CustomMap")
     assert any("WILDS" in w and "wipe-warp" in w for w in warnings)
     assert not any("TOWN" in w for w in warnings)              # no encounters -> no wipe possible -> no gap
+    assert any("VFORK" in w and "DONOR" in w for w in warnings)  # a verbatim member without the block
+    assert not any("VHUB" in w for w in warnings)              # covered verbatim member -> no warning
 
 
 # ---- the OUTPOST system (on_defeat "last outpost visited") ------------------------------------------------
