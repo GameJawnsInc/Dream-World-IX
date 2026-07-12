@@ -26,10 +26,10 @@ index 192b988b..b50b4d89 100644
      public override void HonoStart()
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 new file mode 100644
-index 00000000..b13bec0f
+index 00000000..373c4fb3
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -0,0 +1,597 @@
+@@ -0,0 +1,652 @@
 +using System;
 +using Memoria.Prime;
 +using Memoria.Scripts;   // ShadersLoader
@@ -537,12 +537,67 @@ index 00000000..b13bec0f
 +                    _ghostAnim.wrapMode = WrapMode.Loop;   // default clips to looping
 +                _ghostClip = null;
 +                _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
++                ApplyGhostLighting(ee, model);             // the field's per-char tint (see the helper)
 +                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo);
 +            }
 +            catch (Exception err)
 +            {
 +                Log.Error(err, "[NetSync] ghost spawn failed");
 +                _ghost = null;
++            }
++        }
++
++        // Field-character LIGHTING (the last cosmetic gap): the engine tints every REGISTERED character
++        // with a flat material _Color each frame -- charClr(model) + lightClr(floor), both from the
++        // field's mapconfig (fldmcf.ff9fieldMCFService computes it into charStateArray; fldchar applies
++        // it) -- but the ghost lives outside the char table (no uid, no walkmesh floor tracking), so it
++        // rendered UNTINTED against lit players. Replicate the same math once at spawn: the GHOST model's
++        // char color + the LOCAL player's floor light (two players on one screen near-always share a
++        // lighting zone; the field default light is the fallback). Same '(char + light) << 3' bytes, same
++        // _Color rgb-only write. Applies to anything spawned around the actor system, not just co-op.
++        private void ApplyGhostLighting(EventEngine ee, UInt16 model)
++        {
++            try
++            {
++                DMSMapConf? mcfPtr = FF9StateSystem.Field.FF9Field.loc.map.mcfPtr;
++                if (mcfPtr == null || _ghostRends == null)
++                    return;
++                DMSMapConf mcf = mcfPtr.Value;
++                DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
++                if (mapChar == null)
++                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
++                if (mapChar == null)
++                    return;
++                DMSMapLight? light = null;
++                DMSMapLight? ladder = null;
++                Actor lp = ee.GetControlChar() as Actor;
++                if (lp != null)
++                {
++                    Int16 floorNo = 0;
++                    light = fldmcf.ff9fieldMCFGetLightByCharFloor(mcf, (Int32)lp.uid, ref floorNo);
++                }
++                if (light == null)
++                    fldmcf.ff9fieldMCFGetLightDefault(mcf, ref light, ref ladder);
++                SByte[] charClr = mapChar.Value.clr;
++                SByte[] lightClr = light != null ? light.Value.clr : new SByte[4];
++                Byte r = (Byte)((Int32)charClr[0] + (Int32)lightClr[0] << 3);   // engine-exact: (char+light)<<3
++                Byte gr = (Byte)((Int32)charClr[1] + (Int32)lightClr[1] << 3);
++                Byte b = (Byte)((Int32)charClr[2] + (Int32)lightClr[2] << 3);
++                for (Int32 i = 0; i < _ghostRends.Length; i++)
++                {
++                    if (_ghostRends[i] == null)
++                        continue;
++                    foreach (Material material in _ghostRends[i].materials)
++                    {
++                        Color32 c = material.GetColor("_Color");   // rgb-only write, alpha kept (fldchar-style)
++                        c.r = r; c.g = gr; c.b = b;
++                        material.SetColor("_Color", c);
++                    }
++                }
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] ghost lighting failed (ghost stays untinted)");
 +            }
 +        }
 +
