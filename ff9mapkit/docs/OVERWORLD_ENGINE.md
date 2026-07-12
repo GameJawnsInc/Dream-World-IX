@@ -537,6 +537,51 @@ extrusion whose welds are bit-exact by identity, with per-class UV fill [cliff v
 relief / plan-affine mirror]; the island measurably grows +4u, seam invisible). **Requires the custom engine (s34 +
 `Donor.txt`); RELAUNCH.**
 
+### Continent LAYOUTS — `world-fuse` + the shore tweaks (mint a beach on a kit-made shore, ★ in-game proven 2026-07-11)
+
+`ff9mapkit world-fuse <layout.toml> [--dry-run] [--allow-overwrite]` composes several `world-transplant` placements
+into ONE archipelago/continent: every placement gates clean on its own, target rects must not overlap, and every
+SHARED border certifies row-by-row per the fuse law (each 4u row prefab or pure open water on both sides — LAND never
+knits; the WATER knits). A layout is a toml of `[[placement]]` tables (`cell`, `donor`, `size`; optional `rot`,
+`shift`, `land_margin`, `strips`, `grow_cut`, `grow_cut_z`). The shipped
+[`examples/continent-v1/`](../examples/continent-v1/) is the in-game-proven four-island reference.
+
+**The shore tweaks (the island-B pattern).** A placement can prepare its own shore and mint a NEW beach on it —
+FF9's real coast holds no more real-scale virgin windows (the map is full), so minted beaches belong on KIT-BUILT
+shores where the kit owns the bank profile:
+
+```toml
+[[placement]]                     # the shore island, carried verbatim...
+cell = [0, 15]
+donor = [10, 17]
+size = [2, 2]
+
+[placement.bank_lower]            # ...its mesa rim sunk to a beach-capable cay profile
+center = [674.0, -1168.4]
+radius = 7.0
+shore_slope = 0.75                # y target = min(shore_slope * d_shore, cap)
+cap = 3.6
+along = [[666.9, -1168.6], [681.1, -1168.2]]   # corridor mode: falloff from the beach CHORD
+
+[placement.virgin_mint]           # ...and a real-scale beach minted on the lowered bank
+start = [666.9, -1168.6]
+end = [681.1, -1168.2]
+width = 3.6
+swash = 4.4
+pins_from = [7, 17]               # foam/sand language byte-read from a beach-bearing block
+```
+
+Coordinates are donor-WORLD coordinates; each verb's tweak block derives from them (the canonical
+`floor(x/64), floor(-z/64)`) and must sit inside the placement region. The mint composes on the bank (it computes on
+the post-sink geometry); touched cliff walls re-pin V per column under the LIP ANCHOR (the crest keeps the painted
+lip row, the base sheds its deepest rows at the column's own density, and the V-IN-BAND gate refuses any wall texel
+outside the byte-derived rock strip). The same pair rides a single `world-transplant` as
+`--bank-lower "CX,CZ:RADIUS[:SLOPE[:CAP]][:along=AX,AZ/BX,BZ]"` and
+`--virgin-mint "X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY]"`. Tweaked layout placements are rebuilt FRESH for the gate
+pass and the deploy pass (tweak objects are stateful — the CLI wires this automatically; library callers pass
+`tweaks_factory`). Deterministic builders make a re-deploy byte-identical — re-running the shipped layout over the
+live folder changes ZERO bytes. **Requires the custom engine (s34 + `Donor.txt`); RELAUNCH.**
+
 ### Custom graded OCEAN water — `world-water` (synthesize open water from scratch, validated 17/17 tile-shape, ★ in-game "looks good" 2026-07-05)
 
 Where `world-coast` MOSAICS real coastline pieces, `world-water` **synthesizes** faithful open-ocean water from a depth

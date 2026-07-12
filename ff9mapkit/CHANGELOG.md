@@ -16,6 +16,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   donor's, so it's a maybe-gap: battle-less donors can ignore it). Awaiting in-game playtest on a real
   battle-donor fork.
 
+### Added — declarative shore tweaks: `world-fuse` layouts + `world-transplant` mint a beach on a kit-made shore
+- **`[placement.bank_lower]` + `[placement.virgin_mint]`** sub-tables in a `world-fuse` layout (and the
+  matching `world-transplant --bank-lower "CX,CZ:RADIUS[:SLOPE[:CAP]][:along=AX,AZ/BX,BZ]"` /
+  `--virgin-mint "...[:pins=PX,PY]"` flags) productize the in-game-proven island-B pattern: sink a
+  mesa/cliff bank to a beach-capable profile (the corridor `along=` mode included) and mint a real-scale
+  beach on it, `pins_from` byte-reading the foam/sand language from a beach-bearing reference block.
+  Coordinates are donor-world; each verb's tweak block derives from them and must sit inside the placement
+  region. One shared builder (`coastmorph.build_shore_tweaks`) serves both surfaces; the shipped
+  `examples/continent-v1/` layout now carries island B's minted beach and reproduces the deployed world
+  **byte-identically** (a re-deploy over the live folder changes zero bytes).
+- `fuse_layout` now takes **`tweaks_factory`** per placement (rebuilt fresh for the gate pass and the
+  deploy pass — tweak objects are stateful) and refuses plain `tweaks` on a real deploy actionably; the
+  CLI wires the factory automatically. This closes a latent double-apply bug for any tweaked layout.
+
+### Fixed — `bank_lower` cliff walls: the per-COLUMN lip anchor + the V-IN-BAND gate
+- The wall V re-evaluation is now corner-role true (byte-checked map-wide: crest v=0.8926 / base
+  v=0.9229 on every real face whatever its height): every crest keeps its painted lip row verbatim (no
+  hard/bevel alternation), each base vert crops along its own column at the column's original density,
+  the per-vert map closes seams (any face whose verts change re-emits), and the permanent **V-IN-BAND
+  gate** refuses any emitted wall texel outside the byte-derived rock strip — the class that read as
+  white gashes/grass bleeding in-game can no longer pass offline. In-game proven on continent island B.
+
 ### Added — the OUTPOST system: `on_defeat` warps to "the last camp visited"
 - **`[field] outpost = true`** marks a field as an outpost: on **every entry** it writes its own id into a
   kit-reserved save-backed var (`gEventGlobal` bytes 1060–1061; last-write-wins = *the last outpost the

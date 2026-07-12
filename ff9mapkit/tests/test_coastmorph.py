@@ -837,6 +837,67 @@ def test_virgin_mint_deep_shore_golden():
     assert len(foam) == 18
 
 
+def test_shore_spec_parsers():
+    """The CLI spec grammar for the productized island-B pattern: positional
+    tails + named segments, round-tripping into the build_shore_tweaks dicts."""
+    from ff9mapkit.world.coastmorph import (parse_bank_lower_spec,
+                                            parse_virgin_mint_spec)
+    b = parse_bank_lower_spec("674.0,-1168.4:7.0:0.75:3.6:"
+                              "along=666.9,-1168.6/681.1,-1168.2")
+    assert b == {"center": [674.0, -1168.4], "radius": 7.0, "shore_slope": 0.75,
+                 "cap": 3.6, "along": [[666.9, -1168.6], [681.1, -1168.2]]}
+    assert parse_bank_lower_spec("10,-20:5") == {"center": [10.0, -20.0],
+                                                 "radius": 5.0}
+    m = parse_virgin_mint_spec("666.9,-1168.6:681.1,-1168.2:3.6:4.4:pins=7,17")
+    assert m == {"start": [666.9, -1168.6], "end": [681.1, -1168.2],
+                 "width": 3.6, "swash": 4.4, "pins_from": [7, 17]}
+    assert parse_virgin_mint_spec("1,2:3,4") == {"start": [1.0, 2.0],
+                                                 "end": [3.0, 4.0]}
+    # named segments are order-free relative to the positional tail
+    m2 = parse_virgin_mint_spec("1,2:3,4:pins=7,17:3.6")
+    assert m2["pins_from"] == [7, 17] and m2["width"] == 3.6
+    for bad, fn in (("674,-1168", parse_bank_lower_spec),
+                    ("1,2:3,4:5:6:7", parse_virgin_mint_spec),
+                    ("1,2:3:oops=1", parse_bank_lower_spec)):
+        with pytest.raises(ValueError):
+            fn(bad)
+
+
+def test_build_shore_tweaks_matches_the_proven_island_b_build():
+    """THE PRODUCTIZATION PROOF: the declarative dicts (the fuse layout's
+    [placement.bank_lower]/[placement.virgin_mint] tables = the parsed CLI
+    specs) build a tweak list BYTE-IDENTICAL to the proven hand-scripted
+    island-B deploy -- same golden hash as test_virgin_mint_deep_shore_golden.
+    Each verb's block derives from its own spec coords ((10,18) here, inside
+    the (10,17)+2x2 region); foreign coords refuse actionably."""
+    from ff9mapkit.world.coastmorph import build_shore_tweaks
+    bank = {"center": [674.0, -1168.4], "radius": 7.0, "shore_slope": 0.75,
+            "cap": 3.6, "along": [[666.9, -1168.6], [681.1, -1168.2]]}
+    mint = {"start": [666.9, -1168.6], "end": [681.1, -1168.2],
+            "width": 3.6, "swash": 4.4, "pins_from": [7, 17]}
+    tweaks, notes = build_shore_tweaks((10, 17), (2, 2), bank=bank, mint=mint)
+    assert _tweak_hash(tweaks) == "6c3d0ba4365adef5"
+    assert notes == ["bank_lower @ block (10, 18) (corridor)",
+                     "virgin_mint @ block (10, 18) (pins from (7, 17))"]
+    # the region gate: coords outside the placement region refuse
+    with pytest.raises(ValueError, match="outside the placement region"):
+        build_shore_tweaks((10, 17), (1, 1), bank=bank)   # (10,18) not in 1x1
+    with pytest.raises(ValueError, match="outside the placement region"):
+        build_shore_tweaks((9, 5), (2, 3), mint=mint)
+
+
+def test_fuse_layout_stateful_tweaks_guard():
+    """A layout REAL deploy refuses plain 'tweaks' actionably: tweak objects are
+    STATEFUL and fuse_layout applies each placement twice (the gate pass + the
+    deploy pass) -- tweaked placements pass 'tweaks_factory' instead, rebuilt
+    fresh per pass."""
+    from ff9mapkit.world import fuse as FU
+    with pytest.raises(ValueError, match="tweaks_factory"):
+        FU.fuse_layout("UNUSED-guard-test",
+                       [{"cell": (2, 16), "donor": (10, 18), "size": (1, 1),
+                         "tweaks": [object()]}], dry_run=False)
+
+
 def test_bank_lower_wall_lip_anchor():
     """THE LIP ANCHOR, per COLUMN (the round-4 gash fix). The rock strip's V is
     a CORNER ASSIGNMENT (byte-checked map-wide: crest 0.8926 / base 0.9229 on

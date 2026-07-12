@@ -1,13 +1,15 @@
 # continent_v1.toml -- the FIRST CUSTOM CONTINENT: four verbatim donor islands fused
 # into one archipelago in the open SW ocean pocket of the disc-1 overworld (block cells
-# rows 12-19, cols 0-5 -- clear of every real landmass and every prior scratch deploy).
+# rows 12-19, cols 0-5 -- clear of every real landmass and every prior scratch deploy),
+# plus a REAL-SCALE MINTED BEACH on island B (a kit-made shore: bank_lower + virgin_mint).
 #
-# Deploy (needs the custom engine's WorldMeshOverride patch):
-#   py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap --dry-run   # validate
-#   py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap             # deploy
+# Deploy (needs the custom engine's WorldMeshOverride patch). The overworld gets its own
+# dedicated mod folder so campaign deploys can never wholesale-replace it:
+#   py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap-world --dry-run   # validate
+#   py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap-world             # deploy
 #
-# In-game proven 2026-07-09: all four islands render + walk; the A/B strait at z=-960
-# (the one fuse-certified shared border, 32 rows) is seam-free.
+# In-game proven 2026-07-09 (the four islands + the seam-free A/B strait at z=-960) and
+# 2026-07-11 (island B's minted beach + the lip-anchored cliff walls).
 
 [[placement]]      # A -- the cliff/highland island (the proven (9,5) donor, verbatim)
 cell = [0, 12]
@@ -18,6 +20,26 @@ size = [2, 3]
 cell = [0, 15]
 donor = [10, 17]
 size = [2, 2]
+
+# THE REAL-SCALE MINTED BEACH (in-game proven 2026-07-11): sink the (10,18) mesa's
+# south rim to a sandy-cay profile (the corridor bank -- the falloff runs from the
+# beach chord, so the islet's crown keeps its natural cliffs), then mint a 4-column
+# beach on the lowered bank. Coords are donor-WORLD coords; each verb's tweak block
+# derives from them (here (10,18), the region's south block). Delete both sub-tables
+# to get the original all-verbatim island B.
+[placement.bank_lower]
+center = [674.0, -1168.4]
+radius = 7.0
+shore_slope = 0.75
+cap = 3.6
+along = [[666.9, -1168.6], [681.1, -1168.2]]
+
+[placement.virgin_mint]
+start = [666.9, -1168.6]
+end = [681.1, -1168.2]
+width = 3.6
+swash = 4.4
+pins_from = [7, 17]    # foam/sand language byte-read from the real beach island
 
 [[placement]]      # C -- the real beach island (7,17), standalone, 2-cell buffer from A/B
 cell = [3, 18]
