@@ -1,12 +1,15 @@
 # Battle co-op — feasibility study (2026-07-12)
 
-> **STATUS: B0 + the B1 skeleton are BUILT and the SOLO TIER is ★ IN-GAME PROVEN (same day) —
-> engine patch `memoria-patches/s37-netsync-battle.patch`: wire v3 typed frames, the battle-state
-> spectate panel, `[Netsync] GuestSlots`, Attack/Defend command injection, the `RemoteMenuOpen`
-> ATB gate (WAIT-mode freeze observed working), and the assist-key swallow (Alpha1 = the default
-> help binding — found and fixed in playtest). Two-machine session pending (update both DLLs —
-> wire v3 rejects v2 peers).** The rest of this document is the research that shaped it.
-> Companion to the s36 exploration co-op (ghost sync).
+> **STATUS: B0 + B1 are BUILT and ★ SOLO-TIER PROVEN including the full command set (same day) —
+> engine patch `memoria-patches/s37-netsync-battle.patch`, wire v4: typed frames, the battle-state
+> spectate panel, `[Netsync] GuestSlots`, and guest commands covering Attack/Defend/ABILITIES/ITEMS
+> (a roster frame streams menu content; digit-menu UI with pagination + target pick; live host-side
+> revalidation — an unlearned-cast cheat path was found and closed in playtest). ATB feel: the
+> `RemoteMenuOpen` WAIT/Turn-Based freeze, capped per turn by `[Netsync] GuestWaitMs` (default 30s)
+> so an idle guest can't lock the host indefinitely. Still out: Throw, double-cast/mix,
+> monster-transform. Two-machine session pending (update both DLLs — v4 rejects older peers).**
+> The rest of this document is the research that shaped it. Companion to the s36 exploration
+> co-op (ghost sync).
 > Sources: the Memoria engine source (`C:\gd\FFIX\Memoria\Assembly-CSharp`, all cites below),
 > the s36 patch (`memoria-patches/s36-netsync-ghost.patch`), and web prior-art (linked inline).
 
