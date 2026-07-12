@@ -1262,9 +1262,46 @@ Cutscene-level keys (alongside `steps`):
 |---|---|
 | `once` | `true` (default) = play once ever (save-persistent flag); `false` = every entry. |
 | `flag` | explicit GlobBool index for the once-guard (default `8100`). |
+| `requires_scenario` | **the story-event director GATE**: the scene only plays when the **ScenarioCounter `== N`** (an int or an area name, e.g. `"Dali"`). Outside its beat the scene simply doesn't exist — and its `once` flag isn't burned, so it still plays when the story reaches the beat. |
+| `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
+| `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |
+| `set_flags` | `[{ flag = <index\|name>, value = 0\|1 }, …]` — story bits written at scene end (same only-when-played semantics). |
 | `then_warp` | *(narration cutscene only — no `actor`)* a **field id** (positive int) to `Field()`-warp to when the scene ends. (Errors on an actor cutscene — the actor path splices into an NPC loop, which can't take the end-warp.) |
 | `ate` | `true` styles the cutscene as a compulsory **Active Time Event** (the grey banner flavor) — `ATE(mode)…ATE(0)` HUD arm + a winATE caption. |
 | `ate_mode` | *(needs `ate = true`)* the ATE HUD mode `0`–`255` (default **6** = the grey **UNSKIPPABLE** banner; `1` = quiet no-icon auto-ATE). See `docs/ATE_SYSTEM.md`. |
+
+### The story-event director (beat-gated, story-advancing scenes)
+
+`requires_scenario` + `set_scenario` turn a cutscene into FF9's **story-event director** idiom — the loop a
+real story field runs: *enter at a beat → the scene plays once → the story advances → the world re-gates.*
+They compose with the other story keys into a fully declarative story arc:
+
+```toml
+[startup]                # (optional) assert the campaign's opening beat on the entry field
+scenario = 2600
+
+[cutscene]               # enter THIS field at beat 2600 -> Vivi's scene plays once -> beat becomes 2610
+actor = "vivi"
+requires_scenario = 2600
+set_scenario = 2610
+steps = [ { walk = "@player" }, { say = "...something's wrong." } ]
+
+[[npc]]                  # the cast rotates at the same boundary (rotating casts, above)
+name = "guard"
+scenario_min = 2610      # the guard only appears AFTER the scene has advanced the story
+# ...
+
+[[gateway]]              # or advance on walking OUT instead (the write-side complement)
+to = 4001
+set_scenario = 2620
+# ...
+```
+
+Works on all three flavors (narration / `actor = "name"` / the multi-actor conductor `actor = [...]`,
+including on a verbatim fork). The gate means the scene *belongs to* its beat: at any other ScenarioCounter
+it doesn't fire and doesn't consume its `once` flag. The advance runs inside the once-guard, so the story
+moves exactly once — and only if the scene actually played. One scene per field today; put each beat's scene
+on the field where that beat happens (which is how FF9's own story flows anyway).
 
 ### Actor cutscenes — `actor = "<npc name>"`
 

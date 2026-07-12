@@ -265,9 +265,19 @@ def once_flag_for(cs: dict):
     return _region.MAP_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_MAP_FLAG))
 
 
+def early_return_unless(cond: bytes) -> bytes:
+    """A story-gate PROLOGUE for a standalone cutscene/conductor entry: ``if (cond) skip-the-return`` --
+    i.e. the entry returns immediately unless ``cond`` holds. The exact byte shape of
+    :func:`ff9mapkit.content.onentry.scenario_gate` / :func:`ff9mapkit.content.region.flag_gate`
+    (re-emitted here -- onentry imports this module, so it can't be imported back). Stack several for AND.
+    This is the DIRECTOR gate (fork-fidelity #13): "this scene belongs to beat N / story-state S" -- the
+    scene (and its then_warp) simply doesn't exist outside its beat, so its once-flag isn't burned."""
+    return cond + bytes([_region.JMP_TRUE]) + struct.pack("<h", 1) + opcodes.RETURN
+
+
 def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_CLASS,
                        warmup: int = DEFAULT_WARMUP, ate_mode: int | None = None,
-                       say_flags: int = 128) -> bytes:
+                       say_flags: int = 128, story_conds=(), end_writes: bytes = b"") -> bytes:
     """The gated choreography block, PREPENDED to the actor NPC's LOOP (tag 1) -- NOT its Init -- by
     :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's own context (so the actor steps target
     it) AND while the object is 'running' (engine state 1), where the engine ADVANCES animation frames.
@@ -290,8 +300,16 @@ def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_
     inner += compile_steps(steps, txids, say_flags=say_flags)
     if ate_mode is not None:
         inner += opcodes.ate(0)                              # disarm before control returns (close the bracket)
-    inner += opcodes.ENABLE_MOVE + _region.set_var(flag_class, flag_idx, 1)
-    return _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
+    inner += opcodes.ENABLE_MOVE + end_writes + _region.set_var(flag_class, flag_idx, 1)
+    block = _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
+    # the DIRECTOR gate (#13): each story cond wraps the once-block in a further `if` (nested, NOT an
+    # early-return -- a LOOP prepend must never RETURN or it kills the host NPC's loop). Outside the beat
+    # the scene doesn't exist AND its once-flag isn't burned. `end_writes` (set_scenario/set_flags, built
+    # by the caller) run at scene end inside the once-gate: the story advances exactly once, only when the
+    # scene actually played. Both default empty -> byte-identical.
+    for cond in reversed(tuple(story_conds)):                # outermost gate = the first cond
+        block = _region.if_block(cond, block)
+    return block
 
 
 # A narration cutscene runs in a SEPARATE code entry armed by `InitCode` in Main_Init -- but Main_Init
@@ -306,7 +324,7 @@ REORDER_WAIT = 2
 
 def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
                reorder: int = REORDER_WAIT, *, ate_mode: int | None = None,
-               then_warp: int | None = None) -> bytes:
+               then_warp: int | None = None, gate: bytes = b"", end_writes: bytes = b"") -> bytes:
     """The cutscene function body: a brief reorder ``Wait`` (so the lock outlives Main_Init's EnableMove)
     then ``DisableMove`` + the ordered ``steps`` + ``EnableMove``, all gated ``if (!once_flag) { ...;
     once_flag = 1 }`` when ``once_flag`` is set (so it plays once).
@@ -331,6 +349,10 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
         inner += opcodes.ate(0)
     if then_warp is None:
         inner += opcodes.ENABLE_MOVE                      # restore control (a normal cutscene stays put)
+    # the DIRECTOR advance (#13): set_scenario/set_flags bytes (built by the caller) INSIDE the once-gate
+    # (before the once-flag set) -- the story advances exactly once, only when the scene actually played;
+    # with then_warp the writes land before the warp fires. Empty -> byte-identical.
+    inner += end_writes
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         body = _region.if_block(_region.cond_not(flag_class, once_flag), inner)
@@ -342,17 +364,22 @@ def build_body(steps, once_flag: int | None, flag_class=CUTSCENE_FLAG_CLASS,
         # screen bug). A real grey-ATE return may already be black behind the ATE banner, but the kit
         # doesn't reproduce that, so an explicit source-side fade is the safe default. See event.warp.
         body += _event.warp(int(then_warp), fade=True)    # AUTO-RETURN: fade to black, then transition
-    return body + opcodes.RETURN
+    # the DIRECTOR gate (#13): a story-gate PROLOGUE (early_return_unless, stacked for AND) placed FIRST --
+    # outside its beat/state the scene (once-flag, warp and all) simply doesn't run. Empty -> byte-identical.
+    return gate + body + opcodes.RETURN
 
 
 def inject_cutscene(data, steps, *, once_flag: int | None = None, flag_class=CUTSCENE_FLAG_CLASS,
                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                    ate_mode: int | None = None, then_warp: int | None = None) -> bytes:
+                    ate_mode: int | None = None, then_warp: int | None = None,
+                    gate: bytes = b"", end_writes: bytes = b"") -> bytes:
     """Append a cutscene code entry (the sequence in :func:`build_body`) and run it on field load via
     an ``InitCode`` (over a Wait filler, or inserted into Main_Init). Returns new .eb bytes.
     ``ate_mode`` (not None) styles it as a compulsory ATE (the ``ATE(mode)`` HUD bracket); ``then_warp``
-    (a field id) makes it auto-return with ``Field(then_warp)`` at the end."""
-    body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp)
+    (a field id) makes it auto-return with ``Field(then_warp)`` at the end. ``gate`` / ``end_writes`` =
+    the director story-gate prologue + end-of-scene story advance (see :func:`build_body`)."""
+    body = build_body(steps, once_flag, flag_class, ate_mode=ate_mode, then_warp=then_warp,
+                      gate=gate, end_writes=end_writes)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     slot = EbScript.from_bytes(data).first_free_slot()
     out = edit.append_entry(data, slot, entry)

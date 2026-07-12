@@ -241,7 +241,8 @@ def walk_tag_body(x: int, z: int, speed: int | None = None) -> bytes:
 def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_region.GLOB_BOOL,
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
                exit_warp: int | None = None, say_flags: int = 128,
-               reorder: int = _cutscene.REORDER_WAIT, walk_calls=None, join_tags=None) -> bytes:
+               reorder: int = _cutscene.REORDER_WAIT, walk_calls=None, join_tags=None,
+               gate: bytes = b"", end_writes: bytes = b"") -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -271,6 +272,9 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
                            walk_calls=walk_calls, join_tags=join_tags)
     if owns_control and exit_warp is None:
         inner += opcodes.ENABLE_MOVE
+    # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
+    # set) -- the story advances exactly once, only when the scene actually played. Empty -> byte-identical.
+    inner += end_writes
     if once_flag is not None:
         inner += _region.set_var(flag_class, once_flag, 1)
         body = _region.if_block(_region.cond_not(flag_class, once_flag), inner)
@@ -278,14 +282,17 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         body = inner
     if exit_warp is not None:
         body += _event.warp(int(exit_warp), fade=True)
-    return body + opcodes.RETURN
+    # the DIRECTOR gate (#13): a story-gate prologue (cutscene.early_return_unless, stacked for AND) FIRST --
+    # outside its beat the scene (once-flag, warp and all) simply doesn't run. Empty -> byte-identical.
+    return gate + body + opcodes.RETURN
 
 
 def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None = None,
                      flag_class=_region.GLOB_BOOL, warmup: int = _cutscene.DEFAULT_WARMUP,
                      owns_control: bool = True, exit_warp: int | None = None, say_flags: int = 128,
                      walk_calls=None, join_tags=None, reserve_party_band: bool = False,
-                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
+                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+                     gate: bytes = b"", end_writes: bytes = b"") -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init (over a
     Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``walk_calls`` (a dict
     ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag;
@@ -296,7 +303,7 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
     perturbing the actors it addresses (which seat below the band before it, so their uids stay valid)."""
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
                       owns_control=owns_control, exit_warp=exit_warp, say_flags=say_flags,
-                      walk_calls=walk_calls, join_tags=join_tags)
+                      walk_calls=walk_calls, join_tags=join_tags, gate=gate, end_writes=end_writes)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,

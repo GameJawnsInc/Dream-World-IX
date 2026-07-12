@@ -1662,6 +1662,29 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"{label} tail {t!r} is not a valid TAIL code "
                                 f"({', '.join(sorted(_text.TAIL_CODES))})")
     cs = project.raw.get("cutscene")
+    if cs is not None:
+        # the STORY-EVENT DIRECTOR keys (#13): beat gate (requires_*) + end-of-scene story advance (set_*) --
+        # common to all three flavors (narration / actor / conductor), so validated before the flavor split.
+        _validate_story_writes(cs, "[cutscene]", story_names, problems,
+                               scenario_key="set_scenario", flags_key="set_flags")
+        rs = cs.get("requires_scenario")
+        if isinstance(rs, str):
+            try:
+                _flags.resolve_scenario(rs)
+            except ValueError as e:
+                problems.append(f"[cutscene] requires_scenario: {e}")
+        elif rs is not None and (isinstance(rs, bool) or not isinstance(rs, int)
+                                 or not (0 <= rs <= _startup.SCENARIO_MAX)):
+            problems.append(f"[cutscene] requires_scenario must be 0..{_startup.SCENARIO_MAX} or an area "
+                            f"name (got {rs!r})")
+        if cs.get("requires_flag") is not None and cs.get("requires_flag_clear") is not None:
+            problems.append("[cutscene] set requires_flag OR requires_flag_clear, not both (stack a second "
+                            "condition on requires_scenario instead)")
+        for rk in ("requires_flag", "requires_flag_clear"):
+            rv = cs.get(rk)
+            if rv is not None and (isinstance(rv, bool) or not isinstance(rv, int)):
+                problems.append(f"[cutscene] {rk} must be a gEventGlobal bit index or a [[flag]] name "
+                                f"(got {rv!r})")
     if cs is not None and isinstance(cs.get("actor"), list):
         _validate_conductor(project, cs, problems)     # multi-actor CONDUCTOR (the central-director model)
     elif cs is not None:
@@ -1838,6 +1861,9 @@ def lint_logic(project: FieldProject) -> list[str]:
         if cs.get("once", True):
             f = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
             settable.add(f); explicit.add(f)
+        for p in cs.get("set_flags", []) or []:    # end-of-scene story advance (#13 director) sets bits too
+            if isinstance(p, dict) and "flag" in p:
+                settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
     choice_counter = 0
     for ch in raw.get("choice", []):           # a choice option can set a story flag too
         for o in ch.get("options", []):
@@ -2112,6 +2138,9 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
                 _write(_flag_index(s["set_flag"]), f"cutscene step #{j}")
         if "flag" in cs and cs.get("once", True):
             _write(cs["flag"], "cutscene")
+        for i, p in enumerate(cs.get("set_flags", []) or []):   # end-of-scene story advance (#13 director)
+            if isinstance(p, dict) and "flag" in p:
+                _write(p["flag"], f"cutscene set_flags #{i}")
     for c, ch in enumerate(raw.get("choice", [])):
         if "flag" in ch and (ch.get("trigger") or "action") == "walk":
             _write(ch["flag"], f"choice #{c}")
@@ -2787,6 +2816,36 @@ def _gateway_on_exit_body(gw: dict, names: dict) -> bytes:
     if sc is None and not presets:
         return b""
     return _startup.startup_body(presets, sc)
+
+
+def _cutscene_story_bits(cs: dict) -> tuple:
+    """``(story_conds, gate, end_writes)`` for a ``[cutscene]``'s STORY-EVENT DIRECTOR keys (fork-fidelity
+    #13 -- the beat-dispatched, story-advancing scene): ``requires_scenario`` (ScenarioCounter ``== N``,
+    int or area name) / ``requires_flag`` / ``requires_flag_clear`` gate the scene to its beat;
+    ``set_scenario`` / ``set_flags`` advance the story at scene end (inside the once-gate, so exactly once,
+    only when the scene played). ``story_conds`` = cond expressions for the ACTOR path's nested if-blocks
+    (a LOOP prepend must not RETURN); ``gate`` = the same conds as an early-return PROLOGUE for the
+    narration/conductor code entry. Flag NAMES are already ints here (``flags.resolve_project_flags`` at
+    load covers ``[cutscene]``); the writes reuse the shared ``startup_body`` (byte-parity with
+    ``[startup]`` / the gateway on-exit advance). All-empty -> ``((), b"", b"")`` = byte-identical."""
+    conds = []
+    rs = cs.get("requires_scenario")
+    if rs is not None:
+        v = _flags.resolve_scenario(rs) if isinstance(rs, str) else int(rs)
+        conds.append(_region.cond_eq(_region.GLOB_UINT16, _startup.SCENARIO_BYTE, v))
+    rf = cs.get("requires_flag")
+    if rf is not None:
+        conds.append(_region.cond_truthy(_region.GLOB_BOOL, int(rf)))
+    rfc = cs.get("requires_flag_clear")
+    if rfc is not None:
+        conds.append(_region.cond_not(_region.GLOB_BOOL, int(rfc)))
+    gate = b"".join(_cutscene.early_return_unless(c) for c in conds)
+    sc = cs.get("set_scenario")
+    if isinstance(sc, str):
+        sc = _flags.resolve_scenario(sc)
+    presets = [(int(p["flag"]), int(p.get("value", 1))) for p in cs.get("set_flags", []) or []]
+    end = _startup.startup_body(presets, sc) if (sc is not None or presets) else b""
+    return tuple(conds), gate, end
 
 
 # Per-member event-flag reserve inside a campaign member's K-wide block (see _FlagAlloc). With the
@@ -3755,13 +3814,15 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
     c_fclass, c_fidx = _cutscene.once_flag_for(cs)
     if auto.base is not None and "flag" not in cs and cs.get("once", True):
         c_fidx = auto.cutscene()
+    _, cs_gate, cs_end = _cutscene_story_bits(cs)            # the director gate + story advance (#13)
     return _conductor.inject_conductor(
         eb, steps, npc_slots, cutscene_txids,
         once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
         warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
         owns_control=bool(cs.get("owns_control", True)),
         exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
-        walk_calls=walk_calls, join_tags=join_tags, reserve_party_band=True)
+        walk_calls=walk_calls, join_tags=join_tags, reserve_party_band=True,
+        gate=cs_gate, end_writes=cs_end)
 
 
 def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *, warnings) -> bytes:
@@ -3939,10 +4000,12 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
         if _auto.base is not None and "flag" not in cs and cs.get("once", True):
             cs_fidx = _auto.cutscene()                     # campaign: pack into this member's block
-        actor_choreo = _cutscene.build_choreography(
+        cs_conds, _, cs_end = _cutscene_story_bits(cs)     # the director gate + story advance (#13):
+        actor_choreo = _cutscene.build_choreography(       # nested-if conds (a LOOP prepend must not RETURN)
             steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
-            ate_mode=cs_ate_mode, say_flags=cs_say_flags)
+            ate_mode=cs_ate_mode, say_flags=cs_say_flags,
+            story_conds=cs_conds, end_writes=cs_end)
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
@@ -4208,13 +4271,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         # so generate a per-actor walk-choreography TAG on the actor's own [[npc]] entry and RunScript into it
         # (animates in the actor's context, blocks until arrival); a parallel walk also gets a join tag.
         eb, walk_calls, join_tags = _gen_conductor_walk_tags(project, eb, c_steps, npc_slots)
+        _, cs_gate, cs_end = _cutscene_story_bits(cs)          # the director gate + story advance (#13)
         eb = _conductor.inject_conductor(
             eb, c_steps, npc_slots, cutscene_txids,
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
             exit_warp=(int(cs["exit_warp"]) if cs.get("exit_warp") else None),
-            say_flags=cs_say_flags, walk_calls=walk_calls, join_tags=join_tags)
+            say_flags=cs_say_flags, walk_calls=walk_calls, join_tags=join_tags,
+            gate=cs_gate, end_writes=cs_end)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
@@ -4222,8 +4287,9 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if cs and not cs_actor:
         steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids, say_flags=cs_say_flags)]
         then_warp = int(cs["then_warp"]) if cs.get("then_warp") else None
+        _, cs_gate, cs_end = _cutscene_story_bits(cs)      # the director gate + story advance (#13)
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode,
-                                       then_warp=then_warp)
+                                       then_warp=then_warp, gate=cs_gate, end_writes=cs_end)
 
     # on-entry beats ([[on_entry]]): a gated, once field-load hook -- a narration message and/or a
     # story-state write (set_scenario / set_flags), fired the moment the player enters but ONLY when

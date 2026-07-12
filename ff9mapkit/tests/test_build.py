@@ -31,6 +31,47 @@ def test_example_validates_clean():
     assert validate(FieldProject.load(EXAMPLE)) == []
 
 
+def test_cutscene_director_gate_and_advance_in_built_eb(tmp_path):
+    """The STORY-EVENT DIRECTOR (#13): a [cutscene] gated on a beat (requires_scenario) that advances the
+    story at scene end (set_scenario) -- the gate + advance bytes land in the built .eb; a plain cutscene
+    has neither (byte-level; the shapes are the [startup]/[[on_entry]]-proven ones)."""
+    import struct as _s
+    from ff9mapkit import build as B
+    cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    base = '[field]\nid = 30000\nname = "DIR"\narea = 11' + cam
+    gate_sig = bytes([0x05, 0xDC, 0x00, 0x7D]) + _s.pack("<H", 2600)   # SC == 2600 (cond_eq shape)
+    adv_sig = bytes([0x05, 0xDC, 0x00, 0x7D]) + _s.pack("<H", 2610)    # SC := 2610 (set_var shape)
+    def _eb(txt, tag):
+        f = tmp_path / f"{tag}.field.toml"
+        f.write_text(txt, encoding="utf-8")
+        p = B.FieldProject.load(f)
+        assert validate(p) == []
+        return B.build_script(p, "us", {}, cutscene_txids=[500])
+    plain = _eb(base + '\n[cutscene]\nsteps = [ { say = "hello" } ]\n', "plain")
+    gated = _eb(base + '\n[cutscene]\nrequires_scenario = 2600\nset_scenario = 2610\n'
+                       'steps = [ { say = "hello" } ]\n', "gated")
+    assert gate_sig in gated and adv_sig in gated
+    assert gate_sig not in plain and adv_sig not in plain
+    # the ACTOR flavor gates + advances too (nested-if in the NPC loop, not an entry prologue)
+    actor = _eb(base + '\n[[npc]]\nname = "vivi"\npreset = "vivi"\npos = [0, -300]\ndialogue = "..."\n'
+                       '\n[cutscene]\nactor = "vivi"\nrequires_scenario = 2600\nset_scenario = 2610\n'
+                       'steps = [ { say = "hi" } ]\n', "actor")
+    assert gate_sig in actor and adv_sig in actor
+
+
+def test_validate_cutscene_director_keys(tmp_path):
+    cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    base = '[field]\nid = 30000\nname = "DIR"\narea = 11' + cam
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text(base + '\n[cutscene]\nrequires_scenario = "NotAPlace"\nsteps = [ { say = "x" } ]\n',
+                   encoding="utf-8")
+    assert any("requires_scenario" in p for p in validate(FieldProject.load(bad)))
+    both = tmp_path / "both.field.toml"
+    both.write_text(base + '\n[cutscene]\nrequires_flag = 8600\nrequires_flag_clear = 8601\n'
+                           'steps = [ { say = "x" } ]\n', encoding="utf-8")
+    assert any("not both" in p for p in validate(FieldProject.load(both)))
+
+
 def test_validate_rejects_dangling_gateway_carry_player_calls(tmp_path):
     """#3 (FORK_FIDELITY.md #2b): a [[gateway_carry]] player-call door's RunScript(player, T) must resolve to a
     grafted [[player_func]] -- a dangling call is a walk-up softlock, so validate() blocks it. With the matching

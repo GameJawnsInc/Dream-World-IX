@@ -572,6 +572,45 @@ def test_cutscene_body_reorder_wait_precedes_disablemove():
     assert body.index(cutscene.wait(cutscene.REORDER_WAIT)) < body.index(opcodes.DISABLE_MOVE)
 
 
+# --- the STORY-EVENT DIRECTOR (#13): beat-gated, story-advancing cutscenes -------------------------
+
+def test_early_return_unless_matches_onentry_gate_shape():
+    # the director's prologue gate re-emits onentry.scenario_gate's exact byte shape (onentry imports
+    # cutscene, so it can't be imported back) -- pin the parity so the shapes never drift.
+    from ff9mapkit.content import onentry
+    cond = region.cond_eq(region.GLOB_UINT16, 0, 2600)
+    assert cutscene.early_return_unless(cond) == onentry.scenario_gate(2600)
+
+
+def test_cutscene_body_gate_and_end_writes():
+    cond = region.cond_eq(region.GLOB_UINT16, 0, 2600)
+    gate = cutscene.early_return_unless(cond)
+    adv = region.set_var(region.GLOB_UINT16, 0, 2610)          # the set_scenario advance bytes
+    body = cutscene.build_body([cutscene.say(500)], once_flag=230, gate=gate, end_writes=adv)
+    assert body.startswith(gate)                                # the beat gate runs FIRST (early return)
+    assert adv in body
+    once_set = region.set_var(region.GLOB_BOOL, 230, 1)
+    assert body.index(adv) < body.index(once_set)               # advance INSIDE the once-block, before its set
+    # defaults are byte-identical to the pre-director shape
+    assert cutscene.build_body([cutscene.say(500)], once_flag=230) == \
+        cutscene.build_body([cutscene.say(500)], once_flag=230, gate=b"", end_writes=b"")
+
+
+def test_choreography_story_conds_nest_outside_once():
+    # the ACTOR path gates with NESTED if-blocks (a LOOP prepend must never RETURN -- it would kill the
+    # host NPC's loop): the story cond wraps the once-block, so an out-of-beat visit doesn't burn the flag.
+    cond = region.cond_eq(region.GLOB_UINT16, 0, 2600)
+    adv = region.set_var(region.GLOB_UINT16, 0, 2610)
+    blk = cutscene.build_choreography([{"say": "x"}], [500], 230, story_conds=(cond,), end_writes=adv)
+    assert blk.startswith(cond)                                 # outermost gate = the story cond
+    assert region.cond_not(region.GLOB_BOOL, 230) in blk        # the once guard nests inside
+    assert blk.index(cond) < blk.index(region.cond_not(region.GLOB_BOOL, 230))
+    assert adv in blk
+    # defaults byte-identical
+    assert cutscene.build_choreography([{"say": "x"}], [500], 230) == \
+        cutscene.build_choreography([{"say": "x"}], [500], 230, story_conds=(), end_writes=b"")
+
+
 # --- v2 cutscenes: actor movement / animation / turn ----------------------------------------------
 
 def test_actor_opcodes_roundtrip():
