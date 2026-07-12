@@ -147,10 +147,12 @@ class CoopDoc(QWidget):
         self.log.setPlaceholderText("bridge log")
         v.addWidget(self.log)
 
-        hint = QLabel("Start co-op, keep this app open, then launch FF9 → F6 → Warp to field → 30003 "
-                      "(both players). The in-game overlay shows the code + pairing state and disappears "
-                      "when your friend's ghost is up. A running game picks up session changes within a "
-                      "few seconds (from fully OFF, at the next screen change) — no restart needed.")
+        hint = QLabel("Start co-op, keep this app open, then launch FF9 and stand on the same screen as "
+                      "your friend — ghosts appear anywhere you two share a field (guaranteed meeting "
+                      "spot: F6 → Warp to field → 30003). The in-game overlay shows the code + pairing "
+                      "state, tells you which field your friend is on, and disappears when their ghost "
+                      "is up. A running game picks up session changes within a few seconds — no restart "
+                      "needed.")
         hint.setWordWrap(True)
         v.addWidget(hint)
         v.addStretch(1)
@@ -204,8 +206,10 @@ class CoopDoc(QWidget):
         role = coop.read_ini_key(ini, "Netsync", "Role") or "host"
         saved_code = coop.read_ini_key(ini, "Netsync", "SessionCode") or ""
         relay = coop.read_ini_key(ini, "Netsync", "RelayUrl") or ""
+        target = (coop.read_ini_key(ini, "Netsync", "TargetField") or "0").strip()
+        scope = "everywhere" if target in ("", "0") else f"field {target} only"
         self.lbl_config.setText("config: co-op ON — " + role + (", relay" if relay else ", direct LAN")
-                                if enabled else "config: co-op off")
+                                + ", " + scope if enabled else "config: co-op off")
         if self.rb_host.isChecked() and saved_code and not self.code.text():
             self.code.setText(saved_code)       # surface the persisted code without a Start
         self._refresh_bridge_row()
