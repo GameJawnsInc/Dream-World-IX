@@ -179,11 +179,10 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
 # Sprites/world_map_full_all.png") searches the stacked FolderNames (Moguri ships
 # its own HD copy), so a custom continent can be DRAWN ONTO THE MAP with no DLL.
 # The projection is the ENGINE'S OWN (w_naviGetPos, ff9.cs:7019): the mapped world
-# is exactly 1536x1280 units -> normalized (sx, syTop); the PNG adds only a
-# decorative FRAME, detected structurally from the image (the letterbox bars +
-# the drawn frame line); the world maps onto the frame's inner rect (visually
-# verified against all 49 town anchors). The navipos marker fit (vx ~ wx*240/1536)
-# independently confirms the extents. The disc-1 "mistcontinent" map is a crop that excludes the
+# is exactly 1536x1280 units -> normalized (sx, syTop); the world sits on the
+# REGISTERED art sub-rect (WORLD_MAP_ART_FRAME below -- FFT-registered against the
+# true stock terrain geometry; the navipos marker fit vx ~ wx*240/1536 independently
+# confirms the extents). The disc-1 "mistcontinent" map is a crop that excludes the
 # SW pocket, so only the all-world map is composited.
 
 #: the engine's mapped world extents (w_naviGetPos, map 1)
@@ -260,33 +259,24 @@ def _load_active_world_map(mod_folder=None, *, game=None):
     raise ValueError("world_map_full_all not found in any mod folder or sharedassets2")
 
 
-def _detect_art_rect(im):
-    """The map ART rectangle inside the PNG, detected structurally: the black
-    letterbox bars end where column brightness rises, and the drawn FRAME line is
-    the darkest column/row in the margin band just inside them. The world's
-    1536x1280 extent maps onto this rect (visually verified: all 49 town anchors
-    land on their continents, incl. Shimmering Island mid-sea)."""
-    W, H = im.width, im.height
-    g = im.convert("L")
-    px = g.load()
-    colm = [sum(px[x, y] for y in range(0, H, 4)) / (H // 4) for x in range(W)]
-    rowm = [sum(px[x, y] for x in range(0, W, 4)) / (W // 4) for y in range(H)]
-    lbar = next((x for x in range(W) if colm[x] > 40), 0)
-    rbar = next((x for x in range(W - 1, -1, -1) if colm[x] > 40), W - 1)
-    band = max(8, int(W * 0.06))
-    x0 = min(range(lbar, min(lbar + band, W)), key=lambda x: colm[x])
-    x1 = min(range(max(rbar - band, 0), rbar + 1), key=lambda x: colm[x])
-    y0 = min(range(int(H * 0.015), int(H * 0.08)), key=lambda y: rowm[y])
-    y1 = min(range(H - int(H * 0.08), H - int(H * 0.015)), key=lambda y: rowm[y])
-    if x1 - x0 < W * 0.6 or y1 - y0 < H * 0.6:
-        raise ValueError(f"world-map art-rect detection failed ({x0},{y0})-({x1},{y1}) "
-                         f"-- an unexpected map image layout")
-    aspect = (x1 - x0) / (y1 - y0)
-    want = WORLD_MAP_EXTENT[0] / WORLD_MAP_EXTENT[1]
-    if not (0.8 * want <= aspect <= 1.25 * want):
-        raise ValueError(f"world-map art rect aspect {aspect:.2f} is far from the world's "
-                         f"{want:.2f} -- an unexpected map image layout")
-    return x0, y0, x1, y1
+# Where the painted world sits inside the map PNG, as FRACTIONS of the image:
+# the world's 1536x1280 maps onto the sub-rect X = 51 + u*1168, Y = 42 + t*1002 of
+# the 1273x1080 art (u = wx/1536, t = (-wz)/1280). REGISTERED against the TRUE
+# stock world geometry (2026-07-12): every stock Block Terrain land tri rasterized
+# to a world land mask and FFT-correlated against the stock map's land pixels --
+# the peak hugs every painted coastline, and the Dali navipos dot cross-checks
+# within ~9px. NOTE the engine's PLAYER ICON draws ~30px WEST of this art frame
+# (a constant engine-side bias, measured in-game at two known positions -- present
+# over vanilla land too); the art frame, the navipos dots, and the painted vanilla
+# continents all agree with THIS mapping.
+WORLD_MAP_ART_FRAME = (51 / 1273.0, 42 / 1080.0, 1168 / 1273.0, 1002 / 1080.0)
+
+
+def _world_art_rect(im):
+    """The registered world art rect ``(x0, y0, x1, y1)``, scaled to ``im``."""
+    fx, fy, fw, fh = WORLD_MAP_ART_FRAME
+    return (fx * im.width, fy * im.height,
+            (fx + fw) * im.width, (fy + fh) * im.height)
 
 
 def _islet_anchors():
@@ -313,9 +303,9 @@ def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", gam
     from . import mesh as M
     gp = config.find_game_path(game)
     im, src = _load_active_world_map(mod_folder, game=game)
-    x0, y0, x1, y1 = _detect_art_rect(im)
+    x0, y0, x1, y1 = _world_art_rect(im)
     if verbose:
-        print(f"  art rect ({x0},{y0})-({x1},{y1}) in {im.width}x{im.height}")
+        print(f"  art rect ({x0:.0f},{y0:.0f})-({x1:.0f},{y1:.0f}) in {im.width}x{im.height}")
     W, H = im.width, im.height
     ext_x, ext_z = WORLD_MAP_EXTENT
 
