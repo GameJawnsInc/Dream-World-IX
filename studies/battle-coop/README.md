@@ -183,7 +183,9 @@ load-bearing fact: **each machine runs its own complete game** (own save, own fl
 field); the shared world is an illusion produced by position frames on a shared screen.
 Everything cheap lives downstream of that fact; everything expensive fights it.
 
-### V1 — The stock experience: "visitor mode" (NEXT after the two-machine test)
+### V1 — The stock experience: "visitor mode" (BUILT + ★ SOLO TIER PROVEN 2026-07-12, wire v5 —
+### dressing/lighting/masks/encounter-pause all in-game verified; follow-warp awaits the
+### two-machine session)
 The guest is a presence inside the HOST's game: a cosmetic extra party member running around
 the map, who commands one-or-more party slots in battle (`GuestSlots` is already a bitmask —
 "or more" works today). Three additions complete it, all on proven rails:
