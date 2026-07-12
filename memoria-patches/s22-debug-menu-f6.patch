@@ -27,7 +27,7 @@ new file mode 100644
 index 00000000..2b2011b2
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,2400 @@
+@@ -0,0 +1,2403 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -1947,7 +1947,10 @@ index 00000000..2b2011b2
 +            Int32 idx, val;
 +            if (!Int32.TryParse(idxPart, out idx) || idx < 0)
 +            {
-+                err = "'" + raw + "': bad index";
++                // [ff9mapkit] name the grammar on a non-numeric index -- the observed failure is a user
++                // typing the op NAME ("word:1060=0" -> 'w' consumed, "ord:1060" unparsable). Real case
++                // 2026-07-11: zeroing the [deathrules] outpost var needed `w1060=0`.
++                err = "'" + raw + "': bad index -- grammar: <n>/!<n> bit, b<i>=<v> byte, w<i>=<v> word";
 +                return false;
 +            }
 +            if (valPart == null)

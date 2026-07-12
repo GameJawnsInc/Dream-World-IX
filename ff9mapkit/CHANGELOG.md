@@ -16,6 +16,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   (`EventEngine.getv2()`/`gArgFlag`: a set bit routes the operand through `CalcExpr` — the "computed ids"
   lane real fields use). New `region.field_to_var()` emits the computed `Field(<var>)`; the kit's own
   disassembler (which already parses the argFlag lane in real fields) round-trips the emission byte-exactly.
+- In-game proven 2026-07-11, **both branches**: the computed warp (a wipe in a self-registered outpost
+  returned to it) and the fallback (var zeroed → the `warp_to` field, HP/gil knobs intact). Two operational
+  notes from the proof: the outpost var must always be written as a **whole word** (a half-written var is a
+  garbage field id, and a garbage id black-screens the warp — there is no script-side registry check), and
+  the F6 Flags BATCH word-write grammar is `w<i>=<v>` (e.g. `w1060=0`).
 
 ### Changed — `on_defeat`: the INSTANT exit (no body slide)
 - Round-2 playtest: the quiet defeat worked but the escape sequence's run-away drift slid the fallen

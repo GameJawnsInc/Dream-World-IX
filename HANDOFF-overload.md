@@ -94,16 +94,17 @@ real-field decoder rather than a fresh byte dive:
 - **The warp**: `field_prologue` now emits `marker → clear → fade+sound → if (outpost != 0)
   Field(<expr: outpost>) → Field(warp_to)` — `warp_to` = the FALLBACK. Arrival entrance: v1 = the
   destination's default spawn (a per-outpost entrance var is the extension if wanted).
-- **Playtest round 4a ★ PASSED 2026-07-11**: the COMPUTED `Field(<expr>)` warp is in-game proven (wipe in
-  the self-registered outpost 4003 → warped back into 4003, not the 407 fallback). Round 4b (the fallback)
-  produced a black screen — a TEST-WRITE artifact, not a code failure: the outpost var is a LITTLE-ENDIAN
-  WORD across bytes 1060-1061, and zeroing only byte 1060 left 1061=0x0F → the var read 3840 (unregistered)
-  → the computed branch fired at a nonexistent field. ⚠ TWO LESSONS: (1) always write the var as a WHOLE
-  word (docs updated; a half-written var = a garbage destination); (2) the failure mode of a garbage
-  outpost id is a black-screen warp — no script-side registry check exists, so the var's integrity rests
-  on "only registration writes it" (kit-reserved band, documented). 4b RETRY pending: F6 BATCH WORD op
-  (index 1060, value 0) or byte-zero BOTH 1060+1061, then wipe → expect Dali storage 407. (F6 → Go → Warp
-  still fires from a black screen — the stuck-escape.)
+- **★ FULLY IN-GAME PROVEN 2026-07-11, both branches.** 4a: the COMPUTED `Field(<expr>)` warp (wipe in
+  the self-registered outpost 4003 → warped back into 4003, not the fallback — the kit's first computed
+  warp). 4b: the fallback (outpost var zeroed → wipe → Dali/Storage 407 at 25% HP, −10% gil). Durable
+  lessons from 4b's first attempt (a test-write artifact, black screen): the var is a LITTLE-ENDIAN WORD
+  across bytes 1060-1061 — always write it WHOLE (zeroing only byte 1060 left 1061=0x0F → the var read
+  3840, unregistered → the computed branch warped to a nonexistent field); a garbage outpost id
+  black-screens (no script-side registry check — integrity rests on "only registration writes it";
+  F6 → Go → Warp is the stuck-escape). The F6 BATCH word op exists — grammar **`w1060=0`** (single-letter
+  prefixes; typing "word:" parses as w+junk → "bad index"; the s22 patch source's error now prints the
+  grammar — STAGED for the next engine rebuild). **THE DEATHRULES PILLAR IS COMPLETE** — second wind
+  (full + short) · on_defeat (quiet defeat, instant exit, double-dock guard) · outposts, all ★.
 
 ### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
 ### set fraction; 2nd wipe → game over; next battle → recharged)
