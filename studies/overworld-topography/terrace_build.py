@@ -7,10 +7,11 @@ Composes the plateau-edge laws + the rock-wall tile language:
   connect by walking; a ramp would be off-language);
 * STACKED WALLS at the real slope (58 deg = the measured p75; courses ~4.5u tall = the
   course-quantization law), landing on island F's lowland grass;
-* the WALL BANDS: top course = the crest band (atlas row 4, cols 4-7), middle = upper-body
-  (row 7, cols 0-3), foot = lower-body/base (row 10, cols 6-9); ONE 128x128px tile per
-  quad, u advancing along the ring with the 4-column band wrap (the windowed continuation);
-  the learned lattice phase from out/rock_tiles.json;
+* the WALL BANDS, one body band per wall (round-1 lesson: mixing bands paints a bright
+  stripe): crest band row 4 on top, then band B rows 9 -> 10 (atlas-adjacent, owns the
+  foot course); ONE 128x128px byte-read tile per ~4.4u interval, u advancing with the
+  4-column band wrap; per-ring equal-arc stations (outer rings are longer -- shared
+  station counts stretched the foot tiles 2x, the round-1 smears);
 * NO LIP ROW: shelf mains run to the crest edge (the soft ~50-deg crest falls out of the
   58-deg wall meeting the ~7-deg shelf);
 * the foot welds to the island by the PROVEN carve machinery (hole cut + chained rings +
@@ -52,9 +53,13 @@ SHELF_R = 6.5
 WALL_SLOPE = 58.0                                          # deg (real p75)
 N_COURSES = 3
 TILE_U, TILE_V = 0.0625, 0.03125
+# ONE BODY BAND PER WALL (playtest round 1: mixing bands A and B per course painted a
+# bright mid-stripe -- real cross-band adjacency is only ~5% of neighbor pairs; walls
+# descend WITHIN a band). Crest band on top, then band B rows 9 -> 10 (B owns the true
+# foot row 10; 9|10 are atlas-adjacent = the dominant vertical continuation).
 COURSE_BANDS = [(4, (4, 5, 6, 7)),                         # top: crest band row 4
-                (7, (0, 1, 2, 3)),                         # middle: upper-body row 7
-                (10, (6, 7, 8, 9))]                        # foot: base row 10
+                (9, (6, 7, 8, 9)),                         # middle: band B row 9
+                (10, (6, 7, 8, 9))]                        # foot: band B row 10
 CLEAR = 2.5
 RING_BAND = CLEAR + 6.5
 SEED = 7
@@ -96,44 +101,49 @@ print(f"island F: {len(gtris)} tris", flush=True)
 from ff9mapkit.world.mesh import blob_outline
 outline, radii = blob_outline(CX, CZ, base_radius=SHELF_R, seed=SEED, undulation=0.10,
                               n_corners=2, corner_strength=0.15)
-n0 = len(outline)
-# resample the ring to ~4.4u stations (one tile per quad along the ring)
-cum = [0.0]
-for i in range(1, n0 + 1):
-    a, b = outline[i - 1], outline[i % n0]
-    cum.append(cum[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
-per = cum[-1]
-nst = max(8, int(round(per / 4.4)))
-stations = []
-for s in range(nst):
-    d = per * s / nst
-    i = max(0, np.searchsorted(cum, d) - 1)
-    t01 = (d - cum[i]) / max(1e-9, cum[i + 1] - cum[i])
-    a, b = outline[i % n0], outline[(i + 1) % n0]
-    stations.append((a[0] + t01 * (b[0] - a[0]), a[1] + t01 * (b[1] - a[1])))
-print(f"shelf ring: {nst} stations, perimeter {per:.0f}u", flush=True)
+def resample_ring(poly_pts, spacing=4.4):
+    """Equal-arc stations over a closed [(x, z)] polygon at the tile grain."""
+    n = len(poly_pts)
+    cum = [0.0]
+    for i in range(1, n + 1):
+        a, b = poly_pts[i - 1], poly_pts[i % n]
+        cum.append(cum[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    per = cum[-1]
+    m = max(8, int(round(per / spacing)))
+    out = []
+    for s in range(m):
+        d = per * s / m
+        i = max(0, int(np.searchsorted(cum, d)) - 1)
+        t01 = (d - cum[i]) / max(1e-9, cum[i + 1] - cum[i])
+        a, b = poly_pts[i % n], poly_pts[(i + 1) % n]
+        out.append((a[0] + t01 * (b[0] - a[0]), a[1] + t01 * (b[1] - a[1])))
+    return out, per
 
 run_per_course = 4.5 / math.tan(math.radians(WALL_SLOPE))
-drops = [4.5, 4.5, None]                                   # the last course conforms to ground
+drops = [4.5, 4.5, 4.4]
 
 def outward(p):
     dx, dz = p[0] - CX, p[1] - CZ
     L = math.hypot(dx, dz) or 1.0
     return dx / L, dz / L
 
-rings = [[(p[0], SHELF_Y, p[1]) for p in stations]]        # ring 0 = the crest (shelf edge)
-for k in range(1, N_COURSES + 1):
-    ring = []
-    for s, p in enumerate(stations):
+# PER-RING equal-arc stations at the ~4.4u tile grain (the course-quantization law): a
+# cone's outer rings are LONGER -- one shared station count stretched the foot tiles 2x
+# horizontally and left 9u zip fan edges (the round-1 texel smears; the subdivision
+# band-aid ran away). Courses knit different-count rings with the greedy bridge; bottom
+# verts take POSITIONAL EDGE-LERPS on the tile's bottom edge (the deformed-tile rect
+# law's own mechanism for inserted verts).
+rings = []
+for k in range(N_COURSES + 1):
+    poly = []
+    for p in outline:
         ox, oz = outward(p)
-        x = p[0] + ox * run_per_course * k
-        z = p[1] + oz * run_per_course * k
-        if k < N_COURSES:
-            y = SHELF_Y - sum(drops[:k])
-        else:
-            y = None                                       # foot: conform to ground later
-        ring.append((x, y, z))
-    rings.append(ring)
+        poly.append((p[0] + ox * run_per_course * k, p[1] + oz * run_per_course * k))
+    st, per_k = resample_ring(poly)
+    y = SHELF_Y - sum(drops[:k]) if k < N_COURSES else None   # foot conforms to ground later
+    rings.append([(p[0], y, p[1]) for p in st])
+    print(f"  ring {k}: {len(st)} stations, perimeter {per_k:.0f}u", flush=True)
+nst = len(rings[0])
 
 # hole cut at the FOOT polygon + CLEAR
 foot_poly = [(p[0], p[2]) for p in rings[-1]]
@@ -256,27 +266,67 @@ for t in tri_i:
     n_shelf += 1
 print(f"shelf: {n_shelf} tris over {len(shelf_cells)} cells", flush=True)
 
-# walls: per course, one 128px tile per quad, u advancing with the 4-col band wrap
+# walls: per course, the greedy bridge between the (different-count) rings; one 128px tile
+# per TOP interval, u advancing with the 4-col band wrap; bottom verts positional-lerped
+# onto the tile's bottom edge (inserted-vert law)
+def d2xz(p, q):
+    return (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
+
 n_wall = 0
 for k in range(N_COURSES):
     row, cols = COURSE_BANDS[k]
-    top, bot = rings[k], rings[k + 1]
-    for s in range(nst):
-        s2 = (s + 1) % nst
+    T = rings[k]
+    B = rings[k + 1]
+    NT, NB = len(T), len(B)
+    b0 = min(range(NB), key=lambda j: d2xz(B[j], T[0]))
+    Br = B[b0:] + B[:b0]
+    walk = []                                              # (interval, tri, sides)
+    i = j = 0
+    while i < NT or j < NB:
+        t_cur = T[i % NT]
+        b_cur = Br[j % NB]
+        if i < NT and j < NB:
+            adv_t = d2xz(T[(i + 1) % NT], b_cur) <= d2xz(t_cur, Br[(j + 1) % NB])
+        else:
+            adv_t = i < NT
+        s = min(i, NT - 1) % NT
+        if adv_t:
+            walk.append((s, ((("T", i % NT)), ("T", (i + 1) % NT), ("B", j % NB))))
+            i += 1
+        else:
+            walk.append((s, ((("T", i % NT)), ("B", (j + 1) % NB), ("B", j % NB))))
+            j += 1
+    for s, tri in walk:
         col = cols[s % 4]
         u0, v0, du_, dv_ = tile_rect(col, row)
-        tl = (*top[s], u0, v0)
-        tr = (*top[s2], u0 + du_, v0)
-        bl = (*bot[s], u0, v0 + dv_)
-        br = (*bot[s2], u0 + du_, v0 + dv_)
-        for tri3 in ((tl, bl, tr), (tr, bl, br)):
-            a, b, c = (np.asarray(p[:3]) for p in tri3)
-            nrm = np.cross(b - a, c - a)
-            order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
-            corners = tuple((p[0], p[1], p[2], p[3], p[4], 0.0, 1.0, 0.0) for p in order)
-            new_parents.append((corners, ID49, "wall"))
-            n_wall += 1
-print(f"walls: {n_wall} tris ({N_COURSES} courses x {nst} stations)", flush=True)
+        b_idxs = sorted(idx for side, idx in tri if side == "B")
+        pts = []
+        for side, idx in tri:
+            if side == "T":
+                p = T[idx]
+                right = (idx == (s + 1) % NT)
+                pts.append((p[0], p[1], p[2], u0 + (du_ if right else 0.0), v0))
+            else:
+                # PURE CORNER ASSIGNMENT (the deformed-tile rect law / the fan vocabulary):
+                # every bridge vert takes a rect CORNER -- no fractional lerps, so every
+                # uv seam is a designed tile boundary (atlas-adjacent columns abut).
+                p = Br[idx]
+                if len(b_idxs) == 2:
+                    right = (idx == max(b_idxs)) if max(b_idxs) - min(b_idxs) == 1 \
+                        else (idx == min(b_idxs))          # wrap pair: NB-1 is LEFT of 0
+                else:
+                    t01 = ((idx / NB - s / NT) * NT) % NT
+                    if t01 > NT / 2:
+                        t01 -= NT
+                    right = t01 > 0.5
+                pts.append((p[0], p[1], p[2], u0 + (du_ if right else 0.0), v0 + dv_))
+        a, b, c = (np.asarray(p[:3]) for p in pts)
+        nrm = np.cross(b - a, c - a)
+        order = pts if nrm[1] > 0 else (pts[0], pts[2], pts[1])
+        corners = tuple((p[0], p[1], p[2], p[3], p[4], 0.0, 1.0, 0.0) for p in order)
+        new_parents.append((corners, ID49, "wall"))
+        n_wall += 1
+print(f"walls: {n_wall} tris ({N_COURSES} bridged courses)", flush=True)
 
 # zip annulus: hole ring <-> foot ring (the proven greedy bridge; exact floats)
 foot_f = {kk3(p): p for p in rings[-1]}
@@ -317,6 +367,8 @@ while i < NH or j < NR:
         zip_tris.append((h_cur, tuple(foot_f[rim_ord[(j + 1) % NR]]), r_cur))
         j += 1
 print(f"zip annulus: {len(zip_tris)} tris", flush=True)
+
+mid_parents = {}                                           # (no zip subdivision: dense rings)
 
 # zip mains: byte-decode island F's per-cell (quad, ori) from kept tris
 cell_of = lambda x, z: (int(np.floor(x / 4.0)), int(np.floor(z / 4.0)))
@@ -397,12 +449,25 @@ sm = {}
 for k, v in acc.items():
     L = math.sqrt(sum(q * q for q in v)) or 1.0
     sm[k] = [v[0] / L, v[1] / L, v[2] / L]
+def resolve_nrm(key):
+    if key in pos_nrm:
+        return pos_nrm[key]
+    if key in sm:
+        return sm[key]
+    if key in mid_parents:
+        a = resolve_nrm(mid_parents[key][0])
+        b = resolve_nrm(mid_parents[key][1])
+        v = [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+        L = math.sqrt(sum(q * q for q in v)) or 1.0
+        return [v[0] / L, v[1] / L, v[2] / L]
+    return [0.0, 1.0, 0.0]
+
 patched = []
 for corners, idall, fam in new_parents:
     if fam == "zip":
-        patched.append((corners, idall, fam))
-        continue
-    corners = tuple((p[0], p[1], p[2], p[3], p[4], *sm[kk3(p)]) for p in corners)
+        corners = tuple((p[0], p[1], p[2], p[3], p[4], *resolve_nrm(kk3(p))) for p in corners)
+    else:
+        corners = tuple((p[0], p[1], p[2], p[3], p[4], *sm[kk3(p)]) for p in corners)
     patched.append((corners, idall, fam))
 new_parents = patched
 
