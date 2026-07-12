@@ -120,7 +120,9 @@ retargets its `Field()` ids (its GLOB conditions then read the `[startup]` story
 uid 250 on multi-PC fields) — are **CARRIED with `--graft-player-funcs`**: the called funcs join the player-func graft
 plan (a new `"walk"` safety tier admits gesture+scripted-walk bodies in the door lane only; the NPC lane is unchanged),
 and the door's calls are remapped at build via the object-carry ref machinery (`[[gateway_carry]]` `player_calls` +
-`donor_entry` + `donor_player_entry`). Census-vetted carries: **254 (Evil Forest), 553 (Lindblum), 1904 (Treno)**. The
+`donor_entry` + `donor_player_entry`). Census-vetted carries: **254 (Evil Forest — ★ in-game proven: the
+first-crossing one-shot sequence walks the player through, the repeat crossing takes the plain warp), 553
+(Lindblum), 1904 (Treno)**. The
 rest stay ungated seams **by proof, not by gap** — their refs ARE the field's own cutscene logic (sibling funcs hold the
 real `Field()` warps + Main_Init calls — 2504's warp-sequence even hides behind a leading `WindowSync` as safety
 `"text"`, which is exactly why the door lane accepts only `"clean"`/`"walk"`); shared-script (350), party-band (2222),
