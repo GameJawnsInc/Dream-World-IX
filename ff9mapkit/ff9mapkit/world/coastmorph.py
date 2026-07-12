@@ -4078,9 +4078,13 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
     most ``min(shore_slope * d_shore, cap)`` -- a gentle rise from the pinned
     waterline -- blended smoothly to zero effect at the radius (the untouched mesa
     keeps its height beyond, reading as a natural cove shoulder). Water-welded
-    verts and block-frame verts never move; UVs/normals stay verbatim (the
-    displacement semantics the cliff/beach bows proved). Returns ``[VertexDisplace]``
-    for the transplant/fuse tweak list (and the mint's ``pre=``)."""
+    verts and block-frame verts never move; ground UVs/normals stay verbatim (the
+    displacement semantics the cliff/beach bows proved), while touched topo-58
+    WALL faces re-pin V per column under the lip anchor (crest keeps the painted
+    lip row; the base crops the deepest strip rows at the column's own density;
+    the V-IN-BAND gate polices the byte-derived band). Returns
+    ``[DropTris, VertexDisplace, EmitTris]`` for the transplant/fuse tweak list
+    (and the mint's ``pre=``)."""
     parts = ("terrain", "beach1", "sea2", "sea1", "sea3", "sea5", "sea4")
     tris = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game)
             for p in parts}
@@ -4141,53 +4145,101 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
         if any(_pk(v[0]) in keyed for v in t3) and _poly_area2_xz(t3) < 1e-6:
             raise ValueError("bank_lower touches a plan-degenerate (vertical) tri "
                              "-- a wall face; shrink the radius off it")
-    # CLIFF V NEVER DRAGS: a touched WALL face's rock strip is height-mapped
-    # (V ~ y), so a verbatim-uv sink SQUASHES it (playtest: "bad stretching" on
-    # the transition walls). Each steep touched face re-evaluates V through its
-    # OWN height affine at the new heights -- density preserved, unmoved verts
-    # bit-exact (no seams against untouched walls), the free-base law covers
-    # whatever strip row the shorter face now ends on. Mechanically: drop the
-    # original face, emit it moved + re-evaluated (drop FIRST so the keys still
-    # match; emissions bypass the displacement).
+    # CLIFF V NEVER DRAGS + THE LIP ANCHOR, per COLUMN (the corner-role
+    # vocabulary): a real wall's V is a CORNER ASSIGNMENT, never a function of y
+    # -- every crest vert carries the painted lip row and every base vert the
+    # base row, whatever the face's height (byte-checked: crest 0.8926 / base
+    # 0.9229 exact on every face 0.9..5.5u tall across (10,18)/(9,17)/(7,17)/
+    # (16,17)/(3,13); the strip never wraps). A sink therefore keeps every
+    # crest v VERBATIM (the lip survives -- no hard/bevel alternation) and
+    # re-pins each BASE vert along its own column at the column's original
+    # density: v = crest_v + (base_v - crest_v) * h_new/h_old -- the face sheds
+    # its DEEPEST rows (the free-base law), strata keep their real spacing (the
+    # accepted round-2 read), and v stays inside the byte-derived band by
+    # construction (h_new <= h_old). The map is per-VERT over the whole touched
+    # wall group, so faces sharing a column vert agree exactly -- a per-FACE
+    # affine cannot do this (the round-3/round-4 lesson: per-face shifts seam at
+    # shared columns and push v outside the rock strip = white gashes).
+    # Mechanically: drop the original face, emit it moved + re-pinned (drop
+    # FIRST so the keys still match; emissions bypass the displacement).
+    def _dy(pos):
+        d = moves.get(tuple(pos))
+        if d is None:
+            k = _pk(pos)
+            d = next((dd for pp, dd in moves.items() if _pk(pp) == k), None)
+        return d[1] if d is not None else 0.0
+    topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
+    band = [t3 for t3 in tris["terrain"] if topo(t3) == 58]
     wall_drop, wall_emit = [], []
-    for t3 in tris["terrain"]:
-        if not any(_pk(v[0]) in keyed for v in t3):
-            continue
-        plan2 = _poly_area2_xz(t3)
-        if plan2 >= 0.02 and TR._tri_area2_3d(list(t3)) < 2.0 * plan2:
-            continue                                # ground, not a wall face
-        ys = [v[0][1] for v in t3]
-        vs = [v[2][1] for v in t3]
-        my, mv = sum(ys) / 3.0, sum(vs) / 3.0
-        den = sum((y - my) ** 2 for y in ys)
-        if max(ys) - min(ys) < 0.5 or den < 1e-9:
-            continue
-        a_ = sum((y - my) * (v - mv) for y, v in zip(ys, vs)) / den
-        b_ = mv - a_ * my
-        if max(abs(a_ * y + b_ - v) for y, v in zip(ys, vs)) > 0.08:
-            continue                                # not a height-mapped face
-        # TOP-ANCHORED (the lip-row law): the face keeps its painted top texel
-        # row and sheds its DEEPEST rows instead -- every vert's v shifts by the
-        # density times its sink RELATIVE to the crest's sink (the crest = 0);
-        # the base row is free (the free-base law), and inter-column v offsets
-        # are the real per-column tile grammar
-
-        def _dy(pos):
-            d = moves.get(tuple(pos))
-            if d is None:
-                k = _pk(pos)
-                d = next((dd for pp, dd in moves.items() if _pk(pp) == k), None)
-            return d[1] if d is not None else 0.0
-        top_dy = _dy(max(t3, key=lambda v: v[0][1])[0])
-        nt = []
-        for (pos, nrm, uv, tan) in t3:
-            dy = _dy(pos)
-            uv = (uv[0], uv[1] + a_ * (dy - top_dy))
-            if dy:
-                pos = (pos[0], pos[1] + dy, pos[2])
-            nt.append((pos, nrm, uv, tan))
-        wall_drop.append(list(t3))
-        wall_emit.append(nt)
+    if band and any(_pk(v[0]) in keyed for t3 in band for v in t3):
+        # crest vs base per vert + column adjacency, decoded over the block's
+        # WHOLE rock band (a touched face's side-edge tri may itself be
+        # untouched -- the pairing must still find each base vert's true column
+        # crest, or it grabs a diagonal partner and crops wrong). The strip
+        # carries exactly two painted rows; no interior wall verts exist
+        # (walls are one quad tall map-wide).
+        pos_uv, kind_of = {}, {}
+        adj_w = defaultdict(set)
+        allv = [v[2][1] for t3 in band for v in t3]
+        vmid = (min(allv) + max(allv)) / 2.0
+        for t3 in band:
+            ks = [_pk(v[0]) for v in t3]
+            for (pos, nrm, uv, tan), k in zip(t3, ks):
+                pos_uv.setdefault(k, (pos, uv))
+                kind_of[k] = "crest" if uv[1] < vmid else "base"
+            for i in range(3):
+                adj_w[ks[i]].add(ks[(i + 1) % 3])
+                adj_w[ks[(i + 1) % 3]].add(ks[i])
+        crop = {}                # key -> (column crest v, frac); frac<1 = crop
+        for k, kd_ in kind_of.items():
+            if kd_ == "crest":
+                continue                            # the lip row, verbatim
+            pos, uv = pos_uv[k]
+            crests = [c for c in adj_w[k] if kind_of.get(c) == "crest"]
+            if not crests:
+                continue                            # no column partner: verbatim
+            c = min(crests, key=lambda c: (pos_uv[c][0][0] - pos[0]) ** 2
+                    + (pos_uv[c][0][2] - pos[2]) ** 2)
+            cpos, cuv = pos_uv[c]
+            h_old = cpos[1] - pos[1]
+            if h_old <= 1e-6:
+                continue
+            h_new = (cpos[1] + _dy(cpos)) - (pos[1] + _dy(pos))
+            frac = max(0.0, min(1.0, h_new / h_old))
+            if frac < 1.0:
+                crop[k] = (cuv[1], frac)
+        # re-emit every band face whose verts change (position OR v): a quad tri
+        # holding a cropped base vert but not the moved crest would otherwise
+        # survive verbatim and seam against its re-emitted neighbours. The crop
+        # applies to each instance's OWN v (duplicate positions may carry
+        # different uvs -- key-by-index law).
+        for t3 in band:
+            ks = [_pk(v[0]) for v in t3]
+            if not any(k in keyed or k in crop for k in ks):
+                continue
+            nt = []
+            for (pos, nrm, uv, tan), k in zip(t3, ks):
+                if k in crop:
+                    cv, frac = crop[k]
+                    uv = (uv[0], cv + (uv[1] - cv) * frac)
+                dy = _dy(pos)
+                if dy:
+                    pos = (pos[0], pos[1] + dy, pos[2])
+                nt.append((pos, nrm, uv, tan))
+            wall_drop.append(list(t3))
+            wall_emit.append(nt)
+        # THE V-IN-BAND GATE (permanent): every emitted wall v must sit inside
+        # the band's byte-derived strip rows -- the round-4 gash class (v
+        # escaping into neighbouring atlas rows) can never pass offline again
+        v_lo, v_hi = min(allv) - 1e-4, max(allv) + 1e-4
+        for nt in wall_emit:
+            for (_, _, uv, _) in nt:
+                if not (v_lo <= uv[1] <= v_hi):
+                    raise ValueError(
+                        f"V-IN-BAND GATE: an emitted wall v {uv[1]:.4f} escapes "
+                        f"the rock strip's band [{v_lo + 1e-4:.4f},"
+                        f"{v_hi - 1e-4:.4f}] -- off-strip texels read as white "
+                        f"gashes/grass in-game")
     n_inst = sum(_pk(v[0]) in keyed
                  for p in parts for t3 in tris[p] for v in t3)
     n_inst -= sum(_pk(v[0]) in keyed for t3 in wall_drop for v in t3)
