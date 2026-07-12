@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the placement simulator's walking ray had a phantom drop limit
+- Engine-truth correction (source-verified 2026-07-12): `ff9.rayDistance` (2.8) is passed into
+  `WMBlock.Raycast` but the parameter is never read — dead code. A walking step can therefore descend
+  ANY height (that is how canopies and ledges are exitable); only the climb ceiling (`y + 2.34375`)
+  exists. `world/placement.py::place()` dropped its unfaithful `max_drop` window and the module doc +
+  tests state the corrected spec. Found while root-causing a forest-canopy stuck report on the
+  grass-island canvas: the effective climb is surface-to-surface across one foot step (~0.44u/frame),
+  so an un-hittable vertical wall face samples the dome BEYOND it — the wall jump plus one step of
+  interior slope, not the face rise alone.
+
 ### Added — `world-island` now enforces the open-ocean target law
 - The transplant path's OPEN-OCEAN TARGET gate is ported into `world-island`: every footprint block
   must be TRUE open ocean (no real per-block mesh assets), or the whole deploy refuses naming the
