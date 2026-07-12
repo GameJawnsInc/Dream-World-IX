@@ -33,13 +33,14 @@ def test_cascade_extraction():
 
 
 def test_worldmap_exit_body_shape():
-    """[usercontrol guard] -> [D8:2 = 62, the open-sea region key no real field
-    writes -- every SC band resolves it to 9009] -> [the verbatim cascade]."""
+    """[usercontrol guard] -> [D8:2 = 0: the cascade's default arm (9009) AND the
+    persisted-position arrival -- a nonzero key fires the destination world's
+    hardcoded door teleport (the arrival law)] -> [the verbatim cascade]."""
     from ff9mapkit.content import region as R
     from ff9mapkit.content.worldexit import cascade_bytes, worldmap_exit_body
     b = worldmap_exit_body()
     assert b.startswith(R.MOVEMENT_GATE)
-    key_write = bytes([0x05, 0xD8, 0x02, 0x7D, 62, 0x00, 0x2C, 0x7F])
+    key_write = bytes([0x05, 0xD8, 0x02, 0x7D, 0, 0x00, 0x2C, 0x7F])
     assert b[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + 8] == key_write
     assert b.endswith(cascade_bytes())
     # on-exit story writes slot between the guard and the key write

@@ -11,12 +11,21 @@ instruction-aligned common suffix of the two verified carriers, self-checked to 
 cleanly and hold every WorldMap arm.
 
 The field writes its own region key first (the same ``D8:2`` transition parameter a
-``Field()`` warp uses as its arrival entrance -- ``region.set_field_entrance``). The
-default key **62 is 9009's own key that NO real field writes**: within every SC band it
-resolves (by case or default arm) to **9009, the all-vehicle free-roam superset** --
-the right return for a field on kit-built land in open ocean, whatever state the
-player arrived in. The world actor position persists across the visit (the engine
-restores it, exactly like leaving a real town).
+``Field()`` warp uses as its arrival entrance -- ``region.set_field_entrance``).
+
+THE ARRIVAL LAW (decoded from WORLD09 e5/tag0, the world player's Init): on world
+load the Init tests ``D8:2`` -- **nonzero** loads the dispatcher's HARDCODED entry
+point into the position vars (each world has one; a real exit field's key both
+routes the cascade AND selects that world's door arrival), **zero** skips the
+override, so ``MoveInstantXZY`` places the player from the PERSISTED position vars
+(``C8:0x53``/``D8:0x56``/``C8:0x58`` -- the world player's Loop mirrors its position
+into them continuously). The kit default ``region_key = 0`` therefore means "return
+exactly where the player stood when they entered" -- the right semantic for a field
+on kit-built land with no real-world door registration -- and it guarantees the
+cascade's DEFAULT arm (**9009, the all-vehicle free-roam superset**, every SC band;
+the default arm re-zeroes the key itself). The explicit 0-write matters: a STALE
+nonzero key would otherwise route the cascade to another state AND teleport the
+arrival to that world's hardcoded door.
 """
 
 from __future__ import annotations
@@ -25,8 +34,12 @@ from ..eb.model import EbScript
 
 #: the two byte-verified cascade carriers: (field id, entry index, func tag)
 CASCADE_DONORS = ((300, 2, 2), (2800, 21, 2))
-#: the un-written region key that resolves to wldMapNo 9009 in every SC band
-REGION_KEY_OPEN_SEA = 62
+#: the default region key: 0 = the cascade's DEFAULT arm (9009 in every SC band) AND
+#: the persisted-position arrival (a nonzero key fires the world's hardcoded door
+#: teleport -- the arrival law above)
+REGION_KEY_RETURN = 0
+REGION_KEY_OPEN_SEA = 0   # back-compat alias (the 62 experiment: 9009's own case
+                          # PRESERVES the key -> the hardcoded-arrival override fired)
 #: the minimum WorldMap arms a healthy cascade carries (13 states; real carriers emit 19 ops)
 _MIN_WORLDMAP_OPS = 13
 
@@ -105,7 +118,7 @@ def cascade_bytes(game=None) -> bytes:
     return out
 
 
-def worldmap_exit_body(*, region_key: int = REGION_KEY_OPEN_SEA, on_exit_body: bytes = b"",
+def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, on_exit_body: bytes = b"",
                        game=None) -> bytes:
     """The Range body of a walk-out worldmap exit: [usercontrol guard] -> [optional
     on-exit story writes] -> [D8:2 = region_key] -> [the verbatim shared cascade].
