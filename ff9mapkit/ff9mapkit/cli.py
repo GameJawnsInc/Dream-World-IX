@@ -2770,8 +2770,11 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     into one deploy. Reversible = delete the printed files (or re-deploy the journey)."""
     from pathlib import Path
     from .world import entrance as EN
-    if (args.field is None) == (args.case is None):
-        print("give a destination: exactly one of --field <id> or --case <n> (see `world-locate`)", file=sys.stderr)
+    n_dest = sum(v is not None for v in (args.field, args.case, args.field_direct))
+    if n_dest != 1:
+        print("give a destination: exactly one of --field <id> / --case <n> (the dispatcher-case "
+              "route, real base fields; see `world-locate`) or --field-direct <id> (a CUSTOM "
+              "field: the trigger warps it directly)", file=sys.stderr)
         return 2
     if (args.texture or args.tile or args.tile_uv) and not args.building:
         print("--texture/--tile/--tile-uv texture the --building mesh -- pass --building <obj> too", file=sys.stderr)
@@ -2784,7 +2787,8 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
                         "texture": args.texture, "tile": (_parse_tile_spec(args.tile) if args.tile else None),
                         "tile_uv": (_parse_tile_uv_spec(args.tile_uv) if args.tile_uv else None)}
         info = EN.author_entrance(
-            cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case, event=args.event,
+            cell=tuple(args.cell), mod_folder=args.mod_folder, field=args.field, case=args.case,
+            direct_field=args.field_direct, event=args.event,
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
@@ -5560,6 +5564,12 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--case", type=int,
                      help="destination dispatch case directly (== Map.Byte[39]; the AREA switch case). Alternative "
                           "to --field for power users")
+    wen.add_argument("--field-direct", type=int, metavar="ID",
+                     help="a CUSTOM destination field id (a registered kit field, e.g. 6500): the trigger func "
+                          "warps Field(ID) directly behind the template's own vehicle/state gate -- no dispatcher "
+                          "case is used or touched (the AREA switch only carries real base fields), so custom "
+                          "entrances compose additively. Fires in every free-roam world state. The destination "
+                          "must be DEPLOYED (a registered-but-assetless id crashes on warp)")
     wen.add_argument("--event", type=int, choices=[1, 2, 3], default=1,
                      help="the tile trigger id (default 1) -- must match the tag's low bits; the base game uses 1")
     wen.add_argument("--disc", type=int, default=1, help="world disc (default 1)")

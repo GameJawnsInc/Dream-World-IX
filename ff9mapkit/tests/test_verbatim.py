@@ -22,9 +22,10 @@ def test_startup_applies_to_verbatim_eb():
     # "pair with [startup] to boot a beat" is a silent no-op and the fork boots at scenario-zero.
     from ff9mapkit import build
 
-    class _P:                                                  # _apply_startup only reads project.raw
+    class _P:                          # _apply_startup reads project.raw + project.field (the outpost write)
         def __init__(self, raw):
             self.raw = raw
+            self.field = raw.get("field", {})
 
     blank = data.blank_field_bytes("us")
     assert build._apply_startup(_P({}), blank) == blank        # no [startup] -> byte-identical

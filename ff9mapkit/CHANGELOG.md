@@ -15,6 +15,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   The build's coverage warning now also names verbatim members lacking the block (their battles are the
   donor's, so it's a maybe-gap: battle-less donors can ignore it). Awaiting in-game playtest on a real
   battle-donor fork.
+### Added — the continent ENTRANCE pair: `world-entrance --field-direct` + `[[gateway]] to = "worldmap"`
+- **`world-entrance --field-direct <id>`** wires an overworld entrance to a CUSTOM field: the trigger func
+  keeps the proven template's vehicle/state gate verbatim and warps `Field(id)` directly — no dispatcher
+  case is used or touched (the AREA switch only carries real base fields), so custom entrances compose
+  additively across every free-roam world state.
+- **`[[gateway]] to = "worldmap"`** gives a synthesized field a faithful walk-out to the world map: the
+  base game's own shared exit cascade (byte-identical across all 79 real world-exit fields) is carried
+  VERBATIM at build time, prefixed with the field's region-key write (`region_key`, default 62 — the
+  open-sea key every ScenarioCounter band resolves to 9009, the all-vehicle free-roam superset).
+  On-exit `set_scenario`/`set_flags` compose behind the usercontrol guard.
+- The shipped example: `examples/continent-v1/waystation.field.toml` — the ISLAND WAYSTATION (field 6500,
+  BG-borrows Daguerreo/Entrance: real art/walkmesh/camera, our logic; a save moogle + savepoint; the
+  worldmap exit reuses field 2800's own real door region), entered from island B's minted cay via a tight
+  4-tile trigger on the inland grass tip (the beach stays freely walkable).
 
 ### Added — declarative shore tweaks: `world-fuse` layouts + `world-transplant` mint a beach on a kit-made shore
 - **`[placement.bank_lower]` + `[placement.virgin_mint]`** sub-tables in a `world-fuse` layout (and the

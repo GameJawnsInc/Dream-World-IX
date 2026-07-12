@@ -400,8 +400,9 @@ A region the player walks into to warp to another field.
 
 | key | meaning |
 |---|---|
-| `to` | target field id. |
-| `entrance` | which entrance to arrive at in the target (default `0`). |
+| `to` | target field id — or the string **`"worldmap"`**: the walk-out region returns the player to the **world map** via the base game's own shared exit cascade (carried verbatim at build time; the story-correct `wldMapNo` is selected by ScenarioCounter band × region key, and the overworld position persists like leaving any real town). |
+| `region_key` | *(worldmap only, default `62`)* the `D8:2` region key the cascade switches on. `62` is the open-sea key no real field writes — every story band resolves it to `9009`, the all-vehicle free-roam superset (the right return for a field on kit-built land). |
+| `entrance` | which entrance to arrive at in the target (default `0`; not applicable to `"worldmap"`). |
 | `zone` | 4 corners `[[x, z], ...]` (auto-made IsInQuad-safe) or 5 explicit points. Order: the `q0→q1` edge is the walk-out direction (put the front edge first). |
 | `requires_flag` / `requires_flag_clear` | GlobBool index (or a `[[flag]]` name) — the exit only **fires** when that story flag is SET / CLEAR (a locked door that opens once a switch flag is set). |
 | `set_scenario` | *(optional)* on taking this exit, set the **ScenarioCounter** — an int (`0`–`32767`) or an area name (`"Dali (underground)"`). Advances the story so the **next** field boots at the right beat. |
