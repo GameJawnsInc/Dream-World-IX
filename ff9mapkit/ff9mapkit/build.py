@@ -930,7 +930,19 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[gateway_carry]] retarget must be a table { <real id> = <new id> }")
     for gw in project.raw.get("gateway", []):
         if "to" not in gw:
-            problems.append("[[gateway]] needs a 'to' (destination field id).")
+            problems.append("[[gateway]] needs a 'to' (destination field id, or \"worldmap\").")
+        elif isinstance(gw["to"], str) and gw["to"].strip().lower() != "worldmap":
+            problems.append(f"[[gateway]] to = {gw['to']!r} -- a field id (int) or the string "
+                            f"\"worldmap\" (the walk-out world-map exit).")
+        if str(gw.get("to")).strip().lower() == "worldmap":
+            rk = gw.get("region_key", 62)
+            if not isinstance(rk, int) or isinstance(rk, bool) or not (0 <= rk <= 255):
+                problems.append(f"[[gateway]] region_key {rk!r} must be an int 0..255 (the D8:2 "
+                                f"region key the exit cascade switches on; default 62 -> 9009).")
+            for bad in ("entrance", "ate", "requires_flag", "requires_flag_clear"):
+                if bad in gw:
+                    problems.append(f"[[gateway]] to=\"worldmap\" does not take '{bad}' (the exit "
+                                    f"cascade owns the transition).")
         z = gw.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[gateway]] zone must have 4 or 5 points (got {len(z)})")
@@ -3998,6 +4010,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             eb = _cutscene.inject_forced_ate(eb, [tuple(p) for p in zone], int(gw["to"]),
                                              mode=int(gw.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)),
                                              title_txid=gateway_txids.get(gi))
+            continue
+        if str(gw.get("to")).strip().lower() == "worldmap":
+            # the WORLDMAP exit: [D8:2 = region key] + the verbatim shared exit
+            # cascade (content/worldexit.py) -- the walk-out region returns the
+            # player to the world map at the story-correct wldMapNo (default key
+            # 62 -> 9009, the all-vehicle superset, in every SC band)
+            from .content import worldexit as _wx
+            body = _wx.worldmap_exit_body(
+                region_key=int(gw.get("region_key", _wx.REGION_KEY_OPEN_SEA)),
+                on_exit_body=_gateway_on_exit_body(gw, gw_names))
+            eb, _slot = _region.inject_region(eb, [tuple(p) for p in zone], body)
             continue
         gf, gs = _gate_of(gw)
         eb = _gw.inject_gateway(eb, int(gw["to"]), entrance=int(gw.get("entrance", 0)),

@@ -171,6 +171,36 @@ def patch_byte39(body: bytes, case: int) -> bytes:
     return out
 
 
+def entrance_func_body_direct(field_id: int, *, game=None, dispatchers=None) -> bytes:
+    """The DIRECT trigger body for a CUSTOM destination field: the proven template's
+    vehicle/state GATE verbatim (its leading expression + conditional skip), then a bare
+    ``Field(field_id)`` in place of the ``Byte[39]=case + RunScriptAsync`` dispatcher
+    handshake -- whose AREA switch only carries real base-game fields. The dispatcher
+    case bodies are themselves bare ``Field(dest)`` ops (no scripted fade; the engine
+    owns the world->field transition), so the direct body performs the same transition
+    the real entrances do, additively, without touching any dispatcher case.
+
+    Template shape (byte-asserted): ``[12B gate expr][JZ +13][8B Byte39=case]
+    [5B RunScriptAsync][RETURN]`` -> ``[12B gate expr][JZ +4][4B Field(id)][RETURN]``."""
+    if not 0 <= int(field_id) <= 0x7FFF:
+        raise ValueError(f"field id {field_id} out of the engine's Int16 range")
+    if dispatchers is None:
+        dispatchers = load_world_dispatchers(game)
+    from ..eb.model import EbScript
+    w00 = EbScript(dispatchers["evt_world_world00"])
+    f = next((f for e in w00.entries for f in e.funcs if f.tag == TEMPLATE_TAG), None)
+    if f is None:
+        raise ValueError("WORLD00 has no trigger template func")
+    tpl = w00.data[f.abs_start:f.abs_end]
+    if len(tpl) != 29 or tpl[0] != 0x05 or tpl[12:15] != b"\x02\x0d\x00" \
+            or tpl[15:18] != b"\x05\xd5\x27" or tpl[28] != 0x04:
+        raise ValueError("unexpected trigger template shape -- the direct body's surgery "
+                         "offsets no longer match WORLD00's 0x9895 func")
+    fid = int(field_id)
+    return tpl[:12] + b"\x02\x04\x00" + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF]) \
+        + b"\x04"
+
+
 def entrance_func_body(case: int, *, game=None, dispatchers=None) -> bytes:
     """The trigger-function body for a destination ``case``: WORLD00's :data:`TEMPLATE_TAG` body, patched so it sets
     ``Map.Byte[39] = case``. Portable across dispatchers (references only globals + RunScriptAsync)."""
@@ -343,7 +373,8 @@ def _capped_flatten_radius(requested: float, building, summary: dict) -> float:
     return requested
 
 
-def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int = 1, disc: int = 1, lod: str = "0_1",
+def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_field=None,
+                    event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
                     backup_dir=None, dry_run: bool = False, game=None) -> dict:
@@ -376,13 +407,28 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, event: int 
 
     alld = load_all_dispatchers(game)                      # {name: {lang: bytes}} -- per-lang (JP layout differs)
     us_disp = {n: L["us"] for n, L in alld.items() if "us" in L}
-    dest = resolve_destination(field=field, case=case, game=game)
-    the_case = dest["case"]
-    body = entrance_func_body(the_case, dispatchers=us_disp)   # the func body is pure logic -> language-independent
+    if direct_field is not None:
+        if field is not None or case is not None:
+            raise ValueError("give a destination as EITHER direct_field=<custom id> OR "
+                             "field/case (the dispatcher-case route for real base fields)")
+        # the DIRECT route (a CUSTOM destination): the trigger itself warps
+        # Field(direct_field) behind the template's own vehicle/state gate --
+        # no dispatcher case is touched, so it composes additively. Fires in
+        # every free-roam state (the ones with an AREA switch).
+        the_case = None
+        dest = {"case": None, "field": int(direct_field),
+                "note": f"DIRECT Field({int(direct_field)}) -- custom destination, no dispatcher case"}
+        body = entrance_func_body_direct(int(direct_field), dispatchers=us_disp)
+        targets = sorted(name for name, L in alld.items()
+                         if "us" in L and dispatcher_cases(L["us"]) is not None)
+    else:
+        dest = resolve_destination(field=field, case=case, game=game)
+        the_case = dest["case"]
+        body = entrance_func_body(the_case, dispatchers=us_disp)   # pure logic -> language-independent
 
-    # dispatchers whose AREA switch carries this case (the states the entrance can fire in)
-    targets = sorted(name for name, L in alld.items()
-                     if "us" in L and (cases := dispatcher_cases(L["us"])) is not None and the_case in cases)
+        # dispatchers whose AREA switch carries this case (the states the entrance can fire in)
+        targets = sorted(name for name, L in alld.items()
+                         if "us" in L and (cases := dispatcher_cases(L["us"])) is not None and the_case in cases)
     if not targets:
         raise ValueError(f"no world dispatcher carries case {the_case} -- cannot route this entrance")
 

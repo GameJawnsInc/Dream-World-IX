@@ -348,7 +348,12 @@ ff9mapkit world-entrance --cell 35 25 --field 300 --mod-folder FF9CustomMap \
 What it does, generalizing + hardening the manual recipe:
 - **Destination.** `--field N` inverts `area_to_fields` to the dispatch case (prefers a `default` branch; errors with the
   reachable-field list if N isn't overworld-reachable); `--case C` sets `Byte[39]` directly. `--field 300` → case 4 (Ice
-  Cavern), the proven default.
+  Cavern), the proven default. **`--field-direct N` targets a CUSTOM field**: the trigger func keeps the template's own
+  vehicle/state gate verbatim but warps `Field(N)` directly instead of the `Byte[39]`+`RunScriptAsync` dispatcher handshake
+  (whose AREA switch only carries real base fields) — no dispatcher case is used or touched, so custom entrances compose
+  additively, and the dispatcher case bodies are themselves bare `Field(dest)` ops so the transition is identical. Deployed
+  to every free-roam dispatcher. Pair the destination field with a `[[gateway]] to = "worldmap"` exit ([FORMAT](FORMAT.md))
+  for the return leg. The destination must be DEPLOYED (a registered-but-assetless id crashes on warp).
 - **Trigger func.** Clones WORLD00's `0x9895` body and **patches its single `Byte[39]=<case>` literal** (`D5 27 7D <lo>
   <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
   to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.

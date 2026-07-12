@@ -1,0 +1,50 @@
+# waystation.field.toml -- THE ISLAND WAYSTATION: continent-v1's overworld entrance
+# destination (a kit-owned custom field, zero story entanglement).
+#
+# BG-borrows Daguerreo/Entrance (field 2800, the game's own hidden island harbor) --
+# real art + real walkmesh + real camera render engine-side; only OUR .eb ships. A save
+# moogle + a savepoint make it a functional rest stop; walking back out the entrance
+# door returns to the WORLD MAP via the verbatim shared exit cascade ([[gateway]]
+# to = "worldmap"; region key 62 -> wldMapNo 9009, the all-vehicle free-roam superset).
+#
+# Deploy (from the kit root; the overworld's dedicated folder):
+#   py ../tools/deploy_field.py examples/continent-v1/waystation.field.toml --id 6500 \
+#       --mod-folder FF9CustomMap-world
+# Then wire the overworld trigger on island B's cay -- a TIGHT cluster on the inland
+# grass tip only, so the minted beach itself stays freely walkable (a wide radius
+# would stamp the whole 35-tri cay, sand included = insta-warp on disembark):
+#   py -m ff9mapkit world-entrance --cell 1 32 --field-direct 6500 \
+#       --trigger-at 34 -1032 --trigger-radius 3 --mod-folder FF9CustomMap-world
+# RELAUNCH to apply (a NEW field id registration + world dispatcher .ebs).
+
+[field]
+id = 6500
+name = "CONT_WAYST"
+borrow_bg = "DGLO_MAP775_DG_ENT_0"   # Daguerreo/Entrance (field 2800), area >= 10
+area = 55
+text_block = 22                      # a free MesDB id, unshadowed in the current stack
+                                     # (8 = the -ow campaign, 945/1073 = -hc)
+hide_area_title = true               # the borrowed room's "Daguerreo" card is not this place
+
+[camera]
+borrow = "../../.ff9mapkit-cache/fields/2800/camera.bgx"   # build-time guidance (extract-field 2800)
+entry_settle = 45                    # hold black while the smooth-cam settles (the hub precedent)
+
+[player]
+spawn = [0, -2000]                   # just inside the harbor door, on the y=0 corridor
+
+[[npc]]
+name = "Mopli"                       # the waystation keeper (white save-moogle rig)
+pos = [170, -1750]
+model = 220
+dialogue = "Kupo! Welcome to the far isles, traveler. Rest your legs -- the sea is long, kupo!"
+
+# the save point: press beside the moogle (the "!" prompt marks it)
+[[savepoint]]
+zone = [[60, -1900], [280, -1900], [280, -1600], [60, -1600]]
+
+# walking back out the entrance door returns to the world map -- the zone is field
+# 2800's OWN real exit region, verbatim (the borrowed art's door sits exactly there)
+[[gateway]]
+to = "worldmap"
+zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
