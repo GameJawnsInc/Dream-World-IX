@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import re
+import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -284,6 +285,7 @@ def event_name_for(field: str, game=None):
     if tok.isdigit() and int(tok) in ID_TO_EVT:
         return ID_TO_EVT[int(tok)]
     folder, _ = resolve_field(field, game)
+    warn_shared_fbg(folder)      # a NAME pick on a shared folder forks ONE beat silently -- surface it
     rec = FBG_TO_EVT.get(folder)
     return rec[1] if rec else None
 
@@ -347,6 +349,41 @@ def extract_mapconfig(field: str, *, game=None):
 #  DROPPED them, and their Field() warps leaked to the live game during a fork. FIELD_BY_ID keeps every id.)
 ID_TO_FBG = {fid: fbg for fid, (fbg, _evt) in FIELD_BY_ID.items()}    # field id -> FBG folder (complete)
 ID_TO_EVT = {fid: evt for fid, (_fbg, evt) in FIELD_BY_ID.items()}    # field id -> EVT_ script name (complete)
+
+_SHARED_FBG_WARNED: set = set()      # folders already warned this process -- one warning per run, not per call
+
+
+def fbg_siblings(folder: str) -> list:
+    """Every ``(field_id, EVT_ name)`` rendered by one FBG folder, sorted by id. More than one entry means
+    the folder is AMBIGUOUS by name -- the same room at different story beats (~142 of the 818 real fields
+    share a folder), and a NAME-keyed pick silently resolves to the folder-keyed ``FBG_TO_EVT`` single
+    winner, which may be the wrong beat's event script. Pure table lookup, no install needed."""
+    fl = str(folder).strip().lower()
+    return sorted((fid, evt) for fid, (fbg, evt) in FIELD_BY_ID.items() if fbg == fl)
+
+
+def warn_shared_fbg(folder: str) -> bool:
+    """stderr WARNING (once per folder per process) when a NAME-resolved FBG folder is shared by several
+    field ids. Resolution behavior is deliberately UNCHANGED (back-compat) -- this only surfaces the
+    ambiguity and recommends re-running with the numeric field id (`import <id>` resolves exactly).
+    Returns True if it warned. (2026-07-12: a name import of the Lindblum inn folder forked 2103's
+    script when 553 was intended -- the pick is invisible without this.)"""
+    fl = str(folder).strip().lower()
+    sibs = fbg_siblings(fl)
+    if len(sibs) < 2 or fl in _SHARED_FBG_WARNED:
+        return False
+    _SHARED_FBG_WARNED.add(fl)
+    rec = FBG_TO_EVT.get(fl)
+    winner = rec[0] if rec else None
+    print(f"WARNING: {fl!r} is SHARED by {len(sibs)} fields (the same room at different story beats):",
+          file=sys.stderr)
+    for fid, evt in sibs:
+        mark = "   <- a name import silently resolves HERE" if fid == winner else ""
+        print(f"         {fid:>5}  {evt}{mark}", file=sys.stderr)
+    others = [fid for fid, _ in sibs if fid != winner]
+    print("         to fork a specific story beat, re-run with its numeric field id, e.g. "
+          f"`ff9mapkit import {others[0] if others else sibs[0][0]}`", file=sys.stderr)
+    return True
 
 
 class EventBundle:

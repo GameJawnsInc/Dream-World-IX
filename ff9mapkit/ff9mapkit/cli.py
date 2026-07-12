@@ -873,6 +873,15 @@ def _cmd_import(args: argparse.Namespace) -> int:
     from pathlib import Path
     from . import extract
     try:
+        # A NAME token resolving to a SHARED FBG folder (~142 fields are the same room at another story
+        # beat) picks ONE sibling silently -- warn up front (an `import <id>` pick is exact, no warning).
+        _tok = str(args.field).strip()
+        if not (_tok.isdigit() and int(_tok) in extract.ID_TO_FBG):
+            try:
+                _shared_folder, _ = extract.resolve_field(args.field, args.game)
+                extract.warn_shared_fbg(_shared_folder)
+            except (RuntimeError, FileNotFoundError, ValueError, OSError):
+                pass           # unresolvable here -> the normal dispatch below surfaces the real error
         gpf = getattr(args, "graft_player_funcs", False)
         ct = getattr(args, "carry_text", False)
         sm = getattr(args, "save_moogle", False)

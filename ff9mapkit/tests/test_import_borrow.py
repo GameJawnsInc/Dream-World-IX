@@ -133,3 +133,77 @@ def test_resolve_field_real_id_with_no_live_bundle_raises(monkeypatch):
     monkeypatch.setattr(extract, "build_field_index", lambda game=None, **k: {})   # empty index
     with pytest.raises(FileNotFoundError):
         extract.resolve_field("100")              # id 100 is real but its folder isn't in the (empty) index
+
+
+# ---- shared-FBG ambiguity warning: ~142 of the 818 real fields SHARE a background folder with a sibling
+# (the same room at a different story beat). A NAME import silently resolves to the folder-keyed table's
+# single winner (2026-07-12: importing the Lindblum inn folder by name forked 2103's event script when 553
+# was intended). Resolution stays UNCHANGED (back-compat); the kit must WARN with the sibling ids + EVT
+# names and recommend re-running with the numeric id. Pure table lookups -- offline, no install needed.
+
+SHARED = "fbg_n11_ldbm_map160_lb_in1_0"           # Lindblum inn: fields 553 / 1303 / 2103
+
+
+@pytest.fixture()
+def _fresh_shared_warn():
+    extract._SHARED_FBG_WARNED.clear()            # the once-per-process dedup must not leak across tests
+    yield
+    extract._SHARED_FBG_WARNED.clear()
+
+
+def test_fbg_siblings_enumerates_a_shared_folder():
+    sibs = extract.fbg_siblings(SHARED)
+    assert [fid for fid, _ in sibs] == [553, 1303, 2103]
+    assert dict(sibs)[553] == "EVT_LIND1_TN_LB_IN1_0"
+    assert dict(sibs)[2103] == "EVT_LIND3_TN_LB_IN1_0"
+    assert len(extract.fbg_siblings(extract.ID_TO_FBG[100])) == 1     # a unique folder is NOT ambiguous
+
+
+def test_warn_shared_fbg_prints_siblings_once(_fresh_shared_warn, capsys):
+    assert extract.warn_shared_fbg(SHARED) is True
+    err = capsys.readouterr().err
+    for tok in ("553", "1303", "2103", "EVT_LIND1_TN_LB_IN1_0", "EVT_LIND3_TN_LB_IN1_0"):
+        assert tok in err
+    assert "ff9mapkit import 553" in err          # the fix: re-run by numeric id (the digit branch is exact)
+    assert "2103" in [ln for ln in err.splitlines() if "resolves HERE" in ln][0]  # marks the silent winner
+    assert extract.warn_shared_fbg(SHARED) is False     # dedup: one warning per folder per process
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_shared_fbg_silent_on_a_unique_folder(_fresh_shared_warn, capsys):
+    assert extract.warn_shared_fbg(extract.ID_TO_FBG[100]) is False
+    assert capsys.readouterr().err == ""
+
+
+def test_event_name_for_name_pick_warns_but_resolves_unchanged(_fresh_shared_warn, monkeypatch, capsys):
+    monkeypatch.setattr(extract, "build_field_index", lambda game=None, **k: {SHARED: "a.bin"})
+    assert extract.event_name_for("lb_in1_0") == "EVT_LIND3_TN_LB_IN1_0"   # back-compat: same winner as before
+    err = capsys.readouterr().err
+    assert "553" in err and "2103" in err and "SHARED" in err
+
+
+def test_event_name_for_digit_pick_is_exact_and_silent(_fresh_shared_warn, capsys):
+    assert extract.event_name_for("553") == "EVT_LIND1_TN_LB_IN1_0"    # the id pick names ITS beat exactly
+    assert capsys.readouterr().err == ""
+
+
+def test_cmd_import_warns_on_a_shared_name_token(_fresh_shared_warn, monkeypatch, capsys):
+    # the CLI must surface the ambiguity BEFORE the heavy extraction; the mocked extractor stops the run there
+    import argparse
+    from ff9mapkit import cli
+
+    class _Stop(Exception):
+        pass
+
+    def _stop(*a, **k):
+        raise _Stop()
+
+    monkeypatch.setattr(extract, "build_field_index", lambda game=None, **k: {SHARED: "a.bin"})
+    monkeypatch.setattr(extract, "write_field_project", _stop)
+    args = argparse.Namespace(field="lb_in1_0", out=".", name=None, id=4003, game=None, atlas=False,
+                              native=False, editable=False, graft_player_funcs=False, carry_text=False,
+                              save_moogle=False, dialogue=False, verbatim=False)
+    with pytest.raises(_Stop):
+        cli._cmd_import(args)
+    err = capsys.readouterr().err
+    assert "SHARED" in err and "553" in err and "2103" in err and "ff9mapkit import 553" in err
