@@ -85,5 +85,16 @@ degeneracy filter silently dropped the vertical canopy curtains — 3D-area test
 and the step gate (worst wall rise exactly 2.20 ≤ the 2.34375 ceiling; zip max rise
 0.41u). 4 blocks changed, (6,18) untouched byte-identical.
 
+Round 2 (the in-game stuck report at the rim): the per-face step gate is INSUFFICIENT —
+the engine's climb is surface-to-surface across one foot step (~0.44u/frame), and vertical
+walls are un-hittable (geometric ny ≤ 0.1), so the sampled climb = wall jump + one step of
+dome slope; per-face 2.2 left 0.14u and the dome ate it. Also source-verified: descent is
+ALWAYS legal (`ff9.rayDistance` is dead code in `WMBlock.Raycast`) — the kit's placement
+simulator dropped its phantom 2.8 drop window. The comprehensive form now in the script:
+per-STATION rim lift (launch pad within 2.10 of the exact canopy surface ≤0.75u inside,
+sampled along every rim edge) + THE PERIMETER WALK-IN GATE (0.05u ground transects across
+the whole rim; every ordered pair within one 0.65u step must climb ≤2.30). Worst climb
+after the fix: 2.05 (was effectively 2.42+).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).

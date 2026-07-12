@@ -4,8 +4,10 @@ RE'd 2026-07-07 from ``ff9.cs w_nwpHit`` (~7221), ``WMBlock.Raycast``/``AddWalkM
 ``WMPhysics.Raycast`` (see project memory ``project-ff9-overworld-placement-rules``); it reproduced the
 synth-blob's triple in-game stranding offline (its walkable top was wound down-facing). The rules:
 
-1. Ground = a DOWN ray. Walking: origin ``y + 2.34375``, max distance ``2.8``. Sky (spawn / arrival /
-   the F6 teleport re-ground / flying actors): origin ``y + 400``, infinite.
+1. Ground = a DOWN ray. Walking: origin ``y + 2.34375``, INFINITE reach downward -- ``ff9.rayDistance``
+   (2.8) is passed to ``WMBlock.Raycast`` but the parameter is DEAD (never read; verified in source
+   2026-07-12), so a step DOWN of any height is legal and only the climb ceiling exists. Sky (spawn /
+   arrival / the F6 teleport re-ground / flying actors): origin ``y + 400``, infinite.
 2. **Every miss resolves to ground = 0** (ocean level): block missing/not-ready, or no triangle hit.
    An interior miss strands the player at Y=0 under the land; a WATER-area miss is ALSO an invisible
    VEHICLE WALL (movement into a no-walkmesh region is rejected -- airship-proven in-game) and a void
@@ -30,7 +32,7 @@ import math
 #: idall values the engine's triangle filter skips outright
 IDALL_SKIP = {4078, 4088, 2040}
 WALK_RAY_START = 2.34375
-WALK_RAY_DIST = 2.8
+WALK_RAY_DIST = 2.8                                      # ff9.rayDistance -- DEAD in WMBlock.Raycast
 SKY_RAY_START = 400.0
 
 
@@ -45,7 +47,8 @@ def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True):
     frame as ``x, z``. Returns ``(ground_y, mesh_name, idall, topograph)``; a miss returns
     ``(0.0, "MISS", 0, None)`` -- the engine's defaultHeight fallback."""
     origin_y = y + (SKY_RAY_START if sky else WALK_RAY_START)
-    max_drop = float("inf") if sky else WALK_RAY_DIST
+    # NO max drop in either mode: the engine passes ff9.rayDistance (2.8) into WMBlock.Raycast
+    # but that parameter is never read -- descent of any height is legal, only the climb gates.
     for name, bm in meshlist:
         V, T, fi = bm.verts, bm.tangents, bm.flat_index
         for t in range(len(fi) // 3):
@@ -69,7 +72,7 @@ def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True):
             if w0 < -1e-9 or w1 < -1e-9 or w2 < -1e-9:
                 continue
             hy = w0*a[1] + w1*b[1] + w2*c[1]
-            if hy > origin_y or (origin_y - hy) > max_drop:
+            if hy > origin_y:
                 continue
             return hy, name, idall, _decode_topo(idall)
     return 0.0, "MISS", 0, None

@@ -48,7 +48,11 @@ DONOR_BLK = (15, 15)                                        # the clean canopy d
 CLEAR = 2.5                                                 # annulus clearance
 SCAN_BAND = CLEAR + 4.0                                     # mains-only zone: dropped + hole-boundary tris
 RING_BAND = CLEAR + 6.5                                     # hole-ring once-edge capture (the proven filter)
-MAX_RISE = 2.2                                              # proven step-law bound (< 2.34375)
+MAX_RISE = 2.25                                             # per-face ceiling (engine 2.34375)
+SAFE_RISE = 2.10                                            # neighborhood lift bound (one step inside)
+LIFT_REACH = 0.9                                            # canopy neighborhood radius for the lift
+S_STEP = 0.65                                               # engine foot step ~0.44/frame + margin
+GATE_CLIMB = 2.30                                           # single-step crossing ceiling (engine 2.34375)
 RIM_MARGIN = 5.0                                            # envelope keeps this far from the coast rim
 kk3 = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))
 
@@ -63,7 +67,8 @@ gnrm = built["world"]["nrm"]
 blocks = sorted(built["blocks"])
 print("blocks:", blocks, flush=True)
 
-# byte-differential: the rebuild must equal the DEPLOYED files exactly (the A/B reference)
+# byte-differential (informational): which deployed blocks match the CLEAN rebuild? A
+# mismatch = a prior carve deploy -- fine, the deploy step below converges by byte-compare.
 import tempfile
 _tmp = Path(tempfile.mkdtemp(prefix="ff9_rehome_ref_"))
 ref_bytes = {}
@@ -72,9 +77,8 @@ for blk, bm in built["blocks"].items():
     ref_bytes[blk] = p.read_bytes()
     dep = MODW / f"r{blk[1]}" / f"Block[{blk[0]}][{blk[1]}] Terrain.ff9mesh"
     assert dep.exists(), f"deployed file missing: {dep}"
-    assert dep.read_bytes() == ref_bytes[blk], \
-        f"rebuild != deployed bytes at {blk} -- the deployed island is NOT this build; stop"
-print("byte-differential: rebuild == deployed for all 5 blocks", flush=True)
+    state = "clean-rebuild" if dep.read_bytes() == ref_bytes[blk] else "prior-carve"
+    print(f"  deployed {blk}: {state}", flush=True)
 
 # ---- 2. donor blob, verbatim, in WORLD frame --------------------------------------------
 don = X.read_block(*DONOR_BLK)
@@ -229,7 +233,12 @@ for tidx, tri in enumerate(gtris):
     for i in tri:
         pos_nrm.setdefault(kk3(gpos[i]), list(gnrm[i]))
 
-# ---- 5. vertical anchor + THE CANOPY STEP LAW --------------------------------------------
+# ---- 5. vertical anchor + THE CANOPY STEP LAW (comprehensive form) ------------------------
+# The engine's climb check is SURFACE-to-SURFACE across ONE STEP (~0.44u/frame on foot):
+# crossing the un-hittable vertical wall, the candidate lands up to a step INSIDE, so the
+# effective climb = the wall jump + one step of interior dome slope. The bench's per-face
+# 2.2 left 0.14u of margin and the dome slope ate it (the island E stuck report). Lift each
+# rim vert against the NEIGHBORHOOD canopy max within LIFT_REACH (one step) at SAFE_RISE.
 ground_med = float(np.median([p[1] for p in hole]))
 rim_med = float(np.median([p[1] for p in rim]))
 DY = ground_med - rim_med
@@ -237,10 +246,12 @@ DY = ground_med - rim_med
 def nearest_ring_y(px, pz):
     return min(hole, key=lambda h: (h[0] - px) ** 2 + (h[2] - pz) ** 2)[1]
 
+interior = [(dv_w[i][0], dv_w[i][1] + DY, dv_w[i][2])
+            for t in blob for i in don.tris[t] if kk3(dv_w[i]) not in rim_set]
 rim_y = {}
 for p in rim_set:
     rim_y[p] = nearest_ring_y(p[0] + DX, p[2] + DZ)
-for t in blob:
+for t in blob:                                             # per-face floor (always applies)
     tri = don.tris[t]
     ks = [kk3(dv_w[i]) for i in tri]
     tops = [dv_w[i][1] + DY for i, k in zip(tri, ks) if k not in rim_set]
@@ -250,6 +261,53 @@ for t in blob:
     for k in ks:
         if k in rim_set and need > rim_y[k]:
             rim_y[k] = need
+# per-STATION lift along each rim edge: the launch pad (the zip surface at the wall base,
+# lerped between the edge's rim verts) must sit within SAFE_RISE of the EXACT canopy surface
+# one step inside every station -- vert-radius neighborhoods miss mid-edge stations on the
+# donor's long (up to 8u) rim edges. Both endpoints lift (lerp-safe, slightly conservative).
+def canopy_y_at(px, pz):
+    """Exact carried-canopy surface height at (px, pz) in the DONOR frame (+DY), or None."""
+    for t in blob:
+        tri = don.tris[t]
+        a, b, c = (dv_w[i] for i in tri)
+        d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
+        if abs(d) < 1e-12:
+            continue
+        w0 = ((b[2]-c[2])*(px-c[0]) + (c[0]-b[0])*(pz-c[2])) / d
+        w1 = ((c[2]-a[2])*(px-c[0]) + (a[0]-c[0])*(pz-c[2])) / d
+        w2 = 1 - w0 - w1
+        if w0 < -1e-9 or w1 < -1e-9 or w2 < -1e-9:
+            continue
+        return w0*a[1] + w1*b[1] + w2*c[1] + DY
+    return None
+
+SAFE_TARGET = SAFE_RISE                                    # pad-to-canopy bound per station
+nrim = len(rim)
+for e0 in range(nrim):
+    p, q = rim[e0], rim[(e0 + 1) % nrim]
+    ex, ez = q[0] - p[0], q[2] - p[2]
+    el = (ex * ex + ez * ez) ** 0.5
+    if el < 1e-6:
+        continue
+    nxi, nzi = -ez / el, ex / el                           # a normal; resolve inward below
+    mx, mz = p[0] + ex * 0.5, p[2] + ez * 0.5
+    if canopy_y_at(mx + nxi * 0.4, mz + nzi * 0.4) is None:
+        nxi, nzi = -nxi, -nzi                              # flip toward the canopy side
+    nst = max(1, int(el / 0.4))
+    for s in range(nst + 1):
+        t01 = s / nst
+        sx, sz = p[0] + ex * t01, p[2] + ez * t01
+        tops = []
+        for dd in (0.15, 0.3, 0.45, 0.6, 0.75):
+            cy = canopy_y_at(sx + nxi * dd, sz + nzi * dd)
+            if cy is not None:
+                tops.append(cy)
+        if not tops:
+            continue
+        need = max(tops) - SAFE_TARGET
+        for k in (p, q):
+            if need > rim_y[k]:
+                rim_y[k] = need
 lifts = [rim_y[p] - nearest_ring_y(p[0] + DX, p[2] + DZ) for p in rim_set]
 print(f"rim lifts vs local ground: max {max(lifts):.2f}u "
       f"({sum(1 for v in lifts if v > 0.01)} of {len(lifts)} lifted)", flush=True)
@@ -542,6 +600,66 @@ for blk in blocks:
         assert nm_ == "Terrain" and topo == 37, "blob centre must ground on canopy topo 37"
 print("placement census: MISS=0 in all blocks", flush=True)
 
+# ---- 9b. THE PERIMETER WALK-IN GATE (the honest oracle for the step law) -------------------
+# Simulate the engine's climb rule around the WHOLE rim on the final assembled meshes: a
+# single foot step (~0.44u/frame; S_STEP with margin) crossing the rim anywhere must climb
+# <= GATE_CLIMB (engine ceiling 2.34375). Ground is sampled at 0.05u along inward transects;
+# every ordered pair within one step gates. Descent is always legal (ff9.rayDistance is dead
+# code in WMBlock.Raycast, source-verified).
+_wv, _wt, _wf = [], [], []
+for blk in blocks:
+    bm = changed[blk]
+    bx, by = blk
+    base = len(_wv)
+    for k in range(bm.vcount):
+        v_ = bm.chan_arrays[X.CH_POS][k]
+        _wv.append((v_[0] + BLOCK * bx, v_[1], v_[2] - BLOCK * (by + 1) + BLOCK))
+        _wt.append(bm.chan_arrays[X.CH_TAN][k])
+    _wf.extend(i + base for i in bm.flat_index)
+class _W:
+    pass
+_w = _W()
+_w.verts, _w.tangents, _w.flat_index = _wv, _wt, _wf
+_wml = [("Terrain", _w)]
+rim_pts = [rimw(p) for p in rim_ord]
+RES = 0.05
+SPAN = 1.2
+NSAMP = int(2 * SPAN / RES) + 1
+WIN = int(S_STEP / RES)
+worst_climb = (0.0, None)
+for e0 in range(len(rim_pts)):
+    a = rim_pts[e0]
+    b = rim_pts[(e0 + 1) % len(rim_pts)]
+    ex, ez = b[0] - a[0], b[2] - a[2]
+    el = (ex * ex + ez * ez) ** 0.5
+    if el < 1e-6:
+        continue
+    nxo, nzo = ez / el, -ex / el                          # edge normal (side resolved below)
+    nst = max(1, int(el / 0.5))
+    for s in range(nst + 1):
+        t01 = s / nst
+        sx, sz = a[0] + ex * t01, a[2] + ez * t01
+        if pip(sx + nxo * 0.8, sz + nzo * 0.8, poly):     # ensure (nxo,nzo) points OUT
+            nxo, nzo = -nxo, -nzo
+        prof = []
+        for k in range(NSAMP):                            # d from +SPAN (outside) to -SPAN (inside)
+            d = SPAN - k * RES
+            hy, nm_, _, _tp = P.place(_wml, sx + nxo * d, sz + nzo * d, sky=True)
+            prof.append(hy if nm_ != "MISS" else None)
+        for i0 in range(NSAMP):                           # single-step crossing pairs
+            if prof[i0] is None:
+                continue
+            for j0 in range(i0 + 1, min(i0 + WIN + 1, NSAMP)):
+                if prof[j0] is None:
+                    continue
+                climb = prof[j0] - prof[i0]
+                if climb > worst_climb[0]:
+                    worst_climb = (climb, (round(sx, 1), round(sz, 1)))
+print(f"perimeter walk-in gate: worst single-step climb {worst_climb[0]:.2f} at "
+      f"{worst_climb[1]} (ceiling {GATE_CLIMB})", flush=True)
+assert worst_climb[0] <= GATE_CLIMB, \
+    f"a rim segment still climbs {worst_climb[0]:.2f} > {GATE_CLIMB} at {worst_climb[1]}"
+
 # ---- 10. offline eyes: atlas alpha over new tris + shaded render ---------------------------
 try:
     from PIL import Image
@@ -639,10 +757,14 @@ except ImportError:
     print("(PIL missing -- atlas gate + render skipped; DO NOT deploy blind)", flush=True)
     raise
 
-# ---- 11. deploy -----------------------------------------------------------------------------
-touched = sorted(b for b in blocks if new_by_block.get(b) or
-                 any(t in drop for t in range(len(gtris)) if gmeta[t][0] == b))
-print(f"blocks with carve changes: {touched}", flush=True)
+# ---- 11. deploy (converge by byte-compare: write every block whose final bytes differ) -------
+final_bytes = {}
+for blk in blocks:
+    p = M.write_ff9mesh(changed[blk], _tmp / f"fin_{blk[0]}_{blk[1]}.ff9mesh")
+    final_bytes[blk] = p.read_bytes()
+touched = sorted(b for b in blocks
+                 if final_bytes[b] != (MODW / f"r{b[1]}" / f"Block[{b[0]}][{b[1]}] Terrain.ff9mesh").read_bytes())
+print(f"blocks whose bytes change: {touched}", flush=True)
 if len(sys.argv) > 1 and sys.argv[1] == "deploy":
     BK.mkdir(exist_ok=True)
     ts = time.strftime("%Y%m%d-%H%M%S")
@@ -651,7 +773,6 @@ if len(sys.argv) > 1 and sys.argv[1] == "deploy":
         shutil.copyfile(dep, BK / f"{dep.name}.{ts}")
         out = M.deploy_override(changed[blk], mod_folder="FF9CustomMap-world", part="Terrain")
         print(f"deployed -> {out} ({len(changed[blk].tris)} tris)", flush=True)
-    # untouched blocks stay byte-identical on disk (proven by the differential up top)
     print("DONE -- F6 world re-entry, teleport 344,-1152, walk INTO and OVER the canopy.")
 else:
     print("dry run only -- re-run with 'deploy' to write.")

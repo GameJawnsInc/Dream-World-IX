@@ -81,12 +81,13 @@ def test_place_first_mesh_wins_terrain_shadows_sea_above():
 
 
 def test_place_walk_ray_window_vs_sky():
-    """Walking: origin y+2.34375, reach 2.8 -- ground above the origin or >2.8 below is unreachable
-    (miss -> 0). Sky mode finds it from any height."""
+    """Walking: origin y+2.34375, INFINITE reach down -- ground above the origin is unreachable
+    (the climb ceiling); any DROP is legal (ff9.rayDistance is dead code in WMBlock.Raycast,
+    source-verified 2026-07-12 -- how canopies/ledges are exitable). Sky finds it from any height."""
     bm = _bm([(_UP, GRASS)])                             # ground at 3.5
     assert P.place([("Terrain", bm)], 2.0, -2.0, y=0.0, sky=False)[1] == "MISS"    # 3.5 > 0+2.34
-    assert P.place([("Terrain", bm)], 2.0, -2.0, y=2.0, sky=False)[0] == 3.5      # within [y-0.46, y+2.34]
-    assert P.place([("Terrain", bm)], 2.0, -2.0, y=8.0, sky=False)[1] == "MISS"    # 4.5 below: > 2.8 drop
+    assert P.place([("Terrain", bm)], 2.0, -2.0, y=2.0, sky=False)[0] == 3.5      # climb 1.5 <= 2.34
+    assert P.place([("Terrain", bm)], 2.0, -2.0, y=8.0, sky=False)[0] == 3.5      # drop 4.5: LEGAL
     assert P.place([("Terrain", bm)], 2.0, -2.0, y=800.0, sky=True)[0] == 3.5
 
 
