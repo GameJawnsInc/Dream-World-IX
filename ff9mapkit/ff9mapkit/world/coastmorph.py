@@ -34,7 +34,7 @@ from collections import Counter, defaultdict
 
 from . import grassland as G
 from . import transplant as TR
-from .extract import decode_id
+from .extract import decode_id, encode_id
 from .island import _delaunay
 
 #: the real terrain grain ceiling (max tri edge); longer fill edges read as stretch
@@ -2925,6 +2925,41 @@ def _shade_gate(reg, water_of, center, label):
                         f"{n} (fact: {'deep' if fact else 'shallow'})")
 
 
+def _strip_pick(es, cell):
+    """The learned-table variant pick for a deep-edge-set (the deterministic cell
+    hash -- the _strip_uvf pick formula, shared by band_convert and the virgin mint)."""
+    variants = TR.EDGESET2STRIP[es]
+    return variants[int(TR._h01(4.0 * cell[0] + 0.3, 4.0 * cell[1] + 2.9)
+                        * len(variants)) % len(variants)]
+
+
+def _strip_emit(gtris, corners, lerps, cell, ri, oname, u_pair, v_rows):
+    """Corner-role strip emission under THE DEFORMED-TILE RECT LAW (band_convert's
+    proven emitter, shared with the virgin mint): the block's own rect floats assigned
+    at nearest-cell-corner roles, inserted verts lerping positionally (the
+    Sutherland-Hodgman signature). Geometry transports verbatim."""
+    if ri not in v_rows:
+        raise ValueError(f"strip row {ri} is not byte-observed in this block -- "
+                         f"no exact floats to emit with")
+    om = TR._dih_maps()[oname]
+    v0, v1 = v_rows[ri]
+    new_uv = {}
+    for k, (p, _uv, _s) in corners.items():
+        a, b = om(*_corner_role(p, cell))
+        new_uv[k] = (u_pair[0] + a * (u_pair[1] - u_pair[0]), v0 + b * (v1 - v0))
+    guard = 0
+    while len(new_uv) < len(corners) + len(lerps) and guard < 8:
+        guard += 1
+        for k, (ka, kb, t_) in lerps.items():
+            if k in new_uv or ka not in new_uv or kb not in new_uv:
+                continue
+            ua, ub = new_uv[ka], new_uv[kb]
+            new_uv[k] = (ua[0] + t_ * (ub[0] - ua[0]), ua[1] + t_ * (ub[1] - ua[1]))
+    if len(new_uv) < len(corners) + len(lerps):
+        raise ValueError(f"a lerp chain in the tile at {cell} never grounds -- refusing")
+    return [[(v[0], v[1], new_uv[_pk(v[0])], v[3]) for v in t3] for t3 in gtris]
+
+
 def band_convert(donor, cell, to_part, *, disc: int = 1, lod: str = "0_1", game=None):
     """RUNG 3, step 1 -- THE ONE-CELL BAND-CONVERSION PROBE: re-band one LATTICE
     water cell of a non-strip band (sea3/sea4) into strip band ``to_part`` and
@@ -3037,31 +3072,10 @@ def band_convert(donor, cell, to_part, *, disc: int = 1, lod: str = "0_1", game=
 
     # ---- emission (block floats; hash-picked variant, the _strip_uvf pick formula)
     def pick(esf, c):
-        variants = TR.EDGESET2STRIP[esf]
-        return variants[int(TR._h01(4.0 * c[0] + 0.3, 4.0 * c[1] + 2.9)
-                            * len(variants)) % len(variants)]
+        return _strip_pick(esf, c)
 
     def emit_group(gtris, corners, lerps, c, ri, oname):
-        if ri not in v_rows:
-            raise ValueError(f"strip row {ri} is not byte-observed in this block -- "
-                             f"no exact floats to emit with")
-        om = TR._dih_maps()[oname]
-        v0, v1 = v_rows[ri]
-        new_uv = {}
-        for k, (p, _uv, _s) in corners.items():
-            a, b = om(*_corner_role(p, c))
-            new_uv[k] = (u_pair[0] + a * (u_pair[1] - u_pair[0]), v0 + b * (v1 - v0))
-        guard = 0
-        while len(new_uv) < len(corners) + len(lerps) and guard < 8:
-            guard += 1
-            for k, (ka, kb, t_) in lerps.items():
-                if k in new_uv or ka not in new_uv or kb not in new_uv:
-                    continue
-                ua, ub = new_uv[ka], new_uv[kb]
-                new_uv[k] = (ua[0] + t_ * (ub[0] - ua[0]), ua[1] + t_ * (ub[1] - ua[1]))
-        if len(new_uv) < len(corners) + len(lerps):
-            raise ValueError(f"a lerp chain in the tile at {c} never grounds -- refusing")
-        return [[(v[0], v[1], new_uv[_pk(v[0])], v[3]) for v in t3] for t3 in gtris]
+        return _strip_emit(gtris, corners, lerps, c, ri, oname, u_pair, v_rows)
 
     ri_c, oname_c = pick(es_c, (cx, cz))
     corners_c = {}
@@ -4021,6 +4035,1631 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
     return [TR.DropTris("terrain", sand + ter_drop),
             TR.EmitTris("terrain", sand_emit + ter_emit),
             TR.DropTris("beach1", foam_all), TR.EmitTris("beach1", foam_emit)]
+
+
+def _apply_pre(tris_by_part, tweaks):
+    """Apply a PRE tweak list (VertexDisplace / DropTris / EmitTris) to a loaded
+    world-tri soup: the virgin mint composes AFTER earlier morphs (e.g. a bank
+    reshape), so it must compute on the geometry those tweaks produce; the caller
+    then deploys pre + mint together (tweaks ride the transplant in order)."""
+    out = {p: [list(t3) for t3 in ts] for p, ts in tris_by_part.items()}
+    for tw in tweaks:
+        if isinstance(tw, TR.VertexDisplace):
+            for p, ts in out.items():
+                if tw.part is not None and p != tw.part:
+                    continue
+                for i, t3 in enumerate(ts):
+                    if not any(tw._key(v[0]) in tw.moves for v in t3):
+                        continue
+                    nt = []
+                    for (pos, nrm, uv, tan) in t3:
+                        d = tw.moves.get(tw._key(pos))
+                        if d is not None:
+                            pos = (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
+                        nt.append((pos, nrm, uv, tan))
+                    ts[i] = nt
+        elif isinstance(tw, TR.DropTris):
+            out[tw.part] = [t3 for t3 in out[tw.part]
+                            if tw._key_set(t3) not in tw.keys]
+        elif isinstance(tw, TR.EmitTris):
+            out[tw.part] = out[tw.part] + [list(t3) for t3 in tw.tris]
+        else:
+            raise ValueError(f"pre tweak {type(tw).__name__} is not simulatable -- "
+                             f"the mint composes after VertexDisplace/DropTris/"
+                             f"EmitTris only")
+    return out
+
+
+def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
+               along=None, disc: int = 1, lod: str = "0_1", game=None):
+    """THE BANK RESHAPE -- the virgin mint's site-preparation verb: lower a
+    mesa/cliff-top bank into a beach-capable profile (RESHAPE stock verts, never
+    overlay). Every terrain vert within ``radius`` of ``center`` (plan) sinks to at
+    most ``min(shore_slope * d_shore, cap)`` -- a gentle rise from the pinned
+    waterline -- blended smoothly to zero effect at the radius (the untouched mesa
+    keeps its height beyond, reading as a natural cove shoulder). Water-welded
+    verts and block-frame verts never move; ground UVs/normals stay verbatim (the
+    displacement semantics the cliff/beach bows proved), while touched topo-58
+    WALL faces re-pin V per column under the lip anchor (crest keeps the painted
+    lip row; the base crops the deepest strip rows at the column's own density;
+    the V-IN-BAND gate polices the byte-derived band). Returns
+    ``[DropTris, VertexDisplace, EmitTris]`` for the transplant/fuse tweak list
+    (and the mint's ``pre=``)."""
+    parts = ("terrain", "beach1", "sea2", "sea1", "sea3", "sea5", "sea4")
+    tris = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game)
+            for p in parts}
+    water_k = {_pk(v[0]) for p in parts[1:] for t3 in tris[p] for v in t3}
+    fx0, fx1 = 64.0 * donor[0], 64.0 * donor[0] + 64.0
+    fz0, fz1 = -64.0 * donor[1] - 64.0, -64.0 * donor[1]
+    shore = []
+    tverts = {}
+    for t3 in tris["terrain"]:
+        for v in t3:
+            k = _pk(v[0])
+            tverts.setdefault(k, v[0])
+            if k in water_k:
+                shore.append(v[0])
+    if not shore:
+        raise ValueError(f"donor {donor} has no shoreline to profile the bank from")
+    moves = {}
+    for k, p in tverts.items():
+        if k in water_k:
+            continue
+        if along is not None:
+            # corridor mode: the falloff distance runs from the beach CHORD
+            # segment, so the sink hugs the cove and the far rim keeps its
+            # natural walls (a small islet has no room for a radial reach)
+            (ax_, az_), (bx_, bz_) = along
+            ex_, ez_ = bx_ - ax_, bz_ - az_
+            el2_ = ex_ * ex_ + ez_ * ez_ or 1.0
+            t_ = max(0.0, min(1.0, ((p[0] - ax_) * ex_
+                                    + (p[2] - az_) * ez_) / el2_))
+            r = math.hypot(p[0] - (ax_ + t_ * ex_), p[2] - (az_ + t_ * ez_))
+        else:
+            r = math.hypot(p[0] - center[0], p[2] - center[1])
+        if r >= radius:
+            continue
+        if min(p[0] - fx0, fx1 - p[0], p[2] - fz0, fz1 - p[2]) < 1.5:
+            continue
+        d = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in shore)
+        # plateau falloff: full effect inside, rolling off only over the outer
+        # band (an islet is water-bounded -- the roll-off matters only where the
+        # mesa continues past the radius)
+        band = min(6.0, radius / 3.0)
+        t = max(0.0, min(1.0, (radius - r) / band))
+        w = t * t * (3.0 - 2.0 * t)
+        tgt = min(shore_slope * d, cap)
+        if p[1] > tgt + 1e-6:
+            dy = (tgt - p[1]) * w
+            if dy < -1e-4:
+                moves[p] = (0.0, dy, 0.0)
+    if not moves:
+        raise ValueError("bank_lower moves nothing -- the bank already fits the "
+                         "profile (or center/radius miss it)")
+    keyed = {_pk(p) for p in moves}
+    # a y-only sink cannot fold plan geometry and only FLATTENS 3D relief; the
+    # remaining hazard is a plan-degenerate touched tri (a vertical wall face,
+    # which a sink would z-fight) -- refuse those
+    from .mesh import _poly_area2_xz
+    for t3 in tris["terrain"]:
+        if any(_pk(v[0]) in keyed for v in t3) and _poly_area2_xz(t3) < 1e-6:
+            raise ValueError("bank_lower touches a plan-degenerate (vertical) tri "
+                             "-- a wall face; shrink the radius off it")
+    # CLIFF V NEVER DRAGS + THE LIP ANCHOR, per COLUMN (the corner-role
+    # vocabulary): a real wall's V is a CORNER ASSIGNMENT, never a function of y
+    # -- every crest vert carries the painted lip row and every base vert the
+    # base row, whatever the face's height (byte-checked: crest 0.8926 / base
+    # 0.9229 exact on every face 0.9..5.5u tall across (10,18)/(9,17)/(7,17)/
+    # (16,17)/(3,13); the strip never wraps). A sink therefore keeps every
+    # crest v VERBATIM (the lip survives -- no hard/bevel alternation) and
+    # re-pins each BASE vert along its own column at the column's original
+    # density: v = crest_v + (base_v - crest_v) * h_new/h_old -- the face sheds
+    # its DEEPEST rows (the free-base law), strata keep their real spacing (the
+    # accepted round-2 read), and v stays inside the byte-derived band by
+    # construction (h_new <= h_old). The map is per-VERT over the whole touched
+    # wall group, so faces sharing a column vert agree exactly -- a per-FACE
+    # affine cannot do this (the round-3/round-4 lesson: per-face shifts seam at
+    # shared columns and push v outside the rock strip = white gashes).
+    # Mechanically: drop the original face, emit it moved + re-pinned (drop
+    # FIRST so the keys still match; emissions bypass the displacement).
+    def _dy(pos):
+        d = moves.get(tuple(pos))
+        if d is None:
+            k = _pk(pos)
+            d = next((dd for pp, dd in moves.items() if _pk(pp) == k), None)
+        return d[1] if d is not None else 0.0
+    topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
+    band = [t3 for t3 in tris["terrain"] if topo(t3) == 58]
+    wall_drop, wall_emit = [], []
+    if band and any(_pk(v[0]) in keyed for t3 in band for v in t3):
+        # crest vs base per vert + column adjacency, decoded over the block's
+        # WHOLE rock band (a touched face's side-edge tri may itself be
+        # untouched -- the pairing must still find each base vert's true column
+        # crest, or it grabs a diagonal partner and crops wrong). The strip
+        # carries exactly two painted rows; no interior wall verts exist
+        # (walls are one quad tall map-wide).
+        pos_uv, kind_of = {}, {}
+        adj_w = defaultdict(set)
+        allv = [v[2][1] for t3 in band for v in t3]
+        vmid = (min(allv) + max(allv)) / 2.0
+        for t3 in band:
+            ks = [_pk(v[0]) for v in t3]
+            for (pos, nrm, uv, tan), k in zip(t3, ks):
+                pos_uv.setdefault(k, (pos, uv))
+                kind_of[k] = "crest" if uv[1] < vmid else "base"
+            for i in range(3):
+                adj_w[ks[i]].add(ks[(i + 1) % 3])
+                adj_w[ks[(i + 1) % 3]].add(ks[i])
+        crop = {}                # key -> (column crest v, frac); frac<1 = crop
+        for k, kd_ in kind_of.items():
+            if kd_ == "crest":
+                continue                            # the lip row, verbatim
+            pos, uv = pos_uv[k]
+            crests = [c for c in adj_w[k] if kind_of.get(c) == "crest"]
+            if not crests:
+                continue                            # no column partner: verbatim
+            c = min(crests, key=lambda c: (pos_uv[c][0][0] - pos[0]) ** 2
+                    + (pos_uv[c][0][2] - pos[2]) ** 2)
+            cpos, cuv = pos_uv[c]
+            h_old = cpos[1] - pos[1]
+            if h_old <= 1e-6:
+                continue
+            h_new = (cpos[1] + _dy(cpos)) - (pos[1] + _dy(pos))
+            frac = max(0.0, min(1.0, h_new / h_old))
+            if frac < 1.0:
+                crop[k] = (cuv[1], frac)
+        # re-emit every band face whose verts change (position OR v): a quad tri
+        # holding a cropped base vert but not the moved crest would otherwise
+        # survive verbatim and seam against its re-emitted neighbours. The crop
+        # applies to each instance's OWN v (duplicate positions may carry
+        # different uvs -- key-by-index law).
+        for t3 in band:
+            ks = [_pk(v[0]) for v in t3]
+            if not any(k in keyed or k in crop for k in ks):
+                continue
+            nt = []
+            for (pos, nrm, uv, tan), k in zip(t3, ks):
+                if k in crop:
+                    cv, frac = crop[k]
+                    uv = (uv[0], cv + (uv[1] - cv) * frac)
+                dy = _dy(pos)
+                if dy:
+                    pos = (pos[0], pos[1] + dy, pos[2])
+                nt.append((pos, nrm, uv, tan))
+            wall_drop.append(list(t3))
+            wall_emit.append(nt)
+        # THE V-IN-BAND GATE (permanent): every emitted wall v must sit inside
+        # the band's byte-derived strip rows -- the round-4 gash class (v
+        # escaping into neighbouring atlas rows) can never pass offline again
+        v_lo, v_hi = min(allv) - 1e-4, max(allv) + 1e-4
+        for nt in wall_emit:
+            for (_, _, uv, _) in nt:
+                if not (v_lo <= uv[1] <= v_hi):
+                    raise ValueError(
+                        f"V-IN-BAND GATE: an emitted wall v {uv[1]:.4f} escapes "
+                        f"the rock strip's band [{v_lo + 1e-4:.4f},"
+                        f"{v_hi - 1e-4:.4f}] -- off-strip texels read as white "
+                        f"gashes/grass in-game")
+    n_inst = sum(_pk(v[0]) in keyed
+                 for p in parts for t3 in tris[p] for v in t3)
+    n_inst -= sum(_pk(v[0]) in keyed for t3 in wall_drop for v in t3)
+    out = []
+    if wall_drop:
+        out.append(TR.DropTris("terrain", wall_drop))
+    out.append(TR.VertexDisplace(moves=moves, expected=n_inst))
+    if wall_emit:
+        out.append(TR.EmitTris("terrain", wall_emit))
+    return out
+
+
+#: THE VIRGIN-MINT ENVELOPES (rung 3, 2026-07-11). Column widths: the map-wide foam
+#: run-column census (608 constant-v run edges over all 40 beach blocks: 0.92..6.27u,
+#: median 4.01 -- short columns are real grammar). Slope: MINT_SLOPE's ceiling widened
+#: to the (9,17) beach's own cap column (0.66 rise/run); PINNED-real cap ends bypass
+#: the synth envelopes entirely (transported real geometry is lawful by construction).
+#: Separation: THE RUNG-2 WINDOW STUDY's grass-tongue law (min real inter-beach
+#: separation 4.06u, the (3,12) pair) -- judged vert-to-segment BOTH ways.
+VIRGIN_COL = (0.9, 6.3)
+VIRGIN_SLOPE = (0.097, 0.68)
+BEACH_SEP = 4.06
+#: the chain-height priors (the rung-2 window study, (7,17) real chains)
+S_MID_Y = 0.75
+W_Y = 0.195
+
+
+def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
+                pins_from=None, wash_reach=4.0, disc: int = 1,
+                lod: str = "0_1", game=None):
+    """BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT: author a NEW beach on a bare grass
+    coast, no donor beach to pin to. ``start``/``end`` are world ``(x, z)`` anchors for
+    the two cap pinch points on the shoreline (snapped to a real shore vert within
+    0.6u, else inserted on the shore edge). Everything else is synthesized from the
+    window's grass edge and gated:
+
+    * the chains: S rides the real shoreline (plan) with the prior height profile
+      (S ends = the real pinch verts, mid eased to ~0.75); L pushes landward onto the
+      berm (``width`` target, conformed to the painted surface, slope-gated; a cap
+      end pins to the flanking coast's real terminal crease vert when one exists --
+      the real beach-end grammar); W pushes seaward (``swash`` target) into the wash,
+      snapping to a real multi-band convergence vert when one is in reach (the ring
+      weld) and otherwise auto-tilting inward until THE GRASS-TONGUE LAW clears.
+    * the berm CLIPS at the assembly footprint (the rung-2a machinery: convex-tri BSP
+      in real bytes, partition/coverage/steep-face/object-anchor ledgers, merged-loop
+      re-triangulation, canonical snaps, land-edge fan subdivision).
+    * touched WATER tiles drop whole and their outside fragments re-emit with
+      clip-lerped uvs (exact affine continuation -- ``_clip_edge`` lerps the full
+      vertex tuple), boundary verts lifted onto the new waterline.
+    * sand + foam emit by the proven language walks (run stamps, P/Q hash picks, BL
+      cap fades), fan-subdividing any boundary edge a fragment vert lands on
+      (THE T-VERTEX LAW).
+    * the ring re-bands where the mint leaves sea3 fronting wash ({2,3} is
+      off-language): sea3 quads flip to sea1 by corner-role assignment (THE
+      DEFORMED-TILE RECT LAW -- conforming quads included, the band_convert emitter)
+      and affected strip neighbours re-emit under their new deep-edge-sets.
+    * master gates: the UNION CRACK GATE (once-edges of everything dropped == of
+      everything emitted), the T-VERTEX gate over the touched neighbourhood, the
+      lattice adjacency law, the shade-agreement scan, per-tri language re-decodes,
+      the wash-width march, and the separation law against every existing beach."""
+    from .mesh import _clip_edge, _poly_area2_xz
+
+    parts = ("terrain", "object", "beach1", "sea2", "sea1", "sea3", "sea5", "sea4")
+    water_parts = ("sea2", "sea1", "sea3", "sea5", "sea4")
+    tris = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game) for p in parts}
+    if pre:
+        tris = _apply_pre(tris, pre)
+    terr = tris["terrain"]
+    foam_all = tris["beach1"]
+
+    def topo(t3):
+        return decode_id(int(round(t3[0][3][0])))["topograph"]
+    sand = [t3 for t3 in terr if topo(t3) == 31]
+    other = [t3 for t3 in terr if topo(t3) != 31]
+    # the language pins (foam family + sand v-pins) come from the block's own
+    # beach, or -- on a beach-less block -- byte-read from a reference block via
+    # ``pins_from`` (the sand/foam atlas is the ONE world texture)
+    if pins_from is not None:
+        pin_terr = TR.world_tris(*pins_from, "terrain", disc=disc, lod=lod,
+                                 game=game)
+        pin_foam = TR.world_tris(*pins_from, "beach1", disc=disc, lod=lod,
+                                 game=game)
+        pin_sand = [t3 for t3 in pin_terr if topo(t3) == 31]
+    else:
+        pin_foam, pin_sand = foam_all, sand
+    if not pin_foam:
+        raise ValueError(f"donor {donor} carries no beach1 -- pass pins_from=a "
+                         f"beach block to mint on a beach-less coast")
+    if not pin_sand:
+        raise ValueError(f"no sand band to read the mint pins from -- pass "
+                         f"pins_from=a beach block")
+    family = _foam_family(pin_foam)
+    if family is None:
+        raise ValueError("no lawful foam run family decodes in the pins block")
+    run_pins = cap_pins = None
+    for t3 in pin_sand:
+        d = _sand_tri_decode(t3)
+        if d is None:
+            continue
+        vs = sorted({round(v[2][1], 4) for v in t3})
+        if d[0] == "run" and run_pins is None and len(vs) == 2:
+            run_pins = vs
+        if d[0] == "cap" and cap_pins is None and len(vs) == 2:
+            cap_pins = vs
+    if run_pins is None or cap_pins is None:
+        raise ValueError("the pins block's sand carries no run+cap pins")
+
+    # --- the virgin shoreline graph: terrain boundary edges welded to open water ---
+    water_of_k = defaultdict(set)
+    wpos = {}
+    for p in water_parts:
+        for t3 in tris[p]:
+            for v in t3:
+                water_of_k[_pk(v[0])].add(p)
+                wpos.setdefault(_pk(v[0]), v[0])
+    foam_k = {_pk(v[0]) for t3 in foam_all for v in t3}
+    e_count = defaultdict(int)
+    pos_of = {}
+    for t3 in terr:
+        ps = [v[0] for v in t3]
+        for v in t3:
+            pos_of.setdefault(_pk(v[0]), v[0])
+        for i in range(3):
+            e_count[frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3])))] += 1
+    shore_adj = defaultdict(set)
+    for e, c in e_count.items():
+        if c != 1 or len(e) != 2:
+            continue
+        a, b = tuple(e)
+        if a in water_of_k and b in water_of_k:
+            shore_adj[a].add(b)
+            shore_adj[b].add(a)
+    if not shore_adj:
+        raise ValueError(f"donor {donor} has no shoreline (terrain boundary welded "
+                         f"to water)")
+
+    def _host(anchor):
+        """-> (position, snapped_key | None, host_edge | None) for a pinch anchor."""
+        ax, az = float(anchor[0]), float(anchor[1])
+        bk = min(shore_adj, key=lambda k: (pos_of[k][0] - ax) ** 2
+                 + (pos_of[k][2] - az) ** 2)
+        bp = pos_of[bk]
+        if math.hypot(bp[0] - ax, bp[2] - az) <= 0.6:
+            return bp, bk, None
+        best = None
+        for a in shore_adj:
+            for b in shore_adj[a]:
+                pa, pb = pos_of[a], pos_of[b]
+                ex, ez = pb[0] - pa[0], pb[2] - pa[2]
+                el2 = ex * ex + ez * ez or 1.0
+                t = max(0.0, min(1.0, ((ax - pa[0]) * ex + (az - pa[2]) * ez) / el2))
+                qx, qz = pa[0] + t * ex, pa[2] + t * ez
+                d2 = (ax - qx) ** 2 + (az - qz) ** 2
+                if best is None or d2 < best[0]:
+                    best = (d2, (a, b), t)
+        if best is None or best[0] > 1.0:
+            raise ValueError(f"anchor {tuple(anchor)} is off the shoreline -- pick a "
+                             f"point on the coast")
+        (a, b), t = best[1], best[2]
+        pa, pb = pos_of[a], pos_of[b]
+        return ((pa[0] + t * (pb[0] - pa[0]), pa[1] + t * (pb[1] - pa[1]),
+                 pa[2] + t * (pb[2] - pa[2])), None, (a, b))
+
+    posA, keyA, edgeA = _host(start)
+    posB, keyB, edgeB = _host(end)
+
+    # BFS the shoreline between the two pinch hosts
+    fromA = {keyA} if keyA else set(edgeA)
+    fromB = {keyB} if keyB else set(edgeB)
+    prev = {k: None for k in fromA}
+    queue = list(fromA)
+    hit = None
+    while queue and hit is None:
+        k = queue.pop(0)
+        if k in fromB:
+            hit = k
+            break
+        for nk in shore_adj[k]:
+            if nk not in prev:
+                prev[nk] = k
+                queue.append(nk)
+    if hit is None:
+        raise ValueError("start and end do not lie on one connected shoreline")
+    path = [hit]
+    while prev[path[-1]] is not None:
+        path.append(prev[path[-1]])
+    path.reverse()                                  # A-side ... B-side keys
+    if edgeA is not None and len(path) > 1 and path[0] not in edgeA:
+        path.insert(0, next(k for k in edgeA if k in shore_adj[path[0]]))
+    S_poly = [posA] + [pos_of[k] for k in path
+                       if _pk(posA) != k and _pk(posB) != k] + [posB]
+    # drop path verts that sit outside the pinch span (behind an inserted pinch)
+    def _along(p, a, b):
+        ex, ez = b[0] - a[0], b[2] - a[2]
+        return ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / (ex * ex + ez * ez or 1.0)
+    S_poly = [S_poly[0]] + [p for p in S_poly[1:-1]
+                            if 0.02 < _along(p, posA, posB) < 0.98] + [S_poly[-1]]
+    for p in S_poly[1:-1]:
+        front = water_of_k.get(_pk(p), set())
+        if not front <= {"sea1", "sea2", "sea3", "sea5"}:
+            raise ValueError(f"shore vert ({p[0]:.1f},{p[2]:.1f}) fronts "
+                             f"{sorted(front)} -- a sea4 plunge coast has no "
+                             f"lawful ladder (sea5 interposition is out of scope)")
+        if _pk(p) in foam_k:
+            raise ValueError(f"shore vert ({p[0]:.1f},{p[2]:.1f}) welds an existing "
+                             f"beach -- not a virgin window")
+
+    # --- columns: equal-arc resample inside the real column-width envelope ---
+    arcs = [0.0]
+    for p, q in zip(S_poly, S_poly[1:]):
+        arcs.append(arcs[-1] + math.hypot(q[0] - p[0], q[2] - p[2]))
+    acc = arcs[-1]
+    ncol = max(3, int(round(acc / 3.5)))
+    while ncol > 3 and acc / ncol < VIRGIN_COL[0] + 0.15:
+        ncol -= 1
+    if not (VIRGIN_COL[0] <= acc / ncol <= VIRGIN_COL[1]):
+        raise ValueError(f"column width {acc / ncol:.2f}u (arc {acc:.1f}u / {ncol} "
+                         f"columns) is outside the real along-shore envelope "
+                         f"{VIRGIN_COL} -- move the anchors")
+    n = ncol + 1
+
+    def at_arc(s):
+        for i in range(len(arcs) - 1):
+            if s <= arcs[i + 1] or i == len(arcs) - 2:
+                t = (s - arcs[i]) / max(arcs[i + 1] - arcs[i], 1e-9)
+                a, b = S_poly[i], S_poly[i + 1]
+                return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]),
+                        a[2] + t * (b[2] - a[2]))
+    S_base = [S_poly[0]] + [at_arc(acc * i / ncol) for i in range(1, ncol)] \
+        + [S_poly[-1]]
+
+    def surf_y(x, z):
+        for t3 in other:
+            if _pip_xz(x, z, t3):
+                (a, b, c) = (v[0] for v in t3)
+                d_ = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])
+                if abs(d_) < 1e-9:
+                    continue
+                w1 = ((x - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (z - a[2])) / d_
+                w2 = ((b[0] - a[0]) * (z - a[2]) - (x - a[0]) * (b[2] - a[2])) / d_
+                return a[1] + w1 * (b[1] - a[1]) + w2 * (c[1] - a[1])
+        return None
+
+    # per-column seaward normal; the SIGN comes from the painted-terrain side (a
+    # narrow peninsula has water both ways -- a water-mass mean can flip it)
+    normals = []
+    for i in range(n):
+        a = S_base[max(i - 1, 0)]
+        b = S_base[min(i + 1, n - 1)]
+        tx, tz = b[0] - a[0], b[2] - a[2]
+        tl = math.hypot(tx, tz) or 1.0
+        nx, nz = tz / tl, -tx / tl
+        p = S_base[i]
+        sign = None
+        for off in (0.6, 1.2):
+            land_pos = surf_y(p[0] - nx * off, p[2] - nz * off) is not None
+            land_neg = surf_y(p[0] + nx * off, p[2] + nz * off) is not None
+            if land_pos != land_neg:
+                sign = 1.0 if land_pos else -1.0
+                break
+        if sign is None:
+            raise ValueError(f"column {i}: cannot orient the shore normal at "
+                             f"({p[0]:.1f},{p[2]:.1f}) -- terrain on both sides?")
+        normals.append((nx * sign, nz * sign))
+
+    def plan(p, q):
+        return math.hypot(p[0] - q[0], p[2] - q[2])
+
+    # THE GRASS-TONGUE LAW helpers: the other beaches' assembly verts + edges
+    their_v = {}
+    for t3 in list(foam_all) + list(sand):
+        for v in t3:
+            their_v.setdefault(_pk(v[0]), v[0])
+    their_e = []
+    for t3 in list(foam_all) + list(sand):
+        ps = [v[0] for v in t3]
+        for i in range(3):
+            their_e.append((ps[i], ps[(i + 1) % 3]))
+
+    def _pt_seg(p, a, b):
+        ex, ez = b[0] - a[0], b[2] - a[2]
+        el2 = ex * ex + ez * ez or 1.0
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / el2))
+        return math.hypot(p[0] - (a[0] + t * ex), p[2] - (a[2] + t * ez))
+
+    def _sep(a, b=None):
+        """Min plan distance from vert ``a`` (or segment ``a-b``) to the other
+        beaches' assemblies (verts + edges, both ways)."""
+        best = min((_pt_seg(a, qa, qb) for qa, qb in their_e), default=9e9)
+        best = min(best, min((plan(a, q) for q in their_v.values()), default=9e9))
+        if b is not None:
+            best = min(best, _sep(b))
+            for q in their_v.values():
+                best = min(best, _pt_seg(q, a, b))
+        return best
+
+    # --- cap L ends: pin the flanking coast's real terminal crease when it exists ---
+    tadj = defaultdict(set)
+    for t3 in terr:
+        ps = [v[0] for v in t3]
+        for i in range(3):
+            a, b = _pk(ps[i]), _pk(ps[(i + 1) % 3])
+            tadj[a].add(b)
+            tadj[b].add(a)
+
+    def _cap_L(end):
+        pinch = S_base[0] if end == 0 else S_base[-1]
+        key = keyA if end == 0 else keyB
+        nx, nz = normals[0 if end == 0 else n - 1]
+        if key is not None:
+            best = None
+            for nk in tadj.get(key, ()):
+                q = pos_of.get(nk)
+                if q is None or nk in water_of_k or q[1] < 0.6:
+                    continue
+                dx, dz = q[0] - pinch[0], q[2] - pinch[2]
+                d = math.hypot(dx, dz)
+                if not (0.4 <= d <= 6.6):
+                    continue
+                if (dx * nx + dz * nz) / d > -0.2:
+                    continue
+                if best is None or d < best[0]:
+                    best = (d, q)
+            if best is not None:
+                return best[1], True
+        w = max(width, MINT_BAND_W[0])
+        while w <= MINT_BAND_W[1]:
+            px, pz = pinch[0] - nx * w, pinch[2] - nz * w
+            y = surf_y(px, pz)
+            if y is None:
+                break
+            if (y - pinch[1]) / w <= VIRGIN_SLOPE[1] - 0.02:
+                return (px, y, pz), False
+            w += 0.2
+        raise ValueError(f"cap end {end}: no lawful band width -- the berm is too "
+                         f"steep for the slope envelope; move the anchor")
+
+    capL = (_cap_L(0), _cap_L(1))
+
+    # --- cap W ends: snap to a real multi-band convergence vert, else synthesize
+    # with an inward tilt until the grass-tongue law clears (real cap edges tilt) ---
+    def _cap_W(end):
+        pinch = S_base[0] if end == 0 else S_base[-1]
+        i0 = 0 if end == 0 else n - 1
+        nx, nz = normals[i0]
+        tgt = (pinch[0] + nx * swash, pinch[2] + nz * swash)
+        best = None
+        for k, ps in water_of_k.items():
+            if len(ps) < 2 or k in foam_k:
+                continue
+            q = wpos[k]
+            d = math.hypot(q[0] - tgt[0], q[2] - tgt[1])
+            if d <= 1.2 and (best is None or d < best[0]):
+                best = (d, q)
+        if best is not None:
+            return best[1], True
+        j = S_base[min(i0 + 1, n - 1)] if end == 0 else S_base[max(i0 - 1, 0)]
+        tl = plan(pinch, j) or 1.0
+        tx, tz = (j[0] - pinch[0]) / tl, (j[2] - pinch[2]) / tl   # inward tangent
+        for sw in (max(MINT_SWASH[0] + 0.2, swash - 1.1), swash):
+            for tilt in [0.25 * k2 for k2 in range(11)]:
+                cx_ = pinch[0] + nx * sw + tx * tilt
+                cz_ = pinch[2] + nz * sw + tz * tilt
+                cand = (cx_, W_Y, cz_)
+                if _sep(cand, pinch) >= BEACH_SEP:
+                    return cand, False
+        raise ValueError(f"cap end {end}: no W end clears the grass-tongue law "
+                         f"({BEACH_SEP}u) -- the window is too close to a beach")
+
+    capW = (_cap_W(0), _cap_W(1))
+
+    # --- the chains ---
+    w_end = (plan(capL[0][0], S_base[0]), plan(capL[1][0], S_base[-1]))
+    sw_end = (plan(capW[0][0], S_base[0]), plan(capW[1][0], S_base[-1]))
+    S, L, W = [], [], []
+    for i in range(n):
+        t = i / (n - 1.0)
+        base = S_base[i]
+        if i in (0, n - 1):
+            S.append(base)
+        else:
+            yl = S_base[0][1] + (S_base[-1][1] - S_base[0][1]) * t
+            S.append((base[0], yl + (S_MID_Y - yl) * math.sin(math.pi * t) ** 2,
+                      base[2]))
+    for i in range(n):
+        t = i / (n - 1.0)
+        nx, nz = normals[i]
+        if i == 0:
+            L.append(capL[0][0])
+            W.append(capW[0][0])
+            continue
+        if i == n - 1:
+            L.append(capL[1][0])
+            W.append(capW[1][0])
+            continue
+        bw = w_end[0] + (w_end[1] - w_end[0]) * t
+        bw = bw + (float(width) - bw) * math.sin(math.pi * t) ** 2
+        px, pz = S[i][0] - nx * bw, S[i][2] - nz * bw
+        y = surf_y(px, pz)
+        if y is None:
+            raise ValueError(f"column {i}: the land chain leaves the painted berm at "
+                             f"({px:.1f},{pz:.1f}) -- reduce width")
+        L.append((px, y, pz))
+        sw = sw_end[0] + (sw_end[1] - sw_end[0]) * t
+        sw = sw + (float(swash) - sw) * math.sin(math.pi * t) ** 2
+        W.append((S[i][0] + nx * sw, W_Y, S[i][2] + nz * sw))
+
+    # --- chain gates ---
+    for i in range(n):
+        bw, sw = plan(L[i], S[i]), plan(S[i], W[i])
+        pinned = (i == 0 and capL[0][1]) or (i == n - 1 and capL[1][1])
+        if not pinned:
+            if not (MINT_BAND_W[0] - 0.05 <= bw <= MINT_BAND_W[1] + 0.05):
+                raise ValueError(f"column {i}: band width {bw:.2f}u is outside "
+                                 f"{MINT_BAND_W}")
+            sl = abs(L[i][1] - S[i][1]) / max(bw, 1e-6)
+            if not (VIRGIN_SLOPE[0] - 0.02 <= sl <= VIRGIN_SLOPE[1] + 0.02):
+                raise ValueError(f"column {i}: band slope {sl:.2f} is outside "
+                                 f"{VIRGIN_SLOPE}")
+        if not (MINT_SWASH[0] - 0.05 <= sw <= MINT_SWASH[1] + 0.05):
+            raise ValueError(f"column {i}: swash width {sw:.2f}u is outside "
+                             f"{MINT_SWASH}")
+    for ch in (S, W):
+        for i in range(n - 1):
+            cw = plan(ch[i], ch[i + 1])
+            if not (VIRGIN_COL[0] - 0.05 <= cw <= VIRGIN_COL[1] + 0.05):
+                raise ValueError(f"column edge {i} spans {cw:.2f}u -- outside the "
+                                 f"along-shore envelope {VIRGIN_COL}")
+    # THE GRASS-TONGUE LAW over the whole assembly boundary
+    bounds = [(L[i], L[i + 1]) for i in range(ncol)] \
+        + [(W[i], W[i + 1]) for i in range(ncol)] \
+        + [(L[0], S[0]), (S[0], W[0]), (L[-1], S[-1]), (S[-1], W[-1])]
+    for a, b in bounds:
+        d = _sep(a, b)
+        if d < BEACH_SEP - 1e-6:
+            raise ValueError(f"THE GRASS-TONGUE LAW: the minted assembly passes "
+                             f"{d:.2f}u from an existing beach (< {BEACH_SEP}) near "
+                             f"({a[0]:.1f},{a[2]:.1f}) -- move the anchors")
+
+    import os
+    if os.environ.get("FF9_VIRGIN_DEBUG"):
+        for nm, ch in (("L", L), ("S", S), ("W", W)):
+            print(f"[debug] {nm}: " + " ".join(
+                f"({p[0]:.2f},{p[1]:.2f},{p[2]:.2f})" for p in ch))
+    # --- the footprint (the rung-2a strip machinery, reflex-aware: a pinned real
+    # crease-base pair can make a cap quad REFLEX at the corner -- only ONE diagonal
+    # is interior; the wrong one spills the footprint into the flanking wall) ---
+    strip_polys = []
+    quad_diag = {}                       # (kind, i) -> 0 (q0-q2) | 1 (q1-q3)
+    quad_forced = set()                  # reflex cap quads: only one diagonal valid
+
+    def _tri_a2(tri2):
+        return sum(tri2[j][0] * tri2[(j + 1) % 3][1]
+                   - tri2[(j + 1) % 3][0] * tri2[j][1] for j in range(3))
+
+    for i in range(ncol):
+        for kind, quad in (("sand", (L[i], L[i + 1], S[i + 1], S[i])),
+                           ("foam", (S[i], S[i + 1], W[i + 1], W[i]))):
+            q = [(p[0], p[2]) for p in quad]
+            q = [p for j, p in enumerate(q)
+                 if abs(p[0] - q[j - 1][0]) > 1e-9 or abs(p[1] - q[j - 1][1]) > 1e-9]
+            if len(q) < 3:
+                continue
+            if len(q) == 3:
+                splits = {0: [q]}
+            else:
+                splits = {0: [q[:3], [q[0], q[2], q[3]]],
+                          1: [[q[0], q[1], q[3]], [q[1], q[2], q[3]]]}
+                for d in (0, 1):
+                    a2s = [_tri_a2(t) for t in splits[d]]
+                    if not all(abs(a) > 1e-9 for a in a2s) \
+                            or (a2s[0] > 0) != (a2s[1] > 0):
+                        del splits[d]
+                if not splits:
+                    raise ValueError(f"column {i}: the {kind} quad is degenerate")
+            d = sorted(splits)[0]
+            quad_diag[(kind, i)] = d if len(q) == 4 else 0
+            if len(q) == 4 and len(splits) == 1:
+                if i not in (0, ncol - 1):
+                    raise ValueError(f"column {i}: a REFLEX interior {kind} quad -- "
+                                     f"the chains fold; move the anchors")
+                quad_forced.add((kind, i))
+            for tri2 in splits[d]:
+                a2 = _tri_a2(tri2)
+                if a2 < 0:
+                    tri2 = list(reversed(tri2))
+                strip_polys.append((tri2, abs(a2) / 2.0))
+    foot_area = sum(a for _, a in strip_polys)
+    if foot_area <= 1e-6:
+        raise ValueError("the assembly footprint is degenerate")
+
+    # --- the exact footprint cut: the assembly is ONE simple polygon P; a touched
+    # source tri loses tri INTERSECT P and keeps tri MINUS P, whose boundary = its
+    # own out-of-P edge sub-segments + P's in-tri portions. Every intersection vert
+    # is computed ONCE (per P-seg x unordered tri-edge), so neighbouring tris, the
+    # fans, and the water zip weld bit-exact by construction -- no BSP extension
+    # lines, no fragment-interface repair. ---
+    fp = [tuple(p) for p in (L + [S[-1]] + list(reversed(W)) + [S[0]])]
+    fp2 = [(p[0], p[2]) for p in fp]
+    m_fp = len(fp)
+    a2_fp = sum(fp2[j][0] * fp2[(j + 1) % m_fp][1]
+                - fp2[(j + 1) % m_fp][0] * fp2[j][1] for j in range(m_fp))
+    if a2_fp < 0:
+        fp = list(reversed(fp))
+        fp2 = list(reversed(fp2))
+        a2_fp = -a2_fp
+    foot_area = a2_fp / 2.0
+    if foot_area <= 1e-6:
+        raise ValueError("the assembly footprint is degenerate")
+
+    def _in_fp(px, pz):
+        return _in_poly(px, pz, fp2)
+
+    def _fp_dist(px, pz):
+        best = 9e9
+        for j in range(m_fp):
+            a, b = fp[j], fp[(j + 1) % m_fp]
+            ex, ez = b[0] - a[0], b[2] - a[2]
+            el2 = ex * ex + ez * ez or 1.0
+            t = max(0.0, min(1.0, ((px - a[0]) * ex + (pz - a[2]) * ez) / el2))
+            best = min(best, math.hypot(px - (a[0] + t * ex), pz - (a[2] + t * ez)))
+        return best
+
+    canon = {(round(p[0], 6), round(p[2], 6)): tuple(p) for p in L + S + W}
+    xcache = {}
+
+    def _xvert(a, b, si):
+        """The canonical intersection vert of unordered tri edge (a, b) with fp
+        segment ``si`` -- one float tuple everywhere it appears."""
+        ka, kb = _pk(a), _pk(b)
+        ek = (min(ka, kb), max(ka, kb), si)
+        if ek in xcache:
+            return xcache[ek]
+        p0, p1 = (a, b) if ka <= kb else (b, a)
+        r = _seg_x(p0, p1, fp[si], fp[(si + 1) % m_fp])
+        t = r[0]
+        pos = (p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1]),
+               p0[2] + t * (p1[2] - p0[2]))
+        # an intersection vert within the weld-audit tolerance of a chain vert
+        # ADOPTS it (both sides share this cache, so the near-miss sliver
+        # collapses consistently everywhere -- the canonical-snap law)
+        snap = canon.get((round(pos[0], 6), round(pos[2], 6)))
+        if snap is None:
+            for q in canon.values():
+                if abs(q[0] - pos[0]) < 0.08 and abs(q[2] - pos[2]) < 0.08                         and math.hypot(q[0] - pos[0], q[2] - pos[2]) < 0.08:
+                    snap = q
+                    break
+        if snap is None:
+            # crossings also merge with EACH OTHER inside the tolerance (a
+            # boundary line grazing a donor vert crosses its two edges at two
+            # nearby points -- one shared vert, no sliver)
+            for q in xcache.values():
+                if abs(q[0] - pos[0]) < 0.08 and abs(q[2] - pos[2]) < 0.08                         and math.hypot(q[0] - pos[0], q[2] - pos[2]) < 0.08:
+                    snap = q
+                    break
+        pos = snap if snap is not None else pos
+        xcache[ek] = pos
+        return pos
+
+    def _seg_x(a, b, c, d):
+        ex, ez = b[0] - a[0], b[2] - a[2]
+        fx, fz = d[0] - c[0], d[2] - c[2]
+        den = ex * fz - ez * fx
+        if abs(den) < 1e-12:
+            return None
+        t = ((c[0] - a[0]) * fz - (c[2] - a[2]) * fx) / den
+        u = ((a[0] - c[0]) * ez - (a[2] - c[2]) * ex) / -den
+        if -1e-9 <= t <= 1 + 1e-9 and -1e-9 <= u <= 1 + 1e-9:
+            return t, u
+        return None
+
+    def _touches(t3):
+        ps = [v[0] for v in t3]
+        for ei in range(3):
+            a, b = ps[ei], ps[(ei + 1) % 3]
+            for si in range(m_fp):
+                r = _seg_x(a, b, fp[si], fp[(si + 1) % m_fp])
+                if r and 1e-7 < r[0] < 1 - 1e-7 and 1e-7 < r[1] < 1 - 1e-7:
+                    return True
+        for v in t3:
+            if _fp_dist(v[0][0], v[0][2]) > 1e-6 and _in_fp(v[0][0], v[0][2]):
+                return True
+        for q in fp:
+            if _pip_xz(q[0], q[2], t3) \
+                    and min(_pt_seg(q, ps[j], ps[(j + 1) % 3])
+                            for j in range(3)) > 1e-6:
+                return True
+        return False
+
+    def _bary(tt, px, pz):
+        (a, b, c) = (v[0] for v in tt)
+        d_ = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2])
+        w1 = ((px - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (pz - a[2])) / d_
+        w2 = ((b[0] - a[0]) * (pz - a[2]) - (px - a[0]) * (b[2] - a[2])) / d_
+        return 1.0 - w1 - w2, w1, w2
+
+    def _cut_tri(t3):
+        """(consumed_area, kept_tris | None) of one source tri vs the footprint."""
+        if not _touches(t3):
+            return 0.0, None
+        a2t = sum(t3[j][0][0] * t3[(j + 1) % 3][0][2]
+                  - t3[(j + 1) % 3][0][0] * t3[j][0][2] for j in range(3))
+        tt = list(t3) if a2t > 0 else [t3[0], t3[2], t3[1]]
+        ps = [v[0] for v in tt]
+        tri_area = abs(a2t) / 2.0
+        cxt = sum(p[0] for p in ps) / 3.0
+        czt = sum(p[2] for p in ps) / 3.0
+        vcache = {}
+
+        def V(pos):
+            k = _pk(pos)
+            if k not in vcache:
+                for v in tt:
+                    if _pk(v[0]) == k:
+                        vcache[k] = v
+                        break
+                else:
+                    w0, w1, w2 = _bary(tt, pos[0], pos[2])
+                    nrm = tuple(w0 * tt[0][1][j] + w1 * tt[1][1][j]
+                                + w2 * tt[2][1][j] for j in range(3))
+                    uv = tuple(w0 * tt[0][2][j] + w1 * tt[1][2][j]
+                               + w2 * tt[2][2][j] for j in range(2))
+                    vcache[k] = (tuple(pos), nrm, uv, tt[0][3])
+            return vcache[k]
+
+        edges_out = []
+        for ei in range(3):
+            a, b = ps[ei], ps[(ei + 1) % 3]
+            hits = []
+            for si in range(m_fp):
+                r = _seg_x(a, b, fp[si], fp[(si + 1) % m_fp])
+                if r is None or not (1e-9 < r[0] < 1 - 1e-9):
+                    continue
+                hits.append((r[0], _xvert(a, b, si)))
+            hits.sort(key=lambda h: h[0])
+            pts = [(0.0, a)] + hits + [(1.0, b)]
+            for (t0, p0), (t1, p1) in zip(pts, pts[1:]):
+                if t1 - t0 < 1e-9 or _pk(p0) == _pk(p1):
+                    continue
+                mx, mz = (p0[0] + p1[0]) / 2.0, (p0[2] + p1[2]) / 2.0
+                dx, dz = cxt - mx, czt - mz
+                dl = math.hypot(dx, dz) or 1.0
+                if _in_fp(mx + dx / dl * 1e-3, mz + dz / dl * 1e-3):
+                    continue                        # the consumed side
+                edges_out.append((V(p0), V(p1)))
+        for si in range(m_fp):
+            fa, fb = fp[si], fp[(si + 1) % m_fp]
+            hits = []
+            for ei in range(3):
+                a, b = ps[ei], ps[(ei + 1) % 3]
+                r = _seg_x(a, b, fa, fb)
+                if r is None or not (1e-9 < r[0] < 1 - 1e-9):
+                    continue
+                hits.append((r[1], _xvert(a, b, si)))
+            pts = [(0.0, fa)] + sorted(hits, key=lambda h: h[0]) + [(1.0, fb)]
+            for (u0, p0), (u1, p1) in zip(pts, pts[1:]):
+                if u1 - u0 < 1e-9 or _pk(p0) == _pk(p1):
+                    continue
+                mx, mz = (p0[0] + p1[0]) / 2.0, (p0[2] + p1[2]) / 2.0
+                w0, w1, w2 = _bary(tt, mx, mz)
+                if min(w0, w1, w2) < 1e-7:
+                    continue                        # outside / on this tri's edge
+                edges_out.append((V(p1), V(p0)))    # kept region left of b->a
+        nxt = {}
+        for va, vb in edges_out:
+            ka, kb = _pk(va[0]), _pk(vb[0])
+            if ka == kb:
+                continue
+            if ka in nxt:
+                raise ValueError("footprint cut: a non-manifold kept boundary "
+                                 "(two out-edges at one vert) -- a degenerate "
+                                 "crossing; nudge the anchors")
+            nxt[ka] = (va, vb, kb)
+        kept_tris = []
+        seen = set()
+        for start in list(nxt):
+            if start in seen:
+                continue
+            loop, k = [], start
+            ok = True
+            while k in nxt and k not in seen:
+                seen.add(k)
+                va, vb, kb = nxt[k]
+                loop.append(va)
+                k = kb
+            if k != start:
+                ok = False
+            if ok and len(loop) >= 3:
+                kept_tris += _ear_clip(loop)
+            elif not ok:
+                raise ValueError("footprint cut: an open kept-boundary chain -- "
+                                 "a degenerate crossing; nudge the anchors")
+        kept_area = sum(_poly_area2_xz(t_) / 2.0 for t_ in kept_tris)
+        if kept_area > tri_area + 1e-3:
+            raise ValueError("footprint cut: kept exceeds the source tri")
+        return tri_area - kept_area, kept_tris
+
+    for t3 in tris["object"]:
+        if _touches(t3):
+            raise ValueError("the assembly reaches the block's prefab Object ground "
+                             "(the object-anchor law) -- move the anchors")
+    for name, tset in (("sand", sand), ("foam", foam_all)):
+        for t3 in tset:
+            if _touches(t3):
+                raise ValueError(f"the assembly consumes an existing beach's {name} "
+                                 f"-- the grass-tongue law should have refused")
+
+    bsegs = [(L[i], L[i + 1], ("L", i)) for i in range(ncol)] \
+        + [(W[i], W[i + 1], ("W", i)) for i in range(ncol)] \
+        + [(L[0], S[0], ("TL", 0)), (S[0], W[0], ("TW", 0)),
+           (L[n - 1], S[n - 1], ("TL", 1)), (S[n - 1], W[n - 1], ("TW", 1))]
+
+    def _on_seg(p):
+        for a, b, tag in bsegs:
+            ex, ez = b[0] - a[0], b[2] - a[2]
+            el2 = ex * ex + ez * ez
+            if el2 < 1e-9:
+                continue
+            t = ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / el2
+            if not (1e-4 < t < 1 - 1e-4):
+                continue
+            if abs(ex * (p[2] - a[2]) - ez * (p[0] - a[0])) \
+                    > 1e-6 * max(1.0, math.hypot(ex, ez)):
+                continue
+            return tag, t, (a[1] + t * (b[1] - a[1]))
+        return None
+
+    def _lift_v(v):
+        """A water vert on a boundary segment conforms to the new waterline's
+        height there (waterline tiles CONFORM to the coast)."""
+        hit = _on_seg(v[0])
+        if hit is None or abs(v[0][1] - hit[2]) < 1e-9:
+            return v
+        return ((v[0][0], hit[2], v[0][2]), v[1], v[2], v[3])
+
+    # --- the berm cut (terrain) + the water cut ---
+    ter_drop, ter_emit = [], []
+    terr_consumed = 0.0
+    for t3 in other:
+        consumed, kept = _cut_tri(t3)
+        if kept is None:
+            continue
+        plan2 = _poly_area2_xz(t3)
+        # THE RELIEF LAW: never cut THROUGH a steep face (a kept fragment of one)
+        # -- FULL consumption of a shore bank is replacement, the thing a beach IS
+        if kept and (plan2 < 0.02 or TR._tri_area2_3d(list(t3)) > 2.0 * plan2):
+            vs = " ".join(f"({v[0][0]:.2f},{v[0][1]:.2f},{v[0][2]:.2f})" for v in t3)
+            raise ValueError(f"the assembly cuts THROUGH a STEEP berm face at {vs} "
+                             f"-- relief is a component, cut around it never "
+                             f"through; move the anchors or reduce width")
+        terr_consumed += consumed
+        ter_drop.append(list(t3))
+        ter_emit += [_up_tri(t_) for t_ in kept]
+    wat_drop = {p: [] for p in water_parts}
+    wat_emit = {p: [] for p in water_parts}
+    wat_consumed = 0.0
+    mains_map = _mains_factory()
+
+    def _to_wash(t_):
+        """Re-band a deep tile (or fragment) to sea2 WASH: fresh per-cell mains uvs
+        (the beach_rebuild conforming precedent -- position-evaluated), geometry/
+        normals/IDALL verbatim (a band conversion is a uv+part edit)."""
+        uvf = mains_map(_cell_of_tri(t_))
+        return [(v[0], v[1], uvf(v[0][0], v[0][2]), v[3]) for v in t_]
+
+    cut_frags = []
+    for p in water_parts:
+        for t3 in tris[p]:
+            consumed, kept = _cut_tri(t3)
+            if kept is None:
+                continue
+            wat_consumed += consumed
+            wat_drop[p].append(list(t3))
+            cut_frags.append((p, [_up_tri([_lift_v(v) for v in t_])
+                                  for t_ in kept]))
+    # THE LADDER SYNTHESIS (a DEEP-fronted shore only -- the footprint cut no
+    # sea2, so there is no wash to continue): cut sea3/sea5 remainders re-band to
+    # WASH, and uncut deep tiles the W chain runs close by join it (the swash
+    # needs its real seaward sea2 depth); the ring trigger then interposes sea1.
+    # On a wash-fronted shore (sea2 was cut) everything keeps its own band.
+    deep_shore = not wat_drop["sea2"]
+    for p, frags in cut_frags:
+        if deep_shore and p in ("sea3", "sea5"):
+            wat_emit["sea2"] += [_to_wash(t_) for t_ in frags]
+        else:
+            wat_emit[p] += frags
+    if deep_shore:
+        wash_dropped = {p: {_key_set(t) for t in wat_drop[p]}
+                        for p in ("sea3", "sea5")}
+        for p in ("sea3", "sea5"):
+            for t3 in tris[p]:
+                if _key_set(t3) in wash_dropped[p]:
+                    continue
+                cx_ = sum(v[0][0] for v in t3) / 3.0
+                cz_ = sum(v[0][2] for v in t3) / 3.0
+                d = min(_pt_seg((cx_, 0.0, cz_), W[i], W[i + 1])
+                        for i in range(ncol))
+                if d <= wash_reach:
+                    wat_drop[p].append(list(t3))
+                    wat_emit["sea2"].append(_to_wash(list(t3)))
+    if abs(terr_consumed + wat_consumed - foot_area) > max(0.01 * foot_area, 0.05):
+        raise ValueError(f"COVERAGE LEDGER: the footprint ({foot_area:.2f} sq-u) is "
+                         f"covered by only {terr_consumed + wat_consumed:.2f} sq-u "
+                         f"of dropped terrain+water -- a hole under the beach; move "
+                         f"the anchors")
+
+    chain_k = {_pk(p) for p in L + S + W}
+    # no surviving tri may sit INSIDE the footprint (a sliver that escaped the cut)
+    drop_sets = {_key_set(t) for t in ter_drop}
+    for p in water_parts:
+        drop_sets |= {_key_set(t) for t in wat_drop[p]}
+    for p in ("terrain",) + water_parts:
+        for t3 in tris[p]:
+            if _key_set(t3) in drop_sets:
+                continue
+            cx_ = sum(v[0][0] for v in t3) / 3.0
+            cz_ = sum(v[0][2] for v in t3) / 3.0
+            if _in_fp(cx_, cz_) and _fp_dist(cx_, cz_) > 1e-4:
+                raise ValueError(f"a surviving {p} tri sits inside the footprint -- "
+                                 f"an escaped sliver (z-fight); a cut defect")
+
+    # boundary cuts from every emitted fragment vert (post lift/snap)
+    seg_cuts = {}
+    for t3 in ter_emit + [t for p in water_parts for t in wat_emit[p]]:
+        for v in t3:
+            if _pk(v[0]) in chain_k:
+                continue
+            hit = _on_seg(v[0])
+            if hit is not None:
+                seg_cuts.setdefault(hit[0], {})[round(hit[1], 9)] = v[0]
+
+    if os.environ.get("FF9_VIRGIN_DEBUG"):
+        for tag in sorted(seg_cuts, key=str):
+            print(f"[debug] cuts {tag}: "
+                  + " ".join(f"t={t:.4f}({p[0]:.4f},{p[1]:.3f},{p[2]:.4f})"
+                             for t, p in sorted(seg_cuts[tag].items())))
+    # --- sand + foam emission (cut-aware fans; the proven language walks) ---
+    # exemplars: the block's own where it has a beach; on a beach-less block the
+    # IDALL keeps the LOCAL area/event bits (encounters/entrances stay this
+    # block's) with the language's topograph, and normals come from the pins
+    if sand:
+        s_nrm, s_id = sand[0][0][1], tuple(sand[0][0][3])
+    else:
+        ld = decode_id(int(round(other[0][0][3][0])))
+        pd = tuple(pin_sand[0][0][3])
+        s_nrm = pin_sand[0][0][1]
+        s_id = (float(encode_id(event=0, area=ld["area"], topograph=31,
+                                flags=decode_id(int(round(pd[0])))["flags"])),
+                ) + tuple(pd[1:])
+    if foam_all:
+        f_nrm, f_id = foam_all[0][0][1], tuple(foam_all[0][0][3])
+    else:
+        ld = decode_id(int(round(other[0][0][3][0])))
+        pf = tuple(pin_foam[0][0][3])
+        pfd = decode_id(int(round(pf[0])))
+        f_nrm = pin_foam[0][0][1]
+        f_id = (float(encode_id(event=0, area=ld["area"],
+                                topograph=pfd["topograph"], flags=pfd["flags"])),
+                ) + tuple(pf[1:])
+    uJ_s, uF_s = SAND_ULAT[1], SAND_ULAT[2]
+    bl = FOAM_FAMILIES[family]["BL"]
+    sand_emit, foam_emit = [], []
+
+    def _fan(apex, poly, uv_of, nrm, idall):
+        out = []
+        for p, q in zip(poly, poly[1:]):
+            t_ = [(apex, nrm, uv_of(apex), idall), (p, nrm, uv_of(p), idall),
+                  (q, nrm, uv_of(q), idall)]
+            if TR._tri_area2_3d(t_) > 1e-6:
+                out.append(_up_tri(t_))
+        return out
+
+    def _cuts(tag, a):
+        cs = sorted(seg_cuts.get(tag, {}).items())
+        return [p for _, p in cs] if a else [p for _, p in reversed(cs)]
+
+    for i in range(ncol):
+        lcut = _cuts(("L", i), True)
+        wcut = _cuts(("W", i), True)
+        if i in (0, ncol - 1):
+            end = 0 if i == 0 else 1
+            # cap corner naming: j = junction (interior side), f = free (terminal)
+            if end == 0:
+                lj, lf, sj, sf, wj, wf = L[1], L[0], S[1], S[0], W[1], W[0]
+                lcut_jf = _cuts(("L", i), True)       # seg runs free -> junction
+                wcut_jf = _cuts(("W", i), True)
+            else:
+                lj, lf, sj, sf, wj, wf = L[n - 2], L[n - 1], S[n - 2], S[n - 1], \
+                    W[n - 2], W[n - 1]
+                lcut_jf = _cuts(("L", i), False)      # seg runs junction -> free
+                wcut_jf = _cuts(("W", i), False)
+            tl = _cuts(("TL", end), True)             # L-end -> S-end order
+            tw = _cuts(("TW", end), True)             # S-end -> W-end order
+            # the emitted split must cover the SAME region the footprint claimed --
+            # a reflex cap corner (a leaning real crease-base pair) fixes the diagonal
+            ds = quad_diag[("sand", i)]
+            df = quad_diag[("foam", i)]
+            diag_s = ("sj-lf" if ds == 0 else "lj-sf") if end == 0 \
+                else ("lj-sf" if ds == 0 else "sj-lf")
+            diag_f = ("wj-sf" if df == 0 else "sj-wf") if end == 0 \
+                else ("sj-wf" if df == 0 else "wj-sf")
+            if ("sand", i) in quad_forced and diag_s != "sj-lf":
+                raise ValueError(f"cap {end}: the sand quad is reflex away from the "
+                                 f"junction diagonal -- outside the v1 fan language")
+            if ("foam", i) in quad_forced and diag_f == "wj-sf" and (tw or wcut):
+                raise ValueError(f"cap {end}: a reflex foam quad with boundary cuts "
+                                 f"-- outside the v1 fan language")
+            # sand cap: fan from the junction seam corner over free/land edges
+            el_t = plan(lf, sf) or 1.0
+            el_l = plan(lf, lj) or 1.0
+
+            def uv_sc(p, lf=lf, sf=sf, lj=lj, sj=sj, el_t=el_t, el_l=el_l):
+                if p is sj or p is sf:
+                    return (uJ_s if p is sj else uF_s, cap_pins[1])
+                if p is lj:
+                    return (uJ_s, cap_pins[0])
+                if p is lf:
+                    return (uF_s, cap_pins[0])
+                hit = _on_seg(p)
+                if hit and hit[0][0] == "TL":
+                    f = plan(lf, p) / el_t
+                    return (uF_s, cap_pins[0] + f * (cap_pins[1] - cap_pins[0]))
+                f = plan(lf, p) / el_l
+                return (uF_s + f * (uJ_s - uF_s), cap_pins[0])
+            if not tl and not lcut:
+                sand_emit += emit_sand_cap(lj, sj, lf, sf, land_pin=cap_pins[0],
+                                           seam_pin=cap_pins[1], diag=diag_s,
+                                           nrm=s_nrm, idall=s_id)
+            else:
+                poly = [sf] + list(reversed(tl)) + [lf] + lcut_jf + [lj]
+                sand_emit += _fan(sj, poly, uv_sc, s_nrm, s_id)
+            # foam cap (BL fade): fan from the junction seam corner
+            uF_f, uJ_f, vS_f, vW_f = bl
+            el_tw = plan(sf, wf) or 1.0
+            el_w = plan(wf, wj) or 1.0
+
+            def uv_fc(p, sf=sf, wf=wf, wj=wj, sj=sj, el_tw=el_tw, el_w=el_w):
+                if p is sj:
+                    return (uJ_f, vS_f)
+                if p is sf:
+                    return (uF_f, vS_f)
+                if p is wf:
+                    return (uF_f, vW_f)
+                if p is wj:
+                    return (uJ_f, vW_f)
+                hit = _on_seg(p)
+                if hit and hit[0][0] == "TW":
+                    f = plan(sf, p) / el_tw
+                    return (uF_f, vS_f + f * (vW_f - vS_f))
+                f = plan(wf, p) / el_w
+                return (uF_f + f * (uJ_f - uF_f), vW_f)
+            if not tw and not wcut:
+                foam_emit += emit_foam_cap(sj, wj, sf, wf, slot="BL", family=family,
+                                           diag=diag_f, nrm=f_nrm, idall=f_id)
+            else:
+                poly = [sf] + tw + [wf] + wcut_jf + [wj]
+                foam_emit += _fan(sj, poly, uv_fc, f_nrm, f_id)
+            continue
+        # run column: sand
+        rect = 0 if TR._h01(L[i][0] + 2.9, L[i][2] + 1.3) < 0.5 else 1
+        u0, u1 = SAND_ULAT[rect], SAND_ULAT[rect + 1]
+        la, lb = L[i], L[i + 1]
+        el = plan(la, lb) or 1.0
+
+        def uv_sr(p, la=la, el=el, u0=u0, u1=u1, i=i):
+            if p is S[i]:
+                return (u0, run_pins[1])
+            if p is S[i + 1]:
+                return (u1, run_pins[1])
+            return (u0 + (plan(la, p) / el) * (u1 - u0), run_pins[0])
+        if not lcut:
+            uv = {id(la): (u0, run_pins[0]), id(lb): (u1, run_pins[0]),
+                  id(S[i]): (u0, run_pins[1]), id(S[i + 1]): (u1, run_pins[1])}
+            split = ((S[i], lb, la), (S[i], S[i + 1], lb)) if i % 2 \
+                else ((la, S[i + 1], S[i]), (la, lb, S[i + 1]))
+            for tri_pts in split:
+                sand_emit.append(_up_tri([(p, s_nrm, uv[id(p)], s_id)
+                                          for p in tri_pts]))
+        else:
+            apex, closing = (S[i], (S[i], S[i + 1], lb)) if i % 2 \
+                else (S[i + 1], (S[i + 1], S[i], la))
+            sand_emit += _fan(apex, [la] + lcut + [lb], uv_sr, s_nrm, s_id)
+            t_ = [(closing[0], s_nrm, uv_sr(closing[0]), s_id),
+                  (closing[1], s_nrm, uv_sr(closing[1]), s_id),
+                  (closing[2], s_nrm, uv_sr(closing[2]), s_id)]
+            if TR._tri_area2_3d(t_) > 1e-6:
+                sand_emit.append(_up_tri(t_))
+        # run column: foam
+        wa, wb = W[i], W[i + 1]
+        el_w = plan(wa, wb) or 1.0
+
+        def uv_fr(p, wa=wa, el_w=el_w, i=i):
+            if p is S[i]:
+                return (bl[0], family[0])
+            if p is S[i + 1]:
+                return (0.5, family[0])
+            if p is wa:
+                return (bl[0], family[1])
+            if p is wb:
+                return (0.5, family[1])
+            return (bl[0] + (plan(wa, p) / el_w) * (0.5 - bl[0]), family[1])
+        if not wcut:
+            fuv = {id(S[i]): (bl[0], family[0]), id(S[i + 1]): (0.5, family[0]),
+                   id(wa): (bl[0], family[1]), id(wb): (0.5, family[1])}
+            fsplit = ((wa, S[i + 1], S[i]), (wa, wb, S[i + 1])) if i % 2 \
+                else ((S[i], wb, wa), (S[i], S[i + 1], wb))
+            for tri_pts in fsplit:
+                foam_emit.append(_up_tri([(p, f_nrm, fuv[id(p)], f_id)
+                                          for p in tri_pts]))
+        else:
+            apex, closing = (S[i], (S[i], S[i + 1], wb)) if i % 2 \
+                else (S[i + 1], (S[i + 1], S[i], wa))
+            foam_emit += _fan(apex, [wa] + wcut + [wb], uv_fr, f_nrm, f_id)
+            t_ = [(closing[0], f_nrm, uv_fr(closing[0]), f_id),
+                  (closing[1], f_nrm, uv_fr(closing[1]), f_id),
+                  (closing[2], f_nrm, uv_fr(closing[2]), f_id)]
+            if TR._tri_area2_3d(t_) > 1e-6:
+                foam_emit.append(_up_tri(t_))
+
+    cut_keys = {_pk(p) for cs in seg_cuts.values() for p in cs.values()}
+    for t3 in sand_emit:
+        if _sand_tri_decode(t3) is not None:
+            continue
+        # a boundary-cut vert carries an affinely-interpolated v (lawful
+        # subdivision, the u-strip law); every other vert must sit on the pins
+        for v in t3:
+            if _pk(v[0]) in cut_keys:
+                continue
+            if _sand_vclass(round(v[2][1], 4)) is None:
+                raise ValueError("a minted sand tri does not decode -- the "
+                                 "emission self-check failed")
+    for t3 in foam_emit:
+        us = [v[2][0] for v in t3]
+        vs = [v[2][1] for v in t3]
+        if not ((max(us) <= 0.502 and max(vs) <= 0.502)
+                or (max(us) <= 0.502 and min(vs) >= 0.498)):
+            raise ValueError("a minted foam tri is outside the run/BL windows")
+
+    # --- the ring re-band: sea3 may not front the minted wash ({2,3} is
+    # off-language); flip such cells to sea1 by corner-role assignment and re-emit
+    # affected strip neighbours (THE DEFORMED-TILE RECT LAW, band_convert's emitter)
+    groups_by_part = {p: list(_deformed_strip_groups(tris[p]))
+                      for p in ("sea1", "sea5")}
+    u_pair, v_rows = _strip_float_vocab(groups_by_part)
+    reg = {}
+    for p, gs in groups_by_part.items():
+        for gtris, kind, det in gs:
+            if any(_key_set(t) in drop_sets for t in gtris):
+                continue                              # dropped under the mint
+            c = Counter(_cell_of_tri(t) for t in gtris).most_common(1)[0][0]
+            ent = {"gtris": gtris, "det": det, "es": None, "row": None, "oname": None}
+            if kind == "rect":
+                hits = _role_decode(det[0], c, u_pair, v_rows)
+                if len(hits) == 1:
+                    ri, oname = hits[0]
+                    ent.update(row=ri, oname=oname,
+                               es=TR.STRIP_EDGESET.get((ri, oname)))
+            reg[(p, c)] = ent
+
+    # pre/post owner maps (cell -> parts)
+    owner = defaultdict(set)
+    for p in ("terrain", "beach1") + water_parts:
+        for t3 in tris[p]:
+            owner[_cell_of_tri(t3)].add(p)
+    owner2 = defaultdict(set)
+    surv = {}
+    for p in ("terrain", "beach1") + water_parts:
+        surv[p] = [t3 for t3 in tris[p] if _key_set(t3) not in drop_sets]
+    emits0 = {"terrain": ter_emit + sand_emit, "beach1": foam_emit}
+    for p in ("terrain", "beach1") + water_parts:
+        for t3 in surv[p] + emits0.get(p, []) + wat_emit.get(p, []):
+            owner2[_cell_of_tri(t3)].add(p)
+
+    def water2(c):
+        return {p for p in owner2.get(c, ()) if p in WATER_DEPTH}
+
+    win_cells = {(math.floor(p[0] / 4.0), math.floor(p[2] / 4.0)) for p in L + S + W}
+    scan = {(cx_ + dx, cz_ + dz) for cx_, cz_ in win_cells
+            for dx in range(-3, 4) for dz in range(-3, 4)}
+    ring_drop_by = defaultdict(list)
+    ring_emit_by = defaultdict(list)
+    post_reg = dict(reg)
+    changed_cells = {c for c in scan if water2(c) != {p for p in owner.get(c, ())
+                                                     if p in WATER_DEPTH}}
+    def water_pre(c):
+        return {p for p in owner.get(c, ()) if p in WATER_DEPTH}
+
+    # a deep tile (sea3/sea5) sharing a geometric EDGE with the minted foam is
+    # wash-fronted regardless of what else its cell carries -- the ring must
+    # interpose there
+    foam_ek = set()
+    for t3 in foam_emit:
+        ps = [v[0] for v in t3]
+        for j in range(3):
+            foam_ek.add(frozenset((_pk(ps[j]), _pk(ps[(j + 1) % 3]))))
+
+    def _foam_welded_deep():
+        for sp_ in ("sea3", "sea5"):
+            for t3 in surv[sp_]:
+                ps = [v[0] for v in t3]
+                for j in range(3):
+                    if frozenset((_pk(ps[j]), _pk(ps[(j + 1) % 3]))) in foam_ek:
+                        return sp_, _cell_of_tri(t3)
+        return None
+
+    #: THE LADDER REPAIR MAP: an introduced unlawful band pair converts the
+    #: DEEPER tile one step shallower; iterating converges every pair class
+    #: ({wash|4} heals via 4->5 then 5->1; {1|4} via 4->5; {wash|3} via 3->1)
+    _LADDER_DOWN = {"sea4": "sea5", "sea5": "sea1", "sea3": "sea1"}
+
+    def _pair_lawful(a, b):
+        """The lattice adjacency law over two cells' water sets, wash included:
+        band pairs must be in the learned table, and a wash-class cell (foam/
+        sea2 only) may sit beside nothing deeper than sea1."""
+        sa = {q for q in a if q not in ("beach1", "sea2")}
+        sb = {q for q in b if q not in ("beach1", "sea2")}
+        for qa in sa:
+            for qb in sb:
+                if qa != qb and frozenset((qa, qb)) not in _LAWFUL_ADJ:
+                    return False
+        if (a and not sa and sb
+                and max(WATER_DEPTH[q] for q in sb) > WATER_DEPTH["sea1"]):
+            return False
+        if (b and not sb and sa
+                and max(WATER_DEPTH[q] for q in sa) > WATER_DEPTH["sea1"]):
+            return False
+        return True
+
+    # PLAN-THEN-EMIT: the repair fixpoint runs on the OWNER MAP only (band
+    # bookkeeping); geometry emits ONCE afterwards from the FINAL facts -- an
+    # in-loop emission goes stale the moment a later conversion changes its
+    # neighbour (the shade gate catches exactly that)
+    conversions = {}                     # cell -> [source_part, current_target]
+    for _outer in range(20):
+        for _round in range(400):
+            viol = None
+            hit = _foam_welded_deep()
+            if hit is not None and hit[1] not in conversions:
+                viol = hit
+            for c in sorted(scan):
+                if viol is not None:
+                    break
+                cw = water2(c)
+                if not cw:
+                    continue
+                for dname, (dx, dz) in TR._DIRS.items():
+                    nb = (c[0] + dx, c[1] + dz)
+                    nbw = water2(nb)
+                    if not nbw or _pair_lawful(cw, nbw):
+                        continue
+                    # only a pair the MINT created triggers (the no-introduced-
+                    # misses law: real shore cells carry pre-existing contacts)
+                    if (water_pre(c) and water_pre(nb)
+                            and not _pair_lawful(water_pre(c), water_pre(nb))):
+                        continue
+                    deep_c = (c if max(WATER_DEPTH[q] for q in cw)
+                              >= max(WATER_DEPTH[q] for q in nbw) else nb)
+                    dw = water2(deep_c)
+                    sp_ = max((q for q in dw if q in _LADDER_DOWN),
+                              key=lambda q: WATER_DEPTH[q], default=None)
+                    if sp_ is None:
+                        raise ValueError(f"adjacency repair: no ladder step for "
+                                         f"{sorted(dw)} at {deep_c}")
+                    viol = (sp_, deep_c)
+                    break
+            if viol is None:
+                break
+            sp, c = viol
+            prev = conversions.get(c)
+            src = prev[0] if prev else sp
+            cur = prev[1] if prev else sp
+            tgt = _LADDER_DOWN.get(cur)
+            if tgt is None:
+                raise ValueError(f"adjacency repair: {cur} at {c} has no further "
+                                 f"ladder step")
+            if os.environ.get("FF9_VIRGIN_DEBUG"):
+                print(f"[debug] ladder plan: {src} at {c} -> {tgt}")
+            conversions[c] = [src, tgt]
+            owner2[c] = (owner2[c] - {cur}) | {tgt}
+            changed_cells.add(c)
+        else:
+            raise ValueError("the ladder repair did not converge in 400 rounds")
+        # --- EMIT from the final owner map; a cell with no lawful strip form
+        # falls back to WASH (monotone: re-plan and re-emit) ---
+        staged_wash, staged_strip, fell_back = [], [], False
+        for c, (src, tgt) in sorted(conversions.items()):
+            c_tris = [t3 for t3 in surv[src] if _cell_of_tri(t3) == c]
+            if not c_tris:
+                raise ValueError(f"ladder repair: the {src} at {c} is a PARTIAL "
+                                 f"tile (a cut fragment) -- no whole tile to "
+                                 f"re-band; shrink the footprint off it")
+            if tgt == "sea2":
+                staged_wash.append((src, c, c_tris))
+                continue
+            ent = post_reg.get((src, c)) if src == "sea5" else None
+            corners_c = lerps_c = None
+            if ent is not None and ent.get("det") is not None:
+                corners_c, lerps_c = ent["det"]
+            else:
+                corners_c, lerps_c = {}, {}
+                for t3 in c_tris:
+                    for v in t3:
+                        corners_c.setdefault(_pk(v[0]),
+                                             (v[0], (v[2][0], v[2][1]), None))
+                if len(corners_c) != 4:
+                    corners_c = None
+            es_c = frozenset(
+                dname for dname, (dx, dz) in TR._DIRS.items()
+                if water2((c[0] + dx, c[1] + dz))
+                and max(WATER_DEPTH[q] for q in water2((c[0] + dx, c[1] + dz)))
+                > WATER_DEPTH[tgt])
+            if corners_c is None or es_c not in TR.EDGESET2STRIP:
+                if tgt != "sea1":
+                    raise ValueError(f"adjacency repair: the {src} at {c} has no "
+                                     f"lawful {tgt} form (a non-quad / an "
+                                     f"unlearned edge-set) -- refusing")
+                if os.environ.get("FF9_VIRGIN_DEBUG"):
+                    print(f"[debug] ladder fallback: {src} at {c} -> sea2")
+                conversions[c] = [src, "sea2"]
+                owner2[c] = (owner2[c] - {tgt}) | {"sea2"}
+                fell_back = True
+                break
+            ri_c, oname_c = _strip_pick(es_c, c)
+            c_new = _strip_emit(c_tris, corners_c, lerps_c, c, ri_c, oname_c,
+                                u_pair, v_rows)
+            staged_strip.append((src, c, tgt, c_tris, c_new, es_c, ri_c, oname_c))
+        if fell_back:
+            continue
+        for src, c, c_tris in staged_wash:
+            ring_emit_by["sea2"].extend(_to_wash(t3) for t3 in c_tris)
+            ring_drop_by[src].extend(c_tris)
+            surv[src] = [t3 for t3 in surv[src] if _cell_of_tri(t3) != c]
+            post_reg.pop((src, c), None)
+        for src, c, tgt, c_tris, c_new, es_c, ri_c, oname_c in staged_strip:
+            ring_drop_by[src].extend(c_tris)
+            ring_emit_by[tgt].extend(c_new)
+            surv[src] = [t3 for t3 in surv[src] if _cell_of_tri(t3) != c]
+            post_reg.pop((src, c), None)
+            post_reg[(tgt, c)] = {"gtris": c_new, "det": None, "es": es_c,
+                                  "row": ri_c, "oname": oname_c}
+        break
+    else:
+        raise ValueError("the ladder repair kept falling back to wash -- the "
+                         "site has no lawful ladder")
+    # remaining unlawful band pairs anywhere in the scan window -> refuse
+    for c in sorted(scan):
+        for dx, dz in ((1, 0), (0, 1)):
+            nb = (c[0] + dx, c[1] + dz)
+            for a in water2(c) - {"beach1", "sea2"}:
+                for b in water2(nb) - {"beach1", "sea2"}:
+                    if frozenset((a, b)) not in _LAWFUL_ADJ:
+                        raise ValueError(f"adjacency gate: {a} at {c} beside {b} at "
+                                         f"{nb} is off-language after the mint")
+
+    # affected strip neighbours: any surviving decoded tile whose claims toward
+    # CHANGED cells no longer hold re-emits under its adjusted edge-set
+    for (p, c), t in sorted(reg.items()):
+        if (p, c) not in post_reg or post_reg[(p, c)] is not t:
+            continue                                  # replaced already
+        if t["es"] is None:
+            continue
+        es_new = set(t["es"])
+        touched = False
+        for dname, (dx, dz) in TR._DIRS.items():
+            nb = (c[0] + dx, c[1] + dz)
+            if nb not in changed_cells:
+                continue
+            touched = True
+            nbw = water2(nb)
+            if p in nbw:
+                nt = post_reg.get((p, nb))
+                claim = nt is not None and nt["es"] is not None \
+                    and _OPP[dname] in nt["es"]
+            else:
+                claim = bool(nbw) and max(WATER_DEPTH[q] for q in nbw) \
+                    > WATER_DEPTH[p]
+            if claim:
+                es_new.add(dname)
+            else:
+                es_new.discard(dname)
+        if not touched or frozenset(es_new) == t["es"]:
+            continue
+        es_new = frozenset(es_new)
+        if t["row"] is None:
+            raise ValueError(f"the {p} tile at {c} does not role-decode -- its "
+                             f"re-emission would not be law-derived; refusing")
+        if es_new not in TR.EDGESET2STRIP:
+            raise ValueError(f"the {p} tile at {c} would need edge-set "
+                             f"{sorted(es_new)} (no learned strip) -- refusing")
+        ri_n, oname_n = _strip_pick(es_new, c)
+        corners, lerps = t["det"]
+        new_tris = _strip_emit(t["gtris"], corners, lerps, c, ri_n, oname_n,
+                               u_pair, v_rows)
+        ring_drop_by[p].extend(t["gtris"])
+        ring_emit_by[p].extend(new_tris)
+        surv[p] = [x for x in surv[p]
+                   if _key_set(x) not in {_key_set(g) for g in t["gtris"]}]
+        post_reg[(p, c)] = {"gtris": new_tris, "det": None, "es": es_new,
+                            "row": ri_n, "oname": oname_n}
+    ring_drop = [t for p in water_parts for t in ring_drop_by.get(p, [])]
+    ring_emit = [t for p in water_parts for t in ring_emit_by.get(p, [])]
+
+    # shade-agreement scan over the whole registry (the donor is null-clean; the
+    # post state must be too)
+    for (p, c), t in post_reg.items():
+        if t["es"] is None:
+            continue
+        for dname, (dx, dz) in TR._DIRS.items():
+            nb = (c[0] + dx, c[1] + dz)
+            claim = dname in t["es"]
+            nbw = water2(nb)
+            if not nbw:
+                continue
+            if p in nbw:
+                nt = post_reg.get((p, nb))
+                if nt is None or nt["es"] is None:
+                    continue
+                if claim != (_OPP[dname] in nt["es"]):
+                    raise ValueError(f"shade gate [post]: one-sided deep-claim "
+                                     f"between {p} {c} and {nb}")
+            else:
+                fact = max(WATER_DEPTH[q] for q in nbw) > WATER_DEPTH[p]
+                if claim != fact:
+                    raise ValueError(f"shade gate [post]: {p} {c} claims {dname} "
+                                     f"{'deep' if claim else 'shallow'} against "
+                                     f"{sorted(nbw)} at {nb}")
+    # re-decode gate on every fresh strip emission
+    for (p, c), t in post_reg.items():
+        if t["det"] is not None or t["es"] is None:
+            continue
+        decoded = list(_deformed_strip_groups(t["gtris"]))
+        if len(decoded) != 1 or decoded[0][1] != "rect":
+            raise ValueError(f"re-decode gate: the emitted {p} tile at {c} does not "
+                             f"decode as one rect group")
+        hits = _role_decode(decoded[0][2][0], c, u_pair, v_rows)
+        if hits != [(t["row"], t["oname"])]:
+            raise ValueError(f"re-decode gate: the emitted {p} tile at {c} reads "
+                             f"{hits}, wanted {[(t['row'], t['oname'])]}")
+    if sorted(_pk(v[0]) for t3 in ring_emit for v in t3) \
+            != sorted(_pk(v[0]) for t3 in ring_drop for v in t3):
+        raise ValueError("geometry gate: the ring re-band must transport geometry "
+                         "verbatim")
+
+    # --- master gates ---
+    all_drops = list(ter_drop) + [t for p in water_parts for t in wat_drop[p]] \
+        + list(ring_drop)
+    all_emits = list(ter_emit) + list(sand_emit) + list(foam_emit) \
+        + [t for p in water_parts for t in wat_emit[p]] + list(ring_emit)
+
+    def once(ts):
+        ec = defaultdict(int)
+        for t3 in ts:
+            for a in range(3):
+                ec[frozenset((_pk(t3[a][0]), _pk(t3[(a + 1) % 3][0])))] += 1
+        return {e for e, cn in ec.items() if cn == 1}
+    if once(all_drops) != once(all_emits):
+        d_only = once(all_drops) - once(all_emits)
+        e_only = once(all_emits) - once(all_drops)
+        msg = ""
+        for nm, es in (("drop-only", d_only), ("emit-only", e_only)):
+            for e in sorted(es)[:6]:
+                msg += f"\n  {nm}: {sorted(e)}"
+        raise ValueError(f"UNION CRACK GATE: the minted union's outer boundary "
+                         f"differs from the dropped union's ({len(d_only)} drop-only,"
+                         f" {len(e_only)} emit-only){msg}")
+    # T-vertices over the touched neighbourhood, all parts
+    touched_k = {k for t3 in all_drops for v in t3 for k in (_pk(v[0]),)}
+    near = [(True, t3) for t3 in all_emits]
+    for p in ("terrain", "beach1") + water_parts:
+        for t3 in surv[p]:
+            if any(_pk(v[0]) in touched_k for v in t3):
+                near.append((False, list(t3)))
+    _tvertex_gate(near)
+
+    # seaward of every interior W vert the water must read WASH (sea2) for at
+    # least the real minimum band depth (THE ABSOLUTE WASH ENVELOPE's floor) --
+    # on a synthesized ladder this is the gate that steers wash_reach
+    post_sea2 = surv["sea2"] + wat_emit["sea2"] + ring_emit_by.get("sea2", [])
+    for i in range(1, n - 1):
+        nx, nz = normals[i]
+        d = 0.3
+        while d < 2.45:
+            px, pz = W[i][0] + nx * d, W[i][2] + nz * d
+            if not any(_pip_xz(px, pz, t3) for t3 in post_sea2):
+                raise ValueError(f"the wash seaward of W[{i}] runs only "
+                                 f"{d - 0.3:.1f}u of sea2 (< the 2.4u envelope "
+                                 f"floor) -- grow wash_reach")
+            d += 0.25
+
+    out = [TR.DropTris("terrain", ter_drop),
+           TR.EmitTris("terrain", ter_emit + sand_emit),
+           TR.EmitTris("beach1", foam_emit)]
+    for p in water_parts:
+        drops = wat_drop[p] + ring_drop_by.get(p, [])
+        if drops:
+            out.append(TR.DropTris(p, drops))
+        emits = wat_emit[p] + ring_emit_by.get(p, [])
+        if emits:
+            out.append(TR.EmitTris(p, emits))
+    # RECONCILE against ``pre``: a mint DROP that matches a pre EMISSION cancels
+    # pairwise (emissions bypass later tweaks in the transplant stream, so the
+    # mint could never drop them -- the face is simply never re-emitted; its
+    # ORIGINAL was already dropped by the pre's own DropTris). Mutates the
+    # caller's pre tweaks in place -- pass the SAME pre list to the deploy.
+    for tw_pre in pre:
+        if not isinstance(tw_pre, TR.EmitTris):
+            continue
+        for tw_mint in out:
+            if not isinstance(tw_mint, TR.DropTris)                     or tw_mint.part != tw_pre.part:
+                continue
+            keep = []
+            for t3 in tw_pre.tris:
+                ks = tw_mint._key_set(t3)
+                if ks in tw_mint.keys:
+                    tw_mint.keys.discard(ks)
+                    tw_mint.expected -= 1
+                else:
+                    keep.append(t3)
+            tw_pre.tris = keep
+    return out
 
 
 def cliff_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", game=None):

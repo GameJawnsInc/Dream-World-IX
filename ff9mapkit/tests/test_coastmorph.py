@@ -747,3 +747,146 @@ def test_band_convert_refusals():
         CM.band_convert(DONOR, (112, -281), "sea1")
     with pytest.raises(ValueError, match="mixed strip v-dialect"):
         CM.band_convert((18, 15), (300, -245), "sea1")
+
+
+def test_virgin_mint_golden():
+    """BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT at the census winner (9,17), run
+    (153..155,-282): a new beach synthesized on the bare south face of the grass
+    peninsula, no donor beach to pin to. The ledger pins the full composition: the
+    berm clip (12 terrain dropped -> berm fragments + the minted sand band), the
+    foam assembly, the wash zip (sea2 fragments with continued uvs), the (155,-283)
+    sea1 drop under the swash, and THE RING RE-BAND -- the (156,-283) conforming
+    sea3 quad flips to sea1 by corner-role assignment (the deformed-tile rect law)
+    with the (156,-284) neighbour re-emitted under its new deep-edge-set {E,S}."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.virgin_mint((9, 17), (619.2, -1128.2), (623.8, -1127.6))
+    led = [(t.part, ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris))) for t in tw]
+    assert led == [("terrain", ("drop", 12)), ("terrain", ("emit", 34)),
+                   ("beach1", ("emit", 8)),
+                   ("sea2", ("drop", 2)), ("sea2", ("emit", 7)),
+                   ("sea1", ("drop", 4)), ("sea1", ("emit", 5)),
+                   ("sea3", ("drop", 2))]
+    assert _tweak_hash(tw) == "56a73347d9bbe571"
+    # the ring re-band is present and generative: among the sea1 emissions, the
+    # re-banded (156,-283) CONFORMING quad carries the block's strip dialect
+    # (corner-role assignment -- a lattice decode cannot read a deformed tile;
+    # the builder's own re-decode gate pins the exact placement)
+    sea1_emit = next(t.tris for t in tw
+                     if getattr(t, "part", None) == "sea1" and hasattr(t, "tris"))
+    ring = [t3 for t3 in sea1_emit if CM._cell_of_tri(t3) == (156, -283)]
+    assert len(ring) == 2
+    us = {round(v[2][0], 6) for t3 in ring for v in t3}
+    assert us <= {0.0, 0.984127}                      # the block's strip u dialect
+    groups = list(CM._deformed_strip_groups(ring))
+    assert len(groups) == 1 and groups[0][1] == "rect"
+
+
+def test_virgin_mint_refusals():
+    """The refusal-steered envelope: anchors hugging the existing beach fail THE
+    GRASS-TONGUE LAW; a stub arc fails the along-shore column envelope; an
+    off-coast anchor refuses outright."""
+    import pytest
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="[Gg]rass-tongue"):
+        CM.virgin_mint((9, 17), (617.0, -1128.6), (623.8, -1127.6))
+    with pytest.raises(ValueError, match="along-shore envelope"):
+        CM.virgin_mint((9, 17), (622.5, -1127.7), (623.8, -1127.6))
+    with pytest.raises(ValueError, match="off the shoreline"):
+        CM.virgin_mint((9, 17), (600.0, -1100.0), (623.8, -1127.6))
+
+
+def test_virgin_mint_deep_shore_golden():
+    """THE REAL-SCALE CONTINENT MINT (v2): bank_lower + virgin_mint with pre= /
+    pins_from= / the deep-shore LADDER SYNTHESIS on (10,18)'s islet (continent
+    island B -- zero beaches, a ~4u mesa bank, sea3/sea5/sea4 all around). The
+    bank sinks to a cay profile (shore verts pinned); the mint computes on the
+    post-reshape geometry; cut deep tiles re-band to WASH (mains, position-
+    evaluated); and the plan-then-emit LADDER REPAIR steps every introduced
+    unlawful pair one band down ({wash|4} -> 4->5 -> 5->1) until the whole
+    synthesized ladder is lawful -- including 34 sea4 tiles."""
+    from ff9mapkit.world.coastmorph import bank_lower, virgin_mint
+    # the corridor bank (playtest-steered): the sink hugs the cove chord so the
+    # islet's crown + far walls keep ~92% of their natural height (a radial
+    # reach flattened the whole rim -- "shrunken cliffs confirmed")
+    pre = bank_lower((10, 18), (674.0, -1168.4), radius=7.0, shore_slope=0.75,
+                     cap=3.6, along=((666.9, -1168.6), (681.1, -1168.2)))
+    tw = virgin_mint((10, 18), (666.9, -1168.6), (681.1, -1168.2),
+                     width=3.6, swash=4.4, pre=pre, pins_from=(7, 17))
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in pre + tw]
+    # the pre = [wall drops, the sink, the re-pinned walls] (CLIFF V NEVER
+    # DRAGS + THE LIP ANCHOR, per column -- the 14th face is the seam closure:
+    # a tri holding a cropped base vert but no moved vert); the mint's terrain
+    # drop reconciled down to 4 (walls it consumes cancel against the pre's
+    # emissions -- they are simply never re-emitted)
+    assert led == [("terrain", ("drop", 14)), (None, ("displace", 25)),
+                   ("terrain", ("emit", 8)),
+                   ("terrain", ("drop", 4)), ("terrain", ("emit", 19)),
+                   ("beach1", ("emit", 18)),
+                   ("sea2", ("emit", 29)), ("sea1", ("emit", 22)),
+                   ("sea3", ("drop", 14)),
+                   ("sea5", ("drop", 16)), ("sea5", ("emit", 22)),
+                   ("sea4", ("drop", 34))]
+    assert _tweak_hash(pre + tw) == "6c3d0ba4365adef5"
+    # real-scale check: 4 columns over the ~14.8u arc (the whole point)
+    foam = next(t.tris for t in tw
+                if getattr(t, "part", None) == "beach1" and hasattr(t, "tris"))
+    assert len(foam) == 18
+
+
+def test_bank_lower_wall_lip_anchor():
+    """THE LIP ANCHOR, per COLUMN (the round-4 gash fix). The rock strip's V is
+    a CORNER ASSIGNMENT (byte-checked map-wide: crest 0.8926 / base 0.9229 on
+    every face 0.9..5.5u tall; the strip never wraps), so a sink must keep every
+    crest v VERBATIM (the lip survives -- no hard/bevel alternation) and crop
+    each base v along its own column at the column's original density. A
+    per-FACE affine cannot do this: it seams at shared columns and pushes v
+    outside the strip (playtest round 4: white gashes + grass bleeding)."""
+    from collections import defaultdict
+
+    from ff9mapkit.world import transplant as TR
+    from ff9mapkit.world.coastmorph import bank_lower
+    from ff9mapkit.world.extract import decode_id
+
+    pre = bank_lower((10, 18), (674.0, -1168.4), radius=7.0, shore_slope=0.75,
+                     cap=3.6, along=((666.9, -1168.6), (681.1, -1168.2)))
+    drops = next(t for t in pre if hasattr(t, "keys"))
+    emits = next(t for t in pre if hasattr(t, "tris"))
+    terr = TR.world_tris(10, 18, "terrain")
+    topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
+    band = [t3 for t3 in terr if topo(t3) == 58]
+    v_lo = min(v[2][1] for t3 in band for v in t3)
+    v_hi = max(v[2][1] for t3 in band for v in t3)
+    assert (round(v_lo, 4), round(v_hi, 4)) == (0.8926, 0.9229)
+    # original uv pairs per plan position (y sinks; x/z never move)
+    band_by_plan = defaultdict(set)
+    for t3 in band:
+        for v in t3:
+            band_by_plan[(round(v[0][0], 4), round(v[0][2], 4))].add(
+                (v[2][0], v[2][1]))
+    for t3 in emits.tris:
+        # the LIP survives on every emitted face: its minimum v IS the lip row
+        assert min(v[2][1] for v in t3) == v_lo
+        for (pos, nrm, uv, tan) in t3:
+            # THE V-IN-BAND GATE's invariant: inside the byte-derived strip band
+            assert v_lo - 1e-4 <= uv[1] <= v_hi + 1e-4
+            pairs = band_by_plan[(round(pos[0], 4), round(pos[2], 4))]
+            # u is untouched, and a crop only ever SHEDS deep rows (v never
+            # rises above the vert's own original row)
+            assert any(u == uv[0] and uv[1] <= v_ + 1e-9 for (u, v_) in pairs)
+    # seam closure: a surviving wall tri never disagrees with an emission at a
+    # shared vert (every changed-v vert lives only in dropped+re-emitted faces)
+    emit_by_plan = {}
+    for t3 in emits.tris:
+        for v in t3:
+            emit_by_plan[(round(v[0][0], 4), round(v[0][2], 4), v[2][0])] = v[2][1]
+    for t3 in band:
+        if drops._key_set(t3) in drops.keys:
+            continue
+        for v in t3:
+            got = emit_by_plan.get((round(v[0][0], 4), round(v[0][2], 4), v[2][0]))
+            assert got is None or got == v[2][1], \
+                "a surviving wall tri disagrees with an emission at a shared vert"
