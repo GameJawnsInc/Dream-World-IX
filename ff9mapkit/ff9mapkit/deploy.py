@@ -378,6 +378,8 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     out("\n=== MANUAL STEPS (deploy cannot do these) ===")
     out(f"1. Ensure Memoria.ini [Mod] FolderNames includes \"{mod_folder}\" (else its DictionaryPatch is")
     out("   never read at launch). Deploy does NOT edit Memoria.ini -- Memoria auto-detects the folder.")
+    out("   Editing by hand? Set [Mod] Priorities to the SAME order too (game+launcher closed) -- the")
+    out("   launcher rewrites FolderNames from Priorities at every Play click, reverting a one-key edit.")
     out(f"2. RELAUNCH the game ONCE -- these are NEW ids ({member_ids[0]}..{member_ids[-1]}); their")
     out("   FieldScene lines only register on a fresh launch (F6 Reload alone won't register a new id).")
     out(f"3. New Game now lands in {entry_name} (field {entry_id}).  F6 -> Warp reaches any member.")
@@ -663,6 +665,8 @@ def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, rever
     folders = [hub_folder] + [s.mod_folder for s in plan.campaign_steps]
     out("1. Memoria.ini [Mod] FolderNames -- STACK these (HIGHEST first), then your video/passthrough mods below:")
     out("   FolderNames = " + ", ".join(f'"{f}"' for f in folders) + ', "<your other mods, e.g. Moguri>"')
+    out("   AND set [Mod] Priorities to the SAME entries in the SAME order (game+launcher closed) -- the")
+    out("   launcher rewrites FolderNames from Priorities at every Play click, reverting a one-key edit.")
     if plan.campaign_steps:
         lo = min(s.id_lo for s in plan.campaign_steps)
         hi = max(s.id_hi for s in plan.campaign_steps)
@@ -858,6 +862,8 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
     out("\n=== MANUAL STEPS (this tool cannot do these) ===")
     out("1. Memoria.ini [Mod] FolderNames -- this whole journey is now ONE folder. Put it HIGHEST:")
     out(f'   FolderNames = "{folder}", "<your other mods, e.g. Moguri>"')
+    out("   AND set [Mod] Priorities to the SAME entries in the SAME order (game+launcher closed) -- the")
+    out("   launcher rewrites FolderNames from Priorities at every Play click, reverting a one-key edit.")
     if plan.campaign_steps:
         lo = min(s.id_lo for s in plan.campaign_steps)
         hi = max(s.id_hi for s in plan.campaign_steps)

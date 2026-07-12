@@ -690,7 +690,8 @@ class BuildDoc(QWidget):
                 argv, cwd = jobs.deploy_campaign_pkg_argv(path, wire_newgame=wire,
                                                           mod_folder=self.plan.mod_folder), self.kit_cwd
             reach = (f"Relaunch once (new DictionaryPatch), then F6 → Warp → {entry} to walk the chain." if self.has_tools
-                     else f"Add '{self.plan.mod_folder}' to Memoria.ini FolderNames (Memoria auto-detects it), "
+                     else f"Add '{self.plan.mod_folder}' to Memoria.ini FolderNames AND Priorities, same order "
+                          f"(Memoria auto-detects it; a FolderNames-only hand edit is reverted by the launcher), "
                           f"relaunch once, then reach the chain via New Game / a gateway.")
             self._stream(argv, cwd=cwd, subject="Deploy campaign",
                          ok_headline=f"Deployed campaign '{self.plan.name}' → {self.plan.mod_folder}",
@@ -738,9 +739,10 @@ class BuildDoc(QWidget):
                          f"cross-campaign links, then the hub field?\n\n{route}\n\n{folders_note}"):
             reach = {"hub": "New Game → the hub menu", "entry": "New Game → straight into the opening",
                      "none": "F6 → Warp to the hub"}[mode]
-            stackmsg = (f"Add the ONE merged folder to Memoria.ini [Mod] FolderNames (drop the old per-campaign "
-                        f"ones), relaunch once, then {reach}. Playtest." if single else
-                        f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames, relaunch once, "
+            stackmsg = (f"Add the ONE merged folder to Memoria.ini [Mod] FolderNames AND Priorities, same order "
+                        f"(drop the old per-campaign ones from BOTH), relaunch once, then {reach}. Playtest." if single else
+                        f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames AND Priorities, "
+                        f"same order (the launcher rewrites FolderNames from Priorities), relaunch once, "
                         f"then {reach}. Playtest.")
             self._stream(_jargv(apply=True, newgame=mode, single_folder=single),
                          cwd=jcwd, subject="Deploy journey",

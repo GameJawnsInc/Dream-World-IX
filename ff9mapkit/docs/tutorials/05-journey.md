@@ -62,7 +62,8 @@ ff9mapkit deploy-journey journeys.toml --apply --newgame hub      # install + wi
 The deploy installs every member campaign, applies the links, and builds and installs the hub.
 New Game is only wired with `--newgame hub` (or `--newgame entry` to skip the menu and land
 straight in the first journey); a plain `--apply` leaves New Game untouched. Register the printed
-mod folder(s) in `Memoria.ini [Mod] FolderNames` (a single-folder merge is available — the deploy
+mod folder(s) in `Memoria.ini [Mod] FolderNames` **and** `Priorities`, same order (the launcher
+rewrites `FolderNames` from `Priorities`; a single-folder merge is available — the deploy
 output names the option) and relaunch.
 
 From a repo checkout, `py tools\deploy_journey.py` is the same orchestration.

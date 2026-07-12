@@ -68,8 +68,10 @@ does it (the toolkit ships no Square Enix data; everything is derived from the l
 3. Optional: check **Single mod folder** to merge the whole journey into one `FolderNames` entry
    (a re-deploy then re-merges the whole journey). Unchecked, each region gets its own folder.
 4. Click **Build / Deploy**. The Problems panel should end with the deploy summary.
-5. Register the printed mod folder name(s) in `Memoria.ini [Mod] FolderNames` (or via the Memoria
-   launcher). Folder order does not affect dialogue — each forked region owns its text blocks.
+5. Register the printed mod folder name(s) in `Memoria.ini [Mod] FolderNames` **and** `Priorities`
+   (same order — the launcher rewrites `FolderNames` from `Priorities` at every Play click), or use
+   the Memoria launcher itself. Folder order does not affect dialogue — each forked region owns its
+   text blocks.
 
 Compatibility note: the toolkit is tested alongside Moguri Mod (+ Moguri Video); keep backups of
 any other mod folders before stacking.

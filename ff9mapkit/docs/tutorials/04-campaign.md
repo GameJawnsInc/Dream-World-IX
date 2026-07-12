@@ -69,7 +69,8 @@ deploy warns instead — create one once with
 `ff9mapkit newgame <entry field id> --mod-folder FF9CustomMap-ice`; later deploys re-point it.
 (From a repo checkout, `py tools\deploy_campaign.py` is the same deploy.)
 
-Add the mod folder to `Memoria.ini [Mod] FolderNames` and relaunch once so the new ids register.
+Add the mod folder to `Memoria.ini [Mod] FolderNames` **and** `Priorities` (same order — the
+launcher rewrites `FolderNames` from `Priorities`) and relaunch once so the new ids register.
 New Game now lands on the entry field; with the engine bundle, **F6 → Go → Warp** reaches any
 member directly thereafter.
 

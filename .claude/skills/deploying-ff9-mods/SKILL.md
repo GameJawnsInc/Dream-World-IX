@@ -36,7 +36,14 @@ default `FF9CustomMap`/4003. Slots: master -> `FF9CustomMap`/30000, `-bb`/30001,
 
 `Memoria.ini [Mod] FolderNames` stacks the folders; each folder's own DictionaryPatch/BattlePatch
 is read at launch. **EventDB/SceneData are GLOBAL** across the stack -> distinct ids are required
-even across folders. Full lookup (id bands, slots, `.ff9deploy.toml` keys):
+even across folders. **THE LAUNCHER LAW (root-caused 2026-07-12): any edit that adds to or
+reorders `FolderNames` MUST set `[Mod] Priorities` to the SAME entries in the SAME order, with
+the game + launcher closed** — the Memoria Launcher treats `Priorities` as the MASTER order and
+rewrites `FolderNames` from it at every Play click (`MainWindow_ModManager.cs`
+`LoadModSettings`/`UpdateModSettings`), so a `FolderNames`-only edit is silently reverted.
+`Priorities` may additionally list inactive (unchecked) mods — leave those entries in place. Kit
+code routes writes through `ff9mapkit.coop.mod_order_updates` (the one helper that keeps the
+invariant). Full lookup (id bands, slots, `.ff9deploy.toml` keys):
 [references/id-bands-and-folders.md](references/id-bands-and-folders.md).
 
 ## Diagnosing a black screen

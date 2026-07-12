@@ -211,7 +211,8 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
    commands) — then **F6 → Reload field** (or relaunch).
 2. **Clear the shadow.** Deploy your folder higher in `FolderNames`, remove the higher folder's
    copy of the block, or pin a unique `[field] text_block` — it must be a **real `MesDB` id** that
-   no higher-priority folder defines (arbitrary ids don't load):
+   no higher-priority folder defines (arbitrary ids don't load). When you reorder by hand, edit
+   **both `[Mod] FolderNames` and `[Mod] Priorities`** to the same order (see the rule below):
 
    ```toml
    [field]
@@ -234,6 +235,21 @@ regardless of `FolderNames` order. `deploy_journey` still warns (`TEXT-BLOCK COL
 shipped by …`) when a mix of old (un-windowed) and new folders is hand-stacked — reorder
 `FolderNames` so the campaign whose dialogue matters most sits highest, or re-deploy the whole
 journey so every campaign gets a window.
+
+---
+
+## My Memoria.ini `FolderNames` edit keeps reverting
+
+The Memoria **Launcher** treats `[Mod] Priorities` as the **master** mod order: it builds its mod
+list in `Priorities` order and **rewrites `FolderNames` from that list at every Play click**
+(`Memoria.Launcher/MainWindow_ModManager.cs`, `LoadModSettings`/`UpdateModSettings`). The stock ini
+comment calling `Priorities` "only a hint" is wrong.
+
+**Rule: any hand edit that adds to or reorders `FolderNames` must edit BOTH keys — same entries,
+same order — with the game *and* the launcher closed.** `Priorities` may additionally list mods you
+have disabled in the launcher; leave those entries where they are. A `FolderNames`-only edit looks
+fine until the next launch, then silently reverts. (Kit tools that write `Memoria.ini` follow this
+rule via `ff9mapkit.coop.mod_order_updates`.)
 
 ---
 

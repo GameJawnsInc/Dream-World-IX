@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — Memoria.ini mod-order edits now survive the Launcher (FolderNames + Priorities together)
+- Root cause (2026-07-12): the Memoria **Launcher** treats `[Mod] Priorities` as the MASTER mod order —
+  `LoadModSettings` builds its list in Priorities order and `UpdateModSettings` rewrites `FolderNames`
+  from it at every Play click — so any tool (or hand edit) touching only `FolderNames` was silently
+  reverted. New `coop.mod_order_updates` sets both keys together (actives in the same order, inactive
+  Priorities entries kept in place); `ff9mapkit coop`'s folder registration routes through it, every
+  kit-printed "edit Memoria.ini" instruction and the docs now state the both-fields rule, and a
+  launcher-round-trip unit test guards the invariant.
+
 ### Added — `on_defeat` covers VERBATIM forks
 - The wipe-warp check now also lands on **verbatim forks**: a fork carrying the `[deathrules]` block gets
   the check **prepended into its donor's existing tag-10** after-battle handler (an offset-0

@@ -211,7 +211,10 @@ checkout) are dry-run by default (`--apply` to write); `ff9mapkit newgame` write
 (`--dry-run` to preview).
 
 The **shipped path** needs none of this: `ff9mapkit build … --mod-name MyMod`, copy the folder
-into the game install, register it in `Memoria.ini [Mod] FolderNames`, launch.
+into the game install, register it in `Memoria.ini [Mod] FolderNames` **and** `Priorities` (same
+order — the Memoria Launcher rewrites `FolderNames` from `Priorities` at every Play click, so a
+`FolderNames`-only edit silently reverts; launching once also auto-detects the folder, the hand
+edit just controls the order), launch.
 
 ---
 

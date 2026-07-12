@@ -59,7 +59,20 @@ diagnosis). The same stacking also causes the `.mes` text-block shadow.
 ## Folder auto-registration
 
 Memoria auto-detects a mod folder containing a `ModDescription.xml` dropped into the FF9 root and
-auto-adds it to `Memoria.ini [Mod] FolderNames` — no manual ini edit needed. Caveat, verbatim from
-memory `project-ff9-git-layout`: "auto-insert lands at an arbitrary position, so a mod that must
-OVERRIDE/shadow another still needs the right ORDER"; and "the registered entry = the OUTPUT FOLDER
-name, NOT `--mod-name`". The dev `deploy_*.py` write FolderNames explicitly for deterministic priority.
+auto-adds it to `Memoria.ini [Mod] FolderNames` + `Priorities` — no manual ini edit needed. Caveat,
+verbatim from memory `project-ff9-git-layout`: "auto-insert lands at an arbitrary position, so a mod
+that must OVERRIDE/shadow another still needs the right ORDER"; and "the registered entry = the
+OUTPUT FOLDER name, NOT `--mod-name`". The dev `deploy_*.py` do NOT edit `Memoria.ini` (they print
+the manual steps); the only kit writer is `ff9mapkit coop` via `coop.mod_order_updates`.
+
+## Reordering the stack by hand (THE LAUNCHER LAW)
+
+Edit **both `[Mod] FolderNames` and `[Mod] Priorities` — same entries, same order — with the game
+AND the launcher closed.** The launcher builds its mod list in `Priorities` order and rewrites
+`FolderNames` from it at every Play click, so a `FolderNames`-only edit silently reverts (this
+killed two -world reorder attempts before the 2026-07-12 root cause). `Priorities` may also list
+inactive mods — leave them where they sit. The required live order (`FF9CustomMap-world` must stay
+ABOVE `MoguriMain` so the kit's composited `world_map_full_all.png` beats Moguri's copy):
+`"FF9CustomMap", "FF9CustomMap-hc", "FF9CustomMap-ow", "FF9CustomMap-world", "MoguriMain",
+"MoguriVideo"`. Before any reorder, diff the moved folder's paths against every folder it newly
+outranks (the stale-`8.mes`-stub lesson).

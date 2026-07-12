@@ -39,8 +39,10 @@ class ShadowReport:
 
 def parse_folder_names(memoria_ini_text: str) -> list:
     """The ordered mod-folder priority list from a ``Memoria.ini``'s ``FolderNames = "A", "B", ...`` line
-    (highest priority first). ``[]`` if the key is absent. Skips comment lines (``;``) so the commented
-    "Priorities is only a hint" note above the real line is ignored."""
+    (highest priority first). ``[]`` if the key is absent. Skips comment lines (``;``). NOTE: the stock ini
+    comment calling ``Priorities`` "only a hint" is WRONG -- the Memoria Launcher treats Priorities as the
+    MASTER order and rewrites FolderNames from it at every Play click, so any WRITER must set both keys in
+    the same order (:func:`ff9mapkit.coop.mod_order_updates`); reading FolderNames alone stays correct."""
     for line in memoria_ini_text.splitlines():
         s = line.strip()
         if s.startswith(";") or "=" not in s:
