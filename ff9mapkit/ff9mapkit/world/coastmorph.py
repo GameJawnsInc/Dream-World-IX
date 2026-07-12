@@ -34,7 +34,7 @@ from collections import Counter, defaultdict
 
 from . import grassland as G
 from . import transplant as TR
-from .extract import decode_id
+from .extract import decode_id, encode_id
 from .island import _delaunay
 
 #: the real terrain grain ceiling (max tri edge); longer fill edges read as stretch
@@ -4037,6 +4037,104 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
             TR.DropTris("beach1", foam_all), TR.EmitTris("beach1", foam_emit)]
 
 
+def _apply_pre(tris_by_part, tweaks):
+    """Apply a PRE tweak list (VertexDisplace / DropTris / EmitTris) to a loaded
+    world-tri soup: the virgin mint composes AFTER earlier morphs (e.g. a bank
+    reshape), so it must compute on the geometry those tweaks produce; the caller
+    then deploys pre + mint together (tweaks ride the transplant in order)."""
+    out = {p: [list(t3) for t3 in ts] for p, ts in tris_by_part.items()}
+    for tw in tweaks:
+        if isinstance(tw, TR.VertexDisplace):
+            for p, ts in out.items():
+                if tw.part is not None and p != tw.part:
+                    continue
+                for i, t3 in enumerate(ts):
+                    if not any(tw._key(v[0]) in tw.moves for v in t3):
+                        continue
+                    nt = []
+                    for (pos, nrm, uv, tan) in t3:
+                        d = tw.moves.get(tw._key(pos))
+                        if d is not None:
+                            pos = (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
+                        nt.append((pos, nrm, uv, tan))
+                    ts[i] = nt
+        elif isinstance(tw, TR.DropTris):
+            out[tw.part] = [t3 for t3 in out[tw.part]
+                            if tw._key_set(t3) not in tw.keys]
+        elif isinstance(tw, TR.EmitTris):
+            out[tw.part] = out[tw.part] + [list(t3) for t3 in tw.tris]
+        else:
+            raise ValueError(f"pre tweak {type(tw).__name__} is not simulatable -- "
+                             f"the mint composes after VertexDisplace/DropTris/"
+                             f"EmitTris only")
+    return out
+
+
+def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
+               disc: int = 1, lod: str = "0_1", game=None):
+    """THE BANK RESHAPE -- the virgin mint's site-preparation verb: lower a
+    mesa/cliff-top bank into a beach-capable profile (RESHAPE stock verts, never
+    overlay). Every terrain vert within ``radius`` of ``center`` (plan) sinks to at
+    most ``min(shore_slope * d_shore, cap)`` -- a gentle rise from the pinned
+    waterline -- blended smoothly to zero effect at the radius (the untouched mesa
+    keeps its height beyond, reading as a natural cove shoulder). Water-welded
+    verts and block-frame verts never move; UVs/normals stay verbatim (the
+    displacement semantics the cliff/beach bows proved). Returns ``[VertexDisplace]``
+    for the transplant/fuse tweak list (and the mint's ``pre=``)."""
+    parts = ("terrain", "beach1", "sea2", "sea1", "sea3", "sea5", "sea4")
+    tris = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game)
+            for p in parts}
+    water_k = {_pk(v[0]) for p in parts[1:] for t3 in tris[p] for v in t3}
+    fx0, fx1 = 64.0 * donor[0], 64.0 * donor[0] + 64.0
+    fz0, fz1 = -64.0 * donor[1] - 64.0, -64.0 * donor[1]
+    shore = []
+    tverts = {}
+    for t3 in tris["terrain"]:
+        for v in t3:
+            k = _pk(v[0])
+            tverts.setdefault(k, v[0])
+            if k in water_k:
+                shore.append(v[0])
+    if not shore:
+        raise ValueError(f"donor {donor} has no shoreline to profile the bank from")
+    moves = {}
+    for k, p in tverts.items():
+        if k in water_k:
+            continue
+        r = math.hypot(p[0] - center[0], p[2] - center[1])
+        if r >= radius:
+            continue
+        if min(p[0] - fx0, fx1 - p[0], p[2] - fz0, fz1 - p[2]) < 1.5:
+            continue
+        d = min(math.hypot(p[0] - q[0], p[2] - q[2]) for q in shore)
+        # plateau falloff: full effect inside, rolling off only over the outer
+        # band (an islet is water-bounded -- the roll-off matters only where the
+        # mesa continues past the radius)
+        band = min(6.0, radius / 3.0)
+        t = max(0.0, min(1.0, (radius - r) / band))
+        w = t * t * (3.0 - 2.0 * t)
+        tgt = min(shore_slope * d, cap)
+        if p[1] > tgt + 1e-6:
+            dy = (tgt - p[1]) * w
+            if dy < -1e-4:
+                moves[p] = (0.0, dy, 0.0)
+    if not moves:
+        raise ValueError("bank_lower moves nothing -- the bank already fits the "
+                         "profile (or center/radius miss it)")
+    keyed = {_pk(p) for p in moves}
+    # a y-only sink cannot fold plan geometry and only FLATTENS 3D relief; the
+    # remaining hazard is a plan-degenerate touched tri (a vertical wall face,
+    # which a sink would z-fight) -- refuse those
+    from .mesh import _poly_area2_xz
+    for t3 in tris["terrain"]:
+        if any(_pk(v[0]) in keyed for v in t3) and _poly_area2_xz(t3) < 1e-6:
+            raise ValueError("bank_lower touches a plan-degenerate (vertical) tri "
+                             "-- a wall face; shrink the radius off it")
+    n_inst = sum(_pk(v[0]) in keyed
+                 for p in parts for t3 in tris[p] for v in t3)
+    return [TR.VertexDisplace(moves=moves, expected=n_inst)]
+
+
 #: THE VIRGIN-MINT ENVELOPES (rung 3, 2026-07-11). Column widths: the map-wide foam
 #: run-column census (608 constant-v run edges over all 40 beach blocks: 0.92..6.27u,
 #: median 4.01 -- short columns are real grammar). Slope: MINT_SLOPE's ceiling widened
@@ -4052,7 +4150,8 @@ S_MID_Y = 0.75
 W_Y = 0.195
 
 
-def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
+def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
+                pins_from=None, wash_reach=4.0, disc: int = 1,
                 lod: str = "0_1", game=None):
     """BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT: author a NEW beach on a bare grass
     coast, no donor beach to pin to. ``start``/``end`` are world ``(x, z)`` anchors for
@@ -4089,24 +4188,37 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
     parts = ("terrain", "object", "beach1", "sea2", "sea1", "sea3", "sea5", "sea4")
     water_parts = ("sea2", "sea1", "sea3", "sea5", "sea4")
     tris = {p: TR.world_tris(*donor, p, disc=disc, lod=lod, game=game) for p in parts}
+    if pre:
+        tris = _apply_pre(tris, pre)
     terr = tris["terrain"]
     foam_all = tris["beach1"]
-    if not foam_all:
-        raise ValueError(f"donor {donor} carries no beach1 -- the virgin mint reads "
-                         f"its foam family and sand pins from the block's own beach (v1)")
 
     def topo(t3):
         return decode_id(int(round(t3[0][3][0])))["topograph"]
     sand = [t3 for t3 in terr if topo(t3) == 31]
     other = [t3 for t3 in terr if topo(t3) != 31]
-    if not sand:
-        raise ValueError(f"donor {donor} carries no sand band -- v1 mints with the "
-                         f"block's own pins")
-    family = _foam_family(foam_all)
+    # the language pins (foam family + sand v-pins) come from the block's own
+    # beach, or -- on a beach-less block -- byte-read from a reference block via
+    # ``pins_from`` (the sand/foam atlas is the ONE world texture)
+    if pins_from is not None:
+        pin_terr = TR.world_tris(*pins_from, "terrain", disc=disc, lod=lod,
+                                 game=game)
+        pin_foam = TR.world_tris(*pins_from, "beach1", disc=disc, lod=lod,
+                                 game=game)
+        pin_sand = [t3 for t3 in pin_terr if topo(t3) == 31]
+    else:
+        pin_foam, pin_sand = foam_all, sand
+    if not pin_foam:
+        raise ValueError(f"donor {donor} carries no beach1 -- pass pins_from=a "
+                         f"beach block to mint on a beach-less coast")
+    if not pin_sand:
+        raise ValueError(f"no sand band to read the mint pins from -- pass "
+                         f"pins_from=a beach block")
+    family = _foam_family(pin_foam)
     if family is None:
-        raise ValueError(f"donor {donor}: no lawful foam run family decodes")
+        raise ValueError("no lawful foam run family decodes in the pins block")
     run_pins = cap_pins = None
-    for t3 in sand:
+    for t3 in pin_sand:
         d = _sand_tri_decode(t3)
         if d is None:
             continue
@@ -4116,7 +4228,7 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
         if d[0] == "cap" and cap_pins is None and len(vs) == 2:
             cap_pins = vs
     if run_pins is None or cap_pins is None:
-        raise ValueError("the block's sand carries no run+cap pins to mint with")
+        raise ValueError("the pins block's sand carries no run+cap pins")
 
     # --- the virgin shoreline graph: terrain boundary edges welded to open water ---
     water_of_k = defaultdict(set)
@@ -4210,10 +4322,10 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
                             if 0.02 < _along(p, posA, posB) < 0.98] + [S_poly[-1]]
     for p in S_poly[1:-1]:
         front = water_of_k.get(_pk(p), set())
-        if not front <= {"sea1", "sea2"}:
+        if not front <= {"sea1", "sea2", "sea3", "sea5"}:
             raise ValueError(f"shore vert ({p[0]:.1f},{p[2]:.1f}) fronts "
-                             f"{sorted(front)} -- the window's interior must front "
-                             f"sea1/sea2 (the census filter, tri-level)")
+                             f"{sorted(front)} -- a sea4 plunge coast has no "
+                             f"lawful ladder (sea5 interposition is out of scope)")
         if _pk(p) in foam_k:
             raise ValueError(f"shore vert ({p[0]:.1f},{p[2]:.1f}) welds an existing "
                              f"beach -- not a virgin window")
@@ -4549,7 +4661,23 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
         t = r[0]
         pos = (p0[0] + t * (p1[0] - p0[0]), p0[1] + t * (p1[1] - p0[1]),
                p0[2] + t * (p1[2] - p0[2]))
+        # an intersection vert within the weld-audit tolerance of a chain vert
+        # ADOPTS it (both sides share this cache, so the near-miss sliver
+        # collapses consistently everywhere -- the canonical-snap law)
         snap = canon.get((round(pos[0], 6), round(pos[2], 6)))
+        if snap is None:
+            for q in canon.values():
+                if abs(q[0] - pos[0]) < 0.08 and abs(q[2] - pos[2]) < 0.08                         and math.hypot(q[0] - pos[0], q[2] - pos[2]) < 0.08:
+                    snap = q
+                    break
+        if snap is None:
+            # crossings also merge with EACH OTHER inside the tolerance (a
+            # boundary line grazing a donor vert crosses its two edges at two
+            # nearby points -- one shared vert, no sliver)
+            for q in xcache.values():
+                if abs(q[0] - pos[0]) < 0.08 and abs(q[2] - pos[2]) < 0.08                         and math.hypot(q[0] - pos[0], q[2] - pos[2]) < 0.08:
+                    snap = q
+                    break
         pos = snap if snap is not None else pos
         xcache[ek] = pos
         return pos
@@ -4751,6 +4879,16 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
     wat_drop = {p: [] for p in water_parts}
     wat_emit = {p: [] for p in water_parts}
     wat_consumed = 0.0
+    mains_map = _mains_factory()
+
+    def _to_wash(t_):
+        """Re-band a deep tile (or fragment) to sea2 WASH: fresh per-cell mains uvs
+        (the beach_rebuild conforming precedent -- position-evaluated), geometry/
+        normals/IDALL verbatim (a band conversion is a uv+part edit)."""
+        uvf = mains_map(_cell_of_tri(t_))
+        return [(v[0], v[1], uvf(v[0][0], v[0][2]), v[3]) for v in t_]
+
+    cut_frags = []
     for p in water_parts:
         for t3 in tris[p]:
             consumed, kept = _cut_tri(t3)
@@ -4758,7 +4896,33 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
                 continue
             wat_consumed += consumed
             wat_drop[p].append(list(t3))
-            wat_emit[p] += [_up_tri([_lift_v(v) for v in t_]) for t_ in kept]
+            cut_frags.append((p, [_up_tri([_lift_v(v) for v in t_])
+                                  for t_ in kept]))
+    # THE LADDER SYNTHESIS (a DEEP-fronted shore only -- the footprint cut no
+    # sea2, so there is no wash to continue): cut sea3/sea5 remainders re-band to
+    # WASH, and uncut deep tiles the W chain runs close by join it (the swash
+    # needs its real seaward sea2 depth); the ring trigger then interposes sea1.
+    # On a wash-fronted shore (sea2 was cut) everything keeps its own band.
+    deep_shore = not wat_drop["sea2"]
+    for p, frags in cut_frags:
+        if deep_shore and p in ("sea3", "sea5"):
+            wat_emit["sea2"] += [_to_wash(t_) for t_ in frags]
+        else:
+            wat_emit[p] += frags
+    if deep_shore:
+        wash_dropped = {p: {_key_set(t) for t in wat_drop[p]}
+                        for p in ("sea3", "sea5")}
+        for p in ("sea3", "sea5"):
+            for t3 in tris[p]:
+                if _key_set(t3) in wash_dropped[p]:
+                    continue
+                cx_ = sum(v[0][0] for v in t3) / 3.0
+                cz_ = sum(v[0][2] for v in t3) / 3.0
+                d = min(_pt_seg((cx_, 0.0, cz_), W[i], W[i + 1])
+                        for i in range(ncol))
+                if d <= wash_reach:
+                    wat_drop[p].append(list(t3))
+                    wat_emit["sea2"].append(_to_wash(list(t3)))
     if abs(terr_consumed + wat_consumed - foot_area) > max(0.01 * foot_area, 0.05):
         raise ValueError(f"COVERAGE LEDGER: the footprint ({foot_area:.2f} sq-u) is "
                          f"covered by only {terr_consumed + wat_consumed:.2f} sq-u "
@@ -4796,8 +4960,28 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
                   + " ".join(f"t={t:.4f}({p[0]:.4f},{p[1]:.3f},{p[2]:.4f})"
                              for t, p in sorted(seg_cuts[tag].items())))
     # --- sand + foam emission (cut-aware fans; the proven language walks) ---
-    s_nrm, s_id = sand[0][0][1], tuple(sand[0][0][3])
-    f_nrm, f_id = foam_all[0][0][1], tuple(foam_all[0][0][3])
+    # exemplars: the block's own where it has a beach; on a beach-less block the
+    # IDALL keeps the LOCAL area/event bits (encounters/entrances stay this
+    # block's) with the language's topograph, and normals come from the pins
+    if sand:
+        s_nrm, s_id = sand[0][0][1], tuple(sand[0][0][3])
+    else:
+        ld = decode_id(int(round(other[0][0][3][0])))
+        pd = tuple(pin_sand[0][0][3])
+        s_nrm = pin_sand[0][0][1]
+        s_id = (float(encode_id(event=0, area=ld["area"], topograph=31,
+                                flags=decode_id(int(round(pd[0])))["flags"])),
+                ) + tuple(pd[1:])
+    if foam_all:
+        f_nrm, f_id = foam_all[0][0][1], tuple(foam_all[0][0][3])
+    else:
+        ld = decode_id(int(round(other[0][0][3][0])))
+        pf = tuple(pin_foam[0][0][3])
+        pfd = decode_id(int(round(pf[0])))
+        f_nrm = pin_foam[0][0][1]
+        f_id = (float(encode_id(event=0, area=ld["area"],
+                                topograph=pfd["topograph"], flags=pfd["flags"])),
+                ) + tuple(pf[1:])
     uJ_s, uF_s = SAND_ULAT[1], SAND_ULAT[2]
     bl = FOAM_FAMILIES[family]["BL"]
     sand_emit, foam_emit = [], []
@@ -5026,77 +5210,163 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
     def water_pre(c):
         return {p for p in owner.get(c, ()) if p in WATER_DEPTH}
 
-    # a sea3 tile sharing a geometric EDGE with the minted foam is wash-fronted
-    # regardless of what else its cell carries -- the ring must interpose there
+    # a deep tile (sea3/sea5) sharing a geometric EDGE with the minted foam is
+    # wash-fronted regardless of what else its cell carries -- the ring must
+    # interpose there
     foam_ek = set()
     for t3 in foam_emit:
         ps = [v[0] for v in t3]
         for j in range(3):
             foam_ek.add(frozenset((_pk(ps[j]), _pk(ps[(j + 1) % 3]))))
 
-    def _foam_welded_sea3():
-        for t3 in surv["sea3"]:
-            ps = [v[0] for v in t3]
-            for j in range(3):
-                if frozenset((_pk(ps[j]), _pk(ps[(j + 1) % 3]))) in foam_ek:
-                    return _cell_of_tri(t3)
+    def _foam_welded_deep():
+        for sp_ in ("sea3", "sea5"):
+            for t3 in surv[sp_]:
+                ps = [v[0] for v in t3]
+                for j in range(3):
+                    if frozenset((_pk(ps[j]), _pk(ps[(j + 1) % 3]))) in foam_ek:
+                        return sp_, _cell_of_tri(t3)
         return None
 
-    for _round in range(6):
-        viol = _foam_welded_sea3()
-        for c in sorted(scan):
-            if viol is not None:
-                break
-            if "sea3" not in owner2.get(c, ()):
-                continue
-            for dname, (dx, dz) in TR._DIRS.items():
-                nb = (c[0] + dx, c[1] + dz)
-                nbw = water2(nb)
-                # a wash-class neighbour (foam and/or wash only) fronting sea3
-                # directly is off-language -- the ring must interpose. Only a
-                # pair the MINT created triggers (the no-introduced-misses law:
-                # real mixed shore cells carry such contacts already).
-                if nbw and nbw <= {"beach1", "sea2"} \
-                        and not ("sea3" in water_pre(c)
-                                 and water_pre(nb) <= {"beach1", "sea2"}
-                                 and water_pre(nb)):
-                    viol = c
+    #: THE LADDER REPAIR MAP: an introduced unlawful band pair converts the
+    #: DEEPER tile one step shallower; iterating converges every pair class
+    #: ({wash|4} heals via 4->5 then 5->1; {1|4} via 4->5; {wash|3} via 3->1)
+    _LADDER_DOWN = {"sea4": "sea5", "sea5": "sea1", "sea3": "sea1"}
+
+    def _pair_lawful(a, b):
+        """The lattice adjacency law over two cells' water sets, wash included:
+        band pairs must be in the learned table, and a wash-class cell (foam/
+        sea2 only) may sit beside nothing deeper than sea1."""
+        sa = {q for q in a if q not in ("beach1", "sea2")}
+        sb = {q for q in b if q not in ("beach1", "sea2")}
+        for qa in sa:
+            for qb in sb:
+                if qa != qb and frozenset((qa, qb)) not in _LAWFUL_ADJ:
+                    return False
+        if (a and not sa and sb
+                and max(WATER_DEPTH[q] for q in sb) > WATER_DEPTH["sea1"]):
+            return False
+        if (b and not sb and sa
+                and max(WATER_DEPTH[q] for q in sa) > WATER_DEPTH["sea1"]):
+            return False
+        return True
+
+    # PLAN-THEN-EMIT: the repair fixpoint runs on the OWNER MAP only (band
+    # bookkeeping); geometry emits ONCE afterwards from the FINAL facts -- an
+    # in-loop emission goes stale the moment a later conversion changes its
+    # neighbour (the shade gate catches exactly that)
+    conversions = {}                     # cell -> [source_part, current_target]
+    for _outer in range(20):
+        for _round in range(400):
+            viol = None
+            hit = _foam_welded_deep()
+            if hit is not None and hit[1] not in conversions:
+                viol = hit
+            for c in sorted(scan):
+                if viol is not None:
                     break
-        if viol is None:
-            break
-        c = viol
-        c_tris = [t3 for t3 in surv["sea3"] if _cell_of_tri(t3) == c]
-        if not c_tris:
-            raise ValueError(f"ring re-band: the sea3 fronting the wash at {c} is a "
-                             f"PARTIAL tile (a cut fragment) -- a fragment carries "
-                             f"no 4-corner quad to re-band; outside the v1 language "
-                             f"(shrink the footprint off that tile)")
-        corners_c = {}
-        for t3 in c_tris:
-            for v in t3:
-                corners_c.setdefault(_pk(v[0]), (v[0], (v[2][0], v[2][1]), None))
-        if len(corners_c) != 4:
-            raise ValueError(f"ring re-band: cell {c} is not a 4-corner sea3 quad "
-                             f"({len(corners_c)} verts) -- outside the v1 language")
-        es_c = frozenset(
-            dname for dname, (dx, dz) in TR._DIRS.items()
-            if water2((c[0] + dx, c[1] + dz))
-            and max(WATER_DEPTH[q] for q in water2((c[0] + dx, c[1] + dz)))
-            > WATER_DEPTH["sea1"])
-        if es_c not in TR.EDGESET2STRIP:
-            raise ValueError(f"ring re-band: cell {c} -> sea1 needs edge-set "
-                             f"{sorted(es_c)} with no learned strip -- refusing")
-        ri_c, oname_c = _strip_pick(es_c, c)
-        c_new = _strip_emit(c_tris, corners_c, {}, c, ri_c, oname_c, u_pair, v_rows)
-        ring_drop_by["sea3"].extend(c_tris)
-        ring_emit_by["sea1"].extend(c_new)
-        surv["sea3"] = [t3 for t3 in surv["sea3"] if _cell_of_tri(t3) != c]
-        owner2[c] = (owner2[c] - {"sea3"}) | {"sea1"}
-        post_reg[("sea1", c)] = {"gtris": c_new, "det": None, "es": es_c,
-                                 "row": ri_c, "oname": oname_c}
-        changed_cells.add(c)
+                cw = water2(c)
+                if not cw:
+                    continue
+                for dname, (dx, dz) in TR._DIRS.items():
+                    nb = (c[0] + dx, c[1] + dz)
+                    nbw = water2(nb)
+                    if not nbw or _pair_lawful(cw, nbw):
+                        continue
+                    # only a pair the MINT created triggers (the no-introduced-
+                    # misses law: real shore cells carry pre-existing contacts)
+                    if (water_pre(c) and water_pre(nb)
+                            and not _pair_lawful(water_pre(c), water_pre(nb))):
+                        continue
+                    deep_c = (c if max(WATER_DEPTH[q] for q in cw)
+                              >= max(WATER_DEPTH[q] for q in nbw) else nb)
+                    dw = water2(deep_c)
+                    sp_ = max((q for q in dw if q in _LADDER_DOWN),
+                              key=lambda q: WATER_DEPTH[q], default=None)
+                    if sp_ is None:
+                        raise ValueError(f"adjacency repair: no ladder step for "
+                                         f"{sorted(dw)} at {deep_c}")
+                    viol = (sp_, deep_c)
+                    break
+            if viol is None:
+                break
+            sp, c = viol
+            prev = conversions.get(c)
+            src = prev[0] if prev else sp
+            cur = prev[1] if prev else sp
+            tgt = _LADDER_DOWN.get(cur)
+            if tgt is None:
+                raise ValueError(f"adjacency repair: {cur} at {c} has no further "
+                                 f"ladder step")
+            if os.environ.get("FF9_VIRGIN_DEBUG"):
+                print(f"[debug] ladder plan: {src} at {c} -> {tgt}")
+            conversions[c] = [src, tgt]
+            owner2[c] = (owner2[c] - {cur}) | {tgt}
+            changed_cells.add(c)
+        else:
+            raise ValueError("the ladder repair did not converge in 400 rounds")
+        # --- EMIT from the final owner map; a cell with no lawful strip form
+        # falls back to WASH (monotone: re-plan and re-emit) ---
+        staged_wash, staged_strip, fell_back = [], [], False
+        for c, (src, tgt) in sorted(conversions.items()):
+            c_tris = [t3 for t3 in surv[src] if _cell_of_tri(t3) == c]
+            if not c_tris:
+                raise ValueError(f"ladder repair: the {src} at {c} is a PARTIAL "
+                                 f"tile (a cut fragment) -- no whole tile to "
+                                 f"re-band; shrink the footprint off it")
+            if tgt == "sea2":
+                staged_wash.append((src, c, c_tris))
+                continue
+            ent = post_reg.get((src, c)) if src == "sea5" else None
+            corners_c = lerps_c = None
+            if ent is not None and ent.get("det") is not None:
+                corners_c, lerps_c = ent["det"]
+            else:
+                corners_c, lerps_c = {}, {}
+                for t3 in c_tris:
+                    for v in t3:
+                        corners_c.setdefault(_pk(v[0]),
+                                             (v[0], (v[2][0], v[2][1]), None))
+                if len(corners_c) != 4:
+                    corners_c = None
+            es_c = frozenset(
+                dname for dname, (dx, dz) in TR._DIRS.items()
+                if water2((c[0] + dx, c[1] + dz))
+                and max(WATER_DEPTH[q] for q in water2((c[0] + dx, c[1] + dz)))
+                > WATER_DEPTH[tgt])
+            if corners_c is None or es_c not in TR.EDGESET2STRIP:
+                if tgt != "sea1":
+                    raise ValueError(f"adjacency repair: the {src} at {c} has no "
+                                     f"lawful {tgt} form (a non-quad / an "
+                                     f"unlearned edge-set) -- refusing")
+                if os.environ.get("FF9_VIRGIN_DEBUG"):
+                    print(f"[debug] ladder fallback: {src} at {c} -> sea2")
+                conversions[c] = [src, "sea2"]
+                owner2[c] = (owner2[c] - {tgt}) | {"sea2"}
+                fell_back = True
+                break
+            ri_c, oname_c = _strip_pick(es_c, c)
+            c_new = _strip_emit(c_tris, corners_c, lerps_c, c, ri_c, oname_c,
+                                u_pair, v_rows)
+            staged_strip.append((src, c, tgt, c_tris, c_new, es_c, ri_c, oname_c))
+        if fell_back:
+            continue
+        for src, c, c_tris in staged_wash:
+            ring_emit_by["sea2"].extend(_to_wash(t3) for t3 in c_tris)
+            ring_drop_by[src].extend(c_tris)
+            surv[src] = [t3 for t3 in surv[src] if _cell_of_tri(t3) != c]
+            post_reg.pop((src, c), None)
+        for src, c, tgt, c_tris, c_new, es_c, ri_c, oname_c in staged_strip:
+            ring_drop_by[src].extend(c_tris)
+            ring_emit_by[tgt].extend(c_new)
+            surv[src] = [t3 for t3 in surv[src] if _cell_of_tri(t3) != c]
+            post_reg.pop((src, c), None)
+            post_reg[(tgt, c)] = {"gtris": c_new, "det": None, "es": es_c,
+                                  "row": ri_c, "oname": oname_c}
+        break
     else:
-        raise ValueError("the ring re-band did not converge in 6 rounds")
+        raise ValueError("the ladder repair kept falling back to wash -- the "
+                         "site has no lawful ladder")
     # remaining unlawful band pairs anywhere in the scan window -> refuse
     for c in sorted(scan):
         for dx, dz in ((1, 0), (0, 1)):
@@ -5227,15 +5497,20 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, disc: int = 1,
                 near.append((False, list(t3)))
     _tvertex_gate(near)
 
-    # seaward of every interior W vert the first water must be wash (sea2) -- the
-    # zip is the mint's own; the wash BEYOND it is verbatim survivors
-    post_sea2 = surv["sea2"] + wat_emit["sea2"]
+    # seaward of every interior W vert the water must read WASH (sea2) for at
+    # least the real minimum band depth (THE ABSOLUTE WASH ENVELOPE's floor) --
+    # on a synthesized ladder this is the gate that steers wash_reach
+    post_sea2 = surv["sea2"] + wat_emit["sea2"] + ring_emit_by.get("sea2", [])
     for i in range(1, n - 1):
         nx, nz = normals[i]
-        px, pz = W[i][0] + nx * 0.4, W[i][2] + nz * 0.4
-        if not any(_pip_xz(px, pz, t3) for t3 in post_sea2):
-            raise ValueError(f"the water seaward of W[{i}] is not wash (sea2) -- "
-                             f"the ladder is out of order")
+        d = 0.3
+        while d < 2.45:
+            px, pz = W[i][0] + nx * d, W[i][2] + nz * d
+            if not any(_pip_xz(px, pz, t3) for t3 in post_sea2):
+                raise ValueError(f"the wash seaward of W[{i}] runs only "
+                                 f"{d - 0.3:.1f}u of sea2 (< the 2.4u envelope "
+                                 f"floor) -- grow wash_reach")
+            d += 0.25
 
     out = [TR.DropTris("terrain", ter_drop),
            TR.EmitTris("terrain", ter_emit + sand_emit),

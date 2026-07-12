@@ -763,11 +763,11 @@ def test_virgin_mint_golden():
     led = [(t.part, ("drop", t.expected) if hasattr(t, "keys")
             else ("emit", len(t.tris))) for t in tw]
     assert led == [("terrain", ("drop", 12)), ("terrain", ("emit", 34)),
-                   ("beach1", ("emit", 9)),
+                   ("beach1", ("emit", 8)),
                    ("sea2", ("drop", 2)), ("sea2", ("emit", 7)),
-                   ("sea1", ("drop", 4)), ("sea1", ("emit", 6)),
+                   ("sea1", ("drop", 4)), ("sea1", ("emit", 5)),
                    ("sea3", ("drop", 2))]
-    assert _tweak_hash(tw) == "938c287a14bd6679"
+    assert _tweak_hash(tw) == "56a73347d9bbe571"
     # the ring re-band is present and generative: among the sea1 emissions, the
     # re-banded (156,-283) CONFORMING quad carries the block's strip dialect
     # (corner-role assignment -- a lattice decode cannot read a deformed tile;
@@ -794,3 +794,34 @@ def test_virgin_mint_refusals():
         CM.virgin_mint((9, 17), (622.5, -1127.7), (623.8, -1127.6))
     with pytest.raises(ValueError, match="off the shoreline"):
         CM.virgin_mint((9, 17), (600.0, -1100.0), (623.8, -1127.6))
+
+
+def test_virgin_mint_deep_shore_golden():
+    """THE REAL-SCALE CONTINENT MINT (v2): bank_lower + virgin_mint with pre= /
+    pins_from= / the deep-shore LADDER SYNTHESIS on (10,18)'s islet (continent
+    island B -- zero beaches, a ~4u mesa bank, sea3/sea5/sea4 all around). The
+    bank sinks to a cay profile (shore verts pinned); the mint computes on the
+    post-reshape geometry; cut deep tiles re-band to WASH (mains, position-
+    evaluated); and the plan-then-emit LADDER REPAIR steps every introduced
+    unlawful pair one band down ({wash|4} -> 4->5 -> 5->1) until the whole
+    synthesized ladder is lawful -- including 34 sea4 tiles."""
+    from ff9mapkit.world.coastmorph import bank_lower, virgin_mint
+    pre = bank_lower((10, 18), (674.0, -1164.0), radius=25.0)
+    tw = virgin_mint((10, 18), (666.9, -1168.6), (681.1, -1168.2),
+                     width=3.6, swash=4.4, pre=pre, pins_from=(7, 17))
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in pre + tw]
+    assert led == [(None, ("displace", 54)),
+                   ("terrain", ("drop", 10)), ("terrain", ("emit", 19)),
+                   ("beach1", ("emit", 18)),
+                   ("sea2", ("emit", 29)), ("sea1", ("emit", 22)),
+                   ("sea3", ("drop", 14)),
+                   ("sea5", ("drop", 16)), ("sea5", ("emit", 22)),
+                   ("sea4", ("drop", 34))]
+    assert _tweak_hash(pre + tw) == "c6323e9018f67821"
+    # real-scale check: 4 columns over the ~14.8u arc (the whole point)
+    foam = next(t.tris for t in tw
+                if getattr(t, "part", None) == "beach1" and hasattr(t, "tris"))
+    assert len(foam) == 18
