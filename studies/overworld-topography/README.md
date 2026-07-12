@@ -35,5 +35,18 @@ py studies/overworld-topography/census.py        # artifacts -> studies/overworl
   it reproduces the painted world map's reading at a glance (good sanity check that the
   census semantics are right).
 
+## The forest arc (★ in-game proven 2026-07-12)
+
+Two synthesis attempts were falsified in-game (per-tri tile picks, then dome+jitter+tiles —
+"a sloppy triangular mess"); the UV studies (`forest_uv_language.py`, `forest_uv_components.py`)
+showed canopy texture is hand-authored (28–35 non-affine UV patches, seams everywhere yet
+invisible) ⇒ **THE CANOPY CARRY LAW: carry a real canopy blob whole, never synthesize it.**
+`forest_blob_inventory.py` lists the carryable blobs ((15,15)'s 132-tri grass-bounded blob =
+the clean donor); `forest_carry.py` is the proven build: lattice hole + chain-ordered rings +
+greedy-bridge zip annulus + exact-float welds + **THE CANOPY STEP LAW** (wall faces are vertical
+curtains; every rise gated ≤ 2.2u under the engine's 2.34375u step ceiling — stock forests
+genuinely block at their own 2.4u+ segments). Proven on the reclaimed bench pad at cell (3,14)
+(`world-reclaim --profile island --seg 16`).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
