@@ -98,7 +98,7 @@ after the fix: 2.05 (was effectively 2.42+). ★ Round-3 playtest proved the who
 block-free. The (3,14) bench override is RETIRED (deleted; backup in `backups/`) — its
 block is real map land, now restored to stock.
 
-## The HILL at scale (deployed 2026-07-12, ⏳ awaits playtest)
+## The HILL at scale (★ IN-GAME PROVEN 2026-07-12 — "looks natural in-game, walkable from all sides")
 
 The measured grass-hill language (disc-1 census, `hill_at_scale.py` header): lowland grass
 slope envelope p50 6.5° / p90 15.7° / **p99 28.6°**; PURE-GRASS summits are real (no
