@@ -17,9 +17,16 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QRadioButton,
-    QVBoxLayout, QWidget,
+    QApplication, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+    QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
+
+
+def _pad(btn: QPushButton) -> QPushButton:
+    """Reserve room for the label + the QSS padding: a starved layout compresses a button to its
+    minimumSizeHint, which under a stylesheet undercounts the padding and clips the text."""
+    btn.setMinimumWidth(btn.fontMetrics().horizontalAdvance(btn.text()) + 34)
+    return btn
 
 from ..editor import jobs
 
@@ -50,7 +57,14 @@ class CoopDoc(QWidget):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
-        v = QVBoxLayout(self)
+        # scroll the body (like Build & Deploy): a short window must scroll, not crush the group boxes
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        inner = QWidget()
+        v = QVBoxLayout(inner)
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
 
@@ -68,7 +82,7 @@ class CoopDoc(QWidget):
         for w in (self.lbl_game, self.lbl_engine, self.lbl_room, self.lbl_config):
             w.setWordWrap(True)
             sv.addWidget(w)
-        ref = QPushButton("Refresh")
+        ref = _pad(QPushButton("Refresh"))
         ref.clicked.connect(self.refresh_status)
         row = QHBoxLayout()
         row.addWidget(ref)
@@ -89,7 +103,7 @@ class CoopDoc(QWidget):
         self.code_label = QLabel("Session code:")
         self.code = QLineEdit()
         self.code.setPlaceholderText("generated on Start (host) / paste the host's ff9-XXXXXXXX (join)")
-        self.btn_copy = QPushButton("Copy")
+        self.btn_copy = _pad(QPushButton("Copy"))
         self.btn_copy.clicked.connect(self._copy_code)
         code_row.addWidget(self.code_label)
         code_row.addWidget(self.code, 1)
@@ -110,13 +124,13 @@ class CoopDoc(QWidget):
         v.addWidget(sess)
 
         btns = QHBoxLayout()
-        self.btn_start = QPushButton("Start co-op")
+        self.btn_start = _pad(QPushButton("Start co-op"))
         self.btn_start.setDefault(True)
         self.btn_start.clicked.connect(self.start_coop)
-        self.btn_stop = QPushButton("Stop bridge")
+        self.btn_stop = _pad(QPushButton("Stop bridge"))
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_bridge)
-        self.btn_off = QPushButton("Disable co-op")
+        self.btn_off = _pad(QPushButton("Disable co-op"))
         self.btn_off.clicked.connect(self.disable_coop)
         btns.addWidget(self.btn_start)
         btns.addWidget(self.btn_stop)
@@ -140,6 +154,8 @@ class CoopDoc(QWidget):
         hint.setWordWrap(True)
         v.addWidget(hint)
         v.addStretch(1)
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
         self._render_role()
 
     def _render_role(self):
