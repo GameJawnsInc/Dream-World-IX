@@ -70,5 +70,20 @@ had the gate — `world-island` now refuses any footprint block with real per-bl
 (hard refuse, no escape flag). (6,17)'s W+S frame edges are pure sea4, so the re-mint
 lawfully keeps (5,17)/(6,18) beside it — only land had to move.
 
+## The forest RE-HOME (deployed 2026-07-12, ⏳ awaits playtest)
+
+`forest_rehome.py` carries the (15,15) canopy blob onto **island E's west lobe** (blob
+centre world (312,−1140), 19u rim clearance — forest west, meadows east), retiring the
+flat bench. It composes the proven carry recipe with the island's own machinery and
+upgrades the two bench shortcuts: the carve runs on the island's deterministic world-soup
+rebuild (byte-differential-proven == the deployed files), so the blob lawfully straddles
+block borders via a generic-lerp border split; and the zip annulus gets faithful per-cell
+mains UVs (each cell's quadrant/orientation DECODED from the kept tris' own UV bytes)
+plus ring-owner normals instead of the bench's stretched-single-tile + hard-up fill.
+Two law reruns caught real bugs offline: THE WALL LAW (the border split's plan-area
+degeneracy filter silently dropped the vertical canopy curtains — 3D-area test required)
+and the step gate (worst wall rise exactly 2.20 ≤ the 2.34375 ceiling; zip max rise
+0.41u). 4 blocks changed, (6,18) untouched byte-identical.
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
