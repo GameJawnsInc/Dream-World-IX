@@ -6,8 +6,9 @@ plus a **real-scale minted beach** on island B (a kit-made shore: the mesa rim s
 sandy cay, a new 4-column beach minted on it). **In-game proven 2026-07-09** (every island
 renders and walks; the strait between the two fused islands is seam-free) and **2026-07-11**
 (the minted beach + its lip-anchored cliff walls). A fifth, fully **synthetic grassland
-island E** (a `world-island` mint, below) joined the archipelago 2026-07-12 as the
-interior-topography canvas.
+island E** (a `world-island` mint, below) joined the archipelago as the interior-topography
+canvas — **in-game proven 2026-07-12** (renders fully, the whole cliff loop walkable, the
+meadows read right).
 
 ## Deploy
 
