@@ -184,6 +184,16 @@ tunable via `WorldConfiguration` `Title` tokens (FolderNames-stacked), but the T
 Shrine / Earth Shrine), NOT the 64-marker table. And the field-entry place-name banner is the *separate*,
 already-solved `FieldLocationName`/s33/`[field] location` seam.
 
+**5. The map IMAGE itself (★ built 2026-07-12 — `world-minimap`, no DLL).** The big in-game map is a
+mod-overridable loose PNG (`AssetManager.SearchAssetOnDisc("EmbeddedAsset/UI/Sprites/world_map_full_all.png")`,
+FolderNames-stacked — Moguri ships its own HD copy, so the override must sit ABOVE MoguriMain).
+`ff9mapkit world-minimap --mod-folder <mod>` DRAWS the folder's deployed overworld land onto the active map:
+the engine's own projection (`w_naviGetPos`: the mapped world is exactly **1536×1280 units**) onto the image's
+structurally-detected art rect (letterbox bars + the drawn frame line), land colours sampled from how the map
+draws real islets, a darker rim. Data-derived end to end (the 49 live navipos town anchors verify the
+registration); the disc-1 "mistcontinent" map is a crop that excludes the SW pocket and is left alone.
+RELAUNCH to apply. The custom continent appears on the map — markers on it still need the DLL seam below.
+
 **Authoring seams (no-DLL vs. rebuild):**
 | Capability | Seam | DLL? | Diff |
 |---|---|---|---|

@@ -171,3 +171,192 @@ def deploy_marker_renames(cfg_list, *, mod_folder: str, game=None, langs=None) -
         dest.write_text(out, encoding="utf-8")
         written.append(dest)
     return written
+
+
+# --------------------------------------------------------------------- the world-map image
+# The big in-game map ("world_map_full_all") is a MOD-OVERRIDABLE loose PNG:
+# WorldHUD.DisplayFullmapInfo -> AssetManager.SearchAssetOnDisc("EmbeddedAsset/UI/
+# Sprites/world_map_full_all.png") searches the stacked FolderNames (Moguri ships
+# its own HD copy), so a custom continent can be DRAWN ONTO THE MAP with no DLL.
+# The projection is the ENGINE'S OWN (w_naviGetPos, ff9.cs:7019): the mapped world
+# is exactly 1536x1280 units -> normalized (sx, syTop); the PNG adds only a
+# decorative FRAME, detected structurally from the image (the letterbox bars +
+# the drawn frame line); the world maps onto the frame's inner rect (visually
+# verified against all 49 town anchors). The navipos marker fit (vx ~ wx*240/1536)
+# independently confirms the extents. The disc-1 "mistcontinent" map is a crop that excludes the
+# SW pocket, so only the all-world map is composited.
+
+#: the engine's mapped world extents (w_naviGetPos, map 1)
+WORLD_MAP_EXTENT = (1536.0, 1280.0)
+
+MAP_SPRITE_REL = "FF9_Data/EmbeddedAsset/ui/sprites/world_map_full_all.png"
+
+
+def _land_anchors():
+    """The 49 live dim-1 marker WORLD coords (navipos tx/256, ty/256, extracted
+    from the engine table) -- every one a real town/dungeon on painted LAND in
+    any faithful world map; the calibration + colour-sampling targets."""
+    return [(191.6, -474.5), (223.2, -607.3), (305.8, -934.0), (326.2, -569.1),
+            (341.8, -489.4), (372.5, -239.0), (380.3, -1025.5), (394.6, -798.2),
+            (454.6, -318.9), (468.3, -621.2), (471.8, -1076.6), (504.0, -116.1),
+            (513.1, -903.8), (593.5, -1131.4), (730.7, -592.9), (781.6, -320.7),
+            (850.3, -275.5), (865.2, -1102.3), (885.8, -233.2), (894.7, -352.1),
+            (895.9, -1086.8), (896.7, -775.3), (910.6, -190.0), (916.0, -1018.8),
+            (920.2, -402.1), (934.8, -942.7), (942.4, -1092.1), (954.2, -390.7),
+            (961.7, -711.2), (979.4, -875.3), (992.6, -803.6), (1025.8, -310.4),
+            (1037.4, -755.2), (1075.5, -106.1), (1088.0, -952.4), (1094.7, -806.4),
+            (1111.7, -793.9), (1160.4, -843.1), (1168.1, -367.7), (1172.2, -902.0),
+            (1184.9, -277.4), (1197.3, -799.6), (1217.5, -747.4), (1253.3, -436.4),
+            (1282.2, -958.4), (1283.9, -698.9), (1305.8, -644.5), (1349.8, -678.0),
+            (1398.7, -922.3)]
+
+
+def _ocean_probes():
+    """Known PURE-OCEAN world coords, all INTERIOR to the map art (the SW pocket's
+    pre-continent blocks, certified open ocean by the continent-siting census and
+    clear of the frame) -- the calibration's negative constraints."""
+    return [(256.0, -900.0), (192.0, -780.0), (288.0, -1200.0),
+            (140.0, -1220.0), (200.0, -970.0), (256.0, -1100.0)]
+
+
+def _wrap_world(wx, wz):
+    """Fold ABSOLUTE world coords into the engine's mapped 1536x1280 window (the
+    navipos tx/ty use absolute/unwrapped units; the overworld wraps)."""
+    return wx % WORLD_MAP_EXTENT[0], -((-wz) % WORLD_MAP_EXTENT[1])
+
+
+def _load_active_world_map(mod_folder=None, *, game=None):
+    """The ACTIVE all-world map image + its source: the highest-priority loose PNG
+    across the stacked FolderNames (skipping ``mod_folder``'s own override -- the
+    compositor must not composite over its own prior output), else the stock
+    ``sharedassets2.assets`` texture."""
+    import re as _re
+    from PIL import Image
+    from .. import config
+    gp = config.find_game_path(game)
+    ini = gp / "Memoria.ini"
+    folders = []
+    if ini.is_file():
+        m = _re.search(r"^FolderNames\s*=\s*(.+)$",
+                       ini.read_text(encoding="utf-8", errors="ignore"), _re.M)
+        if m:
+            folders = [f.strip().strip('"') for f in m.group(1).split(",")]
+    for f in folders:
+        if mod_folder and f == mod_folder:
+            continue
+        p = gp / f / MAP_SPRITE_REL
+        if not p.is_file():
+            p2 = gp / f / MAP_SPRITE_REL.replace("ui/sprites", "UI/Sprites")
+            p = p2 if p2.is_file() else p
+        if p.is_file():
+            return Image.open(p).convert("RGB"), str(p)
+    import UnityPy
+    env = UnityPy.load(str(gp / "x64/FF9_Data/sharedassets2.assets"))
+    for obj in env.objects:
+        if obj.type.name == "Texture2D":
+            d = obj.read()
+            if str(getattr(d, "m_Name", "")) == "world_map_full_all":
+                return d.image.convert("RGB"), "sharedassets2.assets"
+    raise ValueError("world_map_full_all not found in any mod folder or sharedassets2")
+
+
+def _detect_art_rect(im):
+    """The map ART rectangle inside the PNG, detected structurally: the black
+    letterbox bars end where column brightness rises, and the drawn FRAME line is
+    the darkest column/row in the margin band just inside them. The world's
+    1536x1280 extent maps onto this rect (visually verified: all 49 town anchors
+    land on their continents, incl. Shimmering Island mid-sea)."""
+    W, H = im.width, im.height
+    g = im.convert("L")
+    px = g.load()
+    colm = [sum(px[x, y] for y in range(0, H, 4)) / (H // 4) for x in range(W)]
+    rowm = [sum(px[x, y] for x in range(0, W, 4)) / (W // 4) for y in range(H)]
+    lbar = next((x for x in range(W) if colm[x] > 40), 0)
+    rbar = next((x for x in range(W - 1, -1, -1) if colm[x] > 40), W - 1)
+    band = max(8, int(W * 0.06))
+    x0 = min(range(lbar, min(lbar + band, W)), key=lambda x: colm[x])
+    x1 = min(range(max(rbar - band, 0), rbar + 1), key=lambda x: colm[x])
+    y0 = min(range(int(H * 0.015), int(H * 0.08)), key=lambda y: rowm[y])
+    y1 = min(range(H - int(H * 0.08), H - int(H * 0.015)), key=lambda y: rowm[y])
+    if x1 - x0 < W * 0.6 or y1 - y0 < H * 0.6:
+        raise ValueError(f"world-map art-rect detection failed ({x0},{y0})-({x1},{y1}) "
+                         f"-- an unexpected map image layout")
+    aspect = (x1 - x0) / (y1 - y0)
+    want = WORLD_MAP_EXTENT[0] / WORLD_MAP_EXTENT[1]
+    if not (0.8 * want <= aspect <= 1.25 * want):
+        raise ValueError(f"world-map art rect aspect {aspect:.2f} is far from the world's "
+                         f"{want:.2f} -- an unexpected map image layout")
+    return x0, y0, x1, y1
+
+
+def _islet_anchors():
+    """Interiors of REAL SMALL ISLANDS (world coords): the colour source for the
+    painted land -- on the parchment-style chart, sea and land share the base
+    tone and an islet is a slightly distinct fill + a darker drawn rim, so the
+    fill must come from how the map itself draws ISLETS, not continent tops."""
+    return [(480.0, -1120.0), (608.0, -1120.0), (12.0, -20.0)]
+
+
+def composite_world_map(mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None,
+                        dry_run: bool = False, verbose: bool = True) -> dict:
+    """Draw the mod folder's deployed overworld LAND onto the all-world map image
+    and ship it as the folder's own ``world_map_full_all.png`` override.
+
+    Reads every ``Block[x][y] Terrain.ff9mesh`` under the folder's WorldMap tree,
+    projects the terrain triangles through the engine's own map projection
+    (frame-calibrated), and paints them in colours sampled from the map itself
+    (fill = the median land colour at the real-town anchors; rim = that colour
+    darkened). Data-derived end to end -- no hand art. RELAUNCH to see it."""
+    import re as _re
+    from PIL import ImageDraw
+    from .. import config
+    from . import mesh as M
+    gp = config.find_game_path(game)
+    im, src = _load_active_world_map(mod_folder, game=game)
+    x0, y0, x1, y1 = _detect_art_rect(im)
+    if verbose:
+        print(f"  art rect ({x0},{y0})-({x1},{y1}) in {im.width}x{im.height}")
+    W, H = im.width, im.height
+    ext_x, ext_z = WORLD_MAP_EXTENT
+
+    def to_px(wx, wz):
+        wxw, wzw = _wrap_world(wx, wz)
+        return (x0 + (wxw / ext_x) * (x1 - x0),
+                y0 + ((-wzw) / ext_z) * (y1 - y0))
+
+    samples = []
+    for wx, wz in _islet_anchors():
+        px, py = to_px(wx, wz)
+        if 0 <= px < W and 0 <= py < H:
+            samples.append(im.getpixel((int(px), int(py))))
+    samples.sort(key=lambda cc: cc[0] + cc[1] + cc[2])
+    fill = samples[len(samples) // 2]
+    rim = tuple(int(v * 0.55) for v in fill)
+
+    root = gp / mod_folder / f"FF9_Data/WorldMap/Disc{disc}/{lod}"
+    blocks = sorted(root.rglob("Block[[]*[]] Terrain.ff9mesh"))
+    if not blocks:
+        raise ValueError(f"{mod_folder} has no deployed WorldMap Terrain overrides to draw")
+    draw = ImageDraw.Draw(im)
+    n_tris = 0
+    polys = []
+    for p in blocks:
+        m = _re.match(r"Block\[(\d+)\]\[(\d+)\]", p.name)
+        bx, by = int(m.group(1)), int(m.group(2))
+        bm = M.blockmesh_from_ff9mesh(p, disc=disc, x=bx, y=by, lod=lod, part="terrain")
+        ox, oz = 64.0 * bx, -64.0 * by
+        for tri in bm.tris:
+            pts = [to_px(bm.verts[i][0] + ox, bm.verts[i][2] + oz) for i in tri]
+            polys.append(pts)
+            n_tris += 1
+    for pts in polys:                       # rim pass: a 1px outline under the fills
+        draw.polygon(pts, outline=rim)
+    for pts in polys:
+        draw.polygon(pts, fill=fill)
+    out = gp / mod_folder / MAP_SPRITE_REL
+    summary = {"source": src, "blocks": len(blocks), "tris": n_tris, "fill": fill,
+               "art_rect": [x0, y0, x1, y1], "out": str(out), "dry_run": dry_run}
+    if not dry_run:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        im.save(out)
+    return summary

@@ -2966,6 +2966,25 @@ def _cmd_world_environment(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_minimap(args: argparse.Namespace) -> int:
+    """Composite the mod folder's deployed overworld land onto the in-game all-world map image."""
+    from .world import navimap as NM
+    try:
+        s = NM.composite_world_map(args.mod_folder, disc=args.disc, dry_run=args.dry_run)
+    except (ValueError, FileNotFoundError, ConfigError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    head = "PLAN (dry run -- nothing written)" if s["dry_run"] else "world map composited"
+    print(f"{head}: {s['blocks']} deployed block(s), {s['tris']} land tris drawn "
+          f"(fill {s['fill']}, art rect {tuple(s['art_rect'])})")
+    print(f"  base: {s['source']}")
+    if not s["dry_run"]:
+        print(f"  -> {s['out']}")
+        print("  RELAUNCH to apply; the override must sit ABOVE any folder shipping its own "
+              "map PNG (MoguriMain) in Memoria.ini FolderNames.")
+    return 0
+
+
 def _cmd_world_rename_markers(args: argparse.Namespace) -> int:
     """Rename overworld minimap markers: rewrite the world text block (68) txid-0 label at ``locId+1`` and shadow
     it per-language into the mod folder (``embeddedasset/text/<lang>/field/68.mes``). No DLL; RELAUNCH to apply."""
@@ -5652,6 +5671,19 @@ def build_parser() -> argparse.ArgumentParser:
                           "<mod>/StreamingAssets/Data/World/Environment.txt")
     wev.add_argument("--dry-run", action="store_true", help="print the Environment.txt it would write, write nothing")
     wev.set_defaults(func=_cmd_world_environment)
+
+    wmm = sub.add_parser("world-minimap",
+                         help="draw a mod folder's deployed overworld LAND onto the in-game all-world map "
+                              "image (the mod-overridable world_map_full_all.png) -- the custom continent "
+                              "appears on the map. Data-derived: the engine's own 1536x1280 projection onto "
+                              "the image's detected art rect, colours sampled from how the map draws real "
+                              "islets. No DLL; relaunch to apply. NOTE: the override must sit ABOVE any "
+                              "folder shipping its own map PNG (e.g. MoguriMain) in Memoria.ini FolderNames.")
+    wmm.add_argument("--mod-folder", required=True,
+                     help="the FolderNames mod folder whose WorldMap terrain to draw + where the PNG lands")
+    wmm.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wmm.add_argument("--dry-run", action="store_true", help="report the plan, write nothing")
+    wmm.set_defaults(func=_cmd_world_minimap)
 
     wrm = sub.add_parser("world-rename-markers",
                          help="rename overworld minimap MARKER labels: rewrite the world text (block 68), shadowed "
