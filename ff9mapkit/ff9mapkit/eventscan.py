@@ -155,6 +155,7 @@ def scan_gateway_entries(eb_bytes) -> list:
     eb = EbScript.from_bytes(eb_bytes)
     SETREGION, FIELD, JMP_F, JMP_T = 0x29, 0x2B, 0x02, 0x03
     out = []
+    pents = None                                          # lazy: resolved once, only when a ref-bearing door needs it
     for e in eb.entries:
         if e.empty:
             continue
@@ -182,14 +183,42 @@ def scan_gateway_entries(eb_bytes) -> list:
             continue
         base = 128 + u16(eb.data, 128 + e.index * 8)      # entry start in eb.data
         ref_ops = {0x07, 0x08, 0x09, 0x10, 0x12, 0x14, 0x43}    # InitCode/Region/Object + RunScript family
+        # ref CLASSIFICATION (#3, FORK_FIDELITY.md #2b): a ref-bearing gated door's carryability depends on
+        # WHAT it references. "player" (RunScript on uid 250 / a PC entry index) = walk-through choreography
+        # -> carriable via the player-func graft; "sibling"/"party"/"shared"/"init" = the field's own cutscene
+        # logic (census: the sibling funcs hold the real Field() warps + Main_Init calls) -> verbatim-only.
+        if pents is None:
+            pents = resolve_player_entries(eb)            # once per field (multi-PC: ANY index aliases 250)
+        kinds, pcall_tags = set(), set()
+        for f in e.funcs:
+            for i in eb.instrs(f):
+                if i.op not in ref_ops:
+                    continue
+                if i.op in RUNSCRIPT_OPS:
+                    uid, tag = i.imm(1), i.imm(2)
+                    if uid is None or tag is None:        # an expression uid/tag -> unresolvable, force seam
+                        kinds.add("sibling")
+                    elif uid == UID_PLAYER or _is_player_entry(uid, pents):
+                        kinds.add("player"); pcall_tags.add(int(tag))
+                    elif uid in PARTY_UIDS:
+                        kinds.add("party")
+                    else:
+                        kinds.add("sibling")
+                elif i.op == 0x43:
+                    kinds.add("shared")
+                else:
+                    kinds.add("init")
         out.append({
             "entry_idx": e.index,
             "zone": zone,
             "fields": [(int(i.imm(0)), int(ent)) for i, ent in field_ins],
             "story_gated": gated,
             # self-contained = the entry references NO other entry, so a verbatim graft needs no ref carry
-            # (the door-only carry path). ~30% of gated entries fail this (they RunScript siblings) -> seam.
-            "self_contained": not any(i.op in ref_ops for f in e.funcs for i in eb.instrs(f)),
+            # (the door-only carry path). 17 real gated entries fail this; the player-call subset is
+            # carriable via the player-func graft (extract routes it), the rest are verbatim-only seams.
+            "self_contained": not kinds,
+            "ref_kinds": sorted(kinds),
+            "player_call_tags": sorted(pcall_tags),
             "entry_bytes": _entry_bytes(eb.data, e.index),
             "field_targets": [((i.off - base) + 2, int(i.imm(0))) for i, _ent in field_ins],
         })
@@ -606,6 +635,15 @@ SAFE_GESTURE_OPS = frozenset((
     0x47, 0x8B,                                           # EnableHeadFocus / SetHeadFocusMask
     0xCC, 0xCD,                                           # Add/RemoveCharacterAttribute (ladder flag etc.)
     0xE2, 0xDC, 0x9C, 0x9D, 0x94, 0xA8,                   # jump-arc: SetupJump/Jump/RunJump/RunLand/SetJumpAnim/SetPathing
+))
+# the extra allow-list for a DOOR-called player func (#3, FORK_FIDELITY.md #2b): a story-gated door's
+# RunScript(player, T) is walk-through CHOREOGRAPHY (walk to the doorway, loop the walk anim) -- scripted-walk
+# ops that rightly disqualify an NPC-TALK graft (safety "exotic") but are the whole point of a door call.
+# A func within SAFE_GESTURE_OPS|DOOR_WALK_OPS that uses one of these classifies "walk": refused in the NPC
+# lane (pf_ok unchanged), graftable in the DOOR lane only. Census-grounded: fields 254/1904's door funcs are
+# exactly SetWalkSpeed/InitWalk/Walk/MakeAnimationLoop + turns (project-ff9-fork-fidelity-worklist #3).
+DOOR_WALK_OPS = frozenset((
+    0x23, 0x25, 0x26, 0x98,                               # Walk / InitWalk / SetWalkSpeed / MakeAnimationLoop
 ))
 
 
@@ -1175,8 +1213,10 @@ def _player_init_packs(eb, player_entries) -> list:
 
 def _player_func_safety(eb, func, donor_model, donor_player_entry, carried_siblings=frozenset()):
     """Classify a referenced player function for graftability (docs/PLAYER_GRAFT.md S2). Returns
-    ``(safety, runscript_tags, sibling_refs)`` -- safety in clean | text | sibling | transitive | model |
-    exotic | missing. Only ``clean`` is v1-graftable; the rest keep the seeding object ``init_only``
+    ``(safety, runscript_tags, sibling_refs)`` -- safety in clean | walk | text | sibling | transitive |
+    model | exotic | missing. Only ``clean`` is v1-graftable in the NPC lane; ``walk`` (a gesture func that
+    also uses :data:`DOOR_WALK_OPS` scripted-walk ops -- a split OF the old "exotic", so the NPC lane is
+    unchanged) is graftable only from the DOOR-carry lane (#3). The rest keep the seeding object ``init_only``
     (lint-warned). A uid ref to a CARRIED sibling (in ``carried_siblings``) does NOT refuse -- it is recorded
     in ``sibling_refs`` to be remapped to the sibling's fork slot at graft (the save Moogle's player funcs
     13/14/15 ``TurnTowardObject`` the carried Moogle); only an UNCARRIED sibling refuses."""
@@ -1211,20 +1251,24 @@ def _player_func_safety(eb, func, donor_model, donor_player_entry, carried_sibli
     if (ops & ANIM_OPS) and donor_model not in ZIDANE_MODELS:
         return "model", rs_tags, sibling_refs             # clip ids are another character's -> wrong on Zidane
     if ops - SAFE_GESTURE_OPS:
-        return "exotic", rs_tags, sibling_refs            # warp / camera / scripted-walk / menu / sound / give
+        if not (ops - SAFE_GESTURE_OPS - DOOR_WALK_OPS):
+            return "walk", rs_tags, sibling_refs          # gesture + scripted-walk ONLY -> door-lane graftable (#3)
+        return "exotic", rs_tags, sibling_refs            # warp / camera / menu / sound / give
     return "clean", rs_tags, sibling_refs
 
 
-def scan_player_funcs(eb_bytes, *, graft_savepoint=False) -> list:
+def scan_player_funcs(eb_bytes, *, graft_savepoint=False, extra_tags=()) -> list:
     """The donor PLAYER functions a fork must graft so its carried objects' INTERACTIONS fire -- the tags an
     object's interactive func ``RunScript``s (the object scanner's ``player_tags_needed``). One spec per needed
     tag: ``{donor_tag, safety, body (verbatim), runscript_tags, donor_player_entry, donor_player_model,
     donor_init_packs}``. ``safety == "clean"`` is v1-graftable (grafted onto the fork player via
     ``edit.add_function`` at a fresh tag); the rest keep the seeding object ``init_only``. The donor tag is
-    later remapped to a fresh fork-player tag (docs/PLAYER_GRAFT.md)."""
+    later remapped to a fresh fork-player tag (docs/PLAYER_GRAFT.md). ``extra_tags`` adds tags needed by a
+    NON-object caller (a story-gated door's walk-through RunScript, #3) to the census -- same specs, same
+    safety classification; the DOOR lane then accepts "walk" where the NPC lane doesn't."""
     eb = EbScript.from_bytes(eb_bytes)
     specs = scan_objects_verbatim(eb_bytes, graft_savepoint=graft_savepoint)
-    needed = sorted({t for s in specs for t in s["player_tags_needed"]})
+    needed = sorted({t for s in specs for t in s["player_tags_needed"]} | set(extra_tags))
     if not needed:
         return []
     carried = frozenset(s["donor_idx"] for s in specs)       # a player func may TurnTowardObject a carried sibling

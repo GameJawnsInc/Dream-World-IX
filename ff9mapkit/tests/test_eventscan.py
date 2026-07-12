@@ -221,6 +221,21 @@ def test_scan_gateway_entries_classifies_story_gated_doors():
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_scan_gateway_entries_ref_kinds_classify_the_census():
+    # #3 (FORK_FIDELITY.md #2b): a ref-bearing gated door's refs classify by TARGET -- "player" (RunScript on
+    # uid 250 / a PC entry index; walk-through choreography, carriable) vs "shared" (a concurrent helper,
+    # verbatim-only). Census-grounded: field 254 (Evil Forest north swamp) is the pure player-call door;
+    # field 350 (Dali windmill) mixes player + shared -> stays a seam.
+    from ff9mapkit import extract
+    ge254 = [x for x in eventscan.scan_gateway_entries(extract.extract_event_script(extract.ID_TO_FBG[254]))
+             if x["story_gated"] and not x["self_contained"]]
+    assert [(x["ref_kinds"], x["player_call_tags"]) for x in ge254] == [(["player"], [13])]
+    ge350 = [x for x in eventscan.scan_gateway_entries(extract.extract_event_script(extract.ID_TO_FBG[350]))
+             if x["story_gated"] and not x["self_contained"]]
+    assert any("shared" in x["ref_kinds"] for x in ge350)   # the RunShared helper ref -> uncarriable
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_scan_objects_skips_script_hidden_save_machinery():
     # field 122 (the Dali storage room): the visible barrel/boxes carry; the SAVE-POINT machinery
     # (moogle/book/tent, all loaded HIDDEN via SetObjectFlags + shown by the save script) is skipped --
@@ -462,6 +477,18 @@ def test_player_func_safety_classifies_each_class():
     anim = opcodes.encode(0x33, 200) + opcodes.RETURN                                 # SetStandAnimation(200)
     assert _classify_player_body(anim, model=98) == "clean"                           # Zidane donor -> ok
     assert _classify_player_body(anim, model=520) == "model"                          # non-Zidane -> clips won't match
+    # #3: gesture + scripted-walk ops = "walk" (door-lane graftable; a split OF the old "exotic", so the NPC
+    # lane -- whose pf_ok excludes "walk" -- is unchanged). Walk + a warp is still "exotic".
+    wlk = opcodes.set_walk_speed(30) + opcodes.init_walk() + opcodes.walk(100, 200) + opcodes.RETURN
+    assert _classify_player_body(wlk) == "walk"                                       # field 254's door-func shape
+    assert _classify_player_body(opcodes.walk(1, 2) + opcodes.field(100) + opcodes.RETURN) == "exotic"
+
+
+def test_scan_player_funcs_extra_tags_adds_door_called_funcs():
+    # #3: a door-called player tag joins the census via extra_tags (the blank fork player has tags {0, 1}).
+    specs = {s["donor_tag"]: s for s in eventscan.scan_player_funcs(CLEAN, extra_tags=(1,))}
+    assert 1 in specs                                     # tag 1 exists on the blank player -> a spec
+    assert eventscan.scan_player_funcs(CLEAN, extra_tags=()) == []   # no extras -> unchanged (no objects)
 
 
 def test_scan_player_funcs_blank_and_no_objects():

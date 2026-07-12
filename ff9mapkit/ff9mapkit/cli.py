@@ -996,8 +996,10 @@ def _cmd_import(args: argparse.Namespace) -> int:
                   "story flag).\n           Gate each with requires_flag in the field.toml, else both arm and you "
                   "hit the wrong exit. (FORK_FIDELITY.md #2)")
         if ic.get("gateway_gated_seam"):
-            print(f"  warning: {ic['gateway_gated_seam']} story-gated door(s) reference other entries and couldn't be "
-                  "carried\n           verbatim -- they're left as ungated seams (the gate is dropped). (FORK_FIDELITY.md #2b)")
+            print(f"  warning: {ic['gateway_gated_seam']} story-gated door(s) reference sibling/cutscene logic and "
+                  "couldn't be carried --\n           left as ungated seams (the gate is dropped); those refs ARE the "
+                  "field's own event logic,\n           so use --verbatim for them. (Player-call doors DO carry with "
+                  "--graft-player-funcs.) (FORK_FIDELITY.md #2b)")
     if args.dialogue:
         from . import dialogue as DLG
         try:

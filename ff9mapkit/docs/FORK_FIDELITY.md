@@ -115,7 +115,17 @@ complex multi-flag state machine, not a simple gate, so it is carried **VERBATIM
 import emits a `[[gateway_carry]]` block + `.gatewayN.bin` sidecar, and `graft_gateway_entry` grafts the whole entry +
 retargets its `Field()` ids (its GLOB conditions then read the `[startup]` story state). A forked Dali Inn gated door stays
 **closed at scenario-zero** (reads GLOB flags 2064/2073/2078). 40 fields have them; **35/~50 gated entries are self-contained
-(carried)**, 15 reference other entries (left as ungated seams + a warning — need the object-carry ref machinery).
+(carried)**. The 17 ref-bearing entries (15 fields) were census-classified by ref TARGET (2026-07-12, closing worklist #3):
+**player-call doors** — the door `RunScript`s the PLAYER (walk-through choreography; a call by PC entry index aliases to
+uid 250 on multi-PC fields) — are **CARRIED with `--graft-player-funcs`**: the called funcs join the player-func graft
+plan (a new `"walk"` safety tier admits gesture+scripted-walk bodies in the door lane only; the NPC lane is unchanged),
+and the door's calls are remapped at build via the object-carry ref machinery (`[[gateway_carry]]` `player_calls` +
+`donor_entry` + `donor_player_entry`). Census-vetted carries: **254 (Evil Forest), 553 (Lindblum), 1904 (Treno)**. The
+rest stay ungated seams **by proof, not by gap** — their refs ARE the field's own cutscene logic (sibling funcs hold the
+real `Field()` warps + Main_Init calls — 2504's warp-sequence even hides behind a leading `WindowSync` as safety
+`"text"`, which is exactly why the door lane accepts only `"clean"`/`"walk"`); shared-script (350), party-band (2222),
+and mixed/sibling refs (403, 507, 556, 1423, 1451 non-Zidane, 1602, 1606, 2173, 2221, 2504) are `--verbatim`-only —
+the same closure class as #14.
 
 **#9 — per-door arrival (LANDED + in-game proven).** `eventscan.scan_player_arrivals` decodes the real per-entrance arrival
 table; `fork-report` gains an **Arrival** line flagging fields with >1 spawn point, and `extract_field` defaults the synth

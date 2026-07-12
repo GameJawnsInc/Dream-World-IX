@@ -514,9 +514,32 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
     # (~30%) can't be door-only-carried -> they fall through to declarative + a warning.
     gentries = eventscan.scan_gateway_entries(eb_bytes) if out_dir is not None else []
     carry = [x for x in gentries if x["story_gated"] and x["self_contained"]]
+    # #3 (FORK_FIDELITY.md #2b): a ref-bearing gated door whose ONLY refs are RunScript(player, T) walk-through
+    # calls is carriable too -- graft the door verbatim AND its called player funcs (the player-func graft),
+    # then remap the door's calls at build. Gated on graft_player_funcs (the funcs must ride along) and on
+    # every called tag classifying door-graftable ("clean"/"walk" -- NOT "text"/"model"/"exotic"/"sibling":
+    # a warp-sequence func hides behind "text", census field 2504). The rest stay seams (verbatim-only).
+    door_tag_set: set = set()
+    _DOOR_PF_OK = {"clean", "walk"}
+    gated_ref = [x for x in gentries if x["story_gated"] and not x["self_contained"]]
+    if graft_player_funcs and gated_ref:
+        pdoor = [x for x in gated_ref if set(x.get("ref_kinds", ())) == {"player"} and x["player_call_tags"]]
+        if pdoor:
+            need = sorted({t for x in pdoor for t in x["player_call_tags"]})
+            door_specs = {p["donor_tag"]: p["safety"]
+                          for p in eventscan.scan_player_funcs(eb_bytes, graft_savepoint=graft_savepoint,
+                                                               extra_tags=need)}
+            from .eb import EbScript as _Eb                  # local: extract has no module-level eb import
+            door_pents = eventscan.resolve_player_entries(_Eb.from_bytes(eb_bytes))
+            for x in pdoor:
+                if all(door_specs.get(t) in _DOOR_PF_OK for t in x["player_call_tags"]):
+                    x["_door_player_carry"] = True
+                    x["_door_pents"] = door_pents
+                    door_tag_set.update(x["player_call_tags"])
+                    carry.append(x)
     carried_zones = {tuple(map(tuple, x["zone"])) for x in carry}
     n_gateway_carry = len(carry)
-    n_gateway_gated_seam = sum(1 for x in gentries if x["story_gated"] and not x["self_contained"])
+    n_gateway_gated_seam = len(gated_ref) - sum(1 for x in gated_ref if x.get("_door_player_carry"))
     if gws:
         if id_remap is None:
             parts.append(
@@ -570,7 +593,16 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
                 pairs = [(fid, id_remap[fid]) for fid in dests if fid in id_remap]
                 if pairs:
                     retarget = "\nretarget = { " + ", ".join(f"{a} = {b}" for a, b in pairs) + " }"
-            parts.append(f'[[gateway_carry]]\nbin = "{fn}"{retarget}\n'
+            door = ""
+            if x.get("_door_player_carry"):                       # #3: a player-call door -- the build remaps its
+                pents = x["_door_pents"]                          # RunScript(player, T) calls to the grafted funcs
+                dpe = str(pents[0]) if len(pents) == 1 else "[" + ", ".join(map(str, pents)) + "]"
+                door = (f"\ndonor_entry = {x['entry_idx']}"
+                        f"\nplayer_calls = [{', '.join(map(str, x['player_call_tags']))}]"
+                        f"\ndonor_player_entry = {dpe}"
+                        "\n# this door RunScripts the PLAYER (walk-through choreography); the called funcs are"
+                        "\n# carried as [[player_func]] blocks and the calls remapped at build (#3)")
+            parts.append(f'[[gateway_carry]]\nbin = "{fn}"{retarget}{door}\n'
                          f"# verbatim story-gated door (real dest field id(s): {', '.join(map(str, dests))}). "
                          f"To redirect: retarget = {{ {dests[0]} = <your id> }}")
     enc = content["encounter"]
@@ -685,11 +717,15 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
     # examine, the boxes gesture). Emitted ONLY with graft_player_funcs; CLEAN funcs always, plus TEXT funcs
     # when --carry-text ships the words they show (else a text func stays refused -> its object init_only).
     n_player_funcs = 0
-    all_pfuncs = (eventscan.scan_player_funcs(eb_bytes, graft_savepoint=graft_savepoint)
+    all_pfuncs = (eventscan.scan_player_funcs(eb_bytes, graft_savepoint=graft_savepoint,
+                                              extra_tags=sorted(door_tag_set))
                   if (graft_player_funcs and out_dir is not None) else [])
     pf_ok = {"clean", "text"} if carry_text else {"clean"}
     if graft_player_funcs and out_dir is not None:
-        pfuncs = [s for s in all_pfuncs if s["safety"] in pf_ok]
+        # NPC-lane policy (pf_ok) unchanged; a DOOR-called tag (#3) additionally admits "walk" (its scripted-walk
+        # ops are the door's walk-through choreography -- vetted door-graftable at the routing above).
+        pfuncs = [s for s in all_pfuncs
+                  if s["safety"] in pf_ok or (s["donor_tag"] in door_tag_set and s["safety"] in _DOOR_PF_OK)]
         if pfuncs:
             out_path = Path(out_dir)
             blocks = ["# --- PLAYER FUNCTION(S) grafted onto the fork player so the carried objects'\n"

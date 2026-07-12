@@ -928,6 +928,16 @@ def validate(project: FieldProject) -> list[str]:
         rt = gc.get("retarget")
         if rt is not None and not isinstance(rt, dict):
             problems.append("[[gateway_carry]] retarget must be a table { <real id> = <new id> }")
+        pcalls = gc.get("player_calls")
+        if pcalls:
+            # #3: a player-call door's RunScript(player, T) must resolve to a grafted [[player_func]] --
+            # a dangling call is the exact walk-up softlock the object-lane dangling-tag validator blocks.
+            have = {int(p["donor_tag"]) for p in project.raw.get("player_func", []) if p.get("donor_tag") is not None}
+            missing = [t for t in pcalls if int(t) not in have]
+            if missing:
+                problems.append(f"[[gateway_carry]] {binref}: player_calls {missing} have no matching "
+                                f"[[player_func]] (dangling player call -> walk-up softlock). "
+                                f"Re-import with --graft-player-funcs, or drop the block.")
     for gw in project.raw.get("gateway", []):
         if "to" not in gw:
             problems.append("[[gateway]] needs a 'to' (destination field id, or \"worldmap\").")
@@ -4402,8 +4412,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     player_tag_remap = None
     # text carry un-refuses "text" player funcs: their window TXIDs are remapped + the words shipped, so
     # the func is graft-safe. Without carry, only "clean" funcs graft (a stray "text" stays refused).
+    # "walk" (gesture + scripted-walk ops) is door-lane-only: the import emits it solely for a
+    # [[gateway_carry]] player_calls door (#3), so it grafts unconditionally (refusing it would dangle
+    # the carried door's RunScript -> the exact softlock the dangling-tag validator exists to block).
     _has_carry = bool(project.raw.get("carry_text", {}).get("bin"))
-    _graftable = ("clean", "text") if _has_carry else ("clean",)
+    _graftable = ("clean", "walk", "text") if _has_carry else ("clean", "walk")
     if player_funcs:
         from .content import player as _player
         pf_specs = [{"donor_tag": int(p["donor_tag"]), "safety": p.get("safety", "clean"),
@@ -4447,7 +4460,20 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # story state). No-op without [[gateway_carry]].
     for gc in project.raw.get("gateway_carry", []):
         retarget = {int(k): int(v) for k, v in (gc.get("retarget") or {}).items()}
-        eb, _ = _gw.graft_gateway_entry(eb, project.path(gc["bin"]).read_bytes(), retarget=retarget or None)
+        pcalls = gc.get("player_calls") or []
+        if pcalls:
+            # #3: a PLAYER-CALL door -- remap its RunScript(player, T) walk-through calls to the grafted
+            # fork-player tags (player_tag_remap, built above) via the object-carry ref machinery. Runs
+            # after the player + object grafts, so both maps exist. Legacy blocks (no player_calls) take
+            # the plain path below, byte-identical.
+            dpe = gc.get("donor_player_entry")
+            eb, _ = _gw.graft_gateway_entry(
+                eb, project.path(gc["bin"]).read_bytes(), retarget=retarget or None,
+                donor_entry=gc.get("donor_entry"),
+                donor_player_entry=(tuple(dpe) if isinstance(dpe, list) else dpe),
+                donor2new=object_slot_map or None, player_tag_remap=player_tag_remap)
+        else:
+            eb, _ = _gw.graft_gateway_entry(eb, project.path(gc["bin"]).read_bytes(), retarget=retarget or None)
 
     # faithful TEXT CARRY (docs/TEXT_CARRY.md): the grafted objects' windows + grafted text player funcs
     # still name the DONOR's .mes txids; remap each to the carried band (>=1000) -- a same-length 2-byte

@@ -31,6 +31,24 @@ def test_example_validates_clean():
     assert validate(FieldProject.load(EXAMPLE)) == []
 
 
+def test_validate_rejects_dangling_gateway_carry_player_calls(tmp_path):
+    """#3 (FORK_FIDELITY.md #2b): a [[gateway_carry]] player-call door's RunScript(player, T) must resolve to a
+    grafted [[player_func]] -- a dangling call is a walk-up softlock, so validate() blocks it. With the matching
+    [[player_func]] the check passes."""
+    cam = "\n\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    (tmp_path / "door.bin").write_bytes(b"\x01\x00")
+    (tmp_path / "pf.bin").write_bytes(b"\x04")
+    base = '[field]\nid = 30000\nname = "DOOR"\narea = 11' + cam + \
+           '\n[[gateway_carry]]\nbin = "door.bin"\ndonor_entry = 1\nplayer_calls = [13]\ndonor_player_entry = 3\n'
+    bad = tmp_path / "bad.field.toml"
+    bad.write_text(base, encoding="utf-8")
+    assert any("dangling player call" in p for p in validate(FieldProject.load(bad)))
+    ok = tmp_path / "ok.field.toml"
+    ok.write_text(base + '\n[[player_func]]\nbin = "pf.bin"\ndonor_tag = 13\nsafety = "walk"\n'
+                         'donor_init_packs = []\n', encoding="utf-8")
+    assert not any("dangling player call" in p for p in validate(FieldProject.load(ok)))
+
+
 def test_validate_rejects_out_of_range_field_id(tmp_path):
     """A field id past the engine's Int16 fldMapNo cap (32767) is rejected (it registers unreachable AND can
     break DictionaryPatch parsing -> a New-Game black screen, as a 620729 deploy did 2026-06-15). A valid

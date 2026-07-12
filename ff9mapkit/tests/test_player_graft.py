@@ -353,6 +353,51 @@ def test_graft_gateway_entry_carries_gated_door_verbatim():
     assert [i.imm(0) for f in eb2.entry(slot2).funcs for i in eb2.instrs(f) if i.op == 0x2B] == [350]
 
 
+def test_graft_gateway_entry_remaps_player_call_tags():
+    # #3 (FORK_FIDELITY.md #2b): a PLAYER-CALL gated door -- its walk-through RunScript(player, T) is remapped
+    # to the grafted fork tag (player_tag_remap), a call by PC ENTRY INDEX aliases to uid 250, and a self-call
+    # keeps its own tag space. Synthetic entry, the object-carry remap machinery underneath.
+    from ff9mapkit.content import gateway as _gw
+    f0 = opcodes.RETURN
+    f2 = (opcodes.encode(0x14, 2, 250, 13)          # RunSync(player-by-uid, tag 13)   -> tag remaps
+          + opcodes.encode(0x12, 2, 3, 13)          # RunScript(player-by-ENTRY-INDEX) -> uid 250 + tag remap
+          + opcodes.encode(0x12, 0, 255, 30)        # RunScript(self)                  -> untouched
+          + opcodes.RETURN)
+    table = struct.pack("<HH", 0, 4 * 2) + struct.pack("<HH", 2, 4 * 2 + len(f0))
+    entry = bytes([1, 2]) + table + f0 + f2
+    out, slot = _gw.graft_gateway_entry(CLEAN, entry, donor_entry=1, donor_player_entry=3,
+                                        player_tag_remap={13: 64})
+    eb = EbScript.from_bytes(out)
+    runs = [[i.imm(k) for k in range(len(i.args))]
+            for i in eb.instrs(eb.entry(slot).func_by_tag(2)) if i.op in (0x12, 0x14)]
+    assert runs == [[2, 250, 64], [2, 250, 64], [0, 255, 30]]
+    assert eb.to_bytes() == out                     # same-length patches -> still a valid eb
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_import_player_call_door_carried_and_remapped_field254(tmp_path):
+    # #3 end-to-end: field 254 (Evil Forest north swamp) has THE pure player-call gated door (RunScript(250,13),
+    # tag 13 = SetWalkSpeed/InitWalk/Walk -- safety "walk"). Import with --graft-player-funcs carries the door
+    # (a [[gateway_carry]] with player_calls, NOT a seam) + its walk func; the build grafts both and remaps the
+    # door's call to the fork-band tag. Before #3 this door was an ungated seam.
+    from ff9mapkit import build, extract
+    meta, toml = extract.write_native_project(extract.ID_TO_FBG[254], tmp_path / "proj", name="EFNSP",
+                                              field_id=30003, graft_player_funcs=True)
+    assert meta["imported_content"]["gateway_carry"] >= 1
+    assert meta["imported_content"]["gateway_gated_seam"] == 0        # the ref-bearing door is now CARRIED
+    p = build.FieldProject.load(toml)
+    door = next(gc for gc in p.raw.get("gateway_carry", []) if gc.get("player_calls"))
+    assert door["player_calls"] == [13] and door["donor_entry"] == 1
+    assert any(pf.get("donor_tag") == 13 and pf.get("safety") == "walk" for pf in p.raw.get("player_func", []))
+    dist = tmp_path / "dist"
+    build.build_mod([p], dist, mod_name="FF9CustomMap")
+    data = next(dist.rglob("*.eb.bytes")).read_bytes()
+    doors = [g for g in eventscan.scan_gateway_entries(data) if g["story_gated"]]
+    # the built door still story-gated, still player-calling -- and the tag is the GRAFTED one, not donor 13
+    assert doors and all(t != 13 for g in doors for t in g["player_call_tags"])
+    assert any(t >= 64 for g in doors for t in g["player_call_tags"])  # the object band (fresh fork tag)
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_import_story_gated_door_carried_verbatim_and_builds(tmp_path):
     # #2b P3 (docs/FORK_FIDELITY.md): the import emits a story-gated door as a [[gateway_carry]] block +

@@ -72,7 +72,8 @@ def inject_gateway(eb_bytes, target: int, *, entrance: int = 0, zone, slot: int 
     return out
 
 
-def graft_gateway_entry(eb_bytes, entry_bytes, *, retarget=None, slot=None):
+def graft_gateway_entry(eb_bytes, entry_bytes, *, retarget=None, slot=None, donor_entry=None,
+                        donor_player_entry=None, donor2new=None, player_tag_remap=None):
     """Graft a story-gated door's region entry VERBATIM (preserving its whole conditional state machine), then
     arm it -- the faithful counterpart to :func:`inject_gateway`'s re-synthesis. A real story-gated door
     (``eventscan.scan_gateway_entries`` ``story_gated``) checks GLOB save flags in a complex conditional the
@@ -83,9 +84,17 @@ def graft_gateway_entry(eb_bytes, entry_bytes, *, retarget=None, slot=None):
     map is patched in place (ids NOT in the map are left as live seams, like the import's live-seam doors).
     ``slot`` defaults to the first free entry. Returns ``(new_bytes, slot)``.
 
+    A PLAYER-CALL door (#3, FORK_FIDELITY.md #2b): a gated door whose walk-through choreography
+    ``RunScript``s the player is carried too -- pass ``donor_entry`` (its donor entry index, for self-refs),
+    ``donor_player_entry`` (the donor's PC entry index(es) -- a call by entry index aliases to uid 250) and
+    ``player_tag_remap`` (donor tag -> grafted fork tag, from the player-func graft); the grafted entry's
+    refs are then remapped via :func:`content.object.remap_entry_refs` (the object-carry machinery).
+    ``donor2new`` optionally remaps carried-sibling uids the same way. All four omitted = the legacy
+    self-contained carry, byte-identical.
+
     LIMIT: a door-only carry does NOT reconstruct MAP/transient vars the field's *main* logic sets on entry,
-    so a door whose firing also depends on those may still mis-evaluate (documented; ~30% of gated entries
-    also reference other entries and aren't carried by this path at all)."""
+    so a door whose firing also depends on those may still mis-evaluate (documented; sibling/shared/party
+    ref-bearing gated entries stay uncarried seams -- their refs ARE the field's cutscene logic, verbatim-only)."""
     eb = EbScript.from_bytes(eb_bytes)
     if slot is None:
         slot = eb.first_free_slot()
@@ -98,4 +107,8 @@ def graft_gateway_entry(eb_bytes, entry_bytes, *, retarget=None, slot=None):
                 if i.op == 0x2B and i.imm(0) in retarget:          # Field(id) -> retarget[id] (2-byte literal @ +2)
                     struct.pack_into("<H", buf, i.off + 2, int(retarget[i.imm(0)]) & 0xFFFF)
         out = bytes(buf)
+    if player_tag_remap or donor2new or donor_entry is not None:   # #3: the player-call door's ref remap
+        from . import object as _object            # local: object imports region -> avoid the top-level cycle
+        out = _object.remap_entry_refs(out, slot, donor_entry if donor_entry is not None else slot,
+                                       donor_player_entry, donor2new or {}, player_tag_remap)
     return edit.activate(out, opcodes.init_region(slot, 0)), slot
