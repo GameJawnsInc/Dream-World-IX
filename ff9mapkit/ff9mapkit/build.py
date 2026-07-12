@@ -955,6 +955,10 @@ def validate(project: FieldProject) -> list[str]:
                 if bad in gw:
                     problems.append(f"[[gateway]] to=\"worldmap\" does not take '{bad}' (the exit "
                                     f"cascade owns the transition).")
+            arr = gw.get("arrive")
+            if arr is not None and (not isinstance(arr, (list, tuple)) or len(arr) != 2):
+                problems.append("[[gateway]] arrive must be [x, z] world coordinates (the "
+                                "deterministic world arrival point).")
         z = gw.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[gateway]] zone must have 4 or 5 points (got {len(z)})")
@@ -4119,8 +4123,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # player to the world map at the story-correct wldMapNo (default key
             # 62 -> 9009, the all-vehicle superset, in every SC band)
             from .content import worldexit as _wx
+            arr = gw.get("arrive")
             body = _wx.worldmap_exit_body(
                 region_key=int(gw.get("region_key", _wx.REGION_KEY_RETURN)),
+                arrive=(tuple(float(v) for v in arr) if arr else None),
+                arrive_face=int(gw.get("arrive_face", 0)),
                 on_exit_body=_gateway_on_exit_body(gw, gw_names))
             eb, _slot = _region.inject_region(eb, [tuple(p) for p in zone], body)
             continue
