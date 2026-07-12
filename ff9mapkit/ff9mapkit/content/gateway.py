@@ -111,4 +111,8 @@ def graft_gateway_entry(eb_bytes, entry_bytes, *, retarget=None, slot=None, dono
         from . import object as _object            # local: object imports region -> avoid the top-level cycle
         out = _object.remap_entry_refs(out, slot, donor_entry if donor_entry is not None else slot,
                                        donor_player_entry, donor2new or {}, player_tag_remap)
-    return edit.activate(out, opcodes.init_region(slot, 0)), slot
+    # after_player: creation order IS tick order, and the donor's *player first, doors after* order is
+    # load-bearing for the door's RunScriptSync(player)/ExitField handshake -- armed BEFORE the player,
+    # a sprint-entered exit walks out at the controller's re-stamped RUN speed (60) instead of the
+    # scripted 30 and jams into the walkmesh boundary (in-game diagnosed, field 553 fork).
+    return edit.activate(out, opcodes.init_region(slot, 0), after_player=True), slot

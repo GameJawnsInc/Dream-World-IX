@@ -396,6 +396,21 @@ def test_import_player_call_door_carried_and_remapped_field254(tmp_path):
     # the built door still story-gated, still player-calling -- and the tag is the GRAFTED one, not donor 13
     assert doors and all(t != 13 for g in doors for t in g["player_call_tags"])
     assert any(t >= 64 for g in doors for t in g["player_call_tags"])  # the object band (fresh fork tag)
+    # ARMING ORDER (in-game diagnosed, field 553): creation order IS engine tick order, and the door's
+    # RunScriptSync(player)/ExitField handshake needs the donor's *player first, door after* order --
+    # armed before the player, a controller Update lands between SetWalkSpeed(30) and ExitField's
+    # usercontrol=0, re-stamping a sprinting player's speed to 60 (the run-into-the-wall exit).
+    eb = EbScript.from_bytes(data)
+    main = eb.entry(0).func_by_tag(0)
+    player_slot = next(e.index for e in eb.entries if not e.empty and e.func_by_tag(0) is not None
+                       and any(i.op == 0x2C for i in eb.instrs(e.func_by_tag(0))))
+    door_slots = {g["entry_idx"] for g in doors}
+    order = [(i.op, int(i.args[0])) for i in eb.instrs(main)
+             if i.op in (0x08, 0x09) and i.args and isinstance(i.args[0], int)]
+    player_pos = order.index((0x09, player_slot))
+    for ds in door_slots:
+        assert order.index((0x08, ds)) > player_pos, \
+            f"door slot {ds} armed before the player (tick-order race: sprint-entry exits at run speed)"
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")

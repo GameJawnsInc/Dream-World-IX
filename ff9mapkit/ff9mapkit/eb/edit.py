@@ -311,7 +311,9 @@ def patch_bytes(data, abs_off: int, new: bytes, expect: bytes | None = None) -> 
 
 # --------------------------------------------------------------------------- locators
 
-WAIT_OP = 0x22  # Wait(n) encodes as  22 00 nn  (op, argFlag=0, 1-byte count)
+WAIT_OP = 0x22         # Wait(n) encodes as  22 00 nn  (op, argFlag=0, 1-byte count)
+DEFINE_PC_OP = 0x2C    # DefinePlayerCharacter -- marks the player entry (activate after_player)
+INIT_OBJECT_OP = 0x09  # InitObject(slot, arg) -- the player's Main_Init arming site
 
 
 def find_entry_containing(eb: EbScript, abs_off: int):
@@ -379,7 +381,31 @@ def find_wait(eb: EbScript, *, n: int | None = None, entry_index: int = 0,
     return matches[occurrence].off
 
 
-def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0) -> bytes:
+def _player_init_end(eb: EbScript):
+    """Main_Init-relative offset just AFTER the player's arming ``InitObject`` -- the donor-convention
+    insertion point for arming an INTERACTIVE entry (a region/object that handshakes with the player).
+    None when it can't be located (no ``DefinePlayerCharacter`` entry, or Main_Init never ``InitObject``s
+    it -- e.g. a verbatim donor Main that arms the player elsewhere)."""
+    player_slot = None
+    for e in eb.entries:                                  # the entry whose Init defines the player
+        f = None if e.empty else e.func_by_tag(0)
+        if f is not None and any(i.op == DEFINE_PC_OP for i in eb.instrs(f)):
+            player_slot = e.index
+            break
+    if player_slot is None:
+        return None
+    main = eb.entry(0).func_by_tag(0)
+    if main is None:
+        return None
+    for ins in eb.instrs(main):
+        if ins.op == INIT_OBJECT_OP and ins.args and isinstance(ins.args[0], int) \
+                and int(ins.args[0]) == player_slot:
+            return ins.end - main.abs_start
+    return None
+
+
+def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
+             after_player: bool = False) -> bytes:
     """Activate an appended entry from Main_Init with a 3-byte ``Init*`` call (``InitObject`` /
     ``InitRegion`` / ``InitCode``).
 
@@ -390,13 +416,30 @@ def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occur
     even when entry-0 has a REAL second function (a borrowed field's tag-1) and even across MANY
     sequential inserts -- the bug that previously left a 3rd+ region silently un-armed (raw
     ``insert_bytes`` left other funcs' ``fpos`` stale, corrupting the 2nd+ insertion). Within-budget
-    fields hit the Wait path and stay byte-identical to before."""
+    fields hit the Wait path and stay byte-identical to before.
+
+    ``after_player``: on the insert (overflow) path, place the ``Init*`` just AFTER the player's arming
+    ``InitObject`` instead of at Main_Init's start. Creation order IS engine tick order, and for an entry
+    that runs a synchronous player handshake (a door's ``RunScriptSync(player) -> SetWalkSpeed ->
+    ExitField``) the donor convention *player first, regions after* is LOAD-BEARING: armed before the
+    player, the door ticks first each frame, the handshake straddles a controller Update, and
+    ``FieldMapActorController`` re-stamps ``actor.speed`` (60 while running) between the script's
+    ``SetWalkSpeed(30)`` and ``ExitField``'s usercontrol=0 -- a sprint-entered exit then zooms at run
+    speed into the walkmesh boundary instead of playing the stock walk-out. Falls back to the plain
+    prepend when the player InitObject can't be found or the insert point is jump-straddled."""
     eb = EbScript.from_bytes(data)
     try:
         off = find_wait(eb, n=spawn_wait_n, occurrence=spawn_wait_occurrence)
     except ValueError:
         if eb.entry(0).func_by_tag(0) is None:
             raise ValueError("entry 0 has no Main_Init to activate from")
+        if after_player:
+            rel = _player_init_end(eb)
+            if rel is not None:
+                try:
+                    return insert_in_function(data, 0, 0, rel, bytes(init_bytes))
+                except ValueError:
+                    pass                                   # jump-straddled insert point -> prepend fallback
         return insert_in_function(data, 0, 0, 0, bytes(init_bytes))
     return patch_bytes(data, off, bytes(init_bytes), expect=bytes([WAIT_OP, 0x00, spawn_wait_n & 0xFF]))
 
