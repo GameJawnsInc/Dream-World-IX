@@ -828,7 +828,7 @@ def test_virgin_mint_deep_shore_golden():
                    ("sea3", ("drop", 14)),
                    ("sea5", ("drop", 16)), ("sea5", ("emit", 22)),
                    ("sea4", ("drop", 34))]
-    assert _tweak_hash(pre + tw) == "aaccd45afebb32ab"
+    assert _tweak_hash(pre + tw) == "4c47693cb16a28ca"
     # real-scale check: 4 columns over the ~14.8u arc (the whole point)
     foam = next(t.tris for t in tw
                 if getattr(t, "part", None) == "beach1" and hasattr(t, "tris"))

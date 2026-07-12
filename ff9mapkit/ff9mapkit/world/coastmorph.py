@@ -4166,15 +4166,25 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
         b_ = mv - a_ * my
         if max(abs(a_ * y + b_ - v) for y, v in zip(ys, vs)) > 0.08:
             continue                                # not a height-mapped face
-        nt = []
-        for (pos, nrm, uv, tan) in t3:
+        # TOP-ANCHORED (the lip-row law): the face keeps its painted top texel
+        # row and sheds its DEEPEST rows instead -- every vert's v shifts by the
+        # density times its sink RELATIVE to the crest's sink (the crest = 0);
+        # the base row is free (the free-base law), and inter-column v offsets
+        # are the real per-column tile grammar
+
+        def _dy(pos):
             d = moves.get(tuple(pos))
             if d is None:
                 k = _pk(pos)
                 d = next((dd for pp, dd in moves.items() if _pk(pp) == k), None)
-            if d is not None:
-                pos = (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
-                uv = (uv[0], a_ * pos[1] + b_)
+            return d[1] if d is not None else 0.0
+        top_dy = _dy(max(t3, key=lambda v: v[0][1])[0])
+        nt = []
+        for (pos, nrm, uv, tan) in t3:
+            dy = _dy(pos)
+            uv = (uv[0], uv[1] + a_ * (dy - top_dy))
+            if dy:
+                pos = (pos[0], pos[1] + dy, pos[2])
             nt.append((pos, nrm, uv, tan))
         wall_drop.append(list(t3))
         wall_emit.append(nt)
