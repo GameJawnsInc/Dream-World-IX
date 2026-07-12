@@ -48,8 +48,9 @@ dialogue = "Kupo! Welcome to the far isles, traveler. Rest here -- you can save 
 # round 3 caught the prop placed off-floor = unreachable). Clear of the NPC's talk
 # range (round 1), visibly marked (round 2).
 [[prop]]
-prop = "save_point"
-pos = [-125, -1750]
+model = 220                          # the stock standing save moogle (Mopli's rig) --
+pos = [-125, -1750]                  # round 4: the save_point archetype is a composite
+                                     # with the book-jumping part; the standard is this
 
 [[savepoint]]
 zone = [[-190, -1850], [-60, -1850], [-60, -1650], [-190, -1650]]

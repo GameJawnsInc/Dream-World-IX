@@ -66,5 +66,40 @@ def test_entrance_func_body_direct():
     assert b[12:15] == bytes([0x02, 0x04, 0x00])     # JZ re-pointed over Field
     assert b[15:19] == bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
     assert b[19] == 0x04                             # return
+    # with the per-dispatcher world-state record (9009 -> WORLD09's copy): the
+    # GLOB[1062] = 9009 write feeds the arrive= exit's same-state return
+    b2 = entrance_func_body_direct(6500, world_state=9009, dispatchers=disp)
+    rec = bytes([0x05, 0xD8 | 0x20]) + (1062).to_bytes(2, "little") \
+        + bytes([0x7D]) + (9009).to_bytes(2, "little") + bytes([0x2C, 0x7F])
+    assert b2[:12] == tpl[:12]
+    assert b2[12:15] == bytes([0x02, len(rec) + 4, 0x00])
+    assert b2[15:15 + len(rec)] == rec
+    assert b2[15 + len(rec):19 + len(rec)] == bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
+    assert b2[-1] == 0x04
     with pytest.raises(ValueError):
         entrance_func_body_direct(0x8000, dispatchers=disp)   # past Int16
+
+
+def test_worldmap_exit_arrive_shape():
+    """The deterministic return: [gate][arrive var writes (the Init's own 32-bit
+    idiom)][D8:2 nonzero][if GLOB[1062]: WorldMap(<var>) computed][the cascade
+    fallback for F6-warped-in visits]."""
+    from ff9mapkit.content import region as R
+    from ff9mapkit.content.worldexit import (POSITION_PRESET_KEY, WORLD_STATE_VAR,
+                                             arrive_writes, cascade_bytes,
+                                             worldmap_exit_body, worldmap_to_var)
+    b = worldmap_exit_body(arrive=(228.0, -1179.0))
+    aw = arrive_writes(228.0, -1179.0, face=0)
+    assert aw[:8] == bytes([0x05, 0xC8, 0x53, 0x7E]) + (228 * 256).to_bytes(4, "little")
+    assert b.startswith(R.MOVEMENT_GATE + aw)
+    p = len(R.MOVEMENT_GATE) + len(aw)
+    key = R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, POSITION_PRESET_KEY)
+    assert b[p:p + len(key)] == key
+    p += len(key)
+    cond = R.cond_truthy(0xD8, WORLD_STATE_VAR)
+    assert b[p:p + len(cond)] == cond
+    p += len(cond)
+    wm = worldmap_to_var()
+    assert b[p:p + 3] == bytes([0x02, len(wm), 0x00])         # skip the computed op
+    assert b[p + 3:p + 3 + len(wm)] == wm                     # WorldMap(<GLOB 1062>)
+    assert b.endswith(cascade_bytes())

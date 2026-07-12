@@ -13,28 +13,33 @@ cleanly and hold every WorldMap arm.
 The field writes its own region key first (the same ``D8:2`` transition parameter a
 ``Field()`` warp uses as its arrival entrance -- ``region.set_field_entrance``).
 
-THE KEY MODEL (fully decoded -- the cascade's switch tables + arms + WORLD09
-e5/tag0, the world player's Init):
+THE ARRIVAL MODEL (fully decoded across 4 playtest rounds -- the cascade's switch
+tables + arms + WORLD09 e5/tag0, the world player's Init; ``0x0E`` = T_NOT, so the
+Init's test is ``if (!D8:2)``):
 
-* a CASED key other than 62 (what real exit fields write): ``WorldMap(<state>)``
-  with the key LEFT SET -- the destination world's Init sees ``D8:2`` nonzero and
-  teleports the player to its HARDCODED door arrival (the real-town pattern).
-* **key 62**: the arm itself runs ``D8:2 = 0; WorldMap(9009)`` in EVERY
-  ScenarioCounter band -- arrival sees zero, so the Init skips the door override
-  and ``MoveInstantXZY`` places the player from the PERSISTED position vars
-  (``C8:0x53``/``D8:0x56``/``C8:0x58``, mirrored from the live position every
-  frame). "Return exactly where you stood, in the all-vehicle free-roam
-  superset" -- the right semantic for a field on kit-built land, and the kit
-  default. (No real field writes 62; the lane is the game's own maintained
-  generic return.)
-* **key 0 / any un-cased key**: the switch default is a bare RETURN -- the
-  handler exits WITHOUT warping and the door reads as dead (playtest-proven).
-  0 is the "no exit set" guard, never a valid exit key.
+* The world player is ALWAYS placed by ``MoveInstantXZY`` from the persisted
+  position vars (``C8:0x53``/``D8:0x56``/``C8:0x58``).
+* **arriving with ``D8:2 == 0``**: the Init FIRST overwrites those vars with the
+  world's own DEFAULT point (each world has one; WORLD09's is the Mist-Continent
+  door) -- "no arrival info -> the fallback door".
+* **arriving with ``D8:2 != 0``**: the vars are left alone -- for real doors that
+  is the engine mirror's record of where the player stood when they entered the
+  field (how real towns return you to their door), and for the kit's ``arrive=``
+  exit it is the coordinates the exit just wrote.
+* In the CASCADE, key 62's arm runs ``D8:2 = 0; WorldMap(9009)`` (so the plain
+  cascade always lands at 9009's default point), and **key 0 / any un-cased key
+  hits the switch default -- a bare RETURN: the door does NOTHING** (playtest-
+  proven; the validator refuses 0).
 
-Dev caveat: an F6 teleport that lands ON the entrance trigger fires the warp the
-SAME frame, before one position-mirror tick -- the persisted position then still
-holds the pre-teleport spot. Walked entries (the shipping path) are always
-current.
+THE DETERMINISTIC RETURN (``arrive = [x, z]``): the entrance trigger records the
+CURRENT ``wldMapNo`` into the kit-reserved GLOB word :data:`WORLD_STATE_VAR`
+(each dispatcher copy carries its own literal), and the exit then [writes the
+arrive coords into the position vars] [sets ``D8:2`` NONZERO so nothing
+overwrites them] [``WorldMap(<recorded state>)`` via the computed argFlag lane
+-- the same mechanism as ``region.field_to_var``]. The player returns to the
+SAME world state they left, at exactly the arrive point. If the state var is
+empty (an F6 warp straight into the field), the exit falls back to the generic
+cascade.
 """
 
 from __future__ import annotations
@@ -43,11 +48,18 @@ from ..eb.model import EbScript
 
 #: the two byte-verified cascade carriers: (field id, entry index, func tag)
 CASCADE_DONORS = ((300, 2, 2), (2800, 21, 2))
-#: the default region key: 62 = the generic-return arm (D8:2=0 + WorldMap(9009) in
-#: every SC band -> the persisted-position arrival). 0/un-cased keys DO NOT WARP
-#: (the switch default is a bare return -- the key model above).
+#: the default region key: 62 = the generic cascade arm (D8:2=0 + WorldMap(9009) in
+#: every SC band -> 9009's DEFAULT-point arrival). 0/un-cased keys DO NOT WARP
+#: (the switch default is a bare return -- the arrival model above).
 REGION_KEY_RETURN = 62
 REGION_KEY_OPEN_SEA = 62  # back-compat alias
+#: the nonzero D8:2 value the arrive= exit lands with ("position preset" -- any
+#: nonzero works; the destination Init then leaves the position vars alone)
+POSITION_PRESET_KEY = 62
+#: kit-reserved gEventGlobal WORD (bytes 1062-1063, the outpost var's sibling at
+#: 1060-1061): the entrance trigger records the CURRENT wldMapNo here; the
+#: arrive= exit returns to it (computed WorldMap)
+WORLD_STATE_VAR = 1062
 #: the minimum WorldMap arms a healthy cascade carries (13 states; real carriers emit 19 ops)
 _MIN_WORLDMAP_OPS = 13
 
@@ -157,22 +169,43 @@ def arrive_writes(x: float, z: float, *, y: float = 4.0, face: int = 0) -> bytes
             + R.set_var(_POS_FACE[0], _POS_FACE[1], int(face) & 0xFF))
 
 
+def worldmap_to_var(var_class: int = 0xD8, idx: int = WORLD_STATE_VAR) -> bytes:
+    """``WorldMap(<VAR>)`` -- opcode 0xB6 with its argFlag bit set, the destination
+    read from a variable through the engine's expression path (``getv2`` ->
+    ``CalcExpr``; engine-pinned at EventEngine.DoEventCode WMAPJUMP -- the exact
+    computed lane :func:`ff9mapkit.content.region.field_to_var` proved for
+    ``Field``). Transitions away -- must be the last reachable op on its path."""
+    from . import region as R
+    return bytes([0xB6, 0x01]) + R._push_var(var_class, idx) + bytes([R.T_END])
+
+
 def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, arrive=None,
                        arrive_face: int = 0, on_exit_body: bytes = b"",
                        game=None) -> bytes:
-    """The Range body of a walk-out worldmap exit: [usercontrol guard] -> [optional
-    on-exit story writes] -> [optional arrival-position preset] -> [D8:2 =
-    region_key] -> [the verbatim shared cascade]. ``arrive = (x, z)`` pins the
-    world arrival DETERMINISTICALLY (the key-62 arm zeroes D8:2, so the world's
-    Init places the player from the position vars -- which this wrote). Without
-    it, the player returns wherever the engine's position mirror last recorded
-    them (correct for walked entries; an F6 teleport can race it). The cascade's
-    own arms terminate the function, so nothing follows."""
+    """The Range body of a walk-out worldmap exit.
+
+    With ``arrive = (x, z)`` (THE DETERMINISTIC RETURN): [usercontrol guard] ->
+    [on-exit story writes] -> [write the arrive coords into the position vars] ->
+    [``D8:2`` = nonzero, so the destination Init leaves them alone] -> [if the
+    recorded world state is set: ``WorldMap(<it>)`` computed; else fall back to
+    the generic cascade]. The player returns to the SAME world state they left,
+    at exactly the arrive point.
+
+    Without ``arrive``: [guard] -> [writes] -> [``D8:2 = region_key``] -> [the
+    verbatim shared cascade] -- lands at the routed world's DEFAULT point (the
+    arrival model above). The cascade's arms terminate the function."""
+    import struct
     from . import region as R
-    pre = b""
     if arrive is not None:
         ax, az = arrive
-        pre = arrive_writes(float(ax), float(az), face=arrive_face)
-    return R.MOVEMENT_GATE + bytes(on_exit_body) + pre \
+        wm = worldmap_to_var()
+        return (R.MOVEMENT_GATE + bytes(on_exit_body)
+                + arrive_writes(float(ax), float(az), face=arrive_face)
+                + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, POSITION_PRESET_KEY)
+                + R.cond_truthy(0xD8, WORLD_STATE_VAR)
+                + bytes([R.JMP_FALSE]) + struct.pack("<h", len(wm))
+                + wm
+                + cascade_bytes(game))
+    return R.MOVEMENT_GATE + bytes(on_exit_body) \
         + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, region_key) \
         + cascade_bytes(game)

@@ -171,17 +171,26 @@ def patch_byte39(body: bytes, case: int) -> bytes:
     return out
 
 
-def entrance_func_body_direct(field_id: int, *, game=None, dispatchers=None) -> bytes:
+def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
+                              dispatchers=None) -> bytes:
     """The DIRECT trigger body for a CUSTOM destination field: the proven template's
-    vehicle/state GATE verbatim (its leading expression + conditional skip), then a bare
+    vehicle/state GATE verbatim (its leading expression + conditional skip), then an
+    optional ``GLOB[WORLD_STATE_VAR] = <world_state>`` record + a bare
     ``Field(field_id)`` in place of the ``Byte[39]=case + RunScriptAsync`` dispatcher
     handshake -- whose AREA switch only carries real base-game fields. The dispatcher
     case bodies are themselves bare ``Field(dest)`` ops (no scripted fade; the engine
     owns the world->field transition), so the direct body performs the same transition
     the real entrances do, additively, without touching any dispatcher case.
 
+    ``world_state`` (the wldMapNo of the dispatcher copy this body is deployed into --
+    each dispatcher knows which world it is) records the CURRENT world state so the
+    destination field's ``[[gateway]] to="worldmap" arrive=`` exit can return to it
+    (``content.worldexit.WORLD_STATE_VAR``).
+
     Template shape (byte-asserted): ``[12B gate expr][JZ +13][8B Byte39=case]
-    [5B RunScriptAsync][RETURN]`` -> ``[12B gate expr][JZ +4][4B Field(id)][RETURN]``."""
+    [5B RunScriptAsync][RETURN]`` -> ``[12B gate expr][JZ +skip][record?]
+    [4B Field(id)][RETURN]``."""
+    import struct
     if not 0 <= int(field_id) <= 0x7FFF:
         raise ValueError(f"field id {field_id} out of the engine's Int16 range")
     if dispatchers is None:
@@ -197,8 +206,13 @@ def entrance_func_body_direct(field_id: int, *, game=None, dispatchers=None) -> 
         raise ValueError("unexpected trigger template shape -- the direct body's surgery "
                          "offsets no longer match WORLD00's 0x9895 func")
     fid = int(field_id)
-    return tpl[:12] + b"\x02\x04\x00" + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF]) \
-        + b"\x04"
+    rec = b""
+    if world_state is not None:
+        from ..content import region as R
+        from ..content.worldexit import WORLD_STATE_VAR
+        rec = R.set_var(0xD8, WORLD_STATE_VAR, int(world_state))
+    tail = rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
+    return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(tail)) + tail + b"\x04"
 
 
 def entrance_func_body(case: int, *, game=None, dispatchers=None) -> bytes:
@@ -414,11 +428,13 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         # the DIRECT route (a CUSTOM destination): the trigger itself warps
         # Field(direct_field) behind the template's own vehicle/state gate --
         # no dispatcher case is touched, so it composes additively. Fires in
-        # every free-roam state (the ones with an AREA switch).
+        # every free-roam state (the ones with an AREA switch). Each dispatcher
+        # copy also RECORDS its own wldMapNo (the name's NN -> 9000+NN) so an
+        # arrive= worldmap exit can return to the state the player left.
         the_case = None
         dest = {"case": None, "field": int(direct_field),
                 "note": f"DIRECT Field({int(direct_field)}) -- custom destination, no dispatcher case"}
-        body = entrance_func_body_direct(int(direct_field), dispatchers=us_disp)
+        body = None                                        # per-dispatcher (the state record)
         targets = sorted(name for name, L in alld.items()
                          if "us" in L and dispatcher_cases(L["us"]) is not None)
     else:
@@ -447,14 +463,22 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         fname = name.upper() + ".eb.bytes"
         us_mod = eb_root / "us" / fname
         us_base = us_mod.read_bytes() if us_mod.is_file() else alld[name]["us"]
-        if EbScript.from_bytes(us_base).entry(0).func_by_tag(tag) is not None:
-            summary["dispatchers_skipped"].append(name)                    # cell already has an entrance here
-            continue
+        # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo
+        b = body if body is not None else entrance_func_body_direct(
+            int(direct_field), world_state=9000 + int(name[-2:]), dispatchers=us_disp)
+        existing = EbScript.from_bytes(us_base).entry(0).func_by_tag(tag)
+        if existing is not None:
+            if us_base[existing.abs_start:existing.abs_end] == b:
+                summary["dispatchers_skipped"].append(name)                # identical trigger already here
+                continue
+            patch = lambda base_l: E.replace_function_body(base_l, 0, tag, b)   # refresh in place
+        else:
+            patch = lambda base_l: E.add_function(base_l, 0, tag, b)
         out_by_lang = {}                                                   # patch each lang's own base (stack if present)
         for lang in LANGS:
             lang_mod = eb_root / lang / fname
             base_l = lang_mod.read_bytes() if lang_mod.is_file() else alld[name].get(lang, alld[name]["us"])
-            out_by_lang[lang] = E.add_function(base_l, 0, tag, body)
+            out_by_lang[lang] = patch(base_l)
         if not dry_run:
             if us_mod.is_file():                                           # back up the pre-edit representative
                 bkdir.mkdir(parents=True, exist_ok=True)
