@@ -45,8 +45,11 @@ Plus: the controlled **Player** character(s), what a verbatim fork does to your 
 **Party need** line, the cast the field **gates scenes on** (`B_PARTYCHK`) — a fork boots with your *current*
 save party, so seed `[party]` to that beat's cast or the gated scene (e.g. the Ice Cavern melting-wall scenes,
 which need Vivi) silently won't fire; **story-gated doors**, the ScenarioCounter **beats the field gates
-content on**, a suggested `[startup] scenario` (the earliest gate — its natural "home" beat), and the `import`
-recipe.
+content on**, a suggested `[startup] scenario` (the earliest gate — its natural "home" beat); a **Story
+writes** line — the meaningful `gEventGlobal` flags this field *advances* (once-events / worldmap unlocks),
+noise-filtered (the static chest-opened dispatch block and the byte-23 handshake are excluded) and region-
+labeled: run `fork-report` on a **predecessor** field to see which `[startup]` flags a downstream fork should
+seed (a `--verbatim` fork RUNS these; a synth fork drops them); and the `import` recipe.
 
 ## The verdict
 
@@ -108,5 +111,9 @@ disassembler — `scan_item_ops` reads `AddItem`/`AddGil`/`Menu(2,id)` and class
 `id % 1000` pool rule (`ff9item.FF9Item_Add_Generic`). The **Party need** (`required`) signal decodes the
 literal `B_CONST <CharacterOldIndex> B_PARTYCHK` (`7D <id> 6B`) *only within `0x05` EXPR_STMT ranges* (a bare
 `0x6B` elsewhere is an anim-id / jump-table byte, not a party check), mirroring how the `B_PARTYADD` scan is
-bounded — grounded on the Ice Cavern's Vivi-gated screens. The analysis (`forkreport.analyze_eb`) is pure over
+bounded — grounded on the Ice Cavern's Vivi-gated screens. The **Story writes** axis (`scan_story_writes`) wraps
+`eventscan.scan_flags_set` (which decodes GLOB flag writes `05 <glob-var> 7D <i16> <2C|3F> 7F`) and drops the
+noise the raw scan is swamped by — the static chest-opened dispatch block (`8376-8511`, compiled into every
+chest field) and the byte-23 menu/transition handshake (`184-191`, rewritten each load) — then labels the rest
+via `flags.bit_region`, leaving the meaningful once-events and worldmap unlocks. The analysis (`forkreport.analyze_eb`) is pure over
 `.eb` bytes and unit-tested offline against a fixture.

@@ -342,6 +342,29 @@ def test_party_need_line_renders_and_steers_verdict():
     assert any(l.strip().startswith("Party need") for l in FR.format_report(rep).splitlines())
 
 
+# ---- the 'Story writes' axis: gEventGlobal state a field advances -> seed a downstream fork's [startup] ----
+def test_story_write_noise_filters_chest_and_handshake():
+    assert FR._story_write_noise(8400)                 # chest opened-dispatch block (8376-8511) -> noise
+    assert FR._story_write_noise(191)                  # byte-23 menu/transition handshake (184-191) -> noise
+    assert not FR._story_write_noise(3458)             # a real once-event -> kept
+
+
+def test_scan_story_writes_labels_and_drops_noise():
+    # ALEX100 writes a real alexandria_events once-bit (3718) plus byte-23 handshake noise -> only the real
+    # bit survives, region-labeled. Grounds the scan+filter on real bytecode, not a synthetic buffer.
+    sw = FR.scan_story_writes(ALEX100)
+    assert (3718, "alexandria_events") in sw
+    assert not any(184 <= i <= 191 or 8376 <= i <= 8511 for i, _ in sw)   # noise dropped
+
+
+def test_story_writes_line_renders_and_omits():
+    rep = FR.ForkReport(field_id=302, fbg_name="x",
+                        story_writes=[(3458, "ipsen_ice_cavern_events"), (7269, None)])
+    line = FR._story_writes_line(rep)
+    assert "Story writes" in line and "3458 (ipsen_ice_cavern_events)" in line and "[startup]" in line
+    assert FR._story_writes_line(FR.ForkReport(field_id=1)) == ""   # no writes -> axis omitted
+
+
 def test_analyze_eb_no_script():
     rep = FR.analyze_eb(b"", field_id=1)
     assert not rep.has_script

@@ -193,6 +193,38 @@ def scan_party_ops(eb_bytes) -> dict:
             "reset": reset, "recruit": recruit, "menu": menu}
 
 
+# --- story-flag WRITES (what gEventGlobal state a field advances) ------------------------------------------
+# Discoverability for seeding a DOWNSTREAM fork's [startup] flags: run this on a PREDECESSOR field to see what
+# story state it produces, then seed the fork you're building. A --verbatim fork RUNS these writes (advances
+# state as the real field does); a synth fork DROPS them. The raw scan (eventscan.scan_flags_set) is NOISY: every
+# field rewrites the byte-23 menu/transition HANDSHAKE (bits 184-191, re-cleared each Main_Init), and a chest
+# field compiles the whole STATIC chest-opened dispatch block (bits 8376-8511) -- neither is story progression,
+# so both are filtered. What remains (once-events, worldmap/first-visit unlocks) is the meaningful state, labeled
+# by flags.bit_region. In-game grounded on the Ice Cavern (IC_TER/JMP/BRI write ipsen_ice_cavern_events once-bits).
+_HANDSHAKE_LO, _HANDSHAKE_HI = 184, 191   # byte-23 menu/transition handshake (flags.py field_menu_guard/boot_scratch)
+
+
+def _story_write_noise(bit: int) -> bool:
+    """True for a flag WRITE that isn't story progression: the static chest-opened dispatch block or the
+    transient byte-23 menu/transition handshake -- excluded from the Story-writes axis."""
+    return (_flags.CHEST_FLAG_LO <= bit <= _flags.CHEST_FLAG_HI) or (_HANDSHAKE_LO <= bit <= _HANDSHAKE_HI)
+
+
+def scan_story_writes(eb_bytes) -> list:
+    """The MEANINGFUL GLOB story-flag writes a field performs (once-events, worldmap unlocks) -- noise-filtered
+    (chest dispatch block + byte-23 handshake) and region-labeled. Returns sorted ``[(glob_idx, region_name|None)]``.
+    Run on a PREDECESSOR field to discover which ``[startup]`` flags a downstream fork should seed (the AUTHOR
+    still picks -- game knowledge outranks the raw list; this just makes the candidates visible offline)."""
+    from . import eventscan as _es
+    out = []
+    for idx, _op in _es.scan_flags_set(eb_bytes):
+        if _story_write_noise(idx):
+            continue
+        r = _flags.bit_region(idx)
+        out.append((idx, r.name if r else None))
+    return out
+
+
 # --- item / treasure / shop ops -----------------------------------------------------------------------
 # These live WHOLLY in the field `.eb`, so a `--verbatim` fork RUNS them (carries them byte-identically) but
 # a plain/synthesize fork DROPS them -- eventscan has no AddItem scanner, and there is no shop authoring. A
@@ -318,6 +350,9 @@ class ForkReport:
     gated_doors: int = 0
     sc_gates: list = _dc_field(default_factory=list)      # [(value, (milestone_value, beat))] sorted
     suggested_scenario: int | None = None
+    story_writes: list = _dc_field(default_factory=list)  # [(glob_idx, region_name|None)] MEANINGFUL story-flag
+    #   WRITES (once-events / worldmap unlocks), noise-filtered -- what state this field advances; seed a
+    #   DOWNSTREAM fork's [startup] flags from a predecessor's list (a --verbatim fork RUNS them, a synth drops)
     roster_class: str = "static-roster"        # "static-roster" | "story-event"
     beat_roster: list = _dc_field(default_factory=list)   # [(beat, milestone, [(slot, model_name, is_director)])]
     #   per ScenarioCounter beat (incl. 0), which carried objects the director actually spawns -- the
@@ -704,6 +739,10 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     rep.party_reset, rep.party_recruit, rep.party_menu = party["reset"], party["recruit"], party["menu"]
     rep.party_required = [party_char_name(i) for i in party["required"]]
 
+    # Story-flag WRITES the field advances (once-events / worldmap unlocks), noise-filtered -> discoverability
+    # for seeding a DOWNSTREAM fork's [startup] flags (run fork-report on the PREDECESSOR to read the candidates).
+    rep.story_writes = scan_story_writes(data)
+
     # Item / treasure / shop ops the field runs (a verbatim fork carries them; a plain/synthesize fork DROPS
     # them -- no item scanner). The shop STOCK is parasitic on the base ShopItems.csv (a fork can't change it).
     itm = scan_item_ops(data)
@@ -819,6 +858,18 @@ def _party_line(rep: ForkReport) -> str:
         lines.append(f"  Party need    : gates scene(s) on {shown} in the party -- a fork boots with your CURRENT "
                      "save party, so seed [party] to the beat's cast or the gated scene won't fire")
     return "\n".join(lines)
+
+
+def _story_writes_line(rep: ForkReport) -> str:
+    """The 'Story writes' axis: the meaningful gEventGlobal flags this field advances (once-events / worldmap
+    unlocks, noise-filtered). Empty when it writes no durable story state. Run it on a PREDECESSOR field to see
+    which [startup] flags a downstream fork should seed."""
+    if not rep.story_writes:
+        return ""
+    shown = ", ".join(f"{idx}{f' ({region})' if region else ''}" for idx, region in rep.story_writes[:8])
+    more = f" +{len(rep.story_writes) - 8} more" if len(rep.story_writes) > 8 else ""
+    return (f"  Story writes  : sets {len(rep.story_writes)} story flag(s): {shown}{more}  -- a --verbatim fork "
+            "RUNS these (advances state); seed a DOWNSTREAM fork's [startup] flags from them")
 
 
 def _items_line(rep: ForkReport) -> str:
@@ -949,6 +1000,9 @@ def format_report(rep: ForkReport) -> str:
         beat = f' "{nm[1]}"' if nm else ""
         lines.append(f"  Home beat     : suggested [startup] scenario = {rep.suggested_scenario}{beat} "
                      f"(the earliest gate -- adjust to the beat you're forking)")
+    story_writes_line = _story_writes_line(rep)
+    if story_writes_line:
+        lines.append(story_writes_line)
     if rep.beat_roster:
         lines.append("  Roster by beat: which carried NPCs/actors the director spawns at each beat "
                      "(set [startup] scenario to one):")

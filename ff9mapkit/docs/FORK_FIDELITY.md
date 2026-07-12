@@ -152,8 +152,10 @@ Plus the verbatim save-moogle carry (P1–P6.1) and the verbatim `.eb`+`.mes` fo
 - **#12** — non-Zidane SYNTH donors (rig clip-id mismatch): `--verbatim` already plays them identically + the
   controlled PC is computed; `fork-report` warns on a `--swap-player` gesture glitch. Synth is lossy by design.
 
-Extraction of *which* flags a real prior field set on exit remains a separate, later, eventscan-touching task —
-the author asserts the beat for now (the author's game knowledge outranks static analysis here).
+Extraction of *which* flags a real prior field sets is now **surfaced** by `fork-report`'s **Story writes** axis
+(`scan_story_writes`): run it on a *predecessor* field to read the meaningful `gEventGlobal` writes (once-events /
+worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed via `[startup]`. The author still
+*asserts* the beat — their game knowledge outranks the raw list — but the candidates are now discoverable offline.
 
 ## The carry decision — bring-in vs drop vs impossible (fork-mode taxonomy)
 
