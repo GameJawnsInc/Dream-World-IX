@@ -111,5 +111,29 @@ straight from the deployed bytes (topo + UV family region), normals re-smoothed 
 (forest donor normals untouched). Gates: worst flank 21.9° ≤ p99, peak 7.40, cracks 0,
 census MISS=0, single changed block (5,18).
 
+## The PLATEAU-EDGE anatomy (studied 2026-07-12 — `plateau_edge.py`, offline)
+
+The interior sibling of the coast cliff-lip laws, measured over 1037 plateau|49 crest
+edges / 76 wall components / 48 blocks. The laws:
+
+- **THE 27u RIM**: plateau crests band tightly at y 26.1–27.2 (med 26.6).
+- **THE SOFT CREST**: the grass|rock dihedral is med 50° (p10 33 / p90 64) — softer than
+  the coastal 66° crease; grass rolls in at ~7° (coastal ~9°).
+- **NO LIP ROW inland**: plateau grass runs ORDINARY mains texture (V 0.769–0.830) right
+  to the crest — the coastal 0.893 lip-row vocabulary is coastal-only.
+- **THE INTERIOR WALL ≠ THE COASTAL STRIP**: 0 of 76 wall components touch the coastal
+  rock strip. Interior walls sample a LARGE mountain-rock atlas region (u 0.004–0.642 ×
+  v 0.109–0.363) in QUANTIZED 128×128px rects with lattice-snapped corners — a TILE
+  LANGUAGE, not a mural — with FREE orientation (u tracks height stronger than v on the
+  (14,13) reference wall). Mintability verdict: synthesis is ON, but a from-scratch wall
+  first needs the tile-neighbor decode (a Wang-style study) of this rock set.
+- **STACKED WALLS**: faces stack 4–10u (max rise med 6.0 / p90 9.6) for total drops med
+  24.4 / max 40.3, landing dominantly on lowland grass.
+- **THE MID-SHELF + NO-FOOT-PASS FINDING**: topo-13 = flat GRASS-textured shelves pinned
+  at y 15.7–18.3 (slope 6–8°), ringed by 49. No ramp class exists anywhere: with the
+  2.34375u step ceiling, the two altitude worlds are NOT connected by overworld walking —
+  the game connects them via fields/vehicles. A faithful terrace build = shelf + stacked
+  walls; no ramp is required (adding one would be off-language).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
