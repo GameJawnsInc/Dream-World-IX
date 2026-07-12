@@ -106,6 +106,20 @@ pos = [-560, -1260]
 dialogue = "Probe B: a bare CSM stands here."
 speaker = "Probe B"
 
+# ROUND 3: A + B both VISIBLE (+ real 2455 townsman visible) -> the TMM MODEL is cleared.
+# The innkeeper differs from A/B in exactly two ways: his POSITION [0,-1100] and his
+# scenario window [100,300) (his Init has two SC gates the probes lack). Probe C = a bare,
+# WINDOWLESS, scene-less TMM at the innkeeper's EXACT spot -> isolates POSITION/occlusion:
+#   C invisible -> [0,-1100] is occluded (behind the inn-counter overlay / off a depth band)
+#   C visible   -> position is fine -> the bug is the scenario window or cutscene-actor wiring
+#                  (OR the innkeeper was never a bug -- he's correctly gated out by SC state)
+[[npc]]
+name = "probe_tmm_innspot"
+model = "GEO_NPC_F0_TMM"
+pos = [0, -1100]
+dialogue = "Probe C: a bare TMM at the innkeeper's exact spot."
+speaker = "Probe C"
+
 # --- EXITS: the inn door leads out to the forest trail (donor zone, retargeted by hand) ---
 [[gateway]]
 to = 30101                   # TRAIL
