@@ -231,9 +231,10 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     (``gate_require_set`` True = appears when the flag is SET, False = when CLEAR). This is the
     standard FF9 way to show/hide an NPC by story state.
 
-    ``intro`` (bytes) is an ACTOR cutscene's gated choreography block (from
-    :func:`ff9mapkit.content.cutscene.build_choreography`), spliced into this NPC's Init just before
-    its RETURN so it runs in the NPC's own object context (``gExec`` == this NPC) after CreateObject.
+    ``intro`` (bytes) is a raw choreography block PREPENDED to this NPC's loop (tag 1), running in the
+    NPC's own object context (``gExec`` == this NPC). A low-level splice hook -- the cutscene system no
+    longer uses it (a cast scene runs through the conductor); it remains for bespoke injections. The
+    block must be loop-safe: gated (a loop runs every frame) and never RETURN (it would kill the loop).
 
     ``speak_body`` (bytes) replaces the default ``_SpeakBTN`` (tag 3) -- pass a dialogue-choice body
     (:func:`ff9mapkit.content.choice.speak_body`) for a talk-to-branch NPC. Must end with a RETURN."""

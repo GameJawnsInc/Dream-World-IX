@@ -46,29 +46,35 @@ def test_duplicate_named_ids_collapse_to_one_action():
     assert A.resolve("vivi", "talk_3_1") in (7301, 7302)
 
 
-# --- build wiring: a named `animation` step resolves via the actor's preset ----------------
-def test_resolve_anim_steps_named_and_passthrough():
-    actor = {"name": "V", "preset": "vivi"}
-    steps = [{"say": "hi"}, {"animation": "glad"}, {"animation": 7302}, {"walk": [0, -100]}]
-    out = build._resolve_anim_steps(steps, actor)
+# --- build wiring: a named `animation` step resolves via the STEP's actor preset -----------
+def test_resolve_conductor_steps_animation_names_and_cast_default():
+    """#13 v3: animation names resolve per the STEP's actor model; a cast of ONE fills the actor tag on
+    untagged actor steps (migration ergonomics -- a renamed single-actor scene needs no per-step edits)."""
+    import types
+    project = types.SimpleNamespace(raw={"npc": [{"name": "V", "preset": "vivi"}], "player": {}, "marker": []})
+    steps = [{"say": "hi"}, {"animation": "glad"}, {"animation": 7302}]
+    out = build._resolve_conductor_steps(steps, project, cast=["V"])
     assert out[1]["animation"] == A.resolve("vivi", "glad")   # name -> id
+    assert out[1]["actor"] == "V"                             # the sole-cast default filled the tag
     assert out[2]["animation"] == 7302                        # int untouched
-    assert out[0] == {"say": "hi"} and out[3] == {"walk": [0, -100]}
+    assert out[0] == {"say": "hi"}                            # untagged say stays narration (no actor fill)
 
 
-def test_resolve_anim_steps_custom_model_name_is_error():
-    actor = {"name": "X", "model": 270}                       # custom model, no preset
-    with pytest.raises(ValueError):
-        build._resolve_anim_steps([{"animation": "glad"}], actor)
+def test_resolve_conductor_steps_custom_model_name_is_error():
+    import types
+    project = types.SimpleNamespace(raw={"npc": [{"name": "X", "model": 270}], "player": {}, "marker": []})
+    with pytest.raises(ValueError):                           # custom model, no preset -> a NAME can't resolve
+        build._resolve_conductor_steps([{"animation": "glad"}], project, cast=["X"])
     # but a numeric id is fine even on a custom model
-    assert build._resolve_anim_steps([{"animation": 5}], actor) == [{"animation": 5}]
+    out = build._resolve_conductor_steps([{"animation": 5}], project, cast=["X"])
+    assert out[0]["animation"] == 5
 
 
 def _cs_toml(anim):
     return ('[field]\nid = 4003\nname = "X"\narea = 11\n\n[camera]\nborrow = "c.bgx"\n\n'
             '[walkmesh]\nquad = [[0,0],[10,0],[10,10],[0,10]]\n\n'
             '[[npc]]\nname = "Vivi"\npreset = "vivi"\npos = [0, 0]\n\n'
-            '[cutscene]\nactor = "Vivi"\nsteps = [ { animation = "%s" } ]\n' % anim)
+            '[cutscene]\nactors = ["Vivi"]\nsteps = [ { animation = "%s" } ]\n' % anim)
 
 
 def test_validate_flags_bad_animation_name(tmp_path):
@@ -102,11 +108,13 @@ def test_full_build_emits_resolved_animation(tmp_path):
         '[camera]\npitch = 48.0\ndistance = 4500\nfov = 42.2\n[camera.frame]\nback = 205\nfront = 432\n\n'
         '[walkmesh]\nquad = [[-500, 200], [500, 200], [500, -800], [-500, -800]]\nframe = "world"\n\n'
         '[[npc]]\nname = "Vivi"\npreset = "vivi"\npos = [0, -300]\n\n'
-        '[cutscene]\nactor = "Vivi"\nonce = false\nsteps = [ { animation = "glad" } ]\n', encoding="utf-8")
+        '[cutscene]\nactors = ["Vivi"]\nonce = false\nsteps = [ { animation = "glad" } ]\n', encoding="utf-8")
     out = build.build_mod([build.FieldProject.load(proj_dir / "f.field.toml")], tmp_path / "mod")
     name = out["dictionary"][0].split()[4]
     eb = (tmp_path / "mod").rglob(f"EVT_{name}.eb.bytes")
     data = next(eb).read_bytes()
     glad = A.resolve("vivi", "glad")
-    # the resolved RunAnimation(glad) opcode (0x40 + u16 id) appears in the script bytes
-    assert opcodes.run_animation(glad) in data
+    # the resolved id appears as a by-uid RunAnimationEx (0xBD <uid> <u16 id>) -- the conductor drives the
+    # actor by uid (#13 v3; the old in-context RunAnimation splice is gone)
+    import re, struct
+    assert re.search(re.escape(bytes([0xBD])) + b".." + re.escape(struct.pack("<H", glad)), data, re.S)

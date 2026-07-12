@@ -52,11 +52,11 @@ def test_cutscene_director_gate_and_advance_in_built_eb(tmp_path):
                        'steps = [ { say = "hello" } ]\n', "gated")
     assert gate_sig in gated and adv_sig in gated
     assert gate_sig not in plain and adv_sig not in plain
-    # the ACTOR flavor gates + advances too (nested-if in the NPC loop, not an entry prologue)
-    actor = _eb(base + '\n[[npc]]\nname = "vivi"\npreset = "vivi"\npos = [0, -300]\ndialogue = "..."\n'
-                       '\n[cutscene]\nactor = "vivi"\nrequires_scenario = 2600\nset_scenario = 2610\n'
-                       'steps = [ { say = "hi" } ]\n', "actor")
-    assert gate_sig in actor and adv_sig in actor
+    # the CAST flavor (the conductor) gates + advances too (the same early-return prologue on its entry)
+    cast = _eb(base + '\n[[npc]]\nname = "vivi"\npreset = "vivi"\npos = [0, -300]\ndialogue = "..."\n'
+                      '\n[cutscene]\nactors = ["vivi"]\nrequires_scenario = 2600\nset_scenario = 2610\n'
+                      'steps = [ { say = "hi" } ]\n', "cast")
+    assert gate_sig in cast and adv_sig in cast
 
 
 def test_cutscene_dispatch_plural_blocks(tmp_path):
@@ -87,8 +87,8 @@ def test_cutscene_dispatch_plural_blocks(tmp_path):
 
 
 def test_validate_cutscene_dispatch_rules(tmp_path):
-    """The dispatch rules: pairwise-distinct gates (same-gate / double-ungated pairs rejected) and at
-    most one multi-actor conductor."""
+    """The dispatch rule: pairwise-distinct gates (same-gate / double-ungated pairs rejected). Several
+    CAST scenes coexist -- the shared tag-state removed the old one-conductor limit."""
     cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
     base = '[field]\nid = 30000\nname = "DISP"\narea = 11' + cam
     npc = '\n[[npc]]\nname = "a"\npreset = "vivi"\npos = [0, -300]\ndialogue = "."\n' \
@@ -103,11 +103,11 @@ def test_validate_cutscene_dispatch_rules(tmp_path):
     ungated = _probs(base + '\n[[cutscene]]\nsteps = [ { say = "a" } ]\n'
                             '\n[[cutscene]]\nsteps = [ { say = "b" } ]\n', "ung")
     assert any("both UNGATED" in p for p in ungated)
-    two_cond = _probs(base + npc +
-                      '\n[[cutscene]]\nrequires_scenario = 2600\nactor = ["a"]\nsteps = [ { say = "x" } ]\n'
-                      '\n[[cutscene]]\nrequires_scenario = 2610\nactor = ["b"]\nsteps = [ { say = "y" } ]\n',
-                      "cond")
-    assert any("at most ONE" in p for p in two_cond)
+    two_cast = _probs(base + npc +
+                      '\n[[cutscene]]\nrequires_scenario = 2600\nactors = ["a"]\nsteps = [ { say = "x" } ]\n'
+                      '\n[[cutscene]]\nrequires_scenario = 2610\nactors = ["b"]\nsteps = [ { say = "y" } ]\n',
+                      "cast")
+    assert two_cast == []      # several CAST scenes coexist (shared tag-state; no one-conductor rule)
 
 
 def test_validate_cutscene_director_keys(tmp_path):
@@ -938,16 +938,16 @@ def test_cutscene_field_builds(tmp_path):
     assert "hi" in L.mes_path("us", 1073).read_text(encoding="utf-8")
 
 
-def test_actor_cutscene_in_npc_loop(tmp_path):
-    """An actor cutscene prepends its choreography to the named NPC's LOOP (tag 1), not its Init -- so
-    it runs while the object is 'running' (engine state 1) and its animation frames advance (the Init
-    runs at state 2 where they freeze). No standalone director entry."""
+def test_cast_scene_of_one_runs_through_conductor(tmp_path):
+    """#13 v3 (the ONE actor mechanism): a cast of one (`actors = ["vivi"]`, untagged steps default to it)
+    builds as a CONDUCTOR -- a standalone director entry drives the NPC by uid; walk/teleport/face_player
+    run as tags on the NPC's own entry (RunScriptSync'd, so they animate in its context)."""
     from ff9mapkit.eb import EbScript
     from ff9mapkit.eb.disasm import iter_code
     p = tmp_path / "x.field.toml"
     p.write_text(_LINT_BASE +
                  '[[npc]]\nname = "vivi"\npreset = "vivi"\npos = [0, -300]\ndialogue = "x"\n'
-                 '[cutscene]\nactor = "vivi"\n'
+                 '[cutscene]\nactors = ["vivi"]\n'
                  'steps = [ {walk=[200,-300]}, {animation=921}, {face_player=true}, '
                  '{say="welcome"}, {walk=[0,-300]} ]\n', encoding="utf-8")
     assert validate(FieldProject.load(p)) == []
@@ -957,36 +957,52 @@ def test_actor_cutscene_in_npc_loop(tmp_path):
     eb = EbScript.from_bytes(L.eb_path("us", "EVT_X.eb.bytes").read_bytes())
     npc_entries = [e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0]
     assert len(npc_entries) == 1
-    loop = npc_entries[0].func_by_tag(1)                    # tag 1 = the loop (the choreography lives here)
-    ops = [i.op for i in iter_code(eb.data, loop.abs_start, loop.abs_end)]
-    for op in (0x2D, 0x23, 0x40, 0x51, 0x1F, 0x2E):        # Disable, Walk, Anim, Turn(face), Window, Enable
-        assert op in ops, hex(op)
-    init = npc_entries[0].func_by_tag(0)
-    init_ops = [i.op for i in iter_code(eb.data, init.abs_start, init.abs_end)]
-    assert 0x1D in init_ops and 0x2D not in init_ops       # CreateObject in Init; NO lock in the Init
-    # the ONLY entry with DisableMove is the NPC -- no separate director was injected.
-    disable = []
-    for e in eb.entries:
-        if e.empty or e.index == 0:
-            continue
-        if any(i.op == 0x2D for f in e.funcs for i in iter_code(eb.data, f.abs_start, f.abs_end)):
-            disable.append(e.index)
-    assert disable == [npc_entries[0].index]
+    npc_e = npc_entries[0]
+    # the tag-kind steps landed as tags on the NPC's entry: walk(20), face_player(21), walk(22)
+    assert all(npc_e.func_by_tag(t) is not None for t in (20, 21, 22))
+    # a standalone CONDUCTOR entry drives the NPC: RunScriptSync(2, uid, tag) calls in step order + the
+    # by-uid animation, and it owns the control lock (the NPC loop does NOT lock)
+    drv = next(e for e in eb.entries if not e.empty and e.index != 0 and e.func_by_tag(0)
+               and any(i.op == 0x14 for i in iter_code(eb.data, e.func_by_tag(0).abs_start,
+                                                       e.func_by_tag(0).abs_end)))
+    body = eb.data[drv.func_by_tag(0).abs_start:drv.func_by_tag(0).abs_end]
+    calls = [(i.imm(1), i.imm(2)) for i in iter_code(body, 0, len(body)) if i.op == 0x14]
+    assert calls == [(npc_e.index, 20), (npc_e.index, 21), (npc_e.index, 22)]
+    ops = [i.op for i in iter_code(body, 0, len(body))]
+    assert 0xBD in ops and 0x2D in ops                     # RunAnimationEx (by uid) + the control lock
+    assert 0x1F in ops                                     # the UNTAGGED say stays a narration window
     assert "welcome" in L.mes_path("us", 1073).read_text(encoding="utf-8")
     for lang in LANGS:                                      # every language built
         assert L.eb_path(lang, "EVT_X.eb.bytes").is_file()
 
 
-def test_actor_step_without_actor_is_rejected(tmp_path):
+def test_actor_step_without_cast_is_rejected(tmp_path):
     p = tmp_path / "x.field.toml"
     p.write_text(_LINT_BASE + '[cutscene]\nsteps = [ {walk=[0,-300]} ]\n', encoding="utf-8")
-    assert any("needs an actor" in s for s in validate(FieldProject.load(p)))
+    assert any("needs a cast" in s for s in validate(FieldProject.load(p)))
 
 
 def test_cutscene_unknown_actor_is_rejected(tmp_path):
     p = tmp_path / "x.field.toml"
-    p.write_text(_LINT_BASE + '[cutscene]\nactor = "ghost"\nsteps = [ {wait=5} ]\n', encoding="utf-8")
+    p.write_text(_LINT_BASE + '[cutscene]\nactors = ["ghost"]\nsteps = [ {wait=5} ]\n', encoding="utf-8")
     assert any("not a defined [[npc]] name" in s for s in validate(FieldProject.load(p)))
+
+
+def test_cutscene_migration_errors(tmp_path):
+    """#13 v3 breaking changes: the old block key `actor` (string OR list), the step key `anim`, and
+    `exit_warp` all fail validation with a migration hint (never silently misbuild)."""
+    def probs(body):
+        p = tmp_path / "m.field.toml"
+        p.write_text(_LINT_BASE + body, encoding="utf-8")
+        return validate(FieldProject.load(p))
+    assert any("`actor` was replaced by `actors`" in s and 'actors = ["g"]' in s
+               for s in probs('[cutscene]\nactor = "g"\nsteps = [ {wait=5} ]\n'))
+    assert any("`actor` was replaced by `actors`" in s
+               for s in probs('[cutscene]\nactor = ["a", "b"]\nsteps = [ {wait=5} ]\n'))
+    assert any("`anim` was renamed `animation`" in s
+               for s in probs('[cutscene]\nactors = ["x"]\nsteps = [ {actor = "x", anim = 5} ]\n'))
+    assert any("`exit_warp` was renamed `then_warp`" in s
+               for s in probs('[cutscene]\nexit_warp = 100\nsteps = [ {say = "x"} ]\n'))
 
 
 def test_validate_rejects_low_area(tmp_path):

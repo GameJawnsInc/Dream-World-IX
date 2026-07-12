@@ -56,8 +56,8 @@ per-visit MAP, scopes): [FORMAT.md §Story flags](../FORMAT.md#story-flags--bran
 
 ## 3. An entry cutscene
 
-A `[cutscene]` runs ordered steps with player control locked. With `actor = "<npc name>"` the
-steps drive that NPC — walk, turn, gesture, speak:
+A `[cutscene]` runs ordered steps with player control locked. Declare a **cast**
+(`actors = ["<npc name>", …]`) and the steps drive those NPCs — walk, turn, gesture, speak:
 
 ```toml
 [[npc]]
@@ -67,7 +67,7 @@ pos = [0, -300]              # where the actor RESTS (and stands on replay visit
 dialogue = "..."
 
 [cutscene]
-actor = "vivi"
+actors = ["vivi"]            # a cast of ONE: the steps below default to it, no per-step tag needed
 once = true                  # play once ever (save-persistent); false = every entry
 steps = [
   { teleport = [-2000, -300] },   # snap off-screen so he can walk IN
@@ -78,11 +78,12 @@ steps = [
 ]
 ```
 
-Without `actor`, the cutscene is pure narration (`say` / `wait` / `set_flag` steps), and may end
-in a `then_warp = <field id>`. Multi-actor scenes set `actor = ["vivi", "guard", "player"]` (a
-list — `"player"` is a normal actor); each step then names its actor
-(`{ walk = [...], actor = "guard" }`), and `with_prev = true` runs a walk/turn/anim beat in
-parallel with the one before it. Schema: [FORMAT.md §cutscene](../FORMAT.md#cutscene-optional).
+Without `actors`, the cutscene is pure narration (`say` / `wait` / `set_flag` steps). Either flavor
+may end in a `then_warp = <field id>`. With a bigger cast (`actors = ["vivi", "guard", "player"]` —
+`"player"` is a normal cast member) each actor step names its actor
+(`{ walk = [...], actor = "guard" }`), a tagged `say` points its window at that actor, and
+`with_prev = true` runs a walk/path/animation/turn beat in parallel with the one before it.
+Schema: [FORMAT.md §cutscene](../FORMAT.md#cutscene--cutscene-optional).
 
 ## 4. Test
 

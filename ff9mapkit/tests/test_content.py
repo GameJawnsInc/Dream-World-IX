@@ -596,51 +596,6 @@ def test_cutscene_body_gate_and_end_writes():
         cutscene.build_body([cutscene.say(500)], once_flag=230, gate=b"", end_writes=b"")
 
 
-def test_choreography_story_conds_nest_outside_once():
-    # the ACTOR path gates with NESTED if-blocks (a LOOP prepend must never RETURN -- it would kill the
-    # host NPC's loop): the story cond wraps the once-block, so an out-of-beat visit doesn't burn the flag.
-    cond = region.cond_eq(region.GLOB_UINT16, 0, 2600)
-    adv = region.set_var(region.GLOB_UINT16, 0, 2610)
-    blk = cutscene.build_choreography([{"say": "x"}], [500], 230, story_conds=(cond,), end_writes=adv)
-    assert blk.startswith(cond)                                 # outermost gate = the story cond
-    assert region.cond_not(region.GLOB_BOOL, 230) in blk        # the once guard nests inside
-    assert blk.index(cond) < blk.index(region.cond_not(region.GLOB_BOOL, 230))
-    assert adv in blk
-    # defaults byte-identical
-    assert cutscene.build_choreography([{"say": "x"}], [500], 230) == \
-        cutscene.build_choreography([{"say": "x"}], [500], 230, story_conds=(), end_writes=b"")
-
-
-# --- v2 cutscenes: actor movement / animation / turn ----------------------------------------------
-
-def test_actor_opcodes_roundtrip():
-    """The v2 actor opcodes encode to bytes that disassemble back to the same opcode (the kit's
-    self-consistency check; arg layouts mirror the engine's DoEventCode handlers)."""
-    from ff9mapkit.eb.disasm import read_code
-    cases = [
-        (opcodes.init_walk(), 0x25, 1),
-        (opcodes.walk(1346, -1713), 0x23, 6),
-        (opcodes.set_walk_speed(15), 0x26, 3),
-        (opcodes.move_instant_xzy(100, 200), 0xA1, 8),
-        (opcodes.run_animation(1713), 0x40, 4),
-        (opcodes.wait_animation(), 0x41, 1),
-        (opcodes.turn_instant(64), 0x36, 3),
-        (opcodes.timed_turn(128, 16), 0x56, 4),
-        (opcodes.turn_toward_object(250, 16), 0x51, 4),
-        (opcodes.wait_turn(), 0x50, 1),
-    ]
-    for b, op, length in cases:
-        ins, pos = read_code(b, 0)
-        assert ins.op == op and ins.length == length and pos == len(b), f"{op:#x} {b.hex()}"
-    # Walk stores signed z directly. MoveInstantXZY maps args as (X, -Y, Z) -- the engine does
-    # SetActorPosition(po, destX, destZ=-arg2, destY=arg3) => po.x=arg1, po.y=-arg2, po.z=arg3 -- so a
-    # floor teleport to world (x=10, z=20, y=0) encodes arg1=10, arg2=0 (-y), arg3=20 (z).
-    ins, _ = read_code(opcodes.walk(10, -20), 0)
-    assert ins.imm(0) == 10 and ins.imm(1) == (-20 & 0xFFFF)
-    ins, _ = read_code(opcodes.move_instant_xzy(10, 20), 0)   # x=10, z=20, y=0
-    assert ins.imm(0) == 10 and ins.imm(1) == 0 and ins.imm(2) == 20
-
-
 def test_actor_walk_sets_high_turn_speed_then_walks():
     """A walk cranks the walk-turn-speed first, then InitWalk + Walk -- so the Walk rotates tightly
     toward the target and goes straight (never arcs/orbits a point behind the actor), with no animated
@@ -651,83 +606,11 @@ def test_actor_walk_sets_high_turn_speed_then_walks():
     assert cutscene.actor_walk(100, -200, speed=15) == opcodes.set_walk_speed(15) + expected
 
 
-def test_choreography_compiles_ordered_actor_steps():
-    steps = [
-        {"teleport": [-2000, 300]},
-        {"walk": [-200, 300]},
-        {"animation": 921},
-        {"face_player": True},
-        {"say": "Hi"},
-        {"wait": 20},
-        {"set_flag": [205]},
-    ]
-    choreo = cutscene.build_choreography(steps, [500], 8100)
-    assert choreo.startswith(region.cond_not(region.GLOB_BOOL, 8100))            # gated once
-    assert choreo.index(opcodes.DISABLE_MOVE) < choreo.index(opcodes.ENABLE_MOVE)  # control locked
-    # the actor + global ops appear, in order, inside the lock
-    parts = [opcodes.move_instant_xzy(-2000, 300), opcodes.init_walk() + opcodes.walk(-200, 300),
-             opcodes.run_animation(921), opcodes.turn_toward_object(250, 16),
-             opcodes.window_sync(1, 128, 500), opcodes.wait(20), region.set_var(region.GLOB_BOOL, 205, 1)]
-    idx = [choreo.index(p) for p in parts]
-    assert idx == sorted(idx), "actor steps must compile in declared order"
-    assert region.set_var(region.GLOB_BOOL, 8100, 1) in choreo                  # flag set on completion
-    assert not choreo.endswith(opcodes.RETURN)         # prepended to the loop; the loop body's RETURN follows
-
-
-def test_choreography_always_gated():
-    """The choreography is ALWAYS gated -- it's prepended to the loop (runs every frame), so an ungated
-    block would re-fire endlessly. A Map flag = transient (replays per visit)."""
-    choreo = cutscene.build_choreography([{"wait": 5}], [], 80, flag_class=region.MAP_BOOL, warmup=0)
-    inner = (opcodes.DISABLE_MOVE + opcodes.wait(5) + opcodes.ENABLE_MOVE
-             + region.set_var(region.MAP_BOOL, 80, 1))
-    assert choreo == region.if_block(region.cond_not(region.MAP_BOOL, 80), inner)
-
-
 def test_actor_teleport_moves_then_reenables_pathing():
     """A teleport instant-moves (MoveInstantXZY, Z-negated) then SetPathing(1) so a following walk
     paths normally."""
     assert cutscene.actor_teleport(-1150, -800) == (
         opcodes.move_instant_xzy(-1150, -800, 0) + opcodes.set_pathing(1))
-
-
-def test_all_steps_including_teleport_run_after_warmup():
-    """EVERY actor command -- teleport included -- runs AFTER the warm-up Wait. A teleport issued
-    during the field's entry transition makes the smooth-updater fight it (warp/slide + the next walk
-    never converges), so the warm-up must gate it too."""
-    choreo = cutscene.build_choreography(
-        [{"teleport": [-1150, -800]}, {"walk": [0, -800]}], [], 8100, warmup=30)
-    seq = [opcodes.DISABLE_MOVE, opcodes.wait(30), cutscene.actor_teleport(-1150, -800),
-           cutscene.actor_walk(0, -800), opcodes.ENABLE_MOVE]
-    idx = [choreo.index(p) for p in seq]
-    assert idx == sorted(idx)
-
-
-def test_choreography_warmup_waits_before_acting():
-    """The warm-up Wait comes right after DisableMove (so the player can't wander) and before the
-    first actor step -- it lets the field's entry fade/smooth-updater settle so the actor doesn't
-    circle (and its synchronous Walk doesn't hang)."""
-    choreo = cutscene.build_choreography([{"walk": [0, -700]}], [], 8100, warmup=30)
-    assert opcodes.DISABLE_MOVE + opcodes.wait(30) + cutscene.actor_walk(0, -700) in choreo
-    # default applies a non-zero warm-up
-    assert opcodes.DISABLE_MOVE + opcodes.wait(cutscene.DEFAULT_WARMUP) in \
-        cutscene.build_choreography([{"walk": [0, -700]}], [], 8100)
-
-
-def test_actor_cutscene_in_npc_loop():
-    """The choreography is PREPENDED to the NPC's LOOP (tag 1), not its Init -- so it runs while the
-    object is 'running' (engine state 1), where animation frames advance (the Init runs at state 2,
-    where they stay frozen)."""
-    choreo = cutscene.build_choreography([{"walk": [0, -700]}, {"say": "hi"}], [500], 8100)
-    out = npc.inject_npc(CLEAN, 0, -700, preset="vivi", talk_text_id=500, intro=choreo)
-    eb = EbScript.from_bytes(out)
-    assert eb.to_bytes() == out                                     # structurally valid
-    npc_entry = next(e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0)
-    loop_ops = _ops(eb, npc_entry.index, 1)                         # tag 1 = the loop (where the choreo lives)
-    assert 0x2D in loop_ops and 0x2E in loop_ops                    # DisableMove/EnableMove in the LOOP
-    assert 0x23 in loop_ops and 0x1F in loop_ops                    # Walk + WindowSync (the say)
-    init_ops = _ops(eb, npc_entry.index, 0)
-    assert 0x1D in init_ops and 0x2D not in init_ops               # CreateObject in Init; NO lock in the Init
-    assert 0x1F in _ops(eb, npc_entry.index, 3)                     # SpeakBTN (tag 3) intact
 
 
 def test_npc_without_intro_is_byte_identical():
@@ -778,7 +661,7 @@ def test_conductor_drives_two_actors_by_id():
     """One conductor body drives TWO actors by uid (== their entry slots), gated once, control-locked."""
     uid_by_name = {"garnet": 11, "steiner": 12}
     steps = [{"actor": "garnet", "turn": 128}, {"actor": "garnet", "say": "Welcome home."},
-             {"actor": "steiner", "anim": 2307}, {"actor": "steiner", "say": "Princess!"}, {"wait": 20}]
+             {"actor": "steiner", "animation": 2307}, {"actor": "steiner", "say": "Princess!"}, {"wait": 20}]
     body = conductor.build_body(steps, uid_by_name, [1000, 1001], once_flag=8100)
     assert body.startswith(region.cond_not(region.GLOB_BOOL, 8100))    # gated by the once flag
     # the reorder Wait (so the lock outlives Main_Init's EnableMove) sits inside the gate, before DisableMove
@@ -825,7 +708,7 @@ def test_conductor_player_resolves_to_250():
 def test_conductor_avoids_blocking_waits_on_actors():
     """Softlock guard: anim/turn use the NON-blocking forms (RunAnimationEx+Wait, TurnInstantEx) -- never
     WaitAnimationEx/WaitTurnEx, which hang on a player-cloned actor whose clip doesn't drive the wait."""
-    body = conductor.build_body([{"actor": "player", "anim": 1713}, {"actor": "player", "turn": 64}],
+    body = conductor.build_body([{"actor": "player", "animation": 1713}, {"actor": "player", "turn": 64}],
                                 {}, [], once_flag=None)
     assert opcodes.run_animation_ex(250, 1713) in body and opcodes.turn_instant_ex(250, 64) in body
     assert opcodes.wait_animation_ex(250) not in body and opcodes.wait_turn_ex(250) not in body
@@ -842,8 +725,8 @@ def test_conductor_injected_and_armed():
     assert drv is not None                                             # the conductor entry drives by WindowSyncEx
 
 
-def test_conductor_exit_warp_replaces_enablemove():
-    body = conductor.build_body([{"actor": "player", "say": "bye"}], {}, [500], once_flag=8100, exit_warp=1153)
+def test_conductor_then_warp_replaces_enablemove():
+    body = conductor.build_body([{"actor": "player", "say": "bye"}], {}, [500], once_flag=8100, then_warp=1153)
     assert opcodes.ENABLE_MOVE not in body                             # destination restores control
     assert any(i.op == 0x2B for i in iter_code(body, 0, len(body)))    # ends with Field(1153)
 
@@ -861,11 +744,11 @@ def test_conductor_two_actor_field_builds_end_to_end(tmp_path):
         '[player]\nspawn = [0, 150]\n\n'
         '[[npc]]\nname = "vivi1"\npreset = "vivi"\npos = [-80, 0]\ndialogue = "."\n\n'
         '[[npc]]\nname = "vivi2"\npreset = "vivi"\npos = [80, 0]\ndialogue = "."\n\n'
-        '[cutscene]\nonce = true\nactor = ["vivi1", "vivi2", "player"]\n'
+        '[cutscene]\nonce = true\nactors = ["vivi1", "vivi2", "player"]\n'
         'steps = [\n'
         '  { actor = "vivi1", turn = 128 },\n'
         '  { actor = "vivi1", say = "Hello there." },\n'
-        '  { actor = "vivi2", anim = "glad" },\n'
+        '  { actor = "vivi2", animation = "glad" },\n'
         '  { actor = "vivi2", say = "Hi!" },\n'
         '  { actor = "player", say = "..." },\n'
         '  { wait = 20 },\n'
@@ -900,7 +783,7 @@ def test_conductor_walk_tag_body_is_animated_walk():
 def test_conductor_walk_step_compiles_to_runscriptsync():
     """The conductor can't walk an actor inline (no targeted WalkEx), so a walk beat is a RunScriptSync into
     the actor's pre-generated walk tag (by uid) -- blocking, so it animates then the scene continues."""
-    body = conductor.compile_steps([{"actor": "npc", "walk": [10, 20]}], {"npc": 5}, [], walk_calls={0: (5, 20)})
+    body = conductor.compile_steps([{"actor": "npc", "walk": [10, 20]}], {"npc": 5}, [], tag_calls={0: (5, 20)})
     assert opcodes.run_script_sync(conductor.WALK_LEVEL, 5, 20) in body
     # without the pre-generated tag, compiling a walk beat is a hard error (not a silent no-op)
     import pytest
@@ -920,7 +803,7 @@ def test_conductor_walk_field_builds_end_to_end(tmp_path):
         '[player]\nspawn = [0, 150]\n\n'
         '[[npc]]\nname = "lefty"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
         '[[npc]]\nname = "righty"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n\n'
-        '[cutscene]\nonce = true\nactor = ["lefty", "righty"]\n'
+        '[cutscene]\nonce = true\nactors = ["lefty", "righty"]\n'
         'steps = [ { actor = "lefty", walk = [0, -150] }, { actor = "righty", walk = [150, 100] } ]\n',
         encoding="utf-8")
     proj = build.FieldProject.load(p)
@@ -949,7 +832,7 @@ def test_conductor_player_walk_supported(tmp_path):
         '[walkmesh]\nquad = [[-300,-300],[300,-300],[300,300],[-300,300]]\n\n'
         '[player]\nspawn = [0, 150]\n\n'
         '[[npc]]\nname = "vivi1"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
-        '[cutscene]\nactor = ["vivi1", "player"]\n'
+        '[cutscene]\nactors = ["vivi1", "player"]\n'
         'steps = [ { actor = "vivi1", say = "Follow me." }, { actor = "player", walk = [0, 0] } ]\n',
         encoding="utf-8")
     proj = build.FieldProject.load(p)
@@ -981,19 +864,19 @@ def test_conductor_parallel_walks_fork_async_then_drain():
     drains (so the walks run together, then the scene waits for both)."""
     steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "walk": [1, 1], "with_prev": True}]
     body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [],
-                                   walk_calls={0: (5, 20), 1: (6, 20)}, join_tags={5: 19, 6: 19})
+                                   tag_calls={0: (5, 20), 1: (6, 20)}, join_tags={5: 19, 6: 19})
     ops = [(i.op, i.imm(0), i.imm(1), i.imm(2)) for i in iter_code(body, 0, len(body))]
     assert ops == [(0x10, 2, 5, 20), (0x10, 2, 6, 20), (0x14, 2, 5, 19), (0x14, 2, 6, 19)]
     # a SINGLETON walk still compiles to a blocking RunScriptSync into the walk tag (unchanged, no async)
-    solo = conductor.compile_steps([{"actor": "a", "walk": [0, 0]}], {"a": 5}, [], walk_calls={0: (5, 20)})
+    solo = conductor.compile_steps([{"actor": "a", "walk": [0, 0]}], {"a": 5}, [], tag_calls={0: (5, 20)})
     assert [i.op for i in iter_code(solo, 0, len(solo))] == [0x14]
 
 
 def test_conductor_parallel_anim_absorbs_hold_into_join():
     """A parallel anim FIRES (RunAnimationEx, no inline Wait) and its hold is absorbed into ONE join Wait, so
     the anim plays while the walk runs async; then the walk's sync-drain blocks for the rest."""
-    steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "anim": 1713, "with_prev": True}]
-    body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [], walk_calls={0: (5, 20)}, join_tags={5: 19})
+    steps = [{"actor": "a", "walk": [0, 0]}, {"actor": "b", "animation": 1713, "with_prev": True}]
+    body = conductor.compile_steps(steps, {"a": 5, "b": 6}, [], tag_calls={0: (5, 20)}, join_tags={5: 19})
     ops = [i.op for i in iter_code(body, 0, len(body))]
     assert ops == [0x10, 0xBD, 0x22, 0x14]                         # async walk, RunAnimationEx, Wait(hold), drain
     assert ops.count(0x22) == 1                                    # the hold is the join Wait, not a per-anim Wait
@@ -1012,7 +895,7 @@ def test_conductor_parallel_walk_field_builds_end_to_end(tmp_path):
         '[player]\nspawn = [0, 150]\n\n'
         '[[npc]]\nname = "lefty"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
         '[[npc]]\nname = "righty"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n\n'
-        '[cutscene]\nonce = true\nactor = ["lefty", "righty"]\n'
+        '[cutscene]\nonce = true\nactors = ["lefty", "righty"]\n'
         'steps = [ { actor = "lefty", walk = [0, -150] }, { actor = "righty", walk = [150, 100], with_prev = true } ]\n',
         encoding="utf-8")
     proj = build.FieldProject.load(p)
@@ -1047,16 +930,16 @@ def test_conductor_parallel_validation(tmp_path):
             '[player]\nspawn = [0, 150]\n\n'
             '[[npc]]\nname = "a"\npreset = "vivi"\npos = [-100, 0]\ndialogue = "."\n\n'
             '[[npc]]\nname = "b"\npreset = "vivi"\npos = [100, 0]\ndialogue = "."\n\n'
-            '[cutscene]\nactor = ["a", "b"]\nsteps = ' + steps_toml + '\n', encoding="utf-8")
+            '[cutscene]\nactors = ["a", "b"]\nsteps = ' + steps_toml + '\n', encoding="utf-8")
         return build.validate(build.FieldProject.load(p))
     assert any("step 0" in m and "with_prev" in m for m
                in probs('[ { actor = "a", turn = 0, with_prev = true } ]'))
-    assert any("with_prev" in m and "barrier" in m.lower() for m
+    assert any("with_prev" in m and "sequential" in m.lower() for m
                in probs('[ { actor = "a", turn = 0 }, { actor = "b", say = "hi", with_prev = true } ]'))
-    assert any("barrier" in m.lower() for m
+    assert any("parallel" in m.lower() for m
                in probs('[ { actor = "a", say = "hi" }, { actor = "b", turn = 0, with_prev = true } ]'))
     assert any("already acts" in m for m
-               in probs('[ { actor = "a", turn = 0 }, { actor = "a", anim = "glad", with_prev = true } ]'))
+               in probs('[ { actor = "a", turn = 0 }, { actor = "a", animation = "glad", with_prev = true } ]'))
     assert [m for m in probs('[ { actor = "a", turn = 0 }, { actor = "b", turn = 64, with_prev = true } ]')
             if "with_prev" in m or "parallel" in m.lower() or "barrier" in m.lower()] == []
 

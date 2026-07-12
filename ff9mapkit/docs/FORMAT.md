@@ -1239,10 +1239,14 @@ declarative content can't express (steps run *in order*). The player can't move 
 
 A field can carry **several** — write repeated `[[cutscene]]` blocks (the **story-event dispatch**: each
 scene gated to its own beat via `requires_scenario`, so one field plays a different scene at each stage of
-the story). The dispatch rules: every block needs a **distinct gate** (two scenes that could fire on the
-same load are a build error), and at most **one** block may be a multi-actor conductor. Auto once-flags are
-per-block (`8100`, `8101`, …); in a campaign member only the *first* block has a reserved flag slot — give
-later blocks an explicit `flag`. A single `[cutscene]` table is exactly the one-block case, unchanged.
+the story). The dispatch rule: every block needs a **distinct gate** (two scenes that could fire on the
+same load are a build error). Auto once-flags are per-block (`8100`, `8101`, …); in a campaign member only
+the *first* block has a reserved flag slot — give later blocks an explicit `flag`. A single `[cutscene]`
+table is exactly the one-block case, unchanged.
+
+Two flavors, by whether the scene declares a **cast**: no `actors` = **narration** (windows/waits/flag
+writes only); `actors = ["<npc>", …]` = a **cast scene** — the scene drives those NPCs (and/or
+`"player"`): walk, animate, turn, speak — see *Cast scenes* below.
 
 ```toml
 [cutscene]
@@ -1274,7 +1278,8 @@ Cutscene-level keys (alongside `steps`):
 | `requires_flag` / `requires_flag_clear` | the scene only plays while this GlobBool (index or `[[flag]]` name) is SET / CLEAR. Stacks with `requires_scenario` (both must hold). One or the other, not both. |
 | `set_scenario` | **the story-event director ADVANCE**: at scene end, set the **ScenarioCounter** (int or area name) — the story moves to the next beat, exactly once, only when the scene actually played (the write sits inside the once-guard). |
 | `set_flags` | `[{ flag = <index\|name>, value = 0\|1 }, …]` — story bits written at scene end (same only-when-played semantics). |
-| `then_warp` | *(narration cutscene only — no `actor`)* a **field id** (positive int) to `Field()`-warp to when the scene ends. (Errors on an actor cutscene — the actor path splices into an NPC loop, which can't take the end-warp.) |
+| `actors` | the **cast** — a list of `[[npc]]` names (and/or `"player"`) the scene drives. Absent = narration. See *Cast scenes* below. |
+| `then_warp` | a **field id** (positive int) to `Field()`-warp to (after a fade) when the scene ends — how a forced-ATE scene returns you. Works on both flavors. |
 | `ate` | `true` styles the cutscene as a compulsory **Active Time Event** (the grey banner flavor) — `ATE(mode)…ATE(0)` HUD arm + a winATE caption. |
 | `ate_mode` | *(needs `ate = true`)* the ATE HUD mode `0`–`255` (default **6** = the grey **UNSKIPPABLE** banner; `1` = quiet no-icon auto-ATE). See `docs/ATE_SYSTEM.md`. |
 
@@ -1289,7 +1294,7 @@ They compose with the other story keys into a fully declarative story arc:
 scenario = 2600
 
 [cutscene]               # enter THIS field at beat 2600 -> Vivi's scene plays once -> beat becomes 2610
-actor = "vivi"
+actors = ["vivi"]
 requires_scenario = 2600
 set_scenario = 2610
 steps = [ { walk = "@player" }, { say = "...something's wrong." } ]
@@ -1305,8 +1310,8 @@ set_scenario = 2620
 # ...
 ```
 
-Works on all three flavors (narration / `actor = "name"` / the multi-actor conductor `actor = [...]`,
-including on a verbatim fork). The gate means the scene *belongs to* its beat: at any other ScenarioCounter
+Works on both flavors (narration and cast scenes, including a cast scene on a verbatim fork). The gate
+means the scene *belongs to* its beat: at any other ScenarioCounter
 it doesn't fire and doesn't consume its `once` flag. The advance runs inside the once-guard, so the story
 moves exactly once — and only if the scene actually played. For several scenes on ONE field, write repeated
 `[[cutscene]]` blocks, one per beat (the dispatch rules above) — a field can then re-stage itself across the
@@ -1316,7 +1321,7 @@ whole story, exactly like FF9's own town screens:
 [[cutscene]]                     # first visit, beat 2600: the mage warns you -> 2610
 requires_scenario = 2600
 set_scenario = 2610
-actor = "mage"
+actors = ["mage"]
 steps = [ { walk = "@player" }, { say = "Something's wrong at the mill." } ]
 
 [[cutscene]]                     # return visit, beat 2700 (a gateway/quest advanced it): the aftermath
@@ -1325,11 +1330,12 @@ set_scenario = 2710
 steps = [ { say = "The village is quiet now." } ]
 ```
 
-### Actor cutscenes — `actor = "<npc name>"`
+### Cast scenes — `actors = ["<npc name>", …]`
 
-Add `actor = "<an [[npc]] name>"` to make the cutscene drive **that NPC**: walk, animate, turn. The
-sequence is spliced into the NPC's own script (so the movement steps act on it), the player is locked
-for the duration, and it plays once. This is the iconic "a character walks in and talks".
+Declare a **cast** to make the cutscene drive those NPCs (and/or `"player"`): walk, animate, turn,
+speak. One central **conductor** (FF9's real multi-actor idiom, decoded from 9 real fields) owns the
+control lock and sequences every cast member by id; movement runs in each actor's own context so it
+animates. This is the iconic "a character walks in and talks" — and scales to full multi-actor scenes.
 
 ```toml
 [[npc]]
@@ -1339,34 +1345,51 @@ pos = [0, -300]            # where Vivi RESTS (and where he is on a replay visit
 dialogue = "..."
 
 [cutscene]
-actor = "vivi"            # the steps run in Vivi's context
+actors = ["vivi"]         # the cast. ONE name = untagged steps below default to it
 once = true
-# warmup = 30            # frames to wait before the actor moves (default 30). The field's entry
-                         #   fade + smooth-updater must settle first, or the actor circles on load
-                         #   and its walk hangs. Bump it if the actor still circles on entry.
 steps = [
   { teleport = [-2000, -300] },   # snap off-screen (instant) so he can walk IN
   { walk = [0, -300] },           # walk to his resting spot (= his pos)
   { face_player = true },          # turn to face the player
   { animation = "glad" },          # a gesture BY NAME (run: ff9mapkit animations vivi)
-  { say = "...hi." },              # a dialogue window
+  { say = "...hi." },              # a dialogue window (untagged = narration voice)
 ]
 ```
 
-Actor steps (only valid when `actor` is set — they need the NPC's context):
+With **several** cast members, tag each actor step (and optionally each `say`) with the actor it drives —
+and `with_prev = true` runs a walk/path/animation/turn beat **in parallel** with the one before it:
+
+```toml
+[cutscene]
+actors = ["vivi", "guard", "player"]
+steps = [
+  { actor = "vivi",  walk = "@player" },
+  { actor = "guard", walk = "gate", with_prev = true },   # the guard walks WHILE Vivi walks
+  { actor = "vivi",  say = "We have to go." },             # tagged say -> the window points at Vivi
+  { actor = "player", animation = "shock" },
+]
+```
+
+Actor steps (each needs its `actor` tag — omitted only with a cast of ONE, where it defaults):
 
 | step (one key each) | meaning |
 |---|---|
 | `walk` | a **target** to walk to — a marker/entity **name** (`"fountain"`, `"@player"`, `"@Steiner"`) or raw `[x, z]`. Uses the NPC's walk animation; blocks until it arrives; turns tight (no orbit). **Auto‑routes** around walls/characters if the straight line is blocked (see *Reliability*). Optional `speed = N`. See *Movement targets* below. |
 | `path` | a **list** of targets to walk through in order — `path = ["door", "fountain", "altar"]` (names or `[x,z]`). Each leg is a straight walk, stall‑checked but **not** auto‑routed — use it to force an exact route (a plain `walk` already routes itself). |
-| `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen — a leading teleport runs before the warm-up so the actor settles there, then walks in. |
-| `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against the actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
-| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — turn to face it, animated. |
+| `teleport` | a target to **instantly** move to (name or `[x, z]`). Put it **first** to start a walk-in from off-screen. |
+| `animation` | a gesture **by name** (`"glad"`, `"angry"`, `"yawn"`, …) resolved against that actor's preset model, **or** a raw numeric id. Played, then held ~40 frames (no hang on a looping clip). See *Character gestures* below. |
+| `turn` | angle (`0`=south, `64`=west, `128`=north, `192`=east) — an instant face (softlock-safe on player-cloned actors). |
 | `face_player` | `true` — turn to face the player. |
 
-`say` / `wait` / `set_flag` also work in an actor cutscene (interleaved in order). The NPC ends where
-its last `walk`/`teleport` leaves it on the first visit; on a replay visit it's at its `pos`, so end
-the last `walk` at `pos` (or just `teleport` in and `walk` back to `pos`) to stay consistent.
+`say` / `wait` / `set_flag` also work in a cast scene (interleaved in order): a `say` **with** an `actor`
+tag is attributed to that actor (its window tail points at them); untagged it's a narration line. The
+scene locks control with a **control-grant spin** (it waits out the field's entry settle, then locks —
+no warmup tuning needed). An NPC ends where its last `walk`/`teleport` leaves it on the first visit; on
+a replay visit it's at its `pos`, so end its last `walk` at `pos` to stay consistent.
+
+> **Migrating from the old forms (pre-beta.16):** `actor = "vivi"` → `actors = ["vivi"]` (steps unchanged
+> — they default to the sole cast member); `actor = ["a", "b"]` → `actors = ["a", "b"]`; the step key
+> `anim` → `animation`; `exit_warp` → `then_warp`. The build names each rename in its error message.
 
 #### Movement targets (`walk` / `teleport` by name)
 
@@ -1389,7 +1412,7 @@ name = "altar"
 pos = [0, -600]
 
 [cutscene]
-actor = "vivi"
+actors = ["vivi"]
 steps = [
   { walk = "altar" },     # walk to the named point
   { walk = "@player" },   # walk to the player's spot

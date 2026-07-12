@@ -201,7 +201,7 @@ STARTUP_SPEC = [
           'save-backed single-byte writes "byte, value; ...", e.g. 361, 4 (rarely needed)'),
 ]
 CUTSCENE_SPEC = [
-    Field("actor", "Actor NPC", STR, "an [[npc]] name; blank = narration"),
+    Field("actors", "Cast", STRLIST, "[[npc]] names (and/or \"player\") the scene drives; blank = narration"),
     Field("once", "Play once", BOOL, "off = replays every visit", default=True),
     Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)"),
 ]

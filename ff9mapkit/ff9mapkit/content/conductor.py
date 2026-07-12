@@ -120,13 +120,20 @@ def group_parallel(steps):
     return groups
 
 
-def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, walk_calls):
+# the step kinds that run as a pre-generated TAG on the actor's own entry (RunScriptSync'd into it, so the
+# op executes in the actor's context -- base Walk/MoveInstant/TurnTowardObject act on the EXECUTING object).
+TAG_STEP_KINDS = ("walk", "path", "teleport", "face_player")
+
+
+def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls):
     """Emit ONE step run sequentially (blocking). Returns ``(bytes, new_ti)``. Vocab: ``say`` / ``turn`` /
-    ``anim`` / ``walk`` (need an ``actor = "<name>"``; ``say`` without one = a narration line) + ``wait`` /
-    ``set_flag`` (conductor-level). A ``walk`` is a ``RunScriptSync(2, uid, walk_tag)`` -- the conductor can't
-    walk an actor inline (base ``Walk`` acts on the EXECUTING object; no targeted WalkEx), so the caller
-    pre-generates a walk tag on the actor's OWN entry and passes ``walk_calls`` (``step_index -> (uid, tag)``);
-    the sync runs it in the actor's context (so it animates) and BLOCKS until it returns."""
+    ``animation`` / ``walk`` / ``path`` / ``teleport`` / ``face_player`` (need an ``actor = "<name>"``;
+    ``say`` without one = a narration line) + ``wait`` / ``set_flag`` (conductor-level). The
+    :data:`TAG_STEP_KINDS` run as a ``RunScriptSync(2, uid, tag)`` into a pre-generated tag on the actor's
+    OWN entry -- the conductor can't move an actor inline (base ``Walk``/``MoveInstantXZY``/
+    ``TurnTowardObject`` act on the EXECUTING object; there is no targeted *Ex form) -- so the caller passes
+    ``tag_calls`` (``step_index -> (uid, tag)``); the sync runs the tag in the actor's context (so it
+    animates) and BLOCKS until it returns."""
     name = s.get("actor")
     uid = _uid_for(name, uid_by_name) if name else None
     if "say" in s:
@@ -142,52 +149,54 @@ def _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, walk_calls):
         if uid is None:
             raise ValueError(f"conductor step {s!r}: turn needs actor = \"<name>\"")
         return actor_turn(uid, s["turn"]), ti
-    if "anim" in s:
+    if "animation" in s:
         if uid is None:
-            raise ValueError(f"conductor step {s!r}: anim needs actor = \"<name>\"")
-        return actor_anim(uid, s["anim"]), ti
-    if "walk" in s:
-        if i not in walk_calls:
-            raise ValueError(f"conductor step {s!r}: walk needs a pre-generated walk tag (walk_calls)")
-        w_uid, w_tag = walk_calls[i]
-        return opcodes.run_script_sync(WALK_LEVEL, w_uid, w_tag), ti   # run the actor's walk tag, block
+            raise ValueError(f"conductor step {s!r}: animation needs actor = \"<name>\"")
+        return actor_anim(uid, s["animation"]), ti
+    for kind in TAG_STEP_KINDS:
+        if kind in s:
+            if i not in tag_calls:
+                raise ValueError(f"conductor step {s!r}: {kind} needs a pre-generated actor tag (tag_calls)")
+            t_uid, t_tag = tag_calls[i]
+            return opcodes.run_script_sync(WALK_LEVEL, t_uid, t_tag), ti   # run the actor's tag, block
     raise ValueError(f"unknown conductor step: {s!r}")
 
 
-def _emit_parallel_group(group, uid_by_name, walk_calls, join_tags) -> bytes:
+def _emit_parallel_group(group, uid_by_name, tag_calls, join_tags) -> bytes:
     """Emit a PARALLEL group (2+ beats that run together). Each member is FORKED non-blocking, then the
-    conductor JOINS. Fork: a walk -> ``RunScriptAsync(2, uid, walk_tag)`` (op 0x10, no level gate -> always
-    spawns the walk in the actor's context); an anim -> ``RunAnimationEx`` (fire only, the hold is absorbed
-    into the join); an instant turn -> ``TurnInstantEx`` (no wait). Join (block until the whole group is done):
-    one ``Wait(max anim-hold)`` -- the anims play out while the walks run async alongside -- then a
+    conductor JOINS. Fork: a walk/path -> ``RunScriptAsync(2, uid, tag)`` (op 0x10, no level gate -> always
+    spawns the tag in the actor's context); an animation -> ``RunAnimationEx`` (fire only, the hold is
+    absorbed into the join); an instant turn -> ``TurnInstantEx`` (no wait). Join (block until the whole group
+    is done): one ``Wait(max anim-hold)`` -- the anims play out while the walks run async alongside -- then a
     ``RunScriptSync(2, uid, join_tag)`` per WALKING actor, which ``stay()``s on the actor's busy script level
-    until its async walk RETURNs (the engine's only async barrier). Only ``walk`` / ``turn`` / ``anim`` may be
-    parallel members (``say`` / ``wait`` / ``set_flag`` are sequential barriers -- enforced by validation)."""
+    until its async walk RETURNs (the engine's only async barrier). Only ``walk`` / ``path`` / ``turn`` /
+    ``animation`` may be parallel members (``say`` / ``wait`` / ``set_flag`` / ``teleport`` / ``face_player``
+    are sequential -- enforced by validation)."""
     fan, drains, max_hold = [], [], 0
     for i, s in group:
         name = s.get("actor")
         uid = _uid_for(name, uid_by_name) if name else None
-        if "walk" in s:
-            if i not in walk_calls:
-                raise ValueError(f"conductor parallel step {s!r}: walk needs a pre-generated walk tag")
-            w_uid, w_tag = walk_calls[i]
+        if "walk" in s or "path" in s:
+            if i not in tag_calls:
+                raise ValueError(f"conductor parallel step {s!r}: walk/path needs a pre-generated tag")
+            w_uid, w_tag = tag_calls[i]
             fan.append(opcodes.run_script_async(WALK_LEVEL, w_uid, w_tag))   # non-blocking fork (no level gate)
             jt = join_tags.get(w_uid)
             if jt is None:
-                raise ValueError(f"conductor parallel step {s!r}: walk needs a join tag (join_tags)")
+                raise ValueError(f"conductor parallel step {s!r}: walk/path needs a join tag (join_tags)")
             if w_uid not in {u for u, _ in drains}:
                 drains.append((w_uid, jt))
         elif "turn" in s:
             if uid is None:
                 raise ValueError(f"conductor parallel step {s!r}: turn needs actor = \"<name>\"")
             fan.append(actor_turn(uid, s["turn"]))                          # instant -- nothing to join
-        elif "anim" in s:
+        elif "animation" in s:
             if uid is None:
-                raise ValueError(f"conductor parallel step {s!r}: anim needs actor = \"<name>\"")
-            fan.append(opcodes.run_animation_ex(uid, int(s["anim"])))       # fire only; hold -> the join Wait
+                raise ValueError(f"conductor parallel step {s!r}: animation needs actor = \"<name>\"")
+            fan.append(opcodes.run_animation_ex(uid, int(s["animation"])))  # fire only; hold -> the join Wait
             max_hold = max(max_hold, _cutscene.ANIM_HOLD)
         else:
-            raise ValueError(f"conductor parallel step {s!r}: only walk/turn/anim may run with_prev")
+            raise ValueError(f"conductor parallel step {s!r}: only walk/path/turn/animation may run with_prev")
     out = b"".join(fan)
     if max_hold:
         out += opcodes.wait(max_hold)                  # anims play during this; walks run async alongside
@@ -197,18 +206,18 @@ def _emit_parallel_group(group, uid_by_name, walk_calls, join_tags) -> bytes:
 
 
 def compile_steps(steps, uid_by_name, txids, *, say_flags: int = 128, relock: bool = False,
-                  walk_calls=None, join_tags=None) -> bytes:
+                  tag_calls=None, join_tags=None) -> bytes:
     """Compile actor-tagged conductor steps to bytes. Beats run sequentially unless ``with_prev = true`` runs
     one IN PARALLEL with the preceding beat(s) -- see :func:`group_parallel`. A singleton group compiles via
-    :func:`_emit_sequential_step` (a walk -> blocking ``RunScriptSync``); a multi-member group via
+    :func:`_emit_sequential_step` (a tag-kind -> blocking ``RunScriptSync``); a multi-member group via
     :func:`_emit_parallel_group` (async fork + sync-drain join). ``say`` steps consume ``txids`` in order;
-    the actor name resolves to a UID via ``uid_by_name`` (or ``"player"`` -> 250). ``walk_calls``
-    (``step_index -> (uid, walk_tag)``) is required iff any step has ``walk``; ``join_tags``
-    (``uid -> join_tag``) iff any walk runs ``with_prev``.
+    the actor name resolves to a UID via ``uid_by_name`` (or ``"player"`` -> 250). ``tag_calls``
+    (``step_index -> (uid, tag)``) is required iff any step is a :data:`TAG_STEP_KINDS`; ``join_tags``
+    (``uid -> join_tag``) iff any walk/path runs ``with_prev``.
 
     ``relock`` prefixes every GROUP with ``DisableMove`` -- see :func:`build_body` for why the entry control
     grant needs the spin-lock + per-group re-lock."""
-    walk_calls = walk_calls or {}
+    tag_calls = tag_calls or {}
     join_tags = join_tags or {}
     out, ti = [], 0
     for group in group_parallel(steps):
@@ -216,10 +225,10 @@ def compile_steps(steps, uid_by_name, txids, *, say_flags: int = 128, relock: bo
             out.append(opcodes.DISABLE_MOVE)          # re-lock: undo any entry-transition control re-grant
         if len(group) == 1:
             i, s = group[0]
-            chunk, ti = _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, walk_calls)
+            chunk, ti = _emit_sequential_step(i, s, uid_by_name, txids, ti, say_flags, tag_calls)
             out.append(chunk)
         else:
-            out.append(_emit_parallel_group(group, uid_by_name, walk_calls, join_tags))
+            out.append(_emit_parallel_group(group, uid_by_name, tag_calls, join_tags))
     return b"".join(out)
 
 
@@ -238,10 +247,29 @@ def walk_tag_body(x: int, z: int, speed: int | None = None) -> bytes:
     return _cutscene.actor_walk(int(x), int(z), speed) + opcodes.RETURN
 
 
+def path_tag_body(legs, speed: int | None = None) -> bytes:
+    """The body of a per-actor PATH tag: several straight walk legs in order (each self-blocks until
+    arrival, exactly like :func:`walk_tag_body`) + a RETURN. Used for an authored ``path`` step AND for an
+    auto-routed ``walk`` (the builder's A* detour compiles to a path -- same as the single-actor lane did)."""
+    return b"".join(_cutscene.actor_walk(int(x), int(z), speed) for x, z in legs) + opcodes.RETURN
+
+
+def teleport_tag_body(x: int, z: int) -> bytes:
+    """The body of a per-actor TELEPORT tag: an instant ``MoveInstantXZY`` in the actor's own context
+    (there is no targeted *Ex form) + a RETURN. Instant -- the sync caller unblocks immediately."""
+    return _cutscene.actor_teleport(int(x), int(z)) + opcodes.RETURN
+
+
+def face_player_tag_body(speed: int = 16) -> bytes:
+    """The body of a per-actor FACE-PLAYER tag: ``TurnTowardObject(250)`` in the actor's own context (the
+    250 sentinel resolves to the control character) + a RETURN."""
+    return _cutscene.actor_face(PLAYER_UID, speed) + opcodes.RETURN
+
+
 def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_region.GLOB_BOOL,
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
-               exit_warp: int | None = None, say_flags: int = 128,
-               reorder: int = _cutscene.REORDER_WAIT, walk_calls=None, join_tags=None,
+               then_warp: int | None = None, say_flags: int = 128, ate_mode: int | None = None,
+               reorder: int = _cutscene.REORDER_WAIT, tag_calls=None, join_tags=None,
                gate: bytes = b"", end_writes: bytes = b"") -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
@@ -251,9 +279,9 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     (the lock sticks); the ``warmup`` Wait (after the lock, so the player can't wander) lets the field's entry
     fade settle AND lets the actor objects finish spawning before the conductor addresses them by uid.
 
-    ``exit_warp`` (a field id) ends the scene with a fade-to-black ``Field(exit_warp)`` instead of restoring
+    ``then_warp`` (a field id) ends the scene with a fade-to-black ``Field(then_warp)`` instead of restoring
     control (the warp sits OUTSIDE the once-gate so it always fires); the fade avoids the destination loading
-    in the clear. With ``exit_warp`` set, no ``EnableMove`` is emitted (the destination restores control).
+    in the clear. With ``then_warp`` set, no ``EnableMove`` is emitted (the destination restores control).
 
     Control lock (the load-bearing part -- two in-game iterations to get right, 2026-06-28): a fixed warmup
     can't beat the field's entry control-grant, which re-enables control as the fade + scrolling-camera settle
@@ -268,9 +296,13 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         inner += wait_for_control_then_lock()         # ... spin to that grant, then re-lock (the lock that holds)
     elif warmup > 0:
         inner += opcodes.wait(int(warmup))            # no lock: still settle so the actors exist before the beats
+    if ate_mode is not None:
+        inner += opcodes.ate(int(ate_mode))           # compulsory-ATE HUD bracket (parity with narration)
     inner += compile_steps(steps, uid_by_name, txids, say_flags=say_flags, relock=owns_control,
-                           walk_calls=walk_calls, join_tags=join_tags)
-    if owns_control and exit_warp is None:
+                           tag_calls=tag_calls, join_tags=join_tags)
+    if ate_mode is not None:
+        inner += opcodes.ate(0)                       # disarm before control returns (close the bracket)
+    if owns_control and then_warp is None:
         inner += opcodes.ENABLE_MOVE
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
     # set) -- the story advances exactly once, only when the scene actually played. Empty -> byte-identical.
@@ -280,8 +312,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
         body = _region.if_block(_region.cond_not(flag_class, once_flag), inner)
     else:
         body = inner
-    if exit_warp is not None:
-        body += _event.warp(int(exit_warp), fade=True)
+    if then_warp is not None:
+        body += _event.warp(int(then_warp), fade=True)
     # the DIRECTOR gate (#13): a story-gate prologue (cutscene.early_return_unless, stacked for AND) FIRST --
     # outside its beat the scene (once-flag, warp and all) simply doesn't run. Empty -> byte-identical.
     return gate + body + opcodes.RETURN
@@ -289,21 +321,24 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
 
 def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None = None,
                      flag_class=_region.GLOB_BOOL, warmup: int = _cutscene.DEFAULT_WARMUP,
-                     owns_control: bool = True, exit_warp: int | None = None, say_flags: int = 128,
-                     walk_calls=None, join_tags=None, reserve_party_band: bool = False,
+                     owns_control: bool = True, then_warp: int | None = None, say_flags: int = 128,
+                     ate_mode: int | None = None,
+                     tag_calls=None, join_tags=None, reserve_party_band: bool = False,
                      spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                      gate: bytes = b"", end_writes: bytes = b"") -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init (over a
-    Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``walk_calls`` (a dict
-    ``step_index -> (uid, tag)``) maps each ``walk`` step to its pre-generated per-actor walk tag;
-    ``join_tags`` (``uid -> join_tag``) maps each PARALLEL-walking actor to its bare-RETURN join tag.
+    Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``tag_calls`` (a dict
+    ``step_index -> (uid, tag)``) maps each tag-kind step (walk/path/teleport/face_player) to its
+    pre-generated per-actor tag; ``join_tags`` (``uid -> join_tag``) maps each PARALLEL-walking actor to its
+    bare-RETURN join tag. ``then_warp`` ends the scene with a fade + ``Field()`` (parity with narration).
 
     ``reserve_party_band``: on a VERBATIM fork the donor's last 9 slots are the playable characters, so the
     conductor INSERTS just below them (``object.seat_entry``) -- keeping the band as the top slots and not
     perturbing the actors it addresses (which seat below the band before it, so their uids stay valid)."""
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
-                      owns_control=owns_control, exit_warp=exit_warp, say_flags=say_flags,
-                      walk_calls=walk_calls, join_tags=join_tags, gate=gate, end_writes=end_writes)
+                      owns_control=owns_control, then_warp=then_warp, say_flags=say_flags,
+                      ate_mode=ate_mode,
+                      tag_calls=tag_calls, join_tags=join_tags, gate=gate, end_writes=end_writes)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,

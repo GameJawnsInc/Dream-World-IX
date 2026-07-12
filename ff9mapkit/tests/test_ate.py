@@ -226,8 +226,11 @@ def test_then_warp_validation(tmp_path):
 
     assert any("must be a field id" in m
                for m in problems(_CUTSCENE_ATE_TOML.replace("ate = true", "ate = true\nthen_warp = 0")))
-    assert any("only supported on a narration cutscene" in m for m in
-               problems(_CUTSCENE_ATE_TOML.replace("ate = true", 'ate = true\nactor = "X"\nthen_warp = 30011')))
+    # #13 v3: then_warp is now supported on a CAST scene too (the conductor ends with the fade + Field);
+    # the old "narration only" restriction is gone -- no then_warp complaint on a cast scene.
+    assert not any("then_warp" in m for m in
+                   problems(_CUTSCENE_ATE_TOML.replace("ate = true",
+                                                       'ate = true\nactors = ["X"]\nthen_warp = 30011')))
 
 
 def test_cutscene_without_ate_has_no_bracket_or_caption(tmp_path):
@@ -238,14 +241,15 @@ def test_cutscene_without_ate_has_no_bracket_or_caption(tmp_path):
     assert says and all(i.imm(1) == 128 for i in says)           # plain caption, not winATE
 
 
-def test_compulsory_ate_actor_path_brackets_and_captions():
-    """The ACTOR cutscene path (choreography spliced into an NPC's loop) brackets + captions the same way
-    -- asserted at the bytes level (no NPC-model build needed)."""
-    styled = _cs.build_choreography([{"say": 0}], [77], 8100, ate_mode=1,
-                                    say_flags=_cs.ATE_CAPTION_FLAG)
+def test_compulsory_ate_cast_path_brackets_and_captions():
+    """The CAST cutscene path (the conductor, #13 v3) brackets + captions the same way -- asserted at the
+    bytes level (no NPC-model build needed)."""
+    from ff9mapkit.content import conductor as _cond
+    styled = _cond.build_body([{"say": 0}], {}, [77], once_flag=8100, ate_mode=1,
+                              say_flags=_cs.ATE_CAPTION_FLAG)
     assert opcodes.ate(1) in styled and opcodes.ate(0) in styled
     assert _cs.say(77, flags=_cs.ATE_CAPTION_FLAG) in styled      # winATE-captioned window
-    plain = _cs.build_choreography([{"say": 0}], [77], 8100)
+    plain = _cond.build_body([{"say": 0}], {}, [77], once_flag=8100)
     assert opcodes.ate(1) not in plain and opcodes.ate(0) not in plain
     assert _cs.say(77, flags=128) in plain                        # ordinary window
 

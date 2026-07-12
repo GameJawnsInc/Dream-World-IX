@@ -70,7 +70,7 @@ def test_walk_to_object_stops_short(tmp_path):
     from ff9mapkit.scene import cam
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-520]\n'
                  '[[npc]]\nname="V"\npreset="vivi"\npos=[800,-520]\n'
-                 '[cutscene]\nactor="V"\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { walk = "@player" } ]\n', tmp_path)
     out = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, proj.raw["npc"][0])
     tx, tz = out[0]["walk"]
     assert 0 < tx < 800                                          # stopped between the actor and the player
@@ -78,7 +78,7 @@ def test_walk_to_object_stops_short(tmp_path):
     assert abs(d - (2 * cam.OBJECT_COLLISION_W + build._APPROACH_MARGIN)) < 2   # just outside the box
     # a plain marker (not an object) is NOT offset -- it's an exact point the author chose
     proj2 = _load('[field]\nid=4003\nname="X"\narea=11\n[[npc]]\nname="V"\npos=[800,-520]\n'
-                  '[[marker]]\nname="x"\npos=[0,-520]\n[cutscene]\nactor="V"\nsteps=[ { walk = "x" } ]\n', tmp_path)
+                  '[[marker]]\nname="x"\npos=[0,-520]\n[cutscene]\nactors=["V"]\nsteps=[ { walk = "x" } ]\n', tmp_path)
     out2 = build._resolve_move_steps(proj2.raw["cutscene"]["steps"], proj2, proj2.raw["npc"][0])
     assert out2[0]["walk"] == [0, -520]
 
@@ -87,11 +87,11 @@ def test_validate_warns_walk_into_object_box(tmp_path):
     wm = _quad_wmesh()
     body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n'
             '[[npc]]\nname="V"\npreset="vivi"\npos=[0,-700]\n[[marker]]\nname="onplayer"\npos=[0,-300]\n')
-    bad = _load(body + '[cutscene]\nactor="V"\nsteps=[ { walk = "onplayer" } ]\n', tmp_path)
+    bad = _load(body + '[cutscene]\nactors=["V"]\nsteps=[ { walk = "onplayer" } ]\n', tmp_path)
     w = []
     build._validate_cutscene_movement(bad, wm, w)
     assert any("collision box" in m for m in w)
-    good = _load(body + '[cutscene]\nactor="V"\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+    good = _load(body + '[cutscene]\nactors=["V"]\nsteps=[ { walk = "@player" } ]\n', tmp_path)
     w2 = []
     build._validate_cutscene_movement(good, wm, w2)
     assert not any("collision box" in m for m in w2)            # @player auto-approaches -> no stall
@@ -103,7 +103,7 @@ def test_walk_blocked_by_character_is_autorouted(tmp_path):
     wm = _quad_wmesh()
     body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-150]\n'
             '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n[[marker]]\nname="far"\npos=[400,0]\n'
-            '[cutscene]\nactor="V"\nsteps=[ { walk = "far" } ]\n')
+            '[cutscene]\nactors=["V"]\nsteps=[ { walk = "far" } ]\n')
     proj = _load(body, tmp_path)
     w = []
     build._validate_cutscene_movement(proj, wm, w)
@@ -116,7 +116,7 @@ def test_validate_warns_when_no_route(tmp_path):
     wm = bgi.BgiWalkmesh.from_bytes(bgi.build(c, [(0, 1, 2), (0, 2, 3)]).to_bytes())
     body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,0]\n'
             '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n[[marker]]\nname="far"\npos=[400,0]\n'
-            '[cutscene]\nactor="V"\nsteps=[ { walk = "far" } ]\n')
+            '[cutscene]\nactors=["V"]\nsteps=[ { walk = "far" } ]\n')
     proj = _load(body, tmp_path)
     w = []
     build._validate_cutscene_movement(proj, wm, w)
@@ -128,7 +128,7 @@ def test_walk_up_to_object_does_not_falseflag_its_own_approach(tmp_path):
     wm = _quad_wmesh()
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
                  '[[npc]]\nname="V"\npreset="vivi"\npos=[0,0]\n'
-                 '[cutscene]\nactor="V"\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { walk = "@player" } ]\n', tmp_path)
     w = []
     build._validate_cutscene_movement(proj, wm, w)
     assert not any("collision box" in m or "passes through" in m for m in w)
@@ -140,7 +140,7 @@ def test_resolve_path_resolves_each_waypoint(tmp_path):
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
                  '[[npc]]\nname="V"\npos=[-900,-700]\n'
                  '[[marker]]\nname="a"\npos=[-400,-200]\n[[marker]]\nname="b"\npos=[400,-200]\n'
-                 '[cutscene]\nactor="V"\nsteps=[ { path = ["a", "b", "@player"] } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { path = ["a", "b", "@player"] } ]\n', tmp_path)
     out = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, proj.raw["npc"][0])
     p = out[0]["path"]
     assert p[0] == [-400, -200] and p[1] == [400, -200]        # markers are exact
@@ -158,7 +158,7 @@ def test_validate_flags_unknown_path_waypoint(tmp_path):
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n[camera]\nborrow="c.bgx"\n'
                  '[walkmesh]\nquad=[[0,0],[10,0],[10,10],[0,10]]\n'
                  '[[npc]]\nname="V"\npreset="vivi"\npos=[0,0]\n'
-                 '[cutscene]\nactor="V"\nsteps=[ { path = ["ghost"] } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { path = ["ghost"] } ]\n', tmp_path)
     assert any("ghost" in m for m in build.validate(proj))
 
 
@@ -167,7 +167,7 @@ def test_validate_path_legs_checked_for_stall(tmp_path):
     body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-150]\n'
             '[[npc]]\nname="V"\npreset="vivi"\npos=[-400,0]\n'
             '[[marker]]\nname="mid"\npos=[-400,-300]\n[[marker]]\nname="far"\npos=[400,0]\n'
-            '[cutscene]\nactor="V"\nsteps=[ { path = ["mid","far"] } ]\n')   # 2nd leg grazes the player
+            '[cutscene]\nactors=["V"]\nsteps=[ { path = ["mid","far"] } ]\n')   # 2nd leg grazes the player
     proj = _load(body, tmp_path)
     w = []
     build._validate_cutscene_movement(proj, wm, w)
@@ -191,7 +191,7 @@ def test_autoroute_converts_blocked_walk_to_path(tmp_path):
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
                  '[[npc]]\nname="V"\npreset="vivi"\npos=[-900,-700]\n'
                  '[[marker]]\nname="goal"\npos=[900,-700]\n'
-                 '[cutscene]\nactor="V"\nsteps=[ { walk = "goal" } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { walk = "goal" } ]\n', tmp_path)
     actor = proj.raw["npc"][0]
     steps = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, actor)
     routed = build._autoroute_steps(steps, proj, wm, actor)
@@ -207,7 +207,7 @@ def test_autoroute_leaves_clear_walk_untouched(tmp_path):
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n'
                  '[[npc]]\nname="V"\npreset="vivi"\npos=[-900,-700]\n'
                  '[[marker]]\nname="g"\npos=[-900,-200]\n'      # a clear straight line, no obstacles
-                 '[cutscene]\nactor="V"\nsteps=[ { walk = "g" } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { walk = "g" } ]\n', tmp_path)
     actor = proj.raw["npc"][0]
     steps = build._resolve_move_steps(proj.raw["cutscene"]["steps"], proj, actor)
     assert build._autoroute_steps(steps, proj, wm, actor) == [{"walk": [-900, -200]}]   # unchanged
@@ -218,11 +218,11 @@ def test_validate_cutscene_movement_warns_offmesh_and_clean(tmp_path):
     base = ('[field]\nid=4003\nname="X"\narea=11\n'
             '[[npc]]\nname="V"\npreset="vivi"\npos=[0,-300]\n'
             '[[marker]]\nname="far"\npos=[0,5000]\n[[marker]]\nname="near"\npos=[0,0]\n')
-    bad = _load(base + '[cutscene]\nactor="V"\nsteps=[ { walk = "far" } ]\n', tmp_path)
+    bad = _load(base + '[cutscene]\nactors=["V"]\nsteps=[ { walk = "far" } ]\n', tmp_path)
     w = []
     build._validate_cutscene_movement(bad, wm, w)
     assert any("off the walkmesh" in m for m in w)
-    good = _load(base + '[cutscene]\nactor="V"\nsteps=[ { walk = "near" } ]\n', tmp_path)
+    good = _load(base + '[cutscene]\nactors=["V"]\nsteps=[ { walk = "near" } ]\n', tmp_path)
     w2 = []
     build._validate_cutscene_movement(good, wm, w2)
     assert w2 == []
@@ -233,7 +233,7 @@ def test_validate_flags_unknown_move_target(tmp_path):
     proj = _load('[field]\nid=4003\nname="X"\narea=11\n[camera]\nborrow="c.bgx"\n'
                  '[walkmesh]\nquad=[[0,0],[10,0],[10,10],[0,10]]\n'
                  '[[npc]]\nname="V"\npreset="vivi"\npos=[0,0]\n'
-                 '[cutscene]\nactor="V"\nsteps=[ { walk = "ghost" } ]\n', tmp_path)
+                 '[cutscene]\nactors=["V"]\nsteps=[ { walk = "ghost" } ]\n', tmp_path)
     assert any("ghost" in m for m in build.validate(proj))
 
 
@@ -241,7 +241,7 @@ def test_validate_accepts_marker_target_and_flags_bad_marker(tmp_path):
     ok = _load('[field]\nid=4003\nname="X"\narea=11\n[camera]\nborrow="c.bgx"\n'
                '[walkmesh]\nquad=[[0,0],[10,0],[10,10],[0,10]]\n'
                '[[npc]]\nname="V"\npreset="vivi"\npos=[0,0]\n[[marker]]\nname="spot"\npos=[5,5]\n'
-               '[cutscene]\nactor="V"\nsteps=[ { walk = "spot" } ]\n', tmp_path)
+               '[cutscene]\nactors=["V"]\nsteps=[ { walk = "spot" } ]\n', tmp_path)
     assert not any("spot" in m and "isn't" in m for m in build.validate(ok))
     bad = _load('[field]\nid=4003\nname="X"\narea=11\n[[marker]]\npos=[1,2]\n', tmp_path)
     assert any("[[marker]]" in m for m in build.validate(bad))

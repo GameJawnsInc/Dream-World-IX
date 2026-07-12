@@ -4,20 +4,20 @@ This is the one thing the declarative content (NPCs / events / flags) can't expr
 runs in order. A cutscene runs its actions in order with the player's control disabled for the
 duration, optionally once (flag-gated), triggered on field entry.
 
-There are two flavours, by whether the cutscene names an ``actor``:
+There are two flavours, by whether the cutscene declares a cast (``actors = [...]``):
 
-* **Narration (v1, no actor)** -- a standalone code entry whose function steps through *controller-
+* **Narration (no cast)** -- a standalone code entry whose function steps through *controller-
   level* actions that need no per-actor targeting: ``say`` (a dialogue/narration window),
   ``wait`` (pause N frames), ``set_flag`` (set a story flag). Triggered on load via ``InitCode``.
+  This module builds it (:func:`build_body` / :func:`inject_cutscene`).
 
-* **Actor cutscene (v2, ``actor = "<npc>"``)** -- the sequence is spliced into THAT NPC's Init (see
-  :func:`build_choreography`, used by :func:`ff9mapkit.content.npc.inject_npc` via its ``intro=``),
-  so it runs in the NPC's own object context (``gExec`` == the NPC). That lets the *actor* steps work
-  with plain base opcodes that act on the executing object: ``walk`` / ``teleport`` (MoveInstantXZY)
-  / ``animation`` (RunAnimation+WaitAnimation) / ``turn`` (TimedTurn+WaitTurn) / ``face_player``
-  (TurnTowardObject 250). ``say`` / ``wait`` / ``set_flag`` work there too (they're global). No
-  cross-entry RunScript or UID targeting is needed -- and ``Walk`` self-blocks until arrival, so the
-  steps stay ordered. The block is ``if (!once) { DisableMove; <steps>; EnableMove; once=1 }``.
+* **Cast scene (``actors = ["name", ...]``)** -- the CONDUCTOR (:mod:`ff9mapkit.content.conductor`):
+  one central director code entry drives every cast member by uid via the ``*Ex`` opcode family;
+  walk / path / teleport / face_player run as per-actor tags executed in the actor's own context.
+  (The old single-actor loop-splice flavor -- ``actor = "<name>"`` -- was REMOVED in the #13 v3
+  redesign: a one-name cast expresses it through the conductor, which is strictly more capable.)
+  This module still supplies the shared actor-op primitives (:func:`actor_walk` / :func:`actor_teleport`
+  / :func:`actor_animation` / :func:`actor_turn` / :func:`actor_face`) its tag bodies are built from.
 
 Both grounded in the standard FF9 pattern -- ``DisableMove`` (0x2D) ... actions ... ``EnableMove``
 (0x2E), flag-gated so a one-time scene doesn't replay -- and in real walk cutscenes (e.g. Gargan
@@ -291,50 +291,13 @@ def early_return_unless(cond: bytes) -> bytes:
     return cond + bytes([_region.JMP_TRUE]) + struct.pack("<h", 1) + opcodes.RETURN
 
 
-def build_choreography(steps, txids, flag_idx: int, *, flag_class=CUTSCENE_FLAG_CLASS,
-                       warmup: int = DEFAULT_WARMUP, ate_mode: int | None = None,
-                       say_flags: int = 128, story_conds=(), end_writes: bytes = b"") -> bytes:
-    """The gated choreography block, PREPENDED to the actor NPC's LOOP (tag 1) -- NOT its Init -- by
-    :func:`ff9mapkit.content.npc.inject_npc`. Runs in the NPC's own context (so the actor steps target
-    it) AND while the object is 'running' (engine state 1), where the engine ADVANCES animation frames.
-    (An Init runs at state 2, where ProcessAnime is skipped -> the model glides frozen; confirmed by an
-    in-engine probe -- so the choreography must live in the loop, like real FF9 cutscenes.)
-
-    Shape: ``if (!flag) { DisableMove; Wait(warmup); <steps>; EnableMove; flag=1 }`` (no trailing RETURN
-    -- the loop body + its RETURN follow). ALWAYS gated -- the loop runs every frame, so an ungated
-    block would re-fire endlessly; the flag makes it run once per visit. The ``warmup`` Wait (after the
-    lock, so the player can't wander) lets the field's entry fade settle before the actor moves.
-
-    ``ate_mode`` (not None) styles it as a compulsory ATE: brackets the steps ``ATE(mode) ... ATE(0)``
-    and (with ``say_flags=ATE_CAPTION_FLAG``) gives its windows the ATE caption -- mirrors the real grey
-    mode-6 fields (e.g. 956 Gargant), NOT field 1901 (which is the optional Blue mode-1 menu hub)."""
-    inner = opcodes.DISABLE_MOVE
-    if warmup > 0:
-        inner += opcodes.wait(int(warmup))
-    if ate_mode is not None:
-        inner += opcodes.ate(int(ate_mode))                  # arm the blinking "Active Time Event" prompt
-    inner += compile_steps(steps, txids, say_flags=say_flags)
-    if ate_mode is not None:
-        inner += opcodes.ate(0)                              # disarm before control returns (close the bracket)
-    inner += opcodes.ENABLE_MOVE + end_writes + _region.set_var(flag_class, flag_idx, 1)
-    block = _region.if_block(_region.cond_not(flag_class, flag_idx), inner)
-    # the DIRECTOR gate (#13): each story cond wraps the once-block in a further `if` (nested, NOT an
-    # early-return -- a LOOP prepend must never RETURN or it kills the host NPC's loop). Outside the beat
-    # the scene doesn't exist AND its once-flag isn't burned. `end_writes` (set_scenario/set_flags, built
-    # by the caller) run at scene end inside the once-gate: the story advances exactly once, only when the
-    # scene actually played. Both default empty -> byte-identical.
-    for cond in reversed(tuple(story_conds)):                # outermost gate = the first cond
-        block = _region.if_block(cond, block)
-    return block
-
-
 # A narration cutscene runs in a SEPARATE code entry armed by `InitCode` in Main_Init -- but Main_Init
 # itself calls `EnableMove` (and a fade) AFTER that InitCode. If the director's `DisableMove` ran first
 # it would be immediately overridden by Main_Init's `EnableMove`, so the player keeps control during the
 # text. Yielding a couple of frames first lets Main_Init reach its `EnableMove` (it does so in the first
-# frame), so the director's `DisableMove` is the LAST control-setter and the lock sticks. (An ACTOR
-# cutscene avoids this by living in the NPC's LOOP, which only runs after Init completes.) ~2 frames is
-# imperceptible (<100ms) and the window only shows during the entry fade.
+# frame), so the director's `DisableMove` is the LAST control-setter and the lock sticks. (A CAST scene
+# avoids this with the conductor's control-grant spin.) ~2 frames is imperceptible (<100ms) and the
+# window only shows during the entry fade.
 REORDER_WAIT = 2
 
 

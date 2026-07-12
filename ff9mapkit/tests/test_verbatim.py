@@ -312,11 +312,11 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
     project = build.FieldProject.load(toml)
     project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."},
                           {"name": "righty", "preset": "vivi", "pos": [300, 200], "dialogue": "."}]
-    project.raw["cutscene"] = {"once": True, "actor": ["lefty", "righty", "player"], "steps": [
+    project.raw["cutscene"] = {"once": True, "actors": ["lefty", "righty", "player"], "steps": [
         {"actor": "lefty", "walk": [800, 200]},                  # walk on a verbatim fork (a tag on lefty's below-band entry)
         {"actor": "lefty", "turn": 128},
         {"actor": "lefty", "say": "We exist on a verbatim fork."},
-        {"actor": "righty", "anim": "glad"},
+        {"actor": "righty", "animation": "glad"},
         {"actor": "righty", "say": "Driven by one below-band conductor."},
         {"actor": "player", "say": "Neat."}]}
     assert build.validate(project) == []                         # Check agrees offline
@@ -356,7 +356,7 @@ def test_build_field_verbatim_parallel_walk_end_to_end(tmp_path):
     project = build.FieldProject.load(toml)
     project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."},
                           {"name": "righty", "preset": "vivi", "pos": [300, 200], "dialogue": "."}]
-    project.raw["cutscene"] = {"once": True, "actor": ["lefty", "righty"], "steps": [
+    project.raw["cutscene"] = {"once": True, "actors": ["lefty", "righty"], "steps": [
         {"actor": "lefty", "walk": [800, 200]},
         {"actor": "righty", "walk": [600, 400], "with_prev": True}]}   # righty walks together with lefty
     assert build.validate(project) == []
@@ -389,7 +389,7 @@ def test_build_field_verbatim_player_walk_end_to_end(tmp_path):
     pe = _player.find_player_entry(donor)
     project = build.FieldProject.load(toml)
     project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."}]
-    project.raw["cutscene"] = {"once": True, "actor": ["lefty", "player"], "steps": [
+    project.raw["cutscene"] = {"once": True, "actors": ["lefty", "player"], "steps": [
         {"actor": "lefty", "say": "Come here."},
         {"actor": "player", "walk": [400, 300]}]}                    # the player walks (a tag on the donor's player entry)
     assert build.validate(project) == []
@@ -418,7 +418,7 @@ def test_build_field_verbatim_conductor_exit_warp_end_to_end(tmp_path):
     donor = EbScript.from_bytes(extract.extract_event_script("fbg_n06_vgdl_map101_dl_inn_0"))
     project = build.FieldProject.load(toml)
     project.raw["npc"] = [{"name": "lefty", "preset": "vivi", "pos": [100, 200], "dialogue": "."}]
-    project.raw["cutscene"] = {"once": True, "actor": ["lefty"], "exit_warp": 1153,
+    project.raw["cutscene"] = {"once": True, "actors": ["lefty"], "then_warp": 1153,
                                "steps": [{"actor": "lefty", "say": "The scene ends -- and out you go."}]}
     assert build.validate(project) == []
     out = tmp_path / "mod"
