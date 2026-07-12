@@ -17,7 +17,7 @@ Format: 44B header + 84B PSX name → entry table at offset **128** (10 slots ×
 
 ## Opcode traps (the crash list)
 
-Opcode traps worth memorizing: **`Battle = 0x2A`** (NOT PreloadField — encoding a warp as 0x2A starts a battle on a bad scene id → crash/black); real `PreloadField = 0xFD` is a no-op HINT on Steam; `Field = 0x2B` is the real warp; **`0x01` is an undocumented unconditional JMP** (don't overwrite a Wait that sits right after it — the activation is skipped). Camera/scroll mechanics: **`SETCAM = 0x7E`** (switch active camera), **`BGCACTIVE = 0x71`** (enable scroll / camera-services).
+Opcode traps worth memorizing: **`Battle = 0x2A`** (NOT PreloadField — encoding a warp as 0x2A starts a battle on a bad scene id → crash/black); real `PreloadField = 0xFD` is a no-op HINT on Steam; `Field = 0x2B` is the real warp; **`0x01` is an undocumented unconditional JMP** (don't overwrite a Wait that sits right after it — the activation is skipped). Camera/scroll mechanics: **`SETCAM = 0x7E`** (switch active camera), **`BGCACTIVE = 0x71`** (enable scroll / camera-services). **THE OBJECT-INIT GATE LAW:** an object's Init must NEVER return before `SetModel` -- a passing gate loads the object permanently HIDDEN (interactable, unrendered; 18688 stock inits, zero early returns). Story-gate the `InitObject` CALL SITE in Main_Init instead (`region.guarded_call`; the invisible-innkeeper bisect -> the stolen-ember memory).
 
 ## Expression sub-language
 

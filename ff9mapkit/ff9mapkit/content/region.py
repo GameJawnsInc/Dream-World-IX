@@ -284,12 +284,32 @@ def if_not_block(cond: bytes, body: bytes) -> bytes:
     return cond + bytes([JMP_TRUE]) + _i16(len(body)) + body
 
 
+def guarded_call(guards, body: bytes) -> bytes:
+    """Wrap ``body`` (typically a 3-byte ``InitObject``) in CALL-SITE guards -- the stock story-gating
+    idiom. ``guards`` = iterable of ``(cond_bytes, proceed_when_true)``; the body runs only while every
+    guard holds (guards compose as nested if-blocks, evaluated in order).
+
+    ⚠ THE OBJECT-INIT GATE LAW (in-game proven 2026-07-12, the invisible-innkeeper bisect): an object
+    whose Init RETURNS BEFORE ``SetModel``/``CreateObject`` loads PERMANENTLY HIDDEN when the gate
+    passes -- instantiated, positioned, interactable (talk/walk fine), but its mesh never renders.
+    Stock FF9 never executes that path (18688 real Init funcs, ZERO early-return-before-SetModel);
+    real fields gate story-dependent objects at the CALL SITE (``if (SC...) { InitObject(slot) }`` in
+    Main_Init -- exactly what ``forkreport.roster_by_beat`` symbolically evaluates) or spawn-then-move
+    -away. So: gate the ACTIVATION with this helper, never the object's own Init."""
+    out = bytes(body)
+    for cond, when_true in reversed(list(guards)):
+        out = (if_block if when_true else if_not_block)(bytes(cond), out)
+    return out
+
+
 def flag_gate(var_class, idx: int, *, require_set: bool = True) -> bytes:
-    """A story-flag PROLOGUE: ``ifnot (flag matches) { return }``. Prepend it to a function so the
-    function only proceeds when the flag is in the required state (the way real FF9 gates NPCs /
-    triggers by scenario). ``require_set`` True -> proceed only when the flag is SET; False -> only
-    when CLEAR. Same shape as :data:`MOVEMENT_GATE` (push flag, conditional jump over an early
-    ``return``)."""
+    """A story-flag PROLOGUE: ``ifnot (flag matches) { return }``. Prepend it to a CODE/REGION/TALK
+    function so it only proceeds when the flag is in the required state. ``require_set`` True ->
+    proceed only when the flag is SET; False -> only when CLEAR. Same shape as :data:`MOVEMENT_GATE`
+    (push flag, conditional jump over an early ``return``).
+
+    ⚠ NEVER prepend this to an OBJECT's Init (tag 0): see the OBJECT-INIT GATE LAW on
+    :func:`guarded_call` -- gate the ``InitObject`` call site instead."""
     cond = cond_truthy(var_class, idx)               # pushes the flag's truth
     jmp = JMP_TRUE if require_set else JMP_FALSE      # skip the 'return' when the flag is in-state
     return cond + bytes([jmp]) + _i16(1) + opcodes.RETURN

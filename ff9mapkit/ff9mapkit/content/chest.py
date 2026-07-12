@@ -105,19 +105,15 @@ def chest_lid_sfx() -> bytes:
 
 def build_chest_init(*, x: int, z: int, flag_idx: int, model: int = CHEST_MODEL, animset: int | None = None,
                      face: int = 0, neutral_pose: int = NEUTRAL_POSE, open_pose: int = OPEN_POSE,
-                     closed_pose: int = CLOSED_POSE, gate=None) -> bytes:
+                     closed_pose: int = CLOSED_POSE) -> bytes:
     """The chest Init (tag 0), opcode-faithful to the real chest, with the SAVABLE open-state: a two-arm
     pose+flags branch on the opened flag -- the OPEN pose + the inert(disable-talk) flags when SET, the
-    CLOSED pose + the talkable flags when CLEAR. The collision (size + flags) is unconditional. ``gate`` =
-    ``(flag_index, require_set)`` prepends a story-flag gate (same as an NPC's): the chest is ABSENT unless
-    that APPEARANCE flag is in state -- a quest-reward chest that only materializes after a beat (distinct
-    from ``flag_idx``, the OPENED bit)."""
+    CLOSED pose + the talkable flags when CLEAR. The collision (size + flags) is unconditional -- and so is
+    the Init itself: a story-gated (appearance-flag) chest guards its ``InitObject`` CALL SITE instead
+    (``inject_chest``), per the OBJECT-INIT GATE LAW on :func:`ff9mapkit.content.region.guarded_call` (an
+    Init returning before ``SetModel`` loads the object permanently HIDDEN)."""
     animset_v, _hf, _ls = _npc._npc_object_params(model, animset)
-    parts = []
-    if gate is not None:
-        gf, gset = gate
-        parts.append(_region.flag_gate(_region.GLOB_BOOL, gf, require_set=gset))
-    parts += [
+    parts = [
         _npc._d9_const(0, x), _npc._d9_const(4, z), _npc._d9_const(6, face), _npc._d9_const(2, 0),
         bytes([SET_MODEL, 0x00]) + struct.pack("<H", int(model) & 0xFFFF) + bytes([animset_v & 0xFF]),
         _npc._CREATE_OBJECT, _npc._TURN_INSTANT,
@@ -171,7 +167,7 @@ def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int =
         give, payload = _event.give_item(item_id, count), item_id
     else:
         give, payload = _event.give_gil(int(gil)), int(gil)
-    init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model_id, face=int(face), gate=gate,
+    init = build_chest_init(x=int(x), z=int(z), flag_idx=flag_idx, model=model_id, face=int(face),
                             neutral_pose=neutral_pose, open_pose=open_pose, closed_pose=closed_pose)
     openb = build_chest_open(flag_idx, give=give, received_text_id=received_text_id, payload_value=payload,
                              open_anim=lid_anim, open_pose=open_pose)
@@ -182,5 +178,10 @@ def inject_chest(data, x, z, *, flag_idx: int, item=None, gil=None, count: int =
     entry = bytes([_npc.NPC_ENTRY_TYPE, 2]) + table + init + openb     # type-2 object: tag 0 + tag 3
     from . import object as _object
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
+    if gate is not None:                            # appearance gate -> the call-site guard (the stock idiom)
+        gf, gset = gate
+        block = _region.guarded_call([(_region.cond_truthy(_region.GLOB_BOOL, int(gf)), bool(gset))],
+                                     opcodes.init_object(slot, 0))
+        return edit.activate_block(out, block)
     return edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
                          spawn_wait_occurrence=spawn_wait_occurrence)

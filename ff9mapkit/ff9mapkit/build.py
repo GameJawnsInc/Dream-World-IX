@@ -2310,6 +2310,27 @@ def resolve_npc_model(value):
     return _catalog.resolve_model(value)
 
 
+def _npc_model_kwargs(n) -> dict:
+    """``{model, animset, anims}`` for one ``[[npc]]`` block -- the ONE place the archetype/override
+    precedence lives (both the synthesized-field and verbatim-fork injectors use it).
+
+    A named ``archetype``/``preset`` resolves the MODEL, but an explicit ``anims=``/``animset=`` on the
+    block keeps the last word on clips -- silently dropping the override shipped an untested clip set on
+    the stolen-ember innkeeper (the A/B the user thought they ran never reached the game). A bare
+    ``model=`` resolves missing anims from the Info Hub join (:func:`ff9mapkit.catalog.npc_anims`)."""
+    arch = n.get("archetype") or n.get("preset")           # a named archetype (playable cast or NPC type)
+    if arch is not None:
+        model, animset, anims, _dlg = _archetypes.resolve(arch)
+        return {"model": model,
+                "animset": n.get("animset") if n.get("animset") is not None else animset,
+                "anims": n.get("anims") or anims}
+    mid = resolve_npc_model(n.get("model"))
+    anims = n.get("anims")
+    if mid is not None and not anims:
+        anims = _catalog.npc_anims(mid) or None            # any model by name -> its own gestures (Info Hub)
+    return {"model": mid, "animset": n.get("animset"), "anims": anims}
+
+
 def _resolve_prop_pose(mid, pose):
     """A ``[[prop]] pose`` -> the animation id the prop is held at. ``pose`` may be an action NAME
     ('close', 'save_open' -- resolved via the model->anim catalog), a raw id, or None. When omitted we
@@ -3778,17 +3799,7 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             warnings.append(f"[[npc]] '{name}' holds= (a held prop on the NPC's bone) is NOT wired on a "
                             "verbatim fork (the held item's uid is its slot, fixed before the band insert) "
                             "-- skipped.")
-        kwargs: dict = {}
-        arch = n.get("archetype") or n.get("preset")
-        if arch is not None:
-            model, animset, anims, _dlg = _archetypes.resolve(arch)
-            kwargs.update(model=model, animset=animset, anims=anims)
-        else:
-            mid = resolve_npc_model(n.get("model"))
-            anims = n.get("anims")
-            if mid is not None and not anims:
-                anims = _catalog.npc_anims(mid) or None
-            kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
+        kwargs: dict = _npc_model_kwargs(n)               # archetype/model + the anims= override precedence
         gf, gs = _gate_of(n)
         smin, smax = _scenario_window_of(n)
         txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -4113,17 +4124,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
-        kwargs = {}
-        arch = n.get("archetype") or n.get("preset")      # a named archetype (playable cast or NPC type)
-        if arch is not None:
-            model, animset, anims, _dlg = _archetypes.resolve(arch)
-            kwargs.update(model=model, animset=animset, anims=anims)
-        else:
-            mid = resolve_npc_model(n.get("model"))
-            anims = n.get("anims")
-            if mid is not None and not anims:
-                anims = _catalog.npc_anims(mid) or None    # any model by name -> its own gestures (Info Hub)
-            kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
+        kwargs = _npc_model_kwargs(n)                     # archetype/model + the anims= override precedence
         # held items resolved EARLY (before injecting the NPC): each held prop's (model, bone, held pose)
         # AND the HOLDER's own holding pose, from HELD_POSES per (this holder's model, prop). We re-pose
         # the holder to hold -- else it idles and the prop looks wrong (a sword held backwards). A pairing
