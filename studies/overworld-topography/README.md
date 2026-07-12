@@ -98,5 +98,18 @@ after the fix: 2.05 (was effectively 2.42+). ★ Round-3 playtest proved the who
 block-free. The (3,14) bench override is RETIRED (deleted; backup in `backups/`) — its
 block is real map land, now restored to stock.
 
+## The HILL at scale (deployed 2026-07-12, ⏳ awaits playtest)
+
+The measured grass-hill language (disc-1 census, `hill_at_scale.py` header): lowland grass
+slope envelope p50 6.5° / p90 15.7° / **p99 28.6°**; PURE-GRASS summits are real (no
+mural-family handoff needed — e.g. (16,14) y 8.2/prom 4.2, (17,15) prom 5.1, (9,17) prom
+5.2 over ~20u); profile = gentle cap, mid-flanks 20–24°, prominence 3.5–5.2 over 20–26u,
+inside the lowland band (≤8u). The build: a raised-cosine dome **H=4.2 R=18** at island E's
+south lobe (348,−1184) — pure-Y displacement of the DEPLOYED meshes (mains UVs are
+XZ-linear ⇒ every tile stays lawful; the rolling relief rides on top), fams classified
+straight from the deployed bytes (topo + UV family region), normals re-smoothed LOCALLY
+(forest donor normals untouched). Gates: worst flank 21.9° ≤ p99, peak 7.40, cracks 0,
+census MISS=0, single changed block (5,18).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
