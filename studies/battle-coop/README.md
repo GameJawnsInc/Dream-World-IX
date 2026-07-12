@@ -1,10 +1,12 @@
 # Battle co-op — feasibility study (2026-07-12)
 
-> **STATUS: B0 + the B1 skeleton are BUILT (engine patch `memoria-patches/s37-netsync-battle.patch`,
-> same-day) — wire v3 typed frames, the battle-state spectate panel, `[Netsync] GuestSlots`,
-> Attack/Defend command injection, and the `RemoteMenuOpen` ATB gate. ⚠ In-game unverified —
-> awaits the solo selftest tick, then the two-machine session.** The rest of this document is the
-> research that shaped it. Companion to the s36 exploration co-op (ghost sync).
+> **STATUS: B0 + the B1 skeleton are BUILT and the SOLO TIER is ★ IN-GAME PROVEN (same day) —
+> engine patch `memoria-patches/s37-netsync-battle.patch`: wire v3 typed frames, the battle-state
+> spectate panel, `[Netsync] GuestSlots`, Attack/Defend command injection, the `RemoteMenuOpen`
+> ATB gate (WAIT-mode freeze observed working), and the assist-key swallow (Alpha1 = the default
+> help binding — found and fixed in playtest). Two-machine session pending (update both DLLs —
+> wire v3 rejects v2 peers).** The rest of this document is the research that shaped it.
+> Companion to the s36 exploration co-op (ghost sync).
 > Sources: the Memoria engine source (`C:\gd\FFIX\Memoria\Assembly-CSharp`, all cites below),
 > the s36 patch (`memoria-patches/s36-netsync-ghost.patch`), and web prior-art (linked inline).
 
