@@ -1,0 +1,173 @@
+# Battle co-op — feasibility study (2026-07-12)
+
+> Research only — nothing here is built. Companion to the s36 exploration co-op (ghost sync).
+> Sources: the Memoria engine source (`C:\gd\FFIX\Memoria\Assembly-CSharp`, all cites below),
+> the s36 patch (`memoria-patches/s36-netsync-ghost.patch`), and web prior-art (linked inline).
+
+## Verdict
+
+**Battle co-op is feasible — as an experimental pillar, not a moonshot.** The trap to avoid is
+framing it as "network two running ATB battles." The winning frame: **one authoritative battle
+(the host's), with the guest as a networked controller 2** commanding an assigned subset of the
+party. That is not an invention — it is *restoring a native FF9 feature the PC port deleted*:
+
+- **PS1 FF9 shipped 2-player battle.** A config option assigned each of the 4 battle party
+  slots to controller 1 or 2; player 2 entered ATB commands for their characters, battle-only
+  ([FF Wiki "Multiplayer"](https://finalfantasy.fandom.com/wiki/Multiplayer),
+  [first-hand thread](https://www.finalfantasyforums.net/threads/ffix-2-player-function.34161/)).
+  FF4/5/6 had the same design. The Steam port stripped it — no code remnant survives (grepped:
+  the port's `FF9CFG` keeps `btl_speed`/`atb` but no per-slot pad assignment).
+- **Nobody has done FF9 co-op on PC.** [Memoria issue #64](https://github.com/Albeoris/Memoria/issues/64)
+  asked for exactly this and was closed "Won't do" (2020). s36 ghost sync appears to be the
+  first FF9-PC multiplayer of any kind; a battle lane would be the first of its kind, period.
+- **Every retrofit that shipped in this genre used command delegation into one authoritative
+  instance** — the [Expedition 33 co-op mod](https://github.com/Kouzukii/expedition33-coop),
+  the [Chrono Trigger multiplayer hack](https://www.romhacking.net/hacks/8337/), the KH2
+  multiplayer hack. None mirrored the combat sim; none did game-level lockstep (only emulator
+  netplay does that, at the emulator layer). We sit *inside* the engine, so we can delegate at
+  the command-queue layer — a cleaner seam than any of them had.
+
+## Why the engine is unusually friendly to this
+
+1. **Latency tolerance is native.** FF9's default ATB **WAIT mode freezes every gauge while any
+   command menu is open** (`cfg.atb == 1` default → `BattleHUD.IsNativeEnableAtb`,
+   `BattleHUD.Public.cs:742-754`, gating `ProcessActiveTime` at `HonoluluBattleMain.cs:411-412`).
+   The sim is a fixed-timestep tick decoupled from rendering (`FPSManager` accumulator,
+   `HonoluluBattleMain.UpdateFrames:580-608`), and a clean full-sim pause exists (`IsPaused` →
+   `UpdateBattleFrame` early-return, `HonoluluBattleMain.cs:673`; plus `FPSManager.DelayMainLoop`).
+   A "waiting for your partner" freeze needs no new mechanism.
+
+2. **Command injection is a shipped pattern, not a hack.** Memoria's own auto-battle is the
+   template (`BattleHUD.Unity.cs:582-602` `SendAutoAttackCommand`): borrow `CurrentPlayerIndex`,
+   call `btl_cmd.SetCommand(btl.cmd[0], commandId, sub_no, tar_id, cursor)` (`btl_cmd.cs:153`),
+   add to `InputFinishList`, release focus. Berserk/Confuse inject from the ATB loop the same
+   way. Our own deathrules second wind already queues commands from mod code in-game (proven).
+   Validity rules are mapped: a normal command needs the unit alive + not `NoInput`/`CannotAct` +
+   `cmd[0]` free (`CheckUsingCommand`, dropped otherwise at `btl_cmd.cs:933`); Sys-range commands
+   may target even dead units. Targets are a plain `u16` btl_id bitmask (players = bits 0-3,
+   enemies = 4-7; `ProcessCommand`, `BattleHUD.cs:1568-1582`).
+
+3. **Battle input is one global focus over a ready queue** (`ReadyQueue` / `CurrentPlayerIndex` /
+   `InputFinishList`, `BattleHUD.Public.cs:27-55`; menu opens via `SwitchPlayer`,
+   `BattleHUD.cs:1242`). Slot ownership = "the HUD skips guest-owned slots; the network feeds
+   them instead." Small, local change.
+
+4. **The state a spectator needs is tiny.** `EnumerateBattleUnits()`
+   (`FF9StateBattleSystem.cs:111`) + `BattleUnit` accessors give name/HP/MP/ATB/status/trance;
+   a full 4v4 snapshot is ~300-400 bytes, deltas far less. HP reads must use the logical
+   accessors (`BattleUnit.CurrentHp` — the +10000 non-dying-boss convention).
+
+5. **s36 infrastructure already reaches into battle.** `NetSyncClient.Update()` runs every frame
+   in battle (today it just sends the field-0 sentinel); the transport lives all session; both
+   lanes (TCP `NoDelay`, WS relay) are reliable ordered streams. The 38-byte fixed packet is a
+   framing choice, not a limit — see "wire v3" below.
+
+## The architecture decision
+
+**Host-authoritative command delegation.** The host runs the only real battle. The guest gets a
+live readout + command entry for the slots assigned to them. Rejected alternatives:
+
+- **Deterministic lockstep: DEAD END** (do not re-explore without an engine-refactor appetite).
+  All combat RNG — damage calc, enemy AI, ATB init — draws from one global, **unseeded**
+  `UnityEngine.Random` (`Comn.random8/16`, `FF9/Comn.cs:8-16`; `GameRandom` aliases the same),
+  with no snapshottable state, *shared with frame-coupled cosmetics* (camera pick, voice, rain,
+  SPS). Two machines diverge on the first draw. Fixing it means isolating a seeded sim-only PRNG,
+  a networked tick clock, and asset-preload guarantees (sequences stall on `WaitSFXLoaded`,
+  `UnifiedBattleSequencer.cs:232-256`) — a research project on its own, for no UX gain over
+  host-authoritative.
+- **Full mirrored battle on the guest's machine**: not needed for co-op to be real, and HIGH
+  risk. Kept as an optional *cosmetic* rung (B3) because the engine half-supports it — see below.
+
+## The rung ladder (each rung independently shippable + playtestable)
+
+### B0 — Battle presence + live spectate readout (LOW risk)
+Extend the wire with battle-state frames. When the peer is in battle, the overlay shows the real
+fight: enemy roster, party HP/MP/ATB bars, whose menu is open. Read-only — zero desync surface.
+This alone transforms "friend on field N (frozen)" into watching their fight unfold.
+- Host side: a sampler in the existing per-frame Update (gMode 2/4 branch), serializing the
+  `EnumerateBattleUnits` scalars on change (~a few B/tick).
+- Guest side: render in the existing OnGUI overlay (the s22 F6 menu proves rich OnGUI in-game).
+
+### B1 — Networked controller 2 (MEDIUM risk — the pillar's heart)
+The guest commands their assigned party slots in the host's battle.
+- **Host:** a slot-assignment mask (`[Netsync] GuestSlots` or negotiated in-session). The HUD's
+  ready-loop skips guest slots (the exact place it already skips `InputFinishList` /
+  `_unconsciousStateList`, `BattleHUD.Unity.cs:292-319`); a command frame from the wire is
+  validated (alive, `cmd[0]` free, legal ability/MP — the engine re-checks at inspection anyway,
+  fail = silent drop + re-offer) and injected via the auto-battle pattern.
+- **Guest:** a battle command menu in the overlay (commands/abilities/items/targets come from
+  the B0 state stream + a once-per-battle roster frame). The guest is meanwhile standing on a
+  field in their own game — assist mode captures menu input, like F6 does.
+- **Latency UX:** WAIT-mode semantics extend naturally — the host's gauges freeze while the
+  guest's menu is open (same `FF9BMenu_IsEnableAtb`-style gate the local menus use). Optional
+  hard gate: `IsPaused` while waiting on a guest turn.
+- **Fail-safe law (same as all coop):** guest stale/disconnected (existing 2s staleness) →
+  slots revert to host control instantly; feature off → byte-identical vanilla behavior.
+- Precedent UX spec: the PS1 config screen (per-slot 1P/2P assignment, P2 battle-only).
+
+### B2 — The guest's own character rides along (MEDIUM)
+The guest's character joins the host's party for the session and the guest commands it (B1
+machinery). Two proven substrates:
+- **Party membership:** `B_PARTYADD` is dedup/overflow-guarded and DLL-free (in-game proven,
+  incl. custom 13th characters) — add the guest character while co-op is live, party ≤ 4.
+- **Stat sync:** the engine ships `btl_init.SwapPlayerCharacter(unit, PLAYER)` (`btl_init.cs:610`)
+  and the `OnBattleInit` Overload hook (`battle.cs:545`) — seed a slot from a serialized PLAYER
+  blob (stats/equipment/abilities) sent by the guest at session start / battle start.
+- **HARD WALL — do not attempt a 5th party slot:** `PLAYER[4]`, 8-bit `btl_id` (players own
+  bits 0-3), fixed `btl_data[8]`, the 4-slot party UI, and every win/lose scan assume ≤4
+  players. Slot replacement/party-add only.
+
+### B3 — Visual mirror on the guest's machine (HIGH risk, optional, later)
+Cosmetic-only puppet: the guest's engine boots the same encounter and *replays* the host's
+commands; authority stays with the host (state corrections streamed). The engine half-supports
+it: any encounter boots directly from `battleMapIndex` (+ pinned `PatNum` + `debugStartType` —
+the `BattleMapDebug` path, `BattleUI.cs:144-171,257-271`), and the `isDebug` branch already
+suppresses enemy AI entirely (`HonoluluBattleMain.cs:529-541`) while injected commands still
+play their full animations through `CommandEngine`. Divergence sources to force/ignore are
+enumerated (StartType roll, pattern roll, initial-ATB rolls, idle-anim phase). Build only after
+B1 proves fun; B0's readout may be plenty.
+
+## Wire v3 (the one infrastructure change)
+
+Typed frames over the same transports: `[type:u8][len:u16][payload]`.
+- Type 0: position state (the current 38-byte payload) — latest-slot semantics, 30Hz keepalive.
+- Type 1: battle state (B0) — latest-slot.
+- Type 2: battle command / control (B1: command frames, slot claims, join/leave-assist) — **FIFO
+  queue, never collapsed** (the streams are already reliable+ordered; only today's in-process
+  latest-slot collapse loses data).
+- Version byte bumps to 3; v2 peers are length/version-rejected — the established fail-safe
+  ("mixed engine versions silently don't sync; update both machines").
+
+Where the code lives: the engine patch lane (`s37-netsync-battle` extending `Memoria.Netsync` —
+it needs per-frame Update + HUD access), staying independent of s22 like s36 does. The Overload
+hub can contribute `OnBattleInit` seeding for B2, but the pillar is an engine patch by nature.
+
+## Open questions (answer during B0/B1 build)
+
+1. Guest input capture while standing on a field: reuse the F6 menu's input-swallow pattern;
+   confirm no conflict when BOTH players fight their own battles simultaneously (assist simply
+   unavailable — both sides send type-1 frames, neither can command).
+2. Menu-data fidelity on the guest: ability lists/MP costs come from the host's units (roster
+   frame) so a modded host (custom abilities) renders correctly on a vanilla-ish guest.
+3. Double-cast/mix command shapes (`cmd[3]`+`cmd[0]`, `BattleHUD.cs:1665-1778`) — support or
+   v1-exclude (Vivi dualcast in Trance etc.).
+4. Trance on a guest-owned slot (menu changes shape mid-battle) — state frame carries trance;
+   guest menu re-renders.
+5. Whether B1 should optionally `IsPaused`-gate on the guest's open menu (hard wait) or trust
+   WAIT-mode gauges only (soft wait) — playtest call.
+
+## Dead ends (proven here — don't re-explore)
+
+- **Deterministic lockstep** — global unseeded shared-with-cosmetics RNG (above).
+- **A 5th battle participant** — fixed-size everything (above).
+- **Recovering the PS1 2P code from the port** — stripped; no remnant in `FF9CFG`/input layer.
+- **Faking controller input to drive the guest's slots** — pointless; `SetCommand` is the seam
+  (the engine's own auto-battle/Berserk/debug-UI all use it).
+
+## Recommended first milestone
+
+**B0 + the B1 skeleton in one arc:** wire v3 framing → battle-state frames → overlay spectate
+(playtest tick: watch the peer's fight live) → slot gating + command frames for ONE guest slot,
+Attack/Defend only (playtest tick: guest wins a fight commanding one character) → then abilities
+/items/targets. Every rung degrades to vanilla on disconnect. Label the whole lane
+**experimental** in docs from day one.
