@@ -747,3 +747,89 @@ def test_band_convert_refusals():
         CM.band_convert(DONOR, (112, -281), "sea1")
     with pytest.raises(ValueError, match="mixed strip v-dialect"):
         CM.band_convert((18, 15), (300, -245), "sea1")
+
+
+def test_virgin_mint_golden():
+    """BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT at the census winner (9,17), run
+    (153..155,-282): a new beach synthesized on the bare south face of the grass
+    peninsula, no donor beach to pin to. The ledger pins the full composition: the
+    berm clip (12 terrain dropped -> berm fragments + the minted sand band), the
+    foam assembly, the wash zip (sea2 fragments with continued uvs), the (155,-283)
+    sea1 drop under the swash, and THE RING RE-BAND -- the (156,-283) conforming
+    sea3 quad flips to sea1 by corner-role assignment (the deformed-tile rect law)
+    with the (156,-284) neighbour re-emitted under its new deep-edge-set {E,S}."""
+    from ff9mapkit.world import coastmorph as CM
+    tw = CM.virgin_mint((9, 17), (619.2, -1128.2), (623.8, -1127.6))
+    led = [(t.part, ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris))) for t in tw]
+    assert led == [("terrain", ("drop", 12)), ("terrain", ("emit", 34)),
+                   ("beach1", ("emit", 8)),
+                   ("sea2", ("drop", 2)), ("sea2", ("emit", 7)),
+                   ("sea1", ("drop", 4)), ("sea1", ("emit", 5)),
+                   ("sea3", ("drop", 2))]
+    assert _tweak_hash(tw) == "56a73347d9bbe571"
+    # the ring re-band is present and generative: among the sea1 emissions, the
+    # re-banded (156,-283) CONFORMING quad carries the block's strip dialect
+    # (corner-role assignment -- a lattice decode cannot read a deformed tile;
+    # the builder's own re-decode gate pins the exact placement)
+    sea1_emit = next(t.tris for t in tw
+                     if getattr(t, "part", None) == "sea1" and hasattr(t, "tris"))
+    ring = [t3 for t3 in sea1_emit if CM._cell_of_tri(t3) == (156, -283)]
+    assert len(ring) == 2
+    us = {round(v[2][0], 6) for t3 in ring for v in t3}
+    assert us <= {0.0, 0.984127}                      # the block's strip u dialect
+    groups = list(CM._deformed_strip_groups(ring))
+    assert len(groups) == 1 and groups[0][1] == "rect"
+
+
+def test_virgin_mint_refusals():
+    """The refusal-steered envelope: anchors hugging the existing beach fail THE
+    GRASS-TONGUE LAW; a stub arc fails the along-shore column envelope; an
+    off-coast anchor refuses outright."""
+    import pytest
+    from ff9mapkit.world import coastmorph as CM
+    with pytest.raises(ValueError, match="[Gg]rass-tongue"):
+        CM.virgin_mint((9, 17), (617.0, -1128.6), (623.8, -1127.6))
+    with pytest.raises(ValueError, match="along-shore envelope"):
+        CM.virgin_mint((9, 17), (622.5, -1127.7), (623.8, -1127.6))
+    with pytest.raises(ValueError, match="off the shoreline"):
+        CM.virgin_mint((9, 17), (600.0, -1100.0), (623.8, -1127.6))
+
+
+def test_virgin_mint_deep_shore_golden():
+    """THE REAL-SCALE CONTINENT MINT (v2): bank_lower + virgin_mint with pre= /
+    pins_from= / the deep-shore LADDER SYNTHESIS on (10,18)'s islet (continent
+    island B -- zero beaches, a ~4u mesa bank, sea3/sea5/sea4 all around). The
+    bank sinks to a cay profile (shore verts pinned); the mint computes on the
+    post-reshape geometry; cut deep tiles re-band to WASH (mains, position-
+    evaluated); and the plan-then-emit LADDER REPAIR steps every introduced
+    unlawful pair one band down ({wash|4} -> 4->5 -> 5->1) until the whole
+    synthesized ladder is lawful -- including 34 sea4 tiles."""
+    from ff9mapkit.world.coastmorph import bank_lower, virgin_mint
+    # the corridor bank (playtest-steered): the sink hugs the cove chord so the
+    # islet's crown + far walls keep ~92% of their natural height (a radial
+    # reach flattened the whole rim -- "shrunken cliffs confirmed")
+    pre = bank_lower((10, 18), (674.0, -1168.4), radius=7.0, shore_slope=0.75,
+                     cap=3.6, along=((666.9, -1168.6), (681.1, -1168.2)))
+    tw = virgin_mint((10, 18), (666.9, -1168.6), (681.1, -1168.2),
+                     width=3.6, swash=4.4, pre=pre, pins_from=(7, 17))
+    led = [(getattr(t, "part", None),
+            ("drop", t.expected) if hasattr(t, "keys")
+            else ("emit", len(t.tris)) if hasattr(t, "tris")
+            else ("displace", t.expected)) for t in pre + tw]
+    # the pre = [wall drops, the sink, the re-evaluated walls] (CLIFF V NEVER
+    # DRAGS); the mint's terrain drop reconciled down to 4 (walls it consumes
+    # cancel against the pre's emissions -- they are simply never re-emitted)
+    assert led == [("terrain", ("drop", 13)), (None, ("displace", 25)),
+                   ("terrain", ("emit", 7)),
+                   ("terrain", ("drop", 4)), ("terrain", ("emit", 19)),
+                   ("beach1", ("emit", 18)),
+                   ("sea2", ("emit", 29)), ("sea1", ("emit", 22)),
+                   ("sea3", ("drop", 14)),
+                   ("sea5", ("drop", 16)), ("sea5", ("emit", 22)),
+                   ("sea4", ("drop", 34))]
+    assert _tweak_hash(pre + tw) == "4c47693cb16a28ca"
+    # real-scale check: 4 columns over the ~14.8u arc (the whole point)
+    foam = next(t.tris for t in tw
+                if getattr(t, "part", None) == "beach1" and hasattr(t, "tris"))
+    assert len(foam) == 18

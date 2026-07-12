@@ -64,6 +64,47 @@ OPEN_WATER_PARTS = frozenset({"sea3", "sea5", "sea4"})
 _DIRS = {"E": (1, 0), "N": (0, 1), "W": (-1, 0), "S": (0, -1)}
 _DIR_OF = {v: k for k, v in _DIRS.items()}
 
+#: prioritized sidecar-donor candidates for the map-wide prefab fallback (the
+#: proven beach donors carry the fullest part sets); the full block scan follows
+_PREFAB_CANDIDATES = ((7, 17), (13, 8), (9, 17), (3, 13), (10, 17), (16, 5))
+_prefab_fallback_cache: dict = {}
+
+
+def _prefab_fallback(need, *, disc, lod, game):
+    """A map-wide sidecar donor whose prefab hosts a SUPERSET of ``need`` and
+    bears no Object -- the multi-cell-carry fallback with the search widened
+    past the region: a SYNTHESIZED part set (e.g. a minted beach on a
+    beach-less donor) has no in-region host by construction. Returns
+    ``((bx, by), parts)`` or ``(None, None)``."""
+    key = (frozenset(need), disc, lod)
+    if key in _prefab_fallback_cache:
+        return _prefab_fallback_cache[key]
+    from .extract import list_blocks
+
+    def probe(b):
+        if world_tris(b[0], b[1], "object", disc=disc, lod=lod, game=game):
+            return None
+        have = {p for p in ("terrain", "beach1", "sea2", "sea1", "sea3",
+                            "sea5", "sea4")
+                if world_tris(b[0], b[1], p, disc=disc, lod=lod, game=game)}
+        return have if set(need) <= have else None
+
+    for b in _PREFAB_CANDIDATES:
+        have = probe(b)
+        if have is not None:
+            _prefab_fallback_cache[key] = (tuple(b), have)
+            return _prefab_fallback_cache[key]
+    for b in sorted(list_blocks(disc=disc, lod=lod)):
+        b = (b[0], b[1])
+        if b in _PREFAB_CANDIDATES:
+            continue
+        have = probe(b)
+        if have is not None:
+            _prefab_fallback_cache[key] = (b, have)
+            return _prefab_fallback_cache[key]
+    _prefab_fallback_cache[key] = (None, None)
+    return _prefab_fallback_cache[key]
+
 
 def part_name(part: str) -> str:
     """``terrain`` -> ``Terrain`` etc. -- the engine ``transform.name`` the override binds to."""
@@ -2427,19 +2468,27 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         dlx, dlz = _rot_region_xz(ccx - sh_x, ccz - sh_z, inv_rot, ext_r, ext)
         nat = (min(nx - 1, max(0, math.floor(dlx / 64.0))),
                min(ny - 1, max(0, math.floor(-dlz / 64.0))))
-        pick = None
+        pick = pick_parts = None
         if set(need) <= donor_cell_has[nat]:
-            pick = nat
+            pick = (dbx + nat[0], dby + nat[1])
+            pick_parts = donor_cell_has[nat]
         else:
             for c in dcells:
                 if c != nat and not obj_by_cell[c] and set(need) <= donor_cell_has[c]:
-                    pick = c
+                    pick = (dbx + c[0], dby + c[1])
+                    pick_parts = donor_cell_has[c]
                     break
+        if pick is None:
+            # a synthesized part set (a minted beach on a beach-less donor) has
+            # no in-region host by construction -- widen the sidecar search
+            # map-wide (superset of parts, no Object; the same law)
+            pick, pick_parts = _prefab_fallback(need, disc=disc, lod=lod,
+                                                game=game)
         if pick is None:
             prefab_bad.append({"cell": [bx + i, by + j], "need": need,
                                "natural": [dbx + nat[0], dby + nat[1]]})
             continue
-        blanked = sorted(donor_cell_has[pick] - set(need), key=parts.index)
+        blanked = sorted(pick_parts - set(need), key=parts.index)
         meshes = []
         for p in parts:
             nm = f"Block[{bx + i}][{by + j}] {part_name(p)}"
@@ -2449,7 +2498,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                 bm = _soup_block_mesh(nm, (bx + i, by + j), loc, disc=disc, lod=lod)
                 reg = _soup_block_mesh(nm, (bx + i, by + j), cell_tris[(i, j)][p],
                                        disc=disc, lod=lod)
-            elif p in donor_cell_has[pick]:
+            elif p in pick_parts:
                 bm = M.hidden_block_mesh(name=nm, disc=disc, x=bx + i, y=by + j, lod=lod)
                 reg = bm
             else:
@@ -2458,7 +2507,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
             audit_meshes.append((part_name(p), reg))
             census_meshes.setdefault((i, j), []).append((part_name(p), reg))
         deploy_meshes[(i, j)] = meshes
-        cell_meta[(i, j)] = {"cell": [bx + i, by + j], "donor": [dbx + pick[0], dby + pick[1]],
+        cell_meta[(i, j)] = {"cell": [bx + i, by + j], "donor": [pick[0], pick[1]],
                              "carried": {p: len(cell_tris[(i, j)][p]) for p in need},
                              "blanked": blanked}
 
