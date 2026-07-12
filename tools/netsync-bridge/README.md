@@ -59,8 +59,10 @@ version of the same setup.
 4. Both launch the game and warp to the co-op field (F6 → Warp → 30003).
    Each of you should see the other's ghost walk the room.
 
-`Memoria.ini` is read once at launch — after editing it, relaunch the game
-(F6 reload is not enough).
+With the current custom engine the `[Netsync]` section **hot-reloads**: a
+running game picks up edits within a couple of seconds (enabling co-op from
+fully OFF applies at the next screen change). On older engine builds,
+relaunch after editing.
 
 ## Options
 

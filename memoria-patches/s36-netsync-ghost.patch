@@ -26,10 +26,10 @@ index 192b988b..b50b4d89 100644
      public override void HonoStart()
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 new file mode 100644
-index 00000000..7a9c5c89
+index 00000000..d79a9278
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -0,0 +1,441 @@
+@@ -0,0 +1,499 @@
 +using System;
 +using Memoria.Prime;
 +using Memoria.Scripts;   // ShadersLoader
@@ -59,6 +59,8 @@ index 00000000..7a9c5c89
 +        private static NetSyncClient _instance;
 +
 +        private static Boolean _configLoaded;
++        private static DateTime _iniStamp;               // Memoria.ini mtime at the last read (hot-reload gate)
++        private static String _cfgSig = "";              // parsed-value signature (our own code-persist != a change)
 +        private static Boolean _enabled;
 +        private static String _role = "selftest";       // selftest | host | client
 +        private static String _peer = "127.0.0.1";
@@ -87,51 +89,68 @@ index 00000000..7a9c5c89
 +        private static Texture2D _ovlBg;
 +        private static GUIStyle _ovlStyle;
 +
++        private Int32 _lastPoll;                         // Environment.TickCount of the last config poll
++
 +        // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
-+        // load; creates the DontDestroyOnLoad object ONCE, and only when [Netsync] Enabled=1.
++        // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
++        // [Netsync] Enabled=1 (nothing is created while disabled -> zero cost on a normal game), and
++        // applies a live config edit to an already-running client.
 +        public static void Ensure()
 +        {
-+            if (_instance != null)
-+                return;
-+            LoadConfig();
-+            if (!_enabled)
-+                return;   // off by default -> nothing created, no per-frame cost on a normal game
-+            GameObject go = new GameObject("NetSyncClient");
-+            UnityEngine.Object.DontDestroyOnLoad(go);
-+            _instance = go.AddComponent<NetSyncClient>();
++            Boolean changed = LoadConfigIfChanged();
++            if (_instance == null)
++            {
++                if (!_enabled)
++                    return;
++                GameObject go = new GameObject("NetSyncClient");
++                UnityEngine.Object.DontDestroyOnLoad(go);
++                _instance = go.AddComponent<NetSyncClient>();
++            }
++            else if (changed)
++            {
++                _instance.ApplyConfigChange();
++            }
 +        }
 +
-+        private static void LoadConfig()
++        // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
++        // parsed values are signature-compared so our own session-code persist never counts as an edit).
++        // Returns true when the EFFECTIVE config changed on a reload (never on the first load). Lets the
++        // coop CLI / Workspace / a hand edit reconfigure a RUNNING game -- no relaunch.
++        private static Boolean LoadConfigIfChanged()
 +        {
-+            if (_configLoaded)
-+                return;
-+            _configLoaded = true;
++            DateTime stamp;
++            try { stamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
++            catch { return false; }               // unreadable right now -> keep the current config
++            if (_configLoaded && stamp == _iniStamp)
++                return false;
++            _iniStamp = stamp;
 +            try
 +            {
 +                IniFile ini = new IniFile(IniFile.MemoriaIniPath);   // Memoria.IniFile: reads ./Memoria.ini
-+                _enabled = ini.GetSetting("Netsync", "Enabled", "0").Trim() == "1";
-+                _role = ini.GetSetting("Netsync", "Role", "selftest").Trim().ToLowerInvariant();
-+                _peer = ini.GetSetting("Netsync", "PeerAddress", "127.0.0.1").Trim();
-+                Int32 p;
-+                if (Int32.TryParse(ini.GetSetting("Netsync", "Port", "49200"), out p) && p > 0)
-+                    _port = p;
-+                Int32 f;
-+                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "30003"), out f))
-+                    _targetField = f;
-+                _relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
-+                _sessionCode = ini.GetSetting("Netsync", "SessionCode", "").Trim();
-+                _insecureTls = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
-+                if (_relayUrl.Length > 0 && _sessionCode.Length == 0)
++                Boolean enabled = ini.GetSetting("Netsync", "Enabled", "0").Trim() == "1";
++                String role = ini.GetSetting("Netsync", "Role", "selftest").Trim().ToLowerInvariant();
++                String peer = ini.GetSetting("Netsync", "PeerAddress", "127.0.0.1").Trim();
++                Int32 port = _port, field = _targetField, n;
++                if (Int32.TryParse(ini.GetSetting("Netsync", "Port", "49200"), out n) && n > 0)
++                    port = n;
++                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "30003"), out n))
++                    field = n;
++                String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
++                String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
++                Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
++                if (enabled && relayUrl.Length > 0 && code.Length == 0)
 +                {
-+                    if (_role == "host")
++                    if (role == "host")
 +                    {
 +                        // The session code is the real access gate on the shared relay (it pairs by opaque
 +                        // code): random so a stranger can't guess it, "ff9-" namespaced so it can never
 +                        // cross-wire with another game's live session. Generated once, persisted into
 +                        // Memoria.ini so it survives relaunches and the host can read it out to the guest.
-+                        _sessionCode = GenerateSessionCode();
-+                        PersistSessionCode(_sessionCode);
-+                        Log.Message("[NetSync] generated session code " + _sessionCode +
++                        code = GenerateSessionCode();
++                        PersistSessionCode(code);
++                        try { _iniStamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
++                        catch { }                 // our own write isn't an edit -> don't re-read it next tick
++                        Log.Message("[NetSync] generated session code " + code +
 +                                    " (saved to Memoria.ini; the guest must set the SAME SessionCode)");
 +                    }
 +                    else
@@ -142,11 +161,38 @@ index 00000000..7a9c5c89
 +                                    "(shown in the host's Memoria.ini after their first launch)");
 +                    }
 +                }
++                String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
++                             "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
++                Boolean first = !_configLoaded;
++                _configLoaded = true;
++                if (sig == _cfgSig)
++                    return false;                 // e.g. an edit to some OTHER Memoria.ini section
++                _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
++                _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure; _cfgSig = sig;
 +                Log.Message("[NetSync] config enabled=" + _enabled + " role=" + _role + " field=" + _targetField +
 +                            (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
 +                                                  : " peer=" + _peer + ":" + _port));
++                return !first;
 +            }
-+            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); }
++            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); return false; }
++        }
++
++        // A config edit landed while the game runs: drop the transport (Update lazily redials with the
++        // new settings on the target field), clear the ghost + overlay so nothing carries stale state.
++        // Main thread only (HonoAwake / Update).
++        private void ApplyConfigChange()
++        {
++            Log.Message("[NetSync] config change applied live" +
++                        (_enabled ? " (role=" + _role + (_relayUrl.Length > 0 ? ", relay)" : ", direct)")
++                                  : " (disabled)"));
++            if (_socket != null)
++            {
++                _socket.Stop();
++                _socket = null;
++            }
++            DespawnGhost();
++            _ovlState = -1;
++            _ovlText = null;
 +        }
 +
 +        // "ff9-" + 8 random chars from [A-Z0-9]. The relay uppercases codes (pairing is case-insensitive);
@@ -211,6 +257,18 @@ index 00000000..7a9c5c89
 +
 +        private void Update()
 +        {
++            // Live config: notice a Memoria.ini edit (the coop CLI / the Workspace tab / a hand edit)
++            // within ~2s -- one file stat every 2s, main thread. Runs even while disabled, so flipping
++            // co-op back ON applies live too.
++            if (Environment.TickCount - _lastPoll > 2000)
++            {
++                _lastPoll = Environment.TickCount;
++                if (LoadConfigIfChanged())
++                    ApplyConfigChange();
++            }
++            if (!_enabled)
++                return;
++
 +            // Cheap, log-silent gate: only do anything on the co-op field. Any failure reading the
 +            // global state (e.g. a scene without it) is treated as "not here" without spamming the log.
 +            Int32 fld;
