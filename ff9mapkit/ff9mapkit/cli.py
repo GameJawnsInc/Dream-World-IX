@@ -83,6 +83,16 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_coop(args: argparse.Namespace) -> int:
+    """Two-player co-op ghost sync in one command per side -- see ff9mapkit/coop.py."""
+    from . import coop
+    try:
+        return coop.run(args)
+    except (ConfigError, FileNotFoundError, RuntimeError, ValueError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+
 def _cmd_extract_templates(args: argparse.Namespace) -> int:
     """Regenerate the kit's base assets (blank field, exit-region template, test fixtures) from the
     user's own FF9 install -- the bring-your-own-install step that lets the repo ship no game data."""
@@ -4414,6 +4424,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("doctor", help="show resolved paths and sanity-check the install")
     d.set_defaults(func=_cmd_doctor)
+
+    co = sub.add_parser("coop", help="two-player co-op ghost sync: set up + run a session in one command "
+                                     "(needs the Dream World IX custom engine, s36)")
+    co.add_argument("action", choices=["host", "join", "off", "bridge"],
+                    help="host = start a session (prints/copies your code) | join = join a friend's | "
+                         "off = disable co-op in Memoria.ini | bridge = run just the ws->wss bridge")
+    co.add_argument("code", nargs="?", default=None,
+                    help="the session code (join: REQUIRED, the host's ff9-XXXXXXXX; host: optional override)")
+    co.add_argument("--port", type=int, default=49201, help="local bridge port (default 49201)")
+    co.add_argument("--relay", default=None, help="relay URL override, ws:// or wss:// (default: built in)")
+    co.add_argument("--lan", nargs="?", const="", default=None, metavar="HOST_IP",
+                    help="direct-LAN mode instead of the relay (no bridge): host uses bare --lan, "
+                         "join needs the host's IP, e.g. --lan 192.168.1.50")
+    co.add_argument("--field", type=int, default=None, help="co-op field id (default 30003)")
+    co.add_argument("--no-bridge", action="store_true", help="write the config but don't run the bridge")
+    co.add_argument("--no-room", action="store_true", help="skip the co-op room check/build")
+    co.add_argument("--rebuild-room", action="store_true", help="rebuild the FF9Coop room even if a room "
+                                                                "is already registered")
+    co.add_argument("--new-code", action="store_true", help="host: mint a fresh session code instead of "
+                                                            "reusing the saved one")
+    co.add_argument("--insecure", action="store_true", help="skip TLS certificate verification (self-signed relays)")
+    co.set_defaults(func=_cmd_coop)
 
     ds = sub.add_parser("disasm", help="disassemble a .eb field script")
     ds.add_argument("file", help="path to a .eb / .eb.bytes file")

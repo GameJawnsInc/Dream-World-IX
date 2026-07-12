@@ -18,8 +18,13 @@ import os
 import socket
 import sys
 import time
+from pathlib import Path
 
-import netsync_bridge as bridge
+try:
+    from ff9mapkit import netsync_bridge as bridge
+except ImportError:                                  # no installed kit -> use the checkout's package
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ff9mapkit"))
+    from ff9mapkit import netsync_bridge as bridge
 
 
 def ws_client_connect(port, path):
