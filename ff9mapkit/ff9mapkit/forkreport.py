@@ -139,9 +139,15 @@ REMOVE_PARTY_OP = 0xDD                      # RemoveParty(charIndex)
 SET_PARTY_RESERVE_OP = 0xB4                 # SetPartyReserve(mask) -- rebuilds the recruitable roster
 JOIN_OP = 0xFE                              # SetCharacterData / JOIN -- a formal recruit (battle+menu init)
 PARTY_MENU_OP = 0xB2                        # Party() -- the change-members menu UI
-EXPR_STMT_OP = 0x05                         # an expression statement (holds the B_PARTYADD call)
+EXPR_STMT_OP = 0x05                         # an expression statement (holds the B_PARTYADD / B_PARTYCHK calls)
 # literal single-char ADD inside an expression: B_CONST(0x7D) <2-byte CharacterOldIndex> B_PARTYADD(0x6D)
 _PARTYADD_RE = re.compile(rb"\x7d(..)\x6d", re.DOTALL)
+# literal single-char CHECK inside an expression: B_CONST(0x7D) <2-byte CharacterOldIndex> B_PARTYCHK(0x6B) --
+# a scene GATED on party membership (the field runs it only if that character is in the party). The kit has no
+# expression-opcode names, so 0x6B disassembles raw; scan the signature ONLY within 0x05 EXPR_STMT ranges (a
+# bare 0x6B elsewhere is an anim-id / jump-table byte, not a party check -- proven on the Ice Cavern bytes).
+# In-game grounded: Vivi-gated melting-wall screens IC_TER/JMP/BRI -> project-ff9-fork-fidelity-worklist (B).
+_PARTYCHK_RE = re.compile(rb"\x7d(..)\x6b", re.DOTALL)
 
 
 def party_char_name(idx) -> str:
@@ -149,15 +155,17 @@ def party_char_name(idx) -> str:
 
 
 def scan_party_ops(eb_bytes) -> dict:
-    """The party-membership operations a field performs -- a ``--verbatim`` fork RUNS these, so they preview
-    how a fork will change your party. Returns ``{adds, removes}`` (sorted distinct CharacterOldIndex, NONE
-    filtered) + the flags ``reset`` (``SetPartyReserve`` -> rebuilds the recruitable roster), ``recruit``
+    """The party-membership operations a field performs OR gates on -- a ``--verbatim`` fork RUNS these, so
+    they preview how a fork will change your party (adds/removes/reset/recruit/menu) AND what cast it EXPECTS
+    (``required``). Returns ``{adds, removes, required}`` (sorted distinct CharacterOldIndex, NONE filtered) +
+    the flags ``reset`` (``SetPartyReserve`` -> rebuilds the recruitable roster), ``recruit``
     (``SetCharacterData``/JOIN), ``menu`` (the change-members UI). Heuristic: the literal single-char ADD
-    (``B_CONST <id> B_PARTYADD``) is decoded inside expression statements; the statement ops by their arg.
-    A field that drives membership from a variable (the common reserve-mask form) is captured by ``reset``."""
+    (``B_CONST <id> B_PARTYADD``) and CHECK (``B_CONST <id> B_PARTYCHK``) are decoded inside expression
+    statements; the statement ops by their arg. A field that drives membership from a variable (the common
+    reserve-mask form) is captured by ``reset``; a variable-operand party CHECK (rare) isn't scanned."""
     data = bytes(eb_bytes)
     eb = EbScript.from_bytes(data)
-    adds, removes = set(), set()
+    adds, removes, required = set(), set(), set()
     reset = recruit = menu = False
     for e in eb.entries:
         if e.empty:
@@ -174,11 +182,15 @@ def scan_party_ops(eb_bytes) -> dict:
                 elif ins.op == PARTY_MENU_OP:
                     menu = True
                 elif ins.op == EXPR_STMT_OP:
-                    for h in _PARTYADD_RE.findall(data[ins.off:ins.end]):
+                    chunk = data[ins.off:ins.end]
+                    for h in _PARTYADD_RE.findall(chunk):
                         adds.add(struct.unpack("<H", h)[0])
-    adds.discard(PARTY_NONE)
-    removes.discard(PARTY_NONE)
-    return {"adds": sorted(adds), "removes": sorted(removes), "reset": reset, "recruit": recruit, "menu": menu}
+                    for h in _PARTYCHK_RE.findall(chunk):
+                        required.add(struct.unpack("<H", h)[0])
+    for s in (adds, removes, required):
+        s.discard(PARTY_NONE)
+    return {"adds": sorted(adds), "removes": sorted(removes), "required": sorted(required),
+            "reset": reset, "recruit": recruit, "menu": menu}
 
 
 # --- item / treasure / shop ops -----------------------------------------------------------------------
@@ -329,6 +341,9 @@ class ForkReport:
     party_reset: bool = False                            # SetPartyReserve -- rebuilds the recruitable roster (story reset)
     party_recruit: bool = False                          # SetCharacterData/JOIN -- a formal recruit (battle+menu init)
     party_menu: bool = False                             # opens the change-members MENU (moogle/save-point UI)
+    party_required: list = _dc_field(default_factory=list)  # distinct CharacterOldIndex names the field GATES
+    #   scenes on (B_PARTYCHK) -- a fork boots with the CURRENT save party, so seed [party] to the beat's cast
+    #   or the gated scene silently won't fire (the melting-wall class); the AUTHOR asserts the beat, like [startup]
     item_gives: list = _dc_field(default_factory=list)    # [(item_id, count)] distinct AddItem grants (count = max single)
     item_gil_max: int = 0                                # largest single PLAUSIBLE literal AddGil (<= GIL_CAP)
     item_gil_any: bool = False                           # any AddGil at all (literal or computed) -> treasure gil
@@ -687,6 +702,7 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     rep.party_adds = [party_char_name(i) for i in party["adds"]]
     rep.party_removes = [party_char_name(i) for i in party["removes"]]
     rep.party_reset, rep.party_recruit, rep.party_menu = party["reset"], party["recruit"], party["menu"]
+    rep.party_required = [party_char_name(i) for i in party["required"]]
 
     # Item / treasure / shop ops the field runs (a verbatim fork carries them; a plain/synthesize fork DROPS
     # them -- no item scanner). The shop STOCK is parasitic on the base ShopItems.csv (a fork can't change it).
@@ -753,14 +769,21 @@ def _verdict_line(rep: ForkReport) -> str:
         why.append("non-Zidane player")
     if rep.party_adds or rep.party_removes or rep.party_reset or rep.party_recruit:
         why.append("party changes")
+    if rep.party_required:
+        why.append("party-gated scenes")
     if rep.item_gives or rep.item_var_give or rep.item_gil_any or rep.item_shops or rep.item_var_shop:
         why.append("item/shop grants")
     if rep.arrival_spots > 1:
         why.append("per-door arrival")
     if why:
         reco = f"--verbatim (carries {', '.join(why[:3])}{'...' if len(why) > 3 else ''})"
+        extras = []
         if rep.sc_gates or rep.roster_class != "static-roster":
-            reco += " + a [startup] beat (else it boots scenario-zero)"
+            extras.append("a [startup] beat (else it boots scenario-zero)")
+        if rep.party_required:
+            extras.append("a [party] seed for the beat's cast (it gates scenes on party membership)")
+        if extras:
+            reco += " + " + " + ".join(extras)
     else:
         reco = "--native (a faithful diorama; nothing story-bound to carry)"
     parts.append(f"Recommended: {reco}.")
@@ -773,22 +796,29 @@ def _verdict_line(rep: ForkReport) -> str:
 
 
 def _party_line(rep: ForkReport) -> str:
-    """The 'Party' axis: what a verbatim fork will do to your party. Empty when the field is party-neutral."""
-    if not (rep.party_adds or rep.party_removes or rep.party_reset or rep.party_recruit or rep.party_menu):
-        return ""
-    bits = []
+    """The 'Party' axis: what a verbatim fork will DO to your party (adds/removes/menu), plus a 'Party need'
+    line for the cast the field GATES scenes on (B_PARTYCHK) -- a fork boots with the CURRENT save party, so
+    those scenes only fire if you seed [party] to the beat's cast. Empty when the field is party-neutral."""
+    lines = []
+    does = []
     if rep.party_adds:
         shown = ", ".join(rep.party_adds[:6]) + (f" +{len(rep.party_adds) - 6}" if len(rep.party_adds) > 6 else "")
-        bits.append(f"adds {shown}")
+        does.append(f"adds {shown}")
     if rep.party_reset:
-        bits.append("rebuilds the roster (story reset)" if rep.party_removes else "sets the recruitable roster")
+        does.append("rebuilds the roster (story reset)" if rep.party_removes else "sets the recruitable roster")
     elif rep.party_removes:
         shown = ", ".join(rep.party_removes[:6]) + (f" +{len(rep.party_removes) - 6}" if len(rep.party_removes) > 6 else "")
-        bits.append(f"removes {shown}")
+        does.append(f"removes {shown}")
     if rep.party_menu:
-        bits.append("opens the change-members menu")
-    tail = "  (a --verbatim fork RUNS this; a plain fork inherits your current party)"
-    return f"  Party         : {'; '.join(bits)}{tail}"
+        does.append("opens the change-members menu")
+    if does:
+        lines.append(f"  Party         : {'; '.join(does)}"
+                     "  (a --verbatim fork RUNS this; a plain fork inherits your current party)")
+    if rep.party_required:
+        shown = ", ".join(rep.party_required[:6]) + (f" +{len(rep.party_required) - 6}" if len(rep.party_required) > 6 else "")
+        lines.append(f"  Party need    : gates scene(s) on {shown} in the party -- a fork boots with your CURRENT "
+                     "save party, so seed [party] to the beat's cast or the gated scene won't fire")
+    return "\n".join(lines)
 
 
 def _items_line(rep: ForkReport) -> str:

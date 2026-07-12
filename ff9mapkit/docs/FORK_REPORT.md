@@ -41,9 +41,12 @@ its interactions, or vice-versa, so the two are reported separately); everything
   0-255 regular item is named, the rest are classified but unnamed (the kit catalogs only the regular space).
   Counts are **per-grant maxes, not summed** across the field's mutually-exclusive story branches.
 
-Plus: the controlled **Player** character(s), what a verbatim fork does to your **Party**, **story-gated
-doors**, the ScenarioCounter **beats the field gates content on**, a suggested `[startup] scenario` (the
-earliest gate — its natural "home" beat), and the `import` recipe.
+Plus: the controlled **Player** character(s), what a verbatim fork does to your **Party** and, on a separate
+**Party need** line, the cast the field **gates scenes on** (`B_PARTYCHK`) — a fork boots with your *current*
+save party, so seed `[party]` to that beat's cast or the gated scene (e.g. the Ice Cavern melting-wall scenes,
+which need Vivi) silently won't fire; **story-gated doors**, the ScenarioCounter **beats the field gates
+content on**, a suggested `[startup] scenario` (the earliest gate — its natural "home" beat), and the `import`
+recipe.
 
 ## The verdict
 
@@ -102,5 +105,8 @@ classification), `eventscan.scan_gateway_entries` (story-gated doors), and the `
 the comparison pattern `DC 00 7D <const> <cmp-op>` (a *write* uses `2C`/`3F` instead, so writes are excluded).
 The Party axis (`scan_party_ops`) and Items axis (`scan_item_ops`) decode their ops straight off the kit's
 disassembler — `scan_item_ops` reads `AddItem`/`AddGil`/`Menu(2,id)` and classifies item ids by the engine's
-`id % 1000` pool rule (`ff9item.FF9Item_Add_Generic`). The analysis (`forkreport.analyze_eb`) is pure over
+`id % 1000` pool rule (`ff9item.FF9Item_Add_Generic`). The **Party need** (`required`) signal decodes the
+literal `B_CONST <CharacterOldIndex> B_PARTYCHK` (`7D <id> 6B`) *only within `0x05` EXPR_STMT ranges* (a bare
+`0x6B` elsewhere is an anim-id / jump-table byte, not a party check), mirroring how the `B_PARTYADD` scan is
+bounded — grounded on the Ice Cavern's Vivi-gated screens. The analysis (`forkreport.analyze_eb`) is pure over
 `.eb` bytes and unit-tested offline against a fixture.

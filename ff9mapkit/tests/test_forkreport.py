@@ -323,6 +323,25 @@ def test_party_line_omitted_when_party_neutral():
     assert not any(l.strip().startswith("Party") for l in FR.format_report(rep).splitlines())
 
 
+# ---- the 'Party need' axis: cast a field GATES scenes on (B_PARTYCHK) -> seed [party] to the beat ----
+def test_scan_party_ops_required_gated_char():
+    # ALEX100 gates a (dormant Quina, CharacterOldIndex 5) scene on party membership via a B_PARTYCHK inside an
+    # EXPR_STMT (05 7D <id> 6B 7F) -- grounds the party-required signature on REAL bytecode, not a synthetic buffer.
+    ops = FR.scan_party_ops(ALEX100)
+    assert 5 in ops["required"]                        # a genuine EXPR_STMT B_PARTYCHK, EXPR_STMT-bounded
+    assert FR.PARTY_NONE not in ops["required"]        # NONE sentinel filtered like adds/removes
+    assert set(ops["required"]).issubset(set(range(12)))  # only valid CharacterOldIndex, no 0x6b-byte noise
+
+
+def test_party_need_line_renders_and_steers_verdict():
+    rep = FR.ForkReport(field_id=302, fbg_name="x", roster_class="static-roster", party_required=["Vivi"])
+    line = FR._party_line(rep)                          # renders even with NO adds/removes/menu (need-only field)
+    assert "Party need" in line and "Vivi" in line and "[party]" in line
+    verdict = FR._verdict_line(rep)                     # the bottom-line steer names the gap + the fix
+    assert "party-gated scenes" in verdict and "[party] seed" in verdict
+    assert any(l.strip().startswith("Party need") for l in FR.format_report(rep).splitlines())
+
+
 def test_analyze_eb_no_script():
     rep = FR.analyze_eb(b"", field_id=1)
     assert not rep.has_script
