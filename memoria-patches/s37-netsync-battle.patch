@@ -487,12 +487,12 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 -                                   me.fieldMapActor.transform.localRotation, me.anim);
 -                        ApplyGhostMask(LocalMeshMask(me));
 +                                   me.fieldMapActor.transform.localRotation, stAnim);
-+                        if (stDress == 0)
-+                            ApplyGhostMask(LocalMeshMask(me));   // the mask is index-valid only on the SAME model
++                        if (stDress == 0 || stDress == me.model)
++                            ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
                      }
                      return;
                  }
-@@ -314,23 +378,35 @@ namespace Memoria.Netsync
+@@ -314,23 +378,40 @@ namespace Memoria.Netsync
                  {
                      Transform pt = local.fieldMapActor.transform;
                      _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
@@ -527,12 +527,17 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 -                        ApplyGhostMask(rs.MeshVis);        // the peer's own per-submesh visibility (weapons etc.)
 +                        UInt16 animId = dressModel != 0 ? NetSyncVisitor.LocoAnim(dressRig, rs.Loco) : rs.Anim;
 +                        DriveGhost(rs.Pos, rs.Rot, animId);
-+                        if (dressModel == 0)
-+                            ApplyGhostMask(rs.MeshVis);    // the peer's mask is index-valid only on THEIR model
++                        // A mask is index-valid only on the model it was read from -- apply the best one
++                        // we legitimately have (closes the drawn-dagger quirk for the common cases:
++                        // dressed as the peer's own model, or as MY leader's model).
++                        if (dressModel == 0 || dressModel == rs.Model)
++                            ApplyGhostMask(rs.MeshVis);
++                        else if (local != null && dressModel == local.model)
++                            ApplyGhostMask(LocalMeshMask(local));
                      }
                  }
                  else
-@@ -340,11 +416,22 @@ namespace Memoria.Netsync
+@@ -340,11 +421,22 @@ namespace Memoria.Netsync
                          SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
                      else if (!_socket.IsConnected)
                          SetOverlay(OvlConnecting);
@@ -555,7 +560,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              }
              catch (Exception err)
              {
-@@ -359,6 +446,81 @@ namespace Memoria.Netsync
+@@ -359,6 +451,81 @@ namespace Memoria.Netsync
                  _socket.Stop();
                  _socket = null;
              }
@@ -637,7 +642,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          }
  
          // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
-@@ -403,7 +565,14 @@ namespace Memoria.Netsync
+@@ -403,7 +570,14 @@ namespace Memoria.Netsync
                      break;
                  case OvlPeerElsewhere:
                      _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
@@ -653,7 +658,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      break;
                  default:
                      _ovlText = null;
-@@ -413,6 +582,7 @@ namespace Memoria.Netsync
+@@ -413,6 +587,7 @@ namespace Memoria.Netsync
  
          private void OnGUI()
          {
@@ -661,6 +666,29 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              if (_ovlText == null)
                  return;
              if (_ovlStyle == null)
+@@ -531,14 +706,21 @@ namespace Memoria.Netsync
+                 if (mcfPtr == null || _ghostRends == null)
+                     return;
+                 DMSMapConf mcf = mcfPtr.Value;
++                Actor lp = ee.GetControlChar() as Actor;
+                 DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
++                // A DRESSED ghost usually wears a model this field's mapconfig has no entry for (the
++                // config lists the field's own cast) -- the LOCAL PLAYER's entry is the right stand-in
++                // (same scene, correct shading; a fellow party member's tint, not the generic default,
++                // which reads visibly wrong -- playtest: "non-Zidane ghosts aren't getting the proper
++                // lighting").
++                if (mapChar == null && lp != null)
++                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)lp.model);
+                 if (mapChar == null)
+                     mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
+                 if (mapChar == null)
+                     return;
+                 DMSMapLight? light = null;
+                 DMSMapLight? ladder = null;
+-                Actor lp = ee.GetControlChar() as Actor;
+                 if (lp != null)
+                 {
+                     Int16 floorNo = 0;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
