@@ -13,19 +13,28 @@ cleanly and hold every WorldMap arm.
 The field writes its own region key first (the same ``D8:2`` transition parameter a
 ``Field()`` warp uses as its arrival entrance -- ``region.set_field_entrance``).
 
-THE ARRIVAL LAW (decoded from WORLD09 e5/tag0, the world player's Init): on world
-load the Init tests ``D8:2`` -- **nonzero** loads the dispatcher's HARDCODED entry
-point into the position vars (each world has one; a real exit field's key both
-routes the cascade AND selects that world's door arrival), **zero** skips the
-override, so ``MoveInstantXZY`` places the player from the PERSISTED position vars
-(``C8:0x53``/``D8:0x56``/``C8:0x58`` -- the world player's Loop mirrors its position
-into them continuously). The kit default ``region_key = 0`` therefore means "return
-exactly where the player stood when they entered" -- the right semantic for a field
-on kit-built land with no real-world door registration -- and it guarantees the
-cascade's DEFAULT arm (**9009, the all-vehicle free-roam superset**, every SC band;
-the default arm re-zeroes the key itself). The explicit 0-write matters: a STALE
-nonzero key would otherwise route the cascade to another state AND teleport the
-arrival to that world's hardcoded door.
+THE KEY MODEL (fully decoded -- the cascade's switch tables + arms + WORLD09
+e5/tag0, the world player's Init):
+
+* a CASED key other than 62 (what real exit fields write): ``WorldMap(<state>)``
+  with the key LEFT SET -- the destination world's Init sees ``D8:2`` nonzero and
+  teleports the player to its HARDCODED door arrival (the real-town pattern).
+* **key 62**: the arm itself runs ``D8:2 = 0; WorldMap(9009)`` in EVERY
+  ScenarioCounter band -- arrival sees zero, so the Init skips the door override
+  and ``MoveInstantXZY`` places the player from the PERSISTED position vars
+  (``C8:0x53``/``D8:0x56``/``C8:0x58``, mirrored from the live position every
+  frame). "Return exactly where you stood, in the all-vehicle free-roam
+  superset" -- the right semantic for a field on kit-built land, and the kit
+  default. (No real field writes 62; the lane is the game's own maintained
+  generic return.)
+* **key 0 / any un-cased key**: the switch default is a bare RETURN -- the
+  handler exits WITHOUT warping and the door reads as dead (playtest-proven).
+  0 is the "no exit set" guard, never a valid exit key.
+
+Dev caveat: an F6 teleport that lands ON the entrance trigger fires the warp the
+SAME frame, before one position-mirror tick -- the persisted position then still
+holds the pre-teleport spot. Walked entries (the shipping path) are always
+current.
 """
 
 from __future__ import annotations
@@ -34,12 +43,11 @@ from ..eb.model import EbScript
 
 #: the two byte-verified cascade carriers: (field id, entry index, func tag)
 CASCADE_DONORS = ((300, 2, 2), (2800, 21, 2))
-#: the default region key: 0 = the cascade's DEFAULT arm (9009 in every SC band) AND
-#: the persisted-position arrival (a nonzero key fires the world's hardcoded door
-#: teleport -- the arrival law above)
-REGION_KEY_RETURN = 0
-REGION_KEY_OPEN_SEA = 0   # back-compat alias (the 62 experiment: 9009's own case
-                          # PRESERVES the key -> the hardcoded-arrival override fired)
+#: the default region key: 62 = the generic-return arm (D8:2=0 + WorldMap(9009) in
+#: every SC band -> the persisted-position arrival). 0/un-cased keys DO NOT WARP
+#: (the switch default is a bare return -- the key model above).
+REGION_KEY_RETURN = 62
+REGION_KEY_OPEN_SEA = 62  # back-compat alias
 #: the minimum WorldMap arms a healthy cascade carries (13 states; real carriers emit 19 ops)
 _MIN_WORLDMAP_OPS = 13
 

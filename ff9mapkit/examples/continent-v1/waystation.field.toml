@@ -41,7 +41,12 @@ dialogue = "Kupo! Welcome to the far isles, traveler. Rest here -- you can save 
 
 # the save point: its own press area WEST of the moogle -- it must not overlap the
 # NPC's talk range, or the action button opens the dialogue instead of the save menu
-# (playtest round 1: "he doesn't offer to save")
+# (playtest round 1: "he doesn't offer to save"), and it needs a VISIBLE marker
+# (playtest round 2: an unmarked zone reads as no save spot at all)
+[[prop]]
+prop = "save_point"
+pos = [-290, -1750]
+
 [[savepoint]]
 zone = [[-420, -1900], [-160, -1900], [-160, -1600], [-420, -1600]]
 

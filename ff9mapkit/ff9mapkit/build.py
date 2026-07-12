@@ -945,12 +945,12 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[gateway]] to = {gw['to']!r} -- a field id (int) or the string "
                             f"\"worldmap\" (the walk-out world-map exit).")
         if str(gw.get("to")).strip().lower() == "worldmap":
-            rk = gw.get("region_key", 0)
-            if not isinstance(rk, int) or isinstance(rk, bool) or not (0 <= rk <= 255):
-                problems.append(f"[[gateway]] region_key {rk!r} must be an int 0..255 (the D8:2 "
-                                f"region key; default 0 = the 9009 default arm + arrive where "
-                                f"the player stood -- a NONZERO key ALSO fires the destination "
-                                f"world's hardcoded door arrival).")
+            rk = gw.get("region_key", 62)
+            if not isinstance(rk, int) or isinstance(rk, bool) or not (1 <= rk <= 255):
+                problems.append(f"[[gateway]] region_key {rk!r} must be an int 1..255 (the D8:2 "
+                                f"region key; default 62 = the generic-return arm: 9009 + arrive "
+                                f"where the player stood. 0/un-cased keys DO NOT WARP -- the "
+                                f"cascade's switch default is a bare return).")
             for bad in ("entrance", "ate", "requires_flag", "requires_flag_clear"):
                 if bad in gw:
                     problems.append(f"[[gateway]] to=\"worldmap\" does not take '{bad}' (the exit "
