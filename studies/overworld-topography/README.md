@@ -160,7 +160,23 @@ synthesis recipe for the terrace-wall rung:
 **⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
 quads; crest/body/base band rows; u-continuation with band wrap).
 
-## The TERRACE (deployed 2026-07-12, ⏳ awaits playtest — `terrace_build.py`)
+## The TERRACE arc (round 2: THE MESA CARRY deployed 2026-07-12, ⏳ awaits playtest)
+
+**Round-2 verdict on synthesis: three wall-texture conventions failed visually** (mixed
+bands → a bright mid-stripe, caught in-game round 1; fractional bottom-edge lerps →
+streaks; corner-snapped bridge fans → shag — both caught by the offline render). The
+meta-law fired (stop iterating conventions; study or carry) and the mesa SEARCH found the
+answer: **REAL carryable mesas exist** — topo-49 wall components that enclose a raised
+topo-13 shelf AND land on lowland grass all around, i.e. naturally-bounded blobs. Six
+candidates on disc 1; `mesa_carry.py` carries the **(17,15) mini-mesa** (16×16u, wall +
+shelf, verbatim geometry+UV+topo) onto island F's centre with the proven carve machinery —
+**the CARRY LAW's 5th instance** (beach1 → shore components → canopy → carried streams
+pending → the mesa). The bigger (6,15) mesa (36×23, shelf 16.2) needs a larger islet — a
+follow-up. Also minted this round: per-ring equal-arc stations + THE CONE-PERIMETER TRAP
+(a closed small terrace ring grows +2π·run per course — shared station counts stretch
+foot tiles 2×; real plateau edges are long escarpments, not cones).
+
+## The synthesized TERRACE (round 1, superseded — `terrace_build.py` kept as the record)
 
 The composition test for both interior studies, on **island F, the terrace islet** (a new
 `world-island` mint at block (3,17), center (224,−1120), r26 seed 15, patchless — island E's
