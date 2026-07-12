@@ -251,6 +251,17 @@ def jump(skip: int) -> bytes:
     return bytes([JMP_UNCOND]) + _i16(skip)
 
 
+def field_to_var(var_class, idx: int) -> bytes:
+    """``Field(<VAR>)`` -- the COMPUTED field warp: opcode 0x2B with its argFlag bit set, the destination
+    read from a variable through the engine's expression path. Engine mechanism (pinned 6b8bb2d5):
+    ``EventEngine.getv2()`` checks a per-op argFlag byte -- bit N set means operand N is an RPN expression
+    run through ``eBin.CalcExpr()`` instead of an i16 literal (EventEngine.cs:1341-1353). This is how real
+    fields do computed-id warps (the thing grep can't see); the kit's disasm/cmdasm already round-trip the
+    argFlag lane, so :func:`ff9mapkit.eb.disasm.read_code` decodes this emission byte-exactly. Like a
+    literal ``Field()``, it TRANSITIONS AWAY -- it must be the last reachable thing on its path."""
+    return bytes([0x2B, 0x01]) + _push_var(var_class, idx) + bytes([T_END])
+
+
 def if_block(cond: bytes, body: bytes) -> bytes:
     """``if (cond) { body }`` -> cond + ``02 <len(body):i16>`` (jump-if-false past body) + body."""
     return cond + bytes([JMP_FALSE]) + _i16(len(body)) + body

@@ -2806,10 +2806,15 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     """Prepend the ``[startup]`` presets (ScenarioCounter + gEventGlobal story bits) to Main_Init so every
     gate evaluated afterwards sees the asserted beat. Shared by :func:`build_script` (synthesize path) AND
     the verbatim-`.eb` path in :func:`build_field` (which bypasses build_script, so it would otherwise drop
-    ``[startup]`` entirely -- the pairing the docs promise). No ``[startup]`` -> unchanged (byte-identical)."""
+    ``[startup]`` entirely -- the pairing the docs promise). Also carries the ``[field] outpost = true``
+    registration (the [deathrules] on_defeat "last outpost visited": an unconditional every-entry word
+    write of this field's id into the kit-reserved outpost var -- last-write-wins; riding this shared
+    path means VERBATIM forks register too). Nothing to write -> unchanged (byte-identical)."""
     su = project.raw.get("startup")
-    if not su:
+    outpost = bool(project.field.get("outpost"))
+    if not su and not outpost:
         return eb
+    su = su or {}
     names = _flags.collect_flag_defs(project.raw)
     sc = su.get("scenario")
     if isinstance(sc, str):
@@ -2821,6 +2826,9 @@ def _apply_startup(project: FieldProject, eb: bytes) -> bytes:
     presets += _navimap.marker_presets(su.get("reveal_markers"))
     words = [(int(w["byte"]), int(w["value"])) for w in su.get("words", [])]
     byte_writes = [(int(b["byte"]), int(b["value"])) for b in su.get("bytes", [])]
+    if outpost:
+        from .battle import deathrules as _dr
+        words.append((_dr.OUTPOST_BYTE, int(project.field["id"])))
     return _startup.inject_startup(eb, presets, sc, words, byte_writes)
 
 

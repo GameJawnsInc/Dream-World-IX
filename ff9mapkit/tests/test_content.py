@@ -223,6 +223,25 @@ def test_reinit_with_prologue():
     assert deathrules.field_prologue(deathrules.DeathRulesSpec(second_wind=True)) == b""
 
 
+def test_outpost_registration_in_main_init(tmp_path):
+    """`[field] outpost = true` -> an unconditional Main_Init word write of the field's own id into the
+    kit-reserved outpost var (rides the [startup] machinery: every entry, last-write-wins)."""
+    from ff9mapkit.battle import deathrules
+    from ff9mapkit.build import FieldProject, _apply_startup
+    p = tmp_path / "f.field.toml"
+    p.write_text("[field]\nid = 4003\nname = 'CAMP'\narea = 11\ntext_block = 1073\noutpost = true\n"
+                 "\n[camera]\npitch = 45\n"
+                 "\n[walkmesh]\nquad = [[-1000, -100], [1000, -100], [1000, -1000], [-1000, -1000]]\n"
+                 "\n[player]\nspawn = [0, -300]\n", encoding="utf-8")
+    proj = FieldProject.load(p)
+    out = _apply_startup(proj, CLEAN)
+    assert region.set_var(region.GLOB_UINT16, deathrules.OUTPOST_BYTE, 4003) in out
+    ops = _ops(EbScript.from_bytes(out), 0, 0)
+    assert ops[0] == 0x05                            # the write runs FIRST in Main_Init (startup-style)
+    proj.field["outpost"] = False
+    assert _apply_startup(proj, CLEAN) == CLEAN      # no outpost, no [startup] -> byte-identical
+
+
 def test_music_on_entry_and_reinit():
     out = music.add_field_music(CLEAN, 9)
     eb = EbScript.from_bytes(out)

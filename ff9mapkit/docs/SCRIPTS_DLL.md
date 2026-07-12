@@ -531,6 +531,15 @@ then back to camp". The wipe marker rides a kit-reserved story bit (8508; overri
 Coverage rule: repeat the identical `[deathrules]` block on **every** encounter field of the mod — the build
 names any gaps (a wipe in an uncovered field revives and flees but cannot warp).
 
+**Outposts — "the last camp visited".** Mark any field with **`[field] outpost = true`** and a wipe warps
+to *the last outpost-marked field the player entered* instead of the fixed `warp_to` (which demotes to the
+fallback for a wipe before any outpost is reached). Registration is an unconditional every-entry write of
+the field's own id into a kit-reserved save-backed var (`gEventGlobal` bytes 1060–1061, documented for
+modders who'd rather register on save or at an inn via an `[[event]]` write); the wipe warp reads it back
+through the engine's computed-`Field()` lane (an expression-argument warp — the same mechanism real fields
+use for computed destinations). Outpost registration works on verbatim forks too (it rides the `[startup]`
+injection path).
+
 ### `[lowhp]` — the LowHP threshold (shipped content)
 
 Owns the **HP/MP checkpoint verdict** (`UnitCheckPoint` — the second returning, single-owner hook) to

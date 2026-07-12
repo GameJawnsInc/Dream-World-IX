@@ -5,13 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the OUTPOST system: `on_defeat` warps to "the last camp visited"
+- **`[field] outpost = true`** marks a field as an outpost: on **every entry** it writes its own id into a
+  kit-reserved save-backed var (`gEventGlobal` bytes 1060–1061; last-write-wins = *the last outpost the
+  player entered*; the write rides the `[startup]` injection, so **verbatim forks register too**). A
+  `[deathrules] on_defeat` wipe now warps to that var's field — `warp_to` demotes to the **fallback** for
+  a wipe before any outpost. Register-on-save/inn policies stay modder-side: the var is documented, write
+  it from an `[[event]]` instead of tagging the field.
+- The enabling engine mechanism, now a kit primitive: **op arguments can be expressions**
+  (`EventEngine.getv2()`/`gArgFlag`: a set bit routes the operand through `CalcExpr` — the "computed ids"
+  lane real fields use). New `region.field_to_var()` emits the computed `Field(<var>)`; the kit's own
+  disassembler (which already parses the argFlag lane in real fields) round-trips the emission byte-exactly.
+
 ### Changed — `on_defeat`: the INSTANT exit (no body slide)
 - Round-2 playtest: the quiet defeat worked but the escape sequence's run-away drift slid the fallen
   bodies during the fade. Workaround found in the same escape code: the slide only runs while
   `btl_escape_fade` counts down, so `on_defeat` now zeroes it — the exit is **instant** (no slide, no
   run-away fade, no flee whoosh — which was thematically off for a defeat anyway), and the battle closes
   the next frame, which also all-but-closes the mid-fade re-kill window the double-dock guard covers
-  (the guard stays, as defense in depth).
+  (the guard stays, as defense in depth). In-game proven 2026-07-11 ("instant exit works, no slide") —
+  the whole `on_defeat` flow is now ★ proven end to end.
 
 ### Changed — `on_defeat`: the QUIET DEFEAT + the double-dock guard
 - Playtest verdict on the first cut: mechanically proven (the wipe warps, no game over, gil docks,

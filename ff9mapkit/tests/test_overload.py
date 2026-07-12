@@ -688,6 +688,36 @@ def test_emit_scripts_on_defeat_coverage_warning(tmp_path, monkeypatch):
     assert not any("TOWN" in w for w in warnings)              # no encounters -> no wipe possible -> no gap
 
 
+# ---- the OUTPOST system (on_defeat "last outpost visited") ------------------------------------------------
+def test_field_to_var_encoding_roundtrips():
+    """The COMPUTED Field() warp: opcode 0x2B, argFlag 0x01, the outpost var pushed as an expression --
+    and the kit's own decoder (which parses real fields' argFlag lane) must read our emission back
+    byte-exactly: one instruction, op 0x2B, a single EXPR operand."""
+    from ff9mapkit.content import region
+    from ff9mapkit.eb import disasm
+    b = region.field_to_var(region.GLOB_UINT16, deathrules.OUTPOST_BYTE)
+    # 1060 > 0xFF -> the long-index var token: class 0xDC|0x20, u16 LE index, then the expr terminator
+    assert b == bytes([0x2B, 0x01, 0xDC | 0x20]) + (1060).to_bytes(2, "little") + bytes([0x7F])
+    instr, pos = disasm.read_code(b, 0)
+    assert pos == len(b) and instr.op == 0x2B
+    assert instr.arg_is_expr == [True]                     # the one operand decoded as an expression
+
+
+def test_field_prologue_outpost_dispatch():
+    """The wipe-warp tail: computed Field(<outpost>) when the var is nonzero, literal Field(warp_to) as
+    the fallback -- outpost branch FIRST (each Field transitions away)."""
+    from ff9mapkit.content import region
+    pro = deathrules.field_prologue(deathrules.DeathRulesSpec(warp_to=407))
+    computed = region.field_to_var(region.GLOB_UINT16, deathrules.OUTPOST_BYTE)
+    literal = bytes([0x2B, 0x00]) + (407).to_bytes(2, "little")
+    assert computed in pro and literal in pro
+    assert pro.index(computed) < pro.index(literal)
+
+
+# (the `[field] outpost = true` REGISTRATION test lives in test_content.py -- it needs the real blank-field
+#  template for the Main_Init injection)
+
+
 # ---- [lowhp] on the UnitCheckPoint returning hook ---------------------------------------------------------
 def test_hub_lowhp_returning_hook():
     """UnitCheckPoint is the second RETURNING hook: single-owner verdict expression, fail-safe 0 (no forced

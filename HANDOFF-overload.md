@@ -74,27 +74,29 @@ from one table (playtest: `scratch/deathrules_test.field.toml`, warp-to-self rou
   goblins — is thereby not worth building). Middle ground if the cut feels too abrupt: a small nonzero
   fade brings back a shorter slide.
 
-### The OUTPOST system — "wake up at camp", strictly defined (dive DONE 2026-07-11, not yet built)
+### The OUTPOST system — BUILT 2026-07-11, awaiting playtest (round 4)
 
-The user's call: `warp_to` as a fixed id is not "camp" — modders need **"the last outpost visited"**.
-The enabling engine fact is FOUND: **op args can be EXPRESSIONS** — `EventEngine.getv2()` checks a per-op
-ARG-FLAG (`gArgFlag`): bit N set → arg N is an RPN expression run through `eBin.CalcExpr()` instead of an
-i16 literal (EventEngine.cs:1341-1353; this IS the "computed ids" mechanism the process rules warn grep
-can't see). So `Field(<var>)` is NATIVE — no dispatch ladder. The strict definition:
+`warp_to` as a fixed id is not "camp" — the user's call: **"the last outpost visited"**. Built exactly as
+defined; the encoding prep step turned out already done — **the kit's own disasm/cmdasm round-trip the
+argFlag lane** (`eb/disasm.py read_code`, `eb/cmdasm.py`), so the emission was pinned against the kit's
+real-field decoder rather than a fresh byte dive:
 
-- **The outpost var**: a kit-reserved `GLOB_UINT16` at `gEventGlobal` bytes **1060-1061** (bit band
-  8480-8495, between the chest auto-band and the 8508 wipe marker) holding a FIELD ID. `0` = "no outpost
-  visited yet" (gEventGlobal is zero on New Game). Save-backed, journey-wide (one global array).
-- **Registration**: a field declares **`[field] outpost = true`**; the build injects a startup-style
-  UNCONDITIONAL write into its Main_Init: `outpost_var = <its own id>` — every entry re-registers →
-  last-write-wins = "the LAST outpost the player ENTERED". Policy variants (register on save/inn instead)
-  stay modder-side: the var is documented, so an `[[event]]` write can own the policy.
-- **The warp**: the tag-10 wipe check becomes `marker → clear → fade → if (outpost_var != 0)
-  Field(<expr: outpost_var>) → Field(warp_to)` — the TOML `warp_to` demotes to the FALLBACK (a wipe
-  before any outpost). Arrival entrance: v1 = the destination's default spawn (a second reserved var for
-  a per-outpost entrance is the extension).
-- **Before building**: pin the exact argflag+expr byte encoding against ONE real field's computed-id op
-  (the kit's disasm/optables need the arg-flag lane too); same kit-built-fields-first coverage rule.
+- **The engine fact**: op args can be EXPRESSIONS — `EventEngine.getv2()`/`gArgFlag` bit N → arg N is RPN
+  via `eBin.CalcExpr()` (EventEngine.cs:1341-1353; the "computed ids" mechanism). `Field(<var>)` is NATIVE.
+  New primitive: **`region.field_to_var(var_class, idx)`** = `2B 01 <push-var> 7F` (unit test round-trips
+  it through `disasm.read_code`: op 0x2B, one EXPR operand).
+- **The outpost var**: kit-reserved `GLOB_UINT16` at `gEventGlobal` bytes **1060-1061** (band 8480-8495)
+  = a FIELD ID; 0 = never visited (New Game zeroes it). `deathrules.OUTPOST_BYTE`.
+- **Registration**: `[field] outpost = true` → `_apply_startup` appends `(OUTPOST_BYTE, field_id)` to the
+  `[startup]` word writes — unconditional, every entry, last-write-wins = "the LAST outpost ENTERED".
+  Because `_apply_startup` is shared by the synthesize AND verbatim paths, **verbatim forks register too**.
+  Policy variants (register on save / at an inn) stay modder-side via an `[[event]]` word write.
+- **The warp**: `field_prologue` now emits `marker → clear → fade+sound → if (outpost != 0)
+  Field(<expr: outpost>) → Field(warp_to)` — `warp_to` = the FALLBACK. Arrival entrance: v1 = the
+  destination's default spawn (a per-outpost entrance var is the extension if wanted).
+- **Playtest (round 4, `scratch/deathrules_test.field.toml`)**: 4003 is its own outpost, fallback = 407
+  (Dali storage) — landing back in 4003 proves the computed warp; F6-zeroing the var (BATCH word write,
+  byte 1060 = 0) then wiping proves the fallback.
 
 ### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
 ### set fraction; 2nd wipe → game over; next battle → recharged)

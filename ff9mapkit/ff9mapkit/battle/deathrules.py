@@ -94,6 +94,14 @@ _FLAG_MAX = 2048 * 8 - 1                          # gEventGlobal is Byte[2048] -
 # FIRST_SAFE_FLAG) and above every kit auto-band (event 8000+ / cutscene 8100 / choice 8200+ /
 # on_entry 8300+ / chest 8376+).
 WIPE_FLAG_DEFAULT = 8508
+# The OUTPOST var ("the last outpost the player ENTERED"): a kit-reserved save-backed GLOB_UINT16 at
+# gEventGlobal bytes 1060-1061 (bit band 8480-8495 -- between the chest auto-band and the 8508 wipe
+# marker, below the author band 8512+) holding a FIELD ID; 0 = never visited one (gEventGlobal is zero
+# on New Game). Written by `[field] outpost = true` (an unconditional startup-style Main_Init write,
+# every entry -> last-write-wins); read by the wipe-warp prologue via a COMPUTED Field() (the engine's
+# expression-arg lane). Register-on-save/inn policy stays modder-side: put the same word write behind an
+# event instead of tagging the field.
+OUTPOST_BYTE = 1060
 _FIELD_ID_MAX = 32767                             # engine fldMapNo is Int16
 
 
@@ -526,18 +534,32 @@ def render(spec: DeathRulesSpec) -> str:
 
 
 def field_prologue(spec: "DeathRulesSpec | None") -> bytes:
-    """The tag-10 (Main_Reinit) PROLOGUE for a field in an ``on_defeat`` mod: ``if (GLOB[wipe_flag]) {
-    clear it; <the proven fade>; Field(warp_to) }`` -- prepended to the after-battle handler so the flee-end
-    the DLL triggered at the canceled game over lands here and warps. Clear-FIRST so the warp can never
-    loop; the check lives in tag-10 (after EVERY battle), and only the deathrules DLL ever sets the bit, so
-    a normal victory sees it clear. ``b""`` when on_defeat is absent."""
+    """The tag-10 (Main_Reinit) PROLOGUE for a field in an ``on_defeat`` mod::
+
+        if (GLOB[wipe_flag]) {
+            GLOB[wipe_flag] = 0                     # clear FIRST -- the warp can never loop
+            <the proven warp fade + sound>
+            if (outpost != 0) Field(<the outpost var>)   # the COMPUTED warp: the last outpost ENTERED
+            Field(warp_to)                          # the fallback (wiped before reaching any outpost)
+        }
+
+    Prepended to the after-battle handler so the flee-end the DLL triggered at the canceled game over lands
+    here and warps. The check lives in tag-10 (after EVERY battle), and only the deathrules DLL ever sets
+    the bit, so a normal victory sees it clear. Each ``Field()`` transitions away, so the fallback only runs
+    when the outpost branch didn't fire. ``b""`` when on_defeat is absent."""
     if spec is None or spec.warp_to is None:
         return b""
     from ..content import event as _event, region as _region
+    from ..eb import opcodes as _op
+    warp_tail = (
+        _op.fade_filter(*_event.WARP_FADE) + _op.wait(25)          # the proven fade-before-Field()
+        + _op.run_sound_code(*_event.WARP_SOUND)
+        + _region.if_block(_region.cond_truthy(_region.GLOB_UINT16, OUTPOST_BYTE),
+                           _region.field_to_var(_region.GLOB_UINT16, OUTPOST_BYTE))
+        + _op.field(spec.warp_to))
     return _region.if_block(
         _region.cond_truthy(_region.GLOB_BOOL, spec.wipe_flag),
-        _region.set_var(_region.GLOB_BOOL, spec.wipe_flag, 0)
-        + _event.warp(spec.warp_to, fade=True))
+        _region.set_var(_region.GLOB_BOOL, spec.wipe_flag, 0) + warp_tail)
 
 
 def deathrules_dir(layout) -> Path:
