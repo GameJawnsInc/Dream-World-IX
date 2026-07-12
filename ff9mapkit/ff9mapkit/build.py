@@ -3912,6 +3912,10 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         c_fidx = auto.cutscene()
     _, cs_gate, cs_end = _cutscene_story_bits(cs)            # the director gate + story advance (#13)
     _ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs.get("ate") else None)
+    _wd = None
+    if cs.get("owns_control", True):                         # the shared control watchdog (late-grant re-lock)
+        eb = _conductor.inject_watchdog(eb, reserve_party_band=True)
+        _wd = _conductor.WATCHDOG_MAP_FLAG
     return _conductor.inject_conductor(
         eb, steps, npc_slots, cutscene_txids,
         once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
@@ -3920,7 +3924,7 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
         then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
         ate_mode=_ate_mode,
         tag_calls=tag_calls, join_tags=join_tags, reserve_party_band=True,
-        gate=cs_gate, end_writes=cs_end)
+        gate=cs_gate, end_writes=cs_end, watchdog_flag=_wd)
 
 
 def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *, warnings) -> bytes:
@@ -4353,6 +4357,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # context -- FF9's faithful idiom (memory project-ff9-cutscene-multiactor). Injected here, AFTER the NPC
     # loop, so npc_slots (name -> uid) is populated. Several cast scenes coexist (the dispatch): the shared
     # `_cs_tag_state` continues each actor's tag numbering across blocks (no WALK_TAG_BASE collision).
+    # The control WATCHDOG (in-game diagnosed 2026-07-12, the stolen-ember brick): one shared concurrent
+    # entry that re-locks a LATE engine/Main_Init control grant within a frame while any scene runs --
+    # without it a slow field entry outlives the conductor's spin cap and the player can wander into an
+    # actor's synchronous walk path (which then stalls forever). Injected once, before the first conductor.
+    _wd_flag = None
+    if any(isinstance(cs.get("actors"), list) and cs.get("actors") and cs.get("owns_control", True)
+           for cs in cs_blocks):
+        eb = _conductor.inject_watchdog(eb)
+        _wd_flag = _conductor.WATCHDOG_MAP_FLAG
     _cs_tag_state: dict = {}
     for _k, cs in enumerate(cs_blocks):
         cast = cs.get("actors")
@@ -4375,7 +4388,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             then_warp=(int(cs["then_warp"]) if cs.get("then_warp") else None),
             say_flags=cs_say_flags, ate_mode=cs_ate_mode,
             tag_calls=tag_calls, join_tags=join_tags,
-            gate=cs_gate, end_writes=cs_end)
+            gate=cs_gate, end_writes=cs_end, watchdog_flag=_wd_flag)
 
     # cutscene (narration, no cast): an ordered, control-locked sequence on entry (once), run as a
     # standalone director code entry. Steps = say / wait / set_flag. Each narration block is its own

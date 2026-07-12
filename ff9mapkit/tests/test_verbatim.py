@@ -327,8 +327,11 @@ def test_build_field_verbatim_with_cutscene_conductor_end_to_end(tmp_path):
     assert ebs
     for p in ebs:
         s = EbScript.from_bytes(p.read_bytes())
-        assert s.entry_count == donor.entry_count + 3            # 2 NPCs + 1 conductor seated below the band (a walk = a TAG, not an entry)
-        cond = s.entry(band_lo + 2).func_by_tag(0)               # the conductor's single director function
+        assert s.entry_count == donor.entry_count + 4            # 2 NPCs + the control WATCHDOG + 1 conductor (a walk = a TAG, not an entry)
+        wd = s.entry(band_lo + 2).func_by_tag(0)                 # the shared control watchdog (late-grant re-lock)
+        assert wd is not None
+        assert 0x2D in [i.op for i in s.instrs(wd)]              # its DisableMove re-lock
+        cond = s.entry(band_lo + 3).func_by_tag(0)               # the conductor's single director function
         assert cond is not None
         speak_uids = {i.imm(0) for i in s.instrs(cond) if i.op == 0x95}   # WindowSyncEx targets, by uid
         assert band_lo in speak_uids and 250 in speak_uids       # lefty (below-band uid) + the player speak by id
@@ -367,10 +370,10 @@ def test_build_field_verbatim_parallel_walk_end_to_end(tmp_path):
     assert ebs
     for p in ebs:
         s = EbScript.from_bytes(p.read_bytes())
-        assert s.entry_count == donor.entry_count + 3                 # 2 NPCs + 1 conductor below the band (walks = TAGS)
+        assert s.entry_count == donor.entry_count + 4                 # 2 NPCs + watchdog + conductor below the band (walks = TAGS)
         for sl in (band_lo, band_lo + 1):                             # both NPC entries got a walk tag AND a join tag
             assert s.entry(sl).func_by_tag(20) is not None and s.entry(sl).func_by_tag(19) is not None
-        cond = s.entry(band_lo + 2).func_by_tag(0)
+        cond = s.entry(band_lo + 3).func_by_tag(0)
         forks = sorted((i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x10)   # RunScriptAsync(level, uid, tag)
         drains = sorted((i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x14)  # RunScriptSync(level, uid, tag)
         assert forks == [(band_lo, 20), (band_lo + 1, 20)]           # both walks forked async, by below-band uid
@@ -395,13 +398,13 @@ def test_build_field_verbatim_player_walk_end_to_end(tmp_path):
     assert build.validate(project) == []
     out = tmp_path / "mod"
     build.build_mod([project], out, mod_name="FF9CustomMap")         # must not raise (tag 20 free on the player entry)
-    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE            # lefty=band_lo, conductor=band_lo+1
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE            # lefty=band_lo, watchdog=band_lo+1, conductor=band_lo+2
     ebs = [p for p in out.rglob("*.eb.bytes")]
     assert ebs
     for p in ebs:
         s = EbScript.from_bytes(p.read_bytes())
         assert s.entry(pe).func_by_tag(20) is not None              # the walk tag is on the DONOR player entry (index unchanged)
-        cond = s.entry(band_lo + 1).func_by_tag(0)
+        cond = s.entry(band_lo + 2).func_by_tag(0)
         calls = [(i.imm(0), i.imm(1), i.imm(2)) for i in s.instrs(cond) if i.op == 0x14]
         assert (2, 250, 20) in calls                                # conductor RunScriptSync(2, player=250, 20)
 
@@ -423,12 +426,12 @@ def test_build_field_verbatim_conductor_exit_warp_end_to_end(tmp_path):
     assert build.validate(project) == []
     out = tmp_path / "mod"
     build.build_mod([project], out, mod_name="FF9CustomMap")         # must not raise
-    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE            # lefty=band_lo, conductor=band_lo+1
+    band_lo = donor.entry_count - _object.PARTY_BAND_SIZE            # lefty=band_lo, watchdog=band_lo+1, conductor=band_lo+2
     ebs = [p for p in out.rglob("*.eb.bytes")]
     assert ebs
     for p in ebs:
         s = EbScript.from_bytes(p.read_bytes())
-        cond = s.entry(band_lo + 1).func_by_tag(0)
+        cond = s.entry(band_lo + 2).func_by_tag(0)
         ops = [i.op for i in s.instrs(cond)]
         assert 1153 in [i.imm(0) for i in s.instrs(cond) if i.op == 0x2B]   # ends with Field(exit_warp) -- the warp-back
         assert 0x2E not in ops                                      # NO EnableMove (the destination restores control)

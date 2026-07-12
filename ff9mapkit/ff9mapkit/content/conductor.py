@@ -45,7 +45,43 @@ PLAYER_UID = _cutscene.PLAYER_UID      # 250 -> the engine's control-character s
 # (2026-06-28) the player could walk + dismiss the first dialogue while the camera settled, then lost
 # control. So: DisableMove, then SPIN until the engine RE-grants control, then DisableMove again -- the
 # re-lock lands AFTER the grant and holds. Capped so a field that never re-grants can't hang.
-CONTROL_POLL_CAP = 90                  # frames (~3s) -- the entry settle is ~0.5-1.5s; this is a safe ceiling
+CONTROL_POLL_CAP = 240                 # frames (~8s). Was 90 (~3s) -- IN-GAME DISPROVEN 2026-07-12 on the
+#                                        stolen-ember campaign: a BG-borrow/scrolling (Moguri'd) field's
+#                                        entry grant can land AFTER 3s, so the spin fell through, the beats
+#                                        started, and the LATE grant handed the player control mid-scene
+#                                        (walking into the actor's path stalls its synchronous walk forever).
+#                                        The cap is now pacing-only: the WATCHDOG below owns correctness.
+
+# The control WATCHDOG (the deterministic half of the fix): a tiny concurrent code entry that, while a
+# scene-running MAP flag is up, re-locks control within ONE frame of ANY grant -- whatever granted it (the
+# field's own Main_Init EnableMove, the engine's entry transition, a hotfix). The conductor raises the flag
+# on entry and lowers it before restoring control; the spin above then only PACES the scene start.
+WATCHDOG_MAP_FLAG = 110                # MAP bit (transient): clear of the dispatch once-band (80+k),
+#                                        the camera Map-byte 24, and the field-init bits 144-159
+
+
+def watchdog_body(flag: int = WATCHDOG_MAP_FLAG) -> bytes:
+    """The watchdog entry's function body: an infinite 1-frame poll -- while MAP ``flag`` is up (a cast
+    scene owns control) and the engine has (re)granted ``usercontrol``, ``DisableMove`` re-locks it. Armed
+    once per field from Main_Init; idles at one expression per frame when no scene is running."""
+    lines = [
+        "top:",
+        f"SET({{Map.Bit[{int(flag)}] B_SYSVAR[2] B_ANDAND B_EXPR_END}})",  # scene running AND control granted
+        "JMP_IFNOT(rest)",
+        "DisableMove()",                                   # a late/rogue grant -> re-lock within one frame
+        "rest:",
+        "op_22(1)",
+        "JMP(top)",
+    ]
+    return cmdasm.assemble_block("\n".join(lines))
+
+
+def inject_watchdog(data, *, flag: int = WATCHDOG_MAP_FLAG, reserve_party_band: bool = False) -> bytes:
+    """Append + arm the control watchdog as its own code entry (once per field -- shared by every cast
+    scene via the one MAP flag). Same seat+activate shape as :func:`inject_conductor`."""
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + watchdog_body(flag) + opcodes.RETURN
+    out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
+    return edit.activate(out, opcodes.init_code(slot, 0))
 
 
 def wait_for_control_then_lock(cap: int = CONTROL_POLL_CAP) -> bytes:
@@ -270,7 +306,7 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
                warmup: int = _cutscene.DEFAULT_WARMUP, owns_control: bool = True,
                then_warp: int | None = None, say_flags: int = 128, ate_mode: int | None = None,
                reorder: int = _cutscene.REORDER_WAIT, tag_calls=None, join_tags=None,
-               gate: bytes = b"", end_writes: bytes = b"") -> bytes:
+               gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
     """The conductor function body, run from a standalone ``InitCode``-armed code entry.
 
     Shape: ``[Wait(reorder)] [DisableMove] [Wait(warmup)] <beats> [EnableMove]`` gated
@@ -292,6 +328,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
     grant, by which point the InitObject'd actors exist for the by-id ``*Ex`` ops)."""
     inner = opcodes.wait(int(reorder)) if reorder and reorder > 0 else b""
     if owns_control:
+        if watchdog_flag is not None:                 # raise the scene-running flag FIRST: from here on the
+            inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 1)   # watchdog re-locks ANY grant
         inner += opcodes.DISABLE_MOVE                 # disable, so the spin waits for the engine's RE-grant
         inner += wait_for_control_then_lock()         # ... spin to that grant, then re-lock (the lock that holds)
     elif warmup > 0:
@@ -302,6 +340,8 @@ def build_body(steps, uid_by_name, txids, once_flag: int | None, *, flag_class=_
                            tag_calls=tag_calls, join_tags=join_tags)
     if ate_mode is not None:
         inner += opcodes.ate(0)                       # disarm before control returns (close the bracket)
+    if owns_control and watchdog_flag is not None:    # lower the flag BEFORE re-granting (on the warp path the
+        inner += _region.set_var(_region.MAP_BOOL, int(watchdog_flag), 0)   # MAP array resets at field unload)
     if owns_control and then_warp is None:
         inner += opcodes.ENABLE_MOVE
     # the DIRECTOR advance (#13): set_scenario/set_flags bytes INSIDE the once-gate (before the once-flag
@@ -325,7 +365,7 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                      ate_mode: int | None = None,
                      tag_calls=None, join_tags=None, reserve_party_band: bool = False,
                      spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
-                     gate: bytes = b"", end_writes: bytes = b"") -> bytes:
+                     gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
     """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init (over a
     Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``tag_calls`` (a dict
     ``step_index -> (uid, tag)``) maps each tag-kind step (walk/path/teleport/face_player) to its
@@ -337,8 +377,8 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
     perturbing the actors it addresses (which seat below the band before it, so their uids stay valid)."""
     body = build_body(steps, uid_by_name, txids, once_flag, flag_class=flag_class, warmup=warmup,
                       owns_control=owns_control, then_warp=then_warp, say_flags=say_flags,
-                      ate_mode=ate_mode,
-                      tag_calls=tag_calls, join_tags=join_tags, gate=gate, end_writes=end_writes)
+                      ate_mode=ate_mode, tag_calls=tag_calls, join_tags=join_tags,
+                      gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
     return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,

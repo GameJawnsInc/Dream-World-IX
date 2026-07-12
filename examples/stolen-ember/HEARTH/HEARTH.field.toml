@@ -43,7 +43,7 @@ steps = [
   { walk = "@player" },
   { actor = "innkeeper", say = "Cold, isn't it? Our hearth-ember was stolen in the night." },
   { actor = "innkeeper", say = "An old chapel lies past the forest trail. I have unbarred its door for you -- please, bring back the Ember." },
-  { walk = [0, -900] },
+  { walk = [0, -1100] },
 ]
 
 [[cutscene]]                 # SCENE 2 (beat 300, Ember in hand): the epilogue -> 400
@@ -57,14 +57,14 @@ steps = [
   { walk = "@player" },
   { actor = "pilgrim", say = "The hearth burns again! The whole inn feels alive." },
   { say = "The Ember of Lindblum is home. The story is complete." },
-  { walk = [-100, -800] },
+  { walk = [-222, -1000] },
 ]
 
 # --- the ROTATING CAST: two keepers of one spot, adjacent story windows (min incl, max excl) ---
 [[npc]]
 name = "innkeeper"
 archetype = "innkeeper"
-pos = [0, -900]
+pos = [0, -1100]      # near the entrance -- deeper spots hide behind the counter art (in-game 2026-07-12)
 scenario_min = 100
 scenario_max = 300           # gone once the Ember is taken (beat 300 onward)
 dialogue = "The chapel lies past the forest trail. Our Ember... please."
@@ -73,7 +73,7 @@ speaker = "Innkeeper"
 [[npc]]
 name = "pilgrim"
 archetype = "lindblum_man"
-pos = [-100, -800]           # a step from the innkeeper's spot -- the windows tile at beat 300
+pos = [-222, -1000]          # a step from the innkeeper's spot -- the windows tile at beat 300
 scenario_min = 300
 dialogue = "A warm hearth at last! You did this, didn't you?"
 speaker = "Pilgrim"

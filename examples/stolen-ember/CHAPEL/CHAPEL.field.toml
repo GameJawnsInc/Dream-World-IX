@@ -48,9 +48,10 @@ pos = [0, 1200]               # by the altar, deep in the nave
 dialogue = "The flame endures where faith remains."
 speaker = "Guardian"
 
-# --- a save point by the altar (press-to-interact; the '!' bubble marks it) ---
+# --- a save point mid-nave (press-to-interact; the '!' bubble marks it). The first zone sat on a
+# DIFFERENT walkmesh floor (the balcony level at that x/z) -- the nave floor never entered it. ---
 [[savepoint]]
-zone = [[250, 600], [550, 600], [550, 900], [250, 900]]
+zone = [[-150, 650], [150, 650], [150, 950], [-150, 950]]
 
 # --- EXIT: the church doors, back to the trail (donor zone, retargeted by hand) ---
 [[gateway]]

@@ -43,9 +43,12 @@ entrance = 0
 zone = [[2694, 2237], [2862, 2116], [1716, -32], [1351, 172]]
 requires_flag = "chapel_open"
 
-# while the door is sealed, tell the player so (the same zone; dead once chapel_open is set)
+# while the door is sealed, tell the player so. NOT the door's own zone: two regions on ONE zone
+# don't stack -- the engine's TreadQuad hands the walk-in to the FIRST armed region only (in-game
+# 2026-07-12: the closed gateway swallowed the tread and this message never fired). This strip
+# crosses the approach lane just BEFORE the door quad instead; dead once chapel_open is set.
 [[event]]
-zone = [[2694, 2237], [2862, 2116], [1716, -32], [1351, 172]]
+zone = [[1290, 60], [1655, -144], [1533, -368], [1168, -164]]
 message = "The chapel door is sealed shut. Someone in town might know a way in."
 requires_flag_clear = "chapel_open"
 once = true

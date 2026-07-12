@@ -289,3 +289,33 @@ def test_lint_logic_external_settable_suppresses_cross_member_gate(tmp_path):
     assert any("requires flag 8624" in m for m in build.lint_logic(proj))
     proj.external_settable = frozenset({8624})
     assert not any("requires flag 8624" in m for m in build.lint_logic(proj))
+
+
+def test_cast_scene_injects_control_watchdog(tmp_path):
+    # The control WATCHDOG (in-game diagnosed 2026-07-12): a field with an owns-control cast scene gets ONE
+    # shared concurrent entry that re-locks a late engine control grant while the scene-running MAP flag is
+    # up; the conductor raises/lowers that flag around its body. A slow (Moguri'd/scrolling) field entry can
+    # outlive the conductor's spin cap -- without the watchdog the late grant hands the player control
+    # mid-scene, and walking into an actor's synchronous walk path stalls the scene forever.
+    from ff9mapkit.content import conductor as _conductor, region as _region
+    from ff9mapkit.eb import EbScript
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n'
+            '[[npc]]\nname="V"\npreset="vivi"\npos=[0,-700]\n'
+            '[cutscene]\nactors=["V"]\nsteps=[ { say = "hi" } ]\n')
+    proj = _load(body, tmp_path)
+    data = build.build_script(proj, "us", {}, cutscene_txids=[500])
+    eb = EbScript.from_bytes(data)
+    flag = _conductor.WATCHDOG_MAP_FLAG
+    poll = bytes([0x05, _region.MAP_BOOL, flag & 0xFF, (flag >> 8) & 0xFF])  # SET({Map.Bit[110] ...
+    bodies = [(e.index, data[e.funcs[0].abs_start:e.funcs[0].abs_end])
+              for e in eb.entries if not e.empty and e.funcs]
+    wd = [i for i, b in bodies if poll[:2] in b and b.count(0x2D)]           # the Map.Bit poll + DisableMove
+    assert wd, "no watchdog entry found"
+    # the conductor raises + lowers the scene-running flag around its body
+    raise_bytes = _region.set_var(_region.MAP_BOOL, flag, 1)
+    lower_bytes = _region.set_var(_region.MAP_BOOL, flag, 0)
+    assert any(raise_bytes in b and lower_bytes in b for _i, b in bodies), "conductor doesn't drive the flag"
+    # a field with NO cast scene ships no watchdog (byte-identity guarded by the golden too)
+    plain = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n', tmp_path)
+    data2 = build.build_script(plain, "us", {})
+    assert poll[:3] not in data2
