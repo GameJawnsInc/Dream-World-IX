@@ -160,7 +160,20 @@ synthesis recipe for the terrace-wall rung:
 **⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
 quads; crest/body/base band rows; u-continuation with band wrap).
 
-## The TERRACE arc (round 2: THE MESA CARRY deployed 2026-07-12, ⏳ awaits playtest)
+## The TERRACE arc (round 3 in progress: THE TWO-LEVEL ISLAND — the carry verdict below)
+
+Round-3 playtest verdict on the (17,15) carry: the donor is a **PEAK in situ** — a sharp
+crag with one steep walkable topo-13 face, not a flat shelf (user: ugly; the PLATEAU idea
+is the keeper). The crag was removed and island F restored pristine. The carry MECHANISM
+worked (it rendered as real FF9 rock, being real bytes); the object was wrong — and the
+follow-up census minted **THE NO-FREE-MESA LAW**: no free-standing flat-topped mesa exists
+on disc 1 (every raised complex is a peak or a block-frame-cut escarpment fragment with a
+74–95% high rim; (6,15)'s true shelf is a RIVERBANK terrace against the river at 15.2).
+Flat terraces exist only as EDGES of larger highland ⇒ the chosen build (WIP,
+`two_level_f.py`): island F as lowland-south / plateau-north joined by an escarpment
+chord, sea side dropping to FREE bases — the shape FF9 actually uses.
+
+## Round 2: THE MESA CARRY (superseded by the verdict above — `mesa_carry.py` kept)
 
 **Round-2 verdict on synthesis: three wall-texture conventions failed visually** (mixed
 bands → a bright mid-stripe, caught in-game round 1; fractional bottom-edge lerps →
