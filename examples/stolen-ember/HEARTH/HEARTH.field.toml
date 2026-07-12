@@ -85,6 +85,27 @@ scenario_min = 300
 dialogue = "A warm hearth at last! You did this, didn't you?"
 speaker = "Pilgrim"
 
+# --- DIAGNOSTIC PROBES (temporary -- remove once the invisible-innkeeper mystery closes) ---
+# Two bare, windowless, scene-less NPCs on the PROVEN-visible spawn row ([player] spawn renders
+# there every load). Model is the ONLY variable between them:
+#   Probe A invisible + B visible  -> GEO_NPC_F0_TMM itself fails on this field (engine/model context)
+#   A + B both visible             -> models fine; the innkeeper's POSITION ([0,-1100], likely behind
+#                                     the inn-counter overlay) or his window/scene wiring is the bug
+#   A + B both invisible           -> field-level NPC rendering problem on HEARTH (beyond the innkeeper)
+[[npc]]
+name = "probe_tmm"
+model = "GEO_NPC_F0_TMM"
+pos = [-420, -1260]
+dialogue = "Probe A: a bare TMM stands here."
+speaker = "Probe A"
+
+[[npc]]
+name = "probe_csm"
+model = "GEO_NPC_F0_CSM"
+pos = [-560, -1260]
+dialogue = "Probe B: a bare CSM stands here."
+speaker = "Probe B"
+
 # --- EXITS: the inn door leads out to the forest trail (donor zone, retargeted by hand) ---
 [[gateway]]
 to = 30101                   # TRAIL
