@@ -15,6 +15,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   The build's coverage warning now also names verbatim members lacking the block (their battles are the
   donor's, so it's a maybe-gap: battle-less donors can ignore it). Awaiting in-game playtest on a real
   battle-donor fork.
+### Added — `world-minimap`: the custom continent appears on the in-game world map (no DLL)
+- The big in-game map (`world_map_full_all.png`) is a mod-overridable loose PNG; `world-minimap
+  --mod-folder <mod>` draws the folder's deployed overworld land onto it — the engine's own
+  `w_naviGetPos` projection (the mapped world is exactly 1536×1280 units) onto the image's
+  structurally-detected art rect, colours sampled from how the map draws real islets, verified
+  against the 49 live navipos town anchors. Composes with Moguri's HD map (the override must sit
+  above MoguriMain in FolderNames). Markers/labels at custom coords remain the known DLL seam.
+
 ### Added — the continent ENTRANCE pair: `world-entrance --field-direct` + `[[gateway]] to = "worldmap"`
 - **`world-entrance --field-direct <id>`** wires an overworld entrance to a CUSTOM field: the trigger func
   keeps the proven template's vehicle/state gate verbatim and warps `Field(id)` directly — no dispatcher
