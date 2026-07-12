@@ -37,11 +37,13 @@ spawn = [0, -2000]                   # just inside the harbor door, on the y=0 c
 name = "Mopli"                       # the waystation keeper (white save-moogle rig)
 pos = [170, -1750]
 model = 220
-dialogue = "Kupo! Welcome to the far isles, traveler. Rest your legs -- the sea is long, kupo!"
+dialogue = "Kupo! Welcome to the far isles, traveler. Rest here -- you can save your journey just west of me, kupo!"
 
-# the save point: press beside the moogle (the "!" prompt marks it)
+# the save point: its own press area WEST of the moogle -- it must not overlap the
+# NPC's talk range, or the action button opens the dialogue instead of the save menu
+# (playtest round 1: "he doesn't offer to save")
 [[savepoint]]
-zone = [[60, -1900], [280, -1900], [280, -1600], [60, -1600]]
+zone = [[-420, -1900], [-160, -1900], [-160, -1600], [-420, -1600]]
 
 # walking back out the entrance door returns to the world map -- the zone is field
 # 2800's OWN real exit region, verbatim (the borrowed art's door sits exactly there)
