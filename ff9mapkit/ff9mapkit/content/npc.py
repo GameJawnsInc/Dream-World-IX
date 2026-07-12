@@ -116,22 +116,17 @@ def _npc_object_params(model, animset):
 
 def build_npc_init(*, model, animset, anims, x: int, z: int, facing: int = 0, y: int = 0,
                    head_focus=DEFAULT_HEAD_FOCUS, logical_size=DEFAULT_LOGICAL_SIZE,
-                   init_tail: bytes = b"", gate=None, scenario_window=None) -> bytes:
+                   init_tail: bytes = b"") -> bytes:
     """Emit a faithful standing-NPC Init (func tag 0) from scratch -- the real-NPC opcode shape, NO player
-    clone. ``anims`` must hold all five movement clips (see :func:`_complete_anims`). ``gate`` =
-    ``(flag_index, require_set)`` prepends a story-flag gate so the object is absent unless the flag is in
-    state. ``scenario_window`` = ``(scenario_min, scenario_max)`` (either bound may be None) prepends a
-    ScenarioCounter beat-window gate -- the rotating-cast idiom, absent outside ``[min, max)``. A window and a
-    flag COMPOSE (both self-returns -> the NPC appears only when the beat AND the flag hold). ``init_tail``
+    clone. ``anims`` must hold all five movement clips (see :func:`_complete_anims`). ``init_tail``
     (the prop recipe: EnableHeadFocus(0) / AttachObject ...) is spliced just before the RETURN, applying to
-    the freshly created object."""
+    the freshly created object.
+
+    ⚠ The Init is UNCONDITIONAL by law: a story/scenario gate must wrap the ``InitObject`` CALL SITE
+    (``inject_npc`` composes it via ``region.guarded_call``), never return early from here -- an Init that
+    returns before ``SetModel`` loads the object permanently HIDDEN (the OBJECT-INIT GATE LAW on
+    :func:`ff9mapkit.content.region.guarded_call`)."""
     parts = []
-    if scenario_window is not None:
-        smin, smax = scenario_window
-        parts.append(_startup.scenario_window_gate(smin, smax))
-    if gate is not None:
-        gf, gset = gate
-        parts.append(_region.flag_gate(_region.GLOB_BOOL, gf, require_set=gset))
     parts.append(_d9_const(0, x))
     parts.append(_d9_const(4, z))
     parts.append(_d9_const(6, facing))
@@ -226,10 +221,14 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     them remapped +1 -- :func:`ff9mapkit.content.object.insert_entry_before_band`). Leave False on the
     synthesize path (a blank field has free NPC slots; behaviour is byte-identical to before).
 
-    ``gate_flag`` (a GlobBool index) makes the NPC conditional: its Init returns early -- so it never
-    creates its model and is absent/non-interactable -- unless the flag is in the required state
-    (``gate_require_set`` True = appears when the flag is SET, False = when CLEAR). This is the
-    standard FF9 way to show/hide an NPC by story state.
+    ``gate_flag`` (a GlobBool index) makes the NPC conditional -- absent (never created, never
+    interactable) unless the flag is in the required state (``gate_require_set`` True = appears when
+    the flag is SET, False = when CLEAR); ``appears_scenario_min``/``max`` gate on a ScenarioCounter
+    beat window the same way. Both compile to a CALL-SITE guard around the ``InitObject`` in
+    Main_Init (``region.guarded_call``) -- the way real fields story-gate objects. NEVER a gate inside
+    the object's Init: an Init that returns before ``SetModel`` loads the object permanently HIDDEN
+    when the gate passes (the OBJECT-INIT GATE LAW; the invisible-innkeeper bisect, in-game proven
+    2026-07-12).
 
     ``intro`` (bytes) is a raw choreography block PREPENDED to this NPC's loop (tag 1), running in the
     NPC's own object context (``gExec`` == this NPC). A low-level splice hook -- the cutscene system no
@@ -250,16 +249,11 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     anims = _complete_anims(model, anims)
     animset_v, head_focus, logical_size = _npc_object_params(model, animset)
 
-    # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft.
-    # The flag `gate` (object absent unless in state) and the prop `init_tail` (EnableHeadFocus(0) /
-    # AttachObject) are folded into the Init by build_npc_init.
-    win = ((appears_scenario_min, appears_scenario_max)
-           if (appears_scenario_min is not None or appears_scenario_max is not None) else None)
+    # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft,
+    # UNCONDITIONAL (the OBJECT-INIT GATE LAW). Story/beat gating wraps the InitObject call site below.
     body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z,
                            head_focus=head_focus, logical_size=logical_size,
-                           init_tail=bytes(init_tail or b""),
-                           gate=(gate_flag, gate_require_set) if gate_flag is not None else None,
-                           scenario_window=win)
+                           init_tail=bytes(init_tail or b""))
     # Loop (tag 1): the real 2-op standby. An ACTOR cutscene's `intro` choreography PREPENDS here (NOT the
     # Init): the engine only advances animation frames at loop state 1, so a cutscene baked into the Init
     # (state 2) would glide FROZEN. It self-gates to run once per visit.
@@ -288,10 +282,18 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
     # 7) seat + spawn (shift-free): overwrite a Main_Init Wait(n) with InitObject(slot,0). On a verbatim
     # fork (reserve_party_band) seat_entry inserts the NPC BELOW the reserved party-character band instead of
     # into a blank free slot (which on a real field is an unused CHARACTER slot the engine would mis-read).
+    # A story-gated NPC activates through a call-site GUARD block instead (the stock idiom; the guard bytes
+    # can't fit a Wait filler, so it takes the fpos-fixing insert path).
     from . import object as _object
     out, slot = _object.seat_entry(data, entry_bytes, reserve_party_band=reserve_party_band, slot=slot)
-    out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
-                        spawn_wait_occurrence=spawn_wait_occurrence)
+    guards = list(_startup.scenario_window_conds(appears_scenario_min, appears_scenario_max))
+    if gate_flag is not None:
+        guards.append((_region.cond_truthy(_region.GLOB_BOOL, int(gate_flag)), bool(gate_require_set)))
+    if guards:
+        out = edit.activate_block(out, _region.guarded_call(guards, opcodes.init_object(slot, 0)))
+    else:
+        out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
+                            spawn_wait_occurrence=spawn_wait_occurrence)
     return out
 
 

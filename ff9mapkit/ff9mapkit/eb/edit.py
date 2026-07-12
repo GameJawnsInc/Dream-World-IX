@@ -431,17 +431,26 @@ def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occur
     try:
         off = find_wait(eb, n=spawn_wait_n, occurrence=spawn_wait_occurrence)
     except ValueError:
-        if eb.entry(0).func_by_tag(0) is None:
-            raise ValueError("entry 0 has no Main_Init to activate from")
-        if after_player:
-            rel = _player_init_end(eb)
-            if rel is not None:
-                try:
-                    return insert_in_function(data, 0, 0, rel, bytes(init_bytes))
-                except ValueError:
-                    pass                                   # jump-straddled insert point -> prepend fallback
-        return insert_in_function(data, 0, 0, 0, bytes(init_bytes))
+        return activate_block(data, init_bytes, after_player=after_player)
     return patch_bytes(data, off, bytes(init_bytes), expect=bytes([WAIT_OP, 0x00, spawn_wait_n & 0xFF]))
+
+
+def activate_block(data, block: bytes, *, after_player: bool = False) -> bytes:
+    """Activate with an arbitrary-length Main_Init BLOCK -- always the fpos-fixing INSERT path (a
+    multi-byte block cannot overwrite a 3-byte ``Wait`` filler). The lane for a GUARDED activation
+    (:func:`ff9mapkit.content.region.guarded_call` around an ``InitObject`` -- the stock call-site
+    story gate; see the OBJECT-INIT GATE LAW there). ``after_player`` as in :func:`activate`."""
+    eb = EbScript.from_bytes(data)
+    if eb.entry(0).func_by_tag(0) is None:
+        raise ValueError("entry 0 has no Main_Init to activate from")
+    if after_player:
+        rel = _player_init_end(eb)
+        if rel is not None:
+            try:
+                return insert_in_function(data, 0, 0, rel, bytes(block))
+            except ValueError:
+                pass                                       # jump-straddled insert point -> prepend fallback
+    return insert_in_function(data, 0, 0, 0, bytes(block))
 
 
 # --------------------------------------------------------------------------- jump safety (best effort)

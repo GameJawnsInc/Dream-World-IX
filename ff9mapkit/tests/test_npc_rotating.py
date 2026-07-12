@@ -1,9 +1,12 @@
 """Beat-windowed / rotating-cast NPCs -- `[[npc]]` `scenario_min`/`scenario_max` (the story-event director
-primitive, #13). An NPC self-gates on a ScenarioCounter window `[min, max)` so it appears only during a story
-beat; NPCs at one spot with adjacent windows are a rotating cast (a shopkeeper who changes by disc).
+primitive, #13). An NPC gated on a ScenarioCounter window `[min, max)` appears only during a story beat;
+NPCs at one spot with adjacent windows are a rotating cast (a shopkeeper who changes by disc).
 
-The gates are the exact FF9 byte shape the roster analyzer reads (`forkreport.scenario_gates` / `_sc_cond`),
-so these tests assert the authored gate ROUND-TRIPS through the reader -- writer and reader agree byte-for-byte.
+THE OBJECT-INIT GATE LAW (in-game proven 2026-07-12, the invisible-innkeeper bisect): the window compiles
+to a CALL-SITE guard around the ``InitObject`` in Main_Init -- the stock idiom (18688 real Init funcs, zero
+early-return-before-SetModel; an init-prologue gate loads the object permanently HIDDEN when it passes).
+The guards are the exact FF9 byte shape the roster analyzer reads (`forkreport.scenario_gates` / `_sc_cond`
+/ `roster_by_beat`), so these tests assert the authored guard ROUND-TRIPS through the reader.
 """
 from __future__ import annotations
 
@@ -16,11 +19,19 @@ from ff9mapkit.content import npc as _npc
 from ff9mapkit.content import region, startup
 from ff9mapkit.eb import EbScript
 
+SET_MODEL_OP = 0x2F
+RETURN_OP = 0x04
 
-# ---- the gate primitive (no build) -------------------------------------------------------------
-def test_window_gate_roundtrips_through_reader():
-    g = startup.scenario_window_gate(2600, 6990)
-    # the roster reader decodes both bounds from the authored gate
+
+def _window_block(smin, smax, body=b"\x09\x02\x00"):
+    """The call-site guard block for a window, wrapped around an InitObject(2,0)-shaped body."""
+    return region.guarded_call(startup.scenario_window_conds(smin, smax), body)
+
+
+# ---- the guard primitive (no build) -------------------------------------------------------------
+def test_window_guard_roundtrips_through_reader():
+    g = _window_block(2600, 6990)
+    # the roster reader decodes both bounds from the authored call-site guard
     assert forkreport.scenario_gates(g) == [2600, 6990]
     # and each guard is SC>=min / SC<max (not ==), so a RANGE gates
     conds = [forkreport._sc_cond(g, off) for off in range(len(g))]
@@ -29,34 +40,42 @@ def test_window_gate_roundtrips_through_reader():
     assert (region.CMP_TOKENS["<"], 6990) in conds
 
 
-def test_window_gate_one_sided_and_empty():
-    assert forkreport.scenario_gates(startup.scenario_window_gate(3000, None)) == [3000]
-    assert forkreport.scenario_gates(startup.scenario_window_gate(None, 3000)) == [3000]
-    assert startup.scenario_window_gate(None, None) == b""          # no bounds -> no gate
+def test_window_guard_one_sided_and_empty():
+    assert forkreport.scenario_gates(_window_block(3000, None)) == [3000]
+    assert forkreport.scenario_gates(_window_block(None, 3000)) == [3000]
+    assert startup.scenario_window_conds(None, None) == []          # no bounds -> no guards
+    assert _window_block(None, None) == b"\x09\x02\x00"             # ...and the body passes through bare
 
 
 def _anims():
     return _npc._complete_anims(10, None)
 
 
-def test_build_npc_init_prepends_window():
-    b = _npc.build_npc_init(model=10, animset=0, anims=_anims(), x=100, z=200,
-                            scenario_window=(2600, 6990))
-    assert forkreport.scenario_gates(b) == [2600, 6990]
-    # gate is a PROLOGUE -> the window bytes precede CreateObject (the object returns before it appears)
-    assert b.index(bytes(startup.scenario_window_gate(2600, 6990))) == 0
+def _ops_before_setmodel(code: bytes) -> list:
+    from ff9mapkit.eb.disasm import iter_code
+    ops = []
+    for ins in iter_code(code, 0, len(code)):
+        if ins.op == SET_MODEL_OP:
+            return ops
+        ops.append(ins.op)
+    return ops
 
 
-def test_window_composes_with_flag_gate():
-    b = _npc.build_npc_init(model=10, animset=0, anims=_anims(), x=0, z=0,
-                            gate=(8512, True), scenario_window=(2600, None))
-    assert forkreport.scenario_gates(b) == [2600]                   # window present
-    assert region.flag_gate(region.GLOB_BOOL, 8512, require_set=True) in b   # flag present too
+def test_npc_init_is_unconditional_by_law():
+    # the Init NEVER gates: no ScenarioCounter conds, and no RETURN before SetModel (the OBJECT-INIT
+    # GATE LAW -- an init-prologue gate loads the object permanently hidden when it passes)
+    b = _npc.build_npc_init(model=10, animset=0, anims=_anims(), x=100, z=200)
+    assert forkreport.scenario_gates(b) == []
+    assert RETURN_OP not in _ops_before_setmodel(b)
 
 
-def test_no_window_is_byte_identical():
-    plain = _npc.build_npc_init(model=10, animset=0, anims=_anims(), x=100, z=200)
-    assert forkreport.scenario_gates(plain) == []
+def test_window_composes_with_flag_guard():
+    conds = startup.scenario_window_conds(2600, None)
+    conds.append((region.cond_truthy(region.GLOB_BOOL, 8512), True))
+    g = region.guarded_call(conds, b"\x09\x02\x00")
+    assert forkreport.scenario_gates(g) == [2600]                   # window present
+    assert region.cond_truthy(region.GLOB_BOOL, 8512) in g          # flag cond present too
+    assert g.endswith(b"\x09\x02\x00")                              # the InitObject is the guarded body
 
 
 # ---- end-to-end through a real field.toml build ------------------------------------------------
@@ -110,25 +129,27 @@ def test_rotating_pair_end_to_end(tmp_path):
     # both windows are present in the built .eb, decoded by the roster reader
     gates = forkreport.scenario_gates(data)
     assert 2600 in gates and 6990 in gates
-    # the two keeper objects self-gate: walk the roster at three beats and confirm which keeper is "live"
-    # (present-and-ungated). We verify via the analyzer's beat table: the field gates content on 2600/6990.
-    beats = forkreport.roster_by_beat(eb, data, set())
-    # roster_by_beat returns [] when the roster doesn't vary; here the InitObject calls are unconditional
-    # (the gating is in each object's OWN Init, not Main_Init) -- so assert the per-object gates instead:
-    # each keeper entry's Init carries its window.
-    windows = []
+    # THE LAW: no object Init in the built field returns before SetModel (a gated init loads hidden)
     for e in eb.entries:
         if e.empty:
             continue
         f0 = e.func_by_tag(0)
         if f0 is None:
             continue
-        body = data[f0.abs_start:f0.abs_end]
-        g = forkreport.scenario_gates(body)
-        if g:
-            windows.append(sorted(g))
-    assert [2600, 6990] in windows          # keeper_early: [2600, 6990)
-    assert [6990] in windows                # keeper_late: [6990, inf)
+        ops = []
+        for ins in eb.instrs(f0):
+            if ins.op == SET_MODEL_OP:
+                break
+            ops.append(ins.op)
+        assert RETURN_OP not in ops, f"entry {e.index}: Init returns before SetModel"
+    # ...and no window bytes inside any object entry -- the gating lives at the Main_Init CALL SITE,
+    # so roster_by_beat (which symbolically walks Main_Init) now sees the cast rotate for real:
+    beats = {beat: {s for s, _, _ in entries}
+             for beat, _, entries in forkreport.roster_by_beat(eb, data, set())}
+    assert set(beats) >= {0, 2600, 6990}
+    early = beats[2600] - beats[0]                  # keeper_early spawns only inside [2600, 6990)
+    late = beats[6990] - beats[0]                   # keeper_late from 6990 on
+    assert len(early) == 1 and len(late) == 1 and early != late
 
 
 def test_validation_rejects_inverted_window(tmp_path):
