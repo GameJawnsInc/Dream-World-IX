@@ -129,19 +129,21 @@ def test_rotating_pair_end_to_end(tmp_path):
     # both windows are present in the built .eb, decoded by the roster reader
     gates = forkreport.scenario_gates(data)
     assert 2600 in gates and 6990 in gates
-    # THE LAW: no object Init in the built field returns before SetModel (a gated init loads hidden)
+    # THE LAW: no object Init in the built field returns before SetModel (a gated init loads hidden).
+    # Only entries whose Init actually models something are in scope (code entries have no SetModel).
     for e in eb.entries:
         if e.empty:
             continue
         f0 = e.func_by_tag(0)
         if f0 is None:
             continue
-        ops = []
+        ops, models = [], False
         for ins in eb.instrs(f0):
             if ins.op == SET_MODEL_OP:
+                models = True
                 break
             ops.append(ins.op)
-        assert RETURN_OP not in ops, f"entry {e.index}: Init returns before SetModel"
+        assert not (models and RETURN_OP in ops), f"entry {e.index}: Init returns before SetModel"
     # ...and no window bytes inside any object entry -- the gating lives at the Main_Init CALL SITE,
     # so roster_by_beat (which symbolically walks Main_Init) now sees the cast rotate for real:
     beats = {beat: {s for s, _, _ in entries}

@@ -564,10 +564,15 @@ def test_story_flag_branching_builds(tmp_path):
     build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
     eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_STORYROOM.eb.bytes").read_bytes())
     gate = region.flag_gate(region.GLOB_BOOL, 200)
-    # the NPC's Init is gated by flag 200
+    # the NPC is gated by flag 200 AT THE CALL SITE (the OBJECT-INIT GATE LAW): its Init stays
+    # unconditional; Main_Init guards the InitObject
+    from ff9mapkit.eb import opcodes as _opc
     npc_e = next(e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0)
+    guard = region.guarded_call([(region.cond_truthy(region.GLOB_BOOL, 200), True)],
+                                _opc.init_object(npc_e.index, 0))
+    assert guard in eb.data
     init = npc_e.func_by_tag(0)
-    assert eb.data[init.abs_start:init.abs_start + 8] == gate
+    assert eb.data[init.abs_start:init.abs_start + 2] == b"\x05\xd9"    # first op = the position write
     # a gateway region (Field 0x2B in Range) is gated by flag 200
     gw = next(e for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
               and any(i.op == 0x2B for i in iter_code(eb.data, e.func_by_tag(2).abs_start,

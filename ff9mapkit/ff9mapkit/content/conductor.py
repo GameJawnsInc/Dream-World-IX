@@ -78,10 +78,20 @@ def watchdog_body(flag: int = WATCHDOG_MAP_FLAG) -> bytes:
 
 def inject_watchdog(data, *, flag: int = WATCHDOG_MAP_FLAG, reserve_party_band: bool = False) -> bytes:
     """Append + arm the control watchdog as its own code entry (once per field -- shared by every cast
-    scene via the one MAP flag). Same seat+activate shape as :func:`inject_conductor`."""
+    scene via the one MAP flag).
+
+    ⚠ THE TICK-ORDER LAW (in-game 2026-07-12, the 8-second scene-start stall): tick order = Main_Init
+    activation order, and the conductor's grant-catch spin must CHECK before the watchdog's re-lock each
+    frame, while the watchdog must tick AFTER the grant sources (the player entry's EnableMove) -- else
+    the watchdog kills every grant in the frame it lands and the spin starves to its full
+    CONTROL_POLL_CAP (~8s of dead air before every scene). So the watchdog and its conductors PIN to the
+    Main_Init INSERT path (never a Wait filler -- filler positions vary with the field's content mix; the
+    gate-law fix freed two late fillers and this InitCode landed AFTER the player, starving both stolen-
+    ember scenes). Insert is LIFO at Main_Init start: activate the watchdog FIRST, conductors after ->
+    conductors sit above it and tick first."""
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + watchdog_body(flag) + opcodes.RETURN
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
-    return edit.activate(out, opcodes.init_code(slot, 0))
+    return edit.activate_block(out, opcodes.init_code(slot, 0))
 
 
 def wait_for_control_then_lock(cap: int = CONTROL_POLL_CAP) -> bytes:
@@ -381,13 +391,17 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                      owns_control: bool = True, then_warp: int | None = None, say_flags: int = 128,
                      ate_mode: int | None = None,
                      tag_calls=None, join_tags=None, reserve_party_band: bool = False,
-                     spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                      gate: bytes = b"", end_writes: bytes = b"", watchdog_flag: int | None = None) -> bytes:
-    """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init (over a
-    Wait filler), exactly like a narration cutscene. Returns new .eb bytes. ``tag_calls`` (a dict
-    ``step_index -> (uid, tag)``) maps each tag-kind step (walk/path/teleport/face_player) to its
-    pre-generated per-actor tag; ``join_tags`` (``uid -> join_tag``) maps each PARALLEL-walking actor to its
-    bare-RETURN join tag. ``then_warp`` ends the scene with a fade + ``Field()`` (parity with narration).
+    """Seat the conductor as a single-function code entry and arm it via ``InitCode`` in Main_Init.
+    Returns new .eb bytes. ``tag_calls`` (a dict ``step_index -> (uid, tag)``) maps each tag-kind step
+    (walk/path/teleport/face_player) to its pre-generated per-actor tag; ``join_tags`` (``uid ->
+    join_tag``) maps each PARALLEL-walking actor to its bare-RETURN join tag. ``then_warp`` ends the
+    scene with a fade + ``Field()`` (parity with narration).
+
+    Activation PINS to the Main_Init insert path -- never a Wait filler -- so the conductor always ticks
+    BEFORE the watchdog and the player entry (see THE TICK-ORDER LAW on :func:`inject_watchdog`; a
+    conductor created after the player has its grant-catch spin starved to the full CONTROL_POLL_CAP).
+    Activate the shared watchdog FIRST, conductors after (insert is LIFO -> conductors end up above it).
 
     ``reserve_party_band``: on a VERBATIM fork the donor's last 9 slots are the playable characters, so the
     conductor INSERTS just below them (``object.seat_entry``) -- keeping the band as the top slots and not
@@ -398,5 +412,4 @@ def inject_conductor(data, steps, uid_by_name, txids, *, once_flag: int | None =
                       gate=gate, end_writes=end_writes, watchdog_flag=watchdog_flag)
     entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + body
     out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band)
-    return edit.activate(out, opcodes.init_code(slot, 0), spawn_wait_n=spawn_wait_n,
-                         spawn_wait_occurrence=spawn_wait_occurrence)
+    return edit.activate_block(out, opcodes.init_code(slot, 0))

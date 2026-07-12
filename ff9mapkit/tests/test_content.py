@@ -510,15 +510,21 @@ def test_flag_gate_bytes():
 
 
 def test_npc_gated_by_flag():
-    """A gated NPC's Init starts with the flag gate, so it returns before CreateObject when absent."""
+    """A gated NPC guards its InitObject CALL SITE (the OBJECT-INIT GATE LAW): the Init itself stays
+    unconditional (an init-prologue gate loads the object permanently HIDDEN when it passes)."""
+    from ff9mapkit.eb import opcodes as _opc
     plain = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500)
     gated = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500, gate_flag=205)
     assert gated != plain
     eb = EbScript.from_bytes(gated)
     e = next(x for x in eb.entries if not x.empty and x.func_by_tag(3) and x.index != 0)
+    # the call-site guard block sits in Main_Init: if (flag 205) { InitObject(slot, 0) }
+    guard = region.guarded_call([(region.cond_truthy(region.GLOB_BOOL, 205), True)],
+                                _opc.init_object(e.index, 0))
+    assert guard in gated
+    # the Init itself is UNCONDITIONAL: first op = the D9(0) position write; CreateObject (0x1D) runs
     init = e.func_by_tag(0)
-    assert eb.data[init.abs_start:init.abs_start + 8] == region.flag_gate(region.GLOB_BOOL, 205)
-    # the model setup still follows the gate (CreateObject 0x1D present after it)
+    assert eb.data[init.abs_start:init.abs_start + 2] == b"\x05\xd9"
     assert 0x1D in _ops(eb, e.index, 0)
 
 
@@ -1111,12 +1117,15 @@ def test_synth_chest_flag_by_name_resolves(tmp_path):
 
 
 def test_synth_gated_chest_has_appearance_gate(tmp_path):
-    # requires_flag gates the chest's APPEARANCE (distinct from the opened-flag): its Init starts with a
-    # flag_gate (early-return), so the chest is absent until that story flag is set -- a quest-reward chest.
+    # requires_flag gates the chest's APPEARANCE (distinct from the opened-flag) at the InitObject CALL
+    # SITE (the OBJECT-INIT GATE LAW -- an init-prologue gate would load the chest permanently hidden):
+    # absent until that story flag is set -- a quest-reward chest.
     from ff9mapkit.content import region
     _mes, _txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
                                     'flag = 8520\nrequires_flag = 8521\n')
-    assert region.flag_gate(region.GLOB_BOOL, 8521, require_set=True) in eb
+    # the guard prefix: push flag 8521 truth, JMP_IFNOT over the 3-byte InitObject
+    guard_prefix = region.cond_truthy(region.GLOB_BOOL, 8521) + bytes([region.JMP_FALSE]) + region._i16(3)
+    assert guard_prefix in eb
 
 
 def test_synth_chest_face_passes_through(tmp_path):
