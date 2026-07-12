@@ -62,5 +62,8 @@ zone = [[-190, -1850], [-60, -1850], [-60, -1650], [-190, -1650]]
 [[gateway]]
 to = "worldmap"
 zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
-arrive = [228.0, -1179.0]            # island C: the tower's foot
-arrive_face = 0                      # facing south, back toward the beach
+arrive = [228.0, -1187.0]            # island C, on the beach path -- 8u CLEAR of the
+                                     # trigger tiles (THE ARRIVAL-CLEARANCE LAW: an
+                                     # arrive point adjacent to a tread trigger makes
+                                     # accidental instant re-entry likely; round 5)
+arrive_face = 0                      # facing south, away from the tower
