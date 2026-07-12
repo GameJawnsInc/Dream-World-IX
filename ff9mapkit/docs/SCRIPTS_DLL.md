@@ -520,12 +520,12 @@ Mod-global + build rules identical to `[difficulty]`/`[rebalance]`. Fail-safe: a
 vanilla defeat) — never a canceled game over with nobody revived, which would stall the battle.
 
 **`on_defeat`** — warp instead of a game over (`on_defeat = { warp_to = <field id>, hp = 0.2, gil_loss =
-0.1 }`): the fallen party revives **quietly** — nobody stands up; the battle simply fades out over the
-fallen party (they're on their feet at the destination) — at `hp` × max HP, optionally loses `gil_loss` ×
-its gil **once** (a re-kill during the escape fade re-asserts the exit but never docks twice), and the
-battle ends through the engine's **own flee sequence** (the run-away fade — no flee-stat side effects, no
-double gil cut); back on the field, the after-battle handler warps to `warp_to` (a kit-built check the build
-injects into every encounter field carrying the block). Composes with `second_wind`: the wind fires first,
+0.1 }`): the fallen party revives **quietly** — nobody stands up, and the battle ends **instantly** over
+the fallen party (no run-away slide or flee sound; they're on their feet at the destination) — at `hp` ×
+max HP, optionally losing `gil_loss` × its gil **once** (a same-instant re-kill re-asserts the exit but
+never docks twice), through the engine's **own flee sequence** (no flee-stat side effects, no double gil
+cut); back on the field, the after-battle handler warps to `warp_to` (a kit-built check the build injects
+into every encounter field carrying the block). Composes with `second_wind`: the wind fires first,
 and only a spent wind (or a failed `chance` roll) falls through to the warp — a roguelike "one free revive,
 then back to camp". The wipe marker rides a kit-reserved story bit (8508; override via `on_defeat.flag`).
 Coverage rule: repeat the identical `[deathrules]` block on **every** encounter field of the mod — the build

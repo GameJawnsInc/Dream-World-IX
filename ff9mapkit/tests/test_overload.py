@@ -631,6 +631,7 @@ def test_deathrules_render_on_defeat():
         "btl_stat.RemoveStatus(unitW, BattleStatusId.Death);",
         f"gw[{deathrules.WIPE_FLAG_DEFAULT >> 3}] |= {1 << (deathrules.WIPE_FLAG_DEFAULT & 7)};",
         "UIManager.Battle.SetIdle();",
+        "state.btl_escape_fade = 0;",
         "state.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;",
         "state.btl_seq = FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE;",
         "btl_cmd.KillAllCommand(state);",

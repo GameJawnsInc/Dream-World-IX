@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `on_defeat`: the INSTANT exit (no body slide)
+- Round-2 playtest: the quiet defeat worked but the escape sequence's run-away drift slid the fallen
+  bodies during the fade. Workaround found in the same escape code: the slide only runs while
+  `btl_escape_fade` counts down, so `on_defeat` now zeroes it — the exit is **instant** (no slide, no
+  run-away fade, no flee whoosh — which was thematically off for a defeat anyway), and the battle closes
+  the next frame, which also all-but-closes the mid-fade re-kill window the double-dock guard covers
+  (the guard stays, as defense in depth).
+
 ### Changed — `on_defeat`: the QUIET DEFEAT + the double-dock guard
 - Playtest verdict on the first cut: mechanically proven (the wipe warps, no game over, gil docks,
   victories don't warp — and `Field()` from a tag-10 context is now an established fact), but the flee

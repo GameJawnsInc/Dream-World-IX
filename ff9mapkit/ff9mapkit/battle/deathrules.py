@@ -402,10 +402,11 @@ _SECOND_WIND_GUARDED = """\
 # battle's gil bonus, which is ~empty on a wipe).
 _ON_DEFEAT = """\
                 // ---- on_defeat: no game over -- the QUIET DEFEAT. Revive the fallen internally but do
-                //      NOT stand them up: the battle simply fades out over the fallen party (no get-up
-                //      racing the flee), and they are on their feet at the destination because the field
-                //      spawn owns motion there. Then FLEE the battle and mark the wipe (the field's
-                //      tag-10 sees the mark, clears it, and warps to field {warp_to}). ----
+                //      NOT stand them up (no get-up racing the exit); the battle ends INSTANTLY over the
+                //      fallen party (no run-away slide -- see the escape-fade note below), and they are
+                //      on their feet at the destination because the field spawn owns motion there. Then
+                //      FLEE the battle and mark the wipe (the field's tag-10 sees the mark, clears it,
+                //      and warps to field {warp_to}). ----
                 Boolean revivedW = false;
                 for (BTL_DATA fallenW = state.btl_list.next; fallenW != null; fallenW = fallenW.next)
                 {{
@@ -429,9 +430,14 @@ _ON_DEFEAT = """\
                     // alive below either way; gil docks and the marker sets ONCE per wipe-exit.
                     _defeatWarpFired = true;
 {gil}{marker}                }}
-                // the FLEE battle-end (SysEscape trigger, btl_cmd.cs:1035-1057, transcribed): the engine
-                // runs the run-away fade, then BTL_RESULT_ESCAPE + PHASE_CLOSE return control to the field
+                // the FLEE battle-end (SysEscape trigger, btl_cmd.cs:1035-1057, transcribed), made
+                // INSTANT: btl_escape_fade = 0 skips the run-away slide/fade/sound (battle.cs:337-356 --
+                // the pos[2] slide only runs while the fade counts down; at 0 units hide on the spot and
+                // the close proceeds the same frame, which also all-but-closes the mid-fade re-kill
+                // window). Then BTL_RESULT_ESCAPE + PHASE_CLOSE return control to the field. The counter
+                // is per-battle state (InitBattleSystem resets it to 32).
                 UIManager.Battle.SetIdle();
+                state.btl_escape_fade = 0;
                 state.btl_phase = FF9StateBattleSystem.PHASE_MENU_OFF;
                 state.btl_seq = FF9StateBattleSystem.SEQ_MENU_OFF_ESCAPE;
                 btl_cmd.KillAllCommand(state);

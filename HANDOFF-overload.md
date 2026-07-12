@@ -58,14 +58,21 @@ from one table (playtest: `scratch/deathrules_test.field.toml`, warp-to-self rou
   victories don't warp. **`Field()` from tag-10 IS PROVEN** (a new reusable .eb fact). User flagged: the
   flee fade raced the get-up animations, and a mid-fade re-kill (enemies act during the escape fade —
   vanilla "die while fleeing") could double-dock gil.
-- **QUIET DEFEAT + the DOUBLE-DOCK GUARD — BUILT 2026-07-11 (user-approved), awaiting round 2:** the
-  on_defeat revive no longer calls `SetDefaultIdle` (nobody stands up; the battle fades out over the
-  fallen party — they're on their feet at the destination because the field spawn owns motion), and a
-  per-battle `_defeatWarpFired` static makes a mid-fade re-kill re-assert the exit WITHOUT re-docking gil,
-  re-setting the marker, or re-rolling a fresh second wind (`!_defeatWarpFired` joined the wind's guard).
-  Builds without on_defeat stay byte-identical. A true get-up-THEN-flee was rejected: no per-frame mod
-  hook to delay the escape-set, the escape branch has no motion-wait for living players (an engine patch
-  would break stock-compat), and waiting would WIDEN the ATB window.
+- **QUIET DEFEAT + the DOUBLE-DOCK GUARD — BUILT 2026-07-11 (user-approved):** the on_defeat revive no
+  longer calls `SetDefaultIdle` (nobody stands up), and a per-battle `_defeatWarpFired` static makes a
+  re-kill during the exit re-assert it WITHOUT re-docking gil, re-setting the marker, or re-rolling a
+  fresh second wind (`!_defeatWarpFired` joined the wind's guard). Builds without on_defeat stay
+  byte-identical. A true get-up-THEN-flee was rejected: no per-frame mod hook to delay the escape-set,
+  the escape branch has no motion-wait for living players (an engine patch would break stock-compat),
+  and waiting would WIDEN the ATB window. Round-2 playtest: quiet defeat works but the escape drift SLID
+  the fallen bodies during the fade.
+- **THE INSTANT EXIT — BUILT 2026-07-11, awaiting round 3:** the slide only runs while `btl_escape_fade`
+  counts down (battle.cs:337-356, `pos[2] -= 100f` per frame), so on_defeat now zeroes the counter
+  (public, per-battle, InitBattleSystem resets it to 32): units hide on the spot, no slide, no flee
+  whoosh, and the close proceeds the SAME frame — which also all-but-closes the re-kill window (the
+  guard stays as defense in depth; the user's contrived double-dock test — 1-HP Zidane + twin same-ATB
+  goblins — is thereby not worth building). Middle ground if the cut feels too abrupt: a small nonzero
+  fade brings back a shorter slide.
 
 ### The OUTPOST system — "wake up at camp", strictly defined (dive DONE 2026-07-11, not yet built)
 
