@@ -363,7 +363,13 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
          private static String _sessionCode = "";
          private static Boolean _insecureTls;
-@@ -57,7 +70,7 @@ namespace Memoria.Netsync
+@@ -52,12 +65,13 @@ namespace Memoria.Netsync
+         private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
+         private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
+         private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
++        private Int32 _ghostLightTick;                   // last lighting re-apply (the engine re-tints per frame)
+ 
+         // On-screen status overlay -- the user-facing half of session setup: shows the session code +
          // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
          // moment the peer's ghost is up (the ghost itself is the "it works" signal).
          private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4,
@@ -372,7 +378,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private Int32 _ovlState = -1;
          private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
          private String _ovlText;
-@@ -66,6 +79,17 @@ namespace Memoria.Netsync
+@@ -66,6 +80,17 @@ namespace Memoria.Netsync
  
          private Int32 _lastPoll;                         // Environment.TickCount of the last config poll
  
@@ -390,7 +396,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
          // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
          // [Netsync] Enabled=1 (nothing is created while disabled -> zero cost on a normal game), and
-@@ -110,6 +134,14 @@ namespace Memoria.Netsync
+@@ -110,6 +135,14 @@ namespace Memoria.Netsync
                      port = n;
                  if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
                      field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
@@ -405,7 +411,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                  String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
                  String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
                  Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
-@@ -137,14 +169,27 @@ namespace Memoria.Netsync
+@@ -137,14 +170,27 @@ namespace Memoria.Netsync
                      }
                  }
                  String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
@@ -434,7 +440,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                              (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
                                                    : " peer=" + _peer + ":" + _port));
                  return !first;
-@@ -166,6 +211,11 @@ namespace Memoria.Netsync
+@@ -166,6 +212,11 @@ namespace Memoria.Netsync
                  _socket = null;
              }
              DespawnGhost();
@@ -446,7 +452,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              _ovlState = -1;
              _ovlDetail = 0;
              _ovlText = null;
-@@ -245,6 +295,8 @@ namespace Memoria.Netsync
+@@ -245,6 +296,8 @@ namespace Memoria.Netsync
              if (!_enabled)
                  return;
  
@@ -455,7 +461,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
              // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
              // players share; > 0 = the original single-hangout-field mode. Any failure reading the
-@@ -264,7 +316,10 @@ namespace Memoria.Netsync
+@@ -264,7 +317,10 @@ namespace Memoria.Netsync
              {
                  if (_role != "host" && _role != "client")
                  {
@@ -467,7 +473,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      if (!inScope)
                      {
                          DespawnGhost();
-@@ -275,12 +330,21 @@ namespace Memoria.Netsync
+@@ -275,12 +331,22 @@ namespace Memoria.Netsync
                      if (me == null || me.fieldMapActor == null)
                          return;   // player not fully spawned yet this frame
                      SetOverlay(OvlOff);
@@ -489,10 +495,11 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 +                                   me.fieldMapActor.transform.localRotation, stAnim);
 +                        if (stDress == 0 || stDress == me.model)
 +                            ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
++                        ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                      return;
                  }
-@@ -314,23 +378,40 @@ namespace Memoria.Netsync
+@@ -314,23 +380,41 @@ namespace Memoria.Netsync
                  {
                      Transform pt = local.fieldMapActor.transform;
                      _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
@@ -534,10 +541,11 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 +                            ApplyGhostMask(rs.MeshVis);
 +                        else if (local != null && dressModel == local.model)
 +                            ApplyGhostMask(LocalMeshMask(local));
++                        ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                  }
                  else
-@@ -340,11 +421,22 @@ namespace Memoria.Netsync
+@@ -340,11 +424,22 @@ namespace Memoria.Netsync
                          SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
                      else if (!_socket.IsConnected)
                          SetOverlay(OvlConnecting);
@@ -560,7 +568,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              }
              catch (Exception err)
              {
-@@ -359,6 +451,81 @@ namespace Memoria.Netsync
+@@ -359,6 +454,81 @@ namespace Memoria.Netsync
                  _socket.Stop();
                  _socket = null;
              }
@@ -642,7 +650,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          }
  
          // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
-@@ -403,7 +570,14 @@ namespace Memoria.Netsync
+@@ -403,7 +573,14 @@ namespace Memoria.Netsync
                      break;
                  case OvlPeerElsewhere:
                      _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
@@ -658,7 +666,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      break;
                  default:
                      _ovlText = null;
-@@ -413,6 +587,7 @@ namespace Memoria.Netsync
+@@ -413,6 +590,7 @@ namespace Memoria.Netsync
  
          private void OnGUI()
          {
@@ -666,7 +674,43 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              if (_ovlText == null)
                  return;
              if (_ovlStyle == null)
-@@ -531,14 +706,21 @@ namespace Memoria.Netsync
+@@ -515,14 +693,27 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // Field-character LIGHTING (the last cosmetic gap): the engine tints every REGISTERED character
+-        // with a flat material _Color each frame -- charClr(model) + lightClr(floor), both from the
+-        // field's mapconfig (fldmcf.ff9fieldMCFService computes it into charStateArray; fldchar applies
+-        // it) -- but the ghost lives outside the char table (no uid, no walkmesh floor tracking), so it
+-        // rendered UNTINTED against lit players. Replicate the same math once at spawn: the GHOST model's
+-        // char color + the LOCAL player's floor light (two players on one screen near-always share a
+-        // lighting zone; the field default light is the fallback). Same '(char + light) << 3' bytes, same
+-        // _Color rgb-only write. Applies to anything spawned around the actor system, not just co-op.
++        // Field-character LIGHTING: the engine tints every REGISTERED character with a flat material
++        // _Color EACH FRAME -- charClr(model) + lightClr(floor), both from the field's mapconfig
++        // (fldmcf.ff9fieldMCFService computes it into charStateArray; fldchar applies it) -- but the
++        // ghost lives outside the char table (no uid, no walkmesh floor tracking). Replicate the same
++        // math, re-applied continuously via ServiceGhostLighting (playtest: walking under field 250's
++        // tree shadow darkened Zidane per frame while the once-at-spawn ghost tint never followed):
++        // the GHOST model's char color (else the LOCAL player's entry -- a dressed model is usually
++        // not in this field's config -- else the default) + the LOCAL player's floor light (the ghost
++        // has no floor of its own; two players on one screen near-always share a lighting zone, so
++        // zone changes track the player). Same '(char + light) << 3' bytes, same _Color rgb-only write.
++        // Called every frame the ghost is driven; the actual re-tint runs at ~7 Hz (the tint is a step
++        // function of the light zone -- sub-frame latency is invisible, and this keeps the mapconfig
++        // walks off the hot path).
++        private void ServiceGhostLighting(EventEngine ee)
++        {
++            if (_ghost == null || Environment.TickCount - _ghostLightTick < 150)
++                return;
++            _ghostLightTick = Environment.TickCount;
++            ApplyGhostLighting(ee, _ghostModel == UInt16.MaxValue ? (UInt16)0 : _ghostModel);
++        }
++
+         private void ApplyGhostLighting(EventEngine ee, UInt16 model)
+         {
+             try
+@@ -531,14 +722,21 @@ namespace Memoria.Netsync
                  if (mcfPtr == null || _ghostRends == null)
                      return;
                  DMSMapConf mcf = mcfPtr.Value;
