@@ -70,7 +70,7 @@ had the gate — `world-island` now refuses any footprint block with real per-bl
 (hard refuse, no escape flag). (6,17)'s W+S frame edges are pure sea4, so the re-mint
 lawfully keeps (5,17)/(6,18) beside it — only land had to move.
 
-## The forest RE-HOME (deployed 2026-07-12, ⏳ awaits playtest)
+## The forest RE-HOME (★ IN-GAME PROVEN 2026-07-12 — "walked the whole rim aggressively, no more sticking anywhere")
 
 `forest_rehome.py` carries the (15,15) canopy blob onto **island E's west lobe** (blob
 centre world (312,−1140), 19u rim clearance — forest west, meadows east), retiring the
@@ -94,7 +94,9 @@ simulator dropped its phantom 2.8 drop window. The comprehensive form now in the
 per-STATION rim lift (launch pad within 2.10 of the exact canopy surface ≤0.75u inside,
 sampled along every rim edge) + THE PERIMETER WALK-IN GATE (0.05u ground transects across
 the whole rim; every ordered pair within one 0.65u step must climb ≤2.30). Worst climb
-after the fix: 2.05 (was effectively 2.42+).
+after the fix: 2.05 (was effectively 2.42+). ★ Round-3 playtest proved the whole rim
+block-free. The (3,14) bench override is RETIRED (deleted; backup in `backups/`) — its
+block is real map land, now restored to stock.
 
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
