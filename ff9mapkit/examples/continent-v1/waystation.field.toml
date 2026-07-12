@@ -10,11 +10,15 @@
 # Deploy (from the kit root; the overworld's dedicated folder):
 #   py ../tools/deploy_field.py examples/continent-v1/waystation.field.toml --id 6500 \
 #       --mod-folder FF9CustomMap-world
-# Then wire the overworld trigger on island B's cay -- a TIGHT cluster on the inland
-# grass tip only, so the minted beach itself stays freely walkable (a wide radius
-# would stamp the whole 35-tri cay, sand included = insta-warp on disembark):
-#   py -m ff9mapkit world-entrance --cell 1 32 --field-direct 6500 \
-#       --trigger-at 34 -1032 --trigger-radius 3 --mod-folder FF9CustomMap-world
+# Then wire the overworld trigger + the tower landmark on ISLAND C -- the real beach
+# island (7,17), the archipelago's natural landable port with a roomy grass interior.
+# (Round-3 lessons: island B's minted cay is too small for a tower + trigger and
+# autowarped arrivals -- it stays pure showcase; B's bigger north half is a SEPARATE
+# landmass with no beach, unreachable on foot.)
+#   py -m ff9mapkit world-entrance --cell 7 36 --field-direct 6500 \
+#       --trigger-at 228 -1179 --trigger-radius 3 \
+#       --building <the (13,16) tower OBJ> --building-at 228 -1174 \
+#       --mod-folder FF9CustomMap-world
 # RELAUNCH to apply (a NEW field id registration + world dispatcher .ebs).
 
 [field]
@@ -39,19 +43,23 @@ pos = [170, -1750]
 model = 220
 dialogue = "Kupo! Welcome to the far isles, traveler. Rest here -- you can save your journey just west of me, kupo!"
 
-# the save point: its own press area WEST of the moogle -- it must not overlap the
-# NPC's talk range, or the action button opens the dialogue instead of the save menu
-# (playtest round 1: "he doesn't offer to save"), and it needs a VISIBLE marker
-# (playtest round 2: an unmarked zone reads as no save spot at all)
+# the save point: its own press area WEST of the moogle, ON the walkable strip --
+# the corridor here is only x in [-207, 207] (measured from 2800's real walkmesh;
+# round 3 caught the prop placed off-floor = unreachable). Clear of the NPC's talk
+# range (round 1), visibly marked (round 2).
 [[prop]]
 prop = "save_point"
-pos = [-290, -1750]
+pos = [-125, -1750]
 
 [[savepoint]]
-zone = [[-420, -1900], [-160, -1900], [-160, -1600], [-420, -1600]]
+zone = [[-190, -1850], [-60, -1850], [-60, -1650], [-190, -1650]]
 
 # walking back out the entrance door returns to the world map -- the zone is field
-# 2800's OWN real exit region, verbatim (the borrowed art's door sits exactly there)
+# 2800's OWN real exit region, verbatim (the borrowed art's door sits exactly there).
+# arrive pins the world landing DETERMINISTICALLY at the island tower's foot (the
+# engine's position-mirror return is racy for teleported/short visits -- round 3)
 [[gateway]]
 to = "worldmap"
 zone = [[201, -3377], [-193, -3305], [-193, -2315], [188, -2547]]
+arrive = [228.0, -1179.0]            # island C: the tower's foot
+arrive_face = 0                      # facing south, back toward the beach

@@ -126,13 +126,53 @@ def cascade_bytes(game=None) -> bytes:
     return out
 
 
-def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, on_exit_body: bytes = b"",
+#: the world player's persisted-position vars (the Init's MoveInstantXZY sources,
+#: byte-decoded from WORLD09 e5/tag0): x/z are int32 fixed-point (world * 256, the
+#: 0x7E 32-bit const token), y an int16, facing a byte var. Writing them before the
+#: key-62 exit makes the arrival DETERMINISTIC -- the world places the player at
+#: these coords instead of wherever the position mirror last ticked.
+_POS_X = (0xC8, 0x53)
+_POS_Y = (0xD8, 0x56)
+_POS_Z = (0xC8, 0x58)
+_POS_FACE = (0xD4, 0x5B)
+
+
+def _set_var32(var_class: int, idx: int, value: int) -> bytes:
+    """``set VAR = value`` with the 32-bit const token -- ``05 <var> 7E <i32> 2C 7F``
+    (the exact idiom WORLD09's own Init uses to load the position vars)."""
+    import struct
+    from . import region as R
+    return bytes([0x05, var_class, idx, 0x7E]) + struct.pack("<i", int(value)) \
+        + bytes([0x2C, 0x7F])
+
+
+def arrive_writes(x: float, z: float, *, y: float = 4.0, face: int = 0) -> bytes:
+    """Preset the world player's persisted-position vars to a WORLD coordinate --
+    the walk-out's arrival point (the actor re-grounds on the next movement tick,
+    so ``y`` is a seed)."""
+    from . import region as R
+    return (_set_var32(*_POS_X, round(x * 256))
+            + R.set_var(_POS_Y[0], _POS_Y[1], round(y * 256))
+            + _set_var32(*_POS_Z, round(z * 256))
+            + R.set_var(_POS_FACE[0], _POS_FACE[1], int(face) & 0xFF))
+
+
+def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, arrive=None,
+                       arrive_face: int = 0, on_exit_body: bytes = b"",
                        game=None) -> bytes:
     """The Range body of a walk-out worldmap exit: [usercontrol guard] -> [optional
-    on-exit story writes] -> [D8:2 = region_key] -> [the verbatim shared cascade].
-    The cascade's own arms terminate the function (each ends in ``WorldMap`` + the
-    donor's return), so nothing follows."""
+    on-exit story writes] -> [optional arrival-position preset] -> [D8:2 =
+    region_key] -> [the verbatim shared cascade]. ``arrive = (x, z)`` pins the
+    world arrival DETERMINISTICALLY (the key-62 arm zeroes D8:2, so the world's
+    Init places the player from the position vars -- which this wrote). Without
+    it, the player returns wherever the engine's position mirror last recorded
+    them (correct for walked entries; an F6 teleport can race it). The cascade's
+    own arms terminate the function, so nothing follows."""
     from . import region as R
-    return R.MOVEMENT_GATE + bytes(on_exit_body) \
+    pre = b""
+    if arrive is not None:
+        ax, az = arrive
+        pre = arrive_writes(float(ax), float(az), face=arrive_face)
+    return R.MOVEMENT_GATE + bytes(on_exit_body) + pre \
         + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, region_key) \
         + cascade_bytes(game)
