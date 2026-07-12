@@ -189,6 +189,18 @@ statements in the memory file):
 Known cosmetic remainder (deferred): a small stripy corner-fan patch (~4×3u) on the wall's
 outer skirt over open sea at the east corner, visible only from the sea side.
 
+**Playtest round 1: "looks pretty good" + two issues, fixed and redeployed** (laws in the
+memory file): the exact-coordinate teleport (224,−1138) grounded the player UNDER the
+terrain — THE LATTICE-EDGE TELEPORT TRAP (a sky-cast at an exactly-lattice x/z can
+float-miss both shared-edge triangles → Y=0; teleports are now handed out MID-CELL:
+**(226.5,−1137.5)** lowland / **(222.5,−1106.5)** plateau); the east side's crest smears +
+hard right angle — THE CONVEX-ONLY CORNER SHAVE (smoothed ±5u turn metric, convex corners
+only; raw per-vertex turns cascade down the lattice staircase forever, and shaving a
+CONCAVE corner deepens it) + THE FAN FALLBACK (collapsed tile windows at macro corners get
+full-width corner assignment instead of arc-lerped u). A `DEBUG_CLASS=1` env renders the
+build class-colored (raised/kept/wall/zip) — how the false alarm about the structure was
+cleared in minutes.
+
 ### The round-3 carry verdict (what forced the two-level shape)
 
 Round-3 playtest verdict on the (17,15) carry: the donor is a **PEAK in situ** — a sharp
