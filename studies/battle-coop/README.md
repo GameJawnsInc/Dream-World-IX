@@ -116,9 +116,13 @@ The guest commands their assigned party slots in the host's battle.
   slots revert to host control instantly; feature off → byte-identical vanilla behavior.
 - Precedent UX spec: the PS1 config screen (per-slot 1P/2P assignment, P2 battle-only).
 
-### B2 — The guest's own character rides along (MEDIUM)
+### B2 — The guest's own character rides along (SHELVED 2026-07-12 — see "Beyond B1" below)
 The guest's character joins the host's party for the session and the guest commands it (B1
-machinery). Two proven substrates:
+machinery). **Shelved after the solo-proof design review**: in visitor mode (below), the guest
+commanding one of the HOST's party members via `GuestSlots` already delivers the play-together
+fantasy without B2's save-authority questions (whose XP/levels? what happens to "their"
+character on disconnect?). B2 only earns its complexity if a design specifically wants the
+guest's own build imported — revisit then. The substrates stay proven for that day:
 - **Party membership:** `B_PARTYADD` is dedup/overflow-guarded and DLL-free (in-game proven,
   incl. custom 13th characters) — add the guest character while co-op is live, party ≤ 4.
 - **Stat sync:** the engine ships `btl_init.SwapPlayerCharacter(unit, PLAYER)` (`btl_init.cs:610`)
@@ -171,6 +175,55 @@ single flag gives every mode its native feel for remote turns: Wait/Turn-Based h
 expected freeze, Fast's catch-up holds automatically (it polls the same gate), Active/Dynamic
 need nothing. It's a two-line engine change plus one wire frame — include it in B1; do NOT
 restrict modes. Docs recommendation only: "Turn-Based feels best for relaxed co-op."
+
+## Beyond B1 — the design space (added 2026-07-12, after the solo proof)
+
+Three visions of "what FF9 co-op IS", sorted by how they relate to the architecture's
+load-bearing fact: **each machine runs its own complete game** (own save, own flags, own
+field); the shared world is an illusion produced by position frames on a shared screen.
+Everything cheap lives downstream of that fact; everything expensive fights it.
+
+### V1 — The stock experience: "visitor mode" (NEXT after the two-machine test)
+The guest is a presence inside the HOST's game: a cosmetic extra party member running around
+the map, who commands one-or-more party slots in battle (`GuestSlots` is already a bitmask —
+"or more" works today). Three additions complete it, all on proven rails:
+1. **Ghost-as-party-member dressing** (cheap): the wire already carries a model id per frame
+   and the ghost re-dresses live; a knob (`GhostAs = <char>`, or "dress the peer as their
+   GuestSlots member") makes the guest LOOK like the Vivi they command.
+2. **Follow-host warp** (moderate): the host's true field id is already broadcast every frame;
+   a `FollowHost=1` guest auto-warps to match on change (the F6-Warp machinery, automated).
+3. **Guest-side encounter suppression** while following (cheap): only the host's battles
+   exist; the guest assists through the existing B0/B1 lanes.
+**The honest wart — story-state divergence**: the guest's copy of a field renders THEIR flags
+(different NPCs/doors; worst case a cutscene grabs them on entry). Same-story-beat saves
+mostly mask it; visitor mode ships labeled experimental because of it. The guest is a spirit:
+their chest/NPC interactions touch their own save and should be treated as void while
+following.
+
+### V2 — The from-scratch co-op campaign: the `[[coop]]` vocabulary (the kit's home turf)
+"Two characters on two fields" already works today (independent games + everywhere-mode
+meetups). What a from-scratch 2-player mod adds is DESIGNED INTERLOCK, and the trick that
+makes it cheap: **position-derived cooperation needs no state sync**. The engine knows both
+players' positions; it can compute "both standing on the plates" locally and set an ordinary
+`gEventGlobal` flag that an ordinary kit gateway polls (`setVarManually` — verified public and
+bit-identical to `.eb` GLOB writes back in the s36 era; this was the sketched-but-never-built
+"two-plate puzzle"). From that one primitive: both-players-present doors, split-up-and-flip-
+switches puzzles, hold-the-bridge encounters — an authorable `[[coop]]` block in `field.toml`,
+each player advancing their own save through content authored for two. Zero story-divergence
+problem, because we author both sides. This is the most differentiated thing the kit could
+build on the co-op foundation.
+
+### V3 — True shared-world stock wandering (research horizon — a remaster, not a feature)
+Both players free-roaming ONE coherent stock world needs real state sync. The gradient:
+one-way **flag sync is genuinely feasible** (GLOB writes broadcast as events over the reliable
+wire) and shared-flags+chests would make the world mostly cohere. The killers: the single-
+party data model (who owns Vivi when you're on different continents?) and stock cutscenes,
+which are authored to seize "the player" — all ~674 fields would need coop-safe handling.
+If ever attempted, it starts as a scoped flag-sync experiment, not a commitment.
+
+**The recommended ladder**: two-machine validation of B0/B1 → V1 dressing → V1 visitor mode →
+the V2 `[[coop]]` vocabulary → V3 stays a labeled research question with flag-sync as its
+first probe. B2 stays shelved until a concrete design pulls the guest's own character in.
 
 ## Wire v3 (the one infrastructure change)
 
