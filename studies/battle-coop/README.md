@@ -29,13 +29,15 @@ party. That is not an invention — it is *restoring a native FF9 feature the PC
 
 ## Why the engine is unusually friendly to this
 
-1. **Latency tolerance is native.** FF9's default ATB **WAIT mode freezes every gauge while any
-   command menu is open** (`cfg.atb == 1` default → `BattleHUD.IsNativeEnableAtb`,
-   `BattleHUD.Public.cs:742-754`, gating `ProcessActiveTime` at `HonoluluBattleMain.cs:411-412`).
-   The sim is a fixed-timestep tick decoupled from rendering (`FPSManager` accumulator,
-   `HonoluluBattleMain.UpdateFrames:580-608`), and a clean full-sim pause exists (`IsPaused` →
-   `UpdateBattleFrame` early-return, `HonoluluBattleMain.cs:673`; plus `FPSManager.DelayMainLoop`).
-   A "waiting for your partner" freeze needs no new mechanism.
+1. **Latency tolerance is structural, not mode-dependent.** Commands are discrete and a ready
+   slot simply waits in the queue until commanded — in EVERY ATB mode, a guest deciding slowly
+   is mechanically identical to a local player deciding slowly (see "ATB modes" below for the
+   full matrix). On top of that, WAIT-style modes freeze gauges during menus
+   (`BattleHUD.IsNativeEnableAtb`, `BattleHUD.Public.cs:742-754` + the Turn-Based logic in
+   `FF9BMenu_IsEnableAtb`, `:723-740`), the sim is a fixed-timestep tick decoupled from
+   rendering (`FPSManager` accumulator, `HonoluluBattleMain.UpdateFrames:580-608`), and a clean
+   full-sim pause exists (`IsPaused` → `UpdateBattleFrame` early-return,
+   `HonoluluBattleMain.cs:673`; plus `FPSManager.DelayMainLoop`).
 
 2. **Command injection is a shipped pattern, not a hack.** Memoria's own auto-battle is the
    template (`BattleHUD.Unity.cs:582-602` `SendAutoAttackCommand`): borrow `CurrentPlayerIndex`,
@@ -98,9 +100,9 @@ The guest commands their assigned party slots in the host's battle.
 - **Guest:** a battle command menu in the overlay (commands/abilities/items/targets come from
   the B0 state stream + a once-per-battle roster frame). The guest is meanwhile standing on a
   field in their own game — assist mode captures menu input, like F6 does.
-- **Latency UX:** WAIT-mode semantics extend naturally — the host's gauges freeze while the
-  guest's menu is open (same `FF9BMenu_IsEnableAtb`-style gate the local menus use). Optional
-  hard gate: `IsPaused` while waiting on a guest turn.
+- **Latency UX:** the `RemoteMenuOpen` flag (see "ATB modes" above) OR'd into the two existing
+  gauge gates gives every host ATB mode its native feel for remote turns. Optional hard gate:
+  `IsPaused` while waiting on a guest turn.
 - **Fail-safe law (same as all coop):** guest stale/disconnected (existing 2s staleness) →
   slots revert to host control instantly; feature off → byte-identical vanilla behavior.
 - Precedent UX spec: the PS1 config screen (per-slot 1P/2P assignment, P2 battle-only).
@@ -126,6 +128,40 @@ suppresses enemy AI entirely (`HonoluluBattleMain.cs:529-541`) while injected co
 play their full animations through `CommandEngine`. Divergence sources to force/ignore are
 enumerated (StartType roll, pattern roll, initial-ATB rolls, idle-anim phase). Build only after
 B1 proves fun; B0's readout may be plenty.
+
+## ATB modes — no strict requirement needed (analyzed 2026-07-12)
+
+FF9/Memoria has TWO orthogonal knobs, and **only the HOST's settings matter** (the battle exists
+only on the host; the guest's config is irrelevant — half the compatibility matrix vanishes):
+
+- **Vanilla Active/Wait** (`cfg.atb`, the in-game ATB option): Wait freezes gauges while a
+  target/ability/item submenu is open (`IsNativeEnableAtb`, `BattleHUD.Public.cs:742-754` —
+  note vanilla Wait does NOT freeze on the top-level command list); Active never freezes.
+- **Memoria "ATB Mode"** (the config dropdown = INI `[Battle] Speed`; label→value mapping in
+  `ConfigUI.cs:1227-1229,1390-1392`): Normal=0, Fast=1, Turn-Based=2, **Dynamic=5** (the INI's
+  "Simultaneous" — it changes command-EXECUTION concurrency at dequeue, `btl_cmd` Speed≥3
+  paths, and forces SFXRework; it does not change command entry). Fast/Turn-Based add a
+  catch-up loop (`ProcessActiveTime` do/while, `HonoluluBattleMain.cs:424-563`) that
+  fast-forwards idle time; **the loop re-checks `FF9BMenu_IsEnableAtb()` every iteration
+  (`:442`) and stops when a player's gauge fills** (`needContinue=false`, `:480,489-491`) — it
+  cannot skip past a pending (guest) turn. Turn-Based's freeze = `isMenuing || hasQueue` in
+  `FF9BMenu_IsEnableAtb` (`:728-739`).
+
+**Correctness is mode-independent.** The seam (ready slot waits in `ReadyQueue` → wire command
+→ `SetCommand`) works identically in all 2×4 combinations; a slow guest is exactly a slow local
+player. What differs is only *pressure* (how much battle time passes while the guest menus) —
+the same difference those modes already impose on local players.
+
+**The one real finding: the freeze gates read LOCAL panel state.** `IsNativeEnableAtb` checks
+`ButtonGroupState.ActiveGroup` and Turn-Based checks `_commandPanel/_targetPanel/….IsActive` —
+a guest menuing over the wire opens no local panel, so on a Wait or Turn-Based host the battle
+would keep running during guest turns (Active-like pressure), *unless* we OR a **`RemoteMenuOpen`
+flag** (set by a wire frame while the guest's command UI is up; cleared on submit + staleness
+timeout so a hung guest can never freeze the host's battle) into those two functions. That
+single flag gives every mode its native feel for remote turns: Wait/Turn-Based hosts get their
+expected freeze, Fast's catch-up holds automatically (it polls the same gate), Active/Dynamic
+need nothing. It's a two-line engine change plus one wire frame — include it in B1; do NOT
+restrict modes. Docs recommendation only: "Turn-Based feels best for relaxed co-op."
 
 ## Wire v3 (the one infrastructure change)
 
@@ -153,8 +189,8 @@ hub can contribute `OnBattleInit` seeding for B2, but the pillar is an engine pa
    v1-exclude (Vivi dualcast in Trance etc.).
 4. Trance on a guest-owned slot (menu changes shape mid-battle) — state frame carries trance;
    guest menu re-renders.
-5. Whether B1 should optionally `IsPaused`-gate on the guest's open menu (hard wait) or trust
-   WAIT-mode gauges only (soft wait) — playtest call.
+5. Whether B1 should ALSO offer an `IsPaused` hard gate on guest turns (a stricter option than
+   the RemoteMenuOpen gauge-hold) — playtest call, default off.
 
 ## Dead ends (proven here — don't re-explore)
 
