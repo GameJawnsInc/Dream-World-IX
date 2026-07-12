@@ -48,7 +48,7 @@ curtains; every rise gated ≤ 2.2u under the engine's 2.34375u step ceiling —
 genuinely block at their own 2.4u+ segments). Proven on the reclaimed bench pad at cell (3,14)
 (`world-reclaim --profile island --seg 16`).
 
-## The canvas (re-minted 2026-07-12, ⏳ awaits playtest round 2)
+## The canvas (★ IN-GAME PROVEN 2026-07-12 — "renders fully, the whole cliff loop is walkable, meadows look good")
 
 The census exposed the blocker for every further interior rung: **no forest/hill-scale
 grass exists anywhere we control** — the archipelago's grass pockets top out at ~16×8u,
@@ -58,7 +58,7 @@ big grass island. The fix is **island E, the from-scratch grassland canvas**: a
 world (344,−1152), blocks (4–5, 17–18) + (6,18) of `FF9CustomMap-world` — inside the
 archipelago's bay, NE of island C. All offline gates clean (geometry, UV language,
 placement census MISS=0, Moguri-atlas alpha, shape language); regeneration one-liner in
-`ff9mapkit/examples/continent-v1/README.md`. Once proven it replaces the (3,14) bench as
+`ff9mapkit/examples/continent-v1/README.md`. Proven, it replaces the (3,14) bench as
 the home for the forest-carry, hill, and terrace rungs.
 
 Round-1 playtest (seed 20, blocks (4–6,17–18)): 5 of 6 blocks rendered walkable with the
