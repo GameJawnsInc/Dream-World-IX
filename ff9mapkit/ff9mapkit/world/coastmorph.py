@@ -4071,7 +4071,7 @@ def _apply_pre(tris_by_part, tweaks):
 
 
 def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
-               disc: int = 1, lod: str = "0_1", game=None):
+               along=None, disc: int = 1, lod: str = "0_1", game=None):
     """THE BANK RESHAPE -- the virgin mint's site-preparation verb: lower a
     mesa/cliff-top bank into a beach-capable profile (RESHAPE stock verts, never
     overlay). Every terrain vert within ``radius`` of ``center`` (plan) sinks to at
@@ -4101,7 +4101,18 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
     for k, p in tverts.items():
         if k in water_k:
             continue
-        r = math.hypot(p[0] - center[0], p[2] - center[1])
+        if along is not None:
+            # corridor mode: the falloff distance runs from the beach CHORD
+            # segment, so the sink hugs the cove and the far rim keeps its
+            # natural walls (a small islet has no room for a radial reach)
+            (ax_, az_), (bx_, bz_) = along
+            ex_, ez_ = bx_ - ax_, bz_ - az_
+            el2_ = ex_ * ex_ + ez_ * ez_ or 1.0
+            t_ = max(0.0, min(1.0, ((p[0] - ax_) * ex_
+                                    + (p[2] - az_) * ez_) / el2_))
+            r = math.hypot(p[0] - (ax_ + t_ * ex_), p[2] - (az_ + t_ * ez_))
+        else:
+            r = math.hypot(p[0] - center[0], p[2] - center[1])
         if r >= radius:
             continue
         if min(p[0] - fx0, fx1 - p[0], p[2] - fz0, fz1 - p[2]) < 1.5:

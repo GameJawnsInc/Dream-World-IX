@@ -806,21 +806,25 @@ def test_virgin_mint_deep_shore_golden():
     unlawful pair one band down ({wash|4} -> 4->5 -> 5->1) until the whole
     synthesized ladder is lawful -- including 34 sea4 tiles."""
     from ff9mapkit.world.coastmorph import bank_lower, virgin_mint
-    pre = bank_lower((10, 18), (674.0, -1164.0), radius=25.0)
+    # the corridor bank (playtest-steered): the sink hugs the cove chord so the
+    # islet's crown + far walls keep ~92% of their natural height (a radial
+    # reach flattened the whole rim -- "shrunken cliffs confirmed")
+    pre = bank_lower((10, 18), (674.0, -1168.4), radius=7.0, shore_slope=0.75,
+                     cap=3.6, along=((666.9, -1168.6), (681.1, -1168.2)))
     tw = virgin_mint((10, 18), (666.9, -1168.6), (681.1, -1168.2),
                      width=3.6, swash=4.4, pre=pre, pins_from=(7, 17))
     led = [(getattr(t, "part", None),
             ("drop", t.expected) if hasattr(t, "keys")
             else ("emit", len(t.tris)) if hasattr(t, "tris")
             else ("displace", t.expected)) for t in pre + tw]
-    assert led == [(None, ("displace", 54)),
+    assert led == [(None, ("displace", 43)),
                    ("terrain", ("drop", 10)), ("terrain", ("emit", 19)),
                    ("beach1", ("emit", 18)),
                    ("sea2", ("emit", 29)), ("sea1", ("emit", 22)),
                    ("sea3", ("drop", 14)),
                    ("sea5", ("drop", 16)), ("sea5", ("emit", 22)),
                    ("sea4", ("drop", 34))]
-    assert _tweak_hash(pre + tw) == "c6323e9018f67821"
+    assert _tweak_hash(pre + tw) == "cea15e5d36fb9235"
     # real-scale check: 4 columns over the ~14.8u arc (the whole point)
     foam = next(t.tris for t in tw
                 if getattr(t, "part", None) == "beach1" and hasattr(t, "tris"))
