@@ -142,6 +142,17 @@ and marker commands are stock-engine.
 | Overworld encounters: re-table + retune frequency (`world-encounters`, `world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Atlas texturing: extract / catalog / reskin / add tiles; minimap marker renames | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 
+## Multiplayer (experimental)
+
+Two-player exploration co-op ("ghost sync"): each player sees the other walk a shared field in real
+time — no battle or story-state coupling. Requires the Dream World IX custom engine's `s36` netsync
+patch ([ENGINE.md](ENGINE.md)), which is not yet in the pre-built engine bundle.
+
+| Capability | | Docs |
+|---|---|---|
+| One-command session setup — room deploy + config + session code + TLS bridge (`coop host`, `coop join ff9-XXXX`) | ✓ | `coop -h` |
+| Internet play through a public rendezvous relay (random private session codes), or direct LAN (`coop host --lan`) | ✓ | `coop -h` |
+
 ## Audio & video
 
 | Capability | | Docs |

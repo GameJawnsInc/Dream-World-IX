@@ -14,7 +14,21 @@ default relay endpoint is baked in (lightly obfuscated only to keep the URL
 out of automated string-scrapers; the real access gate is your random session
 code).
 
-## Quickstart (both players)
+## Quickstart — the one-command way
+
+`ff9mapkit coop` does everything on this page for you (room deploy, config,
+code, bridge):
+
+```
+ff9mapkit coop host              # player 1 -- prints + copies your session code
+ff9mapkit coop join ff9-XXXX     # player 2 -- with the host's code
+```
+
+Leave the command running while you play (it hosts the bridge), launch FF9,
+and F6 → Warp → 30003 on both machines. The rest of this page is the manual
+version of the same setup.
+
+## Manual setup (both players)
 
 1. Run the bridge (needs Python 3.8+, no packages):
 
