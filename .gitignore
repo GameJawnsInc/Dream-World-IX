@@ -242,3 +242,6 @@ installer/THIRD-PARTY-NOTICES.txt
 
 # video/demo assets embedding SE texture bytes (provenance gate: never commit)
 video/
+
+# study artifacts regenerate from the user's install (see studies/*/README.md)
+studies/*/out/
