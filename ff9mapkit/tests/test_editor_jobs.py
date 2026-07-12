@@ -154,6 +154,14 @@ def test_deploy_campaign_argv_no_warp_by_default(tmp_path):
     assert jobs.deploy_campaign_argv(tmp_path, "c.toml", wire_newgame=True)[-1] == "--apply"  # warp on -> no flag
 
 
+def test_deploy_campaign_argv_threads_mod_folder(tmp_path):
+    # the dev/repo path must pin the campaign's DECLARED folder, else deploy_campaign.py falls back to
+    # .ff9deploy.toml/FF9CustomMap and silently disagrees with the UI label (the FF9CustomMap-ow redirect bug)
+    a = jobs.deploy_campaign_argv(tmp_path, "c.toml", mod_folder="FF9CustomMap-ow")
+    assert a[a.index("--mod-folder") + 1] == "FF9CustomMap-ow"
+    assert "--mod-folder" not in jobs.deploy_campaign_argv(tmp_path, "c.toml")  # omitted -> back-compat
+
+
 def test_deploy_battle_argv_optional_trigger(tmp_path):
     assert "--trigger-field" not in jobs.deploy_battle_argv(tmp_path, "b.toml")
     a = jobs.deploy_battle_argv(tmp_path, "b.toml", trigger="4003")

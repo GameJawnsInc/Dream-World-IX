@@ -684,7 +684,8 @@ class BuildDoc(QWidget):
             # Repo checkout -> the dev tool (reverts to tools/scroll_out); installed copy -> the package CLI
             # (ff9mapkit deploy-campaign; reverts to a per-user cache). Same in-game-proven orchestration.
             if self.has_tools:
-                argv, cwd = jobs.deploy_campaign_argv(self.repo, path, wire_newgame=wire), self.repo
+                argv, cwd = jobs.deploy_campaign_argv(self.repo, path, wire_newgame=wire,
+                                                      mod_folder=self.plan.mod_folder), self.repo
             else:
                 argv, cwd = jobs.deploy_campaign_pkg_argv(path, wire_newgame=wire,
                                                           mod_folder=self.plan.mod_folder), self.kit_cwd

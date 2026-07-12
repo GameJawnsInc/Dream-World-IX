@@ -302,9 +302,14 @@ def deploy_field_inplace_argv(repo_root, field, target):
             "--text-block", str(target["text_block"])]
 
 
-def deploy_campaign_argv(repo_root, path, *, wire_newgame=False):
-    """Reversibly deploy a whole campaign (``tools/deploy_campaign.py --apply``)."""
+def deploy_campaign_argv(repo_root, path, *, wire_newgame=False, mod_folder=None):
+    """Reversibly deploy a whole campaign (``tools/deploy_campaign.py --apply``). ``mod_folder`` pins the
+    install target to the campaign's DECLARED folder (``plan.mod_folder``) -- without it the tool falls back
+    to ``.ff9deploy.toml``/``FF9CustomMap``, which can silently disagree with the folder the UI labels + the
+    post-deploy "add to FolderNames" hint name (the dev-path analogue of the pkg path's mod_folder pass)."""
     a = [sys.executable, _tool(repo_root, "deploy_campaign.py"), str(path), "--apply"]
+    if mod_folder:
+        a += ["--mod-folder", str(mod_folder)]
     if not wire_newgame:
         a.append("--no-warp")
     return a
