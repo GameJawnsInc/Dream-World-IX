@@ -274,7 +274,7 @@ index cee10cb8..419abdf9 100644
                  }
                  _isInitialized = true;
                  Log.Message($"[DataPatchers] Initialized");
-@@ -57,6 +93,23 @@ namespace Memoria
+@@ -57,6 +93,40 @@ namespace Memoria
              }
          }
  
@@ -290,7 +290,24 @@ index cee10cb8..419abdf9 100644
 +                if (parts.Length >= 2 && Int32.TryParse(parts[0], out Int32 fork) && Int32.TryParse(parts[1], out Int32 donor))
 +                {
 +                    ForkDonorMap[fork] = donor;
-+                    ForkSiblingMap[donor] = (ForkSiblingMap.TryGetValue(donor, out Int32 prev) && prev != fork) ? -1 : fork;
++                    if (ForkSiblingMap.TryGetValue(donor, out Int32 prev) && prev != fork)
++                    {
++                        // [ff9mapkit] donor forked by >1 fork id (e.g. two stacked mod folders each fork the same
++                        // real field) -> the donor->fork remap is AMBIGUOUS, disabled with -1 (identity). This
++                        // SILENTLY defeats the event-battle after-warp redirect (HonoluluBattleMain): a scripted
++                        // boss then dumps the player into the REAL donor field instead of the fork. WARN once (on the
++                        // first collision) so a stacked-fork clash is diagnosable in Memoria.log, not a mystery.
++                        if (prev != -1)
++                            Log.Warning($"[DataPatchers] ForkDonorPatch: donor field {donor} is forked by both {prev} " +
++                                        $"and {fork} -> remap DISABLED (ambiguous); an event-battle/scripted-boss " +
++                                        $"after-warp from either fork will LEAK to real field {donor}. Deploy only one " +
++                                        $"fork of donor {donor} at a time.");
++                        ForkSiblingMap[donor] = -1;
++                    }
++                    else
++                    {
++                        ForkSiblingMap[donor] = fork;
++                    }
 +                }
 +            }
 +        }
