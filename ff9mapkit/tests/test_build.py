@@ -1050,3 +1050,23 @@ def test_battle_bgm_warns_on_conflicting_song(tmp_path):
     bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
     assert "Music: 35" in bp and "Music: 9" not in bp                 # first-wins
     assert any("conflicting songs" in w for w in res["warnings"])
+
+
+def test_npc_model_kwargs_explicit_anims_override_archetype():
+    """[[npc]] archetype= + anims=: the user's explicit clip set WINS. The archetype path used to drop
+    the override silently -- the stolen-ember innkeeper's corrected anims never reached the game, which
+    contaminated an in-game A/B (the deployed .eb still carried the auto-resolved set)."""
+    from ff9mapkit import archetypes as AR
+    from ff9mapkit.build import _npc_model_kwargs
+
+    ov = {"stand": 654, "walk": 655, "run": 657, "left": 17, "right": 16}
+    k = _npc_model_kwargs({"archetype": "innkeeper", "anims": ov})
+    assert k["model"] == AR.resolve("innkeeper")[0]                   # archetype still names the model
+    assert k["anims"] == ov                                           # ...but the explicit clips ship
+    assert _npc_model_kwargs({"archetype": "innkeeper", "animset": 87})["animset"] == 87
+    # no override -> the archetype's auto-resolve, unchanged
+    k2 = _npc_model_kwargs({"archetype": "innkeeper"})
+    assert (k2["model"], k2["animset"], k2["anims"]) == AR.resolve("innkeeper")[:3]
+    # the bare-model path keeps its Info Hub join + explicit-anims precedence
+    assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM"})["anims"]["stand"] == 654
+    assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM", "anims": ov})["anims"] == ov

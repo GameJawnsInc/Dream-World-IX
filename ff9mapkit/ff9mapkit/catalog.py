@@ -296,9 +296,12 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
     F3-MOG rig keeps its real F3 clips -- given as that name's CANONICAL row (its lowest id, the one the
     ``ff9mapkit models <name>`` list and the kit's proven presets use). A baked id that is a same-name
     DUPLICATE row (the ~4.7k two-ids-one-name AnimationDB rows above) is canonicalized --
-    ``GEO_NPC_F0_TMM``'s modal stand 706 -> its own idle 654: the duplicate id left the NPC
-    unposed/INVISIBLE on a synthesized field (in-game 2026-07-12) even though both ids name the same
-    clip. A baked slot naming a truly FOREIGN token's clip falls back to the gesture-name resolution; a
+    ``GEO_NPC_F0_TMM``'s modal stand 706 -> its own idle 654 (both name the same clip; the canonical
+    row is what the kit's in-game-proven presets and the ``models`` listing use). NOTE: the
+    invisible-innkeeper report that prompted this was later found CONTAMINATED -- the explicit-anims
+    A/B never shipped (``build._npc_model_kwargs``) -- so the law stands on consistency + the engine's
+    name-keyed load paths, not on that repro; the invisibility itself is still undiagnosed.
+    A baked slot naming a truly FOREIGN token's clip falls back to the gesture-name resolution; a
     model with no own movement gestures at all keeps its baked real-NPC clips verbatim (real observed
     values beat nothing -- the frog rigs FRC/FRF only ever played FRM clips). Off-catalog models (incl.
     party GEO_MAIN, so the vivi preset stays) use the gesture-name resolution directly.

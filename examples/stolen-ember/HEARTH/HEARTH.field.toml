@@ -64,9 +64,13 @@ steps = [
 [[npc]]
 name = "innkeeper"
 archetype = "innkeeper"
-anims = { stand = 654, walk = 655, run = 657, left = 17, right = 16 }   # the TMM catalog join mis-resolves
-# stand to 706 (not in the model's own clip list) -> the model renders INVISIBLE (in-game 2026-07-12);
-# these are GEO_NPC_F0_TMM's real clips (`ff9mapkit models GEO_NPC_F0_TMM`)
+anims = { stand = 654, walk = 655, run = 657, left = 17, right = 16 }   # GEO_NPC_F0_TMM's own canonical
+# clips (`ff9mapkit models GEO_NPC_F0_TMM`). TRUTH AUDIT 2026-07-12: the innkeeper renders INVISIBLE
+# (undiagnosed). This override was believed tested in-game, but the build silently DROPPED anims= on
+# archetype NPCs (fixed the same day, build._npc_model_kwargs) -- every run so far actually shipped the
+# auto-resolved stand=706 (verified in the deployed .eb). The line is live as of the fix; the next
+# deploy is the first real 654-vs-706 A/B. Engine reading says the two ids are name-equivalent, so if
+# the NPC is still invisible the cause is elsewhere (model/context), not the clip ids.
 pos = [0, -1100]
 scenario_min = 100
 scenario_max = 300           # gone once the Ember is taken (beat 300 onward)

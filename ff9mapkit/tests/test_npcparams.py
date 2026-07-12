@@ -41,9 +41,10 @@ def test_npc_anims_real_clips_vs_byname_guard():
 
 def test_npc_anims_tmm_resolves_to_its_own_clips():
     """GEO_NPC_F0_TMM (124): the baked modal stand was 706 -- a duplicate-row id of the model's own
-    idle 654 (both name ANH_NPC_F0_TMM_IDLE). The duplicate id rendered the NPC unposed/INVISIBLE on a
-    synthesized field (the stolen-ember innkeeper, in-game 2026-07-12); the resolve must pin to the
-    model's own clip list (what ``ff9mapkit models GEO_NPC_F0_TMM`` prints)."""
+    idle 654 (both name ANH_NPC_F0_TMM_IDLE). The resolve must pin to the model's own clip list (what
+    ``ff9mapkit models GEO_NPC_F0_TMM`` prints). (The invisible stolen-ember innkeeper originally
+    blamed on 706 was a contaminated repro -- the explicit-anims A/B never shipped; the invisibility
+    is undiagnosed and NOT evidence about clip ids.)"""
     want = {"stand": 654, "walk": 655, "run": 657, "left": 17, "right": 16}
     assert catalog.npc_anims(124) == want
     assert catalog.npc_anims("GEO_NPC_F0_TMM") == want
