@@ -283,6 +283,23 @@ def walk_tag_body(x: int, z: int, speed: int | None = None) -> bytes:
     return _cutscene.actor_walk(int(x), int(z), speed) + opcodes.RETURN
 
 
+def follow_tag_body(target_uid: int, speed: int | None = None) -> bytes:
+    """A walk-up-to-a-LIVE-object tag body: ``WalkTowardObject`` (0x24 MOVA) walks toward the target's
+    LIVE position each frame and -- the load-bearing engine fact (``MoveToward_mixed``'s follow mode) --
+    **ends the moment it collides with that target**. So a ``walk = "@player"`` compiled this way cannot
+    be blocked by the player standing in the path (in-game 2026-07-12: a build-time static target let a
+    one-frame input window brick the scene -- the player stepped toward the actor and the frozen target
+    landed inside the player's own box, stalling the synchronous Walk forever). This is FF9's own
+    "NPC walks up to you" primitive; a third character in the path can still block (stage clear paths)."""
+    body = b""
+    if speed is not None:
+        body += opcodes.encode(0x26, int(speed))           # SetWalkSpeed
+    body += opcodes.encode(0x55, 255)                      # SetWalkTurnSpeed (the kit's actor-walk recipe)
+    body += opcodes.encode(0x25)                           # InitWalk -- make the follow synchronous
+    body += opcodes.encode(0x24, int(target_uid))          # WalkTowardObject(target) -- ends ON CONTACT
+    return body + opcodes.RETURN
+
+
 def path_tag_body(legs, speed: int | None = None) -> bytes:
     """The body of a per-actor PATH tag: several straight walk legs in order (each self-blocks until
     arrival, exactly like :func:`walk_tag_body`) + a RETURN. Used for an authored ``path`` step AND for an

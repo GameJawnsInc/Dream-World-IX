@@ -319,3 +319,26 @@ def test_cast_scene_injects_control_watchdog(tmp_path):
     plain = _load('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n', tmp_path)
     data2 = build.build_script(plain, "us", {})
     assert poll[:3] not in data2
+
+
+def test_walk_to_live_object_compiles_as_engine_follow(tmp_path):
+    # A walk to a LIVE object (@player / an NPC name) compiles as WalkTowardObject (0x24 MOVA): the engine
+    # walks to the target's LIVE position and ends ON CONTACT with it -- so the followed target can never
+    # block the walk (in-game 2026-07-12: a static build-time target let a one-frame input window brick the
+    # scene). A walk to plain coords / a marker stays a static Walk.
+    from ff9mapkit.eb import EbScript
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n'
+            '[[npc]]\nname="V"\npreset="vivi"\npos=[0,-700]\n'
+            '[[marker]]\nname="spot"\npos=[100,-500]\n'
+            '[cutscene]\nactors=["V"]\nsteps=[ { walk = "@player" }, { say = "hi" }, { walk = "spot" } ]\n')
+    proj = _load(body, tmp_path)
+    data = build.build_script(proj, "us", {}, cutscene_txids=[500])
+    eb = EbScript.from_bytes(data)
+    npc_entry = next(e for e in eb.entries if not e.empty and e.func_by_tag(20) is not None)
+    tags = {}
+    for f in npc_entry.funcs:
+        if f.tag >= 20:
+            tags[f.tag] = [(i.op, [i.imm(k) for k in range(len(i.args))]) for i in eb.instrs(f)]
+    assert (0x24, [250]) in tags[20]                      # walk-up = WalkTowardObject(player) -- follow
+    assert not any(op == 0x23 for op, _a in tags[20])     # no static Walk in the follow tag
+    assert any(op == 0x23 for op, _a in tags[21])         # the marker walk stays a static Walk

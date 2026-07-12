@@ -64,7 +64,10 @@ steps = [
 [[npc]]
 name = "innkeeper"
 archetype = "innkeeper"
-pos = [0, -1100]      # near the entrance -- deeper spots hide behind the counter art (in-game 2026-07-12)
+anims = { stand = 654, walk = 655, run = 657, left = 17, right = 16 }   # the TMM catalog join mis-resolves
+# stand to 706 (not in the model's own clip list) -> the model renders INVISIBLE (in-game 2026-07-12);
+# these are GEO_NPC_F0_TMM's real clips (`ff9mapkit models GEO_NPC_F0_TMM`)
+pos = [0, -1100]
 scenario_min = 100
 scenario_max = 300           # gone once the Ember is taken (beat 300 onward)
 dialogue = "The chapel lies past the forest trail. Our Ember... please."

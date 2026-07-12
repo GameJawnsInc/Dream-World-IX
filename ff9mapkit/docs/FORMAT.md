@@ -496,21 +496,25 @@ player's own context via `RunScriptSync`. Author from scratch isn't supported �
 
 ## `[[savepoint]]` (optional, repeatable)
 
-A **synthesized save point** — the functional core of FF9's save Moogle as a press-to-interact region.
-The interact dispatch is `DisableMove; Menu(4, 0); EnableMove` (the single `Menu(4, 0)` opcode that
-opens the save menu); the barrel / Moogle / "!" are cosmetic set-dressing you add with `[[npc]]` /
-`[[prop]]`. (See [`docs/SAVEPOINT.md`](SAVEPOINT.md) for the full recipe.)
+A **synthesized save point** — a **visible save Moogle** (talk to it → the save menu, FF9's actual
+idiom) plus a press-to-interact zone. The interact dispatch either way is `DisableMove; Menu(4, 0);
+EnableMove` (the single `Menu(4, 0)` opcode that opens the save menu). (See
+[`docs/SAVEPOINT.md`](SAVEPOINT.md) for the full recipe.)
 
 ```toml
 [[savepoint]]
 zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 5 corners)
+# moogle = true                                          # the visible save Moogle (default true)
+# pos = [0, -700]                                        # the Moogle's spot (default: the zone centre)
 # bubble = true                                          # the floating "!" prompt (default true)
 ```
 
 | key | meaning |
 |---|---|
 | `zone` | `4` or `5` `(x,z)` corners of the press-to-interact area (place where the player stands). |
-| `bubble` | the floating **"!"** prompt — default `true`; set `false` when a visible Moogle/model already signals the save. |
+| `moogle` | a **visible save Moogle** at `pos` whose TALK opens the save menu — default `true` (an invisible zone reads as "no save point here"). `false` = the zone only. |
+| `pos` | `[x, z]` for the Moogle (default: the zone's centre; keep it on the walkmesh). |
+| `bubble` | the floating **"!"** prompt on the zone — default `true`. |
 
 ---
 

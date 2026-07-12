@@ -100,9 +100,18 @@ def test_build_field_with_savepoint(tmp_path):
     eb = build.build_script(proj, "us", {})
     s = EbScript.from_bytes(eb)
     assert s.to_bytes() == eb
-    # the save menu made it through the build, armed
+    # the save menu made it through the build TWICE by default: the press-zone AND the visible save
+    # MOOGLE at the zone centre whose TALK opens the same menu (FF9's actual idiom; default moogle=true,
+    # added in-game 2026-07-12 -- an invisible zone read as "no save point here")
     save_regions = [e.index for e in s.entries if not e.empty and [4, 0] in _menu_calls(s, e.index)]
-    assert len(save_regions) == 1
+    assert len(save_regions) == 2
+    # moogle = false opts back down to the invisible zone only
+    p2 = tmp_path / "s2.field.toml"
+    p2.write_text(p.read_text(encoding="utf-8").replace(
+        "[[savepoint]]\n", "[[savepoint]]\nmoogle = false\n"), encoding="utf-8")
+    eb2 = build.build_script(build.FieldProject.load(p2), "us", {})
+    s2 = EbScript.from_bytes(eb2)
+    assert len([e.index for e in s2.entries if not e.empty and [4, 0] in _menu_calls(s2, e.index)]) == 1
 
 
 def test_validate_flags_savemoogle_without_cluster(tmp_path):

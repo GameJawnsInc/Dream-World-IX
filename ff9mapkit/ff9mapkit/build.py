@@ -1261,6 +1261,9 @@ def validate(project: FieldProject) -> list[str]:
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
             problems.append(f"[[savepoint]] zone must have 4 or 5 points (the press area), got {_zone_desc(z)}")
+        p = sp.get("pos")
+        if p is not None and (not isinstance(p, (list, tuple)) or len(p) != 2):
+            problems.append(f"[[savepoint]] pos must be [x, z] (the visible moogle's spot), got {p!r}")
     for i, sh in enumerate(project.raw.get("shop", [])):   # custom shop ([[shop]]: inventory CSV + opener)
         sid = sh.get("id")
         if not isinstance(sid, int) or isinstance(sid, bool):
@@ -3854,6 +3857,11 @@ def _gen_conductor_step_tags(project: FieldProject, eb: bytes, steps, npc_slots,
 
     def _body(s):
         if "walk" in s:
+            if s.get("follow"):                            # a walk to a LIVE object -> the engine follow
+                fuid = (_conductor.PLAYER_UID if s["follow"] == "player"
+                        else npc_slots.get(s["follow"]))   # (ends ON CONTACT with the target: un-blockable)
+                if fuid is not None:
+                    return _conductor.follow_tag_body(fuid, s.get("speed"))
             pt = _resolve_point(s["walk"], move_reg)
             return _conductor.walk_tag_body(pt[0], pt[1], s.get("speed"))
         if "path" in s:
@@ -4557,13 +4565,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             ptag += 1
 
     # save points: a press-to-interact region that opens the SAVE menu (Menu(4,0) -> OpenSaveMenu), the
-    # functional core of FF9's save moogle (the barrel/moogle/jump-out are cosmetic set-dressing). Unlike a
-    # jump, no player-function graft -- the save is a self-contained engine call. docs/SAVEPOINT.md.
+    # functional core of FF9's save moogle. PLUS -- by default -- a VISIBLE save MOOGLE at the zone centre
+    # whose TALK opens the same menu (FF9's actual idiom: you talk to the moogle to save; requested in-game
+    # 2026-07-12 -- an invisible zone reads as "no save point here"). `moogle = false` opts out; `pos`
+    # overrides the centre. docs/SAVEPOINT.md.
     savepoints = project.raw.get("savepoint", [])
     if savepoints:
         sps = [{"zone": _gw.quad_zone(sp["zone"]) if len(sp["zone"]) == 4 else sp["zone"],
                 "bubble": sp.get("bubble", True)} for sp in savepoints]
         eb, _ = _savepoint.inject_savepoints(eb, sps)
+        from . import archetypes as _arch
+        for sp in savepoints:
+            if not sp.get("moogle", True):
+                continue
+            zpts = sp["zone"]
+            pos = sp.get("pos") or [sum(p[0] for p in zpts) // len(zpts),
+                                    sum(p[1] for p in zpts) // len(zpts)]
+            m_model, m_animset, m_anims, _h = _arch.resolve("moogle")
+            eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
+                                 anims=dict(m_anims or {}), speak_body=_savepoint.save_dispatch())
 
     # shops: a [[shop]] with a `zone` mints a standalone press-region opener (Menu(2, id), the save-point
     # shape). Shops opened from an NPC instead (via opens_shop) carry no zone and are skipped here; the
@@ -4980,9 +5000,10 @@ def _resolve_move_steps(steps, project: FieldProject, actor_npc=None):
                 tgt = _approach_offset(pos, tgt)         # stop adjacent, not inside the object's box
             tgt = (int(tgt[0]), int(tgt[1]))
         else:
+            name = None
             tgt = (int(v[0]), int(v[1]))
         pos = tgt
-        return [tgt[0], tgt[1]]
+        return [tgt[0], tgt[1]], name
 
     out = []
     for s in steps:
@@ -4991,11 +5012,16 @@ def _resolve_move_steps(steps, project: FieldProject, actor_npc=None):
             if mk in s:
                 if s2 is s:
                     s2 = dict(s)
-                s2[mk] = _one(s[mk], offset=(mk == "walk"))
+                s2[mk], _name = _one(s[mk], offset=(mk == "walk"))
+                if mk == "walk" and _name in objs:
+                    # a walk to a LIVE object compiles as an engine FOLLOW (WalkTowardObject: walks to the
+                    # target's live position, ends ON CONTACT) -- un-blockable by the target itself. The
+                    # resolved coords above stay for validation / position chaining only.
+                    s2["follow"] = "player" if _name in ("player", "spawn") else _name
         if "path" in s:                                  # a route: each leg resolves like a walk
             if s2 is s:
                 s2 = dict(s)
-            s2["path"] = [_one(elem, offset=True) for elem in s["path"]]
+            s2["path"] = [_one(elem, offset=True)[0] for elem in s["path"]]
         out.append(s2)
     return out
 
@@ -5092,6 +5118,10 @@ def _autoroute_steps(steps, project: FieldProject, wmesh, actor_npc, beat=None):
     for s in steps:
         if "walk" in s:
             tgt = (int(s["walk"][0]), int(s["walk"][1]))
+            if s.get("follow"):                            # an engine follow tracks the LIVE target and ends
+                pos = tgt                                  # on contact -- never rewrite it into a static path
+                out.append(s)
+                continue
             target_ok = (wmesh.point_on_walkmesh(tgt[0], tgt[1]) is not None
                          and not _object_collisions(project, tgt, actor, beat))
             blocked = (_segment_leaves_floor(wmesh, pos, tgt)
@@ -5162,6 +5192,9 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
                     pos = (int(s["teleport"][0]), int(s["teleport"][1]))
                 elif "walk" in s:
                     tgt = (int(s["walk"][0]), int(s["walk"][1]))
+                    if s.get("follow"):                    # an engine follow ends ON CONTACT with its target
+                        pos = tgt                          # -- the target can't stall it; nothing to warn
+                        continue
                     _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat)
                     pos = tgt
                 elif "path" in s:
