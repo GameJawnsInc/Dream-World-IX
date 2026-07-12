@@ -247,3 +247,14 @@ video/
 /scratch-coop-room/
 # study artifacts regenerate from the user's install (see studies/*/README.md)
 studies/*/out/
+# The Stolen Ember example: the authored campaign.toml + member field.tomls are TRACKED; the
+# SE-derived fork sidecars regenerate from the user's install (see campaign.toml header).
+examples/stolen-ember/**/camera.bgx
+examples/stolen-ember/**/walkmesh.bgi
+examples/stolen-ember/**/atlas.png
+examples/stolen-ember/**/background.png
+examples/stolen-ember/**/scene.bgs.bytes
+examples/stolen-ember/**/mapconfig.bytes
+examples/stolen-ember/**/*.bin
+examples/stolen-ember/**/*.carrytext.json
+examples/stolen-ember/dist/

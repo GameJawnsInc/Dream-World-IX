@@ -1,0 +1,89 @@
+# THE STOLEN EMBER -- a hand-authored 3-field STORY campaign: the first composition test of the
+# kit's full narrative vocabulary on one arc (all pieces individually in-game proven):
+#   [[on_entry]] seed -> [[cutscene]] dispatch (beat-gated, story-advancing scenes) ->
+#   [[npc]] scenario_min/max rotating cast -> [[gateway]] requires_flag gated door ->
+#   [[event]] sealed-door message -> [[savepoint]] persistence.
+#
+# THE ARC (ScenarioCounter beats 100 -> 200 -> 300 -> 400):
+#   100  first entry to HEARTH (the Lindblum inn, fork of 553): the on_entry seed + narration.
+#        NOTE the intended TWO-VISIT opening: a [[cutscene]]'s beat gate is evaluated at field LOAD,
+#        and the seed commits SC=100 after the narration window -- so the INNKEEPER's scene fires on
+#        the NEXT load at beat 100 (walk out to the trail, hit the sealed chapel door, come back --
+#        the innkeeper then approaches): the Ember was stolen -> beat 200 + flag chapel_open.
+#   200  the TRAIL (Evil Forest path, fork of 254) chapel door is now open (was sealed with a
+#        message). In the CHAPEL (Lindblum church, fork of 557) the GUARDIAN's scene grants the
+#        Ember -> beat 300 + flag ember_taken. A savepoint stands by the altar.
+#   300  back at HEARTH the cast has ROTATED (the innkeeper is gone; a PILGRIM stands in his
+#        spot): the epilogue scene fires -> beat 400. Done -- the world is quiet at 400.
+#
+# Fields fork REAL rooms (BG-borrow/native); the SE-derived sidecars (camera.bgx, walkmesh.bgi,
+# atlas.png, scene.bgs.bytes, mapconfig.bytes, *.bin, *.carrytext.json) are GITIGNORED --
+# regenerate them with:  ff9mapkit add-field campaign.toml --name X --source <id>  against your
+# own install (delete the member dir first; re-apply the authored toml from git after).
+#
+# Build/deploy:  py -m ff9mapkit build-all examples/stolen-ember/campaign.toml
+#                py tools/deploy_campaign.py examples/stolen-ember/campaign.toml
+# Test:          relaunch (new folder+ids) -> F6 -> Warp to field -> 30100
+
+[campaign]
+name            = "The Stolen Ember"
+mod_folder      = "FF9CustomMap-story"
+id_base         = 30100
+flag_base       = 8600
+flags_per_field = 8
+entry_field     = "HEARTH"
+entry_entrance  = 0
+
+# Members id-sorted. Fresh fork: id = id_base + BFS-index. Stable re-fork (--out had a prior
+# campaign.toml): a re-discovered donor keeps its prior id+name; net-new donors append above the max.
+[[field]]
+name = "HEARTH"
+source = 553
+id = 30100
+mode = "borrow"
+toml = "HEARTH/HEARTH.field.toml"
+
+[[field]]
+name = "TRAIL"
+source = 254
+id = 30101
+mode = "native"
+toml = "TRAIL/TRAIL.field.toml"
+
+[[field]]
+name = "CHAPEL"
+source = 557
+id = 30102
+mode = "borrow"
+toml = "CHAPEL/CHAPEL.field.toml"
+
+# Campaign-shared story flags (band 8512-16320; shared names sit ABOVE the per-member
+# blocks [8600, 8623]; each member's explicit once-flags draw from its OWN 8-flag block:
+# HEARTH 8600-8607, TRAIL 8608-8615, CHAPEL 8616-8623).
+[[flag]]
+name  = "chapel_open"    # written by HEARTH scene 1 (the innkeeper unbars the chapel)
+index = 8624   # shared flags sit ABOVE the per-member auto blocks [8600, 8623]
+
+[[flag]]
+name  = "ember_taken"    # written by CHAPEL's guardian scene; gates HEARTH's epilogue scene
+index = 8625
+
+# In-chain connectivity (each = a live [[gateway]] in the member toml).
+[[edge]]
+from = "HEARTH"
+to = "TRAIL"
+
+[[edge]]
+from = "TRAIL"
+to = "HEARTH"
+
+[[edge]]
+from = "TRAIL"
+to = "CHAPEL"
+
+[[edge]]
+from = "CHAPEL"
+to = "TRAIL"
+
+[initial_flags]
+# GLOB flags pre-set at campaign entry (empty by default)

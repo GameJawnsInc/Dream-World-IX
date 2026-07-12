@@ -1,0 +1,95 @@
+# THE STOLEN EMBER -- field 1/3: THE HEARTH (BG-borrow fork of 553, the Lindblum inn).
+# The story's home base. Carries the arc's bookends:
+#   beat 100 (seeded by [[on_entry]] on the very first entry): the INNKEEPER's scene -> 200 + chapel_open
+#   beat 300 (back with the Ember): the cast has ROTATED to the PILGRIM; the epilogue scene -> 400
+# Camera: pitch 0.0 deg, FOV 56.54 deg, range 384x272.
+# Walkmesh bounds: x [-1021, 1019]  z [-2871, 1179] (validation only -- the real 553 mesh is used).
+
+[field]
+id = 30100
+name = "HEARTH"
+area = 11
+borrow_bg = "LDBM_MAP160_LB_IN1_0"
+text_block = 30100            # this member ships its own dialogue -> its own mes block
+register_text_block = true    # emit the DictionaryPatch MessageFile line for the custom mesID
+
+[camera]
+borrow = "camera.bgx"
+control_direction = 4   # imported WASD-vs-camera tuning
+
+[walkmesh]
+reference = "walkmesh.bgi"   # validation only -- NOT shipped (the engine uses the borrowed
+# field's real walkmesh). The build WARNS if the content below sits off this walkable area.
+
+[player]
+spawn = [-222, -1260]
+
+# --- the SEED: the campaign's story clock starts on the very first entry, once ever ---
+[[on_entry]]
+message = "Lindblum. The inn is quiet, and its great hearth stands cold."
+set_scenario = 100
+once = true
+flag = 8602                  # campaign member -> explicit once-flag (band 8512+, hand-allocated)
+
+# --- THE DISPATCH: two beat-gated scenes on one field (the story's opening + its epilogue) ---
+[[cutscene]]                 # SCENE 1 (beat 100): the innkeeper's plea -> 200 + chapel_open
+actors = ["innkeeper"]
+requires_scenario = 100
+set_scenario = 200
+set_flags = [{ flag = "chapel_open", value = 1 }]
+once = true
+flag = 8603
+steps = [
+  { walk = "@player" },
+  { actor = "innkeeper", say = "Cold, isn't it? Our hearth-ember was stolen in the night." },
+  { actor = "innkeeper", say = "An old chapel lies past the forest trail. I have unbarred its door for you -- please, bring back the Ember." },
+  { walk = [0, -900] },
+]
+
+[[cutscene]]                 # SCENE 2 (beat 300, Ember in hand): the epilogue -> 400
+actors = ["pilgrim"]
+requires_scenario = 300
+requires_flag = "ember_taken"
+set_scenario = 400
+once = true
+flag = 8604
+steps = [
+  { walk = "@player" },
+  { actor = "pilgrim", say = "The hearth burns again! The whole inn feels alive." },
+  { say = "The Ember of Lindblum is home. The story is complete." },
+  { walk = [-100, -800] },
+]
+
+# --- the ROTATING CAST: two keepers of one spot, adjacent story windows (min incl, max excl) ---
+[[npc]]
+name = "innkeeper"
+archetype = "innkeeper"
+pos = [0, -900]
+scenario_min = 100
+scenario_max = 300           # gone once the Ember is taken (beat 300 onward)
+dialogue = "The chapel lies past the forest trail. Our Ember... please."
+speaker = "Innkeeper"
+
+[[npc]]
+name = "pilgrim"
+archetype = "lindblum_man"
+pos = [-100, -800]           # a step from the innkeeper's spot -- the windows tile at beat 300
+scenario_min = 300
+dialogue = "A warm hearth at last! You did this, didn't you?"
+speaker = "Pilgrim"
+
+# --- EXITS: the inn door leads out to the forest trail (donor zone, retargeted by hand) ---
+[[gateway]]
+to = 30101                   # TRAIL
+entrance = 0
+zone = [[-109, -2180], [-310, -2183], [-458, -1466], [-20, -1416]]
+
+# (the donor's second exit -- real field 554 via [[609,1063],[609,871],[3,871],[3,1069]] --
+#  is deliberately NOT wired: the inn has one story exit.)
+
+# field BGM imported from the real field
+[music]
+song = 113
+
+# (the donor's cask prop -- HEARTH.object0.bin -- is deliberately not carried: its examine
+#  window reads donor txids 621/622 this borrow fork ships no text for.)

@@ -1937,6 +1937,10 @@ def lint_logic(project: FieldProject) -> list[str]:
             if h.get("requires_set", True):
                 need_set.append((int(h["requires_flag"]), f"on_entry #{k}"))
 
+    # flags a SIBLING campaign member sets (threaded by build_campaign): a cross-field gate -- one field's
+    # cutscene opens another field's door -- is the campaign norm, and the campaign-tier lint owns the
+    # true dangling check; without this the member-scoped check false-positives every cross-member gate.
+    settable |= set(getattr(project, "external_settable", ()) or ())
     for flag, who in need_set:
         if flag not in settable:
             out.append(f"{who} requires flag {flag}, but no event sets it -- it can never appear/fire. "
@@ -2819,6 +2823,38 @@ def _scenario_window_of(d: dict):
             return None
         return _flags.resolve_scenario(v) if isinstance(v, str) else int(v)
     return _res(d.get("scenario_min")), _res(d.get("scenario_max"))
+
+
+def _npc_coexists_at_beat(n: dict, beat) -> bool:
+    """False when a scene firing at ``beat`` can NEVER meet NPC ``n`` on the field: a ``[[cutscene]]``'s
+    ``requires_scenario`` gate is an exact ScenarioCounter match, and ``n``'s rotating-cast window
+    (``scenario_min`` inclusive, ``scenario_max`` exclusive) excludes that beat -- the two are never live
+    together, so the NPC can't block the scene's movement (the rotating-cast idiom puts the shift-mates
+    at ONE spot, which would otherwise always false-positive the collision checks). ``beat`` ``None``
+    (an ungated scene) or an unresolvable window keeps the NPC as an obstacle (fail-safe: warn)."""
+    if beat is None:
+        return True
+    try:
+        lo, hi = _scenario_window_of(n)
+    except (ValueError, KeyError):
+        return True
+    if lo is not None and beat < lo:
+        return False
+    if hi is not None and beat >= hi:
+        return False
+    return True
+
+
+def _scene_beat(cs: dict):
+    """The exact ScenarioCounter a ``[[cutscene]]`` fires at (its ``requires_scenario``, name-resolved),
+    or ``None`` for an ungated scene (may fire at any beat -> every NPC is a potential obstacle)."""
+    sc = cs.get("requires_scenario")
+    if sc is None:
+        return None
+    try:
+        return _flags.resolve_scenario(sc) if isinstance(sc, str) else int(sc)
+    except (ValueError, KeyError):
+        return None
 
 
 def _gateway_on_exit_body(gw: dict, names: dict) -> bytes:
@@ -3865,7 +3901,8 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
     if cs is None:
         return eb
     cast = [str(a) for a in (cs.get("actors") or [])]
-    steps = _resolve_conductor_steps(cs["steps"], project, cast=cast)   # no walkmesh -> no autoroute (verbatim)
+    steps = _resolve_conductor_steps(cs["steps"], project, cast=cast,   # no walkmesh -> no autoroute (verbatim)
+                                     beat=_scene_beat(cs))
     # tag-kind beats -> a choreography tag on the actor's below-band entry, RunScript'd by the conductor (the
     # synth path's mechanism; here the actor entries sit below the band); a parallel walk also gets a join tag.
     eb, tag_calls, join_tags = _gen_conductor_step_tags(project, eb, steps, npc_slots)
@@ -4322,7 +4359,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         if not (isinstance(cast, list) and cast):
             continue
         c_steps = _resolve_conductor_steps(cs["steps"], project, cast=[str(a) for a in cast],
-                                           walkmesh=walkmesh)
+                                           walkmesh=walkmesh, beat=_scene_beat(cs))
         c_fclass, c_fidx = _cutscene.once_flag_for(cs, _k)     # GLOB (once ever) or MAP (per-visit)
         if _auto.base is not None and "flag" not in cs and cs.get("once", True):
             c_fidx = _auto.cutscene(_k)                        # campaign: pack into this member's flag block
@@ -4816,7 +4853,7 @@ def _pseudo_player_npc(project):
     return {"name": "player", "pos": [int(sp[0]), int(sp[1])]} if sp else None
 
 
-def _resolve_conductor_steps(steps, project, cast=(), walkmesh=None):
+def _resolve_conductor_steps(steps, project, cast=(), walkmesh=None, beat=None):
     """Resolve a cast cutscene's steps for the conductor (#13 v3 -- the ONE actor mechanism):
 
     * a cast of ONE: an actor step (walk/path/teleport/face_player/animation/turn) missing its ``actor``
@@ -4825,7 +4862,10 @@ def _resolve_conductor_steps(steps, project, cast=(), walkmesh=None):
     * movement targets (markers / ``@player`` / npc names, with the walk-up-to approach offset) resolved and
       blocked walks AUTO-ROUTED per actor: each actor's movement steps are extracted as an ordered sublist,
       run through the same :func:`_resolve_move_steps` + :func:`_autoroute_steps` pipeline the single-actor
-      lane used (positions chain per actor), and spliced back in place. A routed walk becomes a ``path``."""
+      lane used (positions chain per actor), and spliced back in place. A routed walk becomes a ``path``.
+
+    ``beat`` = the scene's exact firing ScenarioCounter (:func:`_scene_beat`): NPCs whose rotating-cast
+    window excludes it never coexist with the scene and are not routing obstacles."""
     npc_by_name = {n.get("name"): n for n in project.raw.get("npc", [])}
     out = list(steps)
     if len(cast) == 1:                                     # the sole-actor default (migration ergonomics)
@@ -4849,7 +4889,7 @@ def _resolve_conductor_steps(steps, project, cast=(), walkmesh=None):
             continue
         sub = [out[i] for i in idxs]
         sub = _resolve_move_steps(sub, project, actor_npc)
-        sub = _autoroute_steps(sub, project, walkmesh, actor_npc)
+        sub = _autoroute_steps(sub, project, walkmesh, actor_npc, beat)
         for i, s in zip(idxs, sub):
             out[i] = s
     return out
@@ -4966,16 +5006,18 @@ def _segment_leaves_floor(wmesh, a, b) -> bool:
     return False
 
 
-def _object_collisions(project: FieldProject, point, exclude_actor):
+def _object_collisions(project: FieldProject, point, exclude_actor, beat=None):
     """Labels of OTHER live objects (the player + NPCs) whose collision box ``point`` lands inside -- a
-    walk there presses into the box and stalls. Threshold ~ two default characters (2*OBJECT_COLLISION_W)."""
+    walk there presses into the box and stalls. Threshold ~ two default characters (2*OBJECT_COLLISION_W).
+    ``beat``: the scene's exact firing ScenarioCounter -- an NPC whose rotating-cast window excludes it
+    is never on the field with the scene and doesn't count."""
     thresh = 2 * cam.OBJECT_COLLISION_W
     objs = []
     sp = project.raw.get("player", {}).get("spawn")
     if sp:
         objs.append(("the player's spawn", sp))
     for n in project.raw.get("npc", []):
-        if n.get("name") != exclude_actor and n.get("pos"):
+        if n.get("name") != exclude_actor and n.get("pos") and _npc_coexists_at_beat(n, beat):
             objs.append((f"NPC {n['name']!r}", n["pos"]))
     return [label for label, p in objs
             if ((point[0] - p[0]) ** 2 + (point[1] - p[1]) ** 2) ** 0.5 < thresh]
@@ -4990,17 +5032,18 @@ def _point_segment_dist(p, a, b) -> float:
     return ((p[0] - cx) ** 2 + (p[1] - cz) ** 2) ** 0.5
 
 
-def _segment_hits_object(project: FieldProject, a, b, exclude_actor):
+def _segment_hits_object(project: FieldProject, a, b, exclude_actor, beat=None):
     """The first OTHER object whose collision box the straight path ``a``->``b`` passes THROUGH (exact
     point-to-segment distance < the collision box). A walk that grazes a standing character is blocked
-    there and stalls -- even if both endpoints are clear. Returns the object label or None."""
+    there and stalls -- even if both endpoints are clear. Returns the object label or None.
+    ``beat``: see :func:`_object_collisions` -- a window-excluded NPC never coexists and can't block."""
     thresh = 2 * cam.OBJECT_COLLISION_W
     objs = []
     sp = project.raw.get("player", {}).get("spawn")
     if sp:
         objs.append(("the player's spawn", sp))
     for n in project.raw.get("npc", []):
-        if n.get("name") != exclude_actor and n.get("pos"):
+        if n.get("name") != exclude_actor and n.get("pos") and _npc_coexists_at_beat(n, beat):
             objs.append((f"NPC {n['name']!r}", n["pos"]))
     for label, p in objs:
         if _point_segment_dist(p, a, b) < thresh:
@@ -5008,35 +5051,38 @@ def _segment_hits_object(project: FieldProject, a, b, exclude_actor):
     return None
 
 
-def _obstacle_points(project: FieldProject, exclude_actor):
-    """(x, z) centres of the live characters a walk must avoid: the player spawn + every other NPC."""
+def _obstacle_points(project: FieldProject, exclude_actor, beat=None):
+    """(x, z) centres of the live characters a walk must avoid: the player spawn + every other NPC
+    that can coexist with a scene firing at ``beat`` (see :func:`_npc_coexists_at_beat`)."""
     pts = []
     sp = project.raw.get("player", {}).get("spawn")
     if sp:
         pts.append((int(sp[0]), int(sp[1])))
     for n in project.raw.get("npc", []):
-        if n.get("name") != exclude_actor and n.get("pos"):
+        if n.get("name") != exclude_actor and n.get("pos") and _npc_coexists_at_beat(n, beat):
             pts.append((int(n["pos"][0]), int(n["pos"][1])))
     return pts
 
 
-def _autoroute_steps(steps, project: FieldProject, wmesh, actor_npc):
+def _autoroute_steps(steps, project: FieldProject, wmesh, actor_npc, beat=None):
     """Auto-pathing: replace a blocked straight ``walk`` (path crosses a wall or a character) with a
     computed route (a ``path``) around the obstacles. A clear walk is left UNTOUCHED (byte-identical);
     ``path`` / ``teleport`` steps are left as authored. No-op without a walkmesh. Used by both the
-    builder and the validator so what's checked == what's compiled."""
+    builder and the validator so what's checked == what's compiled. ``beat`` = the scene's firing
+    ScenarioCounter (window-excluded NPCs aren't obstacles)."""
     if wmesh is None or actor_npc is None or not actor_npc.get("pos"):
         return steps
     actor = actor_npc.get("name")
-    obstacles = _obstacle_points(project, actor)
+    obstacles = _obstacle_points(project, actor, beat)
     pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
     out = []
     for s in steps:
         if "walk" in s:
             tgt = (int(s["walk"][0]), int(s["walk"][1]))
             target_ok = (wmesh.point_on_walkmesh(tgt[0], tgt[1]) is not None
-                         and not _object_collisions(project, tgt, actor))
-            blocked = _segment_leaves_floor(wmesh, pos, tgt) or _segment_hits_object(project, pos, tgt, actor)
+                         and not _object_collisions(project, tgt, actor, beat))
+            blocked = (_segment_leaves_floor(wmesh, pos, tgt)
+                       or _segment_hits_object(project, pos, tgt, actor, beat))
             if target_ok and blocked:
                 wps = _pathfind.route(wmesh, pos, tgt, obstacles)
                 if wps and len(wps) > 1:                 # an actual detour, not just the target
@@ -5052,15 +5098,16 @@ def _autoroute_steps(steps, project: FieldProject, wmesh, actor_npc):
     return out
 
 
-def _check_walk_leg(project, wmesh, k, frm, tgt, actor, warnings) -> None:
+def _check_walk_leg(project, wmesh, k, frm, tgt, actor, warnings, beat=None) -> None:
     """One straight walk leg ``frm``->``tgt``: warn if it would stall (target off the floor / inside a
-    character's box, or the path crosses a wall / through a character). Shared by ``walk`` + ``path``."""
+    character's box, or the path crosses a wall / through a character). Shared by ``walk`` + ``path``.
+    ``beat`` = the scene's firing ScenarioCounter (window-excluded NPCs can't block)."""
     if wmesh.point_on_walkmesh(tgt[0], tgt[1]) is None:
         warnings.append(f"[cutscene] step {k}: walk target {tgt} is off the walkmesh -- the actor "
                         f"can't reach it and the scene will stall. Aim at a floor point / marker.")
         return
-    hits = _object_collisions(project, tgt, actor)
-    blocker = _segment_hits_object(project, frm, tgt, actor)
+    hits = _object_collisions(project, tgt, actor, beat)
+    blocker = _segment_hits_object(project, frm, tgt, actor, beat)
     if hits:
         warnings.append(f"[cutscene] step {k}: walk target {tgt} is inside {hits[0]}'s collision box -- "
                         f"the actor presses into it and the scene stalls. Walk to @<that object> "
@@ -5084,8 +5131,10 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
         cast = [str(a) for a in (cs.get("actors") or [])]
         if not cast:
             continue                          # narration has no movement
+        beat = _scene_beat(cs)                # window-excluded NPCs never coexist with this scene
         try:
-            steps = _resolve_conductor_steps(cs.get("steps", []), project, cast=cast, walkmesh=wmesh)
+            steps = _resolve_conductor_steps(cs.get("steps", []), project, cast=cast, walkmesh=wmesh,
+                                             beat=beat)
         except ValueError:
             continue     # an unresolved name/animation -- validate() already reports it
         for name in cast:
@@ -5100,12 +5149,12 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
                     pos = (int(s["teleport"][0]), int(s["teleport"][1]))
                 elif "walk" in s:
                     tgt = (int(s["walk"][0]), int(s["walk"][1]))
-                    _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings)
+                    _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat)
                     pos = tgt
                 elif "path" in s:
                     for wp in s["path"]:
                         tgt = (int(wp[0]), int(wp[1]))
-                        _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings)
+                        _check_walk_leg(project, wmesh, k, pos, tgt, name, warnings, beat)
                         pos = tgt
 
 

@@ -1,0 +1,59 @@
+# THE STOLEN EMBER -- field 2/3: THE TRAIL (native fork of 254, the Evil Forest north swamp).
+# The connective wilderness: random encounters ride along from the donor, and the chapel door at
+# the far end is STORY-GATED -- sealed (with a message) until the innkeeper's scene sets
+# chapel_open at beat 100 -> 200.
+# Camera: pitch 43.11 deg, FOV 42.3 deg (SCROLLING).  Walkmesh bounds: x [-694, 3101]  z [-3699, 2399].
+# NOTE: source area 4 < 10 black-screens via the engine's FBG_N<area> lookup, so this
+# native scene uses area 11 (it ships its own art).
+
+[field]
+id = 30101
+name = "TRAIL"
+area = 11
+text_block = 30101            # ships the sealed-door message -> its own mes block
+register_text_block = true
+source_field = 254   # the real field this NATIVE fork mirrors; deploy emits ForkDonorPatch so name-keyed fidelity (occlusion/location) resolves
+bgs = "scene.bgs.bytes"   # NATIVE scene (per-tile depth) -> seamless render, NO .bgx / no tile seams
+atlas = "atlas.png"
+atlas_tile_size = 64   # TileSize the atlas is packed at -- `ff9mapkit repaint-native` round-trips it
+mapconfig = "mapconfig.bytes"   # the real field LIGHTING (per-floor lights + shadows) for 3D models
+
+[camera]
+borrow = "camera.bgx"   # content logic uses this; the RENDERED camera lives inside scene.bgs
+control_direction = 250   # imported WASD-vs-camera tuning
+[camera.scroll]
+enabled = true
+
+[walkmesh]
+bgi = "walkmesh.bgi"   # the real field's walkmesh -- connectivity preserved (faithful copy)
+
+[player]
+spawn = [696, -1820]
+
+# --- EXITS (donor zones, retargeted by hand) ---
+[[gateway]]
+to = 30100                   # back to the HEARTH (the inn)
+entrance = 0
+zone = [[-186, -3686], [-771, -3447], [-370, -3017], [97, -3210]]
+
+# the CHAPEL door -- STORY-GATED: fires only once the innkeeper's scene set chapel_open
+[[gateway]]
+to = 30102                   # CHAPEL
+entrance = 0
+zone = [[2694, 2237], [2862, 2116], [1716, -32], [1351, 172]]
+requires_flag = "chapel_open"
+
+# while the door is sealed, tell the player so (the same zone; dead once chapel_open is set)
+[[event]]
+zone = [[2694, 2237], [2862, 2116], [1716, -32], [1351, 172]]
+message = "The chapel door is sealed shut. Someone in town might know a way in."
+requires_flag_clear = "chapel_open"
+once = true
+flag = 8608                  # campaign member -> explicit once-flag
+
+# random battles imported from the real field (build adds the after-battle reinit);
+# freq eased off the donor's 216 -- this is a story road, not a grind
+[encounter]
+scene = 309
+freq = 128
+scenes = [309, 309, 309, 305]

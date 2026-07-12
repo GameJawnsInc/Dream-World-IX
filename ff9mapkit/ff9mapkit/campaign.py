@@ -595,6 +595,17 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
     if text_block_base:                                   # JOURNEY: a disjoint custom text-block window for this
         _remap_text_blocks(projects, text_block_base)     # campaign (the cross-campaign text-shadow cure)
 
+    # Cross-member flag producers: a member's gate is routinely opened by a SIBLING field's write (one
+    # field's cutscene/gateway/event sets the flag another field's door reads -- the campaign norm). The
+    # member-scoped lint_logic can only see its own writes, so thread the campaign-wide union in; the true
+    # dangling-gate check (no member sets it at all) already ran in lint_campaign above.
+    all_produced: set = set()
+    for proj in projects:
+        prod, _cons = _member_flags_from_toml(proj.raw)
+        all_produced |= prod
+    for proj in projects:
+        proj.external_settable = frozenset(all_produced)
+
     # each member's per-member flag_base was set on its FieldProject above; build_script's _FlagAlloc packs
     # that member's auto event/cutscene/choice flags into its own disjoint block (no cross-field alias). A
     # [[chest]] opened-flag is the exception -- it is never auto-allocated; build.validate REQUIRES every chest

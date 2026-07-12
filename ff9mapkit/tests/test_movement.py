@@ -245,3 +245,47 @@ def test_validate_accepts_marker_target_and_flags_bad_marker(tmp_path):
     assert not any("spot" in m and "isn't" in m for m in build.validate(ok))
     bad = _load('[field]\nid=4003\nname="X"\narea=11\n[[marker]]\npos=[1,2]\n', tmp_path)
     assert any("[[marker]]" in m for m in build.validate(bad))
+
+
+# --- rotating-cast beat filtering (the stolen-ember composition finding) -------------------
+def test_window_excluded_npc_is_not_an_obstacle(tmp_path):
+    # Two NPCs share one spot with ADJACENT scenario windows (the rotating-cast idiom): a scene gated
+    # at one window must NOT see the other window's NPC as an obstacle -- they never coexist. Ungated
+    # scenes and window-overlapping NPCs still warn (fail-safe).
+    wm = _quad_wmesh()
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-700]\n'
+            '[[npc]]\nname="early"\npreset="vivi"\npos=[0,0]\nscenario_min=100\nscenario_max=300\n'
+            '[[npc]]\nname="late"\npreset="vivi"\npos=[-60,40]\nscenario_min=300\n')
+    # the early NPC's scene (beat 100): walking @player from (0,0) grazes 'late' at (-60,40)?
+    # place 'late' ON the walk line so an unfiltered check would flag it.
+    body = body.replace('pos=[-60,40]', 'pos=[0,-350]')
+    gated = _load(body + '[[cutscene]]\nactors=["early"]\nrequires_scenario=100\n'
+                         'steps=[ { walk = "@player" } ]\n', tmp_path)
+    w = []
+    build._validate_cutscene_movement(gated, wm, w)
+    assert not any("'late'" in m for m in w)               # window-excluded -> not an obstacle
+    # the SAME scene ungated: 'late' may coexist -> the walk is routed or warned (not silently ignored)
+    ungated = _load(body + '[[cutscene]]\nactors=["early"]\nsteps=[ { walk = "@player" } ]\n', tmp_path)
+    w2 = []
+    build._validate_cutscene_movement(ungated, wm, w2)
+    ok2 = build._obstacle_points(ungated, "early")          # unfiltered: 'late' IS an obstacle point
+    assert (0, -350) in ok2
+    # and the beat filter itself:
+    assert build._npc_coexists_at_beat({"scenario_min": 300}, 100) is False
+    assert build._npc_coexists_at_beat({"scenario_min": 100, "scenario_max": 300}, 100) is True
+    assert build._npc_coexists_at_beat({"scenario_min": 100, "scenario_max": 300}, 300) is False
+    assert build._npc_coexists_at_beat({}, 100) is True     # no window -> always present
+    assert build._npc_coexists_at_beat({"scenario_min": 300}, None) is True   # ungated scene -> obstacle
+
+
+def test_lint_logic_external_settable_suppresses_cross_member_gate(tmp_path):
+    # A campaign member's gate is routinely opened by a SIBLING field's write: with the campaign-wide
+    # producer set threaded in (build_campaign -> project.external_settable), the member-scoped
+    # dangling-gate warning must not false-positive; without it, it still fires (standalone builds).
+    body = ('[field]\nid=4003\nname="X"\narea=11\n[player]\nspawn=[0,-300]\n'
+            '[[gateway]]\nto=4004\nentrance=0\nzone=[[0,0],[100,0],[100,100],[0,100]]\n'
+            'requires_flag=8624\n')
+    proj = _load(body, tmp_path)
+    assert any("requires flag 8624" in m for m in build.lint_logic(proj))
+    proj.external_settable = frozenset({8624})
+    assert not any("requires flag 8624" in m for m in build.lint_logic(proj))

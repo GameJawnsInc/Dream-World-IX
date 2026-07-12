@@ -1,0 +1,75 @@
+# THE STOLEN EMBER -- field 3/3: THE CHAPEL (BG-borrow fork of 557, the Lindblum church).
+# The quest's destination: empty and still (the donor's congregation is deliberately NOT carried),
+# save for the GUARDIAN by the altar. His scene (beat 200) grants the Ember -> 300 + ember_taken.
+# A savepoint stands by the altar; the donor's two ladders ride along.
+# Camera: pitch -0.29 deg, FOV 61.3 deg, range 480x320 (SCROLLING).
+# Walkmesh bounds: x [-1738, 1750]  z [-1419, 2431] (validation only -- the real 557 mesh is used).
+
+[field]
+id = 30102
+name = "CHAPEL"
+area = 11
+borrow_bg = "LDBM_MAP164_LB_TMP_0"
+text_block = 30102            # ships its own dialogue -> its own mes block
+register_text_block = true
+
+[camera]
+borrow = "camera.bgx"
+control_direction = 216   # imported WASD-vs-camera tuning
+[camera.scroll]
+enabled = true
+
+[walkmesh]
+reference = "walkmesh.bgi"   # validation only -- NOT shipped (the engine uses the borrowed
+# field's real walkmesh). The build WARNS if the content below sits off this walkable area.
+
+[player]
+spawn = [38, 291]
+
+# --- THE GUARDIAN's scene (beat 200): the Ember is granted -> 300 + ember_taken ---
+[[cutscene]]
+actors = ["guardian"]
+requires_scenario = 200
+set_scenario = 300
+set_flags = [{ flag = "ember_taken", value = 1 }]
+once = true
+flag = 8616                  # CHAPEL's member flag block starts at 8616
+steps = [
+  { actor = "guardian", walk = "@player" },
+  { actor = "guardian", say = "You have come for the Ember. The keeper of the cold hearth sent you." },
+  { actor = "guardian", say = "Take it. Rekindle what was lost." },
+  { say = "You received the Ember of Lindblum." },
+]
+
+[[npc]]
+name = "guardian"
+archetype = "high_priest"
+pos = [0, 1200]               # by the altar, deep in the nave
+dialogue = "The flame endures where faith remains."
+speaker = "Guardian"
+
+# --- a save point by the altar (press-to-interact; the '!' bubble marks it) ---
+[[savepoint]]
+zone = [[250, 600], [550, 600], [550, 900], [250, 900]]
+
+# --- EXIT: the church doors, back to the trail (donor zone, retargeted by hand) ---
+[[gateway]]
+to = 30101                   # TRAIL
+entrance = 0
+zone = [[343, -1416], [-286, -1431], [-282, -611], [348, -611]]
+
+# field BGM imported from the real field
+[music]
+song = 113
+
+# --- LADDER(s) imported from the real field (LIVE) -- the EXACT climb, verbatim. ---
+[[ladder]]
+zone = [[-997, 2491], [-541, 2491], [-541, 1786], [-997, 1786]]
+climb = "CHAPEL.ladder0.climb.bin"
+
+[[ladder]]
+zone = [[-1018, 2423], [-412, 2423], [-412, 1745], [-1018, 1745]]
+climb = "CHAPEL.ladder1.climb.bin"
+
+# (the donor's six congregation NPCs -- CHAPEL.object0-5.bin -- are deliberately not carried:
+#  the chapel plays empty; the Guardian is the story's only inhabitant.)
