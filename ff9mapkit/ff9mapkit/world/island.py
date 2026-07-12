@@ -494,6 +494,21 @@ def _sea_plane(disc: int = 1, game=None):
     return M.fill_missing_grid_quads(X.read_block(*SEA_PLANE_SOURCE, disc=disc, part="sea4", game=game))
 
 
+def _real_block_parts(blk, *, disc: int = 1, lod: str = "0_1", game=None) -> dict:
+    """The REAL game's per-block mesh assets at ``blk`` as ``{part: tri_count}`` (empty = true open
+    ocean, which renders from the shared SeaBlockPrefab). Non-empty means the block loads its OWN
+    prefab -- and a sea-only prefab has no ``Terrain`` transform for the loose override to bind to,
+    so an island fragment deployed there silently never renders (the (6,17) canvas incident,
+    2026-07-12)."""
+    from .transplant import PARTS, world_tris
+    occ = {}
+    for p in PARTS:
+        n = len(world_tris(blk[0], blk[1], p, disc=disc, lod=lod, game=game))
+        if n:
+            occ[p] = n
+    return occ
+
+
 def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None, lobes: int = 1,
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
              donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1", game=None, dry_run: bool = False) -> dict:
@@ -512,6 +527,18 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
                            relief=None if flat else "auto", stamps=None if flat else "auto",
                            disc=disc, game=game)
+    # THE OPEN-OCEAN TARGET LAW (the world-transplant gate, ported here 2026-07-12): every
+    # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
+    # Terrain override has no transform to bind to (the fragment silently never renders), and
+    # on a real land block the island would replace real continent geometry.
+    occupied = {blk: occ for blk in sorted(built["blocks"])
+                if (occ := _real_block_parts(blk, disc=disc, lod=lod, game=game))}
+    if occupied:
+        raise ValueError(
+            f"landmass footprint touches REAL world block(s) {occupied} -- the island cannot "
+            f"deploy there (a sea-only prefab has no Terrain transform to override; a land "
+            f"block would be shredded). Shift --center or change --seed/--radius until every "
+            f"touched block is empty open ocean.")
     plane = _sea_plane(disc, game)
     report = verify_landmass(built, sea_plane=plane, land_height=land_height)
     if not report["clean"]:
