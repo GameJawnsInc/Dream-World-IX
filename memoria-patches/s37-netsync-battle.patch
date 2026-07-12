@@ -674,7 +674,37 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              if (_ovlText == null)
                  return;
              if (_ovlStyle == null)
-@@ -515,14 +693,27 @@ namespace Memoria.Netsync
+@@ -443,7 +621,19 @@ namespace Memoria.Netsync
+             if (_ghost != null && _ghostModel == model)
+                 return;
+             if (_ghost != null)
++            {
++                // RE-DRESS only while the FIELD HUD owns the screen: a party reorder changes the dress
++                // target while the MENU is still open, and destroying+recreating the ghost mid-menu
++                // coincided with a FROZEN camera on menu close (dbg round 3). Keep the old dress until
++                // the menu closes; the swap lands a frame later, when the field is live again.
++                try
++                {
++                    if (PersistenSingleton<UIManager>.Instance.State != UIManager.UIState.FieldHUD)
++                        return;
++                }
++                catch { }
+                 DespawnGhost();                            // the peer changed character -> re-dress
++            }
+             try
+             {
+                 String geo;
+@@ -506,7 +696,8 @@ namespace Memoria.Netsync
+                 _ghostClip = null;
+                 _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
+                 ApplyGhostLighting(ee, model);             // the field's per-char tint (see the helper)
+-                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo);
++                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo +
++                            " (ui=" + PersistenSingleton<UIManager>.Instance.State + ")");
+             }
+             catch (Exception err)
+             {
+@@ -515,14 +706,27 @@ namespace Memoria.Netsync
              }
          }
  
@@ -710,7 +740,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private void ApplyGhostLighting(EventEngine ee, UInt16 model)
          {
              try
-@@ -531,14 +722,21 @@ namespace Memoria.Netsync
+@@ -531,14 +735,21 @@ namespace Memoria.Netsync
                  if (mcfPtr == null || _ghostRends == null)
                      return;
                  DMSMapConf mcf = mcfPtr.Value;
@@ -733,6 +763,39 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                  if (lp != null)
                  {
                      Int16 floorNo = 0;
+@@ -634,7 +845,31 @@ namespace Memoria.Netsync
+         private void DespawnGhost()
+         {
+             if (_ghost != null)
+-                UnityEngine.Object.Destroy(_ghost);
++            {
++                // The ghost's GeoTexAnim is a HonoBehavior -- it self-registered in HonoBehaviorSystem
++                // at Awake. A raw Destroy() races the system: its Update SWEEPS the behavior list
++                // (IsEnabled()) BEFORE it processes queued removals, so one tick can dereference the
++                // natively-destroyed component -> a per-frame NRE that aborts the sweep FOREVER (the
++                // queued removal never processes) and freezes every later HonoBehavior -- the field
++                // camera pipeline (dbg round 5 stack: HonoBehaviorSystem.Update -> HonoBehavior.
++                // IsEnabled -> GetComponent). Field-TRANSITION despawns never hit this (the system
++                // rebuilds on scene change); a MID-FIELD re-dress does. Tear down the sanctioned way:
++                // Unregister(dispose: true) -- the SYSTEM removes every child HonoBehavior from its
++                // list synchronously and destroys the GameObject itself, so no corpse is ever swept.
++                Boolean systemOwnsDestroy = false;
++                try
++                {
++                    HonoBehavior[] hbs = _ghost.GetComponentsInChildren<HonoBehavior>(true);
++                    if (hbs != null && hbs.Length > 0 && hbs[0] != null)
++                    {
++                        hbs[0].UnregisterHonoBehavior(dispose: true);   // dispose sweeps ALL child behaviors + the GO
++                        systemOwnsDestroy = true;
++                    }
++                }
++                catch { }
++                if (!systemOwnsDestroy)
++                    UnityEngine.Object.Destroy(_ghost);
++            }
+             _ghost = null;
+             _ghostAnim = null;
+             _ghostClip = null;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
