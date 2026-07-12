@@ -59,7 +59,11 @@ WALL_SLOPE = 58.0
 COURSES = [(4, (4, 5, 6, 7)), (9, (6, 7, 8, 9)), (10, (6, 7, 8, 9))]
 DROPS = [4.6, 4.6, 4.6]
 TILE_SPACING = 4.4
-CLEAR = 2.5
+run = DROPS[0] / math.tan(math.radians(WALL_SLOPE))        # one course's horizontal run
+CLEAR = 2.5                                                # strip clear on the PLATEAU side
+CLEAR_OUT = run * len(COURSES) + 1.5                       # lowland side = the wall's whole
+#   footprint + a margin -- the courses must descend over CLEARED ground, never hover over
+#   kept grass (the zip then bridges foot -> south chain as a real apron)
 SEA_BASE_Y = -0.8                                          # free base below the waterline
 kk3 = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))
 
@@ -105,9 +109,11 @@ tri_cz = np.array([sum(gpos[i][2] for i in t) / 3 for t in gtris])
 tri_fam = [gmeta[i][2] for i in range(len(gtris))]
 north = np.array([north_of_chord(tri_cx[i], tri_cz[i]) for i in range(len(gtris))])
 
-# the chord CLEAR strip through the grass (the wall + zip will replace it)
-def near_chord(x, z, d):
-    return abs(z - seg_chord_z(x)) < d
+# the chord strip through the grass, ASYMMETRIC: tight on the plateau side, the wall's
+# whole footprint on the lowland side (the wall + zip replace it)
+def near_chord(x, z):
+    dz2 = z - seg_chord_z(x)
+    return -CLEAR_OUT < dz2 < CLEAR
 
 drop = set()
 for i, t in enumerate(gtris):
@@ -115,8 +121,47 @@ for i, t in enumerate(gtris):
         if north[i]:
             drop.add(i)                                    # the north coastal wall band: replaced
         continue
-    if any(near_chord(gpos[j][0], gpos[j][2], CLEAR) for j in t):
+    if any(near_chord(gpos[j][0], gpos[j][2]) for j in t):
         drop.add(i)
+
+# THE SLIVER PRUNE: the chord grazes the island's east tip almost TANGENT to the coast --
+# the strip leaves sub-walkable slivers pinched between it and the sea. Keep each side's
+# largest connected component; slivers become wall-over-sea (the free-base law).
+def side_components(want_north):
+    edge_map = defaultdict(list)
+    for i2, t2 in enumerate(gtris):
+        if i2 in drop or bool(north[i2]) != want_north:
+            continue
+        for a2, b2 in ((0, 1), (1, 2), (2, 0)):
+            edge_map[tuple(sorted((kk3(gpos[t2[a2]]), kk3(gpos[t2[b2]]))))].append(i2)
+    adjc = defaultdict(set)
+    for ts in edge_map.values():
+        for ii in range(len(ts)):
+            for jj in range(ii + 1, len(ts)):
+                adjc[ts[ii]].add(ts[jj])
+                adjc[ts[jj]].add(ts[ii])
+    seen, comps = set(), []
+    for s2 in range(len(gtris)):
+        if s2 in seen or s2 in drop or bool(north[s2]) != want_north:
+            continue
+        comp, st = {s2}, [s2]
+        while st:
+            t3 = st.pop()
+            for t4 in adjc[t3]:
+                if t4 not in comp:
+                    comp.add(t4)
+                    st.append(t4)
+        seen |= comp
+        comps.append(comp)
+    return sorted(comps, key=len, reverse=True)
+
+for want in (True, False):
+    comps = side_components(want)
+    for c in comps[1:]:
+        drop |= c
+    if len(comps) > 1:
+        print(f"  sliver prune ({'north' if want else 'south'}): dropped "
+              f"{[len(c) for c in comps[1:]]} tri slivers", flush=True)
 fams = Counter(tri_fam[i] for i in drop)
 print(f"dropped: {len(drop)} tris ({dict(fams)})", flush=True)
 
@@ -188,46 +233,17 @@ print(f"chord chains: south {len(south_chain)} pts, north ring {len(north_ring)}
 # ---- 3. the raised plateau ---------------------------------------------------------------------
 RAISE = PLATEAU_Y - 3.2
 ID13 = float(X.encode_id(topograph=13))
-raised_keys = {}
-for i, t in enumerate(gtris):
-    if i in drop or not north[i] or tri_fam[i] == "rock":
-        continue
-    for j in t:
-        raised_keys[kk3(gpos[j])] = True
-for i in range(len(gpos)):
-    k = kk3(gpos[i])
-    if k in raised_keys:
-        pass                                               # marker only; the raise happens at emit
-def raise_y(p):
-    return [p[0], p[1] + RAISE, p[2]]
 
 # crest ring = the north boundary ring RAISED (exact kept floats + RAISE -- welds to the
-# raised plateau by identity); is_chord per vert steers the course offset direction
+# raised plateau by identity)
 crest = [(p[0], p[1] + RAISE, p[2]) for p in north_ring]
-crest_is_chord = [near_chord(p[0], p[2], CLEAR + 3.5) for p in north_ring]
-print(f"crest loop: {len(crest)} pts ({sum(crest_is_chord)} chord-side)", flush=True)
+print(f"crest loop: {len(crest)} pts", flush=True)
 
-# ---- 4. the wall course rings -----------------------------------------------------------------
-# offset DIRECTION per crest vert: chord side = southward (-chord normal); coast side =
-# radially outward from the island centre
-def offset_dir(x, z, isch):
-    if isch:
-        dzdx = 1.6 * 0.11 * math.cos(0.11 * x)
-        nx, nz = dzdx, -1.0                                # normal pointing SOUTH of the chord
-        L = math.hypot(nx, nz)
-        return nx / L, nz / L
-    dx, dz = x - CX, z - CZ
-    L = math.hypot(dx, dz) or 1.0
-    return dx / L, dz / L
-
-run = 4.6 / math.tan(math.radians(WALL_SLOPE))
-ring_polys = [[(p[0], p[2]) for p in crest]]
-for k in range(1, len(COURSES) + 1):
-    poly = []
-    for (x, y, z), isch in zip(crest, crest_is_chord):
-        ox, oz = offset_dir(x, z, isch)
-        poly.append((x + ox * run * k, z + oz * run * k))
-    ring_polys.append(poly)
+# ---- 4. the wall course rings (DISTANCE-TRUE offsets) ------------------------------------------
+# One rule for every side (chord, coast, corners): each course ring is the TRUE outward
+# offset of the crest at k*run -- dense resample, per-vert outward-normal push, then THE
+# FOLD FILTER (a true offset point lies exactly D from the source; fold-loop points at
+# concave spots fall closer and are dropped). No per-side direction cases, no folds.
 
 def resample_ring(poly_pts, spacing=TILE_SPACING):
     n = len(poly_pts)
@@ -246,10 +262,59 @@ def resample_ring(poly_pts, spacing=TILE_SPACING):
         out.append((a[0] + t01 * (b[0] - a[0]), a[1] + t01 * (b[1] - a[1])))
     return out
 
-# ring 0 = the crest verts VERBATIM (welds to the plateau by identity); rings 1..3 resampled
+def offset_ring(src_xz, D, dense_sp=0.6):
+    """the outward offset of a closed (x,z) ring by D, fold-free"""
+    dense = resample_ring(src_xz, dense_sp)
+    n = len(dense)
+    s = sum(dense[i][0] * dense[(i + 1) % n][1] - dense[(i + 1) % n][0] * dense[i][1]
+            for i in range(n))
+    sgn = 1.0 if s > 0 else -1.0
+    pts = []
+    for i in range(n):
+        px, pz = dense[(i - 1) % n]
+        qx, qz = dense[(i + 1) % n]
+        tx, tz = qx - px, qz - pz
+        L = math.hypot(tx, tz) or 1.0
+        pts.append((dense[i][0] + sgn * tz / L * D, dense[i][1] - sgn * tx / L * D))
+    def dsrc(p):
+        best = 1e18
+        for i in range(n):
+            ax, az = dense[i]
+            bx2, bz2 = dense[(i + 1) % n]
+            vx, vz = bx2 - ax, bz2 - az
+            L2 = (vx * vx + vz * vz) or 1e-9
+            t01 = max(0.0, min(1.0, ((p[0] - ax) * vx + (p[1] - az) * vz) / L2))
+            dx, dz = p[0] - (ax + t01 * vx), p[1] - (az + t01 * vz)
+            best = min(best, dx * dx + dz * dz)
+        return math.sqrt(best)
+    return [p for p in pts if dsrc(p) > D - 0.25]
+
+crest_xz = [(p[0], p[2]) for p in crest]
+NT0 = len(crest)
+cumT = [0.0]
+for i in range(1, NT0 + 1):
+    a, b = crest[i - 1], crest[i % NT0]
+    cumT.append(cumT[-1] + math.hypot(b[0] - a[0], b[2] - a[2]))
+perT = cumT[-1]
+
+def crest_param(px, pz):
+    """the crest arc-length of the nearest point on the crest polyline"""
+    best, bd = 0.0, 1e18
+    for i in range(NT0):
+        ax, az = crest[i][0], crest[i][2]
+        bx2, bz2 = crest[(i + 1) % NT0][0], crest[(i + 1) % NT0][2]
+        vx, vz = bx2 - ax, bz2 - az
+        L2 = (vx * vx + vz * vz) or 1e-9
+        t01 = max(0.0, min(1.0, ((px - ax) * vx + (pz - az) * vz) / L2))
+        dx, dz = px - (ax + t01 * vx), pz - (az + t01 * vz)
+        d2_ = dx * dx + dz * dz
+        if d2_ < bd:
+            bd, best = d2_, cumT[i] + t01 * (cumT[i + 1] - cumT[i])
+    return best
+
 rings = [crest]
 for k in range(1, len(COURSES) + 1):
-    rings.append([(x, None, z) for (x, z) in resample_ring(ring_polys[k])])
+    rings.append([(x, None, z) for (x, z) in resample_ring(offset_ring(crest_xz, run * k))])
 
 # classify ring verts land/sea + assign y: over land -> course height (foot conforms to
 # ground); over sea -> course height capped, foot at SEA_BASE_Y
@@ -291,10 +356,55 @@ new_parents = []
 def d2xz(p, q):
     return (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
 
+def emit_wall(pts):
+    a, b, c = (np.asarray(p[:3]) for p in pts)
+    nrm = np.cross(b - a, c - a)
+    if float(np.linalg.norm(nrm)) < 1e-9:
+        return
+    order = pts if nrm[1] > 0 else (pts[0], pts[2], pts[1])
+    corners = tuple((p[0], p[1], p[2], p[3], p[4], 0.0, 1.0, 0.0) for p in order)
+    new_parents.append((corners, ID49, "wall"))
+
 for k, (row, cols) in enumerate(COURSES):
     T = rings[k]
     B = rings[k + 1]
     NT, NB = len(T), len(B)
+    if k == 0:
+        # the crest course: project each ring-1 station onto the crest's arc (the offset
+        # correspondence), then MONOTONE-merge by arc -- T-advances spread evenly, no
+        # coast-arc fans. Native crest verts keep the identity weld and take LERPED u
+        # along their tile's top edge (the inserted-vert lerp).
+        PB = [crest_param(p[0], p[2]) for p in B]
+        r0 = min(range(NB), key=lambda q2: PB[q2])
+        B = B[r0:] + B[:r0]
+        PB = PB[r0:] + PB[:r0]
+        for q2 in range(1, NB):
+            PB[q2] = max(PB[q2], PB[q2 - 1])               # projection noise at corners
+        i = j = 0
+        while i < NT or j < NB:
+            nextT = cumT[i + 1] if i < NT else float("inf")
+            nextB = (PB[j + 1] if j + 1 < NB else perT) if j < NB else float("inf")
+            adv_t = (i < NT) and (nextT <= nextB or j >= NB)
+            tile = min(j, NB - 1)
+            col = cols[tile % 4]
+            u0, v0, du_, dv_ = TILE_RECT[(col, row)]
+            t_lo = PB[tile]
+            t_hi = PB[tile + 1] if tile + 1 < NB else perT
+            def u_at(d):
+                fr = (d - t_lo) / max(1e-6, t_hi - t_lo)
+                return u0 + min(1.0, max(0.0, fr)) * du_
+            if adv_t:
+                tri = ((T[i % NT], u_at(cumT[i]), v0),
+                       (T[(i + 1) % NT], u_at(cumT[i + 1]), v0),
+                       (B[j % NB], u_at(PB[j] if j < NB else perT), v0 + dv_))
+                i += 1
+            else:
+                tri = ((T[i % NT], u_at(cumT[i] if i < NT else perT), v0),
+                       (B[(j + 1) % NB], u_at(PB[j + 1] if j + 1 < NB else perT), v0 + dv_),
+                       (B[j % NB], u_at(PB[j]), v0 + dv_))
+                j += 1
+            emit_wall([(p[0], p[1], p[2], uu, vv) for (p, uu, vv) in tri])
+        continue
     b0 = min(range(NB), key=lambda j: d2xz(B[j], T[0]))
     Br = B[b0:] + B[:b0]
     # orientation: both rings built from the same loop direction; verify by signed area
@@ -356,31 +466,91 @@ for k, (row, cols) in enumerate(COURSES):
         new_parents.append((corners, ID49, "wall"))
 print(f"wall tris: {len(new_parents)}", flush=True)
 
-# the lowland zip: south_chain <-> ring3's LAND section
+# the lowland zip: south_chain <-> the foot ring's LAND arc, both walked in CURVE order.
+# (x-sorting scrambled the fold-backs at the wall-end bends -> corridor holes; arc order
+# + pinned endpoints + sea end caps close the corridor.)
 foot = rings[-1]
-land_foot = [p for p in foot if pip(p[0], p[2], outline_poly)]
-# ... the zip walks the whole foot ring against the south chain openly: use only the land
-# section ordered along the chord (west->east by x)
-land_foot.sort(key=lambda p: p[0])
-sc = sorted(south_chain, key=lambda p: p[0])
+NF = len(foot)
+is_land = [pip(p[0], p[2], outline_poly) for p in foot]
+start = next(k2 for k2 in range(NF) if not is_land[k2])
+runs, cur = [], []
+for step in range(1, NF + 1):
+    idx = (start + step) % NF
+    if is_land[idx]:
+        cur.append(idx)
+    elif cur:
+        runs.append(cur)
+        cur = []
+if cur:
+    runs.append(cur)
+land_run = max(runs, key=len)
+if len(runs) > 1:
+    print(f"  (foot: {len(runs)} land runs -- zipping the longest ({len(land_run)} pts), "
+          f"strays {[len(r) for r in runs if r is not land_run]})", flush=True)
+sc = list(south_chain)
+land_arc = [foot[i2] for i2 in land_run]
+# orient the arc to run the same way as the south chain
+if (d2xz(sc[0], land_arc[0]) + d2xz(sc[-1], land_arc[-1]) >
+        d2xz(sc[0], land_arc[-1]) + d2xz(sc[-1], land_arc[0])):
+    land_run = land_run[::-1]
+    land_arc = land_arc[::-1]
+
+def cum_arc(ch):
+    c = [0.0]
+    for a2, b2 in zip(ch, ch[1:]):
+        c.append(c[-1] + math.hypot(b2[0] - a2[0], b2[2] - a2[2]))
+    return c
+
+cs, cl = cum_arc(sc), cum_arc(land_arc)
+ps = [d / max(1e-9, cs[-1]) for d in cs]
+pl = [d / max(1e-9, cl[-1]) for d in cl]
 zip_tris = []
 i = j = 0
-while i < len(sc) - 1 or j < len(land_foot) - 1:
-    h_cur = sc[min(i, len(sc) - 1)]
-    r_cur = land_foot[min(j, len(land_foot) - 1)]
-    can_h = i < len(sc) - 1
-    can_r = j < len(land_foot) - 1
-    if can_h and can_r:
-        adv_h = d2xz(sc[i + 1], r_cur) <= d2xz(h_cur, land_foot[j + 1])
-    else:
-        adv_h = can_h
-    if adv_h:
-        zip_tris.append((h_cur, sc[i + 1], r_cur))
+while i < len(sc) - 1 or j < len(land_arc) - 1:
+    can_i = i < len(sc) - 1
+    can_j = j < len(land_arc) - 1
+    if can_i and (not can_j or ps[i + 1] <= pl[j + 1]):
+        zip_tris.append((sc[i], sc[i + 1], land_arc[j]))
         i += 1
     else:
-        zip_tris.append((h_cur, land_foot[j + 1], r_cur))
+        zip_tris.append((sc[i], land_arc[j + 1], land_arc[j]))
         j += 1
-print(f"lowland zip: {len(zip_tris)} tris", flush=True)
+# THE WALL-END FANS: close each corridor end with ROCK (the base-row course) fanning from
+# the south-chain end through the foot ring's SEA verts -- the wedge between the wall's
+# sea-going courses and the coast closes with rock diving below the waterline (the
+# free-base law), never with a stretched grass face.
+run_set = set(land_run)
+row_f, cols_f = COURSES[-1]
+def end_fan(apex, end_idx):
+    step_dir = 1
+    for sd in (1, -1):
+        if (end_idx + sd) % NF not in run_set:
+            step_dir = sd
+            break
+    seq = [foot[end_idx]]
+    idx2 = end_idx
+    for _ in range(8):
+        idx2 = (idx2 + step_dir) % NF
+        if idx2 in run_set or d2xz(apex, foot[idx2]) > 18.0 ** 2:
+            break
+        seq.append(foot[idx2])
+    out2 = []
+    arc = 0.0
+    for n2 in range(len(seq) - 1):
+        col = cols_f[int(arc / TILE_SPACING) % 4]
+        u0, v0, du_, dv_ = TILE_RECT[(col, row_f)]
+        arc += math.hypot(seq[n2 + 1][0] - seq[n2][0], seq[n2 + 1][2] - seq[n2][2])
+        out2.append([(apex[0], apex[1], apex[2], u0 + du_ / 2, v0),
+                     (seq[n2][0], seq[n2][1], seq[n2][2], u0, v0 + dv_),
+                     (seq[n2 + 1][0], seq[n2 + 1][1], seq[n2 + 1][2], u0 + du_, v0 + dv_)])
+    return out2
+
+nfan = 0
+for apex, end_idx in ((sc[0], land_run[0]), (sc[-1], land_run[-1])):
+    for pts5 in end_fan(apex, end_idx):
+        emit_wall(pts5)
+        nfan += 1
+print(f"lowland zip: {len(zip_tris)} tris + {nfan} end-fan rock tris", flush=True)
 
 # zip mains: byte-decode per cell from kept south grass
 cell_of = lambda x, z: (int(np.floor(x / 4.0)), int(np.floor(z / 4.0)))
@@ -426,19 +596,68 @@ for i2, t in enumerate(gtris):
         continue
     for jj in t:
         pos_nrm.setdefault(kk3(gpos[jj]), list(gnrm[jj]))
+
+# THE CELL CLIP (fix for the corridor smears): a zip tri spanning several 4u cells decodes
+# ONE cell, and its far verts hit mains_uv's bleed clamp -> long smeared texel runs. Clip
+# every zip tri to the 4u cell grid first; each piece then decodes ITS OWN cell and its
+# UVs stay linear inside the quad.
+def clip_poly(poly, axis, val, keep_ge):
+    out2 = []
+    for ii in range(len(poly)):
+        a2, b2 = poly[ii], poly[(ii + 1) % len(poly)]
+        da = (a2[axis] - val) if keep_ge else (val - a2[axis])
+        db = (b2[axis] - val) if keep_ge else (val - b2[axis])
+        if da >= 0:
+            out2.append(a2)
+        if (da >= 0) != (db >= 0):
+            t01 = da / (da - db)
+            out2.append(tuple(a2[k2] + t01 * (b2[k2] - a2[k2]) for k2 in range(len(a2))))
+    return out2
+
+zip_pieces = []
 for tri3 in zip_tris:
-    a, b, c = (np.asarray(p, dtype=float) for p in tri3)
+    corners6 = []
+    for pnt in tri3:
+        n3 = pos_nrm.get(kk3(pnt), [0.0, 1.0, 0.0])
+        corners6.append((float(pnt[0]), float(pnt[1]), float(pnt[2]), *n3))
+    xs2 = [c[0] for c in corners6]
+    zs2 = [c[2] for c in corners6]
+    cx0, cx1 = int(np.floor(min(xs2) / 4.0)), int(np.floor((max(xs2) - 1e-9) / 4.0))
+    cz0, cz1 = int(np.floor(min(zs2) / 4.0)), int(np.floor((max(zs2) - 1e-9) / 4.0))
+    for ci in range(cx0, cx1 + 1):
+        for cj in range(cz0, cz1 + 1):
+            p = list(corners6)
+            p = clip_poly(p, 0, ci * 4.0, True)
+            if len(p) >= 3:
+                p = clip_poly(p, 0, (ci + 1) * 4.0, False)
+            if len(p) >= 3:
+                p = clip_poly(p, 2, cj * 4.0, True)
+            if len(p) >= 3:
+                p = clip_poly(p, 2, (cj + 1) * 4.0, False)
+            if len(p) < 3:
+                continue
+            for k2 in range(1, len(p) - 1):
+                tri = (p[0], p[k2], p[k2 + 1])
+                # THE WALL LAW: degeneracy = TRUE 3D area, never plan area
+                e1 = [tri[1][q] - tri[0][q] for q in range(3)]
+                e2 = [tri[2][q] - tri[0][q] for q in range(3)]
+                cxp = e1[1] * e2[2] - e1[2] * e2[1]
+                cyp = e1[2] * e2[0] - e1[0] * e2[2]
+                czp = e1[0] * e2[1] - e1[1] * e2[0]
+                if cxp * cxp + cyp * cyp + czp * czp < 1e-12:
+                    continue
+                zip_pieces.append(((ci, cj), tri))
+print(f"zip pieces after the cell clip: {len(zip_pieces)}", flush=True)
+for cell, tri in zip_pieces:
+    a, b, c = (np.asarray(p[:3], dtype=float) for p in tri)
     nrm = np.cross(b - a, c - a)
-    if float(np.linalg.norm(nrm)) < 1e-9:
-        continue
-    order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
-    cell = cell_of(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
+    order = tri if nrm[1] > 0 else (tri[0], tri[2], tri[1])
     q, o = decode_cell(cell)
     corners = []
     for pnt in order:
         u, v = G.mains_uv(float(pnt[0]), float(pnt[2]), cell, q, o)
-        n3 = pos_nrm.get(kk3(pnt), [0.0, 1.0, 0.0])
-        corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]), u, v, *n3))
+        corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]), u, v,
+                        pnt[3], pnt[4], pnt[5]))
     new_parents.append((tuple(corners), ID0, "zip"))
 
 # ---- 6. assemble: kept south verbatim; kept north raised (topo -> 13); new tris ---------------
@@ -560,6 +779,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "deploy":
     shutil.copyfile(src, BK / f"{src.name}.{ts}")
     outp = M.deploy_override(new_bm, mod_folder="FF9CustomMap-world", part="Terrain")
     print(f"deployed -> {outp} ({len(new_bm.tris)} tris)")
-    print(f"DONE -- world re-entry; teleport {CX:.0f},{CZ + 18:.0f} = lowland at the wall's foot.")
+    print(f"DONE -- world re-entry; teleport {CX:.0f},{CZ - 18:.0f} = the lowland; "
+          f"{CX:.0f},{CZ + 12:.0f} = the plateau top.")
 else:
     print("dry run only -- re-run with 'deploy' to write.")

@@ -160,7 +160,36 @@ synthesis recipe for the terrace-wall rung:
 **⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
 quads; crest/body/base band rows; u-continuation with band wrap).
 
-## The TERRACE arc (round 3 in progress: THE TWO-LEVEL ISLAND — the carry verdict below)
+## The TERRACE arc — round 4: THE TWO-LEVEL ISLAND (deployed, awaits playtest)
+
+`two_level_f.py` **DEPLOYED 2026-07-12** (762 tris, block (3,17)): island F as
+lowland-south / plateau-north (shelf y=17, topo 13) joined by a 3-course escarpment chord;
+the sea side is a tall coast wall with FREE bases below the waterline. Teleports:
+**(224,−1138)** = the lowland, **(224,−1108)** = the plateau top. All gates pass
+(census MISS=0, zip winding, both ground probes); the offline render shows a coherent
+escarpment, a clean corridor, closed ends. Five moves minted in the fix round (full
+statements in the memory file):
+
+- **THE ASYMMETRIC STRIP** — clear 2.5u on the plateau side but the wall's whole footprint
+  (3·run + 1.5 ≈ 10.1u) on the lowland side; courses never hover over kept grass, the zip
+  is a real apron.
+- **THE DISTANCE-TRUE OFFSET** (`offset_ring`) — dense resample → outward-normal push →
+  the FOLD FILTER (offset points closer than D to the source = fold loops → dropped). One
+  rule for chord/coast/corners; the notch can't fold rings.
+- **THE ARC-PROJECTED CREST COURSE** — ring-1 stations project onto the crest's arc
+  (`crest_param`); monotone merge by arc; native crest verts keep the identity weld and
+  take lerped u along their tile's top edge. The coast-arc fan compression is gone.
+- **THE CELL CLIP** — zip tris clip to the 4u cell grid BEFORE the per-cell mains decode
+  (spanning tris hit mains_uv's bleed clamp → the corridor's dashed smears).
+- **THE TANGENT-EXIT TRAP** — a partition line exiting through a coastal extreme grazes
+  the coast tangentially and degenerates every offset/fan (the chord exits island F at its
+  EAST TIP). The wide out-strip + a largest-component sliver prune absorb it; wall ends
+  close with rock END FANS through the foot ring's sea verts (never a stretched grass cap).
+
+Known cosmetic remainder (deferred): a small stripy corner-fan patch (~4×3u) on the wall's
+outer skirt over open sea at the east corner, visible only from the sea side.
+
+### The round-3 carry verdict (what forced the two-level shape)
 
 Round-3 playtest verdict on the (17,15) carry: the donor is a **PEAK in situ** — a sharp
 crag with one steep walkable topo-13 face, not a flat shelf (user: ugly; the PLATEAU idea
@@ -169,9 +198,8 @@ worked (it rendered as real FF9 rock, being real bytes); the object was wrong �
 follow-up census minted **THE NO-FREE-MESA LAW**: no free-standing flat-topped mesa exists
 on disc 1 (every raised complex is a peak or a block-frame-cut escarpment fragment with a
 74–95% high rim; (6,15)'s true shelf is a RIVERBANK terrace against the river at 15.2).
-Flat terraces exist only as EDGES of larger highland ⇒ the chosen build (WIP,
-`two_level_f.py`): island F as lowland-south / plateau-north joined by an escarpment
-chord, sea side dropping to FREE bases — the shape FF9 actually uses.
+Flat terraces exist only as EDGES of larger highland ⇒ the two-level build above — the
+shape FF9 actually uses.
 
 ## Round 2: THE MESA CARRY (superseded by the verdict above — `mesa_carry.py` kept)
 
