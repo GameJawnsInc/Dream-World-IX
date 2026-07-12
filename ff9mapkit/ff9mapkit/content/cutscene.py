@@ -256,13 +256,29 @@ def compile_steps(steps, txids, *, say_flags: int = 128) -> bytes:
     return b"".join(out)
 
 
-def once_flag_for(cs: dict):
+def blocks(raw_cutscene) -> list:
+    """Normalize the cutscene section to a LIST of blocks in author order: the legacy singleton
+    ``[cutscene]`` (one table) and the plural ``[[cutscene]]`` (array of tables -- the story-event
+    DISPATCH: several scenes on one field, each gated to its own beat) both come out the same way.
+    ``None``/empty -> ``[]``. Every consumer goes through this, so a singleton project's behavior
+    (indices, auto flags, txid order) is exactly the one-block case."""
+    if raw_cutscene is None:
+        return []
+    if isinstance(raw_cutscene, dict):
+        return [raw_cutscene]
+    return [b for b in raw_cutscene if isinstance(b, dict)]
+
+
+def once_flag_for(cs: dict, k: int = 0):
     """(flag_class, flag_idx) for a cutscene's gate. ``once=true`` -> a SAVE-PERSISTENT Global bool
     (plays once ever); ``once=false`` -> a TRANSIENT Map bool (replays each visit -- the Map var resets
-    on field load -- but still runs once per visit). An explicit ``flag = N`` overrides the index."""
+    on field load -- but still runs once per visit). An explicit ``flag = N`` overrides the index.
+    ``k`` = the block's index in the ``[[cutscene]]`` dispatch -- each block auto-allocates its own
+    default (GLOB ``8100+k`` / MAP ``80+k``), so two scenes never share a once-flag; ``k=0`` reproduces
+    the singleton's historical defaults byte-for-byte."""
     if cs.get("once", True):
-        return _region.GLOB_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_FLAG))
-    return _region.MAP_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_MAP_FLAG))
+        return _region.GLOB_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_FLAG + k))
+    return _region.MAP_BOOL, int(cs.get("flag", DEFAULT_CUTSCENE_MAP_FLAG + k))
 
 
 def early_return_unless(cond: bytes) -> bytes:

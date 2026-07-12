@@ -661,10 +661,18 @@ def collect_text_refs(data: dict) -> list:
             refs.append(TextRef("reply", f"Choice {who}: reply to “{o.get('text') or '#' + str(j)}”",
                                 ("choice", i, "options", j, "reply")))
     cs = data.get("cutscene")
-    if isinstance(cs, dict):
+    if isinstance(cs, dict):                       # the legacy [cutscene] singleton (path has no block index)
         for k, st in enumerate(cs.get("steps", []) or []):
             if "say" in st:
                 refs.append(TextRef("cutscene", f"Cutscene: say #{k}", ("cutscene", "steps", k, "say")))
+    elif isinstance(cs, list):                     # the [[cutscene]] dispatch -- one ref set per block
+        for b, blk in enumerate(cs):
+            if not isinstance(blk, dict):
+                continue
+            for k, st in enumerate(blk.get("steps", []) or []):
+                if "say" in st:
+                    refs.append(TextRef("cutscene", f"Cutscene #{b}: say #{k}",
+                                        ("cutscene", b, "steps", k, "say")))
     for k, h in enumerate(data.get("on_entry", []) or []):
         if isinstance(h, dict) and "message" in h:
             refs.append(TextRef("on_entry", f"On-entry beat #{k}", ("on_entry", k, "message"),

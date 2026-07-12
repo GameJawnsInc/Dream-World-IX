@@ -5490,9 +5490,18 @@ class Workspace(QMainWindow):
         # Don't materialize an empty [cutscene] just by BROWSING here -- that would mark the field dirty.
         # Create it lazily: on the first added step (ensure_cs) or an explicit Save (_commit's guard).
         def cs():
-            return doc.data.get("cutscene") or {}
+            c = doc.data.get("cutscene")
+            if isinstance(c, list):                    # the [[cutscene]] dispatch: the form edits BLOCK 0
+                return (c[0] if c and isinstance(c[0], dict) else {})   # (later blocks: edit the toml directly)
+            return c or {}
 
         def ensure_cs():
+            c = doc.data.get("cutscene")
+            if isinstance(c, list):                    # plural: materialize/edit the FIRST block
+                if not c or not isinstance(c[0], dict):
+                    c.insert(0, {})
+                c[0].setdefault("steps", [])
+                return c[0]
             c = doc.data.setdefault("cutscene", {})    # materialize on a real edit (add a step)
             c.setdefault("steps", [])
             return c
@@ -6062,8 +6071,12 @@ class Workspace(QMainWindow):
             if n:
                 bits.append(f"{n} {sing}{'' if n == 1 else 's'}")
         if data.get("cutscene"):
-            steps = len((data.get("cutscene") or {}).get("steps", []) or [])
-            bits.append(f"cutscene ({steps} step{'' if steps == 1 else 's'})")
+            _c = data.get("cutscene")
+            _blocks = _c if isinstance(_c, list) else [_c]     # [[cutscene]] dispatch or the legacy singleton
+            steps = sum(len(b.get("steps", []) or []) for b in _blocks if isinstance(b, dict))
+            n_cs = sum(1 for b in _blocks if isinstance(b, dict))
+            head = "cutscene" if n_cs <= 1 else f"{n_cs} cutscenes"
+            bits.append(f"{head} ({steps} step{'' if steps == 1 else 's'})")
         if data.get("encounter"):
             bits.append("encounters")
         if data.get("music"):

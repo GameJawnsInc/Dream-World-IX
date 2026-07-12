@@ -1665,33 +1665,36 @@ def validate(project: FieldProject) -> list[str]:
             if t is not None and t not in _text.TAIL_CODES:
                 problems.append(f"{label} tail {t!r} is not a valid TAIL code "
                                 f"({', '.join(sorted(_text.TAIL_CODES))})")
-    cs = project.raw.get("cutscene")
-    if cs is not None:
+    _cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
+    for _ci, cs in enumerate(_cs_blocks):
+        # the [[cutscene]] DISPATCH (#13 v2): several scenes per field, each validated alone. A singleton
+        # keeps the plain "[cutscene]" label (identical messages); plural blocks are labelled by index.
+        lbl = "[cutscene]" if len(_cs_blocks) == 1 else f"[cutscene] #{_ci}"
         # the STORY-EVENT DIRECTOR keys (#13): beat gate (requires_*) + end-of-scene story advance (set_*) --
         # common to all three flavors (narration / actor / conductor), so validated before the flavor split.
-        _validate_story_writes(cs, "[cutscene]", story_names, problems,
+        _validate_story_writes(cs, lbl, story_names, problems,
                                scenario_key="set_scenario", flags_key="set_flags")
         rs = cs.get("requires_scenario")
         if isinstance(rs, str):
             try:
                 _flags.resolve_scenario(rs)
             except ValueError as e:
-                problems.append(f"[cutscene] requires_scenario: {e}")
+                problems.append(f"{lbl} requires_scenario: {e}")
         elif rs is not None and (isinstance(rs, bool) or not isinstance(rs, int)
                                  or not (0 <= rs <= _startup.SCENARIO_MAX)):
-            problems.append(f"[cutscene] requires_scenario must be 0..{_startup.SCENARIO_MAX} or an area "
+            problems.append(f"{lbl} requires_scenario must be 0..{_startup.SCENARIO_MAX} or an area "
                             f"name (got {rs!r})")
         if cs.get("requires_flag") is not None and cs.get("requires_flag_clear") is not None:
-            problems.append("[cutscene] set requires_flag OR requires_flag_clear, not both (stack a second "
+            problems.append(f"{lbl} set requires_flag OR requires_flag_clear, not both (stack a second "
                             "condition on requires_scenario instead)")
         for rk in ("requires_flag", "requires_flag_clear"):
             rv = cs.get(rk)
             if rv is not None and (isinstance(rv, bool) or not isinstance(rv, int)):
-                problems.append(f"[cutscene] {rk} must be a gEventGlobal bit index or a [[flag]] name "
+                problems.append(f"{lbl} {rk} must be a gEventGlobal bit index or a [[flag]] name "
                                 f"(got {rv!r})")
-    if cs is not None and isinstance(cs.get("actor"), list):
-        _validate_conductor(project, cs, problems)     # multi-actor CONDUCTOR (the central-director model)
-    elif cs is not None:
+        if isinstance(cs.get("actor"), list):
+            _validate_conductor(project, cs, problems)     # multi-actor CONDUCTOR (the central-director model)
+            continue
         steps = cs.get("steps")
         actor = cs.get("actor")
         global_keys = ("say", "wait", "set_flag")
@@ -1701,62 +1704,81 @@ def validate(project: FieldProject) -> list[str]:
         anim_token = (actor_npc.get("preset") or actor_npc.get("archetype")) if actor_npc else None
         move_reg = _position_registry(project)
         if not isinstance(steps, list) or not steps:
-            problems.append("[cutscene] needs a non-empty steps = [ {say=...}, {wait=...}, ... ] list")
+            problems.append(f"{lbl} needs a non-empty steps = [ {{say=...}}, {{wait=...}}, ... ] list")
         else:
             for k, s in enumerate(steps):
                 present = [key for key in global_keys + actor_keys if key in s]
                 if len(present) != 1:
-                    problems.append(f"[cutscene] step {k} needs exactly one action "
+                    problems.append(f"{lbl} step {k} needs exactly one action "
                                     f"({' / '.join(allowed)})")
                 elif present[0] not in allowed:
-                    problems.append(f"[cutscene] step {k} uses {present[0]!r}, which needs an actor -- "
-                                    f"set [cutscene] actor = \"<npc name>\" (it runs in that NPC).")
+                    problems.append(f"{lbl} step {k} uses {present[0]!r}, which needs an actor -- "
+                                    f"set {lbl} actor = \"<npc name>\" (it runs in that NPC).")
                 t = s.get("tail")
                 if t is not None and t not in _text.TAIL_CODES:
-                    problems.append(f"[cutscene] step {k} tail {t!r} is not a valid TAIL code")
+                    problems.append(f"{lbl} step {k} tail {t!r} is not a valid TAIL code")
                 a = s.get("animation")                    # a named gesture must resolve on the actor's model
                 if isinstance(a, str) and not a.strip().isdigit():
                     if anim_token not in _animations.TOKENS:
-                        problems.append(f"[cutscene] step {k} animation {a!r} is a name, but the actor has no "
+                        problems.append(f"{lbl} step {k} animation {a!r} is a name, but the actor has no "
                                         f"known preset -- use a numeric id or give the NPC a preset.")
                     else:
                         try:
                             _animations.resolve(anim_token, a)
                         except ValueError as e:
-                            problems.append(f"[cutscene] step {k}: {e}")
+                            problems.append(f"{lbl} step {k}: {e}")
                 for mk in ("walk", "teleport"):           # a named move target must resolve to a point
                     if isinstance(s.get(mk), str):
                         try:
                             _resolve_point(s[mk], move_reg)
                         except ValueError as e:
-                            problems.append(f"[cutscene] step {k}: {e}")
+                            problems.append(f"{lbl} step {k}: {e}")
                 if isinstance(s.get("path"), list):        # each path waypoint must resolve too
                     if len(s["path"]) < 1:
-                        problems.append(f"[cutscene] step {k}: path needs at least one waypoint")
+                        problems.append(f"{lbl} step {k}: path needs at least one waypoint")
                     for elem in s["path"]:
                         if isinstance(elem, str):
                             try:
                                 _resolve_point(elem, move_reg)
                             except ValueError as e:
-                                problems.append(f"[cutscene] step {k}: {e}")
+                                problems.append(f"{lbl} step {k}: {e}")
         if actor is not None and actor not in {n.get("name") for n in project.raw.get("npc", [])}:
-            problems.append(f"[cutscene] actor {actor!r} is not a defined [[npc]] name")
+            problems.append(f"{lbl} actor {actor!r} is not a defined [[npc]] name")
         if "ate_mode" in cs and not cs.get("ate"):
-            problems.append("[cutscene] ate_mode is set but ate is not true -- set ate = true to style "
+            problems.append(f"{lbl} ate_mode is set but ate is not true -- set ate = true to style "
                             "this cutscene as a compulsory ATE (or drop ate_mode).")
         if cs.get("ate"):
             m = cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)
             if not isinstance(m, int) or isinstance(m, bool) or not (0 <= m <= 255):
-                problems.append(f"[cutscene] ate_mode {m!r} must be an int 0..255 "
+                problems.append(f"{lbl} ate_mode {m!r} must be an int 0..255 "
                                 f"(1 = quiet no-icon auto-ATE, 6 = grey UNSKIPPABLE; ATE 0xD7 mode).")
         if "then_warp" in cs:
             tw = cs["then_warp"]
             if not (isinstance(tw, int) and not isinstance(tw, bool) and tw > 0):
-                problems.append(f"[cutscene] then_warp {tw!r} must be a field id (a positive int) -- the "
+                problems.append(f"{lbl} then_warp {tw!r} must be a field id (a positive int) -- the "
                                 f"field to auto-return to when the scene ends (Field warp).")
             if actor is not None:
-                problems.append("[cutscene] then_warp is only supported on a narration cutscene (no actor) "
+                problems.append(f"{lbl} then_warp is only supported on a narration cutscene (no actor) "
                                 "-- the actor path splices into an NPC loop, which doesn't take the end-warp.")
+    if len(_cs_blocks) > 1:
+        # the DISPATCH rules: several scenes on one field must be a real beat dispatch --
+        # (1) pairwise-DISTINCT story gates, else two control-locking scenes fire on the same load;
+        # (2) at most ONE conductor (its per-actor walk-tag allocation is single-shot).
+        _gates = {}
+        for _ci, cs in enumerate(_cs_blocks):
+            key = (cs.get("requires_scenario"), cs.get("requires_flag"), cs.get("requires_flag_clear"))
+            if key in _gates:
+                what = "both UNGATED" if key == (None, None, None) else f"the same gate {key}"
+                problems.append(f"[cutscene] #{_gates[key]} and #{_ci} have {what} -- a [[cutscene]] dispatch "
+                                f"needs pairwise-distinct requires_scenario / requires_flag gates (else both "
+                                f"scenes fire, and lock control, on the same load).")
+            else:
+                _gates[key] = _ci
+        _conds = [i for i, c in enumerate(_cs_blocks) if isinstance(c.get("actor"), list)]
+        if len(_conds) > 1:
+            problems.append(f"[[cutscene]] blocks {_conds} are all multi-actor CONDUCTORS -- at most ONE "
+                            f"conductor per field (its per-actor walk-tag allocation is single-shot); make "
+                            f"the others single-actor or narration scenes.")
 
     # [[mint]] -- a NEW additive GEO model id. resolve_mint() carries the full rule set (band >= 6000,
     # from XOR fbx, novel non-real name, valid group->type); surface its errors as build problems, and
@@ -1804,8 +1826,8 @@ def lint_logic(project: FieldProject) -> list[str]:
                        + " ignored -- the field runs the donor's real .eb, so the synthesize path that would "
                        "inject them is skipped. Author them on a synthesized / re-authorable field (a verbatim "
                        "fork already carries the donor's own NPCs / doors / cutscenes).")
-        _cs = raw.get("cutscene")          # a MULTI-ACTOR conductor IS wired on verbatim; legacy/narration is not
-        if _cs is not None and not isinstance(_cs.get("actor"), list):
+        # a MULTI-ACTOR conductor IS wired on verbatim; legacy/narration blocks are not
+        if any(not isinstance(_b.get("actor"), list) for _b in _cutscene.blocks(raw.get("cutscene"))):
             out.append("verbatim fork: a single-actor or narration [cutscene] is ignored -- only a MULTI-ACTOR "
                        "conductor (actor = [\"a\", \"b\", ...]) is wired on a verbatim fork; the donor's real .eb "
                        "carries its own cutscenes.")
@@ -1857,13 +1879,12 @@ def lint_logic(project: FieldProject) -> list[str]:
             else:
                 auto_once.add(_auto.event(counter))
             counter += 1
-    cs = raw.get("cutscene")           # a cutscene also sets flags (set_flag steps + its own once-flag)
-    if cs:
-        for step in cs.get("steps", []):
+    for _ck, cs in enumerate(_cutscene.blocks(raw.get("cutscene"))):   # a cutscene also sets flags
+        for step in cs.get("steps", []):                               # (set_flag steps + its own once-flag)
             if "set_flag" in step:
                 settable.add(int(step["set_flag"][0])); explicit.add(int(step["set_flag"][0]))
         if cs.get("once", True):
-            f = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
+            f = int(cs["flag"]) if "flag" in cs else _auto.cutscene(_ck)
             settable.add(f); explicit.add(f)
         for p in cs.get("set_flags", []) or []:    # end-of-scene story advance (#13 director) sets bits too
             if isinstance(p, dict) and "flag" in p:
@@ -2023,9 +2044,11 @@ def lint_logic(project: FieldProject) -> list[str]:
     for ev in raw.get("event", []):
         if "message" in ev:
             texts.append((f"event {ev.get('name', '?')!r}", _text.with_speaker(ev.get("speaker"), ev["message"])))
-    for k, s in enumerate(raw.get("cutscene", {}).get("steps", [])):
-        if "say" in s:
-            texts.append((f"cutscene say #{k}", _text.with_speaker(s.get("speaker"), s["say"])))
+    for _ck, _cb in enumerate(_cutscene.blocks(raw.get("cutscene"))):
+        for k, s in enumerate(_cb.get("steps", [])):
+            if "say" in s:
+                texts.append((f"cutscene #{_ck} say #{k}" if _ck else f"cutscene say #{k}",
+                              _text.with_speaker(s.get("speaker"), s["say"])))
     for who, t in texts:
         if wrap is None:                       # wrapping disabled: every over-budget line overflows
             for ln in t.replace("[PAGE]", "\n").split("\n"):
@@ -2039,8 +2062,7 @@ def lint_logic(project: FieldProject) -> list[str]:
     # DEPRECATION: `[cutscene] ate = true` is the OLD, unfaithful forced-ATE model -- a grey banner held over
     # THIS in-place cutscene. A real grey ATE WARPS you to a dedicated scene and back (verified vs 6 real grey
     # ATEs; see project-ff9-ate-system). Steer to the faithful trigger; the held-banner still builds (not an error).
-    _cs = raw.get("cutscene")
-    if isinstance(_cs, dict) and _cs.get("ate"):
+    if any(_b.get("ate") for _b in _cutscene.blocks(raw.get("cutscene"))):
         out.append("[cutscene] ate = true is the OLD held-banner ATE styling (a grey banner over this in-place "
                    "cutscene) -- NOT how a real grey ATE works (it WARPS you to a scene, plays it, and warps you "
                    "back). For a faithful forced ATE use `[[gateway]] ate = true` (the warp-in trigger: banner "
@@ -2062,11 +2084,12 @@ def lint_logic(project: FieldProject) -> list[str]:
             if _catalog.animation_name(aid) is None:
                 out.append(f"[[npc]] {n.get('name', '#' + str(i))!r} anims[{slot!r}] = {aid!r} isn't a known "
                            f"animation id. Run `ff9mapkit models <name>` to list a model's gestures.")
-    for k, s in enumerate(raw.get("cutscene", {}).get("steps", [])):
-        a = s.get("animation")
-        if _is_raw_int(a) and _catalog.animation_name(int(a)) is None:
-            out.append(f"[cutscene] step {k} animation id {a} isn't a known animation id "
-                       f"(run `ff9mapkit models <character>` to list gestures).")
+    for _cb in _cutscene.blocks(raw.get("cutscene")):
+        for k, s in enumerate(_cb.get("steps", [])):
+            a = s.get("animation")
+            if _is_raw_int(a) and _catalog.animation_name(int(a)) is None:
+                out.append(f"[cutscene] step {k} animation id {a} isn't a known animation id "
+                           f"(run `ff9mapkit models <character>` to list gestures).")
     return out
 
 
@@ -2135,8 +2158,7 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
         for i, p in enumerate(gw.get("set_flags", []) or []):   # on-exit story advance (set/clear bits)
             if isinstance(p, dict) and "flag" in p:
                 _write(p["flag"], f"gateway -> {gw.get('to')} set_flags #{i}")
-    cs = raw.get("cutscene")
-    if cs:
+    for _ck, cs in enumerate(_cutscene.blocks(raw.get("cutscene"))):
         for j, s in enumerate(cs.get("steps", [])):
             if "set_flag" in s:
                 _write(_flag_index(s["set_flag"]), f"cutscene step #{j}")
@@ -2871,8 +2893,19 @@ class _FlagAlloc:
     def event(self, i: int) -> int:
         return (_event.EVENT_FLAG_BASE + i) if self.base is None else (self.base + 1 + i)
 
-    def cutscene(self) -> int:
-        return _cutscene.DEFAULT_CUTSCENE_FLAG if self.base is None else self.base
+    def cutscene(self, k: int = 0) -> int:
+        """Auto once-flag for the k-th ``[[cutscene]]`` block. Single-field: ``8100+k`` (k=0 = the
+        historical singleton, byte-identical). Campaign member: only the FIRST block has a reserved slot
+        (the member's K-wide partition allocates exactly one cutscene flag) -- later blocks need an
+        explicit ``flag = N`` (same policy as ``[[on_entry]]``)."""
+        if self.base is None:
+            return _cutscene.DEFAULT_CUTSCENE_FLAG + k
+        if k == 0:
+            return self.base
+        raise BuildError(
+            "a second (or later) [[cutscene]] block in a campaign member needs an explicit `flag = N` -- "
+            "the per-member flag block reserves exactly ONE cutscene slot, so an auto once-flag would "
+            "alias a sibling member. Pick an index in this member's free band or use a shared [[flag]].")
 
     def choice(self, i: int) -> int:
         return (_choice.CHOICE_FLAG_BASE + i) if self.base is None else (self.base + 1 + EVENTS_PER_FIELD + i)
@@ -3489,10 +3522,17 @@ def _verbatim_prop_message_count(project: FieldProject) -> int:
 
 def _verbatim_cutscene_message_count(project: FieldProject) -> int:
     """How many multi-actor conductor ``say`` lines the verbatim channel appends (the LAST appended block)."""
-    cs = project.raw.get("cutscene")
-    if not (cs and isinstance(cs.get("actor"), list)):
+    cs = _verbatim_conductor_block(project)
+    if cs is None:
         return 0
     return sum(1 for s in (cs.get("steps") or []) if "say" in s)
+
+
+def _verbatim_conductor_block(project: FieldProject):
+    """The (single) multi-actor CONDUCTOR block of the ``[[cutscene]]`` dispatch, or ``None``. The verbatim
+    channel wires exactly one conductor (validate enforces at-most-one across the whole dispatch)."""
+    return next((b for b in _cutscene.blocks(project.raw.get("cutscene"))
+                 if isinstance(b.get("actor"), list) and b.get("actor")), None)
 
 
 def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dict]:
@@ -3500,8 +3540,8 @@ def _verbatim_cutscene_messages(project: FieldProject, langs) -> tuple[list, dic
     donor `.mes` + every other appended block (on_entry/logic_add/npc/event/chest/choice/prop -- all disjoint).
     Returns ``(txids, suffix_by_lang)`` where ``txids`` is a LIST in say-step order (what the conductor's
     ``compile_steps`` consumes positionally). ``([], {})`` when there are no say steps."""
-    cs = project.raw.get("cutscene")
-    if not (cs and isinstance(cs.get("actor"), list)):
+    cs = _verbatim_conductor_block(project)
+    if cs is None:
         return [], {}
     say_steps = [s for s in (cs.get("steps") or []) if "say" in s]
     if not say_steps:
@@ -3807,8 +3847,8 @@ def _inject_verbatim_conductor(project: FieldProject, eb: bytes, npc_slots: dict
     turn / anim / walk are all wired; a ``walk`` beat adds a walk tag to the actor's below-band entry (same as
     the synthesize path, but the entries sit below the band) and the conductor RunScripts into it. The conductor
     is injected LAST, after every other additive block, so the actor uids are settled. Returns the new bytes."""
-    cs = project.raw.get("cutscene")
-    if not (cs and isinstance(cs.get("actor"), list) and cs.get("actor")):
+    cs = _verbatim_conductor_block(project)
+    if cs is None:
         return eb
     steps = _resolve_conductor_steps(cs["steps"], project)
     # walk beats -> a walk-choreography tag on the actor's below-band entry, RunScript'd by the conductor (the
@@ -3983,33 +4023,47 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # named NPC's Init (so it runs in that NPC's own context -- gExec == the NPC -- letting walk/
     # animation/turn act on it with base opcodes). A narration cutscene (no actor) is a standalone
     # director code entry, injected after the content blocks below.
-    cs = project.raw.get("cutscene")
-    cs_actor = cs.get("actor") if cs else None
-    cs_once_flag = None
-    if cs and cs.get("once", True):
-        cs_once_flag = int(cs["flag"]) if "flag" in cs else _auto.cutscene()
-    # compulsory / auto-advance ATE styling (no menu -- the forced flavor, e.g. field 956 / the grey mode-6
-    # fields): bracket the body ATE(mode)..ATE(0) + caption its windows winATE. `ate=true` -> mode 6 (Gray +
-    # force = the grey UNSKIPPABLE banner, the default); `ate_mode` overrides. NOT field 1901 (optional Blue
-    # mode-1 hub). See content/cutscene.py + docs/ATE_SYSTEM.md Flavor A.
-    cs_ate_mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs and cs.get("ate") else None)
-    cs_say_flags = _cutscene.ATE_CAPTION_FLAG if cs_ate_mode is not None else 128
-    actor_choreo = None
-    if isinstance(cs_actor, str):     # LEGACY single-actor cutscene (spliced into one NPC's loop). A LIST
-                                      # of [[cutscene.actor]] is the multi-actor CONDUCTOR -- injected below.
+    # PLURAL [[cutscene]] (the story-event DISPATCH, #13 v2): several scenes per field, each gated to its
+    # own beat -- normalized to a list (the legacy [cutscene] singleton = the one-block case, byte-identical).
+    # cutscene_txids is FLAT in block-then-step order (build_field registers say lines the same way), so each
+    # block consumes its own SLICE. Auto once-flags are per-block (8100+k / MAP 80+k; campaign k>0 needs an
+    # explicit flag). Validate enforces the dispatch rules (pairwise-distinct gates; at most one conductor).
+    cs_blocks = _cutscene.blocks(project.raw.get("cutscene"))
+    _cs_slices, _cs_off = [], 0
+    for _b in cs_blocks:
+        _n_say = sum(1 for s in (_b.get("steps") or []) if "say" in s)
+        _cs_slices.append(cutscene_txids[_cs_off:_cs_off + _n_say])
+        _cs_off += _n_say
+
+    def _cs_ate(cs):
+        # compulsory / auto-advance ATE styling (the forced flavor, e.g. field 956 / the grey mode-6 fields):
+        # bracket the body ATE(mode)..ATE(0) + caption its windows winATE. `ate=true` -> mode 6; `ate_mode`
+        # overrides. See content/cutscene.py + docs/ATE_SYSTEM.md Flavor A.
+        mode = (int(cs.get("ate_mode", _cutscene.ATE_DEFAULT_MODE)) if cs.get("ate") else None)
+        return mode, (_cutscene.ATE_CAPTION_FLAG if mode is not None else 128)
+
+    choreo_by_actor: dict = {}        # npc name -> concatenated gated choreography blocks (block order)
+    for _k, cs in enumerate(cs_blocks):
+        cs_actor = cs.get("actor")
+        if not isinstance(cs_actor, str):     # LEGACY single-actor flavor only here; conductor/narration below
+            continue
         actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs_actor), None)
         steps = _resolve_anim_steps(cs["steps"], actor_npc)   # animation = "glad" -> the numeric id
         steps = _resolve_move_steps(steps, project, actor_npc)  # names -> [x,z]; @object walks stop short
         steps = _autoroute_steps(steps, project, walkmesh, actor_npc)  # route blocked walks around obstacles
-        cs_fclass, cs_fidx = _cutscene.once_flag_for(cs)   # GLOB (once ever) or MAP (replay per visit)
+        cs_fclass, cs_fidx = _cutscene.once_flag_for(cs, _k)   # GLOB (once ever) or MAP (replay per visit)
         if _auto.base is not None and "flag" not in cs and cs.get("once", True):
-            cs_fidx = _auto.cutscene()                     # campaign: pack into this member's block
+            cs_fidx = _auto.cutscene(_k)                   # campaign: pack into this member's block (k=0 only)
+        cs_ate_mode, cs_say_flags = _cs_ate(cs)
         cs_conds, _, cs_end = _cutscene_story_bits(cs)     # the director gate + story advance (#13):
-        actor_choreo = _cutscene.build_choreography(       # nested-if conds (a LOOP prepend must not RETURN)
-            steps, cutscene_txids, cs_fidx, flag_class=cs_fclass,
+        block = _cutscene.build_choreography(              # nested-if conds (a LOOP prepend must not RETURN)
+            steps, _cs_slices[_k], cs_fidx, flag_class=cs_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             ate_mode=cs_ate_mode, say_flags=cs_say_flags,
             story_conds=cs_conds, end_writes=cs_end)
+        # the same actor can host SEVERAL beat-gated scenes (the dispatch) -- each block is independently
+        # gated + once-flagged, so concatenating the prepends is safe (at most one fires per load).
+        choreo_by_actor[cs_actor] = choreo_by_actor.get(cs_actor, b"") + block
 
     # NPCs (cloned from the player object) first, so their cloned positions are independent.
     gated_npc_slots = {}     # flag index -> [npc entry slots] (for live reveal when an event flips it)
@@ -4048,7 +4102,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         gf, gs = _gate_of(n)
         smin, smax = _scenario_window_of(n)
         slot = EbScript.from_bytes(eb).first_free_slot()
-        intro = actor_choreo if (cs_actor and n.get("name") == cs_actor) else None
+        intro = choreo_by_actor.get(n.get("name")) or None
         # a dialogue choice on this NPC: talk -> menu -> branch (replaces the plain WindowSync)
         sb = None
         if n.get("name") in choice_by_npc:
@@ -4269,18 +4323,22 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # Wait -- FF9's faithful idiom (memory project-ff9-cutscene-multiactor). Injected here, AFTER the NPC loop,
     # so npc_slots (name -> uid) is populated. Increment 1 = say/turn/anim + wait/set_flag (animated walk +
     # parallel beats are later increments).
-    if isinstance(cs_actor, list) and cs_actor:
+    for _k, cs in enumerate(cs_blocks):
+        cs_actor = cs.get("actor")
+        if not (isinstance(cs_actor, list) and cs_actor):
+            continue                                           # validate() enforces AT MOST ONE conductor block
         c_steps = _resolve_conductor_steps(cs["steps"], project)
-        c_fclass, c_fidx = _cutscene.once_flag_for(cs)         # GLOB (once ever) or MAP (per-visit)
+        c_fclass, c_fidx = _cutscene.once_flag_for(cs, _k)     # GLOB (once ever) or MAP (per-visit)
         if _auto.base is not None and "flag" not in cs and cs.get("once", True):
-            c_fidx = _auto.cutscene()                          # campaign: pack into this member's flag block
+            c_fidx = _auto.cutscene(_k)                        # campaign: pack into this member's flag block
+        cs_ate_mode, cs_say_flags = _cs_ate(cs)
         # walk beats can't run inline (base Walk acts on the EXECUTING object; there's no targeted WalkEx),
         # so generate a per-actor walk-choreography TAG on the actor's own [[npc]] entry and RunScript into it
         # (animates in the actor's context, blocks until arrival); a parallel walk also gets a join tag.
         eb, walk_calls, join_tags = _gen_conductor_walk_tags(project, eb, c_steps, npc_slots)
         _, cs_gate, cs_end = _cutscene_story_bits(cs)          # the director gate + story advance (#13)
         eb = _conductor.inject_conductor(
-            eb, c_steps, npc_slots, cutscene_txids,
+            eb, c_steps, npc_slots, _cs_slices[_k],
             once_flag=(c_fidx if cs.get("once", True) else None), flag_class=c_fclass,
             warmup=int(cs.get("warmup", _cutscene.DEFAULT_WARMUP)),
             owns_control=bool(cs.get("owns_control", True)),
@@ -4289,10 +4347,18 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             gate=cs_gate, end_writes=cs_end)
 
     # cutscene (narration, no actor): an ordered, control-locked sequence on entry (once), run as a
-    # standalone director code entry. Steps = say / wait / set_flag. An ACTOR cutscene was already
-    # spliced into its NPC's Init above (actor_choreo), so it's skipped here.
-    if cs and not cs_actor:
-        steps = [_cutscene.compile_steps(cs["steps"], cutscene_txids, say_flags=cs_say_flags)]
+    # standalone director code entry. Steps = say / wait / set_flag. ACTOR cutscenes were already
+    # spliced into their NPCs' loops above (choreo_by_actor); the conductor(s) just above. Each
+    # narration block is its own InitCode'd entry -- the [[cutscene]] dispatch arms them all, and the
+    # pairwise-distinct gates (validate) mean at most one plays per load.
+    for _k, cs in enumerate(cs_blocks):
+        if cs.get("actor"):
+            continue
+        cs_ate_mode, cs_say_flags = _cs_ate(cs)
+        cs_once_flag = None
+        if cs.get("once", True):
+            cs_once_flag = int(cs["flag"]) if "flag" in cs else _auto.cutscene(_k)
+        steps = [_cutscene.compile_steps(cs["steps"], _cs_slices[_k], say_flags=cs_say_flags)]
         then_warp = int(cs["then_warp"]) if cs.get("then_warp") else None
         _, cs_gate, cs_end = _cutscene_story_bits(cs)      # the director gate + story advance (#13)
         eb = _cutscene.inject_cutscene(eb, steps, once_flag=cs_once_flag, ate_mode=cs_ate_mode,
@@ -5003,30 +5069,30 @@ def _validate_cutscene_movement(project: FieldProject, wmesh, warnings: list) ->
     """Warn when an ACTOR cutscene's walk would STALL in-game (a field walk is synchronous + straight-
     line, so a blocked leg softlocks the scene). Validates the FINAL resolved targets (with @object
     auto-approach applied), for ``walk`` AND each ``path`` leg. Turns a runtime hang into a build warning."""
-    cs = project.raw.get("cutscene")
-    if not cs or not cs.get("actor"):
-        return
-    actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs["actor"]), None)
-    if not actor_npc or not actor_npc.get("pos"):
-        return
-    try:
-        steps = _resolve_move_steps(cs.get("steps", []), project, actor_npc)   # final targets (offset applied)
-    except ValueError:
-        return       # an unresolved name -- validate() already reports it
-    steps = _autoroute_steps(steps, project, wmesh, actor_npc)   # route blocked walks, then check the result
-    pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
-    for k, s in enumerate(steps):
-        if "teleport" in s:
-            pos = (int(s["teleport"][0]), int(s["teleport"][1]))
-        elif "walk" in s:
-            tgt = (int(s["walk"][0]), int(s["walk"][1]))
-            _check_walk_leg(project, wmesh, k, pos, tgt, cs["actor"], warnings)
-            pos = tgt
-        elif "path" in s:
-            for wp in s["path"]:
-                tgt = (int(wp[0]), int(wp[1]))
+    for cs in _cutscene.blocks(project.raw.get("cutscene")):
+        if not isinstance(cs.get("actor"), str):
+            continue                          # narration has no movement; the conductor validates elsewhere
+        actor_npc = next((n for n in project.raw.get("npc", []) if n.get("name") == cs["actor"]), None)
+        if not actor_npc or not actor_npc.get("pos"):
+            continue
+        try:
+            steps = _resolve_move_steps(cs.get("steps", []), project, actor_npc)  # final targets (offset applied)
+        except ValueError:
+            continue     # an unresolved name -- validate() already reports it
+        steps = _autoroute_steps(steps, project, wmesh, actor_npc)  # route blocked walks, then check the result
+        pos = (int(actor_npc["pos"][0]), int(actor_npc["pos"][1]))
+        for k, s in enumerate(steps):
+            if "teleport" in s:
+                pos = (int(s["teleport"][0]), int(s["teleport"][1]))
+            elif "walk" in s:
+                tgt = (int(s["walk"][0]), int(s["walk"][1]))
                 _check_walk_leg(project, wmesh, k, pos, tgt, cs["actor"], warnings)
                 pos = tgt
+            elif "path" in s:
+                for wp in s["path"]:
+                    tgt = (int(wp[0]), int(wp[1]))
+                    _check_walk_leg(project, wmesh, k, pos, tgt, cs["actor"], warnings)
+                    pos = tgt
 
 
 def _wrap_width(project: FieldProject):
@@ -5085,9 +5151,12 @@ def collect_text(project: FieldProject):
             # runtime by SetTextVariable(0, item)); shown in the window-7 item-get box. Added verbatim
             # (the [ITEM=0] tag must survive wrapping).
             ev_pos[j] = _add_raw("Received [ITEM=0]!", ev.get("tail"))
-    for step in project.raw.get("cutscene", {}).get("steps", []):
-        if "say" in step:
-            cs_pos.append(_add(step, step["say"]))
+    # [[cutscene]] dispatch: say lines register in BLOCK-then-STEP order -- the same flat order build_script
+    # slices per block, so each block's compile consumes exactly its own txids.
+    for _cb in _cutscene.blocks(project.raw.get("cutscene")):
+        for step in _cb.get("steps", []):
+            if "say" in step:
+                cs_pos.append(_add(step, step["say"]))
     # choices: the prompt + option rows are ONE entry (prompt[CHOO][MOVE]opt0\n[MOVE]opt1...); each
     # option's optional `reply` is its own entry. The question is wrapped; the menu rows are not (a row
     # is short by design -- an over-wide one is caught by lint, not silently re-flowed).
@@ -5585,7 +5654,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
         # [[npc]] actors (by their below-band uids in _verbatim_npc_slots) + the player (250). Injected LAST so the
         # actor uids are settled; say lines ride the appended-.mes channel (the topmost block). say/turn/anim are
         # wired -- walk is deferred on verbatim (skipped with a warning). (project-ff9-cutscene-multiactor)
-        if isinstance((project.raw.get("cutscene") or {}).get("actor"), list):
+        if _verbatim_conductor_block(project) is not None:
             from . import eblint as _eblint
             _cs_txids, cutscene_suffix = _verbatim_cutscene_messages(project, langs)
             verbatim_bytes = _inject_verbatim_conductor(project, verbatim_bytes, _verbatim_npc_slots,

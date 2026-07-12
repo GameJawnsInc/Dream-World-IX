@@ -59,6 +59,57 @@ def test_cutscene_director_gate_and_advance_in_built_eb(tmp_path):
     assert gate_sig in actor and adv_sig in actor
 
 
+def test_cutscene_dispatch_plural_blocks(tmp_path):
+    """[[cutscene]] (#13 v2): several beat-gated scenes per field. A one-block [[cutscene]] builds
+    byte-identical to the legacy [cutscene] singleton; a two-scene dispatch emits BOTH gates + BOTH
+    advances with DISTINCT auto once-flags (8100+k)."""
+    import struct as _s
+    from ff9mapkit import build as B
+    from ff9mapkit.content import region as R
+    cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    base = '[field]\nid = 30000\nname = "DISP"\narea = 11' + cam
+    def _eb(txt, tag, txids):
+        f = tmp_path / f"{tag}.field.toml"
+        f.write_text(txt, encoding="utf-8")
+        p = B.FieldProject.load(f)
+        assert validate(p) == []
+        return B.build_script(p, "us", {}, cutscene_txids=txids)
+    one_single = _eb(base + '\n[cutscene]\nsteps = [ { say = "hello" } ]\n', "sng", [500])
+    one_plural = _eb(base + '\n[[cutscene]]\nsteps = [ { say = "hello" } ]\n', "pl1", [500])
+    assert one_single == one_plural                        # the singleton is exactly the one-block case
+    disp = _eb(base + '\n[[cutscene]]\nrequires_scenario = 2600\nset_scenario = 2610\nsteps = [ { say = "one" } ]\n'
+                      '\n[[cutscene]]\nrequires_scenario = 2610\nset_scenario = 2620\nsteps = [ { say = "two" } ]\n',
+               "disp", [500, 501])
+    for v in (2600, 2610, 2620):                           # both gates + both advances land
+        assert bytes([0x05, 0xDC, 0x00, 0x7D]) + _s.pack("<H", v) in disp
+    assert R.set_var(R.GLOB_BOOL, 8100, 1) in disp         # block 0's auto once-flag
+    assert R.set_var(R.GLOB_BOOL, 8101, 1) in disp         # block 1's -- distinct, never shared
+
+
+def test_validate_cutscene_dispatch_rules(tmp_path):
+    """The dispatch rules: pairwise-distinct gates (same-gate / double-ungated pairs rejected) and at
+    most one multi-actor conductor."""
+    cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    base = '[field]\nid = 30000\nname = "DISP"\narea = 11' + cam
+    npc = '\n[[npc]]\nname = "a"\npreset = "vivi"\npos = [0, -300]\ndialogue = "."\n' \
+          '\n[[npc]]\nname = "b"\npreset = "steiner"\npos = [100, -300]\ndialogue = "."\n'
+    def _probs(txt, tag):
+        f = tmp_path / f"{tag}.field.toml"
+        f.write_text(txt, encoding="utf-8")
+        return validate(FieldProject.load(f))
+    same = _probs(base + '\n[[cutscene]]\nrequires_scenario = 2600\nsteps = [ { say = "a" } ]\n'
+                         '\n[[cutscene]]\nrequires_scenario = 2600\nsteps = [ { say = "b" } ]\n', "same")
+    assert any("pairwise-distinct" in p for p in same)
+    ungated = _probs(base + '\n[[cutscene]]\nsteps = [ { say = "a" } ]\n'
+                            '\n[[cutscene]]\nsteps = [ { say = "b" } ]\n', "ung")
+    assert any("both UNGATED" in p for p in ungated)
+    two_cond = _probs(base + npc +
+                      '\n[[cutscene]]\nrequires_scenario = 2600\nactor = ["a"]\nsteps = [ { say = "x" } ]\n'
+                      '\n[[cutscene]]\nrequires_scenario = 2610\nactor = ["b"]\nsteps = [ { say = "y" } ]\n',
+                      "cond")
+    assert any("at most ONE" in p for p in two_cond)
+
+
 def test_validate_cutscene_director_keys(tmp_path):
     cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
     base = '[field]\nid = 30000\nname = "DIR"\narea = 11' + cam

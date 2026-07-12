@@ -1232,10 +1232,17 @@ Add a second interactable on the same spot gated `requires_flag = 8001`.)
 
 ---
 
-## `[cutscene]` (optional)
+## `[cutscene]` / `[[cutscene]]` (optional)
 
 An ordered, **control-locked** scripted sequence that plays on field entry — the one thing the
 declarative content can't express (steps run *in order*). The player can't move while it runs.
+
+A field can carry **several** — write repeated `[[cutscene]]` blocks (the **story-event dispatch**: each
+scene gated to its own beat via `requires_scenario`, so one field plays a different scene at each stage of
+the story). The dispatch rules: every block needs a **distinct gate** (two scenes that could fire on the
+same load are a build error), and at most **one** block may be a multi-actor conductor. Auto once-flags are
+per-block (`8100`, `8101`, …); in a campaign member only the *first* block has a reserved flag slot — give
+later blocks an explicit `flag`. A single `[cutscene]` table is exactly the one-block case, unchanged.
 
 ```toml
 [cutscene]
@@ -1301,8 +1308,22 @@ set_scenario = 2620
 Works on all three flavors (narration / `actor = "name"` / the multi-actor conductor `actor = [...]`,
 including on a verbatim fork). The gate means the scene *belongs to* its beat: at any other ScenarioCounter
 it doesn't fire and doesn't consume its `once` flag. The advance runs inside the once-guard, so the story
-moves exactly once — and only if the scene actually played. One scene per field today; put each beat's scene
-on the field where that beat happens (which is how FF9's own story flows anyway).
+moves exactly once — and only if the scene actually played. For several scenes on ONE field, write repeated
+`[[cutscene]]` blocks, one per beat (the dispatch rules above) — a field can then re-stage itself across the
+whole story, exactly like FF9's own town screens:
+
+```toml
+[[cutscene]]                     # first visit, beat 2600: the mage warns you -> 2610
+requires_scenario = 2600
+set_scenario = 2610
+actor = "mage"
+steps = [ { walk = "@player" }, { say = "Something's wrong at the mill." } ]
+
+[[cutscene]]                     # return visit, beat 2700 (a gateway/quest advanced it): the aftermath
+requires_scenario = 2700
+set_scenario = 2710
+steps = [ { say = "The village is quiet now." } ]
+```
 
 ### Actor cutscenes — `actor = "<npc name>"`
 
