@@ -135,5 +135,30 @@ edges / 76 wall components / 48 blocks. The laws:
   the game connects them via fields/vehicles. A faithful terrace build = shelf + stacked
   walls; no ramp is required (adding one would be off-language).
 
+## The interior ROCK-WALL TILE LANGUAGE (decoded 2026-07-12 — `rock_wall_language.py`, offline)
+
+The tile-neighbor decode over 8945 tile groups / 13929 neighbor pairs / 48 blocks — the
+synthesis recipe for the terrace-wall rung:
+
+- **THE WALL BANDS**: 86 tiles organize into 4-column bands with vertical ROLE structure —
+  the **crest band** (atlas rows 3–4 × cols 4–7; 950/1006 crest-touching groups), the
+  **upper-body band** (rows 6–9 × cols 0–3), the **lower-body/base band** (rows 7–10 ×
+  cols 6–9; the true foot course row 10 exists ONLY here; 564/585 base-touching groups).
+  A wall descends crest → upper body → base through the bands. (Minor accessory tiles at
+  rows 18/20/21/25 — low-count features.)
+- **THE COURSE QUANTIZATION**: one 128×128px tile per wall QUAD (med 2 tris) covering
+  ~4.7u of height (p90 5.4) — the interior analog of the coastal column quantization,
+  matching the stacked-wall 4–10u faces.
+- **WINDOWED CONTINUATION, not Wang, not free**: 46% of geometric neighbors are
+  ATLAS-ADJACENT (±1 col/row) + 11% same-tile repeats; ±3-col jumps are the 4-col band
+  wraps (the coastal sawtooth generalized to 2D). Synthesis = advance u along the wall
+  wrapping the band (window-translate at wraps — the coastal smear lesson), descend v
+  through the role rows per course.
+- Lattice phase learned from data (u: dual phase families ≈ staggered courses; v: 64/80px
+  phases); groups are lattice-snapped ≤128px rects (the grouping guard held).
+
+**⇒ THE TERRACE-WALL RUNG IS UNBLOCKED: full synthesis recipe in hand** (courses of ~4.7u
+quads; crest/body/base band rows; u-continuation with band wrap).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
