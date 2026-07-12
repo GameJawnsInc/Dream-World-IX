@@ -44,7 +44,7 @@ version of the same setup.
    [Netsync]
    Enabled = 1
    Role = host            ; the OTHER player sets Role = client
-   TargetField = 30003
+   TargetField = 0        ; 0 = ghosts on ANY screen you both share; a field id restricts to that field
    RelayUrl = ws://127.0.0.1:49201
    SessionCode =          ; leave empty on the host — see below
    ```
@@ -56,8 +56,10 @@ version of the same setup.
    thing that pairs you two on the shared relay — anyone without it cannot
    join your session. Codes are case-insensitive.
 
-4. Both launch the game and warp to the co-op field (F6 → Warp → 30003).
-   Each of you should see the other's ghost walk the room.
+4. Both launch the game and stand on the same screen — anywhere. Ghosts
+   appear wherever you two share a field; the in-game overlay tells you which
+   field your friend is on. (The co-op room, F6 → Warp → 30003, is a
+   guaranteed meeting spot on any pair of installs.)
 
 With the current custom engine the `[Netsync]` section **hot-reloads**: a
 running game picks up edits within a couple of seconds (enabling co-op from

@@ -4443,7 +4443,8 @@ def build_parser() -> argparse.ArgumentParser:
     co.add_argument("--lan", nargs="?", const="", default=None, metavar="HOST_IP",
                     help="direct-LAN mode instead of the relay (no bridge): host uses bare --lan, "
                          "join needs the host's IP, e.g. --lan 192.168.1.50")
-    co.add_argument("--field", type=int, default=None, help="co-op field id (default 30003)")
+    co.add_argument("--field", type=int, default=None,
+                    help="restrict co-op to ONE field id (default: everywhere -- any screen both players share)")
     co.add_argument("--no-bridge", action="store_true", help="write the config but don't run the bridge")
     co.add_argument("--no-room", action="store_true", help="skip the co-op room check/build")
     co.add_argument("--rebuild-room", action="store_true", help="rebuild the FF9Coop room even if a room "

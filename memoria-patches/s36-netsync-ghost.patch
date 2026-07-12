@@ -26,10 +26,10 @@ index 192b988b..b50b4d89 100644
      public override void HonoStart()
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 new file mode 100644
-index 00000000..d79a9278
+index 00000000..b7c6f98e
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,542 @@
 +using System;
 +using Memoria.Prime;
 +using Memoria.Scripts;   // ShadersLoader
@@ -42,7 +42,8 @@ index 00000000..d79a9278
 +    //   Role        = selftest | host | client
 +    //   PeerAddress = <host LAN IP>         (client only; the machine running Role=host)
 +    //   Port        = 49200
-+    //   TargetField = 30003                 the co-op hangout field; the client is inert everywhere else
++    //   TargetField = 0                     0/absent = co-op EVERYWHERE (ghosts appear on any screen both
++    //                                       players share); a field id = only on that one field
 +    //
 +    //   selftest      spawn a ghost beside the local player, mirroring it -- proves the pipeline solo.
 +    //   host/client   NetSyncSocket carries {field,pos,rot,anim} both ways; each side renders the peer as
@@ -65,7 +66,7 @@ index 00000000..d79a9278
 +        private static String _role = "selftest";       // selftest | host | client
 +        private static String _peer = "127.0.0.1";
 +        private static Int32 _port = 49200;
-+        private static Int32 _targetField = 30003;
++        private static Int32 _targetField;               // 0 = everywhere (see class comment)
 +        private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
 +        private static String _sessionCode = "";
 +        private static Boolean _insecureTls;
@@ -83,8 +84,10 @@ index 00000000..d79a9278
 +        // On-screen status overlay -- the user-facing half of session setup: shows the session code +
 +        // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
 +        // moment the peer's ghost is up (the ghost itself is the "it works" signal).
-+        private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4;
++        private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4,
++                            OvlPeerElsewhere = 5;
 +        private Int32 _ovlState = -1;
++        private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
 +        private String _ovlText;
 +        private static Texture2D _ovlBg;
 +        private static GUIStyle _ovlStyle;
@@ -133,8 +136,8 @@ index 00000000..d79a9278
 +                Int32 port = _port, field = _targetField, n;
 +                if (Int32.TryParse(ini.GetSetting("Netsync", "Port", "49200"), out n) && n > 0)
 +                    port = n;
-+                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "30003"), out n))
-+                    field = n;
++                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
++                    field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
 +                String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
 +                String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
 +                Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
@@ -192,6 +195,7 @@ index 00000000..d79a9278
 +            }
 +            DespawnGhost();
 +            _ovlState = -1;
++            _ovlDetail = 0;
 +            _ovlText = null;
 +        }
 +
@@ -269,69 +273,98 @@ index 00000000..d79a9278
 +            if (!_enabled)
 +                return;
 +
-+            // Cheap, log-silent gate: only do anything on the co-op field. Any failure reading the
++            // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
++            // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
++            // players share; > 0 = the original single-hangout-field mode. Any failure reading the
 +            // global state (e.g. a scene without it) is treated as "not here" without spamming the log.
 +            Int32 fld;
-+            try { fld = FF9StateSystem.Common.FF9.fldMapNo; }
-+            catch { fld = -1; }
-+
-+            if (fld != _targetField)
++            EventEngine ee = null;
++            try
 +            {
-+                DespawnGhost();
-+                SetOverlay(fld > 0 ? OvlElsewhere : OvlOff);   // quiet on menus/battle; nudge on a field
-+                return;
++                fld = FF9StateSystem.Common.FF9.fldMapNo;
++                ee = PersistenSingleton<EventEngine>.Instance;
 +            }
++            catch { fld = -1; }
++            Boolean onField = fld > 0 && ee != null && ee.gMode == 1 && ee.fieldmap != null;
++            Boolean inScope = onField && (_targetField <= 0 || fld == _targetField);
 +
 +            try
 +            {
-+                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
-+                if (ee == null || ee.fieldmap == null)
-+                    return;
-+
-+                Actor local = ee.GetControlChar() as Actor;
-+                if (local == null || local.fieldMapActor == null)
-+                    return;   // player not fully spawned yet this frame
-+
-+                Transform pt = local.fieldMapActor.transform;
-+
-+                if (_role == "host" || _role == "client")
++                if (_role != "host" && _role != "client")
 +                {
-+                    if (_socket == null)
++                    // "selftest": mirror the local player, offset beside it (solo sanity check)
++                    if (!inScope)
 +                    {
-+                        if (_relayUrl.Length > 0)
-+                        {
-+                            if (_sessionCode.Length == 0)
-+                            {
-+                                SetOverlay(OvlNoCode);
-+                                return;   // guest without the host's code (see LoadConfig) -- never dial empty
-+                            }
-+                            _socket = new NetSyncRelay(_relayUrl, _sessionCode, _role == "host" ? "host" : "guest", _insecureTls);
-+                        }
-+                        else
-+                            _socket = new NetSyncSocket(_role == "host", _peer, _port);
-+                        _socket.Start();
++                        DespawnGhost();
++                        SetOverlay(OvlOff);
++                        return;
 +                    }
-+                    _socket.SetLocal(fld, local.anim, pt.localPosition, pt.localRotation);   // broadcast me
-+                    RemoteState rs = _socket.GetRemote();                                     // apply the peer
-+                    if (rs.Valid && rs.Field == fld)
-+                    {
-+                        SetOverlay(OvlOff);                    // paired -- the ghost is the status display
-+                        EnsureGhost(ee);
-+                        if (_ghost != null)
-+                            DriveGhost(rs.Pos, rs.Rot, rs.Anim);
-+                    }
-+                    else
-+                    {
-+                        SetOverlay(_socket.IsConnected ? OvlWaiting : OvlConnecting);
-+                        DespawnGhost();   // peer absent / in another field / stale
-+                    }
-+                }
-+                else   // "selftest": mirror the local player, offset beside it (solo sanity check)
-+                {
++                    Actor me = ee.GetControlChar() as Actor;
++                    if (me == null || me.fieldMapActor == null)
++                        return;   // player not fully spawned yet this frame
 +                    SetOverlay(OvlOff);
 +                    EnsureGhost(ee);
 +                    if (_ghost != null)
-+                        DriveGhost(pt.localPosition + new Vector3(250f, 0f, 0f), pt.localRotation, local.anim);
++                        DriveGhost(me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f),
++                                   me.fieldMapActor.transform.localRotation, me.anim);
++                    return;
++                }
++
++                // Real co-op: dial once we've seen any field; the transport then lives for the whole
++                // session (pairing survives doors, menus, battles -- only the ghost comes and goes).
++                if (_socket == null)
++                {
++                    if (!onField)
++                        return;
++                    if (_relayUrl.Length > 0)
++                    {
++                        if (_sessionCode.Length == 0)
++                        {
++                            SetOverlay(OvlNoCode);
++                            return;   // guest without the host's code (see LoadConfig) -- never dial empty
++                        }
++                        _socket = new NetSyncRelay(_relayUrl, _sessionCode, _role == "host" ? "host" : "guest", _insecureTls);
++                    }
++                    else
++                        _socket = new NetSyncSocket(_role == "host", _peer, _port);
++                    _socket.Start();
++                }
++
++                // Broadcast my TRUE location every frame -- including "not on a walkable field" (field 0)
++                // during menus/battle/transitions/out-of-scope. The write loop re-sends the latest packet
++                // as keepalive, so a stale real field id would FREEZE my ghost on the peer's screen after
++                // I leave; the sentinel makes it despawn instead.
++                Actor local = inScope ? ee.GetControlChar() as Actor : null;
++                if (local != null && local.fieldMapActor != null)
++                {
++                    Transform pt = local.fieldMapActor.transform;
++                    _socket.SetLocal(fld, local.anim, pt.localPosition, pt.localRotation);
++                }
++                else
++                {
++                    _socket.SetLocal(0, 0, Vector3.zero, Quaternion.identity);
++                    local = null;
++                }
++
++                RemoteState rs = _socket.GetRemote();                    // apply the peer
++                if (local != null && rs.Valid && rs.Field == fld)
++                {
++                    SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
++                    EnsureGhost(ee);
++                    if (_ghost != null)
++                        DriveGhost(rs.Pos, rs.Rot, rs.Anim);
++                }
++                else
++                {
++                    DespawnGhost();
++                    if (local == null)
++                        SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
++                    else if (!_socket.IsConnected)
++                        SetOverlay(OvlConnecting);
++                    else if (rs.Valid && rs.Field > 0 && rs.Field != fld)
++                        SetOverlay(OvlPeerElsewhere, rs.Field);          // connected; friend on another screen
++                    else
++                        SetOverlay(OvlWaiting);
 +                }
 +            }
 +            catch (Exception err)
@@ -349,14 +382,20 @@ index 00000000..d79a9278
 +            }
 +        }
 +
-+        // Compose the overlay text once per state CHANGE (Update calls this every frame).
++        // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
 +        private void SetOverlay(Int32 state)
++        {
++            SetOverlay(state, 0);
++        }
++
++        private void SetOverlay(Int32 state, Int32 detail)
 +        {
 +            if (_role == "selftest")
 +                state = OvlOff;                          // dev mode -- no player-facing overlay
-+            if (state == _ovlState)
++            if (state == _ovlState && detail == _ovlDetail)
 +                return;
 +            _ovlState = state;
++            _ovlDetail = detail;
 +            String code = _sessionCode.Length > 0 ? _sessionCode : "(no code)";
 +            switch (state)
 +            {
@@ -380,8 +419,12 @@ index 00000000..d79a9278
 +                        _ovlText = "FF9 co-op: connecting to " + _peer + ":" + _port + " (direct LAN)...";
 +                    break;
 +                case OvlWaiting:
-+                    _ovlText = "FF9 co-op: connected -- waiting for your friend to arrive here\n" +
++                    _ovlText = "FF9 co-op: connected -- waiting for your friend to arrive on this screen\n" +
 +                               "session code:  " + code;
++                    break;
++                case OvlPeerElsewhere:
++                    _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
++                               "stand on the same screen to see each other";
 +                    break;
 +                default:
 +                    _ovlText = null;
@@ -470,7 +513,7 @@ index 00000000..d79a9278
 +                    _ghostAnim.wrapMode = WrapMode.Loop;   // default clips to looping
 +                _ghostClip = null;
 +                _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
-+                Log.Message("[NetSync] ghost spawned on field " + _targetField);
++                Log.Message("[NetSync] ghost spawned on field " + FF9StateSystem.Common.FF9.fldMapNo);
 +            }
 +            catch (Exception err)
 +            {

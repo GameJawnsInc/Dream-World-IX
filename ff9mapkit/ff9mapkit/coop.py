@@ -11,13 +11,15 @@ into one command per side:
     ff9mapkit coop off               switch co-op off in Memoria.ini
     ff9mapkit coop bridge            run just the ws->wss bridge (advanced)
 
-What ``host``/``join`` do:
+Co-op works EVERYWHERE by default: ghosts appear on any screen both players
+share (``--field N`` restricts it to one field). What ``host``/``join`` do:
 
-1. **Room** -- make sure the co-op field (30003, a native fork of Quan's
-   Dwelling overlook 1953) is registered in SOME active mod folder; if not,
-   build it from the player's own install into a dedicated ``FF9Coop`` mod
-   folder (its own folder so campaign redeploys can never wipe it) and add
-   that folder to ``[Mod] FolderNames``.
+1. **Room** -- make sure the co-op hangout room (30003, a native fork of
+   Quan's Dwelling overlook 1953) is registered in SOME active mod folder; if
+   not, build it from the player's own install into a dedicated ``FF9Coop``
+   mod folder (its own folder so campaign redeploys can never wipe it) and
+   add that folder to ``[Mod] FolderNames``. The room is the guaranteed
+   meeting spot -- both installs are certain to have the same field there.
 2. **Config** -- back up ``Memoria.ini`` and write the ``[Netsync]`` section
    (role, target field, relay URL pointing at the local bridge, session code).
 3. **Code** -- the host reuses its saved session code or mints a random
@@ -267,9 +269,10 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     out(f"FF9 install: {game}")
 
     lan = getattr(args, "lan", None)
-    field_id = int(getattr(args, "field", COOP_FIELD) or COOP_FIELD)
+    target = int(getattr(args, "field", None) or 0)      # 0 = co-op EVERYWHERE; --field N restricts
     if not getattr(args, "no_room", False):
-        ensure_room(game, field_id=field_id, rebuild=getattr(args, "rebuild_room", False), out=out)
+        # the co-op room stays the guaranteed meeting spot (both installs are certain to have it)
+        ensure_room(game, rebuild=getattr(args, "rebuild_room", False), out=out)
 
     ini_text = _ini_path(game).read_text(encoding="utf-8", errors="replace")
     if role == "host" and not code:
@@ -279,7 +282,7 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     updates = {
         "Enabled": "1",
         "Role": "host" if role == "host" else "client",
-        "TargetField": str(field_id),
+        "TargetField": str(target),
         "SessionCode": code or "",
     }
     if lan is not None:
@@ -297,7 +300,11 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         out(f"  send it to your friend -- they run:  ff9mapkit coop join {code}")
     else:
         out(f"  joining session {code}")
-    out(f"  then: launch FF9 -> F6 -> Warp to field -> {field_id}   (both players)")
+    if target:
+        out(f"  then: launch FF9 -> F6 -> Warp to field -> {target}   (both players)")
+    else:
+        out("  then: launch FF9 and stand on the SAME screen as your friend -- ghosts appear anywhere "
+            f"you two share a field (guaranteed spot: F6 -> Warp -> {COOP_FIELD})")
     if lan is not None:
         out("  direct-LAN mode: no bridge needed. Same WiFi; allow FF9 through the firewall on both.")
         return 0
