@@ -191,3 +191,32 @@ def test_encoders_known_bytes():
     assert opcodes.set_control_direction(-1, -1) == bytes([0x67, 0, 0xFF, 0xFF])
     assert opcodes.fade_filter(2, 16, 0, 0, 0, 0) == bytes([0xEC, 0, 2, 16, 0, 0, 0, 0])
     assert opcodes.set_model(8, 61) == bytes([0x2F, 0, 8, 0, 61])
+
+
+def test_relative_jumps_covers_all_three_jump_ops():
+    """Engine truth (EBin.jumpToCommand): 0x01 JMP (signed), 0x02 JMP_IFNOT (unsigned, forward-only),
+    0x03 JMP_IF (signed) -- all target = instr.end + offset. relative_jumps must report ALL of them
+    (it used to scan only 0x03 and mislabel it unconditional), and jumps_crossing must flag an
+    insert that straddles any of their spans."""
+    raw = data.blank_field_bytes("us")
+    slot = EbScript.from_bytes(raw).first_free_slot()
+    code = bytes([
+        0x01, 0x05, 0x00,               # +0:  JMP +5        -> target +8
+        0x00, 0x00, 0x00, 0x00, 0x00,   # +3..+7 padding
+        0x02, 0x02, 0x00,               # +8:  JMP_IFNOT +2  -> target +13
+        0x00, 0x00,                     # +11..+12
+        0x03, 0xF2, 0xFF,               # +13: JMP_IF -14    -> target +2 (signed backward)
+        0x04,                           # +16: return
+    ])
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code
+    eb = EbScript.from_bytes(edit.append_entry(raw, slot, entry))
+    s = eb.entry(slot).func_by_tag(0).abs_start
+    jumps = [j for j in edit.relative_jumps(eb) if j[0] >= s]        # this entry's jumps only
+    assert jumps == [(s + 0, s + 3, s + 8),      # 0x01 unconditional, signed
+                     (s + 8, s + 11, s + 13),    # 0x02 JMP_IFNOT, unsigned
+                     (s + 13, s + 16, s + 2)]    # 0x03 JMP_IF, signed backward
+    # an insert at +5 straddles the 0x01 span (3..8) and the backward 0x03 span (2..16)
+    assert {(o, t) for o, t in edit.jumps_crossing(eb, s + 5) if o >= s} == \
+        {(s + 0, s + 8), (s + 13, s + 2)}
+    # +16 (before the return) touches no span strictly
+    assert [c for c in edit.jumps_crossing(eb, s + 16) if c[0] >= s] == []
