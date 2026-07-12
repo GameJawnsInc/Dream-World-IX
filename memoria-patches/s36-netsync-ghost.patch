@@ -26,10 +26,10 @@ index 192b988b..b50b4d89 100644
      public override void HonoStart()
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 new file mode 100644
-index 00000000..b7c6f98e
+index 00000000..b13bec0f
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -0,0 +1,542 @@
+@@ -0,0 +1,597 @@
 +using System;
 +using Memoria.Prime;
 +using Memoria.Scripts;   // ShadersLoader
@@ -54,7 +54,8 @@ index 00000000..b7c6f98e
 +    // when Enabled). Render setup mirrors FieldMap.AddPlayer() (CreateModel + AddAnim + field-character
 +    // shader) but WITHOUT a FieldMapActorController (it would re-snap the ghost to the walkmesh) or a real
 +    // Actor -- we drive transform.localPosition ourselves, force huge skinned-mesh bounds so the PSX-shader-
-+    // projected model isn't frustum-culled, and mirror the local player's per-submesh visibility.
++    // projected model isn't frustum-culled, and apply the PEER's per-submesh visibility mask. The ghost
++    // wears the peer's own model (FF9BattleDB.GEO id sent on the wire; Zidane is only the fallback).
 +    public sealed class NetSyncClient : MonoBehaviour
 +    {
 +        private static NetSyncClient _instance;
@@ -71,13 +72,16 @@ index 00000000..b7c6f98e
 +        private static String _sessionCode = "";
 +        private static Boolean _insecureTls;
 +
-+        private const String GhostModel = "GEO_MAIN_F0_ZDN";
-+        private const String GhostModelPath = "Models/main/GEO_MAIN_F0_ZDN/GEO_MAIN_F0_ZDN";
++        private const String FallbackGeo = "GEO_MAIN_F0_ZDN";   // worn ONLY when the peer's model can't resolve/load
 +
 +        private INetTransport _socket;
 +        private GameObject _ghost;
 +        private Animation _ghostAnim;
 +        private String _ghostClip;
++        private UInt16 _ghostModel = UInt16.MaxValue;    // which GEO the ghost currently wears
++        private Renderer[] _ghostRends;                  // the ghost's renderers (the peer's mask applies to these)
++        private Renderer[] _localRends;                  // the LOCAL player's renderers (the outgoing mask reads these)
++        private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
 +        private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
 +        private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
 +
@@ -303,10 +307,13 @@ index 00000000..b7c6f98e
 +                    if (me == null || me.fieldMapActor == null)
 +                        return;   // player not fully spawned yet this frame
 +                    SetOverlay(OvlOff);
-+                    EnsureGhost(ee);
++                    EnsureGhost(ee, me.model);           // the mirror wears whoever YOU are walking as
 +                    if (_ghost != null)
++                    {
 +                        DriveGhost(me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f),
 +                                   me.fieldMapActor.transform.localRotation, me.anim);
++                        ApplyGhostMask(LocalMeshMask(me));
++                    }
 +                    return;
 +                }
 +
@@ -338,11 +345,12 @@ index 00000000..b7c6f98e
 +                if (local != null && local.fieldMapActor != null)
 +                {
 +                    Transform pt = local.fieldMapActor.transform;
-+                    _socket.SetLocal(fld, local.anim, pt.localPosition, pt.localRotation);
++                    _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
++                                     pt.localPosition, pt.localRotation);
 +                }
 +                else
 +                {
-+                    _socket.SetLocal(0, 0, Vector3.zero, Quaternion.identity);
++                    _socket.SetLocal(0, 0, 0, 0, Vector3.zero, Quaternion.identity);
 +                    local = null;
 +                }
 +
@@ -350,9 +358,12 @@ index 00000000..b7c6f98e
 +                if (local != null && rs.Valid && rs.Field == fld)
 +                {
 +                    SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
-+                    EnsureGhost(ee);
++                    EnsureGhost(ee, rs.Model);             // the ghost wears whoever the PEER is walking as
 +                    if (_ghost != null)
++                    {
 +                        DriveGhost(rs.Pos, rs.Rot, rs.Anim);
++                        ApplyGhostMask(rs.MeshVis);        // the peer's own per-submesh visibility (weapons etc.)
++                    }
 +                }
 +                else
 +                {
@@ -454,43 +465,54 @@ index 00000000..b7c6f98e
 +            GUI.Label(new Rect(box.x + pad, box.y + pad * 0.7f, size.x, size.y), content, _ovlStyle);
 +        }
 +
-+        // Spawn the ghost model once, using AddPlayer's proven model setup (CreateModel + AddAnim +
-+        // the field-character shader), but without the controller/FieldMapActor (see class comment).
-+        private void EnsureGhost(EventEngine ee)
++        // Spawn (or RE-DRESS) the ghost as the given GEO model, using AddPlayer's proven model setup
++        // (CreateModel + AddAnim + the field-character shader), but without the controller/FieldMapActor
++        // (see class comment). The peer's model id resolves through FF9BattleDB.GEO exactly like the
++        // event engine spawns actors; the Zidane rig is worn ONLY when the id can't resolve or its assets
++        // are missing (e.g. the peer walks a modded character this install doesn't have).
++        private void EnsureGhost(EventEngine ee, UInt16 model)
 +        {
-+            if (_ghost != null)
++            if (_ghost != null && _ghostModel == model)
 +                return;
++            if (_ghost != null)
++                DespawnGhost();                            // the peer changed character -> re-dress
 +            try
 +            {
-+                GameObject g = ModelFactory.CreateModel(GhostModelPath, false, true,
++                String geo;
++                if (!FF9BattleDB.GEO.TryGetValue((Int32)model, out geo) || String.IsNullOrEmpty(geo))
++                    geo = FallbackGeo;
++                GameObject g = ModelFactory.CreateModel(geo, false, true,
 +                                                        Configuration.Graphics.ElementsSmoothTexture);
++                if (g == null && geo != FallbackGeo)
++                {
++                    Log.Message("[NetSync] peer model " + geo + " (id " + model + ") didn't load -- ghost falls back to " + FallbackGeo);
++                    geo = FallbackGeo;
++                    g = ModelFactory.CreateModel(geo, false, true, Configuration.Graphics.ElementsSmoothTexture);
++                }
 +                if (g == null)
 +                {
-+                    Log.Message("[NetSync] CreateModel returned null for " + GhostModelPath);
++                    Log.Message("[NetSync] CreateModel returned null for " + geo);
 +                    return;
 +                }
-+                AnimationFactory.AddAnimToGameObject(g, GhostModel);
++                GeoTexAnim.addTexAnim(g, geo);             // texture anims (blinking etc.) -- engine parity
++                AnimationFactory.AddAnimToGameObject(g, geo);
 +                g.name = "NetSyncGhost";
 +                g.SetActive(true);                                    // defensive: ensure the model is active
 +                g.transform.parent = ee.fieldmap.transform;           // share the field's local frame
 +                g.transform.localScale = new Vector3(-1f, -1f, 1f);   // AddPlayer's final scale
-+                // Match the controlled player's field-render layer (the field camera's culling mask) and
-+                // grab its renderers so the ghost can mirror which submeshes are shown.
++                // Match the controlled player's field-render layer (the field camera's culling mask).
 +                Actor lp = ee.GetControlChar() as Actor;
-+                Renderer[] playerRends = null;
 +                if (lp != null && lp.fieldMapActor != null)
-+                {
 +                    SetLayerRecursive(g, lp.fieldMapActor.gameObject.layer);
-+                    playerRends = lp.fieldMapActor.GetComponentsInChildren<Renderer>();
-+                }
 +
 +                Renderer[] renderers = g.GetComponentsInChildren<Renderer>();
 +                for (Int32 i = 0; i < renderers.Length; i++)
 +                {
 +                    Renderer renderer = renderers[i];
-+                    // CreateModel enables ALL submeshes (incl. Zidane's dagger); the field player keeps the
-+                    // sheathed weapon OFF. Mirror the player's per-submesh visibility so the ghost matches.
-+                    renderer.enabled = (playerRends != null && i < playerRends.Length) ? playerRends[i].enabled : true;
++                    // Enable everything at spawn; the peer's OWN per-submesh mask (ApplyGhostMask, each
++                    // frame) then hides whatever they have hidden -- sheathed weapons and all -- without
++                    // this side guessing anything about a rig it may not even know.
++                    renderer.enabled = true;
 +                    SkinnedMeshRenderer smr = renderer as SkinnedMeshRenderer;
 +                    if (smr != null)
 +                    {
@@ -508,18 +530,49 @@ index 00000000..b7c6f98e
 +                }
 +                NormalSolver.SmoothCharacterMesh(renderers);
 +                _ghost = g;
++                _ghostModel = model;
++                _ghostRends = renderers;
 +                _ghostAnim = g.GetComponent<Animation>();
 +                if (_ghostAnim != null)
 +                    _ghostAnim.wrapMode = WrapMode.Loop;   // default clips to looping
 +                _ghostClip = null;
 +                _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
-+                Log.Message("[NetSync] ghost spawned on field " + FF9StateSystem.Common.FF9.fldMapNo);
++                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo);
 +            }
 +            catch (Exception err)
 +            {
 +                Log.Error(err, "[NetSync] ghost spawn failed");
 +                _ghost = null;
 +            }
++        }
++
++        // My player's per-submesh visibility, as a 16-bit mask (bit i = renderer i enabled). Sent with
++        // every packet so the peer's ghost of ME shows exactly the parts my model shows (weapon draws in
++        // cutscenes included). The renderer array is cached per player GameObject (it changes per field).
++        private UInt16 LocalMeshMask(Actor local)
++        {
++            GameObject owner = local.fieldMapActor.gameObject;
++            if (_localRends == null || !ReferenceEquals(_localRendsOwner, owner))
++            {
++                _localRends = owner.GetComponentsInChildren<Renderer>();
++                _localRendsOwner = owner;
++            }
++            UInt16 mask = 0;
++            for (Int32 i = 0; i < _localRends.Length && i < 16; i++)
++                if (_localRends[i] != null && _localRends[i].enabled)
++                    mask |= (UInt16)(1 << i);
++            return mask;
++        }
++
++        // Apply the peer's mask to the ghost. Same model on both sides -> same renderer order, so the
++        // index-wise mapping is exact. Renderers past bit 15 stay as spawned (no known model needs more).
++        private void ApplyGhostMask(UInt16 mask)
++        {
++            if (_ghostRends == null)
++                return;
++            for (Int32 i = 0; i < _ghostRends.Length && i < 16; i++)
++                if (_ghostRends[i] != null)
++                    _ghostRends[i].enabled = (mask & (1 << i)) != 0;
 +        }
 +
 +        // Position + rotate the ghost and mirror one animation clip (resolved from the FF9 anim id).
@@ -562,6 +615,8 @@ index 00000000..b7c6f98e
 +            _ghost = null;
 +            _ghostAnim = null;
 +            _ghostClip = null;
++            _ghostModel = UInt16.MaxValue;
++            _ghostRends = null;
 +        }
 +
 +        private static void SetLayerRecursive(GameObject go, Int32 layer)
@@ -574,7 +629,7 @@ index 00000000..b7c6f98e
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 new file mode 100644
-index 00000000..0083cb9c
+index 00000000..ae3f5ad4
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 @@ -0,0 +1,315 @@
@@ -592,7 +647,7 @@ index 00000000..0083cb9c
 +{
 +    // Relay transport: a minimal RFC-6455 WebSocket CLIENT that connects to the shared byte-pump relay
 +    // (jawn-relay: pairs a "host" + "guest" by session code and forwards binary frames verbatim). This
-+    // solves NAT — both players dial OUT to the public relay, no port-forwarding/VPN. Same 34-byte payload
++    // solves NAT — both players dial OUT to the public relay, no port-forwarding/VPN. Same fixed-size payload
 +    // as NetSyncSocket (reuses NetSyncSocket.Serialize/Deserialize), just wrapped in WS frames.
 +    //
 +    // URL: <RelayUrl>/sess/<CODE>?role=host|guest   e.g. ws://127.0.0.1:7777  or  wss://relay.example.com
@@ -654,7 +709,7 @@ index 00000000..0083cb9c
 +            _path = "/sess/" + code + "?role=" + role;
 +            // keepalive sentinel so the peer always receives traffic (field 65535 -> filtered as "not here"),
 +            // which keeps the ReceiveTimeout dead-peer detection honest even before we first enter the field.
-+            _localPacket = NetSyncSocket.Serialize(65535, 0, Vector3.zero, Quaternion.identity);
++            _localPacket = NetSyncSocket.Serialize(65535, 0, 0, 0, Vector3.zero, Quaternion.identity);
 +        }
 +
 +        public void Start()
@@ -670,9 +725,9 @@ index 00000000..0083cb9c
 +            try { if (_stream != null) _stream.Close(); } catch { }
 +        }
 +
-+        public void SetLocal(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot)
++        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
 +        {
-+            Byte[] pkt = NetSyncSocket.Serialize(field, anim, pos, rot);
++            Byte[] pkt = NetSyncSocket.Serialize(field, anim, model, meshVis, pos, rot);
 +            lock (_lock) { _localPacket = pkt; }
 +        }
 +
@@ -860,7 +915,7 @@ index 00000000..0083cb9c
 +                    if (NetSyncSocket.Deserialize(payload, out rs))
 +                        lock (_lock) { _remote = rs; _lastRecvTick = Environment.TickCount; }
 +                }
-+                // (fragmented / oversized frames ignored -- our own sends are always single 34-byte frames)
++                // (fragmented / oversized frames ignored -- our own sends are always single PacketSize frames)
 +            }
 +        }
 +
@@ -895,10 +950,10 @@ index 00000000..0083cb9c
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
 new file mode 100644
-index 00000000..041d717e
+index 00000000..0324aa38
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,259 @@
 +using System;
 +using System.IO;
 +using System.Net;
@@ -913,9 +968,11 @@ index 00000000..041d717e
 +    public struct RemoteState
 +    {
 +        public Boolean Valid;
-+        public Int32 Field;   // the peer's current fldMapNo
-+        public UInt16 Anim;   // FF9 animation id (resolved to a clip name by the receiver)
-+        public Vector3 Pos;   // the peer player's transform.localPosition (same field frame -> 1:1)
++        public Int32 Field;    // the peer's current fldMapNo
++        public UInt16 Anim;    // FF9 animation id (GLOBAL -- resolves to a model-specific clip name)
++        public UInt16 Model;   // the peer's GEO model id (their ghost wears what THEY wear)
++        public UInt16 MeshVis; // bitmask of the peer's per-submesh renderer.enabled (their own model's truth)
++        public Vector3 Pos;    // the peer player's transform.localPosition (same field frame -> 1:1)
 +        public Quaternion Rot;
 +    }
 +
@@ -925,7 +982,7 @@ index 00000000..041d717e
 +    {
 +        void Start();
 +        void Stop();
-+        void SetLocal(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot);
++        void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot);
 +        RemoteState GetRemote();
 +        Boolean IsConnected { get; }   // transport link up (peer may still be absent -- see GetRemote)
 +    }
@@ -980,9 +1037,9 @@ index 00000000..041d717e
 +        }
 +
 +        // Game thread: publish my current state (serialized immediately so the caller's Vector3 is copied).
-+        public void SetLocal(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot)
++        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
 +        {
-+            Byte[] pkt = Serialize(field, anim, pos, rot);
++            Byte[] pkt = Serialize(field, anim, model, meshVis, pos, rot);
 +            lock (_lock) { _localPacket = pkt; }
 +        }
 +
@@ -1106,12 +1163,15 @@ index 00000000..041d717e
 +            return true;
 +        }
 +
-+        // --- wire format: magic + version + field(u16) + anim(u16) + pos(3f) + rot(4f) = 34 bytes ---
-+        internal const Int32 PacketSize = 34;
++        // --- wire format v2: magic + version + field(u16) + anim(u16) + model(u16) + meshVis(u16)
++        //     + pos(3f) + rot(4f) = 38 bytes. v1 (34B, no model/meshVis) peers are REJECTED by both the
++        //     length filter and the version byte -> mixed engine versions silently don't sync (fail-safe;
++        //     update both machines together when the wire changes). ---
++        internal const Int32 PacketSize = 38;
 +        private const Byte Magic = 0xF9;
-+        private const Byte Version = 1;
++        private const Byte Version = 2;
 +
-+        internal static Byte[] Serialize(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot)
++        internal static Byte[] Serialize(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
 +        {
 +            Byte[] b = new Byte[PacketSize];
 +            using (MemoryStream ms = new MemoryStream(b))
@@ -1121,6 +1181,8 @@ index 00000000..041d717e
 +                bw.Write(Version);
 +                bw.Write((UInt16)field);
 +                bw.Write(anim);
++                bw.Write(model);
++                bw.Write(meshVis);
 +                bw.Write(pos.x); bw.Write(pos.y); bw.Write(pos.z);
 +                bw.Write(rot.x); bw.Write(rot.y); bw.Write(rot.z); bw.Write(rot.w);
 +            }
@@ -1130,7 +1192,7 @@ index 00000000..041d717e
 +        internal static Boolean Deserialize(Byte[] buf, out RemoteState rs)
 +        {
 +            rs = new RemoteState();
-+            if (buf.Length < PacketSize || buf[0] != Magic)
++            if (buf.Length < PacketSize || buf[0] != Magic || buf[1] != Version)
 +                return false;
 +            using (MemoryStream ms = new MemoryStream(buf))
 +            using (BinaryReader br = new BinaryReader(ms))
@@ -1139,6 +1201,8 @@ index 00000000..041d717e
 +                br.ReadByte();                         // version
 +                rs.Field = br.ReadUInt16();
 +                rs.Anim = br.ReadUInt16();
++                rs.Model = br.ReadUInt16();
++                rs.MeshVis = br.ReadUInt16();
 +                Single px = br.ReadSingle(), py = br.ReadSingle(), pz = br.ReadSingle();
 +                Single rx = br.ReadSingle(), ry = br.ReadSingle(), rz = br.ReadSingle(), rw = br.ReadSingle();
 +                rs.Pos = new Vector3(px, py, pz);
