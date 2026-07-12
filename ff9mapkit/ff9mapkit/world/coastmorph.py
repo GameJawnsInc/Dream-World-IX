@@ -4252,6 +4252,138 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
     return out
 
 
+def _blk_of(x, z):
+    """The canonical block of a donor-world point: (floor(x/64), floor(-z/64))."""
+    return (math.floor(x / 64.0), math.floor(-z / 64.0))
+
+
+def parse_bank_lower_spec(spec: str) -> dict:
+    """Parse the CLI ``--bank-lower "CX,CZ:RADIUS[:SLOPE[:CAP]][:along=AX,AZ/BX,BZ]"``
+    into the ``build_shore_tweaks(bank=...)`` dict (the fuse layout's
+    ``[placement.bank_lower]`` shape). Tail segments are positional floats
+    (radius, shore_slope, cap) unless ``name=``-prefixed."""
+    parts = [s.strip() for s in spec.strip().split(":")]
+    if len(parts) < 2 or not parts[0]:
+        raise ValueError("--bank-lower needs at least CX,CZ:RADIUS")
+    out = {"center": [float(v) for v in parts[0].split(",")]}
+    pos_keys = ["radius", "shore_slope", "cap"]
+    for seg in parts[1:]:
+        if not seg:
+            continue
+        if "=" in seg:
+            name, _, val = seg.partition("=")
+            if name.strip() != "along":
+                raise ValueError(f"--bank-lower: unknown named segment '{name}'")
+            a, _, b = val.partition("/")
+            out["along"] = [[float(v) for v in a.split(",")],
+                            [float(v) for v in b.split(",")]]
+        else:
+            if not pos_keys:
+                raise ValueError("--bank-lower: too many positional segments")
+            out[pos_keys.pop(0)] = float(seg)
+    if "radius" not in out:
+        raise ValueError("--bank-lower needs at least CX,CZ:RADIUS")
+    return out
+
+
+def parse_virgin_mint_spec(spec: str) -> dict:
+    """Parse the CLI ``--virgin-mint "X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY]"``
+    into the ``build_shore_tweaks(mint=...)`` dict (the fuse layout's
+    ``[placement.virgin_mint]`` shape)."""
+    parts = [s.strip() for s in spec.strip().split(":")]
+    if len(parts) < 2:
+        raise ValueError("--virgin-mint needs at least X0,Z0:X1,Z1")
+    out = {"start": [float(v) for v in parts[0].split(",")],
+           "end": [float(v) for v in parts[1].split(",")]}
+    pos_keys = ["width", "swash"]
+    for seg in parts[2:]:
+        if not seg:
+            continue
+        if "=" in seg:
+            name, _, val = seg.partition("=")
+            if name.strip() != "pins":
+                raise ValueError(f"--virgin-mint: unknown named segment '{name}'")
+            out["pins_from"] = [int(v) for v in val.split(",")]
+        else:
+            if not pos_keys:
+                raise ValueError("--virgin-mint: too many positional segments")
+            out[pos_keys.pop(0)] = float(seg)
+    return out
+
+
+def build_shore_tweaks(donor, size=(1, 1), *, bank=None, mint=None,
+                       disc: int = 1, lod: str = "0_1", game=None):
+    """The PRODUCTIZED island-B pattern -- an optional :func:`bank_lower` plus an
+    optional :func:`virgin_mint` riding ONE placement, the shared core of the
+    ``world-transplant --bank-lower/--virgin-mint`` and ``world-fuse``
+    ``[placement.bank_lower]``/``[placement.virgin_mint]`` paths. The mint
+    composes on the bank via ``pre=`` (the composition rule: reconciliation
+    mutates the SAME list, so exactly the returned tweaks must ride the
+    deploy). Each verb's tweak BLOCK is derived from its own spec coords (the
+    canonical ``floor(x/64), floor(-z/64)`` triple) and must sit inside the
+    placement region ``donor+size`` -- coords in a foreign block refuse
+    actionably. ``bank``/``mint`` are plain dicts:
+
+    * bank: ``center=[x,z]`` (required), ``radius``, ``shore_slope``, ``cap``,
+      ``along=[[ax,az],[bx,bz]]`` (the corridor mode).
+    * mint: ``start=[x,z]``/``end=[x,z]`` (required), ``width``, ``swash``,
+      ``wash_reach``, ``pins_from=[bx,by]`` (a beach-bearing reference block --
+      REQUIRED when the mint block itself carries no beach).
+
+    Returns ``(tweaks, notes)`` like :func:`transplant.build_grow_tweaks`."""
+    (dx, dy) = (int(donor[0]), int(donor[1]))
+    (snx, sny) = (int(size[0]), int(size[1]))
+
+    def gate_blk(blk, what):
+        if not (dx <= blk[0] < dx + snx and dy <= blk[1] < dy + sny):
+            raise ValueError(
+                f"{what} coords land in block {blk}, outside the placement "
+                f"region {(dx, dy)}+{snx}x{sny} -- shore tweak coords are "
+                f"donor-WORLD coords inside the carried region")
+        return blk
+
+    tweaks, notes = [], []
+    pre = ()
+    if bank is not None:
+        if "center" not in bank:
+            raise ValueError("bank_lower needs 'center' = [x, z]")
+        cx, cz = (float(v) for v in bank["center"])
+        blk = gate_blk(_blk_of(cx, cz), "bank_lower center")
+        along = bank.get("along")
+        if along is not None:
+            along = (tuple(float(v) for v in along[0]),
+                     tuple(float(v) for v in along[1]))
+        pre = bank_lower(blk, (cx, cz),
+                         radius=float(bank.get("radius", 14.0)),
+                         shore_slope=float(bank.get("shore_slope", 0.55)),
+                         cap=float(bank.get("cap", 2.2)),
+                         along=along, disc=disc, lod=lod, game=game)
+        tweaks += list(pre)
+        notes.append(f"bank_lower @ block {blk}"
+                     + (" (corridor)" if along is not None else " (radial)"))
+    if mint is not None:
+        for req in ("start", "end"):
+            if req not in mint:
+                raise ValueError(f"virgin_mint needs '{req}' = [x, z]")
+        p0 = tuple(float(v) for v in mint["start"])
+        p1 = tuple(float(v) for v in mint["end"])
+        blk = gate_blk(_blk_of(*p0), "virgin_mint start")
+        gate_blk(_blk_of(*p1), "virgin_mint end")
+        pins = mint.get("pins_from")
+        if pins is not None:
+            pins = (int(pins[0]), int(pins[1]))
+        tw = virgin_mint(blk, p0, p1,
+                         width=float(mint.get("width", 2.4)),
+                         swash=float(mint.get("swash", 4.6)),
+                         wash_reach=float(mint.get("wash_reach", 4.0)),
+                         pre=pre, pins_from=pins,
+                         disc=disc, lod=lod, game=game)
+        tweaks += list(tw)
+        notes.append(f"virgin_mint @ block {blk}"
+                     + (f" (pins from {pins})" if pins else ""))
+    return tweaks, notes
+
+
 #: THE VIRGIN-MINT ENVELOPES (rung 3, 2026-07-11). Column widths: the map-wide foam
 #: run-column census (608 constant-v run edges over all 40 beach blocks: 0.92..6.27u,
 #: median 4.01 -- short columns are real grammar). Slope: MINT_SLOPE's ceiling widened

@@ -126,13 +126,34 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
     row: prefab or pure on-lattice open water on BOTH sides); target cells must not
     collide with overrides already on disk (unless ``allow_overwrite`` -- re-deploying
     the same layout is the normal iteration flow). ``dry_run`` stops after validation.
-    Returns ``{placements, fuse_gates, clean, deployed}``."""
-    summaries = []
-    for pl in placements:
+
+    TWEAKED placements pass ``tweaks_factory`` (a zero-arg callable returning a FRESH
+    tweak list), not ``tweaks``: tweak objects are STATEFUL (gate counters, the mint's
+    pre-reconciliation mutation), and a layout run applies each placement TWICE -- the
+    per-placement gate pass and then the deploy pass -- so the factory rebuilds
+    between them (deterministic builders make both passes byte-identical). Plain
+    ``tweaks`` stay legal for ``dry_run`` (one apply) and refuse a real deploy
+    actionably. Returns ``{placements, fuse_gates, clean, deployed}``."""
+    if not dry_run:
+        for i, pl in enumerate(placements):
+            if pl.get("tweaks") and not pl.get("tweaks_factory"):
+                raise ValueError(
+                    f"placement #{i} carries plain 'tweaks' on a REAL deploy -- tweak "
+                    f"objects are stateful and a layout run applies each placement "
+                    f"twice (gates + deploy); pass 'tweaks_factory' (a zero-arg "
+                    f"builder returning a fresh list) instead")
+
+    def _kw(pl):
         kw = dict(pl)
         kw.setdefault("shift", (0.0, 0.0))
+        fac = kw.pop("tweaks_factory", None)
+        if fac is not None:
+            kw["tweaks"] = list(fac()) + list(kw.pop("tweaks", ()) or ())
+        return kw
+    summaries = []
+    for pl in placements:
         summaries.append(TR.transplant_region("UNUSED", disc=disc, lod=lod, game=game,
-                                              dry_run=True, **kw))
+                                              dry_run=True, **_kw(pl)))
     gates = []
     for i, s in enumerate(summaries):
         gates.append({"gate": f"placement[{i}]", "donor": s["donor"], "cell": s["cell"],
@@ -175,9 +196,7 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
     if dry_run or not clean:
         return out
     for pl in placements:
-        kw = dict(pl)
-        kw.setdefault("shift", (0.0, 0.0))
         s = TR.transplant_region(mod_folder, disc=disc, lod=lod, game=game,
-                                 dry_run=False, **kw)
+                                 dry_run=False, **_kw(pl))
         out["deployed"].extend(s["deployed"])
     return out

@@ -136,6 +136,7 @@ and marker commands are stock-engine.
 | Reshape walkable terrain (hill/crater/ridge/flatten) across blocks, seamlessly (`world-terrain`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Reclaim ocean as walkable land (`world-reclaim`); carry real coastlines (`world-coast`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Transplant a complete real island — land + beach + Wang'd ocean — to any cell, with 90° rotation + in-cell shift (`world-transplant`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Fuse placements into a continent from one layout toml (`world-fuse`), with per-placement shore tweaks — sink a bank (`bank_lower`) + mint a new real-scale beach on it (`virgin_mint`, `pins_from`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Synthesize graded open-ocean water (`world-water`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Author a custom overworld entrance — trigger + tiles + optional Blender building (`world-entrance`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Overworld encounters: re-table + retune frequency (`world-encounters`, `world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |

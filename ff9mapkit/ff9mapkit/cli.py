@@ -2445,8 +2445,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         if (args.cliff_bump or args.cliff_headland or args.cliff_bay or args.cliff_lobes
                 or args.beach_bump or args.beach_rebuild or args.beach_reshape
                 or args.beach_slide or args.strips_rebuild or args.sand_rebuild
-                or args.cap_rebuild or args.beach_mint or args.band_convert
-                or args.virgin_mint):
+                or args.cap_rebuild or args.beach_mint or args.band_convert):
             from .world import coastmorph as CM
             if (snx, sny) != (1, 1):
                 raise ConfigError("cliff morphs are single-cell v1 -- drop --size")
@@ -2491,17 +2490,6 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 tweaks = list(tweaks) + CM.band_convert(
                     (dx, dy), (ccx, ccz), tpart.strip().lower(),
                     disc=args.disc, game=args.game)
-            if args.virgin_mint:
-                vparts = args.virgin_mint.strip().split(":")
-                p0 = tuple(float(v) for v in vparts[0].split(","))
-                p1 = tuple(float(v) for v in vparts[1].split(","))
-                vkw = {}
-                if len(vparts) > 2 and vparts[2]:
-                    vkw["width"] = float(vparts[2])
-                if len(vparts) > 3 and vparts[3]:
-                    vkw["swash"] = float(vparts[3])
-                tweaks = list(tweaks) + CM.virgin_mint(
-                    (dx, dy), p0, p1, disc=args.disc, game=args.game, **vkw)
             if args.cliff_lobes:
                 s0, s1, sd = args.cliff_lobes.split(":")
                 p0 = tuple(float(v) for v in s0.split(","))
@@ -2509,6 +2497,21 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 tweaks = list(tweaks) + CM.cliff_lobes(
                     (dx, dy), p0, p1, [float(v) for v in sd.split(",")],
                     disc=args.disc, game=args.game)
+        # the SHORE tweaks (the productized island-B pattern): bank_lower +
+        # virgin_mint ride any placement, single-cell or region -- each verb's
+        # tweak block derives from its own spec coords (build_shore_tweaks)
+        if args.bank_lower or args.virgin_mint:
+            from .world import coastmorph as CM
+            sh, sh_notes = CM.build_shore_tweaks(
+                (dx, dy), (snx, sny),
+                bank=(CM.parse_bank_lower_spec(args.bank_lower)
+                      if args.bank_lower else None),
+                mint=(CM.parse_virgin_mint_spec(args.virgin_mint)
+                      if args.virgin_mint else None),
+                disc=args.disc, game=args.game)
+            for n in sh_notes:
+                print(n)
+            tweaks = list(tweaks) + sh
         if args.in_place:
             if (bx, by) != (dx, dy):
                 raise ConfigError("--in-place morphs the donor's own REAL cell: --cell "
@@ -2862,14 +2865,37 @@ def _cmd_world_fuse(args: argparse.Namespace) -> int:
                 pl["land_margin"] = float(row["land_margin"])
             if "strips" in row:
                 pl["strips"] = row["strips"]
-            tweaks, notes = TR.build_grow_tweaks(pl["donor"], pl["size"],
-                                                 grow_cut=row.get("grow_cut", ()),
-                                                 grow_cut_z=row.get("grow_cut_z", ()),
-                                                 disc=args.disc, game=args.game)
+            # tweak builders: grow cuts + the SHORE tweaks (the productized
+            # island-B pattern -- optional [placement.bank_lower] /
+            # [placement.virgin_mint] sub-tables, same builder as the
+            # world-transplant flags). Attached as a FACTORY, not a list:
+            # tweak objects are stateful and fuse_layout applies each placement
+            # twice (gates + deploy), rebuilding fresh per pass.
+            def _build_tweaks(row=row, donor=pl["donor"], size=pl["size"],
+                              notes=None):
+                tw, n = TR.build_grow_tweaks(donor, size,
+                                             grow_cut=row.get("grow_cut", ()),
+                                             grow_cut_z=row.get("grow_cut_z", ()),
+                                             disc=args.disc, game=args.game)
+                n = list(n)
+                if (row.get("bank_lower") is not None
+                        or row.get("virgin_mint") is not None):
+                    from .world import coastmorph as CM
+                    shore, n2 = CM.build_shore_tweaks(
+                        donor, size,
+                        bank=row.get("bank_lower"), mint=row.get("virgin_mint"),
+                        disc=args.disc, game=args.game)
+                    tw = list(tw) + shore
+                    n += n2
+                if notes is not None:
+                    notes.extend(n)
+                return tw
+            notes = []
+            tweaks = _build_tweaks(notes=notes)   # validate early, collect notes
             for n in notes:
                 print(f"placement #{i}: {n}")
             if tweaks:
-                pl["tweaks"] = tweaks
+                pl["tweaks_factory"] = _build_tweaks
             placements.append(pl)
         out = FU.fuse_layout(args.mod_folder, placements, disc=args.disc, game=args.game,
                              allow_overwrite=args.allow_overwrite, dry_run=args.dry_run)
@@ -5300,7 +5326,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "coverage/steep-face/object-anchor/drop-don't-drag). Rung-1 class: "
                           "the block's single x-monotone column beach.")
     wtp.add_argument("--virgin-mint", default=None,
-                     metavar="X0,Z0:X1,Z1[:WIDTH[:SWASH]]",
+                     metavar="X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY]",
                      help="BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT: author a NEW "
                           "beach on a bare grass coast (no donor beach to pin to). "
                           "X0,Z0 / X1,Z1 = world anchors for the two cap pinch points "
@@ -5318,7 +5344,28 @@ def build_parser() -> argparse.ArgumentParser:
                           "law). Gated by the union crack gate, T-vertex, the lattice "
                           "adjacency + shade-agreement laws, per-tri re-decodes, the "
                           "band/slope/swash/column envelopes, and THE GRASS-TONGUE LAW "
-                          "(4.06u to every existing beach).")
+                          "(4.06u to every existing beach). :pins=PX,PY byte-reads the "
+                          "foam family + sand run/cap pins from a beach-bearing "
+                          "reference block (REQUIRED when the mint block has no beach "
+                          "of its own -- the island-B pattern). Works on regions too: "
+                          "the mint block derives from the spec coords (canonical "
+                          "floor(x/64), floor(-z/64)) and composes with --bank-lower "
+                          "(the mint computes on the POST-bank geometry).")
+    wtp.add_argument("--bank-lower", default=None,
+                     metavar="CX,CZ:RADIUS[:SLOPE[:CAP]][:along=AX,AZ/BX,BZ]",
+                     help="THE BANK RESHAPE (the virgin mint's site preparation): sink a "
+                          "mesa/cliff-top bank into a beach-capable profile -- every "
+                          "terrain vert within RADIUS of CX,CZ sinks toward "
+                          "min(SLOPE*d_shore, CAP) (defaults 0.55/2.2), shore- and "
+                          "frame-welded verts pinned, plateau falloff at the rim. "
+                          ":along=AX,AZ/BX,BZ runs the falloff from the beach CHORD "
+                          "instead of the point (THE CORRIDOR LAW -- on a small islet a "
+                          "radial reach flattens the far rim). Touched topo-58 walls "
+                          "re-pin V per column under THE LIP ANCHOR (crest keeps the "
+                          "painted lip row; the base crops at the column's own density; "
+                          "the V-IN-BAND gate polices the byte-derived strip band). "
+                          "Composes with --virgin-mint (bank first, mint on the post-"
+                          "bank geometry); the bank block derives from CX,CZ.")
     wtp.add_argument("--band-convert", default=None, metavar="CX,CZ:PART",
                      help="THE ONE-CELL BAND-CONVERSION (rung 3's probe -- the first FRESH "
                           "deformed-tile emission): re-band one LATTICE water cell of a "
