@@ -48,5 +48,18 @@ curtains; every rise gated ≤ 2.2u under the engine's 2.34375u step ceiling —
 genuinely block at their own 2.4u+ segments). Proven on the reclaimed bench pad at cell (3,14)
 (`world-reclaim --profile island --seg 16`).
 
+## The canvas (deployed 2026-07-12, ⏳ awaits playtest)
+
+The census exposed the blocker for every further interior rung: **no forest/hill-scale
+grass exists anywhere we control** — the archipelago's grass pockets top out at ~16×8u,
+lowland forest (topo 37) borders ONLY grass map-wide, and stock FF9 has no transplantable
+big grass island. The fix is **island E, the from-scratch grassland canvas**: a
+`world-island` mint (seed 20, ~138×105u, 3 lobes, two meadow stamps, rolling relief) at
+world (352,−1152), blocks (4–6, 17–18) of `FF9CustomMap-world` — inside the archipelago's
+bay, NE of island C. All offline gates clean (geometry, UV language, placement census
+MISS=0, Moguri-atlas alpha, shape language); regeneration one-liner in
+`ff9mapkit/examples/continent-v1/README.md`. Once proven it replaces the (3,14) bench as
+the home for the forest-carry, hill, and terrace rungs.
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
