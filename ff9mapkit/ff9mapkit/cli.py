@@ -1145,7 +1145,8 @@ def _cmd_build_all(args: argparse.Namespace) -> int:
         print("  " + line)
     for w in info["warnings"]:
         print("  warning: " + w, file=sys.stderr)
-    print(f"Next: add '{plan.mod_folder}' to Memoria.ini [Mod] FolderNames + relaunch, then deploy-all (P4).")
+    print(f"Next: add '{plan.mod_folder}' to Memoria.ini [Mod] FolderNames AND Priorities (same order; "
+          f"the launcher rewrites FolderNames from Priorities) + relaunch, then deploy-all (P4).")
     return 0
 
 
@@ -2993,7 +2994,8 @@ def _cmd_world_minimap(args: argparse.Namespace) -> int:
     if not s["dry_run"]:
         print(f"  -> {s['out']}")
         print("  RELAUNCH to apply; the override must sit ABOVE any folder shipping its own "
-              "map PNG (MoguriMain) in Memoria.ini FolderNames.")
+              "map PNG (MoguriMain) in Memoria.ini FolderNames AND Priorities (edit BOTH, same "
+              "order, game+launcher closed -- the launcher rewrites FolderNames from Priorities).")
     return 0
 
 
@@ -5713,7 +5715,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "appears on the map. Data-derived: the engine's own 1536x1280 projection onto "
                               "the image's detected art rect, colours sampled from how the map draws real "
                               "islets. No DLL; relaunch to apply. NOTE: the override must sit ABOVE any "
-                              "folder shipping its own map PNG (e.g. MoguriMain) in Memoria.ini FolderNames.")
+                              "folder shipping its own map PNG (e.g. MoguriMain) in Memoria.ini FolderNames "
+                              "AND Priorities (edit BOTH, same order -- the launcher rewrites FolderNames "
+                              "from Priorities at every Play click).")
     wmm.add_argument("--mod-folder", required=True,
                      help="the FolderNames mod folder whose WorldMap terrain to draw + where the PNG lands")
     wmm.add_argument("--disc", type=int, default=1, help="world disc (default 1)")

@@ -1710,6 +1710,8 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     seeded = [s for s in plan.campaign_steps if s.seed_blocks]
     L = ["# === Journey deploy playbook (run from the repo root; apply + PLAYTEST each step in order) ===",
          "# Memoria.ini [Mod] FolderNames must STACK every folder below; the hub folder is HIGHEST.",
+         "# Edit [Mod] Priorities to the SAME order in the same edit (game+launcher closed) -- the launcher",
+         "# rewrites FolderNames from Priorities at every Play click, so a FolderNames-only edit is reverted.",
          f"# ONE-SHOT: `py tools/deploy_journey.py {jref} --apply` runs steps 1-3 (campaigns + links + hub) + "
          "seeds the entry + writes ONE revert. New Game is NOT touched (reach the hub via F6; add "
          "--newgame hub|entry to opt in).",
@@ -1782,6 +1784,8 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     if folders:
         L.append("# Memoria.ini [Mod] FolderNames (HIGHEST first), then your video/passthrough mods below:")
         L.append("#   FolderNames = " + ", ".join(f'"{f}"' for f in folders) + ', "<your other mods, e.g. Moguri>"')
+        L.append("#   Priorities  = the SAME entries in the SAME order (the launcher rewrites FolderNames from")
+        L.append("#   Priorities at every Play click -- a FolderNames-only edit is silently reverted).")
     if plan.campaign_steps:
         lo = min(s.id_lo for s in plan.campaign_steps)
         hi = max(s.id_hi for s in plan.campaign_steps)

@@ -370,7 +370,7 @@ Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > 
 
 ### 5.4 Worktree / FolderNames / distinct-id constraints
 
-- The campaign deploys into ONE `mod_folder` pinned by `.ff9deploy.toml` and listed in `Memoria.ini [Mod] FolderNames`; a new folder isn't read until added there and the game relaunches.
+- The campaign deploys into ONE `mod_folder` pinned by `.ff9deploy.toml` and listed in `Memoria.ini [Mod] FolderNames`; a new folder isn't read until added there and the game relaunches. A hand add/reorder must edit `Priorities` to the same order too — the launcher rewrites `FolderNames` from `Priorities` at every Play click.
 - All N ids must be ≥4000 and **globally distinct** across every stacked folder (EventDB is a merged dict).
 - **First deploy of each NEW id needs one relaunch** to register its DictionaryPatch line; F6 Reload/Warp only work once registered. `deploy-all` should detect all-new ids and tell the user to relaunch once; subsequent edits use F6.
 - **[open]** Whether `deploy-all` also handles minted BATTLE scenes (the encounter `scene` ids 22/27/28/29 in the trace are *real existing* battle scenes referenced through the BattlePatch merge — no minting needed; minted battle scenes are a separate `deploy_battle.py` path, deferred to a later version).
@@ -417,7 +417,7 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
       + .mes; DictionaryPatch = the 13 lines; New-Game: field-70 override -> 4100(ent 0);
       revert_campaign.py written. "NEW ids 4100..4112 -> RELAUNCH once to register."
 
-# 6. Add FF9CustomMap-ice to Memoria.ini [Mod] FolderNames, RELAUNCH.
+# 6. Add FF9CustomMap-ice to Memoria.ini [Mod] FolderNames + Priorities (same order), RELAUNCH.
 #    New Game -> field-70 opening override -> IC_ENTRANCE (4100, entrance 0)
 #    -> walk the cavern: 4100->4101->...->4105 (save at hub) ->4107 (branch)
 #    ->4109->4110->4111->4112; encounters fire on the 8 non-safe screens

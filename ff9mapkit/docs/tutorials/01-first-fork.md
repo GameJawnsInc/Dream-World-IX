@@ -70,7 +70,10 @@ ff9mapkit build myroom\MYROOM.field.toml --out dist\MyFirstField --mod-name MyFi
 geometry). `build` writes the complete Memoria mod directly into `--out`. Install it:
 
 1. Copy `dist\MyFirstField\` into the FF9 install directory (next to `FF9_Launcher.exe`).
-2. Add `"MyFirstField"` to the `FolderNames` list under `[Mod]` in `Memoria.ini`.
+2. Add `"MyFirstField"` to **both** the `FolderNames` and `Priorities` lists under `[Mod]` in
+   `Memoria.ini`, same position in each (game + launcher closed). The Memoria Launcher rewrites
+   `FolderNames` from `Priorities` at every Play click, so a `FolderNames`-only edit silently
+   reverts. (Launching once also auto-detects the folder — the hand edit just controls the order.)
 
 ## 5. Reach it in-game
 

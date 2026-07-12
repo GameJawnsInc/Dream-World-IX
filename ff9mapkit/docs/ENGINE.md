@@ -28,7 +28,9 @@ model importer already ships), custom **battle backgrounds**, custom **music and
 
 Install a built mod by copying its folder next to `FF9_Launcher.exe` and registering the folder
 name in `Memoria.ini` under `[Mod] FolderNames` (or zip it with `ff9mapkit pack`). No DLL is
-required for a novel field.
+required for a novel field. Registering or reordering **by hand**? Edit `[Mod] Priorities` to the
+same order in the same edit (game + launcher closed) — the Memoria Launcher rewrites `FolderNames`
+from `Priorities` at every Play click, so a `FolderNames`-only edit is silently reverted.
 
 ## Forked fields & the fidelity patch set
 

@@ -186,7 +186,8 @@ already-solved `FieldLocationName`/s33/`[field] location` seam.
 
 **5. The map IMAGE itself (★ built 2026-07-12 — `world-minimap`, no DLL).** The big in-game map is a
 mod-overridable loose PNG (`AssetManager.SearchAssetOnDisc("EmbeddedAsset/UI/Sprites/world_map_full_all.png")`,
-FolderNames-stacked — Moguri ships its own HD copy, so the override must sit ABOVE MoguriMain).
+FolderNames-stacked — Moguri ships its own HD copy, so the override must sit ABOVE MoguriMain; reorder
+BOTH `FolderNames` AND `Priorities`, same order, or the launcher's Play click reverts the move).
 `ff9mapkit world-minimap --mod-folder <mod>` DRAWS the folder's deployed overworld land onto the active map:
 the engine's own projection (`w_naviGetPos`: the mapped world is exactly **1536×1280 units**) onto the image's
 structurally-detected art rect (letterbox bars + the drawn frame line), land colours sampled from how the map

@@ -385,7 +385,8 @@ in-game playtest of the one-shot path):
   writing the partial revert. **New Game is NOT touched by default** — the field-70 override is SINGLE-OWNER,
   so forcing it would hijack an existing hub (e.g. a live World Hub); reach the new hub via **F6 → Warp**, or
   pass `--wire-newgame` to opt into making it the New-Game landing. Ends by printing the manual FolderNames +
-  relaunch steps (manual, outside the tool). `--apply-links` still runs only the link step (re-apply after a
+  relaunch steps (manual, outside the tool; edit `Priorities` to the same order in the same edit — the
+  launcher rewrites `FolderNames` from `Priorities` at every Play click). `--apply-links` still runs only the link step (re-apply after a
   campaign re-deploy). **Pre-flight (step 0):** emit the hub + **auto-extract its `[hub] borrow_field`
   camera** (`assemble-journey --extract-camera` / `generate_hub(extract_camera=)`) and build-check it
   offline, so a missing camera aborts BEFORE any campaign is deployed — never mid-deploy after the campaigns

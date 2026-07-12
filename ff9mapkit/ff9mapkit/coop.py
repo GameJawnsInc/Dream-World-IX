@@ -159,22 +159,48 @@ def read_folder_names(text: str) -> list[str]:
     return [p.strip().strip('"') for p in raw.split(",") if p.strip().strip('"')]
 
 
+def mod_order_updates(text: str, names: list[str]) -> dict:
+    """The ``[Mod]`` updates that set ``FolderNames`` to exactly ``names`` -- ALWAYS rewriting
+    ``Priorities`` in the same breath. THE LAUNCHER LAW (root-caused 2026-07-12): the Memoria
+    Launcher treats ``Priorities`` as the MASTER order -- ``LoadModSettings`` builds its mod list
+    in Priorities order and ``UpdateModSettings`` REWRITES FolderNames from that list at every
+    Play click (``Memoria.Launcher/MainWindow_ModManager.cs``), so a FolderNames-only edit is
+    silently reverted on the next launch. EVERY kit writer that sets or reorders FolderNames must
+    route through here. Invariant kept: the active folders appear in Priorities in the SAME
+    sequence as FolderNames; entries only in Priorities (the launcher's inactive mods) keep their
+    positions; a missing Priorities key is left missing (the launcher then seeds it from
+    FolderNames, order intact)."""
+    updates = {"FolderNames": ", ".join(f'"{n}"' for n in names)}
+    prio = read_ini_key(text, "Mod", "Priorities")
+    if prio is not None:
+        old = [p.strip().strip('"') for p in prio.split(",") if p.strip().strip('"')]
+        active = {n.lower() for n in names}
+        queue = list(names)                  # actives, in the order FolderNames will declare
+        merged: list[str] = []
+        for p in old:
+            if p.lower() in active:
+                if queue:                    # each old active slot takes the NEXT active in order
+                    merged.append(queue.pop(0))
+            else:                            # inactive mod: keep its position untouched
+                merged.append(p)
+        merged.extend(queue)                 # newly-added actives with no old slot go last
+        updates["Priorities"] = ", ".join(f'"{n}"' for n in merged)
+    return updates
+
+
 def ensure_folder_registered(game: Path, folder: str, *, out=print) -> bool:
     """Add ``folder`` to ``[Mod] FolderNames`` (at the END -- the room's assets are uniquely named, and
-    last place keeps its text block from shadowing other folders'). True if the ini was changed."""
+    last place keeps its text block from shadowing other folders'). True if the ini was changed.
+    Writes FolderNames AND Priorities together (:func:`mod_order_updates` -- the launcher reverts a
+    FolderNames-only edit at the next Play click)."""
     ini = _ini_path(game)
     text = ini.read_text(encoding="utf-8", errors="replace")
     names = read_folder_names(text)
     if any(n.lower() == folder.lower() for n in names):
         return False
-    updates = {"FolderNames": ", ".join(f'"{n}"' for n in names + [folder])}
-    prio = read_ini_key(text, "Mod", "Priorities")
-    if prio is not None:                 # keep the launcher's hint list in step when present
-        pnames = [p.strip().strip('"') for p in prio.split(",") if p.strip().strip('"')]
-        if not any(n.lower() == folder.lower() for n in pnames):
-            updates["Priorities"] = ", ".join(f'"{n}"' for n in pnames + [folder])
+    updates = mod_order_updates(text, names + [folder])
     ini.write_text(update_ini_section(text, "Mod", updates), encoding="utf-8")
-    out(f'  Memoria.ini: added "{folder}" to [Mod] FolderNames')
+    out(f'  Memoria.ini: added "{folder}" to [Mod] FolderNames + Priorities')
     return True
 
 

@@ -44,8 +44,8 @@ py tools\deploy_battle.py my_map\battle.toml --trigger-field 4003   # repo check
 ```
 
 `--trigger-field` repoints a deployed field's encounter at the battle for testing. Without the
-repo tools, install the built mod folder and register it in `Memoria.ini [Mod] FolderNames` as
-usual.
+repo tools, install the built mod folder and register it in `Memoria.ini [Mod] FolderNames` +
+`Priorities` (same order) as usual.
 
 An FBX/texture override needs **no relaunch** (re-enter the battle); a `BattlePatch.txt` change
 (`repoint_scene`, scene tuning) needs one.

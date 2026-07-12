@@ -66,5 +66,6 @@ equivalents: `ff9mapkit deploy-campaign`, `ff9mapkit deploy-journey`, and `ff9ma
 ## Standalone path (no test slot, no F6)
 
 `ff9mapkit build … --mod-name MyMod` → copy the mod folder into the game install → register it in
-`Memoria.ini [Mod] FolderNames` → launch. Engine-independent, but every change costs a relaunch —
-the loop above exists because this is slow.
+`Memoria.ini [Mod] FolderNames` **and** `Priorities` (same order; the launcher rewrites
+`FolderNames` from `Priorities` at every Play click) → launch. Engine-independent, but every
+change costs a relaunch — the loop above exists because this is slow.
