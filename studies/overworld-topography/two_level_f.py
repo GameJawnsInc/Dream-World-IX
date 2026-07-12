@@ -165,24 +165,25 @@ for want in (True, False):
 fams = Counter(tri_fam[i] for i in drop)
 print(f"dropped: {len(drop)} tris ({dict(fams)})", flush=True)
 
-# hole ring on the SOUTH side of the chord strip (for the lowland zip): kept-south once-edges
-# that were shared with dropped tris
-eu = Counter()
-for i, t in enumerate(gtris):
-    if i in drop:
-        continue
-    for a, b in ((0, 1), (1, 2), (2, 0)):
-        eu[tuple(sorted((kk3(gpos[t[a]]), kk3(gpos[t[b]]))))] += 1
-dropped_edges = set()
-for i in drop:
-    t = gtris[i]
-    for a, b in ((0, 1), (1, 2), (2, 0)):
-        dropped_edges.add(tuple(sorted((kk3(gpos[t[a]]), kk3(gpos[t[b]])))))
-once = [e for e, n in eu.items() if n == 1 and e in dropped_edges]
-south_chain_e = [e for e in once if not north_of_chord((e[0][0] + e[1][0]) / 2,
-                                                       (e[0][2] + e[1][2]) / 2)]
-north_chain_e = [e for e in once if north_of_chord((e[0][0] + e[1][0]) / 2,
-                                                   (e[0][2] + e[1][2]) / 2)]
+# boundary chains from kept<->dropped adjacency (recomputed after each corner shave)
+def boundary_edges():
+    eu = Counter()
+    for i2, t2 in enumerate(gtris):
+        if i2 in drop:
+            continue
+        for a2, b2 in ((0, 1), (1, 2), (2, 0)):
+            eu[tuple(sorted((kk3(gpos[t2[a2]]), kk3(gpos[t2[b2]]))))] += 1
+    dropped_edges = set()
+    for i2 in drop:
+        t2 = gtris[i2]
+        for a2, b2 in ((0, 1), (1, 2), (2, 0)):
+            dropped_edges.add(tuple(sorted((kk3(gpos[t2[a2]]), kk3(gpos[t2[b2]])))))
+    once = [e for e, n2 in eu.items() if n2 == 1 and e in dropped_edges]
+    south_e = [e for e in once if not north_of_chord((e[0][0] + e[1][0]) / 2,
+                                                     (e[0][2] + e[1][2]) / 2)]
+    north_e = [e for e in once if north_of_chord((e[0][0] + e[1][0]) / 2,
+                                                 (e[0][2] + e[1][2]) / 2)]
+    return south_e, north_e
 
 def chain_open(edges, what):
     adj = defaultdict(list)
@@ -201,8 +202,6 @@ def chain_open(edges, what):
         ch.append(nxts[0])
     assert len(ch) == len(edges) + 1, f"{what}: broken chain"
     return ch
-
-south_chain = chain_open(south_chain_e, "south hole chain")
 
 def chain_closed(edges, what):
     adj = defaultdict(list)
@@ -223,10 +222,72 @@ def chain_closed(edges, what):
             ring.pop()
             break
     assert len(ring) == len({*ring}), f"{what} degenerate"
+    assert len(ring) == len(edges), f"{what}: {len(edges)} edges but the walked ring has " \
+        f"{len(ring)} -- the boundary is MORE THAN ONE ring"
     return ring
+
+# THE CORNER SHAVE: a hard MACRO corner on the crest reads as an artificial right angle
+# at the grass-cliff bevel AND bunches the ring-1 projections (tile windows collapse ->
+# the single-texel-column smears on the east side). Measured over a SMOOTHED +/-5u arc
+# window -- the boundary is a lattice staircase whose lone 90-deg teeth average out on a
+# straight run (chasing raw per-vertex turns cascades forever); only macro corners persist.
+SHAVE_TURN = 65.0
+SMOOTH_W = 5.0
+def ring_pt_at(ring, i0, darc):
+    n3 = len(ring)
+    d = abs(darc)
+    step = 1 if darc > 0 else -1
+    i3 = i0
+    while d > 0:
+        j3 = (i3 + step) % n3
+        seg = math.hypot(ring[j3][0] - ring[i3][0], ring[j3][2] - ring[i3][2])
+        if seg >= d:
+            t01 = d / max(1e-9, seg)
+            return (ring[i3][0] + t01 * (ring[j3][0] - ring[i3][0]),
+                    ring[i3][2] + t01 * (ring[j3][2] - ring[i3][2]))
+        d -= seg
+        i3 = j3
+    return (ring[i3][0], ring[i3][2])
+
+for _shave in range(6):
+    _, north_e = boundary_edges()
+    ring = chain_closed(north_e, "north boundary ring")
+    n2 = len(ring)
+    s2 = sum(ring[i2][0] * ring[(i2 + 1) % n2][2] - ring[(i2 + 1) % n2][0] * ring[i2][2]
+             for i2 in range(n2))
+    worst, wi = 0.0, -1
+    for i2 in range(n2):
+        bx2, bz2 = ring_pt_at(ring, i2, -SMOOTH_W)
+        fx2, fz2 = ring_pt_at(ring, i2, +SMOOTH_W)
+        v2 = ring[i2]
+        # CONVEX corners only: shaving removes material, which CUTS a convex corner but
+        # DEEPENS a concave one (the notch shave dug a folded-fan pit)
+        cross = (v2[0] - bx2) * (fz2 - v2[2]) - (v2[2] - bz2) * (fx2 - v2[0])
+        if (cross > 0) != (s2 > 0):
+            continue
+        a1 = math.atan2(v2[2] - bz2, v2[0] - bx2)
+        a2 = math.atan2(fz2 - v2[2], fx2 - v2[0])
+        turn = abs((a2 - a1 + math.pi) % (2 * math.pi) - math.pi)
+        if turn > worst:
+            worst, wi = turn, i2
+    if wi < 0 or math.degrees(worst) <= SHAVE_TURN:
+        break
+    v2 = ring[wi]
+    fan = {i2 for i2, t2 in enumerate(gtris)
+           if i2 not in drop and north[i2] and tri_fam[i2] != "rock"
+           and any(kk3(gpos[j2]) == v2 for j2 in t2)}
+    if not fan:
+        break
+    drop |= fan
+    for c in side_components(True)[1:]:                    # keep the north side one piece
+        drop |= c
+    print(f"  shave {_shave}: {math.degrees(worst):.0f} deg corner at "
+          f"({v2[0]:.1f},{v2[2]:.1f}) -- dropped {len(fan)} tris", flush=True)
 
 # the kept-north region's boundary is a CLOSED ring (chord edge + the rim arc where the
 # coast band dropped) -- it IS the crest loop
+south_chain_e, north_chain_e = boundary_edges()
+south_chain = chain_open(south_chain_e, "south hole chain")
 north_ring = chain_closed(north_chain_e, "north boundary ring")
 print(f"chord chains: south {len(south_chain)} pts, north ring {len(north_ring)} pts", flush=True)
 
@@ -380,6 +441,9 @@ for k, (row, cols) in enumerate(COURSES):
         PB = PB[r0:] + PB[:r0]
         for q2 in range(1, NB):
             PB[q2] = max(PB[q2], PB[q2 - 1])               # projection noise at corners
+        wmin = min(PB[q2 + 1] - PB[q2] for q2 in range(NB - 1))
+        print(f"  crest course: {NB} tiles, min window {wmin:.2f}u "
+              f"(a collapsed window = a texel-column smear)", flush=True)
         i = j = 0
         while i < NT or j < NB:
             nextT = cumT[i + 1] if i < NT else float("inf")
@@ -390,18 +454,32 @@ for k, (row, cols) in enumerate(COURSES):
             u0, v0, du_, dv_ = TILE_RECT[(col, row)]
             t_lo = PB[tile]
             t_hi = PB[tile + 1] if tile + 1 < NB else perT
+            # THE FAN FALLBACK: at a macro corner several B stations project to ~one crest
+            # point -- the tile window collapses and arc-lerped u becomes a single texel
+            # column (the smear). Those tris are corner FANS; give them full-width corner
+            # assignment (the body courses' proven fan treatment).
+            collapsed = (t_hi - t_lo) < 0.8
             def u_at(d):
                 fr = (d - t_lo) / max(1e-6, t_hi - t_lo)
                 return u0 + min(1.0, max(0.0, fr)) * du_
             if adv_t:
-                tri = ((T[i % NT], u_at(cumT[i]), v0),
-                       (T[(i + 1) % NT], u_at(cumT[i + 1]), v0),
-                       (B[j % NB], u_at(PB[j] if j < NB else perT), v0 + dv_))
+                if collapsed:
+                    tri = ((T[i % NT], u0, v0), (T[(i + 1) % NT], u0 + du_, v0),
+                           (B[j % NB], u0 + du_ / 2, v0 + dv_))
+                else:
+                    tri = ((T[i % NT], u_at(cumT[i]), v0),
+                           (T[(i + 1) % NT], u_at(cumT[i + 1]), v0),
+                           (B[j % NB], u_at(PB[j] if j < NB else perT), v0 + dv_))
                 i += 1
             else:
-                tri = ((T[i % NT], u_at(cumT[i] if i < NT else perT), v0),
-                       (B[(j + 1) % NB], u_at(PB[j + 1] if j + 1 < NB else perT), v0 + dv_),
-                       (B[j % NB], u_at(PB[j]), v0 + dv_))
+                if collapsed:
+                    tri = ((T[i % NT], u0 + du_ / 2, v0),
+                           (B[(j + 1) % NB], u0 + du_, v0 + dv_),
+                           (B[j % NB], u0, v0 + dv_))
+                else:
+                    tri = ((T[i % NT], u_at(cumT[i] if i < NT else perT), v0),
+                           (B[(j + 1) % NB], u_at(PB[j + 1] if j + 1 < NB else perT), v0 + dv_),
+                           (B[j % NB], u_at(PB[j]), v0 + dv_))
                 j += 1
             emit_wall([(p[0], p[1], p[2], uu, vv) for (p, uu, vv) in tri])
         continue
@@ -661,7 +739,7 @@ for cell, tri in zip_pieces:
     new_parents.append((tuple(corners), ID0, "zip"))
 
 # ---- 6. assemble: kept south verbatim; kept north raised (topo -> 13); new tris ---------------
-pos, nrm2, uv2, tan2, flat, tris2 = [], [], [], [], [], []
+pos, nrm2, uv2, tan2, flat, tris2, tri_src = [], [], [], [], [], [], []
 bx, by = BLK
 def emit(p3, u_, n_, idall):
     pos.append([p3[0] - BLOCK * bx, p3[1], p3[2] + BLOCK * (by + 1) - BLOCK])
@@ -677,10 +755,12 @@ for i2, t in enumerate(gtris):
         emit([w[0], w[1] + (RAISE if lift else 0.0), w[2]], (u, v), gnrm[jj],
              ID13 if lift else idall)
     tris2.append([flat[-3], flat[-2], flat[-1]])
+    tri_src.append("raised" if lift else f"kept-{fam}")
 for corners, idall, fam in new_parents:
     for p in corners:
         emit(p[:3], (p[3], p[4]), (p[5], p[6], p[7]), idall)
     tris2.append([flat[-3], flat[-2], flat[-1]])
+    tri_src.append(fam)
 new_bm = X.BlockMesh(name=built["blocks"][BLK].name, disc=1, x=bx, y=by, lod="0_1",
                      vcount=len(pos), stride=48,
                      channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2), X.CH_TAN: (32, 4)},
@@ -701,11 +781,17 @@ meshlist = [("Object", hid("Object")), ("Terrain", new_bm), ("Sea1", hid("Sea1")
 cen = P.census(meshlist)
 print(f"GATES: zipDown={down} censusMISS={len(cen['miss'])}", flush=True)
 assert down == 0 and len(cen["miss"]) == 0
+# probe the EXACT teleport spots we hand the user -- OFF the 4u lattice (THE LATTICE-EDGE
+# TELEPORT TRAP: the engine's sky-cast at an exactly-lattice x/z runs down a shared mains
+# edge; float rounding can reject BOTH edge tris -> defaultHeight 0 -> the actor grounds
+# UNDER the terrain, and the +2.34 climb ceiling can never recover it)
 lx, lz = CX - BLOCK * bx, CZ + BLOCK * (by + 1) - BLOCK
-gy, nm_, _, topo = P.place(meshlist, lx, lz + 12)          # north (less-negative z) = plateau
-print(f"plateau probe grounds: y={gy:.2f} {nm_} topo {topo}", flush=True)
-gy2, nm2_, _, topo2 = P.place(meshlist, lx, lz - 18)       # south = lowland
-print(f"lowland probe grounds: y={gy2:.2f} {nm2_} topo {topo2}", flush=True)
+gy, nm_, _, topo = P.place(meshlist, lx - 1.5, lz + 13.5)  # north (less-negative z) = plateau
+print(f"plateau probe ({CX - 1.5:.1f},{CZ + 13.5:.1f}) grounds: y={gy:.2f} {nm_} topo {topo}",
+      flush=True)
+gy2, nm2_, _, topo2 = P.place(meshlist, lx + 2.5, lz - 17.5)   # south = lowland
+print(f"lowland probe ({CX + 2.5:.1f},{CZ - 17.5:.1f}) grounds: y={gy2:.2f} {nm2_} topo {topo2}",
+      flush=True)
 assert topo == 13 and abs(gy - PLATEAU_Y) < 1.5
 assert topo2 == 0 and gy2 < 5
 
@@ -738,6 +824,11 @@ out = Image.new("RGB", (RW, RH), (24, 40, 72))
 op = out.load()
 LDIR = (-0.45, 0.8, -0.35)
 _l = math.sqrt(sum(q*q for q in LDIR)); LDIR = tuple(q/_l for q in LDIR)
+import os
+DBG = bool(os.environ.get("DEBUG_CLASS"))
+CLASS_RGB = {"raised": (60, 220, 60), "kept-main": (20, 120, 20), "kept-rock": (150, 110, 70),
+             "kept-forest": (0, 80, 0), "kept-stamp": (120, 200, 120),
+             "wall": (150, 150, 160), "zip": (240, 220, 40)}
 order_rows = sorted(range(len(tris2)),
                     key=lambda t: min(pos[i][1] for i in tris2[t]))   # paint low first
 for t in order_rows:
@@ -758,8 +849,11 @@ for t in order_rows:
             w2 = 1 - w0 - w1
             if w0 < 0 or w1 < 0 or w2 < 0:
                 continue
-            aa, rgb = at_b(w0*q3[0][0] + w1*q3[1][0] + w2*q3[2][0],
-                           w0*q3[0][1] + w1*q3[1][1] + w2*q3[2][1])
+            if DBG:
+                aa, rgb = 255.0, CLASS_RGB.get(tri_src[t], (255, 0, 255))
+            else:
+                aa, rgb = at_b(w0*q3[0][0] + w1*q3[1][0] + w2*q3[2][0],
+                               w0*q3[0][1] + w1*q3[1][1] + w2*q3[2][1])
             nx = sum(w * n3[k2][0] for k2, w in enumerate((w0, w1, w2)))
             ny = sum(w * n3[k2][1] for k2, w in enumerate((w0, w1, w2)))
             nz = sum(w * n3[k2][2] for k2, w in enumerate((w0, w1, w2)))
@@ -779,7 +873,8 @@ if len(sys.argv) > 1 and sys.argv[1] == "deploy":
     shutil.copyfile(src, BK / f"{src.name}.{ts}")
     outp = M.deploy_override(new_bm, mod_folder="FF9CustomMap-world", part="Terrain")
     print(f"deployed -> {outp} ({len(new_bm.tris)} tris)")
-    print(f"DONE -- world re-entry; teleport {CX:.0f},{CZ - 18:.0f} = the lowland; "
-          f"{CX:.0f},{CZ + 12:.0f} = the plateau top.")
+    print(f"DONE -- world re-entry; teleport {CX + 2.5:.1f},{CZ - 17.5:.1f} = the lowland; "
+          f"{CX - 1.5:.1f},{CZ + 13.5:.1f} = the plateau top. (Off-lattice on purpose -- "
+          f"integer multiples of 4 can ground UNDER the terrain.)")
 else:
     print("dry run only -- re-run with 'deploy' to write.")
