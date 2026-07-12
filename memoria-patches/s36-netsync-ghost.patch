@@ -26,10 +26,10 @@ index 192b988b..b50b4d89 100644
      public override void HonoStart()
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 new file mode 100644
-index 00000000..0c1e9f2a
+index 00000000..7a9c5c89
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,441 @@
 +using System;
 +using Memoria.Prime;
 +using Memoria.Scripts;   // ShadersLoader
@@ -77,6 +77,15 @@ index 00000000..0c1e9f2a
 +        private String _ghostClip;
 +        private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
 +        private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
++
++        // On-screen status overlay -- the user-facing half of session setup: shows the session code +
++        // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
++        // moment the peer's ghost is up (the ghost itself is the "it works" signal).
++        private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4;
++        private Int32 _ovlState = -1;
++        private String _ovlText;
++        private static Texture2D _ovlBg;
++        private static GUIStyle _ovlStyle;
 +
 +        // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
 +        // load; creates the DontDestroyOnLoad object ONCE, and only when [Netsync] Enabled=1.
@@ -211,6 +220,7 @@ index 00000000..0c1e9f2a
 +            if (fld != _targetField)
 +            {
 +                DespawnGhost();
++                SetOverlay(fld > 0 ? OvlElsewhere : OvlOff);   // quiet on menus/battle; nudge on a field
 +                return;
 +            }
 +
@@ -233,7 +243,10 @@ index 00000000..0c1e9f2a
 +                        if (_relayUrl.Length > 0)
 +                        {
 +                            if (_sessionCode.Length == 0)
++                            {
++                                SetOverlay(OvlNoCode);
 +                                return;   // guest without the host's code (see LoadConfig) -- never dial empty
++                            }
 +                            _socket = new NetSyncRelay(_relayUrl, _sessionCode, _role == "host" ? "host" : "guest", _insecureTls);
 +                        }
 +                        else
@@ -244,17 +257,20 @@ index 00000000..0c1e9f2a
 +                    RemoteState rs = _socket.GetRemote();                                     // apply the peer
 +                    if (rs.Valid && rs.Field == fld)
 +                    {
++                        SetOverlay(OvlOff);                    // paired -- the ghost is the status display
 +                        EnsureGhost(ee);
 +                        if (_ghost != null)
 +                            DriveGhost(rs.Pos, rs.Rot, rs.Anim);
 +                    }
 +                    else
 +                    {
++                        SetOverlay(_socket.IsConnected ? OvlWaiting : OvlConnecting);
 +                        DespawnGhost();   // peer absent / in another field / stale
 +                    }
 +                }
 +                else   // "selftest": mirror the local player, offset beside it (solo sanity check)
 +                {
++                    SetOverlay(OvlOff);
 +                    EnsureGhost(ee);
 +                    if (_ghost != null)
 +                        DriveGhost(pt.localPosition + new Vector3(250f, 0f, 0f), pt.localRotation, local.anim);
@@ -273,6 +289,68 @@ index 00000000..0c1e9f2a
 +                _socket.Stop();
 +                _socket = null;
 +            }
++        }
++
++        // Compose the overlay text once per state CHANGE (Update calls this every frame).
++        private void SetOverlay(Int32 state)
++        {
++            if (_role == "selftest")
++                state = OvlOff;                          // dev mode -- no player-facing overlay
++            if (state == _ovlState)
++                return;
++            _ovlState = state;
++            String code = _sessionCode.Length > 0 ? _sessionCode : "(no code)";
++            switch (state)
++            {
++                case OvlElsewhere:
++                    _ovlText = "FF9 co-op is ON (" + (_role == "host" ? "hosting, code " + code : "joining " + code) +
++                               ")\nmeet your friend:  F6 > Warp to field > " + _targetField;
++                    break;
++                case OvlNoCode:
++                    _ovlText = "FF9 co-op: SessionCode is EMPTY -- nothing to join.\n" +
++                               "Get the host's code, then run:  ff9mapkit coop join <code>";
++                    break;
++                case OvlConnecting:
++                    if (_relayUrl.Length > 0)
++                        _ovlText = "FF9 co-op: connecting to the relay...\n" +
++                                   "If this never clears, the bridge isn't running:  ff9mapkit coop " +
++                                   (_role == "host" ? "host" : "join " + code) + "  (" + _relayUrl + ")";
++                    else if (_role == "host")
++                        _ovlText = "FF9 co-op: waiting for the other player to connect\n" +
++                                   "(direct LAN -- they join your IP, port " + _port + ")";
++                    else
++                        _ovlText = "FF9 co-op: connecting to " + _peer + ":" + _port + " (direct LAN)...";
++                    break;
++                case OvlWaiting:
++                    _ovlText = "FF9 co-op: connected -- waiting for your friend to arrive here\n" +
++                               "session code:  " + code;
++                    break;
++                default:
++                    _ovlText = null;
++                    break;
++            }
++        }
++
++        private void OnGUI()
++        {
++            if (_ovlText == null)
++                return;
++            if (_ovlStyle == null)
++            {
++                _ovlBg = new Texture2D(1, 1, TextureFormat.ARGB32, false);
++                _ovlBg.SetPixel(0, 0, new Color(0.05f, 0.06f, 0.10f, 0.82f));
++                _ovlBg.Apply();
++                _ovlStyle = new GUIStyle(GUI.skin.label);
++                _ovlStyle.fontSize = Mathf.Max(13, Screen.height / 60);
++                _ovlStyle.richText = false;
++                _ovlStyle.normal.textColor = new Color(0.92f, 0.94f, 0.98f, 1f);
++            }
++            GUIContent content = new GUIContent(_ovlText);
++            Vector2 size = _ovlStyle.CalcSize(content);
++            const Single pad = 10f;
++            Rect box = new Rect(Screen.width - size.x - pad * 2f - 16f, 12f, size.x + pad * 2f, size.y + pad * 1.4f);
++            GUI.DrawTexture(box, _ovlBg);
++            GUI.Label(new Rect(box.x + pad, box.y + pad * 0.7f, size.x, size.y), content, _ovlStyle);
 +        }
 +
 +        // Spawn the ghost model once, using AddPlayer's proven model setup (CreateModel + AddAnim +
@@ -395,10 +473,10 @@ index 00000000..0c1e9f2a
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 new file mode 100644
-index 00000000..2b89bff0
+index 00000000..0083cb9c
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,315 @@
 +using System;
 +using System.IO;
 +using System.Net.Security;
@@ -435,8 +513,11 @@ index 00000000..2b89bff0
 +        private readonly Boolean _insecureTls;
 +
 +        private volatile Boolean _running;
++        private volatile Boolean _connected;
 +        private Stream _stream;
 +        private Thread _thread;
++
++        public Boolean IsConnected { get { return _connected; } }
 +
 +        private readonly System.Object _lock = new System.Object();
 +        private readonly System.Object _writeLock = new System.Object();   // serialize ALL frame writes (writer + pong)
@@ -529,6 +610,7 @@ index 00000000..2b89bff0
 +                    }
 +                    Handshake(stream);
 +                    _stream = stream;
++                    _connected = true;
 +                    Log.Message("[NetSync] relay connected " + (_secure ? "wss" : "ws") + "://" + _host + ":" + _port + _path);
 +                    RunConnection(stream);
 +                    Log.Message("[NetSync] relay disconnected; retrying");
@@ -539,6 +621,7 @@ index 00000000..2b89bff0
 +                }
 +                finally
 +                {
++                    _connected = false;
 +                    try { if (sock != null) sock.Close(); } catch { }
 +                    lock (_lock) { _remote = new RemoteState { Valid = false }; }
 +                }
@@ -711,10 +794,10 @@ index 00000000..2b89bff0
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
 new file mode 100644
-index 00000000..816fd9af
+index 00000000..041d717e
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,250 @@
 +using System;
 +using System.IO;
 +using System.Net;
@@ -743,6 +826,7 @@ index 00000000..816fd9af
 +        void Stop();
 +        void SetLocal(Int32 field, UInt16 anim, Vector3 pos, Quaternion rot);
 +        RemoteState GetRemote();
++        Boolean IsConnected { get; }   // transport link up (peer may still be absent -- see GetRemote)
 +    }
 +
 +    // TCP transport for co-op ghost sync. One side is HOST (listens), the other CLIENT (connects to the
@@ -757,8 +841,11 @@ index 00000000..816fd9af
 +        private readonly Int32 _port;
 +
 +        private volatile Boolean _running;
++        private volatile Boolean _connected;
 +        private Socket _conn;
 +        private Thread _acceptThread;
++
++        public Boolean IsConnected { get { return _connected; } }
 +
 +        private readonly System.Object _lock = new System.Object();
 +        private RemoteState _remote;      // latest peer state (guarded)
@@ -854,6 +941,7 @@ index 00000000..816fd9af
 +        {
 +            s.NoDelay = true;
 +            _conn = s;
++            _connected = true;
 +            Thread writer = new Thread(() => WriteLoop(s)) { IsBackground = true, Name = "NetSync-write" };
 +            writer.Start();
 +            try
@@ -862,6 +950,7 @@ index 00000000..816fd9af
 +            }
 +            finally
 +            {
++                _connected = false;
 +                try { s.Close(); } catch { }
 +                lock (_lock) { _remote = new RemoteState { Valid = false }; }   // clear the peer on drop
 +            }
