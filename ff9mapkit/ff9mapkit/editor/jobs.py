@@ -485,3 +485,19 @@ def revert_battle_argv(repo_root):
     """The interpreter + the latest ``revert_battle_*.py``, or ``None`` if no battle deploy to undo."""
     s = latest_battle_revert(repo_root)
     return [sys.executable, str(s)] if s else None
+
+
+def coop_setup_argv(action, code=None, *, lan=None, new_code=False, rebuild_room=False):
+    """``ff9mapkit coop host|join`` argv, setup only (``--no-bridge`` -- the GUI runs the bridge
+    in-process). ``lan``: None = relay mode; ``""`` = bare ``--lan`` (host); an IP = ``--lan <ip>`` (join)."""
+    a = [sys.executable, "-m", "ff9mapkit", "coop", str(action)]
+    if code:
+        a.append(str(code))
+    a.append("--no-bridge")
+    if lan is not None:
+        a += ["--lan"] if lan == "" else ["--lan", str(lan)]
+    if new_code:
+        a.append("--new-code")
+    if rebuild_room:
+        a.append("--rebuild-room")
+    return a

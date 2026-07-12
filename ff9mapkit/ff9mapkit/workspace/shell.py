@@ -45,6 +45,7 @@ from ..editor.model import FieldDoc, protected_reason
 from ..editor.theme import THEME_CHOICES, pick_palette
 from .battledoc import BattleDoc
 from .builddoc import BuildDoc
+from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
@@ -953,6 +954,10 @@ class Workspace(QMainWindow):
                                       thumbs=self.thumbs,                  # fork preview shows the room's art
                                       on_open_models=lambda: self.tabs.setCurrentWidget(self.models_doc))
         self.tabs.addTab(self.import_field, "Import")
+        # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
+        # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
+        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job)
+        self.tabs.addTab(self.coop_doc, "Co-op")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
@@ -3284,6 +3289,7 @@ class Workspace(QMainWindow):
             ("Go to Models", "view", lambda: self.tabs.setCurrentWidget(self.models_doc)),
             ("Go to Build & Deploy", "view", lambda: self.tabs.setCurrentWidget(self.build_deploy)),
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
+            ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
@@ -6720,6 +6726,20 @@ def _smoke(win):
         assert _btn is not None
     assert any(lbl == "Go to Models" for lbl, _k, _cb in win._command_index())
     assert win.import_field.models_tab_btn.isEnabled(), "Import-tab pointer to Models not wired"
+    # the Co-op tab: built + palette-reachable; status refresh runs headless (game may be absent);
+    # the setup argv keeps the bridge OUT of the subprocess (the GUI runs it in-process); a join with
+    # no code refuses locally instead of launching a job
+    assert any(lbl == "Go to Co-op" for lbl, _k, _cb in win._command_index())
+    cd = win.coop_doc
+    cd.refresh_status()
+    assert "bridge: not running" in cd.lbl_bridge.text()
+    from ..editor.jobs import coop_setup_argv as _csa
+    assert "--no-bridge" in _csa("host") and _csa("join", "ff9-X", lan="1.2.3.4")[-1] == "1.2.3.4"
+    cd.rb_join.setChecked(True)
+    cd.code.setText("")
+    cd.start_coop()
+    assert "session code" in cd.lbl_config.text(), cd.lbl_config.text()
+    cd.rb_host.setChecked(True)
     # the deployed-overrides panel: scan a fake mod folder, rows classified, backend revert works
     _fm = d / "fakemod"
     _fmv = _fm / "StreamingAssets" / "Assets" / "Resources" / "Models" / "2" / "8"
