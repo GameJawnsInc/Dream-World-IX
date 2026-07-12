@@ -224,6 +224,7 @@ def test_landmass_deploy_orchestration(monkeypatch):
     monkeypatch.setattr(M, "deploy_donor_sidecar",
                         lambda dx, dy, **k: sidecars.append((dx, dy, k["x"], k["y"])))
     monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
+    monkeypatch.setattr(I, "_real_block_parts", lambda blk, **k: {})
     s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
     assert s["op"] == "landmass" and [b["block"] for b in s["blocks"]] == [[3, 1]]
     parts = sorted(p for (_, _, p) in overrides)
@@ -256,5 +257,22 @@ def test_landmass_dry_run_writes_nothing(monkeypatch):
     monkeypatch.setattr(M, "deploy_override", lambda *a, **k: called.append(a))
     monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: called.append(a))
     monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
+    monkeypatch.setattr(I, "_real_block_parts", lambda blk, **k: {})
     s = I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True, dry_run=True)
     assert not called and s["report"]["clean"]
+
+
+def test_landmass_refuses_real_world_blocks(monkeypatch):
+    """THE OPEN-OCEAN TARGET LAW: a footprint block with real per-block mesh assets refuses the
+    whole deploy -- on a sea-only real block the Terrain override has no transform to bind to,
+    so the fragment silently never renders in-game (the (6,17) canvas incident, 2026-07-12)."""
+    import pytest
+    called = []
+    monkeypatch.setattr(M, "deploy_override", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(M, "deploy_donor_sidecar", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(I, "_sea_plane", lambda disc=1, game=None: _synth_plane())
+    monkeypatch.setattr(I, "_real_block_parts",
+                        lambda blk, **k: {"sea3": 2, "sea5": 16} if blk == (3, 1) else {})
+    with pytest.raises(ValueError, match=r"REAL world block.*(3, 1)"):
+        I.landmass("MOD", cell=(3, 1), base_radius=20.0, seed=5.0, flat=True)
+    assert not called                                    # refused BEFORE any file was written

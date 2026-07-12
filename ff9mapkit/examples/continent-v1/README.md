@@ -14,7 +14,7 @@ interior-topography canvas.
 ```
 py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap-world --dry-run   # validate first
 py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap-world             # deploy
-py -m ff9mapkit world-island --mod-folder FF9CustomMap-world --center 352,-1152 --radius 48 --lobes 3 --seed 20   # island E
+py -m ff9mapkit world-island --mod-folder FF9CustomMap-world --center 344,-1152 --radius 46 --lobes 3 --seed 55   # island E
 py -m ff9mapkit world-minimap --mod-folder FF9CustomMap-world                            # refresh the big map
 ```
 
@@ -36,10 +36,10 @@ donor-divert support). To remove, delete the deployed `Block[*]` files under
 | B | (10,17) + 2×2 | cell (0,15) | The shore/shallows island — the other one. Fused directly south of A; the shared border (z=−960) is fuse-certified row-by-row. Carries the layout's `[placement.bank_lower]` + `[placement.virgin_mint]` shore tweaks: a minted beach on the (10,18) block's south rim, world ~(670,−1168) donor frame / ~(30,−1040) in place. |
 | C | (7,17) | cell (3,18) | A real sandy-beach island, landable on foot. `land_margin = 0` because its land legitimately reaches its own east frame edge. Also the mint's `pins_from` reference — island B's foam/sand language is byte-read from here. |
 | D | (0,0) Uaho | cell (5,19) | A genuine all-cliff peak — authentically reachable only by airship or flying chocobo, FF9's own hidden-isle design language. |
-| E | *synthetic* | cells (4–6, 17–18) | The grassland island — a fully kit-synthesized ~138×105u lobed landmass (`world-island`, seed 20): native grass mains, two verbatim meadow stamps, rolling relief, the ~73° rock rim. The **interior-topography canvas**: big enough to host a carried forest blob, a hill, and future terrace rungs, which no real donor and no other archipelago island can. NE of C, N of D, inside the archipelago's bay. |
+| E | *synthetic* | cells (4–5, 17–18) + (6,18) | The grassland island — a fully kit-synthesized ~112×114u lobed landmass (`world-island`, seed 55): native grass mains, two verbatim meadow stamps, rolling relief, the ~73° rock rim. The **interior-topography canvas**: big enough to host a carried forest blob, a hill, and future terrace rungs, which no real donor and no other archipelago island can. NE of C, N of D, inside the archipelago's bay. Its footprint deliberately skips block (6,17) — a REAL sea-skirt block (the open-ocean target law, now a `world-island` gate). |
 
 First-look world coordinates (approximate cell centers, e.g. for the debug-menu teleport):
-A (64,−864) · B (64,−1024) · C (224,−1184) · D (352,−1248) · E (352,−1152).
+A (64,−864) · B (64,−1024) · C (224,−1184) · D (352,−1248) · E (344,−1152).
 
 ## Notes
 

@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-island` now enforces the open-ocean target law
+- The transplant path's OPEN-OCEAN TARGET gate is ported into `world-island`: every footprint block
+  must be TRUE open ocean (no real per-block mesh assets), or the whole deploy refuses naming the
+  offending blocks and their parts. Root cause (found in-game 2026-07-12, the archipelago canvas):
+  a real sea-only block loads its OWN prefab, which has no `Terrain` transform for the s34 loose
+  override to bind to — the island fragment silently never renders (one block of the landmass
+  missing, water in its place); on a real land block the island would replace real continent
+  geometry. No escape hatch — unlike transplants there is no legitimate use.
+
 ### Fixed — Memoria.ini mod-order edits now survive the Launcher (FolderNames + Priorities together)
 - Root cause (2026-07-12): the Memoria **Launcher** treats `[Mod] Priorities` as the MASTER mod order —
   `LoadModSettings` builds its list in Priorities order and `UpdateModSettings` rewrites `FolderNames`
