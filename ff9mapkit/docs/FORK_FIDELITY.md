@@ -120,9 +120,14 @@ retargets its `Field()` ids (its GLOB conditions then read the `[startup]` story
 uid 250 on multi-PC fields) — are **CARRIED with `--graft-player-funcs`**: the called funcs join the player-func graft
 plan (a new `"walk"` safety tier admits gesture+scripted-walk bodies in the door lane only; the NPC lane is unchanged),
 and the door's calls are remapped at build via the object-carry ref machinery (`[[gateway_carry]]` `player_calls` +
-`donor_entry` + `donor_player_entry`). Census-vetted carries: **254 (Evil Forest — ★ in-game proven: the
-first-crossing one-shot sequence walks the player through, the repeat crossing takes the plain warp), 553
-(Lindblum), 1904 (Treno)**. The
+`donor_entry` + `donor_player_entry`). Census-vetted carries — **all 3 ★ in-game proven**: **254** (Evil Forest — the
+first-crossing one-shot sequence walks the player through, the repeat crossing takes the plain warp), **553**
+(Lindblum Inn — the sprint-entry slow walk-out is faithful; needed the ARMING-ORDER fix: the carried door's
+`InitRegion` must come AFTER the player's `InitObject` in Main_Init, since creation order is engine tick order
+and a door armed first lets the controller re-stamp run speed over the script's `SetWalkSpeed(30)` mid-handshake
+— `edit.activate(after_player=True)`), and **1904** (Treno — the FULL door-open choreography: the turn+reach
+gesture, the door art swinging open via BG tile animation riding the native fork's verbatim scene data, and the
+slow push-through walk). The
 rest stay ungated seams **by proof, not by gap** — their refs ARE the field's own cutscene logic (sibling funcs hold the
 real `Field()` warps + Main_Init calls — 2504's warp-sequence even hides behind a leading `WindowSync` as safety
 `"text"`, which is exactly why the door lane accepts only `"clean"`/`"walk"`); shared-script (350), party-band (2222),
