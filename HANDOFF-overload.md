@@ -94,9 +94,16 @@ real-field decoder rather than a fresh byte dive:
 - **The warp**: `field_prologue` now emits `marker → clear → fade+sound → if (outpost != 0)
   Field(<expr: outpost>) → Field(warp_to)` — `warp_to` = the FALLBACK. Arrival entrance: v1 = the
   destination's default spawn (a per-outpost entrance var is the extension if wanted).
-- **Playtest (round 4, `scratch/deathrules_test.field.toml`)**: 4003 is its own outpost, fallback = 407
-  (Dali storage) — landing back in 4003 proves the computed warp; F6-zeroing the var (BATCH word write,
-  byte 1060 = 0) then wiping proves the fallback.
+- **Playtest round 4a ★ PASSED 2026-07-11**: the COMPUTED `Field(<expr>)` warp is in-game proven (wipe in
+  the self-registered outpost 4003 → warped back into 4003, not the 407 fallback). Round 4b (the fallback)
+  produced a black screen — a TEST-WRITE artifact, not a code failure: the outpost var is a LITTLE-ENDIAN
+  WORD across bytes 1060-1061, and zeroing only byte 1060 left 1061=0x0F → the var read 3840 (unregistered)
+  → the computed branch fired at a nonexistent field. ⚠ TWO LESSONS: (1) always write the var as a WHOLE
+  word (docs updated; a half-written var = a garbage destination); (2) the failure mode of a garbage
+  outpost id is a black-screen warp — no script-side registry check exists, so the var's integrity rests
+  on "only registration writes it" (kit-reserved band, documented). 4b RETRY pending: F6 BATCH WORD op
+  (index 1060, value 0) or byte-zero BOTH 1060+1061, then wipe → expect Dali storage 407. (F6 → Go → Warp
+  still fires from a black screen — the stuck-escape.)
 
 ### The SHORT-ANIMATION second wind — ★ IN-GAME PROVEN 2026-07-11 (no summon, party stands up at the
 ### set fraction; 2nd wipe → game over; next battle → recharged)
