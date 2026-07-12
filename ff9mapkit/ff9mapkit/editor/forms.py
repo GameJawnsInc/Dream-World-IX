@@ -203,6 +203,15 @@ STARTUP_SPEC = [
 CUTSCENE_SPEC = [
     Field("actors", "Cast", STRLIST, "[[npc]] names (and/or \"player\") the scene drives; blank = narration"),
     Field("once", "Play once", BOOL, "off = replays every visit", default=True),
+    Field("requires_scenario", "Requires beat", SCENARIOREF,
+          "the DIRECTOR GATE: only plays when the ScenarioCounter == this beat (number or area name); "
+          "blank = always"),
+    Field("requires_flag", "Requires flag set", FLAGREF,
+          "only plays while this story flag (name/idx) is set", catalog="flag"),
+    Field("set_scenario", "Then set beat", SCENARIOREF,
+          "the DIRECTOR ADVANCE: at scene end, move the story to this beat (once, only when it played)"),
+    Field("then_warp", "Then warp to field", OPTINT,
+          "end the scene with a fade + warp to this field id (how a forced-ATE scene returns)"),
     Field("warmup", "Warmup frames", OPTINT, "default 30 (let the field settle)"),
 ]
 MARKER_SPEC = [
@@ -256,7 +265,11 @@ SECTION_HELP = {
              "Separate from who you WALK as (an Import option).",
     "startup": "Assert the story beat this field boots in (a forked field starts at scenario zero): set the "
                "scenario and any story flags, unconditionally, at field load.",
-    "cutscene": "A scripted scene. Steps run in order with control locked; an 'actor' NPC can walk/emote.",
+    "cutscene": "A scripted scene. Steps run in order with control locked; a CAST (actors = [names]) lets "
+                "steps walk/animate those NPCs (a step's Actor picks who; blank = the sole cast member). "
+                "Gate it to a story beat (requires scenario) and advance the beat at scene end (set "
+                "scenario) -- the story-event director. Repeat [[cutscene]] blocks (one per beat) in the "
+                "TOML for a multi-beat dispatch.",
     "npc": "People who stand in the room: a model (preset), a line of dialogue, optional story gate.",
     "gateway": "An exit zone -> another field (the door the player walks into).",
     "event": "A walk-in trigger: show a message, give an item/gil, or set a story flag.",
@@ -643,13 +656,18 @@ def step_value_text(step: dict) -> str:
 
 
 def step_summary(step: dict) -> str:
-    """A one-line summary for the step list, e.g. ``say: "hello"`` or ``walk: 0, -800``."""
+    """A one-line summary for the step list, e.g. ``say: "hello"``, ``guard · walk: 0, -800`` (the actor
+    tag prefixes), or ``vivi · animation: glad  [with prev]`` (a parallel beat)."""
     k = step_key(step)
     if not k:
         return "(empty)"
-    if k == "face_player":
-        return "face_player"
-    return f"{k}: {step_value_text(step)}"
+    body = "face_player" if k == "face_player" else f"{k}: {step_value_text(step)}"
+    a = step.get("actor")
+    if a:
+        body = f"{a} · {body}"
+    if step.get("with_prev"):
+        body += "  [with prev]"
+    return body
 
 
 # --- choices (npc + prompt + a list of options) ------------------------------------------

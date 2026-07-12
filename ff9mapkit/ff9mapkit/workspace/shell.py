@@ -5311,6 +5311,10 @@ class Workspace(QMainWindow):
             self._show_problems(fb.Verdict(fb.OK, f"{member} · {key or section} — nothing to save (empty)"), [])
             return True
         target = doc.data.setdefault(section, {}) if single else doc.data.get(section, [])[idx]
+        if single and isinstance(target, list):    # a PLURAL section (the [[cutscene]] dispatch): the single
+            if not target or not isinstance(target[0], dict):   # form edits BLOCK 0 (matches _mount_cutscene's
+                target.insert(0, {})                            # read path) -- never .pop() on the list itself
+            target = target[0]
         for f in spec:
             target.pop(f.key, None)
         target.update(entity)
@@ -5511,6 +5515,13 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._header(f"{member}  ·  cutscene", forms.SECTION_HELP.get("cutscene"))
         self._set_editor_tab("Cutscene")
+        _raw_cs = doc.data.get("cutscene")
+        if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
+            note = QLabel(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
+                          f"This form edits scene #1 — edit the others in the TOML.")
+            note.setWordWrap(True)
+            note.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            self.doc_host_lay.addWidget(note)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
                                    on_change=lambda m=member: self._on_form_change(m))
@@ -5539,11 +5550,17 @@ class Workspace(QMainWindow):
         hint = QLabel("")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
+        actor_line.setPlaceholderText("blank = sole cast member / narration voice")
+        actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
+                              "as. With a cast of one, leave blank (steps default to it).")
         sv.addWidget(QLabel("Type:"))
         sv.addWidget(type_combo)
         sv.addWidget(QLabel("Value:"))
         sv.addWidget(value_line)
         sv.addWidget(value_text)
+        sv.addWidget(QLabel("Actor:"))
+        sv.addWidget(actor_line)
         sv.addWidget(hint)
 
         def is_say():
@@ -5586,6 +5603,7 @@ class Workspace(QMainWindow):
                 if k in forms.STEP_KIND:
                     type_combo.setCurrentIndex(list(forms.STEP_KIND).index(k))   # fires on_type -> swaps widget
                 value_set(forms.step_value_text(st))
+                actor_line.setText(str(st.get("actor", "")))
         steps_list.currentRowChanged.connect(on_select)
 
         def add_update():
@@ -5594,10 +5612,18 @@ class Workspace(QMainWindow):
             except ValueError as e:
                 self._show_problems(fb.Verdict(fb.ERROR, "Bad step"), [fb.Problem(fb.ERROR, str(e))])
                 return
+            a = actor_line.text().strip()
+            if a:
+                step["actor"] = a                      # which cast member drives / speaks this step
             st = ensure_cs()["steps"]                  # materialize [cutscene] now that there's real content
             r = steps_list.currentRow()
             if 0 <= r < len(st) and forms.step_key(st[r]) == forms.step_key(step):
-                st[r] = step
+                # UPDATE in place: keep the step's extra keys the form doesn't edit (with_prev, speaker,
+                # tail, speed) so a re-save never strips a parallel beat / an attributed line. The actor
+                # tag follows the field exactly (blank clears it).
+                extras = {k: v for k, v in st[r].items()
+                          if k not in forms.STEP_KIND and k != "actor"}
+                st[r] = {**extras, **step}
             else:
                 st.append(step)
                 r = len(st) - 1
