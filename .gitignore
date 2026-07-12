@@ -245,3 +245,5 @@ video/
 
 # co-op room source (regenerable: ff9mapkit import 1953 --native; atlas/bgs are SE-derived)
 /scratch-coop-room/
+# study artifacts regenerate from the user's install (see studies/*/README.md)
+studies/*/out/
