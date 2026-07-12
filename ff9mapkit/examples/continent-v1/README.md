@@ -5,13 +5,17 @@ open ocean pocket in the SW corner of the disc-1 overworld with one `world-fuse`
 plus a **real-scale minted beach** on island B (a kit-made shore: the mesa rim sunk to a
 sandy cay, a new 4-column beach minted on it). **In-game proven 2026-07-09** (every island
 renders and walks; the strait between the two fused islands is seam-free) and **2026-07-11**
-(the minted beach + its lip-anchored cliff walls).
+(the minted beach + its lip-anchored cliff walls). A fifth, fully **synthetic grassland
+island E** (a `world-island` mint, below) joined the archipelago 2026-07-12 as the
+interior-topography canvas.
 
 ## Deploy
 
 ```
 py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap-world --dry-run   # validate first
 py -m ff9mapkit world-fuse continent_v1.toml --mod-folder FF9CustomMap-world             # deploy
+py -m ff9mapkit world-island --mod-folder FF9CustomMap-world --center 352,-1152 --radius 48 --lobes 3 --seed 20   # island E
+py -m ff9mapkit world-minimap --mod-folder FF9CustomMap-world                            # refresh the big map
 ```
 
 Relaunch the game (or exit + re-enter the overworld) to apply — loose world assets aren't
@@ -32,9 +36,10 @@ donor-divert support). To remove, delete the deployed `Block[*]` files under
 | B | (10,17) + 2×2 | cell (0,15) | The shore/shallows island — the other one. Fused directly south of A; the shared border (z=−960) is fuse-certified row-by-row. Carries the layout's `[placement.bank_lower]` + `[placement.virgin_mint]` shore tweaks: a minted beach on the (10,18) block's south rim, world ~(670,−1168) donor frame / ~(30,−1040) in place. |
 | C | (7,17) | cell (3,18) | A real sandy-beach island, landable on foot. `land_margin = 0` because its land legitimately reaches its own east frame edge. Also the mint's `pins_from` reference — island B's foam/sand language is byte-read from here. |
 | D | (0,0) Uaho | cell (5,19) | A genuine all-cliff peak — authentically reachable only by airship or flying chocobo, FF9's own hidden-isle design language. |
+| E | *synthetic* | cells (4–6, 17–18) | The grassland island — a fully kit-synthesized ~138×105u lobed landmass (`world-island`, seed 20): native grass mains, two verbatim meadow stamps, rolling relief, the ~73° rock rim. The **interior-topography canvas**: big enough to host a carried forest blob, a hill, and future terrace rungs, which no real donor and no other archipelago island can. NE of C, N of D, inside the archipelago's bay. |
 
 First-look world coordinates (approximate cell centers, e.g. for the debug-menu teleport):
-A (64,−864) · B (64,−1024) · C (224,−1184) · D (352,−1248).
+A (64,−864) · B (64,−1024) · C (224,−1184) · D (352,−1248) · E (352,−1152).
 
 ## Notes
 
