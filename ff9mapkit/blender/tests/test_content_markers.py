@@ -164,7 +164,7 @@ def test_waypoint_marker_builds_into_a_field(tmp_path):
     (proj / "room.field.toml").write_text(
         '[field]\nid = 4012\nname = "WP_ROOM"\narea = 11\ntext_block = 1073\n\n'
         '[[npc]]\nname = "Vivi"\npreset = "vivi"\n\n'
-        '[cutscene]\nactor = "Vivi"\nonce = false\nsteps = [ { walk = "spot" } ]\n', encoding="utf-8")
+        '[cutscene]\nactors = ["Vivi"]\nonce = false\nsteps = [ { walk = "spot" } ]\n', encoding="utf-8")
     from ff9mapkit.build import validate
     p = FieldProject.load(proj / "room.field.toml")
     assert not any("spot" in m for m in validate(p))           # the marker resolves (merged from scene)
