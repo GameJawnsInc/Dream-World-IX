@@ -149,8 +149,8 @@ class CoopDoc(QWidget):
 
         hint = QLabel("Start co-op, keep this app open, then launch FF9 → F6 → Warp to field → 30003 "
                       "(both players). The in-game overlay shows the code + pairing state and disappears "
-                      "when your friend's ghost is up. Memoria.ini is read at launch — restart FF9 after "
-                      "changing the session.")
+                      "when your friend's ghost is up. A running game picks up session changes within a "
+                      "few seconds (from fully OFF, at the next screen change) — no restart needed.")
         hint.setWordWrap(True)
         v.addWidget(hint)
         v.addStretch(1)

@@ -32,8 +32,9 @@ Direct-LAN mode (no relay, no bridge, same WiFi): ``coop host --lan`` and
 ``coop join --lan <host-ip>``.
 
 Requires the engine with the s36 netsync patch (the Dream World IX custom
-Memoria bundle). ``Memoria.ini`` is read once at game launch -- run this
-BEFORE launching FF9.
+Memoria bundle). Current engine builds HOT-RELOAD the ``[Netsync]`` section,
+so a running game picks the new session up within seconds (from fully OFF,
+at the next screen change); on older builds, relaunch FF9 after this runs.
 """
 
 from __future__ import annotations
