@@ -132,6 +132,9 @@
 - **THE EDGE-LEVEL RING TRIGGER** — the ring re-band fires on a sea3 tile sharing a geometric EDGE with minted foam; introduced-only → "BEACH-MINT RUNG 3".
 - **THE FOAM-COLUMN ENVELOPE + THE COLUMN-SCALE READ** — real foam run columns span 0.92–6.27u along-shore (map-wide census); short columns are real grammar, but an ALL-minimum-column beach reads dense/squished (in-game) — pick windows allowing ~3-4u columns → "BEACH-MINT RUNG 3".
 - **CAP-END GEOMETRY IS TRANSPORTED LAW** — real crease-base cap pins bypass the synth band/slope envelopes → "BEACH-MINT RUNG 3".
+- **THE BANK RESHAPE (`bank_lower`)** — sink a mesa bank to a beach profile: shore verts pinned, plateau falloff, vertical touched tris refuse → "THE REAL-SCALE CONTINENT MINT".
+- **THE LADDER SYNTHESIS + PLAN-THEN-EMIT REPAIR** — deep-fronted shores: cut deep tiles re-band to wash; every introduced unlawful pair steps the deeper cell one rung down, planned on the owner map, emitted once from final facts (in-loop emission goes stale) → "THE REAL-SCALE CONTINENT MINT".
+- **THE CROSSING-MERGE** — cut crossings snap to chain verts and each other within the weld tolerance (a line grazing a donor vert mints a 0.04u sliver pair) → "THE REAL-SCALE CONTINENT MINT".
 
 ## F. Strips / Wang / deformed-tile languages
 
