@@ -15,13 +15,17 @@ pytestmark = pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install
 
 
 def test_projection_puts_anchors_and_probes_where_they_belong():
-    """The engine projection (1536x1280 -> the detected art rect): every one of
-    the 49 real town anchors lands INSIDE the art rect, and the world's corners
-    map to the rect's corners."""
-    from ff9mapkit.world.navimap import (WORLD_MAP_EXTENT, _detect_art_rect,
-                                         _land_anchors, _load_active_world_map)
+    """The engine projection (1536x1280 -> the geometry-REGISTERED art frame):
+    the frame is pinned to the FFT-registration constants, every one of the 49
+    real town anchors lands INSIDE it, and it scales with the image."""
+    from ff9mapkit.world.navimap import (WORLD_MAP_ART_FRAME, WORLD_MAP_EXTENT,
+                                         _land_anchors, _load_active_world_map,
+                                         _world_art_rect)
+    fx, fy, fw, fh = WORLD_MAP_ART_FRAME
+    assert (round(fx * 1273), round(fy * 1080)) == (51, 42)      # the registered peak
+    assert (round(fw * 1273), round(fh * 1080)) == (1168, 1002)
     im, _src = _load_active_world_map(None)
-    x0, y0, x1, y1 = _detect_art_rect(im)
+    x0, y0, x1, y1 = _world_art_rect(im)
     assert x1 - x0 > im.width * 0.8 and y1 - y0 > im.height * 0.8
     ex, ez = WORLD_MAP_EXTENT
     assert (ex, ez) == (1536.0, 1280.0)          # w_naviGetPos, engine-pinned
