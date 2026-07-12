@@ -817,14 +817,18 @@ def test_virgin_mint_deep_shore_golden():
             ("drop", t.expected) if hasattr(t, "keys")
             else ("emit", len(t.tris)) if hasattr(t, "tris")
             else ("displace", t.expected)) for t in pre + tw]
-    assert led == [(None, ("displace", 43)),
-                   ("terrain", ("drop", 10)), ("terrain", ("emit", 19)),
+    # the pre = [wall drops, the sink, the re-evaluated walls] (CLIFF V NEVER
+    # DRAGS); the mint's terrain drop reconciled down to 4 (walls it consumes
+    # cancel against the pre's emissions -- they are simply never re-emitted)
+    assert led == [("terrain", ("drop", 13)), (None, ("displace", 25)),
+                   ("terrain", ("emit", 7)),
+                   ("terrain", ("drop", 4)), ("terrain", ("emit", 19)),
                    ("beach1", ("emit", 18)),
                    ("sea2", ("emit", 29)), ("sea1", ("emit", 22)),
                    ("sea3", ("drop", 14)),
                    ("sea5", ("drop", 16)), ("sea5", ("emit", 22)),
                    ("sea4", ("drop", 34))]
-    assert _tweak_hash(pre + tw) == "cea15e5d36fb9235"
+    assert _tweak_hash(pre + tw) == "aaccd45afebb32ab"
     # real-scale check: 4 columns over the ~14.8u arc (the whole point)
     foam = next(t.tris for t in tw
                 if getattr(t, "part", None) == "beach1" and hasattr(t, "tris"))

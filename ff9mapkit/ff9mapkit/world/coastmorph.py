@@ -4141,9 +4141,53 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
         if any(_pk(v[0]) in keyed for v in t3) and _poly_area2_xz(t3) < 1e-6:
             raise ValueError("bank_lower touches a plan-degenerate (vertical) tri "
                              "-- a wall face; shrink the radius off it")
+    # CLIFF V NEVER DRAGS: a touched WALL face's rock strip is height-mapped
+    # (V ~ y), so a verbatim-uv sink SQUASHES it (playtest: "bad stretching" on
+    # the transition walls). Each steep touched face re-evaluates V through its
+    # OWN height affine at the new heights -- density preserved, unmoved verts
+    # bit-exact (no seams against untouched walls), the free-base law covers
+    # whatever strip row the shorter face now ends on. Mechanically: drop the
+    # original face, emit it moved + re-evaluated (drop FIRST so the keys still
+    # match; emissions bypass the displacement).
+    wall_drop, wall_emit = [], []
+    for t3 in tris["terrain"]:
+        if not any(_pk(v[0]) in keyed for v in t3):
+            continue
+        plan2 = _poly_area2_xz(t3)
+        if plan2 >= 0.02 and TR._tri_area2_3d(list(t3)) < 2.0 * plan2:
+            continue                                # ground, not a wall face
+        ys = [v[0][1] for v in t3]
+        vs = [v[2][1] for v in t3]
+        my, mv = sum(ys) / 3.0, sum(vs) / 3.0
+        den = sum((y - my) ** 2 for y in ys)
+        if max(ys) - min(ys) < 0.5 or den < 1e-9:
+            continue
+        a_ = sum((y - my) * (v - mv) for y, v in zip(ys, vs)) / den
+        b_ = mv - a_ * my
+        if max(abs(a_ * y + b_ - v) for y, v in zip(ys, vs)) > 0.08:
+            continue                                # not a height-mapped face
+        nt = []
+        for (pos, nrm, uv, tan) in t3:
+            d = moves.get(tuple(pos))
+            if d is None:
+                k = _pk(pos)
+                d = next((dd for pp, dd in moves.items() if _pk(pp) == k), None)
+            if d is not None:
+                pos = (pos[0] + d[0], pos[1] + d[1], pos[2] + d[2])
+                uv = (uv[0], a_ * pos[1] + b_)
+            nt.append((pos, nrm, uv, tan))
+        wall_drop.append(list(t3))
+        wall_emit.append(nt)
     n_inst = sum(_pk(v[0]) in keyed
                  for p in parts for t3 in tris[p] for v in t3)
-    return [TR.VertexDisplace(moves=moves, expected=n_inst)]
+    n_inst -= sum(_pk(v[0]) in keyed for t3 in wall_drop for v in t3)
+    out = []
+    if wall_drop:
+        out.append(TR.DropTris("terrain", wall_drop))
+    out.append(TR.VertexDisplace(moves=moves, expected=n_inst))
+    if wall_emit:
+        out.append(TR.EmitTris("terrain", wall_emit))
+    return out
 
 
 #: THE VIRGIN-MINT ENVELOPES (rung 3, 2026-07-11). Column widths: the map-wide foam
@@ -5533,6 +5577,26 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
         emits = wat_emit[p] + ring_emit_by.get(p, [])
         if emits:
             out.append(TR.EmitTris(p, emits))
+    # RECONCILE against ``pre``: a mint DROP that matches a pre EMISSION cancels
+    # pairwise (emissions bypass later tweaks in the transplant stream, so the
+    # mint could never drop them -- the face is simply never re-emitted; its
+    # ORIGINAL was already dropped by the pre's own DropTris). Mutates the
+    # caller's pre tweaks in place -- pass the SAME pre list to the deploy.
+    for tw_pre in pre:
+        if not isinstance(tw_pre, TR.EmitTris):
+            continue
+        for tw_mint in out:
+            if not isinstance(tw_mint, TR.DropTris)                     or tw_mint.part != tw_pre.part:
+                continue
+            keep = []
+            for t3 in tw_pre.tris:
+                ks = tw_mint._key_set(t3)
+                if ks in tw_mint.keys:
+                    tw_mint.keys.discard(ks)
+                    tw_mint.expected -= 1
+                else:
+                    keep.append(t3)
+            tw_pre.tris = keep
     return out
 
 
