@@ -963,8 +963,9 @@ def format_report(rep: ForkReport) -> str:
                 else f"swap: {rep.swap_gesture_count} gesture(s) glitch")
         lines.append(f"  Player        : {pc}  ({swap})")
     if rep.arrival_spots > 1:
-        lines.append(f"  Arrival       : {rep.arrival_spots} per-door spawn points (#9) -- a SYNTH fork uses one "
-                     f"[player] spawn (you arrive at the same spot via every door); --verbatim ships the real table")
+        lines.append(f"  Arrival       : {rep.arrival_spots} per-door spawn points (#9) -- a SYNTH fork defaults to one "
+                     f"[player] spawn (same spot via every door); --verbatim ships the real table, or re-author it "
+                     f"with [[player.arrival]] rows (entrance/pos/face)")
     cam_line = _camera_line(rep)
     if cam_line:
         lines.append(cam_line)

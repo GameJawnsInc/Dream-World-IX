@@ -2675,6 +2675,19 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(f"player spawn ({int(sp[0])}, {int(sp[1])}) is only ~{d:.0f}u from a "
                                 f"walkmesh edge (< the ~{R:.0f}u collision radius) -- the engine will "
                                 f"shove you inward on entry. Move it toward the floor centre. (advisory)")
+    for a in project.raw.get("player", {}).get("arrival") or []:
+        p = a.get("pos") if isinstance(a, dict) else None
+        if not (isinstance(p, (list, tuple)) and len(p) >= 2):
+            continue                                  # malformed rows are the build's error, not a placement warning
+        if off(p[0], p[1]):
+            warnings.append(f"[[player.arrival]] entrance {a.get('entrance')}: pos ({int(p[0])}, {int(p[1])}) "
+                            f"is off the walkmesh -- arriving through that door starts you off the floor.")
+        else:
+            d = near_edge(p[0], p[1])
+            if d is not None:
+                warnings.append(f"[[player.arrival]] entrance {a.get('entrance')}: pos ({int(p[0])}, "
+                                f"{int(p[1])}) is only ~{d:.0f}u from a walkmesh edge (< the ~{R:.0f}u "
+                                f"collision radius) -- the engine will shove you inward on entry. (advisory)")
     for gw in project.raw.get("gateway", []):
         zone = gw.get("zone", [])
         if zone:
@@ -4812,6 +4825,35 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if "player" in project.raw and "spawn" in project.raw["player"]:
         sp = project.raw["player"]["spawn"]
         eb = _npc.set_player_spawn(eb, int(sp[0]), int(sp[1]))
+    # [player] face= + [[player.arrival]]: the destination-side half of the entrance contract. Every kit
+    # warp already WRITES the entrance index (gateway/choice/ladder `entrance=` -> D8:2 before Field());
+    # real fields READ it in the player Init and place the player per door. `face` patches the template's
+    # D9(6) spawn-facing const (the [[npc]]/chest compass byte); the arrival rows compile the real
+    # per-entrance dispatch, so a synthesized field stops landing every door on the one [player] spawn.
+    # See content.npc.set_player_facing / inject_player_arrivals.
+    if "player" in project.raw and project.raw["player"].get("face") is not None:
+        _f = int(project.raw["player"]["face"])
+        if not 0 <= _f <= 255:
+            raise ValueError(f"[player] face must be 0-255 (0=south, 64=west, 128=north, 192=east), got {_f}")
+        eb = _npc.set_player_facing(eb, _f)
+    _arr = project.raw.get("player", {}).get("arrival") or []
+    if _arr:
+        _seen = set()
+        for _a in _arr:
+            if not isinstance(_a, dict) or "entrance" not in _a or "pos" not in _a:
+                raise ValueError("[[player.arrival]] rows need entrance = <int> and pos = [x, z]")
+            _e = int(_a["entrance"])
+            if _e < 0 or _e in _seen:
+                raise ValueError(f"[[player.arrival]] entrance {_e} is "
+                                 f"{'negative' if _e < 0 else 'duplicated'} -- one row per entrance, "
+                                 f"matching the [[gateway]]/warp entrance= that routes here")
+            _seen.add(_e)
+            _p = _a["pos"]
+            if not (isinstance(_p, (list, tuple)) and len(_p) == 2):
+                raise ValueError(f"[[player.arrival]] entrance {_e}: pos must be [x, z]")
+            if _a.get("face") is not None and not 0 <= int(_a["face"]) <= 255:
+                raise ValueError(f"[[player.arrival]] entrance {_e}: face must be 0-255")
+        eb = _npc.inject_player_arrivals(eb, _arr)
     # [player] model= : re-skin the player avatar (the World-Hub Moogle PC, or any model on a free-roam
     # field). Resolved like an [[npc]] model (name/GEO/id -> movement clips via the Info Hub join). Movement
     # clips only -- a scripted-gesture field would glitch (same caveat as --swap-player), so it's free-roam-only.

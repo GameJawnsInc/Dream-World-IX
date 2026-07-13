@@ -188,8 +188,40 @@ world coords (no offset) — they are already the exact engine positions.
 
 | key | meaning |
 |---|---|
-| `spawn` | `[x, z]` where the player appears on entry. |
+| `spawn` | `[x, z]` where the player appears on entry (the DEFAULT arrival — see `[[player.arrival]]` for per-door spots). |
+| `face` | OPTIONAL spawn facing (0..255; 0=south, 64=west, 128=north, 192=east — the same compass `[[npc]]`/chest `face` uses). Absent = the template default (0). |
 | `model` | **re-skin who you WALK as** — a model **id**, an exact **GEO name** (`"GEO_NPC_F0_MOG"` the Moogle PC), or an archetype/model name resolved via the Info Hub catalog (the same join `[[npc]] model` uses). Its movement clips (idle/walk/run/turn) auto-resolve. This is the build-side complement to `import --swap-player`. **Movement clips only** — a field that scripts player gestures would glitch, so it's free-roam-only. |
+
+### `[[player.arrival]]` (optional, repeatable) — per-door arrival spots
+
+Real FF9 fields place the player **per entrance**: the departing exit sets the entrance var (`D8:2`)
+right before `Field()`, and the destination's player init branches on it to a different (x, z, facing)
+per door (Alexandria Main Street has 4). A synthesized field normally collapses this — every door lands
+on the one `[player] spawn`. `[[player.arrival]]` compiles the real dispatch:
+
+```toml
+[player]
+spawn = [0, -2000]        # the default (any entrance without a row below)
+
+[[player.arrival]]
+entrance = 1              # matches the [[gateway]]/warp `entrance =` that routes here
+pos      = [430, -880]
+face     = 128            # optional (0..255 compass, like [player] face)
+
+[[player.arrival]]
+entrance = 2
+pos      = [-350, -1500]
+```
+
+| key | meaning |
+|---|---|
+| `entrance` | which entrance index this row serves — the value the SOURCE field's `[[gateway]]` / choice-warp / ladder-top wrote (`entrance =`, default 0). One row per entrance. |
+| `pos` | `[x, z]` where the player appears when arriving through that entrance. Placement happens **before** the player object is created (frame 0 — no flash of the default spawn). |
+| `face` | OPTIONAL facing on arrival (0..255). Absent = keep `[player] face` / the default. |
+
+The build lints each `pos` against the walkmesh like the spawn. Entering with an entrance value that has
+no row (including a fresh New-Game/F6 warp) uses `[player] spawn` — the rows are pure overrides, so a
+field without them is byte-identical to before.
 
 ---
 
@@ -677,7 +709,7 @@ words = [
 
 The presets **re-assert on every field entry** (idempotent — right for a fork that stands for one beat). For
 a multi-field chain, put `[startup]` on the **entry** field only. v1 is author-side (you assert the beat —
-you have the game knowledge); it does not yet preset per-door spawn (a separate gap). To **fire** a beat on
+you have the game knowledge); per-door spawn is its own vocabulary, `[[player.arrival]]`. To **fire** a beat on
 entry (rather than just preset state) — e.g. re-author an entry cutscene for a synthesize fork — use
 `[[on_entry]]` below. See `docs/FORK_FIDELITY.md`.
 
