@@ -23,6 +23,7 @@ grass-walks placement probes, Moguri-atlas alpha == 0 over new tris, and THE OFF
 
 Usage:  py studies/overworld-topography/massif_carry.py [deploy]
 """
+import json
 import math
 import shutil
 import sys
@@ -448,6 +449,67 @@ while i < NH or j < NR:
         j += 1
 print(f"zip annulus: {len(zip_tris)} tris", flush=True)
 
+# ---- 5b. THE NOTCH FRINGE: the donor's Object alcove (donor x 32-38 z -38..-31, floor
+# y 5.3 wearing cave-floor tiles cols 0-2 rows 24-25, roofed by a 5-tri Object mesh we do
+# NOT carry -- separate part, unknown material binding at the bench prefab). The painter
+# never grass-fringed the rock behind the roof, so the carried alcove met the zip grass
+# raw (round-1 playtest). Give the notch's boundary course the measured FOOT-TRANSITION
+# treatment: a full row-10 tile, bottom edge pinned ON the boundary, u along each quad's
+# own boundary edge, cols free in the 6-9 band (THE COL-FREEDOM LAW) -- the construction
+# the real map uses at every VISIBLE foot boundary.
+NOTCH = lambda p: 31.0 < p[0] < 38.5 and -38.5 < p[2] < -30.5 and p[1] > 4.0
+notch_rim = {p for p in rim_set if NOTCH(p)}
+stage1 = json.loads((OUTD / "daguerreo_massif.json").read_text())
+pu, pv = stage1["phase"]
+TILE_U, TILE_V = 0.0625, 0.03125
+notch_tris = [t for t in blob if any(kk3(dV[i]) in notch_rim for i in dtri[t])]
+e2n = defaultdict(list)
+for t in notch_tris:
+    ps = [kk3(dV[i]) for i in dtri[t]]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        e2n[tuple(sorted((ps[a], ps[b])))].append(t)
+npair, ngrp = {}, []
+for e, ts in e2n.items():
+    if len(ts) != 2 or ts[0] in npair or ts[1] in npair:
+        continue
+    if len({kk3(dV[i]) for t2 in ts for i in dtri[t2]}) != 4:
+        continue
+    npair[ts[0]] = npair[ts[1]] = len(ngrp)
+    ngrp.append(list(ts))
+for t in notch_tris:
+    if t not in npair:
+        npair[t] = len(ngrp)
+        ngrp.append([t])
+fringe_uv = {}                                             # (blob tri, k) -> (u, v)
+for gi, grp in enumerate(ngrp):
+    pts = [(t2, k) for t2 in grp for k in range(3)]
+    ws = [carried[t2][k] for t2, k in pts]                 # CARRIED (post-conform) frame
+    keys0 = [kk3(dV[dtri[t2][k]]) for t2, k in pts]
+    bnd = [w for w, k0 in zip(ws, keys0) if k0 in notch_rim]
+    cen3 = np.mean(ws, axis=0)
+    tx2, tz2 = 1.0, 0.0
+    if len(bnd) >= 2:
+        bl = sorted(map(tuple, bnd))
+        d0 = np.array(bl[-1]) - np.array(bl[0])
+        L0 = math.hypot(d0[0], d0[2])
+        if L0 > 0.4:
+            tx2, tz2 = d0[0] / L0, d0[2] / L0
+    az = math.atan2(cen3[2] - TZ, cen3[0] - TX)
+    col = 6 + int(((az + math.pi) / (2 * math.pi) * 40.0) % 4)
+    tile_u0 = pu + col * TILE_U
+    tile_v0 = pv + 10 * TILE_V
+    tvals = [(w[0] - cen3[0]) * tx2 + (w[2] - cen3[2]) * tz2 for w in ws]
+    t_lo2 = min(tvals)
+    t_sp2 = max(0.4, max(tvals) - t_lo2)
+    for (t2, k), tv, k0 in zip(pts, tvals, keys0):
+        # 0.0005 (~2 texel) edge insets: the game renders exact-edge pins clean, but the
+        # bilinear atlas gate pulls half a texel of gutter at an exact edge
+        fringe_uv[(t2, k)] = (
+            tile_u0 + 0.0005 + (tv - t_lo2) / t_sp2 * (TILE_U - 0.001),
+            tile_v0 + (TILE_V - 0.0005 if k0 in notch_rim else 0.03 * TILE_V))
+print(f"notch fringe: {len(notch_rim)} rim keys, {len(ngrp)} boundary quads re-tiled "
+      f"(pinned full row-10)", flush=True)
+
 cell_of = lambda x, z: (int(np.floor(x / 4.0)), int(np.floor(z / 4.0)))
 kept_by_cell = defaultdict(list)
 for tdx, tri in enumerate(gtris):
@@ -500,7 +562,8 @@ for t in blob:                                             # the mountain, verba
     tri = dtri[t]
     idall = float(dT[tri[0]][0])
     nr = [rot_n(dN2[tri[k]], ROT) for k in range(3)]
-    corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
+    corners = tuple((*carried[t][k],
+                     *fringe_uv.get((t, k), (dU[tri[k]][0], dU[tri[k]][1])), *nr[k])
                     for k in range(3))
     new_parents.append((corners, idall, "mountain"))
 zip_rise = 0.0
@@ -514,11 +577,24 @@ for tri3 in zip_tris:
     order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
     cell = cell_of(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
     q, o = decode_cell(cell)
+    # a long zip fan tri (donor 2u rim vs the mint 4u lattice) can leave its centroid
+    # cell -- mains_uv then walks past the tile edge into the atlas gutter (THE
+    # MOGURI-GUTTER LAW). Clamp every corner into the cell's own tile window; on
+    # homogeneous grass mains an edge clamp is invisible.
+    rect = [G.mains_uv(cx3, cz3, cell, q, o)
+            for cx3 in (cell[0] * 4.0, cell[0] * 4.0 + 4.0)
+            for cz3 in (cell[1] * 4.0, cell[1] * 4.0 + 4.0)]
+    u_lo = min(r[0] for r in rect) + 0.0008
+    u_hi = max(r[0] for r in rect) - 0.0008
+    v_lo = min(r[1] for r in rect) + 0.0008
+    v_hi = max(r[1] for r in rect) - 0.0008
     corners = []
     for pnt in order:
         key = kk3(pnt)
         n3 = pos_nrm.get(key) or rim_nrm.get(key, [0.0, 1.0, 0.0])
         u, v = G.mains_uv(float(pnt[0]), float(pnt[2]), cell, q, o)
+        u = min(max(u, u_lo), u_hi)
+        v = min(max(v, v_lo), v_hi)
         corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]), u, v, *n3))
     new_parents.append((tuple(corners), ID0, "zip"))
 
@@ -643,10 +719,16 @@ for corners, _, _ in new_parents:
                 continue
             u_ = w0 * corners[0][3] + w1 * corners[1][3] + w2 * corners[2][3]
             v_ = w0 * corners[0][4] + w1 * corners[1][4] + w2 * corners[2][4]
-            if at_b(u_, v_)[0] < 24:
+            aa_, rgb_ = at_b(u_, v_)
+            # blank = transparent AND dark: Moguri paints some in-tile edge strips with
+            # alpha 0 (grass colors, alpha-ignored opaque shader renders them fine);
+            # true gutter garbage is transparent AND near-black
+            if aa_ < 24 and sum(rgb_) < 90:
                 nb += 1
     if nb:
         blank += 1
+        print(f"  BLANK {fam} nb={nb} uv {[(round(c[3], 4), round(c[4], 4)) for c in corners]}"
+              f" at ({corners[0][0]:.1f},{corners[0][2]:.1f})", flush=True)
 print(f"atlas gate: transparent-sampling tris = {blank} (want 0)", flush=True)
 assert blank == 0
 
@@ -715,17 +797,20 @@ sheet.save(OUTD / "massif_carry_views.png")
 print(f"-> {OUTD / 'massif_carry_views.png'}")
 SCc, HWc, HHc = 44, 9.0, 12.0
 RWc, RHc = int(2 * HWc * SCc), int(HHc * SCc)
-img = Image.new("RGB", (RWc, RHc), (150, 178, 210))
-vx, vz, rx, rz = 1.0, 0.0, 0.0, 1.0
-rec = sorted(range(len(rt)),
-             key=lambda t2: max((p[0] - TX) * vx + (p[2] - TZ) * vz for p in rt[t2]["w"]))
-for t2 in rec:
-    t = rt[t2]
-    sx = [((p[0] - TX) * rx + (p[2] - TZ) * rz + HWc) * SCc for p in t["w"]]
-    sy = [((HHc + 1.5) - p[1]) * SCc for p in t["w"]]
-    raster(img, sx, sy, t["uv"], t["n"], RWc, RHc)
-img.save(OUTD / "massif_carry_close.png")
-print(f"-> {OUTD / 'massif_carry_close.png'} (west face at game texel scale)")
+for fname, (vx, vz, rx, rz), lbl in (
+        ("massif_carry_close.png", (1.0, 0.0, 0.0, 1.0), "west face"),
+        ("massif_carry_close_e.png", (-1.0, 0.0, 0.0, -1.0), "east face (the notch)")):
+    img = Image.new("RGB", (RWc, RHc), (150, 178, 210))
+    rec = sorted(range(len(rt)),
+                 key=lambda t2: max((p[0] - TX) * vx + (p[2] - TZ) * vz
+                                    for p in rt[t2]["w"]))
+    for t2 in rec:
+        t = rt[t2]
+        sx = [((p[0] - TX) * rx + (p[2] - TZ) * rz + HWc) * SCc for p in t["w"]]
+        sy = [((HHc + 1.5) - p[1]) * SCc for p in t["w"]]
+        raster(img, sx, sy, t["uv"], t["n"], RWc, RHc)
+    img.save(OUTD / fname)
+    print(f"-> {OUTD / fname} ({lbl} at game texel scale)")
 S2 = 8
 img = Image.new("RGB", (int(BLOCK * S2), int(BLOCK * S2)), (24, 40, 72))
 for t2 in sorted(range(len(rt)), key=lambda t3: min(p[1] for p in rt[t3]["w"])):
