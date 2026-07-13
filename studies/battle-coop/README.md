@@ -21,8 +21,9 @@
 >   (latent edge, not a regression): `CollectNetMenus` (BattleHUD.Unity.cs:734) adds the command before
 >   filtering unlearned abilities (:744), and the guest conflates an empty list with an Instant command
 >   (NetSyncBattle.cs:753) → opens targeting. FIX: omit zero-usable-ability Ability-type commands at the
->   `CollectNetMenus` source (type-aware; keep learned-but-Disabled). **Queued for the next rebuild** with
->   Tier-1 guest-render-only panel enrichment.
+>   `CollectNetMenus` source (type-aware; keep learned-but-Disabled). **IMPLEMENTED 2026-07-13**
+>   (`BattleHUD.Unity.cs CollectNetMenus` skips an all-unlearned Ability command before emitting it);
+>   awaits the rebuild. (Tier-1 panel enrichment de-prioritized under the authoritative-host pivot.)
 >
 > **★ STRATEGIC PIVOT — the pillar's NORTH STAR is now the AUTHORITATIVE-HOST paradigm (2026-07-13):**
 > "play the STANDARD GAME together" — ONE real playthrough (the host's); the guest is a second player
