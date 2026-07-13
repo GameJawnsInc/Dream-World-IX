@@ -32,7 +32,7 @@
 > edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
 > front-right facing NORTH, the east door back-left facing SOUTH). It displaced the coop twin vault from
 > the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
-> Rungs 3–7 (campaign-graph lint, arrival-aware import, settle docs/lint/auto, GUI) remain open.
+> Rungs 5–7 (arrival-aware import, the GUI panel, the settle auto-estimator) remain open.
 > The rest of this document is the investigation that shaped it.
 >
 > Original opening framing: this was the gap map for the two halves of
