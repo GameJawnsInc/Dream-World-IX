@@ -57,15 +57,15 @@ pos = [-800, -400]
 prop = "altar_stone"
 pos = [-550, -400]
 
-[[prop]]                     # the ANCHOR stone, standing in the eastern archway
-prop = "altar_stone"
-pos = [1600, -250]
+[[prop]]                     # the ANCHOR stone, at the mouth of the eastern archway (as far west
+prop = "altar_stone"         # as the geometry allows: the arch must stay HELD while the walker is
+pos = [1500, -250]           # inside its trigger zone, whose inner edge is ~x1283 at this z)
 
-[[npc]]                      # the tutorial, in-world: no debug knowledge needed
-name = "Mogri"
-preset = "moogle"
-pos = [-150, -420]
-face = 64
+[[npc]]                      # the tutorial, in-world: no debug knowledge needed. Placement: the
+name = "Mogri"               # z~-620 band is PROVEN visible from this camera (the donor Bishop +
+preset = "moogle"            # the Warden both render there); the first spot (-150,-420) hugged the
+pos = [-400, -620]           # central column's east base and the column occluded it (playtest).
+face = 192
 dialogue = "Kupo! See the twin stones to the west? They sing only when TWO stand upon them -- one soul on each, kupo!"
 
 [[npc]]                      # the payoff + the second hint: appears LIVE when the stones fire
@@ -82,10 +82,10 @@ plate_b = [-630, -480, -470, -320]
 set_flag = 8620
 text = "The twin stones sing in harmony!"
 
-[[coop]]                     # the anchor: held-open level flag consumed by the east arch
-name = "anchor-stone"
-mode = "hold"
-plate = [1520, -330, 1680, -170]
+[[coop]]                     # the anchor: held-open level flag consumed by the east arch.
+name = "anchor-stone"        # WIDE plate (450) = a generous "stone area": held while the walker
+mode = "hold"                # is anywhere x[1200,1650] in the approach lane (mirror = +250), so
+plate = [1450, -330, 1900, -170]   # the arch is open the whole way through its trigger zone.
 set_flag = 8622
 """
 
