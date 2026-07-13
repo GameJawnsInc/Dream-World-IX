@@ -36,17 +36,36 @@ def test_worldmap_exit_body_shape():
     """[usercontrol guard] -> [D8:2 = 62: the generic-return key -- its arm runs
     D8:2=0 + WorldMap(9009) in every band = the persisted-position arrival;
     0/un-cased keys hit the switch default, a bare RETURN that never warps
-    (playtest-proven dead door)] -> [the verbatim cascade]."""
+    (playtest-proven dead door)] -> [the verbatim cascade]. (fade=False here to
+    check the core structure; the fade prefix is asserted separately.)"""
     from ff9mapkit.content import region as R
     from ff9mapkit.content.worldexit import cascade_bytes, worldmap_exit_body
-    b = worldmap_exit_body()
+    b = worldmap_exit_body(fade=False)
     assert b.startswith(R.MOVEMENT_GATE)
     key_write = bytes([0x05, 0xD8, 0x02, 0x7D, 62, 0x00, 0x2C, 0x7F])
     assert b[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + 8] == key_write
     assert b.endswith(cascade_bytes())
     # on-exit story writes slot between the guard and the key write
-    b2 = worldmap_exit_body(on_exit_body=b"\xaa\xbb")
+    b2 = worldmap_exit_body(on_exit_body=b"\xaa\xbb", fade=False)
     assert b2[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + 2] == b"\xaa\xbb"
+
+
+def test_worldmap_exit_fades_out_by_default():
+    """Leaving a field DIMS before the WorldMap transition (the real exit head fades;
+    the carried cascade suffix does not, so a synth exit re-adds it). The fade is
+    DisableMove + FadeFilter(6,24,white) + Wait(25), inserted after the guard/on-exit
+    writes and before the position/key writes. Default on; fade=False omits it."""
+    from ff9mapkit.content import region as R
+    from ff9mapkit.content.worldexit import exit_fade, worldmap_exit_body
+    faded = worldmap_exit_body()
+    plain = worldmap_exit_body(fade=False)
+    assert exit_fade() in faded and exit_fade() not in plain
+    assert len(faded) == len(plain) + len(exit_fade())
+    # the fade sits right after the usercontrol guard (DisableMove is the first byte)
+    assert faded[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + len(exit_fade())] == exit_fade()
+    # a FadeFilter (0xEC, SUB toward white) is present; the arrive variant fades too
+    assert bytes([0xEC]) in exit_fade()
+    assert exit_fade() in worldmap_exit_body(arrive=(228.0, -1187.0))
 
 
 def test_entrance_func_body_direct():
@@ -132,7 +151,7 @@ def test_worldmap_exit_arrive_shape():
     from ff9mapkit.content.worldexit import (POSITION_PRESET_KEY, WORLD_STATE_VAR,
                                              arrive_writes, cascade_bytes,
                                              worldmap_exit_body, worldmap_to_var)
-    b = worldmap_exit_body(arrive=(228.0, -1179.0))
+    b = worldmap_exit_body(arrive=(228.0, -1179.0), fade=False)   # fade tested separately
     aw = arrive_writes(228.0, -1179.0, face=0)
     assert aw[:8] == bytes([0x05, 0xC8, 0x53, 0x7E]) + (228 * 256).to_bytes(4, "little")
     assert b.startswith(R.MOVEMENT_GATE + aw)
