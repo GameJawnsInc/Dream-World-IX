@@ -59,7 +59,8 @@
 > edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
 > front-right facing NORTH, the east door back-left facing SOUTH). It displaced the coop twin vault from
 > the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
-> Rungs 6–7 (the GUI panel, the settle auto-estimator) remain open.
+> Rung 7 (the entry_settle auto-estimator) remains open; the Blender half of rung 6 awaits the
+> human's in-Blender check (install `blender/dist/ff9mapkit_blender-0.9.24.zip`).
 > The rest of this document is the investigation that shaped it.
 >
 > Original opening framing: this was the gap map for the two halves of
