@@ -156,7 +156,7 @@ def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_s
         f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\ntext_block = 1073\n\n"
         f"[camera]\nborrow = \"camera.bgx\"\n{control_line}{scroll}\n"
         f"[walkmesh]\nbgi = \"walkmesh.bgi\"\n\n"
-        f"[player]\nspawn = [{x}, {z}]\n\n"
+        f"{extract._player_block(meta)}"
         f"{extract._content_section(content_blocks, x, z)}"
     )
     p = Path(member_dir) / f"{name}.field.toml"

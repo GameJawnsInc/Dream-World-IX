@@ -103,6 +103,74 @@ def test_build_rejects_malformed_rows(tmp_path, block, msg):
         _build(tmp_path, block)
 
 
+# ---- rung 5: the ATTRIBUTED decoder + arrival-aware import ---------------------------------------
+def test_scan_arrival_table_attributes_alexandria():
+    # the real switch form: Alexandria Main Street (fixture) -- entrance -> placement, byte-grounded
+    from pathlib import Path
+    raw = (Path(__file__).parent / "fixtures" / "alex100-us.eb.bytes").read_bytes()
+    t = eventscan.scan_arrival_table(raw)
+    assert t["reads_entrance"] and t["unattributed"] == 0
+    by_ent = {r["entrance"]: r for r in t["table"]}
+    assert by_ent[201]["pos"] == [0, 6092] and by_ent[201]["face"] == 0
+    assert by_ent[231]["pos"] == [654, 1073] and by_ent[231]["face"] == 64
+    assert by_ent[204]["pos"] == [0, 332] and by_ent[204]["face"] == 128
+    assert t["default"]["pos"] == [0, 100] and t["default"]["face"] == 128
+
+
+def test_scan_arrival_table_round_trips_the_kit_form():
+    # the if-chain form the kit compiles: author -> build -> the SAME attributed table comes back
+    src = data.blank_field_bytes("us")
+    out = N.set_player_spawn(src, 5, -600)
+    out = N.set_player_facing(out, 64)
+    out = N.inject_player_arrivals(out, [{"entrance": 201, "pos": [400, -900], "face": 128},
+                                         {"entrance": 2, "pos": [-350, -1500]}])
+    t = eventscan.scan_arrival_table(out)
+    by_ent = {r["entrance"]: r for r in t["table"]}
+    assert by_ent[201]["pos"] == [400, -900] and by_ent[201]["face"] == 128
+    assert by_ent[2]["pos"] == [-350, -1500] and by_ent[2]["face"] is None
+    assert t["default"]["pos"] == [5, -600] and t["default"]["face"] == 64
+
+
+def test_player_block_renders_the_donor_table():
+    from ff9mapkit.extract import _player_block
+    meta = {"player_start": [10, -20], "player_arrivals": [
+        {"entrance": 204, "pos": [0, 332], "face": 128, "y": None},
+        {"entrance": 201, "pos": [0, 6092], "face": 0, "y": None},
+        {"entrance": 201, "pos": [7, 7], "face": 300, "y": None},     # dup: LAST wins; face out of compass
+        {"entrance": -3, "pos": [1, 1], "face": None, "y": None},     # negative: dropped (build would reject)
+    ]}
+    s = _player_block(meta)
+    assert s.startswith("[player]\nspawn = [10, -20]\n")
+    assert s.count("[[player.arrival]]") == 2                          # 201 (deduped) + 204; -3 dropped
+    assert "entrance = 201\npos = [7, 7]\n" in s                       # last block won...
+    assert "face = 300" not in s                                       # ...its bad facing omitted
+    assert "entrance = 204\npos = [0, 332]\nface = 128\n" in s
+
+
+def test_player_block_without_rows_is_byte_identical_to_before():
+    from ff9mapkit.extract import _player_block
+    assert _player_block({"player_start": [0, -500]}) == "[player]\nspawn = [0, -500]\n\n"
+    assert _player_block({"player_start": [0, -500], "player_arrivals": []}) == "[player]\nspawn = [0, -500]\n\n"
+
+
+def test_emitted_rows_build_and_scan_back(tmp_path):
+    # end-to-end offline: a rendered [player] block builds, and the built .eb decodes to the donor table
+    from ff9mapkit import build
+    from ff9mapkit.extract import _player_block
+    meta = {"player_start": [0, -500], "player_arrivals": [
+        {"entrance": 201, "pos": [400, -900], "face": 128, "y": None},
+        {"entrance": 231, "pos": [-350, -1500], "face": None, "y": -49},
+    ]}
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+                 '[camera]\npitch=30\ndistance=900\nfov=40\n' + _player_block(meta), encoding="utf-8")
+    t = eventscan.scan_arrival_table(build.build_script(build.FieldProject.load(p), "us", {}))
+    by_ent = {r["entrance"]: r for r in t["table"]}
+    assert by_ent[201]["pos"] == [400, -900] and by_ent[201]["face"] == 128
+    assert by_ent[231]["pos"] == [-350, -1500]
+    assert t["default"]["pos"] == [0, -500]
+
+
 # ---- rung 3: the campaign-graph entrance audit (campaign.lint_campaign (g2)) --------------------
 def _campaign_plan(tmp_path, *, edges, member_content=None, verbatim=False, entry_entrance=0):
     from ff9mapkit import campaign

@@ -22,7 +22,18 @@
 > `build_script` (the compose_verbatim_eb convention); `build.lint_entry_settle` (in `lint_all`)
 > flags the verbatim dead-key, boolean/negative/non-integer values, and disagreeing multicam
 > values; a non-numeric value (e.g. a future "auto") no longer crashes `int()` mid-build.
-> 6 tests. Build facts: `[player] face` (the D9(6) spawn-facing
+> 6 tests. **RUNG 5 BUILT (same day, offline-complete):** arrival-aware import — the new
+> `eventscan.scan_arrival_table` ATTRIBUTES each placement to its entrance (`decode_switch` case
+> values for the Alexandria-style 0x06 form; if-chain conds for 706/kit forks — so authored tables
+> round-trip through the same decoder), and every NON-verbatim import (`import` editable/native/
+> borrow/lightweight + `import-chain` members) now emits the donor's table as `[[player.arrival]]`
+> rows via one shared `extract._player_block` renderer (verbatim keeps its bare spawn — the donor
+> .eb IS the table; no-rows output is byte-identical to the old emitters). Un-emittable rows are
+> dropped sane (negative entrance skipped, out-of-compass facing omitted, duplicate entrance keeps
+> the LAST block = if-chain semantics); `y` decoded but not emitted (the known gap). Verified live:
+> `import 100` emits Alexandria's exact 3-door table (201/204/231 + faces) and lints clean; the
+> arrival CLASS is in-game proven (ARRTEST), so no new playtest needed. FORK_FIDELITY #9's
+> "a synth fork can't reconstruct the per-DOOR table" caveat is RETIRED. 5 tests. Build facts: `[player] face` (the D9(6) spawn-facing
 > const patch) and `[[player.arrival]]` (per-entrance dispatch compiled as field-706-style
 > `if (D8:2 == N)` const-override blocks before `CreateObject` — the generalized ladder splice) are
 > in the kit with 12 tests; the offline oracle round-trip holds (author → build →

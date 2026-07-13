@@ -1194,6 +1194,86 @@ def scan_player_arrivals(eb_bytes) -> dict:
         return {"reads_entrance": False, "arrivals": [], "distinct": 0}
 
 
+def scan_arrival_table(eb_bytes) -> dict:
+    """The ATTRIBUTED per-entrance arrival table -- :func:`scan_player_arrivals` recovers the placement
+    blocks in bytecode order; this recovers WHICH entrance each serves, so an importer can re-author the
+    donor's table as ``[[player.arrival]]`` rows (the field-entry arc, rung 5). Handles both real forms:
+
+    * the SWITCH form (Alexandria 100): a bare ``D8:2`` read feeding a ``0x06/0x0B`` switch --
+      ``eb.disasm.decode_switch`` yields (entrance value -> case target); the ``D9(0)/D9(4)/D9(6)/D9(2)``
+      const run at each target is that entrance's placement, the default edge's run is the DEFAULT.
+    * the IF-CHAIN form (field 706 / every kit-compiled ``[[player.arrival]]``): ``if (D8:2 == N)`` +
+      JMP_FALSE + the const run -- so an authored table round-trips through this same decoder.
+
+    With no switch, the leading const run right after the bare read is the default (the blank-template
+    shape). Returns ``{reads_entrance, table: [{entrance, pos, face, y}], default: {pos, face, y}|None,
+    unattributed: <case targets with no parseable run>}``; ``face``/``y`` are None when the block doesn't
+    set them. Read-only; never raises on an odd field (returns the empty table)."""
+    from .eb.disasm import decode_switch
+    empty = {"reads_entrance": False, "table": [], "default": None, "unattributed": 0}
+    try:
+        eb = eb_bytes if isinstance(eb_bytes, EbScript) else EbScript.from_bytes(eb_bytes)
+        pents = resolve_player_entries(eb)
+        init = eb.entry(pents[0]).func_by_tag(0) if pents else None
+        if init is None:
+            return empty
+        instrs = list(eb.instrs(init))
+        by_off = {i.off: i for i in instrs}
+
+        def _d9_run(off):
+            """{idx: val} of the consecutive SetVar D9(idx)=const instrs starting at *off* (None if none)."""
+            blk = {}
+            while off in by_off:
+                i = by_off[off]
+                raw = eb.data[i.off:i.end]
+                if not (i.op == SETVAR_EXPR_OP and len(raw) == 8 and raw[1] == POS_VAR_CLASS
+                        and raw[3] == 0x7D and raw[6] == ASSIGN_TOK):
+                    break
+                blk[raw[2]] = _s16(raw[4] | (raw[5] << 8))
+                off = i.end
+            return blk if 0 in blk and 4 in blk else None
+
+        def _placed(blk):
+            return {"pos": [blk[0], blk[4]], "face": blk.get(6), "y": blk.get(2)}
+
+        reads, table, default, unattributed = False, [], None, 0
+        prev_bare_read = False
+        for k, ins in enumerate(instrs):
+            raw = eb.data[ins.off:ins.end]
+            bare_read = (ins.op == SETVAR_EXPR_OP and len(raw) == 4
+                         and raw[1] == ENTRANCE_VAR_CLASS and raw[2] == ENTRANCE_VAR_IDX)
+            if bare_read:
+                reads = True
+            # SWITCH form: the read immediately feeds the dispatch
+            if prev_bare_read and ins.op in (0x06, 0x0B, 0x0D):
+                sw = decode_switch(ins)
+                for edge in (sw.edges if sw else []):
+                    blk = _d9_run(edge.target)
+                    if edge.is_default:
+                        default = default or (_placed(blk) if blk else None)
+                    elif blk:
+                        table.append({"entrance": int(edge.value), **_placed(blk)})
+                    else:
+                        unattributed += 1
+            # blank-template / kit shape: the read then straight into the default const run
+            elif prev_bare_read and default is None:
+                blk = _d9_run(ins.off)
+                if blk:
+                    default = _placed(blk)
+            # IF-CHAIN form: `if (D8:2 == N)` cond + JMP_FALSE + the const run
+            if (ins.op == SETVAR_EXPR_OP and len(raw) == 8 and raw[1] == ENTRANCE_VAR_CLASS
+                    and raw[2] == ENTRANCE_VAR_IDX and raw[3] == 0x7D and raw[6] == 0x20
+                    and k + 1 < len(instrs) and instrs[k + 1].op == 0x02):
+                reads = True
+                blk = _d9_run(instrs[k + 1].end)
+                if blk:
+                    table.append({"entrance": _s16(raw[4] | (raw[5] << 8)), **_placed(blk)})
+            prev_bare_read = bare_read
+        return {"reads_entrance": reads, "table": table, "default": default, "unattributed": unattributed}
+    except (ValueError, IndexError, KeyError):
+        return empty
+
+
 def _player_init_packs(eb, player_entries) -> list:
     """The animation-pack loads (``RunModelCode``) in the player Init(s). The fork player loads only the
     blank-field default pack, so a grafted func that plays a clip from one of these donor packs needs the

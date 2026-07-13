@@ -251,6 +251,10 @@ Verbatim members are exempt — they carry the donor's real table — and rows *
 as ignored. Field-level `lint` additionally checks self-loop gateways (`to` = the field's own id) against
 the rows.
 
+You rarely write these rows by hand for a fork: every **non-verbatim import** (`import` /
+`import-chain` members) decodes the donor's real arrival table and emits it as `[[player.arrival]]` rows
+automatically, so a forked field keeps its per-door arrivals out of the box.
+
 ---
 
 ## `[[npc]]` (optional, repeatable)
