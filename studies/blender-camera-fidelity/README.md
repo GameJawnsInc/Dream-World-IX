@@ -1,7 +1,9 @@
 # Blender camera-view fidelity — the all-fields census (2026-07-13)
 
-> **STATUS: TWO ROOT CAUSES FOUND AND FIXED (add-on 0.9.27) — the universal K_VSCALE squash
-> (census, 738/741 cameras) + the no-art camera REFRAME (the human's re-test; see below).** GameJawns imported TWIN_ALTAR (a native fork of field 2301, Esto Gaza/Altar) and
+> **STATUS: ★ CONFIRMED IN BLENDER (2026-07-13, GameJawns: "nice letterboxed shot of the map" —
+> 2301 re-imported on 0.9.27 frames the vista exactly as the oracle predicts).** Two root causes
+> found and fixed: the universal K_VSCALE squash (census, 738/741 cameras) + the no-art camera
+> REFRAME (the human's re-test; see below). GameJawns imported TWIN_ALTAR (a native fork of field 2301, Esto Gaza/Altar) and
 > the Blender camera "only looked at a small portion of the walkmesh". The suspicion: the add-on
 > was built against a small sample of fields, so compatibility might be much lower than expected.
 > Instead of digging field-by-field, this census checked EVERY field offline — and the sample
