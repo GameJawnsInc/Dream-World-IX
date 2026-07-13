@@ -100,27 +100,39 @@ print(f"footprint clean: pure mains within r{need}, base y {y_base:.2f} "
       f"(span {max(ys_fp) - min(ys_fp):.2f})")
 
 # ---- the profile + displacement -------------------------------------------------------------------
-def h_of(r):
+RIDGES, R_AMP = 6, 0.18                                    # radial ridgelines up the cone
+JIT = 0.7                                                  # crag jitter (positional hash)
+def h_of(r, az):
     if r >= F_FOOT:
         return 0.0
     if r >= C_CAP:
-        return S_FLANK * (F_FOOT - r)
-    return S_FLANK * (F_FOOT - C_CAP) + S_FLANK * (C_CAP ** 2 - r ** 2) / (2 * C_CAP)
+        h = S_FLANK * (F_FOOT - r)
+    else:
+        h = S_FLANK * (F_FOOT - C_CAP) + S_FLANK * (C_CAP ** 2 - r ** 2) / (2 * C_CAP)
+    return h * (1.0 + R_AMP * math.cos(RIDGES * az + 1.3))
+def jit_of(x, z):
+    return (math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1.0 - 0.5
 lift = [0.0] * len(V)
 for j in range(len(V)):
     w = wpos(j)
-    lift[j] = h_of(math.hypot(w[0] - cx, w[2] - cz))
-    if lift[j] > 0.0:
-        V[j][1] += lift[j]
+    r = math.hypot(w[0] - cx, w[2] - cz)
+    az = math.atan2(w[2] - cz, w[0] - cx)
+    h = h_of(r, az)
+    if h > 0.0:
+        h += JIT * jit_of(w[0], w[2]) * min(1.0, h / 2.0)  # crag jitter, tapered at foot
+        h = max(0.0, h)
+    lift[j] = h
+    V[j][1] += h
 peak = max(V[j][1] for j in range(len(V)))
-print(f"displaced: peak y {peak:.2f} (base {y_base:.2f} + H {S_FLANK * (F_FOOT - C_CAP / 2):.1f})")
+print(f"displaced: peak y {peak:.2f} (base {y_base:.2f}, {RIDGES} ridgelines, "
+      f"jitter {JIT})")
 
-# ---- classification -------------------------------------------------------------------------------
+# ---- classification: ANY lifted vert => rock (a clean lattice-ring foot, no slivers) --------------
 rock = set()
 for t in range(ntri):
     if topo[t] != 0:
         continue
-    if max(lift[j] for j in tri_idx[t]) > ROCK_LIFT:
+    if max(lift[j] for j in tri_idx[t]) > 0.05:
         rock.add(t)
 print(f"rock tris: {len(rock)}")
 
@@ -202,27 +214,28 @@ def course_of(y):
     return max(0, min(2, int((y - y_base) / COURSE_H)))
 ROW_OF = {0: 10, 1: 9, 2: 8}
 for gi, grp in enumerate(qgroups):
-    ys3 = [wpos(j)[1] for t in grp for j in tri_idx[t]]
+    pts = [wpos(j) for t in grp for j in tri_idx[t]]
+    ys3 = [p[1] for p in pts]
     course = course_of(float(np.mean(ys3)))
     row = ROW_OF[course]
-    band_lo = min(ys3)                                     # ONE tile per QUAD: the quad
-    band_hi = max(band_lo + 0.5, max(ys3))                 # IS the course (no clamping)
-    cen = np.mean([wpos(j) for t in grp for j in tri_idx[t]], axis=0)
+    band_lo = min(ys3)                                     # ONE tile per QUAD (v axis):
+    band_hi = max(band_lo + 0.5, max(ys3))                 # the quad IS the course
+    cen = np.mean(pts, axis=0)
     az = math.atan2(cen[2] - cz, cen[0] - cx)
     r_mid = max(2.0, F_FOOT - (float(np.mean(ys3)) - y_base) / S_FLANK)
     nwin = max(1, round(2 * math.pi * r_mid / 4.7))
-    w = int((az + math.pi) / (2 * math.pi) * nwin) % nwin
+    w = int((az + math.pi) / (2 * math.pi) * nwin) % nwin  # contour position -> col cycle
     cols = sorted(ex_rows[row])
     e2 = ex_rows[row][cols[w % len(cols)]]
-    az_w = 2 * math.pi / nwin
-    az_c = -math.pi + (w + 0.5) * az_w                     # window centre
+    tx, tz = -math.sin(az), math.cos(az)                   # the tangential (contour) dir
+    ts3 = [(p[0] - cen[0]) * tx + (p[2] - cen[2]) * tz for p in pts]
+    t_lo, t_hi = min(ts3), max(min(ts3) + 0.5, max(ts3))   # ONE tile per QUAD (u axis)
     for t in grp:
         for j in tri_idx[t]:
             wv = wpos(j)
-            azv = math.atan2(wv[2] - cz, wv[0] - cx)
-            dv2 = (azv - az_c + math.pi) % (2 * math.pi) - math.pi   # wrap-safe delta
-            su = max(0.0, min(1.0, 0.5 + dv2 / az_w))
-            h = max(0.0, min(1.0, (wv[1] - band_lo) / (band_hi - band_lo)))
+            tv = (wv[0] - cen[0]) * tx + (wv[2] - cen[2]) * tz
+            su = (tv - t_lo) / (t_hi - t_lo)
+            h = (wv[1] - band_lo) / (band_hi - band_lo)
             U[j][0] = e2["u0"] + su * (e2["u1"] - e2["u0"])
             U[j][1] = e2["v_lo"] + h * (e2["v_hi"] - e2["v_lo"])
             T[j] = [ID49, 0.0, 0.0, 1.0]
