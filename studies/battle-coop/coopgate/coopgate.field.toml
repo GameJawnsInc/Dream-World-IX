@@ -5,7 +5,7 @@
 # the painted canvas so you can paint to match.
 
 [field]
-id = 4003          # custom field id (>= 4000; claim a block for your mod, see docs)
+id = 30111         # THE COOP TEST BAND (30110-30200; 30100-30102 = Stolen Ember): the twin vault slot
 name = "COOPGATE"          # -> FBG_N11_COOPGATE (background) + EVT_COOPGATE.eb (script)
 area = 11            # must be >= 10
 text_block = 1073

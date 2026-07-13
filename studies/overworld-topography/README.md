@@ -211,6 +211,72 @@ lowland grass and the sea; carry it VERBATIM with the proven `world-transplant`/
 machinery (the continent pillar's zero-guess path). Fallbacks: in-place morph of a real
 escarpment coast, or a 3D-massing anatomy study. Do NOT resume ribbon-bending.
 
+## THE v4 TRANSPLANT CENSUS (★ DONE 2026-07-12 — the donor is found)
+
+Three scripts (`v4_transplant_census.py` → `v4_rect_scan.py` → `v4_window_probe.py` +
+`v4_donor_detail.py`/`v4_donor_render.py`; artifacts in `out/`):
+
+- **THE ISLAND COROLLARY of the no-free-mesa law:** map-wide landmass components (blocks
+  connected by LAND crossing shared frames, wrap-aware) show NO small sea-ringed landmass
+  has walkable highland. All real high country (walkable y>18: 31.6ku²) lives on the ONE
+  97-block continent (esc 211ku²). The only compact sea-ringed "mountain" landmasses are
+  Uaho (0,0) and the (9-10,5-7) 2×3 crag island — both crag-only, no second walkable level.
+  A pure full-containment two-level island donor DOES NOT EXIST; FF9 never built one.
+- **THE LOWLAND-CUT RECT SCAN:** the lawful cut crosses only lowland (the cut-line law —
+  high relief is a component, cut around never through). Scanning every rect ≤4×3 for
+  windows whose EVERY external land crossing is ≤6.5u found essentially ONE raised-walkable
+  feature: **the (5-6,15-16) river-terrace highland** (mid 820u², ALL topo-13; esc 5.2ku²;
+  cover 0.50) — the same falls the original census flagged as "the seam between the two
+  altitude worlds."
+- **THE DONOR: window (5-7,15-16) 3×2** (192×128u). A rocky horseshoe massif (walls to
+  ~31u) rising from a lowland grass coastal ring, enclosing a hanging grass bowl at
+  y 15.2 (topo-13) with a real river + TWO waterfall sheets + a small stone object mesh;
+  a NE peninsula, a SE FOREST islet (topo 37), real sea1-free all-cliff coast (no beach
+  anywhere in-window). **Quest-clean by construction: zero event bits on every tri** (the
+  dispatch areas are 48 = "Esto Gaza/Terrace", 50, and 45 on 12 dirt tris). The whole
+  feature closes inside the window except TWO 8u-wide lowland necks on the N frame
+  (donor x≈388-396 grass tongue, ymax 3.6; x≈467-476 the (7,15) dirt-islet tip, ymax 3.2
+  — and (7,15)'s sea parts are FULL-CELL under its land, so dropping that islet leaves
+  clean real sea).
+- **THE TARGET: rect (1,16) 3×2 rot 0** — cells (1-3,16-17), all true prefab ocean
+  (island B's empty east column + free water), REPLACING island F's cell (3,17). v4's W/E/S
+  frame edges are pure open water (fuse-legal toward B, E, and C).
+- **THE FREE-RIDE DISCOVERY (what killed the "carry-set extension" work item):** the s34
+  sidecar loads the DONOR BLOCK'S WHOLE PREFAB for a reclaimed cell and overrides only the
+  parts with deployed files — identity for the rest. At rot 0 / shift 0,0 block-local
+  coords are position-independent, so the falls/river/riverjoint/object sub-meshes ride
+  along VERBATIM FOR FREE. Stripping (if ever wanted) = empty-stub overrides — already a
+  proven mechanism (island F's mint deployed 176-byte stubs for its unused parts).
+
+**THE v4 BUILD (round 1 ★ IN-GAME PROVEN 2026-07-13: the falls/river/bridge ensemble renders
+— THE FREE-RIDE MECHANISM PROVEN; the neck cuts "look the same as verbatim" — no further
+treatment; minimap shape check pending, cosmetic).** `world-transplant
+--mod-folder FF9CustomMap-world --cell 1,16 --donor 5,15 --size 3x2 --shift 0,0
+--land-margin 0` — first dry-run CLEAN, zero hand edits; the machinery auto-armed its
+proven N tongue strips for the two necks. Deployed 30 files (6 cells × Terrain/Sea3/5/4 +
+Donor.txt). Removed first (backed up to `backups/v4-predeploy.20260713/`): island F's 8
+files at (3,17) + the sanctioned-deletable (2,16) reference islet (5 files, the island-B
+cliff-lip leftover). Post-deploy: engine-true probes on the DEPLOYED bytes ground 462
+lowland + 84 bowl points (topo-13 at y≈16.4 over the 15.2 river plane); 16 no-hits, all
+inherited from the real map. Minimap re-composited (21 blocks). **Teleports: lowland
+(75.5, −1074.5) · terrace bowl (130.5, −1077.5)**. After four falsified synthesis rounds,
+the transplant path delivered the two-level island — lowland ring + hanging terrace +
+real falls — on its FIRST deploy, with zero new machinery.
+
+## THE PRODUCTIZATION (★ 2026-07-13): `world-forest` + `world-hill` are kit verbs
+
+`forest_rehome.py` + `hill_at_scale.py` are extracted into `ff9mapkit/world/interior.py`
++ two CLI verbs (`--near` scan / `--center` exact; deployed-bytes only, byte-derived
+fams, all study gates incl. the perimeter walk-in simulation). **Proven by IDENTITY**
+(`interior_productize_check.py`): clean seed-55 mint → module forest carve → module hill
+reproduces the deployed, in-game-proven island E **byte-for-byte on all 5 blocks** — and
+the CLI verbs' own `--near` scans, run end-to-end on a scratch mod folder, converged on
+the studies' exact placements ((312,−1140) forest / (348,−1184) hill) and reproduced the
+same bytes. One new law minted: **the hill scan's ROLLING-RELIEF ENVELOPE** (footprint
+y-span ≤ 2.4u — an existing hill's footprint is still pure mains, and the naive scan
+self-selected it and tried to stack; the slope gate refused, and the envelope now keeps
+the scan honest). Hermetic tests: `ff9mapkit/tests/test_world_interior.py`.
+
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —

@@ -675,6 +675,46 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
 
+### Custom cliff ISLANDS — `world-island` (synthesize a landmass on open ocean, ★ in-game proven 2026-07-12)
+
+`ff9mapkit world-island --mod-folder M --center WX,WZ --radius R [--seed S --lobes N --patches P]` synthesizes a
+fully-custom walkable landmass: organic multi-lobe coastline (gated against the measured FF9 coastline language),
+the ~73° rock rim, native grass mains + verbatim meadow stamps + rolling relief. Every footprint block must be TRUE
+open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
+renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
+The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
+
+### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
+
+The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs 1–3 — there is no
+disc2/disc3 tree) and `worldmap/disc4` (distinct art; only `WorldDisc1`/`WorldDisc4` prefabs exist).
+Every s34 lookup — override files, `Donor.txt` sidecars, the reclaim fallback prefab — keys on the
+engine's `currentDisc`, so custom land deployed only under `Disc1/` VANISHES once the scenario (or
+the F6 disc switch) crosses the disc-4 threshold (SC ≥ 11090). `world-mirror --mod-folder M` closes
+the gap: it copies every Block override + sidecar into the `Disc4` tree, gated per cell (the
+destination's real cell must be open ocean, or byte-identical across discs — real cells that differ,
+e.g. (9,17), skip with a warning), and **pins** a sidecar cell's un-overridden donor-prefab
+free-ride parts (falls/rivers/objects) as explicit source-disc-byte overrides — several real donors
+(the Daguerreo blocks) genuinely differ between the trees. **Run it after any custom-ocean world
+deploy**; relaunch to apply.
+
+### Interior topography on a deployed island — `world-forest` + `world-hill` (★ productized 2026-07-13)
+
+Both verbs reshape the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job)
+and are the productized island-E studies, proven by a zero-byte-diff identity run against the in-game-proven deploy:
+
+* `world-forest --mod-folder M --near WX,WZ` (or `--center` exact) carries a REAL canopy blob (verbatim topo-37
+  verts/UVs/normals — THE CANOPY CARRY LAW: canopy texture is hand-authored, never synthesize it) from `--donor`
+  (default `15,15`, the clean grass-bounded blob): carve a hole in the mains, seat the blob, zip a grass annulus
+  whose per-4u-cell mains UVs are DECODED from the kept bytes. Gated by the COMPREHENSIVE CANOPY STEP LAW (per-rim-
+  station lift against the exact canopy surface one foot step inside) + a PERIMETER WALK-IN simulation of the
+  engine's climb rule around the whole rim (takes a few minutes) + the placement census.
+* `world-hill --mod-folder M --near WX,WZ [--height 4.2 --radius 18]` raises a raised-cosine grass hill by PURE-Y
+  displacement (mains UVs are XZ-linear, so every tile stays lawful) with local normal re-smoothing. Gated by the
+  measured grass-language envelope (flank p99 ≤ 28.6°, peak ≤ the lowland band top 8.6), the crack scan, and the
+  census. The `--near` scan only offers footprints inside the ROLLING-RELIEF envelope (pure mains, y-span ≤ 2.4u,
+  clear of forest/stamps/rim) — it will refuse rather than stack a hill on prior displacement.
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas

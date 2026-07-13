@@ -416,6 +416,7 @@ pose  = "close"           # optional pose (see below)
 | `pos` | `[x, z]` world position (on the walkmesh). |
 | `face` | OPTIONAL facing (0..255; 0=south, 64=west, 128=north, 192=east). |
 | `requires_flag` | OPTIONAL GlobBool index (or a `[[flag]]` name) — the prop only appears when that story flag is set (same gating as `[[npc]]`). |
+| `collision` | OPTIONAL, default `true`. `false` = a **walk-through** prop (`SetObjectFlags(7)` — show + both collision-EXEMPT bits, the pattern 3345 shipping objects use for held items/effects/render-only set dressing): the player passes straight over/through it. For floor markers (a `[[coop]]` plate stone, a painted-circle stand-in) and dense scenery. Talk/dialogue still works. |
 | `attach_to` | OPTIONAL — the **`name` of an `[[npc]]`** to *attach* this prop to (a held item: a cup, a sword). The prop binds to that NPC's `bone` and follows it (the engine's `AttachObject`). Give it the **held** `pose` — props often have a per-holder held orientation (the cup has `dom`/`zdn`/`jjy` poses), so pick the one matching the carrier. |
 | `bone` | OPTIONAL attachment bone index (default **11**, the right hand the shipping cup uses; e.g. 13/19 for other models). |
 

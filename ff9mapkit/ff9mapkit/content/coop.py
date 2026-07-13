@@ -137,13 +137,17 @@ def assign_peer_in_rect(flag: int, rect) -> bytes:
 
 
 def gate_range_body(other_rect, flag: int, message_txid: int | None = None,
-                    requires_flag: int | None = None, requires_set: bool = True) -> bytes:
+                    requires_flag: int | None = None, requires_set: bool = True,
+                    reveal: bytes = b"") -> bytes:
     """One plate's Range body: movement gate, an optional ``requires_flag`` arming gate
     (sequencing: this gate is inert until an earlier gate's flag is in-state), then the
     once-latch wrapping the peer condition (see the module doc for why the nesting is this way
     round). The flag is set BEFORE the message (FF9's treasure-chest convention) so the gate
-    can't double-fire while the window is open."""
-    fire = _region.set_var(_region.GLOB_BOOL, int(flag), 1)
+    can't double-fire while the window is open. ``reveal`` -- raw ``InitObject`` bytes
+    (event.reveal_object per NPC gated on this flag) run between the set and the message,
+    matching the [[event]] lane: the gated NPC pops behind the message window, so it is
+    standing there when the window closes."""
+    fire = _region.set_var(_region.GLOB_BOOL, int(flag), 1) + reveal
     if message_txid is not None:
         fire += _event.message(int(message_txid))
     body = _region.if_block(_region.cond_not(_region.GLOB_BOOL, int(flag)),
@@ -154,22 +158,24 @@ def gate_range_body(other_rect, flag: int, message_txid: int | None = None,
 
 
 def inject_gate(data, plate_a, plate_b, flag: int, message_txid: int | None = None,
-                requires_flag: int | None = None, requires_set: bool = True):
+                requires_flag: int | None = None, requires_set: bool = True,
+                reveal: bytes = b""):
     """Inject ONE two-plate gate: a region per plate, each body checking the peer against the
     OTHER plate -- symmetric, so it fires no matter which player takes which plate. Returns the
     new ``.eb`` bytes. (Synthesize-path shape: per-region activation like the zone-choices.)"""
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     out, _slot = _region.inject_region(out, rect_zone(plate_a),
                                        gate_range_body(plate_b, flag, message_txid,
-                                                       requires_flag, requires_set))
+                                                       requires_flag, requires_set, reveal))
     out, _slot = _region.inject_region(out, rect_zone(plate_b),
                                        gate_range_body(plate_a, flag, message_txid,
-                                                       requires_flag, requires_set))
+                                                       requires_flag, requires_set, reveal))
     return out
 
 
 def inject_gather(data, zone_rect, flag: int, message_txid: int | None = None,
-                  requires_flag: int | None = None, requires_set: bool = True):
+                  requires_flag: int | None = None, requires_set: bool = True,
+                  reveal: bytes = b""):
     """Inject a GATHER gate (``zone =``): both players standing in ONE shared zone -- rung-1's
     two-plate compile collapsed to a single region whose body checks the peer against the SAME
     rect the local player is standing in. The zone must be wider than the two players' spacing
@@ -177,7 +183,7 @@ def inject_gather(data, zone_rect, flag: int, message_txid: int | None = None,
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     out, _slot = _region.inject_region(out, rect_zone(zone_rect),
                                        gate_range_body(zone_rect, flag, message_txid,
-                                                       requires_flag, requires_set))
+                                                       requires_flag, requires_set, reveal))
     return out
 
 

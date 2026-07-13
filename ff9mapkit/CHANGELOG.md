@@ -21,6 +21,37 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   of seconds. The panel reads its state from Memoria.ini on refresh, feeds Start co-op, and greys
   out with a pointer when the engine predates s37 (detection: `NetSyncBattle` in the DLL).
 
+### Added — `world-mirror`: custom overworld land now survives disc 4
+- THE DISC-4 GAP (found in-game: "the island no longer exists when I switch to Disc 4"): the
+  overworld ships exactly TWO asset trees — `worldmap/disc1` (serving discs 1–3) and
+  `worldmap/disc4` (its own art; only `WorldDisc1`/`WorldDisc4` prefabs exist) — and every s34
+  lookup (override files, `Donor.txt` sidecars, the reclaim fallback prefab) keys on the engine's
+  `currentDisc`. Anything deployed only under `Disc1/` vanishes once the scenario (or the F6 disc
+  switch) crosses the disc-4 threshold.
+- `world-mirror --mod-folder M` copies every Block override + sidecar into the `Disc4` tree,
+  gated per cell (the destination's real cell must be open ocean or byte-identical across discs —
+  an `--in-place` edit of a block that differs, e.g. (9,17), skips with a warning), and PINS a
+  sidecar cell's un-overridden donor-prefab free-ride parts (falls/rivers/objects) as explicit
+  source-disc-byte overrides — the disc-4 Daguerreo donors genuinely differ, so without the pin
+  the mirrored island would wear disc-4 variants on disc-1 terrain. Run it after any
+  custom-ocean world deploy; RELAUNCH to apply.
+
+### Added — `world-forest` + `world-hill`: interior topography on a deployed island
+- The two in-game-proven island-E studies are now kit verbs (`ff9mapkit/world/interior.py`), operating
+  on the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job):
+  * `world-forest --mod-folder M --near WX,WZ` (or `--center` exact) carries a REAL canopy blob
+    (verbatim topo-37 verts/UVs/normals from `--donor`, default `15,15`) — lattice hole carve, zip
+    annulus with per-cell byte-DECODED mains UVs, the comprehensive canopy STEP-LAW rim lift, and a
+    perimeter walk-in simulation of the engine climb rule as the deploy gate.
+  * `world-hill --near WX,WZ [--height 4.2 --radius 18]` raises a raised-cosine grass hill by pure-Y
+    displacement inside the measured grass-language envelope (flank p99 ≤ 28.6°, lowland peak cap,
+    local normal re-smooth); the placement scan refuses footprints outside the rolling-relief
+    envelope (no stacking on prior displacement).
+- Acceptance was proven by IDENTITY: clean seed-55 mint → module forest carve → module hill
+  reproduces the deployed, playtested island E byte-for-byte on all 5 blocks — and the CLI verbs'
+  own `--near` scans, run end-to-end on a scratch copy, converge on the studies' exact placements
+  and reproduce the same bytes.
+
 ### Fixed — the placement simulator's walking ray had a phantom drop limit
 - Engine-truth correction (source-verified 2026-07-12): `ff9.rayDistance` (2.8) is passed into
   `WMBlock.Raycast` but the parameter is never read — dead code. A walking step can therefore descend

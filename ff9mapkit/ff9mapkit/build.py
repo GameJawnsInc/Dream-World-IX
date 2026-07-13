@@ -4161,7 +4161,8 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *,
         for pi, (mid, pose, dx, dz) in enumerate(parts):     # the dialogue rides the ANCHOR part (pi == 0) only
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face,
                                    dialogue_text_id=(dtxid if pi == 0 else None),
-                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True)
+                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True,
+                                   collision=bool(p.get("collision", True)))
     return eb
 
 
@@ -4379,7 +4380,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         for mid, pose, dx, dz in parts:                     # a composite may offset a part from the anchor
             slot = EbScript.from_bytes(eb).first_free_slot()
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face, slot=slot,
-                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs)
+                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs,
+                                   collision=bool(p.get("collision", True)))
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
@@ -4553,6 +4555,10 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              f"output is that flag (gate doors/events/cutscenes on it)")
         gf, gs = _gate_of(co)
         mode = str(co.get("mode", "once")).lower()
+        # live reveal (same as the [[event]] lane): a once-gate's fire re-inits every NPC gated on
+        # its set_flag, so the appearance/vanish lands the moment the gate fires, not on re-entry.
+        reveal = b"".join(_event.reveal_object(s)
+                          for s in gated_npc_slots.get(int(co["set_flag"]), []))
         try:
             if mode == "hold":
                 if "plate" not in co:
@@ -4568,7 +4574,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 if "zone" in co:
                     eb = _coop.inject_gather(eb, _coop.normalize_rect(co["zone"], f"{who} zone"),
                                              int(co["set_flag"]), coop_txids.get(k),
-                                             requires_flag=gf, requires_set=gs)
+                                             requires_flag=gf, requires_set=gs, reveal=reveal)
                 else:
                     if "plate_a" not in co or "plate_b" not in co:
                         raise BuildError(f"field {project.name}: {who} needs plate_a and plate_b "
@@ -4576,7 +4582,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     eb = _coop.inject_gate(eb, _coop.normalize_rect(co["plate_a"], f"{who} plate_a"),
                                            _coop.normalize_rect(co["plate_b"], f"{who} plate_b"),
                                            int(co["set_flag"]), coop_txids.get(k),
-                                           requires_flag=gf, requires_set=gs)
+                                           requires_flag=gf, requires_set=gs, reveal=reveal)
             else:
                 raise BuildError(f"field {project.name}: {who} unknown mode {mode!r} -- "
                                  f"use 'once' (default) or 'hold'")
