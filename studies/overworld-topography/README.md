@@ -189,6 +189,18 @@ statements in the memory file):
 Known cosmetic remainder (deferred): a small stripy corner-fan patch (~4×3u) on the wall's
 outer skirt over open sea at the east corner, visible only from the sea side.
 
+**Playtest round 2: "top looks pretty good" + three findings** (laws in the memory files):
+the stuck spot at ~(200,−1125) was THE MOAT LAW (a rule-(f) corollary — the zip welded to
+the south chain's band-descending end verts, building a walkable ramp to the waterline;
+the mint's Sea4 under-lap became cacheable → the movement-cache-shadow trap; fixed by
+trimming chain ends to rim height + the MOAT GATE: every zip vert ≥2.4, verified 0
+walkable-below-2.4 points across the corridor band post-deploy). The 2 stretched cliff
+tris at (206,−1111) were THE LONG-EDGE TILE SPAN (a 5-8u native crest edge spans several
+tile windows but gets one tile; fixed by densifying the crest ring to ≤3u colinear
+segments). The "mountain meets the sea" question: free-base termination is measured-real,
+but stock tall sea-cliffs wear the coastal band language + a foam outline — our interior-
+language-into-water arc is a hybrid; re-clothing it is a candidate follow-up rung.
+
 **Playtest round 1: "looks pretty good" + two issues, fixed and redeployed** (laws in the
 memory file): the exact-coordinate teleport (224,−1138) grounded the player UNDER the
 terrain — THE LATTICE-EDGE TELEPORT TRAP (a sky-cast at an exactly-lattice x/z can
