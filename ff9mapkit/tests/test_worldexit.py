@@ -51,30 +51,44 @@ def test_worldmap_exit_body_shape():
 
 def test_entrance_func_body_direct():
     """The direct trigger: the proven template's 12-byte vehicle/state gate verbatim,
-    the conditional skip re-pointed over a bare Field(id), return. 20 bytes; the gate
-    bytes are byte-identical to the template's own."""
+    the conditional skip re-pointed over [the real zone-in choreography][record?]
+    [Field(id)], return. The zone-in (fade-to-black + control lock + the D8:2=9999
+    arrival sentinel + the ready poll) is byte-verified against the REAL dispatcher's
+    own main-loop run -- the donor is the oracle."""
     from ff9mapkit.eb.model import EbScript
     from ff9mapkit.world.entrance import (TEMPLATE_TAG, entrance_func_body_direct,
-                                          load_world_dispatchers)
+                                          load_world_dispatchers, zone_in_body)
     disp = load_world_dispatchers()
     w00 = EbScript(disp["evt_world_world00"])
     f = next(f for e in w00.entries for f in e.funcs if f.tag == TEMPLATE_TAG)
     tpl = w00.data[f.abs_start:f.abs_end]
+    zi = zone_in_body()
+    # donor oracle: WORLD00's main loop (entry-1/tag-1) carries the SAME bytes as three
+    # contiguous slices of its real pre-AREA-switch choreography (the control lock, the
+    # window cleanup -- a guard expression sits between them in the loop -- and the whole
+    # fade -> Wait -> D8:2=9999 -> ready-poll run)
+    f1 = w00.entry(1).func_by_tag(1)
+    loop = w00.data[f1.abs_start:f1.abs_end]
+    assert zi[:2] in loop                            # DisableMove; DisableMenu
+    assert zi[2:8] in loop                           # CloseWindow(6); CloseWindow(7)
+    assert zi[8:] in loop                            # RunWorldCode x2; fade; wait; D8:2; poll
     b = entrance_func_body_direct(6500, dispatchers=disp)
-    assert len(b) == 20
+    fld = bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
     assert b[:12] == tpl[:12]                        # the gate, verbatim
-    assert b[12:15] == bytes([0x02, 0x04, 0x00])     # JZ re-pointed over Field
-    assert b[15:19] == bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
-    assert b[19] == 0x04                             # return
+    assert b[12:15] == bytes([0x02, len(zi) + 4, 0x00])   # JZ re-pointed over zone-in + Field
+    assert b[15:15 + len(zi)] == zi
+    assert b[15 + len(zi):19 + len(zi)] == fld
+    assert b[-1] == 0x04                             # return
     # with the per-dispatcher world-state record (9009 -> WORLD09's copy): the
     # GLOB[1062] = 9009 write feeds the arrive= exit's same-state return
     b2 = entrance_func_body_direct(6500, world_state=9009, dispatchers=disp)
     rec = bytes([0x05, 0xD8 | 0x20]) + (1062).to_bytes(2, "little") \
         + bytes([0x7D]) + (9009).to_bytes(2, "little") + bytes([0x2C, 0x7F])
     assert b2[:12] == tpl[:12]
-    assert b2[12:15] == bytes([0x02, len(rec) + 4, 0x00])
-    assert b2[15:15 + len(rec)] == rec
-    assert b2[15 + len(rec):19 + len(rec)] == bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
+    assert b2[12:15] == bytes([0x02, len(zi) + len(rec) + 4, 0x00])
+    assert b2[15:15 + len(zi)] == zi
+    assert b2[15 + len(zi):15 + len(zi) + len(rec)] == rec
+    assert b2[15 + len(zi) + len(rec):19 + len(zi) + len(rec)] == fld
     assert b2[-1] == 0x04
     with pytest.raises(ValueError):
         entrance_func_body_direct(0x8000, dispatchers=disp)   # past Int16

@@ -59,7 +59,13 @@
 > edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
 > front-right facing NORTH, the east door back-left facing SOUTH). It displaced the coop twin vault from
 > the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
-> **RUNG 7 BUILT (same day, offline-calibrated; awaits ONE in-game check):** `entry_settle = "auto"` —
+> **RUNG 7 ★ IN-GAME PROVEN (same day, waystation auto→50: "that was good") — THE ARC IS CLOSED.**
+> The playtest surfaced one SIBLING unfaded path: the overworld `world-entrance --field-direct`
+> trigger warped `Field()` bare (it bypassed the dispatcher main loop's shared zone-in run), so
+> entering from the world map showed the settle in the clear — fixed same day (the trigger now
+> carries the real fade + control lock + the `D8:2 = 9999` worldmap-arrival entrance sentinel,
+> byte-asserted vs WORLD00; + `world-entrance --trigger-only`). The unfaded-entry class is now the
+> bare F6 warp ONLY. Rung-7 build detail:  `entry_settle = "auto"` —
 > the estimator (`content.entry_settle.estimate_entry_settle`) replicates the engine EXACTLY (read
 > from Memoria `FieldMap.cs` this session): `CenterCameraOnPlayer` puts the camera at the player-aim's
 > CLAMPED GTE screen position (aim = spawn + `charAimHeight` 324 in y; offset = `compute_offset`; the

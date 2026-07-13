@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-entrance --field-direct` now performs the real zone-in (fade + arrival sentinel)
+- The direct trigger used to warp `Field(N)` bare, bypassing the choreography the real
+  `Byte[39]`+`RunScriptAsync` handshake reaches in the dispatcher's main loop — so a custom
+  destination loaded IN THE CLEAR: no fade-to-black, the smooth-cam settle fully visible (in-game
+  report on the waystation entrance), and the destination read a STALE last-gateway `D8:2`. The
+  trigger body now carries the real run, byte-identical to WORLD00's own (donor-oracle test):
+  `DisableMove/DisableMenu` + window cleanup + the two PSX worldcodes (Memoria stubs, carried for
+  fidelity) + `FadeFilter` to black (24 frames) + `Wait(25)` + `D8:2 = 9999` (the worldmap-arrival
+  entrance sentinel) + the ready poll, then `Field(N)`.
+- New `world-entrance --trigger-only`: re-deploy just the dispatcher trigger funcs (deployed
+  terrain / event tiles / building untouched) — the refresh mode for picking up a trigger-body
+  kit upgrade on an already-authored entrance (a full re-run without the original `--building`
+  would re-stamp event tiles without the building-hull exclusion).
+
 ### Added — `entry_settle = "auto"`: the computed entry black-hold (field-entry rung 7)
 - `[camera] entry_settle = "auto"` now COMPUTES the frames held black on entry instead of
   hand-copying "the hub precedent" (45). The estimator (`content.entry_settle`) replicates the
