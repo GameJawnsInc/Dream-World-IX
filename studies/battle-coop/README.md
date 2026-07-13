@@ -11,10 +11,12 @@
 > CONFIG SURFACE SHIPPED (2026-07-12): every s37 knob is point-and-click — `ff9mapkit coop
 > host|join --guest-slots/--guest-wait/--ghost-as/--follow-host` + `coop show`, and the Workspace
 > Co-op tab's Play-style panel (Apply hot-reloads a running game); no more hand-editing
-> Memoria.ini. V2 `[[coop]]` RUNG 1 BUILT (same day; ⚠ deployed to slot 4003, awaits the solo
-> playtest): the engine coop cells (peer presence/position → gEventGlobal 2032-2039) + the
-> kit-compiled two-plate gate (design + cell map below); test field `coopgate/`.** The rest of
-> this document is the research that shaped it. Companion to the s36 exploration co-op (ghost
+> Memoria.ini. V2 `[[coop]]` RUNG 1 ★ SOLO-PROVEN (same day, field 4003: "taking the step
+> triggered the message once" — the fire AND the once-latch, since the Range body runs every
+> frame in the plate): the engine coop cells (peer presence/position → gEventGlobal 2032-2039)
+> + the kit-compiled two-plate gate (design + cell map below); test field `coopgate/`.
+> Two-machine symmetric-plates run pending like everything else s37.** The rest of this
+> document is the research that shaped it. Companion to the s36 exploration co-op (ghost
 > sync).
 > Sources: the Memoria engine source (`C:\gd\FFIX\Memoria\Assembly-CSharp`, all cites below),
 > the s36 patch (`memoria-patches/s36-netsync-ghost.patch`), and web prior-art (linked inline).
