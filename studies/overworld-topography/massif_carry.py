@@ -23,6 +23,7 @@ grass-walks placement probes, Moguri-atlas alpha == 0 over new tris, and THE OFF
 
 Usage:  py studies/overworld-topography/massif_carry.py [deploy]
 """
+import json
 import math
 import shutil
 import sys
@@ -532,15 +533,76 @@ if apertures:
         pr = rot_pt(detilt_p(p), ROT)
         return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
 
+    # the object's own uvs target the OBJECT material -- in the TERRAIN atlas they
+    # sample GRASS (the in-game round-3 verdict: "the object hole is filled with
+    # grass"). The plug instead CONTINUES the surrounding rock chart: fit the affine of
+    # the collar (the rock tris touching the aperture, largest uv-continuous group) and
+    # evaluate it at the plug verts -- the panel's own flow extended across the hole,
+    # exactly how every within-panel edge already flows (the gore-panel law).
+    collar = [t for t in blob if dtopo[t] in ROCK
+              and any(kk3(dV[i]) in ap_pts for i in dtri[t])]
+    cpar = {t: t for t in collar}
+
+    def cfind(t):
+        while cpar[t] != t:
+            cpar[t] = cpar[cpar[t]]
+            t = cpar[t]
+        return t
+
+    cuv = {(t, kk3(dV[i])): (dU[i][0], dU[i][1]) for t in collar for i in dtri[t]}
+    for t1 in collar:
+        for t2 in collar:
+            if t2 <= t1:
+                continue
+            shared = [kk3(dV[i]) for i in dtri[t1]
+                      if kk3(dV[i]) in {kk3(dV[j]) for j in dtri[t2]}]
+            if len(shared) < 2:
+                continue
+            if all(abs(cuv[(t1, s)][0] - cuv[(t2, s)][0]) < 0.0015
+                   and abs(cuv[(t1, s)][1] - cuv[(t2, s)][1]) < 0.0015 for s in shared):
+                r1, r2 = cfind(t1), cfind(t2)
+                if r1 != r2:
+                    cpar[r1] = r2
+    groups = defaultdict(list)
+    for t in collar:
+        groups[cfind(t)].append(t)
+    cg = max(groups.values(), key=len)
+    rows_, ru_, rv_ = [], [], []
+    for t in cg:
+        for i in dtri[t]:
+            rows_.append([dV[i][0], dV[i][1], dV[i][2], 1.0])
+            ru_.append(dU[i][0])
+            rv_.append(dU[i][1])
+    Am_ = np.array(rows_)
+    cu_, *_ = np.linalg.lstsq(Am_, np.array(ru_), rcond=None)
+    cv_, *_ = np.linalg.lstsq(Am_, np.array(rv_), rcond=None)
+    res_u = float(np.percentile(np.abs(Am_ @ cu_ - ru_) * 2048, 90))
+    res_v = float(np.percentile(np.abs(Am_ @ cv_ - rv_) * 4096, 90))
+    print(f"plug chart: collar {len(collar)} tris, biggest continuous group {len(cg)}, "
+          f"affine residual p90 u{res_u:.0f} v{res_v:.0f} px", flush=True)
+
+    def plug_uv(p):
+        v4 = np.array([p[0], p[1], p[2], 1.0])
+        return float(v4 @ cu_), float(v4 @ cv_)
+
     for tri in otris:
         corners = []
         for i in tri:
             w = ap_carried.get(kk3(oV[i])) or carry_pt(oV[i])
             n3 = rot_n(detilt_n(oN[i]), ROT)
-            corners.append((*w, oU[i][0], oU[i][1], *n3))
+            uu, vv = plug_uv(oV[i])
+            corners.append((*w, uu, vv, *n3))
         plug_parents.append((tuple(corners), plug_id, "plug"))
+    stage1 = json.loads((OUTD / "daguerreo_massif.json").read_text())
+    puA, pvA = stage1["phase"]
+    pcols = sorted({math.floor((c[3] - puA) / 0.0625)
+                    for cs, _, _ in plug_parents for c in cs})
+    prows = sorted({math.floor((c[4] - pvA) / 0.03125)
+                    for cs, _, _ in plug_parents for c in cs})
     print(f"aperture plugs: {len(plug_parents)} object tris carried as terrain "
-          f"(id {plug_id:.0f})", flush=True)
+          f"(id {plug_id:.0f}, chart cols {pcols} rows {prows})", flush=True)
+    assert min(pcols) >= 5 and max(pcols) <= 10 and min(prows) >= 6 and max(prows) <= 12, \
+        "plug chart left the rock band"
 rim_nrm = {}
 for t in blob:
     for k in range(3):
