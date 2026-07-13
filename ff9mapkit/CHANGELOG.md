@@ -5,7 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `world-entrance --action-prompt`: the faithful "!" confirm-to-enter entrance
+### Fixed — `world-island`: a concave corner dent could ship a one-triangle grass hole
+- In-game confirmed (2026-07-13, `--center 160,-1246 --radius 31 --seed 42`): Block[2][19] shipped
+  with one grass face MISSING at the rim — a dark sliver through the grass, a closed 3-cycle of
+  once-edges at world (143–144, y 3.2, z −1262..−1265). Root cause: the grass triangulation is an
+  UNCONSTRAINED Delaunay — at a concave corner dent it may legally pick the other diagonal of the
+  quad spanning the notch, so the rim ring edge (the wall-top weld line) is not a triangulation
+  edge at all; the centroid keep-filter then drops both cover triangles and the face between the
+  wall top and the grass is emitted by nobody. `build_landmass` now runs constrained ring-edge
+  RECOVERY (Sloan-style diagonal flips) after the Delaunay; a 60-seed sweep found the same latent
+  defect in 2 more seeds (34, 37 — multi-flip cascades included), all clean after recovery.
+- **Byte-identity preserved for proven mints:** with zero flips the triangulation is returned
+  untouched — the island E baseline (seed 55, the world-forest/world-hill identity proof) needs
+  zero flips and re-passes the full mint→forest→hill zero-byte-diff acceptance against the
+  deployed, in-game-proven files.
+- New CLOSED-SURFACE GATE in `verify_landmass` (and thus the deploy refusal): a position-welded
+  once-edge may lie only on the y=0 sea-skirt ring (where the wall base meets the separate Sea4
+  plane); `open_edges` / `missing_faces` (once-edge 3-cycles) join the report and `clean`. The old
+  30×30 sampled-holes gate could never see a sub-sample-spacing missing face. (Rounded-degenerate
+  edge keys are skipped: the border clip lawfully mints ~0.0005u hairline cut-vert pairs.)
 - Correcting an earlier wrong claim: **stock FF9 overworld town/dungeon entry is CONFIRM-gated, not
   walk-on.** The real dispatcher's fade→`Field()` block is guarded by `B_KEYON(Confirm)` (the
   `0x20000` button mask) — you stand on the tile and press Confirm to enter. (The "walk-on"

@@ -234,6 +234,86 @@ def test_landmass_deploy_orchestration(monkeypatch):
     assert sidecars == [(0, 0, 3, 1)]
 
 
+def _once_edge_violations(built):
+    """Position-welded once-edges of the world soup with any vertex above the y=0 sea skirt
+    (rounded-degenerate keys skipped -- border-clip hairline cut-vert pairs are not edges)."""
+    import collections
+    gpos, gtris = built["world"]["pos"], built["world"]["tris"]
+    cnt = collections.Counter()
+    for tri in gtris:
+        pts = [tuple(round(gpos[v][k], 3) for k in range(3)) for v in tri]
+        for q in range(3):
+            if pts[q] != pts[(q + 1) % 3]:
+                cnt[tuple(sorted((pts[q], pts[(q + 1) % 3])))] += 1
+    return [e for e, n in cnt.items() if n == 1 and not (e[0][1] <= 1e-3 and e[1][1] <= 1e-3)]
+
+
+def test_build_landmass_seed42_concave_dent_is_watertight():
+    """THE SEED-42 GRASS SLIVER (in-game confirmed 2026-07-13): at a concave corner dent the
+    UNCONSTRAINED Delaunay may legally pick the OTHER diagonal of the quad spanning the notch (the rim
+    ring edge is then not a triangulation edge at all); the centroid keep-filter drops both cover
+    triangles, and the face between the wall top and the grass shipped MISSING from Block[2][19] -- a
+    closed 3-cycle of once-edges at world (143-144, y 3.2, z -1262..-1265.4), far too small for the
+    30x30 hole sampler. Ring-edge recovery must flip the notch quad back and the once-edge gate must
+    hold on the exact shipping parameters."""
+    built = I.build_landmass(center=(160.0, -1246.0), base_radius=31.0, seed=42.0, lobes=1, n_patches=0)
+    assert built["ring_edge_flips"] >= 1                 # the notch quad WAS mis-diagonalized
+    assert _once_edge_violations(built) == []
+    rep = I.verify_landmass(built, sea_plane=_synth_plane())
+    assert rep["open_edges"] == 0 and rep["missing_faces"] == 0 and rep["clean"], rep
+    # the centroid of the face that shipped missing must now be covered by a grass triangle
+    px, pz = 143.641, -1263.820
+    gpos, gtris = built["world"]["pos"], built["world"]["tris"]
+    covered = False
+    for tri in gtris:
+        a, b, c = (gpos[v] for v in tri)
+        d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
+        if abs(d) < 1e-9:
+            continue
+        w0 = ((b[2]-c[2])*(px-c[0]) + (c[0]-b[0])*(pz-c[2])) / d
+        w1 = ((c[2]-a[2])*(px-c[0]) + (a[0]-c[0])*(pz-c[2])) / d
+        if w0 >= 0 and w1 >= 0 and 1 - w0 - w1 >= 0:
+            covered = True
+            break
+    assert covered
+
+
+def test_ring_edge_recovery_is_a_noop_on_island_E():
+    """Island E (seed 55, centre (344,-1152), r46, lobes 3) is the DEPLOYED byte-identity baseline for
+    world-forest/world-hill: every rim ring edge there is already a Delaunay edge, so recovery reports
+    ZERO flips -- and with zero flips build_landmass keeps the untouched Delaunay list, so the emitted
+    bytes cannot move (verified against the pre-fix build, all 5 blocks hash-identical, 2026-07-13)."""
+    built = I.build_landmass(center=(344.0, -1152.0), base_radius=46.0, seed=55.0, lobes=3, n_patches=2)
+    assert built["ring_edge_flips"] == 0
+    assert _once_edge_violations(built) == []
+
+
+def test_verify_once_edge_gate_catches_a_single_missing_face():
+    """The closed-surface gate sees what the sampled-hole gate cannot: knock ONE fully-interior grass
+    triangle out of a clean build's world soup -> exactly 3 once-edge violations forming 1 closed
+    3-cycle, and the report goes not-clean."""
+    import collections
+    built = I.build_landmass(center=(224.0, -96.0), base_radius=20.0, seed=5.0)
+    gpos, gtris = built["world"]["pos"], built["world"]["tris"]
+    cnt = collections.Counter()
+    for tri in gtris:
+        pts = [tuple(round(gpos[v][k], 3) for k in range(3)) for v in tri]
+        for q in range(3):
+            cnt[tuple(sorted((pts[q], pts[(q + 1) % 3])))] += 1
+    victim = None
+    for tidx, tri in enumerate(gtris):
+        pts = [tuple(round(gpos[v][k], 3) for k in range(3)) for v in tri]
+        if all(p[1] > 1.0 for p in pts) and all(
+                cnt[tuple(sorted((pts[q], pts[(q + 1) % 3])))] == 2 for q in range(3)):
+            victim = tidx
+            break
+    assert victim is not None
+    del gtris[victim]
+    del built["world"]["meta"][victim]
+    rep = I.verify_landmass(built)
+    assert rep["open_edges"] == 3 and rep["missing_faces"] == 1 and not rep["clean"]
+
+
 def test_multi_blob_outline_deterministic_and_in_language():
     """The asymmetric multi-lobe coastline stays inside FF9's measured shape language (real: med turn
     22 deg/8u, corner 15%, acute 7%) and is reproducible per seed."""
