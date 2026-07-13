@@ -175,7 +175,10 @@ for ti, t in enumerate(tris):
     if t["topo"] != 0:
         continue
     c = np.mean(t["w"], axis=0)
-    sh = APRON_H * (0.38 + 0.42 * hash01(c[0] * 0.37 + 11.3, c[2] * 0.37))
+    # coherent ~5-10u grass tongues: a LOW-FREQUENCY azimuth wander (a per-position hash
+    # gave a confetti boundary -- fringe quads facing every direction, in-game round 7)
+    azc = math.atan2(c[2] - cz, c[0] - cx)
+    sh = APRON_H * (0.50 + 0.22 * math.cos(4 * azc + 0.9) + 0.11 * math.cos(7 * azc + 3.7))
     if base_h(c[0], c[2]) > sh:
         rock.add(ti)
 print(f"rock tris: {len(rock)}")
@@ -245,10 +248,18 @@ for gi, grp in enumerate(qgrp):
     az = math.atan2(cen3[2] - cz, cen3[0] - cx)
     tx2, tz2 = -math.sin(az), math.cos(az)                 # the contour (tangential) dir
     if gi in bnd_groups:
-        # THE FOOT-TRANSITION LAW: a full row-10 tile, bottom edge pinned ON the boundary
+        # THE FOOT-TRANSITION LAW: a full row-10 tile, bottom edge pinned ON the boundary;
+        # the u axis follows the quad's OWN boundary edge (a tongue's SIDE boundary runs
+        # up-slope -- contour-aligned fringe there rotates 90deg = green streaks, round 7)
         bpts = set()
         for t2 in grp:
             bpts.update(grass_edges.get(t2, ()))
+        bl = sorted(bpts)
+        if len(bl) >= 2:
+            d0 = np.array(bl[-1]) - np.array(bl[0])
+            L0 = math.hypot(d0[0], d0[2])
+            if L0 > 0.4:
+                tx2, tz2 = d0[0] / L0, d0[2] / L0
         col = 6 + int(((az + math.pi) / (2 * math.pi) * 40.0) % 4)
         tile_u0 = pu + col * TILE_U
         tile_v0 = pv + 10 * TILE_V
@@ -276,7 +287,17 @@ for gi, grp in enumerate(qgrp):
     # to a sliver there and smear -- the round-5 foot verdict)
     rvals = [math.hypot(p[0] - cx, p[2] - cz) for p in ws]
     wvals = [hv + 0.7 * (max(rvals) - rv) for hv, rv in zip(hvals, rvals)]
-    dv_q = (max(wvals) - min(wvals)) * 34.0 / 4096.0 + abs(tilt) * (max(tvals) - min(tvals))
+    # size the v-window by the REAL 3D extent perpendicular to the contour (the smooth
+    # w-span under-sizes crag-jittered faces 1.5-2.5x = the low-density verdict, round 7);
+    # the smooth w stays the PARAMETER (monotone, no chevrons) -- only the SIZE is real
+    perp3d = 0.0
+    for pa in ws:
+        for pb in ws:
+            d3 = np.array(pb) - np.array(pa)
+            d3t = d3[0] * tx2 + d3[2] * tz2
+            perp3d = max(perp3d, math.sqrt(max(0.0, d3.dot(d3) - d3t * d3t)))
+    dv_q = max(max(wvals) - min(wvals), 0.8 * perp3d) * 34.0 / 4096.0 \
+        + abs(tilt) * (max(tvals) - min(tvals))
     free_u = TILE_U - 2 * INS_U - du_q
     free_v = TILE_V - 2 * INS_V - dv_q
     if free_u < 0:                                         # a quad too wide for one tile:
