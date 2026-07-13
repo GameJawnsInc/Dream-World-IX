@@ -1469,21 +1469,13 @@ class FF9MK_OT_import_field(bpy.types.Operator):
                 co.location.y -= Di[1]
                 co.location.z -= Di[2]
 
-        # Reframe (viewport-only) ONLY the bare no-art case: centre the camera on the walkmesh so the
-        # footprint is readable. With an art backdrop, the view-offset above aligns it; keep the
-        # extracted camera otherwise.
-        if verts and not has_art:
-            context.view_layer.update()
-            mw = cam_obj.matrix_world
-            fwd = -mw.to_3x3().col[2]                 # camera looks down local -Z
-            if abs(fwd.z) > 1e-6:
-                k = -mw.translation.z / fwd.z
-                aim_x = mw.translation.x + k * fwd.x
-                aim_y = mw.translation.y + k * fwd.y
-                cx = sum(v[0] for v in verts) / len(verts)
-                cy = sum(v[1] for v in verts) / len(verts)
-                cam_obj.location.x += cx - aim_x
-                cam_obj.location.y += cy - aim_y
+        # The old "no-art reframe" (slide the camera so the walkmesh centroid sits under the view axis)
+        # is REMOVED: it silently MOVED the faithfully-posed FF9 camera whenever a project had no
+        # Blender-visible art (every native/logic fork), so "look through FF9_Camera" showed a fake --
+        # and its floor-aim ray (k = -loc.z/fwd.z) flips sign on an up-pitched camera, teleporting the
+        # camera to nonsense (field 2301, pitch -8.1: posed (351,-3158,260) -> reframed (-727,961,260),
+        # reproduced to the decimal in studies/blender-camera-fidelity). The imported camera is now
+        # ALWAYS the real one; navigate the viewport freely for modeling instead.
 
         player_tab = scene_cfg.get("player") or cfg.get("player") or {}
         spawn = player_tab.get("spawn")

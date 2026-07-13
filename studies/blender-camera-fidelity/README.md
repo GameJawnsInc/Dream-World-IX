@@ -1,7 +1,7 @@
 # Blender camera-view fidelity — the all-fields census (2026-07-13)
 
-> **STATUS: THE ROOT CAUSE IS FOUND AND FIXED (add-on 0.9.26) — one universal error, not many
-> edge cases.** GameJawns imported TWIN_ALTAR (a native fork of field 2301, Esto Gaza/Altar) and
+> **STATUS: TWO ROOT CAUSES FOUND AND FIXED (add-on 0.9.27) — the universal K_VSCALE squash
+> (census, 738/741 cameras) + the no-art camera REFRAME (the human's re-test; see below).** GameJawns imported TWIN_ALTAR (a native fork of field 2301, Esto Gaza/Altar) and
 > the Blender camera "only looked at a small portion of the walkmesh". The suspicion: the add-on
 > was built against a small sample of fields, so compatibility might be much lower than expected.
 > Instead of digging field-by-field, this census checked EVERY field offline — and the sample
@@ -59,6 +59,19 @@ plus a bucket summary. `_pinhole_px(..., pixel_aspect_y=1.0)` models the PRE-fix
 that found the bug: [census_report.txt](census_report.txt)); the default 15/14 models the shipped
 add-on and should stay ~sub-2px on every field ([census_report_fixed.txt](census_report_fixed.txt)).
 Any future change to `decompose` / `ff9_cam_to_blender` / the paint guide should re-run this.
+
+## The second layer — found by the human's re-test, not the census (0.9.27)
+
+The census proves the POSE math; it cannot see what bpy code does to the camera AFTER posing.
+GameJawns re-imported on 0.9.26 and still saw the tiny view — and the screenshot's Transform panel
+was the tell: the camera sat at Blender (−727, 962, 260) while the faithful pose is
+(351.6, −3158.8, 260). The importer's **"no-art reframe"** (slide the camera so the walkmesh
+centroid sits under the view axis — a readability convenience for artless projects) ran on every
+native/logic fork, silently replacing the faithful camera; and its floor-aim ray
+(`k = −loc.z / fwd.z`) flips sign on an up-pitched camera like 2301's, teleporting it to nonsense.
+Reproduced offline to the decimal: the reframe of the faithful pose predicts (−727.2, 961.1, 260.0)
+vs the screenshot's (−727.33, 961.68, 260.02). REMOVED in 0.9.27 — an imported camera is now
+always the real one; the viewport (not the camera object) is the navigation surface.
 
 ## The general lesson
 
