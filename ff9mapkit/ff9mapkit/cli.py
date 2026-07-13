@@ -2750,6 +2750,27 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_mirror(args: argparse.Namespace) -> int:
+    """Mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree (the overworld ships TWO
+    asset trees -- disc1 serves discs 1-3, disc4 has its own -- and every s34 lookup is keyed on the
+    engine's currentDisc, so un-mirrored custom land VANISHES on disc 4). Free-ride donor-prefab
+    parts pin as explicit source-disc-byte overrides."""
+    from .world import discmirror as DM
+    try:
+        out = DM.mirror(args.mod_folder, src_disc=args.src_disc, dst_disc=args.dst_disc,
+                        game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would mirror" if args.dry_run else "mirrored"
+    print(f"{verb} {len(out['mirrored'])} file(s) + {len(out['pinned'])} free-ride pin(s) into "
+          f"Disc{args.dst_disc}; {len(out['skipped'])} cell(s) skipped."
+          + (" RELAUNCH to apply." if not args.dry_run else ""))
+    for blk, why in out["skipped"]:
+        print(f"  skipped {blk}: {why}")
+    return 0
+
+
 def _cmd_world_water(args: argparse.Namespace) -> int:
     """Synthesize graded OPEN-OCEAN water (shallow->deep) on sea cells from a built-in depth gradient -- the faithful
     marching-band synthesizer (Sea3/Sea5/Sea4 alphabet, byte-proven UVs). Needs the custom engine (s34); RELAUNCH."""
@@ -5673,6 +5694,20 @@ def build_parser() -> argparse.ArgumentParser:
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     whl.set_defaults(func=_cmd_world_hill)
+
+    wmi = sub.add_parser("world-mirror",
+                         help="mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree -- the "
+                              "overworld ships TWO asset trees (disc1 serves discs 1-3; disc4 is its own) and "
+                              "every s34 lookup keys on the engine's currentDisc, so un-mirrored custom land "
+                              "VANISHES on disc 4. Copies every Block override + Donor.txt (per-cell gated: the "
+                              "destination's real cell must be ocean or byte-identical) and PINS un-overridden "
+                              "donor-prefab free-ride parts (falls/rivers/objects) as explicit source-disc-byte "
+                              "overrides. Run after any custom-ocean world deploy. RELAUNCH to apply.")
+    wmi.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to mirror")
+    wmi.add_argument("--src-disc", type=int, default=1, help="source disc tree (default 1)")
+    wmi.add_argument("--dst-disc", type=int, default=4, help="destination disc tree (default 4)")
+    wmi.add_argument("--dry-run", action="store_true", help="report the plan, write nothing")
+    wmi.set_defaults(func=_cmd_world_mirror)
 
     wwt = sub.add_parser("world-water",
                          help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "

@@ -684,6 +684,20 @@ open ocean (the open-ocean target law — a real sea-skirt block loads its own p
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
 
+### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
+
+The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs 1–3 — there is no
+disc2/disc3 tree) and `worldmap/disc4` (distinct art; only `WorldDisc1`/`WorldDisc4` prefabs exist).
+Every s34 lookup — override files, `Donor.txt` sidecars, the reclaim fallback prefab — keys on the
+engine's `currentDisc`, so custom land deployed only under `Disc1/` VANISHES once the scenario (or
+the F6 disc switch) crosses the disc-4 threshold (SC ≥ 11090). `world-mirror --mod-folder M` closes
+the gap: it copies every Block override + sidecar into the `Disc4` tree, gated per cell (the
+destination's real cell must be open ocean, or byte-identical across discs — real cells that differ,
+e.g. (9,17), skip with a warning), and **pins** a sidecar cell's un-overridden donor-prefab
+free-ride parts (falls/rivers/objects) as explicit source-disc-byte overrides — several real donors
+(the Daguerreo blocks) genuinely differ between the trees. **Run it after any custom-ocean world
+deploy**; relaunch to apply.
+
 ### Interior topography on a deployed island — `world-forest` + `world-hill` (★ productized 2026-07-13)
 
 Both verbs reshape the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job)
