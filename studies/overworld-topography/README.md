@@ -419,5 +419,19 @@ visible up close (a pale off-course square) ⇒ rows stay the load-bearing axis.
 render of a wall face (before/after/marked) — synthesis candidates iterate against it
 offline; only finals go to playtest.
 
+**Stage 3 — THE SPUR ★ IN-GAME PROVEN 2026-07-13 ("looks good, i compared to verbatim" —
+`massif_spur.py`; kept deployed, disc-4 re-mirrored): the FIRST in-game-proven synthetic
+mountain material.** One course of fully synthetic rock bulges the real massif foot outward
+3.5u over a 14.9u SW-face window (cell (1,17)); side-by-side against the verbatim wall it
+reads as normal rock. The graft recipe: drop footprint grass + the window's bottom-course
+quads → the ring = exactly the kept|dropped edges → zip grass-outline→exposed-sheet-edge,
+every new vert a ring FLOAT; row-10 tiles (the y-band match), cols free per the col-freedom
+law, fractional UVs inside real exemplar-QUAD rects; gates ring-consumed / no new
+once-edges / census MISS=0 / the offline eye. Two offline catches en route (no playtest
+wasted): single-TRI exemplars smear (use full-tile QUADS) + **THE CLEAN-BOUNDARY GATE** (a
+graft window needs ≥1.5u separation between the exposed sheet edge and the grass outline —
+the sheet class has no universal clean course line, SELECT for one). ⇒ the `world-mountain`
+rung is UNBLOCKED (hill-at-scale geometry + this retile/weld recipe; not yet built).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
