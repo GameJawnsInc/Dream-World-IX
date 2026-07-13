@@ -1,6 +1,19 @@
 # Field entry — spawn points & entry settle (investigation, 2026-07-13)
 
-> **STATUS: INVESTIGATION OPEN — no code landed yet.** This is the gap map for the two halves of
+> **STATUS: RUNGS 1+2 BUILT — awaiting the in-game playtest.** `[player] face` (the D9(6) spawn-facing
+> const patch) and `[[player.arrival]]` (per-entrance dispatch compiled as field-706-style
+> `if (D8:2 == N)` const-override blocks before `CreateObject` — the generalized ladder splice) are
+> in the kit with 12 tests; the offline oracle round-trip holds (author → build →
+> `scan_player_arrivals` → the same table), arrival rows get the spawn's placement lint, absent keys
+> are byte-identical (hut golden green), FORMAT.md documents both, and fork-report's Arrival advisory
+> now names the vocabulary. The proof field is DEPLOYED on 4003 (`ARRTEST/` here — a self-loop: two
+> edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
+> back-right facing NORTH, the east door front-left facing SOUTH). Displaced the coop twin vault from
+> the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
+> Rungs 3–7 (campaign-graph lint, arrival-aware import, settle docs/lint/auto, GUI) remain open.
+> The rest of this document is the investigation that shaped it.
+>
+> Original opening framing: this was the gap map for the two halves of
 > the field-entry moment: WHERE the player appears (spawn / arrival placement) and HOW the first
 > seconds look (entry settle / the camera black-hold). Both features exist today in a half-built,
 > telling shape: **the kit models the DEPARTURE side of every transition completely and the
