@@ -21,6 +21,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   of seconds. The panel reads its state from Memoria.ini on refresh, feeds Start co-op, and greys
   out with a pointer when the engine predates s37 (detection: `NetSyncBattle` in the DLL).
 
+### Added — `world-forest` + `world-hill`: interior topography on a deployed island
+- The two in-game-proven island-E studies are now kit verbs (`ff9mapkit/world/interior.py`), operating
+  on the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job):
+  * `world-forest --mod-folder M --near WX,WZ` (or `--center` exact) carries a REAL canopy blob
+    (verbatim topo-37 verts/UVs/normals from `--donor`, default `15,15`) — lattice hole carve, zip
+    annulus with per-cell byte-DECODED mains UVs, the comprehensive canopy STEP-LAW rim lift, and a
+    perimeter walk-in simulation of the engine climb rule as the deploy gate.
+  * `world-hill --near WX,WZ [--height 4.2 --radius 18]` raises a raised-cosine grass hill by pure-Y
+    displacement inside the measured grass-language envelope (flank p99 ≤ 28.6°, lowland peak cap,
+    local normal re-smooth); the placement scan refuses footprints outside the rolling-relief
+    envelope (no stacking on prior displacement).
+- Acceptance was proven by IDENTITY: clean seed-55 mint → module forest carve → module hill
+  reproduces the deployed, playtested island E byte-for-byte on all 5 blocks — and the CLI verbs'
+  own `--near` scans, run end-to-end on a scratch copy, converge on the studies' exact placements
+  and reproduce the same bytes.
+
 ### Fixed — the placement simulator's walking ray had a phantom drop limit
 - Engine-truth correction (source-verified 2026-07-12): `ff9.rayDistance` (2.8) is passed into
   `WMBlock.Raycast` but the parameter is never read — dead code. A walking step can therefore descend

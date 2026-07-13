@@ -138,6 +138,8 @@ and marker commands are stock-engine.
 | Transplant a complete real island — land + beach + Wang'd ocean — to any cell, with 90° rotation + in-cell shift (`world-transplant`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Fuse placements into a continent from one layout toml (`world-fuse`), with per-placement shore tweaks — sink a bank (`bank_lower`) + mint a new real-scale beach on it (`virgin_mint`, `pins_from`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Synthesize graded open-ocean water (`world-water`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Synthesize a custom cliff island/landmass on open ocean (`world-island`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
+| Interior topography on a deployed island: carry a real forest canopy (`world-forest`), raise a real-language grass hill (`world-hill`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Author a custom overworld entrance — trigger + tiles + optional Blender building (`world-entrance`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Overworld encounters: re-table + retune frequency (`world-encounters`, `world-encounter-rate`) | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
 | Atlas texturing: extract / catalog / reskin / add tiles; minimap marker renames | ✓ | [OVERWORLD_ENGINE](OVERWORLD_ENGINE.md) |
