@@ -17,9 +17,13 @@
 > + the kit-compiled two-plate gate (design + cell map below); test field `coopgate/`.
 > RUNG 2 BUILT (same day; ⚠ deployed to 4003 as the 3-beat "twin vault", awaits the solo
 > playtest): `zone =` gather gates, `requires_flag` sequencing, and `mode = "hold"` -- a
-> LEVEL flag maintained while the peer stands on a plate (an always-inside poller region +
-> one assign expression), consumed by the EXISTING flag-gated `[[gateway]]` = the classic
-> co-op held-plate door. Pure kit work, zero new engine bytes.
+> LEVEL flag maintained while the peer stands on a plate, consumed by the EXISTING flag-gated
+> `[[gateway]]` = the classic co-op held-plate door. Pure kit work, zero new engine bytes.
+> The first build's always-inside hold-poller REGION minted **THE TREADQUAD LAW** (playtest:
+> "beat 1 can't fire"): `EventEngine.TreadQuad` fires ONE region per frame, first active match
+> wins -- overlapping tread regions starve each other, and an always-inside region starves the
+> WHOLE FIELD. Holds are now looping CODE entries (the watchdog idiom) and
+> `lint_region_overlaps` guards the class -- law recorded in the gateway-regions memory.
 > Two-machine symmetric-plates run pending like everything else s37.** The rest of this
 > document is the research that shaped it. Companion to the s36 exploration co-op (ghost
 > sync).

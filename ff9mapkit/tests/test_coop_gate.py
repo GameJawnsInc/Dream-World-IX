@@ -148,14 +148,24 @@ def test_assign_peer_in_rect_bytes():
     assert cond == bytes([_region.EXPR_OP]) + _coop._peer_in_rect_tokens([0, 0, 10, 10]) + bytes([_region.T_END])
 
 
-def test_hold_poller_body_is_level_not_latch():
+def test_hold_loop_body_is_level_not_latch():
+    """The hold is a looping CODE entry (the TreadQuad law forbids an always-inside region):
+    assign, Wait(1), unconditional JMP back to the top (signed end-relative offset)."""
     from ff9mapkit.eb import opcodes
-    body = _coop.hold_poller_body([150, -1700, 350, -1500], 8602)
-    assert body.startswith(_region.MOVEMENT_GATE) and body.endswith(opcodes.RETURN)
-    assert _coop.assign_peer_in_rect(8602, [150, -1700, 350, -1500]) in body
+    plate = [150, -1700, 350, -1500]
+    body = _coop.hold_loop_body(plate, 8602)
+    assign = _coop.assign_peer_in_rect(8602, plate)
+    assert body.startswith(assign)
     assert _region.cond_not(_region.GLOB_BOOL, 8602) not in body      # NO once-latch
-    armed = _coop.hold_poller_body([0, 0, 10, 10], 8602, requires_flag=8600)
-    assert _region.flag_gate(_region.GLOB_BOOL, 8600, require_set=True) in armed
+    assert opcodes.wait(1) in body
+    # the back-jump: 0x01 + i16, target = jump END + offset = 0 (the loop top)
+    assert body[-3] == 0x01
+    assert struct.unpack("<h", body[-2:])[0] == -len(body)
+    # requires_flag arms via a forward SKIP (never a RETURN -- that would kill the loop object)
+    armed = _coop.hold_loop_body(plate, 8602, requires_flag=8600)
+    skip = _region.cond_truthy(_region.GLOB_BOOL, 8600) + bytes([_region.JMP_FALSE]) + struct.pack("<H", len(assign))
+    assert armed.startswith(skip)
+    assert struct.unpack("<h", armed[-2:])[0] == -len(armed)          # the loop spans the arm gate too
 
 
 def test_gate_range_body_requires_flag_arming():
@@ -181,9 +191,10 @@ def test_rung2_blocks_build(tmp_path):
     # the gather compiles ONE region: its cross-compare targets its own zone, exactly once
     assert eb.count(_coop.cond_peer_in_rect([-150, -400, 400, -150])) == 1
     assert _region.flag_gate(_region.GLOB_BOOL, 8600, require_set=True) in eb
-    # the hold poller: the level assign + its always-inside zone corners in the SetRegion
-    assert _coop.assign_peer_in_rect(8602, [150, -1700, 350, -1500]) in eb
-    assert struct.pack("<hh", -30000, -30000) in eb
+    # the hold: a looping CODE entry (assign + Wait(1) + back-jump), NOT a region -- and no
+    # always-inside quad anywhere (the TreadQuad law)
+    assert _coop.hold_loop_body([150, -1700, 350, -1500], 8602) in eb
+    assert struct.pack("<hh", -30000, -30000) not in eb
 
 
 def test_rung2_refusals(tmp_path):
@@ -202,6 +213,32 @@ def test_rung2_refusals(tmp_path):
                            'plate_b = [20, 0, 30, 10]\nset_flag = 8602\n', encoding="utf-8")
     with pytest.raises(BuildError, match="unknown mode"):
         _build.build_script(FieldProject.load(toml), "us", {})
+
+
+def test_lint_region_overlaps_treadquad_law(tmp_path):
+    """Overlapping tread regions starve each other (TreadQuad fires ONE per frame) -> warn;
+    abutting zones (shared edge) stay clean."""
+    from ff9mapkit import build as _build
+    from ff9mapkit.build import FieldProject
+    toml = tmp_path / "olap.field.toml"
+    toml.write_text('[field]\nname = "OLAP"\nid = 30095\narea = 10\n\n'
+                    '[[coop]]\nplate_a = [0, 0, 100, 100]\nplate_b = [300, 0, 400, 100]\n'
+                    'set_flag = 8600\n\n'
+                    '[[gateway]]\nto = 30003\nentrance = 0\n'
+                    'zone = [[50, 50], [150, 50], [150, 150], [50, 150]]\n', encoding="utf-8")
+    warns = _build.lint_region_overlaps(FieldProject.load(toml))
+    assert len(warns) == 1 and "OVERLAP" in warns[0] and "plate_a" in warns[0], warns
+    # abutting (shared edge at x=100) is a normal layout -> clean
+    toml.write_text('[field]\nname = "OLAP"\nid = 30095\narea = 10\n\n'
+                    '[[coop]]\nplate_a = [0, 0, 100, 100]\nplate_b = [100, 0, 200, 100]\n'
+                    'set_flag = 8600\n', encoding="utf-8")
+    assert _build.lint_region_overlaps(FieldProject.load(toml)) == []
+    # holds are code entries, not regions -> never in the overlap set
+    toml.write_text('[field]\nname = "OLAP"\nid = 30095\narea = 10\n\n'
+                    '[[coop]]\nmode = "hold"\nplate = [0, 0, 100, 100]\nset_flag = 8602\n\n'
+                    '[[gateway]]\nto = 30003\nentrance = 0\n'
+                    'zone = [[50, 50], [150, 50], [150, 150], [50, 150]]\n', encoding="utf-8")
+    assert _build.lint_region_overlaps(FieldProject.load(toml)) == []
 
 
 def test_lint_flags_coop_set_flag_band(tmp_path):

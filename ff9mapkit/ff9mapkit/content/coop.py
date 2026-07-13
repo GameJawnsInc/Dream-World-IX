@@ -33,11 +33,21 @@ Range tag-2 runs every frame while standing inside) whose body is::
             { flag = 1; message? }    # flag FIRST (FF9's chest convention): loop-safe
     }
 
-``mode = "hold"`` (rung 2) is the classic co-op held-plate: an always-inside poller region
-(:data:`POLLER_ZONE`) maintains ``set_flag`` as a LEVEL every controlled frame -- 1 while the
-peer stands in ``plate``, 0 the moment they leave or disconnect (presence drops -> next frame
-writes 0). No latch, no text. Consume it with the existing vocabulary: a ``[[gateway]]
-requires_flag = <hold flag>`` is a door that is open only while the friend holds the plate.
+``mode = "hold"`` (rung 2) is the classic co-op held-plate: a looping CODE entry (the stolen-
+ember watchdog idiom -- assign, ``Wait(1)``, jump back) maintains ``set_flag`` as a LEVEL every
+frame -- 1 while the peer stands in ``plate``, 0 the moment they leave or disconnect (presence
+drops -> next frame writes 0). No latch, no text. Consume it with the existing vocabulary: a
+``[[gateway]] requires_flag = <hold flag>`` is a door that is open only while the friend holds
+the plate.
+
+⚠ THE TREADQUAD LAW (in-game 2026-07-12, the beat-1 blackout): ``EventEngine.TreadQuad`` scans
+the active-object list and BREAKS ON THE FIRST region whose quad contains the player -- the
+engine delivers exactly ONE tread event per frame, first active match wins. Two consequences,
+both load-bearing here: (1) tread regions (gateways, events, walk-choices, coop plates) MUST
+NOT overlap -- an overlapped region is silently starved; (2) an "always-inside poller region"
+is IMPOSSIBLE -- it swallows every tread on the field (the first hold-poller build starved
+beat 1, the gather, both gateways, AND the second poller). Per-frame logic therefore lives in
+looping CODE entries, never regions.
 
 Each machine computes its gate locally and sets its OWN save's flag -- zero state sync, zero
 story-divergence problem (both sides run the same authored field). The minted flag then gates
@@ -171,33 +181,41 @@ def inject_gather(data, zone_rect, flag: int, message_txid: int | None = None,
     return out
 
 
-#: the hold poller's region: a quad the player is ALWAYS inside -> its Range body runs every
-#: controlled frame anywhere on the field (the kit's free per-frame poller idiom).
-POLLER_ZONE = [(-30000, -30000), (30000, -30000), (30000, 30000), (-30000, 30000)]
+def hold_loop_body(plate, flag: int,
+                   requires_flag: int | None = None, requires_set: bool = True) -> bytes:
+    """The ``mode = "hold"`` CODE-entry body: an infinite 1-frame poll (the proven watchdog
+    idiom -- conductor.watchdog_body) maintaining ``flag`` as a LEVEL -- 1 while the peer stands
+    in ``plate``, 0 the moment they leave (or disconnect: presence drops and the next frame
+    writes 0). One assign expression per frame, no latch, no message. NOT a region -- the
+    TreadQuad law (module doc) makes an always-inside poller region impossible.
 
-
-def hold_poller_body(plate, flag: int,
-                     requires_flag: int | None = None, requires_set: bool = True) -> bytes:
-    """The ``mode = "hold"`` body: maintain ``flag`` as a LEVEL every controlled frame --
-    1 while the peer stands in ``plate``, 0 the moment they leave (or disconnect: presence
-    drops and the next frame writes 0). One assign expression, no latch, no message (a
-    per-frame body would spam a window). ``requires_flag`` arms the poller: until it is
-    in-state the hold flag is left alone (NOT forced 0 -- an unarmed poller is simply inert).
-    Freeze nuance: the movement gate pauses maintenance while user control is off (menus,
-    cutscenes) -- the flag holds its last value there."""
-    body = assign_peer_in_rect(int(flag), plate)
-    arm = b"" if requires_flag is None else _region.flag_gate(
-        _region.GLOB_BOOL, int(requires_flag), require_set=requires_set)
-    return _region.MOVEMENT_GATE + arm + body + opcodes.RETURN
+    ``requires_flag`` arms the maintenance: while out-of-state the assign is SKIPPED via a
+    forward JMP_IFNOT (the hold flag is left alone -- an unarmed poller is inert), never an
+    early RETURN -- a RETURN would kill the looping object for the rest of the field. No
+    movement gate for the same reason (and level truth through menus is a feature)."""
+    assign = assign_peer_in_rect(int(flag), plate)
+    body = b""
+    if requires_flag is not None:
+        cond = (_region.cond_truthy if requires_set else _region.cond_not)(
+            _region.GLOB_BOOL, int(requires_flag))
+        body += cond + bytes([_region.JMP_FALSE]) + struct.pack("<H", len(assign))
+    body += assign
+    body += opcodes.wait(1)
+    body += bytes([0x01]) + struct.pack("<h", -(len(body) + 3))   # JMP back to top (signed, end-relative)
+    return body
 
 
 def inject_hold(data, plate, flag: int,
                 requires_flag: int | None = None, requires_set: bool = True):
-    """Inject a held-plate LEVEL flag (``mode = "hold"``): an always-inside poller region
-    maintains ``flag = (peer stands in plate)`` every frame. Consume the flag with the existing
+    """Inject a held-plate LEVEL flag (``mode = "hold"``): a looping code entry maintains
+    ``flag = (peer stands in plate)`` every frame -- seated + armed exactly like the cutscene
+    watchdog (``InitCode`` on the Main_Init insert path). Consume the flag with the existing
     vocabulary -- the classic co-op door is a ``[[gateway]] requires_flag = <this flag>``: one
     player holds the plate, the other walks through. Returns the new ``.eb`` bytes."""
+    from ..eb import edit
+    from . import object as _object              # local: object imports region -> avoid the cycle
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
-    out, _slot = _region.inject_region(out, POLLER_ZONE,
-                                       hold_poller_body(plate, flag, requires_flag, requires_set))
-    return out
+    entry = (bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4)
+             + hold_loop_body(plate, flag, requires_flag, requires_set) + opcodes.RETURN)
+    out, slot = _object.seat_entry(out, entry)
+    return edit.activate_block(out, opcodes.init_code(slot, 0))
