@@ -1,33 +1,34 @@
-"""MASSIF SYNTH -- the from-scratch SHEET MASSIF, every mountain law composed.
+"""MASSIF SYNTH v3 -- the from-scratch mountain, rebuilt to the MEASURED Uaho recipe.
 
-The three-stage study licensed exactly this build (the two-classes law: a closed massif =
-hill-at-scale geometry + rock retile, NOT wall construction):
+Rounds 1-2 (cone + per-quad full tiles on the 4.2u lattice) read as a mess in-game; the
+user pointed at Uaho (0,0) -- the only REAL mountain at this scale -- and uaho_anatomy.py
+measured the actual recipe. v3 copies it:
 
-  GEOMETRY -- pure-Y displacement of the bench islet's deployed grass lattice (the proven
-    world-hill operation, taller): a 45-degree cone flank (S=1.0 makes the displaced
-    lattice's course height EXACTLY 4.2u = the real massif's 4.29u median -- no
-    subdivision needed) with a parabolic cap; foot radius F=13, cap C=5, peak H=10.5u.
-    ZERO topology change: flat mesh + smooth radial h(x,z) => every positional weld
-    survives by construction; no rings, no zips, no drops.
-  CLASSIFICATION -- any tri meaningfully displaced (max vert lift > 0.3u) becomes topo-49
-    rock (minted idall; foot-illegal by TOPO, the faithful mechanism; the summit is rock
-    -- a walkable synthetic summit would break the island corollary; real precedent =
-    the all-rock crag islands (9-10,5-7) and Uaho).
-  RETILE -- rows = absolute height courses of 4.2u (foot row 10 -> 9 -> 8, landing on the
-    real G5 staircase bands); cols FREE (the col-freedom law), cycling real exemplar
-    QUADS harvested from the actual Daguerreo massif per row; u by azimuth windows of
-    ~4.7u arc, v by height fraction in the course; all UVs fractional inside real rects.
-  NORMALS -- re-smoothed area-weighted PER CLASS (rock from rock faces, grass from grass
-    faces -- the real foot pattern: positional weld, separate normals).
+  SHAPE -- NOT a cone: an offset main summit + a lower shoulder knoll, max()-blended
+    (a natural saddle ridge); 47-degree flanks easing into a ~20-degree grass APRON
+    (Uaho: steep at every radius, grass climbing ~2.5u up the foot, dihedral ~33);
+    azimuthal modulation + ~1.1u positional crag jitter (Uaho residual std 1.9);
+    the rock/grass line WANDERS (a noisy shoulder threshold -- grass tongues).
+  MESH -- the real resolution: 2u, not the 4.2u lattice (Uaho quad width med 2.0, vert
+    NN med 1.5): every tri whose cell touches the build disk splits 1->4; the
+    subdivision boundary sits in FLAT grass so its colinear T-verts are exact.
+  UV -- THE CONTINUOUS-FLOW DISCOVERY: Uaho has ZERO full-tile quads -- small quads
+    sample sub-tile windows of a CONTINUOUS atlas flow. Cols 6-9 and rows 10->8 are
+    physically contiguous in the atlas, so the whole flank maps as ONE field:
+    u sweeps the 4-col band around the contour (sawtooth wrap), v scrolls up the rows
+    with height. Every interior rock edge is uv-continuous -- the painted grain flows
+    down the slope exactly like the real faces.
+  NORMALS -- per-class local re-smooth (rock from rock, grass from grass).
 
-Gates: census MISS=0, down-facing 0, crack scan (once-edges unchanged), slope envelopes
-(rock med ~45, remaining grass <= 28.6), foot dihedral report, and THE OFFLINE EYE
-(4-azimuth elevation renders + a textured top-down). Dry-run by default; --apply deploys.
+Gates: census MISS=0, down-facing 0, slope envelopes (rock<=72, grass apron<=28.6),
+T-boundary flatness, coast clearance via an adaptive fit (the shape scales to the
+bench's measured grass reach), and THE OFFLINE EYE (4 elevations + top-down).
 
 Bench: block (2,19), the seed-42 islet at (160,-1248). Run from the repo root:
   py studies/overworld-topography/massif_synth.py [--apply]
 """
 import argparse
+import json
 import math
 import sys
 from collections import Counter, defaultdict
@@ -46,12 +47,12 @@ CELL = (2, 19)
 CENTER = (160.0, -1248.0)
 BLOCK = 64.0
 TILE_U, TILE_V = 0.0625, 0.03125
-F_FOOT, C_CAP, S_FLANK = 13.0, 5.0, 1.0                    # foot r, cap r, tan(45 deg)
-COURSE_H = 4.2                                             # the real course median
-ROCK_LIFT = 0.3                                            # displaced past this => rock
-CLEAR = 4.0                                                # footprint..non-mains margin
-MAX_FLANK = 28.6                                           # the grass envelope (p99)
-DONORS = [(5, 15), (6, 15), (5, 16), (6, 16)]              # the real massif blocks
+S_FLANK = 1.10                                             # tan(47.7) -- Uaho med ~48
+S_APRON = 0.364                                            # tan(20) -- the grass shoulder
+APRON_H = 2.0                                              # grass climbs this high
+JIT = 1.1                                                  # crag jitter (Uaho std 1.9 incl ridges)
+SHOULDER_NOISE = 0.9                                       # the rock/grass line wanders
+MAX_FLANK = 28.6
 OUTD = Path(__file__).with_name("out")
 kk = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))
 
@@ -66,255 +67,205 @@ gp = Path(config.find_game_path(None))
 mesh_path = (gp / args.mod_folder / "FF9_Data" / "WorldMap" / "Disc1" / "0_1"
              / f"r{CELL[1]}" / f"Block[{CELL[0]}][{CELL[1]}] Terrain.ff9mesh")
 bm = M.blockmesh_from_ff9mesh(mesh_path, disc=1, x=CELL[0], y=CELL[1], part="terrain")
-V = [list(v) for v in bm.verts]
-N = [list(n) for n in bm.normals]
-U = [list(u) for u in bm.uvs]
-T = [list(t) for t in bm.tangents]
-IDX = list(bm.flat_index)
-ntri = len(IDX) // 3
-tri_idx = [IDX[3 * t:3 * t + 3] for t in range(ntri)]
-topo = [X.decode_id(int(round(T[i[0]][0])))["topograph"] for i in tri_idx]
-def wpos(j):
-    return (V[j][0] + BLOCK * CELL[0], V[j][1], V[j][2] - BLOCK * CELL[1])
-print(f"bench {mesh_path.name}: {ntri} tris, topo {dict(Counter(topo))}")
+tris = []                                                  # world-frame flat tri records
+idx0 = np.asarray(bm.flat_index, dtype=np.int64).reshape(-1, 3)
+for i in idx0:
+    tris.append(dict(
+        w=[[bm.verts[j][0] + BLOCK * CELL[0], bm.verts[j][1],
+            bm.verts[j][2] - BLOCK * CELL[1]] for j in i],
+        n=[list(bm.normals[j]) for j in i],
+        uv=[list(bm.uvs[j]) for j in i],
+        tan=[list(bm.tangents[j]) for j in i],
+        topo=X.decode_id(int(round(bm.tangents[i[0]][0])))["topograph"]))
+print(f"bench: {len(tris)} tris, topo {dict(Counter(t['topo'] for t in tris))}")
+assert not any(t["topo"] == 49 for t in tris), "bench not pristine -- restore the .bak first"
 
-# mains-region bounds for the pure-mains footprint check
-lo_u, v0r, hi_u, v1r = IN.G.FAM_REGION["main"] if hasattr(IN, "G") else (None,) * 4
-
-# ---- the footprint-lawful check + centre ----------------------------------------------------------
+# ---- adaptive fit: measure the grass reach around the centre --------------------------------------
 cx, cz = CENTER
-need = F_FOOT + CLEAR
-bad = []
-for t in range(ntri):
-    ws = [wpos(j) for j in tri_idx[t]]
-    cen = np.mean(ws, axis=0)
-    r = math.hypot(cen[0] - cx, cen[2] - cz)
-    if r < need and topo[t] != 0:
-        bad.append((topo[t], round(r, 1)))
-assert not bad, f"footprint not pure grass: {bad[:6]}"
-ys_fp = [wpos(j)[1] for t in range(ntri) for j in tri_idx[t]
-         if math.hypot(wpos(j)[0] - cx, wpos(j)[2] - cz) < need and topo[t] == 0]
-y_base = float(np.median(ys_fp))
-assert max(ys_fp) - min(ys_fp) <= 2.4, "footprint fails the rolling-relief envelope"
-print(f"footprint clean: pure mains within r{need}, base y {y_base:.2f} "
-      f"(span {max(ys_fp) - min(ys_fp):.2f})")
-
-# ---- the profile + displacement -------------------------------------------------------------------
-RIDGES, R_AMP = 6, 0.18                                    # radial ridgelines up the cone
-JIT = 0.7                                                  # crag jitter (positional hash)
-def h_of(r, az):
-    if r >= F_FOOT:
-        return 0.0
-    if r >= C_CAP:
-        h = S_FLANK * (F_FOOT - r)
-    else:
-        h = S_FLANK * (F_FOOT - C_CAP) + S_FLANK * (C_CAP ** 2 - r ** 2) / (2 * C_CAP)
-    return h * (1.0 + R_AMP * math.cos(RIDGES * az + 1.3))
-def jit_of(x, z):
-    return (math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1.0 - 0.5
-lift = [0.0] * len(V)
-for j in range(len(V)):
-    w = wpos(j)
-    r = math.hypot(w[0] - cx, w[2] - cz)
-    az = math.atan2(w[2] - cz, w[0] - cx)
-    h = h_of(r, az)
-    if h > 0.0:
-        h += JIT * jit_of(w[0], w[2]) * min(1.0, h / 2.0)  # crag jitter, tapered at foot
-        h = max(0.0, h)
-    lift[j] = h
-    V[j][1] += h
-peak = max(V[j][1] for j in range(len(V)))
-print(f"displaced: peak y {peak:.2f} (base {y_base:.2f}, {RIDGES} ridgelines, "
-      f"jitter {JIT})")
-
-# ---- classification: ANY lifted vert => rock (a clean lattice-ring foot, no slivers) --------------
-rock = set()
-for t in range(ntri):
-    if topo[t] != 0:
+avail = 1e9
+for t in tris:
+    if t["topo"] == 0:
         continue
-    if max(lift[j] for j in tri_idx[t]) > 0.05:
-        rock.add(t)
+    c = np.mean(t["w"], axis=0)
+    avail = min(avail, math.hypot(c[0] - cx, c[2] - cz))
+avail -= 1.5                                               # margin to the nearest non-grass
+ys_fp = [v[1] for t in tris if t["topo"] == 0 for v in t["w"]
+         if math.hypot(v[0] - cx, v[2] - cz) < avail]
+y_base = float(np.median(ys_fp))
+# desired shape (unscaled): main node + shoulder knoll
+H_MAIN, CAP_MAIN = 9.4, 3.0
+H_SHLD, CAP_SHLD = 4.4, 2.2
+SHLD_OFF, SHLD_AZ = 7.5, 0.9                               # offset of the shoulder knoll
+def node_reach(H, cap):
+    return (H - APRON_H) / S_FLANK + cap / 2 + APRON_H / S_APRON
+reach = max(node_reach(H_MAIN, CAP_MAIN),
+            SHLD_OFF + node_reach(H_SHLD, CAP_SHLD)) + 1.2  # + foot wobble
+scale = min(1.0, avail / reach)
+H_MAIN *= scale; CAP_MAIN *= scale; H_SHLD *= scale; CAP_SHLD *= scale; SHLD_OFF *= scale
+print(f"grass reach {avail:.1f}u, shape reach {reach:.1f}u -> scale {scale:.2f} "
+      f"(H_main {H_MAIN:.1f})")
+NODES = [(cx, cz, H_MAIN, CAP_MAIN),
+         (cx + SHLD_OFF * math.cos(SHLD_AZ), cz + SHLD_OFF * math.sin(SHLD_AZ),
+          H_SHLD, CAP_SHLD)]
+
+def node_h(d, H, cap):
+    """Peak H at d=0: parabola cap -> 47-deg flank -> 20-deg apron -> 0."""
+    d_flank = cap / 2 + (H - APRON_H - S_FLANK * cap / 2) / S_FLANK
+    d_foot = d_flank + APRON_H / S_APRON
+    if d >= d_foot:
+        return 0.0
+    if d >= d_flank:
+        return (d_foot - d) * S_APRON
+    if d >= cap:
+        return APRON_H + (d_flank - d) * S_FLANK
+    return H - S_FLANK * d * d / (2 * cap)
+def base_h(x, z):
+    az = math.atan2(z - cz, x - cx)
+    m = 1.0 + 0.14 * math.cos(2 * az + 0.7) + 0.09 * math.cos(5 * az + 2.1)
+    best = 0.0
+    for (nx2, nz2, H, cap) in NODES:
+        best = max(best, node_h(math.hypot(x - nx2, z - nz2) / max(0.35, m), H, cap))
+    return best
+def hash01(x, z):
+    return (math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1.0
+
+# ---- subdivision (1->4) inside the build disk ------------------------------------------------------
+R_SUB = avail + 0.5
+def mid(a, b):
+    return [(a[k] + b[k]) / 2 for k in range(len(a))]
+out_tris = []
+n_sub = 0
+for t in tris:
+    inside = any(math.hypot(v[0] - cx, v[2] - cz) < R_SUB for v in t["w"])
+    if not inside or t["topo"] != 0:
+        out_tris.append(t)
+        continue
+    n_sub += 1
+    w, n3, uv, tn = t["w"], t["n"], t["uv"], t["tan"]
+    mw = [mid(w[0], w[1]), mid(w[1], w[2]), mid(w[2], w[0])]
+    mn = [mid(n3[0], n3[1]), mid(n3[1], n3[2]), mid(n3[2], n3[0])]
+    muv = [mid(uv[0], uv[1]), mid(uv[1], uv[2]), mid(uv[2], uv[0])]
+    for tri3 in (([w[0], mw[0], mw[2]], [n3[0], mn[0], mn[2]], [uv[0], muv[0], muv[2]]),
+                 ([mw[0], w[1], mw[1]], [mn[0], n3[1], mn[1]], [muv[0], uv[1], muv[1]]),
+                 ([mw[2], mw[1], w[2]], [mn[2], mn[1], n3[2]], [muv[2], muv[1], uv[2]]),
+                 ([mw[0], mw[1], mw[2]], [mn[0], mn[1], mn[2]], [muv[0], muv[1], muv[2]])):
+        out_tris.append(dict(w=[list(p) for p in tri3[0]], n=[list(p) for p in tri3[1]],
+                             uv=[list(p) for p in tri3[2]], tan=[list(tn[0])] * 3,
+                             topo=0))
+tris = out_tris
+print(f"subdivided {n_sub} grass tris 1->4 inside r{R_SUB:.1f}: now {len(tris)} tris")
+
+# ---- displacement ----------------------------------------------------------------------------------
+for t in tris:
+    if t["topo"] != 0:
+        continue
+    for v in t["w"]:
+        hb = base_h(v[0], v[2])
+        if hb <= 0.0:
+            continue
+        jsc = min(1.0, max(0.0, (hb - APRON_H) / 2.5))     # no jitter on the grass apron
+        h = hb + JIT * (hash01(v[0], v[2]) - 0.5) * 2.0 * jsc
+        v[1] += max(0.0, h)
+peak = max(v[1] for t in tris for v in t["w"])
+print(f"displaced: peak y {peak:.2f}")
+
+# ---- classification: rock where the SHAPE height clears a wandering shoulder ----------------------
+rock = set()
+for ti, t in enumerate(tris):
+    if t["topo"] != 0:
+        continue
+    c = np.mean(t["w"], axis=0)
+    sh = APRON_H * (0.38 + 0.42 * hash01(c[0] * 0.37 + 11.3, c[2] * 0.37))
+    if base_h(c[0], c[2]) > sh:
+        rock.add(ti)
 print(f"rock tris: {len(rock)}")
 
-# ---- exemplar quads per row from the REAL massif --------------------------------------------------
-stage1 = None
-try:
-    import json
-    stage1 = json.loads((OUTD / "daguerreo_massif.json").read_text())
-except Exception:
-    pass
+# ---- THE CONTINUOUS UV FIELD (u: the 4-col band around the contour; v: rows by height) -------------
+stage1 = json.loads((OUTD / "daguerreo_massif.json").read_text())
 pu, pv = stage1["phase"]
-ex_rows = defaultdict(dict)                                # row -> col -> rect
-for (dbx, dby) in DONORS:
-    dm = X.read_block(dbx, dby, disc=1, part="terrain")
-    dV, dU, dT = dm.verts, dm.uvs, dm.tangents
-    didx = np.asarray(dm.flat_index, dtype=np.int64).reshape(-1, 3)
-    dtopo = [X.decode_id(int(round(dT[i[0]][0])))["topograph"] for i in didx]
-    e2t = defaultdict(list)
-    for t, i in enumerate(didx):
-        if dtopo[t] != 49:
-            continue
-        ps = [kk(dV[j]) for j in i]
-        for a, b in ((0, 1), (1, 2), (2, 0)):
-            e2t[tuple(sorted((ps[a], ps[b])))].append(t)
-    seenq = set()
-    for e, ts in e2t.items():
-        if len(ts) != 2 or ts[0] in seenq or ts[1] in seenq:
-            continue
-        vs4 = {kk(dV[j]) for t in ts for j in didx[t]}
-        if len(vs4) != 4:
-            continue
-        uvm = {}
-        for t in ts:
-            for j in didx[t]:
-                uvm[kk(dV[j])] = (float(dU[j][0]), float(dU[j][1]))
-        us = [q[0] for q in uvm.values()]
-        vs2 = [q[1] for q in uvm.values()]
-        du2, dv2 = max(us) - min(us), max(vs2) - min(vs2)
-        if not (0.8 * TILE_U < du2 <= TILE_U + 1e-4 and 0.8 * TILE_V < dv2 <= TILE_V + 1e-4):
-            continue
-        row = round((min(vs2) - pv) / TILE_V)
-        col = round((min(us) - pu) / TILE_U)
-        if row not in (7, 8, 9, 10) or col not in (6, 7, 8, 9) or col in ex_rows[row]:
-            continue                                       # ONE band (6-9): no band mixing
-        pts4 = sorted(vs4, key=lambda p: p[1])
-        ex_rows[row][col] = dict(u0=min(us), u1=max(us),
-                                 v_lo=float(np.mean([uvm[p][1] for p in pts4[:2]])),
-                                 v_hi=float(np.mean([uvm[p][1] for p in pts4[2:]])))
-        seenq.update(ts)
-for row in sorted(ex_rows):
-    print(f"exemplars row {row}: cols {sorted(ex_rows[row])}")
-assert all(ex_rows.get(r) for r in (8, 9, 10)), "missing exemplar rows"
+U_B0 = pu + 6 * TILE_U + 0.0005                            # col-6 left edge (tiny inset)
+U_SPAN = 4 * TILE_U - 0.001
+V_FOOT = pv + 10 * TILE_V + TILE_V - 0.0005                # row-10 BOTTOM edge
+y_rock0 = y_base + APRON_H * 0.8                           # the flow anchors at the rock line
+NB = max(2, round(2 * math.pi * (0.55 * avail) / 18.8))    # band sweeps around the contour
+print(f"uv field: u band x{NB} around, v rows from {V_FOOT:.4f} at y {y_rock0:.1f}")
+for ti in rock:
+    t = tris[ti]
+    for k in range(3):
+        v = t["w"][k]
+        az = math.atan2(v[2] - cz, v[0] - cx)
+        u_f = U_B0 + (((az + math.pi) / (2 * math.pi) * NB) % 1.0) * U_SPAN
+        r = math.hypot(v[0] - cx, v[2] - cz)
+        if r < 3.0:                                        # the apex singularity: freeze u
+            u_f = U_B0 + 0.5 * U_SPAN + (u_f - U_B0 - 0.5 * U_SPAN) * (r / 3.0)
+        t["uv"][k][0] = u_f
+        t["uv"][k][1] = V_FOOT - max(0.0, v[1] - y_rock0) / 4.7 * TILE_V
+        t["tan"][k] = [ID49, 0.0, 0.0, 1.0]
 
-# ---- retile the rock ------------------------------------------------------------------------------
-# pair rock tris into lattice quads
-e2r = defaultdict(list)
-for t in rock:
-    ps = [kk(wpos(j)) for j in tri_idx[t]]
-    for a, b in ((0, 1), (1, 2), (2, 0)):
-        e2r[tuple(sorted((ps[a], ps[b])))].append(t)
-qpaired = {}
-qgroups = []
-for e, ts in e2r.items():
-    if len(ts) != 2 or ts[0] in qpaired or ts[1] in qpaired:
-        continue
-    vs4 = {kk(wpos(j)) for t in ts for j in tri_idx[t]}
-    if len(vs4) != 4:
-        continue
-    qpaired[ts[0]] = qpaired[ts[1]] = len(qgroups)
-    qgroups.append(list(ts))
-for t in rock:                                             # boundary filler tris go solo
-    if t not in qpaired:
-        qpaired[t] = len(qgroups)
-        qgroups.append([t])
-print(f"rock quads {sum(1 for g in qgroups if len(g) == 2)} + filler "
-      f"{sum(1 for g in qgroups if len(g) == 1)}")
-
-def course_of(y):
-    return max(0, min(2, int((y - y_base) / COURSE_H)))
-ROW_OF = {0: 10, 1: 9, 2: 8}
-for gi, grp in enumerate(qgroups):
-    pts = [wpos(j) for t in grp for j in tri_idx[t]]
-    ys3 = [p[1] for p in pts]
-    course = course_of(float(np.mean(ys3)))
-    row = ROW_OF[course]
-    band_lo = min(ys3)                                     # ONE tile per QUAD (v axis):
-    band_hi = max(band_lo + 0.5, max(ys3))                 # the quad IS the course
-    cen = np.mean(pts, axis=0)
-    az = math.atan2(cen[2] - cz, cen[0] - cx)
-    r_mid = max(2.0, F_FOOT - (float(np.mean(ys3)) - y_base) / S_FLANK)
-    nwin = max(1, round(2 * math.pi * r_mid / 4.7))
-    w = int((az + math.pi) / (2 * math.pi) * nwin) % nwin  # contour position -> col cycle
-    cols = sorted(ex_rows[row])
-    e2 = ex_rows[row][cols[w % len(cols)]]
-    tx, tz = -math.sin(az), math.cos(az)                   # the tangential (contour) dir
-    ts3 = [(p[0] - cen[0]) * tx + (p[2] - cen[2]) * tz for p in pts]
-    t_lo, t_hi = min(ts3), max(min(ts3) + 0.5, max(ts3))   # ONE tile per QUAD (u axis)
-    for t in grp:
-        for j in tri_idx[t]:
-            wv = wpos(j)
-            tv = (wv[0] - cen[0]) * tx + (wv[2] - cen[2]) * tz
-            su = (tv - t_lo) / (t_hi - t_lo)
-            h = (wv[1] - band_lo) / (band_hi - band_lo)
-            U[j][0] = e2["u0"] + su * (e2["u1"] - e2["u0"])
-            U[j][1] = e2["v_lo"] + h * (e2["v_hi"] - e2["v_lo"])
-            T[j] = [ID49, 0.0, 0.0, 1.0]
-
-# ---- normals: per-class local re-smooth -----------------------------------------------------------
-touched = {j for t in range(ntri) for j in tri_idx[t]
-           if t in rock or any(lift[j2] > 0.0 for j2 in tri_idx[t])}
+# ---- normals: per-class local re-smooth ------------------------------------------------------------
 acc = {"rock": defaultdict(lambda: np.zeros(3)), "grass": defaultdict(lambda: np.zeros(3))}
-for t in range(ntri):
-    cls = "rock" if t in rock else "grass" if topo[t] == 0 else None
+for ti, t in enumerate(tris):
+    cls = "rock" if ti in rock else "grass" if t["topo"] == 0 else None
     if cls is None:
         continue
-    a, b, c3 = (np.array(wpos(j)) for j in tri_idx[t])
+    a, b, c3 = (np.array(p) for p in t["w"])
     fn = np.cross(b - a, c3 - a)
-    for j in tri_idx[t]:
-        acc[cls][kk(wpos(j))] += fn
-for t in range(ntri):
-    cls = "rock" if t in rock else "grass" if topo[t] == 0 else None
+    for k in range(3):
+        acc[cls][kk(t["w"][k])] += fn
+for ti, t in enumerate(tris):
+    cls = "rock" if ti in rock else "grass" if t["topo"] == 0 else None
     if cls is None:
         continue
-    for j in tri_idx[t]:
-        if j not in touched:
-            continue
-        v3 = acc[cls][kk(wpos(j))]
+    near = any(math.hypot(p[0] - cx, p[2] - cz) < R_SUB for p in t["w"])
+    if not near:
+        continue
+    for k in range(3):
+        v3 = acc[cls][kk(t["w"][k])]
         L = np.linalg.norm(v3)
         if L > 1e-9:
-            N[j] = (v3 / L).tolist()
+            t["n"][k] = (v3 / L).tolist()
 
-# ---- gates ----------------------------------------------------------------------------------------
-def slope_deg(t):
-    a, b, c3 = (np.array(wpos(j)) for j in tri_idx[t])
+# ---- gates -----------------------------------------------------------------------------------------
+def geo(t):
+    a, b, c3 = (np.array(p) for p in t["w"])
     fn = np.cross(b - a, c3 - a)
     L = np.linalg.norm(fn) or 1.0
     return math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L)))), fn[1] / L
-rs = [slope_deg(t) for t in rock]
-gs = [slope_deg(t) for t in range(ntri) if topo[t] == 0 and t not in rock]
-down = sum(1 for s, ny in rs + gs if ny < 0)
-assert down == 0, f"{down} down-facing tris"
-r_sl = [s for s, _ in rs]
-g_sl = [s for s, _ in gs]
-print(f"gates: rock slope med {np.median(r_sl):.1f} p90 {np.percentile(r_sl, 90):.1f} "
-      f"max {max(r_sl):.1f} (sheet ceiling 72); grass max {max(g_sl):.1f} "
-      f"(envelope {MAX_FLANK})")
-assert max(r_sl) <= 72.0 and max(g_sl) <= MAX_FLANK
-# foot dihedral: rock|grass shared edges
-e2all = defaultdict(list)
-for t in range(ntri):
-    ps = [kk(wpos(j)) for j in tri_idx[t]]
-    for a, b in ((0, 1), (1, 2), (2, 0)):
-        e2all[tuple(sorted((ps[a], ps[b])))].append(t)
-dih = []
-for e, ts in e2all.items():
-    if len(ts) != 2:
-        continue
-    r2 = [t for t in ts if t in rock]
-    g2 = [t for t in ts if topo[t] == 0 and t not in rock]
-    if len(r2) == 1 and len(g2) == 1:
-        def fnrm(t):
-            a, b, c3 = (np.array(wpos(j)) for j in tri_idx[t])
-            fn = np.cross(b - a, c3 - a)
-            return fn / (np.linalg.norm(fn) or 1.0)
-        dih.append(math.degrees(math.acos(max(-1, min(1, float(np.dot(fnrm(r2[0]),
-                                                                      fnrm(g2[0]))))))))
-print(f"foot: {len(dih)} rock|grass edges, dihedral med {np.median(dih):.1f}deg "
-      f"(real 46-53)")
-once_now = sum(1 for ts in e2all.values() if len(ts) == 1)
-print(f"once-edges {once_now} (topology untouched -- must equal the pristine count)")
+r_sl = [geo(tris[ti]) for ti in rock]
+g_sl = [geo(t) for ti, t in enumerate(tris) if t["topo"] == 0 and ti not in rock]
+assert sum(1 for _, ny in r_sl + g_sl if ny < 0) == 0, "down-facing tris"
+print(f"gates: rock slope med {np.median([s for s, _ in r_sl]):.1f} "
+      f"p90 {np.percentile([s for s, _ in r_sl], 90):.1f} max {max(s for s, _ in r_sl):.1f}; "
+      f"grass max {max(s for s, _ in g_sl):.1f} (envelope {MAX_FLANK})")
+assert max(s for s, _ in r_sl) <= 72.0 and max(s for s, _ in g_sl) <= MAX_FLANK
+# T-boundary flatness: every subdivision-boundary vert must be undisplaced
+for t in tris:
+    for v in t["w"]:
+        r = math.hypot(v[0] - cx, v[2] - cz)
+        if R_SUB - 2.2 < r < R_SUB + 2.2:
+            assert base_h(v[0], v[2]) == 0.0, f"displacement at the T boundary r{r:.1f}"
+print("T boundary flat (all displacement well inside the subdivision disk)")
 
-# ---- assemble + census ----------------------------------------------------------------------------
-pos = [[V[j][0], V[j][1], V[j][2]] for j in range(len(V))]
+# ---- assemble + census -----------------------------------------------------------------------------
+pos, nrm, uv2, tan2, flat = [], [], [], [], []
+for t in tris:
+    for k in range(3):
+        pos.append([t["w"][k][0] - BLOCK * CELL[0], t["w"][k][1],
+                    t["w"][k][2] + BLOCK * CELL[1]])
+        nrm.append(list(t["n"][k]))
+        uv2.append(list(t["uv"][k]))
+        tan2.append(list(t["tan"][k]))
+        flat.append(len(pos) - 1)
 changed = {CELL: X.BlockMesh(
     name=bm.name, disc=1, x=CELL[0], y=CELL[1], lod="0_1", vcount=len(pos), stride=48,
     channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2), X.CH_TAN: (32, 4)},
-    chan_arrays={X.CH_POS: pos, X.CH_NRM: N, X.CH_UV: U, X.CH_TAN: T},
-    flat_index=IDX, tris=tri_idx, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])}
+    chan_arrays={X.CH_POS: pos, X.CH_NRM: nrm, X.CH_UV: uv2, X.CH_TAN: tan2},
+    flat_index=flat, tris=[flat[3 * t2:3 * t2 + 3] for t2 in range(len(flat) // 3)],
+    raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])}
 IN.census_gate(changed, disc=1)
 print("census MISS=0")
 
-# ---- THE OFFLINE EYE: 4 elevation views + a textured top-down -------------------------------------
+# ---- THE OFFLINE EYE -------------------------------------------------------------------------------
 MOG = gp / "MoguriMain" / "StreamingAssets" / "assets" / "resources" / "worldmap" / \
     "textures" / "res(1_24)_terrain.png"
 atlas = Image.open(MOG).convert("RGBA")
@@ -334,11 +285,6 @@ def at_b(u_, v_):
     return a4[3], (int(a4[0]), int(a4[1]), int(a4[2]))
 LDIR = (-0.5, 0.7, -0.3)
 _l = math.sqrt(sum(q * q for q in LDIR)); LDIR = tuple(q / _l for q in LDIR)
-tri_data = []
-for t in range(ntri):
-    tri_data.append(([wpos(j) for j in tri_idx[t]],
-                     [(U[j][0], U[j][1]) for j in tri_idx[t]],
-                     [N[j] for j in tri_idx[t]]))
 def raster(img, sx, sy, uv3, n3, W, H):
     op = img.load()
     x0, x1 = int(min(sx)), int(max(sx)) + 1
@@ -365,45 +311,43 @@ def raster(img, sx, sy, uv3, n3, W, H):
             nl = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
             f = 0.55 + 0.45 * max(0.0, (nx * LDIR[0] + ny * LDIR[1] + nz * LDIR[2]) / nl)
             op[pyx, pyy] = tuple(min(255, int(c * f)) for c in rgb[:3])
-OUTD.mkdir(exist_ok=True)
 SC = 16
-HW, HH = 22.0, 18.0
+HW, HH = 24.0, 18.0
 RW, RH = int(2 * HW * SC), int(HH * SC)
 views = []
 for name, azd in (("fromS", 90), ("fromW", 0), ("fromN", 270), ("fromE", 180)):
     azr = math.radians(azd)
-    vx, vz = math.cos(azr), math.sin(azr)                  # view direction (into scene)
-    rx, rz = -vz, vx                                       # screen right
+    vx, vz = math.cos(azr), math.sin(azr)
+    rx, rz = -vz, vx
     img = Image.new("RGB", (RW, RH), (150, 178, 210))
-    rec = []
-    for p3, uv3, n3 in tri_data:
-        depth = max((p[0] - cx) * vx + (p[2] - cz) * vz for p in p3)
-        rec.append((depth, p3, uv3, n3))
-    for _, p3, uv3, n3 in sorted(rec, key=lambda r: r[0]):
-        sx = [((p[0] - cx) * rx + (p[2] - cz) * rz + HW) * SC for p in p3]
-        sy = [(HH - p[1]) * SC for p in p3]
-        raster(img, sx, sy, uv3, n3, RW, RH)
-    views.append((name, img))
+    rec = sorted(range(len(tris)),
+                 key=lambda t2: max((p[0] - cx) * vx + (p[2] - cz) * vz
+                                    for p in tris[t2]["w"]))
+    for t2 in rec:
+        t = tris[t2]
+        sx = [((p[0] - cx) * rx + (p[2] - cz) * rz + HW) * SC for p in t["w"]]
+        sy = [(HH - p[1]) * SC for p in t["w"]]
+        raster(img, sx, sy, t["uv"], t["n"], RW, RH)
+    views.append(img)
 gap = 8
-sheet = Image.new("RGB", (RW, (RH + gap) * len(views) - gap), (10, 10, 10))
-for k, (name, img) in enumerate(views):
+OUTD.mkdir(exist_ok=True)
+sheet = Image.new("RGB", (RW, (RH + gap) * 4 - gap), (10, 10, 10))
+for k, img in enumerate(views):
     sheet.paste(img, (0, k * (RH + gap)))
 sheet.save(OUTD / "massif_synth_views.png")
-print(f"-> {OUTD / 'massif_synth_views.png'} (S, W, N, E elevations)")
+print(f"-> {OUTD / 'massif_synth_views.png'}")
 S2 = 8
 img = Image.new("RGB", (int(BLOCK * S2), int(BLOCK * S2)), (24, 40, 72))
-order = sorted(range(ntri), key=lambda t: min(wpos(j)[1] for j in tri_idx[t]))
-for t in order:
-    p3 = [wpos(j) for j in tri_idx[t]]
-    sx = [(p[0] - CELL[0] * BLOCK) * S2 for p in p3]
-    sy = [(-p[2] - CELL[1] * BLOCK) * S2 for p in p3]
-    raster(img, sx, sy, [(U[j][0], U[j][1]) for j in tri_idx[t]],
-           [N[j] for j in tri_idx[t]], int(BLOCK * S2), int(BLOCK * S2))
+for t2 in sorted(range(len(tris)), key=lambda t3: min(p[1] for p in tris[t3]["w"])):
+    t = tris[t2]
+    sx = [(p[0] - CELL[0] * BLOCK) * S2 for p in t["w"]]
+    sy = [(-p[2] - CELL[1] * BLOCK) * S2 for p in t["w"]]
+    raster(img, sx, sy, t["uv"], t["n"], int(BLOCK * S2), int(BLOCK * S2))
 img.save(OUTD / "massif_synth_top.png")
 print(f"-> {OUTD / 'massif_synth_top.png'}")
 
-tpx, tpz = math.floor(cx - F_FOOT - 6) + 0.5, math.floor(cz) + 0.5
-print(f"suggested teleport: ({tpx}, {tpz}) on the west grass ring, face east")
+print(f"suggested teleport: ({math.floor(cx - avail - 3) + 0.5}, {math.floor(cz) + 0.5}) "
+      f"on the west grass, face east")
 if not args.apply:
     print("\nDRY RUN (no write). --apply to deploy.")
     sys.exit(0)
