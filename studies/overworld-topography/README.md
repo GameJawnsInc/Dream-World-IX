@@ -189,6 +189,24 @@ statements in the memory file):
 Known cosmetic remainder (deferred): a small stripy corner-fan patch (~4×3u) on the wall's
 outer skirt over open sea at the east corner, visible only from the sea side.
 
+**Playtest round 3: STILL stuck (inside the mountain, the west mouth) + still-stretched
+tops → the user called the meta-law: "study the actual mountains before synthing too much
+of our own". Island F RESTORED PRISTINE (the trap is gone).** The round-3 trap: the moat
+trim raised the floor, but the corridor still dead-ended AT the island edge inside the
+Sea4 lap zone — pressing west queries open sea (cacheable) while sea laps under the slot
+floor (THE MOAT LAW v2: walkable synth ground ends ≥~4u inland of the outline).
+
+**THE WALL MESH ORGANIZATION STUDY (`wall_anatomy.py` → out/wall_anatomy.json)** — the 8
+largest interior escarpments answer how real walls are BUILT (full laws in the memory):
+courses are SHINGLED FREE STRIPS (zero vertex sharing between courses); TOPS FLOAT under
+the grass bevel (zero identity welds at every crest) while FEET WELD identity-exact to the
+ground; vertex normals are smoothed UP-LEANING terrain normals (ny med 0.67, p10 0.49,
+p90 0.95 — not face normals, not constant); UVs are FRACTIONAL (only 7-29% corner-pure);
+70-82% clean ~4×4u quads + 20-30% lone filler tris; and real crest chains are JAGGED
+(turn p90 > 90°) — the shave toward fair curves was off-language. ⇒ v3 = BEND-CARRY a
+real escarpment strip along our crest: no course/crest welds needed (the shingle laws),
+only the foot conforms.
+
 **Playtest round 2: "top looks pretty good" + three findings** (laws in the memory files):
 the stuck spot at ~(200,−1125) was THE MOAT LAW (a rule-(f) corollary — the zip welded to
 the south chain's band-descending end verts, building a walkable ramp to the waterline;
