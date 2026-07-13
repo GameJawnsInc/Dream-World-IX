@@ -649,12 +649,46 @@ for lap in range(n_laps):
 GHOST_ID = 4078.0                                          # the engine's own RAY-SKIP idall:
 #   renders normally, invisible to every ground query (WMPhysics skips it) -- uncacheable
 ghost_src = set()                                          # wall_src indices emitted as ghosts
+FLIP = False                                               # set by the facing check below
 
 def build_wall_parents():
-    return [(tuple(place_vert(lap, p, j) for p, j in zip(keys, i)),
-             GHOST_ID if m in ghost_src else ID49,
-             "wall-ghost" if m in ghost_src else "wall")
-            for m, (lap, keys, i) in enumerate(wall_src)]
+    out = []
+    for m, (lap, keys, i) in enumerate(wall_src):
+        pts = tuple(place_vert(lap, p, j) for p, j in zip(keys, i))
+        if FLIP:
+            pts = (pts[0], pts[2], pts[1])
+        out.append((pts, GHOST_ID if m in ghost_src else ID49,
+                    "wall-ghost" if m in ghost_src else "wall"))
+    return out
+
+# THE CARRY FACING CHECK: the (tangent, downhill) handedness of the donor vs the
+# (tangent, outward) handedness of our ring can MIRROR the carry -- mirrored winding
+# backface-culls the entire near wall in-game (the engine culls; the offline painter
+# doesn't). Score both facings the same way and flip globally on mismatch.
+def _facing_score(tris_pts, outward_fn):
+    sc = 0.0
+    for pts, ow in zip(tris_pts, outward_fn):
+        (ax, ay, az), (bx2, by2, bz2), (cx2, cy2, cz2) = pts
+        nx3 = (by2 - ay) * (cz2 - az) - (bz2 - az) * (cy2 - ay)
+        nz3 = (bx2 - ax) * (cy2 - ay) - (by2 - ay) * (cx2 - ax)
+        sc += nx3 * ow[0] + nz3 * ow[1]
+    return sc
+
+_d_tris, _d_out = [], []
+for t in dcomp[::3]:
+    i = dtri[t]
+    _d_tris.append([dV[i[0]], dV[i[1]], dV[i[2]]])
+    s, dd, h, th_d = dpar[kk3(dV[i[0]])]
+    _d_out.append((-math.sin(th_d), math.cos(th_d)))       # the donor's +d (downhill) dir
+_o_tris, _o_out = [], []
+for (lap, keys, i) in wall_src[::3]:
+    _o_tris.append([place_vert(lap, p, j)[:3] for p, j in zip(keys, i)])
+    s, dd, h, _ = dpar[keys[0]]
+    _, _, _, oNx, oNz, _, _ = anchor_at(lap * (L_EFF - LAP_OV) + (s - S_LO))
+    _o_out.append((oNx, oNz))
+FLIP = (_facing_score(_o_tris, _o_out) > 0) != (_facing_score(_d_tris, _d_out) > 0)
+print(f"facing check: {'MIRRORED -- flipping carried winding' if FLIP else 'faithful'}",
+      flush=True)
 
 new_parents = build_wall_parents()
 print(f"carried wall tris: {len(new_parents)} ({n_laps} laps)", flush=True)
