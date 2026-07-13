@@ -296,6 +296,14 @@ tri_c = [((gpos[tri[0]][0] + gpos[tri[1]][0] + gpos[tri[2]][0]) / 3,
          for tri in gtris]
 nonplain_c = np.array([tri_c[t] for t in range(len(gtris)) if not plain[t]])
 print(f"bench: {len(gtris)} tris ({sum(plain)} plain-grass mains)", flush=True)
+# PRISTINE once-edge baseline, captured BEFORE any mutation: computed after the lift it
+# cancels self-consistent weld splits and the crack gate goes blind (the round-5 crack)
+eu0 = Counter()
+for tri in gtris:
+    w = [gpos[i] for i in tri]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        eu0[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
+once0 = {e for e, n in eu0.items() if n == 1}
 
 
 def rot_pt(p, k):
@@ -417,10 +425,13 @@ for p in rim_set:
 print(f"rigid rim heights: [{min(n[2] for n in rim_nodes):.2f},"
       f"{max(n[2] for n in rim_nodes):.2f}] vs ground med {ground_med:.2f} "
       f"(the grass apron absorbs the difference over {GBLEND}u)", flush=True)
-plain_vert = set()
-for tdx, tri in enumerate(gtris):
-    if plain[tdx]:
-        plain_vert.update(tri)
+# positions touched by ANY non-plain tri: the lift must be EXACTLY zero there --
+# worldmap meshes don't share vertex entries (welds = coincident positions), so a
+# lift applied to the grass-side entry but not the coast-side twin SPLITS the weld
+# (the round-5 crack at the grass/coast boundary: sea visible through the sliver)
+nonplain_pos = np.array(sorted({(kk3(gpos[i])[0], kk3(gpos[i])[2])
+                                for tdx, tri in enumerate(gtris) if not plain[tdx]
+                                for i in tri}))
 
 
 def ground_lift(px, pz, py, dnp):
@@ -444,17 +455,31 @@ def ground_lift(px, pz, py, dnp):
     return max(0.0, bt) * max(0.0, pt) * W * (hsum / wsum - py)
 
 
+# lift by POSITION (computed once per unique position, dnp = exact distance to the
+# nearest non-plain VERTEX position -- centroids under-measure at big coast tris),
+# then applied to EVERY coincident vertex entry so no weld can split
+cand = {}
+for tdx, tri in enumerate(gtris):
+    if not plain[tdx]:
+        continue
+    for i in tri:
+        k = kk3(gpos[i])
+        if k in cand:
+            continue
+        dnp = float(np.sqrt(((nonplain_pos - np.array([k[0], k[2]])) ** 2)
+                            .sum(axis=1).min()))
+        cand[k] = ground_lift(k[0], k[2], gpos[i][1], dnp)
 lift_of = {}
 lift_max = 0.0
-for i in sorted(plain_vert):
-    dnp = float(np.sqrt(((nonplain_c - np.array([gpos[i][0], gpos[i][2]])) ** 2)
-                        .sum(axis=1).min()))
-    lf = ground_lift(gpos[i][0], gpos[i][2], gpos[i][1], dnp)
+for i in range(len(gpos)):
+    lf = cand.get(kk3(gpos[i]), 0.0)
     if abs(lf) > 1e-6:
         gpos[i][1] += lf
         lift_of[i] = lf
         lift_max = max(lift_max, abs(lf))
-print(f"ground apron: {len(lift_of)} bench verts lifted (max {lift_max:.2f}u)", flush=True)
+print(f"ground apron: {len(lift_of)} vertex entries lifted "
+      f"({sum(1 for v in cand.values() if abs(v) > 1e-6)} positions, "
+      f"max {lift_max:.2f}u)", flush=True)
 
 # ---- 3b. hole carve (on the LIFTED bench; the drop test is plan-only) ---------------------------
 drop = set()
@@ -838,14 +863,9 @@ new_bm = X.BlockMesh(
     channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2), X.CH_TAN: (32, 4)},
     chan_arrays={X.CH_POS: pos, X.CH_NRM: nrm, X.CH_UV: uv, X.CH_TAN: tan},
     flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
-# once-edge gate = BASELINE-SUBTRACTED: the pristine mint has its own legal once-edges
-# (coast T-junctions, block-border edges); the carve must not ADD any
-eu0 = Counter()
-for tri in gtris:
-    w = [gpos[i] for i in tri]
-    for a, b in ((0, 1), (1, 2), (2, 0)):
-        eu0[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
-once0 = {e for e, n in eu0.items() if n == 1}
+# once-edge gate = BASELINE-SUBTRACTED against the PRISTINE snapshot (captured before
+# the lift): the mint has its own legal once-edges; the build must not ADD any --
+# including lift-split welds ANYWHERE in the block
 eu3 = Counter()
 for t in range(len(tris)):
     w = [(pos[i][0] + BLOCK * bx, pos[i][1], pos[i][2] - BLOCK * (by + 1) + BLOCK)
