@@ -49,13 +49,15 @@ NAME = "TWIN_ALTAR"
 AUTHORED = """
 # ================= THE TWIN ALTAR -- the co-op puzzle (authored) =================
 
-[[prop]]                     # twin stone WEST -- plate A's marker
-prop = "altar_stone"
+[[prop]]                     # twin stone WEST -- plate A's marker. collision=false: the marker
+prop = "altar_stone"         # IS the plate -- stand right on the stone (walk-through scenery)
 pos = [-800, -400]
+collision = false
 
 [[prop]]                     # twin stone EAST -- plate B's marker (exactly +250 x)
 prop = "altar_stone"
 pos = [-550, -400]
+collision = false
 
 [[prop]]                     # the ANCHOR stone: a marker BESIDE the held lane, not on it (props
 prop = "altar_stone"         # carry mild collision -- standing ON one fights the mechanic). The
