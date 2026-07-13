@@ -217,12 +217,50 @@ for ti in rock:
         qgrp.append([ti])
 print(f"uv: per-quad inset windows at u {PX_U:.0f}px/u x v {PX_V:.0f}px/u; "
       f"{sum(1 for g in qgrp if len(g) == 2)} quads + {sum(1 for g in qgrp if len(g) == 1)} solo")
-for grp in qgrp:
+# THE FOOT-TRANSITION LAW (foot_transition_anatomy.py, measured on Uaho + Daguerreo):
+# rock quads TOUCHING grass wear a FULL row-10 tile with the tile BOTTOM EDGE pinned
+# EXACTLY on the boundary verts (v-frac 1.00, zero spread) and the tile top at the
+# interior verts (0.03); u spans the full tile across the quad, chained along the foot
+# (cols cycling = the sawtooth). Grass keeps plain mains. Edge-TOUCHING uvs are
+# Moguri-safe (the real map pins and renders clean); only edge-CROSSING smears.
+grass_edges = defaultdict(set)                             # rock tri -> its boundary verts
+e2all = defaultdict(list)
+for ti, t in enumerate(tris):
+    ps = [kk(v) for v in t["w"]]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        e2all[tuple(sorted((ps[a], ps[b])))].append(ti)
+for e, ts in e2all.items():
+    if len(ts) != 2:
+        continue
+    r2 = [ti for ti in ts if ti in rock]
+    g2 = [ti for ti in ts if ti not in rock and tris[ti]["topo"] == 0]
+    if len(r2) == 1 and len(g2) == 1:
+        grass_edges[r2[0]].update(e)
+bnd_groups = {gi for gi, grp in enumerate(qgrp) if any(t2 in grass_edges for t2 in grp)}
+print(f"foot-transition quads: {len(bnd_groups)} (pinned full row-10 tiles)")
+for gi, grp in enumerate(qgrp):
     pts = [(t2, k) for t2 in grp for k in range(3)]
     ws = [tris[t2]["w"][k] for t2, k in pts]
     cen3 = np.mean(ws, axis=0)
     az = math.atan2(cen3[2] - cz, cen3[0] - cx)
     tx2, tz2 = -math.sin(az), math.cos(az)                 # the contour (tangential) dir
+    if gi in bnd_groups:
+        # THE FOOT-TRANSITION LAW: a full row-10 tile, bottom edge pinned ON the boundary
+        bpts = set()
+        for t2 in grp:
+            bpts.update(grass_edges.get(t2, ()))
+        col = 6 + int(((az + math.pi) / (2 * math.pi) * 40.0) % 4)
+        tile_u0 = pu + col * TILE_U
+        tile_v0 = pv + 10 * TILE_V
+        tvals = [(p[0] - cen3[0]) * tx2 + (p[2] - cen3[2]) * tz2 for p in ws]
+        t_lo2 = min(tvals)
+        t_sp2 = max(0.4, max(tvals) - t_lo2)
+        for (t2, k), tv in zip(pts, tvals):
+            vkey = kk(tris[t2]["w"][k])
+            tris[t2]["uv"][k][0] = tile_u0 + (tv - t_lo2) / t_sp2 * TILE_U
+            tris[t2]["uv"][k][1] = tile_v0 + (TILE_V if vkey in bpts else 0.03 * TILE_V)
+            tris[t2]["tan"][k] = [ID49, 0.0, 0.0, 1.0]
+        continue
     tvals = [(p[0] - cen3[0]) * tx2 + (p[2] - cen3[2]) * tz2 for p in ws]
     hvals = [max(0.0, base_h(p[0], p[2]) - h_rock0) for p in ws]   # SMOOTH heights
     h_c = float(np.mean(hvals))
