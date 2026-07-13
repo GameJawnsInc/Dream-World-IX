@@ -1569,7 +1569,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 scene_body += "[camera.scroll]\nenabled = true\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn,
                                       borrow_bg=p.borrow_bg, events=events,
-                                      markers=_collect_waypoints(context))
+                                      markers=_collect_waypoints(context),
+                                      spawn_face=_spawn_face(context), arrivals=_collect_arrivals(context))
             self.report({"INFO"}, f"BG-borrow fork of {p.borrow_bg}: scene.toml written"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                                   f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
@@ -1596,12 +1597,18 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if p.scroll_enabled:
                 scene_body += "[camera.scroll]\nenabled = true\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
-                                      markers=_collect_waypoints(context))
+                                      markers=_collect_waypoints(context),
+                                      spawn_face=_spawn_face(context), arrivals=_collect_arrivals(context))
+            _arr_note = ""
+            if _collect_arrivals(context):
+                _arr_note = (" NOTE: arrival markers were written, but a VERBATIM fork carries the "
+                             "donor's own per-door arrival table in its .eb -- the rows won't apply "
+                             "here (lint flags them); author arrivals on synthesized fields")
             self.report({"INFO"}, f"verbatim fork {p.field_name}: spatial markers written "
                                   f"({len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} "
                                   f"event(s)) -- the verbatim walkmesh ships untouched"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
-                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
+                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml{_arr_note}")
             return {"FINISHED"}
 
         if p.editable_fork:
@@ -1642,7 +1649,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if layers:
                 scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
-                                  markers=_collect_waypoints(context))
+                                  markers=_collect_waypoints(context),
+                                      spawn_face=_spawn_face(context), arrivals=_collect_arrivals(context))
             self.report({"INFO"}, f"editable fork {p.field_name}: scene.toml ({len(layers)} layer(s), "
                                   f"{'multi-floor' if has_links else 'single-floor'})"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
@@ -1715,8 +1723,21 @@ def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=N
     in the scene; their actions go in the field stub (joined by name). Named movement ``markers`` are
     spatial-only -> scene.toml; so are the spawn facing + per-door ``arrivals`` (the scene owns
     [player] per-key -- arrival markers here own the whole table). Returns True if a fresh field.toml
-    stub was written (False = kept)."""
+    stub was written (False = kept).
+
+    Filename CASING adopts an existing field.toml's: the add-on's convention is lowercase, but a
+    CLI-forked project ships e.g. TWIN_ALTAR.field.toml -- writing twin_altar.scene.toml beside it
+    happens to build on Windows (case-insensitive) but silently MISSES on Linux/mac, and the
+    lowercase stub check would even write a SECOND field.toml there. Matching the existing stem
+    keeps one project = one casing on every platform."""
     base = p.field_name.lower()
+    try:
+        for f in os.listdir(out):
+            if f.lower() == f"{base}.field.toml":
+                base = f[:-len(".field.toml")]           # adopt the existing file's exact casing
+                break
+    except OSError:
+        pass
     with open(os.path.join(out, f"{base}.scene.toml"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn, events=events,
                                    markers=markers, spawn_face=spawn_face, arrivals=arrivals))
