@@ -38,10 +38,11 @@ donor-divert support). To remove, delete the deployed `Block[*]` files under
 | C | (7,17) | cell (3,18) | A real sandy-beach island, landable on foot. `land_margin = 0` because its land legitimately reaches its own east frame edge. Also the mint's `pins_from` reference — island B's foam/sand language is byte-read from here. |
 | D | (0,0) Uaho | cell (5,19) | A genuine all-cliff peak — authentically reachable only by airship or flying chocobo, FF9's own hidden-isle design language. |
 | E | *synthetic* | cells (4–5, 17–18) + (6,18) | The grassland island — a fully kit-synthesized ~112×114u lobed landmass (`world-island`, seed 55): native grass mains, two verbatim meadow stamps, rolling relief, the ~73° rock rim. The **interior-topography canvas** — now carrying a carried canopy FOREST (west lobe), two meadows, and a real-language grass HILL (south lobe). Its footprint deliberately skips block (6,17) — a REAL sea-skirt block (the open-ocean target law, now a `world-island` gate). |
-| F | *synthetic* | cell (3,17) | The terrace islet — a compact patchless `world-island` mint (r26, seed 15) carrying the first synthesized **interior TERRACE**: a topo-13 grass mid-shelf at ~17u ringed by three stacked topo-49 rock-wall courses in the decoded band language. Between C and E. Regenerate: `world-island --center 224,-1120 --radius 26 --seed 15 --lobes 1 --patches 0` + `studies/overworld-topography/terrace_build.py deploy`. |
+| F | (5,15) + 3×2 | cells (1–3, 16–17) | **The two-level island** (in-game proven 2026-07-13) — a whole real coastal feature carried verbatim: a rocky horseshoe massif rising from a lowland grass ring, enclosing a hanging topo-13 grass bowl at y≈15–16 with a real river, twin waterfalls and a stone bridge (Daguerreo's entrance scenery — the un-overridden donor-prefab parts ride along verbatim, the s34 free-ride). Replaced the earlier synthetic terrace islet at (3,17); also spans island B's formerly-empty east column. Regenerate: `world-transplant --mod-folder FF9CustomMap-world --cell 1,16 --donor 5,15 --size 3x2 --shift 0,0 --land-margin 0`. |
 
 First-look world coordinates (approximate cell centers, e.g. for the debug-menu teleport):
-A (64,−864) · B (64,−1024) · C (224,−1184) · D (352,−1248) · E (344,−1152).
+A (64,−864) · B (64,−1024) · C (224,−1184) · D (352,−1248) · E (344,−1152) ·
+F lowland (75.5,−1074.5) / terrace bowl (130.5,−1077.5).
 
 ## Notes
 
