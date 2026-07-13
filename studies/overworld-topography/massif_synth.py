@@ -186,20 +186,47 @@ pu, pv = stage1["phase"]
 U_B0 = pu + 6 * TILE_U + 0.0005                            # col-6 left edge (tiny inset)
 U_SPAN = 4 * TILE_U - 0.001
 V_FOOT = pv + 10 * TILE_V + TILE_V - 0.0005                # row-10 BOTTOM edge
-y_rock0 = y_base + APRON_H * 0.8                           # the flow anchors at the rock line
-NB = max(2, round(2 * math.pi * (0.55 * avail) / 18.8))    # band sweeps around the contour
-print(f"uv field: u band x{NB} around, v rows from {V_FOOT:.4f} at y {y_rock0:.1f}")
+h_rock0 = APRON_H * 0.8                                    # the flow anchors at the rock line
+# THE MEASURED UAHO DENSITY: v = one tile row per 2.6u of height (50 px/u), u = the
+# 4-col band per 27.2u of contour (19 px/u). u is CYLINDRICAL PER COURSE: each 2.6u
+# height band sweeps at its own mid radius, so arc density holds everywhere (a single
+# radial az field compressed 10x at the apex -- the round-3 chevron/warp verdict).
+V_PER_U = TILE_V / 2.6
+BAND_ARC = 27.2                                            # 4 cols x 6.8u per col
+course_r = {}
+for ti in rock:
+    for k in range(3):
+        v = tris[ti]["w"][k]
+        hs = base_h(v[0], v[2])
+        c = int(max(0.0, hs - h_rock0) / 2.6)
+        course_r.setdefault(c, []).append(math.hypot(v[0] - cx, v[2] - cz))
+course_r = {c: float(np.median(rs)) for c, rs in course_r.items()}
+print(f"uv field: v 50px/u, u 19px/u cylindrical per course; course radii "
+      f"{ {c: round(r, 1) for c, r in sorted(course_r.items())} }")
 for ti in rock:
     t = tris[ti]
+    hss = [max(0.0, base_h(v[0], v[2]) - h_rock0) for v in t["w"]]
+    c = int(float(np.mean(hss)) / 2.6)
+    r_c = max(2.0, course_r.get(c, 3.0))
+    ph = []
+    for v in t["w"]:
+        az = math.atan2(v[2] - cz, v[0] - cx)
+        ph.append((az * r_c / BAND_ARC) % 1.0)
+    if max(ph) - min(ph) > 0.5:                            # the tri straddles the band wrap:
+        ph = [p + 1.0 if p < 0.5 else p for p in ph]       # unwrap so u interpolates forward
+        base = math.floor(min(ph))
+        ph = [p - base for p in ph]
     for k in range(3):
         v = t["w"][k]
-        az = math.atan2(v[2] - cz, v[0] - cx)
-        u_f = U_B0 + (((az + math.pi) / (2 * math.pi) * NB) % 1.0) * U_SPAN
+        u_f = U_B0 + ph[k] * U_SPAN
         r = math.hypot(v[0] - cx, v[2] - cz)
-        if r < 3.0:                                        # the apex singularity: freeze u
-            u_f = U_B0 + 0.5 * U_SPAN + (u_f - U_B0 - 0.5 * U_SPAN) * (r / 3.0)
+        if r < 2.5:                                        # the apex: freeze u
+            u_f = U_B0 + 0.5 * U_SPAN + (u_f - U_B0 - 0.5 * U_SPAN) * (r / 2.5)
         t["uv"][k][0] = u_f
-        t["uv"][k][1] = V_FOOT - max(0.0, v[1] - y_rock0) / 4.7 * TILE_V
+        # THE SMOOTH-FIELD LAW: v follows the SMOOTH shape height at (x,z), never the
+        # jittered vertex y -- jitter reversals fold the sampled strip (chevrons);
+        # the crags show through SHADING (normals), the texture flows over them.
+        t["uv"][k][1] = V_FOOT - hss[k] * V_PER_U
         t["tan"][k] = [ID49, 0.0, 0.0, 1.0]
 
 # ---- normals: per-class local re-smooth ------------------------------------------------------------
@@ -336,6 +363,20 @@ for k, img in enumerate(views):
     sheet.paste(img, (0, k * (RH + gap)))
 sheet.save(OUTD / "massif_synth_views.png")
 print(f"-> {OUTD / 'massif_synth_views.png'}")
+# game-texel-scale close-up (the low-res views hid the round-3 chevrons)
+SCc, HWc, HHc = 44, 9.0, 12.0
+RWc, RHc = int(2 * HWc * SCc), int(HHc * SCc)
+img = Image.new("RGB", (RWc, RHc), (150, 178, 210))
+vx, vz, rx, rz = 1.0, 0.0, 0.0, 1.0                        # looking east at the west face
+rec = sorted(range(len(tris)),
+             key=lambda t2: max((p[0] - cx) * vx + (p[2] - cz) * vz for p in tris[t2]["w"]))
+for t2 in rec:
+    t = tris[t2]
+    sx = [((p[0] - cx) * rx + (p[2] - cz) * rz + HWc) * SCc for p in t["w"]]
+    sy = [((HHc + 1.5) - p[1]) * SCc for p in t["w"]]
+    raster(img, sx, sy, t["uv"], t["n"], RWc, RHc)
+img.save(OUTD / "massif_synth_close.png")
+print(f"-> {OUTD / 'massif_synth_close.png'} (west face at game texel scale)")
 S2 = 8
 img = Image.new("RGB", (int(BLOCK * S2), int(BLOCK * S2)), (24, 40, 72))
 for t2 in sorted(range(len(tris)), key=lambda t3: min(p[1] for p in tris[t3]["w"])):
