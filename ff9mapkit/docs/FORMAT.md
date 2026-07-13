@@ -223,6 +223,14 @@ The build lints each `pos` against the walkmesh like the spawn. Entering with an
 no row (including a fresh New-Game/F6 warp) uses `[player] spawn` — the rows are pure overrides, so a
 field without them is byte-identical to before.
 
+Coverage is audited automatically. `lint-campaign` (and journey lint) walks the campaign's edge graph and
+warns when several doors arrive at a member with distinct entrances but no rows (every door lands on one
+spawn), when sources all write the same entrance (the destination can't tell them apart), when an inbound
+entrance has no row (falls through to the default), and when a row's entrance is never routed (a typo).
+Verbatim members are exempt — they carry the donor's real table — and rows *on* a verbatim fork are flagged
+as ignored. Field-level `lint` additionally checks self-loop gateways (`to` = the field's own id) against
+the rows.
+
 ---
 
 ## `[[npc]]` (optional, repeatable)

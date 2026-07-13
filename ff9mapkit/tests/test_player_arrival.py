@@ -103,6 +103,101 @@ def test_build_rejects_malformed_rows(tmp_path, block, msg):
         _build(tmp_path, block)
 
 
+# ---- rung 3: the campaign-graph entrance audit (campaign.lint_campaign (g2)) --------------------
+def _campaign_plan(tmp_path, *, edges, member_content=None, verbatim=False, entry_entrance=0):
+    from ff9mapkit import campaign
+    members = [campaign.Member(300, 6000, "A", "borrow", 11, "", "A/A.field.toml", False),
+               campaign.Member(301, 6001, "B", "borrow", 11, "", "B/B.field.toml", False)]
+    plan = campaign.CampaignPlan(name="C", mod_folder="M", id_base=6000,
+                                 flag_base=campaign.FIRST_SAFE_FLAG, flags_per_field=64,
+                                 entry_name="A", entry_entrance=entry_entrance,
+                                 members=members, edges=edges)
+    plan.verbatim = verbatim
+    for m in members:
+        d = tmp_path / m.name
+        d.mkdir(parents=True, exist_ok=True)
+        extra = (member_content or {}).get(m.name, "")
+        (d / f"{m.name}.field.toml").write_text(
+            f'[field]\nid = {m.new_id}\nname = "{m.name}"\narea = 11\n{extra}', encoding="utf-8")
+    return plan
+
+
+def _arrival_warnings(tmp_path, **kw):
+    from ff9mapkit import campaign
+    _errors, warnings = campaign.lint_campaign(_campaign_plan(tmp_path, **kw), tmp_path)
+    return [w for w in warnings if "arrival" in w or "entrance" in w]
+
+
+_TWO_DOORS = [{"frm": "A", "to": "B", "entrance": 1}, {"frm": "A", "to": "B", "entrance": 2}]
+
+
+def test_campaign_lint_flags_the_arrival_collapse(tmp_path):
+    # two doors with distinct entrances, no rows -> "every door lands on the one spawn"
+    w = _arrival_warnings(tmp_path, edges=_TWO_DOORS)
+    assert any("B" in x and "no [[player.arrival]] rows" in x and "2 doors" in x for x in w)
+
+
+def test_campaign_lint_full_coverage_is_silent(tmp_path):
+    rows = ('[[player.arrival]]\nentrance = 1\npos = [0, 0]\n'
+            '[[player.arrival]]\nentrance = 2\npos = [9, 9]\n')
+    assert _arrival_warnings(tmp_path, edges=_TWO_DOORS, member_content={"B": rows}) == []
+
+
+def test_campaign_lint_partial_coverage_and_dead_row(tmp_path):
+    rows = ('[[player.arrival]]\nentrance = 1\npos = [0, 0]\n'
+            '[[player.arrival]]\nentrance = 7\npos = [9, 9]\n')
+    w = _arrival_warnings(tmp_path, edges=_TWO_DOORS, member_content={"B": rows})
+    assert any("inbound entrance 2" in x and "falls through" in x for x in w)   # door 2 uncovered
+    assert any("entrance 7 is not routed" in x for x in w)                      # row 7 unreachable
+
+
+def test_campaign_lint_same_entrance_doors_cant_dispatch(tmp_path):
+    # two sources both writing entrance 0 -> the destination can't tell them apart
+    w = _arrival_warnings(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0},
+                                           {"frm": "B", "to": "B", "entrance": 0}])
+    assert any("can't tell them apart" in x and "distinct entrance=" in x for x in w)
+
+
+def test_campaign_lint_entry_entrance_counts_as_inbound(tmp_path):
+    # the entry member is entered from OUTSIDE with entry_entrance -- a row for it is NOT a dead row
+    rows = '[[player.arrival]]\nentrance = 5\npos = [0, 0]\n'
+    w = _arrival_warnings(tmp_path, edges=[], member_content={"A": rows}, entry_entrance=5)
+    assert not any("not routed" in x for x in w)
+
+
+def test_campaign_lint_verbatim_members_exempt_and_rows_flagged(tmp_path):
+    # a verbatim member carries the donor table: no collapse warning without rows, IGNORED warning with
+    assert _arrival_warnings(tmp_path, edges=_TWO_DOORS, verbatim=True) == []
+    rows = '[[player.arrival]]\nentrance = 1\npos = [0, 0]\n'
+    w = _arrival_warnings(tmp_path, edges=_TWO_DOORS, member_content={"B": rows}, verbatim=True)
+    assert any("IGNORED on a verbatim member" in x for x in w)
+
+
+# ---- rung 3: the field-local checks (build.lint_player_arrivals) --------------------------------
+def test_field_lint_verbatim_dead_keys(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid = 6100\nname = "V"\narea = 11\n[verbatim_eb]\nbin = "x.bin"\n'
+                 '[player]\nface = 64\n[[player.arrival]]\nentrance = 1\npos = [0, 0]\n', encoding="utf-8")
+    out = build.lint_player_arrivals(build.FieldProject.load(p))
+    assert any("IGNORED on a verbatim fork" in x and "[[player.arrival]]" in x and "[player] face" in x
+               for x in out)
+
+
+def test_field_lint_self_loop_coverage(tmp_path):
+    from ff9mapkit import build
+    base = ('[field]\nid = 4003\nname = "S"\narea = 11\n[player]\nspawn = [0, 0]\n'
+            '[[player.arrival]]\nentrance = 1\npos = [5, 5]\n'
+            '[[gateway]]\nto = 4003\nentrance = 1\nzone = [[0,0],[1,0],[1,1],[0,1]]\n')
+    p = tmp_path / "f.field.toml"
+    p.write_text(base, encoding="utf-8")
+    assert build.lint_player_arrivals(build.FieldProject.load(p)) == []          # covered -> silent
+    p.write_text(base + '[[gateway]]\nto = 4003\nentrance = 9\nzone = [[2,2],[3,2],[3,3],[2,3]]\n',
+                 encoding="utf-8")
+    out = build.lint_player_arrivals(build.FieldProject.load(p))
+    assert any("self-loop" in x and "entrance 9" in x for x in out)
+
+
 def test_lint_flags_an_off_mesh_arrival(tmp_path):
     # arrival rows get the same placement advisory the spawn has -- an off-walkmesh pos warns
     from pathlib import Path

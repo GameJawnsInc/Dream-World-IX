@@ -2325,6 +2325,40 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
         r"Framework csc at C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe works too).")
 
 
+def lint_player_arrivals(project: FieldProject) -> list:
+    """Field-LOCAL ``[[player.arrival]]`` checks (the cross-field inbound audit lives in
+    ``campaign.lint_campaign`` (g2), which sees the whole edge graph):
+
+    - ``[player] face`` / ``[[player.arrival]]`` on a VERBATIM fork are dead weight -- the verbatim
+      composition ships the donor ``.eb`` whole (its own real arrival table) and never reads them.
+    - a SELF-LOOP gateway (``to`` = this field's own id, the ARRTEST test-field idiom) whose ``entrance``
+      has no arrival row silently falls through to the default spawn -- almost always a typo when the
+      field bothered to author rows at all."""
+    out = []
+    player = project.raw.get("player") or {}
+    rows = player.get("arrival") or []
+    if "verbatim_eb" in project.raw:
+        dead = [lbl for lbl, v in (("[[player.arrival]]", rows or None), ("[player] face", player.get("face")))
+                if v is not None]
+        if dead:
+            out.append(f"{' + '.join(dead)} are IGNORED on a verbatim fork -- the donor .eb carries its own "
+                       f"real per-door arrival table (use [[logic_edit]] to move a donor arrival)")
+        return out
+    fid = project.field.get("id")
+    if rows and fid is not None:
+        covered = {int(r["entrance"]) for r in rows if isinstance(r, dict) and r.get("entrance") is not None}
+        for gw in project.raw.get("gateway") or []:
+            to = gw.get("to")
+            try:
+                ent = int(gw.get("entrance", 0) or 0)
+            except (TypeError, ValueError):
+                continue                                   # malformed entrance is validate()'s problem
+            if isinstance(to, int) and to == int(fid) and ent not in covered:
+                out.append(f"self-loop gateway (to = {to}, entrance {ent}) has no [[player.arrival]] row -- "
+                           f"re-entering through it lands on the default [player] spawn. (advisory)")
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -2334,6 +2368,7 @@ def lint_all(project: FieldProject) -> LintReport:
     of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
     rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
     rep.logic.extend(lint_region_overlaps(project))       # the TreadQuad law: overlapping tread regions starve
+    rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad

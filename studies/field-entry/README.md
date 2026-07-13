@@ -6,7 +6,15 @@
 > axis inverted (the user caught it: "might've just been cardinal mixup" — it was; **FRONT = toward
 > the camera = NEGATIVE z**, `FloorFrame zb=+257/zf=-1931`, labels fixed everywhere). Bonus proof:
 > a self-loop `Field(<own id>)` gateway reloads the field cleanly, so one field can test its own
-> arrival table. Build facts: `[player] face` (the D9(6) spawn-facing
+> arrival table. **RUNG 3 BUILT (same day, offline-complete):** the campaign-graph entrance audit —
+> `campaign.lint_campaign` (g2) walks `plan.edges` (which already carry `entrance`) + `entry_entrance`
+> and warns on the COLLAPSE (distinct inbound entrances, no rows), SAME-ENTRANCE ambiguity (doors the
+> destination can't tell apart), PARTIAL coverage (an inbound entrance falling through to default),
+> and DEAD rows (an entrance never routed); verbatim members are exempt (donor table carried) and
+> rows on one are flagged IGNORED (the verbatim composition never reads `[player]` face/arrival —
+> verified against `compose_verbatim_eb`). Field-local `build.lint_player_arrivals` (in `lint_all`)
+> flags verbatim dead keys + uncovered self-loop entrances. 8 tests; pure lint, no bytes changed —
+> no playtest needed. Build facts: `[player] face` (the D9(6) spawn-facing
 > const patch) and `[[player.arrival]]` (per-entrance dispatch compiled as field-706-style
 > `if (D8:2 == N)` const-override blocks before `CreateObject` — the generalized ladder splice) are
 > in the kit with 12 tests; the offline oracle round-trip holds (author → build →
