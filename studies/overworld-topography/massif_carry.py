@@ -286,6 +286,57 @@ guv = [list(u) for u in bm.chan_arrays[X.CH_UV]]
 gtan = [list(t) for t in bm.chan_arrays[X.CH_TAN]]
 gtopo = [X.decode_id(int(round(gtan[t[0]][0])))["topograph"] for t in gtris]
 assert not any(tp in ROCK for tp in gtopo), "bench not pristine -- restore the .bak first"
+
+# ---- 2b. THE MINT-HOLE PATCH: the r31 seed-42 mint ships a MISSING grass tri (three
+# once-edges forming a closed 3-cycle at (143.5, 3.2, -1263.8) -- the in-game "sliver";
+# a kit bug, flagged separately). Detect every once-edge 3-cycle above sea level and
+# fill it with its neighbors' own language: each corner copies uv/normal/id from a
+# coincident entry whose tri shares the patch tri's 4u cell (same mains mapping).
+eu_h = Counter()
+for tri in gtris:
+    w = [gpos[i] for i in tri]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        eu_h[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
+oh = [e for e, n in eu_h.items() if n == 1
+      and e[0][1] > 0.5 and e[1][1] > 0.5]
+adj_h = defaultdict(set)
+for a, b in oh:
+    adj_h[a].add(b)
+    adj_h[b].add(a)
+holes3 = set()
+for a in adj_h:
+    for b in adj_h[a]:
+        for c in adj_h[b]:
+            if c != a and c in adj_h[a]:
+                holes3.add(tuple(sorted((a, b, c))))
+ent_at = defaultdict(list)                                 # position -> vertex entries
+for tdx, tri in enumerate(gtris):
+    for i in tri:
+        ent_at[kk3(gpos[i])].append((tdx, i))
+cell4 = lambda x, z: (math.floor(x / 4.0), math.floor(z / 4.0))
+for cyc in sorted(holes3):
+    cen = np.mean([list(p) for p in cyc], axis=0)
+    ccell = cell4(cen[0], cen[2])
+    a3, b3, c3 = (np.array(p) for p in cyc)
+    order = cyc if np.cross(b3 - a3, c3 - a3)[1] > 0 else (cyc[0], cyc[2], cyc[1])
+    new_idx = []
+    for p in order:
+        pick = None
+        for tdx, i in ent_at[p]:
+            tc = np.mean([gpos[j] for j in gtris[tdx]], axis=0)
+            if cell4(tc[0], tc[2]) == ccell:
+                pick = i
+                break
+        if pick is None:
+            pick = ent_at[p][0][1]
+        gpos.append(list(gpos[pick]))
+        gnrm.append(list(gnrm[pick]))
+        guv.append(list(guv[pick]))
+        gtan.append(list(gtan[pick]))
+        new_idx.append(len(gpos) - 1)
+    gtris.append(new_idx)
+    gtopo.append(X.decode_id(int(round(gtan[new_idx[0]][0])))["topograph"])
+    print(f"mint hole PATCHED at ({cen[0]:.1f},{cen[2]:.1f}) y {cen[1]:.1f}", flush=True)
 lo_u, hi_u = G.FAM_REGION["main"][0], G.FAM_REGION["main"][2]
 plain = []
 for tdx, tri in enumerate(gtris):
