@@ -2950,8 +2950,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info["backups"]:
         print(f"  backed up {len(info['backups'])} pre-edit dispatcher file(s) -> {Path(info['backups'][0]).parent}")
     if not info["dry_run"]:
-        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, walk to the "
-              "cell -- an \"!\" action prompt fires the warp. (Mesh overrides need the WorldMeshOverride engine patch.)"
+        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and walk "
+              "ONTO the cell -- stepping on the event tile fires the warp (these entrances are walk-on; the "
+              "faithful \"!\" action-prompt UX is a separate, unbuilt step). (Mesh overrides need the "
+              "WorldMeshOverride engine patch.)"
               % info.get("disc", args.disc))
     return 0
 
