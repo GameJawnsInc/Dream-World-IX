@@ -132,6 +132,16 @@ def test_coop_gate_missing_pieces_refuse(tmp_path):
         _build.build_script(FieldProject.load(toml), "us", {})
 
 
+def test_gate_reveal_lands_between_flag_and_message():
+    """A gated NPC's live reveal (InitObject) runs after the set (its Init re-reads the flag's
+    new value) and BEFORE the message -- the NPC is standing there when the window closes."""
+    from ff9mapkit.content import event as _event
+    rv = _event.reveal_object(7)
+    body = _coop.gate_range_body([0, 0, 10, 10], 8600, message_txid=5, reveal=rv)
+    sf = _region.set_var(_region.GLOB_BOOL, 8600, 1)
+    assert body.index(sf) < body.index(rv) < body.index(_event.message(5))
+
+
 # ---------------------------------------------------------------- rung 2
 
 def test_assign_peer_in_rect_bytes():
