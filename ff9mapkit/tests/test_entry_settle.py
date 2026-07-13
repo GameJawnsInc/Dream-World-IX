@@ -62,3 +62,71 @@ def test_build_wires_entry_settle_from_camera_block(tmp_path):
     p.write_text(base.format(settle=""), encoding="utf-8")
     has2, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
     assert not has2
+
+
+# ---- field-entry rung 4: multicam support + the silent-no-op honesty --------------------------
+_MULTICAM = ('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+             '[[camera]]\npitch=30\ndistance=900\nfov=40\n{c0}'
+             '[[camera]]\npitch=35\ndistance=900\nfov=40\n{c1}'
+             '[player]\nspawn=[0,0]\n')
+
+
+def test_multicam_entry_settle_applies(tmp_path):
+    # entry_settle inside [[camera]] blocks used to be silently SKIPPED -- now the first nonzero applies
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(_MULTICAM.format(c0="", c1="entry_settle=33\n"), encoding="utf-8")
+    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    assert has and frames == [33]
+
+
+def test_build_warns_when_settle_cannot_apply(tmp_path, monkeypatch):
+    # the honesty warning: entry_settle requested but no reveal fade to hide it behind -> warn, once
+    from ff9mapkit import build
+    monkeypatch.setattr(build._entry_settle, "add_entry_settle", lambda b, n: b)   # force the no-op path
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+                 '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle=45\n[player]\nspawn=[0,0]\n',
+                 encoding="utf-8")
+    proj, w = build.FieldProject.load(p), []
+    build.build_script(proj, "us", {}, warnings=w)
+    build.build_script(proj, "us", {}, warnings=w)                                 # a 2nd lang: no duplicate
+    assert len([x for x in w if "NOT applied" in x and "reveal fade" in x]) == 1
+
+
+def _settle_lint(tmp_path, body):
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(f'[field]\nid = 4700\nname = "F"\narea = 21\n{body}', encoding="utf-8")
+    return build.lint_entry_settle(build.FieldProject.load(p))
+
+
+def test_lint_settle_dead_key_on_verbatim(tmp_path):
+    out = _settle_lint(tmp_path, '[verbatim_eb]\nbin = "x.bin"\n[camera]\nentry_settle = 45\n')
+    assert any("IGNORED on a verbatim fork" in x for x in out)
+
+
+def test_lint_settle_bad_values(tmp_path):
+    assert any("boolean" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = true\n'))
+    assert any("negative" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = -5\n'))
+    assert any("not an integer" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = "auto"\n'))
+    assert _settle_lint(tmp_path, '[camera]\nentry_settle = 45\n') == []           # a good value is silent
+    assert _settle_lint(tmp_path, '[camera]\npitch = 30\n') == []                  # absent is silent
+
+
+def test_lint_settle_multicam_disagreement(tmp_path):
+    out = _settle_lint(tmp_path, '[[camera]]\nentry_settle = 45\n[[camera]]\nentry_settle = 90\n')
+    assert any("FIRST nonzero (45)" in x for x in out)
+    same = _settle_lint(tmp_path, '[[camera]]\nentry_settle = 45\n[[camera]]\nentry_settle = 45\n')
+    assert same == []                                                              # agreeing values are silent
+
+
+def test_string_settle_does_not_crash_the_build(tmp_path):
+    # a non-numeric value (e.g. a future "auto") is skipped with lint explaining -- never a traceback
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+                 '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle="auto"\n[player]\nspawn=[0,0]\n',
+                 encoding="utf-8")
+    has, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
+    assert not has                                                                 # skipped, built fine

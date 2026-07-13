@@ -14,7 +14,15 @@
 > rows on one are flagged IGNORED (the verbatim composition never reads `[player]` face/arrival —
 > verified against `compose_verbatim_eb`). Field-local `build.lint_player_arrivals` (in `lint_all`)
 > flags verbatim dead keys + uncovered self-loop entrances. 8 tests; pure lint, no bytes changed —
-> no playtest needed. Build facts: `[player] face` (the D9(6) spawn-facing
+> no playtest needed. **RUNG 4 BUILT (same day, offline-complete):** entry_settle honesty — the
+> key is now DOCUMENTED (FORMAT.md `[camera]` + the multicam note); `entry_settle` inside
+> `[[camera]]` MULTICAM blocks now APPLIES (first nonzero wins — it used to be silently skipped,
+> on exactly the scrolling class that needs it most); the build WARNS (once, not per-language)
+> when a requested settle can't insert (no plain reveal fade), via a `warnings=` kwarg on
+> `build_script` (the compose_verbatim_eb convention); `build.lint_entry_settle` (in `lint_all`)
+> flags the verbatim dead-key, boolean/negative/non-integer values, and disagreeing multicam
+> values; a non-numeric value (e.g. a future "auto") no longer crashes `int()` mid-build.
+> 6 tests. Build facts: `[player] face` (the D9(6) spawn-facing
 > const patch) and `[[player.arrival]]` (per-entrance dispatch compiled as field-706-style
 > `if (D8:2 == N)` const-override blocks before `CreateObject` — the generalized ladder splice) are
 > in the kit with 12 tests; the offline oracle round-trip holds (author → build →

@@ -68,6 +68,22 @@ Author a camera from a simple spec **or** borrow a real one.
 | `window_width` | the width the `fov` is measured against (default = `range[0]`). For a scrolling room set it to the visible screen width (`384`) so a wide `range` doesn't change the focal length. |
 | `proj`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (`proj` = explicit focal length; sensible GRGR-derived defaults). |
 | `borrow` | path to a `.bgx` whose `CAMERA` block to copy verbatim (instead of `pitch`/`fov`). |
+| `entry_settle` | OPTIONAL frames to hold the screen black on field entry before the reveal (absent/`0` = off). See below. |
+
+**`entry_settle` — hide the warp-in camera ease.** The engine runs a smooth-camera follower on *every*
+field; on entry it eases the camera from the scene centre to the player over ~a second (scaled by the
+user's `Memoria.ini CameraStabilizer`). Real fields hide this because their entry sequence (title card,
+cast setup) fills the time before the reveal — a lean synthesized field reveals almost immediately, so on
+a large-delta entry you *watch* the camera drift. `entry_settle = <frames>` inserts
+`DisableMove; Wait(n); EnableMove` just before Main_Init's reveal fade: the screen is still black there,
+so the camera converges unseen — the same black-hold the real game performs naturally. Use it on
+synthesized/BG-borrow fields whose spawn sits far from the camera's initial target (scrolling rooms
+especially — `fork-report` suggests it for those); **~45 is the proven starting value** (the World Hub
+ships 45–60). It needs the *arriving* transition to have faded to black — kit gateways and
+`fade = true` choice-warps do; a bare F6 debug warp shows the drift regardless (nothing scripted can hide
+that path). A `--verbatim` fork does **not** need it (the donor's own entry sequence is carried); the key
+is ignored there and `lint` says so. If the requested settle can't be inserted (no plain reveal fade in
+Main_Init), the build warns instead of silently skipping.
 
 ### `[camera.scroll]` (optional — larger-than-screen rooms)
 A field whose painting is **bigger than the screen** scrolls the view to follow the player (FF9
@@ -117,6 +133,10 @@ zone = [[400,-100],[1100,-100],[1100,-900],[400,-900]]
 | `[[layers]] camera = N` | which camera a background layer belongs to (default `0`) — paint a backdrop per camera. |
 | `[[camera_zone]] to_camera` | the camera index whose area this zone is. |
 | `[[camera_zone]] zone` | 4 convex `(x,z)` corners of that camera's floor area. |
+
+> `entry_settle` works on multicam fields too: it is one **field-wide** black-hold (not per-camera), so
+> set it in any one `[[camera]]` block — the build applies the first nonzero value it finds (and `lint`
+> flags disagreeing values).
 
 > Partition the floor into one zone per camera. The kit derives each camera's `SetControlDirection`
 > from its yaw (so "up" stays up-screen after a cut). **Zones must not overlap** (overlapping zones
