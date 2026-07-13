@@ -98,10 +98,16 @@ class FF9MKProps(bpy.types.PropertyGroup):
     scroll_enabled: bpy.props.BoolProperty(
         name="Scrolling room", default=False,
         description="Larger-than-screen painting the view pans across (FF9 streets/corridors)")
-    canvas_w: bpy.props.IntProperty(name="Canvas W", default=768, min=384,
-                                    description="Full painting width (>= 384; 768 = 2x screen)")
-    canvas_h: bpy.props.IntProperty(name="Canvas H", default=448, min=448,
-                                    description="Full painting height (>= 448)")
+    # REAL scroll canvases can be SMALLER than one 384x448 screen on an axis (Esto Gaza/Altar 2301 is
+    # 512x256; the line was min=448, which silently CLAMPED an imported real height -- the panel lied
+    # and a later Pose/Read Camera re-applied the clamped canvas, wrecking the frame aspect + paint
+    # guide). Floors: the engine's smallest shipping ranges (a 128 floor keeps any real import exact).
+    canvas_w: bpy.props.IntProperty(name="Canvas W", default=768, min=128,
+                                    description="Full painting width (768 = 2x screen; a new scrolling "
+                                                "room is usually >= 384)")
+    canvas_h: bpy.props.IntProperty(name="Canvas H", default=448, min=128,
+                                    description="Full painting height (448 = one screen; real fields "
+                                                "can be smaller, e.g. 2301 = 256)")
     back_y: bpy.props.FloatProperty(name="Floor back (canvas Y)", default=205.0)
     front_y: bpy.props.FloatProperty(name="Floor front (canvas Y)", default=432.0)
     walkmesh: bpy.props.PointerProperty(name="Walkmesh", type=bpy.types.Object,
