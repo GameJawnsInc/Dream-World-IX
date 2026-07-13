@@ -59,7 +59,23 @@
 > edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
 > front-right facing NORTH, the east door back-left facing SOUTH). It displaced the coop twin vault from
 > the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
-> Rung 7 (the entry_settle auto-estimator) is the arc's last open rung.
+> **RUNG 7 BUILT (same day, offline-calibrated; awaits ONE in-game check):** `entry_settle = "auto"` —
+> the estimator (`content.entry_settle.estimate_entry_settle`) replicates the engine EXACTLY (read
+> from Memoria `FieldMap.cs` this session): `CenterCameraOnPlayer` puts the camera at the player-aim's
+> CLAMPED GTE screen position (aim = spawn + `charAimHeight` 324 in y; offset = `compute_offset`; the
+> `.bgx` Viewport clamp in vrp space — `SceneService3DScroll`), it rests at the bare offset until the
+> player binds, and it eases geometrically `new = target + (prev − target) × CameraStabilizer/100`
+> per HonoLateUpdate frame (the same tick Wait counts). So the hold = bind delay (SmoothCamDelay 4–6
+> + the bind lag, taken as 10) + `ln(delta/0.25px)/−ln(0.85)`, ceil'd to a multiple of 5, clamped
+> 20–90; delta < 1px → 0 (byte-identical). CALIBRATION against the in-game-proven holds: hub 4500/
+> Gargan Roo delta 63px → 45 (proven 45), hub 4600/Mognet delta 61px → 45 (60 proven clean, 90
+> over-tuned), waystation/Daguerreo delta 107px → 50 (proven 45). The Viewport clamp bounds every
+> realistic delta and the log flattens the answer into exactly the proven 45–60 band. Wired: the
+> build gate (computed value surfaced in build output; unresolvable camera → fallback 45 + warning),
+> lint (legal, reports the resolution, multicam-disagreement counts it), the [hub] generator, the
+> Workspace Camera panel, fork-report's suggestion; the waystation example now ships "auto" (→ 50)
+> as the in-game check. Best-effort by design: CameraStabilizer is per-user (baked for default 85);
+> spawn y taken as 0 (inside a log — ±1-2 frames). 9 tests incl. an install-gated calibration pin.
 > The rest of this document is the investigation that shaped it.
 >
 > Original opening framing: this was the gap map for the two halves of

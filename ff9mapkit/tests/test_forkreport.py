@@ -898,6 +898,6 @@ def test_entry_settle_flag_only_for_scrolling():
     assert FR._entry_settle_line(FR.ForkReport(field_id=1, cam_scrolling=True)).lstrip().startswith("Entry settle")
     assert FR._entry_settle_line(FR.ForkReport(field_id=1, cam_scrolling=False)) == ""
     scroll = FR.format_report(FR.ForkReport(field_id=1, cam_scrolling=True, cam_pitch=4.6, cam_fov=51.6))
-    assert "Entry settle" in scroll and "entry_settle = 45" in scroll
+    assert "Entry settle" in scroll and 'entry_settle = "auto"' in scroll
     fixed = FR.format_report(FR.ForkReport(field_id=1, cam_scrolling=False, cam_pitch=41.0, cam_fov=26.5))
     assert "Entry settle" not in fixed

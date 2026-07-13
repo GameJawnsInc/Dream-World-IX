@@ -5,6 +5,25 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `entry_settle = "auto"`: the computed entry black-hold (field-entry rung 7)
+- `[camera] entry_settle = "auto"` now COMPUTES the frames held black on entry instead of
+  hand-copying "the hub precedent" (45). The estimator (`content.entry_settle`) replicates the
+  engine's smooth-cam exactly (Memoria `FieldMap.cs`): the camera's target is the player-aim's
+  clamped GTE screen position (aim = spawn + `charAimHeight` 324, the `.bgx` Viewport clamp), it
+  rests at the bare projection offset until the player binds, and it eases geometrically by
+  `CameraStabilizer/100` per frame — so the hold = bind delay + `ln(delta/0.25px) / −ln(0.85)`,
+  rounded up to a multiple of 5 and clamped to 20–90. Calibrated against the in-game-proven holds
+  (hub 45/60, waystation 45; 90 read as over-long): all three compute 45–50. A sub-pixel delta
+  returns 0 (nothing to hide — byte-identical build); an offline-unresolvable camera falls back
+  to the proven 45 with a warning. Best-effort: `CameraStabilizer` is per-user (baked for the
+  default 85).
+- The chosen value is surfaced in the build output and by `lint` (which also now treats `"auto"`
+  as legal, reports what it resolves to, and counts it in the multicam-disagreement check).
+- `"auto"` is accepted everywhere the key lives: the `[hub]` generator (emitted quoted), the
+  Workspace Camera panel (type `auto` in the entry-settle box), and `fork-report` now suggests
+  `entry_settle = "auto"` for scrolling synth forks. The bundled waystation example switched to
+  it (computes 50; shipped 45 before).
+
 ### Added — battle co-op + visitor mode reach the CLI and the Workspace Co-op tab
 - `ff9mapkit coop host|join` grows the s37 play-style flags, each written to `[Netsync]` only when
   given (re-runs never clobber hand tuning): `--guest-slots` (which of YOUR party slots the other

@@ -68,7 +68,7 @@ Author a camera from a simple spec **or** borrow a real one.
 | `window_width` | the width the `fov` is measured against (default = `range[0]`). For a scrolling room set it to the visible screen width (`384`) so a wide `range` doesn't change the focal length. |
 | `proj`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (`proj` = explicit focal length; sensible GRGR-derived defaults). |
 | `borrow` | path to a `.bgx` whose `CAMERA` block to copy verbatim (instead of `pitch`/`fov`). |
-| `entry_settle` | OPTIONAL frames to hold the screen black on field entry before the reveal (absent/`0` = off). See below. |
+| `entry_settle` | OPTIONAL frames to hold the screen black on field entry before the reveal (absent/`0` = off; `"auto"` = computed). See below. |
 
 **`entry_settle` — hide the warp-in camera ease.** The engine runs a smooth-camera follower on *every*
 field; on entry it eases the camera from the scene centre to the player over ~a second (scaled by the
@@ -79,7 +79,12 @@ a large-delta entry you *watch* the camera drift. `entry_settle = <frames>` inse
 so the camera converges unseen — the same black-hold the real game performs naturally. Use it on
 synthesized/BG-borrow fields whose spawn sits far from the camera's initial target (scrolling rooms
 especially — `fork-report` suggests it for those); **~45 is the proven starting value** (the World Hub
-ships 45–60). It needs the *arriving* transition to have faded to black — kit gateways and
+ships 45–60). **`entry_settle = "auto"` computes the hold for you**: the build measures the warp-in
+delta (the px distance between the camera's pre-player-bind rest position and its spawn-centred
+target, replicating the engine's projection + viewport clamp), converts it to frames under the
+engine's geometric ease (baked for the default `CameraStabilizer = 85` — it's a per-user setting, so
+this is best-effort), and clamps to a sane 20–90 band; the chosen value is printed in the build
+output and by `lint`. It needs the *arriving* transition to have faded to black — kit gateways and
 `fade = true` choice-warps do; a bare F6 debug warp shows the drift regardless (nothing scripted can hide
 that path). A `--verbatim` fork does **not** need it (the donor's own entry sequence is carried); the key
 is ignored there and `lint` says so. If the requested settle can't be inserted (no plain reveal fade in
