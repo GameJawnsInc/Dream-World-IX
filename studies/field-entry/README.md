@@ -1,14 +1,20 @@
 # Field entry — spawn points & entry settle (investigation, 2026-07-13)
 
-> **STATUS: RUNGS 1+2 BUILT — awaiting the in-game playtest.** `[player] face` (the D9(6) spawn-facing
+> **STATUS: RUNGS 1+2 ★ IN-GAME PROVEN (2026-07-13).** The ARRTEST playtest matched the authored
+> table exactly — default spawn facing WEST ("good"), and both doors landed the player at the
+> authored coordinates; the only defect was this study's own front/back PROSE, which had the depth
+> axis inverted (the user caught it: "might've just been cardinal mixup" — it was; **FRONT = toward
+> the camera = NEGATIVE z**, `FloorFrame zb=+257/zf=-1931`, labels fixed everywhere). Bonus proof:
+> a self-loop `Field(<own id>)` gateway reloads the field cleanly, so one field can test its own
+> arrival table. Build facts: `[player] face` (the D9(6) spawn-facing
 > const patch) and `[[player.arrival]]` (per-entrance dispatch compiled as field-706-style
 > `if (D8:2 == N)` const-override blocks before `CreateObject` — the generalized ladder splice) are
 > in the kit with 12 tests; the offline oracle round-trip holds (author → build →
 > `scan_player_arrivals` → the same table), arrival rows get the spawn's placement lint, absent keys
 > are byte-identical (hut golden green), FORMAT.md documents both, and fork-report's Arrival advisory
-> now names the vocabulary. The proof field is DEPLOYED on 4003 (`ARRTEST/` here — a self-loop: two
+> now names the vocabulary. The proof field lives on 4003 (`ARRTEST/` here — a self-loop: two
 > edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
-> back-right facing NORTH, the east door front-left facing SOUTH). Displaced the coop twin vault from
+> front-right facing NORTH, the east door back-left facing SOUTH). It displaced the coop twin vault from
 > the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
 > Rungs 3–7 (campaign-graph lint, arrival-aware import, settle docs/lint/auto, GUI) remain open.
 > The rest of this document is the investigation that shaped it.

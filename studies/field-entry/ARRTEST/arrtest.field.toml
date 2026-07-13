@@ -4,9 +4,10 @@
 # entrance values; the arrival table places + faces the player differently per door.
 #   - plain F6 -> Warp 4003 (no gateway wrote D8:2 for this arrival): the DEFAULT spawn,
 #     centre of the room [0, -837], facing WEST (face = 64) -- that alone proves rung 1.
-#   - walk into the WEST strip -> reload, appear BACK-RIGHT [700, -1600] facing NORTH (128).
-#   - walk into the EAST strip -> reload, appear FRONT-LEFT [-700, -200] facing SOUTH (0).
+#   - walk into the WEST strip -> reload, appear FRONT-RIGHT [700, -1600] facing NORTH (128).
+#   - walk into the EAST strip -> reload, appear BACK-LEFT [-700, -200] facing SOUTH (0).
 # Placeholder checkerboard floor = fine for reading position/facing.
+# (FRONT = toward the camera = NEGATIVE z in this frame: FloorFrame zb=+257 back, zf=-1931 front.)
 #
 # Deploy (from the repo root):  py tools/deploy_field.py studies/field-entry/ARRTEST/arrtest.field.toml
 # 4003 is already registered -> F6 -> Reload/Warp picks it up, no relaunch.
@@ -41,12 +42,12 @@ z = 3000
 spawn = [0, -837]        # the default arrival (F6 warp / unmatched entrance)
 face = 64                # rung 1: default spawn facing = WEST
 
-[[player.arrival]]       # rung 2: the west door lands you back-right, facing north
+[[player.arrival]]       # rung 2: the west door lands you front-right, facing north
 entrance = 1
 pos = [700, -1600]
 face = 128
 
-[[player.arrival]]       # ...and the east door front-left, facing south
+[[player.arrival]]       # ...and the east door back-left, facing south
 entrance = 2
 pos = [-700, -200]
 face = 0
