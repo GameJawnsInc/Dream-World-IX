@@ -314,29 +314,51 @@ for tdx, tri in enumerate(gtris):
     for i in tri:
         ent_at[kk3(gpos[i])].append((tdx, i))
 cell4 = lambda x, z: (math.floor(x / 4.0), math.floor(z / 4.0))
+n_orig = len(gtris)
+
+
+def decode_cell_early(ccell):
+    """The cell's (quad, ori) from any kept tri that exact-matches the mains language."""
+    for tdx in range(n_orig):
+        tri = gtris[tdx]
+        tc = np.mean([gpos[j] for j in tri], axis=0)
+        if cell4(tc[0], tc[2]) != ccell:
+            continue
+        for q in [(u2, v2) for u2 in (0, 1) for v2 in (0, 1)]:
+            for o in (0, 90, 180, 270):
+                err = 0.0
+                for j in tri:
+                    mu, mv = G.mains_uv(gpos[j][0], gpos[j][2], ccell, q, o)
+                    err = max(err, abs(mu - guv[j][0]), abs(mv - guv[j][1]))
+                if err < 1e-4:
+                    return q, o
+    return None
+
+
 for cyc in sorted(holes3):
     cen = np.mean([list(p) for p in cyc], axis=0)
     ccell = cell4(cen[0], cen[2])
+    # uv = the centroid cell's OWN decoded mapping evaluated at the corners -- the
+    # mint's convention for cell-straddling tris. (Corner-copies from coincident
+    # entries mix NEIGHBORING cells' mappings when the hole straddles a cell edge =
+    # the round-7 "weird texture" zipper stripe.)
+    qo = decode_cell_early(ccell)
+    assert qo, f"mint-hole cell {ccell} has no decodable mains tri"
+    q, o = qo
     a3, b3, c3 = (np.array(p) for p in cyc)
     order = cyc if np.cross(b3 - a3, c3 - a3)[1] > 0 else (cyc[0], cyc[2], cyc[1])
     new_idx = []
     for p in order:
-        pick = None
-        for tdx, i in ent_at[p]:
-            tc = np.mean([gpos[j] for j in gtris[tdx]], axis=0)
-            if cell4(tc[0], tc[2]) == ccell:
-                pick = i
-                break
-        if pick is None:
-            pick = ent_at[p][0][1]
+        pick = ent_at[p][0][1]                             # normal/id from any twin entry
         gpos.append(list(gpos[pick]))
         gnrm.append(list(gnrm[pick]))
-        guv.append(list(guv[pick]))
+        guv.append(list(G.mains_uv(p[0], p[2], ccell, q, o)))
         gtan.append(list(gtan[pick]))
         new_idx.append(len(gpos) - 1)
     gtris.append(new_idx)
     gtopo.append(X.decode_id(int(round(gtan[new_idx[0]][0])))["topograph"])
-    print(f"mint hole PATCHED at ({cen[0]:.1f},{cen[2]:.1f}) y {cen[1]:.1f}", flush=True)
+    print(f"mint hole PATCHED at ({cen[0]:.1f},{cen[2]:.1f}) y {cen[1]:.1f} "
+          f"(cell {ccell} quad {q} ori {o})", flush=True)
 lo_u, hi_u = G.FAM_REGION["main"][0], G.FAM_REGION["main"][2]
 plain = []
 for tdx, tri in enumerate(gtris):
