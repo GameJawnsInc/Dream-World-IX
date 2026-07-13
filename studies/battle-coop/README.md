@@ -1,5 +1,43 @@
 # Battle co-op — feasibility study (2026-07-12)
 
+> **★★ TWO-MACHINE PROVEN 2026-07-13 (the first real two-machine session):**
+> - **Follow-warp ★** — a `FollowHost=1` guest auto-warps to the host's field. GOTCHA that bit us:
+>   `[Netsync] TargetField` must be **0** (everywhere mode), not a specific field id. Following and
+>   syncing use DIFFERENT gates — `FollowHostTick` gates on `onField` (ignores TargetField, so a guest
+>   with `TargetField=30003` still FOLLOWS to any field), but broadcasting your real field gates on
+>   `inScope` (`fld == TargetField` unless 0), so off the target field the guest silently sends the
+>   field-0 sentinel and neither side pairs. Fix: `TargetField=0`. Also: `coop host` should FORCE
+>   `FollowHost=0` (a host following its guest is never valid; a stale selftest value dragged the host).
+> - **V2 `[[coop]]` ★** on the Twin Altar (30110): the symmetric two-plate gate, the LIVE Warden reveal,
+>   and the held-plate door all fired with two REAL players. The hold-door is asymmetric BY DESIGN —
+>   each machine derives its own flag from its PEER's position, so the holder opens the NON-holder's
+>   door (you cannot hold and pass at once; swap to let the other cross). "only the host can trigger the
+>   warp" = correct.
+> - **Battle co-op B0+B1 ★** — the spectate panel + the full command set worked two-machine.
+> - **Findings (source-verified, workflow `wf_6896ed2a`):** (a) the guest showing as Steiner on the
+>   HOST but Zidane on their OWN screen = EXPECTED, not a bug — `GhostAs` dresses only the peer's ghost
+>   on the viewer's screen; the guest's own body is their own save's leader. (b) selecting an ability
+>   command with NOTHING learned (Steiner's Swd Art) reaches a target prompt then no-ops = a real bug
+>   (latent edge, not a regression): `CollectNetMenus` (BattleHUD.Unity.cs:734) adds the command before
+>   filtering unlearned abilities (:744), and the guest conflates an empty list with an Instant command
+>   (NetSyncBattle.cs:753) → opens targeting. FIX: omit zero-usable-ability Ability-type commands at the
+>   `CollectNetMenus` source (type-aware; keep learned-but-Disabled). **Queued for the next rebuild** with
+>   Tier-1 guest-render-only panel enrichment.
+>
+> **★ STRATEGIC PIVOT — the pillar's NORTH STAR is now the AUTHORITATIVE-HOST paradigm (2026-07-13):**
+> "play the STANDARD GAME together" — ONE real playthrough (the host's); the guest is a second player
+> INSIDE it (a following presence on the field, controller-2 in battle). The unifying principle: **the
+> guest's client is a PUPPET that mirrors the host's authoritative game; the guest supplies input, the
+> host owns truth.** Field-puppet = follow-warp (built); battle-puppet = the **diorama** (boot the host's
+> battle on the guest, AI/ATB off, driven by the existing B0 stream — never simulate, never diverge; see
+> "Beyond B1"). This is FF9's OWN design restored — PS1 2-player was battle-only, the field is single-body
+> by nature. The **FEDERATED** paradigm (two autonomous games + the position-derived `[[coop]]` gates,
+> now two-machine-proven) is DEMOTED to a future **"custom game modes"** track — still ours, not the
+> headline. The load-bearing unknown of the new north star = STORY-STATE sync (making the guest's fields
+> render matching the host's progression); feasibility probe running (`wf_f019fe71`). Panel-enrichment is
+> de-prioritized under this pivot — the diorama gives the guest the real battle scene, obsoleting a
+> dressed-up text panel (the empty-command BUG fix still ships).
+>
 > **STATUS: B0 + B1 are BUILT and ★ SOLO-TIER PROVEN including the full command set (same day) —
 > engine patch `memoria-patches/s37-netsync-battle.patch`, wire v4: typed frames, the battle-state
 > spectate panel, `[Netsync] GuestSlots`, and guest commands covering Attack/Defend/ABILITIES/ITEMS
