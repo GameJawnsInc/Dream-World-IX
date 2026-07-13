@@ -21,6 +21,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   of seconds. The panel reads its state from Memoria.ini on refresh, feeds Start co-op, and greys
   out with a pointer when the engine predates s37 (detection: `NetSyncBattle` in the DLL).
 
+### Added — `world-mirror`: custom overworld land now survives disc 4
+- THE DISC-4 GAP (found in-game: "the island no longer exists when I switch to Disc 4"): the
+  overworld ships exactly TWO asset trees — `worldmap/disc1` (serving discs 1–3) and
+  `worldmap/disc4` (its own art; only `WorldDisc1`/`WorldDisc4` prefabs exist) — and every s34
+  lookup (override files, `Donor.txt` sidecars, the reclaim fallback prefab) keys on the engine's
+  `currentDisc`. Anything deployed only under `Disc1/` vanishes once the scenario (or the F6 disc
+  switch) crosses the disc-4 threshold.
+- `world-mirror --mod-folder M` copies every Block override + sidecar into the `Disc4` tree,
+  gated per cell (the destination's real cell must be open ocean or byte-identical across discs —
+  an `--in-place` edit of a block that differs, e.g. (9,17), skips with a warning), and PINS a
+  sidecar cell's un-overridden donor-prefab free-ride parts (falls/rivers/objects) as explicit
+  source-disc-byte overrides — the disc-4 Daguerreo donors genuinely differ, so without the pin
+  the mirrored island would wear disc-4 variants on disc-1 terrain. Run it after any
+  custom-ocean world deploy; RELAUNCH to apply.
+
 ### Added — `world-forest` + `world-hill`: interior topography on a deployed island
 - The two in-game-proven island-E studies are now kit verbs (`ff9mapkit/world/interior.py`), operating
   on the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job):
