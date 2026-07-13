@@ -1,0 +1,10 @@
+# The exact upstream Albeoris/Memoria commit our engine patch stack (s22-s37) is
+# authored against, and that the shipped dwix-custom-memoria bundle is built from.
+#
+# This is a DELIBERATE PIN. Do not bump it casually: moving to a newer Memoria
+# base means re-testing every live patch in memoria-patches/ (see README.md) and
+# re-verifying fork-fidelity + co-op in-game. Run tools/memoria_upstream_check.py
+# to see what upstream changed under our patched files before deciding to move.
+#
+# The first non-comment token on a line is read as the commit-ish.
+6b8bb2d5
