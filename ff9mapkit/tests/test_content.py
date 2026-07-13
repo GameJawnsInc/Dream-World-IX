@@ -980,10 +980,11 @@ def test_bare_prop_is_init_only():
 
 
 def test_prop_collision_false_emits_scenery_flags():
-    """collision=false -> SetObjectFlags(SCENERY_FLAGS=1): show-only, both collide bits clear (the
-    shipping render-only pattern -- EventCollision skips flag-clear objects before any radius math).
-    The default (collision=true) emits NO SetObjectFlags at all (the object is born shown+collidable;
-    the CFLAG law -- a blanket write once HID all four props in-game)."""
+    """collision=false -> SetObjectFlags(SCENERY_FLAGS=7): show + BOTH collision-EXEMPT bits SET --
+    the 3345-use shipping walk-through idiom (bits 2/4 are exemptions, not enables: the movement
+    push skips a pair only when both sides' bits are set; flags=1 was in-game DISPROVEN 2026-07-13,
+    still colliding). The default (collision=true) emits NO SetObjectFlags at all (the object is
+    born shown+collidable; the CFLAG law -- a blanket write once HID all four props in-game)."""
     slot = EbScript.from_bytes(CLEAN).first_free_slot()
     solid = prop.inject_prop(CLEAN, 0, 0, model=75, pose=7339, slot=slot)
     ghosty = prop.inject_prop(CLEAN, 0, 0, model=75, pose=7339, slot=slot, collision=False)
@@ -992,7 +993,7 @@ def test_prop_collision_false_emits_scenery_flags():
                            for f in e.funcs for ins in iter_code(b, f.abs_start, f.abs_end)
                            if ins.op == 0x93]
     assert flags_ops(solid) == []
-    assert flags_ops(ghosty) == [prop.SCENERY_FLAGS] == [1]
+    assert flags_ops(ghosty) == [prop.SCENERY_FLAGS] == [7]
 
 
 def test_prop_attach_emits_attachobject():
