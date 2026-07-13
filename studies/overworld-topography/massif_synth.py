@@ -187,53 +187,83 @@ U_B0 = pu + 6 * TILE_U + 0.0005                            # col-6 left edge (ti
 U_SPAN = 4 * TILE_U - 0.001
 V_FOOT = pv + 10 * TILE_V + TILE_V - 0.0005                # row-10 BOTTOM edge
 h_rock0 = APRON_H * 0.8                                    # the flow anchors at the rock line
-# THE MEASURED UAHO DENSITY: v = one tile row per 2.6u of height (50 px/u), u = the
-# 4-col band per 27.2u of contour (19 px/u). u is CYLINDRICAL PER COURSE: each 2.6u
-# height band sweeps at its own mid radius, so arc density holds everywhere (a single
-# radial az field compressed 10x at the apex -- the round-3 chevron/warp verdict).
-V_PER_U = TILE_V / 2.6
-BAND_ARC = 27.2                                            # 4 cols x 6.8u per col
-course_r = {}
+# THE MEASURED UAHO MAPPING (uv gradients, not assumptions): u ~48 px/u along the
+# CONTOUR (a tile col per 2.7u), v ~25 px/u up the HEIGHT (the standard ~5u course),
+# plus diagonal shear (~30 px/u horizontal v-component). At 48 px/u one 2u quad nearly
+# fills a tile column, so the mapping at this scale is PER-QUAD INSET WINDOWS -- which
+# is also what Moguri demands (its atlas has transparent tile GUTTERS: any uv crossing
+# a tile edge smears gutter texels in-game = the pale stripe / green seam verdicts).
+PX_U, PX_V = 48.0, 26.0                                    # texels per world unit
+INS_U, INS_V = 6.0 / 2048.0, 6.0 / 4096.0                  # tile-edge insets
+ROW_OF = {0: 10, 1: 9, 2: 8}                               # height course -> atlas row
+# pair the rock tris into quads (subdivided cells pair cleanly; leftovers go solo)
+e2r = defaultdict(list)
 for ti in rock:
-    for k in range(3):
-        v = tris[ti]["w"][k]
-        hs = base_h(v[0], v[2])
-        c = int(max(0.0, hs - h_rock0) / 2.6)
-        course_r.setdefault(c, []).append(math.hypot(v[0] - cx, v[2] - cz))
-course_r = {c: float(np.median(rs)) for c, rs in course_r.items()}
-print(f"uv field: v 50px/u, u 19px/u cylindrical per course; course radii "
-      f"{ {c: round(r, 1) for c, r in sorted(course_r.items())} }")
+    ps = [kk(v) for v in tris[ti]["w"]]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        e2r[tuple(sorted((ps[a], ps[b])))].append(ti)
+qpair = {}
+qgrp = []
+for e, ts in e2r.items():
+    if len(ts) != 2 or ts[0] in qpair or ts[1] in qpair:
+        continue
+    if len({kk(v) for t2 in ts for v in tris[t2]["w"]}) != 4:
+        continue
+    qpair[ts[0]] = qpair[ts[1]] = len(qgrp)
+    qgrp.append(list(ts))
 for ti in rock:
-    t = tris[ti]
-    hss = [max(0.0, base_h(v[0], v[2]) - h_rock0) for v in t["w"]]
-    c = int(float(np.mean(hss)) / 2.6)
-    r_c = max(2.0, course_r.get(c, 3.0))
-    ph = []
-    for v in t["w"]:
-        az = math.atan2(v[2] - cz, v[0] - cx)
-        ph.append((az * r_c / BAND_ARC) % 1.0)
-    if max(ph) - min(ph) > 0.5:                            # the tri straddles the band wrap:
-        # give it its OWN small in-band window at the same density -- NEVER walk past the
-        # band edge (unwrapping sampled the sand gutter = the giant pale stripe, in-game)
-        p0 = min(p if p > 0.5 else p + 1.0 for p in ph)
-        dph = [max(0.0, (p if p > 0.5 else p + 1.0) - p0) for p in ph]
-        span = max(dph) or 1e-6
-        cen3 = np.mean(t["w"], axis=0)
-        ws = hash01(cen3[0] * 1.7 + 3.1, cen3[2] * 1.7) * max(0.0, 1.0 - span)
-        ph = [ws + d for d in dph]
-    for k in range(3):
-        v = t["w"][k]
-        u_f = U_B0 + ph[k] * U_SPAN
-        r = math.hypot(v[0] - cx, v[2] - cz)
-        if r < 2.5:                                        # the apex: freeze u
-            u_f = U_B0 + 0.5 * U_SPAN + (u_f - U_B0 - 0.5 * U_SPAN) * (r / 2.5)
-        assert U_B0 - 1e-6 <= u_f <= U_B0 + U_SPAN + 1e-6, f"u out of band: {u_f}"
-        t["uv"][k][0] = u_f
-        # THE SMOOTH-FIELD LAW: v follows the SMOOTH shape height at (x,z), never the
-        # jittered vertex y -- jitter reversals fold the sampled strip (chevrons);
-        # the crags show through SHADING (normals), the texture flows over them.
-        t["uv"][k][1] = V_FOOT - hss[k] * V_PER_U
-        t["tan"][k] = [ID49, 0.0, 0.0, 1.0]
+    if ti not in qpair:
+        qpair[ti] = len(qgrp)
+        qgrp.append([ti])
+print(f"uv: per-quad inset windows at u {PX_U:.0f}px/u x v {PX_V:.0f}px/u; "
+      f"{sum(1 for g in qgrp if len(g) == 2)} quads + {sum(1 for g in qgrp if len(g) == 1)} solo")
+for grp in qgrp:
+    pts = [(t2, k) for t2 in grp for k in range(3)]
+    ws = [tris[t2]["w"][k] for t2, k in pts]
+    cen3 = np.mean(ws, axis=0)
+    az = math.atan2(cen3[2] - cz, cen3[0] - cx)
+    tx2, tz2 = -math.sin(az), math.cos(az)                 # the contour (tangential) dir
+    tvals = [(p[0] - cen3[0]) * tx2 + (p[2] - cen3[2]) * tz2 for p in ws]
+    hvals = [max(0.0, base_h(p[0], p[2]) - h_rock0) for p in ws]   # SMOOTH heights
+    h_c = float(np.mean(hvals))
+    course = min(2, int(h_c / 4.9))
+    row = ROW_OF[course]
+    col = 6 + int(((az + math.pi) / (2 * math.pi) * 40.0) % 4)     # contour col cycle
+    tile_u0 = pu + col * TILE_U
+    tile_v0 = pv + row * TILE_V
+    du_q = (max(tvals) - min(tvals)) * PX_U / 2048.0
+    tilt = (hash01(cen3[0] * 0.61 + 7.7, cen3[2] * 0.61) - 0.5) * 2.0 * 28.0 / 4096.0
+    # the v parameter follows the smooth DOWNHILL ARC, not pure height: steep quads are
+    # height-dominated, the flat foot ring radial-dominated (pure-height windows collapse
+    # to a sliver there and smear -- the round-5 foot verdict)
+    rvals = [math.hypot(p[0] - cx, p[2] - cz) for p in ws]
+    wvals = [hv + 0.7 * (max(rvals) - rv) for hv, rv in zip(hvals, rvals)]
+    dv_q = (max(wvals) - min(wvals)) * 34.0 / 4096.0 + abs(tilt) * (max(tvals) - min(tvals))
+    free_u = TILE_U - 2 * INS_U - du_q
+    free_v = TILE_V - 2 * INS_V - dv_q
+    if free_u < 0:                                         # a quad too wide for one tile:
+        sc = (TILE_U - 2 * INS_U) / du_q                   # squeeze its density a little
+        du_q *= sc
+        free_u = 0.0
+    if free_v < 0:
+        dv_q = TILE_V - 2 * INS_V
+        free_v = 0.0
+    u_org = tile_u0 + INS_U + hash01(cen3[0] * 1.7 + 3.1, cen3[2] * 1.7) * max(0.0, free_u)
+    v_org = tile_v0 + INS_V + hash01(cen3[2] * 1.3 + 5.9, cen3[0] * 1.3) * max(0.0, free_v)
+    t_lo = min(tvals)
+    w_hi = max(wvals)
+    w_span = max(0.4, w_hi - min(wvals))
+    t_span = max(0.4, max(tvals) - t_lo)
+    for (t2, k), tv, wv in zip(pts, tvals, wvals):
+        uu = u_org + (tv - t_lo) / t_span * du_q
+        # v grows DOWN the atlas as the downhill-arc parameter falls
+        vv = v_org + (w_hi - wv) / w_span * (dv_q - abs(tilt) * t_span) \
+            + (tv - t_lo) * tilt + (abs(tilt) * t_span if tilt < 0 else 0.0)
+        assert tile_u0 - 1e-6 <= uu <= tile_u0 + TILE_U + 1e-6, f"u out of tile {uu}"
+        assert tile_v0 - 1e-6 <= vv <= tile_v0 + TILE_V + 1e-6, f"v out of tile {vv}"
+        tris[t2]["uv"][k][0] = uu
+        tris[t2]["uv"][k][1] = vv
+        tris[t2]["tan"][k] = [ID49, 0.0, 0.0, 1.0]
 
 # ---- normals: per-class local re-smooth ------------------------------------------------------------
 acc = {"rock": defaultdict(lambda: np.zeros(3)), "grass": defaultdict(lambda: np.zeros(3))}
