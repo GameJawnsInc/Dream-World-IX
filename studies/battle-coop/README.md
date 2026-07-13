@@ -11,8 +11,11 @@
 > CONFIG SURFACE SHIPPED (2026-07-12): every s37 knob is point-and-click — `ff9mapkit coop
 > host|join --guest-slots/--guest-wait/--ghost-as/--follow-host` + `coop show`, and the Workspace
 > Co-op tab's Play-style panel (Apply hot-reloads a running game); no more hand-editing
-> Memoria.ini.** The rest of this document is the research that shaped it. Companion to the s36
-> exploration co-op (ghost sync).
+> Memoria.ini. V2 `[[coop]]` RUNG 1 BUILT (same day; ⚠ deployed to slot 4003, awaits the solo
+> playtest): the engine coop cells (peer presence/position → gEventGlobal 2032-2039) + the
+> kit-compiled two-plate gate (design + cell map below); test field `coopgate/`.** The rest of
+> this document is the research that shaped it. Companion to the s36 exploration co-op (ghost
+> sync).
 > Sources: the Memoria engine source (`C:\gd\FFIX\Memoria\Assembly-CSharp`, all cites below),
 > the s36 patch (`memoria-patches/s36-netsync-ghost.patch`), and web prior-art (linked inline).
 
@@ -229,6 +232,50 @@ If ever attempted, it starts as a scoped flag-sync experiment, not a commitment.
 **The recommended ladder**: two-machine validation of B0/B1 → V1 dressing → V1 visitor mode →
 the V2 `[[coop]]` vocabulary → V3 stays a labeled research question with flag-sync as its
 first probe. B2 stays shelved until a concrete design pulls the guest's own character in.
+
+## V2 `[[coop]]` — the design (2026-07-12, studied from source; rung 1 = the two-plate gate)
+
+**The split (same one that won the vehicle system): engine = mechanism, `.eb` = policy.** The
+engine's ONLY new job is to broadcast the peer's presence + position into the flag substrate;
+every gate/door/puzzle compiles to ordinary kit-authored field logic reading those cells. No new
+wire frames (the position frame already carries everything), no engine knowledge of plates.
+
+**The reserved cells — gEventGlobal bytes 2032-2039 ("the netsync coop cells")**, sitting at the
+top of the kit's custom bit band beside the proven `MASK_SCRATCH_IDX = 2040` precedent (transient-
+value cells high in the map; a save carries stale values harmlessly — they rewrite every frame
+while co-op runs, and the engine NEVER touches them unless `[Netsync] Enabled = 1`):
+- `2032` (byte): peer presence — 1 = the peer's ghost is live on MY current field, else 0
+- `2034-2035` (Int16 LE): peer X, walkmesh units — the same space `SetRegion` quads use
+- `2036-2037` (Int16 LE): peer Z
+- `2033`, `2038-2039`: reserved zero
+Addressing verified against `EBin.GetVariableValueInternal` (EBin.cs:1859): `VariableType.Int16`
+reads `buffer[ofs] | (SByte)buffer[ofs+1] << 8` — BYTE-addressed, little-endian, sign-extended —
+matching the kit's `GLOB_INT16` (0xD8) encoder incl. the long-index bit (`region._push_var`).
+Writes are bare array pokes (`FF9StateSystem.EventState.gEventGlobal[i] = ...`), the same idiom
+the F6 Flags tab ships. Selftest writes the mirror's position (player +250x) → the whole V2 loop
+is SOLO-PROVABLE with plates spaced exactly 250 apart.
+
+**Rung 1 — `[[coop]]` two-plate gate in `field.toml`:**
+```toml
+[[coop]]
+plate_a = [-180, -60, -60, 60]   # x1, z1, x2, z2 -- axis-aligned rects in walkmesh units
+plate_b = [70, -60, 190, 60]     # 250 apart center-to-center = solo-testable in selftest
+set_flag = 8600                  # fires ONCE when both players stand on the two plates
+text = "The twin seals release!" # optional message on fire
+```
+Compiles to TWO region entries (the proven `content.region.inject_region` lane — camera-switch
+shape, Range tag-2 body runs EVERY frame while standing inside): plate A's body is
+`if (!flag) { if (presence==1 && peerX/Z inside plate_b rect) { message; set flag } }` and
+plate B's is the mirror (peer inside plate_a) — SYMMETRIC, so it fires no matter which player
+takes which plate. The peer-side compare is a compound RPN AND chain (`T_ANDAND`) over the
+reserved cells; the self-side containment IS the region. **No poller object, no new opcodes.**
+The minted flag then gates doors/gateways/cutscenes through the EXISTING vocabulary — `[[coop]]`
+only mints the flag. Each machine computes its gate locally and sets its OWN save's flag: zero
+state sync, zero divergence problem (we author both sides).
+
+Later rungs (same cells, pure kit work): `require_flag`/`scenario` gating on the block; "while
+both present" LEVEL semantics (clear-on-exit); N-plate sets; a `peer_near = [x, z, r]` sugar;
+per-plate `text`. Later engine rung if ever needed: a peer FLOOR/tri cell for multi-floor gates.
 
 ## Wire v3 (the one infrastructure change)
 

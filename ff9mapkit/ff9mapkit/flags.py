@@ -29,10 +29,13 @@ from dataclasses import dataclass, field
 
 # --- the provably-safe story-flag allocation band (single source of truth; campaign.py imports these) ---
 # Real FF9 uses save-persistent bit-flags up to bit 8511 (the treasure-chest "opened" bitfield, bits
-# 8376-8511). The choice-visibility scratch sits at byte 2040 = bits 16320+. So custom story flags MUST
-# live in [8512, 16320). 8512 (start of byte 1064) is the first bit clear of ALL real-FF9 usage.
+# 8376-8511). The choice-visibility scratch sits at byte 2040 = bits 16320+, and the netsync co-op
+# cells (engine-written peer presence/position, bytes 2032-2039 = bits 16256-16319) sit just below it.
+# So custom story flags MUST live in [8512, 16256). 8512 (start of byte 1064) is the first bit clear
+# of ALL real-FF9 usage; the top 64 bits of the old band are kit-reserved (a reserved BIT_REGION).
 FIRST_SAFE_FLAG = 8512
 CHEST_FLAG_LO, CHEST_FLAG_HI = 8376, 8511      # real-FF9 treasure-chest "opened" bitfield
+COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
 
 
@@ -106,6 +109,15 @@ NAMED_WORDS = [
             "battle.cs:43"),
     WordVar("MagicDisabledFlag", 227, 1, False, "Nonzero disables magic in the menu (e.g. Oeilvert's "
             "anti-magic field; set by Oeilvert fields).", "a", "AbilityUI.cs:28,881"),
+    # The netsync co-op cells (kit-reserved, engine s37): while [Netsync] Enabled the engine writes the
+    # PEER's presence + walkmesh position here every frame; [[coop]] gates read them as GLOB vars.
+    # Save values are transient echoes (rewritten while co-op runs; never written when disabled).
+    WordVar("CoopPeerPresence", 2032, 1, False, "Netsync: 1 = the co-op peer stands on my current field "
+            "(engine-written every frame while co-op is on).", "a", "NetSyncClient.WriteCoopCells (s37)"),
+    WordVar("CoopPeerX", 2034, 2, True, "Netsync: the co-op peer's walkmesh X (engine-written).", "a",
+            "NetSyncClient.WriteCoopCells (s37)"),
+    WordVar("CoopPeerZ", 2036, 2, True, "Netsync: the co-op peer's walkmesh Z (engine-written).", "a",
+            "NetSyncClient.WriteCoopCells (s37)"),
 ]
 
 # Reserved / named BIT regions (bit-addressed). A mod must not allocate into a reserved region.
@@ -132,6 +144,10 @@ BIT_REGIONS = [
               "182-186 + 896-975, see TH_POINT_RANGES). Reserved because real field logic gates/sets it; "
               "NEVER allocate here.", True, "b",
               "census (byte-identical block in ~48 chest fields; verified from .eb bytes -- engine does NOT score this band)"),
+    BitRegion("netsync_coop_cells", COOP_CELLS_FLOOR, CHOICE_SCRATCH_FLOOR - 1,
+              "Netsync co-op cells (bytes 2032-2039): the engine writes the peer's presence + walkmesh "
+              "X/Z here every frame while co-op is on; [[coop]] gates read them. Kit-reserved.", True, "a",
+              "NetSyncClient.WriteCoopCells (s37); content/coop.py"),
     BitRegion("choice_scratch", CHOICE_SCRATCH_FLOOR, CHOICE_SCRATCH_FLOOR + 15,
               "Choice-visibility mask scratch (kit MASK_SCRATCH_IDX); engine/kit-owned.", True, "a", "region.py:57"),
 ]

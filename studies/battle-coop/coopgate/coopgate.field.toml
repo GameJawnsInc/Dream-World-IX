@@ -1,0 +1,60 @@
+# COOPGATE — a custom FF9 field. Compile with:  ff9mapkit build coopgate.field.toml
+#
+# Human-supplied (Hard Constraint): paint the background layer PNGs and (optionally) model the
+# walkmesh in Blender. `ff9mapkit guide --pitch 48.0 ...` prints where the floor lands on
+# the painted canvas so you can paint to match.
+
+[field]
+id = 4003          # custom field id (>= 4000; claim a block for your mod, see docs)
+name = "COOPGATE"          # -> FBG_N11_COOPGATE (background) + EVT_COOPGATE.eb (script)
+area = 11            # must be >= 10
+text_block = 1073
+title = "COOPGATE"
+
+[camera]
+pitch = 48.0          # downward tilt (degrees); real FF9 fields are <= ~48
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205               # painted-canvas rows the floor's back/front edges sit on
+front = 432
+
+[walkmesh]
+# The walkmesh is in TRUE world coords = where the painted floor is (frame = "world"): the player
+# renders exactly on it, no fudge (measured in-game, Session 18). `quad` = the floor's 4 corners,
+# matching the placeholder floor below. Swap for an exported Blender mesh with `obj = "walkmesh.obj"`.
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]               # background layers, back-to-front (z = depth; smaller = nearer)
+image = "art/back.png"   # PLACEHOLDER (solid) -- repaint to match your camera
+z = 4000
+[[layers]]
+image = "art/floor.png"  # PLACEHOLDER (checkerboard floor) -- repaint to match your camera
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# [[npc]]
+# name = "Someone"
+# preset = "vivi"
+# pos = [0, -700]
+# dialogue = "Hello there."
+
+# [[gateway]]
+# to = 100               # warp to this field id
+# entrance = 0
+# zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]
+
+# The V2 [[coop]] two-plate gate (netsync s37). Plate B = plate A shifted +250 x EXACTLY --
+# the Role=selftest mirror stands at +250, so standing ANYWHERE in plate A puts the mirror in
+# plate B and the gate fires solo. Spawn (0,-837) is inside plate B: standing there fires
+# NOTHING (the mirror is off to the right) -- walk LEFT into plate A to fire. On a real
+# two-machine session either player can take either plate (the compile is symmetric).
+[[coop]]
+name = "twin-seals"
+plate_a = [-345, -960, -105, -720]
+plate_b = [-95, -960, 145, -720]
+set_flag = 8600
+text = "The twin seals release! (co-op gate: flag 8600 set)"
