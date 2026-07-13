@@ -94,6 +94,36 @@ def test_entrance_func_body_direct():
         entrance_func_body_direct(0x8000, dispatchers=disp)   # past Int16
 
 
+def test_entrance_func_body_prompt():
+    """The faithful "!" action-prompt trigger (prompt=True): shows the FICON "!" bubble every frame
+    on the tile and warps only on a Confirm press (B_KEYON gate) -- NOT walk-on auto-warp. The Confirm
+    test is byte-identical to the real dispatcher main-loop entrance gate (WORLD00 tag-1 @261)."""
+    from ff9mapkit.eb import disasm as D
+    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM,
+                                          entrance_func_body_direct, load_world_dispatchers)
+    from ff9mapkit.eb.model import EbScript
+    disp = load_world_dispatchers()
+    auto = entrance_func_body_direct(6500, world_state=9009, dispatchers=disp)
+    prompt = entrance_func_body_direct(6500, world_state=9009, prompt=True, dispatchers=disp)
+    # prompt adds exactly the FICON (3B) + the Confirm-gate (CONFIRM_PRESSED + a 3B JMP_IFNOT)
+    assert len(prompt) == len(auto) + len(FICON_EXCLAM) + len(CONFIRM_PRESSED) + 3
+    assert FICON_EXCLAM in prompt and CONFIRM_PRESSED in prompt
+    # the Confirm test is the REAL dispatcher's gate fragment, verbatim
+    w00 = EbScript(disp["evt_world_world00"])
+    f1 = w00.entry(1).func_by_tag(1)
+    assert CONFIRM_PRESSED[1:-1] in w00.data[f1.abs_start:f1.abs_end]   # op7E(0,0,2,0) op4F, inside the real gate
+    # structure: FICON before the B_KEYON gate before Field; both JMP_IFNOTs land on the final RETURN
+    ops = [(i.op, i.off) for i in D.iter_code(prompt, 0, len(prompt))]
+    off = {op: o for op, o in ops}
+    assert off[0x68] < off[0x4F] if 0x4F in off else True   # FICON precedes the keyon expr (0x4F is inside an expr)
+    i_ficon = next(o for op, o in ops if op == 0x68)
+    i_field = next(o for op, o in ops if op == 0x2B)
+    assert i_ficon < i_field                                # "!" raised before the warp
+    assert prompt[-1] == 0x04                               # terminal RETURN
+    # a NON-prompt direct body has NO bubble and warps unconditionally after the vehicle gate
+    assert FICON_EXCLAM not in auto and CONFIRM_PRESSED not in auto
+
+
 def test_worldmap_exit_arrive_shape():
     """The deterministic return: [gate][arrive var writes (the Init's own 32-bit
     idiom)][D8:2 nonzero][if GLOB[1062]: WorldMap(<var>) computed][the cascade
