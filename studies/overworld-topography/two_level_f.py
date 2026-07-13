@@ -289,16 +289,51 @@ for _shave in range(6):
 south_chain_e, north_chain_e = boundary_edges()
 south_chain = chain_open(south_chain_e, "south hole chain")
 north_ring = chain_closed(north_chain_e, "north boundary ring")
-print(f"chord chains: south {len(south_chain)} pts, north ring {len(north_ring)} pts", flush=True)
+
+# THE MOAT LAW: walkable ground must NEVER reach the waterline. The coast band is the moat
+# on every real/minted coast; the mint's Sea4 deliberately laps ~1-2u under the island edge
+# (zero-MISS at the seam), harmless ONLY while unreachable. The south chain's END verts
+# descend the old band at the coast crossings (kept-rock edges adjacent to dropped grass) --
+# welding the zip to them built a walkable ramp to the water = the rule-(f) CACHE-SHADOW
+# trap (press at the waterline -> Sea4 tris cached -> steps over corridor grass hit the
+# cached sea tri BELOW -> rejected -> stuck; the round-2 playtest, ~(200,-1125)). Trim the
+# chain ends to rim height; the rock END FANS seal the remainder as blocked.
+TRIM_Y = 2.8
+n_trim = 0
+while len(south_chain) > 2 and south_chain[0][1] < TRIM_Y:
+    south_chain.pop(0)
+    n_trim += 1
+while len(south_chain) > 2 and south_chain[-1][1] < TRIM_Y:
+    south_chain.pop()
+    n_trim += 1
+print(f"chord chains: south {len(south_chain)} pts ({n_trim} sub-rim end verts trimmed), "
+      f"north ring {len(north_ring)} pts", flush=True)
 
 # ---- 3. the raised plateau ---------------------------------------------------------------------
 RAISE = PLATEAU_Y - 3.2
 ID13 = float(X.encode_id(topograph=13))
 
 # crest ring = the north boundary ring RAISED (exact kept floats + RAISE -- welds to the
-# raised plateau by identity)
-crest = [(p[0], p[1] + RAISE, p[2]) for p in north_ring]
-print(f"crest loop: {len(crest)} pts", flush=True)
+# raised plateau by identity), then DENSIFIED: a long native boundary edge (5-8u diagonals
+# exist anywhere on the ragged strip edge) spans SEVERAL tile windows in the monotone walk
+# but the tri gets ONE tile -- half of it clamps into a smear (the (206,-1111) stretched
+# tris). Inserted points lie ON the boundary edge (colinear T-junction weld, y lerped).
+def densify(ring, max_e=3.0):
+    out2 = []
+    n3 = len(ring)
+    for i3 in range(n3):
+        a3, b3 = ring[i3], ring[(i3 + 1) % n3]
+        out2.append(a3)
+        L = math.hypot(b3[0] - a3[0], b3[2] - a3[2])
+        m3 = int(math.ceil(L / max_e))
+        for k3 in range(1, m3):
+            t01 = k3 / m3
+            out2.append((a3[0] + t01 * (b3[0] - a3[0]), a3[1] + t01 * (b3[1] - a3[1]),
+                         a3[2] + t01 * (b3[2] - a3[2])))
+    return out2
+
+crest = densify([(p[0], p[1] + RAISE, p[2]) for p in north_ring])
+print(f"crest loop: {len(crest)} pts (densified from {len(north_ring)})", flush=True)
 
 # ---- 4. the wall course rings (DISTANCE-TRUE offsets) ------------------------------------------
 # One rule for every side (chord, coast, corners): each course ring is the TRUE outward
@@ -779,8 +814,12 @@ sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
 meshlist = [("Object", hid("Object")), ("Terrain", new_bm), ("Sea1", hid("Sea1")),
             ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")), ("Sea4", sea), ("Sea5", hid("Sea5"))]
 cen = P.census(meshlist)
-print(f"GATES: zipDown={down} censusMISS={len(cen['miss'])}", flush=True)
+# THE MOAT GATE: no walkable (zip) surface may approach the waterline -- the mint's Sea4
+# under-lap is only safe while unreachable (rule (f), the movement-cache shadow)
+zmoat = min(p[1] for tri3 in zip_tris for p in tri3)
+print(f"GATES: zipDown={down} censusMISS={len(cen['miss'])} zipMinY={zmoat:.2f}", flush=True)
 assert down == 0 and len(cen["miss"]) == 0
+assert zmoat >= 2.4, f"THE MOAT LAW: zip reaches y={zmoat:.2f} -- walkable ground nears the waterline"
 # probe the EXACT teleport spots we hand the user -- OFF the 4u lattice (THE LATTICE-EDGE
 # TELEPORT TRAP: the engine's sky-cast at an exactly-lattice x/z runs down a shared mains
 # edge; float rounding can reject BOTH edge tris -> defaultHeight 0 -> the actor grounds
