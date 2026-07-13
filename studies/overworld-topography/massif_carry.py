@@ -165,11 +165,77 @@ if len(rings0) > 1:                                        # inner rings enclose
                 if t2 not in blob and dtopo[t2] not in ROCK:
                     st.append(t2)
     print(f"enclosed raised tris flooded in: {added}", flush=True)
+# THE ALCOVE FLOOR CARRY: the notch's flat floor (donor x 32-38 z -38..-31, y 5.3,
+# cave-floor tiles -- the Object roof's ground) is mountain-attached terrain. Without it
+# the blob rim OSCILLATES 1.5<->6.3 inside the notch and no smooth ground apron can meet
+# it (the v3 zip slope gate tripped). Carrying it verbatim closes the high box; only the
+# Object mesh itself (a separate part) stays behind.
+NBOX = lambda c: 31.0 < c[0] < 40.5 and -38.5 < c[2] < -30.5
+seeds = []
+for e in once_edges(blob):
+    for t in d_edge[e]:
+        if t not in blob and dtopo[t] == 0:                # floor tris only, never canopy
+            c = dV[dtri[t]].mean(axis=0)
+            if NBOX(c) and min(dV[i][1] for i in dtri[t]) > 4.5:
+                seeds.append(t)
+st = list(seeds)
+added = 0
+while st:
+    t = st.pop()
+    if t in blob:
+        continue
+    c = dV[dtri[t]].mean(axis=0)
+    if not (NBOX(c) and min(dV[i][1] for i in dtri[t]) > 4.5):
+        continue
+    blob.add(t)
+    added += 1
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        for t2 in d_edge[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))]:
+            if t2 not in blob and dtopo[t2] == 0:
+                st.append(t2)
+print(f"alcove floor carried: {added} tris (verbatim, incl. the cave-floor tiles)",
+      flush=True)
+
 oe = once_edges(blob)
 rings1 = chain_rings(oe)
-assert len(rings1) == 1, f"blob rim is {len(rings1)} rings, want 1"
+rings1.sort(key=lambda r: -abs(signed_area(r)))
+if len(rings1) > 1:                                        # fill enclosed pockets whole
+    inner_pts = {p for r in rings1[1:] for p in r}
+    st = [t for e in oe if e[0] in inner_pts and e[1] in inner_pts
+          for t in d_edge[e] if t not in blob]
+    filled = 0
+    while st:
+        t = st.pop()
+        if t in blob:
+            continue
+        blob.add(t)
+        filled += 1
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            for t2 in d_edge[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))]:
+                if t2 not in blob:
+                    st.append(t2)
+    print(f"enclosed pocket filled: {filled} tris (verbatim)", flush=True)
+    oe = once_edges(blob)
+    rings1 = chain_rings(oe)
+    rings1.sort(key=lambda r: -abs(signed_area(r)))
+# rings beyond the outer one must be OBJECT APERTURES -- the falls-aperture law at
+# mountain scale: literal holes in the terrain whose boundary is exactly the embedded
+# Object mesh's vertex set (Uaho: the alcove back wall). Carried as verbatim PLUGS below.
+om = X.read_block(*DONOR, disc=1, part="object")
+oV = np.asarray(om.verts, dtype=np.float64)
+oU = np.asarray(om.uvs, dtype=np.float64)
+oN = om.normals
+otris = [om.flat_index[3 * t:3 * t + 3] for t in range(len(om.flat_index) // 3)]
+okeys = {kk3(p) for p in oV}
+apertures = []
+for r in rings1[1:]:
+    assert all(p in okeys for p in r), f"extra ring is NOT an object aperture: {r[:3]}"
+    apertures.append(r)
 rim = rings1[0]
-assert len(rim) == len(oe), "rim ring does not use every once-edge"
+assert len(rim) == len(oe) - sum(len(r) for r in apertures), "ring accounting"
+if apertures:
+    print(f"object apertures: {[len(r) for r in apertures]} pts "
+          f"(plugged with the object's own tris)", flush=True)
 rim_set = set(rim)
 bpts = np.array([dV[i] for t in blob for i in dtri[t]])
 c_local = ((bpts[:, 0].min() + bpts[:, 0].max()) / 2,
@@ -317,7 +383,79 @@ rim_poly = [(p[0] + DX, p[2] + DZ) for p in (rot_pt(q, ROT) for q in rim)]
 print(f"placement: rot {ROT * 90}deg, blob centre -> ({TX},{TZ}) "
       f"(clearance {dmin:.1f}u)", flush=True)
 
-# ---- 3. hole carve ------------------------------------------------------------------------------
+# ---- 3. anchor + carry: ROCK RIGID, THE GROUND CONFORMS ----------------------------------------
+# v3 architecture. v1/v2 blended the ROCK down to the flat bench (a Shepard conform over
+# the rim deltas) -- and smeared the whole low east lobe: the 7u support covered most of
+# it, verbatim uvs over moved verts = 1.2-2.5x vertical stretch (the in-game "stretched
+# section", mist-hidden at the first approval; both panel-probe verdicts were confounded
+# by it). THE ROCK-RIGID LAW: carried rock never deforms beyond the global affine
+# (de-tilt + DY); ALL seating deformation goes to the GRASS -- at real Uaho the ground
+# RISES to meet the high foot, so the bench gets a donor-shaped apron lift (pure-Y
+# displacement of kept plain-grass verts, the proven hill-at-scale mechanism) rising
+# from bench ground to the rigid rim over GBLEND, tapered at block borders (a displaced
+# border vert would crack against the neighbor block's twin) AND near non-plain tris
+# (the coast band must not deform).
+rim_med = float(np.median([p[1] for p in rim2]))
+near_ys = [gpos[i][1] for tdx, tri in enumerate(gtris) if plain[tdx] for i in tri
+           if not pip(gpos[i][0], gpos[i][2], rim_poly)
+           and near(gpos[i][0], gpos[i][2], rim_poly, CLEAR + 3.0)]
+ground_med = float(np.median(near_ys))
+DY = ground_med - rim_med
+
+
+def carry_vert(i):
+    pr = rot_pt(dV2[i], ROT)
+    return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
+
+
+GBLEND = 12.0
+rim_nodes = []                                             # (x, z, RIGID rim height)
+for p in rim_set:
+    pr = rot_pt(detilt_p(p), ROT)
+    rim_nodes.append((pr[0] + DX, pr[2] + DZ, pr[1] + DY))
+print(f"rigid rim heights: [{min(n[2] for n in rim_nodes):.2f},"
+      f"{max(n[2] for n in rim_nodes):.2f}] vs ground med {ground_med:.2f} "
+      f"(the grass apron absorbs the difference over {GBLEND}u)", flush=True)
+plain_vert = set()
+for tdx, tri in enumerate(gtris):
+    if plain[tdx]:
+        plain_vert.update(tri)
+
+
+def ground_lift(px, pz, py, dnp):
+    """Pure-Y apron field: 0 far away -> (rim height - ground) at the rim."""
+    wsum = hsum = 0.0
+    dmin2 = 1e18
+    for (nx2, nz2, hy) in rim_nodes:
+        dd2 = (px - nx2) ** 2 + (pz - nz2) ** 2
+        dmin2 = min(dmin2, dd2)
+        if dd2 > GBLEND * GBLEND:
+            continue
+        w = 1.0 / (dd2 + 0.04)
+        wsum += w
+        hsum += w * hy
+    if wsum <= 0.0 or dmin2 >= GBLEND * GBLEND:
+        return 0.0
+    W = (1.0 - math.sqrt(dmin2) / GBLEND) ** 2
+    bt = min(1.0, (min(px - BLOCK * bx, BLOCK * (bx + 1) - px,
+                       pz + BLOCK * (by + 1), -BLOCK * by - pz) - 0.5) / 3.0)
+    pt = min(1.0, (dnp - 2.5) / 3.0)                       # die before the coast band
+    return max(0.0, bt) * max(0.0, pt) * W * (hsum / wsum - py)
+
+
+n_lift = 0
+lift_max = 0.0
+for i in sorted(plain_vert):
+    dnp = float(np.sqrt(((nonplain_c - np.array([gpos[i][0], gpos[i][2]])) ** 2)
+                        .sum(axis=1).min()))
+    lf = ground_lift(gpos[i][0], gpos[i][2], gpos[i][1], dnp)
+    if abs(lf) > 1e-6:
+        gpos[i][1] += lf
+        n_lift += 1
+        lift_max = max(lift_max, abs(lf))
+print(f"ground apron: {n_lift} bench verts lifted (max {lift_max:.2f}u)", flush=True)
+
+# ---- 3b. hole carve (on the LIFTED bench; the drop test is plan-only) ---------------------------
 drop = set()
 for tdx, tri in enumerate(gtris):
     for i in tri:
@@ -347,49 +485,6 @@ hole = holes[0]
 print(f"hole ring: {len(hole)} positions", flush=True)
 
 
-def nearest_ring_y(px, pz):
-    return min(hole, key=lambda h: (h[0] - px) ** 2 + (h[2] - pz) ** 2)[1]
-
-
-# ---- 4. anchor + carry (rim conforms to local ground; interior verbatim-relative) --------------
-# rim membership + conform targets key on the ORIGINAL donor positions -- de-tilt/rot
-# float precision can never split a weld
-rim_med = float(np.median([p[1] for p in rim2]))
-ground_med = float(np.median([p[1] for p in hole]))
-DY = ground_med - rim_med
-# conform = a SMOOTH Shepard blend over the rim deltas (finite 7u support), never a
-# rim-only yank: yanking just the rim vert stretches the foot course by the full
-# de-tilt residual (up to ~3u) -- the exact stretch class the carry exists to escape.
-# Blended, each foot course moves WITH its rim verts; the correction fades to zero
-# up-flank. Pure function of plan position -> welds can't split.
-BLEND = 7.0
-rim_nodes = []
-for p in rim_set:
-    pr = rot_pt(detilt_p(p), ROT)
-    delta = nearest_ring_y(pr[0] + DX, pr[2] + DZ) - (pr[1] + DY)
-    rim_nodes.append((pr[0] + DX, pr[2] + DZ, delta))
-print(f"rim conform deltas after de-tilt: [{min(n[2] for n in rim_nodes):+.2f},"
-      f"{max(n[2] for n in rim_nodes):+.2f}]u (blended over {BLEND}u)", flush=True)
-
-
-def conform_off(px, pz):
-    wsum = osum = 0.0
-    for (nx2, nz2, dl) in rim_nodes:
-        dd2 = (px - nx2) ** 2 + (pz - nz2) ** 2
-        if dd2 > BLEND * BLEND:
-            continue
-        w = (1.0 - math.sqrt(dd2) / BLEND) ** 2 / (dd2 + 0.04)
-        wsum += w
-        osum += w * dl
-    return osum / wsum if wsum > 0 else 0.0
-
-
-def carry_vert(i):
-    pr = rot_pt(dV2[i], ROT)
-    px, pz = pr[0] + DX, pr[2] + DZ
-    return [px, pr[1] + DY + conform_off(px, pz), pz]
-
-
 carried = {t: [carry_vert(i) for i in dtri[t]] for t in blob}
 c_edge = Counter()
 c_float = {}
@@ -401,8 +496,51 @@ for t in blob:
         c_float.setdefault(kb, ps[b])
         c_edge[tuple(sorted((ka, kb)))] += 1
 crims = chain_rings([e for e, n in c_edge.items() if n == 1])
-assert len(crims) == 1, "carried rim split into rings -- conform collapsed a weld"
+crims.sort(key=lambda r: -abs(signed_area(r)))
+assert len(crims) == 1 + len(apertures), "carried ring count changed in transit"
 crim = crims[0]
+
+# THE APERTURE PLUGS: the Object mesh's own geometry + uv, verbatim, carried as terrain
+# (its uvs sample painted rock/dirt in the terrain atlas -- verified offline, 0 blank;
+# winding up-facing). id = the adjacent rock's; normals de-tilted + rotated; verts snap
+# to the carried blob floats so the plug welds shut.
+plug_parents = []
+if apertures:
+    ap_pts = {p for r in apertures for p in r}
+    ap_carried = {}
+    for t in blob:
+        tri = dtri[t]
+        for k in range(3):
+            k0 = kk3(dV[tri[k]])
+            if k0 in ap_pts:
+                ap_carried[k0] = carried[t][k]
+    plug_id = None
+    for r in apertures:
+        for i2 in range(len(r)):
+            e = tuple(sorted((r[i2], r[(i2 + 1) % len(r)])))
+            for t2 in d_edge.get(e, ()):
+                if dtopo[t2] in ROCK:
+                    plug_id = float(dT[dtri[t2][0]][0])
+                    break
+            if plug_id:
+                break
+        if plug_id:
+            break
+    assert plug_id is not None
+
+    def carry_pt(p):
+        pr = rot_pt(detilt_p(p), ROT)
+        return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
+
+    for tri in otris:
+        corners = []
+        for i in tri:
+            w = ap_carried.get(kk3(oV[i])) or carry_pt(oV[i])
+            n3 = rot_n(detilt_n(oN[i]), ROT)
+            corners.append((*w, oU[i][0], oU[i][1], *n3))
+        plug_parents.append((tuple(corners), plug_id, "plug"))
+    print(f"aperture plugs: {len(plug_parents)} object tris carried as terrain "
+          f"(id {plug_id:.0f})", flush=True)
 rim_nrm = {}
 for t in blob:
     for k in range(3):
@@ -413,13 +551,9 @@ print(f"carried: peak y {max(p[1] for ps in carried.values() for p in ps):.1f}, 
 
 # ---- 5. zip annulus (the proven machinery) ------------------------------------------------------
 hole_ord = list(hole)
-rim_ord = list(crim)
-if signed_area(hole_ord) * signed_area(rim_ord) < 0:
-    rim_ord.reverse()
-h0 = hole_ord[0]
-k0 = min(range(len(rim_ord)),
-         key=lambda k: (rim_ord[k][0] - h0[0]) ** 2 + (rim_ord[k][2] - h0[2]) ** 2)
-rim_ord = rim_ord[k0:] + rim_ord[:k0]
+rim_base = list(crim)
+if signed_area(hole_ord) * signed_area(rim_base) < 0:
+    rim_base.reverse()
 
 
 def rimw(p):
@@ -430,23 +564,49 @@ def d2(p, q):
     return (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
 
 
-NH, NR = len(hole_ord), len(rim_ord)
+# minimal-total-chord DP zip: the greedy walk stalls on the floor-mouth CONCAVITY into
+# 17.5u chords at any rotation; the DP strip between the two rings is optimal and
+# concavity-immune (30x27 states)
+i0, j0 = min(((i, j) for i in range(len(hole_ord)) for j in range(len(rim_base))),
+             key=lambda ij: d2(hole_ord[ij[0]], rimw(rim_base[ij[1]])))
+H = hole_ord[i0:] + hole_ord[:i0]
+R = rim_base[j0:] + rim_base[:j0]
+NH, NR = len(H), len(R)
+Rw = [rimw(p) for p in R]
+INF = 1e18
+cost = [[INF] * (NR + 1) for _ in range(NH + 1)]
+back = [[None] * (NR + 1) for _ in range(NH + 1)]
+cost[0][0] = 0.0
+for i in range(NH + 1):
+    for j in range(NR + 1):
+        c0 = cost[i][j]
+        if c0 >= INF:
+            continue
+        if i < NH:
+            nc = c0 + math.sqrt(d2(H[(i + 1) % NH], Rw[j % NR]))
+            if nc < cost[i + 1][j]:
+                cost[i + 1][j] = nc
+                back[i + 1][j] = "h"
+        if j < NR:
+            nc = c0 + math.sqrt(d2(H[i % NH], Rw[(j + 1) % NR]))
+            if nc < cost[i][j + 1]:
+                cost[i][j + 1] = nc
+                back[i][j + 1] = "r"
 zip_tris = []
-i = j = 0
-while i < NH or j < NR:
-    h_cur = hole_ord[i % NH]
-    r_cur = rimw(rim_ord[j % NR])
-    if i < NH and j < NR:
-        adv_h = d2(hole_ord[(i + 1) % NH], r_cur) <= d2(h_cur, rimw(rim_ord[(j + 1) % NR]))
+i, j = NH, NR
+while i > 0 or j > 0:
+    if back[i][j] == "h":
+        zip_tris.append((H[(i - 1) % NH], H[i % NH], Rw[j % NR]))
+        i -= 1
     else:
-        adv_h = i < NH
-    if adv_h:
-        zip_tris.append((h_cur, hole_ord[(i + 1) % NH], r_cur))
-        i += 1
-    else:
-        zip_tris.append((h_cur, rimw(rim_ord[(j + 1) % NR]), r_cur))
-        j += 1
-print(f"zip annulus: {len(zip_tris)} tris", flush=True)
+        zip_tris.append((H[i % NH], Rw[j % NR], Rw[(j - 1) % NR]))
+        j -= 1
+rim_ord = R
+zip_maxe = 0.0
+for tri3 in zip_tris:
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        zip_maxe = max(zip_maxe, math.sqrt(d2(tri3[a], tri3[b])))
+print(f"zip annulus: {len(zip_tris)} tris (DP, max chord {zip_maxe:.1f}u)", flush=True)
 
 # NOTE -- the donor's Object alcove (donor x 32-38 z -38..-31: a flat y-5.3 pocket
 # wearing cave-floor tiles cols 0-2 rows 24-25, roofed by a 5-tri Object mesh in the
@@ -510,6 +670,7 @@ for t in blob:                                             # the mountain, verba
     corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
                     for k in range(3))
     new_parents.append((corners, idall, "mountain"))
+new_parents.extend(plug_parents)
 zip_rise = 0.0
 zip_ny_min = 1.0
 for tri3 in zip_tris:
@@ -602,11 +763,29 @@ for t in range(len(tris)):
 inner_once = [e for e, n in eu3.items() if n == 1 and e not in once0]
 for e in inner_once[:6]:
     print(f"  NEW ONCE EDGE: {e[0]} -- {e[1]}", flush=True)
+worst_rig = 0.0                                            # THE ROCK-RIGID GATE
+for t in blob:
+    tri = dtri[t]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        d0 = float(np.linalg.norm(dV[tri[a]] - dV[tri[b]]))
+        if d0 > 0.05:
+            worst_rig = max(worst_rig, abs(math.dist(carried[t][a], carried[t][b]) / d0 - 1.0))
+g_worst = 0.0                                              # the apron slope envelope
+for tdx, tri in enumerate(gtris):
+    if tdx in drop or not plain[tdx]:
+        continue
+    a, b, c3 = (np.array(gpos[i]) for i in tri)
+    fn = np.cross(b - a, c3 - a)
+    L = float(np.linalg.norm(fn)) or 1.0
+    g_worst = max(g_worst, math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L)))))
 print(f"GATES: down={down} maxEdge={maxe:.1f} nearMiss={nm // 2} "
-      f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f}",
-      flush=True)
+      f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f} "
+      f"rockRigid={worst_rig * 100:.1f}% apronSlope={g_worst:.1f}deg", flush=True)
 assert down == 0 and nm == 0 and not inner_once and maxe < 9.0
-assert zip_rise <= 2.34 and zip_ny_min > 0.1
+assert zip_rise <= 2.34 and zip_ny_min >= 0.83, \
+    "zip steeper than the grass envelope (0.83 ~ 34deg allows the alcove-mouth bank)"
+assert worst_rig < 0.035, "carried rock deformed beyond the de-tilt affine"
+assert g_worst <= 29.5, "the ground apron exceeds the grass slope envelope"
 
 changed = {BLK: new_bm}
 IN.census_gate(changed, disc=1)
