@@ -58,3 +58,47 @@ plate_a = [-345, -960, -105, -720]
 plate_b = [-95, -960, 145, -720]
 set_flag = 8600
 text = "The twin seals release! (co-op gate: flag 8600 set)"
+
+# BEAT 2 (rung 2, sequencing + gather): only ARMS after the twin seals (8600). Both players
+# stand together in ONE zone -- the zone is 550 wide on x (> the 250 selftest spacing), so
+# standing in its left half puts the mirror inside too. Walk NORTH from spawn after beat 1.
+[[coop]]
+name = "gathering"
+zone = [-150, -400, 400, -150]
+requires_flag = 8600
+set_flag = 8601
+text = "You stand together. The vault stirs... (gate 8601)"
+
+# BEAT 3 (rung 2, mode="hold"): the classic co-op door. The plate is the VAULT door's zone
+# shifted +250 x exactly -- so solo, standing AT the vault door means the mirror is holding
+# the plate: the door opens (level flag 8602) and the gateway warps to the co-op hangout room
+# 30003 (F6-warp back to 4003 afterwards). On two machines: one player stands on the plate,
+# the other walks through -- and the door SHUTS the moment the plate is released.
+[[coop]]
+name = "vault-plate"
+mode = "hold"
+plate = [150, -1700, 350, -1500]
+set_flag = 8602
+
+[[gateway]]                       # the VAULT door (south wall, center) -- open only while held
+to = 30003
+entrance = 0
+requires_flag = 8602
+zone = [[-100, -1700], [100, -1700], [100, -1500], [-100, -1500]]
+
+# The SEALED door (south wall, left): its plate is far west -- solo, the mirror (always at
+# +250) can NEVER hold it while you stand at this door, so walking into it does NOTHING.
+# That is the negative proof that the hold gate really blocks. (Standing at x ~ -1050 puts
+# the mirror ON this plate -- flag 8603 goes 1, F6-checkable -- but then you're not at the
+# door. Two players CAN open it.)
+[[coop]]
+name = "sealed-plate"
+mode = "hold"
+plate = [-900, -1700, -700, -1500]
+set_flag = 8603
+
+[[gateway]]
+to = 30003
+entrance = 0
+requires_flag = 8603
+zone = [[-500, -1700], [-300, -1700], [-300, -1500], [-500, -1500]]

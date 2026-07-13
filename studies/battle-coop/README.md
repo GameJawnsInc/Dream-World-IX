@@ -15,6 +15,17 @@
 > triggered the message once" — the fire AND the once-latch, since the Range body runs every
 > frame in the plate): the engine coop cells (peer presence/position → gEventGlobal 2032-2039)
 > + the kit-compiled two-plate gate (design + cell map below); test field `coopgate/`.
+> RUNG 2 ★ SOLO-PROVEN (same day, the 3-beat "twin vault" on 4003 -- all beats + the
+> sealed-door negative validated in one run): `zone =` gather gates, `requires_flag`
+> sequencing, and `mode = "hold"` -- a LEVEL flag maintained while the peer stands on a plate,
+> consumed by the EXISTING flag-gated `[[gateway]]` = the classic co-op held-plate door
+> (opened solo via the selftest mirror; the shut-on-release half needs the second machine).
+> Pure kit work, zero new engine bytes.
+> The first build's always-inside hold-poller REGION minted **THE TREADQUAD LAW** (playtest:
+> "beat 1 can't fire"): `EventEngine.TreadQuad` fires ONE region per frame, first active match
+> wins -- overlapping tread regions starve each other, and an always-inside region starves the
+> WHOLE FIELD. Holds are now looping CODE entries (the watchdog idiom) and
+> `lint_region_overlaps` guards the class -- law recorded in the gateway-regions memory.
 > Two-machine symmetric-plates run pending like everything else s37.** The rest of this
 > document is the research that shaped it. Companion to the s36 exploration co-op (ghost
 > sync).

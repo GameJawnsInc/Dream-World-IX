@@ -132,6 +132,115 @@ def test_coop_gate_missing_pieces_refuse(tmp_path):
         _build.build_script(FieldProject.load(toml), "us", {})
 
 
+# ---------------------------------------------------------------- rung 2
+
+def test_assign_peer_in_rect_bytes():
+    """flag = (presence && peer-in-rect): var-ref FIRST, the condition chain, B_LET, END --
+    the exact assign order region.set_var uses."""
+    got = _coop.assign_peer_in_rect(8602, [0, 0, 10, 10])
+    want = (bytes([_region.EXPR_OP])
+            + bytes([_region.GLOB_BOOL | 0x20]) + struct.pack("<H", 8602)
+            + _coop._peer_in_rect_tokens([0, 0, 10, 10])
+            + bytes([_region.T_ASSIGN, _region.T_END]))
+    assert got == want
+    # the shared token chain is exactly the once-gate's condition minus the 0x05/0x7F wrapper
+    cond = _coop.cond_peer_in_rect([0, 0, 10, 10])
+    assert cond == bytes([_region.EXPR_OP]) + _coop._peer_in_rect_tokens([0, 0, 10, 10]) + bytes([_region.T_END])
+
+
+def test_hold_loop_body_is_level_not_latch():
+    """The hold is a looping CODE entry (the TreadQuad law forbids an always-inside region):
+    assign, Wait(1), unconditional JMP back to the top (signed end-relative offset)."""
+    from ff9mapkit.eb import opcodes
+    plate = [150, -1700, 350, -1500]
+    body = _coop.hold_loop_body(plate, 8602)
+    assign = _coop.assign_peer_in_rect(8602, plate)
+    assert body.startswith(assign)
+    assert _region.cond_not(_region.GLOB_BOOL, 8602) not in body      # NO once-latch
+    assert opcodes.wait(1) in body
+    # the back-jump: 0x01 + i16, target = jump END + offset = 0 (the loop top)
+    assert body[-3] == 0x01
+    assert struct.unpack("<h", body[-2:])[0] == -len(body)
+    # requires_flag arms via a forward SKIP (never a RETURN -- that would kill the loop object)
+    armed = _coop.hold_loop_body(plate, 8602, requires_flag=8600)
+    skip = _region.cond_truthy(_region.GLOB_BOOL, 8600) + bytes([_region.JMP_FALSE]) + struct.pack("<H", len(assign))
+    assert armed.startswith(skip)
+    assert struct.unpack("<h", armed[-2:])[0] == -len(armed)          # the loop spans the arm gate too
+
+
+def test_gate_range_body_requires_flag_arming():
+    body = _coop.gate_range_body([0, 0, 10, 10], 8601, requires_flag=8600)
+    arm = _region.flag_gate(_region.GLOB_BOOL, 8600, require_set=True)
+    assert arm in body
+    # the arming gate sits BEFORE the once-latch (an unarmed gate is fully inert)
+    assert body.index(arm) < body.index(_region.cond_not(_region.GLOB_BOOL, 8601))
+
+
+def test_rung2_blocks_build(tmp_path):
+    """gather (zone=) -> ONE region; hold -> the always-inside poller; requires_flag arms."""
+    from ff9mapkit import build as _build
+    from ff9mapkit.build import FieldProject
+    toml = tmp_path / "vault.field.toml"
+    toml.write_text(
+        '[field]\nname = "VAULT"\nid = 30093\narea = 10\n\n'
+        '[[coop]]\nname = "gather"\nzone = [-150, -400, 400, -150]\n'
+        'requires_flag = 8600\nset_flag = 8601\ntext = "Together."\n\n'
+        '[[coop]]\nname = "plate"\nmode = "hold"\nplate = [150, -1700, 350, -1500]\n'
+        'set_flag = 8602\n', encoding="utf-8")
+    eb = _build.build_script(FieldProject.load(toml), "us", {}, coop_txids={0: 500})
+    # the gather compiles ONE region: its cross-compare targets its own zone, exactly once
+    assert eb.count(_coop.cond_peer_in_rect([-150, -400, 400, -150])) == 1
+    assert _region.flag_gate(_region.GLOB_BOOL, 8600, require_set=True) in eb
+    # the hold: a looping CODE entry (assign + Wait(1) + back-jump), NOT a region -- and no
+    # always-inside quad anywhere (the TreadQuad law)
+    assert _coop.hold_loop_body([150, -1700, 350, -1500], 8602) in eb
+    assert struct.pack("<hh", -30000, -30000) not in eb
+
+
+def test_rung2_refusals(tmp_path):
+    from ff9mapkit import build as _build
+    from ff9mapkit.build import BuildError, FieldProject
+    base = '[field]\nname = "BAD"\nid = 30094\narea = 10\n\n'
+    toml = tmp_path / "bad2.field.toml"
+    toml.write_text(base + '[[coop]]\nmode = "hold"\nset_flag = 8602\n', encoding="utf-8")
+    with pytest.raises(BuildError, match="needs plate"):
+        _build.build_script(FieldProject.load(toml), "us", {})
+    toml.write_text(base + '[[coop]]\nmode = "hold"\nplate = [0, 0, 10, 10]\nset_flag = 8602\n'
+                           'text = "spam"\n', encoding="utf-8")
+    with pytest.raises(BuildError, match="can't take text"):
+        _build.build_script(FieldProject.load(toml), "us", {})
+    toml.write_text(base + '[[coop]]\nmode = "levers"\nplate_a = [0, 0, 10, 10]\n'
+                           'plate_b = [20, 0, 30, 10]\nset_flag = 8602\n', encoding="utf-8")
+    with pytest.raises(BuildError, match="unknown mode"):
+        _build.build_script(FieldProject.load(toml), "us", {})
+
+
+def test_lint_region_overlaps_treadquad_law(tmp_path):
+    """Overlapping tread regions starve each other (TreadQuad fires ONE per frame) -> warn;
+    abutting zones (shared edge) stay clean."""
+    from ff9mapkit import build as _build
+    from ff9mapkit.build import FieldProject
+    toml = tmp_path / "olap.field.toml"
+    toml.write_text('[field]\nname = "OLAP"\nid = 30095\narea = 10\n\n'
+                    '[[coop]]\nplate_a = [0, 0, 100, 100]\nplate_b = [300, 0, 400, 100]\n'
+                    'set_flag = 8600\n\n'
+                    '[[gateway]]\nto = 30003\nentrance = 0\n'
+                    'zone = [[50, 50], [150, 50], [150, 150], [50, 150]]\n', encoding="utf-8")
+    warns = _build.lint_region_overlaps(FieldProject.load(toml))
+    assert len(warns) == 1 and "OVERLAP" in warns[0] and "plate_a" in warns[0], warns
+    # abutting (shared edge at x=100) is a normal layout -> clean
+    toml.write_text('[field]\nname = "OLAP"\nid = 30095\narea = 10\n\n'
+                    '[[coop]]\nplate_a = [0, 0, 100, 100]\nplate_b = [100, 0, 200, 100]\n'
+                    'set_flag = 8600\n', encoding="utf-8")
+    assert _build.lint_region_overlaps(FieldProject.load(toml)) == []
+    # holds are code entries, not regions -> never in the overlap set
+    toml.write_text('[field]\nname = "OLAP"\nid = 30095\narea = 10\n\n'
+                    '[[coop]]\nmode = "hold"\nplate = [0, 0, 100, 100]\nset_flag = 8602\n\n'
+                    '[[gateway]]\nto = 30003\nentrance = 0\n'
+                    'zone = [[50, 50], [150, 50], [150, 150], [50, 150]]\n', encoding="utf-8")
+    assert _build.lint_region_overlaps(FieldProject.load(toml)) == []
+
+
 def test_lint_flags_coop_set_flag_band(tmp_path):
     """A [[coop]] set_flag inside a reserved region (incl. the coop cells themselves) gets warned."""
     from ff9mapkit import build as _build
