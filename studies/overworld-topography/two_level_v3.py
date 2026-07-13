@@ -171,6 +171,13 @@ if len(_cur) > len(_best):
 S_LO, S_HI = _best[0] * 2.0, (_best[-1] + 1) * 2.0
 L_EFF = S_HI - S_LO
 
+# the donor's LOCAL foot line: min h per 2u of arc (the wall's depth varies along the run)
+_bkeys = sorted(_bins)
+_bc = np.array([(k + 0.5) * 2.0 for k in _bkeys])
+_bv = np.array([_bins[k] for k in _bkeys], dtype=float)
+def h_bot(s):
+    return float(np.interp(s, _bc, _bv))
+
 # THE WANDER CORRECTION (donor side): the TRUE crest meanders +/-2u around the smoothed
 # centerline; tops must be referenced to the TRUE edge or the carried top wanders off the
 # target boundary leaving see-through gaps
@@ -598,6 +605,23 @@ new_parents = []                                           # (corners8, idall, f
 n_laps = math.ceil(PER_O / (L_EFF - LAP_OV))
 vshift = {}                                                # (lap, donor key) -> extra outward push
 
+def crest_edge_at(px, pz):
+    """the nearest point ON the boundary polygon + its lerped y (an exact edge weld)"""
+    best, out = 1e18, (px, 17.0, pz)
+    n = len(crest_poly)
+    for i in range(n):
+        ax, az = crest_poly[i]
+        bx2, bz2 = crest_poly[(i + 1) % n]
+        vx, vz = bx2 - ax, bz2 - az
+        L2 = (vx * vx + vz * vz) or 1e-9
+        t01 = max(0.0, min(1.0, ((px - ax) * vx + (pz - az) * vz) / L2))
+        qx, qz = ax + t01 * vx, az + t01 * vz
+        d2 = (px - qx) ** 2 + (pz - qz) ** 2
+        if d2 < best:
+            qy = crest_true[i][1] + t01 * (crest_true[(i + 1) % n][1] - crest_true[i][1])
+            best, out = d2, (qx, qy, qz)
+    return out
+
 def place_vert(lap, p, j):
     """one carried vert's world position -- DETERMINISTIC per (lap, key), so shared verts
     always land together (a per-tri nudge tears shared edges; per-key shifts cannot)"""
@@ -605,25 +629,53 @@ def place_vert(lap, p, j):
     s0 = lap * (L_EFF - LAP_OV)
     ox, oz, cy, nx, nz, th_o, dl_o = anchor_at(s0 + (s - S_LO))
     # THE WANDER CORRECTION: reference d to the TRUE crest on both sides
-    dd_eff = (dd - delta_d(s)) + dl_o + TUCK_D + 0.06 * lap + vshift.get((lap, p), 0.0)
+    dd_eff = (dd - delta_d(s)) + dl_o + TUCK_D + 0.06 * lap + vshift.get(("w", lap, p), 0.0)
     wx = ox + nx * (dd_eff - D_MID)
     wz = oz + nz * (dd_eff - D_MID)
     wy = cy + h - TUCK_Y
-    # EVERY vert stays OUTSIDE the TRUE jagged boundary (the anatomy's 0/57 tuck finding)
-    for _ in range(2):
-        if pip(wx, wz, crest_poly):
-            bd = dist_to_poly(wx, wz, crest_poly) + 0.25
-            wx += nx * bd
-            wz += nz * bd
-        else:
-            break
+    if h > -1.0:
+        # THE TOP SNAP: the donor's top row WELDS onto the boundary polygon (its own tops
+        # sit at gap 0.00 against their grass -- a floating top left the plateau SLIT)
+        wx, wy, wz = crest_edge_at(wx, wz)
+    else:
+        # every deeper vert stays OUTSIDE the boundary (rule-f at the plateau edge)
+        for _ in range(2):
+            if pip(wx, wz, crest_poly):
+                bd = dist_to_poly(wx, wz, crest_poly) + 0.25
+                wx += nx * bd
+                wz += nz * bd
+            else:
+                break
     n3 = dN[j]
     rot = th_o - th_d
     cd, sd_ = math.cos(rot), math.sin(rot)
     return (wx, wy, wz, dU[j][0], dU[j][1],
             n3[0] * cd - n3[2] * sd_, n3[1], n3[0] * sd_ + n3[2] * cd)
 
-wall_src = []                                              # (lap, keys, jidx) per wall tri
+def place_vert_foot(lap, p, j):
+    """THE FOOT STRIP: the donor's real foot course (its fringe + ground weld, the bottom
+    band above its LOCAL foot line) seated AT OUR GROUND -- the grass->mountain transition
+    the mid-body clip destroyed. Shingle-legal: overlaps the main carry above it."""
+    s, dd, h, th_d = dpar[p]
+    s0 = lap * (L_EFF - LAP_OV)
+    ox, oz, cy, nx, nz, th_o, dl_o = anchor_at(s0 + (s - S_LO))
+    dd_eff = (dd - delta_d(s)) + dl_o + TUCK_D + 0.06 * lap + vshift.get(("f", lap, p), 0.0)
+    wx = ox + nx * (dd_eff - D_MID)
+    wz = oz + nz * (dd_eff - D_MID)
+    rel = h - h_bot(s)
+    if rel < 1.0:
+        wy = GROUND_Y - 0.04                               # the bottom ROW welds FLAT to our
+        #   flat lowland (the donor's foot rode its own uneven ground; a bin-interp foot
+        #   line left the strip's bottom jagged + floating)
+    else:
+        wy = max(GROUND_Y + rel, GROUND_Y - 0.04)
+    n3 = dN[j]
+    rot = th_o - th_d
+    cd, sd_ = math.cos(rot), math.sin(rot)
+    return (wx, wy, wz, dU[j][0], dU[j][1],
+            n3[0] * cd - n3[2] * sd_, n3[1], n3[0] * sd_ + n3[2] * cd)
+
+wall_src = []                                              # ("w"|"f", lap, keys, jidx)
 for lap in range(n_laps):
     s0 = lap * (L_EFF - LAP_OV)
     if s0 >= PER_O:
@@ -632,8 +684,6 @@ for lap in range(n_laps):
         i = dtri[t]
         keys = [kk3(dV[j]) for j in i]
         pars = [dpar[p] for p in keys]
-        if sum(pr[2] for pr in pars) / 3 < SEA_H_MIN:
-            continue                                        # below the carry window
         smin = min(pr[0] for pr in pars) - S_LO
         smax = max(pr[0] for pr in pars) - S_LO
         if smax < -0.01 or smin > L_EFF + 0.01:
@@ -644,21 +694,37 @@ for lap in range(n_laps):
             continue                                        # the next lap re-covers it
         if s0 + smin >= PER_O + LAP_OV:
             continue                                        # past ring closure
-        wall_src.append((lap, keys, list(i)))
+        if sum(pr[2] for pr in pars) / 3 >= SEA_H_MIN:
+            wall_src.append(("w", lap, keys, list(i)))
+        rel = [pr[2] - h_bot(pr[0]) for pr in pars]
+        if sum(rel) / 3 <= 6.0 and min(rel) >= -3.0:
+            wall_src.append(("f", lap, keys, list(i)))      # the foot-course band
 
 GHOST_ID = 4078.0                                          # the engine's own RAY-SKIP idall:
 #   renders normally, invisible to every ground query (WMPhysics skips it) -- uncacheable
 ghost_src = set()                                          # wall_src indices emitted as ghosts
 FLIP = False                                               # set by the facing check below
 
+parent_src_idx = []                                        # new_parents pos -> wall_src idx
+
 def build_wall_parents():
+    global parent_src_idx
+    parent_src_idx = []
     out = []
-    for m, (lap, keys, i) in enumerate(wall_src):
-        pts = tuple(place_vert(lap, p, j) for p, j in zip(keys, i))
+    for m, (kind, lap, keys, i) in enumerate(wall_src):
+        fn = place_vert if kind == "w" else place_vert_foot
+        pts = tuple(fn(lap, p, j) for p, j in zip(keys, i))
+        if kind == "f":
+            cxm = sum(p[0] for p in pts) / 3
+            czm = sum(p[2] for p in pts) / 3
+            if not pip(cxm, czm, outline_poly):
+                continue                                    # the sea side keeps free bases
         if FLIP:
             pts = (pts[0], pts[2], pts[1])
         out.append((pts, GHOST_ID if m in ghost_src else ID49,
-                    "wall-ghost" if m in ghost_src else "wall"))
+                    "wall-ghost" if m in ghost_src else ("wall" if kind == "w"
+                                                         else "wall-foot")))
+        parent_src_idx.append(m)
     return out
 
 # THE CARRY FACING CHECK: the (tangent, downhill) handedness of the donor vs the
@@ -681,7 +747,9 @@ for t in dcomp[::3]:
     s, dd, h, th_d = dpar[kk3(dV[i[0]])]
     _d_out.append((-math.sin(th_d), math.cos(th_d)))       # the donor's +d (downhill) dir
 _o_tris, _o_out = [], []
-for (lap, keys, i) in wall_src[::3]:
+for (kind, lap, keys, i) in wall_src[::3]:
+    if kind != "w":
+        continue
     _o_tris.append([place_vert(lap, p, j)[:3] for p, j in zip(keys, i)])
     s, dd, h, _ = dpar[keys[0]]
     _, _, _, oNx, oNz, _, _ = anchor_at(lap * (L_EFF - LAP_OV) + (s - S_LO))
@@ -756,7 +824,7 @@ def ruleF_scan(report=False):
             for h in hs:
                 if h[1] in WALKT:
                     continue
-                if h[0] < topw[0] - 0.05 and h[2] == "wall":
+                if h[0] < topw[0] - 0.05 and h[2] in ("wall", "wall-foot"):
                     nviol += 1
                     dep, _ = poly_nearest(wx, wz, crest_poly)
                     if not pip(wx, wz, crest_poly):
@@ -774,16 +842,18 @@ for _fix in range(5):
         break
     if _fix < 2:
         for m, dep in offend.items():
-            lap, keys, _ = wall_src[m]
+            if m >= len(parent_src_idx):
+                continue
+            kind, lap, keys, _ = wall_src[parent_src_idx[m]]
             for p in keys:
-                vshift[(lap, p)] = max(vshift.get((lap, p), 0.0), dep + 0.5)
+                vshift[(kind, lap, p)] = max(vshift.get((kind, lap, p), 0.0), dep + 0.5)
         print(f"  rule-f fix pass {_fix}: {nviol} points, {len(offend)} tris' verts "
               f"shifted", flush=True)
     else:
         # non-convergent offenders (corner tris stretch under divergent normals instead
         # of translating): GHOST them -- idall 4078 renders but no ray ever hits it, so
         # it cannot be cached; no hole, no trap
-        ghost_src.update(offend)
+        ghost_src.update(parent_src_idx[m] for m in offend if m < len(parent_src_idx))
         print(f"  rule-f fix pass {_fix}: ghosted {len(offend)} non-convergent corner "
               f"tris", flush=True)
     new_parents = build_wall_parents()                     # shared verts move TOGETHER
@@ -803,7 +873,7 @@ def clip_poly(poly, axis, val, keep_ge):
             out2.append(tuple(a2[k2] + t01 * (b2[k2] - a2[k2]) for k2 in range(len(a2))))
     return out2
 
-clipped, contact = [], []
+clipped, clip_edge = [], []
 for corners, idall, fam in new_parents:
     if fam != "wall" or all(p[1] >= GROUND_Y for p in corners):
         clipped.append((corners, idall, fam))
@@ -815,15 +885,15 @@ for corners, idall, fam in new_parents:
         continue
     bxm = sum(p[0] for p in below) / len(below)
     bzm = sum(p[2] for p in below) / len(below)
-    if not pip(bxm, bzm, outline_poly):
-        clipped.append((corners, idall, fam))
+    if not pip(bxm, bzm, outline_poly) and             not any(pip(p[0], p[2], outline_poly) for p in below):
+        clipped.append((corners, idall, fam))              # fully-sea below-part: free base
         continue
     poly = clip_poly(list(corners), 1, GROUND_Y, True)
     if len(poly) < 3:
         continue
     for p in poly:
         if abs(p[1] - GROUND_Y) < 1e-6:
-            contact.append(p)
+            clip_edge.append(p)
     for k2 in range(1, len(poly) - 1):
         tri = (poly[0], poly[k2], poly[k2 + 1])
         e1 = [tri[1][q] - tri[0][q] for q in range(3)]
@@ -835,7 +905,20 @@ for corners, idall, fam in new_parents:
             continue
         clipped.append((tri, idall, fam))
 new_parents = clipped
-print(f"wall tris after the land clip: {sum(1 for _, _, f in new_parents if f == 'wall')}, "
+# the corridor welds to THE FOOT STRIP's ground verts (the real donor foot line), not the
+# mid-body clip edge
+contact = []
+for corners, idall, fam in new_parents:
+    if fam == "wall-foot":
+        for p in corners:
+            if abs(p[1] - GROUND_Y) <= 0.35:
+                contact.append(p)
+contact.extend(clip_edge)                                  # fallback anchors where the
+#   strip is absent -- without them the zip cuts straight across and leaves holes
+contact = [p for p in contact if p[2] < seg_chord_z(p[0]) + 1.5]   # the corridor is the
+#   chord side; mouth-side feet pollute the arc ordering (the swooping zip)
+print(f"wall tris after the land clip: {sum(1 for _, _, f in new_parents if f == 'wall')} "
+      f"+ {sum(1 for _, _, f in new_parents if f == 'wall-foot')} foot, "
       f"contact pts {len(contact)}", flush=True)
 
 # ---- 7. the corridor zip: south chain <-> the contact line -------------------------------------
@@ -1142,7 +1225,7 @@ DBG = bool(os.environ.get("DEBUG_CLASS"))
 CLASS_RGB = {"raised": (60, 220, 60), "kept-main": (20, 120, 20), "kept-rock": (150, 110, 70),
              "kept-forest": (0, 80, 0), "kept-stamp": (120, 200, 120),
              "wall": (150, 150, 160), "zip": (240, 220, 40), "verge": (170, 140, 30),
-             "fill": (110, 235, 110)}
+             "fill": (110, 235, 110), "wall-foot": (110, 100, 120)}
 order_rows = sorted(range(len(tris2)), key=lambda t: min(pos[i][1] for i in tris2[t]))
 for t in order_rows:
     p3 = [(pos[i][0] + BLOCK * bx, pos[i][1], pos[i][2] - BLOCK * (by + 1) + BLOCK) for i in tris2[t]]
