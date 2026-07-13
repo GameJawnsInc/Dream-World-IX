@@ -370,5 +370,42 @@ island by the proven carve machinery; the hole ring derives from DROPPED-ADJACEN
 a geometric band filter caught the compact islet's own coast once-edges). Gates: rect
 membership, cracks 0, census MISS=0, shelf centre grounds topo 13 @ 16.74, atlas 0.
 
+## THE DAGUERREO MASSIF ANATOMY — the turning-wall study (`daguerreo_massif_anatomy.py`)
+
+The v4 transplant put a real HORSESHOE massif in our own fork — the first turning/branching
+mountain we fully own; every prior wall study sampled straight escarpment runs in aggregate.
+Read on the REAL donor bytes (5-6,15-16) (identical to the deployed island at rot0/shift0);
+artifacts `out/daguerreo_massif.json` + `out/massif_cols.png` / `out/massif_rows.png`.
+
+**THE SHEET-MASSIF DISCOVERY (the headline): this mountain is NOT the wall class.** The
+whole massif (562 topo-49 tris across 4 blocks, y 2.4–31.4) is ONE edge-welded component;
+74% of its quads weld vertically to the course below (the 8 big escarpments measured 0% —
+shingled free strips); 97% of tris are up-facing (ny>0.3 — no vertical curtains); quad
+courses are ~4.3u tall × ~4u wide with plan spacing COMPRESSED on steep faces (NN med
+2.62u). ⇒ FF9 mountains come in (at least) TWO construction classes: **ESCARPMENT WALLS**
+(shingled free strips on long straight plateau edges — the wall_anatomy class) and
+**LATTICE-SHEET MASSIFS** (one continuous welded quad sheet draped over the whole relief,
+over the top included — no ridge construction exists; only 34u of knife-edges on the whole
+horseshoe). The v3 bend-carry bent a strip-class donor around a closed form FF9 builds as
+a draped sheet — the FORM LESSON's mechanical explanation.
+
+**The tile language on a sheet (turn behavior):** it IS the 128px tile language (phase
+peakiness 7-9×, uv bbox exactly the known interior wall region — not a mural). Rows =
+~4.5u HEIGHT COURSES, turn-invariant around the whole loop (row 10 foot at y 3.6-7.5 →
+row 9 → 8 → 7 ascending — the G5 staircase), RE-BASED per façade — against the hanging
+bowl's topo-13 rim the wall runs rows 6/5, not the foot course. Cols = the contour
+sawtooth, cycling continuously around the closed loop; at SHARP bends (facing delta >35°)
+windowed continuation collapses (atlas-adjacent 50%→21%, "other" 31%→56%) into FREE
+fractional window placement, with narrower quads (3.0u vs 4.0u med). Straight-run "other"
+offsets are NOT noise: repeated systematic deltas ((2.16,3.16)×20 …) = boundaries between
+window SYSTEMS (the low ring vs the tall west face). Strips do NOT preferentially break at
+bends; filler tris do NOT concentrate at bends (both med ≈ overall).
+
+**Water anatomy:** THE FALLS APERTURE — the terrain wall has a LITERAL 19-edge hole behind
+the falls sheets (the falls mesh IS the surface there; 2 further edges were block-frame key
+artifacts); the river channel bed is topo-58 (the coastal-lip class reused inland, blocked)
+with the water plane inset ~0.5u below the banks and the wall CONTINUOUS behind it. Feet
+weld 100% everywhere (grass, bowl rim, forest), dihedral 46-53° (the soft interior crest).
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
