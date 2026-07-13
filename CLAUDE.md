@@ -60,8 +60,9 @@ engine build, the build/deploy loop, version control, and all docs/notes.
 > the working repo deploys into its OWN Memoria mod folder, pinned in a gitignored **`.ff9deploy.toml`** (`mod_folder` +
 > scratch-band `id`; override via `--mod-folder`/`$FF9_MOD_FOLDER`). `Memoria.ini [Mod] FolderNames` stacks the folders;
 > each folder's own DictionaryPatch/BattlePatch is read at launch. **Distinct ids are required even across folders**
-> (EventDB/SceneData are GLOBAL). Slots: master → `FF9CustomMap`/**30000** · `-bb`/**30001** · `-ih`/**30002**; reach any
-> via F6 → Warp. **Field-id bands:** **10-3100** real (locked) · **4000-9899** shipped custom · **30000-32767** dev
+> (EventDB/SceneData are GLOBAL). Slots: master → `FF9CustomMap`/**30000** · `-bb`/**30001** · `-ih`/**30002**; the
+> **COOP test band = 30110-30200** (twin altar 30110 · twin vault 30111; 30100-30102 = Stolen Ember in `-story`);
+> reach any via F6 → Warp. **Field-id bands:** **10-3100** real (locked) · **4000-9899** shipped custom · **30000-32767** dev
 > scratch (engine `fldMapNo` is Int16 → max **32767**; a higher id registers but is unreachable). **Workflow:**
 > single-repo out of `Dream-World-IX` master (worktrees shelved → [[project-ff9-git-layout]]); edits on a feature
 > branch → `master`. `C:\gd\FFIX` is the read-only archive (Memoria source + old branches).

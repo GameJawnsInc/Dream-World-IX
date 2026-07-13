@@ -115,8 +115,12 @@ def main() -> int:
         "TWIN_ALTAR" not in t.name for t in tomls) else tomls[0]
     text = src.read_text(encoding="utf-8")
 
-    # our field name (the extractor derives one from the donor fbg)
+    # our field name + id. THE COOP TEST BAND = 30110-30200 (user-designated 2026-07-13; 30100-30102
+    # belong to the Stolen Ember campaign in FF9CustomMap-story -- EventDB ids are GLOBAL across
+    # stacked folders). The twin altar owns 30110; the twin vault (coopgate) owns 30111. First deploy
+    # of a new id needs ONE game relaunch (registers the DictionaryPatch line); after that F6 -> Warp.
     text = re.sub(r'(?m)^name = "\w+"', f'name = "{NAME}"', text, count=1)
+    text = re.sub(r'(?m)^id = \d+', 'id = 30110', text, count=1)
 
     # (the donor spawn (-359,-432) sits on its own door threshold -- lint flags it as edge-close,
     # but that IS the real field's entry placement and the engine's inward shove handles it; the
