@@ -2899,6 +2899,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
         print("--action-prompt needs --field-direct <id> (it gates a CUSTOM destination's warp on Confirm; the "
               "real dispatcher-case route already owns town-entry behavior)", file=sys.stderr)
         return 2
+    if args.nameplate and not args.action_prompt:
+        print("--nameplate needs --action-prompt (it rides the confirm-gated entrance -- it summons the native "
+              "location nameplate + \"Enter with [X]\" HUD while the tile is stood on)", file=sys.stderr)
+        return 2
     building = None
     try:
         if args.building:
@@ -2912,7 +2916,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
-            trigger_only=args.trigger_only, prompt=args.action_prompt,
+            trigger_only=args.trigger_only, prompt=args.action_prompt, nameplate=args.nameplate,
             dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
@@ -2926,6 +2930,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     print(f"  {info['dest_note']}")
     if args.action_prompt:
         print("  action-prompt: raises the \"!\" bubble; warps only on a Confirm press (faithful town-style entry)")
+    if args.nameplate:
+        print("  nameplate: summons the NATIVE entrance HUD (location nameplate + \"Enter with [X]\") via the real "
+              "dispatcher handshake (case %d, unmapped -> the native confirm is a no-op; our Confirm gate warps)"
+              % EN.NAMEPLATE_CASE)
     wrote = info["dispatchers_written"]
     print(f"  trigger func -> {len(wrote)} dispatcher(s) x {len(info['langs'])} langs"
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
@@ -5832,6 +5840,10 @@ def build_parser() -> argparse.ArgumentParser:
                           "only when you press Confirm while standing on it -- the way real FF9 towns enter (a "
                           "B_KEYON(Confirm) gate, byte-copied from the real dispatcher). Default (off) = auto-warp "
                           "the instant you step on the tile")
+    wen.add_argument("--nameplate", action="store_true",
+                     help="(with --action-prompt) also summon the NATIVE overworld entrance HUD -- the location "
+                          "nameplate + the \"Enter with [X]\" dialog -- via the real dispatcher handshake, so the "
+                          "windows show + auto-hide natively (the warp still runs through our Confirm gate)")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),

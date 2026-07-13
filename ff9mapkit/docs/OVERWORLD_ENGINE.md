@@ -374,6 +374,13 @@ What it does, generalizing + hardening the manual recipe:
   faithful **"!" confirm-to-enter** entrance instead of auto-warp: the tile raises the `FICON` "!" bubble and warps
   only when you press **Confirm** while standing on it (a `B_KEYON(Confirm)` gate byte-copied from the real dispatcher
   main loop — stock FF9 town entry is confirm-gated, NOT walk-on). Default = auto-warp the instant you step on the tile.
+  **`--nameplate`** (with `--action-prompt`) additionally summons the **native entrance HUD** — the location nameplate +
+  the "Enter with [X]" dialog. Window 6 is a *shared, main-loop-managed HUD slot* (the standing gil/time overlays reuse
+  it), so a bypass trigger can't paint it; instead the trigger runs the real dispatcher handshake verbatim (`Byte[39] =
+  1` + `RunScriptAsync(6,1,11)` → func-0xB sets the pending flag `Byte[38]` + location id `Byte[24]`; the main loop shows
+  `WindowAsync(6,4,2)` + `WindowAsync(7,16,40)`; the idle loop auto-hides). Case **1** is the only value UNMAPPED in every
+  dispatcher's AREA switch, so the native confirm→AREA-switch is a no-op (bare default) and the warp stays on our own
+  Confirm gate → `Field(<custom>)` — no double-warp.
 - **Trigger func.** Clones WORLD00's `0x9895` body and **patches its single `Byte[39]=<case>` literal** (`D5 27 7D <lo>
   <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
   to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.

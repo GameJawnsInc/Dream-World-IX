@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-entrance --nameplate`: the native overworld entrance HUD (location nameplate + "Enter with [X]")
+- Real overworld town entry shows a native game-font **location nameplate** + an **"Enter with [X]"**
+  dialog on approach. That HUD can't be bolted onto our bypass trigger: **window 6 is a shared,
+  main-loop-managed HUD slot** (the standing gil/time overlays reuse it), so hand-showing it fights the
+  HUD. `--nameplate` (with `--action-prompt`) instead runs the **real dispatcher handshake** verbatim —
+  `Byte[39] = <case>` + `RunScriptAsync(6,1,11)` — so the native machinery (func-0xB → the main loop's
+  `WindowAsync(6,4,2)` + `WindowAsync(7,16,40)`; the idle loop's auto-hide) owns the whole nameplate
+  lifecycle. The case is **1**, the only value UNMAPPED in every free-roam dispatcher's AREA switch
+  (2–60 are real entrances), so the native confirm→AREA-switch hits its no-op default and NO native warp
+  fires — the actual warp stays on our own `B_KEYON(Confirm)` gate → zone-in fade → `Field(<custom>)`.
+- `entrance.nameplate_summon()` / `entrance_func_body_direct(..., nameplate=True)`; the `RunScriptAsync`
+  bytes are byte-copied from the trigger template, and a test asserts the summon shape + that case 1 is
+  unmapped in every dispatcher. Deploy: `world-entrance --field-direct <id> --action-prompt --nameplate`.
+
+### Fixed — `world-entrance` worldmap EXIT fades out before the transition (was a hard cut)
+- Leaving a field back to the overworld hard-cut instead of fading. The kit carries only the SHARED exit
+  cascade SUFFIX (routing + the WorldMap arms); each real exit field's fade lives in its per-field HEAD,
+  which the extraction drops. `worldmap_exit_body` now prepends `exit_fade()` = `DisableMove` +
+  `FadeFilter(6,24,white)` + `Wait(25)` (matching field 2800's real exit head, the same mode-6 fade the
+  choice/gateway warps use) before the arrive/key writes. Default on (`fade=True`); byte-asserted test.
+
 ### Added — `world-entrance --action-prompt`: the faithful "!" confirm-to-enter entrance
 - Correcting an earlier wrong claim: **stock FF9 overworld town/dungeon entry is CONFIRM-gated, not
   walk-on.** The real dispatcher's fade→`Field()` block is guarded by `B_KEYON(Confirm)` (the

@@ -143,6 +143,39 @@ def test_entrance_func_body_prompt():
     assert FICON_EXCLAM not in auto and CONFIRM_PRESSED not in auto
 
 
+def test_entrance_func_body_nameplate():
+    """The nameplate summon (prompt=True, nameplate=True): the trigger additionally runs the REAL dispatcher
+    handshake (Byte[39]=NAMEPLATE_CASE + RunScriptAsync(6,1,11)) before the "!" + Confirm gate, so the native
+    location nameplate + "Enter with [X]" HUD show + auto-hide. The RunScriptAsync bytes are verbatim from the
+    template, and NAMEPLATE_CASE is UNMAPPED in every dispatcher's AREA switch (native confirm -> no-op)."""
+    from ff9mapkit.eb.model import EbScript
+    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM, NAMEPLATE_CASE, TEMPLATE_TAG,
+                                          dispatcher_cases, entrance_func_body_direct, load_world_dispatchers,
+                                          nameplate_summon)
+    disp = load_world_dispatchers()
+    prompt = entrance_func_body_direct(6500, world_state=9009, prompt=True, dispatchers=disp)
+    named = entrance_func_body_direct(6500, world_state=9009, prompt=True, nameplate=True, dispatchers=disp)
+    summon = nameplate_summon()
+    # the ONLY addition is the summon, and it sits BEFORE the "!" bubble (which precedes the Confirm gate)
+    assert len(named) == len(prompt) + len(summon)
+    assert summon in named and summon not in prompt
+    assert named.index(summon) < named.index(FICON_EXCLAM) < named.index(CONFIRM_PRESSED)
+    # the RunScriptAsync(6,1,11) tail of the summon is byte-verbatim from WORLD00's trigger template
+    w00 = EbScript(disp["evt_world_world00"])
+    tf = w00.entry(0).func_by_tag(TEMPLATE_TAG)
+    assert summon.endswith(w00.data[tf.abs_start + 23:tf.abs_start + 28])   # template's own RunScriptAsync bytes
+    # Byte[39] = NAMEPLATE_CASE, the assignment idiom (D5 27 7D <case> .. 2C)
+    assert summon[:8] == bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE, 0x00, 0x2C, 0x7F])
+    # NAMEPLATE_CASE must be UNMAPPED in EVERY free-roam dispatcher's AREA switch (else a native warp fires)
+    for name, b in disp.items():
+        cs = dispatcher_cases(b)
+        if cs is not None:
+            assert NAMEPLATE_CASE not in cs, f"{name} maps case {NAMEPLATE_CASE} -- native warp would fire"
+    # nameplate requires prompt
+    with pytest.raises(ValueError):
+        entrance_func_body_direct(6500, nameplate=True, dispatchers=disp)
+
+
 def test_worldmap_exit_arrive_shape():
     """The deterministic return: [gate][arrive var writes (the Init's own 32-bit
     idiom)][D8:2 nonzero][if GLOB[1062]: WorldMap(<var>) computed][the cascade

@@ -217,8 +217,37 @@ FICON_EXCLAM = bytes([0x68, 0x00, 0x01])   # Bubble(IconType.Exclamation=1) -- r
 # Byte-identical to the Confirm test inside the real main-loop gate (op7E(0,0,2,0) op4F).
 CONFIRM_PRESSED = bytes([0x05, 0x7E, 0x00, 0x00, 0x02, 0x00, 0x4F, 0x7F])
 
+# The native overworld ENTRANCE HUD -- the location NAMEPLATE ("Dali") + the "Enter with [X]" dialog --
+# is NOT something a bypass trigger can paint: window 6 is a SHARED, main-loop-managed HUD slot (the same
+# slot the standing gil/time overlays reuse, coordinated via the pending-entrance flag Byte[38]), so
+# hand-showing WindowAsync(6,...) fights the HUD. The faithful way is to run the REAL dispatcher handshake
+# and let the native machinery own the windows: the cell-tag func sets Byte[39]=<case> + RunScriptAsync(6,
+# 1,11) -> func-0xB (entry1/tag11) sets Byte[38] (pending) + Byte[24]=case+100 (location id) -> the always-
+# running main loop (entry1/tag1) shows SetTextVariable(0,Byte[24]) + WindowAsync(6,4,2) [nameplate] +
+# WindowAsync(7,16,40) ["Enter with [X]"], and the idle loop (entry0/tag1) closes them when Byte[24] <= 100
+# (== the player stepped off). We reproduce ONLY the Byte[39]+RunScriptAsync handshake -- byte-verbatim
+# from the template -- and pick an UNMAPPED case so the native confirm->AREA-switch hits its DEFAULT edge,
+# which (verified across all 9 dispatchers) is a benign control-restore (EnableMove/EnableMenu cleanup),
+# NOT a warp -- leaving the actual warp to our own confirm gate below. (That EnableMove lands on the same
+# confirm frame as our own zone-in DisableMove+fade, so it is harmlessly hidden under the fade.)
+NAMEPLATE_CASE = 1     # the ONLY case UNMAPPED in every free-roam dispatcher's AREA switch (2-60 are real
+                       # entrances). Still <= 16, so func-0xB drives it exactly like a real low entrance
+                       # (Byte[24]=101 survives to the main loop's SetTextVariable), so the nameplate + enter
+                       # dialog show + auto-hide -- but no native warp fires (case 1 -> switch default).
 
-def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, game=None,
+
+def nameplate_summon() -> bytes:
+    """The native entrance-HUD summon: ``Byte[39] = NAMEPLATE_CASE ; RunScriptAsync(6, 1, 11)`` -- the exact
+    handshake every real overworld entrance runs to raise the location nameplate + the "Enter with [X]"
+    dialog (see :data:`NAMEPLATE_CASE`). ``RunScriptAsync(6, 1, 11)`` is byte-verbatim from the trigger
+    template; the nameplate windows + their show/hide lifecycle are then owned entirely by the dispatcher's
+    own main + idle loops (so window 6 stays coordinated with the standing HUD, which a bypass can't do)."""
+    from ..eb import opcodes as O
+    return (bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE & 0xFF, (NAMEPLATE_CASE >> 8) & 0xFF, 0x2C, 0x7F])
+            + O.run_script_async(6, 1, 11))
+
+
+def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, nameplate=False, game=None,
                               dispatchers=None) -> bytes:
     """The DIRECT trigger body for a CUSTOM destination field: the proven template's
     vehicle/state GATE verbatim (its leading expression + conditional skip), then the
@@ -239,6 +268,11 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
     button is held (``B_KEYON(Confirm)``, the exact gate real dispatchers use). Without it the
     warp fires the instant you step on the tile (auto-warp; fine for a scripted/cutscene entrance).
 
+    ``nameplate=True`` (requires ``prompt``) additionally summons the NATIVE overworld entrance
+    HUD -- the location nameplate + the "Enter with [X]" dialog -- via :func:`nameplate_summon`
+    (the real dispatcher handshake, so the windows show + auto-hide natively). The warp still runs
+    through our own Confirm gate below; the summon's unmapped case makes the native confirm a no-op.
+
     ``world_state`` (the wldMapNo of the dispatcher copy this body is deployed into --
     each dispatcher knows which world it is) records the CURRENT world state so the
     destination field's ``[[gateway]] to="worldmap" arrive=`` exit can return to it
@@ -250,6 +284,8 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
     import struct
     if not 0 <= int(field_id) <= 0x7FFF:
         raise ValueError(f"field id {field_id} out of the engine's Int16 range")
+    if nameplate and not prompt:
+        raise ValueError("nameplate=True requires prompt=True (the native HUD rides the confirm-gated entrance)")
     if dispatchers is None:
         dispatchers = load_world_dispatchers(game)
     from ..eb.model import EbScript
@@ -271,9 +307,12 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
     warp = zone_in_body() + rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
     if not prompt:                                    # auto-warp: [gate][JZ over warp -> RET][warp][RET]
         return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(warp)) + warp + b"\x04"
-    # confirm-gated "!": show the bubble every frame on the tile, warp only on a Confirm press.
+    # confirm-gated "!": show the bubble (+ optional native nameplate) every frame on the tile, warp only
+    # on a Confirm press. The native summon runs first (every frame -- same cadence real entrances trigger
+    # func-0xB), then the "!" bubble, then the Confirm gate over our own zone-in fade + Field.
+    summon = nameplate_summon() if nameplate else b""
     confirm_gate = CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp))   # JZ over warp -> RET
-    after_vehicle = FICON_EXCLAM + confirm_gate + warp                              # skipped if wrong vehicle
+    after_vehicle = summon + FICON_EXCLAM + confirm_gate + warp                     # skipped if wrong vehicle
     return (tpl[:12] + bytes([0x02]) + struct.pack("<h", len(after_vehicle))
             + after_vehicle + b"\x04")
 
@@ -454,7 +493,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                     event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
-                    trigger_only: bool = False, prompt: bool = False,
+                    trigger_only: bool = False, prompt: bool = False, nameplate: bool = False,
                     backup_dir=None, dry_run: bool = False, game=None) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
@@ -532,7 +571,8 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         us_base = us_mod.read_bytes() if us_mod.is_file() else alld[name]["us"]
         # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo
         b = body if body is not None else entrance_func_body_direct(
-            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, dispatchers=us_disp)
+            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, nameplate=nameplate,
+            dispatchers=us_disp)
         existing = EbScript.from_bytes(us_base).entry(0).func_by_tag(tag)
         if existing is not None:
             if us_base[existing.abs_start:existing.abs_end] == b:
