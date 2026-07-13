@@ -196,6 +196,20 @@ trim raised the floor, but the corridor still dead-ended AT the island edge insi
 Sea4 lap zone — pressing west queries open sea (cacheable) while sea laps under the slot
 floor (THE MOAT LAW v2: walkable synth ground ends ≥~4u inland of the outline).
 
+## Round 4: THE v3 BEND-CARRY (deployed, awaits playtest)
+
+`two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —
+donor (17,12)'s ribbon (23.6u tall, 81u run, corr −0.96), every vert/UV/normal real bytes,
+(s,d,h)-bent along our crest in 3 shingle-overlapped laps. The offline render shows one
+coherent crag wall; all gates clean (census 0 MISS, rule-f 0, moat/verge, probes). The
+build minted the v3 carry laws (full statements in the memory): THE MID-DEPTH ANCHOR
+(+ THE HULL CLOSURE for bays — an anchor bridges concavities < D_MID), THE WANDER
+CORRECTION (d referenced to TRUE crests both sides), THE INTERIOR WINDOW (+ keep
+straddlers), PER-KEY SHIFTS never per-tri nudges, THE GHOST REMEDY (idall 4078 = the
+engine's own ray-skip list), THE FULL-CELL SEA REVELATION → THE VERGE RULE final form
+(outline proximity, signed distances), and RULE-(f) AS A FIX ORACLE. Teleports:
+**(226.5,−1137.5)** lowland / **(222.5,−1106.5)** plateau.
+
 **THE WALL MESH ORGANIZATION STUDY (`wall_anatomy.py` → out/wall_anatomy.json)** — the 8
 largest interior escarpments answer how real walls are BUILT (full laws in the memory):
 courses are SHINGLED FREE STRIPS (zero vertex sharing between courses); TOPS FLOAT under
