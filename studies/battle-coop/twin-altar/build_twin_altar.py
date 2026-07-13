@@ -57,21 +57,21 @@ pos = [-800, -400]
 prop = "altar_stone"
 pos = [-550, -400]
 
-[[prop]]                     # the ANCHOR stone, at the mouth of the eastern archway (as far west
-prop = "altar_stone"         # as the geometry allows: the arch must stay HELD while the walker is
-pos = [1500, -250]           # inside its trigger zone, whose inner edge is ~x1283 at this z)
+[[prop]]                     # the ANCHOR stone: a marker BESIDE the held lane, not on it (props
+prop = "altar_stone"         # carry mild collision -- standing ON one fights the mechanic). The
+pos = [1447, 13]             # hold plate below covers the arch's approach lane; the stone flags it.
 
-[[npc]]                      # the tutorial, in-world: no debug knowledge needed. Placement: the
-name = "Mogri"               # z~-620 band is PROVEN visible from this camera (the donor Bishop +
-preset = "moogle"            # the Warden both render there); the first spot (-150,-420) hugged the
-pos = [-400, -620]           # central column's east base and the column occluded it (playtest).
+[[npc]]                      # the tutorial, in-world: no debug knowledge needed.
+name = "Mogri"               # (All NPC/prop spots hand-tuned IN-GAME 2026-07-12 -- the camera
+preset = "moogle"            # bounds/occlusion aren't offline-derivable; the first pass parked
+pos = [-1416, 215]           # the moogle behind the central column.)
 face = 192
 dialogue = "Kupo! See the twin stones to the west? They sing only when TWO stand upon them -- one soul on each, kupo!"
 
 [[npc]]                      # the payoff + the second hint: appears LIVE when the stones fire
 name = "Warden"
 preset = "sand_oracle"
-pos = [-675, -620]
+pos = [-841, -1164]
 requires_flag = 8620
 dialogue = "You who walk as two... The anchor stone waits in the eastern arch. While one of you HOLDS it, the arch stands open. Alone, it will not yield."
 

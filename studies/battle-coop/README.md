@@ -26,6 +26,18 @@
 > wins -- overlapping tread regions starve each other, and an always-inside region starves the
 > WHOLE FIELD. Holds are now looping CODE entries (the watchdog idiom) and
 > `lint_region_overlaps` guards the class -- law recorded in the gateway-regions memory.
+> THE TWIN ALTAR ★ SOLO-PROVEN (2026-07-13, the readable showcase -- an Esto Gaza/Altar native
+> fork, `twin-altar/build_twin_altar.py`): altar-stone props mark the plates, a moogle explains
+> the rule in dialogue, firing the stones REVEALS the Warden live (the [[coop]] reveal lane,
+> in-game proven), and the room's REAL east arch is the flag-gated co-op door consuming the
+> anchor hold -- no debug knowledge needed to play it. NPC/prop spots hand-tuned in-game (camera
+> bounds/occlusion aren't offline-derivable -- the first pass parked the moogle behind the
+> central column). TWO AUTHORING NOTES from the playtest: (1) props carry mild collision -- mark
+> a plate BESIDE it, never ON it (durable fix idea: painted floor decals via repaint-native, or
+> SPS sparkles); (2) the selftest mirror's fixed +250 EAST biases solo-testable level design --
+> an east-side door forces its plate offscreen or narrows the approach window (test-rig artifact
+> only; two real players don't care; queued engine nicety: a `[Netsync] SelfTestOffset` ini knob
+> for the next DLL rebuild).
 > Two-machine symmetric-plates run pending like everything else s37.** The rest of this
 > document is the research that shaped it. Companion to the s36 exploration co-op (ghost
 > sync).
