@@ -2895,6 +2895,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if (args.texture or args.tile or args.tile_uv) and not args.building:
         print("--texture/--tile/--tile-uv texture the --building mesh -- pass --building <obj> too", file=sys.stderr)
         return 2
+    if args.action_prompt and args.field_direct is None:
+        print("--action-prompt needs --field-direct <id> (it gates a CUSTOM destination's warp on Confirm; the "
+              "real dispatcher-case route already owns town-entry behavior)", file=sys.stderr)
+        return 2
     building = None
     try:
         if args.building:
@@ -2908,7 +2912,8 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
-            trigger_only=args.trigger_only, dry_run=args.dry_run, game=args.game)
+            trigger_only=args.trigger_only, prompt=args.action_prompt,
+            dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2919,6 +2924,8 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     print(f"{head}: cell {tuple(info['cell'])} tag {tag} -> case {info['case']}"
           + (f" -> field {fld}" if fld is not None else " (case has no default field)"))
     print(f"  {info['dest_note']}")
+    if args.action_prompt:
+        print("  action-prompt: raises the \"!\" bubble; warps only on a Confirm press (faithful town-style entry)")
     wrote = info["dispatchers_written"]
     print(f"  trigger func -> {len(wrote)} dispatcher(s) x {len(info['langs'])} langs"
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
@@ -2950,11 +2957,12 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info["backups"]:
         print(f"  backed up {len(info['backups'])} pre-edit dispatcher file(s) -> {Path(info['backups'][0]).parent}")
     if not info["dry_run"]:
-        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and walk "
-              "ONTO the cell -- stepping on the event tile fires the warp (these entrances are walk-on; the "
-              "faithful \"!\" action-prompt UX is a separate, unbuilt step). (Mesh overrides need the "
-              "WorldMeshOverride engine patch.)"
-              % info.get("disc", args.disc))
+        _enter = ('stand on the cell -- a "!" appears; press Confirm to enter (faithful town-style)'
+                  if args.action_prompt else
+                  "walk ONTO the cell -- stepping on the event tile fires the warp (auto-warp)")
+        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and %s. "
+              "(Mesh overrides need the WorldMeshOverride engine patch.)"
+              % (info.get("disc", args.disc), _enter))
     return 0
 
 
@@ -5819,6 +5827,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="refresh ONLY the dispatcher trigger functions (.eb) -- leave the deployed terrain / "
                           "event tiles / building untouched. The re-deploy mode for picking up a kit upgrade to "
                           "the trigger body (e.g. the zone-in fade) on an already-authored entrance")
+    wen.add_argument("--action-prompt", action="store_true",
+                     help="FAITHFUL \"!\" entrance (--field-direct only): the tile raises the \"!\" bubble and warps "
+                          "only when you press Confirm while standing on it -- the way real FF9 towns enter (a "
+                          "B_KEYON(Confirm) gate, byte-copied from the real dispatcher). Default (off) = auto-warp "
+                          "the instant you step on the tile")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),

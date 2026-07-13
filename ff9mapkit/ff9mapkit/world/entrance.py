@@ -207,7 +207,18 @@ def zone_in_body() -> bytes:
             + bytes([0x03, 0xF6, 0xFF]))              # JMP_IF -10 (loop while busy)
 
 
-def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
+# The faithful CONFIRM-GATE, copied byte-exact from the real dispatcher main-loop entrance gate
+# (WORLD00 entry-1/tag-1 @261): a real town's fade->warp block only runs when the Confirm button is
+# held. Real overworld town/dungeon entry is NOT walk-on auto-warp -- you stand on the tile and press
+# Confirm to enter (verified in-engine 2026-07-13; the earlier "walk-on" reading was WRONG -- the RPN
+# operator 0x4F is B_KEYON, a controller read, not a field opcode).
+FICON_EXCLAM = bytes([0x68, 0x00, 0x01])   # Bubble(IconType.Exclamation=1) -- raise the "!" over the player
+# EXPR{ push EventInput.Confirm (0x20000, op7E 4-byte LE), B_KEYON (0x4F) } -> 1 if Confirm held, else 0.
+# Byte-identical to the Confirm test inside the real main-loop gate (op7E(0,0,2,0) op4F).
+CONFIRM_PRESSED = bytes([0x05, 0x7E, 0x00, 0x00, 0x02, 0x00, 0x4F, 0x7F])
+
+
+def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, game=None,
                               dispatchers=None) -> bytes:
     """The DIRECT trigger body for a CUSTOM destination field: the proven template's
     vehicle/state GATE verbatim (its leading expression + conditional skip), then the
@@ -222,14 +233,20 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
     (no fade-out), so you watched the smooth-cam settle that the black normally hides
     (in-game report, 2026-07-13: the waystation entrance showed the stuck camera).
 
+    ``prompt=True`` makes it a FAITHFUL "!" ACTION-PROMPT entrance (the way real towns work,
+    NOT walk-on auto-warp): the trigger -- which WorldEvent re-fires every frame the player
+    stands on the tile -- raises the ``FICON`` "!" bubble and only warps when the Confirm
+    button is held (``B_KEYON(Confirm)``, the exact gate real dispatchers use). Without it the
+    warp fires the instant you step on the tile (auto-warp; fine for a scripted/cutscene entrance).
+
     ``world_state`` (the wldMapNo of the dispatcher copy this body is deployed into --
     each dispatcher knows which world it is) records the CURRENT world state so the
     destination field's ``[[gateway]] to="worldmap" arrive=`` exit can return to it
     (``content.worldexit.WORLD_STATE_VAR``).
 
     Template shape (byte-asserted): ``[12B gate expr][JZ +13][8B Byte39=case]
-    [5B RunScriptAsync][RETURN]`` -> ``[12B gate expr][JZ +skip][zone-in]
-    [record?][4B Field(id)][RETURN]``."""
+    [5B RunScriptAsync][RETURN]`` -> auto:  ``[12B gate][JZ +skip][zone-in][rec?][Field][RETURN]``;
+    prompt: ``[12B gate][JZ ->RET][FICON][B_KEYON(Confirm)][JZ ->RET][zone-in][rec?][Field][RETURN]``."""
     import struct
     if not 0 <= int(field_id) <= 0x7FFF:
         raise ValueError(f"field id {field_id} out of the engine's Int16 range")
@@ -251,8 +268,14 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
         from ..content import region as R
         from ..content.worldexit import WORLD_STATE_VAR
         rec = R.set_var(0xD8, WORLD_STATE_VAR, int(world_state))
-    tail = zone_in_body() + rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
-    return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(tail)) + tail + b"\x04"
+    warp = zone_in_body() + rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
+    if not prompt:                                    # auto-warp: [gate][JZ over warp -> RET][warp][RET]
+        return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(warp)) + warp + b"\x04"
+    # confirm-gated "!": show the bubble every frame on the tile, warp only on a Confirm press.
+    confirm_gate = CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp))   # JZ over warp -> RET
+    after_vehicle = FICON_EXCLAM + confirm_gate + warp                              # skipped if wrong vehicle
+    return (tpl[:12] + bytes([0x02]) + struct.pack("<h", len(after_vehicle))
+            + after_vehicle + b"\x04")
 
 
 def entrance_func_body(case: int, *, game=None, dispatchers=None) -> bytes:
@@ -431,7 +454,8 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                     event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
-                    trigger_only: bool = False, backup_dir=None, dry_run: bool = False, game=None) -> dict:
+                    trigger_only: bool = False, prompt: bool = False,
+                    backup_dir=None, dry_run: bool = False, game=None) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
@@ -508,7 +532,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         us_base = us_mod.read_bytes() if us_mod.is_file() else alld[name]["us"]
         # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo
         b = body if body is not None else entrance_func_body_direct(
-            int(direct_field), world_state=9000 + int(name[-2:]), dispatchers=us_disp)
+            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, dispatchers=us_disp)
         existing = EbScript.from_bytes(us_base).entry(0).func_by_tag(tag)
         if existing is not None:
             if us_base[existing.abs_start:existing.abs_end] == b:

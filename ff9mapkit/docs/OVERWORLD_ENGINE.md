@@ -370,7 +370,10 @@ What it does, generalizing + hardening the manual recipe:
   dispatcher. Pair the destination field with a `[[gateway]] to = "worldmap"` exit ([FORMAT](FORMAT.md)) for the return
   leg. The destination must be DEPLOYED (a registered-but-assetless id crashes on warp). **`--trigger-only` re-deploys
   just the dispatcher trigger funcs** (terrain/tiles/building untouched) — the refresh mode for picking up a kit upgrade
-  to the trigger body on an already-authored entrance.
+  to the trigger body on an already-authored entrance. **`--action-prompt`** (with `--field-direct`) makes it the
+  faithful **"!" confirm-to-enter** entrance instead of auto-warp: the tile raises the `FICON` "!" bubble and warps
+  only when you press **Confirm** while standing on it (a `B_KEYON(Confirm)` gate byte-copied from the real dispatcher
+  main loop — stock FF9 town entry is confirm-gated, NOT walk-on). Default = auto-warp the instant you step on the tile.
 - **Trigger func.** Clones WORLD00's `0x9895` body and **patches its single `Byte[39]=<case>` literal** (`D5 27 7D <lo>
   <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
   to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.

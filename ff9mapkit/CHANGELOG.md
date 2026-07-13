@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-entrance --action-prompt`: the faithful "!" confirm-to-enter entrance
+- Correcting an earlier wrong claim: **stock FF9 overworld town/dungeon entry is CONFIRM-gated, not
+  walk-on.** The real dispatcher's fade→`Field()` block is guarded by `B_KEYON(Confirm)` (the
+  `0x20000` button mask) — you stand on the tile and press Confirm to enter. (The "walk-on"
+  reading was a mis-decode: the RPN operator `0x4F` is `B_KEYON`, a controller read, not a field
+  opcode.) Our `--field-direct` trigger warped immediately on walk-on, skipping that gate.
+- `world-entrance --field-direct <id> --action-prompt` now builds the faithful entrance: the tile
+  trigger (which the engine re-fires every frame you stand on it) raises the `FICON` "!" bubble and
+  warps only on a Confirm press — the `B_KEYON(Confirm)` test byte-copied from the real dispatcher
+  gate. Default (no flag) stays auto-warp (fine for scripted/cutscene entrances). Pairs with
+  `--trigger-only` to retrofit an already-authored entrance.
+
 ### Fixed — `world-entrance --field-direct` now performs the real zone-in (fade + arrival sentinel)
 - The direct trigger used to warp `Field(N)` bare, bypassing the choreography the real
   `Byte[39]`+`RunScriptAsync` handshake reaches in the dispatcher's main loop — so a custom
