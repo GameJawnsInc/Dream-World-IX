@@ -444,7 +444,7 @@ def ground_lift(px, pz, py, dnp):
     return max(0.0, bt) * max(0.0, pt) * W * (hsum / wsum - py)
 
 
-n_lift = 0
+lift_of = {}
 lift_max = 0.0
 for i in sorted(plain_vert):
     dnp = float(np.sqrt(((nonplain_c - np.array([gpos[i][0], gpos[i][2]])) ** 2)
@@ -452,9 +452,9 @@ for i in sorted(plain_vert):
     lf = ground_lift(gpos[i][0], gpos[i][2], gpos[i][1], dnp)
     if abs(lf) > 1e-6:
         gpos[i][1] += lf
-        n_lift += 1
+        lift_of[i] = lf
         lift_max = max(lift_max, abs(lf))
-print(f"ground apron: {n_lift} bench verts lifted (max {lift_max:.2f}u)", flush=True)
+print(f"ground apron: {len(lift_of)} bench verts lifted (max {lift_max:.2f}u)", flush=True)
 
 # ---- 3b. hole carve (on the LIFTED bench; the drop test is plan-only) ---------------------------
 drop = set()
@@ -670,6 +670,45 @@ for tri3 in zip_tris:
         zip_maxe = max(zip_maxe, math.sqrt(d2(tri3[a], tri3[b])))
 print(f"zip annulus: {len(zip_tris)} tris (DP, max chord {zip_maxe:.1f}u)", flush=True)
 
+# ---- 5b. apron + zip shading: re-smooth the CHANGED grass in place ------------------------------
+# the lift tilts the real surface up to ~15deg but kept verts still wore the mint's
+# flat-ground normals, and the zip interpolated donor-rock normals across its whole
+# band -- together = the in-game "seam in the grass" ring (round 4). Re-smooth
+# area-weighted over the FINAL geometry, applied only where the ground actually moved
+# (blended by lift magnitude -> exact mint normals at the region edge, no new seam);
+# rim verts keep the donor's feet-weld normals.
+acc = defaultdict(lambda: np.zeros(3))
+
+
+def acc_tri(p3):
+    a, b, c3 = (np.asarray(q, dtype=float) for q in p3)
+    fn = np.cross(b - a, c3 - a)
+    if fn[1] < 0:
+        fn = -fn
+    for q in p3:
+        acc[kk3(q)] += fn
+
+
+for tdx, tri in enumerate(gtris):
+    if tdx not in drop:
+        acc_tri([gpos[i] for i in tri])
+for t in blob:
+    acc_tri(carried[t])
+for tri3 in zip_tris:
+    acc_tri(list(tri3))
+n_ns = 0
+for i, lf in lift_of.items():
+    s = min(1.0, abs(lf) / 0.4)
+    v3 = acc[kk3(gpos[i])]
+    L = float(np.linalg.norm(v3))
+    if s <= 0.0 or L < 1e-9:
+        continue
+    nb2 = np.asarray(gnrm[i], dtype=float) * (1 - s) + (v3 / L) * s
+    nb2 /= (np.linalg.norm(nb2) or 1.0)
+    gnrm[i] = nb2.tolist()
+    n_ns += 1
+print(f"apron re-smooth: {n_ns} vert normals blended by lift", flush=True)
+
 # NOTE -- the donor's Object alcove (donor x 32-38 z -38..-31: a flat y-5.3 pocket
 # wearing cave-floor tiles cols 0-2 rows 24-25, roofed by a 5-tri Object mesh in the
 # separate object part) carries over OPEN, its rock walls unfringed (the painter never
@@ -744,24 +783,15 @@ for tri3 in zip_tris:
     order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
     cell = cell_of(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
     q, o = decode_cell(cell)
-    # a long zip fan tri (donor 2u rim vs the mint 4u lattice) can leave its centroid
-    # cell -- mains_uv then walks past the tile edge into the atlas gutter (THE
-    # MOGURI-GUTTER LAW). Clamp every corner into the cell's own tile window; on
-    # homogeneous grass mains an edge clamp is invisible.
-    rect = [G.mains_uv(cx3, cz3, cell, q, o)
-            for cx3 in (cell[0] * 4.0, cell[0] * 4.0 + 4.0)
-            for cz3 in (cell[1] * 4.0, cell[1] * 4.0 + 4.0)]
-    u_lo = min(r[0] for r in rect) + 0.0008
-    u_hi = max(r[0] for r in rect) - 0.0008
-    v_lo = min(r[1] for r in rect) + 0.0008
-    v_hi = max(r[1] for r in rect) - 0.0008
+    # plain positional mains, UNCLAMPED -- the mesa/forest-proven form. (An earlier
+    # cell clamp smeared edge texels down the DP zip's long chords = grass streaks; it
+    # existed only for the alpha-blind atlas gate's false positives, which the
+    # transparent-AND-dark gate resolved.)
     corners = []
     for pnt in order:
         key = kk3(pnt)
         n3 = pos_nrm.get(key) or rim_nrm.get(key, [0.0, 1.0, 0.0])
         u, v = G.mains_uv(float(pnt[0]), float(pnt[2]), cell, q, o)
-        u = min(max(u, u_lo), u_hi)
-        v = min(max(v, v_lo), v_hi)
         corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]), u, v, *n3))
     new_parents.append((tuple(corners), ID0, "zip"))
 
