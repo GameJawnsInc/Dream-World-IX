@@ -448,6 +448,11 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
             updates["PeerAddress"] = lan
     else:
         updates["RelayUrl"] = f"ws://127.0.0.1:{args.port}"
+    if role == "host":
+        updates["FollowHost"] = "0"                  # a host never follows its guest -- FollowHost fires
+                                                     # regardless of role, so a stale selftest value would
+                                                     # drag the host to the guest's field (--follow-host still
+                                                     # overrides via `style` below if ever explicitly wanted)
     updates.update(style)
     write_netsync(game, updates, out=out)
     if "GuestSlots" in style:

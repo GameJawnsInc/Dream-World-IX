@@ -1,11 +1,15 @@
 # The state-mirror lane — build spec (host→guest authoritative state sync)
 
-> **Status: SPEC, not yet built (2026-07-13).** The grounded feasibility is in
+> **Status: IMPLEMENTED — written + adversarially reviewed 2026-07-13; NOT yet compiled/built** (awaits the
+> DANGEROUS rebuild + the selftest codec proof). The grounded feasibility is in
 > [`README.md`](README.md) § "THE AUTHORITATIVE-HOST ROADMAP"; the source cites here are from probe
 > `wf_f019fe71`. This is the ONE new subsystem the authoritative-host paradigm ("play the standard game
-> together") is built on. It is an **engine change** (s37 patch + a wire-version bump) — see § Build
-> discipline. Every `file:line` is a real location in `C:\gd\FFIX\Memoria\Assembly-CSharp\` at the time of
-> writing; re-confirm before editing (cites drift ±a few lines).
+> together") is built on. It is an **engine change** (s37 patch + a wire-version bump v5→v6) — see § Build
+> discipline. The code review (`wf_da6dc78f`) found it compile-clean + logic-sound; both findings are FIXED:
+> the apply gate now excludes `_role == "host"`, and the spectator-save is COMPLETE — a following guest's
+> save is blocked (`SaveLoadUI` refuses when `NetSyncClient.IsMirroringStory`, inert in normal play) so it
+> can never persist the host's story over the guest's own file. Every `file:line` is a real location in
+> `C:\gd\FFIX\Memoria\Assembly-CSharp\`; re-confirm before editing (cites drift ±a few lines).
 
 ---
 
@@ -210,9 +214,10 @@ before the laptop is involved.
 | `Memoria/Netsync/NetSyncSocket.cs` | `Version 5→6`; `TypeState=5`; `_outState/_inState/_inStateTick` latest-slot; `SetLocalState`/`GetRemoteState` on `INetTransport` + both transports; `ClearRemote` drops `_inState`. |
 | `Memoria/Netsync/NetSyncClient.cs` | host: sample+mask+`SetLocalState` (~150 ms, change-detect). guest: the apply hook (field-load boundary, `_followHost && connected`, masked `Array.Copy`). Enter/leave-follower → spectator-save snapshot/restore. selftest loopback. |
 | `Global/Honolulu/HonoluluFieldMain.cs` | the apply call site — invoke the guest apply right after `NetSyncClient.Ensure()` (`:29`) / before `StartEvents` (`:135`). (Or route entirely through `NetSyncClient` and have it hook the field-load itself — prefer the least field-main coupling.) |
-| `Global/UI/UIKey/Ff9mkDebugMenu.cs` | (reuse) `Snapshot`/`RestoreSnapshot` logic for the spectator-save wrapper — extract to a shared helper if cleaner than calling the F6 menu. |
-| `memoria-patches/s37-netsync-battle.patch` | regenerate (reverse-apply-check CLEAN before commit). |
-| kit (`ff9mapkit/coop.py`) | fold in the queued `coop host` → force `FollowHost=0`; optionally a `--spectator-save`/save-policy knob. |
+| `Memoria/Netsync/NetSyncState.cs` | (built) `CaptureLiveStory`/`RestoreLiveStory` = the spectator-save capture/restore (a self-contained `Array.Copy`, not a call into the F6 menu). |
+| `Global/SaveLoadUI.cs` | (built) the SAVE-BLOCK: the save-confirm path (`OnKeyConfirm`, the `SerializeType.Save` branch) refuses + deny-beeps when `NetSyncClient.IsMirroringStory`; inert in normal play. ⚠ the console `aaaaPlatform` quicksave path in `Show()` is NOT gated (PC saves via the menu path; console is out of scope). |
+| `memoria-patches/s37-netsync-battle.patch` | regenerate at rebuild (reverse-apply-check CLEAN before commit); `SaveLoadUI.cs` is NEWLY in the s37 change set. |
+| kit (`ff9mapkit/coop.py`) | (built) `coop host` forces `FollowHost=0`. |
 
 No wire change is needed on the kit side for rung 1 (flags are engine-internal). A future `[[coop]]`/journey
 "co-op dungeon" preset (curated safe fields) is kit work, separate.
@@ -226,9 +231,10 @@ No wire change is needed on the kit side for rung 1 (flags are engine-internal).
 2. **Two-machine — the core proof:** host warps to a field with a ScenarioCounter/flag-gated NPC or door
    (e.g. a scene that only appears at a given story beat); the following guest sees the SAME NPC/door state
    (not the guest's own scenario-zero version). Confirm on a couple of real fields at different beats.
-3. **Two-machine — sequential dungeon follow:** host walks room-to-room through a real dungeon; the guest
-   follows and each room renders correctly (this also pays the outstanding "sequential follow-warp"
-   verification debt — tonight only proved a single hop).
+3. **Two-machine — render-matches-host across rooms:** host moves room-to-room; the guest follows and each
+   room renders the HOST's story state (right NPCs/doors). NOTE sequential follow-warp itself is already
+   validated (5+ fields warped, guest kept up, 2026-07-13; overworld the known exception) — this test is
+   specifically the state-mirror RENDER-match, which needs the lane built.
 4. **Save safety:** after a co-op session, the guest exits; confirm the guest's OWN save is unchanged
    (spectator-save restored). Deliberately trigger a link-drop mid-field and confirm the guest reverts to
    its own state, no corruption.
