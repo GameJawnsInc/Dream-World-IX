@@ -23,6 +23,7 @@ STR, INT, OPTINT, BOOL, PRESET, COORD, PAIR, ZONE, ITEMCOUNT, FLAGREF, FLAGPAIR,
     "strlist")
 # [startup] kinds: a scenario beat (number or area name), and the two list-of-table levers it carries
 SCENARIOREF, FLAGDICTLIST, BYTEDICTLIST = "scenarioref", "flagdictlist", "bytedictlist"
+ARRIVALLIST = "arrivallist"   # [[player.arrival]] rows: "entrance, x, z[, face]" per row (the dict-list idiom)
 FLOAT = "float"        # an OPTIONAL float (e.g. battle camera tweak offsets); empty -> None, like OPTINT
 # cutscene-step kinds: a movement target (a name OR "x, z"), a route (list of those), a gesture (name OR id)
 POINT, PATH, ANIM = "point", "path", "anim"
@@ -252,17 +253,33 @@ CHOICE_OPTION_SPEC = [
 DIALOGUE_SPEC = [
     Field("wrap", "Auto-wrap width", OPTINT, "max chars per line (default 28); set 0 to turn wrapping off"),
 ]
+PLAYER_SPEC = [
+    Field("spawn", "Spawn (x, z)", COORD, "where the player appears -- the DEFAULT arrival (an F6 warp, or "
+          "any door without a per-door row below); usually placed in Blender"),
+    Field("face", "Spawn facing (0-255)", OPTINT,
+          "0=south (toward the camera), 64=west, 128=north, 192=east"),
+    Field("model", "Walk-as model", FLAGREF, "re-skin WHO YOU WALK AS (a model id, an exact GEO name, or an "
+          "archetype name). Movement clips only -- free-roam fields", catalog="archetype,creature"),
+    Field("arrival", "Per-door arrivals", ARRIVALLIST,
+          "one row per entrance -- 'entrance, x, z' or 'entrance, x, z, face' (rows split by ';'). The "
+          "arriving door picks its row via the entrance= its gateway wrote; no row = the spawn above. "
+          "Imports fill these from the donor's real table automatically"),
+]
 
 # one-line purpose for each section, shown at the top of its form (the "what is this" cue).
 SECTION_HELP = {
     "field": "The field's identity: a unique id (>= 4000), a short name, and the area (>= 10).",
-    "camera": "Camera / walkmesh / layers / positions are SPATIAL -- author them in Blender. Read-only here.",
+    "camera": "Camera / walkmesh / layers / positions are SPATIAL -- author them in Blender. The one LOGIC "
+              "key -- entry_settle, the frames held black on entry -- is editable here.",
     "dialogue": "Text options. Auto-wrap breaks long dialogue lines to fit the screen (FF9 won't).",
     "encounter": "Random battles on this field (battle scene id + frequency + battle music).",
     "music": "The field's background music — an existing game song (a song id), or your own audio file "
              "minted into the mod at build.",
     "party": "Who's in the party (menu + battle) on this field -- add/remove playable characters at load. "
              "Separate from who you WALK as (an Import option).",
+    "player": "Where (and which way) the player appears on entry. The spawn is the default landing; the "
+              "per-door rows dispatch on the entrance the arriving gateway wrote, so each door can land + "
+              "face the player differently (like real FF9 fields).",
     "startup": "Assert the story beat this field boots in (a forked field starts at scenario zero): set the "
                "scenario and any story flags, unconditionally, at field load.",
     "cutscene": "A scripted scene. Steps run in order with control locked; a CAST (actors = [names]) lets "
@@ -466,6 +483,41 @@ def format_flagdictlist(v):
     return "; ".join(f"{d['flag']}, {int(d.get('value', 1))}" for d in v)
 
 
+def parse_arrivallist(s):
+    """[[player.arrival]] rows: semicolon/newline rows, each ``"entrance, x, z"`` or
+    ``"entrance, x, z, face"`` -> a list of ``{entrance, pos: [x, z][, face]}`` dicts (face 0-255 compass).
+    Empty -> None. Round-trips with :func:`format_arrivallist` (the [startup]-flags dict-list idiom)."""
+    s = _str(s).strip()
+    if s == "":
+        return None
+    out = []
+    for row in re.split(r"[;\n]+", s):
+        if not row.strip():
+            continue
+        parts = [p.strip() for p in row.split(",")]
+        if len(parts) not in (3, 4) or not all(_is_int(p) for p in parts):
+            raise ValueError(f"arrival row {row.strip()!r}: expected 'entrance, x, z' or "
+                             f"'entrance, x, z, face' (whole numbers)")
+        d = {"entrance": int(parts[0]), "pos": [int(parts[1]), int(parts[2])]}
+        if len(parts) == 4:
+            d["face"] = int(parts[3])
+        out.append(d)
+    return out or None
+
+
+def format_arrivallist(v):
+    if not isinstance(v, (list, tuple)):
+        return str(v)
+    rows = []
+    for d in v:
+        pos = d.get("pos") if isinstance(d, dict) else None
+        if not (isinstance(pos, (list, tuple)) and len(pos) >= 2):
+            continue                                   # a malformed row is the build's error to explain
+        rows.append(f"{d.get('entrance', 0)}, {int(pos[0])}, {int(pos[1])}"
+                    + (f", {int(d['face'])}" if d.get("face") is not None else ""))
+    return "; ".join(rows)
+
+
 def parse_bytedictlist(s):
     """[startup] words/bytes: semicolon/newline rows, each ``"byte, value"`` -> a list of ``{byte, value}``
     dicts (both whole numbers). Empty -> None. Round-trips with :func:`format_bytedictlist`."""
@@ -558,6 +610,8 @@ def _parse_field(kind, raw):
         return parse_flagdictlist(raw)
     if kind == BYTEDICTLIST:
         return parse_bytedictlist(raw)
+    if kind == ARRIVALLIST:
+        return parse_arrivallist(raw)
     raise ValueError(f"unknown field kind {kind!r}")
 
 
@@ -604,6 +658,8 @@ def entity_to_values(spec, entity: dict) -> dict:
             vals[f.key] = format_flagdictlist(v)
         elif f.kind == BYTEDICTLIST:
             vals[f.key] = format_bytedictlist(v)
+        elif f.kind == ARRIVALLIST:
+            vals[f.key] = format_arrivallist(v)
         else:
             vals[f.key] = str(v)              # FLAGREF/SCENARIOREF (int or name), STR, INT, OPTINT, PRESET
     return vals

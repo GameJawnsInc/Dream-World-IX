@@ -33,7 +33,23 @@
 > the LAST block = if-chain semantics); `y` decoded but not emitted (the known gap). Verified live:
 > `import 100` emits Alexandria's exact 3-door table (201/204/231 + faces) and lints clean; the
 > arrival CLASS is in-game proven (ARRTEST), so no new playtest needed. FORK_FIDELITY #9's
-> "a synth fork can't reconstruct the per-DOOR table" caveat is RETIRED. 5 tests. Build facts: `[player] face` (the D9(6) spawn-facing
+> "a synth fork can't reconstruct the per-DOOR table" caveat is RETIRED. 5 tests.
+> **RUNG 6 BUILT (same day; the bpy half awaits the human's Blender check):** the GUI. WORKSPACE —
+> a "Player & entry" node in every field tree (spawn/face/model + the arrival rows as an
+> ARRIVALLIST text-row field, 'entrance, x, z[, face]' per row — the [startup]-flags dict-list
+> idiom, so tk + Qt render it generically), a scene-override banner (scene.toml [player] keys win
+> per-key), and the Camera node is NO LONGER a dead-end: entry_settle edits there (dict/multicam/
+> no-table cases; verbatim shows why it doesn't apply). En route: ANOTHER silent-no-op fixed —
+> _merge_scene REPLACED field.toml's camera wholesale with the scene's, silently dropping
+> entry_settle on every Blender-exported field; the merge now grafts the field's settle onto the
+> scene camera (scene's own value wins). BLENDER (add-on 0.9.24) — an Arrival button drops
+> FF9_Arrival_<n> cone markers (ff9_entrance + ff9_face props; one per entrance; spawn gains
+> ff9_face), exported into the scene.toml [player] (scene-wins-per-key: markers own the whole
+> table; no markers = field.toml rows survive), imported back as markers (donor tables from rung 5
+> re-create automatically), painted in the template overlay (cyan star + entrance label). Facing is
+> a prop, not empty rotation — the add-on never reads rotation (the codebase grain). Smoke pins the
+> player round-trip + settle apply/off; 3 blender dry-run tests prove marker → build → the decoder
+> oracle. Suite 3416 + blender 71 green. Build facts: `[player] face` (the D9(6) spawn-facing
 > const patch) and `[[player.arrival]]` (per-entrance dispatch compiled as field-706-style
 > `if (D8:2 == N)` const-override blocks before `CreateObject` — the generalized ladder splice) are
 > in the kit with 12 tests; the offline oracle round-trip holds (author → build →

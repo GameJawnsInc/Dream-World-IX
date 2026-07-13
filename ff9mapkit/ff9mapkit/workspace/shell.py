@@ -133,12 +133,12 @@ _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "
                  "dialogue": forms.DIALOGUE_SPEC, "npc": forms.NPC_SPEC, "gateway": forms.GATEWAY_SPEC,
                  "event": forms.EVENT_SPEC, "chest": forms.CHEST_SPEC, "flag": forms.FLAG_SPEC,
                  "marker": forms.MARKER_SPEC, "party": forms.PARTY_SPEC, "startup": forms.STARTUP_SPEC,
-                 "sps": forms.SPS_SPEC, "playable": forms.PLAYABLE_SPEC}
-_SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup")
+                 "sps": forms.SPS_SPEC, "playable": forms.PLAYABLE_SPEC, "player": forms.PLAYER_SPEC}
+_SINGLES = ("field", "encounter", "music", "dialogue", "party", "startup", "player")
 
 # object groups inside a field.toml, mirroring the tkinter editor's tree (editor/app.py).
-_SINGLE = [("dialogue", "Dialogue"), ("encounter", "Encounter"), ("music", "Music"), ("cutscene", "Cutscene"),
-           ("party", "Party"), ("startup", "Startup beat")]
+_SINGLE = [("player", "Player & entry"), ("dialogue", "Dialogue"), ("encounter", "Encounter"),
+           ("music", "Music"), ("cutscene", "Cutscene"), ("party", "Party"), ("startup", "Startup beat")]
 _LISTS = [("npc", "NPCs"), ("gateway", "Gateways"), ("event", "Events"), ("chest", "Chests"), ("flag", "Flags"),
           ("marker", "Markers"), ("choice", "Choices"), ("sps", "Effects"), ("playable", "Playables")]
 _LIST_SINGULAR = {"npc": "NPC", "gateway": "Gateway", "event": "Event", "chest": "Chest", "flag": "Flag",
@@ -3644,8 +3644,7 @@ class Workspace(QMainWindow):
             self._doc_placeholder(f"Could not load {member}: {e}")
             return
         if key == "camera":
-            self._doc_placeholder("Camera / walkmesh / layers / positions are SPATIAL — author them in "
-                                  "Blender (FF9 Map Kit add-on). This shell owns the logic only.")
+            self._mount_camera(member)
             return
         if kind == "logic_node":                   # a verbatim routine -> the in-place [[logic_edit]] panel
             parts = key.split(":")                  # key = "logic_n:<entry>:<tag>"
@@ -3675,6 +3674,84 @@ class Workspace(QMainWindow):
             self._mount_group(member, key)
             return
         self._doc_placeholder(f"'{key}' isn't editable in the Workspace yet.")
+
+    def _mount_camera(self, member):
+        """The Camera node: the SPATIAL keys (pitch/fov/walkmesh/layers/positions) stay Blender's -- but
+        the camera carries ONE logic key, ``[camera] entry_settle`` (frames held black on entry so the
+        engine's smooth-cam converges unseen), and that is editable here. Writes go to the FIELD.toml;
+        the build's scene merge preserves the settle when a Blender scene owns the spatial camera. A
+        multicam ``[[camera]]`` field edits the block the build reads (the first carrying the key, else
+        block 0). On a verbatim fork the key is dead weight (lint says so) -- shown read-only."""
+        self._clear_doc()
+        self._set_editor_tab("Camera")
+        self._header(f"{member}  ·  camera", forms.SECTION_HELP.get("camera"))
+        doc = self._doc(member)
+        if doc.data.get("verbatim_eb"):
+            self._doc_placeholder("A verbatim fork ships the donor's whole .eb — its real entry sequence "
+                                  "(and camera) is carried, so entry_settle does not apply here.")
+            return
+        from .. import build as _b
+        cur = _b._camera_entry_settle(doc.data.get("camera"))
+        note = QLabel("Spatial camera (pitch / FOV / walkmesh / layers) is authored in Blender. The one "
+                      "logic key lives here:\n\nEntry settle — frames the screen holds BLACK on entry so "
+                      "the engine's smooth camera settles unseen (hides the warp-in drift). 0/blank = off; "
+                      "~45 is the proven starting value. Needs the arriving transition to fade (gateways "
+                      "do); a bare F6 warp can't be hidden.")
+        note.setWordWrap(True)
+        self.doc_host_lay.addWidget(note)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Entry settle (frames):"))
+        edit = QLineEdit("" if cur is None else str(cur))
+        edit.setMaximumWidth(120)
+        row.addWidget(edit)
+        row.addStretch(1)
+        host = QWidget()
+        host.setLayout(row)
+        self.doc_host_lay.addWidget(host)
+
+        btn = QPushButton("Apply")
+        btn.setObjectName("accent")
+        btn.clicked.connect(lambda _=False: self._apply_entry_settle(member, edit.text()))
+        self.doc_host_lay.addWidget(btn, alignment=Qt.AlignLeft)
+        self.doc_host_lay.addStretch(1)
+
+    def _apply_entry_settle(self, member, raw) -> bool:
+        """Write the Camera panel's entry_settle into the member's FIELD.toml camera (blank/0 = off,
+        dropping the key; a multicam list keeps ONE field-wide value; a field with no [camera] table --
+        the scene owns the spatial camera -- gets a settle-only table the build merge grafts on). Returns
+        False (with the reason shown) on a non-numeric/negative value."""
+        doc = self._doc(member)
+        try:
+            v = None if not str(raw).strip() else int(str(raw).strip())
+            if v is not None and v < 0:
+                raise ValueError("negative")
+        except ValueError:
+            self._show_problems(fb.Verdict(fb.ERROR, "Entry settle must be a whole frame count (or blank)"), [])
+            return False
+        cam = doc.data.get("camera")
+        if v is None or v == 0:                         # blank/0 = off -> drop the key everywhere
+            if isinstance(cam, dict):
+                cam.pop("entry_settle", None)
+                if not cam:                             # a settle-only [camera] emptied -> remove the table
+                    doc.data.pop("camera", None)
+            elif isinstance(cam, list):
+                for c in cam:
+                    if isinstance(c, dict):
+                        c.pop("entry_settle", None)
+        elif isinstance(cam, dict):
+            cam["entry_settle"] = v
+        elif isinstance(cam, list) and cam and isinstance(cam[0], dict):
+            tgt = next((c for c in cam if isinstance(c, dict) and c.get("entry_settle")), cam[0])
+            for c in cam:                               # one field-wide hold: never leave disagreeing blocks
+                if isinstance(c, dict) and c is not tgt:
+                    c.pop("entry_settle", None)
+            tgt["entry_settle"] = v
+        else:                                           # no [camera] in the field.toml (scene-owned camera):
+            doc.data["camera"] = {"entry_settle": v}    # the build merge grafts it onto the scene camera
+        self._touch(member)
+        self._checkpoint(member, "edit camera", "camera")
+        self._show_problems(fb.Verdict(fb.OK, f"{member}: entry_settle → {v if v else 'off'} (unsaved)"), [])
+        return True
 
     def _mount_group(self, member, kind):
         """The list-header view: an 'Add <kind>' button + the count. (Selecting an item under it edits it;
@@ -5243,6 +5320,17 @@ class Workspace(QMainWindow):
         (the build overlays it, scene wins) -- so the field-only form would show a blank Position even though
         it IS placed. Surface that scene-owned value read-only so it isn't invisible. (Positions are authored
         in Blender; F5 re-reads the scene.toml after a re-export.)"""
+        if single and section == "player":                 # the scene-owned [player] keys override this form's
+            sp = self._scene_positions(member).get(("player", None)) or {}
+            owned = [k for k in ("spawn", "face", "arrival") if k in sp]
+            if owned:
+                note = QLabel(f"📍 Placed in Blender — {', '.join(owned)} come(s) from the scene.toml (scene "
+                              f"wins per key; edit in Blender / F5 to refresh). Keys the scene doesn't set "
+                              f"still apply from this form.")
+                note.setWordWrap(True)
+                note.setStyleSheet(f"color:{self.pal['muted']};")
+                self.doc_host_lay.addWidget(note)
+            return
         if single or section not in ("npc", "marker", "gateway", "event"):
             return
         spatial = self._scene_positions(member).get((section, entity.get("name")))
@@ -6367,6 +6455,8 @@ class Workspace(QMainWindow):
             for n in (sd.get(sec, []) or []):
                 if isinstance(n, dict) and n.get("name") and n.get(spatial_key) is not None:
                     posmap[(sec, n["name"])] = n[spatial_key]
+        if isinstance(sd.get("player"), dict):               # the scene-owned [player] keys (spawn/face/arrival)
+            posmap[("player", None)] = sd["player"]
         self._scene_names[member] = (mtime, npc, mk, posmap)
         return npc, mk, posmap
 
@@ -6901,6 +6991,27 @@ def _smoke(win):
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["startup"]["scenario"] == 2600 and \
         saved["startup"]["flags"] == [{"flag": "boss_dead", "value": 1}], saved
+    # [player] mounts the same single-table way; ARRIVALLIST -> the per-door {entrance, pos[, face]} rows
+    win._open_editor("IC_ENT", "object", "player")
+    assert win._save_ctx["single"] and win._save_ctx["section"] == "player"
+    win._save_ctx["getters"]["spawn"] = lambda: "0, -500"
+    win._save_ctx["getters"]["face"] = lambda: "64"
+    win._save_ctx["getters"]["arrival"] = lambda: "1, 400, -900, 128; 2, -350, -1500"
+    win._save()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["player"]["spawn"] == [0, -500] and saved["player"]["face"] == 64, saved
+    assert saved["player"]["arrival"] == [{"entrance": 1, "pos": [400, -900], "face": 128},
+                                          {"entrance": 2, "pos": [-350, -1500]}], saved
+    # the Camera node is no longer a dead-end: its ONE logic key (entry_settle) edits + round-trips
+    win._mount_camera("IC_ENT")
+    assert win._apply_entry_settle("IC_ENT", "45") and not win._apply_entry_settle("IC_ENT", "x")
+    win._save_all()                                 # entry_settle commits in-memory; flush to disk
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["camera"]["entry_settle"] == 45, saved
+    assert win._apply_entry_settle("IC_ENT", "")    # blank = off -> the settle-only [camera] table drops
+    win._save_all()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert "camera" not in saved, saved
     # [[playable]] is a LIST section: add one, form-edit a flat key, save -- and a NESTED table
     # (an ability kit authored in TOML) survives the form save untouched (_commit pops spec keys only)
     win._add_list_item("IC_ENT", "playable")
@@ -8391,7 +8502,8 @@ def _smoke(win):
     assert {"Preferences…", "About Dream World IX", "Check for updates…"} <= _labels, _labels
 
     print(f"workspace shell smoke ok: campaign>field tree ({len(names)} members) + Map document, lazy "
-          f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup round-trip) + cutscene/choice sub-editors + "
+          f"objects, breadcrumb, EDITOR forms (NPC+field+party+startup+player round-trip, camera entry_settle "
+          f"apply/off) + cutscene/choice sub-editors + "
           f"catalog picker (+ scene-id) + Open Field (standalone authored) + Save docs (Story State SC "
           f"{win.story_state.reports[0][1].scenario_counter} + Item/Equip gil "
           f"{win.item_equip.targets[0]['report'].gil}) + Battle doc (encounter/enemy + save round-trip + "

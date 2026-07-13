@@ -104,6 +104,16 @@ def _merge_entities(base_list, scene_list):
     return out
 
 
+def _camera_entry_settle(cam):
+    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None."""
+    if isinstance(cam, dict):
+        return cam.get("entry_settle")
+    if isinstance(cam, list):
+        return next((c.get("entry_settle") for c in cam
+                     if isinstance(c, dict) and c.get("entry_settle")), None)
+    return None
+
+
 def _merge_scene(base: dict, scene: dict) -> dict:
     """Overlay a Blender `scene.toml` onto a `field.toml` dict. Spatial sections come from the scene;
     content lists merge by name (scene = position/zone, field = logic)."""
@@ -111,6 +121,16 @@ def _merge_scene(base: dict, scene: dict) -> dict:
     for key in _SCENE_SCALAR:
         if key in scene:
             merged[key] = scene[key]
+    # entry_settle is the camera's one LOGIC key (the entry black-hold) -- the scene owns the SPATIAL
+    # camera, but a Blender re-export must not silently drop the field.toml's settle (the scene's own
+    # value, if it ever carries one, wins).
+    _es = _camera_entry_settle(base.get("camera"))
+    if "camera" in scene and _es is not None and _camera_entry_settle(merged.get("camera")) is None:
+        cam = merged["camera"]
+        if isinstance(cam, dict):
+            merged["camera"] = {**cam, "entry_settle": _es}
+        elif isinstance(cam, list) and cam and isinstance(cam[0], dict):
+            merged["camera"] = [{**cam[0], "entry_settle": _es}] + list(cam[1:])
     if "player" in scene:
         merged["player"] = {**base.get("player", {}), **scene["player"]}
     for key in _ENTITY_LISTS:
@@ -4949,14 +4969,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # entry_settle = <frames>; absent/0 = off (byte-identical). A [[camera]] MULTICAM field reads it from
     # any of its blocks (first nonzero wins -- the settle is a Main_Init-wide hold, not per-camera; it used
     # to be silently SKIPPED on multicam, the exact scrolling class that needs it most). See content.entry_settle.
-    _cam = project.raw.get("camera")           # a single [camera] table, or the [[camera]] multicam list
-    if isinstance(_cam, dict):
-        _settle = _cam.get("entry_settle")
-    elif isinstance(_cam, list):
-        _settle = next((c.get("entry_settle") for c in _cam
-                        if isinstance(c, dict) and c.get("entry_settle")), None)
-    else:
-        _settle = None
+    _settle = _camera_entry_settle(project.raw.get("camera"))   # [camera] dict or [[camera]] multicam list
     if _settle:
         try:
             _n = int(_settle)
