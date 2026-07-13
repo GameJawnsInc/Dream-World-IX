@@ -1901,6 +1901,9 @@ def lint_logic(project: FieldProject) -> list[str]:
         for p in gw.get("set_flags", []) or []:
             if isinstance(p, dict) and isinstance(p.get("flag"), int) and int(p.get("value", 1)):
                 settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
+    for co in raw.get("coop", []):             # a [[coop]] gate's whole OUTPUT is its set_flag (once latch
+        if isinstance(co.get("set_flag"), int):  # or hold level -- either way it's the setter)
+            settable.add(int(co["set_flag"])); explicit.add(int(co["set_flag"]))
     su = raw.get("startup")                    # [startup] presets a flag SET unconditionally at field load
     if isinstance(su, dict):
         for p in su.get("flags", []) or []:
@@ -1921,7 +1924,7 @@ def lint_logic(project: FieldProject) -> list[str]:
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
     need_set = []
-    for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event")):
+    for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"), ("coop", "coop gate")):
         for i, e in enumerate(raw.get(coll, [])):
             gf, gs = _gate_of(e)
             if gf is None:
@@ -2145,8 +2148,12 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
         if gf is not None:
             _read(gf, who)
     for k, co in enumerate(raw.get("coop", [])):
+        who = f"[[coop]] gate {co.get('name', '#' + str(k))!r}"
         if "set_flag" in co:
-            _write(_flag_index(co["set_flag"]), f"[[coop]] gate {co.get('name', '#' + str(k))!r}")
+            _write(_flag_index(co["set_flag"]), who)
+        gf, _gs = _gate_of(co)
+        if gf is not None:
+            _read(gf, who)
     for k, n in enumerate(raw.get("npc", [])):
         gf, _gs = _gate_of(n)
         if gf is not None:
@@ -4365,25 +4372,49 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
 
-    # [[coop]] two-plate gates (netsync V2, engine s37): two regions per gate, each plate's per-frame
-    # Range body checking the PEER's engine-broadcast position against the OTHER plate (symmetric --
-    # either player takes either plate). Fires ONCE (the once-latch is the set_flag itself); the flag
-    # then gates other content through the existing vocabulary. Fail-safe on a stock engine: the
-    # presence cell is never 1, so the gate simply never fires. See content/coop.py.
+    # [[coop]] gates (netsync V2, engine s37): field content designed for TWO players, compiled to
+    # regions reading the engine-broadcast peer presence/position cells. mode="once" (default) =
+    # the two-plate gate (plate_a/plate_b, symmetric) or the gather gate (zone -- both in one zone),
+    # latching set_flag; mode="hold" = the held-plate LEVEL flag (1 while the peer stands in plate).
+    # requires_flag/_clear arms any of them (sequencing). The flags then gate other content through
+    # the existing vocabulary (a gateway requires_flag = <hold flag> is THE co-op door). Fail-safe
+    # on a stock engine: the presence cell is never 1, so nothing ever fires. See content/coop.py.
     for k, co in enumerate(project.raw.get("coop", [])):
         who = f"[[coop]] gate {co.get('name', '#' + str(k))!r}"
-        try:
-            plate_a = _coop.normalize_rect(co["plate_a"], f"{who} plate_a")
-            plate_b = _coop.normalize_rect(co["plate_b"], f"{who} plate_b")
-        except KeyError as e:
-            raise BuildError(f"field {project.name}: {who} needs both plate_a and plate_b "
-                             f"([x1, z1, x2, z2] each) -- missing {e}")
-        except ValueError as e:
-            raise BuildError(f"field {project.name}: {e}")
         if "set_flag" not in co:
             raise BuildError(f"field {project.name}: {who} needs set_flag = N -- the gate's whole "
                              f"output is that flag (gate doors/events/cutscenes on it)")
-        eb = _coop.inject_gate(eb, plate_a, plate_b, int(co["set_flag"]), coop_txids.get(k))
+        gf, gs = _gate_of(co)
+        mode = str(co.get("mode", "once")).lower()
+        try:
+            if mode == "hold":
+                if "plate" not in co:
+                    raise BuildError(f"field {project.name}: {who} mode='hold' needs plate = "
+                                     f"[x1, z1, x2, z2] (the plate the PEER must stand on)")
+                if co.get("text"):
+                    raise BuildError(f"field {project.name}: {who} mode='hold' can't take text -- "
+                                     f"its body runs every frame (a message would spam). Put the "
+                                     f"text on whatever consumes the flag instead.")
+                eb = _coop.inject_hold(eb, _coop.normalize_rect(co["plate"], f"{who} plate"),
+                                       int(co["set_flag"]), requires_flag=gf, requires_set=gs)
+            elif mode == "once":
+                if "zone" in co:
+                    eb = _coop.inject_gather(eb, _coop.normalize_rect(co["zone"], f"{who} zone"),
+                                             int(co["set_flag"]), coop_txids.get(k),
+                                             requires_flag=gf, requires_set=gs)
+                else:
+                    if "plate_a" not in co or "plate_b" not in co:
+                        raise BuildError(f"field {project.name}: {who} needs plate_a and plate_b "
+                                         f"([x1, z1, x2, z2] each), or a single shared zone = [...]")
+                    eb = _coop.inject_gate(eb, _coop.normalize_rect(co["plate_a"], f"{who} plate_a"),
+                                           _coop.normalize_rect(co["plate_b"], f"{who} plate_b"),
+                                           int(co["set_flag"]), coop_txids.get(k),
+                                           requires_flag=gf, requires_set=gs)
+            else:
+                raise BuildError(f"field {project.name}: {who} unknown mode {mode!r} -- "
+                                 f"use 'once' (default) or 'hold'")
+        except ValueError as e:
+            raise BuildError(f"field {project.name}: {e}")
 
     # CAST cutscenes (`actors = [...]`, #13 v3 -- the ONE actor mechanism): each is a CONDUCTOR -- a central
     # director code entry that drives every cast member BY UID (== its [[npc]] entry slot; player = 250) via
