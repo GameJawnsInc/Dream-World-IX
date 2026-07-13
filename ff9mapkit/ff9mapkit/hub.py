@@ -155,7 +155,11 @@ def hubspec_from_table(h: dict, journeys: "list[Journey]") -> HubSpec:
         borrow_bg=str(h.get("borrow_bg", "")),
         borrow_field=int(h["borrow_field"]) if h.get("borrow_field") is not None else None,
         camera=str(h.get("camera", DEFAULT_CAMERA)),
-        entry_settle=int(h.get("entry_settle", DEFAULT_ENTRY_SETTLE)),
+        # a BOOLEAN entry_settle is on/off, not a frame count -- int(True) would bake a useless 1-frame
+        # hold (the exact trap the old JOURNEYS.md example taught); true = the proven default, false = off
+        entry_settle=(DEFAULT_ENTRY_SETTLE if h.get("entry_settle") is True else
+                      0 if h.get("entry_settle") is False else
+                      int(h.get("entry_settle", DEFAULT_ENTRY_SETTLE))),
         text_block=int(h.get("text_block", DEFAULT_TEXT_BLOCK)),
         prompt=str(h.get("prompt", DEFAULT_PROMPT)),
         stay_text=str(h.get("stay_text", DEFAULT_STAY)),

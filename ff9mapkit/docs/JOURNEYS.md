@@ -68,7 +68,8 @@ player_spawn = [404, 127]
 narrator       = "Stiltzkin"
 narrator_model = 212                   # Stiltzkin's real rig (GEO_NPC_F3_MOG)
 narrator_pos   = [480, 127]
-# entry_settle = true                  # optional: hide the smooth-cam warp-in ease (entry camera-settle)
+# entry_settle = 45                    # optional FRAMES held black on entry (hides the smooth-cam warp-in
+#                                      # ease; default 45, 0 = off; true/false also accepted = default/off)
 
 # --- the SHIPPED form: one row per journey, a bare-int entry + an optional hub-side beat ---
 [[journey]]

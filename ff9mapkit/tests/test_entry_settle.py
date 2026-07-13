@@ -121,6 +121,16 @@ def test_lint_settle_multicam_disagreement(tmp_path):
     assert same == []                                                              # agreeing values are silent
 
 
+def test_hub_boolean_entry_settle_is_on_off_not_one_frame():
+    # JOURNEYS.md used to teach `entry_settle = true`, which int()'d to a useless 1-FRAME hold --
+    # a boolean is now on/off (true = the proven default, false = 0); ints pass through
+    from ff9mapkit import hub
+    base = {"name": "H", "id": 4500}
+    assert hub.hubspec_from_table({**base, "entry_settle": True}, []).entry_settle == hub.DEFAULT_ENTRY_SETTLE
+    assert hub.hubspec_from_table({**base, "entry_settle": False}, []).entry_settle == 0
+    assert hub.hubspec_from_table({**base, "entry_settle": 60}, []).entry_settle == 60
+
+
 def test_string_settle_does_not_crash_the_build(tmp_path):
     # a non-numeric value (e.g. a future "auto") is skipped with lint explaining -- never a traceback
     from ff9mapkit import build
