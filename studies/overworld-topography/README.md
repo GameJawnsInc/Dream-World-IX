@@ -248,7 +248,9 @@ Three scripts (`v4_transplant_census.py` → `v4_rect_scan.py` → `v4_window_pr
   along VERBATIM FOR FREE. Stripping (if ever wanted) = empty-stub overrides — already a
   proven mechanism (island F's mint deployed 176-byte stubs for its unused parts).
 
-**THE v4 BUILD (round 1 DEPLOYED 2026-07-13 — awaits playtest).** `world-transplant
+**THE v4 BUILD (round 1 ★ IN-GAME PROVEN 2026-07-13: the falls/river/bridge ensemble renders
+— THE FREE-RIDE MECHANISM PROVEN; the neck cuts "look the same as verbatim" — no further
+treatment; minimap shape check pending, cosmetic).** `world-transplant
 --mod-folder FF9CustomMap-world --cell 1,16 --donor 5,15 --size 3x2 --shift 0,0
 --land-margin 0` — first dry-run CLEAN, zero hand edits; the machinery auto-armed its
 proven N tongue strips for the two necks. Deployed 30 files (6 cells × Terrain/Sea3/5/4 +
@@ -257,11 +259,9 @@ files at (3,17) + the sanctioned-deletable (2,16) reference islet (5 files, the 
 cliff-lip leftover). Post-deploy: engine-true probes on the DEPLOYED bytes ground 462
 lowland + 84 bowl points (topo-13 at y≈16.4 over the 15.2 river plane); 16 no-hits, all
 inherited from the real map. Minimap re-composited (21 blocks). **Teleports: lowland
-(75.5, −1074.5) · terrace bowl (130.5, −1077.5)** — RELAUNCH required (new Donor.txt cells
-+ the minimap PNG). Playtest watchlist: the falls/river/object PREFAB RIDE-ALONG rendering
-at the new site (the round's key mechanism claim), the two 8u neck cuts on the north shore
-(target x≈132-140 and x≈211-220 at z≈−1024), the borders toward islands B/E/C, minimap
-shape.
+(75.5, −1074.5) · terrace bowl (130.5, −1077.5)**. After four falsified synthesis rounds,
+the transplant path delivered the two-level island — lowland ring + hanging terrace +
+real falls — on its FIRST deploy, with zero new machinery.
 
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
