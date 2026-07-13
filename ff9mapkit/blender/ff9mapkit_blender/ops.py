@@ -293,11 +293,19 @@ def _import_content(context, field_cfg, scene_cfg):
 def _apply_canvas_resolution(context, rw, rh):
     """Match the render resolution to the FF9 canvas so the camera frames the field at the right
     aspect. FF9 fields are 384x448 portrait (wider when scrolling); Blender defaults to 1920x1080
-    landscape, which makes the matched camera look too wide / off-centre in the viewport."""
+    landscape, which makes the matched camera look too wide / off-centre in the viewport.
+
+    ``pixel_aspect_y = 15/14``: the FF9 projection's VERTICAL focal is K_VSCALE = 14/15 of the
+    horizontal (the diag(1, k, 1) baked into every real camera matrix -- census-verified on all
+    741 shipping field-cameras, studies/blender-camera-fidelity). A Blender camera is isotropic,
+    so without this every field misframed vertically by ~7-20px (the k squash); the anisotropic
+    pixel expresses it exactly, making the camera frame == the painted canvas, pixel for pixel."""
     r = context.scene.render
     r.resolution_x = int(rw)
     r.resolution_y = int(rh)
     r.resolution_percentage = 100
+    r.pixel_aspect_x = 1.0
+    r.pixel_aspect_y = 1.0 / cam.K_VSCALE          # 15/14: vertical px-gain = k * horizontal
 
 
 _FLOOR_PALETTE = [(0.90, 0.30, 0.30), (0.30, 0.65, 0.95), (0.40, 0.85, 0.40), (0.95, 0.80, 0.25),
@@ -1959,8 +1967,7 @@ class FF9MK_OT_view_ff9_camera(bpy.types.Operator):
             self.report({"ERROR"}, "Select an FF9 camera (FF9_Camera or FF9_Camera_01..) first.")
             return {"CANCELLED"}
         context.scene.camera = cam_obj
-        context.scene.render.resolution_x = int(cam_obj["ff9_rw"])
-        context.scene.render.resolution_y = int(cam_obj["ff9_rh"])
+        _apply_canvas_resolution(context, int(cam_obj["ff9_rw"]), int(cam_obj["ff9_rh"]))
         for area in context.screen.areas:                      # look through it in every 3D viewport
             if area.type == "VIEW_3D":
                 for space in area.spaces:
