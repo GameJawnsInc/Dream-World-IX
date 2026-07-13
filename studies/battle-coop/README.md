@@ -7,9 +7,12 @@
 > revalidation — an unlearned-cast cheat path was found and closed in playtest). ATB feel: the
 > `RemoteMenuOpen` WAIT/Turn-Based freeze, capped per turn by `[Netsync] GuestWaitMs` (default 30s)
 > so an idle guest can't lock the host indefinitely. Still out: Throw, double-cast/mix,
-> monster-transform. Two-machine session pending (update both DLLs — v4 rejects older peers).**
-> The rest of this document is the research that shaped it. Companion to the s36 exploration
-> co-op (ghost sync).
+> monster-transform. Two-machine session pending (update both DLLs — v4 rejects older peers).
+> CONFIG SURFACE SHIPPED (2026-07-12): every s37 knob is point-and-click — `ff9mapkit coop
+> host|join --guest-slots/--guest-wait/--ghost-as/--follow-host` + `coop show`, and the Workspace
+> Co-op tab's Play-style panel (Apply hot-reloads a running game); no more hand-editing
+> Memoria.ini.** The rest of this document is the research that shaped it. Companion to the s36
+> exploration co-op (ghost sync).
 > Sources: the Memoria engine source (`C:\gd\FFIX\Memoria\Assembly-CSharp`, all cites below),
 > the s36 patch (`memoria-patches/s36-netsync-ghost.patch`), and web prior-art (linked inline).
 

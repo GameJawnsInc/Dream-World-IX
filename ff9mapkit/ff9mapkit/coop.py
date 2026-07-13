@@ -8,8 +8,24 @@ into one command per side:
 
     ff9mapkit coop host              set up + host a session (prints/copies the code)
     ff9mapkit coop join ff9-XXXX     set up + join a friend's session
+    ff9mapkit coop show              print the current co-op config in human terms
     ff9mapkit coop off               switch co-op off in Memoria.ini
     ff9mapkit coop bridge            run just the ws->wss bridge (advanced)
+
+PLAY STYLE (engine s37; every knob hot-reloads into a running game within ~2s).
+``host``/``join`` take optional flags that write the matching ``[Netsync]`` keys --
+each is only written when its flag is given, so re-runs never clobber hand tuning:
+
+    --guest-slots 2        battle co-op: your friend commands YOUR party slot 2
+                           (positions 1-4 as the party menu shows them; "2,3" = two
+                           slots, "none" = spectate only)         -> GuestSlots (mask)
+    --guest-wait 30        cap a guest turn's gauge-freeze at 30s; 0 = no cap
+                                                                  -> GuestWaitMs
+    --ghost-as auto        visitor mode: dress their ghost as the party member they
+                           command ("auto"), a name (vivi, dagger, ...), or "off"
+                                                                  -> GhostAs
+    --follow-host on       guest side: auto-warp to the host's field; your own
+                           random encounters pause while paired   -> FollowHost
 
 Co-op works EVERYWHERE by default: ghosts appear on any screen both players
 share (``--field N`` restricts it to one field). What ``host``/``join`` do:
@@ -57,6 +73,71 @@ COOP_MOD = "FF9Coop"        # dedicated mod folder (never touched by campaign re
 COOP_NAME = "COOP"          # field/script name inside the built mod
 BRIDGE_PORT = 49201         # local ws:// port FF9 connects to
 _CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+# The playable names the engine's visitor mode can dress a ghost as (NetSyncVisitor.NameToRig,
+# s37) -- the 8 mains with proven field rigs; dagger/salamander are aliases. Anyone else
+# (Cinna/Marcus/Blank/Beatrix/customs) has no proven rig row, so the engine refuses = undressed.
+GHOST_NAMES = ("zidane", "vivi", "garnet", "dagger", "steiner",
+               "freya", "quina", "eiko", "amarant", "salamander")
+
+
+def parse_guest_slots(spec: str) -> int:
+    """A human slot spec -> the engine's ``GuestSlots`` bitmask. The spec lists PARTY POSITIONS
+    1-4 (as the in-game party menu shows them), comma-separated: ``"2"`` = the second member,
+    ``"2,3"`` = second + third. ``"0"``/``"none"``/``"off"`` = no slots (spectate only),
+    ``"all"`` = every slot. Raises ValueError with a usable message otherwise."""
+    t = (spec or "").strip().lower()
+    if t in ("0", "none", "off", ""):
+        return 0
+    if t == "all":
+        return 0x0F
+    mask = 0
+    for part in t.replace(" ", ",").split(","):
+        if not part:
+            continue
+        if not part.isdigit() or not 1 <= int(part) <= 4:
+            raise ValueError(f"bad guest slot {part!r}: give party positions 1-4 "
+                             "(comma-separated), 'all', or 'none'")
+        mask |= 1 << (int(part) - 1)
+    return mask
+
+
+def format_guest_slots(mask: int) -> str:
+    """The engine bitmask back in human terms: ``6`` -> ``"2, 3"``; ``0`` -> ``"none (spectate)"``."""
+    slots = [str(i + 1) for i in range(4) if mask & (1 << i)]
+    return ", ".join(slots) if slots else "none (spectate)"
+
+
+def parse_ghost_as(name: str) -> str:
+    """Normalize a ``--ghost-as`` value to what the engine accepts: ``""`` (their own model),
+    ``"auto"``, or a playable name from :data:`GHOST_NAMES`. Raises ValueError on anything else --
+    the engine would just silently un-dress, better to say so up front."""
+    t = (name or "").strip().lower()
+    if t in ("", "off", "none", "0"):
+        return ""
+    if t == "auto" or t in GHOST_NAMES:
+        return t
+    raise ValueError(f"unknown ghost outfit {name!r}: use auto, off, or one of "
+                     + ", ".join(n for n in GHOST_NAMES))
+
+
+def playstyle_updates(guest_slots: str | None = None, guest_wait: int | None = None,
+                      ghost_as: str | None = None, follow_host: bool | None = None) -> dict:
+    """The ``[Netsync]`` play-style updates for whichever knobs were actually given (None = leave
+    the ini alone -- a re-run must not clobber hand-tuned values). ``guest_wait`` is SECONDS
+    (0 = no cap); the ini key is milliseconds."""
+    updates: dict = {}
+    if guest_slots is not None:
+        updates["GuestSlots"] = str(parse_guest_slots(guest_slots))
+    if guest_wait is not None:
+        if guest_wait < 0:
+            raise ValueError("--guest-wait takes seconds >= 0 (0 = no cap)")
+        updates["GuestWaitMs"] = str(guest_wait * 1000)
+    if ghost_as is not None:
+        updates["GhostAs"] = parse_ghost_as(ghost_as)
+    if follow_host is not None:
+        updates["FollowHost"] = "1" if follow_host else "0"
+    return updates
 
 
 def generate_code() -> str:
@@ -260,6 +341,45 @@ def ensure_room(game: Path, *, field_id: int = COOP_FIELD, rebuild: bool = False
     return COOP_MOD
 
 
+def show_config(game: Path, *, out=print) -> int:
+    """Print the current ``[Netsync]`` state in human terms -- the CLI twin of the Workspace
+    tab's status panel. Read-only; safe with the game running."""
+    ini = _ini_path(game)
+    if not ini.is_file():
+        out(f"{ini} not found -- is this really the FF9 install?")
+        return 2
+    text = ini.read_text(encoding="utf-8", errors="replace")
+    key = lambda k, d="": (read_ini_key(text, "Netsync", k) or d).strip()
+    enabled = key("Enabled") == "1"
+    out(f"FF9 install: {game}")
+    out(f"  co-op:       {'ON' if enabled else 'off'}")
+    if not enabled:
+        out("  (start one with  ff9mapkit coop host  /  ff9mapkit coop join <code>)")
+        return 0
+    role = key("Role", "host")
+    relay = key("RelayUrl")
+    target = key("TargetField", "0") or "0"
+    out(f"  role:        {role}" + ("  (selftest = solo mirror)" if role not in ("host", "client") else ""))
+    out(f"  transport:   " + (f"relay via {relay}" if relay else f"direct LAN ({key('PeerAddress') or 'listening'})"))
+    out(f"  session:     {key('SessionCode') or '(no code)'}")
+    out(f"  where:       " + ("everywhere (any shared screen)" if target == "0" else f"field {target} only"))
+    try:
+        mask = int(key("GuestSlots", "0") or "0") & 0x0F
+    except ValueError:
+        mask = 0
+    out(f"  battle:      friend commands slot(s) {format_guest_slots(mask)}")
+    try:
+        wait = int(key("GuestWaitMs", "30000") or "30000")
+    except ValueError:
+        wait = 30000
+    out(f"  wait cap:    " + (f"{wait // 1000}s per guest turn" if wait else "none (guest can hold the gauges)"))
+    ghost = key("GhostAs").lower()
+    out(f"  ghost as:    " + ("their own model" if ghost in ("", "off", "0") else
+                              "auto (the party member they command)" if ghost == "auto" else ghost))
+    out(f"  follow-host: " + ("ON (auto-warp + encounter pause)" if key("FollowHost") == "1" else "off"))
+    return 0
+
+
 # ---------------------------------------------------------------- commands
 
 
@@ -294,6 +414,17 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     game = find_game_path(args.game)
     out(f"FF9 install: {game}")
 
+    # validate the play-style flags FIRST -- a typo must not cost the minute-long room build
+    follow = getattr(args, "follow_host", None)
+    try:
+        style = playstyle_updates(getattr(args, "guest_slots", None),
+                                  getattr(args, "guest_wait", None),
+                                  getattr(args, "ghost_as", None),
+                                  None if follow is None else follow == "on")
+    except ValueError as e:
+        out(f"  {e}")
+        return 2
+
     lan = getattr(args, "lan", None)
     target = int(getattr(args, "field", None) or 0)      # 0 = co-op EVERYWHERE; --field N restricts
     if not getattr(args, "no_room", False):
@@ -317,7 +448,25 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
             updates["PeerAddress"] = lan
     else:
         updates["RelayUrl"] = f"ws://127.0.0.1:{args.port}"
+    updates.update(style)
     write_netsync(game, updates, out=out)
+    if "GuestSlots" in style:
+        out("  battle: your friend commands party slot(s) "
+            + format_guest_slots(int(style["GuestSlots"]))
+            + " (0 keys them to spectating)")
+    if "GuestWaitMs" in style:
+        ms = int(style["GuestWaitMs"])
+        out("  battle: guest turns can hold the gauges for "
+            + (f"up to {ms // 1000}s" if ms else "as long as they like (no cap)"))
+    if "GhostAs" in style:
+        gv = style["GhostAs"]
+        out("  visitor: their ghost appears as "
+            + ("its own model" if not gv else
+               "the party member they command in battle" if gv == "auto" else gv))
+    if "FollowHost" in style:
+        out("  visitor: follow-host " + ("ON -- your game auto-warps to their field and your "
+                                         "random encounters pause while paired"
+                                         if style["FollowHost"] == "1" else "off"))
 
     out("")
     if role == "host":
@@ -361,6 +510,8 @@ def run(args, out=print) -> int:
         write_netsync(game, {"Enabled": "0"}, out=out)
         out("  co-op disabled (Role/code kept -- `coop host`/`coop join` re-enables)")
         return 0
+    if action == "show":
+        return show_config(find_game_path(args.game), out=out)
     if action == "bridge":
         return _run_bridge_foreground(args.port, getattr(args, "relay", None),
                                       getattr(args, "insecure", False), out=out)

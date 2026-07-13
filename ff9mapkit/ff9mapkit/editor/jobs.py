@@ -487,9 +487,12 @@ def revert_battle_argv(repo_root):
     return [sys.executable, str(s)] if s else None
 
 
-def coop_setup_argv(action, code=None, *, lan=None, new_code=False, rebuild_room=False):
+def coop_setup_argv(action, code=None, *, lan=None, new_code=False, rebuild_room=False,
+                    guest_slots=None, guest_wait=None, ghost_as=None, follow_host=None):
     """``ff9mapkit coop host|join`` argv, setup only (``--no-bridge`` -- the GUI runs the bridge
-    in-process). ``lan``: None = relay mode; ``""`` = bare ``--lan`` (host); an IP = ``--lan <ip>`` (join)."""
+    in-process). ``lan``: None = relay mode; ``""`` = bare ``--lan`` (host); an IP = ``--lan <ip>`` (join).
+    The play-style knobs (s37) pass through when not None: ``guest_slots`` a human slot spec
+    ('none'/'2'/'2,3'), ``guest_wait`` seconds, ``ghost_as`` off/auto/name, ``follow_host`` a bool."""
     a = [sys.executable, "-m", "ff9mapkit", "coop", str(action)]
     if code:
         a.append(str(code))
@@ -500,4 +503,12 @@ def coop_setup_argv(action, code=None, *, lan=None, new_code=False, rebuild_room
         a.append("--new-code")
     if rebuild_room:
         a.append("--rebuild-room")
+    if guest_slots is not None:
+        a += ["--guest-slots", str(guest_slots)]
+    if guest_wait is not None:
+        a += ["--guest-wait", str(int(guest_wait))]
+    if ghost_as is not None:
+        a += ["--ghost-as", str(ghost_as)]
+    if follow_host is not None:
+        a += ["--follow-host", "on" if follow_host else "off"]
     return a

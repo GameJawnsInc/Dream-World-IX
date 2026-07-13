@@ -38,6 +38,50 @@ def test_generate_code_random():
     assert len({coop.generate_code() for _ in range(20)}) > 1
 
 
+# ---------------------------------------------------------------- play style (s37)
+
+def test_parse_guest_slots():
+    # party POSITIONS 1-4 (as the in-game menu shows them) -> the engine bitmask
+    assert coop.parse_guest_slots("1") == 1
+    assert coop.parse_guest_slots("2") == 2
+    assert coop.parse_guest_slots("2,3") == 6
+    assert coop.parse_guest_slots("1, 4") == 9
+    assert coop.parse_guest_slots("all") == 15
+    for none_ish in ("0", "none", "off", "", "NONE"):
+        assert coop.parse_guest_slots(none_ish) == 0
+    for bad in ("5", "x", "1-2", "-1"):
+        with pytest.raises(ValueError):
+            coop.parse_guest_slots(bad)
+
+
+def test_format_guest_slots():
+    assert coop.format_guest_slots(0) == "none (spectate)"
+    assert coop.format_guest_slots(2) == "2"
+    assert coop.format_guest_slots(6) == "2, 3"
+    assert coop.format_guest_slots(15) == "1, 2, 3, 4"
+
+
+def test_parse_ghost_as():
+    assert coop.parse_ghost_as("auto") == "auto"
+    assert coop.parse_ghost_as("Vivi") == "vivi"
+    assert coop.parse_ghost_as("DAGGER") == "dagger"       # the engine's garnet alias
+    for off_ish in ("", "off", "none", "0"):
+        assert coop.parse_ghost_as(off_ish) == ""
+    with pytest.raises(ValueError):
+        coop.parse_ghost_as("beatrix")                     # no proven rig row -> refuse up front
+
+
+def test_playstyle_updates_only_what_was_given():
+    assert coop.playstyle_updates() == {}                  # nothing given -> nothing clobbered
+    assert coop.playstyle_updates(guest_wait=0) == {"GuestWaitMs": "0"}
+    full = coop.playstyle_updates("2", 30, "auto", True)
+    assert full == {"GuestSlots": "2", "GuestWaitMs": "30000",
+                    "GhostAs": "auto", "FollowHost": "1"}
+    assert coop.playstyle_updates(follow_host=False) == {"FollowHost": "0"}
+    with pytest.raises(ValueError):
+        coop.playstyle_updates(guest_wait=-1)
+
+
 # ---------------------------------------------------------------- ini read
 
 def test_read_ini_key():
@@ -214,3 +258,27 @@ def test_write_netsync_backs_up(game):
 def test_write_netsync_requires_ini(tmp_path):
     with pytest.raises(FileNotFoundError):
         coop.write_netsync(tmp_path, {"Enabled": "1"}, out=lambda *_: None)
+
+
+def test_show_config_reads_playstyle_in_human_terms(game):
+    coop.write_netsync(game, {"Enabled": "1", "Role": "host", "SessionCode": "ff9-TESTCODE",
+                              "RelayUrl": "ws://127.0.0.1:49201", "TargetField": "0",
+                              **coop.playstyle_updates("2,3", 30, "auto", True)},
+                       out=lambda *_: None)
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0
+    text = "\n".join(lines)
+    assert "co-op:       ON" in text
+    assert "slot(s) 2, 3" in text
+    assert "30s per guest turn" in text
+    assert "auto (the party member they command)" in text
+    assert "follow-host: ON" in text
+
+
+def test_show_config_off_and_missing(game, tmp_path):
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0        # fixture ini has Enabled = 0
+    assert any("co-op:       off" in ln for ln in lines)
+    empty = tmp_path / "no-install-here"                         # the game fixture IS tmp_path
+    empty.mkdir()
+    assert coop.show_config(empty, out=lambda *_: None) == 2     # no Memoria.ini -> actionable exit
