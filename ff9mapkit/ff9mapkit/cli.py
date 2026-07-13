@@ -2677,6 +2677,79 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_world_point(args) -> tuple:
+    """(point, exact) from --center / --near (one required)."""
+    if getattr(args, "center", None):
+        wx, wz = (float(v) for v in args.center.split(","))
+        return (wx, wz), True
+    wx, wz = (float(v) for v in args.near.split(","))
+    return (wx, wz), False
+
+
+def _cmd_world_forest(args: argparse.Namespace) -> int:
+    """Carry a REAL canopy blob (verbatim verts/UVs/normals/topo-37) onto a DEPLOYED kit island --
+    the productized island-E forest re-home (in-game proven 2026-07-12). Gates: canopy carry + the
+    comprehensive step law + the perimeter walk-in simulation + placement census."""
+    from .world import interior as IN
+    try:
+        (wx, wz), exact = _parse_world_point(args)
+        dx, dy = (int(v) for v in args.donor.split(","))
+        blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
+                                         disc=args.disc, game=args.game)
+        soup = IN.soup_from_blocks(blocks)
+        res = IN.carve_forest(soup, center=(wx, wz) if exact else None,
+                              near=None if exact else (wx, wz), donor=(dx, dy),
+                              disc=args.disc, game=args.game)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game,
+                       probe=(res["center"], 37))
+        if not args.dry_run:
+            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                              game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = res["center"]
+    r = res["report"]
+    print(f"{verb} the canopy carry at world ({cx:.0f},{cz:.0f}): {r['blob_tris']} donor tris, "
+          f"{r['dropped']} island tris carved, {r['zip_tris']} zip tris; wall rise {r['wall_rise']} / "
+          f"zip rise {r['zip_rise']} (ceiling 2.34). All gates CLEAN incl. the perimeter walk-in "
+          f"simulation + placement census. F6 -> World -> re-enter, then walk INTO and OVER the canopy.")
+    return 0
+
+
+def _cmd_world_hill(args: argparse.Namespace) -> int:
+    """Raise a raised-cosine GRASS HILL on a DEPLOYED kit island by pure-Y displacement of the deployed
+    bytes -- the productized island-E hill at scale (in-game proven 2026-07-12). Gates: the measured
+    grass slope envelope (p99 28.6 deg), lowland-band peak cap, cracks, placement census."""
+    from .world import interior as IN
+    try:
+        (wx, wz), exact = _parse_world_point(args)
+        blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz),
+                                         reach=max(96.0, args.radius + 10.0),
+                                         disc=args.disc, game=args.game)
+        soup = IN.soup_from_blocks(blocks)
+        res = IN.build_hill(soup, center=(wx, wz) if exact else None,
+                            near=None if exact else (wx, wz),
+                            height=args.height, radius=args.radius)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game)
+        if not args.dry_run:
+            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                              game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = res["center"]
+    r = res["report"]
+    print(f"{verb} a grass hill at world ({cx:.0f},{cz:.0f}) (H {args.height}, R {args.radius}): "
+          f"{r['displaced_tris']} tris displaced, worst flank {r['worst_flank']} deg "
+          f"(<= {IN.MAX_FLANK}), peak y {r['peak_y']} (<= {IN.PEAK_CAP}); "
+          f"{len(res['changed'])} block(s) changed. All gates CLEAN. F6 -> World -> re-enter, "
+          f"then walk the hill from all sides.")
+    return 0
+
+
 def _cmd_world_water(args: argparse.Namespace) -> int:
     """Synthesize graded OPEN-OCEAN water (shallow->deep) on sea cells from a built-in depth gradient -- the faithful
     marching-band synthesizer (Sea3/Sea5/Sea4 alphabet, byte-proven UVs). Needs the custom engine (s34); RELAUNCH."""
@@ -5562,6 +5635,44 @@ def build_parser() -> argparse.ArgumentParser:
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)
+
+    wfo = sub.add_parser("world-forest",
+                         help="carry a REAL canopy blob (verbatim topo-37 forest) onto a DEPLOYED kit island -- "
+                              "the in-game-proven canopy-carry recipe (carve a lattice hole, seat the blob, zip "
+                              "a grass annulus with byte-decoded mains UVs). Gated by the CANOPY STEP LAW + a "
+                              "perimeter walk-in simulation (takes a few minutes) + the placement census. "
+                              "Needs the custom engine; re-enter the world.")
+    wfo.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
+    _ftg = wfo.add_mutually_exclusive_group(required=True)
+    _ftg.add_argument("--center", metavar="WX,WZ", help="EXACT blob centre in world coords (gated, no scan)")
+    _ftg.add_argument("--near", metavar="WX,WZ",
+                      help="scan a ~80u window around this point for the best lawful plain-grass placement")
+    wfo.add_argument("--donor", default="15,15", metavar="BX,BY",
+                     help="real block whose topo-37 canopy blob to carry (default 15,15 = the proven "
+                          "grass-bounded donor; a multi-blob or non-simple-rim donor refuses)")
+    wfo.add_argument("--reach", type=float, default=96.0,
+                     help="deployed-block load window around the point in units (default 96)")
+    wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wfo.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wfo.set_defaults(func=_cmd_world_forest)
+
+    whl = sub.add_parser("world-hill",
+                         help="raise a raised-cosine GRASS HILL on a DEPLOYED kit island by pure-Y displacement "
+                              "of the deployed bytes (mains UVs are XZ-linear, so every tile stays lawful) -- "
+                              "the in-game-proven grass-hill language (slope p99 28.6 deg, lowland-band peak "
+                              "cap, local normal re-smooth). Needs the custom engine; re-enter the world.")
+    whl.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
+    _htg = whl.add_mutually_exclusive_group(required=True)
+    _htg.add_argument("--center", metavar="WX,WZ", help="EXACT hill centre in world coords (gated, no scan)")
+    _htg.add_argument("--near", metavar="WX,WZ",
+                      help="scan a ~112u window around this point for the best lawful pure-mains placement")
+    whl.add_argument("--height", type=float, default=4.2,
+                     help="prominence in units (default 4.2; the real language is 3.5-5.2)")
+    whl.add_argument("--radius", type=float, default=18.0,
+                     help="footprint radius in units (default 18; the real language is 20-26u diameter runs)")
+    whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    whl.set_defaults(func=_cmd_world_hill)
 
     wwt = sub.add_parser("world-water",
                          help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "

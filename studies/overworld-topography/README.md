@@ -263,6 +263,20 @@ inherited from the real map. Minimap re-composited (21 blocks). **Teleports: low
 the transplant path delivered the two-level island — lowland ring + hanging terrace +
 real falls — on its FIRST deploy, with zero new machinery.
 
+## THE PRODUCTIZATION (★ 2026-07-13): `world-forest` + `world-hill` are kit verbs
+
+`forest_rehome.py` + `hill_at_scale.py` are extracted into `ff9mapkit/world/interior.py`
++ two CLI verbs (`--near` scan / `--center` exact; deployed-bytes only, byte-derived
+fams, all study gates incl. the perimeter walk-in simulation). **Proven by IDENTITY**
+(`interior_productize_check.py`): clean seed-55 mint → module forest carve → module hill
+reproduces the deployed, in-game-proven island E **byte-for-byte on all 5 blocks** — and
+the CLI verbs' own `--near` scans, run end-to-end on a scratch mod folder, converged on
+the studies' exact placements ((312,−1140) forest / (348,−1184) hill) and reproduced the
+same bytes. One new law minted: **the hill scan's ROLLING-RELIEF ENVELOPE** (footprint
+y-span ≤ 2.4u — an existing hill's footprint is still pure mains, and the naive scan
+self-selected it and tried to stack; the slope gate refused, and the envelope now keeps
+the scan honest). Hermetic tests: `ff9mapkit/tests/test_world_interior.py`.
+
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —
