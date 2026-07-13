@@ -159,23 +159,61 @@ def s_of(p):
 # each face's box onto one band sweep x ~3 rows; texel density varies per panel and the
 # (+-4,0) seam jumps ARE the sweep wraps. Constant-density (39px/u) was the wrong read:
 # it halved the probe face's density (rows 10-11 only). Generative form: normalized box.
+# PROBE v2 -- round 1 was SPOTTED in-game ("obvious... stretched" + "seamed the grass
+# away"). The offline decode of the real panel affines (fixed CCW frame) refined it:
+# u = (+47..+123)s + (-78..+136)h px/u -- a per-panel DIAGONAL flow; the 4.0-tile
+# u-span is the NET of contour + shear (round 1 used ZERO shear = the stretch).
+# v = ~+4s -48h, net ~3 rows. THE EXACT-PIN LAW: 60/63 real boundary corners sit at
+# v == 0.00 mod tile -- every foot vert SNAPS to a tile edge (round 1's 0.9-frac
+# anchor amputated the painted fringe strip = the grass seam). Generative form: a
+# SHEARED normalized box + band-fill v + the exact per-vert foot snap.
 pk_ys = sorted(p[1] for p in ({kk(gpos[i]) for t in panel for i in gtris[t]}))
 y0 = pk_ys[0]
 verts = sorted({kk(gpos[i]) for t in panel for i in gtris[t]})
+RHO = -0.4                                                 # u shear ratio (law median)
 S_ALL = [s_of(p) for p in verts]
 H_ALL = [p[1] for p in verts]
-s_lo, s_hi = min(S_ALL), max(S_ALL)
 h_lo, h_hi = min(H_ALL), max(H_ALL)
-V_SPAN = 3.0 * TILE_V
-def gen_uv(p):
-    sn = (s_of(p) - s_lo) / max(s_hi - s_lo, 0.1)
+hsp = max(h_hi - h_lo, 0.1)
+s_lo2 = min(S_ALL)
+ssp = max(max(S_ALL) - s_lo2, 0.1)
+def w_of(p):
+    sn = (s_of(p) - s_lo2) / ssp
     if sgn_u < 0:
         sn = 1.0 - sn
-    hn = (p[1] - h_lo) / max(h_hi - h_lo, 0.1)
-    u = pu + 6 * TILE_U + 0.0008 + sn * (4 * TILE_U - 0.0016)
-    v = (pv + 10.9 * TILE_V) - hn * V_SPAN
+    return sn + RHO * (p[1] - h_lo) / hsp
+W_ALL = [w_of(np.array(p, dtype=float)) for p in verts]
+w_lo, w_hi = min(W_ALL), max(W_ALL)
+V_SPAN = 2.8 * TILE_V
+def gen_uv(p):
+    wn = (w_of(p) - w_lo) / max(w_hi - w_lo, 1e-6)
+    u = pu + 6 * TILE_U + 0.0008 + wn * (4 * TILE_U - 0.0016)
+    v = (pv + 11.0 * TILE_V) - (p[1] - h_lo) / hsp * V_SPAN \
+        + 4.0 / 4096.0 * (s_of(p) - s_lo2)
     return u, v
 uv_new = {p: gen_uv(np.array(p, dtype=float)) for p in verts}
+# THE EXACT-PIN LAW: snap every grass-boundary vert's v to the NEAREST tile edge
+e2any = defaultdict(list)
+for t2 in range(len(gtris)):
+    ps = [kk(gpos[i]) for i in gtris[t2]]
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        e2any[tuple(sorted((ps[a], ps[b])))].append(t2)
+rock_set = set(rock)
+foot_keys = set()
+for e, ts in e2any.items():
+    if len(ts) != 2:
+        continue
+    inp = [t2 for t2 in ts if t2 in panel_set]
+    out = [t2 for t2 in ts if t2 not in rock_set]
+    if len(inp) == 1 and len(out) == 1:
+        foot_keys.update(e)
+n_snap = 0
+for p in verts:
+    if p in foot_keys:
+        u, v = uv_new[p]
+        uv_new[p] = (u, pv + round((v - pv) / TILE_V) * TILE_V)
+        n_snap += 1
+print(f"exact-pin snap: {n_snap} foot verts snapped to tile edges")
 # band check: the chart must stay inside the contiguous rock band (cols 6-10, rows 7-11)
 cols = sorted({math.floor((u - pu) / TILE_U) for u, v in uv_new.values()})
 vrows = sorted({math.floor((v - pv) / TILE_V) for u, v in uv_new.values()})
