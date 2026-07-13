@@ -26,6 +26,7 @@ from .config import LANGS, ModLayout, fbg_name
 from .content import ate as _ate
 from .content import camera as _camera
 from .content import choice as _choice
+from .content import coop as _coop
 from .content import cutscene as _cutscene
 from .content import conductor as _conductor
 from .content import encounter as _enc
@@ -2143,6 +2144,9 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
         gf, _gs = _gate_of(ev)
         if gf is not None:
             _read(gf, who)
+    for k, co in enumerate(raw.get("coop", [])):
+        if "set_flag" in co:
+            _write(_flag_index(co["set_flag"]), f"[[coop]] gate {co.get('name', '#' + str(k))!r}")
     for k, n in enumerate(raw.get("npc", [])):
         gf, _gs = _gate_of(n)
         if gf is not None:
@@ -4054,7 +4058,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  cutscene_txids: list | None = None, walkmesh=None,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
                  ate_txids: dict | None = None, chest_txids: dict | None = None,
-                 gateway_txids: dict | None = None) -> bytes:
+                 gateway_txids: dict | None = None, coop_txids: dict | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
@@ -4064,6 +4068,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     on_entry_txids = on_entry_txids or {}
     ate_txids = ate_txids or {}
     chest_txids = chest_txids or {}
+    coop_txids = coop_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -4359,6 +4364,26 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
+
+    # [[coop]] two-plate gates (netsync V2, engine s37): two regions per gate, each plate's per-frame
+    # Range body checking the PEER's engine-broadcast position against the OTHER plate (symmetric --
+    # either player takes either plate). Fires ONCE (the once-latch is the set_flag itself); the flag
+    # then gates other content through the existing vocabulary. Fail-safe on a stock engine: the
+    # presence cell is never 1, so the gate simply never fires. See content/coop.py.
+    for k, co in enumerate(project.raw.get("coop", [])):
+        who = f"[[coop]] gate {co.get('name', '#' + str(k))!r}"
+        try:
+            plate_a = _coop.normalize_rect(co["plate_a"], f"{who} plate_a")
+            plate_b = _coop.normalize_rect(co["plate_b"], f"{who} plate_b")
+        except KeyError as e:
+            raise BuildError(f"field {project.name}: {who} needs both plate_a and plate_b "
+                             f"([x1, z1, x2, z2] each) -- missing {e}")
+        except ValueError as e:
+            raise BuildError(f"field {project.name}: {e}")
+        if "set_flag" not in co:
+            raise BuildError(f"field {project.name}: {who} needs set_flag = N -- the gate's whole "
+                             f"output is that flag (gate doors/events/cutscenes on it)")
+        eb = _coop.inject_gate(eb, plate_a, plate_b, int(co["set_flag"]), coop_txids.get(k))
 
     # CAST cutscenes (`actors = [...]`, #13 v3 -- the ONE actor mechanism): each is a CONDUCTOR -- a central
     # director code entry that drives every cast member BY UID (== its [[npc]] entry slot; player = 250) via
@@ -5218,10 +5243,10 @@ def _wrap_width(project: FieldProject):
 
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-    chest_txids, gateway_txids). All field text (NPC dialogue, event messages, cutscene 'say' lines, choice
-    prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE gateway titles)
-    shares one .mes block, in that order
-    (so a field with no events/cutscene/choices/on_entry/ate/chests is byte-identical to the old layout).
+    chest_txids, gateway_txids, coop_txids). All field text (NPC dialogue, event messages, cutscene 'say'
+    lines, choice prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE
+    gateway titles, [[coop]] gate fire messages) shares one .mes block, in that order
+    (so a field with no events/cutscene/choices/on_entry/ate/chests/coop is byte-identical to the old layout).
     ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id, "replies":
     {opt_index: id}}``; ``on_entry_txids[k]`` = the txid of hook ``k``'s message (only for hooks that have
     one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box.
@@ -5323,8 +5348,14 @@ def collect_text(project: FieldProject):
             _title = str(gw["ate_title"])
             _w = max(8, round(_text.measure(_title) * 7.2))   # ~ the FF9 STRT width of the rendered title
             gw_pos[gi] = _add_raw(f"[IMME][CENT={_w}]{_title}", "", strt=(_w, 1))   # NO tail -> the real ATE's true centre
+    # [[coop]] gate fire messages: ordinary dialogue lines, one per gate that has `text`. Added LAST
+    # (after gateway titles) so a field with no [[coop]] keeps the previous layout byte-identical.
+    co_pos = {}
+    for k, co in enumerate(project.raw.get("coop", [])):
+        if co.get("text"):
+            co_pos[k] = _add(co, co["text"])
     if not lines:
-        return "", {}, {}, [], {}, {}, {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -5339,8 +5370,9 @@ def collect_text(project: FieldProject):
                  if ate_prompt_pos is not None else {})
     chest_txids = {k: mapping[p] for k, p in ch_pos.items()}
     gateway_txids = {gi: mapping[p] for gi, p in gw_pos.items()}   # forced-ATE title-window txids (by gw index)
+    coop_txids = {k: mapping[p] for k, p in co_pos.items()}        # [[coop]] gate fire messages (by gate index)
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-            chest_txids, gateway_txids)
+            chest_txids, gateway_txids, coop_txids)
 
 
 # --------------------------------------------------------------------------- the build
@@ -5608,7 +5640,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -5793,6 +5825,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # `field/<text_block>.mes`. base = the donor/synth body; inplace = base + in-place rewrites; suffix = the
     # appended lines (their own high txids).
     mes_parts: dict = {}
+    if verbatim_bytes is not None and project.raw.get("coop"):
+        warnings.append(f"[[coop]] on {project.name} was NOT applied -- co-op gates are synthesize-path "
+                        "only for now (a verbatim fork keeps the donor's whole script). Author the gate "
+                        "on a non-verbatim field, or ask for the verbatim seating rung.")
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes
@@ -5822,7 +5858,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
-                              ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids)
+                              ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids,
+                              coop_txids=coop_txids)
             base = mes_body or ""
             inplace = base
             suffix = ""

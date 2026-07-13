@@ -337,7 +337,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
  using Memoria.Prime;
  using Memoria.Scripts;   // ShadersLoader
  using UnityEngine;
-@@ -12,6 +13,15 @@ namespace Memoria.Netsync
+@@ -12,6 +13,25 @@ namespace Memoria.Netsync
      //   Port        = 49200
      //   TargetField = 0                     0/absent = co-op EVERYWHERE (ghosts appear on any screen both
      //                                       players share); a field id = only on that one field
@@ -350,10 +350,20 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 +    //   FollowHost  = 0                     VISITOR MODE (guest side): 1 = auto-warp my game to the
 +    //                                       field the peer is on (debounced; registered fields only),
 +    //                                       and my own random encounters pause while following.
++    //
++    // THE COOP CELLS (V2 "[[coop]]" authoring, kit-reserved): while Enabled, every frame writes the
++    // peer's presence + walkmesh position into gEventGlobal bytes 2032-2039 (top of the kit's custom
++    // flag band, beside its mask scratch at 2040) -- 2032 = presence (1 = the peer stands on MY
++    // current field), 2034-2035 / 2036-2037 = peer X / Z as Int16 LE walkmesh units (the same space
++    // SetRegion quads use; addressing matches EBin.GetVariableValueInternal byte-offset reads). Kit-
++    // compiled field logic (the [[coop]] two-plate gates) reads them as ordinary GLOB vars -- the
++    // engine knows NOTHING about plates (mechanism here, policy in the .eb). Never written unless
++    // Enabled: a vanilla player's save is never touched. Selftest writes the mirror's position, so
++    // gates with plates 250 units apart are provable solo.
      //
      //   selftest      spawn a ghost beside the local player, mirroring it -- proves the pipeline solo.
      //   host/client   NetSyncSocket carries {field,pos,rot,anim} both ways; each side renders the peer as
-@@ -36,6 +46,9 @@ namespace Memoria.Netsync
+@@ -36,6 +56,9 @@ namespace Memoria.Netsync
          private static String _peer = "127.0.0.1";
          private static Int32 _port = 49200;
          private static Int32 _targetField;               // 0 = everywhere (see class comment)
@@ -363,7 +373,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
          private static String _sessionCode = "";
          private static Boolean _insecureTls;
-@@ -52,12 +65,13 @@ namespace Memoria.Netsync
+@@ -52,12 +75,13 @@ namespace Memoria.Netsync
          private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
          private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
          private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
@@ -378,7 +388,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private Int32 _ovlState = -1;
          private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
          private String _ovlText;
-@@ -66,6 +80,17 @@ namespace Memoria.Netsync
+@@ -66,6 +90,17 @@ namespace Memoria.Netsync
  
          private Int32 _lastPoll;                         // Environment.TickCount of the last config poll
  
@@ -396,7 +406,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
          // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
          // [Netsync] Enabled=1 (nothing is created while disabled -> zero cost on a normal game), and
-@@ -110,6 +135,14 @@ namespace Memoria.Netsync
+@@ -110,6 +145,14 @@ namespace Memoria.Netsync
                      port = n;
                  if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
                      field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
@@ -411,7 +421,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                  String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
                  String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
                  Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
-@@ -137,14 +170,27 @@ namespace Memoria.Netsync
+@@ -137,14 +180,27 @@ namespace Memoria.Netsync
                      }
                  }
                  String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
@@ -440,19 +450,52 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                              (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
                                                    : " peer=" + _peer + ":" + _port));
                  return !first;
-@@ -166,6 +212,11 @@ namespace Memoria.Netsync
+@@ -166,11 +222,44 @@ namespace Memoria.Netsync
                  _socket = null;
              }
              DespawnGhost();
 +            NetSyncBattle.Reset();
 +            NetSyncVisitor.SuppressEncounters = false;
++            WriteCoopCells(0, Vector3.zero);   // incl. the enabled->disabled edge: leave no stale presence
 +            _followWarpPending = -1;
 +            _followCandidate = -1;
 +            _followWarpedTo = -1;
              _ovlState = -1;
              _ovlDetail = 0;
              _ovlText = null;
-@@ -245,6 +296,8 @@ namespace Memoria.Netsync
+         }
+ 
++        // THE COOP CELLS (see the class comment): peer presence + walkmesh X/Z into gEventGlobal
++        // bytes 2032-2039, where kit-compiled [[coop]] gates read them as ordinary GLOB vars. The
++        // Int16 LE byte layout matches EBin.GetVariableValueInternal's byte-offset read exactly.
++        // Bare array pokes, same idiom as the F6 Flags tab; never called while disabled.
++        private const Int32 CoopCellBase = 2032;
++
++        private static void WriteCoopCells(Int32 presence, Vector3 pos)
++        {
++            try
++            {
++                Byte[] g = FF9StateSystem.EventState.gEventGlobal;
++                if (g == null || g.Length < CoopCellBase + 8)
++                    return;   // no save/state loaded yet -- nothing to write into
++                g[CoopCellBase] = (Byte)(presence != 0 ? 1 : 0);
++                Int32 x = Mathf.Clamp(Mathf.RoundToInt(pos.x), Int16.MinValue, Int16.MaxValue);
++                Int32 z = Mathf.Clamp(Mathf.RoundToInt(pos.z), Int16.MinValue, Int16.MaxValue);
++                g[CoopCellBase + 2] = (Byte)(x & 0xFF);
++                g[CoopCellBase + 3] = (Byte)((x >> 8) & 0xFF);
++                g[CoopCellBase + 4] = (Byte)(z & 0xFF);
++                g[CoopCellBase + 5] = (Byte)((z >> 8) & 0xFF);
++            }
++            catch
++            {
++                // exotic scene without event state -- a cell poke must never break the frame
++            }
++        }
++
+         // "ff9-" + 8 random chars from [A-Z0-9]. The relay uppercases codes (pairing is case-insensitive);
+         // ~41 bits of entropy -- plenty for an unguessable rendezvous string.
+         private static String GenerateSessionCode()
+@@ -245,6 +334,8 @@ namespace Memoria.Netsync
              if (!_enabled)
                  return;
  
@@ -461,7 +504,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
              // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
              // players share; > 0 = the original single-hangout-field mode. Any failure reading the
-@@ -264,7 +317,10 @@ namespace Memoria.Netsync
+@@ -264,23 +355,38 @@ namespace Memoria.Netsync
              {
                  if (_role != "host" && _role != "client")
                  {
@@ -473,7 +516,11 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      if (!inScope)
                      {
                          DespawnGhost();
-@@ -275,12 +331,22 @@ namespace Memoria.Netsync
+                         SetOverlay(OvlOff);
++                        WriteCoopCells(0, Vector3.zero);
+                         return;
+                     }
+                     Actor me = ee.GetControlChar() as Actor;
                      if (me == null || me.fieldMapActor == null)
                          return;   // player not fully spawned yet this frame
                      SetOverlay(OvlOff);
@@ -483,23 +530,25 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
 +                    NetSyncVisitor.SuppressEncounters = _followHost;   // selftest: observable encounter pause
 +                    Int32 stRig;
 +                    UInt16 stDress = NetSyncVisitor.ResolveDress(_guestSlots, out stRig);
++                    Vector3 stMirror = me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f);
++                    WriteCoopCells(1, stMirror);   // the mirror IS the peer: [[coop]] gates prove solo
 +                    EnsureGhost(ee, stDress != 0 ? stDress : me.model);
                      if (_ghost != null)
                      {
+-                        DriveGhost(me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f),
+-                                   me.fieldMapActor.transform.localRotation, me.anim);
+-                        ApplyGhostMask(LocalMeshMask(me));
 +                        UInt16 stAnim = stDress != 0
 +                            ? NetSyncVisitor.LocoAnim(stRig, NetSyncVisitor.ClassifyLoco(me.model, me.anim))
 +                            : me.anim;
-                         DriveGhost(me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f),
--                                   me.fieldMapActor.transform.localRotation, me.anim);
--                        ApplyGhostMask(LocalMeshMask(me));
-+                                   me.fieldMapActor.transform.localRotation, stAnim);
++                        DriveGhost(stMirror, me.fieldMapActor.transform.localRotation, stAnim);
 +                        if (stDress == 0 || stDress == me.model)
 +                            ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
 +                        ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                      return;
                  }
-@@ -314,23 +380,41 @@ namespace Memoria.Netsync
+@@ -314,37 +420,68 @@ namespace Memoria.Netsync
                  {
                      Transform pt = local.fieldMapActor.transform;
                      _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
@@ -523,6 +572,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                  {
                      SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
 -                    EnsureGhost(ee, rs.Model);             // the ghost wears whoever the PEER is walking as
++                    WriteCoopCells(1, rs.Pos);             // the peer's TRUE position feeds the [[coop]] gates
 +                    // Visitor mode may DRESS the peer's ghost as one of MY party members (the one they
 +                    // command in battle); their rig-neutral loco byte then picks the dressed rig's clip.
 +                    Int32 dressRig;
@@ -545,7 +595,10 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      }
                  }
                  else
-@@ -340,11 +424,22 @@ namespace Memoria.Netsync
+                 {
+                     DespawnGhost();
++                    WriteCoopCells(0, Vector3.zero);       // not paired on this screen -> no presence
+                     if (local == null)
                          SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
                      else if (!_socket.IsConnected)
                          SetOverlay(OvlConnecting);
@@ -568,7 +621,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              }
              catch (Exception err)
              {
-@@ -359,6 +454,81 @@ namespace Memoria.Netsync
+@@ -359,6 +496,81 @@ namespace Memoria.Netsync
                  _socket.Stop();
                  _socket = null;
              }
@@ -650,7 +703,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          }
  
          // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
-@@ -403,7 +573,14 @@ namespace Memoria.Netsync
+@@ -403,7 +615,14 @@ namespace Memoria.Netsync
                      break;
                  case OvlPeerElsewhere:
                      _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
@@ -666,7 +719,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                      break;
                  default:
                      _ovlText = null;
-@@ -413,6 +590,7 @@ namespace Memoria.Netsync
+@@ -413,6 +632,7 @@ namespace Memoria.Netsync
  
          private void OnGUI()
          {
@@ -674,7 +727,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              if (_ovlText == null)
                  return;
              if (_ovlStyle == null)
-@@ -443,7 +621,19 @@ namespace Memoria.Netsync
+@@ -443,7 +663,19 @@ namespace Memoria.Netsync
              if (_ghost != null && _ghostModel == model)
                  return;
              if (_ghost != null)
@@ -694,7 +747,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              try
              {
                  String geo;
-@@ -506,7 +696,8 @@ namespace Memoria.Netsync
+@@ -506,7 +738,8 @@ namespace Memoria.Netsync
                  _ghostClip = null;
                  _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
                  ApplyGhostLighting(ee, model);             // the field's per-char tint (see the helper)
@@ -704,7 +757,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
              }
              catch (Exception err)
              {
-@@ -515,14 +706,27 @@ namespace Memoria.Netsync
+@@ -515,14 +748,27 @@ namespace Memoria.Netsync
              }
          }
  
@@ -740,7 +793,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
          private void ApplyGhostLighting(EventEngine ee, UInt16 model)
          {
              try
-@@ -531,14 +735,21 @@ namespace Memoria.Netsync
+@@ -531,14 +777,21 @@ namespace Memoria.Netsync
                  if (mcfPtr == null || _ghostRends == null)
                      return;
                  DMSMapConf mcf = mcfPtr.Value;
@@ -763,7 +816,7 @@ diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/
                  if (lp != null)
                  {
                      Int16 floorNo = 0;
-@@ -634,7 +845,31 @@ namespace Memoria.Netsync
+@@ -634,7 +887,31 @@ namespace Memoria.Netsync
          private void DespawnGhost()
          {
              if (_ghost != null)
