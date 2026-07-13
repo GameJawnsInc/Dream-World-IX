@@ -196,7 +196,22 @@ trim raised the floor, but the corridor still dead-ended AT the island edge insi
 Sea4 lap zone — pressing west queries open sea (cacheable) while sea laps under the slot
 floor (THE MOAT LAW v2: walkable synth ground ends ≥~4u inland of the outline).
 
-## Round 4: THE v3 BEND-CARRY (deployed, awaits playtest)
+## THE v3 VERDICT + THE v4 PLAN (the state to resume from)
+
+Three v3 rounds (facing flip → top snap + foot strip) all ended REJECTED: "tons of jank —
+very spiky, faces stacked over each other, no form to it." Island F is RESTORED PRISTINE.
+**THE FORM LESSON:** the bend-carry moved real CONTENT through a synthetic FRAME — ribbon
+(s,d,h) + per-vert corrections destroyed the donor's coherent 3D massing; that is still
+synthesis (the meta-law's fourth firing). `two_level_v3.py` stays as the falsification
+record; its GATES (rule-f oracle, moat/verge, facing check) are the keepers.
+
+**v4 = TRANSPLANT A WHOLE REAL TWO-LEVEL COASTAL FEATURE** (decided, not started): census
+disc 1 for a real coastal window (1-2 blocks) where a highland shelf + escarpment meets
+lowland grass and the sea; carry it VERBATIM with the proven `world-transplant`/`world-fuse`
+machinery (the continent pillar's zero-guess path). Fallbacks: in-place morph of a real
+escarpment coast, or a 3D-massing anatomy study. Do NOT resume ribbon-bending.
+
+## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —
 donor (17,12)'s ribbon (23.6u tall, 81u run, corr −0.96), every vert/UV/normal real bytes,
