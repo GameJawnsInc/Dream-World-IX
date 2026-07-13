@@ -19,11 +19,16 @@ from .npc import ANIM_ORDER, inject_npc
 ENABLE_HEAD_FOCUS = 0x47    # "Enable or disable the character turning his head toward an active object"
 TURN_INSTANT = 0x36
 ATTACH_OBJECT = 0x4C        # "Attach an object to another one" -- AttachObject(attachedUid, carryingUid, bone)
-SET_OBJECT_FLAGS = 0x93     # bits: 1 show model, 2 collide player, 4 collide NPC, 8 disable talk
-HELD_FLAGS = 7              # show + collide + collideNPC -- the flags the shipping held cup sets
-SCENERY_FLAGS = 1           # show ONLY -- both collide bits clear = a walk-through prop (the shipping
-                            # render-only-NPC pattern: EventCollision skips flag-clear objects BEFORE
-                            # any radius math). Talk stays enabled (bit 8 = DISABLE talk, left clear).
+# SetObjectFlags bit semantics (0x93; decoded 2026-07-13 -- the engine's own comment reads like a
+# label list and MISLEADS): bits 2/4 are collision EXEMPTIONS, not enables. Proof: (a) the movement
+# push (WalkMesh.Collision:915-917) SKIPS a pair only when BOTH sides' bits are SET; (b) the engine's
+# chest hotfix (DoEventCode:1706) toggles ACTIVE=49 (show+16+32, bits 2/4 CLEAR = solid) vs
+# INERT=14 (hidden, bits 2/4 SET); (c) the shipping census (817 fields): 14 x4455 = the despawn
+# idiom, 7 x3345 = the VISIBLE WALK-THROUGH idiom (held items, effects, render-only objects).
+SET_OBJECT_FLAGS = 0x93     # bits: 1 show, 2 exempt-vs-player, 4 exempt-vs-NPC, 8 disable talk,
+                            # 16 solid-even-when-insisting, 32 don't-hide-all
+HELD_FLAGS = 7              # show + BOTH collision exemptions -- a held item rides inside its carrier
+SCENERY_FLAGS = 7           # the same: visible + fully walk-through (the 3345-use shipping idiom)
 # NB: do NOT blanket-apply SetObjectFlags here. Per the engine (EventEngine.DoEventCode, CFLAG 0x93) the
 # flag bits are {1: show model, 2: collide player, 4: collide NPC, 8: disable talk, ...} and it REPLACES
 # the object's low 6 bits. The shipping props' SetObjectFlags(14) (= 2+4+8) omits bit 1 -> "show model"
