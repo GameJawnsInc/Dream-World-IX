@@ -241,10 +241,27 @@ Three scripts (`v4_transplant_census.py` → `v4_rect_scan.py` → `v4_window_pr
 - **THE TARGET: rect (1,16) 3×2 rot 0** — cells (1-3,16-17), all true prefab ocean
   (island B's empty east column + free water), REPLACING island F's cell (3,17). v4's W/E/S
   frame edges are pure open water (fuse-legal toward B, E, and C).
-- **Build items still open:** extend the carry PARTS set with `river`/`falls`/`riverjoint`/
-  `object` (same BlockMesh format, not yet in the transplant carry); treat the two N necks
-  (drop the (7,15) islet outright; drop-or-seal the 8u grass tongue); fuse-certify the
-  borders; remove island F's overrides first.
+- **THE FREE-RIDE DISCOVERY (what killed the "carry-set extension" work item):** the s34
+  sidecar loads the DONOR BLOCK'S WHOLE PREFAB for a reclaimed cell and overrides only the
+  parts with deployed files — identity for the rest. At rot 0 / shift 0,0 block-local
+  coords are position-independent, so the falls/river/riverjoint/object sub-meshes ride
+  along VERBATIM FOR FREE. Stripping (if ever wanted) = empty-stub overrides — already a
+  proven mechanism (island F's mint deployed 176-byte stubs for its unused parts).
+
+**THE v4 BUILD (round 1 DEPLOYED 2026-07-13 — awaits playtest).** `world-transplant
+--mod-folder FF9CustomMap-world --cell 1,16 --donor 5,15 --size 3x2 --shift 0,0
+--land-margin 0` — first dry-run CLEAN, zero hand edits; the machinery auto-armed its
+proven N tongue strips for the two necks. Deployed 30 files (6 cells × Terrain/Sea3/5/4 +
+Donor.txt). Removed first (backed up to `backups/v4-predeploy.20260713/`): island F's 8
+files at (3,17) + the sanctioned-deletable (2,16) reference islet (5 files, the island-B
+cliff-lip leftover). Post-deploy: engine-true probes on the DEPLOYED bytes ground 462
+lowland + 84 bowl points (topo-13 at y≈16.4 over the 15.2 river plane); 16 no-hits, all
+inherited from the real map. Minimap re-composited (21 blocks). **Teleports: lowland
+(75.5, −1074.5) · terrace bowl (130.5, −1077.5)** — RELAUNCH required (new Donor.txt cells
++ the minimap PNG). Playtest watchlist: the falls/river/object PREFAB RIDE-ALONG rendering
+at the new site (the round's key mechanism claim), the two 8u neck cuts on the north shore
+(target x≈132-140 and x≈211-220 at z≈−1024), the borders toward islands B/E/C, minimap
+shape.
 
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
