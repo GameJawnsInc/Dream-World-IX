@@ -213,15 +213,21 @@ for ti in rock:
         az = math.atan2(v[2] - cz, v[0] - cx)
         ph.append((az * r_c / BAND_ARC) % 1.0)
     if max(ph) - min(ph) > 0.5:                            # the tri straddles the band wrap:
-        ph = [p + 1.0 if p < 0.5 else p for p in ph]       # unwrap so u interpolates forward
-        base = math.floor(min(ph))
-        ph = [p - base for p in ph]
+        # give it its OWN small in-band window at the same density -- NEVER walk past the
+        # band edge (unwrapping sampled the sand gutter = the giant pale stripe, in-game)
+        p0 = min(p if p > 0.5 else p + 1.0 for p in ph)
+        dph = [max(0.0, (p if p > 0.5 else p + 1.0) - p0) for p in ph]
+        span = max(dph) or 1e-6
+        cen3 = np.mean(t["w"], axis=0)
+        ws = hash01(cen3[0] * 1.7 + 3.1, cen3[2] * 1.7) * max(0.0, 1.0 - span)
+        ph = [ws + d for d in dph]
     for k in range(3):
         v = t["w"][k]
         u_f = U_B0 + ph[k] * U_SPAN
         r = math.hypot(v[0] - cx, v[2] - cz)
         if r < 2.5:                                        # the apex: freeze u
             u_f = U_B0 + 0.5 * U_SPAN + (u_f - U_B0 - 0.5 * U_SPAN) * (r / 2.5)
+        assert U_B0 - 1e-6 <= u_f <= U_B0 + U_SPAN + 1e-6, f"u out of band: {u_f}"
         t["uv"][k][0] = u_f
         # THE SMOOTH-FIELD LAW: v follows the SMOOTH shape height at (x,z), never the
         # jittered vertex y -- jitter reversals fold the sampled strip (chevrons);
@@ -240,14 +246,12 @@ for ti, t in enumerate(tris):
     for k in range(3):
         acc[cls][kk(t["w"][k])] += fn
 for ti, t in enumerate(tris):
-    cls = "rock" if ti in rock else "grass" if t["topo"] == 0 else None
-    if cls is None:
-        continue
-    near = any(math.hypot(p[0] - cx, p[2] - cz) < R_SUB for p in t["w"])
-    if not near:
+    # ONLY rock gets re-smoothed: recomputing the mint's own GRASS normals produced
+    # radial shading streaks on the apron + flat ring (the in-game "stretched grass")
+    if ti not in rock:
         continue
     for k in range(3):
-        v3 = acc[cls][kk(t["w"][k])]
+        v3 = acc["rock"][kk(t["w"][k])]
         L = np.linalg.norm(v3)
         if L > 1e-9:
             t["n"][k] = (v3 / L).tolist()
