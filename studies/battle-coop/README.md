@@ -298,6 +298,101 @@ If ever attempted, it starts as a scoped flag-sync experiment, not a commitment.
 the V2 `[[coop]]` vocabulary → V3 stays a labeled research question with flag-sync as its
 first probe. B2 stays shelved until a concrete design pulls the guest's own character in.
 
+## THE AUTHORITATIVE-HOST ROADMAP (2026-07-13 — the NORTH STAR; supersedes the V1/V2/V3 ranking above)
+
+After the first two-machine session proved follow-warp + V2 `[[coop]]` + battle B0/B1, the pillar's
+**primary direction is now "play the STANDARD GAME together"** (the authoritative-host paradigm). The
+V1/V2/V3 framing above still holds as *analysis*, but the RANKING flipped: authoritative-host is the
+headline; the federated `[[coop]]` vocabulary (the section below) is demoted to a future "custom game
+modes" track. This section is the grounded plan; the detailed build spec is
+[`state-mirror-lane.md`](state-mirror-lane.md).
+
+**The unifying principle:** the guest's client is a PUPPET that mirrors the host's authoritative game;
+the guest supplies input, the host owns truth. Field-puppet = follow-warp (built). Battle-puppet = the
+diorama (B3, planned). The bridge both need is **one host→guest state-mirror lane.**
+
+### Feasibility verdict (source-grounded, probe `wf_f019fe71`, 2026-07-13)
+
+**Making the guest render the host's world is FEASIBLE and mostly-already-built for the flag-gated spine.**
+A field decides what to render (NPCs / doors / branches / cutscene beats) by reading `gEventGlobal` — one
+`Byte[2048]` (`EventState.cs:10`; ScenarioCounter @0-1, FieldEntrance @2-3) — in its `Main_Init` (every
+GLOB read routes to `FF9StateSystem.EventState.gEventGlobal`, `EBin.cs:1619-1620/1893-1894). The kit
+compiles `requires_flag`/`requires_scenario` to exactly those GLOB reads (`content/region.py`,
+`content/npc.py:289`, `content/startup.py`). **Match the array on the guest → identical render.** The
+write primitive already exists three ways: F6 Snapshot/RestoreSnapshot is a whole-array `Array.Copy` into
+`gEventGlobal` (`Ff9mkDebugMenu.cs:2016-2034`), `WriteCoopCells` pokes it every frame
+(`NetSyncClient.cs:242-261`), and the stock engine writes it via `setVarManually` mid-game
+(`EBin.cs:475`). 2048 bytes is ONE cheap frame (`MaxPayload 8192`), and follow-warp's deferred fade is the
+apply hook. So this is *wiring a proven local primitive through the wire*, not a research project.
+
+**Bonus beyond co-op:** flag-mirror is the first real fix for the fork-fidelity "boots at scenario-zero"
+gap (`docs/FORK_FIDELITY.md`) — a following guest renders live story state.
+
+### The build ladder (each rung stands on the last — ZERO throwaway)
+
+One new host→guest **state-mirror lane** (a `TypeState` latest-slot frame, wire v5→v6), section-tagged so
+it carries `gEventGlobal` first and the party subset later — and the party subset is exactly the diorama's
+input. Order:
+1. **State-mirror lane, FLAGS first** → the guest stops booting at scenario-zero; sees the host's actual
+   world. Prove SOLO via a selftest loopback (copy `NetSyncBattle.SelfTestPump`). **+ the spectator-save
+   wrapper (mandatory, below).** *This is the headline milestone.*
+2. **Extend the snapshot with PARTY (+ key items)** → felt on the field (party-gated content, cosmetics)
+   AND it is the diorama's actor-spawn input (`HonoluluBattleMain.CreateBattleData` builds from the LOCAL
+   `FF9.party.member[]`, `:236-259`).
+3. **The DIORAMA (battle-puppet)** → boot the host's battle on the guest via `BattleMapDebug`
+   (`BattleUI.cs:144-171`), AI/ATB off via the `isDebug` suppression (`HonoluluBattleMain.cs:529`), spawn
+   the mirrored party, drive from the existing B0 stream. NEVER re-simulate (the unseeded-RNG dead-end).
+   Highest-risk piece, lands LAST, isolated.
+
+### Two HARD prerequisites (not optional)
+
+- **Spectator-save wrapper — MANDATORY.** `gEventGlobal` is the *authoritative save-backed* story heap
+  (`save.py:71`, serialized 2048-byte Base64). Copying the host's array into the guest's LIVE array
+  overwrites the guest's own progress. Follower mode MUST be non-persistent: snapshot the guest's own
+  `gEventGlobal` (+ `gScriptVector`/`gScriptDictionary`) on join, restore on leave, block saving while
+  following. Omit it → a single guest save bricks their solo progress.
+- **Apply-BEFORE-`Main_Init` timing.** The field reads flags once at load and does not re-poll, so the
+  snapshot must land during the follow-warp fade before the scene boots (`HonoAwake`→`Ensure` runs before
+  `ff9InitStateFieldMap`→`StartEvents`, `HonoluluFieldMain.cs:29/135`). One delicate seam; there's a clean
+  synchronous window. Read `gEventGlobal` FRESH (`InitEvents` replaces the reference,
+  `EventEngine.Initialize.cs:43`). Mask bytes 2032-2041 (coop cells + choice scratch) out of the copy or
+  they poison the guest's `[[coop]]` gates.
+
+### The HONEST CEILING — a shared WORLD + BATTLE, NOT a shared cutscene timeline
+
+Flag-mirror makes the guest's field render the same static cast/doors as the host. It does NOT lockstep
+CUTSCENES, because every interactive gate reads LOCAL state:
+- **Dialogue choices** resolve from the local player (`GetSysvar.cs:38` → local `DialogManager`) → two
+  players pick differently → branch/flag divergence (HARD desync).
+- **Input-gated dialogue** blocks on each machine's own confirm (`EBin.cs:136` `wait==254` until the local
+  window closes) → a passive guest's copy hangs.
+- **Tread/region beats** fire only on the LOCAL body's position (`TreadQuad.cs:6` via
+  `EventCollision.cs:281`) → the guest's follower body never reaches the trigger, so "walk into the room →
+  boss" fires on the host and NEVER on the guest — the most common exploration-cutscene shape.
+
+Rough honest mix: with flag-sync but no cutscene-drive, **~a third of the game "just works"** — and it's
+the RIGHT third: **dungeons** (mostly walk + battle, which follow + B0/B1 + diorama handle). Towns/story
+set-pieces are dialogue/choice-dense = mostly hazardous. Full cinematic-story lockstep (host streams
+window-close / chosen-choice / tread-fired events, guest force-applies them) is a real subsystem — the
+"remaster, not a feature" tier, a documented later frontier.
+
+### The MVP target
+
+**Co-op dungeon crawling through the real game:** the guest follows the host room-to-room through a real
+dungeon (Ice-Cavern class), sees the same world (flag-mirror), fights alongside (B0/B1, proven). Needs
+only: follow-warp [built] + encounter-suppress [built] + host ghost [built] + **flag-sync [the one new
+subsystem]** + the spectator-save wrapper. Diorama, party-mirror, and cutscene-drive all deferrable.
+Cutscene-heavy story stretches degrade gracefully (guest watches nothing / host-driven skip).
+
+### Recommended sequence
+
+1. **State-mirror lane (flags) + spectator-save wrapper** — the substrate; highest value-per-risk; closes
+   the fork-fidelity gap. Fold in the queued **empty-command fix** + **`coop host` → FollowHost=0**.
+2. Party-mirror → the diorama.
+3. Cutscene-drive = documented frontier.
+Also worth a cheap **two-machine dungeon-follow check** (sequential room-to-room follow) before building,
+since tonight only proved a single follow-warp hop.
+
 ## V2 `[[coop]]` — the design (2026-07-12, studied from source; rung 1 = the two-plate gate)
 
 **The split (same one that won the vehicle system): engine = mechanism, `.eb` = policy.** The
