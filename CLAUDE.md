@@ -34,12 +34,9 @@ It began as "add one playable custom room to FF9 (Steam, Memoria engine)." **Tha
   "NOTHING PUBLIC" gate is CLEARED. Public PRs / issues / a PyPI release / forum posts are FAIR GAME — but
   treat outward-facing actions (a release, a forum post) as **confirm-first** unless asked.
   → `feedback-commit-freely`, `project-release-readiness`.
-- **NO UPSTREAM MEMORIA PRs — EVER (hard rule, especially for the AI).** This project does **not** submit code
-  to `Albeoris/Memoria` — the maintainers don't want AI-authored contributions and we respect that. All engine
-  (DLL / C#) changes are **hand-authored by the humans** and carried as the local `memoria-patches/` stack on a
-  pinned base (`memoria-patches/BASE_COMMIT`). `tools/memoria_upstream_check.py` is monitor-and-preserve ONLY
-  (drift report + snapshot/restore the pinned engine), never PR prep. The `memoria-patches/upstream/` FieldCreator
-  fix is now a **local-only** fix, not a submission candidate. → `feedback-no-memoria-upstream-prs`.
+- **NEVER open a PR to upstream `Albeoris/Memoria`** (they don't want AI-authored contributions). This is about
+  submission, not authorship — engine/DLL/C# work is still fully in scope, same as always; it just stays local,
+  on the `memoria-patches/` stack pinned at `memoria-patches/BASE_COMMIT`. → `feedback-no-memoria-upstream-prs`.
 
 **I CAN own, end to end:** the field event script (`.eb` bytecode, authored in Python — no
 Hades Workshop), camera + walkmesh math, exits/gateways, triggers, flags, dialogue/text,
