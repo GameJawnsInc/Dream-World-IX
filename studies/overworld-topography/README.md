@@ -407,5 +407,17 @@ artifacts); the river channel bed is topo-58 (the coastal-lip class reused inlan
 with the water plane inset ~0.5u below the banks and the wall CONTINUOUS behind it. Feet
 weld 100% everywhere (grass, bowl rim, forest), dihedral 46-53° (the soft interior crest).
 
+**Stage 2 — THE TILE-TOLERANCE PROBES (`massif_tweak1.py` + `massif_face_render.py`,
+in-game + offline 2026-07-13, probes reverted):** two one-quad UV-only swaps on the live
+island's west face, both to tiles from the massif's own inventory (only ORGANIZATION broke).
+Probe A (same row, col ±2 window break) = INVISIBLE offline close-up and at gameplay
+distance ⇒ **THE COL-FREEDOM LAW** — within the right row band the col/window choice is
+cosmetically free (the sawtooth is how the painter worked, not a visual constraint; kills
+the v3-era organization problem). Probe B (same col, row 9→7 course break) = clearly
+visible up close (a pale off-course square) ⇒ rows stay the load-bearing axis.
+`massif_face_render.py` = **THE OFFLINE EYE**: a Moguri-textured orthographic elevation
+render of a wall face (before/after/marked) — synthesis candidates iterate against it
+offline; only finals go to playtest.
+
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).
