@@ -34,7 +34,7 @@
 > `import 100` emits Alexandria's exact 3-door table (201/204/231 + faces) and lints clean; the
 > arrival CLASS is in-game proven (ARRTEST), so no new playtest needed. FORK_FIDELITY #9's
 > "a synth fork can't reconstruct the per-DOOR table" caveat is RETIRED. 5 tests.
-> **RUNG 6 BUILT (same day; the bpy half awaits the human's Blender check):** the GUI. WORKSPACE —
+> **RUNG 6 BUILT + ★ BLENDER-CONFIRMED (the human verified the arrival marker exports its [[player.arrival]] row + the casing fix, 0.9.28; "both fixes worked"):** the GUI. WORKSPACE —
 > a "Player & entry" node in every field tree (spawn/face/model + the arrival rows as an
 > ARRIVALLIST text-row field, 'entrance, x, z[, face]' per row — the [startup]-flags dict-list
 > idiom, so tk + Qt render it generically), a scene-override banner (scene.toml [player] keys win
@@ -59,8 +59,7 @@
 > edge gateways re-enter the field with entrance 1/2; default spawn faces WEST, the west door lands
 > front-right facing NORTH, the east door back-left facing SOUTH). It displaced the coop twin vault from
 > the 4003 slot (restore: `py tools/deploy_field.py studies/battle-coop/coopgate/coopgate.field.toml`).
-> Rung 7 (the entry_settle auto-estimator) remains open; the Blender half of rung 6 awaits the
-> human's in-Blender check (install `blender/dist/ff9mapkit_blender-0.9.24.zip`).
+> Rung 7 (the entry_settle auto-estimator) is the arc's last open rung.
 > The rest of this document is the investigation that shaped it.
 >
 > Original opening framing: this was the gap map for the two halves of
