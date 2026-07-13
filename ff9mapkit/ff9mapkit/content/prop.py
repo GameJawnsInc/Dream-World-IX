@@ -21,6 +21,9 @@ TURN_INSTANT = 0x36
 ATTACH_OBJECT = 0x4C        # "Attach an object to another one" -- AttachObject(attachedUid, carryingUid, bone)
 SET_OBJECT_FLAGS = 0x93     # bits: 1 show model, 2 collide player, 4 collide NPC, 8 disable talk
 HELD_FLAGS = 7              # show + collide + collideNPC -- the flags the shipping held cup sets
+SCENERY_FLAGS = 1           # show ONLY -- both collide bits clear = a walk-through prop (the shipping
+                            # render-only-NPC pattern: EventCollision skips flag-clear objects BEFORE
+                            # any radius math). Talk stays enabled (bit 8 = DISABLE talk, left clear).
 # NB: do NOT blanket-apply SetObjectFlags here. Per the engine (EventEngine.DoEventCode, CFLAG 0x93) the
 # flag bits are {1: show model, 2: collide player, 4: collide NPC, 8: disable talk, ...} and it REPLACES
 # the object's low 6 bits. The shipping props' SetObjectFlags(14) (= 2+4+8) omits bit 1 -> "show model"
@@ -43,7 +46,7 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
                 attach_to: int | None = None, bone: int = 11,
                 spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0,
                 gate_flag: int | None = None, gate_require_set: bool = True,
-                reserve_party_band: bool = False) -> bytes:
+                reserve_party_band: bool = False, collision: bool = True) -> bytes:
     """Place a prop ``model`` at world (x, z), held at ``pose`` (an animation id), head-tracking OFF.
 
     ``attach_to`` (a carrying object's uid = its entry slot) binds this prop to that object's ``bone``
@@ -64,6 +67,8 @@ def inject_prop(data, x: int, z: int, *, model: int, pose: int, face: int | None
         tail += opcodes.encode(SET_OBJECT_FLAGS, HELD_FLAGS)    # show + collide (like the shipping cup)
     else:                                                       # STATIC: just kill head-tracking
         tail = prop_init_tail(face)
+        if not collision:                                       # walk-through marker/scenery: show-only
+            tail += opcodes.encode(SET_OBJECT_FLAGS, SCENERY_FLAGS)
     # a non-interactive prop is BARE (Init-only, no tag-3 talk func -> the engine's IsActuallyTalkable
     # short-circuits instead of indexing past it = no per-frame IndexOutOfRange). A prop with dialogue
     # keeps a real tag-3 WindowSync so it stays readable.

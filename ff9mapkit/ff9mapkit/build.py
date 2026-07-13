@@ -4056,7 +4056,8 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *,
         for pi, (mid, pose, dx, dz) in enumerate(parts):     # the dialogue rides the ANCHOR part (pi == 0) only
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face,
                                    dialogue_text_id=(dtxid if pi == 0 else None),
-                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True)
+                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True,
+                                   collision=bool(p.get("collision", True)))
     return eb
 
 
@@ -4271,7 +4272,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         for mid, pose, dx, dz in parts:                     # a composite may offset a part from the anchor
             slot = EbScript.from_bytes(eb).first_free_slot()
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face, slot=slot,
-                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs)
+                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs,
+                                   collision=bool(p.get("collision", True)))
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
