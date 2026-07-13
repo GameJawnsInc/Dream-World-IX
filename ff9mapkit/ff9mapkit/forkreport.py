@@ -937,8 +937,9 @@ def _entry_settle_line(rep: ForkReport) -> str:
         return ""
     return ("  Entry settle  : scrolling camera -> a SYNTH (--native/BG-borrow) fork may show the camera ease "
             "onto the spawn on warp-in (worst on an F6/hard warp; a big spawn-to-centre delta drifts longer). "
-            "Add `[camera] entry_settle = 45` to hide it behind the load fade; a --verbatim fork carries the "
-            "real entry sequence and doesn't need it.")
+            "Add `[camera] entry_settle = \"auto\"` (the computed hold; a plain frame count like 45 also works) "
+            "to hide it behind the load fade; a --verbatim fork carries the real entry sequence and doesn't "
+            "need it.")
 
 
 def format_report(rep: ForkReport) -> str:

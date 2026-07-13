@@ -109,7 +109,7 @@ def test_lint_settle_dead_key_on_verbatim(tmp_path):
 def test_lint_settle_bad_values(tmp_path):
     assert any("boolean" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = true\n'))
     assert any("negative" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = -5\n'))
-    assert any("not an integer" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = "auto"\n'))
+    assert any("not an integer" in x for x in _settle_lint(tmp_path, '[camera]\nentry_settle = "fast"\n'))
     assert _settle_lint(tmp_path, '[camera]\nentry_settle = 45\n') == []           # a good value is silent
     assert _settle_lint(tmp_path, '[camera]\npitch = 30\n') == []                  # absent is silent
 
@@ -132,11 +132,120 @@ def test_hub_boolean_entry_settle_is_on_off_not_one_frame():
 
 
 def test_string_settle_does_not_crash_the_build(tmp_path):
-    # a non-numeric value (e.g. a future "auto") is skipped with lint explaining -- never a traceback
+    # an unrecognized string is skipped with lint explaining -- never a traceback
     from ff9mapkit import build
     p = tmp_path / "f.field.toml"
     p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
-                 '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle="auto"\n[player]\nspawn=[0,0]\n',
+                 '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle="fast"\n[player]\nspawn=[0,0]\n',
                  encoding="utf-8")
     has, _ = _settle_triplet_before_fade(_main_init_ops(build.build_script(build.FieldProject.load(p), "us", {})))
     assert not has                                                                 # skipped, built fine
+
+
+# ---- field-entry rung 7: entry_settle = "auto" (the computed hold) ----------------------------
+# The estimator replicates the engine (FieldMap.cs): the camera's target is the player-aim's
+# CLAMPED GTE screen position; before the player binds it targets the bare projection offset; the
+# follower eases geometrically by s = CameraStabilizer/100 per frame. So the hold =
+# bind_delay + ln(delta/tol)/-ln(s), delta = the px distance between those two clamped points.
+
+def _synth_cam(*, range_wh=(384, 448), viewport=None, center_offset=(0, 0)):
+    from ff9mapkit.scene import guide
+    kw = dict(range_wh=range_wh, center_offset=center_offset)
+    if viewport is not None:
+        kw["viewport"] = viewport
+    return guide.make_camera(30, 900, fov_x_deg=40, **kw)
+
+
+def test_is_auto():
+    assert ES.is_auto("auto") and ES.is_auto(" AUTO ") and ES.is_auto("Auto")
+    assert not ES.is_auto(45) and not ES.is_auto(True) and not ES.is_auto("fast") and not ES.is_auto(None)
+
+
+def test_estimator_zero_delta_is_off():
+    # a viewport with NO scroll room pins the camera -- no drift, nothing to hide, 0 = byte-identical
+    cm = _synth_cam(viewport=(192, 192, 224, 224))
+    assert ES.warp_in_delta_px(cm, (0, 0)) < 1.0
+    assert ES.estimate_entry_settle(cm, (0, 0)) == 0
+
+
+def test_estimator_band_and_shape():
+    cm = _synth_cam()                                   # the default 384x448 canvas has scroll room
+    n = ES.estimate_entry_settle(cm, (0, -800))
+    assert ES.AUTO_MIN_FRAMES <= n <= ES.AUTO_MAX_FRAMES
+    assert n % 5 == 0                                   # readable: rounded up to a multiple of 5
+    # log-monotone: a bigger warp-in delta never computes a SHORTER hold. (z=-600 lands INSIDE this
+    # camera's scroll window; a far spawn SATURATES the engine's viewport clamp -- the delta is
+    # capped, exactly like the real camera's scroll range.)
+    d_near, d_far = ES.warp_in_delta_px(cm, (0, -600)), ES.warp_in_delta_px(cm, (0, -1500))
+    assert d_far > d_near
+    assert ES.estimate_entry_settle(cm, (0, -1500)) >= ES.estimate_entry_settle(cm, (0, -600))
+    # a snappier stabilizer converges faster
+    assert (ES.estimate_entry_settle(cm, (0, -800), stabilizer=50)
+            <= ES.estimate_entry_settle(cm, (0, -800), stabilizer=85))
+
+
+def test_build_auto_applies_the_computed_hold(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+                 '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle="auto"\n[player]\nspawn=[0,-800]\n',
+                 encoding="utf-8")
+    proj, w = build.FieldProject.load(p), []
+    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(proj, "us", {}, warnings=w)))
+    expect = ES.estimate_entry_settle(build.resolve_camera(proj), (0, -800))
+    assert has and frames == [expect] and ES.AUTO_MIN_FRAMES <= expect <= ES.AUTO_MAX_FRAMES
+    # the chosen value is surfaced ONCE in the build output (a 2nd lang adds no duplicate)
+    build.build_script(proj, "us", {}, warnings=w)
+    assert len([x for x in w if '"auto"' in x and f"{expect} frames" in x]) == 1
+
+
+def test_build_auto_falls_back_when_camera_unresolvable(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text('[field]\nid=4700\nname="F"\nborrow_bg="X"\narea=21\ntext_block=8\n'
+                 '[camera]\nborrow="missing.bgx"\nentry_settle="auto"\n[player]\nspawn=[0,0]\n',
+                 encoding="utf-8")
+    proj, w = build.FieldProject.load(p), []
+    has, frames = _settle_triplet_before_fade(_main_init_ops(build.build_script(proj, "us", {}, warnings=w)))
+    assert has and frames == [ES.DEFAULT_ENTRY_SETTLE]          # the proven default, never a crash
+    assert any("could not be resolved" in x for x in w)
+
+
+def test_lint_auto_reports_the_resolved_value(tmp_path):
+    out = _settle_lint(tmp_path, '[camera]\npitch=30\ndistance=900\nfov=40\nentry_settle = "auto"\n'
+                                 '[player]\nspawn = [0, -800]\n')
+    assert any('"auto" resolves to' in x and "frames" in x for x in out)
+    # unresolvable offline (no pitch/borrow) -> the fallback advisory, not a crash
+    out2 = _settle_lint(tmp_path, '[camera]\nentry_settle = "auto"\n')
+    assert any("fall back" in x for x in out2)
+
+
+def test_lint_multicam_mixed_auto_and_int_disagree(tmp_path):
+    out = _settle_lint(tmp_path, '[[camera]]\npitch=30\ndistance=900\nfov=40\nentry_settle = "auto"\n'
+                                 '[[camera]]\npitch=35\ndistance=900\nfov=40\nentry_settle = 60\n')
+    assert any("different entry_settle values" in x for x in out)
+
+
+def test_hub_auto_passes_through_and_renders_quoted():
+    from ff9mapkit import hub
+    spec = hub.hubspec_from_table({"name": "H", "id": 4500, "entry_settle": "auto"}, [])
+    assert spec.entry_settle == "auto"
+    toml_text = hub.render_hub_field_toml(spec)
+    assert 'entry_settle = "auto"' in toml_text
+
+
+def test_estimator_matches_the_proven_calibration_points():
+    # the in-game-proven holds (hub 45 / waystation 45, 90 over-tuned): the computed values must land
+    # in the proven band. Uses the extract cache (install-gated -- skip cleanly without it).
+    import pytest
+    from pathlib import Path
+    from ff9mapkit.scene import cam as C
+    from ff9mapkit import provision
+    cases = [(950, (404, 127)), (3100, (383, -1449)), (2800, (0, -2000))]
+    for fid, spawn in cases:
+        bgx = Path(provision.field_cache_dir(fid)) / "camera.bgx"
+        if not bgx.is_file():
+            pytest.skip(f"field {fid} camera not cached (run `ff9mapkit extract-field {fid}`)")
+        cm = C.parse_bgx_cameras(str(bgx))[0]
+        n = ES.estimate_entry_settle(cm, spawn)
+        assert 40 <= n <= 60, (fid, n)                  # the proven-clean band (45-60; 90 = too long)

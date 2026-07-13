@@ -360,11 +360,17 @@ What it does, generalizing + hardening the manual recipe:
 - **Destination.** `--field N` inverts `area_to_fields` to the dispatch case (prefers a `default` branch; errors with the
   reachable-field list if N isn't overworld-reachable); `--case C` sets `Byte[39]` directly. `--field 300` → case 4 (Ice
   Cavern), the proven default. **`--field-direct N` targets a CUSTOM field**: the trigger func keeps the template's own
-  vehicle/state gate verbatim but warps `Field(N)` directly instead of the `Byte[39]`+`RunScriptAsync` dispatcher handshake
-  (whose AREA switch only carries real base fields) — no dispatcher case is used or touched, so custom entrances compose
-  additively, and the dispatcher case bodies are themselves bare `Field(dest)` ops so the transition is identical. Deployed
-  to every free-roam dispatcher. Pair the destination field with a `[[gateway]] to = "worldmap"` exit ([FORMAT](FORMAT.md))
-  for the return leg. The destination must be DEPLOYED (a registered-but-assetless id crashes on warp).
+  vehicle/state gate verbatim, then performs the real **zone-in choreography** itself before warping `Field(N)` — the
+  `Byte[39]`+`RunScriptAsync` handshake it replaces reaches that choreography in the dispatcher's MAIN loop (the shared run
+  before its AREA switch, which only carries real base fields): `DisableMove/DisableMenu` + window cleanup + the
+  **fade-to-black** (24 frames) + `Wait(25)` + the **`D8:2 = 9999` worldmap-arrival entrance sentinel** + the ready poll,
+  each byte-identical to the real run (test-asserted against WORLD00). Without the carry a custom destination loaded *in
+  the clear* — you watched the smooth-cam settle that the black normally hides, and the field read a stale last-gateway
+  entrance. No dispatcher case is used or touched, so custom entrances compose additively. Deployed to every free-roam
+  dispatcher. Pair the destination field with a `[[gateway]] to = "worldmap"` exit ([FORMAT](FORMAT.md)) for the return
+  leg. The destination must be DEPLOYED (a registered-but-assetless id crashes on warp). **`--trigger-only` re-deploys
+  just the dispatcher trigger funcs** (terrain/tiles/building untouched) — the refresh mode for picking up a kit upgrade
+  to the trigger body on an already-authored entrance.
 - **Trigger func.** Clones WORLD00's `0x9895` body and **patches its single `Byte[39]=<case>` literal** (`D5 27 7D <lo>
   <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
   to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.

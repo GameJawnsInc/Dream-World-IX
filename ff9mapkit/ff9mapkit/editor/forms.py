@@ -270,7 +270,8 @@ PLAYER_SPEC = [
 SECTION_HELP = {
     "field": "The field's identity: a unique id (>= 4000), a short name, and the area (>= 10).",
     "camera": "Camera / walkmesh / layers / positions are SPATIAL -- author them in Blender. The one LOGIC "
-              "key -- entry_settle, the frames held black on entry -- is editable here.",
+              "key -- entry_settle, the frames held black on entry (a count, or \"auto\" = computed) -- is "
+              "editable here.",
     "dialogue": "Text options. Auto-wrap breaks long dialogue lines to fit the screen (FF9 won't).",
     "encounter": "Random battles on this field (battle scene id + frequency + battle music).",
     "music": "The field's background music — an existing game song (a song id), or your own audio file "

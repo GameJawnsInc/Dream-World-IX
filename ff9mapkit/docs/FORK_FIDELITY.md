@@ -257,9 +257,9 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 2. **Reuse-the-room ("new purpose") → plain `import` (BG-borrow) or the hub generator.** Carry no donor-identity by
    default: **suppress** the area-title (`hide_area_title`), author your own `[[npc]]`/`[[choice]]` dialogue and
    `[player] model=`, emit no donor `[encounter]`/`[music]`, let the synth director-skip drop warp-directors. Author
-   the new graph (your `[[gateway]]`, retargeted exits, a synth `Menu(4,0)` save point). **Add `entry_settle`** (a
-   thin synthesized Main_Init reveals immediately — the black-hold is the *faithful* answer, the same convergence-
-   behind-black the real game uses). Single-owner discipline: the HUB owns field-70; per-journey items via scripted
+   the new graph (your `[[gateway]]`, retargeted exits, a synth `Menu(4,0)` save point). **Add `entry_settle =
+   "auto"`** (a thin synthesized Main_Init reveals immediately — the black-hold is the *faithful* answer, the same
+   convergence-behind-black the real game uses; `"auto"` computes the frames from the spawn's warp-in delta). Single-owner discipline: the HUB owns field-70; per-journey items via scripted
    `give_item`, not the global CSVs; accept `Leveling.csv` as a global default.
 3. **Faithful diorama, re-synthesized logic → `import --native --graft-player-funcs --carry-text`.** Room contents
    without its story machine. **Fall back to `--verbatim`** when the field has a moving platform/lift (no synth

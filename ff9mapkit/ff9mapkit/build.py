@@ -104,6 +104,29 @@ def _merge_entities(base_list, scene_list):
     return out
 
 
+def _auto_settle_frames(project, warnings=None) -> int:
+    """Resolve ``[camera] entry_settle = "auto"`` -> a computed frame count (content.entry_settle's
+    estimator: the spawn's clamped-screen warp-in delta under the engine's geometric smooth-cam ease,
+    baked for the default CameraStabilizer 85). The LOAD camera (index 0) + ``[player] spawn`` drive
+    it; an unresolvable camera (e.g. a missing borrow .bgx) degrades to the proven default 45. Either
+    way the chosen value is surfaced once through ``warnings`` so the build output shows what "auto"
+    picked."""
+    try:
+        camera = resolve_camera(project)
+        spawn = (project.raw.get("player") or {}).get("spawn") or (0, 0)
+        n = _entry_settle.estimate_entry_settle(camera, spawn)
+        d = _entry_settle.warp_in_delta_px(camera, spawn)
+        msg = (f'[camera] entry_settle = "auto" -> {n} frames (warp-in delta {d:.0f}px, '
+               f'CameraStabilizer {_entry_settle.DEFAULT_STABILIZER})')
+    except Exception as e:                          # a camera that can't resolve offline -- never a crash
+        n = _entry_settle.DEFAULT_ENTRY_SETTLE
+        msg = (f'[camera] entry_settle = "auto": the camera could not be resolved ({e}) -- '
+               f'falling back to the proven default {n}')
+    if warnings is not None and msg not in warnings:   # build_script runs once per language -- say it once
+        warnings.append(msg)
+    return n
+
+
 def _camera_entry_settle(cam):
     """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None."""
     if isinstance(cam, dict):
@@ -2385,7 +2408,8 @@ def lint_entry_settle(project: FieldProject) -> list:
 
     - on a VERBATIM fork the key is dead weight -- the verbatim composition ships the donor ``.eb`` whole
       (its own entry sequence already fills the pre-reveal time; forks don't need a settle).
-    - a non-integer / negative value is silently treated as off -- say so.
+    - ``"auto"`` is legal (the computed hold) -- report what it resolves to; any OTHER non-integer /
+      a negative value is silently treated as off -- say so.
     - several ``[[camera]]`` multicam blocks with DIFFERENT nonzero values: the build applies the first
       (the settle is a Main_Init-wide hold, not per-camera)."""
     out = []
@@ -2402,16 +2426,31 @@ def lint_entry_settle(project: FieldProject) -> list:
     for v in vals:
         if isinstance(v, bool):
             out.append(f"[camera] entry_settle = {str(v).lower()} is a boolean -- use a FRAME COUNT "
-                       f"(true would hold ~1 frame = hides nothing; ~45 = the proven hub hold)")
+                       f"(true would hold ~1 frame = hides nothing; ~45 = the proven hub hold) or \"auto\"")
+        elif _entry_settle.is_auto(v):
+            try:                                       # surface what "auto" computes (informational)
+                camera = resolve_camera(project)
+                spawn = (project.raw.get("player") or {}).get("spawn") or (0, 0)
+                n = _entry_settle.estimate_entry_settle(camera, spawn)
+                d = _entry_settle.warp_in_delta_px(camera, spawn)
+                out.append(f'[camera] entry_settle = "auto" resolves to {n} frames (warp-in delta '
+                           f'{d:.0f}px, CameraStabilizer {_entry_settle.DEFAULT_STABILIZER}) (advisory)')
+            except Exception:
+                out.append(f'[camera] entry_settle = "auto": the camera is not resolvable offline -- '
+                           f'the build will fall back to the proven default '
+                           f'{_entry_settle.DEFAULT_ENTRY_SETTLE} (advisory)')
         elif not isinstance(v, int):
             out.append(f"[camera] entry_settle = {v!r} is not an integer frame count -- use whole "
-                       f"frames (~45 = the proven hub hold); a non-numeric value is skipped")
+                       f"frames (~45 = the proven hub hold) or \"auto\" (computed from the warp-in "
+                       f"delta); any other string is skipped")
         elif v < 0:
             out.append(f"[camera] entry_settle = {v} is negative -- treated as OFF (0 disables)")
-    good = [v for v in vals if isinstance(v, int) and not isinstance(v, bool) and v > 0]
+    good = [("auto" if _entry_settle.is_auto(v) else v) for v in vals
+            if (isinstance(v, int) and not isinstance(v, bool) and v > 0) or _entry_settle.is_auto(v)]
     if len(set(good)) > 1:
-        out.append(f"[[camera]] blocks carry different entry_settle values {sorted(set(good))} -- the "
-                   f"settle is one field-wide hold, and the build applies the FIRST nonzero ({good[0]})")
+        out.append(f"[[camera]] blocks carry different entry_settle values "
+                   f"{sorted(set(good), key=str)} -- the settle is one field-wide hold, and the "
+                   f"build applies the FIRST nonzero ({good[0]})")
     return out
 
 
@@ -4977,10 +5016,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # to be silently SKIPPED on multicam, the exact scrolling class that needs it most). See content.entry_settle.
     _settle = _camera_entry_settle(project.raw.get("camera"))   # [camera] dict or [[camera]] multicam list
     if _settle:
-        try:
-            _n = int(_settle)
-        except (TypeError, ValueError):            # e.g. a string -- lint_entry_settle explains it; don't crash
-            _n = 0
+        if _entry_settle.is_auto(_settle):         # "auto" = compute the hold from the warp-in delta (rung 7)
+            _n = _auto_settle_frames(project, warnings)
+        else:
+            try:
+                _n = int(_settle)
+            except (TypeError, ValueError):        # any other string -- lint_entry_settle explains it; don't crash
+                _n = 0
         _pre_settle = eb
         eb = _entry_settle.add_entry_settle(eb, _n)
         if eb is _pre_settle and _n > 0 and warnings is not None:

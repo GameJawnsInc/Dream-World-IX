@@ -5,6 +5,39 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-entrance --field-direct` now performs the real zone-in (fade + arrival sentinel)
+- The direct trigger used to warp `Field(N)` bare, bypassing the choreography the real
+  `Byte[39]`+`RunScriptAsync` handshake reaches in the dispatcher's main loop — so a custom
+  destination loaded IN THE CLEAR: no fade-to-black, the smooth-cam settle fully visible (in-game
+  report on the waystation entrance), and the destination read a STALE last-gateway `D8:2`. The
+  trigger body now carries the real run, byte-identical to WORLD00's own (donor-oracle test):
+  `DisableMove/DisableMenu` + window cleanup + the two PSX worldcodes (Memoria stubs, carried for
+  fidelity) + `FadeFilter` to black (24 frames) + `Wait(25)` + `D8:2 = 9999` (the worldmap-arrival
+  entrance sentinel) + the ready poll, then `Field(N)`.
+- New `world-entrance --trigger-only`: re-deploy just the dispatcher trigger funcs (deployed
+  terrain / event tiles / building untouched) — the refresh mode for picking up a trigger-body
+  kit upgrade on an already-authored entrance (a full re-run without the original `--building`
+  would re-stamp event tiles without the building-hull exclusion).
+
+### Added — `entry_settle = "auto"`: the computed entry black-hold (field-entry rung 7)
+- `[camera] entry_settle = "auto"` now COMPUTES the frames held black on entry instead of
+  hand-copying "the hub precedent" (45). The estimator (`content.entry_settle`) replicates the
+  engine's smooth-cam exactly (Memoria `FieldMap.cs`): the camera's target is the player-aim's
+  clamped GTE screen position (aim = spawn + `charAimHeight` 324, the `.bgx` Viewport clamp), it
+  rests at the bare projection offset until the player binds, and it eases geometrically by
+  `CameraStabilizer/100` per frame — so the hold = bind delay + `ln(delta/0.25px) / −ln(0.85)`,
+  rounded up to a multiple of 5 and clamped to 20–90. Calibrated against the in-game-proven holds
+  (hub 45/60, waystation 45; 90 read as over-long): all three compute 45–50. A sub-pixel delta
+  returns 0 (nothing to hide — byte-identical build); an offline-unresolvable camera falls back
+  to the proven 45 with a warning. Best-effort: `CameraStabilizer` is per-user (baked for the
+  default 85).
+- The chosen value is surfaced in the build output and by `lint` (which also now treats `"auto"`
+  as legal, reports what it resolves to, and counts it in the multicam-disagreement check).
+- `"auto"` is accepted everywhere the key lives: the `[hub]` generator (emitted quoted), the
+  Workspace Camera panel (type `auto` in the entry-settle box), and `fork-report` now suggests
+  `entry_settle = "auto"` for scrolling synth forks. The bundled waystation example switched to
+  it (computes 50; shipped 45 before).
+
 ### Added — battle co-op + visitor mode reach the CLI and the Workspace Co-op tab
 - `ff9mapkit coop host|join` grows the s37 play-style flags, each written to `[Netsync]` only when
   given (re-runs never clobber hand tuning): `--guest-slots` (which of YOUR party slots the other

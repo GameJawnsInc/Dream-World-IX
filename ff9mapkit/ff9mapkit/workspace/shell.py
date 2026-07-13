@@ -3695,8 +3695,9 @@ class Workspace(QMainWindow):
         note = QLabel("Spatial camera (pitch / FOV / walkmesh / layers) is authored in Blender. The one "
                       "logic key lives here:\n\nEntry settle — frames the screen holds BLACK on entry so "
                       "the engine's smooth camera settles unseen (hides the warp-in drift). 0/blank = off; "
-                      "~45 is the proven starting value. Needs the arriving transition to fade (gateways "
-                      "do); a bare F6 warp can't be hidden.")
+                      "~45 is the proven starting value; \"auto\" computes it from the spawn's warp-in "
+                      "delta at build time. Needs the arriving transition to fade (gateways do); a bare "
+                      "F6 warp can't be hidden.")
         note.setWordWrap(True)
         self.doc_host_lay.addWidget(note)
         row = QHBoxLayout()
@@ -3717,16 +3718,18 @@ class Workspace(QMainWindow):
 
     def _apply_entry_settle(self, member, raw) -> bool:
         """Write the Camera panel's entry_settle into the member's FIELD.toml camera (blank/0 = off,
-        dropping the key; a multicam list keeps ONE field-wide value; a field with no [camera] table --
-        the scene owns the spatial camera -- gets a settle-only table the build merge grafts on). Returns
-        False (with the reason shown) on a non-numeric/negative value."""
+        dropping the key; "auto" = the build-time computed hold; a multicam list keeps ONE field-wide
+        value; a field with no [camera] table -- the scene owns the spatial camera -- gets a settle-only
+        table the build merge grafts on). Returns False (with the reason shown) on a bad value."""
         doc = self._doc(member)
+        raw_s = str(raw).strip()
         try:
-            v = None if not str(raw).strip() else int(str(raw).strip())
-            if v is not None and v < 0:
+            v = None if not raw_s else "auto" if raw_s.lower() == "auto" else int(raw_s)
+            if isinstance(v, int) and v < 0:
                 raise ValueError("negative")
         except ValueError:
-            self._show_problems(fb.Verdict(fb.ERROR, "Entry settle must be a whole frame count (or blank)"), [])
+            self._show_problems(fb.Verdict(fb.ERROR, 'Entry settle must be a whole frame count, "auto", '
+                                                     'or blank'), [])
             return False
         cam = doc.data.get("camera")
         if v is None or v == 0:                         # blank/0 = off -> drop the key everywhere
@@ -7008,6 +7011,10 @@ def _smoke(win):
     win._save_all()                                 # entry_settle commits in-memory; flush to disk
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
     assert saved["camera"]["entry_settle"] == 45, saved
+    assert win._apply_entry_settle("IC_ENT", "Auto")   # "auto" = the build-time computed hold (rung 7)
+    win._save_all()
+    saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))
+    assert saved["camera"]["entry_settle"] == "auto", saved
     assert win._apply_entry_settle("IC_ENT", "")    # blank = off -> the settle-only [camera] table drops
     win._save_all()
     saved = tomllib.loads((d / "IC_ENT" / "IC_ENT.field.toml").read_text(encoding="utf-8"))

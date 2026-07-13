@@ -2908,7 +2908,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
-            dry_run=args.dry_run, game=args.game)
+            trigger_only=args.trigger_only, dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2924,10 +2924,13 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
     if info["dispatchers_skipped"]:
         print(f"  skipped (cell already has an entrance there): {', '.join(s.replace('evt_world_', '') for s in info['dispatchers_skipped'])}")
-    pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
-    blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
-    print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
-          f"in block{tuple(info['block'])}{pad}{blk}")
+    if info.get("trigger_only"):
+        print("  trigger-only: the deployed terrain / event tiles / building were left untouched")
+    else:
+        pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
+        blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
+        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
+              f"in block{tuple(info['block'])}{pad}{blk}")
     if info.get("terrain_override"):
         print(f"    -> {info['terrain_override']}")
     if info.get("building"):
@@ -2947,8 +2950,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info["backups"]:
         print(f"  backed up {len(info['backups'])} pre-edit dispatcher file(s) -> {Path(info['backups'][0]).parent}")
     if not info["dry_run"]:
-        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, walk to the "
-              "cell -- an \"!\" action prompt fires the warp. (Mesh overrides need the WorldMeshOverride engine patch.)"
+        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and walk "
+              "ONTO the cell -- stepping on the event tile fires the warp (these entrances are walk-on; the "
+              "faithful \"!\" action-prompt UX is a separate, unbuilt step). (Mesh overrides need the "
+              "WorldMeshOverride engine patch.)"
               % info.get("disc", args.disc))
     return 0
 
@@ -5810,6 +5815,10 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--no-tile-area", action="store_true",
                      help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; the "
                           "stamp just keeps world-locate reporting the entrance)")
+    wen.add_argument("--trigger-only", action="store_true",
+                     help="refresh ONLY the dispatcher trigger functions (.eb) -- leave the deployed terrain / "
+                          "event tiles / building untouched. The re-deploy mode for picking up a kit upgrade to "
+                          "the trigger body (e.g. the zone-in fade) on an already-authored entrance")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),
