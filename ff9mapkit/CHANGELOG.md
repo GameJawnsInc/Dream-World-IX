@@ -5,6 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — battle co-op + visitor mode reach the CLI and the Workspace Co-op tab
+- `ff9mapkit coop host|join` grows the s37 play-style flags, each written to `[Netsync]` only when
+  given (re-runs never clobber hand tuning): `--guest-slots` (which of YOUR party slots the other
+  player commands in battle — human party positions 1-4, `'2,3'`, `'all'`, `'none'`),
+  `--guest-wait` (seconds a guest turn may freeze the ATB gauges; 0 = no cap), `--ghost-as`
+  (visitor mode: dress their ghost as `auto`/a playable name/`off`), and `--follow-host on|off`
+  (guest side: auto-warp to the host's field + own-encounter pause). Unknown outfit names and bad
+  slot specs refuse up front — before the room build — instead of silently un-dressing in-engine.
+- New `ff9mapkit coop show`: the current `[Netsync]` config printed in human terms (read-only,
+  safe with the game running).
+- The Workspace **Co-op** tab gains a **Play style** panel mirroring the same four knobs (slot
+  checkboxes, wait-cap spinner, outfit picker, follow-host toggle) with its own **Apply** button —
+  the engine hot-reloads `[Netsync]`, so changes land in a running game, mid-session, in a couple
+  of seconds. The panel reads its state from Memoria.ini on refresh, feeds Start co-op, and greys
+  out with a pointer when the engine predates s37 (detection: `NetSyncBattle` in the DLL).
+
 ### Fixed — the placement simulator's walking ray had a phantom drop limit
 - Engine-truth correction (source-verified 2026-07-12): `ff9.rayDistance` (2.8) is passed into
   `WMBlock.Raycast` but the parameter is never read — dead code. A walking step can therefore descend

@@ -17,8 +17,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
-    QRadioButton, QScrollArea, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 
@@ -68,8 +68,9 @@ class CoopDoc(QWidget):
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
 
-        intro = QLabel("Two-player exploration co-op: you and a friend each see the other's ghost walk "
-                       "a shared field. No battle or story coupling — every save stays your own.")
+        intro = QLabel("Two-player co-op: you and a friend each see the other's ghost walk a shared "
+                       "field, and — if you grant it in Play style below — they command party members "
+                       "in your battles. Every save stays your own.")
         intro.setWordWrap(True)
         v.addWidget(intro)
 
@@ -122,6 +123,71 @@ class CoopDoc(QWidget):
         lan_row.addWidget(self.lan_ip, 1)
         gv.addLayout(lan_row)
         v.addWidget(sess)
+
+        # ---- play style (s37): battle co-op + visitor mode -- how co-op behaves on THIS machine.
+        # Each side sets its own: battle slots/wait cap govern MY battles, the outfit is how THEIR
+        # ghost looks on MY screen, follow-host is for the joining side. Hot-reloads into a running
+        # game, so Apply works mid-session.
+        self.style_box = QGroupBox("Play style — how co-op behaves on this machine")
+        pv = QVBoxLayout(self.style_box)
+
+        slots_row = QHBoxLayout()
+        slots_lbl = QLabel("In my battles, my friend commands party slot(s):")
+        slots_lbl.setToolTip("Party positions 1-4 as the in-game menu lists them. None checked = "
+                             "they just spectate. Their assist panel appears in-battle; commands "
+                             "are re-validated on this machine.")
+        slots_row.addWidget(slots_lbl)
+        self.cb_slots = []
+        for i in range(4):
+            cb = QCheckBox(str(i + 1))
+            self.cb_slots.append(cb)
+            slots_row.addWidget(cb)
+        slots_row.addStretch(1)
+        pv.addLayout(slots_row)
+
+        wait_row = QHBoxLayout()
+        wait_lbl = QLabel("Their turn may hold the ATB gauges for:")
+        wait_lbl.setToolTip("In Wait-style ATB modes a guest turn freezes the gauges like a local "
+                            "menu. This caps it — a fallback, not a rush timer: their command still "
+                            "lands after the gauges resume. 0 = no cap.")
+        self.spin_wait = QSpinBox()
+        self.spin_wait.setRange(0, 600)
+        self.spin_wait.setValue(30)
+        self.spin_wait.setSuffix(" s")
+        self.spin_wait.setSpecialValueText("no cap")
+        wait_row.addWidget(wait_lbl)
+        wait_row.addWidget(self.spin_wait)
+        wait_row.addStretch(1)
+        pv.addLayout(wait_row)
+
+        ghost_row = QHBoxLayout()
+        ghost_lbl = QLabel("Their ghost appears on my screen as:")
+        ghost_lbl.setToolTip("Visitor mode: dress the other player's ghost as a real party member. "
+                             "Auto picks whoever they command in battle (needs a battle slot above).")
+        self.combo_ghost = QComboBox()
+        self.combo_ghost.addItem("Their own model (classic ghost)", "")
+        self.combo_ghost.addItem("Auto — the party member they command", "auto")
+        for label, data in (("Zidane", "zidane"), ("Vivi", "vivi"), ("Garnet / Dagger", "dagger"),
+                            ("Steiner", "steiner"), ("Freya", "freya"), ("Quina", "quina"),
+                            ("Eiko", "eiko"), ("Amarant", "amarant")):
+            self.combo_ghost.addItem(label, data)
+        ghost_row.addWidget(ghost_lbl)
+        ghost_row.addWidget(self.combo_ghost, 1)
+        pv.addLayout(ghost_row)
+
+        self.cb_follow = QCheckBox("Follow the host between screens (joining side) — my game "
+                                   "auto-warps to their field and my random encounters pause")
+        pv.addWidget(self.cb_follow)
+
+        apply_row = QHBoxLayout()
+        self.btn_style = _pad(QPushButton("Apply play style"))
+        self.btn_style.clicked.connect(self.apply_playstyle)
+        apply_row.addWidget(self.btn_style)
+        note = QLabel("applies to a running game within a couple of seconds — no restart")
+        apply_row.addWidget(note)
+        apply_row.addStretch(1)
+        pv.addLayout(apply_row)
+        v.addWidget(self.style_box)
 
         btns = QHBoxLayout()
         self.btn_start = _pad(QPushButton("Start co-op"))
@@ -182,17 +248,22 @@ class CoopDoc(QWidget):
             self.lbl_room.setText("room: —")
             self.lbl_config.setText("config: —")
             self.btn_start.setEnabled(False)
+            self.style_box.setEnabled(False)
             return
         self.btn_start.setEnabled(True)
         self.lbl_game.setText(f"game: {self._game}")
         dll = self._game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
         try:
-            has_netsync = dll.is_file() and b"NetSyncClient" in dll.read_bytes()
+            blob = dll.read_bytes() if dll.is_file() else b""
         except OSError:
-            has_netsync = False
-        self.lbl_engine.setText("engine: netsync (s36) present"
+            blob = b""
+        has_netsync = b"NetSyncClient" in blob
+        has_s37 = b"NetSyncBattle" in blob          # the battle/visitor lanes shipped together (s37)
+        self.lbl_engine.setText("engine: netsync + battle/visitor co-op (s37) present" if has_s37 else
+                                "engine: netsync (s36) present — Play style needs the newer s37 engine"
                                 if has_netsync else
                                 "engine: netsync MISSING — install the Dream World IX custom engine first")
+        self.style_box.setEnabled(has_s37)
         folder = coop.find_registered_field(self._game, coop.COOP_FIELD)
         self.lbl_room.setText(f"room: field {coop.COOP_FIELD} registered ({folder})"
                               if folder else
@@ -212,7 +283,35 @@ class CoopDoc(QWidget):
                                 + ", " + scope if enabled else "config: co-op off")
         if self.rb_host.isChecked() and saved_code and not self.code.text():
             self.code.setText(saved_code)       # surface the persisted code without a Start
+        self._load_playstyle(ini)               # widgets mirror the ini (Refresh = re-read)
         self._refresh_bridge_row()
+
+    def _load_playstyle(self, ini_text: str):
+        """Point the play-style widgets at what Memoria.ini actually says right now."""
+        from .. import coop
+        try:
+            mask = int(coop.read_ini_key(ini_text, "Netsync", "GuestSlots") or "0") & 0x0F
+        except ValueError:
+            mask = 0
+        for i, cb in enumerate(self.cb_slots):
+            cb.setChecked(bool(mask & (1 << i)))
+        try:
+            wait_ms = int(coop.read_ini_key(ini_text, "Netsync", "GuestWaitMs") or "30000")
+        except ValueError:
+            wait_ms = 30000
+        self.spin_wait.setValue(max(0, min(600, wait_ms // 1000)))
+        ghost = (coop.read_ini_key(ini_text, "Netsync", "GhostAs") or "").strip().lower()
+        ghost = {"garnet": "dagger", "salamander": "amarant", "off": "", "0": ""}.get(ghost, ghost)
+        idx = self.combo_ghost.findData(ghost)
+        self.combo_ghost.setCurrentIndex(idx if idx >= 0 else 0)
+        self.cb_follow.setChecked((coop.read_ini_key(ini_text, "Netsync", "FollowHost") or "") == "1")
+
+    def _playstyle_state(self):
+        """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow) --
+        the same human-level values the CLI flags take."""
+        slots = [str(i + 1) for i, cb in enumerate(self.cb_slots) if cb.isChecked()]
+        return (",".join(slots) or "none", self.spin_wait.value(),
+                self.combo_ghost.currentData() or "off", self.cb_follow.isChecked())
 
     def _refresh_bridge_row(self):
         running = self._thread is not None and self._thread.is_alive()
@@ -238,8 +337,11 @@ class CoopDoc(QWidget):
         if lan and not hosting and not self.lan_ip.text().strip():
             self.lbl_config.setText("config: direct LAN join needs the host's IP")
             return
+        style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host"),
+                         self._playstyle_state())) if self.style_box.isEnabled() else {}
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
-                                    lan=("" if hosting else self.lan_ip.text().strip()) if lan else None)
+                                    lan=("" if hosting else self.lan_ip.text().strip()) if lan else None,
+                                    **style)
 
         def done(rc):
             self.refresh_status()
@@ -284,6 +386,21 @@ class CoopDoc(QWidget):
         self._stop_server()
         self._append_log("bridge stopped")
         self._refresh_bridge_row()
+
+    def apply_playstyle(self):
+        """Write just the play-style keys (no room build, no role change). The engine hot-reloads
+        [Netsync], so a running game -- even mid-session -- picks this up in a couple of seconds."""
+        from .. import coop
+        if self._game is None:
+            return
+        slots, wait, ghost, follow = self._playstyle_state()
+        try:
+            updates = coop.playstyle_updates(slots, wait, ghost, follow)
+            coop.write_netsync(self._game, updates, out=self._append_log)
+        except (ValueError, OSError, FileNotFoundError) as e:
+            self._append_log(f"could not apply the play style: {e}")
+            return
+        self._append_log("play style applied -- a running game picks it up in a couple of seconds")
 
     def disable_coop(self):
         from .. import coop

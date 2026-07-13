@@ -6779,6 +6779,21 @@ def _smoke(win):
     cd.start_coop()
     assert "session code" in cd.lbl_config.text(), cd.lbl_config.text()
     cd.rb_host.setChecked(True)
+    # the play-style group (s37): widgets -> the same human values the CLI flags take -> valid ini keys
+    cd.cb_slots[1].setChecked(True)
+    cd.spin_wait.setValue(30)
+    cd.combo_ghost.setCurrentIndex(cd.combo_ghost.findData("auto"))
+    cd.cb_follow.setChecked(True)
+    assert cd._playstyle_state() == ("2", 30, "auto", True)
+    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=True)
+    assert "--guest-slots" in _argv and _argv[_argv.index("--follow-host") + 1] == "on"
+    from .. import coop as _coop
+    assert _coop.playstyle_updates("2", 30, "auto", True) == {
+        "GuestSlots": "2", "GuestWaitMs": "30000", "GhostAs": "auto", "FollowHost": "1"}
+    for cb in cd.cb_slots:
+        cb.setChecked(False)
+    cd.cb_follow.setChecked(False)
+    assert cd._playstyle_state()[0] == "none" and _coop.parse_guest_slots("none") == 0
     # the deployed-overrides panel: scan a fake mod folder, rows classified, backend revert works
     _fm = d / "fakemod"
     _fmv = _fm / "StreamingAssets" / "Assets" / "Resources" / "Models" / "2" / "8"
@@ -8394,6 +8409,8 @@ def _smoke(win):
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
           f"+ MODELS tab (catalog browser + filters + detail + glb/anim/mint/reskin actions + deployed "
           f"inventory + .glb drop) + [[playable]] form (flat keys; nested ability kit survives a save) "
+          f"+ CO-OP tab (host/join/bridge + PLAY STYLE group: battle slots/wait cap/ghost outfit/"
+          f"follow-host -> the CLI's flags + valid ini keys) "
           f"+ Ctrl-K palette, Problems panel ({nprob} rows) + CONSOLE {console_ok} (no docks); QProcess wired "
           f"+ live theme switch ({len(_THEMES)} palettes) + Preferences/About commands")
 
