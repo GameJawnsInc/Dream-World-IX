@@ -1,0 +1,65 @@
+# ARRTEST -- the [[player.arrival]] + [player] face in-game proof (field-entry rungs 1+2).
+#
+# A SELF-LOOP: two edge gateways both warp back into THIS field (4003) writing different
+# entrance values; the arrival table places + faces the player differently per door.
+#   - plain F6 -> Warp 4003 (no gateway wrote D8:2 for this arrival): the DEFAULT spawn,
+#     centre of the room [0, -837], facing WEST (face = 64) -- that alone proves rung 1.
+#   - walk into the WEST strip -> reload, appear FRONT-RIGHT [700, -1600] facing NORTH (128).
+#   - walk into the EAST strip -> reload, appear BACK-LEFT [-700, -200] facing SOUTH (0).
+# Placeholder checkerboard floor = fine for reading position/facing.
+# (FRONT = toward the camera = NEGATIVE z in this frame: FloorFrame zb=+257 back, zf=-1931 front.)
+#
+# Deploy (from the repo root):  py tools/deploy_field.py studies/field-entry/ARRTEST/arrtest.field.toml
+# 4003 is already registered -> F6 -> Reload/Warp picks it up, no relaunch.
+
+[field]
+id = 4003
+name = "ARRTEST"
+area = 11
+text_block = 8           # NOT the scaffold's 1073 (shadowed by FF9CustomMap -- the known trap)
+title = "ARRTEST"
+
+[camera]
+pitch = 48.0
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205
+front = 432
+
+[walkmesh]
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]
+image = "art/back.png"
+z = 4000
+[[layers]]
+image = "art/floor.png"
+z = 3000
+
+[player]
+spawn = [0, -837]        # the default arrival (F6 warp / unmatched entrance)
+face = 64                # rung 1: default spawn facing = WEST
+
+[[player.arrival]]       # rung 2: the west door lands you front-right, facing north
+entrance = 1
+pos = [700, -1600]
+face = 128
+
+[[player.arrival]]       # ...and the east door back-left, facing south
+entrance = 2
+pos = [-700, -200]
+face = 0
+
+# WEST strip: q[0]->q[1] = the far (west) edge, so the exit walk-out heads west into the fade
+[[gateway]]
+to = 4003
+entrance = 1
+zone = [[-1220, -1400], [-1220, -300], [-1050, -300], [-1050, -1400]]
+
+# EAST strip: q[0]->q[1] = the far (east) edge
+[[gateway]]
+to = 4003
+entrance = 2
+zone = [[1220, -300], [1220, -1400], [1050, -1400], [1050, -300]]

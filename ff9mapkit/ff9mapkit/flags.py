@@ -29,10 +29,13 @@ from dataclasses import dataclass, field
 
 # --- the provably-safe story-flag allocation band (single source of truth; campaign.py imports these) ---
 # Real FF9 uses save-persistent bit-flags up to bit 8511 (the treasure-chest "opened" bitfield, bits
-# 8376-8511). The choice-visibility scratch sits at byte 2040 = bits 16320+. So custom story flags MUST
-# live in [8512, 16320). 8512 (start of byte 1064) is the first bit clear of ALL real-FF9 usage.
+# 8376-8511). The choice-visibility scratch sits at byte 2040 = bits 16320+, and the netsync co-op
+# cells (engine-written peer presence/position, bytes 2032-2039 = bits 16256-16319) sit just below it.
+# So custom story flags MUST live in [8512, 16256). 8512 (start of byte 1064) is the first bit clear
+# of ALL real-FF9 usage; the top 64 bits of the old band are kit-reserved (a reserved BIT_REGION).
 FIRST_SAFE_FLAG = 8512
 CHEST_FLAG_LO, CHEST_FLAG_HI = 8376, 8511      # real-FF9 treasure-chest "opened" bitfield
+COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
 
 
@@ -106,6 +109,15 @@ NAMED_WORDS = [
             "battle.cs:43"),
     WordVar("MagicDisabledFlag", 227, 1, False, "Nonzero disables magic in the menu (e.g. Oeilvert's "
             "anti-magic field; set by Oeilvert fields).", "a", "AbilityUI.cs:28,881"),
+    # The netsync co-op cells (kit-reserved, engine s37): while [Netsync] Enabled the engine writes the
+    # PEER's presence + walkmesh position here every frame; [[coop]] gates read them as GLOB vars.
+    # Save values are transient echoes (rewritten while co-op runs; never written when disabled).
+    WordVar("CoopPeerPresence", 2032, 1, False, "Netsync: 1 = the co-op peer stands on my current field "
+            "(engine-written every frame while co-op is on).", "a", "NetSyncClient.WriteCoopCells (s37)"),
+    WordVar("CoopPeerX", 2034, 2, True, "Netsync: the co-op peer's walkmesh X (engine-written).", "a",
+            "NetSyncClient.WriteCoopCells (s37)"),
+    WordVar("CoopPeerZ", 2036, 2, True, "Netsync: the co-op peer's walkmesh Z (engine-written).", "a",
+            "NetSyncClient.WriteCoopCells (s37)"),
 ]
 
 # Reserved / named BIT regions (bit-addressed). A mod must not allocate into a reserved region.
@@ -132,6 +144,10 @@ BIT_REGIONS = [
               "182-186 + 896-975, see TH_POINT_RANGES). Reserved because real field logic gates/sets it; "
               "NEVER allocate here.", True, "b",
               "census (byte-identical block in ~48 chest fields; verified from .eb bytes -- engine does NOT score this band)"),
+    BitRegion("netsync_coop_cells", COOP_CELLS_FLOOR, CHOICE_SCRATCH_FLOOR - 1,
+              "Netsync co-op cells (bytes 2032-2039): the engine writes the peer's presence + walkmesh "
+              "X/Z here every frame while co-op is on; [[coop]] gates read them. Kit-reserved.", True, "a",
+              "NetSyncClient.WriteCoopCells (s37); content/coop.py"),
     BitRegion("choice_scratch", CHOICE_SCRATCH_FLOOR, CHOICE_SCRATCH_FLOOR + 15,
               "Choice-visibility mask scratch (kit MASK_SCRATCH_IDX); engine/kit-owned.", True, "a", "region.py:57"),
 ]
@@ -141,6 +157,66 @@ BIT_REGIONS = [
 # sit below FIRST_SAFE_FLAG anyway). These are "where these flags are written from", not a proven per-bit
 # meaning. Derived + verified by the ff9-understand-layer workflow (research/gen_understand_layer.py).
 STORY_REGIONS = [
+    # --- Per-bit promotions from the flag-lore pass (research/gen_flag_lore.py, curated 2026-07-12).
+    # Single bits (or one narrow band) whose writer + nearby dialogue + gate bodies compose into a
+    # defensible meaning; listed BEFORE the broad census bands so bit_region() resolves them first.
+    # Tier b = single writer field + decoded evidence (not engine-named); meanings quote the evidence.
+    BitRegion("choco_paradise_fly_talk", 1043, 1043, "Chocobo's Paradise (2954): set in the scene around "
+              "Mene's 'Choco can fly like me? Wow, that's great, kupo!'; gates Paradise dialogue + an "
+              "object spawn / return warp on 2955.", False, "b", "flag_lore: writer 2954 + gates"),
+    BitRegion("chocobo_paradise_state", 1086, 1086, "Chocobo's Paradise progress latch: written at "
+              "Paradise (2954), read by ALL THREE Hot&Cold forests (2950/2951/2952 -- each says txids "
+              "237-239 when set).", False, "b", "flag_lore: writer 2954, cross-read x3 forests"),
+    BitRegion("bohden_gate_card", 2088, 2088, "South Gate/Bohden Gate (801): set at 'Received Card!'; "
+              "when set spawns obj 12; read by Bohden Station.", False, "b", "flag_lore: writer 801"),
+    BitRegion("dali_production_open_choice", 2090, 2090, "Dali/Production Area: latched at the "
+              "'Let's see... Open / Don't open' choice (underground Dali); read by Storage Area.",
+              False, "b", "flag_lore: writer + choice window"),
+    BitRegion("morrid_coffee_quest", 2419, 2419, "Morrid's coffee sidequest completion: set at "
+              "Observatory Mountain shack (457) around 'I am ready to join my dearly departed wife "
+              "now.'; read by Lindblum/Hideout (2112), which gates an object spawn on it (the "
+              "Mini-Prima Vista reward site).", False, "b", "flag_lore: writer 457, reader 2112"),
+    BitRegion("evil_forest_swamp_door", 2447, 2447, "Evil Forest/Swamp (254) door first-crossing "
+              "switch: when CLEAR the one-shot walk-through choreography plays (then sets the bit); "
+              "when SET the plain fade+warp to 256. In-game proven 2026-07-12 (the gated-door carry).",
+              False, "b", "flag_lore + the #3 player-call door playtest"),
+    BitRegion("lindblum_lowell_theater_scene", 2495, 2495, "Lindblum/Theater: scene latch around "
+              "'Poor guy... It's tough being popular.' (the Lowell arc); when set spawns objs "
+              "6-11; read by Studio + Theater Ave.", False, "b", "flag_lore: writer + line"),
+    BitRegion("lcastle_airship_dock_departure", 2626, 2626, "Lindblum Castle/Airship Dock once-event: "
+              "when CLEAR a scene warps to 1369; read by 15 fields incl. Brahne's Fleet/Event + the "
+              "castle halls.", False, "b", "flag_lore: cross-read x15"),
+    BitRegion("lindblum_square_event", 2648, 2648, "Lindblum/Square (559) town-state latch: read by 12 "
+              "Lindblum fields (Hunter's Gate, B.D. Station, Church Street ...); says txid 594 when "
+              "set.", False, "b", "flag_lore: writer 559, cross-read x12"),
+    BitRegion("mountain_oglop_caught", 2857, 2857, "Conde Petie Mt. Path/Trail: set at "
+              "'Caught a mountain oglop.'; gates a 9-line dialogue set; read by Conde Petie/Corridor.",
+              False, "b", "flag_lore: writer + line"),
+    BitRegion("conde_petie_thief_scene", 2863, 2863, "Conde Petie/Event: scene latch around 'Thief!'; "
+              "gates a 6-line dialogue set; read by Exit + Shrine.", False, "b", "flag_lore"),
+    BitRegion("desert_palace_sanctum_cast", 3536, 3542, "Desert Palace per-member cast latches "
+              "(cleared at Palace/Sanctum 2209; each bit gates one NPC spawn across Palace rooms; "
+              "also read by Ipsen's Castle/Mural Room). One bit per held party member.", False, "b",
+              "flag_lore: 7 same-shape bits, writer 2209"),
+    BitRegion("desert_palace_bloodstone_choice", 3559, 3559, "Desert Palace/Lobby: latched at the "
+              "'Inspect the bloodstone? Yes/No' choice; read by the Stairwell.", False, "b", "flag_lore"),
+    BitRegion("cleyra_attack_path_choice", 3882, 3882, "Cleyra/Town during the Alexandrian assault: "
+              "set around 'Let's go left!'; when set spawns obj 4; read by Cathedral / Observation "
+              "Post / Windmill Area.", False, "b", "flag_lore: writer + line"),
+    BitRegion("cleyra_attack_alert", 3883, 3883, "Cleyra/Water Mill Area during the assault: written "
+              "around 'They're after the king and the high priest!'; when set spawns objs 12-13; read "
+              "across Cleyra town fields.", False, "b", "flag_lore: writer + line"),
+    BitRegion("acastle_brahne_chamber_scene", 3902, 3902, "Alexandria Castle/Queen's Chamber: scene "
+              "latch around Brahne's 'It's okay, darling. I'm just happy that you understand.' "
+              "(beats 5070-5075); read by Chapel + Guardhouse.", False, "b", "flag_lore: writer + line"),
+    BitRegion("mognet_central_quest", 4046, 4046, "The Mognet Central sidequest signal: set at Mognet "
+              "Central (3100), read by 59 fields game-wide -- every moogle station says txid 20 when "
+              "set (the mail-network beat every kupo checks).", False, "b",
+              "flag_lore: writer 3100, cross-read x59"),
+    BitRegion("treno_knight_house_reward", 7346, 7346, "Treno/Knight's House (1910) reward latch: set "
+              "at 'Received Gil!'; while CLEAR the weapon objects (252-254) spawn; when SET field 1904 "
+              "warps to the 1916 battle room branch.", False, "b", "flag_lore: writers 1910, gate 1904"),
+    # --- the broad census bands (dominant-writer clusters; the per-bit table above refines them) ---
     BitRegion("hilda_garde_invincible_events", 196, 199, "Late-game airship/event flags "
               "(Lindblum Castle / Hilda Garde 3 / Invincible).", False, "c", "census"),
     BitRegion("chocobo_dig_state", 848, 853, "Chocobo Hot & Cold / Chocograph minigame state.", False, "b",

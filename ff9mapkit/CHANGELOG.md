@@ -5,6 +5,85 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `world-island`: a concave corner dent could ship a one-triangle grass hole
+- In-game confirmed (2026-07-13, `--center 160,-1246 --radius 31 --seed 42`): Block[2][19] shipped
+  with one grass face MISSING at the rim — a dark sliver through the grass, a closed 3-cycle of
+  once-edges at world (143–144, y 3.2, z −1262..−1265). Root cause: the grass triangulation is an
+  UNCONSTRAINED Delaunay — at a concave corner dent it may legally pick the other diagonal of the
+  quad spanning the notch, so the rim ring edge (the wall-top weld line) is not a triangulation
+  edge at all; the centroid keep-filter then drops both cover triangles and the face between the
+  wall top and the grass is emitted by nobody. `build_landmass` now runs constrained ring-edge
+  RECOVERY (Sloan-style diagonal flips) after the Delaunay; a 60-seed sweep found the same latent
+  defect in 2 more seeds (34, 37 — multi-flip cascades included), all clean after recovery.
+- **Byte-identity preserved for proven mints:** with zero flips the triangulation is returned
+  untouched — the island E baseline (seed 55, the world-forest/world-hill identity proof) needs
+  zero flips and re-passes the full mint→forest→hill zero-byte-diff acceptance against the
+  deployed, in-game-proven files.
+- New CLOSED-SURFACE GATE in `verify_landmass` (and thus the deploy refusal): a position-welded
+  once-edge may lie only on the y=0 sea-skirt ring (where the wall base meets the separate Sea4
+  plane); `open_edges` / `missing_faces` (once-edge 3-cycles) join the report and `clean`. The old
+  30×30 sampled-holes gate could never see a sub-sample-spacing missing face. (Rounded-degenerate
+  edge keys are skipped: the border clip lawfully mints ~0.0005u hairline cut-vert pairs.)
+- Correcting an earlier wrong claim: **stock FF9 overworld town/dungeon entry is CONFIRM-gated, not
+  walk-on.** The real dispatcher's fade→`Field()` block is guarded by `B_KEYON(Confirm)` (the
+  `0x20000` button mask) — you stand on the tile and press Confirm to enter. (The "walk-on"
+  reading was a mis-decode: the RPN operator `0x4F` is `B_KEYON`, a controller read, not a field
+  opcode.) Our `--field-direct` trigger warped immediately on walk-on, skipping that gate.
+- `world-entrance --field-direct <id> --action-prompt` now builds the faithful entrance: the tile
+  trigger (which the engine re-fires every frame you stand on it) raises the `FICON` "!" bubble and
+  warps only on a Confirm press — the `B_KEYON(Confirm)` test byte-copied from the real dispatcher
+  gate. Default (no flag) stays auto-warp (fine for scripted/cutscene entrances). Pairs with
+  `--trigger-only` to retrofit an already-authored entrance.
+
+### Fixed — `world-entrance --field-direct` now performs the real zone-in (fade + arrival sentinel)
+- The direct trigger used to warp `Field(N)` bare, bypassing the choreography the real
+  `Byte[39]`+`RunScriptAsync` handshake reaches in the dispatcher's main loop — so a custom
+  destination loaded IN THE CLEAR: no fade-to-black, the smooth-cam settle fully visible (in-game
+  report on the waystation entrance), and the destination read a STALE last-gateway `D8:2`. The
+  trigger body now carries the real run, byte-identical to WORLD00's own (donor-oracle test):
+  `DisableMove/DisableMenu` + window cleanup + the two PSX worldcodes (Memoria stubs, carried for
+  fidelity) + `FadeFilter` to black (24 frames) + `Wait(25)` + `D8:2 = 9999` (the worldmap-arrival
+  entrance sentinel) + the ready poll, then `Field(N)`.
+- New `world-entrance --trigger-only`: re-deploy just the dispatcher trigger funcs (deployed
+  terrain / event tiles / building untouched) — the refresh mode for picking up a trigger-body
+  kit upgrade on an already-authored entrance (a full re-run without the original `--building`
+  would re-stamp event tiles without the building-hull exclusion).
+
+### Added — `entry_settle = "auto"`: the computed entry black-hold (field-entry rung 7)
+- `[camera] entry_settle = "auto"` now COMPUTES the frames held black on entry instead of
+  hand-copying "the hub precedent" (45). The estimator (`content.entry_settle`) replicates the
+  engine's smooth-cam exactly (Memoria `FieldMap.cs`): the camera's target is the player-aim's
+  clamped GTE screen position (aim = spawn + `charAimHeight` 324, the `.bgx` Viewport clamp), it
+  rests at the bare projection offset until the player binds, and it eases geometrically by
+  `CameraStabilizer/100` per frame — so the hold = bind delay + `ln(delta/0.25px) / −ln(0.85)`,
+  rounded up to a multiple of 5 and clamped to 20–90. Calibrated against the in-game-proven holds
+  (hub 45/60, waystation 45; 90 read as over-long): all three compute 45–50. A sub-pixel delta
+  returns 0 (nothing to hide — byte-identical build); an offline-unresolvable camera falls back
+  to the proven 45 with a warning. Best-effort: `CameraStabilizer` is per-user (baked for the
+  default 85).
+- The chosen value is surfaced in the build output and by `lint` (which also now treats `"auto"`
+  as legal, reports what it resolves to, and counts it in the multicam-disagreement check).
+- `"auto"` is accepted everywhere the key lives: the `[hub]` generator (emitted quoted), the
+  Workspace Camera panel (type `auto` in the entry-settle box), and `fork-report` now suggests
+  `entry_settle = "auto"` for scrolling synth forks. The bundled waystation example switched to
+  it (computes 50; shipped 45 before).
+
+### Added — battle co-op + visitor mode reach the CLI and the Workspace Co-op tab
+- `ff9mapkit coop host|join` grows the s37 play-style flags, each written to `[Netsync]` only when
+  given (re-runs never clobber hand tuning): `--guest-slots` (which of YOUR party slots the other
+  player commands in battle — human party positions 1-4, `'2,3'`, `'all'`, `'none'`),
+  `--guest-wait` (seconds a guest turn may freeze the ATB gauges; 0 = no cap), `--ghost-as`
+  (visitor mode: dress their ghost as `auto`/a playable name/`off`), and `--follow-host on|off`
+  (guest side: auto-warp to the host's field + own-encounter pause). Unknown outfit names and bad
+  slot specs refuse up front — before the room build — instead of silently un-dressing in-engine.
+- New `ff9mapkit coop show`: the current `[Netsync]` config printed in human terms (read-only,
+  safe with the game running).
+- The Workspace **Co-op** tab gains a **Play style** panel mirroring the same four knobs (slot
+  checkboxes, wait-cap spinner, outfit picker, follow-host toggle) with its own **Apply** button —
+  the engine hot-reloads `[Netsync]`, so changes land in a running game, mid-session, in a couple
+  of seconds. The panel reads its state from Memoria.ini on refresh, feeds Start co-op, and greys
+  out with a pointer when the engine predates s37 (detection: `NetSyncBattle` in the DLL).
+
 ### Added — `world-mirror`: custom overworld land now survives disc 4
 - THE DISC-4 GAP (found in-game: "the island no longer exists when I switch to Disc 4"): the
   overworld ships exactly TWO asset trees — `worldmap/disc1` (serving discs 1–3) and

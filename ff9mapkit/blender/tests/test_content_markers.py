@@ -237,3 +237,55 @@ def test_merge_import_entities_round_trips_positions_and_logic():
     assert gws[0]["zone"] and gws[0]["to"] == 100 and gws[0]["entrance"] == 204
     mks = bridge.merge_import_entities(field, scene, "marker")        # scene-only entity kept
     assert mks[0]["name"] == "spot" and mks[0]["pos"] == [5, 5]
+
+
+# --- per-door arrival markers (the field-entry arc, rung 6) --------------------------------
+def test_player_toml_with_face_and_arrivals():
+    doc = tomllib.loads(bridge.player_to_toml(
+        (12, -345), face=64,
+        arrivals=[{"entrance": 2, "pos": (-350, -1500)},
+                  {"entrance": 1, "pos": (400, -900), "face": 128},
+                  {"entrance": 3, "pos": (0, 0), "face": 999}]))     # out-of-compass face -> omitted
+    assert doc["player"]["spawn"] == [12, -345] and doc["player"]["face"] == 64
+    rows = doc["player"]["arrival"]
+    assert [r["entrance"] for r in rows] == [1, 2, 3]                # sorted for a stable file
+    assert rows[0]["pos"] == [400, -900] and rows[0]["face"] == 128
+    assert "face" not in rows[1] and "face" not in rows[2]
+    # no face / no arrivals -> byte-identical to the old block (regen scenes don't churn)
+    assert bridge.player_to_toml((12, -345)) == "[player]\nspawn = [12, -345]"
+
+
+def test_arrivals_live_in_the_scene_player_table():
+    scene = tomllib.loads(bridge.scene_toml(
+        "ROOM", '[camera]\nborrow = "camera.bgx"\n', spawn=(0, -900), spawn_face=64,
+        arrivals=[{"entrance": 1, "pos": (400, -900), "face": 128}]))
+    assert scene["player"]["spawn"] == [0, -900] and scene["player"]["face"] == 64
+    assert scene["player"]["arrival"] == [{"entrance": 1, "pos": [400, -900], "face": 128}]
+
+
+def test_arrival_markers_build_and_dispatch(tmp_path):
+    # the full loop: bridge-emitted [player] block -> the REAL builder -> the kit's real-field decoder
+    # attributes each entrance to its marker (the same oracle real fields decode through)
+    from ff9mapkit import eventscan
+    proj = tmp_path / "proj"; proj.mkdir()
+    eye = (0.0, -3000.0, 3000.0)
+    R_bl = bridge.look_at_blender(eye, (0.0, 0.0, 0.0))
+    c = bridge.blender_cam_to_ff9(eye, R_bl, bridge.H_to_lens(497, bridge.DEFAULT_SENSOR, 384))
+    (proj / "camera.bgx").write_text(bgx.build(c, []), encoding="utf-8")
+    verts = [(-1000.0, -2000.0, 0.0), (1000.0, -2000.0, 0.0), (1000.0, 0.0, 0.0), (-1000.0, 0.0, 0.0)]
+    (proj / "walkmesh.obj").write_text(bridge.mesh_to_ff9_obj(verts, [(0, 1, 2), (0, 2, 3)]), encoding="utf-8")
+    player_block = bridge.player_to_toml((0, -900), face=64,
+                                         arrivals=[{"entrance": 1, "pos": (400, -900), "face": 128},
+                                                   {"entrance": 2, "pos": (-350, -1500)}])
+    (proj / "room.field.toml").write_text(
+        '[field]\nid = 4009\nname = "ARR_ROOM"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\nborrow = "camera.bgx"\n\n[walkmesh]\nobj = "walkmesh.obj"\n\n'
+        + player_block + "\n", encoding="utf-8")
+    out = tmp_path / "mod"
+    build_mod([FieldProject.load(proj / "room.field.toml")], out, mod_name="FF9CustomMap")
+    ebb = ModLayout(out).eb_path("us", "EVT_ARR_ROOM.eb.bytes").read_bytes()
+    t = eventscan.scan_arrival_table(ebb)
+    by_ent = {r["entrance"]: r for r in t["table"]}
+    assert by_ent[1]["pos"] == [400, -900] and by_ent[1]["face"] == 128
+    assert by_ent[2]["pos"] == [-350, -1500]
+    assert t["default"]["pos"] == [0, -900] and t["default"]["face"] == 64

@@ -564,10 +564,15 @@ def test_story_flag_branching_builds(tmp_path):
     build_mod([FieldProject.load(p)], out, mod_name="FF9CustomMap")
     eb = EbScript.from_bytes(ModLayout(out).eb_path("us", "EVT_STORYROOM.eb.bytes").read_bytes())
     gate = region.flag_gate(region.GLOB_BOOL, 200)
-    # the NPC's Init is gated by flag 200
+    # the NPC is gated by flag 200 AT THE CALL SITE (the OBJECT-INIT GATE LAW): its Init stays
+    # unconditional; Main_Init guards the InitObject
+    from ff9mapkit.eb import opcodes as _opc
     npc_e = next(e for e in eb.entries if not e.empty and e.func_by_tag(3) and e.index != 0)
+    guard = region.guarded_call([(region.cond_truthy(region.GLOB_BOOL, 200), True)],
+                                _opc.init_object(npc_e.index, 0))
+    assert guard in eb.data
     init = npc_e.func_by_tag(0)
-    assert eb.data[init.abs_start:init.abs_start + 8] == gate
+    assert eb.data[init.abs_start:init.abs_start + 2] == b"\x05\xd9"    # first op = the position write
     # a gateway region (Field 0x2B in Range) is gated by flag 200
     gw = next(e for e in eb.entries if not e.empty and e.type == 1 and e.func_by_tag(2)
               and any(i.op == 0x2B for i in iter_code(eb.data, e.func_by_tag(2).abs_start,
@@ -1050,3 +1055,23 @@ def test_battle_bgm_warns_on_conflicting_song(tmp_path):
     bp = ModLayout(out).battle_patch.read_text(encoding="utf-8")
     assert "Music: 35" in bp and "Music: 9" not in bp                 # first-wins
     assert any("conflicting songs" in w for w in res["warnings"])
+
+
+def test_npc_model_kwargs_explicit_anims_override_archetype():
+    """[[npc]] archetype= + anims=: the user's explicit clip set WINS. The archetype path used to drop
+    the override silently -- the stolen-ember innkeeper's corrected anims never reached the game, which
+    contaminated an in-game A/B (the deployed .eb still carried the auto-resolved set)."""
+    from ff9mapkit import archetypes as AR
+    from ff9mapkit.build import _npc_model_kwargs
+
+    ov = {"stand": 654, "walk": 655, "run": 657, "left": 17, "right": 16}
+    k = _npc_model_kwargs({"archetype": "innkeeper", "anims": ov})
+    assert k["model"] == AR.resolve("innkeeper")[0]                   # archetype still names the model
+    assert k["anims"] == ov                                           # ...but the explicit clips ship
+    assert _npc_model_kwargs({"archetype": "innkeeper", "animset": 87})["animset"] == 87
+    # no override -> the archetype's auto-resolve, unchanged
+    k2 = _npc_model_kwargs({"archetype": "innkeeper"})
+    assert (k2["model"], k2["animset"], k2["anims"]) == AR.resolve("innkeeper")[:3]
+    # the bare-model path keeps its Info Hub join + explicit-anims precedence
+    assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM"})["anims"]["stand"] == 654
+    assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM", "anims": ov})["anims"] == ov

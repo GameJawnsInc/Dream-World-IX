@@ -26,6 +26,7 @@ from .config import LANGS, ModLayout, fbg_name
 from .content import ate as _ate
 from .content import camera as _camera
 from .content import choice as _choice
+from .content import coop as _coop
 from .content import cutscene as _cutscene
 from .content import conductor as _conductor
 from .content import encounter as _enc
@@ -103,6 +104,39 @@ def _merge_entities(base_list, scene_list):
     return out
 
 
+def _auto_settle_frames(project, warnings=None) -> int:
+    """Resolve ``[camera] entry_settle = "auto"`` -> a computed frame count (content.entry_settle's
+    estimator: the spawn's clamped-screen warp-in delta under the engine's geometric smooth-cam ease,
+    baked for the default CameraStabilizer 85). The LOAD camera (index 0) + ``[player] spawn`` drive
+    it; an unresolvable camera (e.g. a missing borrow .bgx) degrades to the proven default 45. Either
+    way the chosen value is surfaced once through ``warnings`` so the build output shows what "auto"
+    picked."""
+    try:
+        camera = resolve_camera(project)
+        spawn = (project.raw.get("player") or {}).get("spawn") or (0, 0)
+        n = _entry_settle.estimate_entry_settle(camera, spawn)
+        d = _entry_settle.warp_in_delta_px(camera, spawn)
+        msg = (f'[camera] entry_settle = "auto" -> {n} frames (warp-in delta {d:.0f}px, '
+               f'CameraStabilizer {_entry_settle.DEFAULT_STABILIZER})')
+    except Exception as e:                          # a camera that can't resolve offline -- never a crash
+        n = _entry_settle.DEFAULT_ENTRY_SETTLE
+        msg = (f'[camera] entry_settle = "auto": the camera could not be resolved ({e}) -- '
+               f'falling back to the proven default {n}')
+    if warnings is not None and msg not in warnings:   # build_script runs once per language -- say it once
+        warnings.append(msg)
+    return n
+
+
+def _camera_entry_settle(cam):
+    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None."""
+    if isinstance(cam, dict):
+        return cam.get("entry_settle")
+    if isinstance(cam, list):
+        return next((c.get("entry_settle") for c in cam
+                     if isinstance(c, dict) and c.get("entry_settle")), None)
+    return None
+
+
 def _merge_scene(base: dict, scene: dict) -> dict:
     """Overlay a Blender `scene.toml` onto a `field.toml` dict. Spatial sections come from the scene;
     content lists merge by name (scene = position/zone, field = logic)."""
@@ -110,6 +144,16 @@ def _merge_scene(base: dict, scene: dict) -> dict:
     for key in _SCENE_SCALAR:
         if key in scene:
             merged[key] = scene[key]
+    # entry_settle is the camera's one LOGIC key (the entry black-hold) -- the scene owns the SPATIAL
+    # camera, but a Blender re-export must not silently drop the field.toml's settle (the scene's own
+    # value, if it ever carries one, wins).
+    _es = _camera_entry_settle(base.get("camera"))
+    if "camera" in scene and _es is not None and _camera_entry_settle(merged.get("camera")) is None:
+        cam = merged["camera"]
+        if isinstance(cam, dict):
+            merged["camera"] = {**cam, "entry_settle": _es}
+        elif isinstance(cam, list) and cam and isinstance(cam[0], dict):
+            merged["camera"] = [{**cam[0], "entry_settle": _es}] + list(cam[1:])
     if "player" in scene:
         merged["player"] = {**base.get("player", {}), **scene["player"]}
     for key in _ENTITY_LISTS:
@@ -1900,6 +1944,9 @@ def lint_logic(project: FieldProject) -> list[str]:
         for p in gw.get("set_flags", []) or []:
             if isinstance(p, dict) and isinstance(p.get("flag"), int) and int(p.get("value", 1)):
                 settable.add(int(p["flag"])); explicit.add(int(p["flag"]))
+    for co in raw.get("coop", []):             # a [[coop]] gate's whole OUTPUT is its set_flag (once latch
+        if isinstance(co.get("set_flag"), int):  # or hold level -- either way it's the setter)
+            settable.add(int(co["set_flag"])); explicit.add(int(co["set_flag"]))
     su = raw.get("startup")                    # [startup] presets a flag SET unconditionally at field load
     if isinstance(su, dict):
         for p in su.get("flags", []) or []:
@@ -1920,7 +1967,7 @@ def lint_logic(project: FieldProject) -> list[str]:
 
     # everything that READS a flag (require SET needs a setter; require CLEAR is fine by default).
     need_set = []
-    for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event")):
+    for coll, label in (("npc", "NPC"), ("gateway", "gateway"), ("event", "event"), ("coop", "coop gate")):
         for i, e in enumerate(raw.get(coll, [])):
             gf, gs = _gate_of(e)
             if gf is None:
@@ -2143,6 +2190,13 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
         gf, _gs = _gate_of(ev)
         if gf is not None:
             _read(gf, who)
+    for k, co in enumerate(raw.get("coop", [])):
+        who = f"[[coop]] gate {co.get('name', '#' + str(k))!r}"
+        if "set_flag" in co:
+            _write(_flag_index(co["set_flag"]), who)
+        gf, _gs = _gate_of(co)
+        if gf is not None:
+            _read(gf, who)
     for k, n in enumerate(raw.get("npc", [])):
         gf, _gs = _gate_of(n)
         if gf is not None:
@@ -2190,6 +2244,64 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             _write(h["flag"], f"[[on_entry]] #{k} once-flag")
         if "requires_flag" in h:
             _read(h["requires_flag"], f"[[on_entry]] #{k}")
+    return out
+
+
+def lint_region_overlaps(project: FieldProject) -> list[str]:
+    """THE TREADQUAD LAW (in-game 2026-07-12): ``EventEngine.TreadQuad`` returns the FIRST active
+    region whose quad contains the player -- the engine delivers exactly ONE tread event per frame,
+    so overlapping tread regions (gateways, walk-events, walk-choices, [[coop]] plates/zones)
+    silently STARVE each other: whichever arms earlier in the scan wins every frame it contains the
+    player. Warn on any pair of tread-class zones whose bounding boxes genuinely overlap (shared
+    edges are fine -- abutting zones are a normal layout). Advisory + lint-only."""
+    raw = project.raw
+    boxes: list = []          # (label, x1, z1, x2, z2)
+
+    def _add_quad(label, pts):
+        try:
+            xs = [float(p[0]) for p in pts]
+            zs = [float(p[1]) for p in pts]
+        except (TypeError, ValueError, IndexError):
+            return                                       # malformed zones are validate()'s problem
+        if xs and zs:
+            boxes.append((label, min(xs), min(zs), max(xs), max(zs)))
+
+    def _add_rect(label, rect):
+        try:
+            x1, z1, x2, z2 = (float(v) for v in rect)
+        except (TypeError, ValueError):
+            return
+        boxes.append((label, min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2)))
+
+    for i, gw in enumerate(raw.get("gateway", [])):
+        if "zone" in gw:
+            _add_quad(f"gateway -> {gw.get('to', '#' + str(i))}", gw["zone"][:4])
+    for i, ev in enumerate(raw.get("event", [])):
+        if "zone" in ev:
+            _add_quad(f"event {ev.get('name', '#' + str(i))!r}", ev["zone"][:4])
+    for i, ch in enumerate(raw.get("choice", [])):
+        if "zone" in ch and (ch.get("trigger") or "action") == "walk":   # action = tag-3, a separate class
+            _add_quad(f"walk-choice #{i}", ch["zone"][:4])
+    for i, co in enumerate(raw.get("coop", [])):
+        if str(co.get("mode", "once")).lower() == "hold":
+            continue                                     # holds are looping CODE entries, not regions
+        who = f"[[coop]] gate {co.get('name', '#' + str(i))!r}"
+        if "zone" in co:
+            _add_rect(f"{who} zone", co["zone"])
+        else:
+            for key in ("plate_a", "plate_b"):
+                if key in co:
+                    _add_rect(f"{who} {key}", co[key])
+
+    out: list[str] = []
+    for a in range(len(boxes)):
+        for b in range(a + 1, len(boxes)):
+            la, ax1, az1, ax2, az2 = boxes[a]
+            lb, bx1, bz1, bx2, bz2 = boxes[b]
+            if ax1 < bx2 and bx1 < ax2 and az1 < bz2 and bz1 < az2:      # strict: shared edges OK
+                out.append(f"{la} and {lb} OVERLAP -- the engine fires ONE tread region per frame "
+                           f"(first active match wins), so the later-armed one is silently starved "
+                           f"wherever they overlap. Separate the zones.")
     return out
 
 
@@ -2256,6 +2368,92 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
         r"Framework csc at C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe works too).")
 
 
+def lint_player_arrivals(project: FieldProject) -> list:
+    """Field-LOCAL ``[[player.arrival]]`` checks (the cross-field inbound audit lives in
+    ``campaign.lint_campaign`` (g2), which sees the whole edge graph):
+
+    - ``[player] face`` / ``[[player.arrival]]`` on a VERBATIM fork are dead weight -- the verbatim
+      composition ships the donor ``.eb`` whole (its own real arrival table) and never reads them.
+    - a SELF-LOOP gateway (``to`` = this field's own id, the ARRTEST test-field idiom) whose ``entrance``
+      has no arrival row silently falls through to the default spawn -- almost always a typo when the
+      field bothered to author rows at all."""
+    out = []
+    player = project.raw.get("player") or {}
+    rows = player.get("arrival") or []
+    if "verbatim_eb" in project.raw:
+        dead = [lbl for lbl, v in (("[[player.arrival]]", rows or None), ("[player] face", player.get("face")))
+                if v is not None]
+        if dead:
+            out.append(f"{' + '.join(dead)} are IGNORED on a verbatim fork -- the donor .eb carries its own "
+                       f"real per-door arrival table (use [[logic_edit]] to move a donor arrival)")
+        return out
+    fid = project.field.get("id")
+    if rows and fid is not None:
+        covered = {int(r["entrance"]) for r in rows if isinstance(r, dict) and r.get("entrance") is not None}
+        for gw in project.raw.get("gateway") or []:
+            to = gw.get("to")
+            try:
+                ent = int(gw.get("entrance", 0) or 0)
+            except (TypeError, ValueError):
+                continue                                   # malformed entrance is validate()'s problem
+            if isinstance(to, int) and to == int(fid) and ent not in covered:
+                out.append(f"self-loop gateway (to = {to}, entrance {ent}) has no [[player.arrival]] row -- "
+                           f"re-entering through it lands on the default [player] spawn. (advisory)")
+    return out
+
+
+def lint_entry_settle(project: FieldProject) -> list:
+    """Field-local ``entry_settle`` honesty checks (the black-hold that hides the smooth-cam warp-in ease,
+    ``content.entry_settle``):
+
+    - on a VERBATIM fork the key is dead weight -- the verbatim composition ships the donor ``.eb`` whole
+      (its own entry sequence already fills the pre-reveal time; forks don't need a settle).
+    - ``"auto"`` is legal (the computed hold) -- report what it resolves to; any OTHER non-integer /
+      a negative value is silently treated as off -- say so.
+    - several ``[[camera]]`` multicam blocks with DIFFERENT nonzero values: the build applies the first
+      (the settle is a Main_Init-wide hold, not per-camera)."""
+    out = []
+    cam_raw = project.raw.get("camera")
+    blocks = ([cam_raw] if isinstance(cam_raw, dict)
+              else [c for c in cam_raw if isinstance(c, dict)] if isinstance(cam_raw, list) else [])
+    vals = [c.get("entry_settle") for c in blocks if c.get("entry_settle") is not None]
+    if not vals:
+        return out
+    if "verbatim_eb" in project.raw:
+        out.append("[camera] entry_settle is IGNORED on a verbatim fork -- the donor .eb carries its own "
+                   "entry sequence (title/cast beats fill the pre-reveal time), so a fork needs no settle")
+        return out
+    for v in vals:
+        if isinstance(v, bool):
+            out.append(f"[camera] entry_settle = {str(v).lower()} is a boolean -- use a FRAME COUNT "
+                       f"(true would hold ~1 frame = hides nothing; ~45 = the proven hub hold) or \"auto\"")
+        elif _entry_settle.is_auto(v):
+            try:                                       # surface what "auto" computes (informational)
+                camera = resolve_camera(project)
+                spawn = (project.raw.get("player") or {}).get("spawn") or (0, 0)
+                n = _entry_settle.estimate_entry_settle(camera, spawn)
+                d = _entry_settle.warp_in_delta_px(camera, spawn)
+                out.append(f'[camera] entry_settle = "auto" resolves to {n} frames (warp-in delta '
+                           f'{d:.0f}px, CameraStabilizer {_entry_settle.DEFAULT_STABILIZER}) (advisory)')
+            except Exception:
+                out.append(f'[camera] entry_settle = "auto": the camera is not resolvable offline -- '
+                           f'the build will fall back to the proven default '
+                           f'{_entry_settle.DEFAULT_ENTRY_SETTLE} (advisory)')
+        elif not isinstance(v, int):
+            out.append(f"[camera] entry_settle = {v!r} is not an integer frame count -- use whole "
+                       f"frames (~45 = the proven hub hold) or \"auto\" (computed from the warp-in "
+                       f"delta); any other string is skipped")
+        elif v < 0:
+            out.append(f"[camera] entry_settle = {v} is negative -- treated as OFF (0 disables)")
+    good = [("auto" if _entry_settle.is_auto(v) else v) for v in vals
+            if (isinstance(v, int) and not isinstance(v, bool) and v > 0) or _entry_settle.is_auto(v)]
+    if len(set(good)) > 1:
+        out.append(f"[[camera]] blocks carry different entry_settle values "
+                   f"{sorted(set(good), key=str)} -- the settle is one field-wide hold, and the "
+                   f"build applies the FIRST nonzero ({good[0]})")
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -2264,6 +2462,9 @@ def lint_all(project: FieldProject) -> LintReport:
     failure recorded as an error (so one broken section never masks the others). This is the single source
     of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
     rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
+    rep.logic.extend(lint_region_overlaps(project))       # the TreadQuad law: overlapping tread regions starve
+    rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
+    rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
@@ -2308,6 +2509,27 @@ def resolve_npc_model(value):
     if isinstance(value, int) or str(value).strip().isdigit():
         return int(value)
     return _catalog.resolve_model(value)
+
+
+def _npc_model_kwargs(n) -> dict:
+    """``{model, animset, anims}`` for one ``[[npc]]`` block -- the ONE place the archetype/override
+    precedence lives (both the synthesized-field and verbatim-fork injectors use it).
+
+    A named ``archetype``/``preset`` resolves the MODEL, but an explicit ``anims=``/``animset=`` on the
+    block keeps the last word on clips -- silently dropping the override shipped an untested clip set on
+    the stolen-ember innkeeper (the A/B the user thought they ran never reached the game). A bare
+    ``model=`` resolves missing anims from the Info Hub join (:func:`ff9mapkit.catalog.npc_anims`)."""
+    arch = n.get("archetype") or n.get("preset")           # a named archetype (playable cast or NPC type)
+    if arch is not None:
+        model, animset, anims, _dlg = _archetypes.resolve(arch)
+        return {"model": model,
+                "animset": n.get("animset") if n.get("animset") is not None else animset,
+                "anims": n.get("anims") or anims}
+    mid = resolve_npc_model(n.get("model"))
+    anims = n.get("anims")
+    if mid is not None and not anims:
+        anims = _catalog.npc_anims(mid) or None            # any model by name -> its own gestures (Info Hub)
+    return {"model": mid, "animset": n.get("animset"), "anims": anims}
 
 
 def _resolve_prop_pose(mid, pose):
@@ -2584,6 +2806,19 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(f"player spawn ({int(sp[0])}, {int(sp[1])}) is only ~{d:.0f}u from a "
                                 f"walkmesh edge (< the ~{R:.0f}u collision radius) -- the engine will "
                                 f"shove you inward on entry. Move it toward the floor centre. (advisory)")
+    for a in project.raw.get("player", {}).get("arrival") or []:
+        p = a.get("pos") if isinstance(a, dict) else None
+        if not (isinstance(p, (list, tuple)) and len(p) >= 2):
+            continue                                  # malformed rows are the build's error, not a placement warning
+        if off(p[0], p[1]):
+            warnings.append(f"[[player.arrival]] entrance {a.get('entrance')}: pos ({int(p[0])}, {int(p[1])}) "
+                            f"is off the walkmesh -- arriving through that door starts you off the floor.")
+        else:
+            d = near_edge(p[0], p[1])
+            if d is not None:
+                warnings.append(f"[[player.arrival]] entrance {a.get('entrance')}: pos ({int(p[0])}, "
+                                f"{int(p[1])}) is only ~{d:.0f}u from a walkmesh edge (< the ~{R:.0f}u "
+                                f"collision radius) -- the engine will shove you inward on entry. (advisory)")
     for gw in project.raw.get("gateway", []):
         zone = gw.get("zone", [])
         if zone:
@@ -3778,17 +4013,7 @@ def _inject_verbatim_npcs(project: FieldProject, eb: bytes, npc_txids: dict, *, 
             warnings.append(f"[[npc]] '{name}' holds= (a held prop on the NPC's bone) is NOT wired on a "
                             "verbatim fork (the held item's uid is its slot, fixed before the band insert) "
                             "-- skipped.")
-        kwargs: dict = {}
-        arch = n.get("archetype") or n.get("preset")
-        if arch is not None:
-            model, animset, anims, _dlg = _archetypes.resolve(arch)
-            kwargs.update(model=model, animset=animset, anims=anims)
-        else:
-            mid = resolve_npc_model(n.get("model"))
-            anims = n.get("anims")
-            if mid is not None and not anims:
-                anims = _catalog.npc_anims(mid) or None
-            kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
+        kwargs: dict = _npc_model_kwargs(n)               # archetype/model + the anims= override precedence
         gf, gs = _gate_of(n)
         smin, smax = _scenario_window_of(n)
         txid = npc_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
@@ -3975,7 +4200,8 @@ def _inject_verbatim_props(project: FieldProject, eb: bytes, prop_txids=None, *,
         for pi, (mid, pose, dx, dz) in enumerate(parts):     # the dialogue rides the ANCHOR part (pi == 0) only
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face,
                                    dialogue_text_id=(dtxid if pi == 0 else None),
-                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True)
+                                   gate_flag=gf, gate_require_set=gs, reserve_party_band=True,
+                                   collision=bool(p.get("collision", True)))
     return eb
 
 
@@ -4043,8 +4269,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  cutscene_txids: list | None = None, walkmesh=None,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
                  ate_txids: dict | None = None, chest_txids: dict | None = None,
-                 gateway_txids: dict | None = None) -> bytes:
-    """Build one language's .eb by applying the project's content to the blank field."""
+                 gateway_txids: dict | None = None, coop_txids: dict | None = None,
+                 warnings: list | None = None) -> bytes:
+    """Build one language's .eb by applying the project's content to the blank field. ``warnings``
+    (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
+    requested ``entry_settle`` that could not be inserted."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
@@ -4053,6 +4282,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     on_entry_txids = on_entry_txids or {}
     ate_txids = ate_txids or {}
     chest_txids = chest_txids or {}
+    coop_txids = coop_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -4113,17 +4343,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     for i, n in enumerate(project.raw.get("npc", [])):
         pos = n["pos"]
         txid = dialogue_txids.get(i, int(n.get("text_id", _text.DEFAULT_BASE_TXID)))
-        kwargs = {}
-        arch = n.get("archetype") or n.get("preset")      # a named archetype (playable cast or NPC type)
-        if arch is not None:
-            model, animset, anims, _dlg = _archetypes.resolve(arch)
-            kwargs.update(model=model, animset=animset, anims=anims)
-        else:
-            mid = resolve_npc_model(n.get("model"))
-            anims = n.get("anims")
-            if mid is not None and not anims:
-                anims = _catalog.npc_anims(mid) or None    # any model by name -> its own gestures (Info Hub)
-            kwargs.update(model=mid, animset=n.get("animset"), anims=anims)
+        kwargs = _npc_model_kwargs(n)                     # archetype/model + the anims= override precedence
         # held items resolved EARLY (before injecting the NPC): each held prop's (model, bone, held pose)
         # AND the HOLDER's own holding pose, from HELD_POSES per (this holder's model, prop). We re-pose
         # the holder to hold -- else it idles and the prop looks wrong (a sword held backwards). A pairing
@@ -4199,7 +4419,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         for mid, pose, dx, dz in parts:                     # a composite may offset a part from the anchor
             slot = EbScript.from_bytes(eb).first_free_slot()
             eb = _prop.inject_prop(eb, x + dx, z + dz, model=mid, pose=pose, face=face, slot=slot,
-                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs)
+                                   attach_to=attach_slot, bone=bone, gate_flag=gf, gate_require_set=gs,
+                                   collision=bool(p.get("collision", True)))
 
     # gateways
     gw_names = _story_names(project)                    # [[flag]] name -> index, for set_flags resolution
@@ -4358,6 +4579,54 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                          flag_class=_region.GLOB_BOOL, requires_flag=gf, requires_set=gs)
             reset = b"" if ch.get("once", True) else _region.set_var(_region.GLOB_BOOL, fidx, 0)
             eb, _slot = _region.inject_region(eb, zone, rb, init_extra=reset)
+
+    # [[coop]] gates (netsync V2, engine s37): field content designed for TWO players, compiled to
+    # regions reading the engine-broadcast peer presence/position cells. mode="once" (default) =
+    # the two-plate gate (plate_a/plate_b, symmetric) or the gather gate (zone -- both in one zone),
+    # latching set_flag; mode="hold" = the held-plate LEVEL flag (1 while the peer stands in plate).
+    # requires_flag/_clear arms any of them (sequencing). The flags then gate other content through
+    # the existing vocabulary (a gateway requires_flag = <hold flag> is THE co-op door). Fail-safe
+    # on a stock engine: the presence cell is never 1, so nothing ever fires. See content/coop.py.
+    for k, co in enumerate(project.raw.get("coop", [])):
+        who = f"[[coop]] gate {co.get('name', '#' + str(k))!r}"
+        if "set_flag" not in co:
+            raise BuildError(f"field {project.name}: {who} needs set_flag = N -- the gate's whole "
+                             f"output is that flag (gate doors/events/cutscenes on it)")
+        gf, gs = _gate_of(co)
+        mode = str(co.get("mode", "once")).lower()
+        # live reveal (same as the [[event]] lane): a once-gate's fire re-inits every NPC gated on
+        # its set_flag, so the appearance/vanish lands the moment the gate fires, not on re-entry.
+        reveal = b"".join(_event.reveal_object(s)
+                          for s in gated_npc_slots.get(int(co["set_flag"]), []))
+        try:
+            if mode == "hold":
+                if "plate" not in co:
+                    raise BuildError(f"field {project.name}: {who} mode='hold' needs plate = "
+                                     f"[x1, z1, x2, z2] (the plate the PEER must stand on)")
+                if co.get("text"):
+                    raise BuildError(f"field {project.name}: {who} mode='hold' can't take text -- "
+                                     f"its body runs every frame (a message would spam). Put the "
+                                     f"text on whatever consumes the flag instead.")
+                eb = _coop.inject_hold(eb, _coop.normalize_rect(co["plate"], f"{who} plate"),
+                                       int(co["set_flag"]), requires_flag=gf, requires_set=gs)
+            elif mode == "once":
+                if "zone" in co:
+                    eb = _coop.inject_gather(eb, _coop.normalize_rect(co["zone"], f"{who} zone"),
+                                             int(co["set_flag"]), coop_txids.get(k),
+                                             requires_flag=gf, requires_set=gs, reveal=reveal)
+                else:
+                    if "plate_a" not in co or "plate_b" not in co:
+                        raise BuildError(f"field {project.name}: {who} needs plate_a and plate_b "
+                                         f"([x1, z1, x2, z2] each), or a single shared zone = [...]")
+                    eb = _coop.inject_gate(eb, _coop.normalize_rect(co["plate_a"], f"{who} plate_a"),
+                                           _coop.normalize_rect(co["plate_b"], f"{who} plate_b"),
+                                           int(co["set_flag"]), coop_txids.get(k),
+                                           requires_flag=gf, requires_set=gs, reveal=reveal)
+            else:
+                raise BuildError(f"field {project.name}: {who} unknown mode {mode!r} -- "
+                                 f"use 'once' (default) or 'hold'")
+        except ValueError as e:
+            raise BuildError(f"field {project.name}: {e}")
 
     # CAST cutscenes (`actors = [...]`, #13 v3 -- the ONE actor mechanism): each is a CONDUCTOR -- a central
     # director code entry that drives every cast member BY UID (== its [[npc]] entry slot; player = 250) via
@@ -4696,6 +4965,35 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if "player" in project.raw and "spawn" in project.raw["player"]:
         sp = project.raw["player"]["spawn"]
         eb = _npc.set_player_spawn(eb, int(sp[0]), int(sp[1]))
+    # [player] face= + [[player.arrival]]: the destination-side half of the entrance contract. Every kit
+    # warp already WRITES the entrance index (gateway/choice/ladder `entrance=` -> D8:2 before Field());
+    # real fields READ it in the player Init and place the player per door. `face` patches the template's
+    # D9(6) spawn-facing const (the [[npc]]/chest compass byte); the arrival rows compile the real
+    # per-entrance dispatch, so a synthesized field stops landing every door on the one [player] spawn.
+    # See content.npc.set_player_facing / inject_player_arrivals.
+    if "player" in project.raw and project.raw["player"].get("face") is not None:
+        _f = int(project.raw["player"]["face"])
+        if not 0 <= _f <= 255:
+            raise ValueError(f"[player] face must be 0-255 (0=south, 64=west, 128=north, 192=east), got {_f}")
+        eb = _npc.set_player_facing(eb, _f)
+    _arr = project.raw.get("player", {}).get("arrival") or []
+    if _arr:
+        _seen = set()
+        for _a in _arr:
+            if not isinstance(_a, dict) or "entrance" not in _a or "pos" not in _a:
+                raise ValueError("[[player.arrival]] rows need entrance = <int> and pos = [x, z]")
+            _e = int(_a["entrance"])
+            if _e < 0 or _e in _seen:
+                raise ValueError(f"[[player.arrival]] entrance {_e} is "
+                                 f"{'negative' if _e < 0 else 'duplicated'} -- one row per entrance, "
+                                 f"matching the [[gateway]]/warp entrance= that routes here")
+            _seen.add(_e)
+            _p = _a["pos"]
+            if not (isinstance(_p, (list, tuple)) and len(_p) == 2):
+                raise ValueError(f"[[player.arrival]] entrance {_e}: pos must be [x, z]")
+            if _a.get("face") is not None and not 0 <= int(_a["face"]) <= 255:
+                raise ValueError(f"[[player.arrival]] entrance {_e}: face must be 0-255")
+        eb = _npc.inject_player_arrivals(eb, _arr)
     # [player] model= : re-skin the player avatar (the World-Hub Moogle PC, or any model on a free-roam
     # field). Resolved like an [[npc]] model (name/GEO/id -> movement clips via the Info Hub join). Movement
     # clips only -- a scripted-gesture field would glitch (same caveat as --swap-player), so it's free-roam-only.
@@ -4713,11 +5011,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # engine's per-frame smooth-camera follower (FieldMap.CenterCameraOnPlayer, scaled by Memoria.ini
     # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/F6
     # warp) visibly eases the camera to rest over a few seconds. Engine-independent (no DLL). [camera]
-    # entry_settle = <frames>; absent/0 = off (byte-identical). See content.entry_settle.
-    _cam = project.raw.get("camera")           # a single [camera] table; [[camera]] multicam is a list (skip)
-    _settle = _cam.get("entry_settle") if isinstance(_cam, dict) else None
+    # entry_settle = <frames>; absent/0 = off (byte-identical). A [[camera]] MULTICAM field reads it from
+    # any of its blocks (first nonzero wins -- the settle is a Main_Init-wide hold, not per-camera; it used
+    # to be silently SKIPPED on multicam, the exact scrolling class that needs it most). See content.entry_settle.
+    _settle = _camera_entry_settle(project.raw.get("camera"))   # [camera] dict or [[camera]] multicam list
     if _settle:
-        eb = _entry_settle.add_entry_settle(eb, int(_settle))
+        if _entry_settle.is_auto(_settle):         # "auto" = compute the hold from the warp-in delta (rung 7)
+            _n = _auto_settle_frames(project, warnings)
+        else:
+            try:
+                _n = int(_settle)
+            except (TypeError, ValueError):        # any other string -- lint_entry_settle explains it; don't crash
+                _n = 0
+        _pre_settle = eb
+        eb = _entry_settle.add_entry_settle(eb, _n)
+        if eb is _pre_settle and _n > 0 and warnings is not None:
+            _msg = (f"[camera] entry_settle = {_n}: NOT applied -- Main_Init has no plain reveal "
+                    f"fade to hide the wait behind (the entry will show the camera settle)")
+            if _msg not in warnings:               # build_script runs once per language -- warn once
+                warnings.append(_msg)
 
     # Area-title autohide (opt-in): a synthesized field that BG-borrows a real "area-title" room (Ice
     # Cavern, Mognet Central, ...) inherits that room's localized title OVERLAY -- which is Active by
@@ -5217,10 +5529,10 @@ def _wrap_width(project: FieldProject):
 
 def collect_text(project: FieldProject):
     """Return (mes_body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-    chest_txids, gateway_txids). All field text (NPC dialogue, event messages, cutscene 'say' lines, choice
-    prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE gateway titles)
-    shares one .mes block, in that order
-    (so a field with no events/cutscene/choices/on_entry/ate/chests is byte-identical to the old layout).
+    chest_txids, gateway_txids, coop_txids). All field text (NPC dialogue, event messages, cutscene 'say'
+    lines, choice prompts + replies, on-entry messages, the ATE menu, chest "Received X" boxes, forced-ATE
+    gateway titles, [[coop]] gate fire messages) shares one .mes block, in that order
+    (so a field with no events/cutscene/choices/on_entry/ate/chests/coop is byte-identical to the old layout).
     ``cutscene_txids`` is a list (one per 'say' step); ``choice_txids[c]`` = ``{"prompt": id, "replies":
     {opt_index: id}}``; ``on_entry_txids[k]`` = the txid of hook ``k``'s message (only for hooks that have
     one); ``chest_txids[k]`` = the txid of chest ``k``'s Received box.
@@ -5322,8 +5634,14 @@ def collect_text(project: FieldProject):
             _title = str(gw["ate_title"])
             _w = max(8, round(_text.measure(_title) * 7.2))   # ~ the FF9 STRT width of the rendered title
             gw_pos[gi] = _add_raw(f"[IMME][CENT={_w}]{_title}", "", strt=(_w, 1))   # NO tail -> the real ATE's true centre
+    # [[coop]] gate fire messages: ordinary dialogue lines, one per gate that has `text`. Added LAST
+    # (after gateway titles) so a field with no [[coop]] keeps the previous layout byte-identical.
+    co_pos = {}
+    for k, co in enumerate(project.raw.get("coop", [])):
+        if co.get("text"):
+            co_pos[k] = _add(co, co["text"])
     if not lines:
-        return "", {}, {}, [], {}, {}, {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -5338,8 +5656,9 @@ def collect_text(project: FieldProject):
                  if ate_prompt_pos is not None else {})
     chest_txids = {k: mapping[p] for k, p in ch_pos.items()}
     gateway_txids = {gi: mapping[p] for gi, p in gw_pos.items()}   # forced-ATE title-window txids (by gw index)
+    coop_txids = {k: mapping[p] for k, p in co_pos.items()}        # [[coop]] gate fire messages (by gate index)
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-            chest_txids, gateway_txids)
+            chest_txids, gateway_txids, coop_txids)
 
 
 # --------------------------------------------------------------------------- the build
@@ -5607,7 +5926,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -5792,6 +6111,10 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
     # `field/<text_block>.mes`. base = the donor/synth body; inplace = base + in-place rewrites; suffix = the
     # appended lines (their own high txids).
     mes_parts: dict = {}
+    if verbatim_bytes is not None and project.raw.get("coop"):
+        warnings.append(f"[[coop]] on {project.name} was NOT applied -- co-op gates are synthesize-path "
+                        "only for now (a verbatim fork keeps the donor's whole script). Author the gate "
+                        "on a non-verbatim field, or ask for the verbatim seating rung.")
     for lang in langs:
         if verbatim_bytes is not None:
             eb = verbatim_bytes
@@ -5821,7 +6144,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
             eb = build_script(project, lang, txids, control_value, event_txids=event_txids,
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
-                              ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids)
+                              ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids,
+                              coop_txids=coop_txids, warnings=warnings)
             base = mes_body or ""
             inplace = base
             suffix = ""

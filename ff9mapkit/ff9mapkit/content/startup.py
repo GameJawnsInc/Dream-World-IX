@@ -29,31 +29,30 @@ BYTE_BYTE_MAX = 2047       # a single byte at byte N occupies gEventGlobal[N] on
 BYTE_VALUE_MAX = 0xFF
 
 
-def scenario_window_gate(scenario_min=None, scenario_max=None) -> bytes:
-    """A self-return PROLOGUE that keeps a function running only while the ScenarioCounter is inside a beat
-    window ``[scenario_min, scenario_max)`` -- the FF9 rotating-cast idiom (an NPC that appears only during a
-    story stretch). Prepend it to an object's Init: outside the window the Init returns before ``CreateObject``,
-    so the NPC never appears/interacts.
+def scenario_window_conds(scenario_min=None, scenario_max=None) -> list:
+    """The beat window ``[scenario_min, scenario_max)`` as CALL-SITE guard conds -- a list of
+    ``(cond_bytes, proceed_when_true)`` for :func:`ff9mapkit.content.region.guarded_call` around an
+    ``InitObject`` (the stock rotating-cast idiom: gate the ACTIVATION in Main_Init, so out-of-window
+    the object is never created).
 
-    Emits up to two guards, each ``ifnot (SC <cmp> bound) { return }`` (same self-return shape as
-    :func:`ff9mapkit.content.region.flag_gate` / :func:`ff9mapkit.content.onentry.scenario_gate`, but with a
-    ``>=`` / ``<`` bound so a RANGE gates, not a single beat):
+    - ``scenario_min``: proceed only while ``SC >= min`` -> absent before the beat opens.
+    - ``scenario_max``: proceed only while ``SC < max``  -> absent once the beat has passed (EXCLUSIVE
+      upper bound, so adjacent members tile seamlessly: ``[a, b)`` then ``[b, c)``).
 
-    - ``scenario_min``: ``ifnot (SC >= min) return`` -> absent before the beat opens.
-    - ``scenario_max``: ``ifnot (SC < max) return``  -> absent once the beat has passed (EXCLUSIVE upper bound,
-      so adjacent members tile seamlessly: ``[a, b)`` then ``[b, c)``).
+    Both optional (a one-sided window is fine); ``[]`` when neither bound is given. Each cond is the
+    SIMPLE ``05 DC 00 7D <u16> <cmp> 7F`` shape ``forkreport._sc_cond`` decodes, so ``fork-report``'s
+    per-beat roster evaluates these guards exactly.
 
-    Both optional (a one-sided window is fine: ``min`` only = "from this beat on"; ``max`` only = "until"). The
-    bytes round-trip through the roster reader (``forkreport._sc_cond`` decodes each guard's ``SC <cmp> bound``).
-    Returns ``b""`` when neither bound is given (no gate)."""
-    out = b""
+    ⚠ Replaces the retired init-prologue ``scenario_window_gate``: a gate INSIDE an object's Init
+    (returning before ``SetModel``) is a stock-unexercised path that loads the object PERMANENTLY
+    HIDDEN when the gate passes -- see the OBJECT-INIT GATE LAW on ``region.guarded_call`` (the
+    invisible-innkeeper bisect, in-game proven 2026-07-12)."""
+    conds = []
     if scenario_min is not None:
-        cond = _region.cond_cmp(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario_min), ">=")
-        out += cond + bytes([_region.JMP_TRUE]) + _region._i16(1) + opcodes.RETURN
+        conds.append((_region.cond_cmp(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario_min), ">="), True))
     if scenario_max is not None:
-        cond = _region.cond_cmp(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario_max), "<")
-        out += cond + bytes([_region.JMP_TRUE]) + _region._i16(1) + opcodes.RETURN
-    return out
+        conds.append((_region.cond_cmp(_region.GLOB_UINT16, SCENARIO_BYTE, int(scenario_max), "<"), True))
+    return conds
 
 
 def startup_body(presets, scenario=None, words=(), byte_writes=()) -> bytes:

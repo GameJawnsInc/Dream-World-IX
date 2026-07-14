@@ -1,0 +1,30 @@
+  ...50/674 fields
+  ...100/674 fields
+  ...150/674 fields
+  ...200/674 fields
+  ...250/674 fields
+  ...300/674 fields
+  ...350/674 fields
+  ...400/674 fields
+  ...450/674 fields
+  ...500/674 fields
+  ...550/674 fields
+  ...600/674 fields
+  ...650/674 fields
+
+741 field-cameras censused (0 fields skipped) -> C:\gd\Dream-World-IX\.claude\worktrees\ff9-handoff-islandb-cliff-lip-613158\studies\blender-camera-fidelity\census.csv
+  e_p95 >   2px :    1 cameras (1 fields)
+  e_p95 >  10px :    0 cameras (0 fields)
+  e_p95 >  50px :    0 cameras (0 fields)
+  e_p95 > 500px :    0 cameras (0 fields)
+
+worst 20:
+  fbg_n21_grgr_map421_gr_lef_0                 cam1 336x272 e95=     7.21 k1=0.93323 rn_dev=0.00016 ortho=8e-05 det=1.0
+
+failure buckets (of the >2px set):
+  det < 0 (mirrored R)        :    0/1
+  ortho_err > 0.01            :    0/1
+  row0/2 norms off 1 (>0.01)  :    0/1
+  k_row1 off 14/15 (>0.01)    :    0/1
+  scrolling                   :    0/1
+  multicam (cam > 0)          :    1/1

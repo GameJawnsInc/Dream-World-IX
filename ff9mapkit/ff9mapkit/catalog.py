@@ -291,22 +291,24 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
     model) -- give explicit ``anims`` for those.
 
     For a model in the baked per-model catalog (:data:`ff9mapkit._npcparams.NPC_PARAMS` -- 156 GEO_NPC/MON
-    rigs), the REAL clips that rig uses as an NPC are returned verbatim (the most faithful set -- e.g. the
-    moogle's exact 2904/2927/2907/2923/2911, not the by-name join's near-miss). Off-catalog models (incl.
-    party GEO_MAIN, so the vivi preset stays) keep the gesture-name resolution below. ``use_catalog=False``
-    forces the by-NAME gesture resolution (used by the archetype-gallery completeness guard, which asks
-    "does this model auto-resolve by GESTURE NAME" -- a stricter bar than "has real clips in the catalog")."""
-    if use_catalog:
-        from ._npcparams import NPC_PARAMS
-        try:
-            mid = resolve_model(name_or_id)
-        except (ValueError, TypeError):              # not a known model -> fall through to by-name (-> {})
-            mid = None
-        if mid is not None and mid in NPC_PARAMS:
-            return dict(NPC_PARAMS[mid]["anims"])
+    rigs), the REAL clips real standing NPCs use are preferred -- but every resolved id MUST be one of the
+    model's OWN clips: a clip whose name joins the model's (group, token) -- any form, so Stiltzkin's
+    F3-MOG rig keeps its real F3 clips -- given as that name's CANONICAL row (its lowest id, the one the
+    ``ff9mapkit models <name>`` list and the kit's proven presets use). A baked id that is a same-name
+    DUPLICATE row (the ~4.7k two-ids-one-name AnimationDB rows above) is canonicalized --
+    ``GEO_NPC_F0_TMM``'s modal stand 706 -> its own idle 654 (both name the same clip; the canonical
+    row is what the kit's in-game-proven presets and the ``models`` listing use). NOTE: the
+    invisible-innkeeper report that prompted this was later found CONTAMINATED -- the explicit-anims
+    A/B never shipped (``build._npc_model_kwargs``) -- so the law stands on consistency + the engine's
+    name-keyed load paths, not on that repro; the invisibility itself is still undiagnosed.
+    A baked slot naming a truly FOREIGN token's clip falls back to the gesture-name resolution; a
+    model with no own movement gestures at all keeps its baked real-NPC clips verbatim (real observed
+    values beat nothing -- the frog rigs FRC/FRF only ever played FRM clips). Off-catalog models (incl.
+    party GEO_MAIN, so the vivi preset stays) use the gesture-name resolution directly.
+    ``use_catalog=False`` forces the by-NAME gesture resolution (used by the archetype-gallery
+    completeness guard, which asks "does this model auto-resolve by GESTURE NAME" -- a stricter bar than
+    "has real clips in the catalog")."""
     a = animations_for_model(name_or_id)
-    if not a:
-        return {}
 
     def pick(*actions):
         for act in actions:
@@ -314,16 +316,35 @@ def npc_anims(name_or_id, *, use_catalog: bool = True) -> dict:
                 return a[act]
         return None
 
+    byname = {}
     stand = pick("idle", "walk", "run")
-    if stand is None:                            # nothing standable -> not a usable field-NPC model
-        return {}
-    return {
-        "stand": stand,
-        "walk": pick("walk", "run", "idle") or stand,
-        "run": pick("run", "walk", "idle") or stand,
-        "left": pick("turn_l", "turn_r", "idle") or stand,
-        "right": pick("turn_r", "turn_l", "idle") or stand,
-    }
+    if stand is not None:                        # nothing standable -> not a by-name-usable field-NPC model
+        byname = {
+            "stand": stand,
+            "walk": pick("walk", "run", "idle") or stand,
+            "run": pick("run", "walk", "idle") or stand,
+            "left": pick("turn_l", "turn_r", "idle") or stand,
+            "right": pick("turn_r", "turn_l", "idle") or stand,
+        }
+    if not use_catalog:
+        return byname
+    from ._npcparams import NPC_PARAMS
+    try:
+        mid = resolve_model(name_or_id)
+    except (ValueError, TypeError):              # not a known model -> the by-name result (-> {})
+        mid = None
+    if mid is None or mid not in NPC_PARAMS:
+        return byname
+    m = model(mid)
+    out = {}
+    for slot, baked in NPC_PARAMS[mid]["anims"].items():
+        nm = animation_name(baked)
+        s = _split_anh(nm) if nm else None
+        if s and s[0] == m.group and s[2] == m.token:
+            out[slot] = min(animation_aliases(baked))    # the model's own clip -> its canonical row
+        else:
+            out[slot] = byname.get(slot, baked)          # foreign token -> the model's own gesture (or keep)
+    return out
 
 
 # ------------------------------------------------------------- world models --

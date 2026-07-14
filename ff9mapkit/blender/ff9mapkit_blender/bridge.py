@@ -579,9 +579,20 @@ def events_to_toml(events):
     return "\n\n".join(blocks)
 
 
-def player_to_toml(spawn):
-    """`[player]` block. ``spawn`` is (x, z)."""
-    return f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"
+def player_to_toml(spawn, face=None, arrivals=()):
+    """`[player]` block. ``spawn`` is (x, z); ``face`` the optional 0-255 spawn compass; ``arrivals``
+    the per-door rows ``{entrance, pos:(x,z)[, face]}`` emitted as ``[[player.arrival]]`` (the arriving
+    gateway's ``entrance=`` picks the row; no row = the spawn). Rows sort by entrance for a stable file."""
+    L = [f"[player]\nspawn = [{int(spawn[0])}, {int(spawn[1])}]"]
+    if face is not None and 0 <= int(face) <= 255:
+        L[0] += f"\nface = {int(face)}"
+    for a in sorted(arrivals or (), key=lambda r: int(r.get("entrance", 0))):
+        row = (f"[[player.arrival]]\nentrance = {int(a['entrance'])}\n"
+               f"pos = [{int(a['pos'][0])}, {int(a['pos'][1])}]")
+        if a.get("face") is not None and 0 <= int(a["face"]) <= 255:
+            row += f"\nface = {int(a['face'])}"
+        L.append(row)
+    return "\n\n".join(L)
 
 
 def markers_to_toml(markers):
@@ -654,16 +665,19 @@ def _entity_scene_blocks(npcs=(), gateways=(), events=(), markers=()):
     return "\n\n".join(out)
 
 
-def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None, events=(), markers=()):
+def scene_toml(field_name, scene_body, npcs=(), gateways=(), spawn=None, events=(), markers=(),
+               spawn_face=None, arrivals=()):
     """The Blender-owned spatial overlay ``<field>.scene.toml``: the path-specific ``scene_body``
-    (``[camera]`` / ``[walkmesh]`` / ``[[layers]]`` text) + ``[player]`` + each entity's name+pos/zone
-    + named movement markers. OVERWRITTEN on every export; holds no logic, so re-exporting can't
-    clobber your script."""
+    (``[camera]`` / ``[walkmesh]`` / ``[[layers]]`` text) + ``[player]`` (spawn + facing + per-door
+    arrival markers) + each entity's name+pos/zone + named movement markers. OVERWRITTEN on every
+    export; holds no logic, so re-exporting can't clobber your script. NOTE the build merge is
+    scene-wins-per-KEY on [player]: arrival markers here own the WHOLE table (a field.toml table is
+    replaced); with no arrival markers the field.toml's rows survive."""
     parts = [f"# {field_name} -- SCENE (spatial; Blender-owned, overwritten on export).",
              f"# Logic (dialogue/conditions/events) is in {field_name.lower()}.field.toml.",
              scene_body.strip()]
     if spawn is not None:
-        parts.append(player_to_toml(spawn))
+        parts.append(player_to_toml(spawn, face=spawn_face, arrivals=arrivals))
     eb = _entity_scene_blocks(npcs, gateways, events, markers)
     if eb:
         parts.append(eb)

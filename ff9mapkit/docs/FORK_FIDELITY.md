@@ -134,10 +134,15 @@ real `Field()` warps + Main_Init calls — 2504's warp-sequence even hides behin
 and mixed/sibling refs (403, 507, 556, 1423, 1451 non-Zidane, 1602, 1606, 2173, 2221, 2504) are `--verbatim`-only —
 the same closure class as #14.
 
-**#9 — per-door arrival (LANDED + in-game proven).** `eventscan.scan_player_arrivals` decodes the real per-entrance arrival
-table; `fork-report` gains an **Arrival** line flagging fields with >1 spawn point, and `extract_field` defaults the synth
-`[player] spawn` to the donor's REAL main arrival (Dali fork moved `(83,209)`→ real entrance `(439,-122)`). A synth fork can't
-reconstruct the per-DOOR table (its gateways are retargeted) — that fidelity is `--verbatim`'s job, and the Arrival line steers there.
+**#9 — per-door arrival (LANDED + in-game proven; the synth-side table CLOSED by the field-entry arc).**
+`eventscan.scan_player_arrivals` decodes the real per-entrance arrival table; `fork-report` gains an **Arrival** line
+flagging fields with >1 spawn point, and `extract_field` defaults the synth `[player] spawn` to the donor's REAL main
+arrival (Dali fork moved `(83,209)`→ real entrance `(439,-122)`). The old caveat — "a synth fork can't reconstruct the
+per-DOOR table" — no longer holds: `eventscan.scan_arrival_table` now ATTRIBUTES each placement to its entrance (the
+switch case values / if-chain conds), every non-verbatim import emits the donor's table as **`[[player.arrival]]`**
+rows, and the build compiles them back into a real `D8:2` dispatch (in-game proven on the ARRTEST self-loop; the donor's
+exits carry their `D8:2` writes through the retarget, so the numbers stay in sync). `--verbatim` remains the byte-true
+form; the known residual is `y` (a donor block that also sets `D9(2)` re-emits x/z-only — `studies/field-entry`).
 
 **#10 — field-entry cutscene (premise corrected).** The old "entry cutscenes fire from a C# `NarrowMapList` table" framing was
 **wrong** (`NarrowMapList` is the camera-WIDTH / widescreen table, zero cutscene logic); a field's entry cutscene runs from its
@@ -252,9 +257,9 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 2. **Reuse-the-room ("new purpose") → plain `import` (BG-borrow) or the hub generator.** Carry no donor-identity by
    default: **suppress** the area-title (`hide_area_title`), author your own `[[npc]]`/`[[choice]]` dialogue and
    `[player] model=`, emit no donor `[encounter]`/`[music]`, let the synth director-skip drop warp-directors. Author
-   the new graph (your `[[gateway]]`, retargeted exits, a synth `Menu(4,0)` save point). **Add `entry_settle`** (a
-   thin synthesized Main_Init reveals immediately — the black-hold is the *faithful* answer, the same convergence-
-   behind-black the real game uses). Single-owner discipline: the HUB owns field-70; per-journey items via scripted
+   the new graph (your `[[gateway]]`, retargeted exits, a synth `Menu(4,0)` save point). **Add `entry_settle =
+   "auto"`** (a thin synthesized Main_Init reveals immediately — the black-hold is the *faithful* answer, the same
+   convergence-behind-black the real game uses; `"auto"` computes the frames from the spawn's warp-in delta). Single-owner discipline: the HUB owns field-70; per-journey items via scripted
    `give_item`, not the global CSVs; accept `Leveling.csv` as a global default.
 3. **Faithful diorama, re-synthesized logic → `import --native --graft-player-funcs --carry-text`.** Room contents
    without its story machine. **Fall back to `--verbatim`** when the field has a moving platform/lift (no synth

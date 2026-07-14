@@ -147,14 +147,20 @@ and marker commands are stock-engine.
 
 ## Multiplayer (experimental)
 
-Two-player exploration co-op ("ghost sync"): each player sees the other walk a shared field in real
-time — no battle or story-state coupling. Requires the Dream World IX custom engine's `s36` netsync
-patch ([ENGINE.md](ENGINE.md)), which is not yet in the pre-built engine bundle.
+Two-player co-op ("ghost sync"): each player sees the other walk a shared field in real time, and
+the host can grant the guest party slots to command in battle plus a "visitor mode" that dresses the
+ghost as a real party member and follows the host between screens. Requires the Dream World IX
+custom engine's `s36`/`s37` netsync patches ([ENGINE.md](ENGINE.md)), which are not yet in the
+pre-built engine bundle. Every save stays each player's own.
 
 | Capability | | Docs |
 |---|---|---|
 | One-command session setup — room deploy + config + session code + TLS bridge (`coop host`, `coop join ff9-XXXX`) | ✓ | `coop -h` |
 | Internet play through a public rendezvous relay (random private session codes), or direct LAN (`coop host --lan`) | ✓ | `coop -h` |
+| Battle co-op — guest spectates, or commands granted party slots with the full menu set (`--guest-slots`, `--guest-wait`) | ✓ | `coop -h` |
+| Visitor mode — the ghost dresses as a party member, follow-host auto-warp + encounter pause (`--ghost-as`, `--follow-host`) | ✓ | `coop -h` |
+| Print the current co-op config in human terms (`coop show`); hot-reload — a running game applies changes in seconds | ✓ | `coop -h` |
+| The Workspace **Co-op** tab: point-and-click host/join + the Play-style panel for all of the above | ✓ | Workspace → Co-op |
 
 ## Audio & video
 

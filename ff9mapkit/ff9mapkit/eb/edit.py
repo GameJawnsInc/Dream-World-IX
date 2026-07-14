@@ -431,30 +431,49 @@ def activate(data, init_bytes: bytes, *, spawn_wait_n: int = 2, spawn_wait_occur
     try:
         off = find_wait(eb, n=spawn_wait_n, occurrence=spawn_wait_occurrence)
     except ValueError:
-        if eb.entry(0).func_by_tag(0) is None:
-            raise ValueError("entry 0 has no Main_Init to activate from")
-        if after_player:
-            rel = _player_init_end(eb)
-            if rel is not None:
-                try:
-                    return insert_in_function(data, 0, 0, rel, bytes(init_bytes))
-                except ValueError:
-                    pass                                   # jump-straddled insert point -> prepend fallback
-        return insert_in_function(data, 0, 0, 0, bytes(init_bytes))
+        return activate_block(data, init_bytes, after_player=after_player)
     return patch_bytes(data, off, bytes(init_bytes), expect=bytes([WAIT_OP, 0x00, spawn_wait_n & 0xFF]))
+
+
+def activate_block(data, block: bytes, *, after_player: bool = False) -> bytes:
+    """Activate with an arbitrary-length Main_Init BLOCK -- always the fpos-fixing INSERT path (a
+    multi-byte block cannot overwrite a 3-byte ``Wait`` filler). The lane for a GUARDED activation
+    (:func:`ff9mapkit.content.region.guarded_call` around an ``InitObject`` -- the stock call-site
+    story gate; see the OBJECT-INIT GATE LAW there). ``after_player`` as in :func:`activate`."""
+    eb = EbScript.from_bytes(data)
+    if eb.entry(0).func_by_tag(0) is None:
+        raise ValueError("entry 0 has no Main_Init to activate from")
+    if after_player:
+        rel = _player_init_end(eb)
+        if rel is not None:
+            try:
+                return insert_in_function(data, 0, 0, rel, bytes(block))
+            except ValueError:
+                pass                                       # jump-straddled insert point -> prepend fallback
+    return insert_in_function(data, 0, 0, 0, bytes(block))
 
 
 # --------------------------------------------------------------------------- jump safety (best effort)
 
-JMP_OP = 0x03  # unconditional relative jump: operand is signed int16, target = instr.end + offset
+# Engine truth (Memoria EBin.jumpToCommand): THREE relative jumps carry an i16 offset with
+# target = instr.end + offset -- 0x01 JMP (unconditional, SIGNED offset: bra()), 0x02 JMP_IFNOT
+# (conditional, UNSIGNED: beq() reads getUShortIP -> forward-only), 0x03 JMP_IF (conditional,
+# SIGNED: bne()'s taken branch jumps via bra()). The condition rides the calc stack (pushed by a
+# preceding 0x05 expression statement), not the instruction stream, so all three are 3-byte ops.
+# (Until 2026-07-12 this scanned ONLY 0x03 and mislabeled it the unconditional jump.)
+JMP_UNCOND_OP = 0x01
+JMP_IFNOT_OP = 0x02
+JMP_IF_OP = 0x03
+_JUMP_OPS = (JMP_UNCOND_OP, JMP_IFNOT_OP, JMP_IF_OP)
 
 
 def relative_jumps(eb: EbScript):
-    """All unconditional relative jumps (op 0x03) as (src_off, src_end, target) tuples.
+    """Every relative jump (unconditional 0x01 + conditional 0x02/0x03) as (src_off, src_end,
+    target) tuples.
 
-    Best effort: covers the unconditional JMP. The recommended injection path (overwrite a
-    Wait filler, or append an entry) is shift-free and needs no jump analysis; this helper is
-    a safety net for the rarer case of inserting into a function with control flow.
+    Best effort: the recommended injection path (overwrite a Wait filler, or append an entry) is
+    shift-free and needs no jump analysis; this helper is a safety net for the rarer case of
+    inserting into a function with control flow.
     """
     out = []
     for e in eb.entries:
@@ -462,9 +481,14 @@ def relative_jumps(eb: EbScript):
             continue
         for f in e.funcs:
             for ins in eb.instrs(f):
-                if ins.op == JMP_OP and not ins.arg_is_expr[0]:
+                if ins.op in _JUMP_OPS and not ins.arg_is_expr[0]:
                     raw = ins.imm(0)
-                    offset = raw - 0x10000 if raw >= 0x8000 else raw  # signed int16
+                    if raw is None:
+                        continue
+                    if ins.op == JMP_IFNOT_OP:
+                        offset = raw                                      # beq: unsigned, forward-only
+                    else:
+                        offset = raw - 0x10000 if raw >= 0x8000 else raw  # signed int16
                     out.append((ins.off, ins.end, ins.end + offset))
     return out
 

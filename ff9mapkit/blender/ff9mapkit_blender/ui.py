@@ -109,6 +109,8 @@ class FF9MK_PT_panel(bpy.types.Panel):
         row.operator("ff9mk.set_spawn", icon="MESH_UVSPHERE", text="Spawn")
         row = box.row(align=True)
         row.operator("ff9mk.add_waypoint", icon="EMPTY_AXIS", text="Waypoint")
+        row.operator("ff9mk.add_arrival", icon="CON_LOCLIKE", text="Arrival")
+        row = box.row(align=True)
         sub = row.row(align=True)
         sub.enabled = multicam                            # cam zones need 2+ cameras
         sub.operator("ff9mk.add_camzone", icon="OUTLINER_OB_CAMERA", text="Cam Zone")
@@ -119,8 +121,10 @@ class FF9MK_PT_panel(bpy.types.Panel):
         cz_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "camzone")
         spawn_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "spawn")
         wp_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "waypoint")
+        ar_n = sum(1 for o in context.scene.objects if o.get(ops.MARKER_KEY) == "arrival")
         tally = f"{npc_n} NPC · {gw_n} gateway · {ev_n} event · {spawn_n} spawn"
-        box.label(text=tally + (f" · {wp_n} waypoint" if wp_n else "")
+        box.label(text=tally + (f" · {ar_n} arrival" if ar_n else "")
+                  + (f" · {wp_n} waypoint" if wp_n else "")
                   + (f" · {cz_n} cam-zone" if multicam or cz_n else ""))
         ao = context.active_object
         mk = ao.get(ops.MARKER_KEY) if ao else None
@@ -155,7 +159,20 @@ class FF9MK_PT_panel(bpy.types.Panel):
                 col.prop(ao, '["ff9_name"]', text="name")
             col.label(text='reference in a cutscene: walk = "<name>"', icon="INFO")
         elif mk == "spawn":
-            box.label(text=f"{ao.name} (move to set spawn)")
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (move to set spawn)")
+            if "ff9_face" in ao:
+                col.prop(ao, '["ff9_face"]', text="face")
+                col.label(text="face: -1 = default; 0=south (to camera), 64=west, 128=north, 192=east",
+                          icon="INFO")
+        elif mk == "arrival":
+            col = box.column(align=True)
+            col.label(text=f"{ao.name} (move to where this door lands the player)")
+            for key in ("ff9_entrance", "ff9_face"):
+                if key in ao:
+                    col.prop(ao, f'["{key}"]', text=key[4:])
+            col.label(text="a [[gateway]] arriving with this entrance= lands here; face: -1 = keep",
+                      icon="INFO")
         else:
             box.label(text="select a marker to edit its properties", icon="INFO")
 

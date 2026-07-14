@@ -49,7 +49,7 @@ def _build_zone_choice(tmp_path, build, extra=""):
         '[[choice.options]]\ntext = "Yes"\nset_flag = [8001, 1]\n'
         '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, _, _, ctx, _, _, _, _gw9 = build.collect_text(proj)
+    _, _, _, _, ctx, _, _, _, _gw9, _co10 = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     return EbScript.from_bytes(eb), eb
 
@@ -123,7 +123,7 @@ def test_zone_choice_pre_choose_disabled_emits_pchm_and_mask(tmp_path):
         '[[choice.options]]\ntext = "B"\ndisabled = true\n'
         '[[choice.options]]\ntext = "C"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _, _, _, _gw9 = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _, _, _gw9, _co10 = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     assert opcodes.enable_dialog_choices(0b101, 0) in eb        # row 1 masked off, default 0
@@ -144,7 +144,7 @@ def test_zone_choice_flag_gated_builds_dynamic_mask_expression(tmp_path):
         '[[choice.options]]\ntext = "Use key"\nrequires_flag = 8001\n'
         '[[choice.options]]\ntext = "Leave"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _, _, _, _gw9 = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _, _, _gw9, _co10 = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     sc = region.MASK_SCRATCH_IDX
@@ -437,7 +437,7 @@ def test_event_sets_flag_before_message(tmp_path):
         '[[event]]\nname="key"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'message="Found it!"\nset_flag=[8001,1]\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, et, _, _, _, _, _, _gw9 = build.collect_text(proj)
+    _, _, et, _, _, _, _, _, _gw9, _co10 = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, event_txids=et)
     setflag = region.set_var(region.GLOB_BOOL, 8001, 1)
     msg = opcodes.window_sync(1, 128, et[0])
@@ -463,7 +463,7 @@ def test_event_received_window_and_space_check(tmp_path):
         '[[event]]\nname="chest"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'give_item=[236,1]\nreceived=true\nrequire_space=true\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, et, _, _, _, _, _, _gw9 = build.collect_text(proj)
+    mes, _, et, _, _, _, _, _, _gw9, _co10 = build.collect_text(proj)
     assert "Received [ITEM=0]!" in mes                              # canonical item-get text
     eb = build.build_script(proj, "us", {}, event_txids=et)
     assert opcodes.set_text_variable(0, 236) in eb                 # SetTextVariable(0, item)
@@ -510,15 +510,21 @@ def test_flag_gate_bytes():
 
 
 def test_npc_gated_by_flag():
-    """A gated NPC's Init starts with the flag gate, so it returns before CreateObject when absent."""
+    """A gated NPC guards its InitObject CALL SITE (the OBJECT-INIT GATE LAW): the Init itself stays
+    unconditional (an init-prologue gate loads the object permanently HIDDEN when it passes)."""
+    from ff9mapkit.eb import opcodes as _opc
     plain = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500)
     gated = npc.inject_npc(CLEAN, 100, -500, preset="vivi", talk_text_id=500, gate_flag=205)
     assert gated != plain
     eb = EbScript.from_bytes(gated)
     e = next(x for x in eb.entries if not x.empty and x.func_by_tag(3) and x.index != 0)
+    # the call-site guard block sits in Main_Init: if (flag 205) { InitObject(slot, 0) }
+    guard = region.guarded_call([(region.cond_truthy(region.GLOB_BOOL, 205), True)],
+                                _opc.init_object(e.index, 0))
+    assert guard in gated
+    # the Init itself is UNCONDITIONAL: first op = the D9(0) position write; CreateObject (0x1D) runs
     init = e.func_by_tag(0)
-    assert eb.data[init.abs_start:init.abs_start + 8] == region.flag_gate(region.GLOB_BOOL, 205)
-    # the model setup still follows the gate (CreateObject 0x1D present after it)
+    assert eb.data[init.abs_start:init.abs_start + 2] == b"\x05\xd9"
     assert 0x1D in _ops(eb, e.index, 0)
 
 
@@ -755,7 +761,7 @@ def test_conductor_two_actor_field_builds_end_to_end(tmp_path):
         ']\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert build.lint_logic(proj) == [] or all("cutscene" not in m for m in build.lint_logic(proj))
-    mes, npc_txids, _ev, cs_txids, _ch, _oe, _ate, _chest, _gw9 = build.collect_text(proj)
+    mes, npc_txids, _ev, cs_txids, _ch, _oe, _ate, _chest, _gw9, _co10 = build.collect_text(proj)
     assert len(cs_txids) == 3                                          # three say steps -> three txids
     eb = build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids)
     s = EbScript.from_bytes(eb)
@@ -808,7 +814,7 @@ def test_conductor_walk_field_builds_end_to_end(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert [m for m in build.lint_logic(proj) if "cutscene" in m] == []
-    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw = build.collect_text(proj)
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10 = build.collect_text(proj)
     s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
     walk_entries = [e.index for e in s.entries if not e.empty and e.func_by_tag(20)]
     assert len(walk_entries) == 2                                  # both NPC entries got a walk tag
@@ -837,7 +843,7 @@ def test_conductor_player_walk_supported(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert [m for m in build.validate(proj) if "walk" in m] == []  # player-walk is no longer flagged
-    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw = build.collect_text(proj)
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10 = build.collect_text(proj)
     s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
     pe = _player.find_player_entry(s)
     assert s.entry(pe).func_by_tag(20) is not None                # the walk tag landed on the PLAYER entry
@@ -901,7 +907,7 @@ def test_conductor_parallel_walk_field_builds_end_to_end(tmp_path):
     proj = build.FieldProject.load(p)
     assert [m for m in build.lint_logic(proj) if "cutscene" in m] == []
     assert [m for m in build.validate(proj) if "with_prev" in m or "parallel" in m.lower()] == []
-    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw = build.collect_text(proj)
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10 = build.collect_text(proj)
     s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
     parallel_entries = [e.index for e in s.entries if not e.empty and e.func_by_tag(20) and e.func_by_tag(19)]
     assert len(parallel_entries) == 2                              # both NPC entries got a walk tag AND a join tag
@@ -973,6 +979,23 @@ def test_bare_prop_is_init_only():
     assert [f.tag for f in chest.funcs] == [0]
 
 
+def test_prop_collision_false_emits_scenery_flags():
+    """collision=false -> SetObjectFlags(SCENERY_FLAGS=7): show + BOTH collision-EXEMPT bits SET --
+    the 3345-use shipping walk-through idiom (bits 2/4 are exemptions, not enables: the movement
+    push skips a pair only when both sides' bits are set; flags=1 was in-game DISPROVEN 2026-07-13,
+    still colliding). The default (collision=true) emits NO SetObjectFlags at all (the object is
+    born shown+collidable; the CFLAG law -- a blanket write once HID all four props in-game)."""
+    slot = EbScript.from_bytes(CLEAN).first_free_slot()
+    solid = prop.inject_prop(CLEAN, 0, 0, model=75, pose=7339, slot=slot)
+    ghosty = prop.inject_prop(CLEAN, 0, 0, model=75, pose=7339, slot=slot, collision=False)
+    flags_ops = lambda b: [b[ins.off + 2]
+                           for e in EbScript.from_bytes(b).entries if not e.empty
+                           for f in e.funcs for ins in iter_code(b, f.abs_start, f.abs_end)
+                           if ins.op == 0x93]
+    assert flags_ops(solid) == []
+    assert flags_ops(ghosty) == [prop.SCENERY_FLAGS] == [7]
+
+
 def test_prop_attach_emits_attachobject():
     """attach_to binds the prop to the carrier's bone: AttachObject(prop_slot, carrier_slot, bone)."""
     cslot = EbScript.from_bytes(CLEAN).first_free_slot()
@@ -1009,7 +1032,7 @@ def _build_synth(tmp_path, body):
     p = tmp_path / "z.field.toml"
     p.write_text(_CHEST_BASE + body, encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _n, _e, _c, _ch, _o, _a, chest_txids, _gw9 = build.collect_text(proj)
+    mes, _n, _e, _c, _ch, _o, _a, chest_txids, _gw9, _co10 = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, chest_txids=chest_txids)
     return mes, chest_txids, eb
 
@@ -1111,12 +1134,15 @@ def test_synth_chest_flag_by_name_resolves(tmp_path):
 
 
 def test_synth_gated_chest_has_appearance_gate(tmp_path):
-    # requires_flag gates the chest's APPEARANCE (distinct from the opened-flag): its Init starts with a
-    # flag_gate (early-return), so the chest is absent until that story flag is set -- a quest-reward chest.
+    # requires_flag gates the chest's APPEARANCE (distinct from the opened-flag) at the InitObject CALL
+    # SITE (the OBJECT-INIT GATE LAW -- an init-prologue gate would load the chest permanently hidden):
+    # absent until that story flag is set -- a quest-reward chest.
     from ff9mapkit.content import region
     _mes, _txids, eb = _build_synth(tmp_path, '[[chest]]\npos = [0, 60]\nitem = ["Potion", 1]\n'
                                     'flag = 8520\nrequires_flag = 8521\n')
-    assert region.flag_gate(region.GLOB_BOOL, 8521, require_set=True) in eb
+    # the guard prefix: push flag 8521 truth, JMP_IFNOT over the 3-byte InitObject
+    guard_prefix = region.cond_truthy(region.GLOB_BOOL, 8521) + bytes([region.JMP_FALSE]) + region._i16(3)
+    assert guard_prefix in eb
 
 
 def test_synth_chest_face_passes_through(tmp_path):

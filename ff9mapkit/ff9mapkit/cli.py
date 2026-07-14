@@ -2895,6 +2895,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if (args.texture or args.tile or args.tile_uv) and not args.building:
         print("--texture/--tile/--tile-uv texture the --building mesh -- pass --building <obj> too", file=sys.stderr)
         return 2
+    if args.action_prompt and args.field_direct is None:
+        print("--action-prompt needs --field-direct <id> (it gates a CUSTOM destination's warp on Confirm; the "
+              "real dispatcher-case route already owns town-entry behavior)", file=sys.stderr)
+        return 2
     building = None
     try:
         if args.building:
@@ -2908,6 +2912,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
+            trigger_only=args.trigger_only, prompt=args.action_prompt,
             dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
@@ -2919,15 +2924,20 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     print(f"{head}: cell {tuple(info['cell'])} tag {tag} -> case {info['case']}"
           + (f" -> field {fld}" if fld is not None else " (case has no default field)"))
     print(f"  {info['dest_note']}")
+    if args.action_prompt:
+        print("  action-prompt: raises the \"!\" bubble; warps only on a Confirm press (faithful town-style entry)")
     wrote = info["dispatchers_written"]
     print(f"  trigger func -> {len(wrote)} dispatcher(s) x {len(info['langs'])} langs"
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
     if info["dispatchers_skipped"]:
         print(f"  skipped (cell already has an entrance there): {', '.join(s.replace('evt_world_', '') for s in info['dispatchers_skipped'])}")
-    pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
-    blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
-    print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
-          f"in block{tuple(info['block'])}{pad}{blk}")
+    if info.get("trigger_only"):
+        print("  trigger-only: the deployed terrain / event tiles / building were left untouched")
+    else:
+        pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
+        blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
+        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
+              f"in block{tuple(info['block'])}{pad}{blk}")
     if info.get("terrain_override"):
         print(f"    -> {info['terrain_override']}")
     if info.get("building"):
@@ -2947,9 +2957,12 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info["backups"]:
         print(f"  backed up {len(info['backups'])} pre-edit dispatcher file(s) -> {Path(info['backups'][0]).parent}")
     if not info["dry_run"]:
-        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, walk to the "
-              "cell -- an \"!\" action prompt fires the warp. (Mesh overrides need the WorldMeshOverride engine patch.)"
-              % info.get("disc", args.disc))
+        _enter = ('stand on the cell -- a "!" appears; press Confirm to enter (faithful town-style)'
+                  if args.action_prompt else
+                  "walk ONTO the cell -- stepping on the event tile fires the warp (auto-warp)")
+        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and %s. "
+              "(Mesh overrides need the WorldMeshOverride engine patch.)"
+              % (info.get("disc", args.disc), _enter))
     return 0
 
 
@@ -4557,8 +4570,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     co = sub.add_parser("coop", help="two-player co-op ghost sync: set up + run a session in one command "
                                      "(needs the Dream World IX custom engine, s36)")
-    co.add_argument("action", choices=["host", "join", "off", "bridge"],
+    co.add_argument("action", choices=["host", "join", "show", "off", "bridge"],
                     help="host = start a session (prints/copies your code) | join = join a friend's | "
+                         "show = print the current co-op config | "
                          "off = disable co-op in Memoria.ini | bridge = run just the ws->wss bridge")
     co.add_argument("code", nargs="?", default=None,
                     help="the session code (join: REQUIRED, the host's ff9-XXXXXXXX; host: optional override)")
@@ -4569,6 +4583,20 @@ def build_parser() -> argparse.ArgumentParser:
                          "join needs the host's IP, e.g. --lan 192.168.1.50")
     co.add_argument("--field", type=int, default=None,
                     help="restrict co-op to ONE field id (default: everywhere -- any screen both players share)")
+    co.add_argument("--guest-slots", default=None, metavar="SLOTS",
+                    help="battle co-op: which of YOUR party slots the other player commands -- "
+                         "party positions 1-4 as the menu shows them ('2', '2,3', 'all', 'none'). "
+                         "Only written when given; needs the s37 engine")
+    co.add_argument("--guest-wait", type=int, default=None, metavar="SECONDS",
+                    help="cap how long a guest's battle turn may freeze the ATB gauges "
+                         "(seconds; 0 = no cap; engine default 30). Only written when given")
+    co.add_argument("--ghost-as", default=None, metavar="WHO",
+                    help="visitor mode: dress the other player's ghost -- 'auto' (the party member "
+                         "they command in battle), a playable name (vivi, dagger, ...), or 'off' "
+                         "(their own model). Only written when given")
+    co.add_argument("--follow-host", choices=["on", "off"], default=None,
+                    help="guest side: 'on' auto-warps your game to whatever field the host is on "
+                         "and pauses your own random encounters while paired. Only written when given")
     co.add_argument("--no-bridge", action="store_true", help="write the config but don't run the bridge")
     co.add_argument("--no-room", action="store_true", help="skip the co-op room check/build")
     co.add_argument("--rebuild-room", action="store_true", help="rebuild the FF9Coop room even if a room "
@@ -5795,6 +5823,15 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--no-tile-area", action="store_true",
                      help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; the "
                           "stamp just keeps world-locate reporting the entrance)")
+    wen.add_argument("--trigger-only", action="store_true",
+                     help="refresh ONLY the dispatcher trigger functions (.eb) -- leave the deployed terrain / "
+                          "event tiles / building untouched. The re-deploy mode for picking up a kit upgrade to "
+                          "the trigger body (e.g. the zone-in fade) on an already-authored entrance")
+    wen.add_argument("--action-prompt", action="store_true",
+                     help="FAITHFUL \"!\" entrance (--field-direct only): the tile raises the \"!\" bubble and warps "
+                          "only when you press Confirm while standing on it -- the way real FF9 towns enter (a "
+                          "B_KEYON(Confirm) gate, byte-copied from the real dispatcher). Default (off) = auto-warp "
+                          "the instant you step on the tile")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),

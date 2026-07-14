@@ -58,6 +58,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .content import entry_settle as _es
+
 # The iconic save Moogle (GEO_NPC_F0_MOG). NOT 199 (GEO_NPC_F5, a bat-winged variant that surprised the
 # world-hub playtest -- memory project-ff9-world-hub). Both share the MOG movement clips via catalog.npc_anims.
 MOOGLE_MODEL = 220
@@ -113,7 +115,7 @@ class HubSpec:
     borrow_bg: str = ""
     borrow_field: "int | None" = None       # the real field id whose camera `gen-hub --extract-camera` pulls
     camera: str = DEFAULT_CAMERA
-    entry_settle: int = DEFAULT_ENTRY_SETTLE      # frames the hub holds black on entry so the camera settles
+    entry_settle: "int | str" = DEFAULT_ENTRY_SETTLE   # frames held black on entry (or "auto" = computed)
     text_block: int = DEFAULT_TEXT_BLOCK
     prompt: str = DEFAULT_PROMPT
     stay_text: str = DEFAULT_STAY
@@ -155,7 +157,13 @@ def hubspec_from_table(h: dict, journeys: "list[Journey]") -> HubSpec:
         borrow_bg=str(h.get("borrow_bg", "")),
         borrow_field=int(h["borrow_field"]) if h.get("borrow_field") is not None else None,
         camera=str(h.get("camera", DEFAULT_CAMERA)),
-        entry_settle=int(h.get("entry_settle", DEFAULT_ENTRY_SETTLE)),
+        # a BOOLEAN entry_settle is on/off, not a frame count -- int(True) would bake a useless 1-frame
+        # hold (the exact trap the old JOURNEYS.md example taught); true = the proven default, false = off;
+        # "auto" passes through (the build computes the hold from the warp-in delta)
+        entry_settle=(DEFAULT_ENTRY_SETTLE if h.get("entry_settle") is True else
+                      0 if h.get("entry_settle") is False else
+                      "auto" if _es.is_auto(h.get("entry_settle")) else
+                      int(h.get("entry_settle", DEFAULT_ENTRY_SETTLE))),
         text_block=int(h.get("text_block", DEFAULT_TEXT_BLOCK)),
         prompt=str(h.get("prompt", DEFAULT_PROMPT)),
         stay_text=str(h.get("stay_text", DEFAULT_STAY)),
@@ -300,6 +308,11 @@ def _model_toml(v) -> str:
     return s if s.isdigit() else f'"{_q(s)}"'
 
 
+def _settle_toml(v) -> str:
+    """Emit an entry_settle value: a frame count bare, ``"auto"`` quoted (valid TOML)."""
+    return '"auto"' if _es.is_auto(v) else str(v)
+
+
 def _prop_block(p: dict) -> list:
     """A ``[[prop]]`` toml block from a ``[[hub.props]]`` row -- static set-dressing (a prop archetype by
     name, e.g. ``save_point``/``lamp``, or a raw ``model`` + ``pose`` for a bare standing figure)."""
@@ -378,8 +391,8 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         "",
         "[camera]",
         f'borrow = "{_q(spec.camera)}"   # the borrowed room\'s camera (gitignored; extract from your install)',
-        *([f"entry_settle = {spec.entry_settle}   # hold black on entry so the camera settles unseen "
-           f"(no warp-in ease); 0 = off"] if spec.entry_settle else []),
+        *([f"entry_settle = {_settle_toml(spec.entry_settle)}   # hold black on entry so the camera "
+           f"settles unseen (no warp-in ease); 0 = off, \"auto\" = computed"] if spec.entry_settle else []),
         "",
         "[player]",
         f"spawn = [{spawn[0]}, {spawn[1]}]",

@@ -1,0 +1,104 @@
+# COOPGATE — a custom FF9 field. Compile with:  ff9mapkit build coopgate.field.toml
+#
+# Human-supplied (Hard Constraint): paint the background layer PNGs and (optionally) model the
+# walkmesh in Blender. `ff9mapkit guide --pitch 48.0 ...` prints where the floor lands on
+# the painted canvas so you can paint to match.
+
+[field]
+id = 30111         # THE COOP TEST BAND (30110-30200; 30100-30102 = Stolen Ember): the twin vault slot
+name = "COOPGATE"          # -> FBG_N11_COOPGATE (background) + EVT_COOPGATE.eb (script)
+area = 11            # must be >= 10
+text_block = 1073
+title = "COOPGATE"
+
+[camera]
+pitch = 48.0          # downward tilt (degrees); real FF9 fields are <= ~48
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205               # painted-canvas rows the floor's back/front edges sit on
+front = 432
+
+[walkmesh]
+# The walkmesh is in TRUE world coords = where the painted floor is (frame = "world"): the player
+# renders exactly on it, no fudge (measured in-game, Session 18). `quad` = the floor's 4 corners,
+# matching the placeholder floor below. Swap for an exported Blender mesh with `obj = "walkmesh.obj"`.
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]               # background layers, back-to-front (z = depth; smaller = nearer)
+image = "art/back.png"   # PLACEHOLDER (solid) -- repaint to match your camera
+z = 4000
+[[layers]]
+image = "art/floor.png"  # PLACEHOLDER (checkerboard floor) -- repaint to match your camera
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# [[npc]]
+# name = "Someone"
+# preset = "vivi"
+# pos = [0, -700]
+# dialogue = "Hello there."
+
+# [[gateway]]
+# to = 100               # warp to this field id
+# entrance = 0
+# zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]
+
+# The V2 [[coop]] two-plate gate (netsync s37). Plate B = plate A shifted +250 x EXACTLY --
+# the Role=selftest mirror stands at +250, so standing ANYWHERE in plate A puts the mirror in
+# plate B and the gate fires solo. Spawn (0,-837) is inside plate B: standing there fires
+# NOTHING (the mirror is off to the right) -- walk LEFT into plate A to fire. On a real
+# two-machine session either player can take either plate (the compile is symmetric).
+[[coop]]
+name = "twin-seals"
+plate_a = [-345, -960, -105, -720]
+plate_b = [-95, -960, 145, -720]
+set_flag = 8600
+text = "The twin seals release! (co-op gate: flag 8600 set)"
+
+# BEAT 2 (rung 2, sequencing + gather): only ARMS after the twin seals (8600). Both players
+# stand together in ONE zone -- the zone is 550 wide on x (> the 250 selftest spacing), so
+# standing in its left half puts the mirror inside too. Walk NORTH from spawn after beat 1.
+[[coop]]
+name = "gathering"
+zone = [-150, -400, 400, -150]
+requires_flag = 8600
+set_flag = 8601
+text = "You stand together. The vault stirs... (gate 8601)"
+
+# BEAT 3 (rung 2, mode="hold"): the classic co-op door. The plate is the VAULT door's zone
+# shifted +250 x exactly -- so solo, standing AT the vault door means the mirror is holding
+# the plate: the door opens (level flag 8602) and the gateway warps to the co-op hangout room
+# 30003 (F6-warp back to 4003 afterwards). On two machines: one player stands on the plate,
+# the other walks through -- and the door SHUTS the moment the plate is released.
+[[coop]]
+name = "vault-plate"
+mode = "hold"
+plate = [150, -1700, 350, -1500]
+set_flag = 8602
+
+[[gateway]]                       # the VAULT door (south wall, center) -- open only while held
+to = 30003
+entrance = 0
+requires_flag = 8602
+zone = [[-100, -1700], [100, -1700], [100, -1500], [-100, -1500]]
+
+# The SEALED door (south wall, left): its plate is far west -- solo, the mirror (always at
+# +250) can NEVER hold it while you stand at this door, so walking into it does NOTHING.
+# That is the negative proof that the hold gate really blocks. (Standing at x ~ -1050 puts
+# the mirror ON this plate -- flag 8603 goes 1, F6-checkable -- but then you're not at the
+# door. Two players CAN open it.)
+[[coop]]
+name = "sealed-plate"
+mode = "hold"
+plate = [-900, -1700, -700, -1500]
+set_flag = 8603
+
+[[gateway]]
+to = 30003
+entrance = 0
+requires_flag = 8603
+zone = [[-500, -1700], [-300, -1700], [-300, -1500], [-500, -1500]]
