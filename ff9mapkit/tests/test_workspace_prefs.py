@@ -48,11 +48,14 @@ def test_retheme_retints_the_version_chip(app):
 
 
 def test_retheme_retints_persistent_chrome(app):
-    # the inline-styled always-alive chrome (Info Hub button + breadcrumb bar) must follow a theme switch
+    # the always-alive chrome must follow a theme switch. Phase 2 moved the Info Hub button to the
+    # QToolButton#hub id-rule, so its violet tint now lives in the app QSS (re-applied by setStyleSheet(qss)),
+    # not an inline sheet; the breadcrumb bar's OWN background stays inline (dynamic, re-applied by repaint_pal).
     w = _win(app)
     w.retheme(pick_palette("gruvbox-dark"))
-    assert theme.GRUVBOX_DARK["help"] in w._hub_btn.styleSheet()        # violet tint tracks pal['help']
-    assert theme.GRUVBOX_DARK["surface"] in w.crumb.styleSheet()        # breadcrumb bar bg re-applied
+    assert w._hub_btn.objectName() == "hub"
+    assert theme.GRUVBOX_DARK["help"] in w.styleSheet()                 # #hub violet tint tracks pal['help']
+    assert theme.GRUVBOX_DARK["surface"] in w.crumb.styleSheet()        # breadcrumb bar bg re-applied (still inline)
 
 
 def test_run_upgrade_without_uv_shows_manual_command(app, monkeypatch):

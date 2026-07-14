@@ -327,7 +327,7 @@ class BreadcrumbBar(QWidget):
                 w.deleteLater()
         if not crumbs:
             ph = QLabel("No campaign open  —  Open a campaign.toml to navigate it.")
-            ph.setStyleSheet(f"color:{self.pal['muted']};")
+            ph.setProperty("role", "muted")
             self._lay.addWidget(ph)
             self._lay.addStretch(1)
             return
@@ -335,12 +335,12 @@ class BreadcrumbBar(QWidget):
         for i, c in enumerate(crumbs):
             if i:
                 sep = QLabel("▸")
-                sep.setStyleSheet(f"color:{self.pal['muted']};")
+                sep.setProperty("role", "muted")
                 self._lay.addWidget(sep)
             text = f"{bc.GLYPH.get(c.level, '')} {c.label}"
             if i == last:
                 leaf = QLabel(text)
-                leaf.setStyleSheet(f"color:{self.pal['text']};font-weight:600;")
+                leaf.setProperty("role", "strong")
                 self._lay.addWidget(leaf)
             else:
                 btn = QPushButton(text)
@@ -438,25 +438,11 @@ class Workspace(QMainWindow):
         else:
             self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
 
-    def _retint_hub_button(self):
-        """Style the Info Hub button as a violet OUTLINE (not a filled block) for the current palette.
-        It's a reference/browse affordance, so it must read as SECONDARY -- the one saturated fill in the
-        chrome is reserved for the primary action (Deploy). Violet = the 'info' hue (matches the Hub's own
-        ? badge); a faint neutral fill on hover, an accent ring on keyboard focus (the inline sheet shadows
-        the app QSS, so the focus rule is repeated here)."""
-        if getattr(self, "_hub_btn", None) is not None:
-            self._hub_btn.setStyleSheet(
-                f"QToolButton {{ background:transparent; color:{self.pal['help']}; "
-                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 10px; font-weight:600; }}"
-                f"QToolButton:hover {{ background:{self.pal['hover']}; color:{self.pal['help_hover']}; "
-                f"border-color:{self.pal['help_hover']}; }}"
-                f"QToolButton:focus {{ border:1px solid {self.pal['accent']}; }}")
-
     def retheme(self, pal):
-        """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the always-alive inline-styled
-        chrome (version chip, Info Hub button, the unsaved-changes dot). Panels that get rebuilt on
-        navigation read the new ``self.pal`` automatically; the one currently open keeps its inline hint
-        colours until it's next rebuilt (clicking away and back refreshes it)."""
+        """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the small remaining chrome that is
+        NOT QSS-driven (the version chip's 2-state colour, the doc-mode chip, the unsaved-changes dot, the
+        breadcrumb bar's own background). Everything role/#id-styled (labels, Info Hub button, inspector
+        body, console/crumb strips) re-tints automatically via ``setStyleSheet(qss)`` below."""
         self.pal = pal
         app = QApplication.instance()
         if app is not None:
@@ -465,13 +451,10 @@ class Workspace(QMainWindow):
         self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
-        self._retint_version_chip()
-        self._retint_hub_button()
+        self._retint_version_chip()                           # dynamic 2-state (accent 'update' vs muted)
         if getattr(self, "crumb", None) is not None:
-            self.crumb.repaint_pal(pal)                       # bar bg/border + trail labels (not QSS-driven)
-            self._set_chip(getattr(self, "_chip_mode", None)) # re-tint the persistent chip from the new palette
-        if getattr(self, "insp_body", None) is not None:
-            self.insp_body.setStyleSheet(f"color:{pal['muted']};")   # the always-alive inspector base colour
+            self.crumb.repaint_pal(pal)                       # the bar's own bg/border (not QSS-driven)
+            self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
 
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
@@ -813,8 +796,8 @@ class Workspace(QMainWindow):
                                 "flags by name)")
         self.act_hub.triggered.connect(self._open_catalog)
         tb.addAction(self.act_hub)
-        self._hub_btn = tb.widgetForAction(self.act_hub)   # color it violet (= the 'info / reference' hue, like
-        self._retint_hub_button()                           # the Info Hub's own ? badge) so the popup stands out
+        self._hub_btn = tb.widgetForAction(self.act_hub)   # a violet OUTLINE (info hue, secondary to Deploy) via
+        self._hub_btn.setObjectName("hub")                  # the QToolButton#hub id-rule in style.py (re-tints on theme switch)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         spacer.setStyleSheet("background: transparent;")   # the global QWidget rule painted it $bg -- a
@@ -870,8 +853,8 @@ class Workspace(QMainWindow):
         # whatever is open. Lives here (not the toolbar, which is width-budgeted to fit 1280) because it
         # acts on exactly the thing the breadcrumb names.
         crumb_row = QWidget()
-        crumb_row.setStyleSheet(f"background:{self.pal['surface']};"
-                                f"border-bottom:1px solid {self.pal['border']};")
+        crumb_row.setObjectName("crumbRow")                 # bg/border via QWidget#crumbRow (re-tints on theme switch)
+        crumb_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)   # a bare QWidget needs this to paint an ancestor bg rule
         ch = QHBoxLayout(crumb_row)
         ch.setContentsMargins(0, 0, 8, 0)
         ch.setSpacing(6)
@@ -981,7 +964,7 @@ class Workspace(QMainWindow):
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
-        self.insp_title.setStyleSheet("font-weight:600;font-size:15px;")
+        self.insp_title.setProperty("role", "h3")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
@@ -990,7 +973,7 @@ class Workspace(QMainWindow):
                                                | Qt.TextInteractionFlag.TextSelectableByMouse)
         self.insp_body.linkActivated.connect(self._inspect_link)
         self._inspect_path = None
-        self.insp_body.setStyleSheet(f"color:{self.pal['muted']};")
+        self.insp_body.setProperty("role", "muted")   # re-tints via QSS -> retheme's insp_body re-tint was dropped
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
@@ -1026,17 +1009,14 @@ class Workspace(QMainWindow):
         panel_v.setSpacing(0)
 
         head = QWidget()                            # the always-visible title strip = the collapse control
-        head.setStyleSheet(f"background:{self.pal['surface']};"
-                           f"border-top:1px solid {self.pal['border']};")
+        head.setObjectName("consoleHead")           # bg/border via QWidget#consoleHead (re-tints on theme switch)
+        head.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)   # a bare QWidget needs this to paint an ancestor bg rule
         hh = QHBoxLayout(head)
         hh.setContentsMargins(4, 0, 4, 0)
         self._console_btn = QToolButton()
+        self._console_btn.setObjectName("consoleToggle")   # flat link-style toggle via QToolButton#consoleToggle
         self._console_btn.setAutoRaise(True)
         self._console_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._console_btn.setStyleSheet(
-            f"QToolButton {{ background:transparent; border:0; padding:5px 6px; "
-            f"color:{self.pal['muted']}; font-weight:600; }}"
-            f"QToolButton:hover {{ color:{self.pal['text']}; }}")
         self._console_btn.clicked.connect(lambda: self._toggle_console())
         hh.addWidget(self._console_btn)
         hh.addStretch(1)
@@ -7510,8 +7490,10 @@ def _smoke(win):
     assert not any(l.startswith("Campaign") for l in nolabels), nolabels
     assert any(l.startswith("Archetypes") for l in nolabels) and lib2.cats.count() >= 5, nolabels
     assert "Browse catalog (Info Hub)" in [e[0] for e in win._command_index()]
-    # the toolbar Info Hub button is tinted the violet 'info' hue (so the catalog popup stands out)
-    assert win._hub_btn is not None and win.pal["help"] in win._hub_btn.styleSheet()
+    # the toolbar Info Hub button is tinted the violet 'info' hue via the QToolButton#hub id-rule (Phase 2:
+    # moved out of an inline stylesheet so it re-tints on a live theme switch), so the catalog popup stands out
+    assert win._hub_btn is not None and win._hub_btn.objectName() == "hub"
+    assert "QToolButton#hub" in win.styleSheet() and win.pal["help"] in win.styleSheet()
 
     # Check surfaces the dangling GHOST edge as a problem
     win.on_check()
