@@ -258,3 +258,5 @@ examples/stolen-ember/**/mapconfig.bytes
 examples/stolen-ember/**/*.bin
 examples/stolen-ember/**/*.carrytext.json
 examples/stolen-ember/dist/
+/ff9mapkit/ff9mapkit/data/thumbs
+/ff9mapkit/ff9mapkit/data/model_thumbs
