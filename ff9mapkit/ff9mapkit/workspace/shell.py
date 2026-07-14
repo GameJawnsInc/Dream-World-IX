@@ -1172,7 +1172,7 @@ class Workspace(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
         title = QLabel("Dream World IX — Workspace")
-        title.setStyleSheet("font-size:22px;font-weight:700;")
+        title.setProperty("role", "display")
         v.addWidget(title)
         self._home_status = QLabel("")
         self._home_status.setWordWrap(True)
@@ -1191,7 +1191,7 @@ class Workspace(QMainWindow):
                        "whole arc. You can open any level directly — none needs the others.")
         intro.setWordWrap(True)
         intro.setTextFormat(Qt.TextFormat.RichText)
-        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        intro.setProperty("role", "muted")
         v.addWidget(intro)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
         self._recent_head = self._home_section("Recent")
@@ -1223,7 +1223,8 @@ class Workspace(QMainWindow):
         v.addStretch(1)
         hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <b>Close</b> (toolbar) returns here.")
         hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet(f"color:{self.pal['muted']};margin-top:6px;")
+        hint.setProperty("role", "muted")
+        hint.setContentsMargins(0, 6, 0, 0)                # was margin-top:6px in the inline sheet
         v.addWidget(hint)
         scroll.setWidget(page)
         self._welcome_tab = scroll                 # kept so Close can return here
@@ -1232,8 +1233,8 @@ class Workspace(QMainWindow):
 
     def _home_section(self, text):
         lab = QLabel(text.upper())
-        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;font-size:11px;"
-                          "letter-spacing:1px;margin-top:10px;")
+        lab.setProperty("role", "overline")
+        lab.setContentsMargins(0, 10, 0, 0)                # was margin-top:10px in the inline sheet
         return lab
 
     def _home_row(self, glyph, title, desc, buttons):
@@ -1247,7 +1248,8 @@ class Workspace(QMainWindow):
         h.setContentsMargins(16, 12, 14, 12)
         h.setSpacing(12)
         g = QLabel(glyph)
-        g.setStyleSheet(f"color:{self.pal['accent']};font-size:17px;")
+        g.setProperty("role", "accent")                   # themed colour via QSS (fixes theme-switch staleness)
+        g.setStyleSheet("font-size:17px;")                # the decorative glyph size cascades on top of the role
         g.setFixedWidth(26)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
@@ -1257,10 +1259,10 @@ class Workspace(QMainWindow):
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet("font-weight:600;font-size:14px;")
+        t.setProperty("role", "strong")
         d = QLabel(desc)
         d.setWordWrap(True)
-        d.setStyleSheet(f"color:{self.pal['muted']};")
+        d.setProperty("role", "muted")
         cv.addWidget(t)
         cv.addWidget(d)
         h.addWidget(col, 1)

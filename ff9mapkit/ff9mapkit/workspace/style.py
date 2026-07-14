@@ -184,6 +184,32 @@ _QSS = Template(
         background: $surface_3; border: 1px solid $border; border-radius: $radius_sm;
         padding: 2px $space_2; color: $muted; font-size: $type_caption;
     }
+
+    /* --- shell.py chrome roles (Phase 2, file 7/7) --- */
+    QLabel[role="strong"]   { font-weight: 600; }                                   /* 600-weight body text */
+    QLabel[role="h3"]       { font-size: 15px; font-weight: 600; }                  /* a sub-h2 section title */
+    QLabel[role="overline"] { font-size: $type_caption; font-weight: 600; color: $muted; letter-spacing: 1px; }
+    QToolButton[role="link"] { border: none; font-weight: 600; text-align: left; } /* flat link-style header btn */
+    /* the lint verdict banner: a static frame with a per-verdict accent stripe (state set at runtime) */
+    QLabel[role="banner"] {
+        background: $surface; color: $text; border-left: 4px solid $muted;
+        border-radius: 6px; padding: 9px;
+    }
+    QLabel[role="banner"][state="ok"]    { border-left: 4px solid $success; }
+    QLabel[role="banner"][state="warn"]  { border-left: 4px solid $warn; }
+    QLabel[role="banner"][state="error"] { border-left: 4px solid $error; }
+    /* id-scoped chrome moved out of inline setStyleSheet -- retheme's setStyleSheet(qss) now re-tints these
+       (they used hand re-tints or none, so several were STALE on a live theme switch; this fixes that). */
+    QToolButton#hub {
+        background: transparent; color: $help; border: 1px solid $help;
+        border-radius: 6px; padding: 6px 10px; font-weight: 600;
+    }
+    QToolButton#hub:hover { background: $hover; color: $help_hover; border-color: $help_hover; }
+    QToolButton#hub:focus { border: 1px solid $accent; }
+    QWidget#crumbRow    { background: $surface; border-bottom: 1px solid $border; }
+    QWidget#consoleHead { background: $surface; border-top: 1px solid $border; }
+    QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
+    QToolButton#consoleToggle:hover { color: $text; }
     """
 )
 
