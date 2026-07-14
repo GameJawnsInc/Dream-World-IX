@@ -261,8 +261,7 @@ class BattleDoc(QWidget):
         split.addWidget(right)
         split.setSizes([200, 520])
         outer.addWidget(split, 1)
-        self._placeholder("Open a battle map — or Fork one from a real FF9 battle — to tune its encounter: "
-                          "enemies, AI, formation, and rewards.")
+        self._placeholder()
         self.left.setVisible(False)          # no dead column of disabled buttons on an empty tab
 
     def _clear(self):
@@ -272,12 +271,18 @@ class BattleDoc(QWidget):
             if w is not None:
                 w.deleteLater()
 
-    def _placeholder(self, text):
+    def _placeholder(self):
+        """The tab's teaching empty-state -- no battle map open. Points at the two real first actions (Fork
+        a real FF9 battle / open an existing battle.toml); Fork only appears when the install is available."""
+        from .widgets import empty_state
         self._clear()
-        lbl = QLabel(text)
-        lbl.setProperty("role", "muted")
-        lbl.setWordWrap(True)
-        self.host_lay.addWidget(lbl)
+        can_fork = self._run is not None and self.kit is not None
+        self.host_lay.addWidget(empty_state(
+            "▦", "No battle map open",
+            teach=("A battle map defines an encounter — its enemies, AI, formation, and rewards. "
+                   "Fork one from a real FF9 battle, or open an existing battle.toml."),
+            actions=[("Fork a battle…", self._fork_dialog) if can_fork else None,
+                     ("Open battle.toml…", self.browse)]))
         self.host_lay.addStretch(1)
 
     def open_scene_id(self):

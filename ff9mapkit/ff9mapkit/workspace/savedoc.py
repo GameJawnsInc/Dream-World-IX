@@ -18,13 +18,14 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMessageBox, QPlainTextEdit,
+    QComboBox, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .. import flags as _flags
 from .. import save as _save
 from .. import save_items as _si
+from .widgets import PlaceholderListWidget
 
 
 class StoryStateDoc(QWidget):
@@ -52,13 +53,15 @@ class StoryStateDoc(QWidget):
 
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
-        self.slots = QListWidget()
+        self.slots = PlaceholderListWidget("Open a save (above) to list its slots here.", palette["muted"])
         self.slots.currentRowChanged.connect(lambda _r: self._on_slot())
         split.addWidget(self.slots)
 
         self.tabs = QTabWidget()
         self.inspect = QPlainTextEdit()
         self.inspect.setReadOnly(True)
+        self.inspect.setPlaceholderText("Select a save slot on the left to read its scenario counter and "
+                                        "story flags.")
         self.tabs.addTab(self.inspect, "Inspect")
         self.tabs.addTab(self._build_diff(), "Diff")
         self.tabs.addTab(self._build_edit(), "Edit")
@@ -95,6 +98,8 @@ class StoryStateDoc(QWidget):
         lay.addLayout(row)
         self.diff_txt = QPlainTextEdit()
         self.diff_txt.setReadOnly(True)
+        self.diff_txt.setPlaceholderText("Open a second save (B) above and Compare to see which story flags "
+                                         "and scenario beats changed between them.")
         lay.addWidget(self.diff_txt, 1)
         return page
 
@@ -404,12 +409,14 @@ class ItemEquipDoc(QWidget):
 
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
-        self.slots = QListWidget()
+        self.slots = PlaceholderListWidget("Open a save (above) to list its slots here.", palette["muted"])
         self.slots.currentRowChanged.connect(lambda _r: self._on_slot())
         split.addWidget(self.slots)
         self.tabs = QTabWidget()
         self.inspect = QPlainTextEdit()
         self.inspect.setReadOnly(True)
+        self.inspect.setPlaceholderText("Select a save slot on the left to read its gil, inventory, "
+                                        "equipment, stats, abilities and key items.")
         self.tabs.addTab(self.inspect, "Inspect")
         self.tabs.addTab(self._build_edit(), "Edit")
         split.addWidget(self.tabs)

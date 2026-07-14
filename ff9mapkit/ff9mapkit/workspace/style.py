@@ -179,6 +179,10 @@ _QSS = Template(
     QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */
     QLabel[role="caption"][state="warn"]  { color: $warn; }    /* a soft warning (e.g. text may overflow) */
     QLabel[role="subtle"]  { color: $text_subtle; }
+    /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
+       caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */
+    QLabel[role="empty_glyph"] { font-size: 34px; color: $text_subtle; }
+    QLabel[role="empty_title"] { font-size: $type_h2; font-weight: 600; color: $text; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
     QLabel[role="chip"] {
         background: $surface_3; border: 1px solid $border; border-radius: $radius_sm;

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
-from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QFrame, QLabel, QListWidget
+from PySide6.QtWidgets import (
+    QAbstractSpinBox, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget, QPushButton,
+    QVBoxLayout, QWidget,
+)
 
 
 class WheelGuard(QObject):
@@ -98,6 +101,54 @@ def status_chip(text, kind="info", *, parent=None):
     if text:
         lab.setAccessibleName(f"{kind}: {text}")
     return lab
+
+
+def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None):
+    """A centered TEACHING empty-state -- the antidote to a black void / a bare "nothing loaded" panel:
+    a large muted glyph, a one-line purpose, an optional teaching sentence, and optional primary-action
+    button(s). ``actions`` is an iterable of ``(label, callback)`` (falsy entries are skipped, so a caller
+    can gate one on availability); the first surviving action is accented as the primary. The glyph is
+    decorative (no accessible name) -- the purpose + teach lines carry the meaning for a screen reader.
+    Returns a QWidget ready to drop into any empty host layout."""
+    w = QWidget(parent)
+    v = QVBoxLayout(w)
+    v.setContentsMargins(24, 24, 24, 24)
+    v.setSpacing(8)
+    v.addStretch(1)
+    g = role_label(glyph, "empty_glyph")
+    g.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    g.setAccessibleName("")                             # decorative -- don't announce the glyph char
+    v.addWidget(g)
+    p = role_label(purpose, "empty_title")
+    p.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    p.setWordWrap(True)
+    v.addWidget(p)
+    if teach:
+        t = caption(teach)
+        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t.setWordWrap(True)
+        t.setMinimumWidth(380)                          # a word-wrapped label between stretches collapses to
+        t.setMaximumWidth(460)                          # its hint width -- pin a readable measure (~2 lines)
+        trow = QHBoxLayout()
+        trow.addStretch(1)
+        trow.addWidget(t)
+        trow.addStretch(1)
+        v.addLayout(trow)
+    acts = [a for a in actions if a]
+    if acts:
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        for i, (label, cb) in enumerate(acts):
+            b = QPushButton(label)
+            if i == 0:                                  # the first action is the primary -> accented
+                b.setObjectName("accent")
+            if cb is not None:
+                b.clicked.connect(lambda _=False, c=cb: c())
+            brow.addWidget(b)
+        brow.addStretch(1)
+        v.addLayout(brow)
+    v.addStretch(1)
+    return w
 
 
 def repolish(widget):

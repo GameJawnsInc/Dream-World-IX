@@ -42,6 +42,26 @@ def test_tabular_turns_on_tnum(app):
     assert lab.font().isFeatureSet(QFont.Tag("tnum"))
 
 
+def test_empty_state_builds_glyph_title_teach_and_actions(app):
+    from PySide6.QtWidgets import QPushButton
+    fired = []
+    w = widgets.empty_state(
+        "▦", "No battle map open",
+        teach="A battle map defines an encounter.",
+        actions=[("Fork…", lambda: fired.append("fork")),
+                 None,                                       # a gated-off action is skipped, not rendered
+                 ("Open…", lambda: fired.append("open"))])
+    labels = {lb.property("role"): lb for lb in w.findChildren(QLabel)}
+    assert "empty_glyph" in labels and "empty_title" in labels and "caption" in labels
+    assert labels["empty_glyph"].accessibleName() == "", "the glyph is decorative -- not announced"
+    assert labels["empty_title"].text() == "No battle map open"
+    btns = w.findChildren(QPushButton)
+    assert [b.text() for b in btns] == ["Fork…", "Open…"], "falsy actions are dropped"
+    assert btns[0].objectName() == "accent", "the first action is the accented primary"
+    btns[0].click(); btns[1].click()
+    assert fired == ["fork", "open"], "action callbacks are wired"
+
+
 def test_build_form_flips_a_bad_field_to_the_error_state(app):
     # The Phase-2 forms_qt migration replaced the inline red/muted hint styles with a caption `role` + a
     # `state` property (styled by QSS, repolished on change). Assert the mechanism: a value that fails its

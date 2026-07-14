@@ -451,10 +451,16 @@ class Workspace(QMainWindow):
         self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
+        for _svd in (getattr(self, "story_state", None), getattr(self, "item_equip", None)):
+            _sl = getattr(_svd, "slots", None)                # the save docs' empty slot-list hint (painted, not QSS)
+            if isinstance(_sl, PlaceholderListWidget):
+                _sl.placeholder_color = pal["muted"]
         self._retint_version_chip()                           # dynamic 2-state (accent 'update' vs muted)
         if getattr(self, "crumb", None) is not None:
             self.crumb.repaint_pal(pal)                       # the bar's own bg/border (not QSS-driven)
             self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
+        if getattr(self, "map", None) is not None:
+            self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
 
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
