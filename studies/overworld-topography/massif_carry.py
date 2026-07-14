@@ -287,10 +287,16 @@ gtan = [list(t) for t in bm.chan_arrays[X.CH_TAN]]
 gtopo = [X.decode_id(int(round(gtan[t[0]][0])))["topograph"] for t in gtris]
 assert not any(tp in ROCK for tp in gtopo), "bench not pristine -- restore the .bak first"
 
-# ---- 2b. THE MINT-HOLE PATCH: the r31 seed-42 mint ships a MISSING grass tri (three
-# once-edges forming a closed 3-cycle at (143.5, 3.2, -1263.8) -- the in-game "sliver";
-# a kit bug, flagged separately). Detect every once-edge 3-cycle above sea level and
-# fill it with its neighbors' own language: each corner copies uv/normal/id from a
+# ---- 2b. THE MINT-HOLE PATCH: the r31 seed-42 mint shipped a MISSING grass tri (three
+# once-edges forming a closed 3-cycle at (143.5, 3.2, -1263.8) -- the in-game "sliver".
+# ★ FIXED IN THE KIT 2026-07-13 (e8ca8e0, THE RING-CONFORMITY LAW: an unconstrained
+# Delaunay can pick the wrong diagonal at a concave rim dent, orphaning the face between
+# the wall-top weld and the grass; build_landmass now recovers the ring edge via
+# Sloan-style diagonal flips + a closed-surface gate). A bench re-minted from master now
+# ships this face already -- this patch is BELT-AND-SUSPENDERS (a no-op there) and stays
+# only because the currently-deployed/approved bench predates the fix. Detect every
+# once-edge 3-cycle above sea level and fill it with its neighbors' own language: each
+# corner copies uv/normal/id from a
 # coincident entry whose tri shares the patch tri's 4u cell (same mains mapping).
 eu_h = Counter()
 for tri in gtris:
