@@ -46,3 +46,14 @@ def test_non_string_theme_falls_back(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     prefs.put("theme", 123)                           # a malformed value must not break theme()
     assert prefs.theme() == "auto"
+
+
+def test_density_defaults_and_round_trips(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.density() == "comfortable"           # the built-in default (newcomer-friendly)
+    prefs.set_density("compact")
+    assert prefs.density() == "compact" and prefs.load()["density"] == "compact"
+    prefs.set_density("bogus")                         # an unknown value is coerced back to the default
+    assert prefs.density() == "comfortable"
+    prefs.put("density", 5)                            # a malformed on-disk value degrades to the default
+    assert prefs.density() == "comfortable"

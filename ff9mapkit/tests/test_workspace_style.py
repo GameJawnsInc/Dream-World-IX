@@ -73,3 +73,24 @@ def test_qss_accepts_an_already_derived_palette():
     # a caller may hand qss() a derived dict; derive() is idempotent, so this must not double-apply or raise
     # -- and it renders identically to passing the base palette.
     assert style.qss(theme.DARK) == style.qss(theme.derive(theme.DARK))
+
+
+def test_qss_density_profiles_both_substitute_cleanly():
+    # both density profiles must fully substitute (a missing $tb_pad/$row_pad/... would raise) for every theme
+    for mode, pal in theme.THEMES.items():
+        for dens in ("comfortable", "compact"):
+            css = style.qss(pal, dens)
+            assert "$" not in css, (mode, dens)
+    # an unknown density falls back to comfortable (never raises / never leaves a placeholder)
+    assert style.qss(theme.DARK, "bogus") == style.qss(theme.DARK, "comfortable")
+    assert style.qss(theme.DARK) == style.qss(theme.DARK, "comfortable")   # default is comfortable
+
+
+def test_qss_compact_is_tighter_than_comfortable():
+    # the point of the toggle: compact shrinks the control paddings. Comfortable keeps the roomy tree rows
+    # (6px 8px) it was given; compact drops them (3px 4px) -- so the two renders must differ, tightly.
+    comfy = style.qss(theme.DARK, "comfortable")
+    tight = style.qss(theme.DARK, "compact")
+    assert comfy != tight
+    assert "padding: 6px 8px" in comfy and "padding: 6px 8px" not in tight   # the roomy row padding is comfy-only
+    assert "padding: 3px 4px" in tight                                       # compact's tighter row padding

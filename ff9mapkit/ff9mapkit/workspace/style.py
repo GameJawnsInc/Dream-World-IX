@@ -21,6 +21,24 @@ _SCALES = {
     "type_label": "13px", "type_body": "13px", "type_caption": "11px", "type_mono": "12px",
 }
 
+# UI density -- two profiles for the control paddings/spacings that set how tight the app reads. Comfortable
+# (the default) matches the proven layout, with one deliberate "more whitespace" nudge: roomier tree/list
+# rows. Compact tightens throughout for a power user who wants more on screen. NB: Comfortable keeps the
+# toolbar + button padding as-is so the toolbar still FITS at 1280px (its hard constraint); the whitespace
+# gains live in the content surfaces (rows), and Compact only ever shrinks.
+_DENSITY = {
+    "comfortable": {
+        "tb_pad": "5px 8px", "tb_space": "6px", "btn_pad": "6px 10px",
+        "input_pad": "6px 9px", "combo_pad": "4px 8px", "row_pad": "6px 8px",
+        "tab_pad": "7px 16px", "gb_margin_top": "12px", "gb_pad_top": "10px", "menu_pad": "6px 22px",
+    },
+    "compact": {
+        "tb_pad": "3px 6px", "tb_space": "4px", "btn_pad": "4px 8px",
+        "input_pad": "4px 7px", "combo_pad": "3px 7px", "row_pad": "3px 4px",
+        "tab_pad": "5px 12px", "gb_margin_top": "10px", "gb_pad_top": "8px", "menu_pad": "5px 16px",
+    },
+}
+
 # Every $name below must be a key in the palette (editor.theme LIGHT/DARK provide them all).
 _QSS = Template(
     """
@@ -30,11 +48,11 @@ _QSS = Template(
     /* Toolbar metrics are deliberately COMPACT (spacing 6 / button padding 10): every action plus the
        search pill and the gear menu must FIT at the default 1280px window -- overflowing items land in
        Qt's hidden extension chevron, which is how the Ctrl-K search and Preferences went invisible. */
-    QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: 5px 8px; spacing: 6px; }
+    QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: $tb_pad; spacing: $tb_space; }
     QToolBar::separator { background: $border; width: 1px; margin: 5px 4px; }
     QToolButton, QPushButton {
         background: $surface_btn; color: $text; border: 1px solid $border;
-        border-radius: 6px; padding: 6px 10px;
+        border-radius: 6px; padding: $btn_pad;
     }
     QToolButton:hover, QPushButton:hover { background: $hover; }
     QPushButton:pressed, QToolButton:pressed { background: $pressed; }
@@ -79,7 +97,7 @@ _QSS = Template(
 
     QLineEdit {
         background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
-        padding: 6px 9px; selection-background-color: $accent; selection-color: $accent_fg;
+        padding: $input_pad; selection-background-color: $accent; selection-color: $accent_fg;
     }
     QLineEdit:focus { border: 1px solid $accent; }
 
@@ -87,7 +105,7 @@ _QSS = Template(
        the platform palette, which need not match the chosen theme) */
     QComboBox, QAbstractSpinBox {
         background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
-        padding: 4px 8px; selection-background-color: $accent; selection-color: $accent_fg;
+        padding: $combo_pad; selection-background-color: $accent; selection-color: $accent_fg;
     }
     QComboBox:focus, QAbstractSpinBox:focus { border: 1px solid $accent; }
     QComboBox:disabled, QAbstractSpinBox:disabled { color: $muted; background: $bg; }
@@ -108,14 +126,14 @@ _QSS = Template(
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;
     }
-    QTreeView::item, QListWidget::item { padding: 5px 4px; border-radius: 4px; }
+    QTreeView::item, QListWidget::item { padding: $row_pad; border-radius: 4px; }
     QTreeView::item:hover, QListWidget::item:hover { background: $hover; }
     QTreeView::item:selected, QListWidget::item:selected { background: $accent; color: $accent_fg; }
     QHeaderView::section { background: $surface_btn; color: $muted; border: 0; padding: 5px; }
 
     QTabWidget::pane { border: 1px solid $border; border-radius: 8px; top: -1px; }
     QTabBar::tab {
-        background: $surface_btn; color: $muted; padding: 7px 16px; border: 1px solid $border;
+        background: $surface_btn; color: $muted; padding: $tab_pad; border: 1px solid $border;
         border-bottom: 2px solid transparent; border-top-left-radius: 6px; border-top-right-radius: 6px;
         margin-right: 2px;
     }
@@ -127,7 +145,7 @@ _QSS = Template(
        border cleanly. Roomier padding gives the dense docs' content air. */
     QGroupBox {
         background: $surface_2; border: 1px solid $border; border-radius: 8px;
-        margin-top: 12px; padding-top: 10px;
+        margin-top: $gb_margin_top; padding-top: $gb_pad_top;
     }
     /* NB: no left/right padding -- a long, non-wrapping QRadioButton label (Build & Deploy's New-Game
        radio) would overflow into a horizontal scroll. Content is inset by its own layout margins. */
@@ -143,7 +161,7 @@ _QSS = Template(
 
     /* dropdown menus (the toolbar Field / Campaign / Journey buttons) */
     QMenu { background: $surface; border: 1px solid $border; border-radius: 6px; padding: 4px; }
-    QMenu::item { padding: 6px 22px; border-radius: 4px; }
+    QMenu::item { padding: $menu_pad; border-radius: 4px; }
     QMenu::item:selected { background: $accent; color: $accent_fg; }
     QMenu::separator { height: 1px; background: $border; margin: 4px 6px; }
 
@@ -218,10 +236,13 @@ _QSS = Template(
 )
 
 
-def qss(palette: dict) -> str:
+def qss(palette: dict, density: str = "comfortable") -> str:
     """Render the workspace stylesheet for ``palette`` (an :mod:`..editor.theme` LIGHT/DARK dict).
 
     Derives the semantic tokens (elevation ladder, focus, tinted selection, ...) and merges the theme-
-    independent scales, so the template may reference any of them. ``derive`` is idempotent, so a base OR
-    an already-derived palette both work -- callers (tests, the shell) need not derive up front."""
-    return _QSS.substitute({**_SCALES, **derive(palette)})
+    independent scales + the chosen ``density`` profile (``"comfortable"`` default / ``"compact"``), so the
+    template may reference any of them. ``derive`` is idempotent, so a base OR an already-derived palette
+    both work -- callers (tests, the shell) need not derive up front. An unknown density falls back to
+    comfortable."""
+    dens = _DENSITY.get(density, _DENSITY["comfortable"])
+    return _QSS.substitute({**_SCALES, **dens, **derive(palette)})

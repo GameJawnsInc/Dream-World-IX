@@ -395,10 +395,11 @@ class Workspace(QMainWindow):
         self.setWindowIcon(_app_icon())
         self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
+        self._density = prefs.density()            # UI density (comfortable default / compact); live-toggleable
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
-        self.setStyleSheet(qss(pal))
+        self.setStyleSheet(qss(pal, self._density))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
@@ -447,7 +448,7 @@ class Workspace(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
-        self.setStyleSheet(qss(pal))
+        self.setStyleSheet(qss(pal, self._density))
         self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
@@ -461,6 +462,18 @@ class Workspace(QMainWindow):
             self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
         if getattr(self, "map", None) is not None:
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
+
+    def _apply_density(self, density):
+        """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
+        no palette change. Used by Preferences' live preview and the Ctrl-K toggle."""
+        self._density = density if density in prefs.DENSITIES else "comfortable"
+        self.setStyleSheet(qss(self.pal, self._density))
+
+    def _toggle_density(self):
+        """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
+        self._apply_density("compact" if self._density == "comfortable" else "comfortable")
+        prefs.set_density(self._density)
+        self.statusBar().showMessage(f"Density: {self._density}", 3000)
 
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
@@ -649,6 +662,13 @@ class Workspace(QMainWindow):
         combo.setCurrentIndex(ix if ix >= 0 else 0)
         combo.currentIndexChanged.connect(lambda i: self.retheme(pick_palette(combo.itemData(i))))
         form.addRow("Theme", combo)
+        dens_combo = QComboBox()
+        for mode, label in (("comfortable", "Comfortable — roomier (default)"), ("compact", "Compact — tighter")):
+            dens_combo.addItem(label, mode)
+        dix = dens_combo.findData(self._density)
+        dens_combo.setCurrentIndex(dix if dix >= 0 else 0)
+        dens_combo.currentIndexChanged.connect(lambda i: self._apply_density(dens_combo.itemData(i)))
+        form.addRow("Density", dens_combo)
         lay.addLayout(form)
         hint = QLabel("Applies instantly. “Match system” follows your Windows light/dark setting.")
         hint.setWordWrap(True)
@@ -676,19 +696,26 @@ class Workspace(QMainWindow):
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         lay.addWidget(bb)
         original = self.pal
+        original_density = self._density
         state = {"ok": False}
 
         def _accept():
             state["ok"] = True
             prefs.set_theme(combo.currentData())
+            prefs.set_density(dens_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
 
+        def _finish(_r):
+            if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density preview
+                self._density = original_density
+                self.retheme(original)                    # re-applies qss() with the restored density
+
         bb.accepted.connect(_accept)
         bb.rejected.connect(dlg.reject)
-        dlg.finished.connect(lambda _r: None if state["ok"] else self.retheme(original))
+        dlg.finished.connect(_finish)
         dlg.exec()
 
     def _open_about(self):
@@ -3299,6 +3326,7 @@ class Workspace(QMainWindow):
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
+            ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
@@ -6870,6 +6898,14 @@ def _smoke(win):
     win._refresh_recent()
     assert win._recent_lay.count() == 1, win._recent_lay.count()
     assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
+    # DENSITY toggle: Comfortable is the default; the Ctrl-K command flips it live (re-renders the QSS with the
+    # tighter padding profile) and the stylesheet visibly changes -- no palette/theme change.
+    assert win._density == "comfortable" and any("density" in lbl.lower() for lbl, _k, _cb in win._command_index())
+    _qss_comfy = win.styleSheet()
+    win._toggle_density()
+    assert win._density == "compact" and win.styleSheet() != _qss_comfy, "Compact re-renders the QSS"
+    win._toggle_density()
+    assert win._density == "comfortable" and win.styleSheet() == _qss_comfy, "toggling back restores Comfortable"
     assert win._open_recent("campaign", _rec[0]["path"]) is True
     prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
     assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
