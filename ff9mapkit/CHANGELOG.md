@@ -5,19 +5,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-### Added — `world-entrance --nameplate`: the native overworld entrance HUD (location nameplate + "Enter with [X]")
-- Real overworld town entry shows a native game-font **location nameplate** + an **"Enter with [X]"**
-  dialog on approach. That HUD can't be bolted onto our bypass trigger: **window 6 is a shared,
-  main-loop-managed HUD slot** (the standing gil/time overlays reuse it), so hand-showing it fights the
-  HUD. `--nameplate` (with `--action-prompt`) instead runs the **real dispatcher handshake** verbatim —
-  `Byte[39] = <case>` + `RunScriptAsync(6,1,11)` — so the native machinery (func-0xB → the main loop's
-  `WindowAsync(6,4,2)` + `WindowAsync(7,16,40)`; the idle loop's auto-hide) owns the whole nameplate
-  lifecycle. The case is **1**, the only value UNMAPPED in every free-roam dispatcher's AREA switch
-  (2–60 are real entrances), so the native confirm→AREA-switch hits its no-op default and NO native warp
-  fires — the actual warp stays on our own `B_KEYON(Confirm)` gate → zone-in fade → `Field(<custom>)`.
-- `entrance.nameplate_summon()` / `entrance_func_body_direct(..., nameplate=True)`; the `RunScriptAsync`
-  bytes are byte-copied from the trigger template, and a test asserts the summon shape + that case 1 is
-  unmapped in every dispatcher. Deploy: `world-entrance --field-direct <id> --action-prompt --nameplate`.
+### Added — `world-entrance --nameplate-name`: a custom-named native overworld entrance (AREA-switch surgery)
+- `world-entrance --field-direct <id> --nameplate-name "Waystation"` authors a custom overworld entrance that
+  runs the game's **real native flow**, so its approach nameplate shows a genuine **custom location name** (+ the
+  native "Enter with [X]" dialog). It repoints a **dead** AREA-switch case → a tiny appended handler `[set the
+  location's explored bit] + Field(<id>)`, writes the **stock** dispatcher trigger to that case, and registers the
+  name — the entrance is indistinguishable from a real town's, so none of the self-timing failure modes apply.
+- The mechanism, pinned over the investigation: the approach nameplate name is **world text block 68** txid-0
+  `split[case]` (`SetTextVariable(0, Byte[24])` + a `[TEXT=0,0]` tag → `GetTableText(0)[Byte[24]]`), **not**
+  `worldLocationText` (that feeds the in-menu header). The kit's `world.navimap` writes block 68; a location reads
+  "?" until its known bit (`gEventGlobal[92/94/96/98]`, per case range) is set — the handler sets it on entry, so
+  the plate faithfully shows "?" until first visit, then the name. The default case is 53 (a placeholder slot with
+  no live map-marker side effect).
+- New generic tooling: `eb.edit.repoint_switch_case` / `find_switch` / `switch_case_reloff_pos` — a contiguous
+  (0x0B/0x0D) switch-arm repoint that appends a handler and rewrites one 2-byte reloffset, refuses a live (mapped)
+  case, and asserts round-trip identity. Round-trip byte-exact across all 9 free-roam dispatchers × 7 languages.
+  (The earlier self-summon `--action-prompt --nameplate` path is superseded — kept as a flag.)
 
 ### Fixed — `world-entrance` worldmap EXIT fades out before the transition (was a hard cut)
 - Leaving a field back to the overworld hard-cut instead of fading. The kit carries only the SHARED exit

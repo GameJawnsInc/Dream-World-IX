@@ -2903,6 +2903,15 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
         print("--nameplate needs --action-prompt (it rides the confirm-gated entrance -- it summons the native "
               "location nameplate + \"Enter with [X]\" HUD while the tile is stood on)", file=sys.stderr)
         return 2
+    if args.nameplate_name is not None:
+        if args.field_direct is None:
+            print("--nameplate-name needs --field-direct <id> (the CUSTOM-name nameplate SURGERY warps a custom "
+                  "field through a repointed dead AREA-switch case)", file=sys.stderr)
+            return 2
+        if args.action_prompt or args.nameplate:
+            print("--nameplate-name is the NATIVE-FLOW surgery nameplate -- drop --action-prompt/--nameplate "
+                  "(the superseded self-summon path)", file=sys.stderr)
+            return 2
     building = None
     try:
         if args.building:
@@ -2917,6 +2926,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
             trigger_only=args.trigger_only, prompt=args.action_prompt, nameplate=args.nameplate,
+            nameplate_name=args.nameplate_name, nameplate_case=args.nameplate_case,
             dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
@@ -2931,9 +2941,18 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if args.action_prompt:
         print("  action-prompt: raises the \"!\" bubble; warps only on a Confirm press (faithful town-style entry)")
     if args.nameplate:
-        print("  nameplate: summons the NATIVE entrance HUD (location nameplate + \"Enter with [X]\") via the real "
-              "dispatcher handshake (case %d, unmapped -> the native confirm is a no-op; our Confirm gate warps)"
-              % EN.NAMEPLATE_CASE)
+        print("  nameplate: SELF-PAINTS the NATIVE entrance HUD (location nameplate + \"Enter with [X]\") every "
+              "frame on the tile via SetTextVariable + WindowAsync(6/7) -- no Byte[24]/Byte[38] writes; Confirm warps")
+    if info.get("surgery"):
+        nr = info["name_rename"]
+        print(f"  nameplate SURGERY: the entrance runs the game's REAL native flow; the location nameplate shows "
+              f"\"{nr['to']}\" (a CUSTOM name)")
+        print(f"    dead AREA-switch case {info['case']} repointed -> [set explored word {info['explored_word']} "
+              f"bit {info['explored_bit']} (gEventGlobal bit {info['explored_bit_index']})] + Field({info['field']})")
+        print(f"    name registered into world text block {nr['text_block']} at locId {nr['locid']} "
+              f"(split[{info['case']}]) -- shows \"?\" until first visit, then the name (faithful)")
+        for p in info.get("name_text_files", []):
+            print(f"      -> {p}")
     wrote = info["dispatchers_written"]
     print(f"  trigger func -> {len(wrote)} dispatcher(s) x {len(info['langs'])} langs"
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
@@ -5844,6 +5863,18 @@ def build_parser() -> argparse.ArgumentParser:
                      help="(with --action-prompt) also summon the NATIVE overworld entrance HUD -- the location "
                           "nameplate + the \"Enter with [X]\" dialog -- via the real dispatcher handshake, so the "
                           "windows show + auto-hide natively (the warp still runs through our Confirm gate)")
+    wen.add_argument("--nameplate-name", metavar="NAME",
+                     help="the NATIVE-FLOW nameplate SURGERY (--field-direct only; supersedes --action-prompt/"
+                          "--nameplate): the whole entrance runs the game's REAL native flow, and the approach "
+                          "nameplate shows this CUSTOM location name (not \"?\", not a borrowed town). Repoints a "
+                          "DEAD high AREA-switch case (--nameplate-case, default 53) to [set explored bit]+Field(ID) "
+                          "in every carrying dispatcher/lang, and registers NAME into world text block 68. The name "
+                          "shows \"?\" until first visit then the name -- faithful town behaviour. RELAUNCH to apply")
+    wen.add_argument("--nameplate-case", type=int, default=53, metavar="N",
+                     help="the DEAD AREA-switch case the nameplate surgery repoints (default 53 -> name slot 53, a "
+                          "\"???\" placeholder; explored bit = navi locId 52, also a coord-less placeholder, so no "
+                          "stray map dot). Must be dead in every free-roam dispatcher (the tool verifies + refuses "
+                          "a live case). High cases 49-59 are the free ones; avoid 54-59/49/50 (live names)")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),

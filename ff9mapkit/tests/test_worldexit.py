@@ -144,33 +144,43 @@ def test_entrance_func_body_prompt():
 
 
 def test_entrance_func_body_nameplate():
-    """The nameplate summon (prompt=True, nameplate=True): the trigger additionally runs the REAL dispatcher
-    handshake (Byte[39]=NAMEPLATE_CASE + RunScriptAsync(6,1,11)) before the "!" + Confirm gate, so the native
-    location nameplate + "Enter with [X]" HUD show + auto-hide. The RunScriptAsync bytes are verbatim from the
-    template, and NAMEPLATE_CASE is UNMAPPED in every dispatcher's AREA switch (native confirm -> no-op)."""
-    from ff9mapkit.eb.model import EbScript
-    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM, NAMEPLATE_CASE, TEMPLATE_TAG,
+    """The nameplate HUD (prompt=True, nameplate=True) SUMMONS the native machinery (Byte[39]=1 +
+    RunScriptAsync(6,1,11) -> func-0xB) on the APPROACH frames -- the only spam-free way to show it, since the idle
+    loop closes windows 6/7 every frame while Byte[24]<=100 and func-0xB keeps Byte[24]>100. The trigger gate is
+    ON-FOOT ONLY (not the template's Byte[24]==100), so our Confirm warp still fires while func-0xB holds Byte[24]
+    off 100 -- that Byte[24] coupling was the 3x blackscreen. The WARP branch writes Byte[24]=100 first (suppresses
+    the native main loop's own confirm gate = single fade), then the proven zone_in + Field(6500)."""
+    from ff9mapkit.eb import disasm as D
+    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM, NAMEPLATE_CASE, ONFOOT_GATE,
                                           dispatcher_cases, entrance_func_body_direct, load_world_dispatchers,
                                           nameplate_summon)
     disp = load_world_dispatchers()
-    prompt = entrance_func_body_direct(6500, world_state=9009, prompt=True, dispatchers=disp)
     named = entrance_func_body_direct(6500, world_state=9009, prompt=True, nameplate=True, dispatchers=disp)
     summon = nameplate_summon()
-    # the ONLY addition is the summon, and it sits BEFORE the "!" bubble (which precedes the Confirm gate)
-    assert len(named) == len(prompt) + len(summon)
-    assert summon in named and summon not in prompt
-    assert named.index(summon) < named.index(FICON_EXCLAM) < named.index(CONFIRM_PRESSED)
-    # the RunScriptAsync(6,1,11) tail of the summon is byte-verbatim from WORLD00's trigger template
-    w00 = EbScript(disp["evt_world_world00"])
-    tf = w00.entry(0).func_by_tag(TEMPLATE_TAG)
-    assert summon.endswith(w00.data[tf.abs_start + 23:tf.abs_start + 28])   # template's own RunScriptAsync bytes
-    # Byte[39] = NAMEPLATE_CASE, the assignment idiom (D5 27 7D <case> .. 2C)
-    assert summon[:8] == bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE, 0x00, 0x2C, 0x7F])
-    # NAMEPLATE_CASE must be UNMAPPED in EVERY free-roam dispatcher's AREA switch (else a native warp fires)
+    settle = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x2C, 0x7F])    # Byte[24] = 100 (warp branch only)
+    field = bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
+    # the gate is ON-FOOT ONLY (no Byte[24]==100 term); it is the template gate's !var190 term
+    assert named.startswith(ONFOOT_GATE + bytes([0x02]))
+    assert ONFOOT_GATE == bytes([0x05, 0xD4, 0xBE, 0x0E, 0x7F])
+    # Confirm gate FIRST; on !Confirm -> APPROACH (summon + "!"); on Confirm -> WARP (settle + zone_in + Field)
+    assert named.index(CONFIRM_PRESSED) < named.index(settle) < named.index(field) < named.index(summon)
+    assert named.index(summon) < named.index(FICON_EXCLAM)             # the "!" follows the summon
+    # the summon is the native handshake (Byte[39]=1 + RunScriptAsync(6,1,11)), only on the approach branch
+    assert summon == bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE, 0x00, 0x2C, 0x7F]) + bytes([0x10, 0x00, 0x06, 0x01, 0x0B])
+    assert summon not in named[:named.index(field)]                   # summon is NOT on the warp path
+    # the summon is GATED on Byte[24]==100 (func-0xB's clean-entry precondition) right before it
+    eq100 = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x20, 0x7F])     # EXPR: Byte[24] == 100
+    assert eq100 in named and named.index(eq100) < named.index(summon)
+    # the warp branch writes Byte[24]=100 BEFORE the fade (single-fade guard) and reaches Field(6500)
+    assert named.index(settle) < named.index(bytes([0xEC])) < named.index(field)   # settle < FadeFilter(0xEC) < Field
+    # NAMEPLATE_CASE must be UNMAPPED in every free-roam dispatcher (native confirm -> switch default, no mis-warp)
     for name, b in disp.items():
         cs = dispatcher_cases(b)
         if cs is not None:
-            assert NAMEPLATE_CASE not in cs, f"{name} maps case {NAMEPLATE_CASE} -- native warp would fire"
+            assert NAMEPLATE_CASE not in cs, f"{name} maps case {NAMEPLATE_CASE}"
+    # body parses clean end to end, terminal RETURN
+    tail = list(D.iter_code(named, 0, len(named)))
+    assert tail[-1].off + tail[-1].length == len(named) and named[-1] == 0x04
     # nameplate requires prompt
     with pytest.raises(ValueError):
         entrance_func_body_direct(6500, nameplate=True, dispatchers=disp)
