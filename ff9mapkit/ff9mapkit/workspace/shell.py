@@ -5944,7 +5944,31 @@ class Workspace(QMainWindow):
             lines = self._inspect_build(kind, key, field)
         except Exception:                                   # noqa: BLE001
             lines = [self._muted("— (could not inspect this node)")]
-        self.insp_body.setText("<br>".join(lines) if lines else "—")
+        self.insp_body.setText(self._render_sections(lines))
+
+    def _section_header(self, text):
+        """A small muted overline that labels an Inspector section (Identity / Contents / Connections).
+        Inline HTML because the panel is ONE rich-text QLabel -- it reads ``self.pal`` so it re-tints on the
+        next selection after a retheme, exactly like :meth:`_muted` / :meth:`_link`."""
+        return (f'<div style="color:{self.pal["muted"]};font-weight:600;font-size:10px;'
+                f'margin-top:12px;margin-bottom:1px;">{_esc(text).upper()}</div>')
+
+    def _render_sections(self, groups):
+        """Render the Inspector body. ``groups`` is either a flat ``list[str]`` (rendered as one block, the
+        legacy path) or an ordered ``list[(header, list[str])]``. Section headers show only when ≥2 sections
+        carry content, so a short single-section card (an NPC, a marker) stays clean while a rich field card
+        reads as labelled groups (Identity / Contents / Connections)."""
+        if not groups:
+            return "—"
+        if isinstance(groups[0], str):                      # flat list -> the legacy single block
+            return "<br>".join(groups)
+        nonempty = [(h, ls) for (h, ls) in groups if ls]
+        if not nonempty:
+            return "—"
+        if len(nonempty) == 1:                              # one group -> no header noise
+            return "<br>".join(nonempty[0][1])
+        # each body in its OWN block so the (block) header can't glue to the first inline body line
+        return "".join(self._section_header(h) + f'<div>{"<br>".join(ls)}</div>' for h, ls in nonempty)
 
     def _inspect_build(self, kind, key, field):
         if kind == "field":
@@ -6144,48 +6168,54 @@ class Workspace(QMainWindow):
         self._thumb_rerender.start()
 
     def _inspect_field(self, name):
-        """A campaign member (or a loose field): the background THUMBNAIL (the art, finally visible),
-        id/source/mode, a CONTENT rollup, the live cross-references (exits to / reached from -- clickable
-        member links + reachability flags), and the file-path link."""
-        lines = []
+        """A campaign member (or a loose field), grouped as a data card:
+          * **Identity** — the background THUMBNAIL (the art, finally visible), id / source / mode, the
+            owning-campaign jump, and the file-path link (where it lives on disk).
+          * **Contents** — the CONTENT rollup, the read-only battle/party/startup summary, and the field
+            health badge (verbatim forks explain their empty rollup here).
+          * **Connections** — the live cross-references (exits to / reached from -- clickable member links
+            + reachability flags), the SAME edges the Map draws.
+        Returns the ordered ``[(header, lines)]`` groups; :meth:`_render_sections` labels them only when ≥2
+        carry content."""
+        ident, contents, conn = [], [], []
         doc = self._safe_doc(name)
         png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
         if png:                                     # rich text renders the file:/// img. Landscape rooms cap
             pm = QPixmap(png)                       # by WIDTH (the 420px panel); tall scrolling rooms cap by
             if pm.height() > pm.width() * 1.4:      # HEIGHT so the card's text stays above the fold.
-                lines.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
+                ident.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
             else:
-                lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
+                ident.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:
-                lines += [f"field id: {m.new_id}",
+                ident += [f"field id: {m.new_id}",
                           self._muted(f"source: real field {m.real_id} · mode: {m.mode}")]
         elif doc is not None:
-            lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
+            ident.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
         if self.plan is None and name == self._loose and self._loose_parent[0] is not None:
             cname = self._loose_parent[2] or self._loose_parent[0].parent.name   # the upward jump (do-now #5)
-            lines.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
+            ident.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
                          + self._link("openparent", "Open the campaign (full context)"))
         if doc is not None:
-            lines.append(self._rollup(doc.data))
-            lines += self._battle_party_lines(doc.data)     # encounter scene / [party] / [startup] read-only detail
+            contents.append(self._rollup(doc.data))
+            contents += self._battle_party_lines(doc.data)  # encounter scene / [party] / [startup] read-only detail
             if doc.data.get("verbatim_eb"):             # explain the empty rollup BEFORE it confuses (the orig. Q)
-                lines.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
-                                         "see 'Script (verbatim .eb)'"))
+                contents.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
+                                            "see 'Script (verbatim .eb)'"))
             nbad = self._count_node_problems(name)      # field-level health badge (cheap per-node predicates)
             if nbad:
-                lines.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
-                             f'select one to see</span>')
+                contents.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
+                                f'select one to see</span>')
         if self.plan is not None:
-            lines += self._field_xrefs(name)
+            conn += self._field_xrefs(name)
         path = self.member_paths.get(name)
         if path:
             self._inspect_path = str(path)
             self.insp_body.setToolTip(str(path))            # a long absolute path mustn't force the panel wide
-            lines.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
+            ident.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
                          f'file: {Path(path).name}  ⧉ copy</a>')
-        return lines
+        return [("Identity", ident), ("Contents", contents), ("Connections", conn)]
 
     def _rollup(self, data):
         """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts."""
@@ -6206,7 +6236,8 @@ class Workspace(QMainWindow):
             bits.append("encounters")
         if data.get("music"):
             bits.append("BGM")
-        return self._muted("contents: " + (", ".join(bits) if bits else "empty"))
+        # no "contents:" lead-in -- this sits under the Inspector's CONTENTS section header
+        return self._muted(", ".join(bits) if bits else "empty")
 
     def _battle_party_lines(self, data):
         """Read-only battle/party summary lines for a field's Inspector card: the encounter scene (id + its
@@ -7170,7 +7201,8 @@ def _smoke(win):
     # same edges the Map draws). IC_ENT -> IC_COR is a stable plan edge.
     win.tree.setCurrentItem(win._member_items["IC_ENT"])
     ib = win.insp_body.text()
-    assert "contents:" in ib, ib
+    # the field card is grouped into labelled sections (Identity / Contents / Connections)
+    assert "IDENTITY" in ib and "CONTENTS" in ib and "CONNECTIONS" in ib, ib
     assert "party:" in ib and "Steiner" in ib, ib                  # read-only [party] roster (saved earlier)
     assert "exits to:" in ib and 'href="goto:IC_COR"' in ib, ib    # clickable member link
     # the goto link navigates: feeding it to the link dispatch selects that member in the tree
