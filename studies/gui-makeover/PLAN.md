@@ -69,8 +69,25 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >   `muted[state=warn]`; battledoc's map-only path status repolishes on load). modelsdoc keeps 1 legit inline
 >   (the preview-image frame background, not a text colour). The visible win is the global elevation ladder on
 >   their group boxes (Models "Edit this model" box lifts; ★ verified). New role: `h2` in use.
-> - ⬜ `shell.py` 60 — the last file (tree/inspector/breadcrumb/Home chrome; the biggest).
-> Verified: smoke green, 321 workspace/style/theme/battle/model tests pass.
+> - ✅ **`shell.py` 60→12** (3 commits A/B/C — the finale). A 5-agent classification workflow produced a
+>   retheme-safe per-site plan (saved at `research/SHELL_MIGRATION_PLAN.md`). **A:** style.py roles
+>   (strong/h3/overline/link/banner + `#hub`/`#crumbRow`/`#consoleHead`/`#consoleToggle` id-rules) + Home page
+>   (hero→display, overlines, accent glyph, strong titles). **B:** inspector/console/breadcrumb chrome →
+>   id-rules/roles + **retheme cleanup** — deleted `_retint_hub_button` + the insp_body re-tint; retheme now
+>   only hand-tints the genuinely-dynamic version/doc-mode chips + the bar's own bg. **C:** ~20 dialog notes →
+>   muted (via the `_muted_label`/`_warn_label` helpers, cascading to ~22 callers), link buttons, the fork tag
+>   (accent+repolish), and the lint banner (`role=banner`+state+repolish, per-verdict stripe). The 12 remaining
+>   are all legitimate KEEPs (dynamic chips, structural transparents, `qss()` application, the glyph's size).
+>   **KEY WIN:** many chrome elements (crumb bar, inspector, console strip, Home labels, fork tag, banner) were
+>   silently STALE on a live theme switch; as roles/#id-rules they now re-tint via `setStyleSheet(qss)` —
+>   verified with a live dark→light retheme. Updated the smoke + retheme test to the id-rule mechanism.
+>
+> **★ Phase 2 (De-smush A) COMPLETE** — all 7 docs migrated (~136 inline styles → ~15 legitimate dynamic/
+> structural KEEPs across the app). Delivered: a token/component system replacing ad-hoc inline CSS, the 4pt
+> spacing rhythm, a type hierarchy (display/h1/h2/h3/strong/label/caption/overline), the **elevation ladder**
+> (raised group panels), receded captions so controls stand out, and a fixed latent theme-switch-staleness bug.
+> Verified: **full suite 2836 passed / 230 skipped**, smoke green, before/after + live-retheme screenshots
+> across every doc. Next: **Phase 3 (De-smush B)** — grouped Inspector, teaching empty-states, density toggle.
 
 
 ## 1. North-star vision
