@@ -96,7 +96,7 @@ class ModelsDoc(QWidget):
         self.listw.currentItemChanged.connect(self._on_select)
         lv.addWidget(self.listw, 1)
         self.count_lbl = QLabel("")
-        self.count_lbl.setStyleSheet(muted)
+        self.count_lbl.setProperty("role", "muted")
         lv.addWidget(self.count_lbl)
         split.addWidget(left)
 
@@ -106,10 +106,10 @@ class ModelsDoc(QWidget):
         rv.setContentsMargins(10, 0, 0, 0)
         self.d_title = QLabel("Pick a model")
         self.d_title.setTextFormat(Qt.TextFormat.PlainText)
-        self.d_title.setStyleSheet("font-weight:600;font-size:16px;")
+        self.d_title.setProperty("role", "h2")
         rv.addWidget(self.d_title)
         self.d_sub = QLabel("")
-        self.d_sub.setStyleSheet(muted)
+        self.d_sub.setProperty("role", "muted")
         self.d_sub.setWordWrap(True)
         rv.addWidget(self.d_sub)
 
@@ -126,11 +126,12 @@ class ModelsDoc(QWidget):
         facts_col.addWidget(self.d_facts)
         self.d_notes = QLabel("")
         self.d_notes.setWordWrap(True)
-        self.d_notes.setStyleSheet(f"color:{self.pal.get('warn', '#c90')};")
+        self.d_notes.setProperty("role", "caption")     # appearance caveats -> a small cautionary note
+        self.d_notes.setProperty("state", "warn")
         facts_col.addWidget(self.d_notes)
         self.d_anims = QLabel("")
         self.d_anims.setWordWrap(True)
-        self.d_anims.setStyleSheet(muted)
+        self.d_anims.setProperty("role", "muted")
         facts_col.addWidget(self.d_anims)
         facts_col.addStretch(1)
         img_row.addLayout(facts_col, 1)
@@ -250,7 +251,7 @@ class ModelsDoc(QWidget):
         hint = QLabel("Mesh edits show on F6 → Reload; edited ANIMATIONS and newly MINTED ids need a game "
                       "relaunch (clips + DictionaryPatch load at startup).")
         hint.setWordWrap(True)
-        hint.setStyleSheet(muted)
+        hint.setProperty("role", "muted")
         v.addWidget(hint)
         self._buttons = [self.mdl_gltf_btn, self.mdl_anim_btn, self.mdl_import_btn, self.mdl_mint_btn,
                          self.mdl_tex_btn, self.mdl_reskin_btn]
@@ -289,7 +290,7 @@ class ModelsDoc(QWidget):
         hint = QLabel("For a [[playable]] with custom_battle_anims = true (edit the block in the field "
                       "editor's Playables section). Also survives re-deploys via its anim_edits key.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(muted)
+        hint.setProperty("role", "muted")
         v.addWidget(hint)
         self._buttons += [self.pa_export_btn, self.pa_edit_btn]
         return box
@@ -358,7 +359,7 @@ class ModelsDoc(QWidget):
         v.addLayout(row)
         self.dep_hint = QLabel("Pick a mod folder above, then Refresh.")
         self.dep_hint.setWordWrap(True)
-        self.dep_hint.setStyleSheet(muted)
+        self.dep_hint.setProperty("role", "muted")
         v.addWidget(self.dep_hint)
         return box
 

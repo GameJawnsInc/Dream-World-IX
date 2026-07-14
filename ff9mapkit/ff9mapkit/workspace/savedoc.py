@@ -45,7 +45,7 @@ class StoryStateDoc(QWidget):
         self.open_btn = QPushButton("Open Save…")
         self.open_btn.clicked.connect(self.browse)
         self.path_lbl = QLabel("No save loaded.")
-        self.path_lbl.setStyleSheet(f"color:{palette['muted']};")
+        self.path_lbl.setProperty("role", "muted")
         bar.addWidget(self.open_btn)
         bar.addWidget(self.path_lbl, 1)
         v.addLayout(bar)
@@ -66,7 +66,7 @@ class StoryStateDoc(QWidget):
         split.setSizes([240, 620])
 
         self.status = QLabel("Open a SavedData_ww.dat (or a Memoria extra-save / save JSON) to inspect or edit.")
-        self.status.setStyleSheet(f"color:{palette['muted']};")
+        self.status.setProperty("role", "muted")
         v.addWidget(self.status)
 
     def _show_output(self, text):
@@ -102,7 +102,7 @@ class StoryStateDoc(QWidget):
         page = QWidget()
         lay = QVBoxLayout(page)
         self.edit_target = QLabel("(no save selected)")
-        self.edit_target.setStyleSheet(f"color:{self.pal['muted']};")
+        self.edit_target.setProperty("role", "muted")
         self.edit_target.setWordWrap(True)
         lay.addWidget(self.edit_target)
         for label, attr, hint in (
@@ -115,7 +115,7 @@ class StoryStateDoc(QWidget):
             setattr(self, attr, le)
             row.addWidget(le, 1)
             h = QLabel(hint)
-            h.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            h.setProperty("role", "caption")
             row.addWidget(h)
             lay.addLayout(row)
         # Overworld position: an actor picker (player / chocobo) + an X,Z field. The per-actor array in
@@ -129,7 +129,7 @@ class StoryStateDoc(QWidget):
         self.worldpos_var = QLineEdit()
         wrow.addWidget(self.worldpos_var, 1)
         wh = QLabel("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
-        wh.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        wh.setProperty("role", "caption")
         wrow.addWidget(wh)
         lay.addLayout(wrow)
         btns = QHBoxLayout()
@@ -397,7 +397,7 @@ class ItemEquipDoc(QWidget):
         self.open_btn = QPushButton("Open Save…")
         self.open_btn.clicked.connect(self.browse)
         self.path_lbl = QLabel("No save loaded.")
-        self.path_lbl.setStyleSheet(f"color:{palette['muted']};")
+        self.path_lbl.setProperty("role", "muted")
         bar.addWidget(self.open_btn)
         bar.addWidget(self.path_lbl, 1)
         v.addLayout(bar)
@@ -415,7 +415,7 @@ class ItemEquipDoc(QWidget):
         split.addWidget(self.tabs)
         split.setSizes([240, 620])
         self.status = QLabel("Open a save to read/edit gil, inventory, equipment, stats, abilities, key items.")
-        self.status.setStyleSheet(f"color:{palette['muted']};")
+        self.status.setProperty("role", "muted")
         v.addWidget(self.status)
 
     def _show_output(self, text):
@@ -447,7 +447,7 @@ class ItemEquipDoc(QWidget):
         ov = QVBoxLayout(outer)
         self.edit_target = QLabel("(no save selected)")
         self.edit_target.setWordWrap(True)
-        self.edit_target.setStyleSheet(f"color:{self.pal['muted']};")
+        self.edit_target.setProperty("role", "muted")
         ov.addWidget(self.edit_target)
         # Only the edit SECTIONS scroll; the console (edit_txt) is pinned BELOW so Preview/Apply feedback
         # is always visible even on a short window (the bug: a single scroll hid the console off-screen).

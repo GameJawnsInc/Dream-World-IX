@@ -63,8 +63,14 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >   10→12/margins 16; the elevation ladder (already global) lifts its 6 panels + the nested Fork-mode box. Only
 >   the 1 dynamic mode-chip (`Will fork: VERBATIM/RE-AUTHORABLE`, live accent/warn colour) stays inline. Removed
 >   3 now-unused `muted` locals. Verified before/after (controls pop, no h-scroll).
-> - ⬜ `shell.py` 60 · `battledoc.py` 11 · `modelsdoc.py` 9 · `savedoc.py` 8 — pending.
-> New roles: `muted`, `accent`. Verified: smoke green, 268–301 workspace/style/theme/battle tests pass per round.
+> - ✅ **`battledoc.py` 11→0 · `modelsdoc.py` 9→1 · `savedoc.py` 8→0** (the three smaller docs, one batch). Faithful
+>   payload-based migration — plain muted → `muted` role, `;font-size:11px` → `caption`, the models detail title
+>   (16/600) → `h2`; the warn/dynamic specials → `caption`/`muted` + a `state="warn"` property (new QSS rule
+>   `muted[state=warn]`; battledoc's map-only path status repolishes on load). modelsdoc keeps 1 legit inline
+>   (the preview-image frame background, not a text colour). The visible win is the global elevation ladder on
+>   their group boxes (Models "Edit this model" box lifts; ★ verified). New role: `h2` in use.
+> - ⬜ `shell.py` 60 — the last file (tree/inspector/breadcrumb/Home chrome; the biggest).
+> Verified: smoke green, 321 workspace/style/theme/battle/model tests pass.
 
 
 ## 1. North-star vision
