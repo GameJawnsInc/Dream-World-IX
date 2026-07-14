@@ -51,33 +51,77 @@ def test_worldmap_exit_body_shape():
 
 def test_entrance_func_body_direct():
     """The direct trigger: the proven template's 12-byte vehicle/state gate verbatim,
-    the conditional skip re-pointed over a bare Field(id), return. 20 bytes; the gate
-    bytes are byte-identical to the template's own."""
+    the conditional skip re-pointed over [the real zone-in choreography][record?]
+    [Field(id)], return. The zone-in (fade-to-black + control lock + the D8:2=9999
+    arrival sentinel + the ready poll) is byte-verified against the REAL dispatcher's
+    own main-loop run -- the donor is the oracle."""
     from ff9mapkit.eb.model import EbScript
     from ff9mapkit.world.entrance import (TEMPLATE_TAG, entrance_func_body_direct,
-                                          load_world_dispatchers)
+                                          load_world_dispatchers, zone_in_body)
     disp = load_world_dispatchers()
     w00 = EbScript(disp["evt_world_world00"])
     f = next(f for e in w00.entries for f in e.funcs if f.tag == TEMPLATE_TAG)
     tpl = w00.data[f.abs_start:f.abs_end]
+    zi = zone_in_body()
+    # donor oracle: WORLD00's main loop (entry-1/tag-1) carries the SAME bytes as three
+    # contiguous slices of its real pre-AREA-switch choreography (the control lock, the
+    # window cleanup -- a guard expression sits between them in the loop -- and the whole
+    # fade -> Wait -> D8:2=9999 -> ready-poll run)
+    f1 = w00.entry(1).func_by_tag(1)
+    loop = w00.data[f1.abs_start:f1.abs_end]
+    assert zi[:2] in loop                            # DisableMove; DisableMenu
+    assert zi[2:8] in loop                           # CloseWindow(6); CloseWindow(7)
+    assert zi[8:] in loop                            # RunWorldCode x2; fade; wait; D8:2; poll
     b = entrance_func_body_direct(6500, dispatchers=disp)
-    assert len(b) == 20
+    fld = bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
     assert b[:12] == tpl[:12]                        # the gate, verbatim
-    assert b[12:15] == bytes([0x02, 0x04, 0x00])     # JZ re-pointed over Field
-    assert b[15:19] == bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
-    assert b[19] == 0x04                             # return
+    assert b[12:15] == bytes([0x02, len(zi) + 4, 0x00])   # JZ re-pointed over zone-in + Field
+    assert b[15:15 + len(zi)] == zi
+    assert b[15 + len(zi):19 + len(zi)] == fld
+    assert b[-1] == 0x04                             # return
     # with the per-dispatcher world-state record (9009 -> WORLD09's copy): the
     # GLOB[1062] = 9009 write feeds the arrive= exit's same-state return
     b2 = entrance_func_body_direct(6500, world_state=9009, dispatchers=disp)
     rec = bytes([0x05, 0xD8 | 0x20]) + (1062).to_bytes(2, "little") \
         + bytes([0x7D]) + (9009).to_bytes(2, "little") + bytes([0x2C, 0x7F])
     assert b2[:12] == tpl[:12]
-    assert b2[12:15] == bytes([0x02, len(rec) + 4, 0x00])
-    assert b2[15:15 + len(rec)] == rec
-    assert b2[15 + len(rec):19 + len(rec)] == bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
+    assert b2[12:15] == bytes([0x02, len(zi) + len(rec) + 4, 0x00])
+    assert b2[15:15 + len(zi)] == zi
+    assert b2[15 + len(zi):15 + len(zi) + len(rec)] == rec
+    assert b2[15 + len(zi) + len(rec):19 + len(zi) + len(rec)] == fld
     assert b2[-1] == 0x04
     with pytest.raises(ValueError):
         entrance_func_body_direct(0x8000, dispatchers=disp)   # past Int16
+
+
+def test_entrance_func_body_prompt():
+    """The faithful "!" action-prompt trigger (prompt=True): shows the FICON "!" bubble every frame
+    on the tile and warps only on a Confirm press (B_KEYON gate) -- NOT walk-on auto-warp. The Confirm
+    test is byte-identical to the real dispatcher main-loop entrance gate (WORLD00 tag-1 @261)."""
+    from ff9mapkit.eb import disasm as D
+    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM,
+                                          entrance_func_body_direct, load_world_dispatchers)
+    from ff9mapkit.eb.model import EbScript
+    disp = load_world_dispatchers()
+    auto = entrance_func_body_direct(6500, world_state=9009, dispatchers=disp)
+    prompt = entrance_func_body_direct(6500, world_state=9009, prompt=True, dispatchers=disp)
+    # prompt adds exactly the FICON (3B) + the Confirm-gate (CONFIRM_PRESSED + a 3B JMP_IFNOT)
+    assert len(prompt) == len(auto) + len(FICON_EXCLAM) + len(CONFIRM_PRESSED) + 3
+    assert FICON_EXCLAM in prompt and CONFIRM_PRESSED in prompt
+    # the Confirm test is the REAL dispatcher's gate fragment, verbatim
+    w00 = EbScript(disp["evt_world_world00"])
+    f1 = w00.entry(1).func_by_tag(1)
+    assert CONFIRM_PRESSED[1:-1] in w00.data[f1.abs_start:f1.abs_end]   # op7E(0,0,2,0) op4F, inside the real gate
+    # structure: FICON before the B_KEYON gate before Field; both JMP_IFNOTs land on the final RETURN
+    ops = [(i.op, i.off) for i in D.iter_code(prompt, 0, len(prompt))]
+    off = {op: o for op, o in ops}
+    assert off[0x68] < off[0x4F] if 0x4F in off else True   # FICON precedes the keyon expr (0x4F is inside an expr)
+    i_ficon = next(o for op, o in ops if op == 0x68)
+    i_field = next(o for op, o in ops if op == 0x2B)
+    assert i_ficon < i_field                                # "!" raised before the warp
+    assert prompt[-1] == 0x04                               # terminal RETURN
+    # a NON-prompt direct body has NO bubble and warps unconditionally after the vehicle gate
+    assert FICON_EXCLAM not in auto and CONFIRM_PRESSED not in auto
 
 
 def test_worldmap_exit_arrive_shape():

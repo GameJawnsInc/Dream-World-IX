@@ -68,6 +68,27 @@ Author a camera from a simple spec **or** borrow a real one.
 | `window_width` | the width the `fov` is measured against (default = `range[0]`). For a scrolling room set it to the visible screen width (`384`) so a wide `range` doesn't change the focal length. |
 | `proj`, `depth_offset`, `viewport`, `center_offset` | advanced overrides (`proj` = explicit focal length; sensible GRGR-derived defaults). |
 | `borrow` | path to a `.bgx` whose `CAMERA` block to copy verbatim (instead of `pitch`/`fov`). |
+| `entry_settle` | OPTIONAL frames to hold the screen black on field entry before the reveal (absent/`0` = off; `"auto"` = computed). See below. |
+
+**`entry_settle` — hide the warp-in camera ease.** The engine runs a smooth-camera follower on *every*
+field; on entry it eases the camera from the scene centre to the player over ~a second (scaled by the
+user's `Memoria.ini CameraStabilizer`). Real fields hide this because their entry sequence (title card,
+cast setup) fills the time before the reveal — a lean synthesized field reveals almost immediately, so on
+a large-delta entry you *watch* the camera drift. `entry_settle = <frames>` inserts
+`DisableMove; Wait(n); EnableMove` just before Main_Init's reveal fade: the screen is still black there,
+so the camera converges unseen — the same black-hold the real game performs naturally. Use it on
+synthesized/BG-borrow fields whose spawn sits far from the camera's initial target (scrolling rooms
+especially — `fork-report` suggests it for those); **~45 is the proven starting value** (the World Hub
+ships 45–60). **`entry_settle = "auto"` computes the hold for you**: the build measures the warp-in
+delta (the px distance between the camera's pre-player-bind rest position and its spawn-centred
+target, replicating the engine's projection + viewport clamp), converts it to frames under the
+engine's geometric ease (baked for the default `CameraStabilizer = 85` — it's a per-user setting, so
+this is best-effort), and clamps to a sane 20–90 band; the chosen value is printed in the build
+output and by `lint`. It needs the *arriving* transition to have faded to black — kit gateways and
+`fade = true` choice-warps do; a bare F6 debug warp shows the drift regardless (nothing scripted can hide
+that path). A `--verbatim` fork does **not** need it (the donor's own entry sequence is carried); the key
+is ignored there and `lint` says so. If the requested settle can't be inserted (no plain reveal fade in
+Main_Init), the build warns instead of silently skipping.
 
 ### `[camera.scroll]` (optional — larger-than-screen rooms)
 A field whose painting is **bigger than the screen** scrolls the view to follow the player (FF9
@@ -117,6 +138,10 @@ zone = [[400,-100],[1100,-100],[1100,-900],[400,-900]]
 | `[[layers]] camera = N` | which camera a background layer belongs to (default `0`) — paint a backdrop per camera. |
 | `[[camera_zone]] to_camera` | the camera index whose area this zone is. |
 | `[[camera_zone]] zone` | 4 convex `(x,z)` corners of that camera's floor area. |
+
+> `entry_settle` works on multicam fields too: it is one **field-wide** black-hold (not per-camera), so
+> set it in any one `[[camera]]` block — the build applies the first nonzero value it finds (and `lint`
+> flags disagreeing values).
 
 > Partition the floor into one zone per camera. The kit derives each camera's `SetControlDirection`
 > from its yaw (so "up" stays up-screen after a cut). **Zones must not overlap** (overlapping zones
@@ -188,8 +213,52 @@ world coords (no offset) — they are already the exact engine positions.
 
 | key | meaning |
 |---|---|
-| `spawn` | `[x, z]` where the player appears on entry. |
+| `spawn` | `[x, z]` where the player appears on entry (the DEFAULT arrival — see `[[player.arrival]]` for per-door spots). |
+| `face` | OPTIONAL spawn facing (0..255; 0=south, 64=west, 128=north, 192=east — the same compass `[[npc]]`/chest `face` uses). Absent = the template default (0). |
 | `model` | **re-skin who you WALK as** — a model **id**, an exact **GEO name** (`"GEO_NPC_F0_MOG"` the Moogle PC), or an archetype/model name resolved via the Info Hub catalog (the same join `[[npc]] model` uses). Its movement clips (idle/walk/run/turn) auto-resolve. This is the build-side complement to `import --swap-player`. **Movement clips only** — a field that scripts player gestures would glitch, so it's free-roam-only. |
+
+### `[[player.arrival]]` (optional, repeatable) — per-door arrival spots
+
+Real FF9 fields place the player **per entrance**: the departing exit sets the entrance var (`D8:2`)
+right before `Field()`, and the destination's player init branches on it to a different (x, z, facing)
+per door (Alexandria Main Street has 4). A synthesized field normally collapses this — every door lands
+on the one `[player] spawn`. `[[player.arrival]]` compiles the real dispatch:
+
+```toml
+[player]
+spawn = [0, -2000]        # the default (any entrance without a row below)
+
+[[player.arrival]]
+entrance = 1              # matches the [[gateway]]/warp `entrance =` that routes here
+pos      = [430, -880]
+face     = 128            # optional (0..255 compass, like [player] face)
+
+[[player.arrival]]
+entrance = 2
+pos      = [-350, -1500]
+```
+
+| key | meaning |
+|---|---|
+| `entrance` | which entrance index this row serves — the value the SOURCE field's `[[gateway]]` / choice-warp / ladder-top wrote (`entrance =`, default 0). One row per entrance. |
+| `pos` | `[x, z]` where the player appears when arriving through that entrance. Placement happens **before** the player object is created (frame 0 — no flash of the default spawn). |
+| `face` | OPTIONAL facing on arrival (0..255). Absent = keep `[player] face` / the default. |
+
+The build lints each `pos` against the walkmesh like the spawn. Entering with an entrance value that has
+no row (including a fresh New-Game/F6 warp) uses `[player] spawn` — the rows are pure overrides, so a
+field without them is byte-identical to before.
+
+Coverage is audited automatically. `lint-campaign` (and journey lint) walks the campaign's edge graph and
+warns when several doors arrive at a member with distinct entrances but no rows (every door lands on one
+spawn), when sources all write the same entrance (the destination can't tell them apart), when an inbound
+entrance has no row (falls through to the default), and when a row's entrance is never routed (a typo).
+Verbatim members are exempt — they carry the donor's real table — and rows *on* a verbatim fork are flagged
+as ignored. Field-level `lint` additionally checks self-loop gateways (`to` = the field's own id) against
+the rows.
+
+You rarely write these rows by hand for a fork: every **non-verbatim import** (`import` /
+`import-chain` members) decodes the donor's real arrival table and emits it as `[[player.arrival]]` rows
+automatically, so a forked field keeps its per-door arrivals out of the box.
 
 ---
 
@@ -678,7 +747,7 @@ words = [
 
 The presets **re-assert on every field entry** (idempotent — right for a fork that stands for one beat). For
 a multi-field chain, put `[startup]` on the **entry** field only. v1 is author-side (you assert the beat —
-you have the game knowledge); it does not yet preset per-door spawn (a separate gap). To **fire** a beat on
+you have the game knowledge); per-door spawn is its own vocabulary, `[[player.arrival]]`. To **fire** a beat on
 entry (rather than just preset state) — e.g. re-author an entry cutscene for a synthesize fork — use
 `[[on_entry]]` below. See `docs/FORK_FIDELITY.md`.
 

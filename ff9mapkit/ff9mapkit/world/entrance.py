@@ -171,16 +171,73 @@ def patch_byte39(body: bytes, case: int) -> bytes:
     return out
 
 
-def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
+def zone_in_body() -> bytes:
+    """The real world->field ZONE-IN choreography, composed byte-identical to WORLD00's
+    main service loop (entry-1/tag-1, the shared run between "a destination is pending"
+    and its AREA switch -- whose case bodies then do the bare ``Field(dest)``):
+
+    ``DisableMove; DisableMenu; CloseWindow(6); CloseWindow(7); RunWorldCode(32,75);
+    RunWorldCode(41,0); FadeFilter(2,24,white); Wait(25); D8:2 = 9999; <ready poll>``
+
+    - the FADE (SUB toward white == the screen fading to BLACK over 24 frames) is the
+      transition black every arrival mechanic assumes ("fade BEFORE Field()") -- it hides
+      the destination's smooth-cam settle and gives ``entry_settle`` its black to extend;
+    - ``D8:2 = 9999`` is the real worldmap-arrival ENTRANCE sentinel, so the destination's
+      ``[[player.arrival]]`` dispatch sees the same "came from the world map" value real
+      fields see instead of a STALE last-gateway entrance;
+    - the two ``RunWorldCode`` ops (PSX music fade / leftover) are stubbed no-ops on
+      Memoria, carried for donor fidelity; the ready poll spins on ``B_SYSVAR(200)``
+      (``ff9.w_frameGetParameter(200)`` -- constant 0 on Memoria, exits at once).
+
+    Byte-asserted against the real dispatcher run in ``test_worldexit``."""
+    from ..content import region as R
+    from ..eb import opcodes as O
+    return (O.DISABLE_MOVE                            # 2D -- the real run locks control first
+            + bytes([0xAB])                           # DisableMenu
+            + bytes([0x21, 0x00, 0x06])               # CloseWindow(6) -- dispatcher dialog cleanup
+            + bytes([0x21, 0x00, 0x07])               # CloseWindow(7)
+            + bytes([0xC4, 0x00, 0x20, 0x4B, 0x00])   # RunWorldCode(32, 75) -- PSX music fade (Memoria stub)
+            + bytes([0xC4, 0x00, 0x29, 0x00, 0x00])   # RunWorldCode(41, 0)  -- PSX leftover (Memoria no-op)
+            + O.fade_filter(2, 24, 0, 255, 255, 255)  # fade OUT: screen - white -> black, 24 frames
+            + O.wait(25)
+            + R.set_field_entrance(9999)              # the worldmap-arrival entrance sentinel
+            + bytes([0x01, 0x03, 0x00])               # JMP +3 (enter the poll at its check)
+            + O.wait(1)
+            + bytes([0x05, 0x7A, 0xC8, 0x7F])         # EXPR: push B_SYSVAR(200) ("transition busy")
+            + bytes([0x03, 0xF6, 0xFF]))              # JMP_IF -10 (loop while busy)
+
+
+# The faithful CONFIRM-GATE, copied byte-exact from the real dispatcher main-loop entrance gate
+# (WORLD00 entry-1/tag-1 @261): a real town's fade->warp block only runs when the Confirm button is
+# held. Real overworld town/dungeon entry is NOT walk-on auto-warp -- you stand on the tile and press
+# Confirm to enter (verified in-engine 2026-07-13; the earlier "walk-on" reading was WRONG -- the RPN
+# operator 0x4F is B_KEYON, a controller read, not a field opcode).
+FICON_EXCLAM = bytes([0x68, 0x00, 0x01])   # Bubble(IconType.Exclamation=1) -- raise the "!" over the player
+# EXPR{ push EventInput.Confirm (0x20000, op7E 4-byte LE), B_KEYON (0x4F) } -> 1 if Confirm held, else 0.
+# Byte-identical to the Confirm test inside the real main-loop gate (op7E(0,0,2,0) op4F).
+CONFIRM_PRESSED = bytes([0x05, 0x7E, 0x00, 0x00, 0x02, 0x00, 0x4F, 0x7F])
+
+
+def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, game=None,
                               dispatchers=None) -> bytes:
     """The DIRECT trigger body for a CUSTOM destination field: the proven template's
-    vehicle/state GATE verbatim (its leading expression + conditional skip), then an
-    optional ``GLOB[WORLD_STATE_VAR] = <world_state>`` record + a bare
-    ``Field(field_id)`` in place of the ``Byte[39]=case + RunScriptAsync`` dispatcher
-    handshake -- whose AREA switch only carries real base-game fields. The dispatcher
-    case bodies are themselves bare ``Field(dest)`` ops (no scripted fade; the engine
-    owns the world->field transition), so the direct body performs the same transition
-    the real entrances do, additively, without touching any dispatcher case.
+    vehicle/state GATE verbatim (its leading expression + conditional skip), then the
+    real :func:`zone_in_body` choreography (fade-to-black + control lock + the D8:2
+    arrival sentinel), an optional ``GLOB[WORLD_STATE_VAR] = <world_state>`` record,
+    and ``Field(field_id)`` in place of the ``Byte[39]=case + RunScriptAsync``
+    dispatcher handshake -- whose AREA switch only carries real base-game fields.
+
+    The real handshake reaches that same choreography in the dispatcher's MAIN loop
+    (the shared run before its AREA switch); the direct body bypasses the loop, so it
+    must carry the run itself -- without it the custom destination loaded IN THE CLEAR
+    (no fade-out), so you watched the smooth-cam settle that the black normally hides
+    (in-game report, 2026-07-13: the waystation entrance showed the stuck camera).
+
+    ``prompt=True`` makes it a FAITHFUL "!" ACTION-PROMPT entrance (the way real towns work,
+    NOT walk-on auto-warp): the trigger -- which WorldEvent re-fires every frame the player
+    stands on the tile -- raises the ``FICON`` "!" bubble and only warps when the Confirm
+    button is held (``B_KEYON(Confirm)``, the exact gate real dispatchers use). Without it the
+    warp fires the instant you step on the tile (auto-warp; fine for a scripted/cutscene entrance).
 
     ``world_state`` (the wldMapNo of the dispatcher copy this body is deployed into --
     each dispatcher knows which world it is) records the CURRENT world state so the
@@ -188,8 +245,8 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
     (``content.worldexit.WORLD_STATE_VAR``).
 
     Template shape (byte-asserted): ``[12B gate expr][JZ +13][8B Byte39=case]
-    [5B RunScriptAsync][RETURN]`` -> ``[12B gate expr][JZ +skip][record?]
-    [4B Field(id)][RETURN]``."""
+    [5B RunScriptAsync][RETURN]`` -> auto:  ``[12B gate][JZ +skip][zone-in][rec?][Field][RETURN]``;
+    prompt: ``[12B gate][JZ ->RET][FICON][B_KEYON(Confirm)][JZ ->RET][zone-in][rec?][Field][RETURN]``."""
     import struct
     if not 0 <= int(field_id) <= 0x7FFF:
         raise ValueError(f"field id {field_id} out of the engine's Int16 range")
@@ -211,8 +268,14 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, game=None,
         from ..content import region as R
         from ..content.worldexit import WORLD_STATE_VAR
         rec = R.set_var(0xD8, WORLD_STATE_VAR, int(world_state))
-    tail = rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
-    return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(tail)) + tail + b"\x04"
+    warp = zone_in_body() + rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
+    if not prompt:                                    # auto-warp: [gate][JZ over warp -> RET][warp][RET]
+        return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(warp)) + warp + b"\x04"
+    # confirm-gated "!": show the bubble every frame on the tile, warp only on a Confirm press.
+    confirm_gate = CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp))   # JZ over warp -> RET
+    after_vehicle = FICON_EXCLAM + confirm_gate + warp                              # skipped if wrong vehicle
+    return (tpl[:12] + bytes([0x02]) + struct.pack("<h", len(after_vehicle))
+            + after_vehicle + b"\x04")
 
 
 def entrance_func_body(case: int, *, game=None, dispatchers=None) -> bytes:
@@ -391,6 +454,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                     event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
+                    trigger_only: bool = False, prompt: bool = False,
                     backup_dir=None, dry_run: bool = False, game=None) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
@@ -406,7 +470,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
     the hull boundary) rather than a whole-triangle centroid test, so the blocked edge traces the building's real
     footprint bit-exactly regardless of how coarse the underlying donor terrain's own triangulation is.
     ``flatten_pad=radius`` optionally flattens a pad under the building. ``fresh`` re-reads the block from pristine
-    p0data (ignoring a prior deployed override) so re-doing a block doesn't COMPOUND. ``dry_run`` reports the plan."""
+    p0data (ignoring a prior deployed override) so re-doing a block doesn't COMPOUND. ``trigger_only`` refreshes
+    JUST the dispatcher trigger functions (step 1) and leaves the deployed terrain/tiles/building untouched -- the
+    re-deploy mode for picking up a kit upgrade to the trigger body (a full re-run without the original
+    ``--building`` would re-stamp event tiles WITHOUT the building-hull exclusion). ``dry_run`` reports the plan."""
     from ..eb.model import EbScript
     from ..eb import edit as E
 
@@ -465,7 +532,7 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         us_base = us_mod.read_bytes() if us_mod.is_file() else alld[name]["us"]
         # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo
         b = body if body is not None else entrance_func_body_direct(
-            int(direct_field), world_state=9000 + int(name[-2:]), dispatchers=us_disp)
+            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, dispatchers=us_disp)
         existing = EbScript.from_bytes(us_base).entry(0).func_by_tag(tag)
         if existing is not None:
             if us_base[existing.abs_start:existing.abs_end] == b:
@@ -491,6 +558,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                 p.write_bytes(out_by_lang[lang])
         summary["dispatchers_written"].append({"name": name, "base_len": len(us_base),
                                                "out_len": len(out_by_lang["us"])})
+
+    if trigger_only:                                        # .eb refresh only -- terrain/tiles/building untouched
+        summary["trigger_only"] = True
+        return summary
 
     # (2) event tile(s) on the cell's terrain block (+ optional flatten pad under the building), stacked
     ter = read_block_stacked(mod_folder, bx, by, disc=disc, lod=lod, part="terrain", game=game, fresh=fresh)

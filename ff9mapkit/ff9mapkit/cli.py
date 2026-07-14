@@ -2677,6 +2677,100 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_world_point(args) -> tuple:
+    """(point, exact) from --center / --near (one required)."""
+    if getattr(args, "center", None):
+        wx, wz = (float(v) for v in args.center.split(","))
+        return (wx, wz), True
+    wx, wz = (float(v) for v in args.near.split(","))
+    return (wx, wz), False
+
+
+def _cmd_world_forest(args: argparse.Namespace) -> int:
+    """Carry a REAL canopy blob (verbatim verts/UVs/normals/topo-37) onto a DEPLOYED kit island --
+    the productized island-E forest re-home (in-game proven 2026-07-12). Gates: canopy carry + the
+    comprehensive step law + the perimeter walk-in simulation + placement census."""
+    from .world import interior as IN
+    try:
+        (wx, wz), exact = _parse_world_point(args)
+        dx, dy = (int(v) for v in args.donor.split(","))
+        blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
+                                         disc=args.disc, game=args.game)
+        soup = IN.soup_from_blocks(blocks)
+        res = IN.carve_forest(soup, center=(wx, wz) if exact else None,
+                              near=None if exact else (wx, wz), donor=(dx, dy),
+                              disc=args.disc, game=args.game)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game,
+                       probe=(res["center"], 37))
+        if not args.dry_run:
+            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                              game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = res["center"]
+    r = res["report"]
+    print(f"{verb} the canopy carry at world ({cx:.0f},{cz:.0f}): {r['blob_tris']} donor tris, "
+          f"{r['dropped']} island tris carved, {r['zip_tris']} zip tris; wall rise {r['wall_rise']} / "
+          f"zip rise {r['zip_rise']} (ceiling 2.34). All gates CLEAN incl. the perimeter walk-in "
+          f"simulation + placement census. F6 -> World -> re-enter, then walk INTO and OVER the canopy.")
+    return 0
+
+
+def _cmd_world_hill(args: argparse.Namespace) -> int:
+    """Raise a raised-cosine GRASS HILL on a DEPLOYED kit island by pure-Y displacement of the deployed
+    bytes -- the productized island-E hill at scale (in-game proven 2026-07-12). Gates: the measured
+    grass slope envelope (p99 28.6 deg), lowland-band peak cap, cracks, placement census."""
+    from .world import interior as IN
+    try:
+        (wx, wz), exact = _parse_world_point(args)
+        blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz),
+                                         reach=max(96.0, args.radius + 10.0),
+                                         disc=args.disc, game=args.game)
+        soup = IN.soup_from_blocks(blocks)
+        res = IN.build_hill(soup, center=(wx, wz) if exact else None,
+                            near=None if exact else (wx, wz),
+                            height=args.height, radius=args.radius)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game)
+        if not args.dry_run:
+            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                              game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = res["center"]
+    r = res["report"]
+    print(f"{verb} a grass hill at world ({cx:.0f},{cz:.0f}) (H {args.height}, R {args.radius}): "
+          f"{r['displaced_tris']} tris displaced, worst flank {r['worst_flank']} deg "
+          f"(<= {IN.MAX_FLANK}), peak y {r['peak_y']} (<= {IN.PEAK_CAP}); "
+          f"{len(res['changed'])} block(s) changed. All gates CLEAN. F6 -> World -> re-enter, "
+          f"then walk the hill from all sides.")
+    return 0
+
+
+def _cmd_world_mirror(args: argparse.Namespace) -> int:
+    """Mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree (the overworld ships TWO
+    asset trees -- disc1 serves discs 1-3, disc4 has its own -- and every s34 lookup is keyed on the
+    engine's currentDisc, so un-mirrored custom land VANISHES on disc 4). Free-ride donor-prefab
+    parts pin as explicit source-disc-byte overrides."""
+    from .world import discmirror as DM
+    try:
+        out = DM.mirror(args.mod_folder, src_disc=args.src_disc, dst_disc=args.dst_disc,
+                        game=args.game, dry_run=args.dry_run)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would mirror" if args.dry_run else "mirrored"
+    print(f"{verb} {len(out['mirrored'])} file(s) + {len(out['pinned'])} free-ride pin(s) into "
+          f"Disc{args.dst_disc}; {len(out['skipped'])} cell(s) skipped."
+          + (" RELAUNCH to apply." if not args.dry_run else ""))
+    for blk, why in out["skipped"]:
+        print(f"  skipped {blk}: {why}")
+    return 0
+
+
 def _cmd_world_water(args: argparse.Namespace) -> int:
     """Synthesize graded OPEN-OCEAN water (shallow->deep) on sea cells from a built-in depth gradient -- the faithful
     marching-band synthesizer (Sea3/Sea5/Sea4 alphabet, byte-proven UVs). Needs the custom engine (s34); RELAUNCH."""
@@ -2801,6 +2895,10 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if (args.texture or args.tile or args.tile_uv) and not args.building:
         print("--texture/--tile/--tile-uv texture the --building mesh -- pass --building <obj> too", file=sys.stderr)
         return 2
+    if args.action_prompt and args.field_direct is None:
+        print("--action-prompt needs --field-direct <id> (it gates a CUSTOM destination's warp on Confirm; the "
+              "real dispatcher-case route already owns town-entry behavior)", file=sys.stderr)
+        return 2
     building = None
     try:
         if args.building:
@@ -2814,6 +2912,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             disc=args.disc, lod=args.lod, trigger_at=(tuple(args.trigger_at) if args.trigger_at else None),
             trigger_radius=args.trigger_radius, set_tile_area=not args.no_tile_area, building=building,
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
+            trigger_only=args.trigger_only, prompt=args.action_prompt,
             dry_run=args.dry_run, game=args.game)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
@@ -2825,15 +2924,20 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     print(f"{head}: cell {tuple(info['cell'])} tag {tag} -> case {info['case']}"
           + (f" -> field {fld}" if fld is not None else " (case has no default field)"))
     print(f"  {info['dest_note']}")
+    if args.action_prompt:
+        print("  action-prompt: raises the \"!\" bubble; warps only on a Confirm press (faithful town-style entry)")
     wrote = info["dispatchers_written"]
     print(f"  trigger func -> {len(wrote)} dispatcher(s) x {len(info['langs'])} langs"
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
     if info["dispatchers_skipped"]:
         print(f"  skipped (cell already has an entrance there): {', '.join(s.replace('evt_world_', '') for s in info['dispatchers_skipped'])}")
-    pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
-    blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
-    print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
-          f"in block{tuple(info['block'])}{pad}{blk}")
+    if info.get("trigger_only"):
+        print("  trigger-only: the deployed terrain / event tiles / building were left untouched")
+    else:
+        pad = f", flattened {info['pad_flattened']} pad verts" if info.get("pad_flattened") else ""
+        blk = f", {info['footprint_blocked']} tiles blocked under the building" if info.get("footprint_blocked") else ""
+        print(f"  event tiles: {info['tiles_set']} triangle(s) set event={info['event']} area={info['case']} "
+              f"in block{tuple(info['block'])}{pad}{blk}")
     if info.get("terrain_override"):
         print(f"    -> {info['terrain_override']}")
     if info.get("building"):
@@ -2853,9 +2957,12 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
     if info["backups"]:
         print(f"  backed up {len(info['backups'])} pre-edit dispatcher file(s) -> {Path(info['backups'][0]).parent}")
     if not info["dry_run"]:
-        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, walk to the "
-              "cell -- an \"!\" action prompt fires the warp. (Mesh overrides need the WorldMeshOverride engine patch.)"
-              % info.get("disc", args.disc))
+        _enter = ('stand on the cell -- a "!" appears; press Confirm to enter (faithful town-style)'
+                  if args.action_prompt else
+                  "walk ONTO the cell -- stepping on the event tile fires the warp (auto-warp)")
+        print("  RELAUNCH the game (new loose assets aren't hot-reloaded), reach the disc-%d overworld, and %s. "
+              "(Mesh overrides need the WorldMeshOverride engine patch.)"
+              % (info.get("disc", args.disc), _enter))
     return 0
 
 
@@ -5578,6 +5685,58 @@ def build_parser() -> argparse.ArgumentParser:
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)
 
+    wfo = sub.add_parser("world-forest",
+                         help="carry a REAL canopy blob (verbatim topo-37 forest) onto a DEPLOYED kit island -- "
+                              "the in-game-proven canopy-carry recipe (carve a lattice hole, seat the blob, zip "
+                              "a grass annulus with byte-decoded mains UVs). Gated by the CANOPY STEP LAW + a "
+                              "perimeter walk-in simulation (takes a few minutes) + the placement census. "
+                              "Needs the custom engine; re-enter the world.")
+    wfo.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
+    _ftg = wfo.add_mutually_exclusive_group(required=True)
+    _ftg.add_argument("--center", metavar="WX,WZ", help="EXACT blob centre in world coords (gated, no scan)")
+    _ftg.add_argument("--near", metavar="WX,WZ",
+                      help="scan a ~80u window around this point for the best lawful plain-grass placement")
+    wfo.add_argument("--donor", default="15,15", metavar="BX,BY",
+                     help="real block whose topo-37 canopy blob to carry (default 15,15 = the proven "
+                          "grass-bounded donor; a multi-blob or non-simple-rim donor refuses)")
+    wfo.add_argument("--reach", type=float, default=96.0,
+                     help="deployed-block load window around the point in units (default 96)")
+    wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wfo.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wfo.set_defaults(func=_cmd_world_forest)
+
+    whl = sub.add_parser("world-hill",
+                         help="raise a raised-cosine GRASS HILL on a DEPLOYED kit island by pure-Y displacement "
+                              "of the deployed bytes (mains UVs are XZ-linear, so every tile stays lawful) -- "
+                              "the in-game-proven grass-hill language (slope p99 28.6 deg, lowland-band peak "
+                              "cap, local normal re-smooth). Needs the custom engine; re-enter the world.")
+    whl.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
+    _htg = whl.add_mutually_exclusive_group(required=True)
+    _htg.add_argument("--center", metavar="WX,WZ", help="EXACT hill centre in world coords (gated, no scan)")
+    _htg.add_argument("--near", metavar="WX,WZ",
+                      help="scan a ~112u window around this point for the best lawful pure-mains placement")
+    whl.add_argument("--height", type=float, default=4.2,
+                     help="prominence in units (default 4.2; the real language is 3.5-5.2)")
+    whl.add_argument("--radius", type=float, default=18.0,
+                     help="footprint radius in units (default 18; the real language is 20-26u diameter runs)")
+    whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    whl.set_defaults(func=_cmd_world_hill)
+
+    wmi = sub.add_parser("world-mirror",
+                         help="mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree -- the "
+                              "overworld ships TWO asset trees (disc1 serves discs 1-3; disc4 is its own) and "
+                              "every s34 lookup keys on the engine's currentDisc, so un-mirrored custom land "
+                              "VANISHES on disc 4. Copies every Block override + Donor.txt (per-cell gated: the "
+                              "destination's real cell must be ocean or byte-identical) and PINS un-overridden "
+                              "donor-prefab free-ride parts (falls/rivers/objects) as explicit source-disc-byte "
+                              "overrides. Run after any custom-ocean world deploy. RELAUNCH to apply.")
+    wmi.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to mirror")
+    wmi.add_argument("--src-disc", type=int, default=1, help="source disc tree (default 1)")
+    wmi.add_argument("--dst-disc", type=int, default=4, help="destination disc tree (default 4)")
+    wmi.add_argument("--dry-run", action="store_true", help="report the plan, write nothing")
+    wmi.set_defaults(func=_cmd_world_mirror)
+
     wwt = sub.add_parser("world-water",
                          help="synthesize custom GRADED open-ocean water (shallow->deep) on sea cells -- the faithful "
                               "marching-band synthesizer (Sea3/Sea5/Sea4, byte-proven UVs). Needs the custom engine; relaunch.")
@@ -5664,6 +5823,15 @@ def build_parser() -> argparse.ArgumentParser:
     wen.add_argument("--no-tile-area", action="store_true",
                      help="do NOT stamp the cosmetic tile AREA (dispatch reads Byte[39], not the tile area; the "
                           "stamp just keeps world-locate reporting the entrance)")
+    wen.add_argument("--trigger-only", action="store_true",
+                     help="refresh ONLY the dispatcher trigger functions (.eb) -- leave the deployed terrain / "
+                          "event tiles / building untouched. The re-deploy mode for picking up a kit upgrade to "
+                          "the trigger body (e.g. the zone-in fade) on an already-authored entrance")
+    wen.add_argument("--action-prompt", action="store_true",
+                     help="FAITHFUL \"!\" entrance (--field-direct only): the tile raises the \"!\" bubble and warps "
+                          "only when you press Confirm while standing on it -- the way real FF9 towns enter (a "
+                          "B_KEYON(Confirm) gate, byte-copied from the real dispatcher). Default (off) = auto-warp "
+                          "the instant you step on the tile")
     # optional building (folds world-mesh-build in)
     wen.add_argument("--building", help="an OBJ modelled/exported in Blender to place + seat as the cell's structure")
     wen.add_argument("--building-at", type=float, nargs=2, metavar=("WX", "WZ"),

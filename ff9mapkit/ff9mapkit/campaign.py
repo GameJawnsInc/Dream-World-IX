@@ -156,7 +156,7 @@ def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_s
         f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\ntext_block = 1073\n\n"
         f"[camera]\nborrow = \"camera.bgx\"\n{control_line}{scroll}\n"
         f"[walkmesh]\nbgi = \"walkmesh.bgi\"\n\n"
-        f"[player]\nspawn = [{x}, {z}]\n\n"
+        f"{extract._player_block(meta)}"
         f"{extract._content_section(content_blocks, x, z)}"
     )
     p = Path(member_dir) / f"{name}.field.toml"
@@ -803,6 +803,58 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
         if n >= 2:
             warnings.append(f"member {frm}: {n} stacked same-zone exits (story-conditional) -- set "
                             f"requires_flag on each in its field.toml, else the engine resolves only one")
+
+    # (g2) per-door ARRIVAL coverage -- the destination-side half of the entrance contract (the field-entry
+    #      arc, studies/field-entry). Every edge carries the entrance its gateway WRITES (D8:2 before
+    #      Field()); a synthesized/declarative member reads it only through its [[player.arrival]] rows --
+    #      with none, every door lands on the one [player] spawn (the collapse a real field never has).
+    #      A VERBATIM member ships the donor .eb whole (its real arrival table is carried), so only
+    #      DEGRADED members are audited in a verbatim chain -- and rows ON a carried verbatim member are
+    #      dead weight (the verbatim composition never reads [player] face/arrival).
+    inbound = {}                                   # member -> {entrance: {frm, ...}}
+    for e in plan.edges:
+        to = e.get("to")
+        if to in names:
+            ent = e.get("entrance")
+            inbound.setdefault(to, {}).setdefault(0 if ent is None else int(ent), set()).add(str(e.get("frm")))
+    if plan.entry_name in names:                   # the campaign itself ENTERS through its entry member
+        inbound.setdefault(plan.entry_name, {}).setdefault(
+            int(plan.entry_entrance or 0), set()).add("<campaign entry>")
+    for m in plan.members:
+        raw = member_raw.get(m.name)
+        if raw is None:
+            continue
+        rows = (raw.get("player") or {}).get("arrival") or []
+        covered = {int(r["entrance"]) for r in rows if isinstance(r, dict) and r.get("entrance") is not None}
+        if plan.verbatim and m.name not in degraded:
+            if rows:
+                warnings.append(f"member {m.name}: [[player.arrival]] rows are IGNORED on a verbatim member "
+                                f"-- the donor .eb carries its own real per-door arrival table (use "
+                                f"[[logic_edit]] to move a donor arrival)")
+            continue
+        ins = inbound.get(m.name, {})
+        if not rows:
+            if len(ins) >= 2:
+                doors = ", ".join(f"{e} (from {'/'.join(sorted(ins[e]))})" for e in sorted(ins))
+                warnings.append(f"member {m.name}: {len(ins)} doors arrive here with distinct entrances "
+                                f"[{doors}] but it has no [[player.arrival]] rows -- every door lands on "
+                                f"the one [player] spawn. Add a row per entrance for per-door arrival.")
+            elif len(ins) == 1:
+                (ent, srcs), = ins.items()
+                if len(srcs) >= 2:
+                    warnings.append(f"member {m.name}: {len(srcs)} doors ({'/'.join(sorted(srcs))}) all "
+                                    f"arrive with entrance {ent} -- the destination can't tell them apart. "
+                                    f"Give each source [[gateway]] a distinct entrance= and add "
+                                    f"[[player.arrival]] rows for per-door arrival. (advisory)")
+            continue
+        for ent in sorted(set(ins) - covered):
+            warnings.append(f"member {m.name}: inbound entrance {ent} (from {'/'.join(sorted(ins[ent]))}) "
+                            f"has no [[player.arrival]] row -- that door falls through to the default "
+                            f"[player] spawn. (advisory)")
+        for ent in sorted(covered - set(ins)):
+            warnings.append(f"member {m.name}: [[player.arrival]] entrance {ent} is not routed here by any "
+                            f"campaign edge (inbound: {sorted(ins) if ins else 'none'}) -- a typo, or a "
+                            f"door outside this campaign? (advisory)")
 
     if not errors:                                 # (h) cross-field flag dependencies (NAME gates included)
         # journey-GLOBAL flag names (manifest [[flag]]) are resolvable here too -- a member may gate on a

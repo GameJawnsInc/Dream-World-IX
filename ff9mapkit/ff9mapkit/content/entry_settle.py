@@ -17,9 +17,77 @@ locked during the wait so the player can't wander blind. (memory ``project-ff9-w
 
 from __future__ import annotations
 
+import math
+
 from ..eb import EbScript, edit, opcodes
+from ..scene import cam as _cam
 
 FADE_FILTER = 0xEC          # WIPERGB / "FadeFilter"; arg0 & 2 set => SUB == a fade-IN (reveal)
+
+# ---- the "auto" estimator (rung 7 of the field-entry arc) -------------------------------------
+# entry_settle = "auto" COMPUTES the hold instead of hand-copying "the hub precedent" (45). The
+# engine's follower (FieldMap.CenterCameraOnPlayer, per HonoLateUpdate frame -- the same tick the
+# event engine counts Wait frames in) eases geometrically:  new = target + (prev - target) * s,
+# s = CameraStabilizer/100 (per-user Memoria.ini, default 85). The camera's target is the player's
+# CLAMPED GTE screen position (aim = player pos + charAimHeight in y, offset = compute_offset,
+# clamped to the .bgx Viewport); before the player binds it targets the bare offset (the null-player
+# home). So the warp-in drift is the px distance between those two clamped points, and it decays by
+# s each frame: frames-to-subpixel = ln(delta/tol) / -ln(s), plus the bind window (SmoothCamDelay
+# 4-6 + the frames until playerController wires up).
+#
+# Calibrated 2026-07-13 against the in-game-proven holds (tol 0.25px, bind 10): hub 4500/Gargan Roo
+# delta 63px -> 45 (proven 45), hub 4600/Mognet delta 61px -> 45 (60 proven clean, 90 over-tuned),
+# waystation 6500/Daguerreo delta 107px -> 50 (proven 45). The Viewport clamp bounds any realistic
+# delta, and the log keeps the answer flat (~45-60 even for huge scrolling canvases) -- exactly the
+# proven band. Best-effort: CameraStabilizer is per-user (we bake for the default 85); the spawn's
+# y is taken as 0 (a wrong floor height moves the answer by only a frame or two -- it's inside a log).
+DEFAULT_ENTRY_SETTLE = 45   # the in-game-proven fallback when "auto" can't resolve a camera
+DEFAULT_STABILIZER = 85     # Memoria.ini CameraStabilizer default (SmoothCamPercent = /100)
+CHAR_AIM_HEIGHT = 324.0     # FieldMap.charAimHeight -- the camera aims this far above the player's feet
+BIND_DELAY_FRAMES = 10      # SmoothCamDelay (4-6) + the frames until playerController binds
+SETTLE_TOL_PX = 0.25        # converged = the remaining drift is sub-pixel (every later step smaller)
+AUTO_MIN_FRAMES = 20        # sanity band: never compute a uselessly-short ...
+AUTO_MAX_FRAMES = 90        # ... or an over-tuned hold (90 read as "very long black" in-game)
+
+
+def is_auto(value) -> bool:
+    """True if a ``[camera] entry_settle`` value asks for the computed hold (the string ``"auto"``)."""
+    return isinstance(value, str) and value.strip().lower() == "auto"
+
+
+def _clamped_cam_pos(sx, sy, camera):
+    """The engine's Viewport clamp (FieldMap.SceneService3DScroll): a screen point -> where the
+    camera may actually rest. Clamped in "vrp space" (aimX = sx + HalfFieldWidth, aimY = HalfFieldHeight - sy)."""
+    vminx, vmaxx, vminy, vmaxy = camera.viewport
+    ax = min(max(sx + _cam.HALF_FIELD_W, vminx), vmaxx)
+    ay = min(max(_cam.HALF_FIELD_H - sy, vminy), vmaxy)
+    return (ax - _cam.HALF_FIELD_W, _cam.HALF_FIELD_H - ay)
+
+
+def warp_in_delta_px(camera, spawn, y: float = 0.0) -> float:
+    """The warp-in drift (px): distance between the camera's null-player home (the clamped bare
+    projection offset -- where it rests before the player binds) and its player-bound target (the
+    spawn's clamped screen position, aimed ``CHAR_AIM_HEIGHT`` above the feet)."""
+    off = _cam.compute_offset(camera)
+    home = _clamped_cam_pos(off[0], off[1], camera)
+    sx, sy, _ = _cam.project((float(spawn[0]), y + CHAR_AIM_HEIGHT, float(spawn[1])), camera, off)
+    bound = _clamped_cam_pos(sx, sy, camera)
+    return math.hypot(bound[0] - home[0], bound[1] - home[1])
+
+
+def estimate_entry_settle(camera, spawn, *, stabilizer: int = DEFAULT_STABILIZER, y: float = 0.0) -> int:
+    """Frames to hold black so the smooth-cam converges unseen: ``BIND_DELAY_FRAMES +
+    ln(delta/SETTLE_TOL_PX) / -ln(s)``, rounded up to a multiple of 5 and clamped to the sane band.
+    A sub-1px delta returns 0 (the camera doesn't move -- nothing to hide, and 0 keeps the build
+    byte-identical). ``spawn`` is the ``[player] spawn`` (x, z); ``camera`` the field's LOAD camera
+    (index 0 -- the settle hides the load-time ease, not later camera-zone switches)."""
+    delta = warp_in_delta_px(camera, spawn, y=y)
+    if delta < 1.0:
+        return 0
+    s = min(max(int(stabilizer), 0), 99) / 100.0
+    ease = 0.0 if s <= 0.0 else math.log(delta / SETTLE_TOL_PX) / -math.log(s)
+    frames = int(math.ceil((BIND_DELAY_FRAMES + ease) / 5.0)) * 5
+    return min(max(frames, AUTO_MIN_FRAMES), AUTO_MAX_FRAMES)
 
 
 def add_entry_settle(eb_bytes, wait_frames: int = 45) -> bytes:

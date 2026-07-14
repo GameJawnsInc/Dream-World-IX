@@ -309,6 +309,61 @@ def set_player_spawn(data, x: int, z: int, *, entry_index: int | None = None) ->
     return edit.patch_bytes(edit.patch_bytes(data, abs_x, pi16(x)), abs_z, pi16(z))
 
 
+def set_player_facing(data, face: int, *, entry_index: int | None = None) -> bytes:
+    """Set the player's spawn FACING -- the SetVar D9(6) const in its Init, which the template's own
+    ``TurnInstant(D9(6))`` consumes right after ``CreateObject``. A pure const patch (the same mechanism
+    as :func:`set_player_spawn`; NPCs have always had this via ``build_npc_init(facing=)`` -- the player
+    just never exposed it). ``face`` is the ``[[npc]]``/chest compass byte: 0=south, 64=west, 128=north,
+    192=east."""
+    eb = EbScript.from_bytes(data)
+    pe = entry_index if entry_index is not None else _find_player_entry(eb)
+    f0 = eb.entry(pe).func_by_tag(0)
+    body = bytearray(data[f0.abs_start:f0.abs_end])
+    return edit.patch_bytes(data, f0.abs_start + _find_var_const(body, 6), pi16(int(face)))
+
+
+def inject_player_arrivals(data, arrivals, *, entry_index: int | None = None) -> bytes:
+    """Compile a per-ENTRANCE arrival table into the player Init -- the destination-side half of the
+    entrance contract every kit warp already writes (a gateway/choice/ladder exit sets ``D8:2 = entrance``
+    then ``Field()``). Real fields dispatch on ``D8:2`` in the player Init to one ``D9(0)/D9(4)/D9(6)``
+    (x/z/face) const block per door (Alexandria 100 has 4; the blank template keeps the bare ``D8:2`` read
+    plus ONE default block). This inserts, at the END of that default const run -- so an unmatched
+    entrance keeps ``[player] spawn`` -- one
+
+        if (D8:2 == entrance) { D9(0)=x ; D9(4)=z ; [D9(6)=face] }
+
+    per row (field 706's conditional form, the proven :func:`ff9mapkit.content.ladder.inject_reentry_spawn`
+    splice), BEFORE ``CreateObject(D9(0),D9(4))``/``TurnInstant(D9(6))`` consume the vars: placement is
+    pre-creation, frame 0, no base-spawn flash. ``arrivals`` = ``[{entrance, pos: [x, z], face?}, ...]``.
+    The result round-trips through ``eventscan.scan_player_arrivals`` (the decoder is the offline oracle)."""
+    rows = [(int(a["entrance"]), int(a["pos"][0]), int(a["pos"][1]),
+             None if a.get("face") is None else int(a["face"])) for a in arrivals]
+    eb = EbScript.from_bytes(data)
+    pe = entry_index if entry_index is not None else _find_player_entry(eb)
+    init = eb.entry(pe).func_by_tag(0)
+    if init is None:
+        raise ValueError("player entry has no Init (tag 0)")
+    rel = None
+    for ins in eb.instrs(init):                       # anchor: the LEADING [bare D8:2 read +] D9-const run
+        raw = data[ins.off:ins.end]
+        if ins.op == 0x05 and len(raw) == 8 and raw[1] == 0xD9 and raw[3] == 0x7D and raw[6] == 0x2C:
+            rel = ins.end - init.abs_start            # ...ends after the last default spawn const
+            continue
+        if ins.op == 0x05 and len(raw) == 4 and raw[1] == 0xD8 and raw[2] == 0x02 and rel is None:
+            continue                                  # the template's own entrance read heads the run
+        break
+    if rel is None:
+        raise ValueError("player Init has no leading SetVar D9 spawn-const run; cannot add arrivals")
+    blob = b"".join(
+        _region.if_block(
+            _region.cond_eq(_region.GLOB_INT16, _region.FIELD_ENTRANCE_IDX, ent),
+            _region.set_var(_region.MAP_INT16, 0, x)
+            + _region.set_var(_region.MAP_INT16, 4, z)
+            + (b"" if face is None else _region.set_var(_region.MAP_INT16, 6, face)))
+        for ent, x, z, face in rows)
+    return edit.insert_in_function(data, pe, 0, rel, blob)
+
+
 def set_player_model(data, model_id: int, anims: dict | None = None, *,
                      animset: int | None = None, entry_index: int | None = None) -> bytes:
     """Re-skin the PLAYER's field avatar to ``model_id`` + its movement ``anims`` -- the `[player] model=`

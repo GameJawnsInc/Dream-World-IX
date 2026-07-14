@@ -89,7 +89,15 @@ A typical pass:
    - *Event* drops an amber wire quad (`FF9_Event`) — a walk-in trigger for chests / levers / story
      events. Move/scale it over the trigger spot; set `ff9_message`, `ff9_set_flag` (-1 = none),
      `ff9_once` inline (or flesh out the actions — give_item/gil/requires_flag — in the editor).
-   - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry.
+   - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry (the DEFAULT
+     arrival: an F6 warp, or any door without an Arrival marker). Set `ff9_face` to fix the spawn
+     facing (0=south/toward the camera, 64=west, 128=north, 192=east; -1 keeps the default).
+   - *Arrival* drops a per-door arrival marker (`FF9_Arrival_<n>`, a cone) — real FF9 fields land the
+     player at a **different spot per door**, and this is that table (`[[player.arrival]]`). Set its
+     `ff9_entrance` to match the `entrance =` the arriving gateway writes (the gateway ON THE OTHER
+     field that warps here — or this field's own `ff9_entrance` on a return door), and optionally
+     `ff9_face` for the arrival facing. One marker per entrance; the Spawn stays the fallback.
+     Imported forks re-create these from the donor's real table automatically.
    - *Waypoint* drops a named point (`FF9_Waypoint`) — set `ff9_name`, then reference it from a
      cutscene by name (`walk = "<name>"` / `path = ["a", "b"]`) instead of typing coordinates. (A
      plain `walk` auto-routes around obstacles; waypoints are for forcing an exact route.)

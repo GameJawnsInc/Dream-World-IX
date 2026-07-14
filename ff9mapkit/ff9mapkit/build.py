@@ -104,6 +104,39 @@ def _merge_entities(base_list, scene_list):
     return out
 
 
+def _auto_settle_frames(project, warnings=None) -> int:
+    """Resolve ``[camera] entry_settle = "auto"`` -> a computed frame count (content.entry_settle's
+    estimator: the spawn's clamped-screen warp-in delta under the engine's geometric smooth-cam ease,
+    baked for the default CameraStabilizer 85). The LOAD camera (index 0) + ``[player] spawn`` drive
+    it; an unresolvable camera (e.g. a missing borrow .bgx) degrades to the proven default 45. Either
+    way the chosen value is surfaced once through ``warnings`` so the build output shows what "auto"
+    picked."""
+    try:
+        camera = resolve_camera(project)
+        spawn = (project.raw.get("player") or {}).get("spawn") or (0, 0)
+        n = _entry_settle.estimate_entry_settle(camera, spawn)
+        d = _entry_settle.warp_in_delta_px(camera, spawn)
+        msg = (f'[camera] entry_settle = "auto" -> {n} frames (warp-in delta {d:.0f}px, '
+               f'CameraStabilizer {_entry_settle.DEFAULT_STABILIZER})')
+    except Exception as e:                          # a camera that can't resolve offline -- never a crash
+        n = _entry_settle.DEFAULT_ENTRY_SETTLE
+        msg = (f'[camera] entry_settle = "auto": the camera could not be resolved ({e}) -- '
+               f'falling back to the proven default {n}')
+    if warnings is not None and msg not in warnings:   # build_script runs once per language -- say it once
+        warnings.append(msg)
+    return n
+
+
+def _camera_entry_settle(cam):
+    """The ``entry_settle`` a camera table (dict) or [[camera]] multicam list carries, or None."""
+    if isinstance(cam, dict):
+        return cam.get("entry_settle")
+    if isinstance(cam, list):
+        return next((c.get("entry_settle") for c in cam
+                     if isinstance(c, dict) and c.get("entry_settle")), None)
+    return None
+
+
 def _merge_scene(base: dict, scene: dict) -> dict:
     """Overlay a Blender `scene.toml` onto a `field.toml` dict. Spatial sections come from the scene;
     content lists merge by name (scene = position/zone, field = logic)."""
@@ -111,6 +144,16 @@ def _merge_scene(base: dict, scene: dict) -> dict:
     for key in _SCENE_SCALAR:
         if key in scene:
             merged[key] = scene[key]
+    # entry_settle is the camera's one LOGIC key (the entry black-hold) -- the scene owns the SPATIAL
+    # camera, but a Blender re-export must not silently drop the field.toml's settle (the scene's own
+    # value, if it ever carries one, wins).
+    _es = _camera_entry_settle(base.get("camera"))
+    if "camera" in scene and _es is not None and _camera_entry_settle(merged.get("camera")) is None:
+        cam = merged["camera"]
+        if isinstance(cam, dict):
+            merged["camera"] = {**cam, "entry_settle": _es}
+        elif isinstance(cam, list) and cam and isinstance(cam[0], dict):
+            merged["camera"] = [{**cam[0], "entry_settle": _es}] + list(cam[1:])
     if "player" in scene:
         merged["player"] = {**base.get("player", {}), **scene["player"]}
     for key in _ENTITY_LISTS:
@@ -2325,6 +2368,92 @@ def _lint_scripts_toolchain(project: FieldProject, out: list) -> None:
         r"Framework csc at C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe works too).")
 
 
+def lint_player_arrivals(project: FieldProject) -> list:
+    """Field-LOCAL ``[[player.arrival]]`` checks (the cross-field inbound audit lives in
+    ``campaign.lint_campaign`` (g2), which sees the whole edge graph):
+
+    - ``[player] face`` / ``[[player.arrival]]`` on a VERBATIM fork are dead weight -- the verbatim
+      composition ships the donor ``.eb`` whole (its own real arrival table) and never reads them.
+    - a SELF-LOOP gateway (``to`` = this field's own id, the ARRTEST test-field idiom) whose ``entrance``
+      has no arrival row silently falls through to the default spawn -- almost always a typo when the
+      field bothered to author rows at all."""
+    out = []
+    player = project.raw.get("player") or {}
+    rows = player.get("arrival") or []
+    if "verbatim_eb" in project.raw:
+        dead = [lbl for lbl, v in (("[[player.arrival]]", rows or None), ("[player] face", player.get("face")))
+                if v is not None]
+        if dead:
+            out.append(f"{' + '.join(dead)} are IGNORED on a verbatim fork -- the donor .eb carries its own "
+                       f"real per-door arrival table (use [[logic_edit]] to move a donor arrival)")
+        return out
+    fid = project.field.get("id")
+    if rows and fid is not None:
+        covered = {int(r["entrance"]) for r in rows if isinstance(r, dict) and r.get("entrance") is not None}
+        for gw in project.raw.get("gateway") or []:
+            to = gw.get("to")
+            try:
+                ent = int(gw.get("entrance", 0) or 0)
+            except (TypeError, ValueError):
+                continue                                   # malformed entrance is validate()'s problem
+            if isinstance(to, int) and to == int(fid) and ent not in covered:
+                out.append(f"self-loop gateway (to = {to}, entrance {ent}) has no [[player.arrival]] row -- "
+                           f"re-entering through it lands on the default [player] spawn. (advisory)")
+    return out
+
+
+def lint_entry_settle(project: FieldProject) -> list:
+    """Field-local ``entry_settle`` honesty checks (the black-hold that hides the smooth-cam warp-in ease,
+    ``content.entry_settle``):
+
+    - on a VERBATIM fork the key is dead weight -- the verbatim composition ships the donor ``.eb`` whole
+      (its own entry sequence already fills the pre-reveal time; forks don't need a settle).
+    - ``"auto"`` is legal (the computed hold) -- report what it resolves to; any OTHER non-integer /
+      a negative value is silently treated as off -- say so.
+    - several ``[[camera]]`` multicam blocks with DIFFERENT nonzero values: the build applies the first
+      (the settle is a Main_Init-wide hold, not per-camera)."""
+    out = []
+    cam_raw = project.raw.get("camera")
+    blocks = ([cam_raw] if isinstance(cam_raw, dict)
+              else [c for c in cam_raw if isinstance(c, dict)] if isinstance(cam_raw, list) else [])
+    vals = [c.get("entry_settle") for c in blocks if c.get("entry_settle") is not None]
+    if not vals:
+        return out
+    if "verbatim_eb" in project.raw:
+        out.append("[camera] entry_settle is IGNORED on a verbatim fork -- the donor .eb carries its own "
+                   "entry sequence (title/cast beats fill the pre-reveal time), so a fork needs no settle")
+        return out
+    for v in vals:
+        if isinstance(v, bool):
+            out.append(f"[camera] entry_settle = {str(v).lower()} is a boolean -- use a FRAME COUNT "
+                       f"(true would hold ~1 frame = hides nothing; ~45 = the proven hub hold) or \"auto\"")
+        elif _entry_settle.is_auto(v):
+            try:                                       # surface what "auto" computes (informational)
+                camera = resolve_camera(project)
+                spawn = (project.raw.get("player") or {}).get("spawn") or (0, 0)
+                n = _entry_settle.estimate_entry_settle(camera, spawn)
+                d = _entry_settle.warp_in_delta_px(camera, spawn)
+                out.append(f'[camera] entry_settle = "auto" resolves to {n} frames (warp-in delta '
+                           f'{d:.0f}px, CameraStabilizer {_entry_settle.DEFAULT_STABILIZER}) (advisory)')
+            except Exception:
+                out.append(f'[camera] entry_settle = "auto": the camera is not resolvable offline -- '
+                           f'the build will fall back to the proven default '
+                           f'{_entry_settle.DEFAULT_ENTRY_SETTLE} (advisory)')
+        elif not isinstance(v, int):
+            out.append(f"[camera] entry_settle = {v!r} is not an integer frame count -- use whole "
+                       f"frames (~45 = the proven hub hold) or \"auto\" (computed from the warp-in "
+                       f"delta); any other string is skipped")
+        elif v < 0:
+            out.append(f"[camera] entry_settle = {v} is negative -- treated as OFF (0 disables)")
+    good = [("auto" if _entry_settle.is_auto(v) else v) for v in vals
+            if (isinstance(v, int) and not isinstance(v, bool) and v > 0) or _entry_settle.is_auto(v)]
+    if len(set(good)) > 1:
+        out.append(f"[[camera]] blocks carry different entry_settle values "
+                   f"{sorted(set(good), key=str)} -- the settle is one field-wide hold, and the "
+                   f"build applies the FIRST nonzero ({good[0]})")
+    return out
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -2334,6 +2463,8 @@ def lint_all(project: FieldProject) -> LintReport:
     of truth behind the ``lint`` CLI; a clean ``lint_all`` is what a clean build expects."""
     rep = LintReport(errors=validate(project), logic=lint_logic(project), flags=lint_flag_bands(project))
     rep.logic.extend(lint_region_overlaps(project))       # the TreadQuad law: overlapping tread regions starve
+    rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
+    rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad
@@ -2675,6 +2806,19 @@ def _validate_content_placement(project: FieldProject, wmesh, warnings: list) ->
                 warnings.append(f"player spawn ({int(sp[0])}, {int(sp[1])}) is only ~{d:.0f}u from a "
                                 f"walkmesh edge (< the ~{R:.0f}u collision radius) -- the engine will "
                                 f"shove you inward on entry. Move it toward the floor centre. (advisory)")
+    for a in project.raw.get("player", {}).get("arrival") or []:
+        p = a.get("pos") if isinstance(a, dict) else None
+        if not (isinstance(p, (list, tuple)) and len(p) >= 2):
+            continue                                  # malformed rows are the build's error, not a placement warning
+        if off(p[0], p[1]):
+            warnings.append(f"[[player.arrival]] entrance {a.get('entrance')}: pos ({int(p[0])}, {int(p[1])}) "
+                            f"is off the walkmesh -- arriving through that door starts you off the floor.")
+        else:
+            d = near_edge(p[0], p[1])
+            if d is not None:
+                warnings.append(f"[[player.arrival]] entrance {a.get('entrance')}: pos ({int(p[0])}, "
+                                f"{int(p[1])}) is only ~{d:.0f}u from a walkmesh edge (< the ~{R:.0f}u "
+                                f"collision radius) -- the engine will shove you inward on entry. (advisory)")
     for gw in project.raw.get("gateway", []):
         zone = gw.get("zone", [])
         if zone:
@@ -4125,8 +4269,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  cutscene_txids: list | None = None, walkmesh=None,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
                  ate_txids: dict | None = None, chest_txids: dict | None = None,
-                 gateway_txids: dict | None = None, coop_txids: dict | None = None) -> bytes:
-    """Build one language's .eb by applying the project's content to the blank field."""
+                 gateway_txids: dict | None = None, coop_txids: dict | None = None,
+                 warnings: list | None = None) -> bytes:
+    """Build one language's .eb by applying the project's content to the blank field. ``warnings``
+    (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
+    requested ``entry_settle`` that could not be inserted."""
     _auto = _FlagAlloc(getattr(project, "flag_base", None))
     event_txids = event_txids or {}
     cutscene_txids = cutscene_txids or []
@@ -4818,6 +4965,35 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     if "player" in project.raw and "spawn" in project.raw["player"]:
         sp = project.raw["player"]["spawn"]
         eb = _npc.set_player_spawn(eb, int(sp[0]), int(sp[1]))
+    # [player] face= + [[player.arrival]]: the destination-side half of the entrance contract. Every kit
+    # warp already WRITES the entrance index (gateway/choice/ladder `entrance=` -> D8:2 before Field());
+    # real fields READ it in the player Init and place the player per door. `face` patches the template's
+    # D9(6) spawn-facing const (the [[npc]]/chest compass byte); the arrival rows compile the real
+    # per-entrance dispatch, so a synthesized field stops landing every door on the one [player] spawn.
+    # See content.npc.set_player_facing / inject_player_arrivals.
+    if "player" in project.raw and project.raw["player"].get("face") is not None:
+        _f = int(project.raw["player"]["face"])
+        if not 0 <= _f <= 255:
+            raise ValueError(f"[player] face must be 0-255 (0=south, 64=west, 128=north, 192=east), got {_f}")
+        eb = _npc.set_player_facing(eb, _f)
+    _arr = project.raw.get("player", {}).get("arrival") or []
+    if _arr:
+        _seen = set()
+        for _a in _arr:
+            if not isinstance(_a, dict) or "entrance" not in _a or "pos" not in _a:
+                raise ValueError("[[player.arrival]] rows need entrance = <int> and pos = [x, z]")
+            _e = int(_a["entrance"])
+            if _e < 0 or _e in _seen:
+                raise ValueError(f"[[player.arrival]] entrance {_e} is "
+                                 f"{'negative' if _e < 0 else 'duplicated'} -- one row per entrance, "
+                                 f"matching the [[gateway]]/warp entrance= that routes here")
+            _seen.add(_e)
+            _p = _a["pos"]
+            if not (isinstance(_p, (list, tuple)) and len(_p) == 2):
+                raise ValueError(f"[[player.arrival]] entrance {_e}: pos must be [x, z]")
+            if _a.get("face") is not None and not 0 <= int(_a["face"]) <= 255:
+                raise ValueError(f"[[player.arrival]] entrance {_e}: face must be 0-255")
+        eb = _npc.inject_player_arrivals(eb, _arr)
     # [player] model= : re-skin the player avatar (the World-Hub Moogle PC, or any model on a free-roam
     # field). Resolved like an [[npc]] model (name/GEO/id -> movement clips via the Info Hub join). Movement
     # clips only -- a scripted-gesture field would glitch (same caveat as --swap-player), so it's free-roam-only.
@@ -4835,11 +5011,25 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # engine's per-frame smooth-camera follower (FieldMap.CenterCameraOnPlayer, scaled by Memoria.ini
     # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/F6
     # warp) visibly eases the camera to rest over a few seconds. Engine-independent (no DLL). [camera]
-    # entry_settle = <frames>; absent/0 = off (byte-identical). See content.entry_settle.
-    _cam = project.raw.get("camera")           # a single [camera] table; [[camera]] multicam is a list (skip)
-    _settle = _cam.get("entry_settle") if isinstance(_cam, dict) else None
+    # entry_settle = <frames>; absent/0 = off (byte-identical). A [[camera]] MULTICAM field reads it from
+    # any of its blocks (first nonzero wins -- the settle is a Main_Init-wide hold, not per-camera; it used
+    # to be silently SKIPPED on multicam, the exact scrolling class that needs it most). See content.entry_settle.
+    _settle = _camera_entry_settle(project.raw.get("camera"))   # [camera] dict or [[camera]] multicam list
     if _settle:
-        eb = _entry_settle.add_entry_settle(eb, int(_settle))
+        if _entry_settle.is_auto(_settle):         # "auto" = compute the hold from the warp-in delta (rung 7)
+            _n = _auto_settle_frames(project, warnings)
+        else:
+            try:
+                _n = int(_settle)
+            except (TypeError, ValueError):        # any other string -- lint_entry_settle explains it; don't crash
+                _n = 0
+        _pre_settle = eb
+        eb = _entry_settle.add_entry_settle(eb, _n)
+        if eb is _pre_settle and _n > 0 and warnings is not None:
+            _msg = (f"[camera] entry_settle = {_n}: NOT applied -- Main_Init has no plain reveal "
+                    f"fade to hide the wait behind (the entry will show the camera settle)")
+            if _msg not in warnings:               # build_script runs once per language -- warn once
+                warnings.append(_msg)
 
     # Area-title autohide (opt-in): a synthesized field that BG-borrows a real "area-title" room (Ice
     # Cavern, Mognet Central, ...) inherits that room's localized title OVERLAY -- which is Active by
@@ -5955,7 +6145,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
                               ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids,
-                              coop_txids=coop_txids)
+                              coop_txids=coop_txids, warnings=warnings)
             base = mes_body or ""
             inplace = base
             suffix = ""

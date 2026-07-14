@@ -1042,13 +1042,16 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
     # centroid cascade when none qualifies (a single-spawn field, a frame mismatch, all arrivals off-screen/gated)
     # -> byte-identical there. A synth fork can't reconstruct the per-DOOR table (gateways are retargeted), but
     # the default landing now matches the real field's main arrival instead of a centroid guess.
-    _arrivals = []
+    _arrivals, _atable = [], []
     try:
         _aeb = extract_event_script(field, game=game)
         if _aeb:
             _arrivals = [(ax, az) for ax, az, _f in eventscan.scan_player_arrivals(_aeb)["arrivals"]]
+            # the ATTRIBUTED table (entrance -> placement) -- emitted as [[player.arrival]] rows by the
+            # non-verbatim project writers, so a synth fork keeps the donor's per-door arrivals (rung 5)
+            _atable = sorted(eventscan.scan_arrival_table(_aeb)["table"], key=lambda r: r["entrance"])
     except Exception:                                         # a missing/odd script just disables the preference
-        _arrivals = []
+        _arrivals, _atable = [], []
     _valid_arr = [p for p in _arrivals if _inb(*p) and _oncam(*p) and _clear(*p) and _in_main(*p)]
     _spawn = None
     if _valid_arr and mcx is not None:                       # the real arrival nearest the visible centre
@@ -1077,6 +1080,7 @@ def extract_field(field: str, out_dir, *, game=None, bundle=None, want_atlas=Fal
         "scrolling": scrolling,
         "frame_offset": [wm.orgPos.x, wm.orgPos.y, wm.orgPos.z],   # header base (+ per-floor floor.org)
         "player_start": _spawn,
+        "player_arrivals": _atable,     # the donor's attributed per-door table (entrance/pos/face/y)
         "walkmesh_bounds": {     # WORLD frame (vert + orgPos + floor.org) = where content goes
             "x": [round(min(wx)), round(max(wx))],
             "z": [round(min(wz)), round(max(wz))],
@@ -1557,6 +1561,34 @@ def safe_custom_area(area: int) -> int:
     return area if area >= MIN_CUSTOM_AREA else 11
 
 
+def _player_block(meta) -> str:
+    """The ``[player]`` block an emitted (non-verbatim) fork toml gets: the collapsed default spawn
+    (``meta['player_start']``, the proven real-arrival-nearest-centroid choice -- the F6/unmatched
+    landing) + the donor's ATTRIBUTED per-entrance table as ``[[player.arrival]]`` rows, so the fork
+    keeps the donor's per-door arrivals instead of collapsing them (the field-entry arc, rung 5). The
+    donor's exits carry their ``D8:2`` writes through the fork retarget, so the entrance numbers still
+    match. Rows the build could not accept are dropped, not emitted broken: a negative entrance or an
+    out-of-compass facing (facing omitted, position kept); a duplicate entrance keeps the LAST block
+    (if-chain semantics: every matching block runs, the last write wins). A donor block that also sets
+    ``y`` is emitted x/z-only (the known multi-floor gap -- studies/field-entry). With no rows this
+    renders byte-identically to the old ``[player]`` block (regen tomls don't churn)."""
+    x, z = meta["player_start"]
+    s = f"[player]\nspawn = [{x}, {z}]\n"
+    rows = {}
+    for r in meta.get("player_arrivals") or []:
+        if int(r["entrance"]) >= 0:
+            rows[int(r["entrance"])] = r               # dedup: the LAST block per entrance wins
+    if rows:
+        s += "# the donor's real per-door arrivals (dispatched on the entrance the source exit writes)\n"
+    for ent in sorted(rows):
+        r = rows[ent]
+        s += f"[[player.arrival]]\nentrance = {ent}\npos = [{int(r['pos'][0])}, {int(r['pos'][1])}]\n"
+        f = r.get("face")
+        if f is not None and 0 <= int(f) <= 255:
+            s += f"face = {int(f)}\n"
+    return s + "\n"
+
+
 def _walkmesh_hotfix_line(field) -> str:
     """The ``[field] walkmesh_tri_toggles`` line for a fork of real ``field`` when that field has a LOAD-TIME
     engine walkmesh hotfix (``BGI_triSetActive`` keyed on its real ``fldMapNo``) the fork would lose on its
@@ -1711,8 +1743,7 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
         f"{scroll}\n"
         f"{walkmesh_toml}\n"
         f"{layer_blocks}\n\n"
-        f"[player]\n"
-        f"spawn = [{x}, {z}]\n\n"
+        f"{_player_block(meta)}"
         f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
         f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
         f"{_content_section(content_blocks, x, z)}"
@@ -2019,9 +2050,10 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
         f"{scroll}\n"
         f"[walkmesh]\n"
         f'bgi = "walkmesh.bgi"   # the real field\'s walkmesh -- connectivity preserved (faithful copy)\n\n'
-        f"[player]\n"
-        f"spawn = [{x}, {z}]\n\n"
-        f"{content_tail}"
+        # a VERBATIM fork carries the donor's real arrival table in its .eb -- [[player.arrival]] rows
+        # there would be dead weight (lint flags them); every other mode re-authors the donor's table
+        + (f"[player]\nspawn = [{x}, {z}]\n\n" if verbatim else _player_block(meta))
+        + f"{content_tail}"
     )
     p = Path(out_dir) / f"{name}.field.toml"
     p.write_text(toml, encoding="utf-8", newline="\n")
@@ -2241,8 +2273,7 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
         f"[walkmesh]\n"
         f'reference = "walkmesh.bgi"   # validation only -- NOT shipped (the engine uses the borrowed\n'
         f"# field's real walkmesh). The build WARNS if the content below sits off this walkable area.\n\n"
-        f"[player]\n"
-        f"spawn = [{x}, {z}]\n\n"
+        f"{_player_block(meta)}"
         f"# --- add NPCs/dialogue (uncomment + edit); keep positions within the walkmesh bounds above ---\n"
         f'# [[npc]]\n# name = "Vivi"\n# preset = "vivi"\n# pos = [{x}, {z}]\n# dialogue = "Hello, traveler."\n\n'
         f"{_content_section(content_blocks, x, z)}"
@@ -2304,7 +2335,7 @@ def write_lightweight_project(field: str, out_dir, *, name: str | None = None, f
         f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{borrow_line}text_block = {text_block}\n\n"
         f"[camera]\nborrow = \"camera.bgx\"\n{scroll}\n"
         f"[walkmesh]\n{wm_stanza}\n\n"
-        f"[player]\nspawn = [{x}, {z}]\n\n"
+        f"{_player_block(meta)}"
         f"{_content_section('', x, z)}"
     )
     p = out / f"{name}.field.toml"

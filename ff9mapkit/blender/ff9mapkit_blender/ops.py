@@ -98,10 +98,16 @@ class FF9MKProps(bpy.types.PropertyGroup):
     scroll_enabled: bpy.props.BoolProperty(
         name="Scrolling room", default=False,
         description="Larger-than-screen painting the view pans across (FF9 streets/corridors)")
-    canvas_w: bpy.props.IntProperty(name="Canvas W", default=768, min=384,
-                                    description="Full painting width (>= 384; 768 = 2x screen)")
-    canvas_h: bpy.props.IntProperty(name="Canvas H", default=448, min=448,
-                                    description="Full painting height (>= 448)")
+    # REAL scroll canvases can be SMALLER than one 384x448 screen on an axis (Esto Gaza/Altar 2301 is
+    # 512x256; the line was min=448, which silently CLAMPED an imported real height -- the panel lied
+    # and a later Pose/Read Camera re-applied the clamped canvas, wrecking the frame aspect + paint
+    # guide). Floors: the engine's smallest shipping ranges (a 128 floor keeps any real import exact).
+    canvas_w: bpy.props.IntProperty(name="Canvas W", default=768, min=128,
+                                    description="Full painting width (768 = 2x screen; a new scrolling "
+                                                "room is usually >= 384)")
+    canvas_h: bpy.props.IntProperty(name="Canvas H", default=448, min=128,
+                                    description="Full painting height (448 = one screen; real fields "
+                                                "can be smaller, e.g. 2301 = 256)")
     back_y: bpy.props.FloatProperty(name="Floor back (canvas Y)", default=205.0)
     front_y: bpy.props.FloatProperty(name="Floor front (canvas Y)", default=432.0)
     walkmesh: bpy.props.PointerProperty(name="Walkmesh", type=bpy.types.Object,
@@ -178,8 +184,9 @@ def _pose_camera_from_ff9(cam_obj, c0, scrolling):
     cam_obj.data.clip_end = 100000.0
 
 
-def _spawn_at_ff9(context, xz):
-    """Place (or move) the single FF9_Spawn marker at FF9 floor (x, z)."""
+def _spawn_at_ff9(context, xz, face=None):
+    """Place (or move) the single FF9_Spawn marker at FF9 floor (x, z); ``face`` (0-255 compass,
+    0=south/toward camera) round-trips as the marker's ``ff9_face`` -> ``[player] face``."""
     loc = bridge.ff9_verts_to_blender([(xz[0], 0, xz[1])])[0]
     e = next((o for o in context.scene.objects if o.get(MARKER_KEY) == "spawn"), None)
     if e is None:
@@ -187,8 +194,31 @@ def _spawn_at_ff9(context, xz):
         e.empty_display_type = "SPHERE"
         e.empty_display_size = 180.0
         e[MARKER_KEY] = "spawn"
+        e["ff9_face"] = -1                       # -1 = no facing override (the template default)
         _link_active(context, e)
     e.location = loc
+    if face is not None:
+        e["ff9_face"] = int(face)
+
+
+def _arrival_at_ff9(context, xz, entrance, face=None):
+    """Place (or move) the FF9_Arrival marker for ``entrance`` at FF9 floor (x, z) -- ONE marker per
+    entrance (the per-door arrival table, [[player.arrival]]; the single Spawn stays the default for
+    unmatched entrances / F6 warps)."""
+    loc = bridge.ff9_verts_to_blender([(xz[0], 0, xz[1])])[0]
+    e = next((o for o in context.scene.objects
+              if o.get(MARKER_KEY) == "arrival" and int(o.get("ff9_entrance", -1)) == int(entrance)), None)
+    if e is None:
+        e = bpy.data.objects.new(f"FF9_Arrival_{int(entrance)}", None)
+        e.empty_display_type = "CONE"
+        e.empty_display_size = 140.0
+        e[MARKER_KEY] = "arrival"
+        e["ff9_entrance"] = int(entrance)
+        e["ff9_face"] = -1                       # -1 = no facing override
+        _link_active(context, e)
+    e.location = loc
+    if face is not None:
+        e["ff9_face"] = int(face)
 
 
 def _import_content(context, field_cfg, scene_cfg):
@@ -263,11 +293,19 @@ def _import_content(context, field_cfg, scene_cfg):
 def _apply_canvas_resolution(context, rw, rh):
     """Match the render resolution to the FF9 canvas so the camera frames the field at the right
     aspect. FF9 fields are 384x448 portrait (wider when scrolling); Blender defaults to 1920x1080
-    landscape, which makes the matched camera look too wide / off-centre in the viewport."""
+    landscape, which makes the matched camera look too wide / off-centre in the viewport.
+
+    ``pixel_aspect_y = 15/14``: the FF9 projection's VERTICAL focal is K_VSCALE = 14/15 of the
+    horizontal (the diag(1, k, 1) baked into every real camera matrix -- census-verified on all
+    741 shipping field-cameras, studies/blender-camera-fidelity). A Blender camera is isotropic,
+    so without this every field misframed vertically by ~7-20px (the k squash); the anisotropic
+    pixel expresses it exactly, making the camera frame == the painted canvas, pixel for pixel."""
     r = context.scene.render
     r.resolution_x = int(rw)
     r.resolution_y = int(rh)
     r.resolution_percentage = 100
+    r.pixel_aspect_x = 1.0
+    r.pixel_aspect_y = 1.0 / cam.K_VSCALE          # 15/14: vertical px-gain = k * horizontal
 
 
 _FLOOR_PALETTE = [(0.90, 0.30, 0.30), (0.30, 0.65, 0.95), (0.40, 0.85, 0.40), (0.95, 0.80, 0.25),
@@ -736,7 +774,8 @@ def _collect_content_items(context):
     / event / camera-zone / waypoint / spawn); props/ladders/jumps/save points live only in field.toml."""
     npcs, gateways, spawn, events = _collect_markers(context)
     field_cfg = paint.markers_to_field_cfg(npcs, gateways, events,
-                                           _collect_camzones(context), _collect_waypoints(context), spawn)
+                                           _collect_camzones(context), _collect_waypoints(context), spawn,
+                                           arrivals=_collect_arrivals(context))
     return paint.normalize_content(field_cfg)
 
 
@@ -1005,6 +1044,29 @@ def _collect_waypoints(context):
     return out
 
 
+def _collect_arrivals(context):
+    """Per-door arrival markers -> [{entrance, pos[, face]}], sorted by entrance -- the
+    ``[[player.arrival]]`` table: a gateway arriving with a matching ``entrance=`` lands (and faces)
+    the player at its marker; the plain Spawn stays the default. ``ff9_face`` < 0 = no facing."""
+    out = []
+    for obj in sorted(context.scene.objects, key=lambda o: o.name):
+        if obj.get(MARKER_KEY) == "arrival":
+            a = {"entrance": int(obj.get("ff9_entrance", 0)),
+                 "pos": bridge.marker_floor_pos(obj.matrix_world.translation)}
+            f = int(obj.get("ff9_face", -1))
+            if 0 <= f <= 255:
+                a["face"] = f
+            out.append(a)
+    return sorted(out, key=lambda a: a["entrance"])
+
+
+def _spawn_face(context):
+    """The spawn marker's ``ff9_face`` (0-255), or None (absent / negative = no facing override)."""
+    e = next((o for o in context.scene.objects if o.get(MARKER_KEY) == "spawn"), None)
+    f = int(e.get("ff9_face", -1)) if e is not None else -1
+    return f if 0 <= f <= 255 else None
+
+
 class FF9MK_OT_add_npc(bpy.types.Operator):
     bl_idname = "ff9mk.add_npc"
     bl_label = "Add NPC"
@@ -1177,6 +1239,32 @@ class FF9MK_OT_set_spawn(bpy.types.Operator):
             _link_active(context, e)
         e.location = _cursor_floor(context)
         self.report({"INFO"}, f"player spawn at {bridge.marker_floor_pos(e.matrix_world.translation)}")
+        return {"FINISHED"}
+
+
+class FF9MK_OT_add_arrival(bpy.types.Operator):
+    bl_idname = "ff9mk.add_arrival"
+    bl_label = "Add Arrival"
+    bl_description = ("Add a per-door ARRIVAL marker at the 3D cursor: a gateway arriving with a matching "
+                      "entrance number lands the player here instead of the Spawn ([[player.arrival]]). "
+                      "Set its entrance/facing in this panel after placing")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        used = {int(o.get("ff9_entrance", -1)) for o in context.scene.objects
+                if o.get(MARKER_KEY) == "arrival"}
+        ent = next(i for i in range(1, 32768) if i not in used)   # a free entrance number (editable after)
+        e = bpy.data.objects.new(f"FF9_Arrival_{ent}", None)
+        e.empty_display_type = "CONE"
+        e.empty_display_size = 140.0
+        e[MARKER_KEY] = "arrival"
+        e["ff9_entrance"] = ent
+        e["ff9_face"] = -1                       # -1 = no facing override; 0-255 = the compass byte
+        _link_active(context, e)
+        e.location = _cursor_floor(context)
+        self.report({"INFO"}, f"arrival (entrance {ent}) at "
+                              f"{bridge.marker_floor_pos(e.matrix_world.translation)} -- match a gateway's "
+                              f"entrance= to this number")
         return {"FINISHED"}
 
 
@@ -1381,25 +1469,24 @@ class FF9MK_OT_import_field(bpy.types.Operator):
                 co.location.y -= Di[1]
                 co.location.z -= Di[2]
 
-        # Reframe (viewport-only) ONLY the bare no-art case: centre the camera on the walkmesh so the
-        # footprint is readable. With an art backdrop, the view-offset above aligns it; keep the
-        # extracted camera otherwise.
-        if verts and not has_art:
-            context.view_layer.update()
-            mw = cam_obj.matrix_world
-            fwd = -mw.to_3x3().col[2]                 # camera looks down local -Z
-            if abs(fwd.z) > 1e-6:
-                k = -mw.translation.z / fwd.z
-                aim_x = mw.translation.x + k * fwd.x
-                aim_y = mw.translation.y + k * fwd.y
-                cx = sum(v[0] for v in verts) / len(verts)
-                cy = sum(v[1] for v in verts) / len(verts)
-                cam_obj.location.x += cx - aim_x
-                cam_obj.location.y += cy - aim_y
+        # The old "no-art reframe" (slide the camera so the walkmesh centroid sits under the view axis)
+        # is REMOVED: it silently MOVED the faithfully-posed FF9 camera whenever a project had no
+        # Blender-visible art (every native/logic fork), so "look through FF9_Camera" showed a fake --
+        # and its floor-aim ray (k = -loc.z/fwd.z) flips sign on an up-pitched camera, teleporting the
+        # camera to nonsense (field 2301, pitch -8.1: posed (351,-3158,260) -> reframed (-727,961,260),
+        # reproduced to the decimal in studies/blender-camera-fidelity). The imported camera is now
+        # ALWAYS the real one; navigate the viewport freely for modeling instead.
 
-        spawn = (scene_cfg.get("player") or cfg.get("player") or {}).get("spawn")
+        player_tab = scene_cfg.get("player") or cfg.get("player") or {}
+        spawn = player_tab.get("spawn")
         if spawn and len(spawn) == 2:
-            _spawn_at_ff9(context, spawn)
+            _spawn_at_ff9(context, spawn, face=player_tab.get("face"))
+        # per-door arrivals round-trip too (a fresh `ff9mapkit import` fork carries the donor's real
+        # table as [[player.arrival]] rows -- re-create one marker per entrance)
+        for a in player_tab.get("arrival") or []:
+            pos = a.get("pos") if isinstance(a, dict) else None
+            if isinstance(pos, (list, tuple)) and len(pos) == 2 and a.get("entrance") is not None:
+                _arrival_at_ff9(context, pos, a["entrance"], face=a.get("face"))
         # round-trip the placed content: NPCs / waypoints / gateways / events as markers (positions from
         # the scene.toml if present, else the field.toml's inline pos/zone -- e.g. a forked field's exits).
         content = _import_content(context, cfg, scene_cfg)
@@ -1482,7 +1569,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
                 scene_body += "[camera.scroll]\nenabled = true\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn,
                                       borrow_bg=p.borrow_bg, events=events,
-                                      markers=_collect_waypoints(context))
+                                      markers=_collect_waypoints(context),
+                                      spawn_face=_spawn_face(context), arrivals=_collect_arrivals(context))
             self.report({"INFO"}, f"BG-borrow fork of {p.borrow_bg}: scene.toml written"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                                   f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
@@ -1509,12 +1597,18 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if p.scroll_enabled:
                 scene_body += "[camera.scroll]\nenabled = true\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
-                                      markers=_collect_waypoints(context))
+                                      markers=_collect_waypoints(context),
+                                      spawn_face=_spawn_face(context), arrivals=_collect_arrivals(context))
+            _arr_note = ""
+            if _collect_arrivals(context):
+                _arr_note = (" NOTE: arrival markers were written, but a VERBATIM fork carries the "
+                             "donor's own per-door arrival table in its .eb -- the rows won't apply "
+                             "here (lint flags them); author arrivals on synthesized fields")
             self.report({"INFO"}, f"verbatim fork {p.field_name}: spatial markers written "
                                   f"({len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} "
                                   f"event(s)) -- the verbatim walkmesh ships untouched"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
-                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
+                                  f"; run: ff9mapkit build {p.field_name.lower()}.field.toml{_arr_note}")
             return {"FINISHED"}
 
         if p.editable_fork:
@@ -1555,7 +1649,8 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             if layers:
                 scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
             stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
-                                  markers=_collect_waypoints(context))
+                                  markers=_collect_waypoints(context),
+                                      spawn_face=_spawn_face(context), arrivals=_collect_arrivals(context))
             self.report({"INFO"}, f"editable fork {p.field_name}: scene.toml ({len(layers)} layer(s), "
                                   f"{'multi-floor' if has_links else 'single-floor'})"
                                   f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
@@ -1607,26 +1702,45 @@ class FF9MK_OT_export_field(bpy.types.Operator):
             scene_body += "\n" + bridge.layers_to_toml(layers) + "\n"
         if camzones:
             scene_body += "\n" + bridge.camera_zones_to_toml(camzones) + "\n"
+        arrivals = _collect_arrivals(context)
         stub = _write_split_files(out, p, scene_body, npcs, gateways, spawn, events=events,
-                                  markers=_collect_waypoints(context))
+                                  markers=_collect_waypoints(context),
+                                  spawn_face=_spawn_face(context), arrivals=arrivals)
         cz = f", {len(camzones)} cam-zone(s)" if multicam else ""
+        ar = f", {len(arrivals)} arrival(s)" if arrivals else ""
         self.report({"INFO"}, f"exported {p.field_name}: {len(cam_objs)} camera(s), {len(layers)} layer(s), "
-                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} event(s){cz}"
+                              f"{len(npcs)} NPC(s), {len(gateways)} gateway(s), {len(events)} event(s){cz}{ar}"
                               f"{', field.toml stub created' if stub else ' (your field.toml kept)'}"
                               f"; run: ff9mapkit build {p.field_name.lower()}.field.toml")
         return {"FINISHED"}
 
 
-def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None, events=(), markers=()):
+def _write_split_files(out, p, scene_body, npcs, gateways, spawn, *, borrow_bg=None, events=(), markers=(),
+                       spawn_face=None, arrivals=()):
     """Two-file export: write ``<name>.scene.toml`` (spatial; ALWAYS overwritten) + ``<name>.field.toml``
     (logic stub; created ONLY if it doesn't already exist, so the user's script is never clobbered).
     ``scene_body`` is the path-specific ``[camera]``/``[walkmesh]``/``[[layers]]`` text. Event zones go
     in the scene; their actions go in the field stub (joined by name). Named movement ``markers`` are
-    spatial-only -> scene.toml. Returns True if a fresh field.toml stub was written (False = kept)."""
+    spatial-only -> scene.toml; so are the spawn facing + per-door ``arrivals`` (the scene owns
+    [player] per-key -- arrival markers here own the whole table). Returns True if a fresh field.toml
+    stub was written (False = kept).
+
+    Filename CASING adopts an existing field.toml's: the add-on's convention is lowercase, but a
+    CLI-forked project ships e.g. TWIN_ALTAR.field.toml -- writing twin_altar.scene.toml beside it
+    happens to build on Windows (case-insensitive) but silently MISSES on Linux/mac, and the
+    lowercase stub check would even write a SECOND field.toml there. Matching the existing stem
+    keeps one project = one casing on every platform."""
     base = p.field_name.lower()
+    try:
+        for f in os.listdir(out):
+            if f.lower() == f"{base}.field.toml":
+                base = f[:-len(".field.toml")]           # adopt the existing file's exact casing
+                break
+    except OSError:
+        pass
     with open(os.path.join(out, f"{base}.scene.toml"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(bridge.scene_toml(p.field_name, scene_body, npcs, gateways, spawn, events=events,
-                                   markers=markers))
+                                   markers=markers, spawn_face=spawn_face, arrivals=arrivals))
     field_path = os.path.join(out, f"{base}.field.toml")
     if os.path.isfile(field_path):
         return False
@@ -1866,8 +1980,7 @@ class FF9MK_OT_view_ff9_camera(bpy.types.Operator):
             self.report({"ERROR"}, "Select an FF9 camera (FF9_Camera or FF9_Camera_01..) first.")
             return {"CANCELLED"}
         context.scene.camera = cam_obj
-        context.scene.render.resolution_x = int(cam_obj["ff9_rw"])
-        context.scene.render.resolution_y = int(cam_obj["ff9_rh"])
+        _apply_canvas_resolution(context, int(cam_obj["ff9_rw"]), int(cam_obj["ff9_rh"]))
         for area in context.screen.areas:                      # look through it in every 3D viewport
             if area.type == "VIEW_3D":
                 for space in area.spaces:
@@ -1881,7 +1994,8 @@ CLASSES = (FF9MKLayer, FF9MKProps, FF9MK_OT_setup_scene, FF9MK_OT_pose_camera, F
            FF9MK_OT_walkmesh_from_floor, FF9MK_OT_compute_guide, FF9MK_OT_paint_template,
            FF9MK_OT_add_layer, FF9MK_OT_clear_layers,
            FF9MK_OT_add_npc, FF9MK_OT_add_waypoint, FF9MK_OT_add_gateway, FF9MK_OT_add_event,
-           FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn, FF9MK_OT_view_ff9_camera,
+           FF9MK_OT_add_camera, FF9MK_OT_add_camzone, FF9MK_OT_set_spawn, FF9MK_OT_add_arrival,
+           FF9MK_OT_view_ff9_camera,
            FF9MK_OT_import_field, FF9MK_OT_export_field,
            FF9MK_OT_import_battle, FF9MK_OT_export_battle)
 

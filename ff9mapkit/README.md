@@ -63,7 +63,8 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 - **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-export` /
   `playable-anims`
 - **Overworld** — `world-terrain` / `world-reclaim` / `world-coast` / `world-transplant` /
-  `world-water` / `world-entrance` / `world-encounters` and the rest of the `world-*` suite
+  `world-water` / `world-island` / `world-forest` / `world-hill` / `world-entrance` /
+  `world-encounters` and the rest of the `world-*` suite
 - **Audio** — `audio-import` · `music-list` / `sfx-list`
 - **Catalogs & dialogue** — `catalog` / `models` / `animations` / `archetypes` / `items` /
   `scenes` / `flags` / `sps` · `dialogue` / `dialogue-import`

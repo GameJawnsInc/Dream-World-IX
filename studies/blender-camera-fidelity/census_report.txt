@@ -1,0 +1,49 @@
+  ...50/674 fields
+  ...100/674 fields
+  ...150/674 fields
+  ...200/674 fields
+  ...250/674 fields
+  ...300/674 fields
+  ...350/674 fields
+  ...400/674 fields
+  ...450/674 fields
+  ...500/674 fields
+  ...550/674 fields
+  ...600/674 fields
+  ...650/674 fields
+
+741 field-cameras censused (0 fields skipped) -> C:\gd\Dream-World-IX\.claude\worktrees\ff9-handoff-islandb-cliff-lip-613158\studies\blender-camera-fidelity\census.csv
+  e_p95 >   2px :  738 cameras (672 fields)
+  e_p95 >  10px :  508 cameras (464 fields)
+  e_p95 >  50px :   40 cameras (37 fields)
+  e_p95 > 500px :    3 cameras (3 fields)
+
+worst 20:
+  fbg_n21_grgr_map421_gr_lef_0                 cam1 336x272 e95=  5651.38 k1=0.93323 rn_dev=0.00016 ortho=8e-05 det=1.0
+  fbg_n16_stgt_map342_sg_top_0                 cam1 320x224 e95=  1260.39 k1=0.93325 rn_dev=9e-05 ortho=0.00019 det=1.0
+  fbg_n16_stgt_map342x_sg_top_3                cam1 320x224 e95=   558.62 k1=0.93325 rn_dev=9e-05 ortho=0.00019 det=1.0
+  fbg_n16_stgt_map341a_sg_trn_3                cam0 336x400 e95=   335.36 k1=0.93329 rn_dev=8e-05 ortho=8e-05 det=1.0
+  fbg_n38_sdpl_map654_sp_mhl_0                 cam1 320x224 e95=   281.01 k1=0.93333 rn_dev=0.00012 ortho=0.0001 det=1.0
+  fbg_n48_rdrs_mapv02_rr_cb1_0                 cam0 448x1088 e95=   280.46 k1=0.93329 rn_dev=7e-05 ortho=0.0002 det=1.0
+  fbg_n46_endg_mapx50_ed_evt_0                 cam0 320x224 e95=   266.58 k1=0.93344 rn_dev=0.0 ortho=0.00019 det=1.0
+  fbg_n53_hlg3_mapv50b_g3_brg_2                cam1 336x240 e95=   202.76 k1=0.93336 rn_dev=3e-05 ortho=0.00011 det=1.0
+  fbg_n11_ldbm_map190_lb_obs_0                 cam1 320x224 e95=   161.69 k1=0.93333 rn_dev=0.00012 ortho=0.00014 det=1.0
+  fbg_n11_ldbm_map918_lb_obs_m                 cam1 320x224 e95=   161.69 k1=0.93333 rn_dev=0.00012 ortho=0.00014 det=1.0
+  fbg_n00_tshp_map005_th_met_0                 cam1 320x288 e95=   158.53 k1=0.93331 rn_dev=0.0001 ortho=0.00015 det=1.0
+  fbg_n36_glgv_map803_gv_pw4_0                 cam0 384x304 e95=   155.62 k1=0.93322 rn_dev=9e-05 ortho=7e-05 det=1.0
+  fbg_n32_ifug_map569_iu_sdv_1                 cam0 320x272 e95=   155.59 k1=0.9333 rn_dev=7e-05 ortho=0.00011 det=1.0
+  fbg_n00_tshp_map002_th_cgr_1                 cam1 320x240 e95=    146.9 k1=0.93323 rn_dev=3e-05 ortho=7e-05 det=1.0
+  fbg_n16_stgt_map350_sg_alx_0                 cam1 320x224 e95=    145.9 k1=0.93325 rn_dev=9e-05 ortho=0.00019 det=1.0
+  fbg_n38_sdpl_map643_sp_rsw_0                 cam0 336x240 e95=   131.59 k1=0.93325 rn_dev=4e-05 ortho=0.0001 det=1.0
+  fbg_n45_cysw_mapx30_cw_mbg_2                 cam1 320x224 e95=   127.97 k1=0.9334 rn_dev=9e-05 ortho=9e-05 det=1.0
+  fbg_n34_mdsr_map580b_ms_scr_2                cam1 336x240 e95=   120.19 k1=0.9334 rn_dev=0.0001 ortho=0.00012 det=1.0
+  fbg_n34_mdsr_map580_ms_scr_0                 cam1 336x240 e95=   115.88 k1=0.9334 rn_dev=0.00019 ortho=0.0003 det=1.0
+  fbg_n49_brnf_mapv12_bf_dck_0                 cam0 336x240 e95=   108.25 k1=0.93338 rn_dev=0.00011 ortho=0.00013 det=1.0
+
+failure buckets (of the >2px set):
+  det < 0 (mirrored R)        :    0/738
+  ortho_err > 0.01            :    0/738
+  row0/2 norms off 1 (>0.01)  :    0/738
+  k_row1 off 14/15 (>0.01)    :    0/738
+  scrolling                   :  461/738
+  multicam (cam > 0)          :   66/738

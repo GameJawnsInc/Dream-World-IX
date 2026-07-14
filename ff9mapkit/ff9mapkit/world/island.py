@@ -89,6 +89,66 @@ def _delaunay(pts):
     return [t for t in tris if all(v < n for v in t)]
 
 
+def _seg_cross(p, q, r, s):
+    """True PROPER crossing of XZ segments pq / rs (strict: shared endpoints and touches don't count)."""
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    d1, d2 = orient(p, q, r), orient(p, q, s)
+    d3, d4 = orient(r, s, p), orient(r, s, q)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
+def _recover_ring_edges(xz, tri_idx, nring):
+    """Constrained-edge recovery: force every rim ring edge ``(i, i+1 mod nring)`` to be an edge of the
+    triangulation (Sloan-style diagonal flips). The Delaunay is UNCONSTRAINED -- at a concave corner
+    dent it may legally pick the OTHER diagonal of the quad spanning the notch; the centroid keep-filter
+    then drops both cover triangles, and the face between the wall top and the grass ships MISSING (the
+    seed-42 one-triangle grass hole, in-game 2026-07-13). Returns ``(tris, flips)``; with ``flips == 0``
+    the input list is returned UNTOUCHED, so every already-proven mint (island E, the world-forest /
+    world-hill byte-identity baseline) rebuilds bit-identically."""
+    def edge_map(tris):
+        em = collections.defaultdict(list)
+        for t in tris:
+            for e in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+                em[(min(e), max(e))].append(t)
+        return em
+
+    work, flips = None, 0                                # copy lazily: no flips -> tri_idx untouched
+    em = edge_map(tri_idx)
+    for i in range(nring):
+        a, b = i, (i + 1) % nring
+        want = (min(a, b), max(a, b))
+        guard = 0
+        while want not in em:
+            guard += 1
+            if guard > 4 * len(tri_idx) + 16:
+                raise ValueError(f"ring edge {a}-{b} at {xz[a]}-{xz[b]} unrecoverable (flip cascade "
+                                 f"did not terminate) -- change --seed/--radius")
+            for (c, d), owners in em.items():
+                if len(owners) != 2 or a in (c, d) or b in (c, d):
+                    continue
+                if not _seg_cross(xz[a], xz[b], xz[c], xz[d]):
+                    continue
+                t1, t2 = owners
+                e_ = next(v for v in t1 if v != c and v != d)
+                f_ = next(v for v in t2 if v != c and v != d)
+                if not _seg_cross(xz[e_], xz[f_], xz[c], xz[d]):
+                    continue                             # non-convex quad: this flip would fold
+                if work is None:
+                    work = list(tri_idx)
+                work.remove(t1)
+                work.remove(t2)
+                work.append((e_, f_, c))
+                work.append((e_, f_, d))
+                flips += 1
+                em = edge_map(work)
+                break
+            else:
+                raise ValueError(f"ring edge {a}-{b} at {xz[a]}-{xz[b]} unrecoverable (no flippable "
+                                 f"crossing edge; a point may sit exactly on it) -- change --seed/--radius")
+    return (tri_idx, 0) if work is None else (work, flips)
+
+
 def _pip(px, pz, poly):
     inside = False
     n = len(poly)
@@ -205,7 +265,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         gx += GRID
     allpts = top + interior
     xz = [(p[0], p[2]) for p in allpts]
-    tri_idx = _delaunay(xz)
+    tri_idx, ring_flips = _recover_ring_edges(xz, _delaunay(xz), nring)
     keep = []
     for (i, j, k) in tri_idx:
         ccx = (xz[i][0] + xz[j][0] + xz[k][0]) / 3
@@ -378,14 +438,16 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
                                 flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
 
     return {"blocks": blocks, "outline": outline, "rim": rim, "seed": seed, "center": (cx, cz),
-            "was_land": was_land, "top": top, "placements": placements,
+            "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
             "world": {"pos": gpos, "tris": gtris, "meta": gmeta, "nrm": gnrm}}
 
 
 def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) -> dict:
-    """The offline gate suite over a :func:`build_landmass` result: watertight (cracks), winding
-    (down-facing / engine walk-filter fails, wall AND grass), on-grain (grass tris > 8u), footprint holes,
-    per-family UV bounds, and -- when ``sea_plane`` is given -- the ENGINE PLACEMENT census per block
+    """The offline gate suite over a :func:`build_landmass` result: watertight (cracks), the
+    closed-surface once-edge audit (``open_edges`` / ``missing_faces`` -- no boundary above the y=0
+    sea skirt), winding (down-facing / engine walk-filter fails, wall AND grass), on-grain (grass
+    tris > 8u), footprint holes, per-family UV bounds, and -- when ``sea_plane`` is given -- the
+    ENGINE PLACEMENT census per block
     (MISS must be 0 everywhere; the centre must ground on walkable grass). Returns a report dict with
     ``clean``."""
     from .extract import decode_id
@@ -451,8 +513,30 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
                     break
             if not hit:
                 holes += 1
+    # THE CLOSED-SURFACE GATE (the seed-42 grass sliver, 2026-07-13): a position-welded once-edge
+    # (an edge used by exactly one triangle) may lie ONLY on the sea-skirt boundary -- the y=0
+    # outline ring, where the wall base lawfully meets the separate Sea4 plane part. Any once-edge
+    # with a vertex above the waterline is a real crack/hole; a closed 3-cycle of them is the
+    # one-missing-face signature the sampled ``holes`` grid cannot see (the shipped sliver was
+    # ~1.7 u^2 -- far under the ~1.4u sample spacing).
+    ecnt = collections.Counter()
+    for tri in gtris:
+        pts = [(round(gpos[v][0], 3), round(gpos[v][1], 3), round(gpos[v][2], 3)) for v in tri]
+        for q in range(3):
+            if pts[q] == pts[(q + 1) % 3]:
+                continue                                 # a rounded-zero-length key is not an edge: the
+            ecnt[tuple(sorted((pts[q], pts[(q + 1) % 3])))] += 1  # border clip mints ~0.0005u hairline
+            # cut-vert pairs (real surface per THE HAIRLINE LAW; island E carries one at x=384)
+    open_bad = [e for e, n in ecnt.items() if n == 1 and not (e[0][1] <= 1e-3 and e[1][1] <= 1e-3)]
+    open_adj = collections.defaultdict(set)
+    for ea, eb in open_bad:
+        open_adj[ea].add(eb)
+        open_adj[eb].add(ea)
+    miss_faces = {tuple(sorted((p, q, r))) for p in open_adj for q in open_adj[p] for r in open_adj[q]
+                  if r != p and p in open_adj[r]}
     report.update(cracks=cracks, down_facing=down, walk_filter_fails=steep, grass_over_8u=big,
-                  uv_out_of_region=oob, holes=holes, holes_sampled=tot)
+                  uv_out_of_region=oob, holes=holes, holes_sampled=tot,
+                  open_edges=len(open_bad), missing_faces=len(miss_faces))
 
     # the coastline SHAPE gate: the generated outline must sit inside the measured FF9 language
     # (real disc-1 coasts: med turn 22 deg/8u, corner(45-80) 15%, acute(>=80) 7%)
@@ -481,7 +565,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
             place_reports[blk] = entry
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
-                       and shape["ok"]
+                       and len(open_bad) == 0 and shape["ok"]
                        and all(e["miss"] == 0 and e.get("centre_ok", True) for e in place_reports.values()))
     return report
 

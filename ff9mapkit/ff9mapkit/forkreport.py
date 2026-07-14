@@ -937,8 +937,9 @@ def _entry_settle_line(rep: ForkReport) -> str:
         return ""
     return ("  Entry settle  : scrolling camera -> a SYNTH (--native/BG-borrow) fork may show the camera ease "
             "onto the spawn on warp-in (worst on an F6/hard warp; a big spawn-to-centre delta drifts longer). "
-            "Add `[camera] entry_settle = 45` to hide it behind the load fade; a --verbatim fork carries the "
-            "real entry sequence and doesn't need it.")
+            "Add `[camera] entry_settle = \"auto\"` (the computed hold; a plain frame count like 45 also works) "
+            "to hide it behind the load fade; a --verbatim fork carries the real entry sequence and doesn't "
+            "need it.")
 
 
 def format_report(rep: ForkReport) -> str:
@@ -963,8 +964,9 @@ def format_report(rep: ForkReport) -> str:
                 else f"swap: {rep.swap_gesture_count} gesture(s) glitch")
         lines.append(f"  Player        : {pc}  ({swap})")
     if rep.arrival_spots > 1:
-        lines.append(f"  Arrival       : {rep.arrival_spots} per-door spawn points (#9) -- a SYNTH fork uses one "
-                     f"[player] spawn (you arrive at the same spot via every door); --verbatim ships the real table")
+        lines.append(f"  Arrival       : {rep.arrival_spots} per-door spawn points (#9) -- --verbatim ships the real "
+                     f"table byte-true; a fresh non-verbatim import emits it as [[player.arrival]] rows (an OLDER "
+                     f"synth fork collapsed every door to one [player] spawn -- re-import, or add the rows by hand)")
     cam_line = _camera_line(rep)
     if cam_line:
         lines.append(cam_line)

@@ -189,6 +189,131 @@ statements in the memory file):
 Known cosmetic remainder (deferred): a small stripy corner-fan patch (~4×3u) on the wall's
 outer skirt over open sea at the east corner, visible only from the sea side.
 
+**Playtest round 3: STILL stuck (inside the mountain, the west mouth) + still-stretched
+tops → the user called the meta-law: "study the actual mountains before synthing too much
+of our own". Island F RESTORED PRISTINE (the trap is gone).** The round-3 trap: the moat
+trim raised the floor, but the corridor still dead-ended AT the island edge inside the
+Sea4 lap zone — pressing west queries open sea (cacheable) while sea laps under the slot
+floor (THE MOAT LAW v2: walkable synth ground ends ≥~4u inland of the outline).
+
+## THE v3 VERDICT + THE v4 PLAN (the state to resume from)
+
+Three v3 rounds (facing flip → top snap + foot strip) all ended REJECTED: "tons of jank —
+very spiky, faces stacked over each other, no form to it." Island F is RESTORED PRISTINE.
+**THE FORM LESSON:** the bend-carry moved real CONTENT through a synthetic FRAME — ribbon
+(s,d,h) + per-vert corrections destroyed the donor's coherent 3D massing; that is still
+synthesis (the meta-law's fourth firing). `two_level_v3.py` stays as the falsification
+record; its GATES (rule-f oracle, moat/verge, facing check) are the keepers.
+
+**v4 = TRANSPLANT A WHOLE REAL TWO-LEVEL COASTAL FEATURE** (decided, not started): census
+disc 1 for a real coastal window (1-2 blocks) where a highland shelf + escarpment meets
+lowland grass and the sea; carry it VERBATIM with the proven `world-transplant`/`world-fuse`
+machinery (the continent pillar's zero-guess path). Fallbacks: in-place morph of a real
+escarpment coast, or a 3D-massing anatomy study. Do NOT resume ribbon-bending.
+
+## THE v4 TRANSPLANT CENSUS (★ DONE 2026-07-12 — the donor is found)
+
+Three scripts (`v4_transplant_census.py` → `v4_rect_scan.py` → `v4_window_probe.py` +
+`v4_donor_detail.py`/`v4_donor_render.py`; artifacts in `out/`):
+
+- **THE ISLAND COROLLARY of the no-free-mesa law:** map-wide landmass components (blocks
+  connected by LAND crossing shared frames, wrap-aware) show NO small sea-ringed landmass
+  has walkable highland. All real high country (walkable y>18: 31.6ku²) lives on the ONE
+  97-block continent (esc 211ku²). The only compact sea-ringed "mountain" landmasses are
+  Uaho (0,0) and the (9-10,5-7) 2×3 crag island — both crag-only, no second walkable level.
+  A pure full-containment two-level island donor DOES NOT EXIST; FF9 never built one.
+- **THE LOWLAND-CUT RECT SCAN:** the lawful cut crosses only lowland (the cut-line law —
+  high relief is a component, cut around never through). Scanning every rect ≤4×3 for
+  windows whose EVERY external land crossing is ≤6.5u found essentially ONE raised-walkable
+  feature: **the (5-6,15-16) river-terrace highland** (mid 820u², ALL topo-13; esc 5.2ku²;
+  cover 0.50) — the same falls the original census flagged as "the seam between the two
+  altitude worlds."
+- **THE DONOR: window (5-7,15-16) 3×2** (192×128u). A rocky horseshoe massif (walls to
+  ~31u) rising from a lowland grass coastal ring, enclosing a hanging grass bowl at
+  y 15.2 (topo-13) with a real river + TWO waterfall sheets + a small stone object mesh;
+  a NE peninsula, a SE FOREST islet (topo 37), real sea1-free all-cliff coast (no beach
+  anywhere in-window). **Quest-clean by construction: zero event bits on every tri** (the
+  dispatch areas are 48 = "Esto Gaza/Terrace", 50, and 45 on 12 dirt tris). The whole
+  feature closes inside the window except TWO 8u-wide lowland necks on the N frame
+  (donor x≈388-396 grass tongue, ymax 3.6; x≈467-476 the (7,15) dirt-islet tip, ymax 3.2
+  — and (7,15)'s sea parts are FULL-CELL under its land, so dropping that islet leaves
+  clean real sea).
+- **THE TARGET: rect (1,16) 3×2 rot 0** — cells (1-3,16-17), all true prefab ocean
+  (island B's empty east column + free water), REPLACING island F's cell (3,17). v4's W/E/S
+  frame edges are pure open water (fuse-legal toward B, E, and C).
+- **THE FREE-RIDE DISCOVERY (what killed the "carry-set extension" work item):** the s34
+  sidecar loads the DONOR BLOCK'S WHOLE PREFAB for a reclaimed cell and overrides only the
+  parts with deployed files — identity for the rest. At rot 0 / shift 0,0 block-local
+  coords are position-independent, so the falls/river/riverjoint/object sub-meshes ride
+  along VERBATIM FOR FREE. Stripping (if ever wanted) = empty-stub overrides — already a
+  proven mechanism (island F's mint deployed 176-byte stubs for its unused parts).
+
+**THE v4 BUILD (round 1 ★ IN-GAME PROVEN 2026-07-13: the falls/river/bridge ensemble renders
+— THE FREE-RIDE MECHANISM PROVEN; the neck cuts "look the same as verbatim" — no further
+treatment; minimap shape check pending, cosmetic).** `world-transplant
+--mod-folder FF9CustomMap-world --cell 1,16 --donor 5,15 --size 3x2 --shift 0,0
+--land-margin 0` — first dry-run CLEAN, zero hand edits; the machinery auto-armed its
+proven N tongue strips for the two necks. Deployed 30 files (6 cells × Terrain/Sea3/5/4 +
+Donor.txt). Removed first (backed up to `backups/v4-predeploy.20260713/`): island F's 8
+files at (3,17) + the sanctioned-deletable (2,16) reference islet (5 files, the island-B
+cliff-lip leftover). Post-deploy: engine-true probes on the DEPLOYED bytes ground 462
+lowland + 84 bowl points (topo-13 at y≈16.4 over the 15.2 river plane); 16 no-hits, all
+inherited from the real map. Minimap re-composited (21 blocks). **Teleports: lowland
+(75.5, −1074.5) · terrace bowl (130.5, −1077.5)**. After four falsified synthesis rounds,
+the transplant path delivered the two-level island — lowland ring + hanging terrace +
+real falls — on its FIRST deploy, with zero new machinery.
+
+## THE PRODUCTIZATION (★ 2026-07-13): `world-forest` + `world-hill` are kit verbs
+
+`forest_rehome.py` + `hill_at_scale.py` are extracted into `ff9mapkit/world/interior.py`
++ two CLI verbs (`--near` scan / `--center` exact; deployed-bytes only, byte-derived
+fams, all study gates incl. the perimeter walk-in simulation). **Proven by IDENTITY**
+(`interior_productize_check.py`): clean seed-55 mint → module forest carve → module hill
+reproduces the deployed, in-game-proven island E **byte-for-byte on all 5 blocks** — and
+the CLI verbs' own `--near` scans, run end-to-end on a scratch mod folder, converged on
+the studies' exact placements ((312,−1140) forest / (348,−1184) hill) and reproduced the
+same bytes. One new law minted: **the hill scan's ROLLING-RELIEF ENVELOPE** (footprint
+y-span ≤ 2.4u — an existing hill's footprint is still pure mains, and the naive scan
+self-selected it and tried to stack; the slope gate refused, and the envelope now keeps
+the scan honest). Hermetic tests: `ff9mapkit/tests/test_world_interior.py`.
+
+## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
+
+`two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —
+donor (17,12)'s ribbon (23.6u tall, 81u run, corr −0.96), every vert/UV/normal real bytes,
+(s,d,h)-bent along our crest in 3 shingle-overlapped laps. The offline render shows one
+coherent crag wall; all gates clean (census 0 MISS, rule-f 0, moat/verge, probes). The
+build minted the v3 carry laws (full statements in the memory): THE MID-DEPTH ANCHOR
+(+ THE HULL CLOSURE for bays — an anchor bridges concavities < D_MID), THE WANDER
+CORRECTION (d referenced to TRUE crests both sides), THE INTERIOR WINDOW (+ keep
+straddlers), PER-KEY SHIFTS never per-tri nudges, THE GHOST REMEDY (idall 4078 = the
+engine's own ray-skip list), THE FULL-CELL SEA REVELATION → THE VERGE RULE final form
+(outline proximity, signed distances), and RULE-(f) AS A FIX ORACLE. Teleports:
+**(226.5,−1137.5)** lowland / **(222.5,−1106.5)** plateau.
+
+**THE WALL MESH ORGANIZATION STUDY (`wall_anatomy.py` → out/wall_anatomy.json)** — the 8
+largest interior escarpments answer how real walls are BUILT (full laws in the memory):
+courses are SHINGLED FREE STRIPS (zero vertex sharing between courses); TOPS FLOAT under
+the grass bevel (zero identity welds at every crest) while FEET WELD identity-exact to the
+ground; vertex normals are smoothed UP-LEANING terrain normals (ny med 0.67, p10 0.49,
+p90 0.95 — not face normals, not constant); UVs are FRACTIONAL (only 7-29% corner-pure);
+70-82% clean ~4×4u quads + 20-30% lone filler tris; and real crest chains are JAGGED
+(turn p90 > 90°) — the shave toward fair curves was off-language. ⇒ v3 = BEND-CARRY a
+real escarpment strip along our crest: no course/crest welds needed (the shingle laws),
+only the foot conforms.
+
+**Playtest round 2: "top looks pretty good" + three findings** (laws in the memory files):
+the stuck spot at ~(200,−1125) was THE MOAT LAW (a rule-(f) corollary — the zip welded to
+the south chain's band-descending end verts, building a walkable ramp to the waterline;
+the mint's Sea4 under-lap became cacheable → the movement-cache-shadow trap; fixed by
+trimming chain ends to rim height + the MOAT GATE: every zip vert ≥2.4, verified 0
+walkable-below-2.4 points across the corridor band post-deploy). The 2 stretched cliff
+tris at (206,−1111) were THE LONG-EDGE TILE SPAN (a 5-8u native crest edge spans several
+tile windows but gets one tile; fixed by densifying the crest ring to ≤3u colinear
+segments). The "mountain meets the sea" question: free-base termination is measured-real,
+but stock tall sea-cliffs wear the coastal band language + a foam outline — our interior-
+language-into-water arc is a hybrid; re-clothing it is a candidate follow-up rung.
+
 **Playtest round 1: "looks pretty good" + two issues, fixed and redeployed** (laws in the
 memory file): the exact-coordinate teleport (224,−1138) grounded the player UNDER the
 terrain — THE LATTICE-EDGE TELEPORT TRAP (a sky-cast at an exactly-lattice x/z can
@@ -244,6 +369,69 @@ transparent gutters — the PER-BLOCK FLOAT DIALECT law biting again). Foot weld
 island by the proven carve machinery; the hole ring derives from DROPPED-ADJACENCY (exact —
 a geometric band filter caught the compact islet's own coast once-edges). Gates: rect
 membership, cracks 0, census MISS=0, shelf centre grounds topo 13 @ 16.74, atlas 0.
+
+## THE DAGUERREO MASSIF ANATOMY — the turning-wall study (`daguerreo_massif_anatomy.py`)
+
+The v4 transplant put a real HORSESHOE massif in our own fork — the first turning/branching
+mountain we fully own; every prior wall study sampled straight escarpment runs in aggregate.
+Read on the REAL donor bytes (5-6,15-16) (identical to the deployed island at rot0/shift0);
+artifacts `out/daguerreo_massif.json` + `out/massif_cols.png` / `out/massif_rows.png`.
+
+**THE SHEET-MASSIF DISCOVERY (the headline): this mountain is NOT the wall class.** The
+whole massif (562 topo-49 tris across 4 blocks, y 2.4–31.4) is ONE edge-welded component;
+74% of its quads weld vertically to the course below (the 8 big escarpments measured 0% —
+shingled free strips); 97% of tris are up-facing (ny>0.3 — no vertical curtains); quad
+courses are ~4.3u tall × ~4u wide with plan spacing COMPRESSED on steep faces (NN med
+2.62u). ⇒ FF9 mountains come in (at least) TWO construction classes: **ESCARPMENT WALLS**
+(shingled free strips on long straight plateau edges — the wall_anatomy class) and
+**LATTICE-SHEET MASSIFS** (one continuous welded quad sheet draped over the whole relief,
+over the top included — no ridge construction exists; only 34u of knife-edges on the whole
+horseshoe). The v3 bend-carry bent a strip-class donor around a closed form FF9 builds as
+a draped sheet — the FORM LESSON's mechanical explanation.
+
+**The tile language on a sheet (turn behavior):** it IS the 128px tile language (phase
+peakiness 7-9×, uv bbox exactly the known interior wall region — not a mural). Rows =
+~4.5u HEIGHT COURSES, turn-invariant around the whole loop (row 10 foot at y 3.6-7.5 →
+row 9 → 8 → 7 ascending — the G5 staircase), RE-BASED per façade — against the hanging
+bowl's topo-13 rim the wall runs rows 6/5, not the foot course. Cols = the contour
+sawtooth, cycling continuously around the closed loop; at SHARP bends (facing delta >35°)
+windowed continuation collapses (atlas-adjacent 50%→21%, "other" 31%→56%) into FREE
+fractional window placement, with narrower quads (3.0u vs 4.0u med). Straight-run "other"
+offsets are NOT noise: repeated systematic deltas ((2.16,3.16)×20 …) = boundaries between
+window SYSTEMS (the low ring vs the tall west face). Strips do NOT preferentially break at
+bends; filler tris do NOT concentrate at bends (both med ≈ overall).
+
+**Water anatomy:** THE FALLS APERTURE — the terrain wall has a LITERAL 19-edge hole behind
+the falls sheets (the falls mesh IS the surface there; 2 further edges were block-frame key
+artifacts); the river channel bed is topo-58 (the coastal-lip class reused inland, blocked)
+with the water plane inset ~0.5u below the banks and the wall CONTINUOUS behind it. Feet
+weld 100% everywhere (grass, bowl rim, forest), dihedral 46-53° (the soft interior crest).
+
+**Stage 2 — THE TILE-TOLERANCE PROBES (`massif_tweak1.py` + `massif_face_render.py`,
+in-game + offline 2026-07-13, probes reverted):** two one-quad UV-only swaps on the live
+island's west face, both to tiles from the massif's own inventory (only ORGANIZATION broke).
+Probe A (same row, col ±2 window break) = INVISIBLE offline close-up and at gameplay
+distance ⇒ **THE COL-FREEDOM LAW** — within the right row band the col/window choice is
+cosmetically free (the sawtooth is how the painter worked, not a visual constraint; kills
+the v3-era organization problem). Probe B (same col, row 9→7 course break) = clearly
+visible up close (a pale off-course square) ⇒ rows stay the load-bearing axis.
+`massif_face_render.py` = **THE OFFLINE EYE**: a Moguri-textured orthographic elevation
+render of a wall face (before/after/marked) — synthesis candidates iterate against it
+offline; only finals go to playtest.
+
+**Stage 3 — THE SPUR ★ IN-GAME PROVEN 2026-07-13 ("looks good, i compared to verbatim" —
+`massif_spur.py`; kept deployed, disc-4 re-mirrored): the FIRST in-game-proven synthetic
+mountain material.** One course of fully synthetic rock bulges the real massif foot outward
+3.5u over a 14.9u SW-face window (cell (1,17)); side-by-side against the verbatim wall it
+reads as normal rock. The graft recipe: drop footprint grass + the window's bottom-course
+quads → the ring = exactly the kept|dropped edges → zip grass-outline→exposed-sheet-edge,
+every new vert a ring FLOAT; row-10 tiles (the y-band match), cols free per the col-freedom
+law, fractional UVs inside real exemplar-QUAD rects; gates ring-consumed / no new
+once-edges / census MISS=0 / the offline eye. Two offline catches en route (no playtest
+wasted): single-TRI exemplars smear (use full-tile QUADS) + **THE CLEAN-BOUNDARY GATE** (a
+graft window needs ≥1.5u separation between the exposed sheet edge and the grass outline —
+the sheet class has no universal clean course line, SELECT for one). ⇒ the `world-mountain`
+rung is UNBLOCKED (hill-at-scale geometry + this retile/weld recipe; not yet built).
 
 Full statements + provenance: memory `project-ff9-overworld-interior-topography`.
 Shore-side laws: memory `project-ff9-overworld-coast-mosaic` (the LAW INDEX).

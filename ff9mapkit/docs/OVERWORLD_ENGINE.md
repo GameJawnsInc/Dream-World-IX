@@ -360,11 +360,20 @@ What it does, generalizing + hardening the manual recipe:
 - **Destination.** `--field N` inverts `area_to_fields` to the dispatch case (prefers a `default` branch; errors with the
   reachable-field list if N isn't overworld-reachable); `--case C` sets `Byte[39]` directly. `--field 300` → case 4 (Ice
   Cavern), the proven default. **`--field-direct N` targets a CUSTOM field**: the trigger func keeps the template's own
-  vehicle/state gate verbatim but warps `Field(N)` directly instead of the `Byte[39]`+`RunScriptAsync` dispatcher handshake
-  (whose AREA switch only carries real base fields) — no dispatcher case is used or touched, so custom entrances compose
-  additively, and the dispatcher case bodies are themselves bare `Field(dest)` ops so the transition is identical. Deployed
-  to every free-roam dispatcher. Pair the destination field with a `[[gateway]] to = "worldmap"` exit ([FORMAT](FORMAT.md))
-  for the return leg. The destination must be DEPLOYED (a registered-but-assetless id crashes on warp).
+  vehicle/state gate verbatim, then performs the real **zone-in choreography** itself before warping `Field(N)` — the
+  `Byte[39]`+`RunScriptAsync` handshake it replaces reaches that choreography in the dispatcher's MAIN loop (the shared run
+  before its AREA switch, which only carries real base fields): `DisableMove/DisableMenu` + window cleanup + the
+  **fade-to-black** (24 frames) + `Wait(25)` + the **`D8:2 = 9999` worldmap-arrival entrance sentinel** + the ready poll,
+  each byte-identical to the real run (test-asserted against WORLD00). Without the carry a custom destination loaded *in
+  the clear* — you watched the smooth-cam settle that the black normally hides, and the field read a stale last-gateway
+  entrance. No dispatcher case is used or touched, so custom entrances compose additively. Deployed to every free-roam
+  dispatcher. Pair the destination field with a `[[gateway]] to = "worldmap"` exit ([FORMAT](FORMAT.md)) for the return
+  leg. The destination must be DEPLOYED (a registered-but-assetless id crashes on warp). **`--trigger-only` re-deploys
+  just the dispatcher trigger funcs** (terrain/tiles/building untouched) — the refresh mode for picking up a kit upgrade
+  to the trigger body on an already-authored entrance. **`--action-prompt`** (with `--field-direct`) makes it the
+  faithful **"!" confirm-to-enter** entrance instead of auto-warp: the tile raises the `FICON` "!" bubble and warps
+  only when you press **Confirm** while standing on it (a `B_KEYON(Confirm)` gate byte-copied from the real dispatcher
+  main loop — stock FF9 town entry is confirm-gated, NOT walk-on). Default = auto-warp the instant you step on the tile.
 - **Trigger func.** Clones WORLD00's `0x9895` body and **patches its single `Byte[39]=<case>` literal** (`D5 27 7D <lo>
   <hi>`, unique in the 29 B body) to the chosen case — so ONE proven template routes to any reachable field. Re-disassembled
   to confirm `Byte[39]==case` + `RunScriptAsync(6,1,11)` before use.
@@ -674,6 +683,46 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
 **In-game loop:** relaunch → F6 → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
+
+### Custom cliff ISLANDS — `world-island` (synthesize a landmass on open ocean, ★ in-game proven 2026-07-12)
+
+`ff9mapkit world-island --mod-folder M --center WX,WZ --radius R [--seed S --lobes N --patches P]` synthesizes a
+fully-custom walkable landmass: organic multi-lobe coastline (gated against the measured FF9 coastline language),
+the ~73° rock rim, native grass mains + verbatim meadow stamps + rolling relief. Every footprint block must be TRUE
+open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
+renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
+The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
+
+### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
+
+The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs 1–3 — there is no
+disc2/disc3 tree) and `worldmap/disc4` (distinct art; only `WorldDisc1`/`WorldDisc4` prefabs exist).
+Every s34 lookup — override files, `Donor.txt` sidecars, the reclaim fallback prefab — keys on the
+engine's `currentDisc`, so custom land deployed only under `Disc1/` VANISHES once the scenario (or
+the F6 disc switch) crosses the disc-4 threshold (SC ≥ 11090). `world-mirror --mod-folder M` closes
+the gap: it copies every Block override + sidecar into the `Disc4` tree, gated per cell (the
+destination's real cell must be open ocean, or byte-identical across discs — real cells that differ,
+e.g. (9,17), skip with a warning), and **pins** a sidecar cell's un-overridden donor-prefab
+free-ride parts (falls/rivers/objects) as explicit source-disc-byte overrides — several real donors
+(the Daguerreo blocks) genuinely differ between the trees. **Run it after any custom-ocean world
+deploy**; relaunch to apply.
+
+### Interior topography on a deployed island — `world-forest` + `world-hill` (★ productized 2026-07-13)
+
+Both verbs reshape the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job)
+and are the productized island-E studies, proven by a zero-byte-diff identity run against the in-game-proven deploy:
+
+* `world-forest --mod-folder M --near WX,WZ` (or `--center` exact) carries a REAL canopy blob (verbatim topo-37
+  verts/UVs/normals — THE CANOPY CARRY LAW: canopy texture is hand-authored, never synthesize it) from `--donor`
+  (default `15,15`, the clean grass-bounded blob): carve a hole in the mains, seat the blob, zip a grass annulus
+  whose per-4u-cell mains UVs are DECODED from the kept bytes. Gated by the COMPREHENSIVE CANOPY STEP LAW (per-rim-
+  station lift against the exact canopy surface one foot step inside) + a PERIMETER WALK-IN simulation of the
+  engine's climb rule around the whole rim (takes a few minutes) + the placement census.
+* `world-hill --mod-folder M --near WX,WZ [--height 4.2 --radius 18]` raises a raised-cosine grass hill by PURE-Y
+  displacement (mains UVs are XZ-linear, so every tile stays lawful) with local normal re-smoothing. Gated by the
+  measured grass-language envelope (flank p99 ≤ 28.6°, peak ≤ the lowland band top 8.6), the crack scan, and the
+  census. The `--near` scan only offers footprints inside the ROLLING-RELIEF envelope (pure mains, y-span ≤ 2.4u,
+  clear of forest/stamps/rim) — it will refuse rather than stack a hill on prior displacement.
 
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 

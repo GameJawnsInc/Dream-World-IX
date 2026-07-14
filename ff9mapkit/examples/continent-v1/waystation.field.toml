@@ -32,7 +32,8 @@ hide_area_title = true               # the borrowed room's "Daguerreo" card is n
 
 [camera]
 borrow = "../../.ff9mapkit-cache/fields/2800/camera.bgx"   # build-time guidance (extract-field 2800)
-entry_settle = 45                    # hold black while the smooth-cam settles (the hub precedent)
+entry_settle = "auto"                # computed hold: the build measures the spawn's warp-in delta
+                                     # (-> 50 frames here; was the hand-copied "hub precedent" 45)
 
 [player]
 spawn = [0, -2000]                   # just inside the harbor door, on the y=0 corridor

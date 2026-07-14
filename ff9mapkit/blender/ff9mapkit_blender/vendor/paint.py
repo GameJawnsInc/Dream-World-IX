@@ -40,14 +40,14 @@ HEIGHT_BY_NAME = {            # archetype / preset / prop name -> height (the mo
 }
 
 HEIGHT_BY_TYPE = {            # marker type -> fallback height (0 = a flat marker, no vertical pole)
-    "npc": HUMAN_HEIGHT, "spawn": HUMAN_HEIGHT,
+    "npc": HUMAN_HEIGHT, "spawn": HUMAN_HEIGHT, "arrival": HUMAN_HEIGHT,
     "prop": 300, "savepoint": 440,
     "gateway": 0, "event": 0, "camzone": 0, "choice": 0, "waypoint": 0,
     "ladder": 0, "jump": 0,
 }
 
 # Footprint glyph per point type (the rasterizer interprets these); zone types draw an outline.
-FOOTPRINT_SHAPE = {"npc": "circle", "prop": "square", "spawn": "star",
+FOOTPRINT_SHAPE = {"npc": "circle", "prop": "square", "spawn": "star", "arrival": "star",
                    "waypoint": "cross", "savepoint": "circle"}
 
 
@@ -131,6 +131,12 @@ def normalize_content(field_cfg: dict, scene_cfg: dict | None = None) -> list:
     if isinstance(player, dict) and player.get("spawn") is not None:
         items.append({"type": "spawn", "footprint": "point", "pos": _xz(player["spawn"]),
                       "height": player.get("height"), "subtype": None, "label": "spawn"})
+    if isinstance(player, dict):
+        for a in player.get("arrival") or []:      # the per-door arrival table ([[player.arrival]])
+            if isinstance(a, dict) and a.get("pos") is not None:
+                items.append({"type": "arrival", "footprint": "point", "pos": _xz(a["pos"]),
+                              "height": None, "subtype": None,
+                              "label": f"arrival {a.get('entrance', '?')}"})
 
     for gw, zone in _merge_by_name(field_cfg.get("gateway", []), scene_cfg.get("gateway", []), "zone"):
         z = _zone(zone)
@@ -182,15 +188,20 @@ def normalize_content(field_cfg: dict, scene_cfg: dict | None = None) -> list:
     return items
 
 
-def markers_to_field_cfg(npcs=(), gateways=(), events=(), camzones=(), waypoints=(), spawn=None) -> dict:
+def markers_to_field_cfg(npcs=(), gateways=(), events=(), camzones=(), waypoints=(), spawn=None,
+                         arrivals=()) -> dict:
     """Assemble the Blender add-on's collected marker dicts into a ``field_cfg`` that
     :func:`normalize_content` understands -- so the live modeling loop projects content the same way
     the field.toml-driven CLI does. The add-on can only place these 6 kinds; props/ladders/jumps/save
     points live only in the field.toml (and project via the CLI ``paint-template`` command)."""
     cfg = {"npc": list(npcs), "gateway": list(gateways), "event": list(events),
            "camera_zone": list(camzones), "marker": list(waypoints)}
-    if spawn is not None:
-        cfg["player"] = {"spawn": [int(spawn[0]), int(spawn[1])]}
+    if spawn is not None or arrivals:
+        cfg["player"] = {}
+        if spawn is not None:
+            cfg["player"]["spawn"] = [int(spawn[0]), int(spawn[1])]
+        if arrivals:
+            cfg["player"]["arrival"] = [dict(a) for a in arrivals]
     return cfg
 
 
@@ -277,20 +288,22 @@ def project_content(items: list, cam: _cam.Cam, scale: int = 4, *, footprint_px:
 # (event amber, camera-zone blue) so the template reads the same as the add-on.
 TYPE_COLOR = {
     "npc": (90, 210, 255, 255), "prop": (120, 220, 130, 255), "spawn": (90, 255, 120, 255),
+    "arrival": (40, 220, 220, 255),
     "waypoint": (160, 200, 255, 255), "gateway": (255, 100, 220, 255), "event": (255, 215, 40, 255),
     "camzone": (90, 160, 255, 255), "choice": (70, 220, 200, 255), "savepoint": (255, 230, 70, 255),
     "ladder": (255, 150, 40, 255), "jump": (255, 90, 40, 255),
 }
 TYPE_DESC = {
     "npc": "NPCs (footprint + height pole)", "prop": "Props (footprint + height pole)",
-    "spawn": "Player spawn", "waypoint": "Cutscene waypoints", "gateway": "Gateway exit zones",
+    "spawn": "Player spawn", "arrival": "Per-door arrivals (entrance-keyed)",
+    "waypoint": "Cutscene waypoints", "gateway": "Gateway exit zones",
     "event": "Event trigger zones", "camzone": "Camera-switch zones", "choice": "Dialogue-choice zones",
     "savepoint": "Save points (zone + moogle pole)", "ladder": "Ladders (zone + climb)",
     "jump": "Jump take-off zones",
 }
 # draw order: flat zones underneath, point content on top, the player spawn topmost
 CONTENT_ORDER = ["gateway", "event", "camzone", "choice", "jump", "ladder", "savepoint",
-                 "prop", "waypoint", "npc", "spawn"]
+                 "prop", "waypoint", "npc", "arrival", "spawn"]
 # unit-circle offsets for a small octagon footprint (no math import needed)
 _OCT = [(1.0, 0.0), (0.707, 0.707), (0.0, 1.0), (-0.707, 0.707), (-1.0, 0.0),
         (-0.707, -0.707), (0.0, -1.0), (0.707, -0.707)]
