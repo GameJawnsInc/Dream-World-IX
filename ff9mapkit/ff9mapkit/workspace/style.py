@@ -10,6 +10,17 @@ from __future__ import annotations
 
 from string import Template
 
+from ..editor.theme import derive
+
+# Theme-independent scales threaded into the QSS template (and, in later phases, into Qt layout calls).
+# Values are px strings so they substitute straight in. Spacing is a 4px grid; type is the modern ramp.
+_SCALES = {
+    "space_1": "4px", "space_2": "8px", "space_3": "12px", "space_4": "16px", "space_6": "24px",
+    "radius_sm": "4px", "radius_md": "6px", "radius_lg": "8px",
+    "type_display": "24px", "type_h1": "20px", "type_h2": "16px",
+    "type_label": "13px", "type_body": "13px", "type_caption": "11px", "type_mono": "12px",
+}
+
 # Every $name below must be a key in the palette (editor.theme LIGHT/DARK provide them all).
 _QSS = Template(
     """
@@ -89,10 +100,10 @@ _QSS = Template(
        inconsistent native focus rectangle; these rules give every interactive control ONE deliberate
        accent ring instead. No 1px->2px reflow -- the resting border is already 1px, `:focus` only
        recolours it to the accent (inputs already do this above). */
-    QPushButton:focus, QToolButton:focus, QPushButton#search:focus { border: 1px solid $accent; }
-    QTabBar::tab:focus { border-color: $accent; color: $text; }
-    QTreeWidget:focus, QTreeView:focus, QListWidget:focus { border: 1px solid $accent; }
-    QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid $accent; }
+    QPushButton:focus, QToolButton:focus, QPushButton#search:focus { border: 1px solid $focus; }
+    QTabBar::tab:focus { border-color: $focus; color: $text; }
+    QTreeWidget:focus, QTreeView:focus, QListWidget:focus { border: 1px solid $focus; }
+    QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid $focus; }
 
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;
@@ -148,10 +159,28 @@ _QSS = Template(
 
     /* Home-page entry cards */
     QFrame#card { background: $surface; border: 1px solid $border; border-radius: 10px; }
+
+    /* --- component roles (Phase 1 substrate) -- these match ONLY widgets that set a dynamic `role`
+       property (via workspace.widgets factories), so they are INERT until Phase 2 adopts them. They give
+       the modern type ramp, elevation ladder, and chip a single named home instead of ad-hoc inline CSS. */
+    QLabel[role="display"] { font-size: $type_display; font-weight: 700; color: $text; }
+    QLabel[role="h1"]      { font-size: $type_h1; font-weight: 600; color: $text; }
+    QLabel[role="h2"]      { font-size: $type_h2; font-weight: 600; color: $text; }
+    QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
+    QLabel[role="subtle"]  { color: $text_subtle; }
+    QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
+    QLabel[role="chip"] {
+        background: $surface_3; border: 1px solid $border; border-radius: $radius_sm;
+        padding: 2px $space_2; color: $muted; font-size: $type_caption;
+    }
     """
 )
 
 
 def qss(palette: dict) -> str:
-    """Render the workspace stylesheet for ``palette`` (an :mod:`..editor.theme` LIGHT/DARK dict)."""
-    return _QSS.substitute(palette)
+    """Render the workspace stylesheet for ``palette`` (an :mod:`..editor.theme` LIGHT/DARK dict).
+
+    Derives the semantic tokens (elevation ladder, focus, tinted selection, ...) and merges the theme-
+    independent scales, so the template may reference any of them. ``derive`` is idempotent, so a base OR
+    an already-derived palette both work -- callers (tests, the shell) need not derive up front."""
+    return _QSS.substitute({**_SCALES, **derive(palette)})

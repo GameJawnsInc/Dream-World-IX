@@ -26,7 +26,7 @@ LIGHT = {
     "surface_btn": "#f4f5f7",   # neutral button face
     "field": "#fbfcfd",         # entry / listbox background (just-off-white, so inputs still read as 'open')
     "text": "#1b1f24",          # primary text
-    "muted": "#646b76",         # secondary text (hints) -- a touch darker for the dimmer bg
+    "muted": "#626974",         # secondary text (hints) -- retuned to WCAG AA 4.5:1 on bg + surface
     "accent": "#2f6feb",        # primary buttons, tree selection
     "accent_fg": "#ffffff",     # text on accent
     "accent_hover": "#256ae0",
@@ -80,7 +80,7 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "surface_btn": "#3b4252",   # nord1
     "field": "#3b4252",
     "text": "#eceff4",          # nord6 (snow storm)
-    "muted": "#8a93a5",
+    "muted": "#9aa3b5",         # lifted to WCAG AA 4.5:1 on nord0/nord surface
     "accent": "#5e81ac",        # nord10 (frost, deep blue)
     "accent_fg": "#ffffff",     # white over the mid-blue accent (snow-storm #eceff4 was a touch low-contrast)
     "accent_hover": "#6a8cb6",
@@ -104,7 +104,7 @@ DRACULA = {                     # https://draculatheme.com
     "surface_btn": "#3a3d4d",
     "field": "#21222c",
     "text": "#f8f8f2",
-    "muted": "#8b91b8",         # comment #6272a4, lifted for hint legibility
+    "muted": "#8f95bc",         # comment #6272a4, lifted to WCAG AA 4.5:1 on surface
     "accent": "#bd93f9",        # purple
     "accent_fg": "#282a36",
     "accent_hover": "#caa6fb",
@@ -128,7 +128,7 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     "surface_btn": "#0b4350",
     "field": "#073642",
     "text": "#93a1a1",          # base1
-    "muted": "#6b8a8a",
+    "muted": "#7f9e9e",         # lifted to WCAG AA 4.5:1 on base03/base02
     "accent": "#268bd2",        # blue
     "accent_fg": "#ffffff",     # white over the blue accent (base3 cream reads low-contrast on it)
     "accent_hover": "#3597db",
@@ -153,8 +153,8 @@ SOLARIZED_LIGHT = {
     "surface": "#f4eeda",
     "surface_btn": "#e8e1cd",
     "field": "#f7f1de",
-    "text": "#586e75",          # base01
-    "muted": "#5c727a",         # deepened base00 for hint legibility on the dimmer cream
+    "text": "#4a6067",          # base01 deepened to WCAG AA 4.5:1 body text on the cream bg
+    "muted": "#566c74",         # deepened for hint legibility -- AA 4.5:1, still lighter than text
     "accent": "#268bd2",        # blue
     "accent_fg": "#ffffff",     # white over the blue accent
     "accent_hover": "#1f7ec0",
@@ -248,6 +248,70 @@ def pick_palette(mode: str = "auto") -> dict:
     if mode in (None, "", "auto"):
         return DARK if detect_os_dark() else LIGHT
     return THEMES.get(mode) or (DARK if detect_os_dark() else LIGHT)
+
+
+# --- derived semantic tokens (Phase 1 token foundation) ------------------------------------
+# A pure, idempotent function that EXTENDS a 22-key base palette with the semantic tokens the modern
+# component layer consumes: an elevation ladder, a tinted selection, a third text tier, a focus token
+# guaranteed to meet the WCAG 3:1 non-text floor, and an info status hue. All outputs are #rrggbb (no
+# rgba) so the hex/parity guarantees still hold; QSS composites solid fills over the surface anyway, so a
+# pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
+_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info")
+
+
+def _mix(a: str, b: str, t: float) -> str:
+    """Blend two #rrggbb colours: t=0 -> a, t=1 -> b. Returns #rrggbb."""
+    ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+    cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(ca[i] + (cb[i] - ca[i]) * t):02x}" for i in range(3))
+
+
+def _rel_lum(h: str) -> float:
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+    def _lin(c):
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = _rel_lum(a), _rel_lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _focus_token(accent: str, surface: str) -> str:
+    """The accent, brightened toward white just enough to clear the WCAG 3:1 non-text floor on the
+    surface (a focus ring must be perceivable). Most themes already pass -> the accent returns unchanged."""
+    focus = accent
+    for _ in range(24):
+        if _contrast(focus, surface) >= 3.0:
+            break
+        focus = _mix(focus, "#ffffff", 0.06)
+    return focus
+
+
+def derive(pal: dict) -> dict:
+    """Return ``pal`` extended with the derived semantic tokens (idempotent -- an already-derived palette
+    passes through, so a consumer can call it defensively on either a base or a derived dict)."""
+    if all(k in pal for k in _DERIVED_KEYS):
+        return pal
+    dark = bool(pal.get("dark"))
+    out = dict(pal)
+    # Elevation ladder -- a raised surface catches more light in BOTH modes (lighter = higher). QSS has no
+    # box-shadow, so depth is tint-on-tint (Material-3 style); Phase 3 adds real shadows to floating layers.
+    out["surface_2"] = _mix(pal["surface"], "#ffffff", 0.05 if dark else 0.55)
+    out["surface_3"] = _mix(pal["surface"], "#ffffff", 0.10 if dark else 1.00)
+    out["selection_bg"] = _mix(pal["surface"], pal["accent"], 0.16)   # tinted, replaces full-accent select
+    out["text_subtle"] = _mix(pal["muted"], pal["bg"], 0.28)          # a third, dimmer text tier
+    out["focus"] = _focus_token(pal["accent"], pal["surface"])        # meets WCAG 3:1 on the surface
+    out["info"] = pal["accent"]                                       # info status hue (aliases accent for now)
+    return out
+
+
+# Motion tokens (Phase 1 constants; QSS cannot animate, so these feed QPropertyAnimation in Phase 10).
+MOTION = {"fast_ms": 140, "medium_ms": 220, "easing": (0.2, 0.0, 0.0, 1.0)}
 
 
 def apply_theme(root, mode: str = "auto") -> dict:

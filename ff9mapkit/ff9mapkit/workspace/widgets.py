@@ -7,8 +7,8 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QListWidget
+from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QFrame, QLabel, QListWidget
 
 
 class WheelGuard(QObject):
@@ -56,6 +56,60 @@ class PlaceholderListWidget(QListWidget):
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
                              | Qt.TextFlag.TextWordWrap, self.placeholder)
             painter.end()
+
+
+# --- component factories (Phase 1 token foundation) ----------------------------------------
+# Thin QLabel/QFrame factories that stamp a dynamic `role` property (styled by the component QSS in
+# workspace.style) and fold in an accessible name -- so a heading / caption / card / chip is ONE call
+# with the a11y hook baked in, replacing the ad-hoc inline stylesheets adopted incrementally from Phase 2.
+
+def role_label(text="", role="body", *, parent=None):
+    """A QLabel carrying a ``role`` (display / h1 / h2 / caption / subtle / chip) for the component QSS,
+    with its text as the accessible name."""
+    lab = QLabel(text, parent)
+    lab.setProperty("role", role)
+    if text:
+        lab.setAccessibleName(text)
+    return lab
+
+
+def heading(text, level=1, *, parent=None):
+    """A titled label -- level 0 = display, 1 = h1, 2 = h2."""
+    return role_label(text, "display" if level == 0 else f"h{level}", parent=parent)
+
+
+def caption(text="", *, parent=None):
+    """A small muted caption label (the 11px type role)."""
+    return role_label(text, "caption", parent=parent)
+
+
+def card(*, parent=None):
+    """An elevated container frame (surface_2 + a rounded border) for grouped content."""
+    frame = QFrame(parent)
+    frame.setProperty("role", "card")
+    return frame
+
+
+def status_chip(text, kind="info", *, parent=None):
+    """A small pill label. ``kind`` (info / good / warn / crit) is stamped as a property for later
+    per-kind tinting; the accessible name names the kind, so status never rides on colour alone."""
+    lab = role_label(text, "chip", parent=parent)
+    lab.setProperty("kind", kind)
+    if text:
+        lab.setAccessibleName(f"{kind}: {text}")
+    return lab
+
+
+def tabular(widget):
+    """Turn ON tabular (fixed-width) figures on ``widget``'s font so ids / coordinates / byte offsets line
+    up in columns. Uses the Qt 6.7+ font-feature API; a silent no-op on older Qt. Returns the widget."""
+    try:
+        font = widget.font()
+        font.setFeature(QFont.Tag("tnum"), 1)
+        widget.setFont(font)
+    except Exception:       # noqa: BLE001  (older Qt lacks setFeature/Tag -> skip, non-fatal)
+        pass
+    return widget
 
 
 def install_wheel_guard(app=None):

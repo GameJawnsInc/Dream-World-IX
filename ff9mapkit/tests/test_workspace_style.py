@@ -54,3 +54,22 @@ def test_qss_styles_dropdown_menus():
     # the toolbar Field/Campaign/Journey buttons open QMenus -- they must be themed (selected item = accent)
     css = style.qss(theme.DARK)
     assert "QMenu" in css and "QMenu::item:selected" in css
+
+
+def test_qss_uses_the_derived_tokens_and_scales():
+    # Phase-1 substrate: qss() derives the semantic tokens and merges the scales, then feeds the component
+    # role classes + the focus ring. NORD is the tell -- its focus token differs from its accent (the accent
+    # fails 3:1 on the nord surface, so derive() brightens the focus ring), so a distinct value must appear.
+    css = style.qss(theme.NORD)
+    d = theme.derive(theme.NORD)
+    assert d["focus"] != theme.NORD["accent"] and d["focus"] in css     # focus ring wired to the derived token
+    assert d["surface_2"] in css and d["surface_3"] in css              # elevation ladder reaches the rules
+    for role in ('QLabel[role="h1"]', 'QLabel[role="caption"]', 'QFrame[role="card"]'):
+        assert role in css, role                                        # component role classes present
+    assert "20px" in css                                               # the type ramp substituted (h1 = 20px)
+
+
+def test_qss_accepts_an_already_derived_palette():
+    # a caller may hand qss() a derived dict; derive() is idempotent, so this must not double-apply or raise
+    # -- and it renders identically to passing the base palette.
+    assert style.qss(theme.DARK) == style.qss(theme.derive(theme.DARK))

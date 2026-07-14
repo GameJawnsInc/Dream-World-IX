@@ -12,7 +12,7 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 
 # The Workspace Makeover — Final Phased Plan
 
-> **Progress — Phase 0 landed (2026-07-14, offline-verified, uncommitted).** Files: `workspace/style.py`,
+> **Progress — Phase 0 landed (2026-07-14, offline-verified, committed `82ed086`).** Files: `workspace/style.py`,
 > `workspace/shell.py`, `workspace/battledoc.py`, `tests/test_workspace_prefs.py`. **Done:** Info Hub demoted
 > to a violet OUTLINE so Deploy is the only saturated fill; toolbar grouped with separators (Edit · Validate ·
 > Info); the empty console COLLAPSES by default (any job re-expands it, and restore is now faithful in BOTH
@@ -25,6 +25,23 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > network-consent-modal retiming (consent-sensitive AND a no-op on source checkouts → untestable here); the
 > systematic light-theme `muted` contrast retune (belongs to Phase 1's contrast-floor raise); the Map legend
 > chip (minor). **6 decisions locked** (see §8).
+
+> **Progress — Phase 1 landed (2026-07-14, offline-verified).** The token & component foundation, built to be
+> visually INERT. Files: `editor/theme.py`, `workspace/style.py`, `workspace/widgets.py`, `workspace/modelsdoc.py`,
+> `tests/test_editor_theme.py`, `tests/test_workspace_style.py`, `tests/test_workspace_widgets.py` (new). **Done:**
+> a pure idempotent `theme.derive(base)` adds the semantic tokens (elevation ladder `surface_2/3`, tinted
+> `selection_bg`, `text_subtle`, a `focus` token guaranteed ≥3:1 on the surface, `info`) — all `#rrggbb` so the
+> hex/parity guarantees hold; spacing/radius/type scales + a `MOTION` const threaded into the QSS via
+> `qss()=substitute({**_SCALES, **derive(pal)})`; component role classes (`QLabel[role=…]`, `QFrame[role=card]`,
+> chip) + `workspace.widgets` factories (`heading`/`caption`/`card`/`status_chip`) with `setAccessibleName` baked
+> in, plus a `tabular()` tnum helper; the P0 focus ring rewired from `$accent` to the `$focus` token (fixes nord's
+> sub-3:1 ring); the ghost `panel` token cleaned. **Contrast floors RAISED to 4.5 text / 4.5 muted (bg AND
+> surface) / 3.0 accent-fg / 3.0 focus — all 7 themes now pass** (retuned `muted` on light/nord/dracula/
+> solarized-dark/-light + solarized-light `text`), which **resolves the light-theme contrast item deferred from
+> P0**. **Verified:** smoke green, 320 tests pass, screenshots show zero structural change (light/dark/nord
+> identical, sub-perceptible muted nudge). **Deviation from the plan, with cause:** did NOT remove `theme.apply_theme`
+> — the research agent assumed it dead, but `editor/app.py`, `dialogs.py`, and `graphview.py` still use it. The
+> component-token *application* app-wide (retiring the 136 inline styles) is Phase 2.
 
 
 ## 1. North-star vision

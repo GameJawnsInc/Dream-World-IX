@@ -117,7 +117,7 @@ class ModelsDoc(QWidget):
         self.d_img = QLabel()
         self.d_img.setFixedSize(_DETAIL_IMG, _DETAIL_IMG)
         self.d_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.d_img.setStyleSheet(f"background:{self.pal.get('panel', 'transparent')};"
+        self.d_img.setStyleSheet("background:transparent;"          # was pal.get('panel', ...) -- 'panel' is not a token
                                  f"border:1px solid {self.pal.get('border', '#444')};border-radius:6px;")
         img_row.addWidget(self.d_img)
         facts_col = QVBoxLayout()

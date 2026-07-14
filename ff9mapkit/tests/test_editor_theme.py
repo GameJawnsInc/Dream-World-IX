@@ -93,14 +93,35 @@ def _contrast(a: str, b: str) -> float:
 
 
 def test_palette_contrast_invariants():
-    # Lenient floors (current 7 palettes pass) so this fires only on a real regression: invisible button
-    # text (accent_fg == accent), unreadable hints (muted ~ bg), or a mislabeled dark/light flag.
+    # Phase-1 WCAG AA floors (raised from 4.0/2.7): body text AND hint text must clear 4.5:1 on BOTH the
+    # page (bg) and a panel (surface); text on the accent button >= 3.0; the DERIVED focus ring >= 3.0 on
+    # the surface (a perceivable focus indicator). Fires on any real regression to legibility.
     for mode, pal in theme.THEMES.items():
-        assert _contrast(pal["text"], pal["bg"]) >= 4.0, f"{mode}: body text on bg"
-        assert _contrast(pal["text"], pal["surface"]) >= 4.0, f"{mode}: body text on surface"
+        d = theme.derive(pal)
+        assert _contrast(pal["text"], pal["bg"]) >= 4.5, f"{mode}: body text on bg"
+        assert _contrast(pal["text"], pal["surface"]) >= 4.5, f"{mode}: body text on surface"
+        assert _contrast(pal["muted"], pal["bg"]) >= 4.5, f"{mode}: hint text on bg"
+        assert _contrast(pal["muted"], pal["surface"]) >= 4.5, f"{mode}: hint text on surface"
         assert _contrast(pal["accent_fg"], pal["accent"]) >= 3.0, f"{mode}: text on the accent button"
-        assert _contrast(pal["muted"], pal["bg"]) >= 2.7, f"{mode}: hint text on bg"
+        assert _contrast(d["focus"], pal["surface"]) >= 3.0, f"{mode}: focus ring on surface"
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
+
+
+def test_derive_extends_the_palette_all_hex_and_idempotent():
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        assert set(d) == set(pal) | set(theme._DERIVED_KEYS), f"{mode}: derive() key set"
+        for k in theme._DERIVED_KEYS:
+            assert _HEX.match(d[k]), f"{mode}.{k}={d[k]!r} is not #rrggbb"      # no rgba -> hex/parity hold
+        assert all(d[k] == pal[k] for k in pal), f"{mode}: derive() changed a base value"
+        assert theme.derive(d) is d, f"{mode}: derive() is not idempotent"      # already-derived passes through
+
+
+def test_derived_elevation_ladder_is_monotonic():
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        l1, l2, l3 = _luminance(pal["surface"]), _luminance(d["surface_2"]), _luminance(d["surface_3"])
+        assert l1 <= l2 + 1e-9 <= l3 + 1e-9, f"{mode}: elevation not lighter-is-higher ({l1:.3f}/{l2:.3f}/{l3:.3f})"
 
 
 def test_detect_os_dark_is_a_safe_bool():
