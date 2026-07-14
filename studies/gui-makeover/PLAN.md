@@ -43,6 +43,18 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > — the research agent assumed it dead, but `editor/app.py`, `dialogs.py`, and `graphview.py` still use it. The
 > component-token *application* app-wide (retiring the 136 inline styles) is Phase 2.
 
+> **Progress — Phase 2 IN PROGRESS (De-smush A — the XL inline-style sweep, one file per commit).** The
+> token/component system REPLACES ad-hoc inline styles, file by file, each with a before/after screenshot check.
+> Per-file `setStyleSheet` tally:
+> - ✅ **`forms_qt.py` 12→5** — the field-editor forms (`build_form` + wrap-preview): caption/label/error-hint
+>   inline styles → `caption`/`label` roles + a `state='error'` property (repolished, QSS-coloured, no inline) +
+>   4pt row rhythm (vspacing 10→12, field→hint 2→4). Faithful (the form renders identically) + a red-error unit
+>   test. The 5 remaining are the Info Hub **dialog** styles (detail/prose/count/help) — deferred to a
+>   headless-verifiable pass. New: style roles `label` + `caption[state=error|warn]`; `widgets.repolish()`.
+> - ⬜ `shell.py` 60 · `importdoc.py` 23 · `battledoc.py` 11 · `modelsdoc.py` 9 · `savedoc.py` 8 · `builddoc.py` 7 —
+>   pending (the dense docs are where the DRAMATIC de-smush lands: spacing, hierarchy, the elevation ladder).
+> Verified: smoke green, 74 workspace/style/theme tests pass.
+
 
 ## 1. North-star vision
 

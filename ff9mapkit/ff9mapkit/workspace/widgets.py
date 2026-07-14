@@ -100,6 +100,16 @@ def status_chip(text, kind="info", *, parent=None):
     return lab
 
 
+def repolish(widget):
+    """Re-evaluate ``widget``'s QSS after a dynamic property (role / state / kind) changed -- Qt does NOT
+    restyle automatically on a setProperty. Cheap; call it right after flipping a selector-affecting
+    property (e.g. a form hint toggling state='error')."""
+    st = widget.style()
+    st.unpolish(widget)
+    st.polish(widget)
+    widget.update()
+
+
 def tabular(widget):
     """Turn ON tabular (fixed-width) figures on ``widget``'s font so ids / coordinates / byte offsets line
     up in columns. Uses the Qt 6.7+ font-feature API; a silent no-op on older Qt. Returns the widget."""

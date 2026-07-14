@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
+from . import widgets
 from .. import dialogue as _dlg
 from .. import infohub
 from ..content.text import DEFAULT_WRAP_WIDTH
@@ -33,17 +34,15 @@ from ..editor import forms
 DIALOGUE_KEYS = {"dialogue", "message", "prompt", "reply"}
 
 
-def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
+def _wrap_preview_panel(line_edit, get_text, wrap_width):
     """A read-only pane under a dialogue field: how the line breaks on the FF9 screen, live as you type.
     Reuses the exact build-time wrapper (:func:`..dialogue.wrap_preview`). ``wrap_width`` None = the field
     set ``[dialogue] wrap = false`` (author wraps by hand) -> show the text raw, no preview break."""
     panel = QWidget()
     pv = QVBoxLayout(panel)
-    pv.setContentsMargins(0, 3, 0, 0)
-    pv.setSpacing(2)
-    cap = QLabel("On-screen preview — how it wraps in the FF9 window:")
-    cap.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
-    pv.addWidget(cap)
+    pv.setContentsMargins(0, 4, 0, 0)
+    pv.setSpacing(4)
+    pv.addWidget(widgets.caption("On-screen preview — how it wraps in the FF9 window:"))
     box = QPlainTextEdit()
     box.setReadOnly(True)
     box.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)     # show the kit's OWN break points, not Qt's
@@ -53,6 +52,7 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
     # toggling visibility would change the panel height and, inside the nested form/scroll, clip the
     # fixed-height box on the way back. A constant-height panel can't reflow.
     note = QLabel("")
+    note.setProperty("role", "caption")            # muted by default; state='warn' colours the overflow line
     note.setFixedHeight(16)
     pv.addWidget(note)
 
@@ -62,12 +62,13 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
         over = _dlg.overflow(txt, wrap_width) if (txt and wrap_width is not None) else []
         if over:
             note.setText(f"⚠ {len(over)} line(s) may overflow the window — verify in-game.")
-            note.setStyleSheet(f"color:{palette['warn']};font-size:11px;")
+            note.setProperty("state", "warn")
         elif txt:
             note.setText("✓ fits the window")
-            note.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
+            note.setProperty("state", "")
         else:
             note.setText("")
+        widgets.repolish(note)
 
     line_edit.textChanged.connect(refresh)
     refresh()
@@ -98,12 +99,10 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     lay.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
     lay.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     lay.setHorizontalSpacing(14)
-    lay.setVerticalSpacing(10)
+    lay.setVerticalSpacing(12)                         # 4pt-grid rhythm: field -> field
     getters = {}
     hints = {}                                         # field key -> its hint QLabel (help text / live error)
     editable = []                                      # (key, widget) for wiring change -> validate + on_change
-    muted_style = f"color:{palette['muted']};font-size:11px;"
-    err_style = f"color:{palette['error']};font-size:11px;"
 
     def browse(field, getter, setter):
         # a numeric field (e.g. the encounter battle scene, an INT) wants the picked entry's id, not its name
@@ -121,7 +120,7 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         box = QWidget()
         v = QVBoxLayout(box)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
+        v.setSpacing(4)                                # 4pt-grid rhythm: field -> its hint
         setter = None
         if f.kind == forms.BOOL:
             cb = QCheckBox()
@@ -171,15 +170,14 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             v.addWidget(widget)
         hint = QLabel(f.help or "")                    # always present (hidden if no help) so a live error
         hint.setWordWrap(True)                          # has somewhere to show
-        hint.setStyleSheet(muted_style)
+        hint.setProperty("role", "caption")             # muted 11px; state='error' turns it red in validate()
         v.addWidget(hint)                               # PARENT it BEFORE setVisible: setVisible(True) on a
         hint.setVisible(bool(f.help))                   # parentless widget flashes a top-level window (Windows)
         hints[f.key] = hint
         editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
-            v.addWidget(_wrap_preview_panel(widget, getters[f.key], palette, wrap_width))
-        label = QLabel(f.label + ":")
-        label.setStyleSheet("font-weight:500;")
+            v.addWidget(_wrap_preview_panel(widget, getters[f.key], wrap_width))
+        label = widgets.role_label(f.label + ":", "label")   # weight-500 field label (the type ramp)
         lay.addRow(label, box)
 
     def validate():
@@ -194,12 +192,14 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
                 forms._parse_field(f.kind, getters[f.key]())
             except ValueError as e:
                 h.setText(f"⚠  {e}")
-                h.setStyleSheet(err_style)
+                h.setProperty("state", "error")         # -> the red caption[state=error] rule
+                widgets.repolish(h)
                 h.setVisible(True)
                 bad += 1
                 continue
             h.setText(f.help or "")
-            h.setStyleSheet(muted_style)
+            h.setProperty("state", "")                  # back to the muted caption default
+            widgets.repolish(h)
             h.setVisible(bool(f.help))
         return bad
 

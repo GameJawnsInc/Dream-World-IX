@@ -166,7 +166,10 @@ _QSS = Template(
     QLabel[role="display"] { font-size: $type_display; font-weight: 700; color: $text; }
     QLabel[role="h1"]      { font-size: $type_h1; font-weight: 600; color: $text; }
     QLabel[role="h2"]      { font-size: $type_h2; font-weight: 600; color: $text; }
+    QLabel[role="label"]   { font-weight: 500; }
     QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
+    QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */
+    QLabel[role="caption"][state="warn"]  { color: $warn; }    /* a soft warning (e.g. text may overflow) */
     QLabel[role="subtle"]  { color: $text_subtle; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
     QLabel[role="chip"] {
