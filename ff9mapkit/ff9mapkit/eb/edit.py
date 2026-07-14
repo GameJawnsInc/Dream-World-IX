@@ -309,6 +309,83 @@ def patch_bytes(data, abs_off: int, new: bytes, expect: bytes | None = None) -> 
     return bytes(b)
 
 
+# --------------------------------------------------------------------------- switch surgery
+
+def find_switch(eb: EbScript, entry_index: int, func_tag: int, *, switch_base: int | None = None):
+    """The first ``(func, instr, SwitchInfo)`` for a contiguous-range switch (0x0B/0x0D/0x06) in function
+    ``func_tag`` of ``entry_index``, optionally filtered to ``switch_base`` (the lowest selector value of the
+    0x0B/0x0D contiguous form). Raises if the function or a matching switch is absent."""
+    from . import disasm as D
+    f = eb.entry(entry_index).func_by_tag(func_tag)
+    if f is None:
+        raise ValueError(f"entry {entry_index} has no function tag {func_tag}")
+    for ins in D.iter_code(eb.data, f.abs_start, f.abs_end):
+        if ins.is_switch:
+            si = D.decode_switch(ins)
+            if si is not None and (switch_base is None or si.base == switch_base):
+                return f, ins, si
+    raise ValueError(f"entry {entry_index} func {func_tag} has no "
+                     f"{'base-%d ' % switch_base if switch_base is not None else ''}switch")
+
+
+def switch_case_reloff_pos(instr, si, case_value: int) -> int:
+    """Absolute byte offset of the 2-byte little-endian reloffset for selector ``case_value`` in a decoded
+    contiguous-range switch (``instr``/``si`` from :func:`find_switch`). The reloffset is an anchor-relative
+    (anchor = ``off+1`` for 0x0B, ``off+2`` for 0x0D) forward jump; overwriting these two bytes repoints just
+    that arm, length-preservingly. Layout: ``op | count | base | default | reloffset[0..n-1]`` -- the header
+    is 2 bytes (0x0B) or 3 (0x0D), then 2-byte operands, so ``base`` is operand 0, ``default`` operand 1, and
+    ``reloffset[k]`` (selector ``base+k``) operand ``2+k``. Raises for the explicit 0x06 form or an out-of-range
+    case. (Cross-checked live vs WORLD09's base-2 switch @4033: case-53 reloffset at byte 4141.)"""
+    if instr.op not in (0x0B, 0x0D):
+        raise ValueError(f"switch reloffset patching supports only the contiguous form (0x0B/0x0D), not "
+                         f"0x{instr.op:02X}")
+    n = len(si.edges) - 1                                    # cases (edges minus the default arm)
+    k = case_value - si.base
+    if not 0 <= k < n:
+        raise ValueError(f"case {case_value} out of the switch range [{si.base}..{si.base + n - 1}]")
+    header = 3 if instr.op == 0x0D else 2                    # op(1) + count(1 or 2)
+    return instr.off + header + 2 * (2 + k)                  # base=op0, default=op1, reloffset[k]=op(2+k)
+
+
+def repoint_switch_case(data, entry_index: int, func_tag: int, case_value: int, handler: bytes,
+                        *, switch_base: int | None = None):
+    """Repoint a DEAD contiguous-switch arm to a freshly-appended handler, length-preservingly for the switch.
+
+    Appends ``handler`` to the end of function ``func_tag`` (via :func:`replace_function_body`, so all later
+    funcs/entries relocate correctly) and rewrites selector ``case_value``'s 2-byte reloffset to point at it.
+    The arm MUST be DEAD -- its current target equal to the switch's ``default`` arm -- else this raises
+    (repointing a LIVE case would break a real dispatch). The appended handler lands at the function's original
+    ``abs_end`` (append-only: nothing before it shifts, so the switch + its reloffset table keep their offsets),
+    so the new reloffset = ``handler_abs - anchor`` (anchor = ``off+1``/``off+2``) is a forward u16.
+
+    Returns ``(new_bytes, info)`` where ``info`` = ``{handler_abs, anchor, reloff_pos, reloffset, switch_off}``.
+    Round-trip identity (``EbScript.from_bytes(x).to_bytes() == x``) is asserted before returning."""
+    eb = EbScript.from_bytes(data)
+    f, ins, si = find_switch(eb, entry_index, func_tag, switch_base=switch_base)
+    default_target = next(e.target for e in si.edges if e.is_default)
+    edge = next((e for e in si.edges if e.value == case_value), None)
+    if edge is None:
+        raise ValueError(f"case {case_value} is not in the switch (base {si.base}, "
+                         f"{len(si.edges) - 1} cases)")
+    if edge.target != default_target:
+        raise ValueError(f"case {case_value} is LIVE (arm -> {edge.target}, default {default_target}); "
+                         f"refusing to repoint a mapped switch entrance")
+    anchor = ins.off + (2 if ins.op == 0x0D else 1)
+    reloff_pos = switch_case_reloff_pos(ins, si, case_value)
+    handler_abs = f.abs_end                                  # append lands here (nothing earlier shifts)
+    reloffset = handler_abs - anchor
+    if not 0 < reloffset <= 0xFFFF:
+        raise ValueError(f"handler reloffset {reloffset} out of the u16 forward-jump range")
+    new_body = eb.data[f.abs_start:f.abs_end] + bytes(handler)
+    out = replace_function_body(data, entry_index, func_tag, new_body)
+    expect = eb.data[reloff_pos:reloff_pos + 2]              # the dead arm's old (== default) reloffset
+    out = patch_bytes(out, reloff_pos, struct.pack("<H", reloffset), expect=expect)
+    if EbScript.from_bytes(out).to_bytes() != out:
+        raise ValueError("repoint_switch_case: round-trip identity broke after the surgery")
+    return out, {"handler_abs": handler_abs, "anchor": anchor, "reloff_pos": reloff_pos,
+                 "reloffset": reloffset, "switch_off": ins.off}
+
+
 # --------------------------------------------------------------------------- locators
 
 WAIT_OP = 0x22         # Wait(n) encodes as  22 00 nn  (op, argFlag=0, 1-byte count)

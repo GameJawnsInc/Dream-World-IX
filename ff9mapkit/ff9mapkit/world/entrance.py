@@ -217,8 +217,38 @@ FICON_EXCLAM = bytes([0x68, 0x00, 0x01])   # Bubble(IconType.Exclamation=1) -- r
 # Byte-identical to the Confirm test inside the real main-loop gate (op7E(0,0,2,0) op4F).
 CONFIRM_PRESSED = bytes([0x05, 0x7E, 0x00, 0x00, 0x02, 0x00, 0x4F, 0x7F])
 
+# The native overworld ENTRANCE HUD (location nameplate + "Enter with [X]") CANNOT be self-painted from our own
+# trigger: the dispatcher's IDLE loop (entry-0/tag-1, an every-frame loop) does CloseWindow(6);CloseWindow(7)
+# whenever ``Byte[24] <= 100`` (verified WORLD09 @0-@17). Self-painting windows 6/7 while Byte[24] stays 100 means
+# the idle loop closes them the same frame we open them -> the open command SPAMS (in-game 2026-07-13). The native
+# nameplate avoids this because func-0xB raises ``Byte[24] > 100``, so the idle loop's close is skipped. So we HAVE
+# to summon the native machinery -- BUT the 3 blackscreens taught us Byte[24] is ALSO the var our own trigger's
+# template gate checks (``Byte[24]==100``): once func-0xB raises it, the main loop knocks it to 1, our gate fails,
+# our warp never runs, and the native confirm path fades-to-black then hits the no-Field switch default. THE FIX:
+# summon the native HUD (Byte[39]=1 + RunScriptAsync(6,1,11) -> func-0xB, spam-free) on the APPROACH frames, and
+# gate our OWN trigger on ON-FOOT ONLY (drop the Byte[24]==100 term) so our Confirm->zone_in->Field(6500) still
+# fires no matter what value the native machinery has left in Byte[24]. On Confirm the native path routes case 1
+# (Byte[24]-100) to its benign switch default (no Field); OUR gate-independent warp does the real Field(6500).
+NAMEPLATE_CASE = 1     # Byte[39] handed to func-0xB; =1 is UNMAPPED in every AREA switch (2-60 are real entrances)
+                       # so the native confirm hits the no-op switch default (our own warp owns the real transition).
+                       # func-0xB sets Byte[24]=101 -> the main loop shows the nameplate (name = location id 1 =
+                       # "Alexandria Harbor") + "Enter with [X]", and keeps Byte[24]>100 so the idle loop won't close.
+ONFOOT_GATE = bytes([0x05, 0xD4, 0xBE, 0x0E, 0x7F])   # EXPR{ !var190 } == "on foot" -- the template gate's on-foot
+                       # term WITHOUT its Byte[24]==100 term, so our trigger stays armed while the nameplate is up.
 
-def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, game=None,
+
+def nameplate_summon() -> bytes:
+    """Summon the native entrance HUD via the real dispatcher handshake: ``Byte[39] = NAMEPLATE_CASE`` +
+    ``RunScriptAsync(6, 1, 11)`` -> func-0xB sets Byte[38]/Byte[24]=101, so the main loop shows the nameplate +
+    "Enter with [X]" and (crucially) keeps ``Byte[24] > 100`` so the idle loop does NOT close the windows -- the
+    ONLY spam-free way to show them (self-paint fights the idle-loop close). ``RunScriptAsync(6,1,11)`` is
+    byte-verbatim from the trigger template. Runs on the approach frames only; our own Confirm gate does the warp."""
+    from ..eb import opcodes as O
+    return (bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE & 0xFF, (NAMEPLATE_CASE >> 8) & 0xFF, 0x2C, 0x7F])
+            + O.run_script_async(6, 1, 11))
+
+
+def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, nameplate=False, game=None,
                               dispatchers=None) -> bytes:
     """The DIRECT trigger body for a CUSTOM destination field: the proven template's
     vehicle/state GATE verbatim (its leading expression + conditional skip), then the
@@ -239,6 +269,12 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
     button is held (``B_KEYON(Confirm)``, the exact gate real dispatchers use). Without it the
     warp fires the instant you step on the tile (auto-warp; fine for a scripted/cutscene entrance).
 
+    ``nameplate=True`` (requires ``prompt``) additionally summons the NATIVE overworld entrance HUD --
+    the location nameplate + the "Enter with [X]" dialog -- via :func:`nameplate_summon` on the approach
+    frames, and gates the whole trigger on ON-FOOT ONLY (:data:`ONFOOT_GATE`) instead of the template's
+    ``Byte[24]==100``, so our Confirm warp still fires while func-0xB holds ``Byte[24] > 100`` for the HUD
+    (that Byte[24] coupling is what blackscreened 3x -- see :func:`nameplate_summon`).
+
     ``world_state`` (the wldMapNo of the dispatcher copy this body is deployed into --
     each dispatcher knows which world it is) records the CURRENT world state so the
     destination field's ``[[gateway]] to="worldmap" arrive=`` exit can return to it
@@ -250,6 +286,8 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
     import struct
     if not 0 <= int(field_id) <= 0x7FFF:
         raise ValueError(f"field id {field_id} out of the engine's Int16 range")
+    if nameplate and not prompt:
+        raise ValueError("nameplate=True requires prompt=True (the native HUD rides the confirm-gated entrance)")
     if dispatchers is None:
         dispatchers = load_world_dispatchers(game)
     from ..eb.model import EbScript
@@ -268,14 +306,36 @@ def entrance_func_body_direct(field_id: int, *, world_state=None, prompt=False, 
         from ..content import region as R
         from ..content.worldexit import WORLD_STATE_VAR
         rec = R.set_var(0xD8, WORLD_STATE_VAR, int(world_state))
-    warp = zone_in_body() + rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
+    warp_core = zone_in_body() + rec + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
     if not prompt:                                    # auto-warp: [gate][JZ over warp -> RET][warp][RET]
-        return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(warp)) + warp + b"\x04"
-    # confirm-gated "!": show the bubble every frame on the tile, warp only on a Confirm press.
-    confirm_gate = CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp))   # JZ over warp -> RET
-    after_vehicle = FICON_EXCLAM + confirm_gate + warp                              # skipped if wrong vehicle
-    return (tpl[:12] + bytes([0x02]) + struct.pack("<h", len(after_vehicle))
-            + after_vehicle + b"\x04")
+        return tpl[:12] + bytes([0x02]) + struct.pack("<h", len(warp_core)) + warp_core + b"\x04"
+    if not nameplate:
+        # confirm-gated "!": show the bubble every frame on the tile, warp only on a Confirm press. Keeps the
+        # template's full Byte[24]==100 && on-foot gate (no HUD summon, so Byte[24] stays at the idle 100).
+        confirm_gate = CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp_core))   # JZ over warp -> RET
+        after_vehicle = FICON_EXCLAM + confirm_gate + warp_core
+        return (tpl[:12] + bytes([0x02]) + struct.pack("<h", len(after_vehicle)) + after_vehicle + b"\x04")
+    # nameplate: summon the native HUD (spam-free -- see nameplate_summon) on the APPROACH frames, warp on Confirm.
+    # The gate is ON-FOOT ONLY (not the template's Byte[24]==100), because func-0xB raises Byte[24] off 100 to show
+    # the HUD; keeping the Byte[24]==100 gate would disarm our warp (that was the 3x blackscreen). Structure:
+    #   [on-foot? -JZ-> RET] [Confirm? -JZ-> APPROACH] WARP(Byte[24]=100 + zone-in + Field) RET ; APPROACH(summon + "!") RET.
+    # The WARP-branch-only Byte[24]=100 write fails the native main loop's own confirm gate (@200 needs Byte[24] in
+    # [1,90]; func-0xB had left it there), so on the Confirm frame OUR fade is the only one -- no cosmetic double
+    # fade-to-black regardless of which object the engine processes first. It runs ONLY on Confirm (never on the
+    # approach frames), so it does not disturb the nameplate summon (which needs Byte[24]>100).
+    settle = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x2C, 0x7F])   # Byte[24] = 100 -> suppress the native confirm
+    warp_branch = settle + warp_core + b"\x04"                     # confirm held: single-fade guard, warp, return
+    # APPROACH branch: gate the SUMMON on Byte[24]==100. func-0xB needs a clean Byte[24]==100 on entry (it was
+    # the whole trigger gate in the version that DID show "Alexandria Harbor"); firing it every frame with a dirty
+    # Byte[24] (already 101/1 from the prior summon) broke its slot setup so the main loop never showed the plate.
+    # Byte[24] cycles back to 100 each time the idle loop reclaims it, so the summon re-fires and the HUD persists.
+    summon = nameplate_summon()
+    eq100 = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x20, 0x7F])    # EXPR: Byte[24] == 100
+    approach = (eq100 + bytes([0x02]) + struct.pack("<h", len(summon))   # Byte[24]!=100 -> skip summon -> "!"
+                + summon + FICON_EXCLAM)
+    after_gate = (CONFIRM_PRESSED + bytes([0x02]) + struct.pack("<h", len(warp_branch))   # !Confirm -> APPROACH
+                  + warp_branch + approach)
+    return (ONFOOT_GATE + bytes([0x02]) + struct.pack("<h", len(after_gate)) + after_gate + b"\x04")
 
 
 def entrance_func_body(case: int, *, game=None, dispatchers=None) -> bytes:
@@ -288,6 +348,79 @@ def entrance_func_body(case: int, *, game=None, dispatchers=None) -> bytes:
     if f is None:
         raise ValueError(f"WORLD00 has no template entrance func 0x{TEMPLATE_TAG:04X}")
     return patch_byte39(w00.data[f.abs_start:f.abs_end], case)
+
+
+# --------------------------------------------------------------------------- the NAMEPLATE-SURGERY handler
+# The AREA-switch case that carries our CUSTOM-name nameplate: a HIGH dead case (its arm == the switch default
+# in every free-roam dispatcher, so repointing it breaks no real entrance) whose name index + explored bit are
+# BOTH usable. 53 is the cleanest -- name index 53 -> world text block-68 split[53] (a "  ???  " placeholder we
+# rename), explored bit -> gEventGlobal[98] bit 4 == navi marker locId 52 (a coord-less placeholder, so setting
+# it reveals NO stray dot). See the PIN notes for why 53 beats 55 (locId 54 = a live "Chocobo's Air Garden").
+NAMEPLATE_SURGERY_CASE = 53
+
+# The name the nameplate renders == world text block 68 (mesID 68, shared by every EVT_WORLD_WORLDxx) txid-0,
+# split by newline, indexed by the case value (main loop @3712 SetTextVariable(0, Byte[24]); Byte[24]=case). The
+# kit's marker-rename tool writes that exact slot -- registering the name is `navimap` locId = case-1 (split
+# index (case-1)+1 == case). Verified: split[1] == "Alexandria Harbor" == case 1's nameplate (PIN case_evidence).
+
+
+def explored_word_bit(case: int) -> tuple:
+    """The ``(gEventGlobal word, bit)`` whose set state makes case ``case``'s nameplate show its NAME (not "?").
+
+    func-0xB (entry-1/tag-11) computes ``Byte[38] = (gEventGlobal[word] >> (case - lo)) & 1`` PER 16-case range
+    (byte-verified WORLD09 @6333/@6365/@6397/@6418): 1-16 -> word 92 bit (case-1); 17-32 -> word 94 bit (case-17);
+    33-48 -> word 96 bit (case-33); 49-64 -> word 98 bit (case-49). The main loop shows the NAME variant only when
+    ``Byte[38] != 0``. This word/bit is ALSO the navi-marker discovery bit for locId ``case-1``
+    (``navimap.marker_bit(case-1) == word*8 + bit``), so the two are one and the same save flag."""
+    for lo, word in ((1, 92), (17, 94), (33, 96), (49, 98)):
+        if lo <= case <= lo + 15:
+            return word, case - lo
+    raise ValueError(f"case {case} out of the nameplate range 1..64 (no explored bit)")
+
+
+def explored_set_expr(case: int) -> bytes:
+    """The expression that SETS case ``case``'s explored bit -- ``gEventGlobal[word] |= (1 << bit)`` as an explicit
+    read-OR-write: ``05 <DC word> <DC word> 7D <1<<bit:i16> 26 2C 7F`` (opDC = getVarOperation(Global,UInt16), a
+    valid lvalue that func-0xB reads with the same token; 0x26 = B_OR, 0x2C = B_LET). Byte-identical to the PIN's
+    proven form (case 53 -> ``05 dc 62 dc 62 7d 10 00 26 2c 7f``)."""
+    from ..content import region as R
+    word, bit = explored_word_bit(case)
+    v = 1 << bit
+    return (bytes([0x05]) + R._push_var(R.GLOB_UINT16, word) + R._push_var(R.GLOB_UINT16, word)
+            + bytes([0x7D, v & 0xFF, (v >> 8) & 0xFF, 0x26, 0x2C, 0x7F]))
+
+
+def nameplate_handler(field_id: int, case: int = NAMEPLATE_SURGERY_CASE) -> bytes:
+    """The repointed AREA-switch arm for a CUSTOM-name nameplate entrance: set case ``case``'s explored bit (so its
+    name shows on the NEXT approach) then ``Field(field_id)`` -- the bare warp the shared zone-in prologue (which
+    ran in the main loop before the switch: control lock + fade-to-black + the D8:2=9999 arrival sentinel) hands to.
+    ``Field`` (0x2B) is a flow terminator, so no RETURN follows (matching every real switch case body)."""
+    if not 0 <= int(field_id) <= 0x7FFF:
+        raise ValueError(f"field id {field_id} out of the engine's Int16 range")
+    fid = int(field_id)
+    return explored_set_expr(case) + bytes([0x2B, 0x00, fid & 0xFF, (fid >> 8) & 0xFF])
+
+
+def _repoint_dead_case(base_l: bytes, case: int, handler: bytes) -> bytes:
+    """Repoint dispatcher entry-1/tag-1's DEAD AREA-switch ``case`` to ``handler`` in ``base_l`` -- IDEMPOTENTLY.
+    Returns the input unchanged if the case already routes to this exact handler (a re-deploy); repoints if the
+    case is dead (arm == the switch default); raises if the case is mapped to a DIFFERENT (real) handler. Applied
+    per-language, since the switch (base 2, 59 cases) is present in every free-roam dispatcher in every language."""
+    from ..eb import edit as E
+    from ..eb.model import EbScript
+    eb = EbScript.from_bytes(base_l)
+    _f, ins, si = E.find_switch(eb, 1, 1, switch_base=_AREA_SWITCH_BASE)
+    default_target = next(e.target for e in si.edges if e.is_default)
+    edge = next((e for e in si.edges if e.value == case), None)
+    if edge is None:
+        raise ValueError(f"dispatcher AREA switch has no case {case}")
+    if edge.target == default_target:                        # dead -> append handler + repoint
+        out, _ = E.repoint_switch_case(base_l, 1, 1, case, handler, switch_base=_AREA_SWITCH_BASE)
+        return out
+    if base_l[edge.target:edge.target + len(handler)] == handler:
+        return base_l                                        # already ours (idempotent re-deploy)
+    raise ValueError(f"dispatcher case {case} is already mapped (target {edge.target}) to a different handler "
+                     f"-- pick another nameplate_case (a DEAD high case)")
 
 
 # --------------------------------------------------------------------------- destination resolution
@@ -454,7 +587,8 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                     event: int = 1, disc: int = 1, lod: str = "0_1",
                     trigger_at=None, trigger_radius: float = 14.0, set_tile_area: bool = True,
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
-                    trigger_only: bool = False, prompt: bool = False,
+                    trigger_only: bool = False, prompt: bool = False, nameplate: bool = False,
+                    nameplate_name: str = None, nameplate_case: int = NAMEPLATE_SURGERY_CASE,
                     backup_dir=None, dry_run: bool = False, game=None) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
@@ -473,7 +607,17 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
     p0data (ignoring a prior deployed override) so re-doing a block doesn't COMPOUND. ``trigger_only`` refreshes
     JUST the dispatcher trigger functions (step 1) and leaves the deployed terrain/tiles/building untouched -- the
     re-deploy mode for picking up a kit upgrade to the trigger body (a full re-run without the original
-    ``--building`` would re-stamp event tiles WITHOUT the building-hull exclusion). ``dry_run`` reports the plan."""
+    ``--building`` would re-stamp event tiles WITHOUT the building-hull exclusion). ``dry_run`` reports the plan.
+
+    ``nameplate_name`` selects the NATIVE-FLOW SURGERY nameplate (requires ``direct_field``, mutually exclusive
+    with ``field``/``case`` and with the ``prompt``/``nameplate`` self-summon path): the whole entrance runs the
+    game's REAL native flow. The trigger is the STOCK ``entrance_func_body(nameplate_case)`` (``Byte[39]=<case>`` +
+    ``RunScriptAsync``); a DEAD high AREA-switch case (``nameplate_case``, default 53) is repointed to
+    ``[explored-bit set] + Field(direct_field)`` in every carrying dispatcher/lang; and the name is registered into
+    world text block 68 (via :func:`ff9mapkit.world.navimap.deploy_marker_renames`, locId = ``case-1``). Because the
+    real func-0xB machinery drives the HUD, the location nameplate shows a genuine CUSTOM name (not "?" / a borrowed
+    town) once the location is visited -- the handler sets its explored bit on entry, so first approach shows "?"
+    then the name, exactly like a real town (faithful; the bit == navi marker ``locId case-1`` too)."""
     from ..eb.model import EbScript
     from ..eb import edit as E
 
@@ -488,7 +632,29 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
 
     alld = load_all_dispatchers(game)                      # {name: {lang: bytes}} -- per-lang (JP layout differs)
     us_disp = {n: L["us"] for n, L in alld.items() if "us" in L}
-    if direct_field is not None:
+    surgery = nameplate_name is not None                   # the native-flow CUSTOM-name nameplate path
+    handler = None                                          # the repointed switch arm (surgery only)
+    exp_word = exp_bit = None
+    if surgery:
+        if direct_field is None:
+            raise ValueError("nameplate_name requires direct_field=<custom id> (the surgery route warps a custom "
+                             "destination through a repointed DEAD AREA-switch case)")
+        if field is not None or case is not None:
+            raise ValueError("nameplate_name is the direct/custom route -- drop field/case")
+        if prompt or nameplate:
+            raise ValueError("nameplate_name is the NATIVE-FLOW surgery nameplate; drop prompt/nameplate "
+                             "(the superseded self-summon path)")
+        the_case = int(nameplate_case)
+        exp_word, exp_bit = explored_word_bit(the_case)
+        handler = nameplate_handler(int(direct_field), the_case)
+        body = entrance_func_body(the_case, dispatchers=us_disp)    # the STOCK trigger (language-independent)
+        dest = {"case": the_case, "field": int(direct_field),
+                "note": f"NAMEPLATE SURGERY: dead case {the_case} -> Field({int(direct_field)}); "
+                        f"name {nameplate_name!r} (locId {the_case - 1}); explored word {exp_word} bit {exp_bit}"}
+        # dispatchers whose AREA switch carries this case (its contiguous range) -- every free-roam state
+        targets = sorted(name for name, L in alld.items()
+                         if "us" in L and (cs := dispatcher_cases(L["us"])) is not None and the_case in cs)
+    elif direct_field is not None:
         if field is not None or case is not None:
             raise ValueError("give a destination as EITHER direct_field=<custom id> OR "
                              "field/case (the dispatcher-case route for real base fields)")
@@ -522,6 +688,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         "cell_center": [cwx, cwz], "dispatchers_all": targets, "langs": list(LANGS),
         "dispatchers_written": [], "dispatchers_skipped": [], "backups": [], "dry_run": dry_run,
     }
+    if surgery:
+        summary.update({"surgery": True, "nameplate_name": nameplate_name, "name_locid": the_case - 1,
+                        "explored_word": exp_word, "explored_bit": exp_bit,
+                        "explored_bit_index": exp_word * 8 + exp_bit})
 
     # (1) the trigger function -> every carrying dispatcher, patched into EACH language's OWN base (stacking on any
     #     existing mod-folder .eb). Per-lang because JP's dispatcher carries localized dialogue + a distinct layout.
@@ -532,20 +702,30 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
         us_base = us_mod.read_bytes() if us_mod.is_file() else alld[name]["us"]
         # the direct body is PER-DISPATCHER: it records the copy's own wldMapNo
         b = body if body is not None else entrance_func_body_direct(
-            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, dispatchers=us_disp)
-        existing = EbScript.from_bytes(us_base).entry(0).func_by_tag(tag)
-        if existing is not None:
-            if us_base[existing.abs_start:existing.abs_end] == b:
-                summary["dispatchers_skipped"].append(name)                # identical trigger already here
-                continue
-            patch = lambda base_l: E.replace_function_body(base_l, 0, tag, b)   # refresh in place
-        else:
-            patch = lambda base_l: E.add_function(base_l, 0, tag, b)
+            int(direct_field), world_state=9000 + int(name[-2:]), prompt=prompt, nameplate=nameplate,
+            dispatchers=us_disp)
+
+        def _patch(base_l, _b=b):
+            """Write the trigger func into object-0 (retagged to the cell) and, in surgery mode, ALSO repoint the
+            dead AREA-switch case to the handler. Idempotent -- an in-place re-run returns the input unchanged."""
+            ex = EbScript.from_bytes(base_l).entry(0).func_by_tag(tag)
+            if ex is None:
+                base_l = E.add_function(base_l, 0, tag, _b)
+            elif base_l[ex.abs_start:ex.abs_end] != _b:
+                base_l = E.replace_function_body(base_l, 0, tag, _b)
+            if surgery:
+                base_l = _repoint_dead_case(base_l, the_case, handler)
+            return base_l
+
+        us_out = _patch(us_base)
+        if us_out == us_base:                                              # trigger (+ repoint) already in place
+            summary["dispatchers_skipped"].append(name)
+            continue
         out_by_lang = {}                                                   # patch each lang's own base (stack if present)
         for lang in LANGS:
             lang_mod = eb_root / lang / fname
             base_l = lang_mod.read_bytes() if lang_mod.is_file() else alld[name].get(lang, alld[name]["us"])
-            out_by_lang[lang] = patch(base_l)
+            out_by_lang[lang] = us_out if lang == "us" else _patch(base_l)
         if not dry_run:
             if us_mod.is_file():                                           # back up the pre-edit representative
                 bkdir.mkdir(parents=True, exist_ok=True)
@@ -558,6 +738,16 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                 p.write_bytes(out_by_lang[lang])
         summary["dispatchers_written"].append({"name": name, "base_len": len(us_base),
                                                "out_len": len(out_by_lang["us"])})
+
+    # (1c) surgery: register the CUSTOM name into world text block 68 (locId = case-1) so the native nameplate
+    #      renders it. Per-language shadow; RELAUNCH to apply (the .mes isn't hot-reloaded).
+    if surgery:
+        from . import navimap
+        summary["name_rename"] = {"locid": the_case - 1, "to": nameplate_name, "text_block": navimap.WORLD_TEXT_BLOCK}
+        if not dry_run:
+            written = navimap.deploy_marker_renames([{"locid": the_case - 1, "to": nameplate_name}],
+                                                    mod_folder=mod_folder, game=game)
+            summary["name_text_files"] = [str(p) for p in written]
 
     if trigger_only:                                        # .eb refresh only -- terrain/tiles/building untouched
         summary["trigger_only"] = True

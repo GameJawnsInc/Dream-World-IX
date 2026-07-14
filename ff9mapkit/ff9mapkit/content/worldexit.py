@@ -179,33 +179,50 @@ def worldmap_to_var(var_class: int = 0xD8, idx: int = WORLD_STATE_VAR) -> bytes:
     return bytes([0xB6, 0x01]) + R._push_var(var_class, idx) + bytes([R.T_END])
 
 
+def exit_fade() -> bytes:
+    """The field->worldmap FADE-OUT, matching the real exit head (field 2800 e21/tag2 @39-100):
+    ``DisableMove ; FadeFilter(6,24,white) ; Wait(25)`` -- SUB toward white == the screen fading to
+    BLACK over 24 frames, so leaving a field DIMS before the ``WorldMap`` transition instead of
+    hard-cutting to the overworld. The verbatim cascade the kit carries is only the shared SUFFIX
+    (routing + the ``WorldMap`` arms); the fade lives in each real field's per-field HEAD, which the
+    cascade extraction drops -- so a synthesized worldmap exit must re-add it. (``content.event.WARP_FADE``
+    is the same mode-6 fade the choice/gateway warps use.)"""
+    from ..eb import opcodes as O
+    from .event import WARP_FADE
+    return O.DISABLE_MOVE + O.fade_filter(*WARP_FADE) + O.wait(25)
+
+
 def worldmap_exit_body(*, region_key: int = REGION_KEY_RETURN, arrive=None,
-                       arrive_face: int = 0, on_exit_body: bytes = b"",
+                       arrive_face: int = 0, on_exit_body: bytes = b"", fade: bool = True,
                        game=None) -> bytes:
     """The Range body of a walk-out worldmap exit.
 
     With ``arrive = (x, z)`` (THE DETERMINISTIC RETURN): [usercontrol guard] ->
-    [on-exit story writes] -> [write the arrive coords into the position vars] ->
-    [``D8:2`` = nonzero, so the destination Init leaves them alone] -> [if the
-    recorded world state is set: ``WorldMap(<it>)`` computed; else fall back to
+    [on-exit story writes] -> [FADE-OUT to black] -> [write the arrive coords into the
+    position vars] -> [``D8:2`` = nonzero, so the destination Init leaves them alone] ->
+    [if the recorded world state is set: ``WorldMap(<it>)`` computed; else fall back to
     the generic cascade]. The player returns to the SAME world state they left,
     at exactly the arrive point.
 
-    Without ``arrive``: [guard] -> [writes] -> [``D8:2 = region_key``] -> [the
-    verbatim shared cascade] -- lands at the routed world's DEFAULT point (the
-    arrival model above). The cascade's arms terminate the function."""
+    Without ``arrive``: [guard] -> [writes] -> [FADE-OUT] -> [``D8:2 = region_key``] ->
+    [the verbatim shared cascade] -- lands at the routed world's DEFAULT point (the
+    arrival model above). The cascade's arms terminate the function.
+
+    ``fade`` (default True) prepends :func:`exit_fade` so leaving DIMS before the WorldMap
+    transition (the real exit behavior); the carried cascade has no fade of its own."""
     import struct
     from . import region as R
+    pre = exit_fade() if fade else b""
     if arrive is not None:
         ax, az = arrive
         wm = worldmap_to_var()
-        return (R.MOVEMENT_GATE + bytes(on_exit_body)
+        return (R.MOVEMENT_GATE + bytes(on_exit_body) + pre
                 + arrive_writes(float(ax), float(az), face=arrive_face)
                 + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, POSITION_PRESET_KEY)
                 + R.cond_truthy(0xD8, WORLD_STATE_VAR)
                 + bytes([R.JMP_FALSE]) + struct.pack("<h", len(wm))
                 + wm
                 + cascade_bytes(game))
-    return R.MOVEMENT_GATE + bytes(on_exit_body) \
+    return R.MOVEMENT_GATE + bytes(on_exit_body) + pre \
         + R.set_var(R.GLOB_INT16, R.FIELD_ENTRANCE_IDX, region_key) \
         + cascade_bytes(game)

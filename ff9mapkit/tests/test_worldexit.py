@@ -36,17 +36,36 @@ def test_worldmap_exit_body_shape():
     """[usercontrol guard] -> [D8:2 = 62: the generic-return key -- its arm runs
     D8:2=0 + WorldMap(9009) in every band = the persisted-position arrival;
     0/un-cased keys hit the switch default, a bare RETURN that never warps
-    (playtest-proven dead door)] -> [the verbatim cascade]."""
+    (playtest-proven dead door)] -> [the verbatim cascade]. (fade=False here to
+    check the core structure; the fade prefix is asserted separately.)"""
     from ff9mapkit.content import region as R
     from ff9mapkit.content.worldexit import cascade_bytes, worldmap_exit_body
-    b = worldmap_exit_body()
+    b = worldmap_exit_body(fade=False)
     assert b.startswith(R.MOVEMENT_GATE)
     key_write = bytes([0x05, 0xD8, 0x02, 0x7D, 62, 0x00, 0x2C, 0x7F])
     assert b[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + 8] == key_write
     assert b.endswith(cascade_bytes())
     # on-exit story writes slot between the guard and the key write
-    b2 = worldmap_exit_body(on_exit_body=b"\xaa\xbb")
+    b2 = worldmap_exit_body(on_exit_body=b"\xaa\xbb", fade=False)
     assert b2[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + 2] == b"\xaa\xbb"
+
+
+def test_worldmap_exit_fades_out_by_default():
+    """Leaving a field DIMS before the WorldMap transition (the real exit head fades;
+    the carried cascade suffix does not, so a synth exit re-adds it). The fade is
+    DisableMove + FadeFilter(6,24,white) + Wait(25), inserted after the guard/on-exit
+    writes and before the position/key writes. Default on; fade=False omits it."""
+    from ff9mapkit.content import region as R
+    from ff9mapkit.content.worldexit import exit_fade, worldmap_exit_body
+    faded = worldmap_exit_body()
+    plain = worldmap_exit_body(fade=False)
+    assert exit_fade() in faded and exit_fade() not in plain
+    assert len(faded) == len(plain) + len(exit_fade())
+    # the fade sits right after the usercontrol guard (DisableMove is the first byte)
+    assert faded[len(R.MOVEMENT_GATE):len(R.MOVEMENT_GATE) + len(exit_fade())] == exit_fade()
+    # a FadeFilter (0xEC, SUB toward white) is present; the arrive variant fades too
+    assert bytes([0xEC]) in exit_fade()
+    assert exit_fade() in worldmap_exit_body(arrive=(228.0, -1187.0))
 
 
 def test_entrance_func_body_direct():
@@ -124,6 +143,49 @@ def test_entrance_func_body_prompt():
     assert FICON_EXCLAM not in auto and CONFIRM_PRESSED not in auto
 
 
+def test_entrance_func_body_nameplate():
+    """The nameplate HUD (prompt=True, nameplate=True) SUMMONS the native machinery (Byte[39]=1 +
+    RunScriptAsync(6,1,11) -> func-0xB) on the APPROACH frames -- the only spam-free way to show it, since the idle
+    loop closes windows 6/7 every frame while Byte[24]<=100 and func-0xB keeps Byte[24]>100. The trigger gate is
+    ON-FOOT ONLY (not the template's Byte[24]==100), so our Confirm warp still fires while func-0xB holds Byte[24]
+    off 100 -- that Byte[24] coupling was the 3x blackscreen. The WARP branch writes Byte[24]=100 first (suppresses
+    the native main loop's own confirm gate = single fade), then the proven zone_in + Field(6500)."""
+    from ff9mapkit.eb import disasm as D
+    from ff9mapkit.world.entrance import (CONFIRM_PRESSED, FICON_EXCLAM, NAMEPLATE_CASE, ONFOOT_GATE,
+                                          dispatcher_cases, entrance_func_body_direct, load_world_dispatchers,
+                                          nameplate_summon)
+    disp = load_world_dispatchers()
+    named = entrance_func_body_direct(6500, world_state=9009, prompt=True, nameplate=True, dispatchers=disp)
+    summon = nameplate_summon()
+    settle = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x2C, 0x7F])    # Byte[24] = 100 (warp branch only)
+    field = bytes([0x2B, 0x00, 6500 & 0xFF, 6500 >> 8])
+    # the gate is ON-FOOT ONLY (no Byte[24]==100 term); it is the template gate's !var190 term
+    assert named.startswith(ONFOOT_GATE + bytes([0x02]))
+    assert ONFOOT_GATE == bytes([0x05, 0xD4, 0xBE, 0x0E, 0x7F])
+    # Confirm gate FIRST; on !Confirm -> APPROACH (summon + "!"); on Confirm -> WARP (settle + zone_in + Field)
+    assert named.index(CONFIRM_PRESSED) < named.index(settle) < named.index(field) < named.index(summon)
+    assert named.index(summon) < named.index(FICON_EXCLAM)             # the "!" follows the summon
+    # the summon is the native handshake (Byte[39]=1 + RunScriptAsync(6,1,11)), only on the approach branch
+    assert summon == bytes([0x05, 0xD5, 0x27, 0x7D, NAMEPLATE_CASE, 0x00, 0x2C, 0x7F]) + bytes([0x10, 0x00, 0x06, 0x01, 0x0B])
+    assert summon not in named[:named.index(field)]                   # summon is NOT on the warp path
+    # the summon is GATED on Byte[24]==100 (func-0xB's clean-entry precondition) right before it
+    eq100 = bytes([0x05, 0xD5, 0x18, 0x7D, 100, 0x00, 0x20, 0x7F])     # EXPR: Byte[24] == 100
+    assert eq100 in named and named.index(eq100) < named.index(summon)
+    # the warp branch writes Byte[24]=100 BEFORE the fade (single-fade guard) and reaches Field(6500)
+    assert named.index(settle) < named.index(bytes([0xEC])) < named.index(field)   # settle < FadeFilter(0xEC) < Field
+    # NAMEPLATE_CASE must be UNMAPPED in every free-roam dispatcher (native confirm -> switch default, no mis-warp)
+    for name, b in disp.items():
+        cs = dispatcher_cases(b)
+        if cs is not None:
+            assert NAMEPLATE_CASE not in cs, f"{name} maps case {NAMEPLATE_CASE}"
+    # body parses clean end to end, terminal RETURN
+    tail = list(D.iter_code(named, 0, len(named)))
+    assert tail[-1].off + tail[-1].length == len(named) and named[-1] == 0x04
+    # nameplate requires prompt
+    with pytest.raises(ValueError):
+        entrance_func_body_direct(6500, nameplate=True, dispatchers=disp)
+
+
 def test_worldmap_exit_arrive_shape():
     """The deterministic return: [gate][arrive var writes (the Init's own 32-bit
     idiom)][D8:2 nonzero][if GLOB[1062]: WorldMap(<var>) computed][the cascade
@@ -132,7 +194,7 @@ def test_worldmap_exit_arrive_shape():
     from ff9mapkit.content.worldexit import (POSITION_PRESET_KEY, WORLD_STATE_VAR,
                                              arrive_writes, cascade_bytes,
                                              worldmap_exit_body, worldmap_to_var)
-    b = worldmap_exit_body(arrive=(228.0, -1179.0))
+    b = worldmap_exit_body(arrive=(228.0, -1179.0), fade=False)   # fade tested separately
     aw = arrive_writes(228.0, -1179.0, face=0)
     assert aw[:8] == bytes([0x05, 0xC8, 0x53, 0x7E]) + (228 * 256).to_bytes(4, "little")
     assert b.startswith(R.MOVEMENT_GATE + aw)
