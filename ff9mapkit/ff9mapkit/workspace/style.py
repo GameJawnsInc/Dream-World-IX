@@ -122,13 +122,18 @@ _QSS = Template(
     QTabBar::tab:selected { background: $bg; color: $text; border-bottom: 2px solid $accent; }
     QTabBar::tab:hover { color: $text; }
 
-    /* boxed form sections (Build & Deploy / Import): a quiet rounded outline with a floating caption */
+    /* boxed form sections (Build & Deploy / Import): a RAISED panel (elevation ladder -- surface_2 on the
+       page bg reads as lifted) with a floating caption. The title bg matches the panel so it cuts the
+       border cleanly. Roomier padding gives the dense docs' content air. */
     QGroupBox {
-        border: 1px solid $border; border-radius: 8px; margin-top: 10px; padding-top: 8px;
+        background: $surface_2; border: 1px solid $border; border-radius: 8px;
+        margin-top: 12px; padding-top: 10px;
     }
+    /* NB: no left/right padding -- a long, non-wrapping QRadioButton label (Build & Deploy's New-Game
+       radio) would overflow into a horizontal scroll. Content is inset by its own layout margins. */
     QGroupBox::title {
-        subcontrol-origin: margin; left: 10px; padding: 0 5px;
-        color: $muted; font-weight: 600; background: $bg;
+        subcontrol-origin: margin; left: 10px; padding: 0 6px;
+        color: $muted; font-weight: 600; background: $surface_2;
     }
 
     QPlainTextEdit, QTextEdit {
@@ -167,6 +172,8 @@ _QSS = Template(
     QLabel[role="h1"]      { font-size: $type_h1; font-weight: 600; color: $text; }
     QLabel[role="h2"]      { font-size: $type_h2; font-weight: 600; color: $text; }
     QLabel[role="label"]   { font-weight: 500; }
+    QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
+    QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
     QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
     QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */
     QLabel[role="caption"][state="warn"]  { color: $warn; }    /* a soft warning (e.g. text may overflow) */

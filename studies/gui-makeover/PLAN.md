@@ -51,9 +51,14 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >   4pt row rhythm (vspacing 10→12, field→hint 2→4). Faithful (the form renders identically) + a red-error unit
 >   test. The 5 remaining are the Info Hub **dialog** styles (detail/prose/count/help) — deferred to a
 >   headless-verifiable pass. New: style roles `label` + `caption[state=error|warn]`; `widgets.repolish()`.
-> - ⬜ `shell.py` 60 · `importdoc.py` 23 · `battledoc.py` 11 · `modelsdoc.py` 9 · `savedoc.py` 8 · `builddoc.py` 7 —
->   pending (the dense docs are where the DRAMATIC de-smush lands: spacing, hierarchy, the elevation ladder).
-> Verified: smoke green, 74 workspace/style/theme tests pass.
+> - ✅ **`builddoc.py` 7→0** — the Build & Deploy jargon wall: all 7 hints → `muted`/`accent`/`caption` roles
+>   (the New-Game jargon paragraph recedes to a smaller caption); page rhythm 10→12/margins 16. **The ELEVATION
+>   LADDER landed here, globally**: `QGroupBox` now fills with `surface_2` so panels read as RAISED cards (a net
+>   win across every group-boxed doc — verified in Build & Deploy AND Import). Learning: a 12px side-padding on
+>   the panel pushed Build's long non-wrapping New-Game radio into a horizontal scroll → dropped to padding-top
+>   only (the >60-char radio label itself is a Phase-6 New-Game-fencing content fix, not styling).
+> - ⬜ `shell.py` 60 · `importdoc.py` 23 · `battledoc.py` 11 · `modelsdoc.py` 9 · `savedoc.py` 8 — pending.
+> New roles this round: `muted`, `accent`. Verified: smoke green, 301 workspace/style/theme/battle tests pass.
 
 
 ## 1. North-star vision
