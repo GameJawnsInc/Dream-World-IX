@@ -54,7 +54,7 @@ from .style import qss
 from . import thumbs as _thumbs
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard
+from .widgets import PlaceholderListWidget, install_wheel_guard, repolish
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -646,7 +646,7 @@ class Workspace(QMainWindow):
         lay.addLayout(form)
         hint = QLabel("Applies instantly. “Match system” follows your Windows light/dark setting.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "muted")
         lay.addWidget(hint)
         restore = QCheckBox("Reopen the last project on launch")
         restore.setObjectName("restore_chk")
@@ -664,7 +664,7 @@ class Workspace(QMainWindow):
             note = QLabel("Update checks apply to installed copies — you're running from a source checkout "
                           "(update with git pull).")
             note.setWordWrap(True)
-            note.setStyleSheet(f"color:{self.pal['muted']};")
+            note.setProperty("role", "muted")
             lay.addWidget(note)
         lay.addStretch(1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -996,7 +996,7 @@ class Workspace(QMainWindow):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
         at once)."""
         lab = QLabel(text)
-        lab.setStyleSheet(f"color:{self.pal['text']};font-weight:600;")
+        lab.setProperty("role", "strong")
         return lab
 
     def _build_console(self):
@@ -1031,6 +1031,7 @@ class Workspace(QMainWindow):
         pv.setSpacing(6)
         pv.addWidget(self._panel_header("Problems"))
         self.banner = QLabel("")
+        self.banner.setProperty("role", "banner")   # a per-verdict accent stripe; state set in _show_problems
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
         self.problems = PlaceholderListWidget(
@@ -1477,7 +1478,7 @@ class Workspace(QMainWindow):
             return
         row = QHBoxLayout()
         lbl = QLabel(f"Journey ‘{j.name or j.id}’:")
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         row.addWidget(lbl)
         seed_b = QPushButton("Set base party / seed…")
         seed_b.setToolTip("Edit [journey.seed] — the base party + start beat seeded into the entry member at "
@@ -1537,7 +1538,7 @@ class Workspace(QMainWindow):
                           "clears each one as it's forked.")
             hint.setTextFormat(Qt.TextFormat.RichText)
             hint.setWordWrap(True)
-            hint.setStyleSheet(f"color:{self.pal['muted']};")
+            hint.setProperty("role", "muted")
             gv.addWidget(hint)
         self._fork_buttons = {}
         self._fork_rows = {}                        # key -> the status QLabel (restyled while a fork runs)
@@ -1546,13 +1547,14 @@ class Workspace(QMainWindow):
             forked = self._campaign_forked(f)
             pf = self._fork_cmds.get(f)
             tag = QLabel(("✓ " if forked else "○ ") + f + (f"  (real field {pf.seed})" if pf else ""))
-            tag.setStyleSheet(f"color:{self.pal['accent'] if forked else self.pal['text']};")
+            if forked:
+                tag.setProperty("role", "accent")     # forked = accent; unforked leaves the default $text
             self._fork_rows[f] = tag
             row.addWidget(tag)
             row.addStretch(1)
             if forked:
                 lbl = QLabel("forked")
-                lbl.setStyleSheet(f"color:{self.pal['muted']};")
+                lbl.setProperty("role", "muted")
                 row.addWidget(lbl)
             elif pf:
                 b = QPushButton("Fork")
@@ -1561,7 +1563,7 @@ class Workspace(QMainWindow):
                 row.addWidget(b)
             else:
                 lbl = QLabel("fork manually")
-                lbl.setStyleSheet(f"color:{self.pal['muted']};")
+                lbl.setProperty("role", "muted")
                 row.addWidget(lbl)
             gv.addLayout(row)
         if missing_cmds:
@@ -1582,7 +1584,8 @@ class Workspace(QMainWindow):
         tag = getattr(self, "_fork_rows", {}).get(key)
         if tag is not None:
             tag.setText(f"⟳ {key}  (forking…)")
-            tag.setStyleSheet(f"color:{self.pal['accent']};")
+            tag.setProperty("role", "accent")
+            repolish(tag)                             # long-lived widget -> re-evaluate the role at runtime
         allb = getattr(self, "_fork_all_btn", None)
         if allb is not None:
             allb.setEnabled(False)
@@ -1707,7 +1710,7 @@ class Workspace(QMainWindow):
         note = QLabel("Each row is a menu choice on the hub. Install the slice first (fork + deploy); this row "
                       "just points New Game at its field id.")
         note.setWordWrap(True)
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -1762,11 +1765,12 @@ class Workspace(QMainWindow):
             note = QLabel("⚠ This is a BARE single-field journey: the base PARTY won't apply (it's injected into "
                           "a MULTI-campaign entry's script at deploy). Set the party on the entry FIELD's [party] "
                           "in the Editor instead. The start beat still seeds hub-side.")
-            note.setStyleSheet(f"color:{self.pal['warn']};")
+            note.setProperty("role", "muted")
+            note.setProperty("state", "warn")
         else:
             note = QLabel("The base party + start beat seed the journey's entry member at deploy (the story_flags "
                           "capstone). Zidane is implicit — New Game already seeds him in slot 0.")
-            note.setStyleSheet(f"color:{self.pal['muted']};")
+            note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -1879,7 +1883,7 @@ class Workspace(QMainWindow):
                        "boundary link is wired by 'Fill entry &amp; links from forks' after you fork it.")
         intro.setWordWrap(True)
         intro.setTextFormat(Qt.TextFormat.RichText)
-        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        intro.setProperty("role", "muted")
         lay.addWidget(intro)
         lst = QListWidget()
         for a in arcset.arcs:
@@ -2112,7 +2116,7 @@ class Workspace(QMainWindow):
         form.addRow("Camera pitch", pitch)
         note = QLabel("A new walkable room with PLACEHOLDER art is created under "
                       "<dest>/<NAME>/ and opened. Repaint the layers + author it here.")
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2158,7 +2162,7 @@ class Workspace(QMainWindow):
         form.addRow("First field id", idb)
         note = QLabel("An empty campaign.toml is created here and opened. Right-click the campaign in the "
                       "tree (or its root) to <b>Add field…</b>.")
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2261,7 +2265,7 @@ class Workspace(QMainWindow):
                               "(or Ctrl-K → “Fork FF9 regions”) — a region catalog, not a journey.")
         regions_hint.setTextFormat(Qt.TextFormat.RichText)
         regions_hint.setWordWrap(True)
-        regions_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        regions_hint.setProperty("role", "muted")
         tl.addWidget(regions_hint)
         form.addRow("Type", trow)
         name = QLineEdit()
@@ -2313,7 +2317,7 @@ class Workspace(QMainWindow):
         stack.addWidget(hub_panel)
         form.addRow(stack)
         note = QLabel()
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2395,7 +2399,7 @@ class Workspace(QMainWindow):
                       f"index at/above {floor} (clear of the other tiers + the auto-flag windows); safe band "
                       f"[{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}).")
         note.setWordWrap(True)
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         lay.addWidget(note)
         tbl = QTableWidget(0, 2)
         tbl.setHorizontalHeaderLabels(["Name", "Index"])
@@ -2535,7 +2539,7 @@ class Workspace(QMainWindow):
         note = QLabel("A new blank, walkable room is scaffolded and added to this campaign.<br>"
                       "To fork a REAL field into the campaign, use the <b>Import</b> tab or "
                       "<code>ff9mapkit add-field --source</code>.")
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -3627,7 +3631,7 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._set_editor_tab(None)
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         lbl.setWordWrap(True)
         self.doc_host_lay.addWidget(lbl)
         self.doc_host_lay.addStretch(1)
@@ -3853,13 +3857,14 @@ class Workspace(QMainWindow):
 
     def _muted_label(self, text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         lbl.setWordWrap(True)
         return lbl
 
     def _warn_label(self, text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['warn']};")
+        lbl.setProperty("role", "muted")
+        lbl.setProperty("state", "warn")
         lbl.setWordWrap(True)
         return lbl
 
@@ -3876,7 +3881,7 @@ class Workspace(QMainWindow):
         btn.setChecked(open_)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         btn.setArrowType(Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
-        btn.setStyleSheet("QToolButton { border:none; font-weight:600; text-align:left; }")
+        btn.setProperty("role", "link")
         body = QWidget()
         bl = QVBoxLayout(body)
         bl.setContentsMargins(16, 0, 0, 0)
@@ -4272,7 +4277,7 @@ class Workspace(QMainWindow):
         btn.setChecked(open_)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         btn.setArrowType(Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
-        btn.setStyleSheet("QToolButton { border:none; font-weight:600; text-align:left; }")
+        btn.setProperty("role", "link")
         body = QWidget()
         bl = QVBoxLayout(body)
         bl.setContentsMargins(12, 0, 0, 0)
@@ -4614,7 +4619,7 @@ class Workspace(QMainWindow):
         hdr = QHBoxLayout()
         hdr.setContentsMargins(0, 12, 0, 0)
         title = QLabel(f"Added effects{f' · {len(adds)}' if adds else ''}")
-        title.setStyleSheet("font-weight:600;")
+        title.setProperty("role", "strong")
         hdr.addWidget(title)
         hdr.addStretch(1)
         addbtn = QPushButton("Add effect…")
@@ -5271,12 +5276,12 @@ class Workspace(QMainWindow):
 
     def _header(self, title, note=None):
         lbl = QLabel(title)
-        lbl.setStyleSheet("font-weight:600;font-size:15px;")
+        lbl.setProperty("role", "h3")
         self.doc_host_lay.addWidget(lbl)
         if note:
             h = QLabel(note)
             h.setWordWrap(True)
-            h.setStyleSheet(f"color:{self.pal['muted']};")
+            h.setProperty("role", "muted")
             self.doc_host_lay.addWidget(h)
 
     def _wrap_width(self, member):
@@ -5329,7 +5334,7 @@ class Workspace(QMainWindow):
                               f"wins per key; edit in Blender / F5 to refresh). Keys the scene doesn't set "
                               f"still apply from this form.")
                 note.setWordWrap(True)
-                note.setStyleSheet(f"color:{self.pal['muted']};")
+                note.setProperty("role", "muted")
                 self.doc_host_lay.addWidget(note)
             return
         if single or section not in ("npc", "marker", "gateway", "event"):
@@ -5343,7 +5348,7 @@ class Workspace(QMainWindow):
             msg += f" This OVERRIDES the {fld} field below (scene wins)."
         note = QLabel(msg)
         note.setWordWrap(True)
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         self.doc_host_lay.addWidget(note)
 
     def _add_save(self, handler, delete=None):
@@ -5609,7 +5614,7 @@ class Workspace(QMainWindow):
             note = QLabel(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
                           f"This form edits scene #1 — edit the others in the TOML.")
             note.setWordWrap(True)
-            note.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            note.setProperty("role", "caption")
             self.doc_host_lay.addWidget(note)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
@@ -5638,7 +5643,7 @@ class Workspace(QMainWindow):
         value_text.setVisible(False)
         hint = QLabel("")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        hint.setProperty("role", "caption")
         actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
         actor_line.setPlaceholderText("blank = sole cast member / narration voice")
         actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
@@ -6713,14 +6718,13 @@ class Workspace(QMainWindow):
         self._show_problems(v, fb.problems(errs, warns))
 
     def _show_problems(self, verdict, problems):
-        col = {fb.OK: self.pal["success"], fb.WARN: self.pal["warn"], fb.ERROR: self.pal["error"],
-               fb.RUNNING: self.pal["muted"]}.get(verdict.level, self.pal["muted"])
         glyph = {fb.OK: "✓", fb.WARN: "⚠", fb.ERROR: "✕", fb.RUNNING: "…"}.get(verdict.level, "")
         tail = f"   —   {verdict.next_action}" if verdict.next_action else ""
         self.banner.setText(f"  {glyph}  {verdict.headline}{tail}")
-        self.banner.setStyleSheet(
-            f"background:{self.pal['surface']};color:{self.pal['text']};"
-            f"border-left:4px solid {col};border-radius:6px;padding:9px;")
+        self.banner.setProperty("state",             # the QLabel[role=banner][state] stripe colour
+                                {fb.OK: "ok", fb.WARN: "warn", fb.ERROR: "error", fb.RUNNING: "running"}
+                                .get(verdict.level, "running"))
+        repolish(self.banner)
         self.banner.setVisible(True)
         self.problems.clear()
         for p in problems:
