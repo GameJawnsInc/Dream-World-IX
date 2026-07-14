@@ -52,13 +52,13 @@ class ImportDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         root = QVBoxLayout(inner)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(16, 16, 16, 16)        # 4pt-grid page padding
+        root.setSpacing(12)                             # 4pt-grid rhythm between the raised panels
         intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). Fork a single real field, "
                        "fork a whole connected REGION as one campaign, preview how faithfully it forks, or read "
                        "its dialogue / inspect a save.")
         intro.setWordWrap(True)
-        intro.setStyleSheet(f"color:{pal['muted']};")
+        intro.setProperty("role", "caption")
         root.addWidget(intro)
         root.addWidget(self._fork_box())
         root.addWidget(self._region_box())
@@ -83,7 +83,7 @@ class ImportDoc(QWidget):
                      "connected AREA (many screens wired together), use Fork a region below. "
                      "Find… looks up exact names/ids; Preview shows what a fork will/won't reproduce.")
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "caption")
         v.addWidget(lbl)
         row = QHBoxLayout()
         self.field = QLineEdit()
@@ -133,7 +133,7 @@ class ImportDoc(QWidget):
                        "carry options appear only in Re-authorable mode (which drops the real logic for editable "
                        "[[npc]]/content you re-author).")
         mhint.setWordWrap(True)
-        mhint.setStyleSheet(f"color:{self.pal['muted']};")
+        mhint.setProperty("role", "caption")
         mv.addWidget(mhint)
         self.mode_verbatim.toggled.connect(self._sync_mode)
         v.addWidget(mode)
@@ -149,7 +149,7 @@ class ImportDoc(QWidget):
         art_hint = QLabel("Editable scenes show grid seams — to repaint seamlessly, fork Native and use "
                           "‘Repaint a native fork’ below. BG-borrow points DictionaryPatch at the real art.")
         art_hint.setWordWrap(True)
-        art_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        art_hint.setProperty("role", "caption")
         av.addWidget(art_hint)
         v.addWidget(self.art_box)
 
@@ -197,7 +197,7 @@ class ImportDoc(QWidget):
                            "a story field the swapped rig's scripted GESTURES glitch — tick Neutralize to stand "
                            "cleanly (it won't emote), or fork a free-roam field.")
         swap_hint.setWordWrap(True)
-        swap_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        swap_hint.setProperty("role", "caption")
         v.addWidget(swap_hint)
 
         out = QHBoxLayout()
@@ -226,7 +226,7 @@ class ImportDoc(QWidget):
         ids.addWidget(self.import_btn)
         v.addLayout(ids)
         hint = QLabel("→ then deploy what you made on the Build & Deploy tab.")
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "caption")
         v.addWidget(hint)
         self._sync_mode()       # now swap_player + mode_chip exist: set art/carry visibility + the resolved-mode chip
         return box
@@ -271,7 +271,6 @@ class ImportDoc(QWidget):
 
     # ------------------------------------------------------------------ fork-a-region (import-chain)
     def _region_box(self):
-        muted = f"color:{self.pal['muted']};"
         box = QGroupBox("Fork a region  (a connected multi-field chain → one campaign)")
         v = QVBoxLayout(box)
         lbl = QLabel("Fork a whole connected AREA at once — the workflow behind the disc-1 opening. Enter one "
@@ -279,7 +278,7 @@ class ImportDoc(QWidget):
                      "or several to compose into one campaign); the chain forks everything they reach into a "
                      "single campaign, doors rewired in-fork. Dry-run first to see the blast radius.")
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(muted)
+        lbl.setProperty("role", "caption")
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Seeds:"))
@@ -302,7 +301,7 @@ class ImportDoc(QWidget):
                             "preview). Unchecking Verbatim forks re-authorable members whose logic you rebuild "
                             "yourself.")
         scope_hint.setWordWrap(True)
-        scope_hint.setStyleSheet(muted)
+        scope_hint.setProperty("role", "caption")
         v.addWidget(scope_hint)
         # Walk as (player swap) for the WHOLE chain -- the region analogue of the single-fork swap.
         rswap = QHBoxLayout()
@@ -321,7 +320,7 @@ class ImportDoc(QWidget):
                            "model (a GEO id). Implies verbatim; cutscene members' scripted gestures glitch — "
                            "tick Neutralize to stand cleanly through them.")
         swap_hint.setWordWrap(True)
-        swap_hint.setStyleSheet(muted)
+        swap_hint.setProperty("role", "caption")
         v.addWidget(swap_hint)
         out = QHBoxLayout()
         out.addWidget(QLabel("Write campaign to:"))
@@ -350,12 +349,12 @@ class ImportDoc(QWidget):
                               "side, give each a DISTINCT id base AND a unique Name prefix, or the second black-"
                               "screens. The shipped disc-1 opening occupies ~6000–6371.")
         collide_hint.setWordWrap(True)
-        collide_hint.setStyleSheet(muted)
+        collide_hint.setProperty("role", "caption")
         v.addWidget(collide_hint)
         fresh_hint = QLabel("Re-forking into the SAME folder reuses the prior fork's ids by default, so in-fork "
                             "saves survive. Tick --fresh-ids only to re-number from scratch.")
         fresh_hint.setWordWrap(True)
-        fresh_hint.setStyleSheet(muted)
+        fresh_hint.setProperty("role", "caption")
         v.addWidget(fresh_hint)
         btns = QHBoxLayout()
         self.dryrun_btn = QPushButton("Dry-run (preview blast radius)")
@@ -368,7 +367,7 @@ class ImportDoc(QWidget):
         btns.addWidget(self.fork_region_btn)
         v.addLayout(btns)
         hint = QLabel("→ then open the campaign on the Build & Deploy tab to compile + deploy the whole chain.")
-        hint.setStyleSheet(muted)
+        hint.setProperty("role", "caption")
         v.addWidget(hint)
         return box
 
@@ -430,7 +429,7 @@ class ImportDoc(QWidget):
                        "SEVERAL to compose their seeds into ONE campaign. 'Use selected' fills the Fork-a-region "
                        "box (review id base / name prefix, then Dry-run or Fork).")
         intro.setWordWrap(True)
-        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        intro.setProperty("role", "caption")
         lay.addWidget(intro)
         lst = QListWidget()
         for a in arcset.arcs:
@@ -447,7 +446,7 @@ class ImportDoc(QWidget):
                       "regions). Check 'Whole zone' on the Fork box to fork all visits instead. A region's "
                       "starting beat isn't applied here — add a [startup] beat in the editor after forking.")
         foot.setWordWrap(True)
-        foot.setStyleSheet(f"color:{self.pal['muted']};")
+        foot.setProperty("role", "caption")
         lay.addWidget(foot)
         bb = QDialogButtonBox()
         bb.addButton("Use selected", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -521,7 +520,7 @@ class ImportDoc(QWidget):
         self.tpl_btn = QPushButton("Regenerate base templates")
         self.tpl_btn.clicked.connect(self.on_templates)
         tplhint = QLabel("rebuild the kit's base assets from YOUR install (ships no game data)")
-        tplhint.setStyleSheet(f"color:{self.pal['muted']};")
+        tplhint.setProperty("role", "caption")
         tpl.addWidget(self.tpl_btn)
         tpl.addWidget(tplhint, 1)
         v.addLayout(tpl)
@@ -531,14 +530,13 @@ class ImportDoc(QWidget):
     def _archive_box(self):
         """`ff9mapkit import-all` — the whole-game (or one-zone) Blender-ready reference archive: the
         on-disk source of truth you copy field folders out of."""
-        muted = f"color:{self.pal['muted']};"
         box = QGroupBox("Reference archive  (import-all — every field, foldered)")
         v = QVBoxLayout(box)
         lbl = QLabel("Bulk-import fields into <out>/<ZONE>/<FBG>/ — lightweight model-against projects "
                      "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
                      "browsable reference you copy field folders out of.")
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(muted)
+        lbl.setProperty("role", "caption")
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Archive root:"))
@@ -569,7 +567,7 @@ class ImportDoc(QWidget):
         hint = QLabel("Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special "
                       "fields with no scene) are listed and skipped.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(muted)
+        hint.setProperty("role", "caption")
         v.addWidget(hint)
         return box
 
@@ -600,7 +598,7 @@ class ImportDoc(QWidget):
         lbl = QLabel("Model browsing + the whole edit round-trip (export .glb → Blender → import / mint / "
                      "clips) moved to the Models tab — every model, with rendered previews.")
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "caption")
         v.addWidget(lbl)
         row = QHBoxLayout()
         self.models_tab_btn = QPushButton("Open the Models tab")
@@ -615,7 +613,6 @@ class ImportDoc(QWidget):
 
     # ------------------------------------------------------------------ repaint a native fork
     def _repaint_box(self):
-        muted = f"color:{self.pal['muted']};"
         box = QGroupBox("Repaint a native fork's art  (seamless HD round-trip)")
         v = QVBoxLayout(box)
         lbl = QLabel("A NATIVE fork ships its background as a tile-packed atlas.png — awkward to paint by hand. "
@@ -624,7 +621,7 @@ class ImportDoc(QWidget):
                      "needed. The atlas stays byte-identical until you actually change a layer. THEN deploy the "
                      "NATIVE *.field.toml (not an editable .bgx fork — those are seam-prone).")
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(muted)
+        lbl.setProperty("role", "caption")
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Native project:"))
@@ -649,7 +646,7 @@ class ImportDoc(QWidget):
                       "art; an editable .bgx fork is repaintable too but SEAM-PRONE.) → then deploy the NATIVE "
                       "field.toml on Build & Deploy to see the repaint in-game.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(muted)
+        hint.setProperty("role", "caption")
         v.addWidget(hint)
         return box
 
@@ -791,7 +788,7 @@ class ImportDoc(QWidget):
         hint = QLabel("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
                       "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "caption")
         dv.addWidget(hint)
         self._mount_beat_strip(dv, rep)
         body = QPlainTextEdit()
@@ -820,7 +817,7 @@ class ImportDoc(QWidget):
                           + (f" · suggested [startup] scenario = {rep.suggested_scenario}"
                              if rep.suggested_scenario is not None else ""))
             note.setWordWrap(True)
-            note.setStyleSheet(muted)
+            note.setProperty("role", "caption")
             dv.addWidget(note)
             return
         from PySide6.QtWidgets import QSlider

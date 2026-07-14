@@ -57,8 +57,14 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >   win across every group-boxed doc — verified in Build & Deploy AND Import). Learning: a 12px side-padding on
 >   the panel pushed Build's long non-wrapping New-Game radio into a horizontal scroll → dropped to padding-top
 >   only (the >60-char radio label itself is a Phase-6 New-Game-fencing content fix, not styling).
-> - ⬜ `shell.py` 60 · `importdoc.py` 23 · `battledoc.py` 11 · `modelsdoc.py` 9 · `savedoc.py` 8 — pending.
-> New roles this round: `muted`, `accent`. Verified: smoke green, 301 workspace/style/theme/battle tests pass.
+> - ✅ **`importdoc.py` 23→1** — the "four jobs in one scroll." Census found all 22 muted labels are wrapped
+>   EXPLANATORY paragraphs (none a tight field label), so all → the smaller `caption` role uniformly: the wall
+>   of muted text RECEDES and the controls (inputs/buttons/radios) stand out — real hierarchy. Page rhythm
+>   10→12/margins 16; the elevation ladder (already global) lifts its 6 panels + the nested Fork-mode box. Only
+>   the 1 dynamic mode-chip (`Will fork: VERBATIM/RE-AUTHORABLE`, live accent/warn colour) stays inline. Removed
+>   3 now-unused `muted` locals. Verified before/after (controls pop, no h-scroll).
+> - ⬜ `shell.py` 60 · `battledoc.py` 11 · `modelsdoc.py` 9 · `savedoc.py` 8 — pending.
+> New roles: `muted`, `accent`. Verified: smoke green, 268–301 workspace/style/theme/battle tests pass per round.
 
 
 ## 1. North-star vision
