@@ -439,12 +439,18 @@ class Workspace(QMainWindow):
             self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
 
     def _retint_hub_button(self):
-        """Re-apply the Info Hub button's violet tint for the current palette (after a theme switch)."""
+        """Style the Info Hub button as a violet OUTLINE (not a filled block) for the current palette.
+        It's a reference/browse affordance, so it must read as SECONDARY -- the one saturated fill in the
+        chrome is reserved for the primary action (Deploy). Violet = the 'info' hue (matches the Hub's own
+        ? badge); a faint neutral fill on hover, an accent ring on keyboard focus (the inline sheet shadows
+        the app QSS, so the focus rule is repeated here)."""
         if getattr(self, "_hub_btn", None) is not None:
             self._hub_btn.setStyleSheet(
-                f"QToolButton {{ background:{self.pal['help']}; color:{self.pal['accent_fg']}; "
-                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 12px; font-weight:600; }}"
-                f"QToolButton:hover {{ background:{self.pal['help_hover']}; border-color:{self.pal['help_hover']}; }}")
+                f"QToolButton {{ background:transparent; color:{self.pal['help']}; "
+                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 10px; font-weight:600; }}"
+                f"QToolButton:hover {{ background:{self.pal['hover']}; color:{self.pal['help_hover']}; "
+                f"border-color:{self.pal['help_hover']}; }}"
+                f"QToolButton:focus {{ border:1px solid {self.pal['accent']}; }}")
 
     def retheme(self, pal):
         """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the always-alive inline-styled
@@ -780,6 +786,7 @@ class Workspace(QMainWindow):
         self.act_save_all.setToolTip("Save every field with unsaved changes (Ctrl-Shift-S)")
         self.act_save_all.triggered.connect(self._save_all)
         tb.addAction(self.act_save_all)
+        tb.addSeparator()                               # end the EDIT group (undo/redo/save) before VALIDATE
         self.act_check = QAction("Check", self)
         self.act_check.setToolTip("Validate the open field/campaign now, in-process (schema + story/flag "
                                   "logic) — findings appear in the Problems panel. Fast; no subprocess.")
@@ -800,6 +807,7 @@ class Workspace(QMainWindow):
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
         self.act_lint_cli.setEnabled(False)
         tb.addAction(self.act_lint_cli)
+        tb.addSeparator()                               # set the INFO group (browse/reference) apart
         self.act_hub = QAction("Info Hub", self)
         self.act_hub.setToolTip("Open the Info Hub catalog library (browse models / NPCs / props / items / "
                                 "flags by name)")
@@ -872,6 +880,10 @@ class Workspace(QMainWindow):
         ch.addWidget(self.crumb, 1)
         self.deploy_btn = QPushButton("▶ Deploy   F9")
         self.deploy_btn.setObjectName("accent")
+        self.deploy_btn.setToolTip(
+            "Save everything, then build & deploy what the breadcrumb names (F9).\n"
+            "Reversible — your game files are backed up first. After it deploys, press F6 in-game to "
+            "reload the field (or F6 → Warp to jump straight to it).")
         self.deploy_btn.clicked.connect(self._deploy_now)
         self.deploy_btn.setEnabled(False)
         ch.addWidget(self.deploy_btn)
@@ -1096,6 +1108,10 @@ class Workspace(QMainWindow):
         self._console_open = True                    # the state of record: a not-yet-shown body reads
         self._console_sizes = None                   # isVisible() == False, which would flip the arrow
         self._sync_console_btn()                     # the last EXPANDED [docs, console] split, for re-expand
+        # Start COLLAPSED to its header strip: on a cold start there is nothing to show (both panels are
+        # empty placeholders) and the reclaimed height goes to the documents. Any job re-expands it
+        # (run_job -> _raise_console); a restored session (below, opt-in) overrides this if it was open.
+        self._toggle_console(expand=False)
 
     # ---- the collapsible console (was a QDockWidget) ----
     def _console_head_h(self):
@@ -1170,9 +1186,9 @@ class Workspace(QMainWindow):
         self._home_setup.setVisible(False)
         self._home_setup.linkActivated.connect(lambda _h: self._open_setup())
         v.addWidget(self._home_setup)
-        intro = QLabel("Start at <b>any</b> level — they nest (journey ▸ campaign ▸ field ▸ object), but none "
-                       "<i>requires</i> the one above. A <b>journey</b> is the front door (the whole arc); you "
-                       "can also open a single campaign or field directly.")
+        intro = QLabel("New here? A <b>field</b> is one explorable screen — the smallest piece, and the easiest "
+                       "place to start. <b>Campaigns</b> chain fields into a story; a <b>journey</b> bundles the "
+                       "whole arc. You can open any level directly — none needs the others.")
         intro.setWordWrap(True)
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setStyleSheet(f"color:{self.pal['muted']};")
@@ -1198,7 +1214,7 @@ class Workspace(QMainWindow):
                                    [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle), False)]))
         v.addWidget(self._home_row("⤵", "Import", "fork a real FF9 field into a new project",
                                    [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field), False)]))
-        v.addWidget(self._home_row("🧍", "Models", "browse every FF9 3D model with previews — export, edit "
+        v.addWidget(self._home_row("▦", "Models", "browse every FF9 3D model with previews — export, edit "
                                    "in Blender, reimport",
                                    [("Go to Models", lambda: self.tabs.setCurrentWidget(self.models_doc), False)]))
         v.addWidget(self._home_row("◈", "Save", "edit a real save's story flags / items / equipment "
@@ -6031,11 +6047,16 @@ class Workspace(QMainWindow):
                 self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
                 self._central_split.setSizes(lay["central_split"])
-            if lay.get("console_split"):
-                self._console_sizes = list(lay["console_split"])
+            csplit = lay.get("console_split")
+            if csplit:
+                self._console_sizes = list(csplit)
                 self._vsplit.setSizes(self._console_sizes)
-            if lay.get("console_collapsed"):
-                self._toggle_console(expand=False)
+            # A saved session's console state wins over the collapsed-by-default (both directions). The
+            # prefs layer only persists console_collapsed when it's TRUE (an OPEN console drops the key),
+            # so a saved layout (console_split present) with NO flag == the user had it OPEN -> expand;
+            # a stored TRUE flag -> collapse. No saved layout at all -> the cold-start collapse stands.
+            if csplit or lay.get("console_collapsed"):
+                self._toggle_console(expand=not lay.get("console_collapsed", False))
         except Exception:   # noqa: BLE001  (never let a bad layout block launch)
             pass
 

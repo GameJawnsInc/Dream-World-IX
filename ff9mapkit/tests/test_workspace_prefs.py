@@ -264,11 +264,14 @@ def test_layout_prefs_carry_the_console_pane(prefs_file):
 def test_console_collapses_to_its_header_and_re_expands(app):
     w = _win(app)
     w.show()                                                     # the splitter needs a layout pass
-    assert w._console_open and not w.findChildren(QDockWidget)   # no docks == no dock-drag artifacts
+    assert not w.findChildren(QDockWidget)                       # no docks == no dock-drag artifacts
+    assert not w._console_open                                   # P0 makeover: collapsed by default on a cold start
+    w._toggle_console()                                          # expand it (the header caret)
+    assert w._console_open
     open_h = w._vsplit.sizes()[1]
     assert open_h > w._console_head_h()
 
-    w._toggle_console()                                          # click the header caret
+    w._toggle_console()                                          # click the header caret again -> collapse
     assert not w._console_open and not w.console_body.isVisible()
     assert w.console_panel.maximumHeight() == w._console_head_h()
 
@@ -283,8 +286,35 @@ def test_console_collapse_state_round_trips_through_prefs(app, monkeypatch):
     w.show()
     saved = {}
     monkeypatch.setattr(shell.prefs, "set_layout", saved.update)
-    w._toggle_console()
+    # P0 makeover: the console is collapsed by default. It must persist AS collapsed, carrying the
+    # remembered EXPANDED sizes (so a re-open restores the divider, not the collapsed header pin).
+    assert not w._console_open
     w._save_layout()
     assert saved["console_collapsed"] is True
     assert saved["console_split"][1] > w._console_head_h()       # the EXPANDED sizes, not the collapsed pin
+    w.close()
+
+
+def test_restore_reopens_a_console_the_user_left_open(app, monkeypatch):
+    # The prefs layer DROPS console_collapsed when it's False (only a TRUE collapse persists), so a saved
+    # session where the user had the console OPEN carries console_split but no flag. Restore must reopen it,
+    # overriding the P0 collapsed-by-default -- else returning users silently lose their open console.
+    w = _win(app)
+    w.show()
+    assert not w._console_open                                    # cold-start default = collapsed
+    monkeypatch.setattr(shell.prefs, "layout", lambda: {"console_split": [560, 220]})
+    w._restore_layout()
+    assert w._console_open and w.console_body.isVisible()
+    w.close()
+
+
+def test_restore_honors_a_saved_collapse(app, monkeypatch):
+    w = _win(app)
+    w.show()
+    w._toggle_console()                                           # expand first, so the restore has to re-collapse
+    assert w._console_open
+    monkeypatch.setattr(shell.prefs, "layout",
+                        lambda: {"console_split": [560, 220], "console_collapsed": True})
+    w._restore_layout()
+    assert not w._console_open
     w.close()

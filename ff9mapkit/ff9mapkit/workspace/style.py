@@ -85,6 +85,15 @@ _QSS = Template(
         selection-background-color: $accent; selection-color: $accent_fg;
     }
 
+    /* Visible keyboard focus (WCAG 2.4.7). The global `outline: 0` at the top suppresses Fusion's
+       inconsistent native focus rectangle; these rules give every interactive control ONE deliberate
+       accent ring instead. No 1px->2px reflow -- the resting border is already 1px, `:focus` only
+       recolours it to the accent (inputs already do this above). */
+    QPushButton:focus, QToolButton:focus, QPushButton#search:focus { border: 1px solid $accent; }
+    QTabBar::tab:focus { border-color: $accent; color: $text; }
+    QTreeWidget:focus, QTreeView:focus, QListWidget:focus { border: 1px solid $accent; }
+    QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid $accent; }
+
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;
     }

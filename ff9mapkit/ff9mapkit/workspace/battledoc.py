@@ -189,14 +189,13 @@ class BattleDoc(QWidget):
         self.fork_btn.clicked.connect(self._fork_dialog)
         self.fork_btn.setEnabled(self._run is not None and self.kit is not None)
         top.addWidget(self.fork_btn)
-        self.path_lbl = QLabel("No battle map open — Open a battle.toml, or Fork one from a real FF9 "
-                               "battle background.")
-        self.path_lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        self.path_lbl = QLabel("No battle map open.")   # short status; the informative empty-state is the
+        self.path_lbl.setStyleSheet(f"color:{self.pal['muted']};")   # host placeholder below (one message, not two)
         top.addWidget(self.path_lbl, 1)
         outer.addLayout(top)
 
         split = QSplitter()
-        left = QWidget()
+        self.left = left = QWidget()          # the action column -- hidden until a battle loads (see below)
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         self.nodes = QListWidget()
@@ -261,7 +260,9 @@ class BattleDoc(QWidget):
         split.addWidget(right)
         split.setSizes([200, 520])
         outer.addWidget(split, 1)
-        self._placeholder("Open a battle.toml to tune its encounter.")
+        self._placeholder("Open a battle map — or Fork one from a real FF9 battle — to tune its encounter: "
+                          "enemies, AI, formation, and rewards.")
+        self.left.setVisible(False)          # no dead column of disabled buttons on an empty tab
 
     def _clear(self):
         while self.host_lay.count():
@@ -319,6 +320,7 @@ class BattleDoc(QWidget):
         self.path_lbl.setText(f"{self.path}    ·    {mode}")
         self.path_lbl.setStyleSheet(f"color:{self.pal['muted' if is_mint else 'warn']};")
         self._ctx = None
+        self.left.setVisible(True)                         # a battle is loaded -> reveal the action column
         self._rebuild_nodes()
         self.add_enemy_btn.setEnabled(True)
         self.add_aiphase_btn.setEnabled(True)
