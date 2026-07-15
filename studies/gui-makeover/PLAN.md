@@ -246,6 +246,36 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > rich-text hints / lint / Problems are **Phase 9**'s (status = icon + text, not colour-alone) — deliberately
 > untouched here.
 
+> **★ Phase 9 (Accessibility hardening & verification) COMPLETE** (2026-07-15, 4 commits) — the WCAG 2.2 AA
+> audit + verification across all 7 themes (labelling was built in from P1; this is the audit + gap-fill +
+> the custom-canvas cases + a contract of tests).
+> - **Screen-reader name coverage** (`ca1ec5f`) — a live `QAccessible` widget-walk (reads the REAL name,
+>   resolving QFormLayout label buddies, so it mirrors NVDA/Narrator) found the gaps: the custom-painted /
+>   headerless surfaces (Project-navigator tree, Campaign-map canvas, Problems, Output console, Co-op log,
+>   save-slot lists) + the doc inputs with no label buddy (tree filter, Build path, Models search/group/
+>   catalog, the save Inspect/Compare/Edit views). All named. `test_workspace_a11y` walks every tab (while
+>   current) and asserts **zero** un-named visible controls, excluding only Qt-managed internals.
+> - **Status by icon-shape, not colour** (`1d7bc6e`, WCAG 1.4.1/1.4.11) — each Problems row now carries a
+>   **distinct-shape** severity icon (error = circle-x, warn = triangle-!) and the message text stays the
+>   readable body colour (was painted the low-contrast status hue). Retuned the 3 status hues that missed the
+>   3:1 non-text floor on the elevated surface (nord/solarized-dark error, solarized-light warn — minimal
+>   hue-preserving nudges); the theme contrast test now asserts error/warn/success ≥ 3:1 on bg AND surface
+>   for all 7. (The lint banner keeps its shape glyph — already compliant.)
+> - **24px target sizes** (`0a6b6ba`, WCAG 2.5.8) — a measured audit found the checkbox/radio rows were 19px
+>   and the "?" concept badge 18px. Pad the CONTROL (not the glyph): indicators 15→18px + 3px control padding
+>   → a 28px row; the inline badge → 22px. Buttons/combos/inputs already cleared 24. Test renders each under
+>   the real QSS and asserts sizeHint height ≥ 24.
+> - **Focus + 200%-zoom guards** (`42113a0`, WCAG 2.4.7/1.4.4/1.4.10) — verified (screenshot) the app scales
+>   crisp with **no truncation at QT_SCALE_FACTOR=2**, and the 1280-tuned toolbar **degrades to Qt's overflow
+>   chevron** at 720px logical (never hard-clips). Regression tests lock the per-widget focus rings (in the
+>   derived ≥3:1 focus colour) and the overflow-chevron behaviour. No code fixes were needed — Qt high-DPI +
+>   the overflow chevron already handle it.
+>
+> **The AA contract, as tests (all 7 themes):** contrast (text/muted 4.5, accent-fg/focus/status 3.0 —
+> `test_editor_theme`), screen-reader names + colour-independence + target size + focus + zoom
+> (`test_workspace_a11y`), status-shape distinctness (`test_workspace_icons`). Verified: **full suite 3494
+> passed / 2 skipped** (+9 a11y/contrast tests), smoke green.
+
 
 ## 1. North-star vision
 
