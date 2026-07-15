@@ -2208,13 +2208,23 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     # the byte-frozen plug path above). Each donor part's weld components that sit in
     # the massif footprint carry WHOLE (stock ships them per-block already): positions
     # de-tilt + rotate + translate exactly like the rock, normals by inverse-transpose,
-    # REAL tangents as direction vectors under the same shear; UVs verbatim (the water
-    # materials bind by part name). Components assign to the bench block holding their
-    # transformed centroid, unsplit.
+    # UVs verbatim (the water materials bind by part name). Components assign to the
+    # bench block holding their transformed centroid, unsplit.
+    # THE SCENERY SEAL (the horseshoe round-2 walk defects, 2026-07-15): the worldmap
+    # ground query reads the hit tri's tangent.x as the IDALL for MOVEMENT LEGALITY
+    # ((id & 0xFC) >> 2 vs the per-vehicle 64-topo limit mask, ff9.cs
+    # w_movementCheckTopographID), and stock aux parts carry leftover REAL tangents
+    # whose x (~0/+-1) garbage-decodes to topo 0 = WALKABLE -- so the player could walk
+    # the bridge, UP the falls sheets, and onto the river (stock never noticed: its
+    # interior is unreachable on foot). Worldmap shaders never consume tangents (the
+    # Terrain channel stores IDALL floats and shades fine), so the carried aux parts
+    # store a BLOCKED-topo IDALL instead: the whole ensemble becomes look-but-don't-
+    # touch scenery, matching stock semantics.
     changed_parts = {}
     donor_ref = None
     n_ens_tris = 0
     if ensemble_apertures:
+        SCENERY_ID = float(X.encode_id(topograph=49))      # blocked on foot + chocobos
         rim_poly_d = [(p[0], p[2]) for p in rim]
         ens_keys_d = set()                                 # donor-frame carried aux verts
         parts_deployed = set()
@@ -2226,7 +2236,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     continue
                 doff_b = np.array([BLOCK * dbx, 0.0, -BLOCK * dby])
                 pV = np.asarray(pm.verts, dtype=np.float64) + doff_b
-                pN, pU, pT = pm.normals, pm.uvs, pm.tangents
+                pN, pU = pm.normals, pm.uvs
                 nt = len(pm.flat_index) // 3
                 ptri = [pm.flat_index[3 * t:3 * t + 3] for t in range(nt)]
                 e2t = defaultdict(list)
@@ -2279,12 +2289,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                                                w[2] + BLOCK * (sby + 1) - BLOCK])
                             dst["nrm"].append(rot_n(detilt_n(pN[i]), ROT))
                             dst["uv"].append([pU[i][0], pU[i][1]])
-                            t4 = pT[i]
-                            d3 = (t4[0], t4[1] - ta * t4[0] - tb * t4[2], t4[2])
-                            r3 = rot_n([d3[0], d3[1], d3[2]], ROT)
-                            Lt = math.sqrt(r3[0] ** 2 + r3[1] ** 2 + r3[2] ** 2) or 1.0
-                            dst["tan"].append([r3[0] / Lt, r3[1] / Lt, r3[2] / Lt,
-                                               t4[3]])
+                            dst["tan"].append([SCENERY_ID, 0.0, 0.0, 1.0])
                             dst["flat"].append(len(dst["pos"]) - 1)
                         dst["tris"].append([dst["flat"][-3], dst["flat"][-2],
                                             dst["flat"][-1]])

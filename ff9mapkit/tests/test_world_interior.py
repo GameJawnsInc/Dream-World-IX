@@ -475,6 +475,13 @@ def test_carve_mountain_ensemble_aperture(monkeypatch, tmp_path):
     ys = [v[1] for pp in res["changed_parts"].values() for bmp in pp.values()
           for v in bmp.chan_arrays[CH_POS]]
     assert max(ys) == pytest.approx(3.2 + 4.5, abs=1e-6)
+    # THE SCENERY SEAL: every carried aux vert stores the blocked-topo IDALL (the
+    # ground query reads tangent.x as movement legality; leftover real tangents
+    # garbage-decode to walkable topo 0)
+    scenery = float(encode_id(topograph=49))
+    tans = [t4 for pp in res["changed_parts"].values() for bmp in pp.values()
+            for t4 in bmp.chan_arrays[CH_TAN]]
+    assert tans and all(t4[0] == scenery for t4 in tans)
     # deployment: content + blanks for every ensemble part + the Donor.txt divert
     outs = IN.deploy_mountain_parts(res, mod_folder="modx", game=tmp_path,
                                     log=lambda *a: None)
