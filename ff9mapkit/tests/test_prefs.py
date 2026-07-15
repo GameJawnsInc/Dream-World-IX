@@ -66,3 +66,14 @@ def test_guided_mode_defaults_and_round_trips(tmp_path, monkeypatch):
     assert prefs.guided() is False and prefs.load()["guided"] is False
     prefs.set_guided(True)
     assert prefs.guided() is True
+
+
+def test_motion_defaults_and_round_trips(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.motion() == "auto"                    # follow the OS by default
+    prefs.set_motion("off")
+    assert prefs.motion() == "off" and prefs.load()["motion"] == "off"
+    prefs.set_motion("on")
+    assert prefs.motion() == "on"
+    prefs.set_motion("bogus")                          # an unknown value coerces back to auto
+    assert prefs.motion() == "auto"

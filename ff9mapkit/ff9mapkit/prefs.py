@@ -86,6 +86,20 @@ def set_guided(on: bool) -> None:
     put("guided", bool(on))
 
 
+MOTIONS = ("auto", "on", "off")                           # UI motion: follow the OS / always / never
+
+
+def motion() -> str:
+    """The UI-motion preference: ``"auto"`` (follow the OS reduce-motion setting, the default), ``"on"``, or
+    ``"off"``. Type-disciplined -- a corrupt/unknown value degrades to ``"auto"``."""
+    val = get("motion", "auto")
+    return val if val in MOTIONS else "auto"
+
+
+def set_motion(mode: str) -> None:
+    put("motion", mode if mode in MOTIONS else "auto")
+
+
 def recent() -> list:
     """The recent-projects list, most recent first: ``[{"kind": k, "path": p}, ...]`` with ``kind`` in
     :data:`RECENT_KINDS`. Type-disciplined like :func:`theme`: a hand-edited/corrupt file can hold anything,

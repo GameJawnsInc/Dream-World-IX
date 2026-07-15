@@ -53,6 +53,7 @@ from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 from . import thumbs as _thumbs
+from . import anim
 from . import concepts
 from . import icons
 from .modelsdoc import ModelsDoc
@@ -543,6 +544,14 @@ class Workspace(QMainWindow):
         prefs.set_density(self._density)
         self.statusBar().showMessage(f"Density: {self._density}", 3000)
 
+    def _toggle_motion(self):
+        """Flip UI motion on <-> off and persist it (the Ctrl-K quick command). Explicit on/off overrides the
+        'auto' (match-system) default; nothing here loops or auto-plays."""
+        new = "off" if anim.enabled() else "on"
+        anim.configure(new)
+        prefs.set_motion(new)
+        self.statusBar().showMessage(f"Motion: {new}", 3000)
+
     def _apply_guided(self, on):
         """Set Guided/Full beginner mode LIVE + re-mount the open form so it applies now. Guided tucks each
         form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed."""
@@ -762,6 +771,14 @@ class Workspace(QMainWindow):
         mode_combo.setCurrentIndex(0 if prefs.guided() else 1)
         mode_combo.currentIndexChanged.connect(lambda i: self._apply_guided(mode_combo.itemData(i)))
         form.addRow("Beginner mode", mode_combo)
+        motion_combo = QComboBox()
+        for val, label in (("auto", "Match system (default)"), ("on", "On — subtle transitions"),
+                           ("off", "Off — no animation")):
+            motion_combo.addItem(label, val)
+        mmix = motion_combo.findData(prefs.motion())
+        motion_combo.setCurrentIndex(mmix if mmix >= 0 else 0)
+        motion_combo.currentIndexChanged.connect(lambda i: anim.configure(motion_combo.itemData(i)))
+        form.addRow("Motion", motion_combo)
         lay.addLayout(form)
         hint = QLabel("Applies instantly. “Match system” follows your Windows light/dark setting.")
         hint.setWordWrap(True)
@@ -791,6 +808,7 @@ class Workspace(QMainWindow):
         original = self.pal
         original_density = self._density
         original_guided = prefs.guided()
+        original_motion = prefs.motion()
         state = {"ok": False}
 
         def _accept():
@@ -798,6 +816,7 @@ class Workspace(QMainWindow):
             prefs.set_theme(combo.currentData())
             prefs.set_density(dens_combo.currentData())
             prefs.set_guided(bool(mode_combo.currentData()))
+            prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
@@ -807,6 +826,7 @@ class Workspace(QMainWindow):
             if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density + mode preview
                 self._density = original_density
                 self._apply_guided(original_guided)
+                anim.configure(original_motion)           # revert the live motion preview too
                 self.retheme(original)                    # re-applies qss() with the restored density
 
         bb.accepted.connect(_accept)
@@ -3746,6 +3766,7 @@ class Workspace(QMainWindow):
             ("Deploy now (F9)", "command", self._deploy_now),
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
+            ("Toggle motion (animations on / off)", "command", self._toggle_motion),
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
@@ -9215,6 +9236,7 @@ def main(argv=None):
         _smoke(win)
         return
     win.show()
+    anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
         try:
