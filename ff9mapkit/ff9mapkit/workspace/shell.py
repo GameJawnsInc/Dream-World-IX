@@ -1435,7 +1435,11 @@ class Workspace(QMainWindow):
         body = QWidget()
         body.setMaximumWidth(860)
         ph.addStretch(1)
-        ph.addWidget(body, 4)
+        # Stretch 20, not 4. At 4:1:1 the body only gets 4/6 of the width, so it reached its 860 cap only
+        # past ~1920px -- MEASURED: 512px at the 1280 default (pinned to its own minimum), 656 at 1600,
+        # 860 only at 1920. The column read narrow with fat dead gutters on every normal monitor. A large
+        # stretch lets the cap do the capping and the stretches only soak up the leftover.
+        ph.addWidget(body, 20)
         ph.addStretch(1)
         v = QVBoxLayout(body)
         v.setContentsMargins(0, 0, 0, 0)

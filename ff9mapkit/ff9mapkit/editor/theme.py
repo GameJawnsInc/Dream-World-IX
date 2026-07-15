@@ -200,6 +200,54 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
 }
 
 # All selectable palettes (keyed by mode string). "auto" is a meta-mode (follow the OS) -- not in here.
+# --- the FF9 climate (SIGNET, studies/gui-aesthetics/IDENTITY.md) ---------------------------
+# The one palette permitted to be Final Fantasy IX. OPT-IN, never the default: `auto` still resolves
+# Dark/Light, and every neutral palette above is byte-identical to before this landed.
+#
+# WHY THERE IS NO GOLD IN HERE. The obvious FF9 palette is its menu: navy page, gold trim. It is
+# buildable and it is wrong, on three measured grounds:
+#   1. `warn` IS the accent. Gold #d9b45c is 5.9 deg from this tree's amber warn #e0a93b in hue and
+#      near-identical in greyscale -- and derive() aliases info = accent, so gold would mean
+#      "information" and "caution" simultaneously.
+#   2. `selection_bg` = _mix(surface, accent, 0.16) is derived CENTRALLY, and navy sits 177.8 deg from
+#      gold -- a near-complement. The mix CANCELS: measured #35393f, a desaturated mud, on the selected
+#      tree row, which is the most-looked-at surface in a file-tree IDE. Blue + yellow = grey, in sRGB,
+#      by construction. Mist cyan is 32.6 deg from the surface and keeps its chroma.
+#   3. Gold-as-accent paints every checkbox, radio and focus ring in the app -- the costume permanently on.
+# So the gold moved to the ONE place it earns: a single rule on the Home hero (workspace/hero.py), as a
+# module constant identical in ALL palettes. The palette is the app's climate; the gold is its signature;
+# a signature does not change colour when the weather does.
+#
+# AUTHORING LAW (a comment, deliberately NOT a test): keep every semantic hue >= 25 deg from every other.
+# This palette's worst pair is accent(196.4) vs success(146.3) = 58.1 deg -- the widest in the tree. It is
+# not asserted because MIST's own margin is the THINNEST here (1.48x vs gruvbox's 5.40x), and a fence whose
+# tightest subject is the palette you are shipping is a trap, not a fence.
+MIST = {                        # "Mist (FF9)" -- the Mist is the game's atmosphere; the world runs on it.
+    "dark": True,
+    "bg": "#0f1826",            # the Mist-blue night page
+    "surface": "#16223a",
+    "surface_btn": "#1e2d4a",
+    "field": "#0c1420",         # input wells sit BELOW the page
+    "text": "#e9e6dc",          # warm parchment white -- not #ffffff
+    "muted": "#9fadc4",
+    "accent": "#5fc9d8",        # THE MIST. derive() aliases info=accent and grows focus FROM it, so this
+                                # hue is spent three times -- which is exactly why the gold is not here.
+    "accent_fg": "#08171b",     # dark ink on a light accent (the dracula/gruvbox strategy); 9.43:1
+    "accent_hover": "#7ad7e4",
+    "accent_pressed": "#46b0c0",
+    "help": "#9d8bd8",          # violet -- far from every other semantic hue
+    "help_hover": "#b3a4e4",
+    "border": "#2b3d5e",        # stays NEUTRAL. Gold here would be the costume, on all 27 cards, forever.
+    "success": "#63cf7a",
+    "hover": "#26385a",         # lighter than surface_btn (the dark-palette direction)
+    "pressed": "#2f4468",
+    "scroll": "#33456a",
+    "log_bg": "#0b111c",
+    "log_fg": "#cfd8e6",
+    "error": "#ff6b6b",
+    "warn": "#e0a93b",          # unchanged: amber sits 126.8 deg from the Mist and never collides with it
+}
+
 THEMES = {
     "light": LIGHT,
     "dark": DARK,
@@ -208,6 +256,7 @@ THEMES = {
     "solarized-dark": SOLARIZED_DARK,
     "solarized-light": SOLARIZED_LIGHT,
     "gruvbox-dark": GRUVBOX_DARK,
+    "mist": MIST,
 }
 
 # (mode, display label) in picker order. "auto" leads (the default); the rest mirror THEMES.
@@ -220,7 +269,8 @@ THEME_CHOICES = [
     ("solarized-dark", "Solarized Dark"),
     ("solarized-light", "Solarized Light"),
     ("gruvbox-dark", "Gruvbox Dark"),
-]
+    ("mist", "Mist (FF9)"),     # ASCII ONLY -- this file has zero non-ASCII bytes and an em-dash here
+]                               # would make the label the first one. The house style writes "--".
 
 
 def detect_os_dark() -> bool:
