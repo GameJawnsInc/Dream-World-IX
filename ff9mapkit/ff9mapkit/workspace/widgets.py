@@ -200,18 +200,28 @@ def card(*, parent=None):
     return frame
 
 
-# Max measure for a wrapped sentence, px. It caps a real problem: a full-window paragraph on a 1180px pane
-# runs ~200 chars/line and reads as unformatted output rather than as text somebody wrote.
+# THE MEASURE. A px cap is NOT a measure -- it is a measure only for ONE font size, which is why there are
+# two of these and why there had to be. Measured on a NATIVE font DB (offscreen stubs it and inflates
+# advances 2-3x -- that artifact is how an earlier round invented a horizontal-scroll emergency):
 #
-# HONEST RECEIPT (an earlier comment here claimed "~75-85 chars" -- that was simply wrong, and measured):
-# real prose averages 5.691 px/char at 13px Segoe UI on a NATIVE font DB, so 620px is ~109 chars/line --
-# ABOVE the classic 45-75ch band (which would be 256-427px). 620 is a deliberate compromise for a dense
-# settings pane rather than a typographic ideal, and it is the value that was reviewed and approved on the
-# Co-op tab. Narrowing it toward ~440 (~77ch) is an open design call, not a bug fix -- it re-wraps every
-# adopted caption, so it wants a look before it lands.
-# NB: measure this on the NATIVE platform only. QT_QPA_PLATFORM=offscreen stubs the font DB and inflates
-# advances 2-3x, which is how the dossier invented a horizontal-scroll emergency that never existed.
-PROSE_W = 620
+#     13px Segoe UI, real prose:  ~5.59-5.72 px/char
+#     11px Segoe UI, real prose:  ~4.73-4.84 px/char
+#
+# So ONE 620px cap is ~109 chars at 13px and ~130 at 11px: the same number is WORSE on the smaller face,
+# which is the whole receipt for splitting the token. The classic readable band is 45-75ch.
+#
+# 420, not 430: at the worst measured rate (5.72) a 430 cap lands 75.2ch and fails its own fence by a
+# fifth of a character. 420 gives 73.4-75.1. Fenced by test_prose_w_is_a_real_measure.
+PROSE_W = 420
+
+# The 11px caption face, and DELIBERATELY still 620 -- an unchanged number, not an oversight.
+#
+# It is the value reviewed and approved on Build & Deploy and Co-op, and at 11px the real captions are
+# ~107-112 chars, so the cap does not even bind: they render as single lines and lowering it would re-wrap
+# every one of them. That is a design call needing an eye, not a bug fix -- so this phase SPLITS the token
+# (the 13px face gets its real measure) and moves the 11px face zero pixels. The receipt above is recorded
+# so a future round can act on it deliberately rather than discover it again.
+CAPTION_W = 620
 
 
 class Prose(QLabel):
@@ -254,7 +264,7 @@ OPT_INDENT = 30    # the radio/checkbox TEXT column, so a caption lines up under
                    # OUTSIDE its width and the control carries its own padding.
 
 
-def option(rb, description, lay, *, width=PROSE_W):
+def option(rb, description, lay, *, width=CAPTION_W):
     """A choice is a NAME; its consequence is a caption BENEATH it, on the label's own column.
 
     The third law: never put prose inside a widget. `QRadioButton("Test slot 4003 -- quick + reversible;

@@ -20,7 +20,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, QLinearGradient,
                            QPainter, QPainterPath, QPen, QRadialGradient)
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QFrame, QWidget
 
 from ..editor import theme
 
@@ -57,6 +57,87 @@ def wordmark_face() -> str:
         fams = set(QFontDatabase.families())
         _FACE = next((f for f in _FACE_CHAIN if f in fams), "Segoe UI")
     return _FACE
+
+
+def signet_elbow(p, x, y, arm, up, gold, *, a_from=255, a_to=70, r=_ELBOW_R):
+    """THE MARK: an arm that runs in, turns a corner, and rises -- dissolving as it goes.
+
+    "An FF9 window has four corners. We draw one." This is that one corner, and it is a FUNCTION rather
+    than a block of paint code because it has two call sites and the pair is the whole argument: the hero
+    draws it at the wordmark, the lede draws the SAME mark at its title, 200px down the same axis, at
+    roughly half the ink. Two calls to one function is not a repeated ornament -- it is one mark, cited
+    twice on one page, which is what "one corner, once" was written to protect.
+
+    ``a_to`` is the dissolve: the frame does not stop, it fades out. Lowering ``a_from`` is how a caller
+    asks for the mark more quietly -- the lede's subordination is a parameter, not a different drawing.
+
+    Draws only the OUTER elbow. The doubled inner filigree and the bead stay the hero's alone: they are
+    what make it the signature rather than a corner, and the lede is not the signature.
+    """
+    path = QPainterPath()
+    path.moveTo(x + arm, y)
+    path.lineTo(x + r, y)
+    path.arcTo(QRectF(x, y - 2 * r, 2 * r, 2 * r), -90, -90)
+    path.lineTo(x, y - up)
+    grad = QLinearGradient(x, 0, x + arm, 0)
+    g0 = QColor(gold); g0.setAlpha(a_from)
+    g1 = QColor(gold); g1.setAlpha(a_to)
+    grad.setColorAt(0.0, g0); grad.setColorAt(1.0, g1)   # the frame doesn't stop, it dissolves
+    p.setPen(QPen(QBrush(grad), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+    p.drawPath(path)
+
+
+class LedeCard(QFrame):
+    """Home's ONE card with the mark on it: the next thing to do, named.
+
+    ``shell.py`` has always promised this in a docstring -- "the ONE primary action on the page (Journey
+    ▸ Open, the recommended front door) renders in the accent colour" -- and all ten call sites pass
+    ``False``. The branch that would paint it is live code nothing reaches. SIGNET built a title page and
+    handed off to an index: ten identical cards, none of which is the answer to the question Home exists
+    to ask.
+
+    THE CONTRACT, and why this is not a second ornament. "One corner, once, or it's a costume" forbids a
+    REPEATED ornament. This is the same mark, from the same function (:func:`signet_elbow`), at roughly
+    half the ink, once per page, and only when there is a next action to name. The hero's docstring says
+    "An FF9 window has four corners. We draw one" -- this draws that same one, 200px down the same axis.
+
+    WHY GOLD AND NOT ACCENT -- measured, and it picks the colour AND the shape:
+      - gold on surface_2 = 4.710 (sol-light) .. 6.964 (mist): the only delineation clearing the 3.0
+        non-text floor in ALL 8, because it is the one candidate not sampled from the surface ramp.
+      - accent on surface_2 = 2.118 (nord, FAILS) .. 7.095. It cannot carry a mark in nord at all.
+      - and gold survives LIGHT (4.837) exactly where every elevation idea has died: a constant does not
+        care that light's ramp is compressed.
+
+    THE KILL SHOT, which is why this is a CORNER and never a left stripe: gold and $warn are the same
+    colour -- ΔHue 0.3-3.3° in 7 of 8, and indistinguishable in luminance too in 6 of 8 (CR 1.073-1.312).
+    $warn's only shape in this app IS a left stripe, and the warn banner shares a splitter with Home. A
+    gold left stripe would ship "your build has warnings" as "your next action". A turned corner is a
+    shape the status grammar has never used, and it is already ours.
+    LAW: gold may never be spent as a border-left-only stripe. Fenced in test_workspace_hero.
+
+    Zero new tokens: this sets ``role="card"`` and paints. Qt type selectors match SUBCLASSES (only
+    `.QWidget` is exact-class), so `QFrame[role="card"]`'s fill and border land here byte-exact, and
+    ``super().paintEvent`` must run FIRST so the mark goes on top of them.
+    """
+
+    _ARM = 170          # ~0.49x the hero's ink at the same dissolve -- subordinate BY CONSTRUCTION
+    _UP = 26
+    _INSET = 10
+
+    def __init__(self, pal, parent=None):
+        super().__init__(parent)
+        self.pal = pal
+        self.setProperty("role", "card")
+
+    def paintEvent(self, ev):                          # noqa: N802 (Qt override)
+        super().paintEvent(ev)                         # the QSS card fill + border, then the mark on top
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        gold = QColor(GOLD_DARK if self.pal.get("dark") else GOLD_LIGHT)
+        x = self._INSET + 0.5
+        y = self._INSET + self._UP + 0.5
+        signet_elbow(p, x, y, self._ARM, self._UP, gold)
+        p.end()
 
 
 class HeroBand(QWidget):
@@ -170,17 +251,7 @@ class HeroBand(QWidget):
         # 7. THE SIGNET -- typographically bound to `adv`, so it can never overflow the column.
         ax = x0 - _ARM_INDENT + 0.5
         by, top = rule_y, rule_y - arm_up
-        path = QPainterPath()
-        path.moveTo(ax + adv + _ARM_INDENT, by)
-        path.lineTo(ax + _ELBOW_R, by)
-        path.arcTo(QRectF(ax, by - 2 * _ELBOW_R, 2 * _ELBOW_R, 2 * _ELBOW_R), -90, -90)
-        path.lineTo(ax, top)
-        grad = QLinearGradient(ax, 0, ax + adv + _ARM_INDENT, 0)
-        g0 = QColor(gold); g0.setAlpha(255)
-        g1 = QColor(gold); g1.setAlpha(70)
-        grad.setColorAt(0.0, g0); grad.setColorAt(1.0, g1)   # the frame doesn't stop, it dissolves
-        p.setPen(QPen(QBrush(grad), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        p.drawPath(path)
+        signet_elbow(p, ax, by, adv + _ARM_INDENT, arm_up, gold)
 
         # the doubled inner rule -- the GRAMMAR of brass filigree (parallel strokes at a fixed
         # offset), abstracted from any specific FF9 flourish. Verified crisp at dpr 1.0/1.25/1.5.
