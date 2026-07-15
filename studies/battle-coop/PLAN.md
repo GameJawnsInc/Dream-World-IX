@@ -18,6 +18,19 @@
 > **1c was deliberately skipped** (optional wire hygiene — deferred to a later patch round to keep this
 > round's delta minimal). **NOW WAITING at the Phase 3 gate**: human solo playtest, then Phase 4 patch
 > regen. Do not regen the patch before the solo proof passes.
+>
+> **Phase 3 round 1 (2026-07-15):** selftest line = **OK** on the new build (and it now certifies the
+> real codec path, per 1a); the empty-command fix confirmed in-game ("Sword Art is absent"). The log
+> also surfaced a **pre-existing** battle-intro race (NOT a regression — the unguarded
+> `_abilityDetailDict[playerIndex]` in `CollectNetMenus` is in the committed s37 patch): `BuildRoster`
+> polls before `InitialBattle()`→`ManageAbility()` seeds the dict → a caught `KeyNotFoundException` +
+> `[NetSync] roster build failed` error block every roster tick (~4/battle) until the HUD initializes,
+> then self-heals (the guest's Attack went through at 01:52:57). **Fixed same round** — new
+> `BattleHUD.NetMenusReady(slot)` probe + a quiet `return null` guard in `BuildRoster` (identical wire
+> behavior: no roster ships until ready; no exception spam) — and **rebuilt clean** (0 errors,
+> `NetMenusReady` verified in the binary, deployed hashes match). Waiting on the round-2 solo check:
+> one battle with a guest slot configured, expect ZERO `roster build failed` lines + working menus.
+> These two hunks (`BattleHUD.Unity.cs`, `NetSyncBattle.cs`) join the Phase 4 regen set.
 
 ## TL;DR for whoever executes this (Fable)
 
