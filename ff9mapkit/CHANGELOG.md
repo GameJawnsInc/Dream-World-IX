@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — five more ground families: THE TRANSLATION LAW IS UNIVERSAL
+- The ground-families census (`studies/overworld-topography/ground_families_anatomy.py`,
+  2026-07-15) ran the desert method over every remaining stock walkable ground: each one is the
+  grass mains 2×2 translated in the atlas, outer-bound byte-exact at 5dp (the grass control
+  recovers delta (0,0) with zero spread; dirt topo-19/20 recover the desert constants exactly —
+  the "in-family ids are gameplay variants" model byte-proven). `grassland.GROUNDS` (and so
+  `world-island --ground` / `world-mountain --ground`) grew: **scrub** (topo 4, the grass↔dirt
+  ecotone set), **dirthill** (topo 38 — whose stock cliff wall is measurably the DESERT wall),
+  **snow** (topo 27, with its own measured icy wall band), **canyon** (topo 45, red-rock wall
+  band), **flats** (topo 41 — its own pale-sand set, the one family-model exception). Scrub and
+  flats never coast in stock and borrow the desert wall. Grass and desert stay byte-identical
+  (both frozen identity acceptances pass unchanged); constants pinned in
+  `test_ground_families_registry`.
+
 ### Removed — `world-island`: the ambient rolling-relief field (THE DEAD-RELIEF DISCOVERY)
 - The desert tile fidelity check (2026-07-15) found `relief="auto"` had NEVER applied: the field
   keyed its lattice on the donor block's LOCAL 4u nodes (around world block (0,0)) while the mint

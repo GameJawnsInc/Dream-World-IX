@@ -2751,6 +2751,12 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ground_choices() -> tuple:
+    """The ground-family names from :data:`grassland.GROUNDS` (grass first -- the default)."""
+    from .world.grassland import GROUNDS
+    return tuple(GROUNDS)
+
+
 def _parse_block_rect(spec: str) -> list:
     """``BX,BY`` or a rect ``BX0-BX1,BY0-BY1`` (either axis may be a range) -> block list."""
     def rng(s):
@@ -5761,9 +5767,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="max meadow patches (verbatim stamps; only perfectly-fitting ones place; default 2)")
     wis.add_argument("--flat", action="store_true",
                      help="skip the verbatim meadow stamps (no install data needed)")
-    wis.add_argument("--ground", choices=("grass", "desert"), default="grass",
-                     help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default) or "
-                          "desert (topo-17 mains + the desert cliff-wall band; meadow patches disabled)")
+    wis.add_argument("--ground", choices=_ground_choices(), default="grass",
+                     help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default), "
+                          "desert, scrub, dirthill, snow, canyon, flats -- each = the family's mains "
+                          "tiles + its cliff-wall band; meadow patches are grass-only")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)
@@ -5827,7 +5834,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "studies/overworld-topography/README.md.")
     wmt.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
-    wmt.add_argument("--ground", choices=("grass", "desert"), default="grass",
+    wmt.add_argument("--ground", choices=_ground_choices(), default="grass",
                      help="the bench island's ground family: the zip annulus + plain-ground checks speak "
                           "it (match the island's world-island --ground)")
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")

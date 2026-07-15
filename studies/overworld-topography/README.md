@@ -487,6 +487,42 @@ or lattice-wrapped anchoring; the original bug was block-local field keys sample
 with world coords), rim-fade preserved (welds keep exact Y), applied per ground
 family, and proven through the offline eye + one playtest like every other rung.
 
+**THE GROUND FAMILIES (★ offline 2026-07-15, playtest pending)** —
+`ground_families_anatomy.py` → `out/ground_families.json` + `.log`;
+`ground_families_eye.py` → `out/ground_families_eye.png` (the atlas contact sheet).
+The desert method (census → per-4u-cell exact-affine decode → mural screen → AUTO 2×2
+detection → 5dp rect recovery → translation fit → wall probe) run over every remaining
+walkable family + controls. **THE TRANSLATION LAW IS UNIVERSAL**: every family with
+tiled data is the grass mains 2×2 translated, outer-bound exact at 5dp —
+
+| family | topos | mains (du, dv) | wall (du, dv) | notes |
+|---|---|---|---|---|
+| grass (control) | 0 | (0, 0) zero spread | (+0.00022, −0.00015) ≈ 0 | machinery validated both ends |
+| grass variants (control) | 1,2,3,10-13,42 | (0, 0) | — | family model BYTE-proven |
+| scrub | 4,5,6 | (0.25977, −0.06738) | none in stock | the grass↔dirt ECOTONE tile set |
+| dirthill | 38 | (0.45703, −0.20215) | (−0.27127, −0.02066) | wall = THE DESERT WALL VERBATIM (measured stock adjacency) |
+| snow | 27,28 | (0.0, −0.33691) | (−0.44021, +0.05161) | same u-COLUMN as grass, v-shift only; icy band rows 0.94434/0.97461 (the memory's lip-row 0.944 ✓) |
+| canyon | 45,46 | (0.7793, −0.31641) | (−0.69509, −0.49722) | red band shows a 3rd v-level (possible 2-row course wall) |
+| dirt 19 / 20 | 19, 20 | = DESERT exactly | desert | family model BYTE-proven |
+| dirt 41 | 41 | (0.38964, −0.13477) | none in stock | **family-model EXCEPTION** — its own pale-sand set, NOT desert's |
+| dirt 16 | 16 | — | — | thin (6 blocks); COLUMN origin structure, no clean 2×2 (dry lakebed) |
+
+Method fix en route: the naive 8-edge translation fit fails on EVERYTHING including the
+grass control (identical 0.00196/0.00097 "spread" everywhere) because the mode-voted
+INTERNAL hi/lo edges are contaminated by the gutter-crossing free-window form — the fit
+must use the 2×2 OUTER BOUNDS (bleed-immune; the desert law itself came from lo edges).
+The locked-form (mint-form) share is a minority REAL form even on grass (22% of mains
+cells) — the gate is a diagnostic, not an acceptance; the locked mint is in-game proven.
+The eye sheet confirms every translated region paints coherent art (scrub = green/dirt
+ecotone, snow = white field + pale-blue ice wall, canyon = red tiers + dark red wall,
+flats41 = pale fine sand; 0% blank texels everywhere). **PRODUCTIZED same day**:
+`grassland.GROUNDS` grew scrub/dirthill/snow/canyon/flats (walls: dirthill = its real
+measured desert wall; scrub/flats BORROW the desert wall — an authoring choice, stock
+never coasts them), `--ground` choices now track the registry on `world-island` +
+`world-mountain`, constants pinned in `test_ground_families_registry`; both byte-identity
+oracles pass unchanged (grass/desert entries untouched). In-game check pending: a
+ground-sampler deploy (one small island per new family).
+
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
 placement scan + split-border emission.

@@ -703,16 +703,23 @@ open ocean (the open-ocean target law — a real sea-skirt block loads its own p
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
 
-**Ground families — `--ground grass|desert` (★ 2026-07-15).** THE TRANSLATION LAWS: another walkable ground
-family is the grass language translated in the atlas. Desert (topo 17, the Forgotten-Continent wasteland
-look) has its mains 2×2 rects at grass + (+0.65332, −0.09863) and its coastal cliff-wall band at
-ROCK + (−0.27127, −0.02066) — same widths, gutters, cell mapping, rotations, and neighbour policy,
-byte-exact at 5dp (`grassland.GROUNDS`; measured by `studies/overworld-topography/
-desert_ground_anatomy.py`). `world-island --ground desert` mints the whole island in the family (meadow
-stamps are grass vocabulary and disable); `world-mountain --ground desert` speaks it in the carve's
-plain-ground checks + zip annulus — the crag's foot fringe is painted against exactly this ground.
-Real desert additionally slides FREE fractional windows over its painted-over internal gutter (THE
-COL-FREEDOM LAW at ground scale); the mint uses the locked grass-form window, itself a common real form.
+**Ground families — `--ground` (★ 2026-07-15).** THE TRANSLATION LAW IS UNIVERSAL: every stock walkable
+ground family is the grass language translated in the atlas — same mains 2×2 rects (widths, gutters,
+cell mapping, rotations, neighbour policy) at the family's own spot, outer-bound byte-exact at 5dp
+(`grassland.GROUNDS`; measured by `studies/overworld-topography/desert_ground_anatomy.py` + the
+`ground_families_anatomy.py` census, whose grass control recovers delta (0,0) with zero spread). The
+registry: **grass** (identity) · **desert** (topo 17; mains +(0.65332, −0.09863), wall +(−0.27127,
+−0.02066); in-game proven) · **scrub** (topo 4; +(0.25977, −0.06738); the grass↔dirt ecotone set) ·
+**dirthill** (topo 38; +(0.45703, −0.20215); its stock cliff wall IS the desert wall — measured native
+adjacency) · **snow** (topo 27; +(0.0, −0.33691); icy wall +(−0.44021, +0.05161)) · **canyon** (topo 45;
++(0.7793, −0.31641); red-rock wall +(−0.69509, −0.49722)) · **flats** (topo 41; +(0.38964, −0.13477);
+its own pale-sand set — the one family-model exception). Scrub and flats never touch the coastal wall
+in stock, so they borrow the desert band (an authoring choice). In-family topo ids (grass 1/2/3/10-13/42,
+dirt 19/20) are byte-proven gameplay variants of the same tile set. `world-island --ground <fam>` mints
+the whole island in the family (meadow stamps are grass vocabulary and disable); `world-mountain
+--ground <fam>` speaks it in the carve's plain-ground checks + zip annulus. Real ground additionally
+slides FREE fractional windows over its painted-over internal gutter (THE COL-FREEDOM LAW at ground
+scale); the mint uses the locked grass-form window, itself a common real form.
 
 ### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
 

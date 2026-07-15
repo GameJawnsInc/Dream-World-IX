@@ -54,18 +54,36 @@ FAM_REGION = {
     "?": (0.0, 0.0, 1.0, 1.0),
 }
 
-#: GROUND FAMILIES -- byte-measured TRANSLATION LAWS (2026-07-15, the desert study):
-#: another walkable ground family is the grass language TRANSLATED in the atlas -- the
-#: mains 2x2 rects (same widths 0.06054/0.03028, same gutters 0.00196/0.00097) and the
-#: coastal cliff-wall band (same 0.248-wide strip, one row) each sit at their own spot,
-#: byte-exact at 5dp. ``topo`` is the family's walkable topograph; the ``wall_*`` deltas
-#: shift the mint's ROCK_U/ROCK_V band. Real desert ground ALSO slides free fractional
-#: windows over its (painted-over) internal gutter -- the locked grass-form window is a
-#: common real form and the safe generative choice, so minting reuses :func:`mains_uv`.
+#: GROUND FAMILIES -- byte-measured TRANSLATION LAWS (2026-07-15, the desert study +
+#: the ground-families census, ``studies/overworld-topography/ground_families_anatomy.py``):
+#: THE TRANSLATION LAW is UNIVERSAL -- every stock walkable ground family is the grass
+#: language TRANSLATED in the atlas: the mains 2x2 rects (same widths 0.06054/0.03028,
+#: same gutters 0.00196/0.00097) and the coastal cliff-wall band (same 0.248-wide
+#: strip, one row) each sit at their own spot,
+#: outer-bound byte-exact at 5dp (the grass control recovers delta (0,0) with ZERO
+#: spread; dirt gameplay variants 19/20 recover the desert constants exactly).
+#: ``topo`` is the family's walkable topograph (in-family ids are gameplay variants);
+#: the ``wall_*`` deltas shift the mint's ROCK_U/ROCK_V band. Walls: dirthill fringes
+#: the DESERT wall in stock (byte-exact adjacency, measured); snow + canyon carry
+#: their own measured bands; scrub and flats never touch topo-58 in stock, so they
+#: BORROW the desert wall -- an authoring choice, not a measurement. Real ground ALSO
+#: slides free fractional windows over its (painted-over) internal gutter -- the
+#: locked grass-form window is a common real form and the safe generative choice, so
+#: minting reuses :func:`mains_uv`.
 GROUNDS = {
     "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0),
     "desert": dict(topo=17, mains_du=0.65332, mains_dv=-0.09863,
                    wall_du=-0.27127, wall_dv=-0.02066),
+    "scrub": dict(topo=4, mains_du=0.25977, mains_dv=-0.06738,      # grass<->dirt ecotone
+                  wall_du=-0.27127, wall_dv=-0.02066),              # borrowed desert wall
+    "dirthill": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
+                     wall_du=-0.27127, wall_dv=-0.02066),           # its REAL stock wall
+    "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
+                 wall_du=-0.44021, wall_dv=0.05161),                # icy band, measured
+    "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
+                   wall_du=-0.69509, wall_dv=-0.49722),             # red-rock band, measured
+    "flats": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event flats
+                  wall_du=-0.27127, wall_dv=-0.02066),              # borrowed desert wall
 }
 
 

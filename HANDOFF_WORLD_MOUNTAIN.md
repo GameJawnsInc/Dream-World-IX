@@ -27,8 +27,14 @@ ff9mapkit world-mirror   --mod-folder M          # ALWAYS after a custom-ocean d
 | Crag | `10,5-6` | cross-block, no apertures, own tile band, desert feet | ★ in-game ("looks verbatim") |
 | Daguerreo horseshoe | `5-6,15-16` | ENSEMBLE: hanging bowl + animated falls/river + object collar | ★ in-game (3 rounds) |
 
-**Ground families** (`--ground`, `grassland.GROUNDS`) — grass (bit-frozen identity) · desert (topo 17;
-THE TRANSLATION LAWS: mains `+(0.65332, −0.09863)`, cliff wall `+(−0.27127, −0.02066)`, byte-exact 5dp).
+**Ground families** (`--ground`, `grassland.GROUNDS`) — THE TRANSLATION LAW IS UNIVERSAL (the
+2026-07-15 census, `ground_families_anatomy.py`): grass (bit-frozen identity) · desert (topo 17; mains
+`+(0.65332, −0.09863)`, wall `+(−0.27127, −0.02066)`) · scrub (topo 4; `+(0.25977, −0.06738)`; the
+grass↔dirt ecotone set; borrows the desert wall) · dirthill (topo 38; `+(0.45703, −0.20215)`; its stock
+wall IS the desert wall) · snow (topo 27; `+(0.0, −0.33691)`; icy wall `+(−0.44021, +0.05161)`) · canyon
+(topo 45; `+(0.7793, −0.31641)`; red wall `+(−0.69509, −0.49722)`) · flats (topo 41; `+(0.38964,
+−0.13477)`; its OWN set — the family-model exception; borrows the desert wall). Grass+desert in-game
+proven; the four new families are offline-proven (atlas eye) — ground-sampler playtest pending.
 
 ## 2. The two identity oracles (run these after ANY change to the carve/mint)
 
@@ -92,10 +98,10 @@ identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs
 
 ## 6. Next steps (the menu, roughly by value)
 
-1. **More ground families via the translation law** — topo 4 (borders desert heavily), topo 38 (the
-   desert shore-flat/beach analogue), snow/swamp from the ~9-family census. If each is another grass
-   translation, `GROUNDS` grows for the cost of constants; if one isn't, that's a finding. Method:
-   clone `desert_ground_anatomy.py` (census → per-cell affine decode → the translation fit).
+1. **More ground families via the translation law — ★ DONE offline 2026-07-15** (see §1; the census
+   proved the law universal, `GROUNDS` grew 5 families for the cost of constants, dirt 19/20 byte-proved
+   the family model, dirt 41 is the exception with its own set). Remaining: the in-game ground sampler
+   (one small island per new family) + dirt-16's structure if the dry-lakebed look is ever wanted.
 2. **A desert beach** (topo 38) — desert islands currently mint pure cliff rings; this is the
    beach-mint analogue for sand shorelines.
 3. **A composed showcase island** — the pieces (island + mountain + forest + hill + entrance +
