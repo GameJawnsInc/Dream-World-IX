@@ -326,6 +326,31 @@ one interior ring — but the qualification DISQUALIFIES it on three independent
 Today's tool for placing the horseshoe remains the proven **v4 rect transplant** (the
 water system free-rides). `--donor` stays Uaho + the crag.
 
+**→ THE ENSEMBLE CARRY (★ built same day, 2026-07-15, user green-lit).** The
+disqualification became the spec: `ensemble_inventory.py` measured the aux parts (ALL
+components 100% inside the rim — no town scenery in the donor rect; 122 tris total;
+stride-48 with REAL tangents; parts ship per-block) and `carve_mountain` now carries
+them: rings not object-backed validate against the PART UNION (`ENSEMBLE_PARTS`) and
+classify as **ensemble apertures** (no plugs — the parts cover the hole exactly as
+stock); each aux component in the rim footprint rides the same rigid map (positions
+de-tilt+rot+DY, normals inverse-transpose, tangents as sheared directions, UVs verbatim)
+into per-block part overrides; `deploy_mountain_parts` writes content + BLANKS for every
+ensemble part on every span block (the free-ride trap) + the **Donor.txt divert** to a
+part-carrying donor block ((5,15) has all five transforms). Gates evolved en route, each
+Uaho-frozen: the crack gate exempts open ensemble rings by SEGMENT proximity
+(border-split halves), the edge gate covers synthetic zip only (verbatim stock rock is
+donor-given), the zip envelope gains a bank allowance (≤2 tris in [0.5, 0.83) — the
+horseshoe's falls-outlet bank, min ny 0.59), the peak probe replaces the bbox-centre
+probe (a horseshoe's centre is its open mouth), and the span widens with PRESENT
+apron-rect blocks under a per-position taper (border starvation fix). Plus the bench
+enablers: adaptive outline density past r60 + the conditional >8u fill refinement in
+`world-island` (both no-ops on every frozen baseline). **DEPLOYED**: r72 seed-42 bench
+at (1280,−1184) blocks (18-21,17-19), the horseshoe at (1288,−1190) rot 0 — 713 terrain
+tris + 122 aux tris (Falls/River/RiverJoint/Object) across a 10-block span, census
+MISS=0, both byte-identity acceptances + 3515 tests green; teleport **(1227.5,
+−1189.5)** face east — in-game verdict pending (the falls/river ANIMATED materials are
+the one thing the offline eye cannot judge).
+
 ## THE CRAG DONOR ANATOMY (★ 2026-07-15): measured, and DISQUALIFIED for single-block v1
 
 `crag_anatomy.py` → `out/crag_anatomy.json` + `out/crag_map.png` — the donor-qualification

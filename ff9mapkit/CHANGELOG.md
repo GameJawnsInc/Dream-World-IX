@@ -180,6 +180,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   module carve reproduces the deployed, playtested Uaho bench byte-for-byte (the scan converges
   on the study's exact placement, (162,-1246) rot 0); the go-forward fresh-mint path differs
   only by the mint's own concave-dent fix (24 tris at the two dents, far outside the carve).
+- THE ENSEMBLE CARRY: a water-bearing massif's aperture (the river/falls MOUTH — its ring is
+  owned by the UNION of the donor's Object/Falls/River/RiverJoint parts, not the Object part
+  alone) now classifies as an ENSEMBLE aperture, and the parts ride the carry: every aux
+  component inside the massif footprint transforms under the same rigid map (real tangents as
+  sheared directions, UVs verbatim — the animated water materials bind by part name) into
+  per-block part overrides, deployed with BLANKS for uncarried parts on every span block plus
+  a `Donor.txt` divert to a part-carrying donor block. Gate evolution (each Uaho-frozen, both
+  byte-identity acceptances pass): segment-proximity exemption for lawful open rings, the edge
+  gate on synthetic zip only, a ≤2-tri zip bank allowance in [0.5, 0.83), the carried-peak
+  placement probe (a horseshoe's bbox centre is its open mouth), and apron-wide span widening
+  with a per-position taper. `world-island` gains adaptive outline density past r60 + a
+  conditional >8u interior refinement (no-ops on every existing radius) for horseshoe-scale
+  benches. Proven offline end-to-end on the Daguerreo horseshoe — 713 terrain + 122 aux tris
+  over a 10-block span, census MISS=0.
 - MULTI-BLOCK carries: `--donor` also takes a block rect (`10,5-6` = the crag island's stock
   massif, which straddles a border — the blob builds on the merged world-frame donor bytes),
   and the TARGET sizes itself automatically: a blob that fits one block runs the proven

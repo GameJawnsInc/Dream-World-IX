@@ -776,6 +776,17 @@ Acceptance was proven by IDENTITY (`studies/overworld-topography/mountain_produc
 mint → module carve reproduces the deployed, playtested Uaho bench **byte-for-byte**; the go-forward fresh-mint path
 differs only by the mint's own concave-dent fix, far outside the carve. Run `world-mirror` after deploying.
 
+**THE ENSEMBLE CARRY.** A water-bearing massif's extra blob ring is a river/falls MOUTH owned by the UNION of
+the donor's `Object`/`Falls`/`River`/`RiverJoint` parts — Uaho's object-only aperture law is the small-mountain
+special case. Such rings classify as **ensemble apertures**: no plug is built; instead every auxiliary part
+component inside the massif footprint rides the same rigid map (positions de-tilt+rotate+translate, normals by
+inverse-transpose, REAL tangents as sheared directions, UVs verbatim — the animated water materials bind by part
+name) and deploys as per-block part overrides, with BLANKS for every uncarried ensemble part on every span block
+(un-overridden donor-prefab parts free-ride verbatim — the v4 law) and a `Donor.txt` divert to a donor block
+carrying all deployed part transforms. Proven end-to-end on the Daguerreo horseshoe (713 terrain + 122 aux tris,
+a 10-block span). Horseshoe-scale benches: `world-island` grows adaptive outline density past r60 and a
+conditional >8u interior refinement — both byte-frozen no-ops for every existing radius.
+
 **Multi-block carries.** `--donor` also accepts a block rect (`10,5-6` = the crag island's stock massif, one
 294-tri component straddling a border — the blob builds on the merged world-frame donor bytes; the crag's own
 anatomy pass is `studies/overworld-topography/crag_anatomy.py`). The TARGET sizes itself automatically: a blob
