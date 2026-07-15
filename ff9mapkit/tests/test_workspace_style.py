@@ -64,9 +64,13 @@ def test_qss_uses_the_derived_tokens_and_scales():
     d = theme.derive(theme.NORD)
     assert d["focus"] != theme.NORD["accent"] and d["focus"] in css     # focus ring wired to the derived token
     assert d["surface_2"] in css and d["surface_3"] in css              # elevation ladder reaches the rules
-    for role in ('QLabel[role="h1"]', 'QLabel[role="caption"]', 'QFrame[role="card"]'):
+    for role in ('QLabel[role="name"]', 'QLabel[role="caption"]', 'QFrame[role="card"]'):
         assert role in css, role                                        # component role classes present
-    assert "20px" in css                                               # the type ramp substituted (h1 = 20px)
+    # NB not `assert "20px" in css` -- that matched a button's padding-right as happily as the ramp, so it
+    # passed whether or not the ramp existed. Match the DECLARATION. (role="h1"/"display" are retired:
+    # zero call sites for three rounds; role="name" is the top rung now.)
+    import re as _re
+    assert _re.search(r'role="name"[^}]*font-size:\s*26px', css)        # the type ramp substituted
 
 
 def test_qss_accepts_an_already_derived_palette():
@@ -388,3 +392,109 @@ def test_no_placeholder_hides_in_a_qss_comment():
         assert "$" not in m.group(0), (
             "a bare '$' in a QSS comment is an Invalid-placeholder ValueError at import"
         )
+
+
+# The weights Segoe UI can actually DRAW, measured on the native platform (Windows 11, Segoe UI 13px):
+#
+#     weight   advance   renders as
+#     100-300   59.08    Light
+#     350       61.09    Semilight
+#     400-500   63.22    Regular      <-- 500 IS 400. Byte-identical pixel buffers.
+#     550-650   65.97    Semibold     <-- 550 is the first weight that gets heavier
+#     700-800   69.48    Bold
+#     900       74.12    Black
+#
+# This is DATA, not a render, and it has to be: the suite runs offscreen, where Qt stubs the font
+# database -- a render test here would measure the harness, not Segoe. That is the same trap that made an
+# earlier round invent a horizontal-scroll emergency. Re-measure with:
+#     py -c "from PySide6.QtGui import QFont,QFontMetricsF; ..."   on the NATIVE platform.
+_SEGOE_CUTS = ((100, 300, "Light"), (350, 350, "Semilight"), (400, 500, "Regular"),
+               (550, 650, "Semibold"), (700, 800, "Bold"), (850, 950, "Black"))
+
+
+def test_every_declared_weight_is_a_weight_segoe_can_draw():
+    """A declared font-weight must be the weight it will actually RENDER as -- or it is a lie in the sheet.
+
+    `role="label"` shipped `font-weight: 500` for three rounds. Segoe UI ships no Medium, so 500 renders
+    as Regular: byte-identical to the body text it was supposed to outrank. Every form label in the
+    Editor -- the app's #1 hours-spent surface -- was indistinguishable from body, while `forms_qt.py`
+    called it "the type ramp".
+
+    The rule: declare the FLOOR of a cut, never a value inside it. 500 and 450 both mean Regular, so
+    writing them means you wanted Medium and did not get it. 600 is inside the Semibold cut but is its
+    conventional name, so the floor rule is relaxed to "same cut as a canonical CSS weight".
+    """
+    import re
+    canonical = {400, 600, 700, 900, 300, 350}          # the weights this app is allowed to intend
+    css = style.qss(theme.DARK)
+    for w in {int(m) for m in re.findall(r"font-weight:\s*(\d+)", css)}:
+        cut = next((c for c in _SEGOE_CUTS if c[0] <= w <= c[1]), None)
+        assert cut, f"font-weight: {w} is outside every measured Segoe cut"
+        lo, hi, name = cut
+        assert w in canonical, (
+            f"font-weight: {w} renders as {name} (the {lo}-{hi} cut). Segoe UI cannot draw a distinct "
+            f"weight there -- declare the weight you mean."
+        )
+        # the specific trap: anything in the Regular cut above 400 is a Medium that does not exist
+        assert not (lo == 400 and w > 400), (
+            f"font-weight: {w} is byte-identical to 400 on Segoe UI (no Medium). Use 600 for Semibold."
+        )
+
+
+def test_the_type_ramp_assert_actually_measures_the_type_ramp():
+    """`assert "20px" in css` could not tell an h1 from a button's padding.
+
+    The sheet contained 20px TWICE -- `QLabel[role="h1"] { font-size: 20px }` and
+    `QToolButton[popupMode="2"] { padding-right: 20px }` -- so the assert passed whether or not the type
+    ramp existed. It proved nothing it claimed to prove. Match the DECLARATION, not the number.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    assert re.search(r'role="name"[^}]*font-size:\s*26px', css), "the nameplate rung is gone or resized"
+    assert re.search(r'role="h2"[^}]*font-size:\s*16px', css), "the h2 rung is gone or resized"
+
+
+def test_only_the_nameplate_wears_the_serif():
+    """THE SEAM, FENCED AS A TEST rather than trusted to a comment.
+
+    Extending Sitka out of the hero is the one place this direction touches identity, and it survives on
+    a precise argument: `hero.py` ALREADY separated the two halves of the front door -- "the wordmark is
+    pal['text'], NEVER gold; a gold 'Dream World IX' is a fan-logo". SIGNET kept GOLD as the identity and
+    left the serif neutral. The nameplate spends the neutral half and carries no FF9.
+
+    That argument holds for exactly ONE rule. A serif that spreads to the crumb, the tabs or a card title
+    stops being a crown and becomes a costume -- the same failure "one corner, once" was written to
+    prevent. `hero.py:138` proved a comment cannot hold a law: it drifted from its own explicit spec
+    inside a single round and shipped the front door sub-AA in 8/8. So this is a test.
+
+    (The hero itself paints via QPainter with a QFont chain, not QSS, so it is correctly not counted here.)
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        rules = re.sub(r"/\*.*?\*/", "", style.qss(pal), flags=re.S)
+        wearing = [m.group(0) for m in re.finditer(r"[^{}]+\{[^}]*Sitka[^}]*\}", rules)]
+        assert len(wearing) == 1, f"{mode}: {len(wearing)} rules name Sitka -- exactly one may"
+        assert 'role="name"' in wearing[0], f"{mode}: the serif escaped the nameplate: {wearing[0][:60]}"
+
+
+def test_the_nameplate_outranks_the_body_it_crowns():
+    """26px is not decoration -- it is the ratio that makes a screen have a subject.
+
+    Measured on the native platform: Sitka Display 26 caps at 16.03 against Segoe 13's 9.09 = 1.76x. The
+    fallback (drop the font-family) is Segoe 24/700 = 1.85x. Both are real crowns.
+
+    This asserts the DECLARED size, not the rendered cap: the suite runs offscreen, where the font DB is
+    stubbed and every cap-height measurement is fiction.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    m = re.search(r'QLabel\[role="name"\]\s*\{([^}]*)\}', css)
+    assert m, "the nameplate rule is gone"
+    body = m.group(1)
+    assert "font-size: 26px" in body
+    # it must outrank every other TYPE rung. empty_glyph (34px) is excluded and the sheet says why at its
+    # site: it is "a large decorative glyph", an icon rendered as text, not a rung of the ramp.
+    rungs = [int(x) for x in re.findall(r"font-size:\s*(\d+)px", css) if int(x) != 26]
+    glyph = int(re.search(r'role="empty_glyph"[^}]*font-size:\s*(\d+)px', css).group(1))
+    rungs = [r for r in rungs if r != glyph]
+    assert 26 > max(rungs), f"the nameplate must be the largest type rung; found {max(rungs)}px"

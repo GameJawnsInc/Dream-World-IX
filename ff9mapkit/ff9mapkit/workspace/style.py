@@ -63,7 +63,7 @@ _GRID_COMPACT = {"space_1": 4, "space_2": 6, "space_3": 8, "space_4": 12, "space
 _SCALES = {
     **{k: f"{v}px" for k, v in _GRID.items()},
     "radius_sm": "4px", "radius_md": "6px", "radius_lg": "8px",
-    "type_display": "24px", "type_h1": "20px", "type_h2": "16px",
+    "type_h2": "16px",
     "type_caption": "11px", "type_mono": "12px",
 }
 
@@ -386,10 +386,40 @@ _QSS = Template(
     /* --- component roles (Phase 1 substrate) -- these match ONLY widgets that set a dynamic `role`
        property (via workspace.widgets factories), so they are INERT until Phase 2 adopts them. They give
        the modern type ramp, elevation ladder, and chip a single named home instead of ad-hoc inline CSS. */
-    QLabel[role="display"] { font-size: $type_display; font-weight: 700; color: $text; }
-    QLabel[role="h1"]      { font-size: $type_h1; font-weight: 600; color: $text; }
+    /* THE NAMEPLATE. Every working screen names its subject ONCE, at display size, and this is the only
+       rule in the sheet allowed to name a serif -- fenced by test_only_the_nameplate_wears_the_serif.
+
+       WHY A SERIF, and why this is not a renegotiation of the identity contract: hero.py already
+       separated the two halves of the front door -- "the wordmark is pal['text'], NEVER gold; a gold
+       'Dream World IX' is a fan-logo". SIGNET kept GOLD as the identity and left the serif neutral. This
+       spends the neutral half. Nothing here carries FF9; it carries size.
+
+       WHY Sitka Display 26 and not Segoe 24: within one family, nominal ratio IS optical ratio (Segoe
+       24/13 = 1.85 nominal, cap 16.80/9.09 = 1.85 optical). Across families it is not, and the gap is
+       where a type ramp quietly dies -- an 18px serif declares 1.38x and delivers cap 1.23x, optically
+       identical to an h2. Measured here: Sitka Display 26 caps at 16.03 against the body's 9.09 = 1.76x,
+       real. Sitka ships SIX optical sizes and this is exactly what they are for: the hero's Banner 40
+       had a 2.5x hole under it, and Display 26 fills it -- Banner 40 > Display 26 > h2 16 > body 13 >
+       caption 11. The front door stops being an outlier and becomes the crown of a ramp.
+
+       Weight 400: a display-optical serif is already dark at 26px, and Sitka Display Semibold is a
+       separate FAMILY (not a weight), so asking for 600 here would silently synthesise. FALLBACK is one
+       property -- delete the font-family line and this is Segoe 24/700 at 1.85x. */
+    QLabel[role="name"] {
+        font-family: "Sitka Display", "Sitka Text", "Georgia", "Segoe UI";
+        font-size: 26px; font-weight: 400; color: $text;
+    }
+    /* role="display" (24/700) and role="h1" (20/600) lived here and rendered ZERO pixels for three
+       rounds -- no widget ever set either. They were kept alive only by tests that tested them, which
+       is the argument backwards: the tests existed because the code existed, not because anyone used
+       it. role="name" is the top rung now, and it has call sites. */
     QLabel[role="h2"]      { font-size: $type_h2; font-weight: 600; color: $text; }
-    QLabel[role="label"]   { font-weight: 500; }
+    /* 600, NOT 500. Segoe UI ships no Medium -- measured natively, weights 400/450/500 render
+       BYTE-IDENTICAL (advance 63.22 each) and 550 is the first that reaches Semibold (65.97). So this
+       tier spent three rounds declaring a distinction the font cannot draw: every form label in the
+       Editor rendered as plain body text while a comment two files away called it "the type ramp".
+       Fenced by test_every_declared_weight_is_a_weight_segoe_can_draw. */
+    QLabel[role="label"]   { font-weight: 600; }
     QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
     QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
     /* TEXT gets the derived *_text rung (AA 4.5 on the card fill); SHAPES below keep the canonical hue,

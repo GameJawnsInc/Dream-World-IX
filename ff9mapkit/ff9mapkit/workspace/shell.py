@@ -59,7 +59,7 @@ from . import concepts
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard, repolish, section
+from .widgets import PlaceholderListWidget, install_wheel_guard, nameplate, repolish, section
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -5833,14 +5833,19 @@ class Workspace(QMainWindow):
         return SimpleNamespace(flags=flags, members=(getattr(self.plan, "members", None) or []))
 
     def _header(self, title, note=None):
-        lbl = QLabel(title)
-        lbl.setProperty("role", "h3")
-        self.doc_host_lay.addWidget(lbl)
-        if note:
-            h = QLabel(note)
-            h.setWordWrap(True)
-            h.setProperty("role", "muted")
-            self.doc_host_lay.addWidget(h)
+        """The panel's CROWN: a quiet kicker (where you are) over the subject's name (what this is).
+
+        Every caller already passes both halves, as "<member>  ·  <what>" -- and the app stamped the whole
+        compound as ONE 15px h3, which is 1.15x the body text beneath it. So the panel's title was
+        effectively the same size as its own content: a screen with no crown. At 26px the name reads at
+        1.76x, and the breadcrumb half drops to an 11px overline where a breadcrumb belongs.
+
+        The split is `rpartition` on the separator ALREADY IN THE DATA, so no call site changes -- and the
+        journey site, which passes a bare name with no separator, falls out correctly as kicker="".
+        """
+        kicker, _, name = title.rpartition("  ·  ")
+        plate, _lab = nameplate(kicker, name, note or "")
+        self.doc_host_lay.addWidget(plate)
 
     def _wrap_width(self, member):
         """The FF9-window wrap width for this field's dialogue preview, from its ``[dialogue] wrap`` (a
