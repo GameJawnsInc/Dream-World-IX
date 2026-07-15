@@ -28,6 +28,7 @@ def _pad(btn: QPushButton) -> QPushButton:
     btn.setMinimumWidth(btn.fontMetrics().horizontalAdvance(btn.text()) + 34)
     return btn
 
+from . import widgets
 from ..editor import jobs
 
 
@@ -65,17 +66,16 @@ class CoopDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(14, 14, 14, 14)
-        v.setSpacing(10)
+        v.setContentsMargins(18, 14, 18, 18)
+        v.setSpacing(widgets.SECTION_GAP)   # the box borders are gone -- this gap IS the grouping now
 
-        intro = QLabel("Two-player co-op: you and a friend each see the other's ghost walk a shared "
-                       "field, and — if you grant it in Play style below — they command party members "
-                       "in your battles. Every save stays your own.")
-        intro.setWordWrap(True)
+        intro = widgets.prose("Two-player co-op: you and a friend each see the other's ghost walk a "
+                              "shared field, and — if you grant it in Play style below — they command "
+                              "party members in your battles. Every save stays your own.")
         v.addWidget(intro)
 
-        st = QGroupBox("Status")
-        sv = QVBoxLayout(st)
+        st = widgets.section("Status")
+        sv = st.content_layout
         self.lbl_game = QLabel("game: …")
         self.lbl_engine = QLabel("engine: …")
         self.lbl_room = QLabel("room: …")
@@ -91,8 +91,8 @@ class CoopDoc(QWidget):
         sv.addLayout(row)
         v.addWidget(st)
 
-        sess = QGroupBox("Session")
-        gv = QVBoxLayout(sess)
+        sess = widgets.section("Session")
+        gv = sess.content_layout
         self.rb_host = QRadioButton("Host — start a new session (your code is shared with the other player)")
         self.rb_join = QRadioButton("Join — enter the host's session code")
         self.rb_host.setChecked(True)
@@ -103,12 +103,20 @@ class CoopDoc(QWidget):
         code_row = QHBoxLayout()
         self.code_label = QLabel("Session code:")
         self.code = QLineEdit()
-        self.code.setPlaceholderText("generated on Start (host) / paste the host's ff9-XXXXXXXX (join)")
+        self.code.setPlaceholderText("ff9-XXXXXXXX")
+        self.code.setMaximumWidth(260)                  # a 12-char code, not a 970px trough
         self.btn_copy = _pad(QPushButton("Copy"))
         self.btn_copy.clicked.connect(self._copy_code)
+        # Qt derives an unnamed control's screen-reader name from its enclosing QGroupBox TITLE
+        # (QAccessibleWidget -> buddyString). Sections have no title, so every control that was leaning on
+        # the box for its name goes silent -- test_every_visible_actionable_control_has_a_screen_reader_name
+        # caught exactly this. setBuddy restores it from the VISIBLE label, which is a better name than the
+        # box title ever was ("Session code" beats "Session") and cannot drift out of sync.
+        self.code_label.setBuddy(self.code)
         code_row.addWidget(self.code_label)
-        code_row.addWidget(self.code, 1)
+        code_row.addWidget(self.code)
         code_row.addWidget(self.btn_copy)
+        code_row.addStretch(1)                          # controls size to CONTENT; the slack goes here
         gv.addLayout(code_row)
 
         lan_row = QHBoxLayout()
@@ -117,10 +125,14 @@ class CoopDoc(QWidget):
         self.rb_relay.setChecked(True)
         self.rb_relay.toggled.connect(self._render_role)
         self.lan_ip = QLineEdit()
-        self.lan_ip.setPlaceholderText("host's LAN IP (join only)")
+        self.lan_ip.setPlaceholderText("host's LAN IP")
+        self.lan_ip.setAccessibleName("Host's LAN IP")   # no visible label of its own to buddy to
+        self.lan_ip.setMaximumWidth(200)
         lan_row.addWidget(self.rb_relay)
+        lan_row.addSpacing(24)
         lan_row.addWidget(self.rb_lan)
-        lan_row.addWidget(self.lan_ip, 1)
+        lan_row.addWidget(self.lan_ip)
+        lan_row.addStretch(1)
         gv.addLayout(lan_row)
         v.addWidget(sess)
 
@@ -128,8 +140,8 @@ class CoopDoc(QWidget):
         # Each side sets its own: battle slots/wait cap govern MY battles, the outfit is how THEIR
         # ghost looks on MY screen, follow-host is for the joining side. Hot-reloads into a running
         # game, so Apply works mid-session.
-        self.style_box = QGroupBox("Play style — how co-op behaves on this machine")
-        pv = QVBoxLayout(self.style_box)
+        self.style_box = widgets.section("Play style")
+        pv = self.style_box.content_layout
 
         slots_row = QHBoxLayout()
         slots_lbl = QLabel("In my battles, my friend commands party slot(s):")
@@ -155,6 +167,7 @@ class CoopDoc(QWidget):
         self.spin_wait.setValue(30)
         self.spin_wait.setSuffix(" s")
         self.spin_wait.setSpecialValueText("no cap")
+        wait_lbl.setBuddy(self.spin_wait)           # see the buddy note in the Session section
         wait_row.addWidget(wait_lbl)
         wait_row.addWidget(self.spin_wait)
         wait_row.addStretch(1)
@@ -171,8 +184,11 @@ class CoopDoc(QWidget):
                             ("Steiner", "steiner"), ("Freya", "freya"), ("Quina", "quina"),
                             ("Eiko", "eiko"), ("Amarant", "amarant")):
             self.combo_ghost.addItem(label, data)
+        ghost_lbl.setBuddy(self.combo_ghost)        # see the buddy note in the Session section
         ghost_row.addWidget(ghost_lbl)
-        ghost_row.addWidget(self.combo_ghost, 1)
+        self.combo_ghost.setMaximumWidth(340)
+        ghost_row.addWidget(self.combo_ghost)
+        ghost_row.addStretch(1)
         pv.addLayout(ghost_row)
 
         self.cb_follow = QCheckBox("Follow the host between screens (joining side) — my game "

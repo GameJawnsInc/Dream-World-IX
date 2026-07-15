@@ -17,6 +17,11 @@ from . import anim
 
 _QWIDGETSIZE_MAX = 16777215                        # Qt's max size -- 'release the height pin' so a widget tracks content
 
+# The gap BETWEEN sections (see `section`). Deliberately ~2.4x the old 10px page spacing: with the box
+# border gone, this gap IS the grouping, so it has to be unmistakably larger than the 8px gap between the
+# rows INSIDE a section. Equal gaps carry no grouping information at all.
+SECTION_GAP = 24
+
 
 class WheelGuard(QObject):
     """App-wide event filter: ignore the mouse wheel on an UNFOCUSED combo / spin box.
@@ -95,6 +100,83 @@ def card(*, parent=None):
     frame = QFrame(parent)
     frame.setProperty("role", "card")
     return frame
+
+
+PROSE_W = 620      # max measure for a wrapped sentence, px. ~75-85 chars at 13px Segoe UI -- the readable
+                   # band. A full-window paragraph on a 1180px pane runs ~180 chars/line and reads as
+                   # unformatted output, not as text somebody wrote.
+
+
+class Prose(QLabel):
+    """A word-wrapped label with a REAL measure cap.
+
+    A raw ``setMaximumWidth`` on a wrapped QLabel silently CLIPS: ``QBoxLayout::calcHfw`` asks
+    ``heightForWidth()`` at the full CELL width (say 900px -> "2 lines please"), then lays the label out at
+    its capped 620px, where the text actually needs 4. The bottom two lines are cut off. Overriding
+    ``heightForWidth`` to answer for the *capped* width -- never the cell's -- is what makes the cap honest.
+
+    Do NOT "fix" this with an HBox + addStretch wrapper: that collapses the label to its sizeHint (its
+    natural single-line width) and throws the measure away entirely.
+    """
+
+    def __init__(self, text="", width=PROSE_W, parent=None):
+        super().__init__(text, parent)
+        self._cap = width
+        self.setWordWrap(True)
+        self.setMaximumWidth(width)
+
+    def heightForWidth(self, w):                   # noqa: N802 (Qt override)
+        return super().heightForWidth(min(w, self._cap))
+
+    def sizeHint(self):                            # noqa: N802 (Qt override)
+        s = super().sizeHint()
+        s.setWidth(min(s.width(), self._cap))
+        s.setHeight(self.heightForWidth(self._cap))
+        return s
+
+
+def prose(text, width=PROSE_W, *, parent=None):
+    """A wrapped sentence held to a readable measure (see :class:`Prose`)."""
+    return Prose(text, width, parent)
+
+
+def section(title, *, parent=None):
+    """A titled SECTION -- the replacement for QGroupBox, and the whole of the "cards don't read well" fix.
+
+    A section is a small tracked-caps overline, then its rows, then a generous gap before the next one.
+    **No fill and no frame**: the grouping is carried by proximity and a shared left edge (the Linear /
+    Zed settings idiom), not by a stroke. A QGroupBox could not do this even in principle -- QSS silently
+    ignores ``font-*`` on ``QGroupBox::title`` (colour is its only lever), so the 11px/600/+1px-tracking
+    overline is unreachable by styling and the box had to go.
+
+    Call shape mirrors :func:`disclosure` (the established idiom in this module)::
+
+        st = widgets.section("Status")      # was: st = QGroupBox("Status")
+        sv = st.content_layout              # was: sv = QVBoxLayout(st)
+        sv.addWidget(...)                   # unchanged
+        v.addWidget(st)                     # unchanged
+
+    The title is upper-cased HERE, at the call site, because Qt has no ``text-transform``.
+
+    **The host must pay the whitespace.** A section deleted from its box but left at a 10-12px page
+    spacing reads WORSE than the box did -- an overline floating equidistant between two groups is not a
+    section, it is an orphan. Set the parent layout to ``SECTION_GAP`` when you adopt this.
+    """
+    box = QWidget(parent)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(6)                                  # overline -> its own rows: tight (they belong together)
+    lab = role_label(title.upper(), "overline")
+    lab.setAccessibleName(title)                     # announce the real title, not the shouty form
+    v.addWidget(lab)
+    body = QWidget()
+    body_lay = QVBoxLayout(body)
+    body_lay.setContentsMargins(0, 0, 0, 0)
+    body_lay.setSpacing(8)
+    v.addWidget(body)
+    box.content_layout = body_lay
+    box.title_label = lab
+    return box
 
 
 def status_chip(text, kind="info", *, parent=None):
