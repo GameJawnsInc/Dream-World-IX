@@ -112,9 +112,11 @@ identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs
 2. **A desert beach — rung A ★ DONE offline 2026-07-15** (THE BEACH TRANSLATION LAW: topo-32 desert
    sand = the grass band +335 u-texels w/ own v pins; `coastmorph.SAND_BANDS`, every beach verb
    family-keyed, desert proven on all 15 real blocks; + THE ABSENT-PART LAW fix in morph_in_place).
-   The in-game rung is PARKED at the fork: the in-place window census closed (frame gate × relief
-   law); the vehicle = the island-B TRANSPLANT pattern (desert-coast donor into the archipelago,
-   bank+mint on the copy), and the bigger prize behind it = the LADDER MINT (sea5/sea1/wash over
+   **THE FIRST MINTED DESERT BEACH is ★ DEPLOYED (playtest pending)**: real block (16,5), teleport
+   ≈ (1074,−336), the block's own real beach at (1061,−358) = the built-in A/B; disc 1 only. The
+   island-B transplant path is CLOSED by census (no self-contained desert landmass exists in stock);
+   the in-place frame failure was diagnosed as part re-labeling and dissolved by THE SWASH LEVER
+   (3.8 keeps the wash re-band in-cell). The remaining prize = the LADDER MINT (sea5/sea1/wash over
    open sea4) that gives OUR minted islands beaches. → the coast-mosaic memory ("THE DESERT BEACH").
 3. **A composed showcase island** — the pieces (island + mountain + forest + hill + entrance +
    waystation field) have never been assembled into ONE designed place. This is where the arc's tools

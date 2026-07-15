@@ -566,15 +566,29 @@ residual classes as grass). En route: **THE ABSENT-PART LAW** — an in-place mo
 CANNOT emit into a part the real cell's prefab doesn't carry (no transform to bind
 the override; the (18,3) incident shipped a foam-less beach while gates read clean —
 morph_in_place now refuses actionably; the bad deploy was reverted). The window scan
-(`desert_beach_window_scan.py`, builders-as-the-oracle) closed the in-place path:
-bare desert coasts lack the parts, beach-block coasts are the cliff-lip by grammar
-(bay arcs!), and the two lawful (16,5) windows die between the FRAME gate (the bank
-field must cross block edges to sink enough berm) and the relief law (a narrower
-bank leaves the berm too steep). **The in-game proof's vehicle = the island-B
-TRANSPLANT pattern** (carry a desert-coast donor into the archipelago, bank+mint on
-the copy — no frame constraint, proven machinery); the bigger prize behind it = the
-LADDER MINT (sea5/sea1/wash bands over open sea4) that would give OUR minted islands
-(grass and desert alike) beaches — both open.
+(`desert_beach_window_scan.py`, builders-as-the-oracle) first seemed to close the
+in-place path: bare desert coasts lack the parts, beach-block coasts are the
+cliff-lip by grammar (bay arcs!), and the two lawful (16,5) windows failed the
+IN-PLACE-FRAME gate. **The transplant path (island-B) IS closed** — the census
+truth: no self-contained desert landmass exists in stock (`desert_beach_transplant
+_scan.py`: every desert beach block is continent coast; land-fit fails everywhere;
+the only clean multi-block landmasses in FF9 are grass — (9,5)+2×3 and island B's
+own (10,17)+2×2). But the frame-failure DIAGNOSIS re-opened in-place: the failing
+verts were pure PART RE-LABELING (the wash re-band flipping sea3→sea2 at the frame,
+water-union byte-identical) — and lawfully refused, since the NEIGHBOR's band at
+those verts is sea3 ({2,3} off-language across the border, where a single-cell
+morph can't re-band). The lever: **the wash reached the frame only at the default
+swash 4.6 — at swash 3.8 (inside the ribbon envelope) the whole re-band stays
+in-cell and the 14.6u window runs CLEAN through every gate.** ★ DEPLOYED
+2026-07-15 (playtest pending): the first MINTED DESERT BEACH, block (16,5), the
+Outer Continent's east coast — `world-transplant --in-place --cell 16,5 --donor
+16,5 --bank-lower "1075.22,-333.89:18" --virgin-mint "1071.19,-328.14:1079.26,
+-339.64:2.4:3.8:pins=20,5"`; minted foam/sand/wash at (1071–1079, −328..−340),
+teleport ≈ (1074, −336); THE BUILT-IN A/B: the block's own REAL desert beach runs
+the west shore, centroid (1061, −358), ~15u around the corner. Real cell → disc 1
+only (no mirror; a world re-entry loads it); revert = delete the five deployed
+overrides. The LADDER MINT (sea5/sea1/wash over open sea4 → beaches on OUR minted
+islands) remains the arc's next prize.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
