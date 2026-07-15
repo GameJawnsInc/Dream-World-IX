@@ -181,6 +181,51 @@ def option(rb, description, lay, *, width=PROSE_W):
     return rb
 
 
+def kv(key, lay, *, key_width, mono=False, placeholder="…"):
+    """One row of a definition list: a MUTED key in a fixed column, the value beside it.
+
+    `game: C:\\Program Files (x86)\\...` as a single 13px label makes the key and the answer the same
+    weight, so four such rows are a wall you read linearly instead of a table you scan. Splitting them
+    puts the labels in one muted column and the answers in another at full weight -- the key names the
+    question, the value IS the information.
+
+    ``key_width`` is a MEASURED column (see the caller): a fixed px width aligns every value to the same
+    left edge, which is the whole point of a definition list. Pass the widest key's advance + padding.
+
+    ``mono`` is for values that are machine tokens (a path, an id) -- NOT for prose. Mono on a sentence
+    reads as a bug.
+
+    Returns the VALUE label. Callers keep their existing ``self.lbl_x.setText(...)`` sites; they just stop
+    writing the ``"key: "`` prefix into the text.
+    """
+    row = QHBoxLayout()
+    row.setSpacing(0)
+    k = role_label(key, "muted")
+    k.setFixedWidth(key_width)
+    k.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    val = QLabel(placeholder)
+    val.setWordWrap(True)
+    if mono:
+        val.setProperty("mono", True)
+    val.setAccessibleName(key)          # a screen reader still hears "game" for this value
+    row.addWidget(k)
+    row.addWidget(val, 1)
+    lay.addLayout(row)
+    val.key_label = k
+    return val
+
+
+def set_state(label, state=""):
+    """Set a label's ``state`` (``""`` / ``warn`` / ``error``) and restyle it.
+
+    ``setProperty`` alone does NOT re-evaluate the QSS -- a status line would keep its old colour. Always
+    pair them; that is what this exists for.
+    """
+    label.setProperty("state", state)
+    repolish(label)
+    return label
+
+
 def section(title, *, parent=None):
     """A titled CARD -- the QGroupBox replacement.
 

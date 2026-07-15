@@ -274,6 +274,12 @@ _QSS = Template(
     QLabel[role="ok"]      { color: $success; }               /* a done/healthy status mark (e.g. a ✓) */
     QLabel[role="muted"][state="warn"]  { color: $warn; }      /* a status line that turns cautionary */
     QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
+    /* A state on a plain (roleless) value label -- e.g. a definition-list value that IS the answer to
+       "why is this broken" ("netsync MISSING"). The role-scoped rules above carry more attributes and so
+       out-rank this, which is what we want: a muted hint keeps its own warn tint. Never demote a
+       diagnostic to 11px grey -- demote the EXPLANATION, never the answer. */
+    QLabel[state="warn"]  { color: $warn; }
+    QLabel[state="error"] { color: $error; }
     QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */
     QLabel[role="caption"][state="warn"]  { color: $warn; }    /* a soft warning (e.g. text may overflow) */
     QLabel[role="subtle"]  { color: $text_subtle; }

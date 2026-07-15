@@ -126,6 +126,28 @@ def test_checked_indicators_carry_a_tick_and_a_dot():
         assert dot, f"{mode}: checked radio has no dot gradient"
 
 
+def test_a_diagnostic_value_can_keep_full_weight():
+    """A roleless value label must be able to carry a warn/error state.
+
+    The state colours were scoped to `role="muted"` / `role="caption"` only, so a definition-list VALUE --
+    which is deliberately roleless, because it is the answer at full weight -- had no way to turn amber.
+    "netsync MISSING" is the answer to "why doesn't co-op work"; demote the explanation, never the answer.
+
+    The role-scoped rules must still out-rank the generic one (more attributes = higher specificity), so a
+    muted hint keeps its own tint rather than inheriting the value tint.
+    """
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(pal)
+        warn = [ln for ln in css.splitlines() if 'QLabel[state="warn"]' in ln and "role=" not in ln]
+        err = [ln for ln in css.splitlines() if 'QLabel[state="error"]' in ln and "role=" not in ln]
+        assert warn, f"{mode}: a roleless value label cannot show a warn state"
+        assert err, f"{mode}: a roleless value label cannot show an error state"
+        assert d["warn"] in warn[0] and d["error"] in err[0], f"{mode}: state colours not wired to the palette"
+        # the role-scoped variants must still exist, or a muted hint would lose its own warn tint
+        assert 'QLabel[role="muted"][state="warn"]' in css, f"{mode}: the muted-hint warn rule went missing"
+
+
 def test_accent_button_keeps_a_visible_focus_ring():
     """The primary button must show focus -- it had NO ring at all until this rule.
 
