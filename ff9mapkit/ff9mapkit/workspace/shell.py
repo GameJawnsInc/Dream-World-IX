@@ -52,6 +52,7 @@ from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 from . import thumbs as _thumbs
+from . import concepts
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
 from .widgets import PlaceholderListWidget, install_wheel_guard, repolish
@@ -717,6 +718,41 @@ class Workspace(QMainWindow):
         bb.rejected.connect(dlg.reject)
         dlg.finished.connect(_finish)
         dlg.exec()
+
+    def _concept_dialog(self, concept):
+        """Build (but do NOT exec) the small themed concept card -- separated so it's grab-testable."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(concept.title)
+        dlg.setMinimumWidth(430)
+        lay = QVBoxLayout(dlg)
+        title = QLabel(concept.title)
+        title.setProperty("role", "h2")
+        lay.addWidget(title)
+        body = QLabel(concept.plain)
+        body.setWordWrap(True)
+        lay.addWidget(body)
+        if concept.engine_term:
+            aside = QLabel(f"Under the hood: {concept.engine_term}")
+            aside.setWordWrap(True)
+            aside.setProperty("role", "caption")
+            aside.setContentsMargins(0, 4, 0, 0)
+            lay.addWidget(aside)
+        lay.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.accept)                # the Close button (Esc too) just dismisses
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        return dlg
+
+    def _show_concept(self, concept):
+        """Pop a small, themed concept card explaining one domain term in plain language -- the shared viewer
+        for the Ctrl-K 'What is X?' rows, a '?' jargon badge, and What's-This. ``concept`` may be a Concept or
+        a free-text term (resolved via concepts.resolve); a miss is a silent no-op."""
+        if isinstance(concept, str):
+            concept = concepts.resolve(concept)
+        if concept is None:
+            return
+        self._concept_dialog(concept).exec()
 
     def _open_about(self):
         """An About box: icon, version + install mode, the provenance/license one-liner, and links."""
@@ -3455,6 +3491,8 @@ class Workspace(QMainWindow):
         for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
             cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
                          "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
+        for c in concepts.all_concepts():              # 'What is X?' -> a plain-language concept card (Phase 5)
+            cmds.append((f"What is {c.title}?", "learn", lambda _c=c: self._show_concept(_c)))
         content = []
 
         def walk(item):
@@ -7019,6 +7057,12 @@ def _smoke(win):
     assert win._density == "compact" and win.styleSheet() != _qss_comfy, "Compact re-renders the QSS"
     win._toggle_density()
     assert win._density == "comfortable" and win.styleSheet() == _qss_comfy, "toggling back restores Comfortable"
+    # CONCEPT CARDS (Phase 5): Ctrl-K carries a 'What is X?' row per domain term (fuzzy-searchable, so typing
+    # 'walkmesh' surfaces its card), and _show_concept resolves a free-text term to a card without raising.
+    _concept_rows = [lbl for lbl, k, _cb in win._command_index() if k == "learn"]
+    assert any("Walkmesh" in lbl for lbl in _concept_rows) and len(_concept_rows) >= 20, len(_concept_rows)
+    assert concepts.resolve("gEventGlobal").term == "story-flag"   # an engine-term alias -> the right card
+    win._show_concept("no-such-term")                     # a miss returns before any dialog -> a silent no-op
     assert win._open_recent("campaign", _rec[0]["path"]) is True
     prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
     assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
