@@ -361,3 +361,30 @@ def test_an_input_is_cut_and_a_button_is_raised():
         assert f"border-bottom-color: {d['border_shade']}" in btn, mode
         assert f"border-top-color: {d['border_shade']}" in inp, mode    # cut: the exact inverse
         assert f"border-bottom-color: {d['border_lit']}" in inp, mode
+
+
+def test_no_placeholder_hides_in_a_qss_comment():
+    """string.Template has no concept of a CSS comment, so a $name inside one still substitutes.
+
+    This has now broken the build TWICE, both times while writing a comment that EXPLAINS a token:
+      - naming a deleted density token as $gb_margin_top -> KeyError on every palette at import
+      - naming a rejected token as $well in the console comment -> KeyError, same shape
+    and once more as a bare '$' in prose -> ValueError: Invalid placeholder.
+
+    A comment cannot hold this law -- the file already had one saying exactly this and it did not stop
+    the second occurrence. So it is a test. Name tokens in comments WITHOUT the leading dollar.
+
+    Live placeholders are fine anywhere; this only fences comments, where a name is prose about a token
+    rather than a request for its value.
+    """
+    import re
+    src = style._QSS.template
+    for m in re.finditer(r"/\*.*?\*/", src, re.S):
+        hits = re.findall(r"\$[A-Za-z_][A-Za-z0-9_]*", m.group(0))
+        assert not hits, (
+            f"placeholder(s) {hits} inside a QSS comment -- Template will substitute them, and will "
+            f"KeyError the moment the token is renamed or removed. Drop the leading dollar."
+        )
+        assert "$" not in m.group(0), (
+            "a bare '$' in a QSS comment is an Invalid-placeholder ValueError at import"
+        )

@@ -110,7 +110,7 @@ _QSS = Template(
        foot. The fill cannot say "this is a button" (LIGHT's surface_btn IS surface, contrast 1.0000), so
        the edge says it instead.
 
-       Both edges are always emitted and there is deliberately no `if dark:` anywhere: $border is the one
+       Both edges are always emitted and there is deliberately no `if dark:` anywhere: border is the one
        already-mode-aware token in the app -- above its fill in all 6 dark palettes, below it in both light
        ones, 8/8 -- so each palette's own border EATS the edge it cannot hold. Dark's lit top carries
        (d33-d43) while its foot stays quiet; light's foot carries (d40) while its lit edge lands at d8 and
@@ -159,12 +159,12 @@ _QSS = Template(
     }
     QPushButton#search:hover { border-color: $accent; color: $text; background: $field; }
     /* The primary is the ONE most-raised object on a screen, lit from its own hue rather than from
-       $border. It MUST restate its edge -- `border: 1px solid $accent` resets the per-side colours set on
+       border. It MUST restate its edge -- `border: 1px solid accent` resets the per-side colours set on
        the generic QPushButton above, which silently flattened it when probed.
 
-       ONE EDGE, NOT TWO, and this is where the border pair's trick stops working. $border is a
+       ONE EDGE, NOT TWO, and this is where the border pair's trick stops working. border is a
        desaturated grey, so mixing it toward white and toward black moves it by different amounts: one
-       edge carries (d26-d34) and the other stays QUIET (d6-d13) and is eaten by the palette. $accent is
+       edge carries (d26-d34) and the other stays QUIET (d6-d13) and is eaten by the palette. accent is
        SATURATED and has no quiet edge -- dark's #4c8dff has B=255, so mixing toward black drops B by 36
        while mixing toward white cannot move it at all. Measured, the accent pair runs carrier/quiet of
        33/29 (light), 36/25 (dark), 24/22 (nord), 36/32 (gruvbox): BOTH edges always read. Emitting the
@@ -188,7 +188,7 @@ _QSS = Template(
        generic `QPushButton:focus` (0,0,1,1) -- exactly the trap the :disabled rule above documents -- so
        every accent button in the app had NO focus indication at all, including the crumb-row Deploy F9,
        the primary action of the whole application. Measured: 0 px changed on focus, before this rule.
-       $accent_fg, not $focus: $focus == $accent in 6 of 7 palettes, so a $focus ring on an $accent fill
+       accent_fg, not focus: focus == accent in 6 of 7 palettes, so a focus ring on an accent fill
        would be invisible. */
     QPushButton#accent:focus { border: 1px solid $accent_fg; }
 
@@ -196,7 +196,7 @@ _QSS = Template(
        An action row of four equally-filled buttons has no entry point; the eye has to read all four to
        find the verb. Quiet drops the FILL (not the text) so the row keeps one obvious start.
 
-       `color: $text`, NOT $muted: lines above already spend *transparent + muted* as the DISABLED idiom
+       `color: text`, NOT muted: lines above already spend *transparent + muted* as the DISABLED idiom
        (QToolButton:disabled), so a muted ghost would read as un-clickable. The hierarchy comes from the
        missing fill.
 
@@ -205,8 +205,8 @@ _QSS = Template(
        block is declared LATER -- so source order hands it the win and a disabled quiet button would
        render pixel-identical to an enabled one. The explicit `[role="quiet"]:disabled` (0,0,2,1) outranks
        both. Same trap as #accent:disabled above. MEASURED, not reasoned: strip the :disabled rule and a
-       disabled quiet button resolves to $text (#e6e8eb in dark) -- byte-identical to enabled -- instead of
-       $muted (#a4acb5). It is live, not hypothetical: builddoc's `_busy()` disables `pack_btn` for the
+       disabled quiet button resolves to text (#e6e8eb in dark) -- byte-identical to enabled -- instead of
+       muted (#a4acb5). It is live, not hypothetical: builddoc's `_busy()` disables `pack_btn` for the
        duration of every build/deploy run, which is exactly when the user is watching that row. */
     QPushButton[role="quiet"]          { background: transparent; border: 1px solid $border; color: $text; }
     QPushButton[role="quiet"]:hover    { background: $hover; }
@@ -228,7 +228,7 @@ _QSS = Template(
     QRadioButton::indicator { border-radius: 9px; }
     QCheckBox::indicator { border-radius: $radius_sm; }
     QCheckBox::indicator:hover, QRadioButton::indicator:hover { border: 1px solid $accent; }
-    /* CHECKED must say WHICH KIND of control this is. A bare `background: $accent` (what shipped) made a
+    /* CHECKED must say WHICH KIND of control this is. A bare `background: accent` (what shipped) made a
        checked checkbox a solid square and a checked radio a solid circle -- identical but for the corner
        radius, so pick-several and pick-exactly-one looked the same, and a filled swatch reads as a colour
        chip, not as "checked". The tick and the dot are the whole signal; restore both. */
@@ -243,7 +243,7 @@ _QSS = Template(
     }
     QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { border: 1px solid $muted; background: $bg; }
     /* A disabled+checked control still has to show WHAT it is set to (it is state, not decoration) -- but
-       in $muted, so it reads as unavailable rather than active. Specificity 0x31 out-ranks :checked's 0x21. */
+       in muted, so it reads as unavailable rather than active. Specificity 0x31 out-ranks :checked's 0x21. */
     QCheckBox::indicator:checked:disabled {
         background: $bg; border: 1px solid $muted; image: url($check_img_off);
     }
@@ -297,17 +297,22 @@ _QSS = Template(
        not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
        `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test
        `(0 & state) == 0` is true in EVERY state. The rule silently degenerates to an unconditional
-       `QRadioButton, QCheckBox { border: 1px solid $focus; }` -- which shipped, and boxed every radio and
+       `QRadioButton, QCheckBox { border: 1px solid focus; }` -- which shipped, and boxed every radio and
        checkbox in the app in a permanent accent rect while giving them NO focus ring at all.
        test_qss_has_no_malformed_subcontrol_selectors now guards the whole class of typo. */
     QCheckBox::indicator:focus, QRadioButton::indicator:focus { border: 1px solid $focus; }
-    /* A CHECKED indicator is already filled $accent, and $focus == $accent in 6 of 7 palettes, so the rule
-       above would be invisible exactly when a radio is clicked or arrowed into. $accent_fg is the one token
-       guaranteed legible ON $accent. Specificity (0x31 > 0x21) wins this, not source order. */
+    /* A CHECKED indicator is already filled accent, and focus == accent in 6 of 7 palettes, so the rule
+       above would be invisible exactly when a radio is clicked or arrowed into. accent_fg is the one token
+       guaranteed legible ON accent. Specificity (0x31 > 0x21) wins this, not source order. */
     QCheckBox::indicator:checked:focus, QRadioButton::indicator:checked:focus { border: 1px solid $accent_fg; }
 
+    /* A CONTAINER OF CONTENT IS A WELL -- cut into the plate, never sitting on it. That is the material's
+       one rule, and it is what makes the light read as a light rather than as trim: a control is RAISED
+       (lit on top), a well is CUT (the exact inverse). Every tree and list in this app holds content --
+       the project tree, the catalogs, Problems, the palette picker -- so they are all wells. */
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: $radius_lg; padding: 4px;
+        border-top-color: $border_shade; border-bottom-color: $border_lit;
     }
     QTreeView::item, QListWidget::item { padding: $row_pad; border-radius: $radius_sm; }
     QTreeView::item:hover, QListWidget::item:hover { background: $hover; }
@@ -333,8 +338,16 @@ _QSS = Template(
        the key is gone. A bare dollar is worse: it is an Invalid-placeholder ValueError and takes down
        every palette at import. This comment broke the build BOTH ways while being written. */
 
+    /* log_bg IS the well material -- always the deepest fill in the palette, never named for what it was
+       doing. It is a well: cut, like every other container of content.
+       (An earlier draft proposed a DERIVED well token; measurement killed it -- it regressed its own
+       exemplars, dracula 1.383 -> 1.281 and mist 1.343 -> 1.306. The depth was never the problem; the
+       missing edge was. NB the token names in this comment carry no leading dollar ON PURPOSE: Template
+       has no concept of a CSS comment, so naming a dead token as a placeholder here KeyErrors every
+       palette at import. This exact comment did that once.) */
     QPlainTextEdit, QTextEdit {
         background: $log_bg; color: $log_fg; border: 1px solid $border; border-radius: $radius_lg;
+        border-top-color: $border_shade; border-bottom-color: $border_lit;
         font-family: "Cascadia Code", "Consolas", monospace; font-size: $type_mono; padding: 6px;
     }
 
@@ -345,8 +358,8 @@ _QSS = Template(
     QMenu::separator { height: 1px; background: $border; margin: 4px 6px; }
 
     /* GEOMETRIC, not a token: the groove is 12px, so 6 is the handle's TRUE pill (exactly half-width).
-       5px left a barely-eased rectangle; 4px ($radius_sm) would square off the one element Linear and
-       Zed both render as a capsule. It coincides with $radius_md's 6px -- spend the token, since a
+       5px left a barely-eased rectangle; 4px (radius_sm) would square off the one element Linear and
+       Zed both render as a capsule. It coincides with radius_md's 6px -- spend the token, since a
        future re-tune of the groove width is the thing that should move it, not the button radius. */
     QScrollBar:vertical { background: $bg; width: 12px; margin: 0; }
     QScrollBar::handle:vertical { background: $scroll; border-radius: $radius_md; min-height: 28px; }
@@ -357,7 +370,7 @@ _QSS = Template(
 
     /* the slim 'Working…' busy bar in the console header (indeterminate while a job runs) */
     /* GEOMETRIC, not a token: shell.py fixes this bar at 120x6, so 3px is EXACTLY half-height = the
-       capsule. $radius_sm (4px) exceeds half-height, and Qt then either clamps it (buys nothing) or
+       capsule. radius_sm (4px) exceeds half-height, and Qt then either clamps it (buys nothing) or
        squashes the chunk ends. Pinned to the 6px height, not to the radius language. */
     QProgressBar { background: $surface_btn; border: 1px solid $border; border-radius: 3px; }
     QProgressBar::chunk { background: $accent; border-radius: 3px; }
@@ -438,7 +451,11 @@ _QSS = Template(
     QToolButton#hub:hover { background: $hover; color: $help_hover; border-color: $help_hover; }
     QToolButton#hub:focus { border: 1px solid $accent; }
     QWidget#crumbRow    { background: $surface; border-bottom: 1px solid $border; }
-    QWidget#consoleHead { background: $surface; border-top: 1px solid $border; }
+    /* THE LIP. The console is a hole cut into the bottom of the app, and this strip is the plate's near
+       edge above it -- so it catches the light, exactly like a button's top edge. It is the one band in
+       the chrome that is a MATERIAL boundary rather than a grouping rule, which is why it takes
+       border_lit while every other band keeps the flat border. */
+    QWidget#consoleHead { background: $surface; border-top: 1px solid $border_lit; }
     QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
     /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb. */

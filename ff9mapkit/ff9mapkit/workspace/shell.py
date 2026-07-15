@@ -52,7 +52,7 @@ from .hero import HeroBand
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
-from .style import qss
+from .style import qss, space
 from . import thumbs as _thumbs
 from . import anim
 from . import concepts
@@ -1348,7 +1348,8 @@ class Workspace(QMainWindow):
 
         prob_page = QWidget()                       # left: the lint verdict banner + the Problems rows
         pv = QVBoxLayout(prob_page)
-        pv.setContentsMargins(8, 8, 8, 8)
+        _w = space("space_2")                        # the console's inset, on the grid (was a hand-typed 8)
+        pv.setContentsMargins(_w, _w, _w, _w)
         pv.setSpacing(6)
         pv.addWidget(self._panel_header("Problems"))
         self.banner = QLabel("")
@@ -1366,7 +1367,7 @@ class Workspace(QMainWindow):
 
         out_page = QWidget()                        # right: the streamed process/console output
         ov = QVBoxLayout(out_page)
-        ov.setContentsMargins(8, 8, 8, 8)
+        ov.setContentsMargins(_w, _w, _w, _w)
         ov.setSpacing(6)
         out_head = QHBoxLayout()
         out_head.addWidget(self._panel_header("Output"))
