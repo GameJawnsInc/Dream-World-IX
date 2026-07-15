@@ -85,6 +85,17 @@ def test_command_palette_is_a_frameless_shadowed_card(app):
     assert card is not None and isinstance(card.graphicsEffect(), QGraphicsDropShadowEffect)
 
 
+def test_palette_display_row_is_categorised_with_keybinding_hints():
+    # Phase 6: Ctrl-K rows are verb-first + category-prefixed + keybinding-hinted. display_row shapes only the
+    # DISPLAY (the stored label is untouched, so the fuzzy matcher + tests still key on it).
+    from ff9mapkit.workspace.palette import display_row
+    assert display_row("New Field…", "command") == "Action  ·  New Field…      ⌨ Ctrl+N"
+    assert display_row("Go to Battle", "view") == "Go to  ·  Battle"           # redundant leading verb stripped
+    assert display_row("What is Walkmesh?", "learn") == "Learn  ·  Walkmesh"   # concept row cleaned
+    assert display_row("Deploy now (F9)", "command") == "Action  ·  Deploy now      ⌨ F9"   # F9 -> ⌨ column
+    assert display_row("IC_ENT ▸ npc", "object").startswith("Go to  ·  ")
+
+
 def test_build_form_adds_a_concept_badge_to_jargon_fields(app):
     # Phase 5: a field whose KIND is a story-flag/scenario reference (or that sets Field.concept) gets a "?"
     # badge that opens the plain-language card; a plain field gets none.
