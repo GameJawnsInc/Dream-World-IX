@@ -113,6 +113,32 @@ confirms it: the 28px serif wordmark still dominates an 11px tracked overline in
 **Corollary for any future painted surface:** if you invent a ground, you owe it a fence. The ramp's
 guarantees stop at the ramp.
 
+### CONTRAST IS NOT THE INSTRUMENT FOR A TINT (REGISTER P1 — the sharpest finding in round 4)
+
+> **A contrast ratio is luminance-only. It is blind to the axis a coloured fill actually uses.**
+
+The tree's selected row painted the **full accent** — the same fill as the primary CTA, on a *persistent*
+selection. Replacing it with the tinted `selection_bg` looked fatal by the numbers: **hover out-contrasts
+the new selection in four palettes** (gruvbox 1.488 vs 1.294, nord 1.327 vs 1.161, dracula, sol-dark).
+
+Rendered at 4× with a real synthetic hover, gruvbox's selection **wins decisively** — because hover is a
+pure *lightness* step (ΔHue ≤2.5°, ΔSat ≈0) while a selection is a *hue/chroma* event (ΔSat up to +0.42,
+ΔHue up to 93.8°). The ratio cannot see the thing doing the work.
+
+**But the render also refused to rubber-stamp the argument.** Nord came back *marginal*, honestly so: its
+accent is nearly its own surface's hue, so a fixed 16% tint of a thing into a near-copy of itself barely
+moves — 11/255 from its own hover, with the rail carrying it alone.
+
+**So the ground and the metric both changed.** A selected row is never confused with the *page*; it is
+confused with **hover**. `_selection_token` now raises the tint until the fill is ≥20/255 from that
+palette's own hover, as a raw channel distance. **The floor is calibrated to the two renders, not chosen**
+— gruvbox reads and sits at 26, nord didn't and sat at 11 — and the metric then independently reproduces
+both verdicts: it leaves gruvbox/dark/solarized-light untouched and lifts nord to 0.50. An earlier solve
+against *contrast* was discarded for over-tinting gruvbox, which the eye says needs nothing.
+
+**The transferable rule:** when a fence and a render disagree, the render is not automatically right
+either — it tells you the fence is measuring the wrong axis. Then go find the axis.
+
 ### The instrument, and the two that lied first
 
 `audit_contrast.py` **cannot see the hero at all** — it reads ink from `w.palette().color(...)`, a QLabel
