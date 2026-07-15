@@ -33,6 +33,43 @@ which is the property that makes it safe. See [[project-ff9-main-repo-branch-tra
 | `f1c3867` `b758182` `721fb81` `0dcb2c4` `49c3df4` | **The contrast sweep** — the transparent-container bug, the audit tool, accent-as-text, the accent floor, the status hues, `help`/`muted` |
 | `53d2ed9` | **Phase 2a** — the quiet button tier; the action row gets an entry point; coop's Start becomes the accent |
 | `cbc0eb0` `7bb91d8` | **Phase 5** — nine radii → three tokens + three geometric pins; one card language; the dead QGroupBox block; the grid gets an int rung and the form docs stop each inventing a page frame |
+| `7eaf343` | **The hero writes in `$text`** — defects #8 and #9; the NINTH-GROUND LAW |
+| `eb44b96` `9b7d8c6` | **INTAGLIO** (round 4) — one light, from above: four edge tokens, the button ladder finally renders, wells are cut, the console gets a lit lip |
+
+## INTAGLIO — the material (round 4's first build)
+
+**The app was never flat-and-minimal, it was unfinished, and there is a number for it: in LIGHT,
+`surface_btn` and `surface` are THE SAME HEX.** A button's fill is 1.0000 against its page.
+solarized-dark's `field` IS `surface`. mist's button-in-a-card is 1.0017. The elevation ladder claims a
+light source ("higher = lighter") and never drew the light.
+
+**THE RULE:** a control is **RAISED** (lit on top); a container of content is **CUT** (the exact inverse).
+Raised and cut are the same two colours in opposite order — that inversion is what makes it read as one
+light source rather than as trim on unrelated widgets.
+
+**Anchored on `$border`, never the fill.** Fill-anchored, LIGHT gets d5 on a card — a no-op in the two
+palettes that need it most. Border-anchored the carrier lands **d26–d34 in all 8**. And it needs **no
+`if dark:`**: `$border` is the app's one already-mode-aware token — above its fill in all 6 dark palettes,
+below it in both light ones, 8/8 — so each palette's own border eats the edge it cannot hold.
+**Fenced**, because it holds only by convention and a ninth palette that broke it would light every object
+upside down rather than fail.
+
+**`EDGE_T = 0.14`, and the render chose it.** At the proposed 0.18 the non-carrier reaches d13–d17 and
+five palettes grow a second visible edge — two edges on a raised rectangle is a bevel, and a bevel is
+Windows 95. At 0.14 no quiet edge exceeds d13 while the carrier stays 3–4× the fill deltas it replaces.
+The ceiling is fenced so the taste call cannot silently decay.
+
+**The rule the accent taught, which was not in the proposal:** *emit both edges only where one of them is
+quiet; emit one where neither is.* `$border` is a desaturated grey and has a quiet edge. `$accent` is
+**saturated and has none** — dark's `#4c8dff` has B=255, so mixing toward black drops B by 36 while
+mixing toward white cannot move it at all (nord: carrier 24 / quiet 22, a symmetric bevel on the loudest
+object on screen). So the primary takes a lit top only. Premise and consequence both fenced.
+
+**Not done, deliberately:** the spec's *"kill the bottom radius — a hole in a plate has no rounded floor."*
+Rendered first: the wells are inset 8px inside a panel above a `QStatusBar` that draws its own border-top.
+The metaphor assumes the hole reaches the plate's **edge**; this one doesn't. Flush would butt the well's
+1px lit foot against the status bar's 1px border. **A spec written without the geometry in front of it
+does not get to overrule the geometry** — same call as Phase 5's splitter docs.
 
 ## Seven live defects found — none visible to a test that reads source
 
@@ -87,6 +124,21 @@ instrument **by construction**. Two replacements failed before one worked:
 | **model the ground** (bg → gradient → bloom) | needs `_axis()`'s geometry to be right. Applied the bloom at full alpha 40 where the render says ~32. **Wrong by a full point.** |
 | **mode of a row strip** | the ground is a *gradient* — hundreds of near-identical colours, few px each — while the ink is **one flat colour**. So the mode returns the ground for a SHORT string and **the ink itself** for a long one. It scored the status line at **1.00 against "ground" == muted** and looked plausible. |
 | ✅ **render twice, suppress `drawText`, read the ground under the glyphs** | exact. Legal *only* because the band is paint-only with no layout, so the reflow objection that killed blank-and-diff for the QSS audit does not apply here. |
+
+### THE COMMENT-PLACEHOLDER LAW (it bit twice; a comment could not hold it)
+
+> **`string.Template` has no concept of a CSS comment.** A `$name` inside `/* */` still substitutes — and
+> KeyErrors every palette at import the moment that token is renamed or removed. A bare `$` is worse: an
+> Invalid-placeholder **ValueError** at import.
+
+It broke the build in Phase 5 (`$gb_margin_top` in a comment explaining the deleted token), then **again**
+in INTAGLIO P2 (`$well` in a comment explaining the rejected token) — *after* the file had grown a comment
+saying never to do it. So it is now `test_no_placeholder_hides_in_a_qss_comment`, and the fence
+immediately found **11 live instances**: comments that had been shipping with their token names silently
+replaced by hex values, so the generated sheet's own commentary was lying about itself.
+
+**The transferable bit:** a law that only lives in a comment gets broken by the next person writing a
+comment. If a rule can be checked, check it.
 
 ---
 
