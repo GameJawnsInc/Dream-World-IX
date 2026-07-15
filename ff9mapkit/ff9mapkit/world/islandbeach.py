@@ -477,9 +477,21 @@ def build_beach(outline, radii, center, arc, *, ground, land_height, rim,
         if id(t3) in kept_keys:
             raised.append(t3)
         else:
-            raised.append([((v[0][0], max(v[0][1], SEA_Y + 0.02), v[0][2]),
+            raised.append([((v[0][0], max(v[0][1], SEA_Y + 0.1), v[0][2]),
                             v[1], v[2], v[3]) for v in t3])
     wash = raised
+    # the taper FOAM's W edge approaches y=0 asymptotically over the kept plane --
+    # the round-3 shimmer sliver; lift its low verts clear (per-tri entries, opaque
+    # ribbon: the 0.05 step is sub-visible)
+    lifted = []
+    for t3 in foam:
+        c = _cell_of(sum(v[0][0] for v in t3) / 3.0, sum(v[0][2] for v in t3) / 3.0)
+        if c in cut:
+            lifted.append(t3)
+        else:
+            lifted.append([((v[0][0], max(v[0][1], SEA_Y + 0.05), v[0][2]),
+                            v[1], v[2], v[3]) for v in t3])
+    foam = lifted
 
     # water tris must stay single-block too (lattice cells align; the zip could cross)
     wblks = {(math.floor(v[0][0] / BLOCK), math.floor(-v[0][2] / BLOCK))
