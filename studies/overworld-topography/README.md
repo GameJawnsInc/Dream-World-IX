@@ -691,7 +691,12 @@ green (weld 0, census miss 0). DEPLOYED: the ladder-mint bench REVERTED
 (shift −8: island ≈ (292,−1245)) + the UNTOUCHED grass control at **(6,19)**
 (≈ (420,−1245)) for same-session A/B, disc-4 mirrored. The N-strip nicety: the
 (7,16) continent band contributes 12 recover tris that clip away at zero z-shift —
-recovered harmlessly, counted honestly.
+recovered harmlessly, counted honestly. **★ IN-GAME PROVEN 2026-07-15, round 1:
+"the desert island looks verbatim, keep both"** — both islands stay deployed; the
+beach-on-our-islands prize is CLOSED by the carry (first-deploy pass, zero fix
+rounds — against the ladder mint's 4). Open follow-ons (earmarks, not scheduled):
+multi-block `--ground` (e.g. the (10,17)+2×2 island-B donor as desert), non-beach
+donors to the other island-class families (snow/canyon need no sand family).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
