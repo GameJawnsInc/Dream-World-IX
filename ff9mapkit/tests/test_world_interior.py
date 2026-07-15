@@ -172,11 +172,15 @@ def test_build_hill_refuses_stacking_and_steep_flanks():
 # ---- the mountain ----------------------------------------------------------------------------
 
 MASSIF = float(encode_id(topograph=49))
+# the donor wears DISPATCH CONTEXT (Uaho's real massif is baked event=1/area=63 -- the
+# alcove camera-zoom quirk + a latent place-entrance trigger); the carve must strip it
+MASSIF_DONOR = float(encode_id(event=1, area=63, topograph=49))
 
 
 def _pyramid_donor(cx=24.0, cz=-24.0, half=4.0, apex=4.0):
-    """A 4-tri rock pyramid (topo 49) in donor block (0,0)'s local frame -- the minimal
-    massif: base ring of 4 once-edges, rigid up-wound faces, no apertures."""
+    """A 4-tri rock pyramid (topo 49, donor-context event/area bits) in donor block
+    (0,0)'s local frame -- the minimal massif: base ring of 4 once-edges, rigid up-wound
+    faces, no apertures."""
     c00 = (cx - half, 0.0, cz - half)
     c10 = (cx + half, 0.0, cz - half)
     c11 = (cx + half, 0.0, cz + half)
@@ -184,7 +188,7 @@ def _pyramid_donor(cx=24.0, cz=-24.0, half=4.0, apex=4.0):
     top = (cx, apex, cz)
     tris = []
     for a, b in ((c10, c00), (c11, c10), (c01, c11), (c00, c01)):
-        tris.append(((a, b, top), MASSIF, _MAIN_U))
+        tris.append(((a, b, top), MASSIF_DONOR, _MAIN_U))
     return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
 
 
@@ -245,9 +249,11 @@ def test_carve_mountain_carries_the_pyramid_rigidly(monkeypatch, tmp_path):
     # tri accounting: kept = bench - dropped; new = 4 massif + zip
     bench_tris = len(_mountain_bench().tris)
     assert len(bm.tris) == bench_tris - r["dropped"] + 4 + r["zip_tris"]
-    # the massif tris kept their rock idall verbatim
+    # the massif tris kept topograph 49 but the donor's event/area dispatch bits are
+    # STRIPPED (the alcove camera-zoom / latent-entrance carry-fidelity fix)
     rock_ids = [t4[0] for t4 in bm.chan_arrays[CH_TAN] if t4[0] == MASSIF]
     assert len(rock_ids) == 4 * 3
+    assert not any(t4[0] == MASSIF_DONOR for t4 in bm.chan_arrays[CH_TAN])
 
 
 def test_carve_mountain_refusals(monkeypatch, tmp_path):

@@ -141,6 +141,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   * Gates: rim/aperture accounting, baseline-subtracted once-edges, ROCK-RIGID drift < 3.5%,
     zip rise/winding envelope, apron slope ≤ 29.5°, rock/grass placement probes, the
     Moguri-atlas alpha gate (when installed), and the census.
+  * THE DONOR-DISPATCH STRIP: a carried IDALL keeps its topograph + flags but drops the donor's
+    event/area bits — dispatch CONTEXT that is meaningless and hazardous on a custom island
+    (Uaho's massif is baked area=63, which `w_cameraArea2Place[63]` maps to place bucket 2 =
+    cameraDistance 6000, the alcove camera zoom-out; five alcove-floor tiles even carry event=1,
+    a latent PLACE-ENTRANCE trigger into the world `.eb`). Verified surgical on the bench:
+    re-carve vs the prior approved bytes differs in exactly the 149 carried tris' tangent.x and
+    nothing else.
 - Acceptance was proven by IDENTITY (`mountain_productize_check.py`): the pristine bench mint →
   module carve reproduces the deployed, playtested Uaho bench byte-for-byte (the scan converges
   on the study's exact placement, (162,-1246) rot 0); the go-forward fresh-mint path differs
