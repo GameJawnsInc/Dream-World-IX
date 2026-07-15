@@ -44,6 +44,9 @@ class Field:
                                       # plain entry (value stays an ordinary STR either way)
     concept: str = None               # a workspace.concepts term -> the Qt form renders a "?" badge on the
                                       # label that opens the plain-language concept card (Phase 5 learnability)
+    advanced: bool = False            # an expert field -> the Guided beginner mode tucks it into a per-form
+                                      # 'Advanced options' drawer (Phase 7). Fields whose help starts with
+                                      # "advanced" are auto-detected too; this flags the rest (e.g. the mesID).
 
 
 # --- section specs (the editor's logic vocabulary) ---------------------------------------
@@ -56,7 +59,8 @@ FIELD_SPEC = [
     Field("id", "Field ID", INT, "a unique number for your field (use >= 4000)"),
     Field("name", "Name", STR, "short tag, e.g. MY_ROOM (letters, digits, underscore)"),
     Field("area", "Area", INT, "must be >= 10 (lower areas don't render in-game)"),
-    Field("text_block", "Text block", OPTINT, "leave at 1073 unless you know you need another", concept="mes"),
+    Field("text_block", "Text block", OPTINT, "leave at 1073 unless you know you need another", concept="mes",
+          advanced=True),
     Field("title", "Title", STR, "a human label for your own notes (optional)"),
     Field("location", "Location", STR, 'the in-game menu place-name (the "LOCATION" card), e.g. "Mog\'s Hut"; '
                                        "blank = a fork inherits its donor's, a new field shows none"),

@@ -111,6 +111,28 @@ def test_build_form_adds_a_concept_badge_to_jargon_fields(app):
     assert not [b for b in w2.findChildren(QToolButton) if b.objectName() == "conceptBadge"], "plain field: none"
 
 
+def test_build_form_tucks_advanced_fields_in_guided_mode(app):
+    # Phase 7: Guided beginner mode tucks each spec's expert fields (Field.advanced, or a help starting with
+    # "advanced" -- model/animset here) into an 'Advanced options' drawer; Full shows every field inline.
+    # Nothing is removed -- every field still has a getter either way.
+    from PySide6.QtWidgets import QToolButton
+
+    from ff9mapkit.editor import forms, theme
+    from ff9mapkit.workspace import forms_qt
+    pal = theme.pick_palette("dark")
+    try:
+        forms_qt.set_guided(True)
+        w, g = forms_qt.build_form(forms.NPC_SPEC, {"name": "G"}, pal)
+        drawers = [b for b in w.findChildren(QToolButton) if b.objectName() == "disclosureToggle"]
+        assert drawers and "Advanced" in drawers[0].text(), "guided tucks advanced fields into a drawer"
+        assert "model" in g and "animset" in g, "nothing removed -- every field still has a getter"
+        forms_qt.set_guided(False)
+        w2, _g = forms_qt.build_form(forms.NPC_SPEC, {"name": "G"}, pal)
+        assert not [b for b in w2.findChildren(QToolButton) if b.objectName() == "disclosureToggle"], "full: inline"
+    finally:
+        forms_qt.set_guided(True)                          # restore the module default for other tests
+
+
 def test_build_form_flips_a_bad_field_to_the_error_state(app):
     # The Phase-2 forms_qt migration replaced the inline red/muted hint styles with a caption `role` + a
     # `state` property (styled by QSS, repolished on change). Assert the mechanism: a value that fails its

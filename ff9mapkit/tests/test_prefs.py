@@ -57,3 +57,12 @@ def test_density_defaults_and_round_trips(tmp_path, monkeypatch):
     assert prefs.density() == "comfortable"
     prefs.put("density", 5)                            # a malformed on-disk value degrades to the default
     assert prefs.density() == "comfortable"
+
+
+def test_guided_mode_defaults_and_round_trips(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.guided() is True                      # Guided is the newcomer-friendly default
+    prefs.set_guided(False)
+    assert prefs.guided() is False and prefs.load()["guided"] is False
+    prefs.set_guided(True)
+    assert prefs.guided() is True

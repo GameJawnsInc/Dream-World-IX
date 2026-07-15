@@ -35,6 +35,23 @@ from ..editor import forms
 _KIND_CONCEPT = {forms.FLAGREF: "story-flag", forms.FLAGPAIR: "story-flag",
                  forms.FLAGDICTLIST: "story-flag", forms.SCENARIOREF: "scenario"}
 
+# Guided beginner mode (Phase 7): build_form tucks the expert fields of each spec into a per-form 'Advanced
+# options' drawer. Global (not threaded through the many call sites); the shell sets it at startup + on toggle
+# and re-mounts the open form. Nothing is removed -- Guided only tucks; Full shows every field inline.
+_GUIDED = True
+
+
+def set_guided(on):
+    """Set the global Guided beginner mode read by :func:`build_form`."""
+    global _GUIDED
+    _GUIDED = bool(on)
+
+
+def _is_advanced(f):
+    """An expert field the Guided mode tucks away: an explicit ``Field.advanced`` OR a help string that opens
+    with 'advanced' (the convention already used across the specs for model/animset/borrow_bg/…)."""
+    return getattr(f, "advanced", False) or (f.help or "").strip().lower().startswith("advanced")
+
 
 def _concept_badge(term, palette):
     """A small '?' help badge that opens the plain-language concept card for ``term`` (via a lightweight
@@ -128,6 +145,18 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     getters = {}
     hints = {}                                         # field key -> its hint QLabel (help text / live error)
     editable = []                                      # (key, widget) for wiring change -> validate + on_change
+    # Guided mode: expert fields go into an 'Advanced options' drawer (a second form layout) instead of inline.
+    adv_lay = None
+    adv_box = None
+    if _GUIDED and any(_is_advanced(f) for f in spec):
+        adv_box = widgets.disclosure("Advanced options")
+        _adv_inner = QWidget()
+        adv_lay = QFormLayout(_adv_inner)
+        adv_lay.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
+        adv_lay.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        adv_lay.setHorizontalSpacing(14)
+        adv_lay.setVerticalSpacing(12)
+        adv_box.content_layout.addWidget(_adv_inner)
 
     def browse(field, getter, setter):
         # a numeric field (e.g. the encounter battle scene, an INT) wants the picked entry's id, not its name
@@ -205,6 +234,7 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         label = widgets.role_label(f.label + ":", "label")   # weight-500 field label (the type ramp)
         term = f.concept or _KIND_CONCEPT.get(f.kind)         # a jargon field -> a "?" concept badge (Phase 5)
         badge = _concept_badge(term, palette) if term else None
+        target = adv_lay if (adv_lay is not None and _is_advanced(f)) else lay   # Guided: expert -> Advanced drawer
         if badge is not None:
             btn, card_html = badge
             widget.setWhatsThis(card_html)                    # Shift-F1 on the field too, not just the badge
@@ -215,9 +245,11 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             lh.addWidget(label)
             lh.addWidget(btn)
             lh.addStretch(1)
-            lay.addRow(lw, box)
+            target.addRow(lw, box)
         else:
-            lay.addRow(label, box)
+            target.addRow(label, box)
+    if adv_box is not None:
+        lay.addRow(adv_box)                                   # the Advanced drawer spans, below the plain fields
 
     def validate():
         """Live per-field check: a value that fails its parser turns the hint red with the error; an OK

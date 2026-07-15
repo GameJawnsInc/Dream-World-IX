@@ -76,6 +76,16 @@ def set_density(mode: str) -> None:
     put("density", mode if mode in DENSITIES else "comfortable")
 
 
+def guided() -> bool:
+    """Beginner mode: True = Guided (expert form fields tuck into a per-form 'Advanced' drawer, the default),
+    False = Full (every field inline). Nothing is ever removed -- Guided only tucks. Default True."""
+    return get("guided", True) is not False
+
+
+def set_guided(on: bool) -> None:
+    put("guided", bool(on))
+
+
 def recent() -> list:
     """The recent-projects list, most recent first: ``[{"kind": k, "path": p}, ...]`` with ``kind`` in
     :data:`RECENT_KINDS`. Type-disciplined like :func:`theme`: a hand-edited/corrupt file can hold anything,

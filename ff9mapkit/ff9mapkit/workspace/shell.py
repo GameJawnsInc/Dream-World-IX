@@ -418,6 +418,8 @@ class Workspace(QMainWindow):
         self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
         self._density = prefs.density()            # UI density (comfortable default / compact); live-toggleable
+        from . import forms_qt as _fq             # Guided/Full beginner mode read by build_form
+        _fq.set_guided(prefs.guided())
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
@@ -496,6 +498,24 @@ class Workspace(QMainWindow):
         self._apply_density("compact" if self._density == "comfortable" else "comfortable")
         prefs.set_density(self._density)
         self.statusBar().showMessage(f"Density: {self._density}", 3000)
+
+    def _apply_guided(self, on):
+        """Set Guided/Full beginner mode LIVE + re-mount the open form so it applies now. Guided tucks each
+        form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed."""
+        from . import forms_qt
+        forms_qt.set_guided(bool(on))
+        if getattr(self, "tree", None) is not None and self.tree.currentItem() is not None:
+            self._on_select()                              # re-render the current form under the new mode
+
+    def _toggle_guided(self):
+        """Flip Guided <-> Full and persist it (the Ctrl-K quick command)."""
+        from . import forms_qt
+        on = not forms_qt._GUIDED
+        prefs.set_guided(on)
+        self._apply_guided(on)
+        self.statusBar().showMessage(
+            "Beginner mode: Guided — expert fields tucked into an Advanced drawer" if on
+            else "Beginner mode: Full — every field shown inline", 5000)
 
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
@@ -691,6 +711,13 @@ class Workspace(QMainWindow):
         dens_combo.setCurrentIndex(dix if dix >= 0 else 0)
         dens_combo.currentIndexChanged.connect(lambda i: self._apply_density(dens_combo.itemData(i)))
         form.addRow("Density", dens_combo)
+        mode_combo = QComboBox()
+        for val, label in ((True, "Guided — tuck expert fields into an Advanced drawer (default)"),
+                           (False, "Full — show every field inline")):
+            mode_combo.addItem(label, val)
+        mode_combo.setCurrentIndex(0 if prefs.guided() else 1)
+        mode_combo.currentIndexChanged.connect(lambda i: self._apply_guided(mode_combo.itemData(i)))
+        form.addRow("Beginner mode", mode_combo)
         lay.addLayout(form)
         hint = QLabel("Applies instantly. “Match system” follows your Windows light/dark setting.")
         hint.setWordWrap(True)
@@ -719,20 +746,23 @@ class Workspace(QMainWindow):
         lay.addWidget(bb)
         original = self.pal
         original_density = self._density
+        original_guided = prefs.guided()
         state = {"ok": False}
 
         def _accept():
             state["ok"] = True
             prefs.set_theme(combo.currentData())
             prefs.set_density(dens_combo.currentData())
+            prefs.set_guided(bool(mode_combo.currentData()))
             prefs.set_restore_session(restore.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
 
         def _finish(_r):
-            if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density preview
+            if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density + mode preview
                 self._density = original_density
+                self._apply_guided(original_guided)
                 self.retheme(original)                    # re-applies qss() with the restored density
 
         bb.accepted.connect(_accept)
@@ -3599,6 +3629,7 @@ class Workspace(QMainWindow):
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
+            ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
@@ -7253,6 +7284,14 @@ def _smoke(win):
     assert win._density == "compact" and win.styleSheet() != _qss_comfy, "Compact re-renders the QSS"
     win._toggle_density()
     assert win._density == "comfortable" and win.styleSheet() == _qss_comfy, "toggling back restores Comfortable"
+    # Phase 7: the Guided/Full beginner mode -- the Ctrl-K toggle flips forms_qt's global mode (Guided tucks
+    # expert form fields into an Advanced drawer; Full shows all inline). Default Guided; nothing removed.
+    from . import forms_qt as _fqm
+    assert _fqm._GUIDED is True and any("beginner mode" in lbl.lower() for lbl, _k, _cb in win._command_index())
+    win._toggle_guided()
+    assert _fqm._GUIDED is False, "toggle flips to Full"
+    win._toggle_guided()
+    assert _fqm._GUIDED is True, "toggle flips back to Guided"
     # CONCEPT CARDS (Phase 5): Ctrl-K carries a 'What is X?' row per domain term (fuzzy-searchable, so typing
     # 'walkmesh' surfaces its card), and _show_concept resolves a free-text term to a card without raising.
     _concept_rows = [lbl for lbl, k, _cb in win._command_index() if k == "learn"]
