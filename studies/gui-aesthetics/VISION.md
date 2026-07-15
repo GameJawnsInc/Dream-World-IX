@@ -8,6 +8,26 @@ behind a re-screenshot. Kept unedited as the record of the reasoning.
 
 # THE VISION
 
+> ## ⚠ CORRECTED 2026-07-15 — §2 and §4 were overruled
+>
+> Detail: **[CORRECTIONS.md](CORRECTIONS.md)**. Nothing is deleted; the errors are the record.
+>
+> - **§4's "Kill the QGroupBox. All 27 of them, in one pass" was WRONG and was overruled by the user**
+>   after it was built and shown: *"the cards were nice logical section indicators, they just looked
+>   ugly."* All 27 migrated — to **cards**, not to nothing.
+> - **§1's elevation sentence is FALSE: it measured the wrong pair.** `surface→surface_2` (1.168) is not
+>   what a card is seen against; `bg→surface_2` is **1.308** in DARK, *stronger* than GitHub dark's card
+>   (1.094). The fill was always fine; it was never changed. Everything else in §1 survives audit intact.
+> - **§2 (WORKSHOP) survives as a metaphor but not as a containment rule.** "Nothing in a case / no fill,
+>   no frame / sections are not containers" is dead. The lamp test, the type prescription and the mono
+>   register all stand. Re-spend the metaphor on **rank**, not containment: tools in shallow *trays*, one
+>   thing under the lamp.
+> - **LAW I needs re-scoping, not deleting** — see below.
+> - **§5's "what not to do" list survives essentially whole**, and its meta-law ("Measure the pixels.
+>   Don't reason about them.") was vindicated three more times while shipping — including against this
+>   document's own headline.
+
+
 ## 1. THE DIAGNOSIS
 
 **Nothing in this app was ever allowed to be more important than anything else** — because every mechanism that could rank things (tone, type, space, a scarce accent) was built, tokenized, tested, and then never spent, leaving one instrument in the box: draw a 1px rectangle around it. A rectangle cannot rank.
@@ -28,7 +48,7 @@ The developer's test, every time: **is this under the lamp, or on the table?** A
 
 ## 3. THE THREE LAWS
 
-**I. A border must earn its existence.** Group by space and type first. A stroke is for things you can click into or type into — a button, an input, a tab, a focus ring. A *container* is not a stroke; it is a label and a gap. If you removed the border and the grouping still reads, the border was noise. It usually does, once the gap is right.
+**I. A border must earn its existence.** *(RE-SCOPED 2026-07-15: the card's border EARNED it — it is what carries the card in LIGHT, where the fill is only 1.155. What never earned its existence was the FIELDSET: a caption sitting on the stroke, breaking it. Read this law as "a container must be a container, not a decoration" — not as "delete the container", which was tried and rejected.)* Group by space and type first. A stroke is for things you can click into or type into — a button, an input, a tab, a focus ring. A *container* is not a stroke; it is a label and a gap. If you removed the border and the grouping still reads, the border was noise. It usually does, once the gap is right.
 
 **II. One thing per screen is loud.** One accent object, one lifted surface, one page title. Accent is a *fill for the verb you press* — never a foreground for prose, never a highlight for a list row, never a hue you spend twice. If two things are shouting, one of them is wrong.
 

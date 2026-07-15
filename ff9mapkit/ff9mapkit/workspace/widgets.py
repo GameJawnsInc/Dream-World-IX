@@ -102,9 +102,18 @@ def card(*, parent=None):
     return frame
 
 
-PROSE_W = 620      # max measure for a wrapped sentence, px. ~75-85 chars at 13px Segoe UI -- the readable
-                   # band. A full-window paragraph on a 1180px pane runs ~180 chars/line and reads as
-                   # unformatted output, not as text somebody wrote.
+# Max measure for a wrapped sentence, px. It caps a real problem: a full-window paragraph on a 1180px pane
+# runs ~200 chars/line and reads as unformatted output rather than as text somebody wrote.
+#
+# HONEST RECEIPT (an earlier comment here claimed "~75-85 chars" -- that was simply wrong, and measured):
+# real prose averages 5.691 px/char at 13px Segoe UI on a NATIVE font DB, so 620px is ~109 chars/line --
+# ABOVE the classic 45-75ch band (which would be 256-427px). 620 is a deliberate compromise for a dense
+# settings pane rather than a typographic ideal, and it is the value that was reviewed and approved on the
+# Co-op tab. Narrowing it toward ~440 (~77ch) is an open design call, not a bug fix -- it re-wraps every
+# adopted caption, so it wants a look before it lands.
+# NB: measure this on the NATIVE platform only. QT_QPA_PLATFORM=offscreen stubs the font DB and inflates
+# advances 2-3x, which is how the dossier invented a horizontal-scroll emergency that never existed.
+PROSE_W = 620
 
 
 class Prose(QLabel):

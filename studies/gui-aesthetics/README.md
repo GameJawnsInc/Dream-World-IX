@@ -7,8 +7,13 @@ every one of those phases optimized *usability*. None asked "does this look good
 make the app look good, and the user's verdict after the fact was: *"the cards don't read well… I want the GUI
 to be beautiful to look at. I don't have a clear vision for how to proceed."*
 
-This round asks only the aesthetic question. Research pass, 2026-07-15 — a plan, not implementation.
+This round asks only the aesthetic question. Research pass 2026-07-15 — **and then shipped, which is how
+its headline was found to be wrong.** See *Outcome* below; the docs carry inline `SUPERSEDED`/`SHIPPED`
+markers and [CORRECTIONS.md](CORRECTIONS.md) carries the audit.
 
+- **[CORRECTIONS.md](CORRECTIONS.md)** — ⚠ **READ FIRST.** The audit of the three docs below against the
+  code that was actually built from them (126 claims re-verified; 25 auditor verdicts overturned on review).
+  The plan's headline was wrong; this says how.
 - **[PLAN.md](PLAN.md)** — the deliverable: the diagnosis, the named direction + three laws, a gated first
   spike, 7 phases (P0–P6) with file:line changes / token diffs / tests / an explicit *"you'll see:"* per phase,
   a **Rejected** table, and 5 open questions with recommendations.
@@ -19,6 +24,29 @@ This round asks only the aesthetic question. Research pass, 2026-07-15 — a pla
 - **[evidence/](evidence/)** — runnable proof of the headline finding:
   - `prove_radio_border.py` — the pixel proof (colour-only, so offscreen-safe). Exits non-zero if it stops reproducing.
   - `shot_builddeploy.py` — renders the real panel before/after on the **native** platform → the two PNGs below.
+
+## Outcome — what actually happened
+
+**Round 2 shipped, and the plan's headline lost.** Five commits on `claude/gui-card-readability-eb5d9f`:
+`86de3f5` Phase 0 (the selector bug + a contrast hole in 4 palettes) · `685ba1a` `section()` + `Prose` ·
+`881e468` **the card reversal** · `58f7deb` tick + dot · `0ecfa75` all 27 sites. 2884 tests pass.
+
+Two things were settled that no amount of research could settle:
+
+1. **The screenshot was a one-line bug** (below). Fixing it first was correct — nobody in the dossier had
+   ever looked at the panel without it.
+2. **The card stays.** The plan's single highest-leverage change ("kill the QGroupBox, all 27") was built,
+   shown, and overruled by the user: *"the cards were nice logical section indicators, they just looked
+   ugly."* The dossier reached the wrong conclusion from correct arithmetic — it measured
+   `surface→surface_2` (1.168) when a card is seen against the **page**: `bg→surface_2` is **1.308** in
+   DARK, *stronger* than GitHub dark's card (1.094). The fill was never the problem and was never changed.
+   What was ugly: the caption **on** the border, a title with **no presence** (unfixable while Qt draws
+   it — QSS ignores `font-*` on `QGroupBox::title`, which is the real reason the box had to become a
+   widget), and **no horizontal padding**. All three now fixed in `widgets.section()`.
+
+**The lesson worth keeping:** ten lenses, 74 adversarial reviews and a completeness critic all agreed on a
+prescription that one sentence from the person looking at the screen overturned. The research was right
+about the *defect list* and wrong about the *cure*.
 
 ## The headline
 
@@ -44,8 +72,12 @@ The same panel, one selector reordered, **nothing else changed**:
 | ![before](evidence/builddeploy_before.png) | ![after](evidence/builddeploy_after.png) |
 
 **Nobody in the dossier looked at the panel without those rects** — the vision's headline ("kill all 27
-QGroupBoxes") is a 27-site refactor across 7 files justified by *this* image. So the plan's order is: fix the
-line, re-screenshot, *then* decide whether the boxes were ever the problem.
+QGroupBoxes") was a 27-site refactor across 7 files justified by *this* image. So the plan's order was: fix
+the line, re-screenshot, *then* decide whether the boxes were ever the problem.
+
+**That gate ran, and it saved the refactor from shipping for the wrong reason.** The answer came back: the
+cards were worth keeping, they were just ugly. All 27 migrated to `widgets.section()` **cards** — fill and
+border untouched. See *Outcome* above.
 
 The "after" shot also earns Step 2 on sight: with the rects gone, the blue `role="accent"` paragraph is
 plainly the loudest object on the card and the least important thing on it. (It is also *sub-AA as text in 6
@@ -85,9 +117,15 @@ The rule, stated precisely enough to be useful:
 
 Any width assertion added to CI needs `skipif "Segoe UI" not in QFontDatabase.families()` or it locks in the artifact.
 
-## Two live bugs found en route
+## Live bugs found en route
 
-Both predate this round and neither is caught by the suite:
+The first two predate this round; both are now **fixed** (`86de3f5`). The rest were found by *building*
+and are recorded in [CORRECTIONS.md](CORRECTIONS.md) — notably: Qt derives a control's screen-reader name
+from its enclosing **QGroupBox title**, so removing the boxes silently stripped **13 names** (restored via
+`setBuddy`); `hover == surface_btn` byte-identically in NORD/DRACULA/SOLARIZED_DARK/GRUVBOX_DARK, meaning
+**four palettes have no button hover feedback at all** (still unfixed); and `field == surface_btn` in three
+palettes. Also: **Phase 4 is now un-landable** — it would revert Phase 0's contrast floors on all five dark
+palettes.
 
 1. **`style.py:126`** — the unconditional radio/checkbox border above; radios have never had a focus ring.
 2. **`muted` on `surface_2` is sub-AA today** — 3.87–4.07 in NORD / DRACULA / SOLARIZED-DARK / GRUVBOX. Uncaught

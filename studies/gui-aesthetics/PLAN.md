@@ -17,14 +17,52 @@ Use the native-platform + WA_DontShowOnScreen recipe for anything metric.
 
 # THE PLAN — Making the Workspace Beautiful
 
+> ## ⚠ CORRECTED 2026-07-15 — read this before acting on anything below
+>
+> The plan was **built from**, and it was wrong about its own headline. Full detail:
+> **[CORRECTIONS.md](CORRECTIONS.md)** (126 claims re-audited against the shipped code; 25 auditor
+> verdicts overturned on review). Nothing below is deleted — the record of *how* it was wrong is worth
+> more than a tidy document.
+>
+> **1. THE CARD STAYS. The plan's single highest-leverage change was wrong.**
+> "Kill the QGroupBox. All 27 of them, in one pass" was built, shown, and overruled by the user:
+> *"the cards were nice logical section indicators, they just looked ugly."* The card is now kept and
+> fixed. **Why the plan got it wrong is the useful part:** its "the elevation ladder is imperceptible /
+> the fills do nothing" measured `surface→surface_2` (1.168). A card sits on the **page**, so the pair
+> that governs is `bg→surface_2` = **1.308** in DARK — *stronger* than GitHub dark's card (1.094).
+> The fill was always fine. Neither fill nor border was changed. Wrong pair → wrong conclusion → a
+> 27-site refactor that nearly shipped for the wrong reason.
+>
+> **2. What was actually ugly** (all three now fixed in `widgets.section()`): the caption sat **on the
+> border** (the Win32 fieldset idiom); the title had **no presence** ($muted at the same 13px as the body
+> it labels — and *unfixable while Qt draws it*, because QSS silently ignores `font-*` on
+> `QGroupBox::title`: **that**, not "borders are noise", is the real reason the box had to become a
+> widget); and there was **no horizontal padding**, amputated to defend an h-scroll bug that never
+> existed at the claimed magnitude.
+>
+> **3. SHIPPED** (branch `claude/gui-card-readability-eb5d9f`): `86de3f5` Phase 0 · `685ba1a`
+> `section()`+`Prose` · `881e468` the card reversal · `58f7deb` tick+dot · `0ecfa75` all 27 sites.
+> 2884 tests pass. **Phase 3's mechanism shipped in full; its aesthetic premise did not.**
+>
+> **4. ⛔ PHASE 4 IS NOW UN-LANDABLE — it would revert Phase 0.** Verified: its `surface_2` 0.05→0.10
+> reds `muted/surface_2` on **all five dark palettes** (dark 4.83→4.13, nord 4.61→3.94, dracula
+> 4.56→3.86, solarized-dark 4.55→3.90, gruvbox 4.59→3.88) against the ≥4.5 floor Phase 0 just landed,
+> and breaks solarized-dark's `text/surface_2` too (4.94→4.24). **`surface_2` is the card fill and is
+> now load-bearing for accessibility. It is FROZEN at 0.05.** Only 4c (the `surface_3` cap) and 4d's
+> *diagnosis* survive.
+>
+> **5. The plan never mentions the one thing that actually bites** — Qt derives an unnamed control's
+> screen-reader name from its enclosing **QGroupBox title**. Removing the boxes silently stripped **13
+> names**. The word "mechanical" must be struck from Phase 3. See CORRECTIONS.md §"What the plan MISSED".
+
 ## The diagnosis
 
 **Nothing in this app was allowed to be more important than anything else.** Every mechanism that ranks things — tone, type, space, a scarce accent — was built, tokenized, tested, and then never spent. One instrument was left in the box: draw a 1px rectangle around it. A rectangle cannot rank.
 
 The receipts:
 
-- **`style.py:126` is a live bug.** `QCheckBox:focus::indicator, QRadioButton:focus::indicator` writes the pseudo-class *before* the sub-control. Qt's `Selector::pseudoElement()` returns `""` (the first pseudo, `focus`, is a *known* class), and `pseudoClass()` returns `0` on the unrecognised `indicator` — so the match test `(0 & state) == 0` is true in **every** state. The rule degenerates to an unconditional `QRadioButton, QCheckBox { border: 1px solid $focus; }`. **Every radio and checkbox in the app is a permanent accent-blue rect. That is the screenshot.** Reproduced by render: an unfocused, unchecked radio samples `#4c8dff` on all four edges. Radios have simultaneously had **zero focus indication** since it shipped.
-- **The elevation ladder is imperceptible.** DARK: `bg→surface` 1.120:1, `surface→surface_2` 1.168, end-to-end 1.530. LIGHT: 1.105 / 1.046, end-to-end **1.205**. WCAG's *non-text* floor is 3:1. The fills do nothing; the hairline does everything — across **20 widget classes** at **9 radii** (`style.py`, 24 of 26 radius declarations hand-typed).
+- **`style.py:126` is a live bug. ✅ SHIPPED — fixed in `86de3f5`.** *(The analysis below was right in every particular. The correct `::indicator:focus` now lives at `style.py:188`, the `:checked:focus` ring at `:192`, and the whole typo class is guarded structurally by `test_qss_has_no_malformed_subcontrol_selectors` — a shape check, because the existing focus test greps four known-good selector strings and cannot see a malformed one.)* `QCheckBox:focus::indicator, QRadioButton:focus::indicator` writes the pseudo-class *before* the sub-control. Qt's `Selector::pseudoElement()` returns `""` (the first pseudo, `focus`, is a *known* class), and `pseudoClass()` returns `0` on the unrecognised `indicator` — so the match test `(0 & state) == 0` is true in **every** state. The rule degenerates to an unconditional `QRadioButton, QCheckBox { border: 1px solid $focus; }`. **Every radio and checkbox in the app is a permanent accent-blue rect. That is the screenshot.** Reproduced by render: an unfocused, unchecked radio samples `#4c8dff` on all four edges. Radios have simultaneously had **zero focus indication** since it shipped.
+- **~~The elevation ladder is imperceptible.~~ ❌ FALSE — THIS MEASURED THE WRONG PAIR.** *(Kept as the record: it is the single error that nearly cost a 27-site refactor.)* DARK: `bg→surface` 1.120:1, `surface→surface_2` 1.168, end-to-end 1.530. LIGHT: 1.105 / 1.046, end-to-end **1.205**. Every figure reproduces to three decimals — **the arithmetic was right and the inference was wrong.** No widget in this app is a bare `$surface` panel on the page: a **card sits on the page**, so the governing pair is `bg→surface_2` — LIGHT 1.155 · **DARK 1.308** · nord 1.271 · dracula 1.247 · solarized-dark 1.332 · gruvbox-dark 1.303. DARK's 1.308 is **stronger than GitHub dark's card** (`#0d1117` vs `#161b22` = 1.094). The fill was always fine and was never changed. The 3:1 comparison is also a category error — WCAG 1.4.11 governs component *boundaries*, not decorative surface fills; no shipping design system clears 3:1 page-to-card. **LIGHT remains the genuinely weak axis** (1.155), which is exactly why the card keeps its border there. The radius/class receipt is untouched and still exact: **20 widget classes** at **9 radii**, 24 of 26 radius declarations hand-typed.
 - **The system exists and is unused.** `role="h1"` is set by **nothing** (the 20px tier does not exist at runtime). `widgets.card()`, `heading()`, `status_chip()`, `tabular()` — **zero call sites**. `selection_bg` — derived, documented "replaces full-accent select", **never referenced** (`theme.py:306` vs `style.py:133`). `space_1/3/4/6`, `radius_md` — **dead**; every gap is hand-typed, and every QGroupBox interior silently runs Qt's default 11/6 that no token file knows about. `setObjectName("accent")` in builddoc and coopdoc — **zero**. `font-weight: 500` (`style.py:198`) resolves to Regular — Segoe UI ships no Medium face.
 - **The loudest object on the tab is a paragraph.** `builddoc.py:158-161`: `self.dest` is a ~140-char wrapped QLabel at `role="accent"`. `style.py:200` documents that role as "an actionable *value* (e.g. a deploy target)". Measured: accent-as-text is **sub-AA in 6 of 7 palettes** (NORD 2.44:1 on `surface_2`).
 
@@ -277,9 +315,39 @@ Targets: `builddoc.py:234` `newgame_id`, `:264` `trigger` (both **QLineEdit** �
 
 ---
 
-### Phase 3 — Kill the QGroupBox — **medium** *(gated on the Phase 1 screenshot)*
+### Phase 3 — ~~Kill the QGroupBox~~ **→ KEEP the card, fix what was ugly** — ✅ SHIPPED (`881e468`, `0ecfa75`)
 
-**Goal:** the outer rectangle stops existing. Grouping becomes a label and a gap.
+> **THE MECHANISM SHIPPED IN FULL; THE AESTHETIC PREMISE DID NOT.** All 27 `QGroupBox`es are now
+> `widgets.section()` and QGroupBox is constructed nowhere in the workspace — but they became **cards**,
+> not nothing. The gate this phase was placed behind worked exactly as designed: Phase 0 landed, the
+> panel was re-screenshotted, the borderless version was built (`685ba1a`) and shown, and the user
+> overruled it — *"the cards were nice logical section indicators, they just looked ugly."* Read the
+> banner at the top of this file for why the premise was wrong (it measured `surface→surface_2`, not
+> `bg→surface_2`).
+>
+> **What shipped instead** (`widgets.py` `section()`): a `QFrame` `role="card"` — fill and border
+> **unchanged** — with the title INSIDE as a `role="overline"` label (11px/600/+1px tracking, a token
+> that existed with zero users) and 16px of padding. `SECTION_GAP` is **14**, not this phase's 24: the
+> card draws its own boundary, so the gap no longer has to carry the grouping alone. The "pay the
+> whitespace or don't ship it" law is **re-scoped, not wrong** — it governs the borderless case, which
+> is now moot.
+>
+> **⛔ THE WORD "MECHANICAL" MUST BE STRUCK FROM THIS PHASE.** Qt derives an unnamed control's
+> screen-reader name from its enclosing **QGroupBox title** (`QAccessibleWidget` → `buddyString`, which
+> reads `groupbox->title()`, *not* `accessibleName()`). A card has no title for Qt to find, so every
+> control leaning on the box goes **silent**: **13 did**, across Models / Import / Build.
+> `test_workspace_a11y.py` caught them; each was restored with `setBuddy(visible_label)`, or
+> `setAccessibleName` where no visible label exists. **This also kills this phase's own "drop-in"
+> recipe** — a titleless `QGroupBox` + `setAccessibleName` strips descendant names *identically* to the
+> card (probed). There was never a mechanical version of this migration.
+>
+> **One bug this phase's borderless spec could not have caught:** the content host must be a **layout**,
+> never a wrapper `QWidget`. The stylesheet opens with a universal `QWidget { background-color: $bg; }`,
+> so a bare QWidget content host paints the **page** colour over the card's fill — a visible darker
+> rectangle inside every card, i.e. the exact box-in-box being fixed. It is invisible on a borderless
+> section (bg on bg) and only surfaces once the card has a fill.
+
+**Original goal (superseded):** the outer rectangle stops existing. Grouping becomes a label and a gap.
 
 **Do not start this until Phase 1 has been screenshotted and judged.** If the spike already reads well, this is optional. If it doesn't, this is the answer and the risk is earned.
 
@@ -337,9 +405,44 @@ Set `gb_margin_top` / `gb_pad_top` to `"0px"` in **both** density profiles (keep
 
 ---
 
-### Phase 4 — Widen the dark span; keep the light border — **medium**
+### Phase 4 — ~~Widen the dark span; keep the light border~~ — ⛔ **MOSTLY UN-LANDABLE: IT REVERTS PHASE 0**
 
-**Goal:** dark themes get real depth. Light themes keep the one cue that works there.
+> **`surface_2` IS FROZEN AT 0.05.** This phase was written before Phase 0 existed. Phase 0 landed
+> `muted/surface_2 >= 4.5` and `text/surface_2 >= 4.5` assertions — and `surface_2` is now **the card
+> fill**, so it is load-bearing for accessibility. Phase 4a's `surface_2` 0.05 → 0.10 reds the floor on
+> **all five dark palettes** (verified by computing them):
+>
+> | palette | `muted/surface_2` now | @ 0.10 |
+> |---|---|---|
+> | DARK | 4.825 | **4.126** ❌ |
+> | NORD | 4.606 | **3.942** ❌ |
+> | DRACULA | 4.555 | **3.859** ❌ |
+> | SOLARIZED_DARK | 4.553 | **3.904** ❌ (+ `text/surface_2` 4.940 → **4.236** ❌) |
+> | GRUVBOX_DARK | 4.585 | **3.877** ❌ |
+>
+> Its whole premise is the wrong-pair error (see the banner): `bg→surface` 1.120 governs nothing,
+> because no widget is a bare `$surface` panel on the page. The depth was never missing — the card
+> measures 1.308 in DARK, above GitHub's 1.094.
+>
+> **What survives:**
+> - **4c (the `surface_3` cap) — LAND IT.** `theme.py` derives `surface_3 = #ffffff` for *both* light
+>   palettes, so solarized-light's cream page gets a pure-white top rung, contradicting `theme.py`'s own
+>   stated rule. At 0.80: `#fdfdfd` / `#fdfcf8` (the cream survives; verified safe on every assertion).
+> - **4d's DIAGNOSIS — valid, still unfixed, but its gruvbox VALUE is wrong.** `field == surface_btn`
+>   byte-identically in **three** palettes (NORD `#3b4252`, GRUVBOX `#3c3836`, **and DARK `#2b3038`**) —
+>   an input well and a button face render as the same hex. But the proposed `gruvbox field → #32302f`
+>   **IS gruvbox's own `surface`** — byte-identical, a *worse* collision than the one it fixes, and
+>   precisely the error this row catches one clause earlier for nord ("not `#2e3440` — that IS nord's
+>   bg"). **Any `field` proposal must be checked against `bg`, `surface`, `surface_btn` AND `log_bg`.**
+> - **A LIVE BUG this phase surfaces but never fixes: `hover == surface_btn` byte-identically in NORD,
+>   DRACULA, SOLARIZED_DARK and GRUVBOX_DARK — those four palettes have _no button hover feedback at
+>   all_.** Verified. 4b only edits DARK, so nothing here lands it. **Ship the four hover values as
+>   their own commit.**
+> - Two of its three proposed tests are green today and landable now (`log_bg < bg`; the elevation
+>   ladder is 3-distinct — the existing monotonic test is non-strict and would pass a flat floor). The
+>   third (hover) is **red on arrival** on the four palettes above, which is the point.
+
+**Original goal (superseded):** dark themes get real depth. Light themes keep the one cue that works there.
 
 **The trap, measured:** deepening `bg` alone buys nothing — contrast is `(L1+.05)/(L2+.05)`, and near black the flare term dominates. A proposal that moved `surface` to the old `bg` and slid `bg` down one step measured **1.124:1** vs today's 1.120 — a translated ladder, not a widened one, with the full span *regressing* 1.530 → 1.519. **Widen the span; don't slide it.**
 
