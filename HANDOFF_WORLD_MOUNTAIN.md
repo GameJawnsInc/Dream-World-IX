@@ -34,8 +34,9 @@ grass↔dirt ecotone set; borrows the desert wall) · dirthill (topo 38; `+(0.45
 wall IS the desert wall) · snow (topo 27; `+(0.0, −0.33691)`; icy wall `+(−0.44021, +0.05161)`) · canyon
 (topo 45; `+(0.7793, −0.31641)`; red wall `+(−0.69509, −0.49722)`) · flats (topo 41; `+(0.38964,
 −0.13477)`; its OWN set — the family-model exception; borrows the desert wall). Sampler round 1
-(2026-07-15) added the stock-role CLASS axis (`GROUNDS[..]["cls"]`): grass/desert/snow ★ island-class ·
-canyon island-class pending a verbatim compare (stock windows (486,−678) / (414,−774)) · scrub =
+(2026-07-15) added the stock-role CLASS axis (`GROUNDS[..]["cls"]`): grass/desert/snow/canyon ★
+island-class (canyon verbatim-compared at (486,−678) — "alright"; verbatim mixes more lighter browns =
+the vocabulary-share axis, earmark-only) · scrub =
 TRANSITION (seam strips only — filled it's a tiling mismatch; macro-tile parity falsified) · dirthill =
 SLOPE (flat fills read as canopy) · flats = INTERIOR (no native coast). Sampler islets — see §3.
 

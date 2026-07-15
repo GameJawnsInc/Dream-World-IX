@@ -96,7 +96,7 @@ GROUNDS = {
                  cls="island"),                                     # ★ sampler-proven
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
                    wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
-                   cls="island"),                                   # pending verbatim compare
+                   cls="island"),                                   # ★ verbatim-compared
     "flats": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event flats
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
                   cls="interior"),

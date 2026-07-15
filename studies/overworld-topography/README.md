@@ -529,8 +529,11 @@ relaunch.
 
 **★ SAMPLER ROUND 1 (playtest 2026-07-15) — the translation makes tiles paint right;
 whether a family is an ISLAND FILL is a second, independent axis.** Verdicts: **snow
-"looks good" ★** · **canyon "potentially looks good"** (verbatim compare pending — stock
-flat-canyon windows: (486,−678) block (7,10), alt (414,−774) block (6,12)) · **scrub =
+"looks good" ★** · **canyon ★ "looks alright against verbatim"** (compared at the stock
+flat-canyon window (486,−678) block (7,10); noted nuance — verbatim mixes MORE lighter
+browns into the dark: the vocabulary-share axis again (stock grounds are only partly
+mains; cf. desert's ~32%) — earmark-only, the desert fidelity precedent says it may
+never read at scale) · **scrub =
 "tiling/wang mismatch"** — and the follow-up parity probe FALSIFIED the macro-tile
 hypothesis (stock places scrub grass-style free, parity-lock 31% ≈ the 25% chance floor,
 all 4 oris uniform): stock only ever lays scrub as narrow SEAM strips between solid
