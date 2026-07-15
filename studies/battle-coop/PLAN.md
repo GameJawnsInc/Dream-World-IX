@@ -46,6 +46,10 @@
 > state-mirror render-match/save-safety acceptance and a pre-install v5-vs-v6 fail-safe check.
 > **NEXT = Phase 6, the two-machine session** (needs the laptop out). Then Phase 7 (party mirror → the
 > battle diorama).
+>
+> **PHASE 6 RESULTS (accumulating, 2026-07-15):**
+> - ★ **Fail-safe PROVEN two-machine** (package step 0): v6 host + v5 laptop on the same field — visible
+>   co-location but NO pairing, no crash, no half-state. Exactly the designed version-reject behavior.
 
 ## TL;DR for whoever executes this (Fable)
 
