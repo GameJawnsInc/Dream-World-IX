@@ -106,13 +106,37 @@ _QSS = Template(
        Qt's hidden extension chevron, which is how the Ctrl-K search and Preferences went invisible. */
     QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: $tb_pad; spacing: $tb_space; }
     QToolBar::separator { background: $border; width: 1px; margin: 5px 4px; }
+    /* INTAGLIO -- one light, from above. A RAISED object catches the light on its top edge and shades its
+       foot. The fill cannot say "this is a button" (LIGHT's surface_btn IS surface, contrast 1.0000), so
+       the edge says it instead.
+
+       Both edges are always emitted and there is deliberately no `if dark:` anywhere: $border is the one
+       already-mode-aware token in the app -- above its fill in all 6 dark palettes, below it in both light
+       ones, 8/8 -- so each palette's own border EATS the edge it cannot hold. Dark's lit top carries
+       (d33-d43) while its foot stays quiet; light's foot carries (d40) while its lit edge lands at d8 and
+       vanishes. One rule, two behaviours, no branch.
+
+       ORDER IS LOAD-BEARING: the `border:` shorthand RESETS every per-side colour, so the two
+       *-color lines MUST come after it. Any later rule that restates `border:` silently flattens the
+       object again -- which is why #accent and #search restate their edges below rather than inheriting. */
     QToolButton, QPushButton {
         background: $surface_btn; color: $text; border: 1px solid $border;
+        border-top-color: $border_lit; border-bottom-color: $border_shade;
         border-radius: $radius_md; padding: $btn_pad;
     }
     QToolButton:hover, QPushButton:hover { background: $hover; }
-    QPushButton:pressed, QToolButton:pressed { background: $pressed; }
-    QPushButton:disabled { color: $muted; background: $bg; }
+    /* PRESSED INVERTS THE EDGE -- the light source does not move, the object does. A pressed button is
+       cut into the plate, so it takes the input rule's ordering. The material performs the interaction
+       at the cost of one rule and zero motion. */
+    QPushButton:pressed, QToolButton:pressed {
+        background: $pressed;
+        border-top-color: $border_shade; border-bottom-color: $border_lit;
+    }
+    /* A disabled object is not lit: it is not raised, it is inert. Flat edges, no light. */
+    QPushButton:disabled {
+        color: $muted; background: $bg;
+        border-top-color: $border; border-bottom-color: $border;
+    }
     /* a disabled toolbar action recedes to flat ghost text (it used to look identical to enabled) */
     QToolButton:disabled { color: $muted; background: transparent; border-color: transparent; }
     /* dropdown tool-buttons (Field / Campaign / Journey / gear): keep the chevron inside the rounded
@@ -125,14 +149,38 @@ _QSS = Template(
     QToolButton#gear { padding: 6px 9px; }
     QToolButton#gear::menu-indicator { image: none; width: 0; }
     /* the Ctrl-K palette opener is a button DRESSED as a search field */
+    /* The search pill is a FIELD, not a button: it takes the CUT pair (shade on top, lit at the foot) --
+       the same two colours as a raised object in the opposite order. It must restate them because its own
+       `border:` shorthand above resets the per-side colours it would otherwise inherit. */
     QPushButton#search {
         background: $field; color: $muted; border: 1px solid $border; border-radius: $radius_md;
+        border-top-color: $border_shade; border-bottom-color: $border_lit;
         padding: 6px 12px; text-align: left;
     }
     QPushButton#search:hover { border-color: $accent; color: $text; background: $field; }
-    QPushButton#accent { background: $accent; color: $accent_fg; border: 1px solid $accent; }
+    /* The primary is the ONE most-raised object on a screen, lit from its own hue rather than from
+       $border. It MUST restate its edge -- `border: 1px solid $accent` resets the per-side colours set on
+       the generic QPushButton above, which silently flattened it when probed.
+
+       ONE EDGE, NOT TWO, and this is where the border pair's trick stops working. $border is a
+       desaturated grey, so mixing it toward white and toward black moves it by different amounts: one
+       edge carries (d26-d34) and the other stays QUIET (d6-d13) and is eaten by the palette. $accent is
+       SATURATED and has no quiet edge -- dark's #4c8dff has B=255, so mixing toward black drops B by 36
+       while mixing toward white cannot move it at all. Measured, the accent pair runs carrier/quiet of
+       33/29 (light), 36/25 (dark), 24/22 (nord), 36/32 (gruvbox): BOTH edges always read. Emitting the
+       pair here would put a symmetric bevel on the largest, loudest object on the screen -- the one place
+       Win95 would actually be visible.
+
+       THE RULE: emit both edges only where one of them is quiet. Emit one where neither is. A lit top is
+       "light from above" in either mode, so this stays consistent with the border pair rather than
+       fighting it. */
+    QPushButton#accent {
+        background: $accent; color: $accent_fg; border: 1px solid $accent;
+        border-top-color: $accent_lit;
+    }
     QPushButton#accent:hover { background: $accent_hover; }
-    QPushButton#accent:pressed { background: $accent_pressed; }
+    /* pressed: the object moves, the light does not -- the lit top becomes a shaded one. */
+    QPushButton#accent:pressed { background: $accent_pressed; border-top-color: $accent_shade; }
     /* a disabled accent button (e.g. Save with nothing to save) must grey out -- the #accent id
        selector otherwise out-ranks the generic :disabled rule and would stay blue. */
     QPushButton#accent:disabled { background: $surface_btn; color: $muted; border: 1px solid $border; }
@@ -205,19 +253,33 @@ _QSS = Template(
                     stop:0 $muted, stop:0.40 $muted, stop:0.46 $bg, stop:1 $bg);
     }
 
+    /* INPUTS ARE CUT, NOT RAISED -- the INVERTED pair. A hole in a plate is shaded where the plate's edge
+       overhangs it (top) and catches light on its far lip (bottom): the same two colours as a button, in
+       the opposite order. That inversion is the entire reason this reads as a material rather than as
+       decoration -- one light source, two kinds of object, and the geometry does the telling.
+       :focus must RESTATE the pair (in accent tones) or its `border:` shorthand flattens the field at the
+       exact moment you are looking at it. */
     QLineEdit {
         background: $field; color: $text; border: 1px solid $border; border-radius: $radius_md;
+        border-top-color: $border_shade; border-bottom-color: $border_lit;
         padding: $input_pad; selection-background-color: $accent; selection-color: $accent_fg;
     }
-    QLineEdit:focus { border: 1px solid $accent; }
+    QLineEdit:focus {
+        border: 1px solid $accent;
+        border-top-color: $accent_shade; border-bottom-color: $accent_lit;
+    }
 
     /* combos + spin boxes: themed like line edits (the Fusion base style would otherwise draw them from
        the platform palette, which need not match the chosen theme) */
     QComboBox, QAbstractSpinBox {
         background: $field; color: $text; border: 1px solid $border; border-radius: $radius_md;
+        border-top-color: $border_shade; border-bottom-color: $border_lit;
         padding: $combo_pad; selection-background-color: $accent; selection-color: $accent_fg;
     }
-    QComboBox:focus, QAbstractSpinBox:focus { border: 1px solid $accent; }
+    QComboBox:focus, QAbstractSpinBox:focus {
+        border: 1px solid $accent;
+        border-top-color: $accent_shade; border-bottom-color: $accent_lit;
+    }
     QComboBox:disabled, QAbstractSpinBox:disabled { color: $muted; background: $bg; }
     QComboBox QAbstractItemView {
         background: $surface; color: $text; border: 1px solid $border;

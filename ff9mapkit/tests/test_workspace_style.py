@@ -318,3 +318,46 @@ def test_the_spacing_grid_means_one_thing_in_qss_and_in_layouts():
         assert style.space(k, "compact") < style.space(k, "comfortable"), k
     # an unknown density falls back to comfortable, exactly as qss() does
     assert style.space("space_4", "nonsense") == style.space("space_4", "comfortable")
+
+
+def test_the_accent_emits_one_edge_and_the_border_pair_emits_two():
+    """THE MATERIAL'S RULE: emit both edges only where one of them is QUIET; emit one where neither is.
+
+    $border is a desaturated grey with a quiet edge (d6-d13), so every object emits the pair and each
+    palette eats the edge it cannot hold. $accent is saturated and has NO quiet edge (carrier/quiet 36/25
+    in dark, 24/22 in nord) -- emitting its pair would bevel the largest, loudest object on the screen.
+
+    test_editor_theme asserts the PREMISE (accent has no quiet edge). This asserts the CONSEQUENCE.
+    """
+    import re
+    css = style.qss(theme.DARK)
+
+    m = re.search(r"QPushButton#accent\s*\{([^}]*)\}", css)
+    assert m, "the accent rule moved"
+    body = m.group(1)
+    assert "border-top-color" in body, "the primary must be lit -- and must restate it after `border:`"
+    assert "border-bottom-color" not in body, (
+        "the accent must emit ONE edge: it is saturated and has no quiet edge, so a pair renders as a "
+        "symmetric bevel on the loudest object on screen"
+    )
+
+    m = re.search(r"QToolButton, QPushButton\s*\{([^}]*)\}", css)
+    assert m and "border-top-color" in m.group(1) and "border-bottom-color" in m.group(1), (
+        "the generic button must emit BOTH border edges -- the palette eats the quiet one"
+    )
+
+
+def test_an_input_is_cut_and_a_button_is_raised():
+    """The inversion IS the material. Raised and cut are the same two colours in opposite order, which is
+    what makes this read as one light source rather than as decoration on two unrelated widgets.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(dict(pal))
+        btn = re.search(r"QToolButton, QPushButton\s*\{([^}]*)\}", css).group(1)
+        inp = re.search(r"QLineEdit\s*\{([^}]*)\}", css).group(1)
+        assert f"border-top-color: {d['border_lit']}" in btn, mode      # raised: lit on top
+        assert f"border-bottom-color: {d['border_shade']}" in btn, mode
+        assert f"border-top-color: {d['border_shade']}" in inp, mode    # cut: the exact inverse
+        assert f"border-bottom-color: {d['border_lit']}" in inp, mode
