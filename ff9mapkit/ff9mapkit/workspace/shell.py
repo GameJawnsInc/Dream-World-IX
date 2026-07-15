@@ -6970,6 +6970,11 @@ class Workspace(QMainWindow):
         for p in problems:
             it = QListWidgetItem(f"{'✕' if p.severity == fb.ERROR else '⚠'}  {p.message}")
             it.setForeground(QBrush(QColor(self.pal["error"] if p.severity == fb.ERROR else self.pal["warn"])))
+            help_ = fb.humanize(p.message)             # plain-language layer: enrich (never replace) the raw row
+            if help_:
+                friendly, step = help_
+                it.setToolTip(f"{friendly}\n\n→ {step}")           # hover the row for the plain explanation
+                it.setStatusTip(f"{friendly}   →   {step}")        # + the status bar as you arrow through
             self.problems.addItem(it)
         self._raise_console()
 
@@ -7087,6 +7092,13 @@ def _smoke(win):
     assert any("Walkmesh" in lbl for lbl in _concept_rows) and len(_concept_rows) >= 20, len(_concept_rows)
     assert concepts.resolve("gEventGlobal").term == "story-flag"   # an engine-term alias -> the right card
     win._show_concept("no-such-term")                     # a miss returns before any dialog -> a silent no-op
+    # PLAIN-LANGUAGE ERROR LAYER: a Problems row whose raw message matches a rewrite rule gets a friendly
+    # tooltip (raw text stays visible for the expert; the plain explanation + next step ride the tooltip).
+    win._show_problems(fb.Verdict(fb.ERROR, "Check — 1 problem to fix"),
+                       [fb.Problem(fb.ERROR, "area must be >= 10 (got 4)")])
+    _prow = win.problems.item(0)
+    assert _prow is not None and "area must be" in _prow.text(), "the raw message stays visible"
+    assert "10 or higher" in _prow.toolTip(), _prow.toolTip()      # the humanized help rides the tooltip
     assert win._open_recent("campaign", _rec[0]["path"]) is True
     prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
     assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
