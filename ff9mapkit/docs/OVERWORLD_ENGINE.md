@@ -710,10 +710,10 @@ cell mapping, rotations, neighbour policy) at the family's own spot, outer-bound
 `ground_families_anatomy.py` census, whose grass control recovers delta (0,0) with zero spread). The
 registry: **grass** (identity) · **desert** (topo 17; mains +(0.65332, −0.09863), wall +(−0.27127,
 −0.02066); in-game proven) · **scrub** (topo 4; +(0.25977, −0.06738); the grass↔dirt ecotone set) ·
-**dirthill** (topo 38; +(0.45703, −0.20215); its stock cliff wall IS the desert wall — measured native
+**brush** (topo 38; +(0.45703, −0.20215); its stock cliff wall IS the desert wall — measured native
 adjacency) · **snow** (topo 27; +(0.0, −0.33691); icy wall +(−0.44021, +0.05161)) · **canyon** (topo 45;
-+(0.7793, −0.31641); red-rock wall +(−0.69509, −0.49722)) · **flats** (topo 41; +(0.38964, −0.13477);
-its own pale-sand set — the one family-model exception). Scrub and flats never touch the coastal wall
++(0.7793, −0.31641); red-rock wall +(−0.69509, −0.49722)) · **dunes** (topo 41; +(0.38964, −0.13477);
+its own pale-sand set — the one family-model exception). Scrub and dunes never touch the coastal wall
 in stock, so they borrow the desert band (an authoring choice). In-family topo ids (grass 1/2/3/10-13/42,
 dirt 19/20) are byte-proven gameplay variants of the same tile set. `world-island --ground <fam>` mints
 the whole island in the family (meadow stamps are grass vocabulary and disable); `world-mountain
@@ -727,8 +727,8 @@ whole-landmass fills whose coast reads native. The others are stock vocabularies
 and a filled island of them reads off-language (the CLI notes this and mints anyway): **scrub** is a
 *transition* set — stock lays it only as narrow seam strips between solid grass and dirt fields, with
 free grass-style placement (the macro-tile parity hypothesis measured false, ~chance), so a scrub
-field shows raw tiling mismatches; **dirthill** is a *slope* set — stock paints it on ~30°-median
-hillsides, so a flat fill reads as brush canopy and its rim lip doesn't line up; **flats** is an
+field shows raw tiling mismatches; **brush** is a *slope* set — stock paints it on ~30°-median
+hillsides, so a flat fill reads as brush canopy and its rim lip doesn't line up; **dunes** is an
 *interior* fill — the ground reads fine but the family has no native coast band.
 
 ### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)

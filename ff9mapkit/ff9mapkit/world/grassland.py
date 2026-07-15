@@ -63,9 +63,9 @@ FAM_REGION = {
 #: outer-bound byte-exact at 5dp (the grass control recovers delta (0,0) with ZERO
 #: spread; dirt gameplay variants 19/20 recover the desert constants exactly).
 #: ``topo`` is the family's walkable topograph (in-family ids are gameplay variants);
-#: the ``wall_*`` deltas shift the mint's ROCK_U/ROCK_V band. Walls: dirthill fringes
+#: the ``wall_*`` deltas shift the mint's ROCK_U/ROCK_V band. Walls: brush fringes
 #: the DESERT wall in stock (byte-exact adjacency, measured); snow + canyon carry
-#: their own measured bands; scrub and flats never touch topo-58 in stock, so they
+#: their own measured bands; scrub and dunes never touch topo-58 in stock, so they
 #: BORROW the desert wall -- an authoring choice, not a measurement. Real ground ALSO
 #: slides free fractional windows over its (painted-over) internal gutter -- the
 #: locked grass-form window is a common real form and the safe generative choice, so
@@ -76,9 +76,9 @@ FAM_REGION = {
 #: ``"transition"`` (scrub) = a SEAM vocabulary -- stock lays it only as narrow strips
 #: between solid grass and dirt fields, free grass-style placement (the macro-tile
 #: parity hypothesis measured FALSE, 31% ~= chance), so a filled field of it reads as
-#: a tiling mismatch. ``"slope"`` (dirthill) = stock paints it on ~30-deg-median
+#: a tiling mismatch. ``"slope"`` (brush) = stock paints it on ~30-deg-median
 #: hillsides (the Black-Mage-Village brush); flat fills read as canopy, and the rim
-#: lip does not line up. ``"interior"`` (flats) = the ground fill reads fine but the
+#: lip does not line up. ``"interior"`` (dunes) = the ground fill reads fine but the
 #: family has no native coast band -- use away from shorelines.
 GROUNDS = {
     "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0,
@@ -88,7 +88,7 @@ GROUNDS = {
     "scrub": dict(topo=4, mains_du=0.25977, mains_dv=-0.06738,      # grass<->dirt ecotone
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
                   cls="transition"),
-    "dirthill": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
+    "brush": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
                      wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall
                      cls="slope"),
     "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
@@ -97,7 +97,7 @@ GROUNDS = {
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
                    wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
                    cls="island"),                                   # ★ verbatim-compared
-    "flats": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event flats
+    "dunes": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event dunes
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
                   cls="interior"),
 }

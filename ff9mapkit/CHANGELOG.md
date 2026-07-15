@@ -12,17 +12,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   recovers delta (0,0) with zero spread; dirt topo-19/20 recover the desert constants exactly —
   the "in-family ids are gameplay variants" model byte-proven). `grassland.GROUNDS` (and so
   `world-island --ground` / `world-mountain --ground`) grew: **scrub** (topo 4, the grass↔dirt
-  ecotone set), **dirthill** (topo 38 — whose stock cliff wall is measurably the DESERT wall),
+  ecotone set), **brush** (topo 38 — whose stock cliff wall is measurably the DESERT wall),
   **snow** (topo 27, with its own measured icy wall band), **canyon** (topo 45, red-rock wall
-  band), **flats** (topo 41 — its own pale-sand set, the one family-model exception). Scrub and
-  flats never coast in stock and borrow the desert wall. Grass and desert stay byte-identical
+  band), **dunes** (topo 41 — its own pale-sand set, the one family-model exception). Scrub and
+  dunes never coast in stock and borrow the desert wall. Grass and desert stay byte-identical
   (both frozen identity acceptances pass unchanged); constants pinned in
   `test_ground_families_registry`.
 - The ground-sampler playtest (five one-block islets, one per family) added a stock-role CLASS
   per family (`GROUNDS[..]["cls"]`): grass/desert/snow/canyon are **island**-class (snow
   sampler-proven; canyon pending a verbatim compare); **scrub** is a *transition* seam set (a
   filled field shows raw tiling mismatches — stock only lays it as narrow grass↔dirt strips),
-  **dirthill** a *slope* set (flat fills read as brush canopy), **flats** an *interior* fill
+  **brush** a *slope* set (flat fills read as brush canopy), **dunes** an *interior* fill
   (no native coast). `world-island` prints a note when minting a non-island-class ground.
 
 ### Removed — `world-island`: the ambient rolling-relief field (THE DEAD-RELIEF DISCOVERY)

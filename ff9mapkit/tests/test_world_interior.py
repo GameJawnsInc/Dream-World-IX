@@ -386,16 +386,16 @@ def test_ground_families_registry():
     """THE TRANSLATION LAW IS UNIVERSAL (the ground-families census 2026-07-15):
     every registry family is a pure grass translation whose mains region + wall band
     stay inside the atlas; the measured 5dp deltas are pinned; grass stays first (the
-    CLI default) and dirthill wears the desert wall (measured stock adjacency)."""
+    CLI default) and brush wears the desert wall (measured stock adjacency)."""
     assert tuple(G.GROUNDS)[0] == "grass"
-    assert set(G.GROUNDS) == {"grass", "desert", "scrub", "dirthill", "snow",
-                              "canyon", "flats"}
+    assert set(G.GROUNDS) == {"grass", "desert", "scrub", "brush", "snow",
+                              "canyon", "dunes"}
     expect = {
         "scrub": (0.25977, -0.06738, 4),
-        "dirthill": (0.45703, -0.20215, 38),
+        "brush": (0.45703, -0.20215, 38),
         "snow": (0.0, -0.33691, 27),
         "canyon": (0.7793, -0.31641, 45),
-        "flats": (0.38964, -0.13477, 41),
+        "dunes": (0.38964, -0.13477, 41),
     }
     for name, (du, dv, topo) in expect.items():
         g = G.GROUNDS[name]
@@ -411,13 +411,13 @@ def test_ground_families_registry():
         gu, gv = G.ground_uv(2.0, -6.0, (0, -2), (1, 0), 90, name)
         assert gu == pytest.approx(u + g["mains_du"], abs=1e-12), name
         assert gv == pytest.approx(v + g["mains_dv"], abs=1e-12), name
-    assert G.GROUNDS["dirthill"]["wall_du"] == G.GROUNDS["desert"]["wall_du"]
-    assert G.GROUNDS["dirthill"]["wall_dv"] == G.GROUNDS["desert"]["wall_dv"]
+    assert G.GROUNDS["brush"]["wall_du"] == G.GROUNDS["desert"]["wall_du"]
+    assert G.GROUNDS["brush"]["wall_dv"] == G.GROUNDS["desert"]["wall_dv"]
     # stock-role classes (the 2026-07-15 ground-sampler playtest): only "island"
     # families are whole-landmass fills whose coast reads native
     assert {n: g["cls"] for n, g in G.GROUNDS.items()} == {
         "grass": "island", "desert": "island", "snow": "island", "canyon": "island",
-        "scrub": "transition", "dirthill": "slope", "flats": "interior"}
+        "scrub": "transition", "brush": "slope", "dunes": "interior"}
     from ff9mapkit.cli import _ground_choices
     assert _ground_choices() == tuple(G.GROUNDS)
 

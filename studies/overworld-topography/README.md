@@ -500,7 +500,7 @@ tiled data is the grass mains 2×2 translated, outer-bound exact at 5dp —
 | grass (control) | 0 | (0, 0) zero spread | (+0.00022, −0.00015) ≈ 0 | machinery validated both ends |
 | grass variants (control) | 1,2,3,10-13,42 | (0, 0) | — | family model BYTE-proven |
 | scrub | 4,5,6 | (0.25977, −0.06738) | none in stock | the grass↔dirt ECOTONE tile set |
-| dirthill | 38 | (0.45703, −0.20215) | (−0.27127, −0.02066) | wall = THE DESERT WALL VERBATIM (measured stock adjacency) |
+| brush | 38 | (0.45703, −0.20215) | (−0.27127, −0.02066) | wall = THE DESERT WALL VERBATIM (measured stock adjacency) |
 | snow | 27,28 | (0.0, −0.33691) | (−0.44021, +0.05161) | same u-COLUMN as grass, v-shift only; icy band rows 0.94434/0.97461 (the memory's lip-row 0.944 ✓) |
 | canyon | 45,46 | (0.7793, −0.31641) | (−0.69509, −0.49722) | red band shows a 3rd v-level (possible 2-row course wall) |
 | dirt 19 / 20 | 19, 20 | = DESERT exactly | desert | family model BYTE-proven |
@@ -515,16 +515,16 @@ The locked-form (mint-form) share is a minority REAL form even on grass (22% of 
 cells) — the gate is a diagnostic, not an acceptance; the locked mint is in-game proven.
 The eye sheet confirms every translated region paints coherent art (scrub = green/dirt
 ecotone, snow = white field + pale-blue ice wall, canyon = red tiers + dark red wall,
-flats41 = pale fine sand; 0% blank texels everywhere). **PRODUCTIZED same day**:
-`grassland.GROUNDS` grew scrub/dirthill/snow/canyon/flats (walls: dirthill = its real
-measured desert wall; scrub/flats BORROW the desert wall — an authoring choice, stock
+dunes41 = pale fine sand; 0% blank texels everywhere). **PRODUCTIZED same day**:
+`grassland.GROUNDS` grew scrub/brush/snow/canyon/dunes (walls: brush = its real
+measured desert wall; scrub/dunes BORROW the desert wall — an authoring choice, stock
 never coasts them), `--ground` choices now track the registry on `world-island` +
 `world-mountain`, constants pinned in `test_ground_families_registry`; both byte-identity
 oracles pass unchanged (grass/desert entries untouched). **THE GROUND SAMPLER deployed
 same day (playtest pending):** five r22 seed-11 islets in the row-19 open ocean, one per
 family, one block each, all gates clean, disc-4 mirrored — scrub (480,−1248) block (7,19)
-· dirthill (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) ·
-flats (1120,−1248) (17,19). First visit needs a world re-entry (new blocks); disc 4 a
+· brush (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) ·
+dunes (1120,−1248) (17,19). First visit needs a world re-entry (new blocks); disc 4 a
 relaunch.
 
 **★ SAMPLER ROUND 1 (playtest 2026-07-15) — the translation makes tiles paint right;
@@ -538,17 +538,17 @@ never read at scale) · **scrub =
 hypothesis (stock places scrub grass-style free, parity-lock 31% ≈ the 25% chance floor,
 all 4 oris uniform): stock only ever lays scrub as narrow SEAM strips between solid
 grass/dirt fields, so the ecotone tiles read as "patchy edge" there and as raw mismatch
-when filled — scrub is a TRANSITION vocabulary, not a fill · **dirthill = usable but
+when filled — scrub is a TRANSITION vocabulary, not a fill · **brush = usable but
 reads as forest-canopy top, rim dip doesn't line up** (user: likely the Black-Mage-
 Village area brush; census slope med 30° — a SLOPE vocabulary, stock never shows it
-flat-at-scale) · **flats = ground reads good, but an INTERIOR type — doesn't blend with
+flat-at-scale) · **dunes = ground reads good, but an INTERIOR type — doesn't blend with
 the coastline** (the borrowed desert rim lip; the ground fill itself ★ verbatim-checked
 at (1242,−294) blk (19,4) — "checks out"). Encoded as `GROUNDS[..]["cls"]`
 island/transition/slope/interior + a CLI mint note + `test_ground_families_registry`.
 **ALL FIVE sampler islets are KEPT deployed** (user, 2026-07-15) — the row-19 reference
 exhibits for every family.
 The future consumption of the three non-island families = mixed-biome landmasses
-(scrub as the grass↔dirt seam, dirthill on carved slopes, flats as interior plains).
+(scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

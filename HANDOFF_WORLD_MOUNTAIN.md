@@ -30,15 +30,15 @@ ff9mapkit world-mirror   --mod-folder M          # ALWAYS after a custom-ocean d
 **Ground families** (`--ground`, `grassland.GROUNDS`) — THE TRANSLATION LAW IS UNIVERSAL (the
 2026-07-15 census, `ground_families_anatomy.py`): grass (bit-frozen identity) · desert (topo 17; mains
 `+(0.65332, −0.09863)`, wall `+(−0.27127, −0.02066)`) · scrub (topo 4; `+(0.25977, −0.06738)`; the
-grass↔dirt ecotone set; borrows the desert wall) · dirthill (topo 38; `+(0.45703, −0.20215)`; its stock
+grass↔dirt ecotone set; borrows the desert wall) · brush (topo 38; `+(0.45703, −0.20215)`; its stock
 wall IS the desert wall) · snow (topo 27; `+(0.0, −0.33691)`; icy wall `+(−0.44021, +0.05161)`) · canyon
-(topo 45; `+(0.7793, −0.31641)`; red wall `+(−0.69509, −0.49722)`) · flats (topo 41; `+(0.38964,
+(topo 45; `+(0.7793, −0.31641)`; red wall `+(−0.69509, −0.49722)`) · dunes (topo 41; `+(0.38964,
 −0.13477)`; its OWN set — the family-model exception; borrows the desert wall). Sampler round 1
 (2026-07-15) added the stock-role CLASS axis (`GROUNDS[..]["cls"]`): grass/desert/snow/canyon ★
 island-class (canyon verbatim-compared at (486,−678) — "alright"; verbatim mixes more lighter browns =
 the vocabulary-share axis, earmark-only) · scrub =
-TRANSITION (seam strips only — filled it's a tiling mismatch; macro-tile parity falsified) · dirthill =
-SLOPE (flat fills read as canopy) · flats = INTERIOR (no native coast). Sampler islets — see §3.
+TRANSITION (seam strips only — filled it's a tiling mismatch; macro-tile parity falsified) · brush =
+SLOPE (flat fills read as canopy) · dunes = INTERIOR (no native coast). Sampler islets — see §3.
 
 ## 2. The two identity oracles (run these after ANY change to the carve/mint)
 
@@ -59,7 +59,7 @@ suite reports missing fixtures.
 | Crag (DESERT) | r50 seed 11 @ (64,−1216), blocks (0-1,18-19) | (70,−1218) | (30.5, −1217.5) E |
 | Horseshoe (ensemble) | r72 seed 42 @ (1280,−1184), blocks (18-21,17-19) | (1288,−1190) | (1227.5, −1189.5) E |
 | Desert check island | r52 @ (768,−1216), blocks (11-12,18-19) | — (pure plain) | — |
-| THE GROUND SAMPLER (5 islets, r22 seed 11, row 19) | scrub (480,−1248) (7,19) · dirthill (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) · flats (1120,−1248) (17,19) | — | teleport to each centre |
+| THE GROUND SAMPLER (5 islets, r22 seed 11, row 19) | scrub (480,−1248) (7,19) · brush (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) · dunes (1120,−1248) (17,19) | — | teleport to each centre |
 
 Uaho's pristine mint is preserved game-side as the deployed file's `.pristine-r31s42` sibling (the
 identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs a relaunch.
@@ -103,12 +103,14 @@ identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs
 
 ## 6. Next steps (the menu, roughly by value)
 
-1. **More ground families via the translation law — ★ DONE offline 2026-07-15** (see §1; the census
-   proved the law universal, `GROUNDS` grew 5 families for the cost of constants, dirt 19/20 byte-proved
-   the family model, dirt 41 is the exception with its own set). Remaining: the in-game ground sampler
-   (one small island per new family) + dirt-16's structure if the dry-lakebed look is ever wanted.
-2. **A desert beach** (topo 38) — desert islands currently mint pure cliff rings; this is the
-   beach-mint analogue for sand shorelines.
+1. **More ground families via the translation law — ★ DONE incl. the sampler playtest 2026-07-15**
+   (see §1; the law is universal, `GROUNDS` grew 5 families + the CLASS axis, dirt 19/20 byte-proved
+   the family model, dunes/41 is the exception with its own set; names brush/dunes chosen by the user).
+   Remaining crumbs only: dirt-16's structure if the dry-lakebed look is ever wanted; the
+   vocabulary-share earmark (stock grounds are only partly mains — desert precedent says it may never
+   read at scale).
+2. **A desert beach** (shore sand, topos 31/32/33) — desert islands currently mint pure cliff rings;
+   this is the beach-mint analogue for sand shorelines.
 3. **A composed showcase island** — the pieces (island + mountain + forest + hill + entrance +
    waystation field) have never been assembled into ONE designed place. This is where the arc's tools
    turn into content.

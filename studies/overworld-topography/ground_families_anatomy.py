@@ -47,7 +47,7 @@ FAMILIES = [
     ("grass0", (0,), "CONTROL -- must fit delta (0,0)"),
     ("grassvar", (1, 2, 3, 10, 11, 12, 13, 42), "control -- family model says grass look"),
     ("scrub", (4, 5, 6), "candidate (borders desert)"),
-    ("dirthill", (38,), "candidate (walkable steep-slope)"),
+    ("brush", (38,), "candidate (walkable steep-slope)"),
     ("snow", (27, 28), "candidate (Lost Continent)"),
     ("canyon", (45, 46), "candidate (Forgotten red tiers)"),
     ("dirt16", (16,), "dirt variant -- expect DESERT rects"),

@@ -2652,7 +2652,7 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     gcls = GROUNDS.get(args.ground, {}).get("cls", "island")
     if gcls != "island":
         print(f"note: in stock FF9, '{args.ground}' is a {gcls.upper()} vocabulary "
-              f"(scrub = grass<->dirt seam strips; dirthill = ~30-deg hillsides; flats = "
+              f"(scrub = grass<->dirt seam strips; brush = ~30-deg hillsides; dunes = "
               f"coast-less interior fill) -- a whole island of it reads off-language "
               f"(the 2026-07-15 ground-sampler playtest). Minting anyway.")
     try:
@@ -5776,7 +5776,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="skip the verbatim meadow stamps (no install data needed)")
     wis.add_argument("--ground", choices=_ground_choices(), default="grass",
                      help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default), "
-                          "desert, snow, canyon are island-complete fills; scrub/dirthill/flats are "
+                          "desert, snow, canyon are island-complete fills; scrub/brush/dunes are "
                           "stock seam/slope/interior vocabularies (mintable, but a whole island of "
                           "them reads off-language); meadow patches are grass-only")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
