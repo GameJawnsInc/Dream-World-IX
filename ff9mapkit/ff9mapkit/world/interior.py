@@ -1198,6 +1198,23 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
     c_local = ((bpts[:, 0].min() + bpts[:, 0].max()) / 2,
                (bpts[:, 2].min() + bpts[:, 2].max()) / 2)
     r_rim = max(math.hypot(p[0] - c_local[0], p[2] - c_local[1]) for p in rim)
+    # THE FOOTPRINT SWEEP (the horseshoe trap, 2026-07-15): every donor terrain tri
+    # whose centroid lies plan-inside the rim rides along VERBATIM -- the mouth tunnel's
+    # topo-58 lining, weld-isolated rock SHINGLES (the see-through quad), interior
+    # canopy bits. They stay OUTSIDE the ring/rim accounting (a free shingle touching
+    # the sheet at one vertex is legal stock structure that breaks manifold chaining);
+    # their open edges are lawful stock boundaries, exempted at the crack gate.
+    rim_poly_local = [(p[0], p[2]) for p in rim]
+    sweep = []
+    for t in range(len(dtri)):
+        if t in blob:
+            continue
+        c = dV[dtri[t]].mean(axis=0)
+        if pip(c[0], c[2], rim_poly_local):
+            sweep.append(t)
+    if sweep:
+        log(f"footprint sweep: {len(sweep)} interior tris ride verbatim (topos "
+            f"{dict(Counter(dtopo[t] for t in sweep))})")
     log(f"blob: {len(blob)} tris, extent {bpts[:, 0].max() - bpts[:, 0].min():.0f}x"
         f"{bpts[:, 2].max() - bpts[:, 2].min():.0f}u y[{bpts[:, 1].min():.1f},"
         f"{bpts[:, 1].max():.1f}]; rim {len(rim)} pts max plan radius {r_rim:.1f}u")
@@ -1227,7 +1244,7 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
     return dict(read_blocks=read_blocks, dV=dV, dU=dU, dN=dN, dT=dT, dtri=dtri,
                 dtopo=dtopo, d_edge=d_edge, blob=blob, rim=rim, rim_set=rim_set,
                 apertures=apertures, ensemble_apertures=ensemble_apertures,
-                oV=oV, oN=oN, otris=otris, c_local=c_local,
+                sweep=sweep, oV=oV, oN=oN, otris=otris, c_local=c_local,
                 r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
 
 
@@ -1298,6 +1315,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     dtri, dtopo, d_edge = B["dtri"], B["dtopo"], B["d_edge"]
     blob, rim, rim_set, apertures = B["blob"], B["rim"], B["rim_set"], B["apertures"]
     ensemble_apertures = B["ensemble_apertures"]
+    sweep = B["sweep"]
     oV, oN, otris = B["oV"], B["oN"], B["otris"]
     c_local, r_rim, ta, tb = B["c_local"], B["r_rim"], B["ta"], B["tb"]
     dV2, dN2, rim2 = B["dV2"], B["dN2"], B["rim2"]
@@ -1693,6 +1711,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     log(f"hole ring: {len(hole)} positions")
 
     carried = {t: [carry_vert(i) for i in dtri[t]] for t in blob}
+    for t in sweep:                                        # verbatim extras, outside the
+        carried[t] = [carry_vert(i) for i in dtri[t]]      # ring accounting
     c_edge = Counter()
     c_float = {}
     for t in blob:
@@ -1963,6 +1983,13 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
                         for k in range(3))
         new_parents.append((corners, idall, "mountain"))
+    for t in sweep:                                        # the footprint sweep, verbatim
+        tri = dtri[t]
+        idall = strip_dispatch(float(dT[tri[0]][0]))
+        nr = [rot_n(dN2[tri[k]], ROT) for k in range(3)]
+        corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
+                        for k in range(3))
+        new_parents.append((corners, idall, "mountain"))
     new_parents.extend(plug_parents)
     zip_rise = 0.0
     zip_ny_min = 1.0
@@ -2066,6 +2093,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     for ring_o in crims[1:]:
         for i2 in range(len(ring_o)):
             open_segs.append((ring_o[i2], ring_o[(i2 + 1) % len(ring_o)]))
+    for t in sweep:                                        # sweep-tri edges too -- a
+        ps = carried[t]                                    # border SPLIT half is a
+        for a, b in ((0, 1), (1, 2), (2, 0)):              # collinear sub-segment
+            open_segs.append((tuple(ps[a]), tuple(ps[b])))
 
     def _on_open(pt):
         for a3, b3 in open_segs:
@@ -2082,9 +2113,18 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 return True
         return False
 
+    # footprint-sweep tris are verbatim stock shingles/lining: any open edge they
+    # create existed in stock or borders uncarried stock -- lawful, not a crack
+    sweep_edges = set()
+    for t in sweep:
+        ps = carried[t]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            sweep_edges.add(tuple(sorted((kk3(ps[a]), kk3(ps[b])))))
     inner_once = []
     for e, n in eu3.items():
         if n != 1 or e in once0:
+            continue
+        if e in sweep_edges:
             continue
         if open_segs and _on_open(e[0]) and _on_open(e[1]):
             continue
@@ -2092,7 +2132,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     for e in inner_once[:6]:
         log(f"  NEW ONCE EDGE: {e[0]} -- {e[1]}")
     worst_rig = 0.0                                        # THE ROCK-RIGID GATE
-    for t in blob:
+    for t in list(blob) + list(sweep):
         tri = dtri[t]
         for a, b in ((0, 1), (1, 2), (2, 0)):
             d0 = float(np.linalg.norm(dV[tri[a]] - dV[tri[b]]))
