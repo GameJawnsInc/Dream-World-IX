@@ -297,6 +297,37 @@ now distinguishes a REAL hole from a legally-detached tri whose own edges chain 
 3-cycle. Hermetic tests (incl. a synthetic pyramid-donor end-to-end carve with a
 monkeypatched donor read): `ff9mapkit/tests/test_world_interior.py`.
 
+## THE CRAG DONOR ANATOMY (★ 2026-07-15): measured, and DISQUALIFIED for single-block v1
+
+`crag_anatomy.py` → `out/crag_anatomy.json` + `out/crag_map.png` — the donor-qualification
+pass the backlog required before extending `world-mountain --donor` beyond Uaho. Findings:
+
+* **ONE cross-block massif.** The crag's rock is a single 294-tri component (pure topo 49,
+  no 7/62) straddling blocks **(10,5)+(10,6)** — 33×63u, peak y 26.5. Block (9,5) has no
+  terrain mesh at all; (9,6)/(9,7)/(10,7) hold no massif rock.
+* **Region-level, it is beautiful donor material**: the merged rim CHAINS cross-block into
+  ONE clean 42-pt foot ring at y[6.0,8.0] (max 2u oscillation!), radius **33.7u**, de-tilt
+  0.8°, residual ±1u; lattice-sheet class (v-weld 0.73, same class as Uaho/the horseshoe);
+  no apertures, no pockets, no object ensemble.
+* **Per block it is NOT a mountain**: each in-block fragment's "rim" includes the block-
+  border cut and mid-shoulder heights (rim y up to 17.6, de-tilt 22.7°/residual ±6 on
+  (10,5)) — and the real `carve_mountain` dry-carve REFUSES both, for the right reasons
+  ((10,5): zip rise 4.66 > 2.34; (10,6): radius 28.1 doesn't fit any in-block placement —
+  the hard ceiling is ~23.5u, the r31 bench pocket ~20u).
+* **Its own tile band**: sharply tiled (corner peakiness 9–12×) but a DIFFERENT chart —
+  phase (0.011719, 0.015625), exactly 1/256 off `ROCK_CHART_PHASE` in both axes, rows 2–6
+  + 13–14 vs the Uaho/Daguerreo band's 6–12. The plug-chart constants are BAND-SPECIFIC;
+  a donor from another rock look-family needs its own phase (moot here — no apertures).
+* **Feet on topo 17, not grass**: the crag's painted foot fringe meets wasteland ground,
+  not mains grass — a look-risk if ever seated on a grass island (offline-untestable).
+* **Dispatch**: all rock baked (event 0, area 62) — the DONOR-DISPATCH STRIP handles it.
+
+**Verdict: the crag cannot be a `world-mountain --donor` without a MULTI-BLOCK extension**
+(donor-side the blob build generalizes cleanly per A2; target-side needs a multi-block
+placement scan + split-border emission — a real project). Today's honest tool for a
+2-block massif is the proven **v4 transplant** (rect-window verbatim carry, Daguerreo
+class), not the mountain carve. `--donor 0,0` (Uaho) remains the only qualified donor.
+
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —
