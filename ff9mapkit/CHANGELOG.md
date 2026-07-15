@@ -125,6 +125,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the mirrored island would wear disc-4 variants on disc-1 terrain. Run it after any
   custom-ocean world deploy; RELAUNCH to apply.
 
+### Added — `--ground desert`: a second walkable ground family (THE TRANSLATION LAWS)
+- The desert anatomy (`studies/overworld-topography/desert_ground_anatomy.py`) proved topo-17
+  wasteland speaks the grass ground grammar — exact linear-in-XZ per 4u cell, one 128px tile
+  per cell, 4 rotations, grass handedness, avoid-repeat neighbours — with its mains 2×2 rects
+  and its coastal cliff-wall band each sitting at a TRANSLATED atlas spot, byte-exact at 5dp:
+  mains (+0.65332, −0.09863), wall (−0.27127, −0.02066). `grassland.GROUNDS` records the
+  families; `ground_uv`/`ground_main_region` re-base the proven grass machinery.
+- `world-island --ground desert` mints a topo-17 desert island (desert mains + the desert
+  cliff band; meadow stamps are grass vocabulary and disable); `world-mountain --ground
+  desert` makes the carve's plain-ground checks, zip annulus (UVs + topograph), and rim
+  probes speak the bench's family. Grass is the bit-frozen identity: both byte-identity
+  acceptances (the Uaho bench AND island E) pass unchanged through the threading, and the
+  full desert path runs green offline end-to-end (desert mint → verify → the crag carve).
+
 ### Added — `world-mountain`: carry a real rock massif onto a deployed island
 - The in-game-approved Uaho carry study (`massif_carry.py`, 2026-07-13 — "the cliff is great —
   walkable, seams against the grass great") is now a kit verb (`interior.carve_mountain`):

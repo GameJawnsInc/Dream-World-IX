@@ -1196,7 +1196,8 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
 def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    rock_topos=MOUNTAIN_ROCK_TOPOS, alcove="auto", clear=MTN_CLEAR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
-                   scan_cutoff=60, disc: int = 1, game=None, log=print) -> dict:
+                   scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
+                   log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -1222,10 +1223,18 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     donor block's LOCAL frame to hand-tune a new donor (the aperture-plug path needs the
     donor's own anatomy pass first -- see the studies README).
 
+    ``ground`` picks the bench's walkable ground family (:data:`grassland.GROUNDS` --
+    the byte-measured TRANSLATION LAWS): the plain-ground classification, the zip
+    annulus's mains UVs + topograph, and the outside-the-rim probe all speak that
+    family. ``"grass"`` is the bit-frozen identity (the Uaho acceptance).
+
     Returns ``{"changed", "center", "rot", "drop", "report"}``; raises ``ValueError`` on
     any gate."""
     import numpy as np
 
+    gspec = G.GROUNDS[ground]
+    g_topo = gspec["topo"]
+    g_du, g_dv = gspec["mains_du"], gspec["mains_dv"]
     donor_blocks = _norm_donor_blocks(donor)
     if alcove == "auto":
         alcove_box = UAHO_ALCOVE if donor_blocks == [MOUNTAIN_DONOR] else None
@@ -1344,7 +1353,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     err = 0.0
                     for j in tri:
                         mu, mv = G.mains_uv(gpos[j][0], gpos[j][2], ccell, q, o)
-                        err = max(err, abs(mu - guv[j][0]), abs(mv - guv[j][1]))
+                        err = max(err, abs(mu + g_du - guv[j][0]),
+                                  abs(mv + g_dv - guv[j][1]))
                     if err < 1e-4:
                         return q, o
         return None
@@ -1372,7 +1382,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             pick = ent_at[p][0][1]                         # normal/id from any twin entry
             gpos.append(list(gpos[pick]))
             gnrm.append(list(gnrm[pick]))
-            guv.append(list(G.mains_uv(p[0], p[2], ccell, q, o)))
+            mu, mv = G.mains_uv(p[0], p[2], ccell, q, o)
+            guv.append([mu + g_du, mv + g_dv])
             gtan.append(list(gtan[pick]))
             new_idx.append(len(gpos) - 1)
         gtris.append(new_idx)
@@ -1384,8 +1395,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     lo_u, hi_u = G.FAM_REGION["main"][0], G.FAM_REGION["main"][2]
     plain = []
     for tdx, tri in enumerate(gtris):
-        plain.append(gtopo[tdx] == 0 and
-                     all(lo_u - 0.02 <= guv[i][0] <= hi_u + 0.02 for i in tri))
+        plain.append(gtopo[tdx] == g_topo and
+                     all(lo_u - 0.02 <= guv[i][0] - g_du <= hi_u + 0.02 for i in tri))
     tri_c = [((gpos[tri[0]][0] + gpos[tri[1]][0] + gpos[tri[2]][0]) / 3,
               (gpos[tri[0]][2] + gpos[tri[1]][2] + gpos[tri[2]][2]) / 3)
              for tri in gtris]
@@ -1585,8 +1596,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 break
     fams = Counter(gtopo[t] for t in drop)
     log(f"bench tris dropped: {len(drop)} (topos {dict(fams)})")
-    if set(fams) != {0}:
-        raise ValueError(f"hole reaches non-grass island tris (topos {dict(fams)})")
+    if set(fams) != {g_topo}:
+        raise ValueError(f"hole reaches non-ground island tris (topos {dict(fams)}, "
+                         f"ground topo {g_topo})")
 
     eu2 = Counter()
     for tdx, tri in enumerate(gtris):
@@ -1844,7 +1856,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                     err = 0.0
                     for i in tri:
                         mu, mv = G.mains_uv(gpos[i][0], gpos[i][2], cell, q, o)
-                        err = max(err, abs(mu - guv[i][0]), abs(mv - guv[i][1]))
+                        err = max(err, abs(mu + g_du - guv[i][0]),
+                                  abs(mv + g_dv - guv[i][1]))
                     if err < 1e-4:
                         best2 = (q, o)
                         break
@@ -1867,7 +1880,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         for i in tri:
             pos_nrm.setdefault(kk3(gpos[i]), list(gnrm[i]))
 
-    ID0 = float(X.encode_id(topograph=0))
+    ID0 = float(X.encode_id(topograph=g_topo))
     new_parents = []                                       # (corners8, idall, fam)
     for t in blob:                                         # the mountain, verbatim channels
         tri = dtri[t]
@@ -1894,7 +1907,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             key = kk3(pnt)
             n3 = pos_nrm.get(key) or rim_nrm.get(key, [0.0, 1.0, 0.0])
             u, v = G.mains_uv(float(pnt[0]), float(pnt[2]), cell, q, o)
-            corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]), u, v, *n3))
+            corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]),
+                            u + g_du, v + g_dv, *n3))
         new_parents.append((tuple(corners), ID0, "zip"))
 
     # ---- 6. gates + assembly ------------------------------------------------------------
@@ -2023,9 +2037,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         raise ValueError(f"blob centre grounds on {nm_} topo {tp}, want carried rock")
     r_out = max(math.hypot(px - TX, pz - TZ) for (px, pz) in rim_poly) + 4.0
     gy2, nm2, _, tp2 = P.place(_wml, TX - r_out, TZ)
-    log(f"grass probe west of the rim: y={gy2:.2f} {nm2} topo {tp2}")
-    if nm2 != "Terrain" or tp2 != 0:
-        raise ValueError(f"west grass probe grounds on {nm2} topo {tp2}, want plain grass")
+    log(f"ground probe west of the rim: y={gy2:.2f} {nm2} topo {tp2}")
+    if nm2 != "Terrain" or tp2 != g_topo:
+        raise ValueError(f"west ground probe grounds on {nm2} topo {tp2}, want plain "
+                         f"ground topo {g_topo}")
 
     _atlas_gate_mountain(new_parents, game=game, log=log)
 

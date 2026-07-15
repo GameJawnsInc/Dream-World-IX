@@ -700,6 +700,17 @@ open ocean (the open-ocean target law — a real sea-skirt block loads its own p
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
 
+**Ground families — `--ground grass|desert` (★ 2026-07-15).** THE TRANSLATION LAWS: another walkable ground
+family is the grass language translated in the atlas. Desert (topo 17, the Forgotten-Continent wasteland
+look) has its mains 2×2 rects at grass + (+0.65332, −0.09863) and its coastal cliff-wall band at
+ROCK + (−0.27127, −0.02066) — same widths, gutters, cell mapping, rotations, and neighbour policy,
+byte-exact at 5dp (`grassland.GROUNDS`; measured by `studies/overworld-topography/
+desert_ground_anatomy.py`). `world-island --ground desert` mints the whole island in the family (meadow
+stamps are grass vocabulary and disable); `world-mountain --ground desert` speaks it in the carve's
+plain-ground checks + zip annulus — the crag's foot fringe is painted against exactly this ground.
+Real desert additionally slides FREE fractional windows over its painted-over internal gutter (THE
+COL-FREEDOM LAW at ground scale); the mint uses the locked grass-form window, itself a common real form.
+
 ### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
 
 The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs 1–3 — there is no

@@ -2649,8 +2649,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     from .world import island as I
     try:
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
-                  rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, disc=args.disc,
-                  game=args.game, dry_run=args.dry_run)
+                  rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
+                  disc=args.disc, game=args.game, dry_run=args.dry_run)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -2774,7 +2774,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         soup = IN.soup_from_blocks(blocks)
         res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
                                 near=None if exact else (wx, wz), donor=donor_blocks,
-                                disc=args.disc, game=args.game)
+                                ground=args.ground, disc=args.disc, game=args.game)
         IN.census_gate(res["changed"], disc=args.disc, game=args.game)
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
@@ -5754,6 +5754,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="max meadow patches (verbatim stamps; only perfectly-fitting ones place; default 2)")
     wis.add_argument("--flat", action="store_true",
                      help="skip the rolling relief + meadow stamps (no install data needed; reads LESS faithful)")
+    wis.add_argument("--ground", choices=("grass", "desert"), default="grass",
+                     help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default) or "
+                          "desert (topo-17 mains + the desert cliff-wall band; meadow patches disabled)")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)
@@ -5817,6 +5820,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "studies/overworld-topography/README.md.")
     wmt.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
+    wmt.add_argument("--ground", choices=("grass", "desert"), default="grass",
+                     help="the bench island's ground family: the zip annulus + plain-ground checks speak "
+                          "it (match the island's world-island --ground)")
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wmt.set_defaults(func=_cmd_world_mountain)
