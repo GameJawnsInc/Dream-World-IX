@@ -297,6 +297,35 @@ now distinguishes a REAL hole from a legally-detached tri whose own edges chain 
 3-cycle. Hermetic tests (incl. a synthetic pyramid-donor end-to-end carve with a
 monkeypatched donor read): `ff9mapkit/tests/test_world_interior.py`.
 
+## THE HORSESHOE DONOR CHECK (★ 2026-07-15): DISQUALIFIED — THE ENSEMBLE-APERTURE FINDING
+
+`horseshoe_donor_check.py` → `out/horseshoe_donor.json` — the qualification pass for the
+Daguerreo horseshoe (blocks (5-6,15-16), the v4 transplant's centerpiece), run through
+the SHIPPED `_mountain_blob`/`carve_mountain`. The massif is structurally beautiful
+donor material — 562 rock tris + the flooded hanging bowl (121 topo-13 + 30 interior
+topo-58) = a 713-tri blob, ONE clean 62-pt foot rim at y[2.4,6.4], radius **54.3u**,
+one interior ring — but the qualification DISQUALIFIES it on three independent axes:
+
+1. **THE ENSEMBLE-APERTURE FINDING** (the headline law): the interior ring (43 pts,
+   y[15.2,29.4] = the river/falls MOUTH through the massif) is 100% owned by the UNION
+   of the donor's auxiliary parts (object 22 / falls 12 / river 15 / riverjoint 4,
+   overlapping) — **Uaho's object-only aperture law is the small-mountain special
+   case**. The shipped aperture gate refuses, correctly.
+2. Even with a union-validated gate, the Uaho-style plug would seal a **14u-tall river
+   mouth with collar rock** and carry the bowl as a dry dead pond — a form alteration of
+   exactly the class THE FORM LESSON kills. The faithful path is **THE ENSEMBLE CARRY**
+   (a future rung): transform falls/river/riverjoint/object parts under the same rigid
+   map and deploy them as part overrides — real new machinery (part deployment, the
+   animated water materials, object SUBSETTING: the object part also holds Daguerreo's
+   entrance scenery).
+3. **Bench feasibility**: horseshoe scale needs ~r69 mints, and `world-island` r69 is
+   not robustly clean (seeds 7/11/23/42 trip `grass_over_8u` by 2-3 interior slivers;
+   seed 55 trips the shape gate) — a mint-robustness rung of its own. Free 3×3 ocean
+   windows are NOT the constraint (19 exist map-wide).
+
+Today's tool for placing the horseshoe remains the proven **v4 rect transplant** (the
+water system free-rides). `--donor` stays Uaho + the crag.
+
 ## THE CRAG DONOR ANATOMY (★ 2026-07-15): measured, and DISQUALIFIED for single-block v1
 
 `crag_anatomy.py` → `out/crag_anatomy.json` + `out/crag_map.png` — the donor-qualification
