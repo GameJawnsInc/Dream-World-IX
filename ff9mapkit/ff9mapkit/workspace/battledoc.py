@@ -455,6 +455,7 @@ class BattleDoc(QWidget):
 
     def _mount(self, kind, idx, spec, entity):
         self._clear()
+        advanced = []                                       # byte-level helper panels -> tucked in Guided mode
         if kind == _ENEMY:
             base = self._donor_baseline(entity)             # read-only "what you're tuning from" panel
             if base is not None:
@@ -464,13 +465,24 @@ class BattleDoc(QWidget):
             if facts is not None:
                 self.host_lay.addWidget(self._facts_panel("Donor scene (the fork you're tuning)", facts))
         elif kind == _AIPHASE:
-            ai = self._donor_ai_facts()                     # the entry/tag + attack indices the form needs
+            ai = self._donor_ai_facts()                     # the entry/tag + attack indices (B_MEMBER facts)
             if ai is not None:
-                self.host_lay.addWidget(self._ai_facts_panel(*ai))
-        elif kind in (_AIPATCH, _SEQPATCH):                 # a "Browse sites…" picker fills the offset + guard
-            self.host_lay.addWidget(self._sites_panel(kind))
+                advanced.append(self._ai_facts_panel(*ai))
+        elif kind in (_AIPATCH, _SEQPATCH):                 # the donor-site offset picker (fills offset + guard)
+            advanced.append(self._sites_panel(kind))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
         self.host_lay.addWidget(form)
+        # Phase 7: in Guided mode the byte-level donor-site / AI-facts panels tuck behind an Advanced drawer
+        # BELOW the form (a newcomer tunes the form; an expert opens it, or runs Full mode for them inline).
+        from . import forms_qt
+        if advanced and forms_qt._GUIDED:
+            drawer = widgets.disclosure("Advanced — donor sites / AI facts")
+            for _p in advanced:
+                drawer.content_layout.addWidget(_p)
+            self.host_lay.addWidget(drawer)
+        else:
+            for _p in advanced:
+                self.host_lay.addWidget(_p)
         self.host_lay.addStretch(1)
         self._ctx = {"kind": kind, "idx": idx, "spec": spec, "getters": getters}
         self.save_btn.setEnabled(True)

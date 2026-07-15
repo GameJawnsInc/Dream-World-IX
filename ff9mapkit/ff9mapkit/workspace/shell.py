@@ -8139,6 +8139,10 @@ def _smoke(win):
     win.battle._pick_patch_kind = lambda: "ai_patch"                      # stub the AI/seq chooser dialog
     win.battle._add_patch()
     assert any(k == "ai_patch" for k, _ in win.battle._nodes) and win.battle._ctx["kind"] == "ai_patch"
+    # Phase 7: Guided mode tucks the Battle byte-level donor-site picker into an Advanced drawer below the form.
+    from PySide6.QtWidgets import QToolButton as _QTB_bd
+    _bt_draw = [b.text() for b in win.battle.findChildren(_QTB_bd) if b.objectName() == "disclosureToggle"]
+    assert any("donor sites" in t.lower() for t in _bt_draw), ("no Battle Advanced drawer", _bt_draw)
     win.battle._ctx["getters"].update(at=lambda: "1234", old=lambda: "50", new=lambda: "80")
     win.battle._save()
     assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["ai_patch"][0] == {"at": 1234, "old": 50, "new": 80}
