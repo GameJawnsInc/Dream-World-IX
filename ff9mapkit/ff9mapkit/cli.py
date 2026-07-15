@@ -2655,10 +2655,21 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
               f"(scrub = grass<->dirt seam strips; brush = ~30-deg hillsides; dunes = "
               f"coast-less interior fill) -- a whole island of it reads off-language "
               f"(the 2026-07-15 ground-sampler playtest). Minting anyway.")
+    beach = None
+    if getattr(args, "beach", None):
+        parts_ = [s.strip() for s in args.beach.split(":")]
+        b0, b1 = (float(v) for v in parts_[0].split(","))
+        beach = {"bearing": (b0, b1)}
+        if len(parts_) > 1 and parts_[1]:
+            beach["width"] = float(parts_[1])
+        if len(parts_) > 2 and parts_[2]:
+            beach["swash"] = float(parts_[2])
+        if getattr(args, "beach_pins", None):
+            beach["pins_from"] = tuple(int(v) for v in args.beach_pins.split(","))
     try:
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
                   rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
-                  disc=args.disc, game=args.game, dry_run=args.dry_run)
+                  beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -5779,6 +5790,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "desert, snow, canyon are island-complete fills; scrub/brush/dunes are "
                           "stock seam/slope/interior vocabularies (mintable, but a whole island of "
                           "them reads off-language); meadow patches are grass-only")
+    wis.add_argument("--beach", default=None, metavar="B0,B1[:WIDTH[:SWASH]]",
+                     help="THE LADDER MINT: replace the cliff wall along the outline arc between "
+                          "bearings B0..B1 (degrees CCW, east=0, south=270) with the measured beach "
+                          "profile (berm -> sand band -> foam ribbon) and mint its water ladder "
+                          "(wash collar -> sea1 ring -> sea5 ring, the sea4 plane cut back) -- "
+                          "adjacency lawful by construction, the arc ends pinch against the "
+                          "full-height flanking cliffs. v1: single-block, grass+desert families. "
+                          "WIDTH = the sand band (default 2.4), SWASH = the foam ribbon (3.8-4.6).")
+    wis.add_argument("--beach-pins", default=None, metavar="BX,BY",
+                     help="the beach language reference block (sand v pins, foam family, strip float "
+                          "dialect, AND the beach block's divert donor). Default per family: grass "
+                          "(7,17), desert (20,5).")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)
