@@ -762,6 +762,15 @@ Acceptance was proven by IDENTITY (`studies/overworld-topography/mountain_produc
 mint → module carve reproduces the deployed, playtested Uaho bench **byte-for-byte**; the go-forward fresh-mint path
 differs only by the mint's own concave-dent fix, far outside the carve. Run `world-mirror` after deploying.
 
+**Multi-block carries.** `--donor` also accepts a block rect (`10,5-6` = the crag island's stock massif, one
+294-tri component straddling a border — the blob builds on the merged world-frame donor bytes; the crag's own
+anatomy pass is `studies/overworld-topography/crag_anatomy.py`). The TARGET sizes itself automatically: a blob
+that fits one block (`2·(radius + band) ≤ 64`) runs the proven single-block pipeline byte-identically; a bigger
+one works over the minimal SPAN of deployed blocks covering its footprint (every span block must hold a deployed
+Terrain override — mint a big enough island first). New tris split at the 64u borders exactly how stock
+cross-block mountains ship (identity welds via the shared clip plane); the apron lift welds internal span borders
+per POSITION and tapers only at the span's outer borders; the crack gate, probes, and census run span-wide.
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas

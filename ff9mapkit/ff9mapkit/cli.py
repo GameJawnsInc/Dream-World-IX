@@ -2750,6 +2750,17 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_block_rect(spec: str) -> list:
+    """``BX,BY`` or a rect ``BX0-BX1,BY0-BY1`` (either axis may be a range) -> block list."""
+    def rng(s):
+        if "-" in s:
+            a, b = s.split("-")
+            return list(range(int(a), int(b) + 1))
+        return [int(s)]
+    xs, ys = spec.split(",")
+    return [(x, y) for x in rng(xs) for y in rng(ys)]
+
+
 def _cmd_world_mountain(args: argparse.Namespace) -> int:
     """Carry a REAL rock massif (verbatim topo-49/7/62 geometry+UV+normals+aperture plugs) onto a
     DEPLOYED kit island -- the productized Uaho carry (in-game proven 2026-07-13). Gates: ROCK-RIGID +
@@ -2757,12 +2768,12 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     from .world import interior as IN
     try:
         (wx, wz), exact = _parse_world_point(args)
-        dx, dy = (int(v) for v in args.donor.split(","))
+        donor_blocks = _parse_block_rect(args.donor)
         blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
                                          disc=args.disc, game=args.game)
         soup = IN.soup_from_blocks(blocks)
         res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
-                                near=None if exact else (wx, wz), donor=(dx, dy),
+                                near=None if exact else (wx, wz), donor=donor_blocks,
                                 disc=args.disc, game=args.game)
         IN.census_gate(res["changed"], disc=args.disc, game=args.game)
         if not args.dry_run:
@@ -2775,13 +2786,13 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     cx, cz = res["center"]
     r = res["report"]
     tx, tz = r["teleport"]
-    print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg: "
-          f"{r['blob_tris']} donor tris (+{r['plugs']} aperture plugs), {r['dropped']} island tris "
-          f"carved, {r['zip_tris']} zip tris; peak y {r['peak_y']}, rock rigidity drift "
-          f"{r['rock_rigid'] * 100:.1f}% (<= 3.5), apron slope {r['apron_slope']} deg "
-          f"(<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the placement probes + census. "
-          f"F6 -> World -> re-enter, then teleport ({tx}, {tz}) and face the massif; walk the "
-          f"whole rim. Run world-mirror after any custom-ocean deploy.")
+    print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg across "
+          f"{len(r['blocks'])} block(s): {r['blob_tris']} donor tris (+{r['plugs']} aperture "
+          f"plugs), {r['dropped']} island tris carved, {r['zip_tris']} zip tris; peak y "
+          f"{r['peak_y']}, rock rigidity drift {r['rock_rigid'] * 100:.1f}% (<= 3.5), apron "
+          f"slope {r['apron_slope']} deg (<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the "
+          f"placement probes + census. F6 -> World -> re-enter, then teleport ({tx}, {tz}) and "
+          f"face the massif; walk the whole rim. Run world-mirror after any custom-ocean deploy.")
     return 0
 
 
@@ -5798,10 +5809,12 @@ def build_parser() -> argparse.ArgumentParser:
     _mtg.add_argument("--near", metavar="WX,WZ",
                       help="scan a ~20u window around this point for the best lawful plain-grass placement "
                            "(exact 90-deg rotations as fallbacks)")
-    wmt.add_argument("--donor", default="0,0", metavar="BX,BY",
-                     help="real block whose rock massif to carry (default 0,0 = Uaho, the only donor with a "
-                          "full anatomy study behind it -- a new donor needs its own alcove/aperture pass; "
-                          "see studies/overworld-topography/README.md before adding others)")
+    wmt.add_argument("--donor", default="0,0", metavar="BX[,-BX1],BY[-BY1]",
+                     help="real block(s) whose rock massif to carry: one block (default 0,0 = Uaho, alcove + "
+                          "aperture-plug anatomy studied) or a rect for a massif that straddles a border "
+                          "(10,5-6 = the crag; the target sizes itself to a multi-block span automatically). "
+                          "A new donor needs its own anatomy pass first -- see "
+                          "studies/overworld-topography/README.md.")
     wmt.add_argument("--reach", type=float, default=96.0,
                      help="deployed-block load window around the point in units (default 96)")
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
