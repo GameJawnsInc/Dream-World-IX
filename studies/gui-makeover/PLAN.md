@@ -138,9 +138,32 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > "just get me started" id-band/mod-folder defaults are already handled (fork writes to a discoverable user
 > folder with defaults; Run-setup uses defaults), and the Import tab's density is **Phase 6**'s to simplify.
 > Verified: **full suite 2842 passed / 230 skipped**, smoke green (structural, machine-state-independent
-> asserts), full-Home dark screenshot. Next: **Phase 5 (Learnability part 2)** — concept cards for the jargon
-> (fork/field/walkmesh/gEventGlobal/…) via What's-This + an Inspector "About this…" panel (hosts on the Phase-3
-> grouped Inspector), plus a plain-language error layer in the Problems dock.
+> asserts), full-Home dark screenshot.
+
+> **★ Phase 5 (Learnability, additive part 2) COMPLETE** (2026-07-14, 4 commits). Make every intimidating word
+> answerable in place, and every failure legible.
+> - **Concept-card registry** (`6eaf000`) — a PySide6-free `workspace.concepts`: ~26 cards condensed from the
+>   canonical `docs/GLOSSARY.md` into one/two plain-language sentences, engine term deferred to a muted "Under
+>   the hood" aside; `resolve()` matches by term / alias / substring (gEventGlobal / story flag / .mes all land).
+>   Surfaced through **three** surfaces: a fuzzy Ctrl-K "What is X?" row per term (`6eaf000`); an in-context
+>   Inspector **"About this…"** link that maps a selected node to its card (`348ed7d`, hosts on the Phase-3
+>   grouped inspector via a new `about` tail); and a **"?" badge** on jargon form fields (`ab39975`, derived
+>   from the field KIND so every flag/scenario field is covered, opening the card via a self-contained
+>   What's-This bubble).
+> - **Plain-language error layer** (`fe899fe`) — `feedback.humanize()` (tk-free) maps the raw errors a newcomer
+>   most often hits to a friendly sentence + one concrete next step; `_show_problems` enriches each Problems row
+>   with a tooltip + status tip (raw text stays visible — additive). The 23 rules were **discovered + drafted +
+>   adversarially verified by a multi-agent Workflow** (6-way codebase sweep → cluster/draft → per-rule verify
+>   for accuracy / match-safety / actionability against the real emit site). The verify stage first died on the
+>   session usage limit (drafted rules recovered from the run journal, spot-checked by hand), then re-ran clean
+>   on **resume** (Find+Draft replayed from cache, only Verify re-ran). I hand-corrected two verifier edits:
+>   kept the safer `invalid value — not saved` match, and re-added the gil-cap rule with a safe `gil must be in`
+>   match (the verifier had objected only to the unsafe original match, not the rule). Grounded, not invented.
+>
+> Verified: **full suite 3475 passed / 2 skipped** (+8 Phase-5 tests; the byte-level suite now runs too), smoke
+> green (Ctrl-K rows, concept resolve, a humanized Problems tooltip). Concept cards + the forms badge
+> screenshot-verified. Next: **Phase 6 (IA / navigation reorg)** — the workspace rail that swaps tab sets, the
+> Import split, and the verb-first Ctrl-K — the first structural phase (needs the P2–P3 card/elevation vocabulary).
 
 
 ## 1. North-star vision
