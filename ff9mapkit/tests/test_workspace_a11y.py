@@ -125,6 +125,33 @@ def test_interactive_controls_meet_target_size(app):
         assert badge.width() >= 22 and badge.height() >= 22, "the '?' concept badge is a generous inline target"
 
 
+def test_focus_rings_are_defined_for_keyboard_users():
+    """WCAG 2.4.7: buttons, tabs, the tree, and inputs must show a visible focus indicator. Guards against a
+    regression that removes the per-widget :focus rings (the global `outline:0` suppresses Fusion's native one)."""
+    from ff9mapkit.editor.theme import derive, pick_palette                      # noqa: PLC0415
+    from ff9mapkit.workspace.style import qss                                    # noqa: PLC0415
+    for mode in ("dark", "light", "nord"):
+        pal = pick_palette(mode)
+        css = qss(pal)
+        for sel in ("QPushButton:focus", "QTabBar::tab:focus", "QTreeWidget:focus", "QLineEdit:focus"):
+            assert sel in css, f"{mode}: missing focus rule {sel}"
+        assert derive(pal)["focus"] in css, f"{mode}: the focus ring uses the derived (>=3:1) focus colour"
+
+
+def test_toolbar_overflows_gracefully_at_narrow_width(app):
+    """WCAG 1.4.4 / 1.4.10: at a narrow logical width (a small screen at high OS scaling), the 1280-tuned
+    toolbar must degrade to Qt's overflow chevron -- items stay reachable, never hard-clipped mid-word."""
+    from PySide6.QtWidgets import QToolButton                                    # noqa: PLC0415
+    from ff9mapkit.editor.theme import pick_palette                             # noqa: PLC0415
+    narrow = Workspace(pick_palette("dark"))
+    narrow.resize(720, 600)
+    narrow.show()
+    app.processEvents()
+    ext = [b for b in narrow.findChildren(QToolButton) if b.objectName() == "qt_toolbar_ext_button"]
+    assert ext and ext[0].isVisible(), "the toolbar provides an overflow chevron at narrow width (no hard clip)"
+    narrow.close()
+
+
 def test_problems_convey_severity_by_icon_not_colour_alone(win):
     """WCAG 1.4.1: each Problems row carries a distinct-shape severity ICON (error vs warn), so severity is
     legible without relying on the text colour (which stays the readable body colour, not a status hue)."""
