@@ -31,6 +31,21 @@
 > `NetMenusReady` verified in the binary, deployed hashes match). Waiting on the round-2 solo check:
 > one battle with a guest slot configured, expect ZERO `roster build failed` lines + working menus.
 > These two hunks (`BattleHUD.Unity.cs`, `NetSyncBattle.cs`) join the Phase 4 regen set.
+>
+> **PHASES 3–5 CLOSED (2026-07-15).** Phase 3 round 2 was vacuous (no battle ran); round 3 proved it
+> positively — zero `roster build failed`, zero error-level lines, selftest OK, and the guest's Attack
+> (`peer command: slot 1 Attack`) went through the quiet roster path. **Phase 4 DONE**: s37 regenerated
+> per the PATCH-EMIT LAW (pre-s37 baseline = detached worktree of `6b8bb2d5` + the full s12–s36 stack;
+> s22 needed GNU `patch -F3`; diff emitted in an `autocrlf=false` scratch repo, committed pure-CRLF like
+> the rest of the stack). Gates: forward apply onto the baseline == all 15 live files byte-identical;
+> plain GNU `patch -R -p1 --dry-run -F0` clean against the live tree. Committed with the README.md stack
+> entry updated. En route finding: **s35's second `BGSCENE_DEF.cs` hunk has drifted** (fails on a clean
+> base+s12..s34 replay — pre-existing, outside the s37 set; flagged as a separate task). **Phase 5
+> DONE**: `Desktop\FF9Coop-laptop-update-20260715\` — fresh v6 DLLs (hash-matched to the deployed
+> engine), the unchanged coop test fields, and a rewritten README whose test list now leads with the
+> state-mirror render-match/save-safety acceptance and a pre-install v5-vs-v6 fail-safe check.
+> **NEXT = Phase 6, the two-machine session** (needs the laptop out). Then Phase 7 (party mirror → the
+> battle diorama).
 
 ## TL;DR for whoever executes this (Fable)
 
