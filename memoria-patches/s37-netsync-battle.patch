@@ -14,6 +14,64 @@ index 83b846a..c8dc082 100644
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+index 509cfd4..3f0a740 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -445,6 +445,45 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+         return posObj;
+     }
+ 
++    // [ff9mapkit] Self-heal support: force the control designator onto the party leader (index 1) or the first world
++    // actor, and return it. Writes _context.controlUID directly -- mirrors the CC opcode (DoEventCode.cs) -- so
++    // ff9.w_worldSelfHealControl + the F6 "Rebuild player actor" button can re-bind control without _context access.
++    // No-op-safe: returns null if there is no context or no cid==4 actor. See project-ff9-overworld-actor-brick.
++    public PosObj SetControlToLeader()
++    {
++        if (this._context == null)
++            return null;
++        PosObj leader = null;
++        PosObj firstActor = null;
++        for (ObjList objList = this._context.activeObj; objList != null; objList = objList.next)
++        {
++            Obj obj = objList.obj;
++            if (obj.cid == 4)
++            {
++                if (firstActor == null)
++                    firstActor = (PosObj)obj;
++                if (obj.index == 1)          // overworld leader convention (see w_movementChrFixBug ff9.cs:4598)
++                {
++                    leader = (PosObj)obj;
++                    break;
++                }
++            }
++        }
++        PosObj target = leader != null ? leader : firstActor;
++        if (target == null)
++            return null;
++        this._context.controlUID = target.uid;
++        return target;
++    }
++
++    // [ff9mapkit] TEST-ONLY: clear the control designator to simulate the 'no controlled actor' black screen, so the
++    // F6 "Break control (test)" button can validate w_worldSelfHealControl deterministically. Real gameplay never calls this.
++    public void DebugClearControl()
++    {
++        if (this._context != null)
++            this._context.controlUID = 0;
++    }
++
+     private void printEObj()
+     {
+         //if (this._context.activeObj.next == null)
+@@ -645,6 +684,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+                 noSave |= this._ff9.fldMapNo == 3001 && scCounterSvr == 12000 && mapIndexSvr == 0; // Ending/AC ("Kuja...  What you did was wrong...")
+                 noSave |= this._ff9.fldMapNo == 2161 && scCounterSvr == 10000 && mapIndexSvr == 32; // L. Castle/Guest Room (Zidane awakes after Mount Gulug)
+                 noSave |= this.gMode == 1 && Configuration.SaveFile.AutoSaveOnlyAtMoogle && !EventEngine.IsMoogleField(this._ff9.fldMapNo, scCounterSvr, mapIndexSvr);
++                noSave |= Memoria.Netsync.NetSyncVisitor.SuppressEncounters || Memoria.Netsync.NetSyncClient.IsMirroringStory; // a FOLLOWING co-op guest never autosaves -- neither the host's mirrored story nor the followed-to field may reach the guest's Continue slot [ff9mapkit netsync spectator-save]
+                 if (!noSave)
+                 {
+                     FF9StateSystem.Settings.UpdateTickTime();
 diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
 index 804499c..78cc6bd 100644
 --- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
@@ -1727,10 +1785,10 @@ index 0000000..36cd119
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index a490fdb..065b159 100644
+index a490fdb..981e064 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -1,652 +1,1003 @@
+@@ -1,652 +1,1042 @@
 -using System;
 -using Memoria.Prime;
 -using Memoria.Scripts;   // ShadersLoader
@@ -2487,14 +2545,18 @@ index a490fdb..065b159 100644
 +        private Int32 _followWarpedTo = -1;              // don't re-warp to the same id until the peer moves on
 +
 +        // STATE-MIRROR (authoritative-host "play the standard game together"): a FOLLOWING guest applies
-+        // the host's gEventGlobal at each field-load so its fields render the host's story. _ownStory
-+        // brackets the guest's OWN save (captured the same tick as the FIRST real apply -- never earlier,
-+        // so nothing the guest does before the host's first frame is lost -- restored on leaving) so co-op
-+        // never persists the host's story into the guest's save. The host publishes its snapshot ~7 Hz.
-+        private Byte[] _ownStory;                        // guest's own gEventGlobal, captured before mirroring
-+        private Boolean _storyMirroring;                 // currently overwriting the guest's array?
++        // the host's gEventGlobal at each field-load so its fields render the host's story. The host
++        // publishes its snapshot ~7 Hz. Save-safety: while mirroring the guest can neither manual-save
++        // (SaveLoadUI gates on IsMirroringStory) nor autosave (EventEngine's noSave ladder), so the disk
++        // stays pristine; a session that ENDS exits through the ramp -- the guest's own AUTOSAVE is
++        // reloaded (NetSyncState.ExitMirrorToOwnSave), never an in-place flag restore, so the game is
++        // never left playing the guest's story at the host's location (a state the base game can't reach).
++        private Boolean _storyMirroring;                 // live array currently holds the HOST's story
++        private Boolean _exitRampPending;                // session over -> autoload once free-standing
++        private Int32 _exitRampSince;                    // link-drop debounce start (0 = link fine)
 +        private Int32 _storyTick;                        // host: last snapshot-publish tick (throttle)
 +        private Boolean _storyProofDone;                 // selftest: log the codec proof once
++        private const Int32 ExitRampDebounceMs = 3000;   // a relay blip must not yank the guest to Continue
 +
 +        // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
 +        // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
@@ -2536,19 +2598,15 @@ index a490fdb..065b159 100644
 +                return;
 +            Byte[] host = _socket.GetRemoteState();
 +            if (host == null)
-+                return;     // no host snapshot yet: the guest is still living in its OWN story -- capturing
-+                            // here would freeze a stale copy and the restore would silently roll back
-+                            // anything the guest does before the host's first frame lands
-+            if (_ownStory == null)
-+                _ownStory = NetSyncState.CaptureLiveStory();   // first REAL mirror: back up the guest's OWN
-+                                                               // save, same tick as the first live write
++                return;     // no host snapshot yet: the guest is still living in its OWN story
 +            if (NetSyncState.ApplyStory(host))
-+                _storyMirroring = true;
++                _storyMirroring = true;    // disk stays safe via the save gates; the exit ramp ends it
 +        }
 +
 +        // True while a following guest's live gEventGlobal holds the HOST's story (not the guest's own).
 +        // SAVING must be blocked in this window or the guest's save would persist the host's progress
-+        // (SaveLoadUI gates on this; the guest's own story is restored when they stop following).
++        // (SaveLoadUI gates on this). Stays true after the link ends until the exit ramp fires -- the
++        // array still holds the host's story in that gap, so the save-block must stay armed through it.
 +        public static Boolean IsMirroringStory
 +        {
 +            get { return _instance != null && _instance._storyMirroring; }
@@ -2660,8 +2718,10 @@ index a490fdb..065b159 100644
 +            _followWarpPending = -1;
 +            _followCandidate = -1;
 +            _followWarpedTo = -1;
-+            if (_ownStory != null) { NetSyncState.RestoreLiveStory(_ownStory); _ownStory = null; }   // un-mirror: restore the guest's own save
-+            _storyMirroring = false;
++            if (_storyMirroring)
++                _exitRampPending = true;   // deliberate config change ends the session NOW: ramp to the
++                                           // guest's own autosave at the next safe tick (no debounce);
++                                           // _storyMirroring stays true so the save-block stays armed
 +            _ovlState = -1;
 +            _ovlDetail = 0;
 +            _ovlText = null;
@@ -2765,6 +2825,30 @@ index a490fdb..065b159 100644
 +                if (LoadConfigIfChanged())
 +                    ApplyConfigChange();
 +            }
++
++            // SESSION EXIT RAMP: a mirrored session that ended must not leave the guest playing the
++            // host's story at the host's location. Once the guest is free-standing on a FIELD or the
++            // WORLD MAP (the two places the game itself allows a moogle load; never mid-battle or
++            // mid-warp), reload their OWN autosave. Checked BEFORE the enabled gate -- disabling co-op
++            // mid-session must still ramp out.
++            if (_exitRampPending)
++            {
++                Boolean safeToLoad = false;
++                try
++                {
++                    EventEngine e2 = PersistenSingleton<EventEngine>.Instance;
++                    safeToLoad = e2 != null && _followWarpPending < 0 &&
++                                 ((e2.gMode == 1 && e2.fieldmap != null) || e2.gMode == 3);
++                }
++                catch { }
++                if (safeToLoad)
++                {
++                    _exitRampPending = false;
++                    _exitRampSince = 0;
++                    _storyMirroring = false;
++                    NetSyncState.ExitMirrorToOwnSave();
++                }
++            }
 +            if (!_enabled)
 +                return;
 +
@@ -2787,14 +2871,25 @@ index a490fdb..065b159 100644
 +
 +            try
 +            {
-+                // STATE-MIRROR spectator-save: if we WERE mirroring the host's story but no longer are
-+                // (link dropped / stopped following), restore the guest's own gEventGlobal so their save
-+                // is never left holding the host's story. (Config teardown also restores -- ApplyConfigChange.)
-+                if (_storyMirroring && !(_enabled && _followHost && _socket != null && _socket.IsConnected))
++                // STATE-MIRROR session end: if we WERE mirroring the host's story but the session is
++                // gone, arm the exit ramp -- debounced so a relay blip doesn't yank the guest to
++                // Continue. "Gone" must include a SILENT peer, not just a downed transport: killing the
++                // HOST's bridge leaves the guest's own relay socket happily connected (IsConnected stays
++                // true -- the interface warns exactly this), so peer-alive is read from the position
++                // lane, which the 30 Hz keepalive keeps fresh through the host's menus/battles and which
++                // the socket layer stale-invalidates ~2s after the host actually dies. (A deliberate
++                // config change arms the ramp immediately -- ApplyConfigChange.)
++                Boolean sessionLive = _enabled && _followHost && _socket != null &&
++                                      _socket.IsConnected && _socket.GetRemote().Valid;
++                if (_storyMirroring && !_exitRampPending && !sessionLive)
 +                {
-+                    if (_ownStory != null) { NetSyncState.RestoreLiveStory(_ownStory); _ownStory = null; }
-+                    _storyMirroring = false;
++                    if (_exitRampSince == 0)
++                        _exitRampSince = Environment.TickCount;
++                    else if (Environment.TickCount - _exitRampSince > ExitRampDebounceMs)
++                        _exitRampPending = true;
 +                }
++                else
++                    _exitRampSince = 0;
 +                if (_role != "host" && _role != "client")
 +                {
 +                    // "selftest": mirror the local player, offset beside it (solo sanity check).
@@ -2953,8 +3048,10 @@ index a490fdb..065b159 100644
 +                _socket.Stop();
 +                _socket = null;
 +            }
-+            if (_ownStory != null) { NetSyncState.RestoreLiveStory(_ownStory); _ownStory = null; }   // restore the guest's own save on teardown
++            // teardown = the app/object is dying: no autoload here. The disk is already coherent (the
++            // save gates held all session); the next launch Continues from the pristine autosave.
 +            _storyMirroring = false;
++            _exitRampPending = false;
 +            NetSyncVisitor.SuppressEncounters = false;
 +        }
 +
@@ -4854,11 +4951,14 @@ index 021eb8a..0d6ecb1 100644
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
 new file mode 100644
-index 0000000..3dbb922
+index 0000000..87545a7
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,168 @@
 +using System;
++using Assets.Scripts.Common;    // SceneDirector / FadeMode / SceneTransition (the load transition)
++using Assets.SiliconSocial;     // AchievementManager
++using UnityEngine;
 +
 +namespace Memoria.Netsync
 +{
@@ -4877,9 +4977,13 @@ index 0000000..3dbb922
 +    // (2032-2039, NetSyncClient.WriteCoopCells) + reserved + the choice-mask scratch (2040). Copying the
 +    // host's coop-cell view onto the guest would poison the guest's own [[coop]] gates.
 +    //
-+    // gEventGlobal is the AUTHORITATIVE save-backed story heap, so overwriting the guest's live array would
-+    // corrupt their solo save -- Capture/Restore bracket the guest's own array (the spectator-save wrapper
-+    // in NetSyncClient). Read the array FRESH every call: EventEngine.InitEvents replaces the reference.
++    // gEventGlobal is the AUTHORITATIVE save-backed story heap. The session's save-safety is a PAIR of
++    // guards: while mirroring, the guest can neither manual-save (SaveLoadUI gates on IsMirroringStory) nor
++    // autosave (EventEngine's noSave ladder), so the DISK stays pristine; when the session ends, the guest
++    // exits through ExitMirrorToOwnSave (below) -- their own AUTOSAVE is reloaded, never an in-place flag
++    // restore, so the base game can never be left in a state it cannot itself produce (own flags at the
++    // host's location = sequence breaks). Read the array FRESH every call: EventEngine.InitEvents replaces
++    // the reference.
 +    internal static class NetSyncState
 +    {
 +        public const Byte SectionStory = 0;     // gEventGlobal
@@ -4944,30 +5048,39 @@ index 0000000..3dbb922
 +            return applied;
 +        }
 +
-+        // SPECTATOR-SAVE (game thread): capture / restore the guest's OWN gEventGlobal so a co-op session
-+        // never persists the host's story into the guest's save. Rung 1 only overwrites gEventGlobal, so
-+        // only it needs bracketing; gScriptVector/gScriptDictionary join when section 2 (party) ships.
-+        public static Byte[] CaptureLiveStory()
++        // SESSION EXIT RAMP (game thread): un-mirroring by restoring flags IN PLACE would leave the
++        // guest's OWN story standing at the HOST's location -- a frankenstate the base game can never
++        // produce (sequence breaks, softlocks behind staging the guest's story never built). Instead the
++        // guest leaves a session the way the game itself resumes one: by loading the AUTOSAVE. The
++        // EventEngine autosave guard keeps the Continue slot pristine for the whole session, so it IS the
++        // coherent pre-session (story, position, party) tuple; "leaving co-op = Continue" is stock
++        // semantics. The load transition below is the moogle-menu mid-game load, verbatim
++        // (SaveLoadUI.OnFinishedLoadFile_delay); a file with no autosave yet (brand-new game) falls back
++        // to the title screen, same as a game over. Caller (NetSyncClient.Update) defers the call until
++        // the guest is free-standing on a field / the world map.
++        public static void ExitMirrorToOwnSave()
 +        {
-+            Byte[] g;
-+            try { g = FF9StateSystem.EventState.gEventGlobal; }
-+            catch { return null; }
-+            if (g == null)
-+                return null;
-+            Byte[] copy = new Byte[g.Length];
-+            Array.Copy(g, copy, g.Length);
-+            return copy;
-+        }
-+
-+        public static void RestoreLiveStory(Byte[] own)
-+        {
-+            if (own == null)
-+                return;
-+            Byte[] g;
-+            try { g = FF9StateSystem.EventState.gEventGlobal; }
-+            catch { return; }
-+            if (g != null && g.Length == own.Length)
-+                Array.Copy(own, g, own.Length);
++            FF9StateSystem.Serializer.Autoload(null, delegate (DataSerializerErrorCode errNo, Boolean success)
++            {
++                if (success && errNo == DataSerializerErrorCode.Success)
++                {
++                    Memoria.Prime.Log.Message("[NetSync] session ended -> reloading own autosave (Continue)");
++                    SoundLib.StopMovieMusic("FMV000", true);
++                    FF9StateSystem.Settings.SetSound();
++                    FF9StateSystem.Settings.SetSoundEffect();
++                    PersistenSingleton<EventEngine>.Instance.ReplaceLoadMap();
++                    PersistenSingleton<UIManager>.Instance.TitleScene.SplashScreenEnabled = true;
++                    AchievementManager.ResyncNormalAchievements();
++                    FF9StateSystem.Settings.UpdateSetting();
++                    ff9.w_frameNewSession();
++                    SceneDirector.FadeEventSetColor(FadeMode.Sub, Color.white);
++                }
++                else
++                {
++                    Memoria.Prime.Log.Message("[NetSync] session ended, no autosave to resume -> title screen");
++                    SceneDirector.Replace("Title", SceneTransition.FadeOutToBlack_FadeIn, true);
++                }
++            });
 +        }
 +
 +        // SOLO CODEC PROOF (selftest): snapshot -> the REAL wire encode/decode (BuildFrame/TryParseHeader)

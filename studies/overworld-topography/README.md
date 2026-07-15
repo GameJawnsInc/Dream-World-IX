@@ -618,8 +618,25 @@ re-bands to wash, always lawful since es=[] means every neighbour is wash/sea1).
 Deployed at wash=13: the square's body IS wash now (rows −87..−89 converted, the sea1
 ring pushed to the frame column as the compressed ladder; the NW pocket rolled back
 untouched); the residue at the foam line = cut-fragment slivers (lawfully immovable).
-Playtest pending. The LADDER MINT (sea5/sea1/wash over open sea4 → beaches on OUR
-minted islands) remains open — and now inherits the fixpoint rules this rung minted.
+Playtest pending. **→ THE LADDER MINT ★ BUILT + DEPLOYED same day** (the user reverted
+(16,5) and called the rung): `world-island --beach B0,B1[:W[:S]] --beach-pins BX,BY`
+(`islandbeach.py`) replaces the cliff wall along an outline arc with the measured beach
+profile (berm → sand band L→S → foam ribbon S→W, chains pinching at the arc's interior
+ends against the full-height flanks) and mints the water ladder: the wash collar (a
+greedy zip from W to the sea1 ring's lattice staircase, sea2 mains uvs
+position-evaluated), sea1 + sea5 rings (1-cell dilation = adjacency lawful BY
+CONSTRUCTION; tiles via the learned Wang table + `_strip_emit` with the PINS block's
+float dialect — (20,5) is dialect-MIXED, (15,1) clean, so desert pins default needs
+care), and THE COVERAGE CUT (the sea4 plane loses only cells the ladder FULLY owns —
+16-sample coverage fixpoint; wash tris straying into kept-plane cells drop = the
+z-fight law; the pinch tapers keep deep water under them like the flanking coast).
+En-route fixes: the pinch anchors moved to the arc's interior ends (the rim-ring
+sliver), and beach TRANSITION wall quads pick their diagonal by best worst-lean (the
+two ends MIRROR). Deployed: the first BEACH-BEARING minted island — desert, r18 seed
+11 @ (288,−1243) block (4,19), beach on the south face (bearings 235–305), pins
+(15,1), 396 terrain tris + foam 34/wash/sea1/sea5, all gates clean incl. census 0
+MISS; teleport (288,−1243), disc-4 mirrored. Grass identity: BOTH byte-identity
+oracles pass (beach=None mints untouched). Playtest pending.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

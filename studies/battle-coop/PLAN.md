@@ -46,6 +46,62 @@
 > state-mirror render-match/save-safety acceptance and a pre-install v5-vs-v6 fail-safe check.
 > **NEXT = Phase 6, the two-machine session** (needs the laptop out). Then Phase 7 (party mirror → the
 > battle diorama).
+>
+> **DESIGN UPGRADE (2026-07-15, user-driven): the in-place flag restore is REPLACED by the AUTOLOAD EXIT
+> RAMP.** The user spotted that restoring the guest's own flags in place leaves them standing at the
+> HOST's location — own story + host position = a frankenstate the base game can't produce (a
+> sequence-break machine / softlock generator). New exit semantics: **leaving a mirrored session reloads
+> the guest's OWN AUTOSAVE** (`NetSyncState.ExitMirrorToOwnSave` — `Serializer.Autoload` + the verbatim
+> moogle-menu load transition; no autosave yet → title screen, like a game over). The autosave guard is
+> what makes this correct: Continue stays pristine all session, so it IS the coherent pre-session
+> (story, position, party) tuple — "leaving co-op = Continue" is stock semantics. Mechanics: link-drop
+> arms the ramp DEBOUNCED (3s — a relay blip must not yank the guest); a deliberate config change arms
+> it immediately; `_storyMirroring` stays true until the ramp fires so the manual-save block stays armed
+> through the gap; the ramp fires only free-standing on a field/world map (never mid-battle/mid-warp);
+> app teardown skips it (disk already coherent). The `_ownStory` capture/restore machinery is DELETED
+> (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
+> acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
+>
+> **★★ PHASE 6 CLOSED 2026-07-15 — every acceptance box two-machine PROVEN.** The final round: manual
+> save refusal ✓ · Continue pristine through a followed session ✓ · **the AUTOLOAD EXIT RAMP ✓ on BOTH
+> kill paths** (host bridge Ctrl+C and host game quit — the guest on 30110 landed back at their own Dali
+> Continue spot in ~5s) · **automatic session resumption ✓** (host bridge restarted → re-pair,
+> re-follow, re-mirror, no relaunch). The ramp's first execution found one real bug, fixed same day:
+> `IsConnected` stays true when the HOST's bridge dies (the guest's own relay socket is fine) — peer-alive
+> must read the keepalive-fed POSITION lane (`_socket.GetRemote().Valid`, stale ~2s after the host dies).
+> THE LAW: **transport-up ≠ peer-alive; any session-end logic must gate on lane freshness, not
+> IsConnected.** NEXT = Phase 7: party mirror (rung 2) → the battle diorama (B3).
+>
+> **PHASE 6 RESULTS (accumulating, 2026-07-15):**
+> - ★ **Fail-safe PROVEN two-machine** (package step 0): v6 host + v5 laptop on the same field — visible
+>   co-location but NO pairing, no crash, no half-state. Exactly the designed version-reject behavior.
+> - ★ **RENDER-MATCH PROVEN two-machine — the headline** (field 354, Dali weapon shop, rotating cast):
+>   the guest's cast re-stages to match the HOST's ScenarioCounter. The authoritative-host claim ("the
+>   guest renders the host's story, not scenario-zero") is proven on real stock content.
+> - **Expected-behavior note** (test methodology, not a bug): the host's F6 "Reload field" does NOT
+>   re-stage the guest — the follow listener keys on the host's broadcast FIELD ID changing, and the
+>   mirror applies at the guest's own field-load boundary. After an F6 ScenarioCounter edit, the guest
+>   re-stages on its next real warp/entry (natural story play re-stages both sides on room entry).
+> - ★ **V2 `[[coop]]` GATES PROVEN two-machine** — the Twin Altar (30110) completed by two real players,
+>   including the held east-arch door (the one behavior mechanically impossible to test solo).
+> - ★ **BATTLE CO-OP B0+B1 PROVEN two-machine** — "works the same as usual": spectate panel + guest
+>   digit-menu commands over the real link behave exactly as the solo selftest tier did.
+> - ★ **VISITOR-MODE FOLLOW-WARP PROVEN two-machine** — the last two-machine-only untested s37 piece;
+>   the guest auto-warps to match the host's field transitions.
+> - ⚠ **SAVE-SAFETY HOLE FOUND (the test paid for itself): AUTOSAVE bypasses the spectator-save block.**
+>   The Continue slot is written by `EventEngine` at essentially EVERY field-load init
+>   (`serializer.Autosave`, gated only by a hardcoded cutscene `noSave` ladder + `[SaveFile]` config) —
+>   NOT by `SaveLoadUI.OnKeyConfirm`, so the manual-save block never sees it. A following guest's
+>   Continue gets the host's mirrored story AND the followed-to field position. **Engine fix STAGED
+>   (uncommitted, next DLL round):** `noSave |= NetSyncVisitor.SuppressEncounters ||
+>   NetSyncClient.IsMirroringStory` — same conditions as encounter suppression (following + connected,
+>   or selftest), fail-safe to vanilla on link-drop, host unaffected. `EventEngine.cs` JOINS THE s37
+>   FILE SET at the next regen (16 files; it carries fork-fidelity edits — full-stack baseline replay
+>   handles it). **Zero-rebuild mitigation for a live session:** `[SaveFile] DisableAutoSave = 1` in
+>   the GUEST's Memoria.ini (stock Memoria, launch-time read → relaunch; kills ALL autosaves, so
+>   revert after). Residual documented wart: a NON-following free-roam guest keeps vanilla autosave —
+>   hanging out at a coop room parks their Continue there (same as any F6 warp; "make a real save
+>   before co-op" stays in the README).
 
 ## TL;DR for whoever executes this (Fable)
 
