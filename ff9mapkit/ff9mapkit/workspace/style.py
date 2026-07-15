@@ -47,14 +47,35 @@ def _asset(name: str, text: str) -> str:
         dest.write_text(text, encoding="utf-8")
     return dest.as_posix()                         # QSS url() wants forward slashes, even on Windows
 
-# Theme-independent scales threaded into the QSS template (and, in later phases, into Qt layout calls).
-# Values are px strings so they substitute straight in. Spacing is a 4px grid; type is the modern ramp.
+# The 4px SPACING GRID, as ints -- the single vocabulary shared by the QSS below (via _SCALES, which
+# stringifies these) and by Qt LAYOUT calls (via space(), which returns them raw). Layouts need the int
+# form because QLayout is not QSS-styleable and has no cascade: setContentsMargins takes numbers, so
+# without this the grid can only ever be spent on half the app and every margin stays a magic number.
+_GRID = {"space_1": 4, "space_2": 8, "space_3": 12, "space_4": 16, "space_6": 24}
+# Compact scales ~0.75 and must NOT alias rungs -- a scale whose job is rhythm loses it the moment two
+# rungs collapse to the same number (a 6/6 pair cannot express "tighter than").
+_GRID_COMPACT = {"space_1": 4, "space_2": 6, "space_3": 8, "space_4": 12, "space_6": 16}
+
+# Theme-independent scales threaded into the QSS template. Values are px strings so they substitute
+# straight in. THE RADIUS LANGUAGE IS THESE THREE TOKENS -- everything else in the sheet is a documented
+# geometric pin (a circle's half-box, a capsule's half-height), never a fourth opinion about roundness.
+# Fenced by test_qss_uses_only_the_radius_language.
 _SCALES = {
-    "space_1": "4px", "space_2": "8px", "space_3": "12px", "space_4": "16px", "space_6": "24px",
+    **{k: f"{v}px" for k, v in _GRID.items()},
     "radius_sm": "4px", "radius_md": "6px", "radius_lg": "8px",
     "type_display": "24px", "type_h1": "20px", "type_h2": "16px",
-    "type_label": "13px", "type_body": "13px", "type_caption": "11px", "type_mono": "12px",
+    "type_caption": "11px", "type_mono": "12px",
 }
+
+
+def space(key: str, density: str = "comfortable") -> int:
+    """The 4px grid as an int, for Qt layout calls (``setContentsMargins`` / ``setSpacing``).
+
+    QSS gets the same numbers via :data:`_SCALES`; this is the only way a layout can share them, since
+    ``QLayout`` is not styleable. Keeps this module Qt-free -- it returns an ``int``, not a QMargins.
+    """
+    grid = _GRID_COMPACT if density == "compact" else _GRID
+    return grid[key]
 
 # UI density -- two profiles for the control paddings/spacings that set how tight the app reads. Comfortable
 # (the default) matches the proven layout, with one deliberate "more whitespace" nudge: roomier tree/list
@@ -65,12 +86,12 @@ _DENSITY = {
     "comfortable": {
         "tb_pad": "5px 8px", "tb_space": "6px", "btn_pad": "6px 10px",
         "input_pad": "6px 9px", "combo_pad": "4px 8px", "row_pad": "6px 8px",
-        "tab_pad": "7px 16px", "gb_margin_top": "12px", "gb_pad_top": "10px", "menu_pad": "6px 22px",
+        "tab_pad": "7px 16px", "menu_pad": "6px 22px",
     },
     "compact": {
         "tb_pad": "3px 6px", "tb_space": "4px", "btn_pad": "4px 8px",
         "input_pad": "4px 7px", "combo_pad": "3px 7px", "row_pad": "3px 4px",
-        "tab_pad": "5px 12px", "gb_margin_top": "10px", "gb_pad_top": "8px", "menu_pad": "5px 16px",
+        "tab_pad": "5px 12px", "menu_pad": "5px 16px",
     },
 }
 
@@ -87,7 +108,7 @@ _QSS = Template(
     QToolBar::separator { background: $border; width: 1px; margin: 5px 4px; }
     QToolButton, QPushButton {
         background: $surface_btn; color: $text; border: 1px solid $border;
-        border-radius: 6px; padding: $btn_pad;
+        border-radius: $radius_md; padding: $btn_pad;
     }
     QToolButton:hover, QPushButton:hover { background: $hover; }
     QPushButton:pressed, QToolButton:pressed { background: $pressed; }
@@ -105,7 +126,7 @@ _QSS = Template(
     QToolButton#gear::menu-indicator { image: none; width: 0; }
     /* the Ctrl-K palette opener is a button DRESSED as a search field */
     QPushButton#search {
-        background: $field; color: $muted; border: 1px solid $border; border-radius: 7px;
+        background: $field; color: $muted; border: 1px solid $border; border-radius: $radius_md;
         padding: 6px 12px; text-align: left;
     }
     QPushButton#search:hover { border-color: $accent; color: $text; background: $field; }
@@ -153,8 +174,11 @@ _QSS = Template(
     QCheckBox::indicator, QRadioButton::indicator {
         width: 18px; height: 18px; border: 1px solid $border; background: $field;
     }
+    /* GEOMETRIC, not a token: 9px is half of the 18px box above = a CIRCLE, which is the entire signal
+       that separates "pick exactly one" from the checkbox's "pick several". It tracks the box size; if
+       that ever moves, this is half of whatever it becomes. Never a radius token. */
     QRadioButton::indicator { border-radius: 9px; }
-    QCheckBox::indicator { border-radius: 4px; }
+    QCheckBox::indicator { border-radius: $radius_sm; }
     QCheckBox::indicator:hover, QRadioButton::indicator:hover { border: 1px solid $accent; }
     /* CHECKED must say WHICH KIND of control this is. A bare `background: $accent` (what shipped) made a
        checked checkbox a solid square and a checked radio a solid circle -- identical but for the corner
@@ -182,7 +206,7 @@ _QSS = Template(
     }
 
     QLineEdit {
-        background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
+        background: $field; color: $text; border: 1px solid $border; border-radius: $radius_md;
         padding: $input_pad; selection-background-color: $accent; selection-color: $accent_fg;
     }
     QLineEdit:focus { border: 1px solid $accent; }
@@ -190,7 +214,7 @@ _QSS = Template(
     /* combos + spin boxes: themed like line edits (the Fusion base style would otherwise draw them from
        the platform palette, which need not match the chosen theme) */
     QComboBox, QAbstractSpinBox {
-        background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
+        background: $field; color: $text; border: 1px solid $border; border-radius: $radius_md;
         padding: $combo_pad; selection-background-color: $accent; selection-color: $accent_fg;
     }
     QComboBox:focus, QAbstractSpinBox:focus { border: 1px solid $accent; }
@@ -221,55 +245,58 @@ _QSS = Template(
     QCheckBox::indicator:checked:focus, QRadioButton::indicator:checked:focus { border: 1px solid $accent_fg; }
 
     QTreeWidget, QTreeView, QListWidget {
-        background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;
+        background: $surface; border: 1px solid $border; border-radius: $radius_lg; padding: 4px;
     }
-    QTreeView::item, QListWidget::item { padding: $row_pad; border-radius: 4px; }
+    QTreeView::item, QListWidget::item { padding: $row_pad; border-radius: $radius_sm; }
     QTreeView::item:hover, QListWidget::item:hover { background: $hover; }
     QTreeView::item:selected, QListWidget::item:selected { background: $accent; color: $accent_fg; }
     QHeaderView::section { background: $surface_btn; color: $muted; border: 0; padding: 5px; }
 
-    QTabWidget::pane { border: 1px solid $border; border-radius: 8px; top: -1px; }
+    QTabWidget::pane { border: 1px solid $border; border-radius: $radius_lg; top: -1px; }
     QTabBar::tab {
         background: $surface_btn; color: $muted; padding: $tab_pad; border: 1px solid $border;
-        border-bottom: 2px solid transparent; border-top-left-radius: 6px; border-top-right-radius: 6px;
+        border-bottom: 2px solid transparent; border-top-left-radius: $radius_md; border-top-right-radius: $radius_md;
         margin-right: 2px;
     }
     QTabBar::tab:selected { background: $bg; color: $text; border-bottom: 2px solid $accent; }
     QTabBar::tab:hover { color: $text; }
 
-    /* boxed form sections (Build & Deploy / Import): a RAISED panel (elevation ladder -- surface_2 on the
-       page bg reads as lifted) with a floating caption. The title bg matches the panel so it cuts the
-       border cleanly. Roomier padding gives the dense docs' content air. */
-    QGroupBox {
-        background: $surface_2; border: 1px solid $border; border-radius: 8px;
-        margin-top: $gb_margin_top; padding-top: $gb_pad_top;
-    }
-    /* NB: no left/right padding -- a long, non-wrapping QRadioButton label (Build & Deploy's New-Game
-       radio) would overflow into a horizontal scroll. Content is inset by its own layout margins. */
-    QGroupBox::title {
-        subcontrol-origin: margin; left: 10px; padding: 0 6px;
-        color: $muted; font-weight: 600; background: $surface_2;
-    }
+    /* The QGroupBox block that used to live here is GONE, along with its two density tokens. Every one of
+       the app's 27 boxed sections is now a QFrame[role="card"] built by widgets.section() -- the migration
+       that had to happen because QSS silently ignores font-* on QGroupBox::title (colour is that
+       sub-control's only lever), so a card title could never be given any presence while Qt drew it.
+       QGroupBox is constructed in exactly zero places; these rules rendered nothing.
+       NB: never name a token in a comment with its leading dollar sign. string.Template has no concept
+       of a CSS comment, so a placeholder inside a comment still substitutes -- and still KeyErrors once
+       the key is gone. A bare dollar is worse: it is an Invalid-placeholder ValueError and takes down
+       every palette at import. This comment broke the build BOTH ways while being written. */
 
     QPlainTextEdit, QTextEdit {
-        background: $log_bg; color: $log_fg; border: 1px solid $border; border-radius: 8px;
+        background: $log_bg; color: $log_fg; border: 1px solid $border; border-radius: $radius_lg;
         font-family: "Cascadia Code", "Consolas", monospace; font-size: $type_mono; padding: 6px;
     }
 
     /* dropdown menus (the toolbar Field / Campaign / Journey buttons) */
-    QMenu { background: $surface; border: 1px solid $border; border-radius: 6px; padding: 4px; }
-    QMenu::item { padding: $menu_pad; border-radius: 4px; }
+    QMenu { background: $surface; border: 1px solid $border; border-radius: $radius_md; padding: 4px; }
+    QMenu::item { padding: $menu_pad; border-radius: $radius_sm; }
     QMenu::item:selected { background: $accent; color: $accent_fg; }
     QMenu::separator { height: 1px; background: $border; margin: 4px 6px; }
 
+    /* GEOMETRIC, not a token: the groove is 12px, so 6 is the handle's TRUE pill (exactly half-width).
+       5px left a barely-eased rectangle; 4px ($radius_sm) would square off the one element Linear and
+       Zed both render as a capsule. It coincides with $radius_md's 6px -- spend the token, since a
+       future re-tune of the groove width is the thing that should move it, not the button radius. */
     QScrollBar:vertical { background: $bg; width: 12px; margin: 0; }
-    QScrollBar::handle:vertical { background: $scroll; border-radius: 5px; min-height: 28px; }
+    QScrollBar::handle:vertical { background: $scroll; border-radius: $radius_md; min-height: 28px; }
     QScrollBar:horizontal { background: $bg; height: 12px; margin: 0; }
-    QScrollBar::handle:horizontal { background: $scroll; border-radius: 5px; min-width: 28px; }
+    QScrollBar::handle:horizontal { background: $scroll; border-radius: $radius_md; min-width: 28px; }
     QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
     /* the slim 'Working…' busy bar in the console header (indeterminate while a job runs) */
+    /* GEOMETRIC, not a token: shell.py fixes this bar at 120x6, so 3px is EXACTLY half-height = the
+       capsule. $radius_sm (4px) exceeds half-height, and Qt then either clamps it (buys nothing) or
+       squashes the chunk ends. Pinned to the 6px height, not to the radius language. */
     QProgressBar { background: $surface_btn; border: 1px solid $border; border-radius: 3px; }
     QProgressBar::chunk { background: $accent; border-radius: 3px; }
 
@@ -280,9 +307,6 @@ _QSS = Template(
     QStatusBar { background: $surface; color: $muted; border-top: 1px solid $border; }
     QStatusBar::item { border: none; }
     QToolTip { background: $surface; color: $text; border: 1px solid $border; }
-
-    /* Home-page entry cards */
-    QFrame#card { background: $surface; border: 1px solid $border; border-radius: 10px; }
 
     /* --- component roles (Phase 1 substrate) -- these match ONLY widgets that set a dynamic `role`
        property (via workspace.widgets factories), so they are INERT until Phase 2 adopts them. They give
@@ -338,7 +362,7 @@ _QSS = Template(
     /* the lint verdict banner: a static frame with a per-verdict accent stripe (state set at runtime) */
     QLabel[role="banner"] {
         background: $surface; color: $text; border-left: 4px solid $muted;
-        border-radius: 6px; padding: 9px;
+        border-radius: $radius_md; padding: 9px;
     }
     QLabel[role="banner"][state="ok"]    { border-left: 4px solid $success; }
     QLabel[role="banner"][state="warn"]  { border-left: 4px solid $warn; }
@@ -347,7 +371,7 @@ _QSS = Template(
        (they used hand re-tints or none, so several were STALE on a live theme switch; this fixes that). */
     QToolButton#hub {
         background: transparent; color: $help; border: 1px solid $help;
-        border-radius: 6px; padding: 6px 10px; font-weight: 600;
+        border-radius: $radius_md; padding: 6px 10px; font-weight: 600;
     }
     QToolButton#hub:hover { background: $hover; color: $help_hover; border-color: $help_hover; }
     QToolButton#hub:focus { border: 1px solid $accent; }
@@ -363,7 +387,7 @@ _QSS = Template(
     QWidget#railBar { background: $surface; border-bottom: 1px solid $border; }
     QToolButton#railSeg {
         background: transparent; color: $muted; border: 1px solid transparent;
-        border-radius: 7px; padding: 5px 14px; font-weight: 600;
+        border-radius: $radius_md; padding: 5px 14px; font-weight: 600;
     }
     QToolButton#railSeg:hover   { color: $text; background: $hover; }
     QToolButton#railSeg:checked { color: $text; background: $surface_3; border: 1px solid $border; }
@@ -379,6 +403,7 @@ _QSS = Template(
     QToolButton#disclosureToggle:focus   { color: $text; }
 
     /* the "?" concept badge next to a jargon form label -- a small circular help affordance */
+    /* GEOMETRIC, not a token: 11px is half of forms_qt.py's setFixedSize(22, 22) = a circle. */
     QToolButton#conceptBadge {
         background: transparent; color: $muted; border: 1px solid $border; border-radius: 11px;
         padding: 0; font-weight: 700; font-size: 11px;
@@ -396,11 +421,17 @@ def qss(palette: dict, density: str = "comfortable") -> str:
     independent scales + the chosen ``density`` profile (``"comfortable"`` default / ``"compact"``), so the
     template may reference any of them. ``derive`` is idempotent, so a base OR an already-derived palette
     both work -- callers (tests, the shell) need not derive up front. An unknown density falls back to
-    comfortable."""
+    comfortable.
+
+    The spacing grid is threaded per-DENSITY, not from the static scales: ``$space_2`` and
+    ``space("space_2", density)`` must be the same number, or one name quietly means two things -- 8px in
+    the sheet and 6px in a layout -- which is the exact class of drift this grid exists to end.
+    """
     dens = _DENSITY.get(density, _DENSITY["comfortable"])
+    grid = {k: f"{v}px" for k, v in (_GRID_COMPACT if density == "compact" else _GRID).items()}
     pal = derive(palette)
     art = {                                          # per-tint indicator art (see the module docstring)
         "check_img": _asset("check", _CHECK_SVG.format(color=pal["accent_fg"])),
         "check_img_off": _asset("check", _CHECK_SVG.format(color=pal["muted"])),
     }
-    return _QSS.substitute({**_SCALES, **dens, **art, **pal})
+    return _QSS.substitute({**_SCALES, **grid, **dens, **art, **pal})

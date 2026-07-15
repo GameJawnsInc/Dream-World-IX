@@ -250,3 +250,71 @@ def test_the_quiet_tier_drops_the_fill_not_the_text():
         assert pal["text"] in body, f"{mode}: quiet must ink in $text"
         d = theme.derive(dict(pal))
         assert d["muted"] not in body, f"{mode}: quiet must NOT ink in $muted -- that is the disabled idiom"
+
+
+def test_qss_uses_only_the_radius_language():
+    """Three radius tokens, plus documented GEOMETRIC pins. Nothing else gets an opinion on roundness.
+
+    The build had NINE distinct radii (3/4/5/6/7/8/9/10/11) across 26 declarations -- so "make the cards
+    rounder" was a 26-site hunt rather than a one-line edit, and two of them (#search 7, #railSeg 7) were
+    a rung that existed nowhere else and that nobody could have chosen deliberately.
+
+    The survivors are pinned to a MEASUREMENT, not to taste, and each says so at its site:
+      3  -- half of the busy bar's fixed 6px height (shell.py setFixedSize(120, 6)) = its capsule.
+            $radius_sm (4) exceeds half-height; Qt then clamps it or squashes the chunk ends.
+      9  -- half of the 18px checkbox/radio indicator box = a CIRCLE, the only thing distinguishing
+            "pick exactly one" from "pick several".
+      11 -- half of the concept badge's fixed 22x22 (forms_qt.py) = a circle.
+    The scrollbar handle is also geometric (half its 12px groove) but its value coincides with
+    $radius_md, so it spends the token.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        got = {int(m) for m in re.findall(r"border-[a-z-]*radius:\s*(\d+)px", css)}
+        assert got == {3, 4, 6, 8, 9, 11}, f"{mode}: unexpected radius language {sorted(got)}"
+
+
+def test_the_dead_groupbox_rules_are_gone():
+    """QGroupBox is constructed in ZERO places -- every boxed section is a widgets.section() card now.
+
+    The migration was forced: QSS silently ignores font-* on QGroupBox::title (colour is that
+    sub-control's only lever; render-verified at 13/600, 11/700 and 18/700 -- identical ink), so while Qt
+    drew the title a card could never be given any presence. Rules for a widget nobody builds are a
+    permanent tax on every future palette and a permanent lie to whoever greps for them.
+
+    Comments are STRIPPED before the check: the sheet is allowed to explain why the rules are gone (and
+    does), so a substring test over the raw text would fence the prose rather than the rules.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        rules = re.sub(r"/\*.*?\*/", "", style.qss(pal), flags=re.S)
+        assert "QGroupBox" not in rules, f"{mode}: a rule for a widget nobody constructs"
+        assert "QFrame#card" not in rules, f"{mode}: the second card language is back"
+    # the density tokens the dead rules were the only consumers of
+    src = re.sub(r"/\*.*?\*/", "", style._QSS.template, flags=re.S)
+    for dead in ("gb_margin_top", "gb_pad_top"):
+        assert dead not in src, f"{dead} outlived the widget it styled"
+    for profile in style._DENSITY.values():
+        assert "gb_margin_top" not in profile and "gb_pad_top" not in profile
+
+
+def test_the_spacing_grid_means_one_thing_in_qss_and_in_layouts():
+    """`$space_2` in the sheet and `space("space_2", d)` in a layout must be the same number.
+
+    QLayout is not styleable and has no cascade, so the grid can only reach setContentsMargins as an
+    int. If the two rungs disagree, one name quietly means 8px in QSS and 6px in a layout -- exactly the
+    drift the grid exists to end. Compact must also not ALIAS rungs: a scale whose job is rhythm loses it
+    the moment two rungs collapse to the same number.
+    """
+    for density in ("comfortable", "compact"):
+        css = style.qss(theme.DARK, density)
+        assert f"padding: 2px {style.space('space_2', density)}px" in css, density
+        rungs = [style.space(k, density) for k in ("space_1", "space_2", "space_3", "space_4", "space_6")]
+        assert rungs == sorted(rungs), f"{density}: the grid must ascend"
+        assert len(set(rungs)) == len(rungs), f"{density}: rungs alias -- {rungs}"
+    # compact is genuinely tighter at every rung above the 4px floor
+    for k in ("space_2", "space_3", "space_4", "space_6"):
+        assert style.space(k, "compact") < style.space(k, "comfortable"), k
+    # an unknown density falls back to comfortable, exactly as qss() does
+    assert style.space("space_4", "nonsense") == style.space("space_4", "comfortable")

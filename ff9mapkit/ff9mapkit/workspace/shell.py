@@ -1594,7 +1594,7 @@ class Workspace(QMainWindow):
         consistent). ``buttons`` = (label, callback, is_primary) -- the ONE primary action on the page
         (Journey ▸ Open, the recommended front door) renders in the accent colour."""
         box = QFrame()
-        box.setObjectName("card")
+        box.setProperty("role", "card")     # the app's ONE card language (widgets.section's too)
         h = QHBoxLayout(box)
         h.setContentsMargins(16, 12, 14, 12)
         h.setSpacing(12)
@@ -1652,7 +1652,7 @@ class Workspace(QMainWindow):
         """One numbered get-started step: a ✓ (done, green) or an accent step-number, the title + one-line
         why, and the step's action (the ONE primary step renders accent; a done gate shows a muted 'done')."""
         box = QFrame()
-        box.setObjectName("card")
+        box.setProperty("role", "card")     # the app's ONE card language (widgets.section's too)
         h = QHBoxLayout(box)
         h.setContentsMargins(16, 10, 14, 10)
         h.setSpacing(12)

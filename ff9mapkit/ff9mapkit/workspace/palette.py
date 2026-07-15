@@ -85,8 +85,12 @@ class CommandPalette(QDialog):
         outer.setContentsMargins(18, 18, 18, 26)       # room for the shadow to spill (heavier at the bottom)
         card = QFrame()
         card.setObjectName("paletteCard")
+        # 8px = the radius language's $radius_lg (style.py). Hardcoded rather than threaded because this
+        # sheet is set on the WIDGET, which out-ranks the app sheet regardless of specificity -- so the
+        # token cannot reach it. It must be kept in step by hand; the app's only floating card (the sole
+        # attach_shadow caller) must not be the last 10px corner in the build.
         card.setStyleSheet(f"QFrame#paletteCard {{ background:{d['surface_3']}; border:1px solid {d['border']}; "
-                           f"border-radius:10px; }}")
+                           f"border-radius:8px; }}")
         outer.addWidget(card)
         attach_shadow(card)                            # the real QGraphicsDropShadowEffect (on the rounded card)
 
