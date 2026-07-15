@@ -749,6 +749,10 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
   applies to every coincident entry (a one-sided lift splits the weld = sea visible through the sliver).
 * Hole carve + a **minimal-total-chord DP zip** (a greedy walk stalls on floor-mouth concavity) + an apron normal
   re-smooth blended by lift magnitude.
+* **THE DONOR-DISPATCH STRIP** — a carried IDALL keeps its topograph + flags but drops the donor's event/area
+  bits: area feeds the overworld camera's place bucket (`w_cameraArea2Place`; Uaho's baked area=63 = bucket 2 =
+  cameraDistance 6000, a visible zoom-out on the alcove floor) and event 1–3 marks a PLACE-ENTRANCE tile that
+  fires the world `.eb` — donor dispatch context, meaningless and hazardous on a custom island.
 * Gates: single-rim accounting, dropped-tris-all-plain-grass, baseline-subtracted once-edges (cracks), down-facing,
   near-miss welds, ROCK-RIGID drift < 3.5%, zip rise ≤ 2.34 / winding ≥ 0.83, apron slope ≤ 29.5°, the placement
   probes (blob centre grounds on carried rock; the grass just outside stays plain), the Moguri-atlas alpha gate

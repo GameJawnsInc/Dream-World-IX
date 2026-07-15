@@ -995,6 +995,16 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     SCAN_BAND = (clear + 4.0) if scan_band is None else scan_band
     ROCK = frozenset(rock_topos)
 
+    # THE DONOR-DISPATCH STRIP: a carried IDALL keeps its topograph + flags but drops the
+    # donor's event/area bits -- those are DISPATCH CONTEXT (area feeds the overworld
+    # camera's place bucket via w_cameraArea2Place -- Uaho's baked area=63 is bucket 2 =
+    # cameraDistance 6000, the alcove zoom-out quirk -- and event 1-3 marks a PLACE
+    # ENTRANCE tile that fires the world .eb), meaningless and hazardous on a custom
+    # island. The kit's own synthetic emitters default to area=0/event=0.
+    def strip_dispatch(idall_f):
+        d = X.decode_id(int(round(idall_f)))
+        return float(X.encode_id(topograph=d["topograph"], flags=d["flags"]))
+
     # ---- 1. the donor blob (rock component + enclosed raised tris) ---------------------
     don = X.read_block(donor[0], donor[1], disc=disc, game=game)
     doff = np.array([BLOCK * donor[0], 0.0, -BLOCK * donor[1]])
@@ -1539,7 +1549,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 e = tuple(sorted((r[i2], r[(i2 + 1) % len(r)])))
                 for t2 in d_edge.get(e, ()):
                     if dtopo[t2] in ROCK:
-                        plug_id = float(dT[dtri[t2][0]][0])
+                        plug_id = strip_dispatch(float(dT[dtri[t2][0]][0]))
                         break
                 if plug_id:
                     break
@@ -1764,7 +1774,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     new_parents = []                                       # (corners8, idall, fam)
     for t in blob:                                         # the mountain, verbatim channels
         tri = dtri[t]
-        idall = float(dT[tri[0]][0])
+        idall = strip_dispatch(float(dT[tri[0]][0]))
         nr = [rot_n(dN2[tri[k]], ROT) for k in range(3)]
         corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
                         for k in range(3))
