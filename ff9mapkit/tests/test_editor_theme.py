@@ -106,8 +106,17 @@ def test_palette_contrast_invariants():
         # four palettes shipped sub-AA on it for real: muted measured 3.87 nord / 3.91 dracula / 3.91
         # solarized-dark / 4.07 gruvbox-dark, and solarized-dark's BODY text 4.22. Every hint inside a
         # groupbox lands here, so it is not a hypothetical surface.
-        assert _contrast(pal["text"], d["surface_2"]) >= 4.5, f"{mode}: body text on a groupbox"
-        assert _contrast(pal["muted"], d["surface_2"]) >= 4.5, f"{mode}: hint text on a groupbox"
+        # EVERY ground a text tier can land on, not just the page. Each rung of the elevation ladder is a
+        # real surface under real text -- surface_2 is the card fill, surface_3 is the RAIL SEGMENT -- and
+        # the fence stopped one rung short: muted on surface_3 measured 3.86 (dracula) / 4.13 (dark) while
+        # this test was green. A fence that covers 3 of 4 grounds just moves the bug to the 4th.
+        for _g in ("surface_2", "surface_3"):
+            assert _contrast(pal["text"], d[_g]) >= 4.5, f"{mode}: body text on {_g}"
+            assert _contrast(pal["muted"], d[_g]) >= 4.5, f"{mode}: hint text on {_g}"
+        # `help` is TEXT: it labels the Info Hub button (its one and only use, as the label AND the
+        # border). It was fenced against NOTHING and measured 2.97 on solarized-dark.
+        assert _contrast(pal["help"], pal["bg"]) >= 4.5, f"{mode}: help text on bg"
+        assert _contrast(pal["help"], pal["surface"]) >= 4.5, f"{mode}: help text on surface"
         # muted is the DIMMER tier by definition -- a contrast lift must never invert it past text (a naive
         # solve for the floors above did exactly that on solarized-dark: muted 0.3740 vs text 0.3720).
         assert (_luminance(pal["muted"]) < _luminance(pal["text"])) is bool(pal["dark"]), \

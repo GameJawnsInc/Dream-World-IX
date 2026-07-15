@@ -50,7 +50,7 @@ DARK = {
     "surface_btn": "#2b3038",
     "field": "#2b3038",
     "text": "#e6e8eb",
-    "muted": "#9aa3ad",
+    "muted": "#a4acb5",         # lifted to AA 4.5 on surface_3 too -- the rail segment (4.13 -> 4.60)
     "accent": "#4c8dff",
     # Dark ink, not white. A 13px button label is NORMAL text (AA 4.5); white on this accent measures only
     # 3.20 -- the suite fenced accent_fg/accent at 3.0, the LARGE-text floor, which is the wrong bar for a
@@ -85,7 +85,7 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "surface_btn": "#3b4252",   # nord1
     "field": "#3b4252",
     "text": "#eceff4",          # nord6 (snow storm)
-    "muted": "#aab2c1",         # lifted to WCAG AA 4.5:1 on bg/surface AND surface_2 (3.87 -> 4.61)
+    "muted": "#b9c0cc",         # AA 4.5 on bg/surface/surface_2 AND surface_3 (the rail): 3.94 -> 4.57
     # nord10 #5e81ac, deepened 8%. Its luminance (0.211) falls in the DEAD BAND 0.183..0.220, where NEITHER
     # white ink (4.03) nor dark ink from nord's own ramp (nord0 = 3.10) clears 4.5 -- dark ink would need
     # #121419, far below Polar Night. So the accent moves instead, the minimum that works, and nord keeps
@@ -94,7 +94,7 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "accent_fg": "#ffffff",     # white over the frost blue
     "accent_hover": "#6a8cb6",
     "accent_pressed": "#547299",
-    "help": "#b48ead",          # nord15 (aurora, purple)
+    "help": "#bc99b5",          # nord15, lifted to AA 4.5 as TEXT (4.04) -- it labels the Info Hub button
     "help_hover": "#c29bbb",
     "border": "#434c5e",        # nord2
     "success": "#a3be8c",       # nord14 (green)
@@ -113,7 +113,7 @@ DRACULA = {                     # https://draculatheme.com
     "surface_btn": "#3a3d4d",
     "field": "#21222c",
     "text": "#f8f8f2",
-    "muted": "#9ca2c4",         # comment #6272a4, lifted to AA 4.5:1 on bg/surface AND surface_2 (3.91 -> 4.56)
+    "muted": "#acb1cd",         # comment #6272a4, lifted to AA 4.5 on EVERY ground incl. surface_3 (3.86)
     "accent": "#bd93f9",        # purple
     "accent_fg": "#282a36",
     "accent_hover": "#caa6fb",
@@ -139,15 +139,20 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     # base1 #93a1a1 measured only 4.22:1 on surface_2 -- the ONLY palette whose BODY text was sub-AA on an
     # elevated panel. Lifted past its own 4.5 minimum on purpose: muted must clear 4.5 too AND stay dimmer
     # than text, and at text's bare minimum there is no headroom for both (the solver ran muted to #ffffff).
-    "text": "#a2aeae",          # base1, lifted to AA 4.5:1 on surface_2 (4.22 -> 4.94)
-    "muted": "#8eaaaa",         # lifted to AA 4.5:1 on base03/base02 AND surface_2 (3.91 -> 4.55)
+    "text": "#bec6c6",          # base1 +30%. Lifted TWICE, and the second lift is FORCED by muted:
+                                # muted must clear 4.5 on surface_3 (the rail) too, which puts it at
+                                # #a0b8b8 -- brighter than base1 itself, inverting the two text tiers.
+                                # There is no headroom at base1, so text moves up and muted sits under it.
+    "muted": "#a0b8b8",         # AA 4.5 on EVERY ground incl. surface_3; stays 1.23x dimmer than text
     "accent": "#268bd2",        # blue -- CANONICAL solarized, untouched
     # base03-deep ink (this palette's own log_bg), not white: white on solarized blue is 3.68, sub-AA for a
     # button label. accent lum 0.235 clears the 0.220 crossover, so the ink flips and the blue stays exact.
     "accent_fg": "#00212b",     # 3.68 -> 4.56
     "accent_hover": "#3597db",
     "accent_pressed": "#1f78ba",
-    "help": "#6c71c4",          # violet
+    "help": "#9296d3",          # violet, lifted to AA 4.5 as TEXT (2.97 -> 4.57). `help` has exactly ONE
+                                # use -- the Info Hub button's label AND its border -- so there is no
+                                # shape-role to protect and the lift happens in place.
     "help_hover": "#7e83cf",
     "border": "#0e4a59",
     "success": "#859900",       # green
@@ -168,7 +173,7 @@ SOLARIZED_LIGHT = {
     "surface_btn": "#e8e1cd",
     "field": "#f7f1de",
     "text": "#4a6067",          # base01 deepened to WCAG AA 4.5:1 body text on the cream bg
-    "muted": "#566c74",         # deepened for hint legibility -- AA 4.5:1, still lighter than text
+    "muted": "#546a72",         # deepened for hint legibility -- AA 4.5 on EVERY ground, still lighter than text
     # Solarized blue #268bd2 deepened 12%: at lum 0.235 white ink gives only 3.68, and this is a LIGHT
     # theme -- every one of its own neutrals is far too light to serve as dark ink, so the flip that fixes
     # solarized-DARK is unavailable here. The blue deepens instead; 3.68 -> 4.62.
@@ -176,7 +181,7 @@ SOLARIZED_LIGHT = {
     "accent_fg": "#ffffff",     # white over the blue accent
     "accent_hover": "#1f7ec0",
     "accent_pressed": "#1a6ca8",
-    "help": "#6c71c4",          # violet
+    "help": "#5d61a9",          # violet, deepened to AA 4.5 as TEXT on the cream page (3.57 -> 4.57)
     "help_hover": "#595fb8",
     "border": "#ddd6bf",
     "success": "#728a00",       # deepened green for light-bg legibility
@@ -195,12 +200,12 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
     "surface_btn": "#3c3836",   # bg1
     "field": "#3c3836",
     "text": "#ebdbb2",          # fg1
-    "muted": "#b1a390",         # gray, lifted to AA 4.5:1 on surface_2 (4.07 -> 4.58)
+    "muted": "#bdb2a2",         # gray, lifted to AA 4.5 on surface_2 AND surface_3 (the rail): 3.88 -> 4.66
     "accent": "#fe8019",        # bright orange
     "accent_fg": "#282828",
     "accent_hover": "#ff8f33",
     "accent_pressed": "#e36f12",
-    "help": "#d3869b",          # bright purple
+    "help": "#d3869b",          # bright purple -- already AA 4.5 as text (4.78)
     "help_hover": "#dd9aab",
     "border": "#504945",        # bg2
     "success": "#b8bb26",       # bright green
