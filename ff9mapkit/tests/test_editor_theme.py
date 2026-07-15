@@ -117,6 +117,33 @@ def test_palette_contrast_invariants():
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
 
 
+def test_hover_and_pressed_give_real_feedback():
+    """A button must visibly react to the pointer -- and `hover` shipped BYTE-IDENTICAL to `surface_btn`
+    in nord (#3b4252), dracula (#3a3d4d), solarized-dark (#0b4350) and gruvbox-dark (#3c3836), so four of
+    seven palettes had **no button hover feedback at all**. Nothing in the QSS could have saved them: the
+    rule `QPushButton:hover { background: $hover; }` was firing correctly and painting the same colour.
+
+    Three assertions, because each catches a different way of getting this wrong:
+      1. DIRECTION -- hover moves toward the light in a dark theme, toward the ink in a light one. This is
+         the one that catches the byte-identical bug (equal luminance is not `>`, so a dark palette fails).
+      2. MAGNITUDE -- a 1-bit difference would satisfy (1) and still be invisible. DARK ships 1.0756.
+      3. hover != pressed -- otherwise pressing adds no feedback beyond hovering. This is why the fix had
+         to shift BOTH rungs (nord: nord1 rest -> nord2 hover -> nord3 press) rather than just move hover
+         onto the old pressed value.
+
+    NB `$hover` serves two resting surfaces -- buttons rest on `surface_btn`, tree/list rows on `surface`
+    -- so a value that fixes the button must not flatten the row. Asserted below.
+    """
+    for mode, pal in theme.THEMES.items():
+        toward_light = _luminance(pal["hover"]) > _luminance(pal["surface_btn"])
+        assert toward_light is bool(pal["dark"]), \
+            f"{mode}: hover must move toward the light in dark themes, toward the ink in light ones " \
+            f"(hover {pal['hover']} vs surface_btn {pal['surface_btn']})"
+        assert _contrast(pal["hover"], pal["surface_btn"]) >= 1.05, f"{mode}: button hover is invisible"
+        assert _contrast(pal["pressed"], pal["hover"]) >= 1.03, f"{mode}: pressed adds nothing over hover"
+        assert _contrast(pal["hover"], pal["surface"]) >= 1.05, f"{mode}: tree/list row hover is invisible"
+
+
 def test_status_hues_meet_non_text_contrast():
     # WCAG 1.4.11: error / warn / success drive status ICONS + the lint stripe, so each must clear the 3:1
     # non-text floor on BOTH the page (bg) and a panel (surface) -- the status stays perceivable as a shape

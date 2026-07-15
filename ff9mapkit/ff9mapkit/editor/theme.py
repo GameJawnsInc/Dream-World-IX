@@ -89,8 +89,8 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "help_hover": "#c29bbb",
     "border": "#434c5e",        # nord2
     "success": "#a3be8c",       # nord14 (green)
-    "hover": "#3b4252",
-    "pressed": "#434c5e",
+    "hover": "#434c5e",         # nord2 -- was #3b4252 == surface_btn (nord1): NO hover feedback at all
+    "pressed": "#4c566a",       # nord3. The Polar Night ramp: nord1 rest -> nord2 hover -> nord3 press
     "scroll": "#4c566a",        # nord3
     "log_bg": "#272c36",
     "log_fg": "#d8dee9",        # nord4
@@ -113,8 +113,8 @@ DRACULA = {                     # https://draculatheme.com
     "help_hover": "#ff92d0",
     "border": "#44475a",        # current line
     "success": "#50fa7b",       # green
-    "hover": "#3a3d4d",
-    "pressed": "#44475a",
+    "hover": "#44475a",         # current line -- was #3a3d4d == surface_btn: NO hover feedback
+    "pressed": "#4f5268",       # a rung above current-line (dracula ships no neutral above it)
     "scroll": "#44475a",
     "log_bg": "#21222c",
     "log_fg": "#f8f8f2",
@@ -140,8 +140,8 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     "help_hover": "#7e83cf",
     "border": "#0e4a59",
     "success": "#859900",       # green
-    "hover": "#0b4350",
-    "pressed": "#0e4a59",
+    "hover": "#0e4a59",         # was #0b4350 == surface_btn: NO hover feedback (this hex was `pressed`)
+    "pressed": "#135a6b",       # lifted so pressed still adds feedback above the new hover
     "scroll": "#586e75",        # base01
     "log_bg": "#00212b",
     "log_fg": "#839496",        # base0
@@ -166,8 +166,8 @@ SOLARIZED_LIGHT = {
     "help_hover": "#595fb8",
     "border": "#ddd6bf",
     "success": "#728a00",       # deepened green for light-bg legibility
-    "hover": "#e6dfc9",
-    "pressed": "#ded7c0",
+    "hover": "#ded7c0",         # was #e6dfc9 -- present but ~invisible (btn->hover measured 1.0203)
+    "pressed": "#d3cbb0",       # deepened so pressed still reads above the new hover
     "scroll": "#c9c2aa",
     "log_bg": "#e4ddc8",
     "log_fg": "#586e75",
@@ -190,8 +190,8 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
     "help_hover": "#dd9aab",
     "border": "#504945",        # bg2
     "success": "#b8bb26",       # bright green
-    "hover": "#3c3836",
-    "pressed": "#504945",
+    "hover": "#504945",         # bg2 -- was #3c3836 == surface_btn (bg1): NO hover feedback at all
+    "pressed": "#665c54",       # bg3. The gruvbox ramp is built for this: bg1 rest -> bg2 hover -> bg3 press
     "scroll": "#665c54",        # bg3
     "log_bg": "#1d2021",        # bg0_h
     "log_fg": "#d5c4a1",        # fg2
