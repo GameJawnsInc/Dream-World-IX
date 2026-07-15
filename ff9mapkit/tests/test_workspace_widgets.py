@@ -149,3 +149,45 @@ def test_build_form_flips_a_bad_field_to_the_error_state(app):
     captions = [lb for lb in w.findChildren(QLabel) if lb.property("role") == "caption"]
     assert captions, "the form's hints should carry role='caption'"
     assert any(c.property("state") == "error" for c in captions), "a bad value must set state='error'"
+
+
+def test_the_form_docs_share_one_page_rung(app):
+    """Build & Deploy / Import / Co-op are the same SHAPE -- one scrolling column of cards -- so their
+    page frame must be one number, defined once.
+
+    They had drifted to 16 / 16 / (18, 14, 18, 18): three docs, three answers, one of them asymmetric
+    for no stated reason. That is what a magic number does over time, and it is the entire argument for
+    `page_margins` being a function rather than a value typed at each site.
+
+    The splitter browsers (Models / Battle) are deliberately NOT in this fence: their panes are the page
+    and edge-to-edge is the convention -- an outer margin there only eats pane width.
+    """
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    seen = []
+    hosts = []                     # hold the parents: a temporary QWidget is GC'd and takes its layout
+    for _ in range(3):
+        host = QWidget()
+        hosts.append(host)
+        lay = QVBoxLayout(host)
+        widgets.page_margins(lay)
+        m = lay.contentsMargins()
+        seen.append((m.left(), m.top(), m.right(), m.bottom()))
+    assert len(set(seen)) == 1, f"page_margins is not deterministic: {seen}"
+    assert seen[0] == (widgets.PAGE_PAD,) * 4, "the page rung must be symmetric"
+
+
+def test_the_page_rung_clears_the_card_interior():
+    """24 outside, 16 inside. The page frame must OUTRANK a card's own padding, not tie it.
+
+    `section()` insets its content by 16. If the page frame were also 16 the card's border would sit
+    exactly halfway between the page edge and its own content, and the page would read as one flat
+    stack with a stray line in it rather than as cards ON a page. One rung of separation is the cheapest
+    thing that makes the containment legible.
+    """
+    from ff9mapkit.workspace import style
+
+    assert widgets.PAGE_PAD == style.space("space_6") == 24
+    assert widgets.PAGE_PAD > 16, "the page frame must exceed the card's 16px interior"
+    # and the inter-card gap sits between the in-card row gap (8) and the page frame (24)
+    assert 8 < widgets.SECTION_GAP < widgets.PAGE_PAD

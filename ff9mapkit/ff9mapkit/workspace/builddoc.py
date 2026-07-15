@@ -65,8 +65,8 @@ class BuildDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(16, 16, 16, 16)           # 4pt-grid page padding
-        v.setSpacing(12)                                # 4pt-grid rhythm between the raised panels
+        widgets.page_margins(v)                         # the page rung (was a hand-typed 16)
+        v.setSpacing(widgets.SECTION_GAP)               # the rhythm between the raised panels (was 12)
         row = QHBoxLayout()
         row.addWidget(QLabel("Project file:"))
         self.path = QLineEdit()

@@ -13,14 +13,38 @@ from PySide6.QtWidgets import (
     QListWidget, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import anim
+from . import anim, style
 
 _QWIDGETSIZE_MAX = 16777215                        # Qt's max size -- 'release the height pin' so a widget tracks content
 
 # The gap BETWEEN cards (see `section`). The card draws its own boundary, so this gap does not have to
 # carry the grouping by itself -- but it must still clearly exceed the 8px gap between rows INSIDE a card,
 # or the page reads as one undifferentiated stack. 14 sits between the old 10 and the borderless 24.
+# DELIBERATELY OFF-GRID, and the one number here that is: the grid's neighbours are 12 (too close to the
+# 8px in-card row gap to read as a different KIND of gap) and 16 (which ties the card's own 16px interior
+# padding, so a card would sit as far from its neighbour as its content sits from its own edge). The grid
+# does not have to own every number -- it has to stop numbers being anonymous. This one has a reason.
 SECTION_GAP = 14
+
+# A form doc's PAGE padding -- the frame around the scrolling column of cards. One rung above the card's
+# own 16px interior (widgets.section), so the page frame reads as the outer container rather than tying
+# it: 24 outside, 16 inside. Applies to the form docs (Build & Deploy / Import / Co-op: a single scrolling
+# column, no splitter). NOT to the splitter browsers (Models / Battle), where the panes are the page and
+# edge-to-edge is the convention -- an outer margin there just eats pane width.
+PAGE_PAD = style.space("space_6")
+
+
+def page_margins(lay) -> None:
+    """Apply the page rung to a form doc's page-level layout.
+
+    One definition, three call sites: the three form docs had drifted to 16 / 16 / (18,14,18,18), which
+    is the whole reason this is a function and not a number typed three times.
+
+    NB: comfortable-only. Layout density fan-out is not wired -- the docs are constructed without knowing
+    the density, and threading it through every doc + `_apply_density` + `_finish`'s Cancel path is a
+    separate job. `style.space` takes a density for when it is.
+    """
+    lay.setContentsMargins(PAGE_PAD, PAGE_PAD, PAGE_PAD, PAGE_PAD)
 
 
 class WheelGuard(QObject):

@@ -66,8 +66,11 @@ class CoopDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(18, 14, 18, 18)
-        v.setSpacing(widgets.SECTION_GAP)   # the box borders are gone -- this gap IS the grouping now
+        widgets.page_margins(v)             # the page rung (was an asymmetric hand-typed 18/14/18/18)
+        # The gap between cards. The old comment here said "the box borders are gone -- this gap IS the
+        # grouping now", which the card reversal made false: the cards kept their borders, so the gap
+        # separates bounded objects rather than carrying the grouping alone. The value is unchanged.
+        v.setSpacing(widgets.SECTION_GAP)
 
         intro = widgets.prose("Two-player co-op: you and a friend each see the other's ghost walk a "
                               "shared field, and — if you grant it in Play style below — they command "
