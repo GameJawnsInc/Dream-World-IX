@@ -9,8 +9,8 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget, QPushButton,
-    QVBoxLayout, QWidget,
+    QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
+    QListWidget, QPushButton, QVBoxLayout, QWidget,
 )
 
 
@@ -149,6 +149,20 @@ def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None):
         v.addLayout(brow)
     v.addStretch(1)
     return w
+
+
+def attach_shadow(widget, *, blur=32, dy=8, alpha=110):
+    """Give a FLOATING layer (a Ctrl-K palette card, a frameless popover) real depth via a
+    QGraphicsDropShadowEffect. Apply to a ROUNDED card that sits inside a transparent, margined host so the
+    blur has room to spill and the rounded corners don't bleed a hard rectangle (Report F-§2). No-op-safe:
+    returns the widget. Not for native top-level menus/dialogs -- those already get an OS shadow on Windows."""
+    eff = QGraphicsDropShadowEffect(widget)
+    eff.setBlurRadius(blur)
+    eff.setXOffset(0)
+    eff.setYOffset(dy)
+    eff.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(eff)
+    return widget
 
 
 def repolish(widget):

@@ -62,6 +62,29 @@ def test_empty_state_builds_glyph_title_teach_and_actions(app):
     assert fired == ["fork", "open"], "action callbacks are wired"
 
 
+def test_attach_shadow_sets_a_drop_shadow_effect(app):
+    from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect
+    f = widgets.attach_shadow(QFrame(), blur=20, dy=6)
+    eff = f.graphicsEffect()
+    assert isinstance(eff, QGraphicsDropShadowEffect)
+    assert eff.blurRadius() == 20 and eff.yOffset() == 6 and eff.xOffset() == 0
+
+
+def test_command_palette_is_a_frameless_shadowed_card(app):
+    # Phase-3 drop-shadow: the Ctrl-K palette is a frameless, translucent overlay whose inner rounded card
+    # carries a real QGraphicsDropShadowEffect (a framed dialog would only get OS chrome).
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect
+
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.palette import CommandPalette
+    p = CommandPalette(None, [("New Field…", "command", lambda: None)], pick_palette("dark"))
+    assert bool(p.windowFlags() & Qt.FramelessWindowHint)
+    assert p.testAttribute(Qt.WA_TranslucentBackground)
+    card = p.findChild(QFrame, "paletteCard")
+    assert card is not None and isinstance(card.graphicsEffect(), QGraphicsDropShadowEffect)
+
+
 def test_build_form_flips_a_bad_field_to_the_error_state(app):
     # The Phase-2 forms_qt migration replaced the inline red/muted hint styles with a caption `role` + a
     # `state` property (styled by QSS, repolished on change). Assert the mechanism: a value that fails its

@@ -10,7 +10,10 @@ abbreviations work. PySide6-only view; the entry list + callbacks are the shell'
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtWidgets import QDialog, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QFrame, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+
+from ..editor.theme import derive
+from .widgets import attach_shadow
 
 
 def fuzzy(needle: str, hay: str) -> bool:
@@ -36,10 +39,26 @@ class CommandPalette(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Search content & commands")
         self.setModal(True)
+        # A Spotlight-style FLOATING overlay: frameless + translucent so the inner rounded card can carry a
+        # real drop shadow (a framed dialog would just get the OS chrome). The outer margin gives the blur room.
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.resize(580, 440)
         self._entries = list(entries)
         self._filtered = list(entries)
-        lay = QVBoxLayout(self)
+        d = derive(palette)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(18, 18, 18, 26)       # room for the shadow to spill (heavier at the bottom)
+        card = QFrame()
+        card.setObjectName("paletteCard")
+        card.setStyleSheet(f"QFrame#paletteCard {{ background:{d['surface_3']}; border:1px solid {d['border']}; "
+                           f"border-radius:10px; }}")
+        outer.addWidget(card)
+        attach_shadow(card)                            # the real QGraphicsDropShadowEffect (on the rounded card)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 12, 12, 12)
         self.q = QLineEdit()
         self.q.setPlaceholderText("Search content & commands…  (a field name, or a command)")
         self.q.textChanged.connect(self._refilter)
