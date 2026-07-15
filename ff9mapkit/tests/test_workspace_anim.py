@@ -82,6 +82,24 @@ def test_enabled_fade_in_returns_an_animation(app):
     anim.set_enabled(False)
 
 
+def test_disclosure_expand_collapse_end_states_with_motion_off(app):
+    """The disclosure drawer animates its height, but with motion off it must reach the SAME end states as
+    the old instant show/hide -- expand ends visible, collapse ends hidden (what the smoke asserts)."""
+    from ff9mapkit.workspace.widgets import disclosure                        # noqa: PLC0415
+    anim.set_enabled(False)
+    box = disclosure("Advanced", expanded=False)
+    body = box.content_layout.parentWidget()
+    box.show()
+    app.processEvents()
+    assert not body.isVisible(), "collapsed by default"
+    box.toggle_button.setChecked(True)
+    app.processEvents()
+    assert body.isVisible(), "motion off -> instant expand ends visible"
+    box.toggle_button.setChecked(False)
+    app.processEvents()
+    assert not body.isVisible(), "motion off -> instant collapse ends hidden"
+
+
 def test_palette_pop_in_respects_the_motion_switch(app):
     """The Ctrl-K palette fades+rises in when motion is on, and opens at full opacity (never stranded at 0)
     when it's off -- the safety property that keeps the offscreen/smoke paths correct."""

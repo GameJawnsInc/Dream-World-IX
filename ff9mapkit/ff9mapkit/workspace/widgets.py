@@ -13,6 +13,10 @@ from PySide6.QtWidgets import (
     QListWidget, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
+from . import anim
+
+_QWIDGETSIZE_MAX = 16777215                        # Qt's max size -- 'release the height pin' so a widget tracks content
+
 
 class WheelGuard(QObject):
     """App-wide event filter: ignore the mouse wheel on an UNFOCUSED combo / spin box.
@@ -191,8 +195,13 @@ def disclosure(title, *, expanded=False, parent=None):
     body.setVisible(expanded)
 
     def _toggle(on):
-        body.setVisible(on)
         btn.setText(("▾  " if on else "▸  ") + title)
+        if on:                                          # expand: reveal, then grow 0 -> content height,
+            body.setVisible(True)                       # then release the pin so it tracks content again
+            target = max(body.sizeHint().height(), 1)
+            anim.animate_height(body, 0, target, on_finished=lambda: body.setMaximumHeight(_QWIDGETSIZE_MAX))
+        else:                                           # collapse: shrink current -> 0, THEN hide
+            anim.animate_height(body, body.height(), 0, on_finished=lambda: body.setVisible(False))
     btn.toggled.connect(_toggle)
     v.addWidget(btn)
     v.addWidget(body)
