@@ -356,6 +356,36 @@ locked grass-form windows (stock desert slides FREE fractional windows, 48% lock
 reuses the grass relief field (stock desert: y std 2.44 vs grass 0.66–1.25); both fine
 at bench scale — revisit if a large desert landmass reads too regular/smooth.
 
+**THE DESERT TILE FIDELITY CHECK — round 1 (2026-07-15, playtest pending).** The check's
+vehicle: a pure-plain r52 seed-11 desert island at **(768,−1216)**, blocks (11–12,18–19)
+(the last free 2×2 ocean window in rows 14–19), deployed to FF9CustomMap-world + disc-4
+mirrored, all gates clean. `desert_fidelity_eye.py` = the offline eye (plan-view
+Moguri renders: TEXTURE / HILLSHADE / COMBINED; mint interior vs stock desert blocks
+(12,4) + (12,5)) → `out/desert_fidelity_eye.png`. Offline verdicts:
+1. **THE DEAD-RELIEF DISCOVERY (a real kit bug, worse than the earmark):** the mint
+   applies NO relief anywhere in practice — `grassland.relief_field` keys its lattice on
+   the donor block's LOCAL 4u nodes (i∈[0,16], j∈[−16,0], gap-filled to ±16 around the
+   world ORIGIN) while `island.fill_y` samples `relief_at` with WORLD coords, so every
+   island away from block (0,0) gets `field.get(...) → 0.0`. Verified: a fresh island-E
+   re-mint is byte-flat at 3.20 (its deployed roll is entirely the forest rim-lift +
+   hill builds), and the fidelity island's deployed bytes are y∈{0, 3.2} exactly. The
+   grass/mountain byte-identity acceptances stayed green through this because BOTH sides
+   of the comparison were flat — identity proves consistency, not relief. The never-flat
+   law is silently unmet by every mint to date (they read OK in-game at bench scale, so
+   this was invisible until now).
+2. **The texture gap reads as VOCABULARY, not window phase:** at 64×64u the mint's
+   locked-window repetition is subtle (desert mains are low-contrast), but stock desert
+   is only ~32% mains — its look at scale comes from the OTHER origins (shrub-rosette
+   clusters, vegetation clumps, grass inclusions, the u-0.844 strip column) scattered as
+   loose patches. The mint is a uniform mains carpet; the free-window sampler alone
+   would NOT close this — the busier tile vocabulary is the visible axis.
+In-game round 1 = judge the deployed island as-is (both axes in one walk). If it reads
+wrong, the extension order suggested by the eye: (a) a desert RELIEF field scaled from
+the measured stats (also fixes the dead-relief bug — decide whether grass mints adopt
+it too, which breaks the frozen flat-mint identity oracles), then (b) the vocabulary
+sampler (mains + measured shares of the non-mains origins per the census), then
+(c) free fractional windows last (least visible offline).
+
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
 placement scan + split-border emission.
