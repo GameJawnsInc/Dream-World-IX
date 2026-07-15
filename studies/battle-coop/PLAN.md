@@ -62,6 +62,24 @@
 > (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
 > acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
 >
+> **PHASE 7 RUNG 2 — THE PARTY MIRROR (wire v7) — BUILT 2026-07-15, solo proof pending.** The state
+> frame gains sections 1-3 (`NetSyncParty.cs`): **1 = the 4 party slots** (identity/looks/label stats
+> per member — charId/serial/level/row/hp/mp/equip×5/name; EXACTLY the diorama's future actor-spawn
+> input, zero throwaway) · **2 = key items** (`rare_item_obtained`) · **3 = the regular bag**. One frame
+> = one consistent snapshot (`SnapshotAll`), parsed at the same field-load apply boundary. **Guest apply
+> = the read-COMPARE wraps only** (no state mutation): `EventEngine.partychk` (B_PARTYCHK — the field's
+> "is Vivi with you?" gate), EBin's `PARTY_MEMBER` varfunc, and the event item read (B_HAVE_ITEM →
+> regular counts + key-item existence from the host; CARDS deliberately stay local) — so party/item-gated
+> NPCs/doors/branches stage the host's way. **DELIBERATELY NOT WRAPPED: `ETb.GetPartyMember`** — it
+> feeds the party-ACTOR SPAWN loop, and re-dressing the guest's own walking body is the diorama era's
+> identity problem. Item WRITES by mirrored scripts land on the guest's real bag but are session-scoped
+> by the exit-ramp architecture (no save + autoload exit). Session end → `NetSyncParty.Clear()`. New
+> selftest line: `party-mirror selftest: sections codec OK (N members, K key items, M bag entries)`.
+> s37 = **19 files** now (+`NetSyncParty.cs`, `EBin.cs`, `EventEngine.DoCalcOperationExt.cs`), gates
+> clean; wire v6→**v7** (mixed DLLs don't sync — update both). Two-machine acceptance: host with a
+> character/key item the guest lacks → a gated NPC/door on the guest stages per the HOST; guest solo
+> replay after disconnect stages per their OWN save again.
+>
 > **★★ PHASE 6 CLOSED 2026-07-15 — every acceptance box two-machine PROVEN.** The final round: manual
 > save refusal ✓ · Continue pristine through a followed session ✓ · **the AUTOLOAD EXIT RAMP ✓ on BOTH
 > kill paths** (host bridge Ctrl+C and host game quit — the guest on 30110 landed back at their own Dali
