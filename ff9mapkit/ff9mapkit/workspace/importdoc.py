@@ -782,7 +782,7 @@ class ImportDoc(QWidget):
         except Exception as e:                         # noqa: BLE001  (no install / unknown field / bad .eb)
             QApplication.restoreOverrideCursor()
             return self._warn("Couldn't decode", f"{e}\n\n(Studying a real field needs your FF9 install + "
-                                                 "UnityPy — check ⚙ ▸ Setup & health.)")
+                                                 "UnityPy — check Settings ▸ Setup & health.)")
         QApplication.restoreOverrideCursor()
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Field logic — {field} (read-only)")

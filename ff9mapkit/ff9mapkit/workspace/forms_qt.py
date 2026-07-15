@@ -647,7 +647,7 @@ class CatalogLibrary(QDialog):
         except Exception as e:                             # noqa: BLE001  (no install / no UnityPy / bad token)
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Export failed", f"{e}\n\n(The model export needs your FF9 install "
-                                                       "+ UnityPy — check ⚙ ▸ Setup & health.)")
+                                                       "+ UnityPy — check Settings ▸ Setup & health.)")
             return
         QApplication.restoreOverrideCursor()
         notes = []

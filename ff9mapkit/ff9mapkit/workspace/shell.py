@@ -1086,7 +1086,10 @@ class Workspace(QMainWindow):
         tv.setContentsMargins(0, 0, 0, 0)
         tv.setSpacing(4)
         self.tree_filter = QLineEdit()
-        self.tree_filter.setPlaceholderText("⌕ filter the tree…")
+        self.tree_filter.setPlaceholderText("Filter the tree…")     # the ⌕ glyph -> a leading SVG search icon
+        _tf_act = self.tree_filter.addAction(icons.icon("search", self._icon_color("muted"), 14),
+                                             QLineEdit.ActionPosition.LeadingPosition)
+        self._icon_retint.append(lambda: _tf_act.setIcon(icons.icon("search", self._icon_color("muted"), 14)))
         self.tree_filter.setClearButtonEnabled(True)
         self.tree_filter.textChanged.connect(self._filter_tree)
         tv.addWidget(self.tree_filter)
