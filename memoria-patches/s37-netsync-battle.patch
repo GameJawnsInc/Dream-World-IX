@@ -1785,10 +1785,10 @@ index 0000000..36cd119
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index a490fdb..107bb64 100644
+index a490fdb..981e064 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -1,652 +1,1037 @@
+@@ -1,652 +1,1042 @@
 -using System;
 -using Memoria.Prime;
 -using Memoria.Scripts;   // ShadersLoader
@@ -2871,12 +2871,17 @@ index a490fdb..107bb64 100644
 +
 +            try
 +            {
-+                // STATE-MIRROR session end: if we WERE mirroring the host's story but the link is gone
-+                // (dropped / stopped following), arm the exit ramp -- debounced so a relay blip that
-+                // reconnects within a few seconds doesn't yank the guest to Continue. (A deliberate
-+                // config change arms it immediately -- ApplyConfigChange.)
-+                if (_storyMirroring && !_exitRampPending &&
-+                    !(_enabled && _followHost && _socket != null && _socket.IsConnected))
++                // STATE-MIRROR session end: if we WERE mirroring the host's story but the session is
++                // gone, arm the exit ramp -- debounced so a relay blip doesn't yank the guest to
++                // Continue. "Gone" must include a SILENT peer, not just a downed transport: killing the
++                // HOST's bridge leaves the guest's own relay socket happily connected (IsConnected stays
++                // true -- the interface warns exactly this), so peer-alive is read from the position
++                // lane, which the 30 Hz keepalive keeps fresh through the host's menus/battles and which
++                // the socket layer stale-invalidates ~2s after the host actually dies. (A deliberate
++                // config change arms the ramp immediately -- ApplyConfigChange.)
++                Boolean sessionLive = _enabled && _followHost && _socket != null &&
++                                      _socket.IsConnected && _socket.GetRemote().Valid;
++                if (_storyMirroring && !_exitRampPending && !sessionLive)
 +                {
 +                    if (_exitRampSince == 0)
 +                        _exitRampSince = Environment.TickCount;
