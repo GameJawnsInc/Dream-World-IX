@@ -111,7 +111,17 @@ identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs
 7. **Coop state-mirror** — Phases 0-5 landed on master (wire v6); gated on the two-machine session
    (BOTH DLLs must update). User-only.
 
-## 7. Hard constraints (CLAUDE.md §2 — the ones this arc lives by)
+## 7. Git note (bit me once — check before claiming a merge)
+
+The **main repo `C:\gd\Dream-World-IX` is checked out on `claude/interior-topography-plan-b61671`**, not
+`master`. A bare `cd C:\gd\Dream-World-IX && git merge <feature>` therefore merges into THAT branch, not
+master (this session claimed "merged to master" several times and was wrong; corrected at the end by
+`git -C <repo> fetch . claude/interior-topography-plan-b61671:master`, a clean fast-forward that leaves
+the working tree alone). Verify with explicit paths — `git -C <repo> log -1 master` and
+`git -C <repo> merge-base --is-ancestor <branch> master` — never by `cd` + `git log` (the tool's cwd
+resets between calls).
+
+## 8. Hard constraints (CLAUDE.md §2 — the ones this arc lives by)
 
 - **I cannot see the running game.** Every "look in-game" step is a STOP-and-ask. The offline eye
   (`massif_face_render.py`, `desert_fidelity_eye.py`, ad-hoc Moguri renders) iterates; only finals
