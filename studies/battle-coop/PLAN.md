@@ -62,6 +62,16 @@
 > (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
 > acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
 >
+> **★★ PHASE 6 CLOSED 2026-07-15 — every acceptance box two-machine PROVEN.** The final round: manual
+> save refusal ✓ · Continue pristine through a followed session ✓ · **the AUTOLOAD EXIT RAMP ✓ on BOTH
+> kill paths** (host bridge Ctrl+C and host game quit — the guest on 30110 landed back at their own Dali
+> Continue spot in ~5s) · **automatic session resumption ✓** (host bridge restarted → re-pair,
+> re-follow, re-mirror, no relaunch). The ramp's first execution found one real bug, fixed same day:
+> `IsConnected` stays true when the HOST's bridge dies (the guest's own relay socket is fine) — peer-alive
+> must read the keepalive-fed POSITION lane (`_socket.GetRemote().Valid`, stale ~2s after the host dies).
+> THE LAW: **transport-up ≠ peer-alive; any session-end logic must gate on lane freshness, not
+> IsConnected.** NEXT = Phase 7: party mirror (rung 2) → the battle diorama (B3).
+>
 > **PHASE 6 RESULTS (accumulating, 2026-07-15):**
 > - ★ **Fail-safe PROVEN two-machine** (package step 0): v6 host + v5 laptop on the same field — visible
 >   co-location but NO pairing, no crash, no half-state. Exactly the designed version-reject behavior.
