@@ -62,6 +62,16 @@
 > (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
 > acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
 >
+> **THE SPECTATOR-FIELD PARADIGM (user-set, 2026-07-15):** the guest is a COMBAT participant and a
+> field SPECTATOR — field walking is a purely flavorful experience (unless a need emerges), and the
+> guest is not meant to INTERACT outside combat. Interaction authority is the HOST's alone. The
+> implied future research arc — **"play the game without a player"** — is the guest's client rendering
+> the host's interactions without a local driver: dialogue windows advancing on the HOST's confirms,
+> chests opening because the HOST opened them, gateways firing off the host's movement (follow-warp
+> already is this shape). The flip side (cheap, nearer-term): SUPPRESSING the guest's own field
+> interactions while following (talk/chest/gateway inhibition) so a wandering guest can't advance or
+> disturb the host's world. Noted, NOT scheduled — the battle diorama (B3) comes first.
+>
 > **★★ RUNG 2 CLOSED 2026-07-15 — TWO-MACHINE PROVEN on both axes.** Item mirror: guest with 0 Tents +
 > host with a Tent → the guest activates the Tent moogle (the offer reads the HOST's bag). Party
 > mirror: Ice Cavern **302**, the Vivi-required fire scene — the guest's field staged the party-gated
