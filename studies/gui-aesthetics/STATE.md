@@ -139,6 +139,35 @@ against *contrast* was discarded for over-tinting gruvbox, which the eye says ne
 **The transferable rule:** when a fence and a render disagree, the render is not automatically right
 either — it tells you the fence is measuring the wrong axis. Then go find the axis.
 
+### THE CUT LIST IS PER-FAMILY (REGISTER P2)
+
+NAMEPLATE P1 measured Segoe UI's real weight cuts — `[100-300][350][400-500][550-650][700-800][900]` —
+and fenced them. **That list is Segoe's, and the console is not Segoe.** Measured natively:
+
+| face | 550 | 600 |
+|---|---|---|
+| **Cascadia Code** (dev boxes; ships with VS / Windows Terminal) | a real SemiBold | SemiBold |
+| **Consolas** (the clean-Windows fallback; Regular + Bold only) | **byte-identical to 400 — a no-op** | Bold |
+
+So the log's head/echo register is **600**, the first weight that lands heavier in *both* — otherwise it
+would silently flatten on exactly the machines without a developer's fonts installed. And note the
+advance test that caught Segoe's dead 500 is **blind** here: mono advances never move, only the ink does.
+
+### A SOURCE-GREPPING FENCE MUST READ CODE, NOT PROSE
+
+Three fences in this arc tripped on their **own docstrings** — because the prose beside a rule is exactly
+where the rule gets *named*. A docstring saying *"never appendHtml"* fails a naive
+`"appendHtml" not in src` on the very file that obeys it. `LedeCard`'s docstring states the gold-stripe
+law and failed the gold-stripe fence. `tests/_code_only()` now strips docstrings and comments via
+`ast.unparse`; what's left is what executes.
+
+### AND THE BUG THE SOURCE-GREPPING FENCES COULDN'T SEE
+
+The log's `trace` branch called `derive()`, which **was not imported into shell.py**. Every source fence
+passed. The whole 3569-test suite passed. The first traceback the console ever streamed would have
+crashed the drain. **A probe that DROVE the branch found it in one run.** Reading source proves what the
+code says; only running it proves what it does.
+
 ### The instrument, and the two that lied first
 
 `audit_contrast.py` **cannot see the hero at all** — it reads ink from `w.palette().color(...)`, a QLabel
