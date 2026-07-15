@@ -1087,6 +1087,7 @@ class Workspace(QMainWindow):
         tv.setSpacing(4)
         self.tree_filter = QLineEdit()
         self.tree_filter.setPlaceholderText("Filter the tree…")     # the ⌕ glyph -> a leading SVG search icon
+        self.tree_filter.setAccessibleName("Filter the tree")       # placeholder isn't a screen-reader name
         _tf_act = self.tree_filter.addAction(icons.icon("search", self._icon_color("muted"), 14),
                                              QLineEdit.ActionPosition.LeadingPosition)
         self._icon_retint.append(lambda: _tf_act.setIcon(icons.icon("search", self._icon_color("muted"), 14)))
@@ -1095,6 +1096,8 @@ class Workspace(QMainWindow):
         tv.addWidget(self.tree_filter)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setAccessibleName("Project navigator")   # a headerless custom tree -> name it for a screen reader
+        self.tree.setAccessibleDescription("The open journey, campaign, or field and the objects inside it")
         self.tree.setUniformRowHeights(True)        # the type icon + unsaved dot must NOT change a row's height
         self.tree.setIconSize(QSize(16, 16))        # room for the SVG type icons (was 12 for the dot-only slot)
         self.tree.itemSelectionChanged.connect(self._on_select)
@@ -1125,6 +1128,8 @@ class Workspace(QMainWindow):
         self._doc_placeholder("Select a field or an object on the left to edit it.")
         self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
                                thumbs=self.thumbs.cached)               # nodes show the real art when cached
+        self.map.setAccessibleName("Campaign map")       # a custom-painted canvas is a screen-reader void without this
+        self.map.setAccessibleDescription("The open campaign's fields and the gateways between them")
         self.tabs.addTab(self.map, "Map")
         # the save docs route their console output to the shared bottom Output panel (so the doc body
         # reclaims that height); standalone (output=None) they'd keep an in-pane console.
@@ -1283,6 +1288,7 @@ class Workspace(QMainWindow):
         self.problems = PlaceholderListWidget(
             "No problems yet — Check (toolbar) validates the open project and reports here.",
             self.pal["muted"])
+        self.problems.setAccessibleName("Problems")
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -1311,6 +1317,7 @@ class Workspace(QMainWindow):
         ov.addLayout(out_head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        self.output.setAccessibleName("Output console")
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)

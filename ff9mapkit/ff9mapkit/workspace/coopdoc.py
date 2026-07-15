@@ -209,6 +209,7 @@ class CoopDoc(QWidget):
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.log.setAccessibleName("Co-op bridge log")
         self.log.setMaximumHeight(96)
         self.log.setPlaceholderText("bridge log")
         v.addWidget(self.log)

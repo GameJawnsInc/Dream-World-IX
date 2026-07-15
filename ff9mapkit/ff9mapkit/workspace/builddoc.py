@@ -70,6 +70,7 @@ class BuildDoc(QWidget):
         row = QHBoxLayout()
         row.addWidget(QLabel("Project file:"))
         self.path = QLineEdit()
+        self.path.setAccessibleName("Project file to build or deploy")
         self.path.setPlaceholderText("a .field.toml, campaign.toml, journeys.toml, or battle.toml")
         self.path.textChanged.connect(self._on_path)
         browse = QPushButton("Browse…")

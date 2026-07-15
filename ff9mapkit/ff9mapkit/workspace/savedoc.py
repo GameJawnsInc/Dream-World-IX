@@ -54,12 +54,14 @@ class StoryStateDoc(QWidget):
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
         self.slots = PlaceholderListWidget("Open a save (above) to list its slots here.", palette["muted"])
+        self.slots.setAccessibleName("Save slots")
         self.slots.currentRowChanged.connect(lambda _r: self._on_slot())
         split.addWidget(self.slots)
 
         self.tabs = QTabWidget()
         self.inspect = QPlainTextEdit()
         self.inspect.setReadOnly(True)
+        self.inspect.setAccessibleName("Save slot details")
         self.inspect.setPlaceholderText("Select a save slot on the left to read its scenario counter and "
                                         "story flags.")
         self.tabs.addTab(self.inspect, "Inspect")
@@ -98,6 +100,7 @@ class StoryStateDoc(QWidget):
         lay.addLayout(row)
         self.diff_txt = QPlainTextEdit()
         self.diff_txt.setReadOnly(True)
+        self.diff_txt.setAccessibleName("Save comparison")
         self.diff_txt.setPlaceholderText("Open a second save (B) above and Compare to see which story flags "
                                          "and scenario beats changed between them.")
         lay.addWidget(self.diff_txt, 1)
@@ -150,6 +153,7 @@ class StoryStateDoc(QWidget):
         if self._output is None:                 # standalone: an in-pane console; docked -> the bottom panel
             self.edit_txt = QPlainTextEdit()
             self.edit_txt.setReadOnly(True)
+            self.edit_txt.setAccessibleName("Save editor")
             lay.addWidget(self.edit_txt, 1)
         return page
 
@@ -410,11 +414,13 @@ class ItemEquipDoc(QWidget):
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
         self.slots = PlaceholderListWidget("Open a save (above) to list its slots here.", palette["muted"])
+        self.slots.setAccessibleName("Save slots")
         self.slots.currentRowChanged.connect(lambda _r: self._on_slot())
         split.addWidget(self.slots)
         self.tabs = QTabWidget()
         self.inspect = QPlainTextEdit()
         self.inspect.setReadOnly(True)
+        self.inspect.setAccessibleName("Save slot details")
         self.inspect.setPlaceholderText("Select a save slot on the left to read its gil, inventory, "
                                         "equipment, stats, abilities and key items.")
         self.tabs.addTab(self.inspect, "Inspect")
