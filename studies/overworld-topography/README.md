@@ -322,6 +322,26 @@ pass the backlog required before extending `world-mountain --donor` beyond Uaho.
   not mains grass — a look-risk if ever seated on a grass island (offline-untestable).
 * **Dispatch**: all rock baked (event 0, area 62) — the DONOR-DISPATCH STRIP handles it.
 
+**THE DESERT GROUND LANGUAGE (★ 2026-07-15)** — `desert_ground_anatomy.py` →
+`out/desert_ground.json`; the sidebar the crag's foot fringe demanded (painted against
+topo-17 ground, unjudgeable on grass). Findings: 81 disc-1 blocks carry topo-17; the
+ground obeys the SAME laws as grass (exact linear-in-XZ per 4u cell, one ~128px tile per
+cell, 4 rotations, grass handedness 224:6, avoid-repeat neighbours 7%) with a busier
+vocabulary (39 half-tile origins; the dominant 2×2 mains set covers 32%; a 4-row strip
+column at u 0.844 = the B-strip analogue) and rougher relief (y std 2.44 vs grass
+0.66–1.25). Real desert cells use FREE fractional windows across the painted-over
+internal gutter (THE COL-FREEDOM LAW at ground scale — the naive 16-hypothesis gate
+passes only 48%), but the locked grass-form window is a common real form and stays
+inside painted art. **THE DESERT TRANSLATION LAW:** the desert mains region is the grass
+mains structure translated by exactly **(+0.65332, −0.09863)** in the atlas — same
+quadrant rects, widths, and gutters, byte-exact at 5dp — so the lawful mint form is
+literally `G.mains_uv(...) + (DU, DV)` with topograph 17. `desert_bench.py` applied it:
+the crag bench's 746 plain-grass tris retiled IN PLACE to desert mains (fresh per-cell
+assignment, zero geometry change, atlas gate 0 blanks, census MISS=0), DEPLOYED +
+mirrored — the crag now stands on its native ground; foot-fringe verdict pending.
+Known cosmetic remnant: the coastal cliff-top LIP ring still wears its grass-family
+tiles (the lip is its own vocabulary — a desert-island mint would need a desert lip).
+
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
 placement scan + split-border emission.
