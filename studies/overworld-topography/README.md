@@ -386,6 +386,19 @@ it too, which breaks the frozen flat-mint identity oracles), then (b) the vocabu
 sampler (mains + measured shares of the non-mains origins per the census), then
 (c) free fractional windows last (least visible offline).
 
+**★ VERDICT — THE CHECK IS CLOSED (playtest 2026-07-15): "no and no — this looks like
+a fine desert."** Neither gap reads in-game at r52 scale: the locked-window mains
+carpet passes, and dead-flat ground passes (the player-height oblique camera + the
+low-contrast desert texture hide both axes the plan-view eye could see). The desert
+ground spec STANDS as shipped — no free-window sampler, no vocabulary sampler, no
+relief field needed for `--ground desert`. The check island is KEPT deployed (the
+first pure-plain `--ground desert` island proven at scale; remove = delete the
+28 files across blocks (11-12,18-19) + re-run `world-mirror`). THE DEAD-RELIEF
+DISCOVERY stands as an open KIT decision, now with an in-game data point in favor of
+flat: either fix the frame (future mints roll; the frozen flat-mint identity oracles
+break and re-baseline) or retire the field and make the docs honest (`relief="auto"`
+currently claims a verbatim rolling relief it never applies).
+
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
 placement scan + split-border emission.
