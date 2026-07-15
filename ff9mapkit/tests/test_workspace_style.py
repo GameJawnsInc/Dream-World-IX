@@ -214,3 +214,39 @@ def test_qss_has_no_malformed_subcontrol_selectors():
         # Widget:class::element -- the correct order is ALWAYS Widget::element:class, so any hit is a bug.
         bad = re.findall(r"[A-Za-z_][\w-]*:[a-z-]+::[a-z-]+", css)
         assert not bad, f"{mode}: pseudo-class before sub-control (Qt matches neither): {bad}"
+
+
+def test_the_quiet_button_tier_greys_out_when_disabled():
+    """The bottom rung of the button ladder must still SAY "disabled" when disabled.
+
+    `QPushButton[role="quiet"]` (0,0,1,1: type + attribute) TIES the generic `QPushButton:disabled`
+    (0,0,1,1: type + pseudo-class) on specificity, and the quiet block is declared LATER -- so source
+    order hands the win to the quiet rule and a disabled quiet button would paint its enabled colour.
+    Measured before this rule existed: enabled and disabled both resolved to $text (#e6e8eb in dark),
+    byte-identical. Only `[role="quiet"]:disabled` (0,0,2,1) outranks both.
+
+    Live, not hypothetical: builddoc's `_busy()` disables `pack_btn` for the whole of every build.
+    """
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        assert 'QPushButton[role="quiet"]:disabled' in css, mode
+        assert 'QPushButton[role="quiet"]:pressed' in css, mode    # no press feedback without it, same trap
+
+
+def test_the_quiet_tier_drops_the_fill_not_the_text():
+    """Hierarchy comes from the missing FILL, never from dimmer text.
+
+    `transparent + muted` is already spent as the DISABLED idiom (QToolButton:disabled), so a quiet
+    button drawn in $muted would read as un-clickable rather than as secondary -- and would then be
+    indistinguishable from its own :disabled state, which is the very thing the test above fences.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        m = re.search(r'QPushButton\[role="quiet"\]\s*\{([^}]*)\}', css)
+        assert m, mode
+        body = m.group(1)
+        assert "background: transparent" in body, mode
+        assert pal["text"] in body, f"{mode}: quiet must ink in $text"
+        d = theme.derive(dict(pal))
+        assert d["muted"] not in body, f"{mode}: quiet must NOT ink in $muted -- that is the disabled idiom"

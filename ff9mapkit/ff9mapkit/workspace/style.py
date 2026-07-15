@@ -123,6 +123,28 @@ _QSS = Template(
        would be invisible. */
     QPushButton#accent:focus { border: 1px solid $accent_fg; }
 
+    /* The QUIET tier -- the bottom rung of the button ladder: #accent primary > plain default > quiet.
+       An action row of four equally-filled buttons has no entry point; the eye has to read all four to
+       find the verb. Quiet drops the FILL (not the text) so the row keeps one obvious start.
+
+       `color: $text`, NOT $muted: lines above already spend *transparent + muted* as the DISABLED idiom
+       (QToolButton:disabled), so a muted ghost would read as un-clickable. The hierarchy comes from the
+       missing fill.
+
+       :disabled and :pressed are NOT optional. `QPushButton[role="quiet"]` (0,0,1,1: type + attribute)
+       TIES the generic `QPushButton:disabled` (0,0,1,1: type + pseudo-class) on specificity, and this
+       block is declared LATER -- so source order hands it the win and a disabled quiet button would
+       render pixel-identical to an enabled one. The explicit `[role="quiet"]:disabled` (0,0,2,1) outranks
+       both. Same trap as #accent:disabled above. MEASURED, not reasoned: strip the :disabled rule and a
+       disabled quiet button resolves to $text (#e6e8eb in dark) -- byte-identical to enabled -- instead of
+       $muted (#a4acb5). It is live, not hypothetical: builddoc's `_busy()` disables `pack_btn` for the
+       duration of every build/deploy run, which is exactly when the user is watching that row. */
+    QPushButton[role="quiet"]          { background: transparent; border: 1px solid $border; color: $text; }
+    QPushButton[role="quiet"]:hover    { background: $hover; }
+    QPushButton[role="quiet"]:pressed  { background: $pressed; }
+    QPushButton[role="quiet"]:focus    { border: 1px solid $focus; }
+    QPushButton[role="quiet"]:disabled { color: $muted; background: $bg; border: 1px solid $border; }
+
     /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
        drawing the native checked dot, so without this the selected state renders INVISIBLE. */
     /* padding 3px lifts the clickable row to a >=24px target height (WCAG 2.5.8); the indicator itself is

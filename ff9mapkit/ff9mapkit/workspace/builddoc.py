@@ -104,14 +104,18 @@ class BuildDoc(QWidget):
         self.rev = QPushButton("Revert test deploy")
         self.rev.clicked.connect(self.on_revert)
         self.pack_btn = QPushButton("Package (zip)…")
+        self.pack_btn.setProperty("role", "quiet")     # the ladder's bottom rung -- see style.py
         self.pack_btn.setToolTip("Zip a BUILT mod folder into a shareable release — the last step of the "
                                  "funnel. Unzipping it next to FF9_Launcher.exe installs the mod.")
         self.pack_btn.clicked.connect(self.on_pack)
         btns.addWidget(self.chk)
         btns.addWidget(self.go)
         btns.addWidget(self.rev)
-        btns.addWidget(self.pack_btn)
+        # The stretch sits BETWEEN the build verbs and Package, not after all four -- it used to trail the
+        # row, which packed four equally-filled buttons flush left with no entry point. Package is a
+        # different job (ship a BUILT folder), so it belongs across the gap, quiet.
         btns.addStretch(1)
+        btns.addWidget(self.pack_btn)
         v.addLayout(btns)
         v.addStretch(1)
         scroll.setWidget(inner)
