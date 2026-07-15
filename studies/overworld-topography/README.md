@@ -542,8 +542,11 @@ when filled — scrub is a TRANSITION vocabulary, not a fill · **dirthill = usa
 reads as forest-canopy top, rim dip doesn't line up** (user: likely the Black-Mage-
 Village area brush; census slope med 30° — a SLOPE vocabulary, stock never shows it
 flat-at-scale) · **flats = ground reads good, but an INTERIOR type — doesn't blend with
-the coastline** (the borrowed desert rim lip). Encoded as `GROUNDS[..]["cls"]`
+the coastline** (the borrowed desert rim lip; the ground fill itself ★ verbatim-checked
+at (1242,−294) blk (19,4) — "checks out"). Encoded as `GROUNDS[..]["cls"]`
 island/transition/slope/interior + a CLI mint note + `test_ground_families_registry`.
+**ALL FIVE sampler islets are KEPT deployed** (user, 2026-07-15) — the row-19 reference
+exhibits for every family.
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, dirthill on carved slopes, flats as interior plains).
 
