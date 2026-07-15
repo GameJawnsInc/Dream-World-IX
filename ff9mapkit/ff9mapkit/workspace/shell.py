@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QTreeWidgetItemIterator, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
@@ -179,7 +180,17 @@ _LIST_DEFAULTS = {
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
 _DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
+_TINT = Qt.UserRole + 2                             # optional per-item icon tint hex (a field's _health colour)
 _LOGIC_KINDS = ("logic_root", "logic_entry", "logic_node")   # read-only logic-map nodes (not editable)
+
+# tree-node KIND -> its SVG icon (Phase 8; the same family as the breadcrumb/Home). Unmapped kinds
+# (group / note / undef_spatial / lazy placeholders) keep the reserved transparent slot. The four spine
+# kinds render in the accent colour (matching their accent text); the rest in subtle body text, except a
+# field, whose icon takes its _health tint (entry green / warn amber / error red) so status stays visible.
+_KIND_ICON = {"jset": "hub", "journey": "journey", "jcampaign": "campaign", "campaign": "campaign",
+              "jbare": "bare", "field": "field", "chocobo_root": "chocobo", "object": "object",
+              "logic_root": "script"}
+_ACCENT_KINDS = {"jset", "journey", "campaign", "jcampaign"}
 
 # Hover help per tree-node KIND -- so a glyph is never the ONLY cue to what a row is (the icons read alike).
 _KIND_HELP = {
@@ -445,9 +456,8 @@ class Workspace(QMainWindow):
         self._thumb_rerender.setSingleShot(True)
         self._thumb_rerender.setInterval(250)
         self._thumb_rerender.timeout.connect(lambda: self.map.rerender())
-        self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
-        self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
-        self._root_items = []                                 # so toggling the dot never resizes/shifts a row
+        self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon reserving the slot for
+        self._root_items = []                                 # kinds with no type icon (the dot rides the type icon)
         self._icon_retint = []                                # apply-callbacks re-tinting persistent SVG icons on a
         self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
@@ -504,7 +514,7 @@ class Workspace(QMainWindow):
         if app is not None:
             _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
         self.setStyleSheet(qss(pal, self._density))
-        self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
+        self._retint_tree_icons()                             # tree type icons (+ the unsaved dot) re-render for pal
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
         for _svd in (getattr(self, "story_state", None), getattr(self, "item_equip", None)):
@@ -1082,8 +1092,8 @@ class Workspace(QMainWindow):
         tv.addWidget(self.tree_filter)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setUniformRowHeights(True)        # the unsaved-dot icon must NOT change a row's height
-        self.tree.setIconSize(QSize(12, 12))        # ...so the tree doesn't jump when a dot appears/clears
+        self.tree.setUniformRowHeights(True)        # the type icon + unsaved dot must NOT change a row's height
+        self.tree.setIconSize(QSize(16, 16))        # room for the SVG type icons (was 12 for the dot-only slot)
         self.tree.itemSelectionChanged.connect(self._on_select)
         self.tree.itemExpanded.connect(self._on_expand)
         self.tree.itemDoubleClicked.connect(self._on_tree_double)   # double-click = open (Editor / Map)
@@ -1633,7 +1643,7 @@ class Workspace(QMainWindow):
         self._refresh_getstarted()                     # the provenance-clean first-steps (may hide _home_setup)
         self._refresh_recent()
 
-    _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
+    _RECENT_ICON = {"journey": "journey", "campaign": "campaign", "field": "field", "save": "save"}
 
     @staticmethod
     def _recent_display(entry):
@@ -1659,15 +1669,24 @@ class Workspace(QMainWindow):
         self._recent_head.setVisible(bool(rows))
         self._recent_box.setVisible(bool(rows))
         for e in rows:
-            glyph = self._RECENT_GLYPH.get(e["kind"], "●")
-            lab = QLabel(f'<span style="color:{self.pal["accent"]};">{glyph}</span>&nbsp; '
-                         f'<a href="open">{_esc(self._recent_display(e))}</a>'
+            row = QWidget()
+            row.setStyleSheet("background: transparent;")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(6)
+            ic = QLabel()                              # the ◆/▣/●/◈ glyph -> its SVG type icon (accent)
+            ic.setPixmap(icons.pixmap(self._RECENT_ICON.get(e["kind"], "field"), self.pal["accent"], 14))
+            ic.setFixedWidth(18)
+            ic.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            rl.addWidget(ic)
+            lab = QLabel(f'<a href="open">{_esc(self._recent_display(e))}</a>'
                          f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
                          f'{_esc(_snip(e["path"], 64))}</span>')
             lab.setTextFormat(Qt.TextFormat.RichText)
             lab.setToolTip(e["path"])
             lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
-            self._recent_lay.addWidget(lab)
+            rl.addWidget(lab, 1)
+            self._recent_lay.addWidget(row)
 
     def _open_recent(self, kind, path):
         """Reopen a recent project by kind; a vanished file prunes itself instead of erroring."""
@@ -1681,13 +1700,13 @@ class Workspace(QMainWindow):
         return open_(path)
 
     # ---- item helpers ----
-    @staticmethod
-    def _mk(kind, label, key="", glyph=""):
-        it = QTreeWidgetItem([f"{glyph} {label}".strip()])
+    def _mk(self, kind, label, key=""):
+        it = QTreeWidgetItem([label])              # the leading unicode glyph is now an SVG type icon (Phase 8)
         it.setData(0, _ROLE, (kind, label, key))
+        it.setIcon(0, self._type_icon(kind))       # kind -> its family icon (blank slot for unmapped kinds)
         help_ = _KIND_HELP.get(kind)
         if help_:
-            it.setToolTip(0, help_)                # hover names the TYPE -- the glyph isn't the only cue
+            it.setToolTip(0, help_)                # hover names the TYPE -- the icon isn't the only cue
         return it
 
     @staticmethod
@@ -1748,26 +1767,20 @@ class Workspace(QMainWindow):
         self.tree.clear()
         self._root_items = []
         self._member_items = {}
-        jset = self._mk("jset", self.journey_name, "@journeys", "⌂")   # the HUB glyph -- distinct from a journey's ◆
+        jset = self._mk("jset", self.journey_name, "@journeys")   # the HUB (accent icon -- distinct from a journey)
         jset.setForeground(0, QBrush(QColor(self.pal["accent"])))
-        jset.setIcon(0, self._blank_icon)
         self.tree.addTopLevelItem(jset)
         jset.setExpanded(True)
         self._root_items.append(jset)
         for j in self.manifest.journeys:
-            jn = self._mk("journey", j.name or j.id, f"@journey:{j.id}", "◆")
-            jn.setIcon(0, self._blank_icon)
+            jn = self._mk("journey", j.name or j.id, f"@journey:{j.id}")
             jset.addChild(jn)
             jn.setExpanded(True)
             if j.is_bare:                          # a single-field journey -> the hub warps straight to a field
-                leaf = self._mk("jbare", f"→ field {j.entry.field}", f"@bare:{j.id}", "•")
-                leaf.setIcon(0, self._blank_icon)
-                jn.addChild(leaf)
+                jn.addChild(self._mk("jbare", f"→ field {j.entry.field}", f"@bare:{j.id}"))
             else:
                 for folder in j.campaigns:
-                    cn = self._mk("jcampaign", folder, folder, "▣")
-                    cn.setIcon(0, self._blank_icon)
-                    jn.addChild(cn)
+                    jn.addChild(self._mk("jcampaign", folder, folder))
 
     def _mount_journey_overview(self, selected_jid=None):
         """Show the resolved journey plan (campaigns, entry ids, flag windows, cross-campaign links) in the
@@ -3018,7 +3031,7 @@ class Workspace(QMainWindow):
         self.tree.clear()
         self._member_items = {}
         self._root_items = []                      # loose mode: the member IS the top-level (it gets its own dot)
-        mi = self._mk("field", name, name, "•")
+        mi = self._mk("field", name, name)
         self.tree.addTopLevelItem(mi)
         self._member_items[name] = mi
         mi.addChild(self._mk("__lazy__", "loading…"))   # lazy object load on expand (same as a member)
@@ -3157,23 +3170,24 @@ class Workspace(QMainWindow):
         g = C.campaign_graph(self.plan)
         parent = self.tree
         if self.journey_name:
-            jr = self._mk("journey", self.journey_name, "@journey", "◆")
+            jr = self._mk("journey", self.journey_name, "@journey")
             jr.setForeground(0, QBrush(QColor(self.pal["accent"])))
             self.tree.addTopLevelItem(jr)
             jr.setExpanded(True)
             parent = jr
             self._root_items.append(jr)
-        camp = self._mk("campaign", self.plan.name, "@campaign", "▣")
+        camp = self._mk("campaign", self.plan.name, "@campaign")
         camp.setForeground(0, QBrush(QColor(self.pal["accent"])))
         (parent.addChild(camp) if isinstance(parent, QTreeWidgetItem) else self.tree.addTopLevelItem(camp))
         camp.setExpanded(True)
         self._root_items.append(camp)
         self._member_items = {}
         for node in g.nodes:
-            mi = self._mk("field", node.name, node.name, _badge(node))
-            col = _health(node, self.pal)
-            if col:
+            mi = self._mk("field", node.name, node.name)
+            col = _health(node, self.pal)             # the _badge glyph is gone; status now tints the field icon
+            if col:                                   # (entry green / warn amber / error red) -- text + icon
                 mi.setForeground(0, QBrush(QColor(col)))
+                mi.setData(0, _TINT, col)             # remembered so _refresh_dirty_marks keeps the tint + adds the dot
             camp.addChild(mi)
             self._member_items[node.name] = mi
             mi.addChild(self._mk("__lazy__", "loading…"))   # placeholder -> lazy object load on expand
@@ -3217,7 +3231,7 @@ class Workspace(QMainWindow):
         try:                                            # a Hot & Cold forest fork -> a high-level authoring node
             from ..content import chocobo as _choco     # ABOVE the raw routine list (hidden on every other field)
             if _choco.scan(eb) is not None:
-                cn = self._mk("chocobo_root", "🐤  Chocobo Hot & Cold — prizes & timer", "chocobo")
+                cn = self._mk("chocobo_root", "Chocobo Hot & Cold — prizes & timer", "chocobo")   # 🐤 -> the feather icon
                 cn.setData(0, _DETAIL, [
                     "Author the dig PRIZE POOL + the game TIMER for this forest.",
                     self._muted("35 prize slots + the timer, edited in place (a [chocobo] block) — the popup, the "
@@ -3359,19 +3373,59 @@ class Workspace(QMainWindow):
 
     @staticmethod
     def _make_dot_icon(color):
-        """A 12px QIcon: a filled circle in ``color`` (the unsaved dot), or a TRANSPARENT same-size icon
-        when ``color`` is None -- a non-null blank icon still reserves the row's icon slot, so swapping it
-        for the dot never resizes or horizontally shifts the row."""
-        pm = QPixmap(12, 12)                        # matches the tree iconSize so it isn't scaled/blurred
+        """A 16px QIcon: a filled circle in ``color``, or a TRANSPARENT same-size icon when ``color`` is None.
+        The transparent form (``_blank_icon``) reserves the row's icon slot for kinds with no type icon, so a
+        clean row and an iconed row line up. (Since Phase 8 the unsaved dot rides a type icon via
+        :func:`icons.with_corner_dot`; this stays the slot-reserver.)"""
+        pm = QPixmap(16, 16)                        # matches the tree iconSize so it isn't scaled/blurred
         pm.fill(QColor(0, 0, 0, 0))
         if color is not None:
             p = QPainter(pm)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(color))
-            p.drawEllipse(2, 2, 8, 8)
+            p.drawEllipse(3, 3, 10, 10)
             p.end()
         return QIcon(pm)
+
+    def _type_icon(self, kind, *, unsaved=False, tint=None):
+        """The tree-row icon for a node ``kind`` (Phase 8): its SVG type glyph tinted by ``tint`` (a field's
+        _health colour), else accent for the spine kinds, else subtle body text. Unmapped kinds keep the
+        reserved transparent slot. ``unsaved`` composites the amber corner dot (the old dot-in-the-slot)."""
+        name = _KIND_ICON.get(kind)
+        if not name:
+            return self._blank_icon
+        if tint:
+            color = tint
+        elif kind in _ACCENT_KINDS:
+            color = self.pal["accent"]
+        else:
+            color = self.pal.get("text_subtle", self.pal["text"])
+        pm = icons.pixmap(name, color, 16)
+        if unsaved:
+            pm = icons.with_corner_dot(pm, self.pal["warn"])
+        return QIcon(pm)
+
+    def _type_icon_for(self, item, *, unsaved=False):
+        """Build :meth:`_type_icon` for a tree ITEM, reading its kind + stored tint from the item data."""
+        pl = self._payload(item)
+        kind = pl[0] if pl else None
+        return self._type_icon(kind, unsaved=unsaved, tint=item.data(0, _TINT))
+
+    def _retint_tree_icons(self):
+        """Re-render every tree row's type icon under the current palette (a live theme switch). Member/root
+        rows (which carry the unsaved dot) go through :meth:`_refresh_dirty_marks`; the rest re-tint here."""
+        if getattr(self, "tree", None) is None:
+            return
+        skip = {id(x) for x in getattr(self, "_root_items", [])}
+        skip |= {id(x) for x in getattr(self, "_member_items", {}).values()}
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            if id(item) not in skip and self._payload(item):
+                item.setIcon(0, self._type_icon_for(item))
+            it += 1
+        self._refresh_dirty_marks()                    # member + root icons (compose the unsaved dot)
 
     def _refresh_dirty_marks(self):
         """Show the amber unsaved-dot icon on each member row with unsaved changes (committed or
@@ -3379,10 +3433,10 @@ class Workspace(QMainWindow):
         visible even when the member rows are collapsed or scrolled away."""
         unsaved = self._unsaved()
         for name, mi in getattr(self, "_member_items", {}).items():
-            mi.setIcon(0, self._dot_icon if name in unsaved else self._blank_icon)
+            mi.setIcon(0, self._type_icon_for(mi, unsaved=name in unsaved))   # type icon + (amber dot if unsaved)
         any_unsaved = bool(unsaved)
         for root in getattr(self, "_root_items", []):
-            root.setIcon(0, self._dot_icon if any_unsaved else self._blank_icon)
+            root.setIcon(0, self._type_icon_for(root, unsaved=any_unsaved))   # roots roll up the dot
         self.setWindowTitle("Dream World IX — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
         self._refresh_spine()                          # dirty state feeds the cohesion spine's next action
@@ -5707,6 +5761,24 @@ class Workspace(QMainWindow):
                       lambda: self._delete_object(member, section, single=True, label=section))
         self._add_save(self._save, delete)
 
+    def _placed_note(self, text):
+        """A muted 'placed in Blender' note: a pin icon (was the 📍 emoji) + a wrapped muted label."""
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(6)
+        ic = QLabel()
+        ic.setPixmap(icons.pixmap("pin", self.pal["muted"], 14))
+        ic.setFixedWidth(18)
+        ic.setAlignment(Qt.AlignmentFlag.AlignTop)
+        rl.addWidget(ic)
+        lab = QLabel(text)
+        lab.setWordWrap(True)
+        lab.setProperty("role", "muted")
+        rl.addWidget(lab, 1)
+        return row
+
     def _scene_pos_banner(self, member, section, entity, *, single):
         """When an NPC/marker/gateway/event is placed in BLENDER, its position/zone lives in the scene.toml
         (the build overlays it, scene wins) -- so the field-only form would show a blank Position even though
@@ -5716,12 +5788,9 @@ class Workspace(QMainWindow):
             sp = self._scene_positions(member).get(("player", None)) or {}
             owned = [k for k in ("spawn", "face", "arrival") if k in sp]
             if owned:
-                note = QLabel(f"📍 Placed in Blender — {', '.join(owned)} come(s) from the scene.toml (scene "
-                              f"wins per key; edit in Blender / F5 to refresh). Keys the scene doesn't set "
-                              f"still apply from this form.")
-                note.setWordWrap(True)
-                note.setProperty("role", "muted")
-                self.doc_host_lay.addWidget(note)
+                self.doc_host_lay.addWidget(self._placed_note(
+                    f"Placed in Blender — {', '.join(owned)} come(s) from the scene.toml (scene wins per key; "
+                    f"edit in Blender / F5 to refresh). Keys the scene doesn't set still apply from this form."))
             return
         if single or section not in ("npc", "marker", "gateway", "event"):
             return
@@ -5729,13 +5798,10 @@ class Workspace(QMainWindow):
         if spatial is None:
             return
         fld = "zone" if section in ("gateway", "event") else "position"
-        msg = f"📍 Placed in Blender — {fld} {spatial} comes from the scene.toml (edit it there; F5 to refresh)."
+        msg = f"Placed in Blender — {fld} {spatial} comes from the scene.toml (edit it there; F5 to refresh)."
         if entity.get("zone" if section in ("gateway", "event") else "pos"):
             msg += f" This OVERRIDES the {fld} field below (scene wins)."
-        note = QLabel(msg)
-        note.setWordWrap(True)
-        note.setProperty("role", "muted")
-        self.doc_host_lay.addWidget(note)
+        self.doc_host_lay.addWidget(self._placed_note(msg))
 
     def _add_save(self, handler, delete=None):
         self._active_save = handler                            # Ctrl-S saves the mounted form
@@ -7637,14 +7703,18 @@ def _smoke(win):
     win.tree.setCurrentItem(ent_item)                                   # select the NPC, then press Delete
     win._delete_selected()
     assert len(win._doc("IC_ENT").data.get("npc", [])) == before_del - 1, "the Delete key removed the NPC"
-    # EDITING POLISH -- (1) unsaved-dot icon: touching a member dots its tree row; saving clears it. Clean
-    # rows carry a TRANSPARENT same-size icon (not a null one) so the dot never resizes/shifts the row.
-    is_dot = lambda it: it.icon(0).cacheKey() == win._dot_icon.cacheKey()        # noqa: E731
+    # EDITING POLISH -- (1) unsaved dot: touching a member composites the amber corner dot onto its type
+    # icon; saving clears it back to the plain type icon. (Since Phase 8 the dot rides the SVG type icon,
+    # so 'dotted' = the row's icon differs from the freshly-built clean type icon for that same row.)
+    def is_dot(it):
+        cur = it.icon(0).pixmap(QSize(16, 16)).toImage()
+        clean = win._type_icon_for(it, unsaved=False).pixmap(QSize(16, 16)).toImage()
+        return cur != clean
     win._mark_clean("IC_ENT")                          # known-clean baseline
     mi_ic = win._member_items["IC_ENT"]
-    assert not mi_ic.icon(0).isNull() and not is_dot(mi_ic), "a clean member reserves the slot (blank icon)"
+    assert not mi_ic.icon(0).isNull() and not is_dot(mi_ic), "a clean member shows its plain type icon"
     win._touch("IC_ENT")
-    assert is_dot(mi_ic), "an edited member shows the unsaved-dot icon"
+    assert is_dot(mi_ic), "an edited member composites the unsaved dot onto its type icon"
     # roll-up: the campaign root + the window title also reflect unsaved work (visible when collapsed)
     assert win._root_items and is_dot(win._root_items[0]), "the campaign root rolls up the dot"
     assert win.windowTitle().endswith("•"), "the window title marks unsaved work"
@@ -7880,8 +7950,8 @@ def _smoke(win):
     assert any(win._payload(cor_grp2.child(i))[2] == "npc:Sentinel"
                for i in range(cor_grp2.childCount())), "Refresh surfaced the re-exported NPC"
     win._mark_clean("IC_COR")
-    # the unsaved-dot icon must not resize tree rows (uniform height + small icon -> no jump on save)
-    assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(12, 12)
+    # the type icon + unsaved dot must not resize tree rows (uniform height + fixed 16px icon slot)
+    assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(16, 16)
     # (b) the Editor tab reflects what's open; placeholder resets it
     et = lambda: win.tabs.tabText(win.tabs.indexOf(win.doc_scroll))
     win._open_editor("IC_ENT", "field", "field")
@@ -8803,9 +8873,12 @@ def _smoke(win):
     _picker = {f.get("name") for f in win._flag_pick_context().flags}
     assert "camp_flag" in _picker and "met_quina" in _picker, _picker   # campaign-shared AND journey-global both show
     win.plan = _saved_plan
-    # ITERATION 2 (playtest feedback): the hub/journey/campaign rows must read DISTINCTLY -- the hub glyph (⌂)
-    # differs from a journey's (◆), and every row carries a TYPE tooltip (the glyph isn't the only cue).
-    assert jroot.text(0).startswith("⌂") and jnode.text(0).startswith("◆"), (jroot.text(0), jnode.text(0))
+    # ITERATION 2 + Phase 8: the hub/journey/campaign rows must read DISTINCTLY -- now via distinct SVG TYPE
+    # ICONS (the unicode glyph prefix is gone; the icon isn't the only cue -- every row also has a TYPE tooltip).
+    assert not jroot.text(0).startswith("⌂") and jroot.text(0).strip(), jroot.text(0)  # no unicode glyph in the text
+    assert not jroot.icon(0).isNull() and not jnode.icon(0).isNull(), "hub + journey rows carry type icons"
+    assert (jroot.icon(0).pixmap(QSize(16, 16)).toImage()
+            != jnode.icon(0).pixmap(QSize(16, 16)).toImage()), "the hub + journey type icons are distinct"
     assert "Hub" in jroot.toolTip(0) and "Journey" in jnode.toolTip(0) and "Campaign" in cnode.toolTip(0)
     # the CHIP names the SELECTED row's type (not just the open document), and the breadcrumb deepens to it
     win.tree.setCurrentItem(jroot)
@@ -9092,7 +9165,7 @@ def _smoke(win):
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
-          f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
+          f"per-tab (content/battle/save/build) + distinct hub/journey SVG type icons + type tooltips + Close-to-empty + "
           f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing' + "
           f"provenance-clean Get-started checklist -> fork your own field) + "
           f"loose-field→parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "

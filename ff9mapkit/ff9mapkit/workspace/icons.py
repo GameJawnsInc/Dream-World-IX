@@ -61,6 +61,9 @@ _ICONS: dict[str, str] = {
     "battle": '<path d="M12 3l7 3v5c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6l7-3z"/>',
     # object — a generic thing inside a field (NPC / gateway / marker): a neutral rounded node.
     "object": '<rect x="5" y="5" width="14" height="14" rx="3.5"/>',
+    # script — the verbatim .eb logic subtree: a lined document.
+    "script": '<rect x="5" y="3" width="14" height="18" rx="2"/>'
+              '<path d="M9 8h6M9 12h6M9 16h3"/>',
     # ---- extra domain glyphs ----
     # chocobo — the Hot & Cold minigame (was a color emoji): a feather.
     "chocobo": '<path d="M20 4C11 4 6 9 6 15v3l-2 2"/><path d="M16 8L4 20"/><path d="M17 15H9"/>',
