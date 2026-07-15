@@ -22,10 +22,10 @@ def app():
 
 
 def test_role_factories_stamp_role_and_accessible_name(app):
-    h1 = widgets.heading("Camera", level=1)
-    assert h1.property("role") == "h1" and h1.accessibleName() == "Camera"
-    assert widgets.heading("X", level=0).property("role") == "display"
-    assert widgets.heading("X", level=2).property("role") == "h2"
+    # heading()/role="h1"/role="display" are RETIRED -- zero call sites for three rounds, kept alive only
+    # by this test. role="name" (widgets.nameplate) is the top rung now and it has real callers.
+    lab = widgets.role_label("Camera", "h2")
+    assert lab.property("role") == "h2" and lab.accessibleName() == "Camera"
     assert widgets.caption("hint").property("role") == "caption"
     assert widgets.card().property("role") == "card"
 

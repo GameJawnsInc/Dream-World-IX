@@ -67,6 +67,14 @@ class BuildDoc(QWidget):
         v = QVBoxLayout(inner)
         widgets.page_margins(v)                         # the page rung (was a hand-typed 16)
         v.setSpacing(widgets.SECTION_GAP)               # the rhythm between the raised panels (was 12)
+        # THE CROWN, and the answer to the study's OQ#2 ("what is under the lamp on Build & Deploy?").
+        # Nothing was: this screen opened straight into "Project file:" with no title at all, six cards
+        # deep, and its card titles are 11px overlines -- SMALLER than the 13px body they label. The
+        # screen was not flat, it was typographically inverted. The lamp had been aimed at an empty room.
+        crown, _ = widgets.nameplate("", "Build & Deploy",
+                                     "Turn a project file into a playable mod folder — check it, build "
+                                     "it, put it in the game.")
+        v.addWidget(crown)
         row = QHBoxLayout()
         row.addWidget(QLabel("Project file:"))
         self.path = QLineEdit()

@@ -6,11 +6,11 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
-    QListWidget, QPushButton, QToolButton, QVBoxLayout, QWidget,
+    QListWidget, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
 from . import anim, style
@@ -109,14 +109,88 @@ def role_label(text="", role="body", *, parent=None):
     return lab
 
 
-def heading(text, level=1, *, parent=None):
-    """A titled label -- level 0 = display, 1 = h1, 2 = h2."""
-    return role_label(text, "display" if level == 0 else f"h{level}", parent=parent)
-
-
 def caption(text="", *, parent=None):
     """A small muted caption label (the 11px type role)."""
     return role_label(text, "caption", parent=parent)
+
+
+class NameLabel(QLabel):
+    """The screen's subject, at display size, elided to fit instead of forcing a horizontal scroll.
+
+    A 26px name of an arbitrary user string (a field id, a campaign title, a save path) can be far wider
+    than the pane. Qt's default is to demand its full width, so the pane grows a horizontal scrollbar and
+    the whole doc gets wider than the window.
+
+    THE TRAP, and why the sizeHint is deliberately NOT the elided text: eliding inside ``resizeEvent`` is
+    a classic infinite relayout -- shorten the text, the hint shrinks, the layout re-runs, the widget
+    resizes, elide again. It is avoided here by PINNING ``sizeHint`` to the FULL string and never letting
+    it move. The layout's question ("how much do you want?") always gets the same answer, so eliding can
+    never trigger a relayout. ``minimumSizeHint`` returns the width of a single ellipsis, so the widget
+    yields all the way down rather than pushing a scrollbar.
+
+    ``QLabel::paintEvent`` is kept on purpose -- no custom paint. The full text must survive in
+    ``accessibleName`` and the tooltip, which a QPainter-drawn string cannot do.
+    """
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self._full = text
+        self.setProperty("role", "name")
+        self.setText(text)
+        self.setAccessibleName(text)
+        self.setToolTip(text)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+
+    def setFullText(self, text: str) -> None:
+        self._full = text
+        self.setAccessibleName(text)
+        self.setToolTip(text)
+        self._relayout_free_elide()
+        self.updateGeometry()
+
+    def sizeHint(self):                       # PINNED to the full string -- see the class docstring
+        fm = self.fontMetrics()
+        return QSize(int(fm.horizontalAdvance(self._full)) + 2, fm.height())
+
+    def minimumSizeHint(self):                # yield to the pane; never push a horizontal scrollbar
+        fm = self.fontMetrics()
+        return QSize(int(fm.horizontalAdvance("…")) + 2, fm.height())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._relayout_free_elide()
+
+    def _relayout_free_elide(self):
+        fm = self.fontMetrics()
+        w = max(0, self.width() - 2)
+        super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, w) if w else self._full)
+
+
+def nameplate(kicker: str, name: str, note: str = "", *, parent=None):
+    """A screen's crown: a quiet KICKER, the subject's NAME at display size, and an optional note.
+
+    The app already computed both halves of this and posted each to the wrong address -- the SUBJECT went
+    to a 24-char-truncated tab label while the BREADCRUMB was stamped as the panel's header. The kicker is
+    the breadcrumb's job (where you are); the name is the tab's (what this is).
+
+    Returns ``(widget, name_label)`` so a caller can re-point the name later without rebuilding the row.
+    """
+    host = QWidget(parent)
+    v = QVBoxLayout(host)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(2)
+    if kicker:
+        v.addWidget(role_label(kicker, "overline"))
+    lab = NameLabel(name, host)
+    v.addWidget(lab)
+    if note:
+        v.addWidget(prose(note))
+    rule = QFrame(host)
+    rule.setFrameShape(QFrame.Shape.HLine)
+    rule.setFixedHeight(1)
+    v.addSpacing(style.space("space_1"))
+    v.addWidget(rule)
+    return host, lab
 
 
 def card(*, parent=None):

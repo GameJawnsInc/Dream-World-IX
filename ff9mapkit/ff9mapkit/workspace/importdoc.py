@@ -56,11 +56,13 @@ class ImportDoc(QWidget):
         root = QVBoxLayout(inner)
         widgets.page_margins(root)                      # the page rung (was a hand-typed 16)
         root.setSpacing(widgets.SECTION_GAP)            # the rhythm between the raised panels (was 12)
-        intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). The usual start is to "
-                       "fork a single real field — everything else lives under “More ways to import”.")
-        intro.setWordWrap(True)
-        intro.setProperty("role", "caption")
-        root.addWidget(intro)
+        # The crown. The intro was already here and already correct -- it just had nothing above it, so
+        # the screen's most prominent object was whatever card happened to be first.
+        crown, _ = widgets.nameplate(
+            "", "Import",
+            "Bring content in from your real FF9 install (needs UnityPy). The usual start is to fork a "
+            "single real field — everything else lives under “More ways to import”.")
+        root.addWidget(crown)
         # Phase 6: FOREGROUND the simple-fork path; tuck the four other jobs (region / catalog+archive /
         # repaint / models / read) behind a disclosure, so the default Import view is one clear task.
         root.addWidget(self._fork_box())

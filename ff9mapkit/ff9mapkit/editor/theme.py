@@ -329,7 +329,24 @@ def pick_palette(mode: str = "auto") -> dict:
 # rgba) so the hex/parity guarantees still hold; QSS composites solid fills over the surface anyway, so a
 # pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
 _DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info",
-                 "success_text", "warn_text", "error_text")
+                 "success_text", "warn_text", "error_text",
+                 "border_lit", "border_shade", "accent_lit", "accent_shade")
+
+# INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
+# the whole direction, isolated to one number on purpose -- and settled by RENDERING it at 6x, because no
+# contrast ratio can tell "materially lit" from "Windows 95", and at 1x a 1px edge is invisible to review.
+#
+# The trade, measured across all 8:
+#   t=0.18 -> carrier d33-d43, NON-carrier d8-d17. FIVE palettes (nord 17, mist 17, dracula 16,
+#             solarized-dark 16, gruvbox 14) show a lit top AND a foot. Two edges on a raised rectangle
+#             is a bevel, and a bevel is Win95.
+#   t=0.14 -> carrier d26-d34, NON-carrier d6-d13. NO palette exceeds d13. One edge carries everywhere.
+#
+# 0.14, because the carrier is what does the work and it is still 3-4x stronger than the FILL differences
+# it replaces (d3-d8 -- and d0 in LIGHT, where surface_btn IS surface). Giving up d7 of carrier to keep
+# every non-carrier under d13 is the cheapest trade in the direction. The non-carrier ceiling is fenced
+# (test_the_edge_never_becomes_a_bevel) so the taste call cannot silently decay into Win95 later.
+EDGE_T = 0.14
 
 
 def _mix(a: str, b: str, t: float) -> str:
@@ -417,6 +434,24 @@ def derive(pal: dict) -> dict:
     _grounds = (pal["bg"], pal["surface"], out["surface_2"])   # every ground a status line lands on
     for _k in ("success", "warn", "error"):
         out[f"{_k}_text"] = _text_token(pal[_k], _grounds, dark)
+    # INTAGLIO -- one light, from above. The app's whole elevation ladder claims a light source ("higher =
+    # lighter") and never draws the light, so an object's fill cannot say it is an object: LIGHT's
+    # surface_btn IS surface (contrast 1.0000, the same hex); solarized-dark's field IS surface; mist's
+    # button-in-a-card is 1.0017; nord/gruvbox 1.024/1.025. In 6 of 8 palettes the only thing saying "this
+    # is a button" is a 1px border. These four tokens give every object a lit top and a shaded foot.
+    #
+    # ANCHORED ON $border, NOT ON THE FILL, and that is the whole trick. Fill-anchored, LIGHT gets d5 on a
+    # card -- a no-op in the two palettes that need it most, because light's surface_3 is #ffffff and its
+    # rungs step 1.043/1.046. Border-anchored the carrier delta is d33-d43 in EVERY palette, no exceptions.
+    #
+    # And it needs no `if dark:`, because $border is this app's one already-mode-aware token: measured, it
+    # sits ABOVE its fill in all 6 dark palettes and BELOW it in both light ones, 8/8 without exception. So
+    # every rule emits BOTH edges and each palette's own border eats the one it cannot hold -- in LIGHT the
+    # lit edge lands at d8 (invisible) and the FOOT carries at d40; in dark the lit top carries at d33-d43.
+    # Fenced by test_editor_theme.py::test_the_edge_tokens_carry_in_every_palette.
+    for _k, _src in (("border", pal["border"]), ("accent", pal["accent"])):
+        out[f"{_k}_lit"] = _mix(_src, "#ffffff", EDGE_T)
+        out[f"{_k}_shade"] = _mix(_src, "#000000", EDGE_T)
     return out
 
 

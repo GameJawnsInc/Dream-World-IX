@@ -72,10 +72,12 @@ class CoopDoc(QWidget):
         # separates bounded objects rather than carrying the grouping alone. The value is unchanged.
         v.setSpacing(widgets.SECTION_GAP)
 
-        intro = widgets.prose("Two-player co-op: you and a friend each see the other's ghost walk a "
-                              "shared field, and — if you grant it in Play style below — they command "
-                              "party members in your battles. Every save stays your own.")
-        v.addWidget(intro)
+        crown, _ = widgets.nameplate(
+            "", "Co-op",
+            "Two-player co-op: you and a friend each see the other's ghost walk a shared field, and — if "
+            "you grant it in Play style below — they command party members in your battles. Every save "
+            "stays your own.")
+        v.addWidget(crown)
 
         st = widgets.section("Status")
         sv = st.content_layout
