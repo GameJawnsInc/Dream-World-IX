@@ -87,7 +87,38 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > spacing rhythm, a type hierarchy (display/h1/h2/h3/strong/label/caption/overline), the **elevation ladder**
 > (raised group panels), receded captions so controls stand out, and a fixed latent theme-switch-staleness bug.
 > Verified: **full suite 2836 passed / 230 skipped**, smoke green, before/after + live-retheme screenshots
-> across every doc. Next: **Phase 3 (De-smush B)** — grouped Inspector, teaching empty-states, density toggle.
+> across every doc.
+
+> **★ Phase 3 (De-smush B — surfaces) COMPLETE** (2026-07-14, 4 commits, one per sub-deliverable). The
+> composite surfaces the sweep didn't restructure, finished:
+> - **Grouped Inspector card** (`16a8408`) — the field card reads as three labelled sections (**Identity** /
+>   **Contents** / **Connections**) instead of a flat run. `_inspect_field` returns ordered `(header, lines)`
+>   groups; a new `_render_sections` labels them with a muted overline only when ≥2 carry content, so a short
+>   entity card (NPC/marker) stays clean. Headers are inline HTML (the panel is one rich-text QLabel) but read
+>   `self.pal` → re-tint on retheme like `_muted`/`_link`. Dropped the now-redundant "contents:" lead-in.
+> - **Teaching empty-states** (`5c50d4e`) — a reusable `widgets.empty_state(glyph, purpose, teach, actions)`
+>   (glyph + one-line purpose + teaching sentence + accented primary action(s); falsy actions gate off). New
+>   roles `empty_glyph`/`empty_title`. Applied to the void surfaces: **Battle** (`_placeholder` → teaches +
+>   Fork/Open actions), **Map** (blank canvas → centered "No campaign open" card, drawn on construct/clear/
+>   resize), **Story State / Item & Equip** (empty slot list → teaching `PlaceholderListWidget`; the black
+>   Inspect/Diff voids → placeholder hints). BONUS latent-bug fix: the custom-painted `CampaignMap` was never
+>   re-tinted on a live theme switch (QSS can't reach a QGraphicsScene) → added `CampaignMap.retheme()` +
+>   wired it (and the save-doc placeholder colours) into `shell.retheme`.
+> - **Comfortable/Compact density toggle** (`04cbe26`) — two QSS density profiles (`style._DENSITY`)
+>   parameterize the control paddings the template hard-coded (toolbar/buttons/inputs/rows/tabs/group boxes/
+>   menus); `qss(pal, density)` picks one. Comfortable (default) = the proven layout + one "more whitespace"
+>   nudge (roomier tree rows 6px 8px), toolbar padding held so it still FITS at 1280px; Compact = tighter
+>   throughout (visibly fits more tabs + the gear). Persisted (`prefs.density()`, garbage-tolerant), surfaced
+>   as a live-preview Preferences combo (reverts on Cancel) + a Ctrl-K "Toggle density" command.
+> - **Real drop-shadow on the floating Ctrl-K palette** (`41e9b78`) — reusable `widgets.attach_shadow()`
+>   (QGraphicsDropShadowEffect on a rounded card inside a transparent, margined host — no corner-bleed). The
+>   palette became a Spotlight-style frameless + translucent overlay with an elevated `#paletteCard`. Native
+>   menus/dialogs left alone (they get an OS shadow on Windows).
+>
+> Verified: **full suite 2842 passed / 230 skipped** (+6 new tests), smoke green (incl. a live density-toggle
+> round-trip), dark+light screenshots of the Inspector, all four empty states, Comfortable vs Compact, and the
+> palette. Next: **Phase 4/5 (additive learnability)** — sample gallery + teaching empty-state deepening,
+> concept cards, plain-language errors (parallelizable; no reorg dependency).
 
 
 ## 1. North-star vision
