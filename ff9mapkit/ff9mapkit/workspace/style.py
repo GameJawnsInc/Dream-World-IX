@@ -244,6 +244,15 @@ _QSS = Template(
     QToolButton#railSeg:checked { color: $text; background: $surface_3; border: 1px solid $border; }
     QToolButton#railSeg:focus   { border: 1px solid $focus; }
 
+    /* progressive-disclosure toggle (widgets.disclosure): a flat, left-aligned 'advanced' section header */
+    QToolButton#disclosureToggle {
+        background: transparent; border: none; color: $muted; font-weight: 600;
+        padding: 6px 2px; text-align: left;
+    }
+    QToolButton#disclosureToggle:hover   { color: $text; }
+    QToolButton#disclosureToggle:checked { color: $text; }
+    QToolButton#disclosureToggle:focus   { color: $text; }
+
     /* the "?" concept badge next to a jargon form label -- a small circular help affordance */
     QToolButton#conceptBadge {
         background: transparent; color: $muted; border: 1px solid $border; border-radius: 9px;

@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from . import widgets
+
 
 class ImportDoc(QWidget):
     """Fork-from-game + read/inspect, as a Workspace document. ``run`` = ``shell.run_job`` (streams a CLI
@@ -54,18 +56,19 @@ class ImportDoc(QWidget):
         root = QVBoxLayout(inner)
         root.setContentsMargins(16, 16, 16, 16)        # 4pt-grid page padding
         root.setSpacing(12)                             # 4pt-grid rhythm between the raised panels
-        intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). Fork a single real field, "
-                       "fork a whole connected REGION as one campaign, preview how faithfully it forks, or read "
-                       "its dialogue / inspect a save.")
+        intro = QLabel("Bring content in from your real FF9 install (needs UnityPy). The usual start is to "
+                       "fork a single real field — everything else lives under “More ways to import”.")
         intro.setWordWrap(True)
         intro.setProperty("role", "caption")
         root.addWidget(intro)
+        # Phase 6: FOREGROUND the simple-fork path; tuck the four other jobs (region / catalog+archive /
+        # repaint / models / read) behind a disclosure, so the default Import view is one clear task.
         root.addWidget(self._fork_box())
-        root.addWidget(self._region_box())
-        root.addWidget(self._archive_box())
-        root.addWidget(self._repaint_box())
-        root.addWidget(self._models_box())
-        root.addWidget(self._read_box())
+        more = widgets.disclosure("More ways to import — region · catalog · repaint · models · read")
+        for _boxfn in (self._region_box, self._archive_box, self._repaint_box, self._models_box, self._read_box):
+            more.content_layout.addWidget(_boxfn())
+        self._more_import = more                        # kept so the smoke can assert it's collapsed by default
+        root.addWidget(more)
         root.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)

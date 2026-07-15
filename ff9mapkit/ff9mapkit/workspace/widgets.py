@@ -10,7 +10,7 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
-    QListWidget, QPushButton, QVBoxLayout, QWidget,
+    QListWidget, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
 
@@ -163,6 +163,39 @@ def attach_shadow(widget, *, blur=32, dy=8, alpha=110):
     eff.setColor(QColor(0, 0, 0, alpha))
     widget.setGraphicsEffect(eff)
     return widget
+
+
+def disclosure(title, *, expanded=False, parent=None):
+    """A collapsible 'advanced' section (progressive disclosure): a flat toggle header (▸/▾ + ``title``) over
+    a hidden-by-default content area. The caller fills ``box.content_layout``; ``box.toggle_button`` is the
+    header. Reusable for the Import secondary jobs + the Build advanced drawer -- keeps the routine path front
+    and centre while the power-user controls stay one click away."""
+    box = QWidget(parent)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(0)
+    btn = QToolButton()
+    btn.setObjectName("disclosureToggle")
+    btn.setCheckable(True)
+    btn.setChecked(expanded)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setText(("▾  " if expanded else "▸  ") + title)
+    btn.setAccessibleName(title)
+    body = QWidget()
+    body_lay = QVBoxLayout(body)
+    body_lay.setContentsMargins(2, 6, 0, 0)
+    body_lay.setSpacing(8)
+    body.setVisible(expanded)
+
+    def _toggle(on):
+        body.setVisible(on)
+        btn.setText(("▾  " if on else "▸  ") + title)
+    btn.toggled.connect(_toggle)
+    v.addWidget(btn)
+    v.addWidget(body)
+    box.content_layout = body_lay
+    box.toggle_button = btn
+    return box
 
 
 def repolish(widget):

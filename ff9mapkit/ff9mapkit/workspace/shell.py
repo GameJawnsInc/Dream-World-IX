@@ -8208,6 +8208,9 @@ def _smoke(win):
     bd.on_revert_newgame()                                       # revert branch: no-op (no retarget) or captured
 
     imp = win.import_field
+    # Phase 6: the Import tab FOREGROUNDS the simple-fork path; the four other jobs (region/catalog/repaint/
+    # models/read) sit behind a collapsed disclosure by default (they still work while hidden -- exercised below).
+    assert not imp._more_import.toggle_button.isChecked(), "the 'More ways to import' drawer is collapsed by default"
     icap = []
     imp._run = lambda argv, **kw: (icap.append(list(map(str, argv))) or True)
     imp.field.setText("100")
