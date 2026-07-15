@@ -1,4 +1,4 @@
-# The BATTLE DIORAMA (B3) — build spec skeleton (2026-07-15, source-grounded recon)
+# The BATTLE DIORAMA (B3) — build spec (2026-07-15; recon PASS 1 complete + adversarially verified)
 
 > The last rung of the authoritative-host roadmap: **the guest SEES the host's fight** — a live,
 > full-3D rendering of the host's battle on the guest's machine, driven entirely by the wire.
@@ -9,64 +9,256 @@
 > (damage, HP, death) is the HOST's result arriving on the wire. The unseeded-RNG re-simulation
 > dead-end is documented and closed — do not reopen it.
 
+## THE HEADLINE FINDING — `isDebug` is a trap, not a tool
+
+The skeleton assumed `FF9StateSystem.Battle.isDebug` was the diorama's "render-only" switch. **It is not.**
+
+1. **It is a DEAD flag.** Nothing in the entire Memoria tree ever sets it true. Only two writers
+   exist, both `= false`: `BattleStateSystem.cs:52` (Init) and `HonoluluFieldMain.cs:238`. It cannot
+   arrive from Unity scene data either — `BattleStateSystem` is `AddComponent`'d at runtime
+   (`FF9StateSystem.cs:46-47`) and its `Awake()` calls `Init()`. **The diorama must set it itself**,
+   and re-assert it after any field encounter (`HonoluluFieldMain.cs:238` clears it on encounter start).
+2. **It gates the INPUT half of the sim, not the OUTPUT half.** `battle.BattleMain()` is called
+   UNCONDITIONALLY at `HonoluluBattleMain.cs:678`; the `if (!isDebug)` gate at :679 opens *after* it.
+3. **Therefore a stock `BattleMapDebug` boot silently writes the guest's real save.**
+   `ManageBattleEnd → btl_sys.SavePlayerData` (`btl_sys.cs:260-275`) has no isDebug gate and writes
+   `PLAYER.cur` hp/mp/at/capa, trance, status, and serial_no — the guest's **real party**.
+4. **And it never stops.** `IsOver` (the `ATTR.EXITBATTLE` bit) is set at exactly one site,
+   `HonoluluBattleMain.cs:690`, *inside* `if (!isDebug)`. With isDebug on, the battle never ends,
+   `UpdateBattleFrame` keeps running, and **`SavePlayerData` re-fires every frame**.
+
+> **THE CONTAINMENT LAW:** `isDebug` buys the input half for free and is worth setting — but the
+> diorama's save-safety comes from an explicit **suppression set** (below), never from `isDebug`.
+> Containment is rung ZERO; nothing renders until the guest's save is provably untouchable.
+
 ## What is already proven / on the wire (don't rebuild)
 
 | Piece | Where | Status |
 |---|---|---|
-| Battle boot by scene id | `BattleUI.cs:144-171`: set `FF9StateSystem.Battle.battleMapIndex` + `patternIndex`, then `SceneDirector.Replace("BattleMapDebug", FadeOutToBlack_FadeIn, true)` | stock debug path, in-game reachable |
-| Enemy AI suppression | `HonoluluBattleMain.cs:529`: `FF9StateSystem.Battle.isDebug` true → the `RequestAction(EnemyAtk…)` branch never runs — enemies stand idle | stock |
-| Party actor spawn | `HonoluluBattleMain.CreateBattleData:236-259` → `BattlePlayerCharacter.CreatePlayer(btl, PLAYER)` builds a full battle actor from a PLAYER | stock |
-| The party's wire data | **state section 1** (NetSyncParty): charId/serial/level/row/hp/mp/equip×5/name per slot — designed as this exact input | ★ two-machine proven (rung 2) |
-| Live battle truth | **B0 type-1 frames** (`NetSyncBattle.BattleView`): Seq, MapNo, GuestSlots + per-unit Index/IsPlayer/Alive/Ready/InTrance/HP/MP/ATB/Name, ~150 ms cadence | ★ two-machine proven |
-| Guest commands | **B1 type-2 FIFO** command frames + the digit-menu UI | ★ two-machine proven |
-| Battle presence signal | `NetSyncBattle.PeerBattleLive` (type-1 freshness) | ★ proven (drives the panel today) |
+| The scene's true composition | **`BattleMapDebug` == `BattleMap` − SwirlScene + one `BattleUI` MonoBehaviour.** Resolved at the ASSET level: `mainData` BuildSettings idx 9 = BattleMapDebug (`level8`), idx 21 = BattleMap (`level20`), idx 5 = SwirlScene (`level4`); hierarchies + component sets identical (`Battle Main` carries `HonoluluBattleMain`) | ★ asset-proven — closes the skeleton's one open premise |
+| Battle boot by scene id | `BattleUI.cs:144-171`: set `battleMapIndex` + `patternIndex`, then `SceneDirector.Replace("BattleMapDebug", …)` | stock debug path |
+| Enemy AI suppression | Dead at FOUR layers under isDebug: `HonoluluBattleMain.cs:191` (EVT_BATTLE never loaded), `battle.cs:73/178` (ServiceEvents never ticked), `:529` (RequestAction gated), `SBattleCalculator.cs:311` (dying/counter/reaction gated) | stock, free |
+| ATB / ready / menu suppression | `HonoluluBattleMain.cs:679` wraps `YMenu_ManagerActiveTime()`, the only caller of `ProcessActiveTime` | stock, free |
+| Local HP application suppression | `btl_para.cs:145` — damage renders via `fig.hp` but never lands. Exactly the wire-authoritative model | stock, free |
+| The party's wire data | **state section 1** (NetSyncParty) — but its field set is INCOMPLETE, see B3.2 | ★ proven (rung 2), needs extension |
+| Live battle truth | **B0 type-1 frames** (`NetSyncBattle.BattleView`), ~150 ms cadence | ★ two-machine proven |
+| Guest commands | **B1 type-2 FIFO** + the digit-menu UI | ★ two-machine proven |
+| Battle presence signal | `NetSyncBattle.PeerBattleLive` | ★ proven |
+| HonoBehavior teardown law | **DOES NOT APPLY.** No battle-side object is a HonoBehavior (12 subclasses, all field/world/ending/movie; closed under transitivity; `grep HonoBehavior` over the battle tree is EMPTY). Stock raw-`Destroy`s battle actors | ★ verified — no ceremony needed |
 
-## What the wire is MISSING (the B3 additions — wire v8)
+## THE SUPPRESSION SET (rung 0 — the containment gate)
 
-1. **The battle-intro event** (one-shot, FIFO lane like commands — must not be collapsed):
-   `[battleMapIndex u16][patternIndex u8][enemy typeNo u8 × count]` (+ battle BGM id? check what the
-   swirl needs). Sent by the host when its battle starts. The guest's own install resolves everything
-   else from the scene data (`btlScene.MonAddr[typeNo]` etc. — same bytes, same install).
-2. **The action-playback lane** (FIFO): per executed action on the host —
-   `[actor unitIndex][cmdId u16][sub_no u16][target mask u16][per-target: damage/heal value + flags
-   (miss/crit/death)]`. The guest plays the SEQUENCE (btlseq choreography is deterministic given
-   command + result) and prints the HOST's numbers. Source hook: where the host's battle EXECUTES a
-   command (find the single choke point — candidate: `btl_cmd`'s execution dispatch; recon TODO).
-3. Type-1 stays the continuous truth (HP/MP/ATB/status/death) — the diorama reconciles after every
-   playback (drift between a played sequence and the next type-1 frame resolves toward the frame).
+Every site below is **un-gated** and **save-visible** on a `BattleMapDebug` boot. Recommendation: a
+dedicated `NetSyncDiorama.Active` flag (NOT `isDebug`, which is load-bearing elsewhere and whose
+semantics are "no input", not "no writes"). Snapshot-and-restore is safer than per-site gating for
+the counter families, which are fed from four different files.
 
-## The rung ladder (each stands alone, provable in isolation)
+| # | Lane | Site(s) | Why it matters |
+|---|---|---|---|
+| 1 | **Party writeback** | `btl_sys.SavePlayerData` **:260** — call sites `btl_sys.cs:168`, `:175`, `BattleUnit.cs:579` | Writes the guest's REAL party. Re-fires every frame. **The first hook.** |
+| 2 | **Win/lose evaluator** | `btl_sys.CheckBattlePhase` **:52** — **FIVE** ungated call sites: `btl_mot.cs:349` (enemy die), `btl_mot.cs:366` (**player die**), `btl_mot.cs:726`, `btl_stat.cs:96` (any BattleEnd status — reachable in PHASE_NORMAL with no die_seq), `BattleUnit.cs:583` | Early-return it. Highest-value hook. Game-over = a KICK TO TITLE (`HonoluluBattleMain.cs:727` → `GameOverUI.cs:58`) — session-critical, not cosmetic |
+| 3 | **The status TICK** | `btl_stat.cs:301` — `(effect as IOprStatusScript).OnOpr()` | **THE BURIED LANDMINE.** `Memoria/Scripts/DefaultStatus/*.cs` have **ZERO** isDebug guards (33 scripts). `PoisonStatusScript.cs:30-33` does `Target.CurrentHp -= damage` + `Target.Kill()` unconditionally. The guest **will self-kill actors**. Invisible solo; only manifests when a real poisoned actor ticks |
+| 4 | **Kill counters** | `btl_mot.cs:342` `categoryKillCount[category]++`, `:344` `modelKillCount[dms_geo_id]++` | Save-serialized (`JsonParser.cs:932-945`) AND gameplay-live (feeds kill-count abilities). Fires on EVERY enemy death |
+| 5 | **Flee gil penalty** | `battle.cs:455-470` — `sys.party.gil -= gilLost` | A live save write on the guest's OWN gil, ungated + IsOver-independent, whenever the diorama replays a host Flee |
+| 6 | **Gil (other)** | `btl_scrp.cs:836` (opcode 38), `BattleCalculator.cs:62` (Scripts-DLL setter) | Script-driven gil writes |
+| 7 | **Achievements** | `btl_sys.cs:172` (UpdateEndBattleAchievement) + mid-battle: `btl_stat.cs:126`, `btl_cmd.cs:1441/1507/1557`, `btl_sys.cs:210`, `BattleCalculator.cs:138` | Writes `AchievementState`, pops Steam |
+| 8 | **Story flags** | `BattleActionCode.cs:698` — `gEventGlobal[arr] = …` | A battle SFX action-code can write the guest's save-backed flags |
+| 9 | **Next-field hijack** | `btl_scrp.cs:831-832` (opcode 37) — `BTL_MAP_JUMP_ON` + `SetNextMap(val)` | A mirrored scripted fight can redirect where the guest lands |
+| 10 | **Reward rolls** | `btl_sys.SetBonus` **:223-258** — `Comn.random8()` drops | RAM-only today (needs `GoToBattleResult`), but the draws advance the RNG stream. Gate it |
+| 11 | **'No enemy left' auto-end** | `battle.cs:180-207` → sets `PHASE_CLOSE`/`SEQ_DEFEATCLOSE_FADEOUT`; the fade fires LATER at `battle.cs:168` | Gating only :180 is insufficient — :168 stays reachable whenever btl_phase reaches PHASE_CLOSE by any route |
+| 12 | **Reward layer** | `BattleResultUI.cs:558/590/700/715` | Unreachable today only via the IsOver accident. Gate `GoToBattleResult` explicitly **before ever setting IsOver** |
+| 13 | **In-battle menu** | `BattleHUD.Public.cs:801/813/820`, `BattleHUD.cs:2632-2641`, `:2775-2784` | Immediate item add/remove + party rewrite. Blocking the menu covers all of it |
 
-- **B3.0 — boot an empty diorama.** Behind `[Netsync] Diorama = 1`: when `PeerBattleLive` goes true
-  (guest side, following), set `battleMapIndex`/`patternIndex` from the intro event, `isDebug = true`,
-  `SceneDirector.Replace("BattleMapDebug")`; on battle-end (type-1 says over / PeerBattleLive decays),
-  leave back to the field (the follow-warp return recipe). SOLO-PROVABLE: a selftest hook that fires a
-  synthetic intro event from the F6 menu (no real peer battle needed).
-- **B3.1 — spawn the mirrored party.** Synthesize PLAYERs from state section 1 (candidate:
-  `ff9play.FF9Play_New(charId)` then overwrite level/serial/equip/name — the New Game build path; NOT
-  the guest's real `FF9.party`, a scratch array fed to a diorama-variant `CreateBattleData`).
-- **B3.2 — enemies from the scene.** The intro event's typeNos through the stock enemy-spawn loop
-  (`CreateBattleData`'s monster half already does this from `PatAddr` — pattern-driven, may suffice
-  with `patternIndex` alone; verify the pattern fully determines typeNos or ship them explicitly).
-- **B3.3 — drive the truth.** Type-1 frames → HP/MP/ATB bars, death poses, trance glows on the
-  diorama actors (a reconcile tick, ~150 ms — same cadence the panel uses today).
-- **B3.4 — action playback.** The new FIFO lane → btlseq choreography + the host's damage numbers.
-- **B3.5 — the UI merge.** The B1 digit menus render over the diorama (the OnGUI spectate panel
-  retires or becomes the no-diorama fallback); the guest commands its slots from inside the fight.
+**Also restore at teardown:** `isDebug`, `battleMapIndex`, `patternIndex`, `debugStartType`,
+`party.battle_no`, `categoryKillCount[8]`, `modelKillCount`, Achievement counters, `party.gil`,
+and the `gEventGlobal` band the mirrored scene could touch.
+**Stale `btlMapNo`:** nothing writes it at debug boot, and `battle.cs:100` reads it — a stale 336
+fires the Masked Man tutorial. Stamp it.
+**Backstop:** keep the diorama inside the mirroring-session lifecycle so the AUTOLOAD EXIT RAMP
+discards anything that slips through.
 
-## Open recon questions (answer before building B3.0)
+## THE RETURN (lifecycle — solved)
 
-- The battle-end/return lifecycle on the guest: what `BattleMapDebug` expects to return TO (the
-  debug room?) vs the follow-field — likely needs the same deferred-fade return the follow-warp uses.
-- Does `isDebug` also gate the PLAYER ready loop / victory-defeat evaluation, or only enemy actions?
-  (The diorama wants NO local win/lose — battle end comes from the wire.)
-- The swirl/BGM: does `BattleMapDebug` run the full swirl + battle music (wanted) or a bare boot?
-- Where the host's action execution has ONE choke point carrying final per-target results.
-- The HonoBehavior teardown law applies to every diorama actor (`GeoTexAnim` riders) — teardown via
-  `UnregisterHonoBehavior(dispose: true)` only.
-- Save-safety: the diorama is render-only (no state writes) — but verify the debug scene doesn't
-  autosave or touch `FF9StateSystem.Battle` in ways that leak into the guest's next real battle.
+The return is decided by **`prevMode`**, not fldMapNo. Two independent variables: `prevMode` picks
+the SCENE, `FF9.fldMapNo` picks WHICH field. `BattleResultUI.Hide` (`:51-56`) sets
+`mode = prevMode` then `SceneDirector.Replace("FieldMap"|"WorldMap")` — **with no else**, so an
+invalid prevMode fires no Replace at all and hangs on a faded-out result screen.
 
-## Status
+**The substitution (cleanest):** on the host's battle-end frame, replicate `Hide`'s tail —
+```csharp
+PersistenSingleton<FF9StateSystem>.Instance.mode = prevMode;
+SceneDirector.Replace("FieldMap", SceneTransition.FadeOutToBlack, true);
+```
+This skips `UpdateOverFrame`, the Result screen, the EXP/AP/gil award, and `GoToGameOver`.
+Verified safe out of `BattleMapDebug`: every SceneDirector branch fires identically as from
+`BattleMap` — the sole difference is the AutoSplitter `SignalBattleEnd`, which doesn't fire because
+`BattleMapSceneName == "BattleMap"` (`SceneDirector.cs:715`).
 
-- 2026-07-15: recon skeleton written (this file). Rungs not started. Wire v8 not cut.
+**Preconditions:** the guest must have `prevMode == 1` and `fldMapNo == <its own field>` before
+booting. Do NOT re-point `map.nextMapNo` from the host's wire. The fork-return path is verified
+benign (a fork-id lookup misses `ForkSiblingMap` and returns the input unchanged).
+**The debug scene has NO designed way back to a field** (`BattleUI.cs:71/82` → `LastScene`/`MainMenu`) — B3 authors it.
+
+## THE SWIRL / BGM (solved — one cheap win, one hook)
+
+`Replace("BattleMapDebug", SceneTransition.SwirlInBlack, true)` buys **swirl + encounter SFX + battle
+BGM with no new engine code** — `_Swirl` is target-agnostic (`SceneDirector.cs:549-550` stash
+`PendingNextScene`; `BattleSwirl.cs:61` `ReplacePending` reads it). Untested pairing; worth a playtest.
+
+The debug boot otherwise loses exactly what lives in `BattleSwirl.cs`: the swirl visual, the 636/635/634
+SFX (`:74-76`), and the battle BGM (`:96` — the only battle-ENTRY `ff9btlsnd_song_play`). It KEEPS the
+plunge camera, the 32-frame wipe-in + PHASE_ENTER, the staged actor fade-in, BattleVoice, and
+`ApplyBattleEffects`. Sound dispatch is a non-issue (`FF9BattleSoundDispatch` is a pure forwarder to
+`FF9AllSoundDispatch`, which `SceneDirector.cs:429` installs for BattleMapDebug anyway).
+
+**Three flags must be mirrored from the host** (all un-armed by a debug boot):
+- `isDebug` — see the headline.
+- **`isRandomEncounter`** — set true at exactly one site (`EventEngine.ProcessEvents.cs:479`); scripted
+  battles clear it. Drives the swirl's LOOK (`SFX_Rush.cs:37-56`), the actor fade SPEED
+  (`battle.cs:490/530/555`), and `SkipCameraAnimation`. Unmirrored → always the scripted-battle swirl + slow fade.
+- **`debugStartType`** — `btl_init.cs:105-108`: under isDebug, `scene.Info.StartType` is OVERRIDDEN by
+  `debugStartType`. Stamp **`debugStartType`**, NOT `scene.Info.StartType` (which `SetupBattleEnemy`
+  overwrites every run).
+
+**BGM needs an s38 hook:** `BattleSwirl.cs:91` computes songid from the LOCAL fldMapNo — a guest
+elsewhere gets its own field's theme. That exact line is already an ff9mapkit patch site (s33 wraps it
+with `EffectiveFieldId`), so a wire song id with fail-safe fall-through is precedented. Note
+`BattleSwirl.cs:82-86` only plays when `gMode` is 1 or 3 (captured at Awake).
+
+**Field-side pre-swirl work to replicate** (`HonoluluFieldMain.cs:316-320`): song suspend +
+`SuspendResidentSounds` + `SFX_Rush.SetCenterPosition(0)`. `SceneDirector.cs:405` stops sound EFFECTS
+only — without this the guest's **field BGM keeps playing under the battle**.
+
+## NEUTRALISE `BattleUI` (mandatory, and free)
+
+`BattleMap` ships with **no** BattleUI at all, so `HonoluluBattleMain` provably runs without it — the
+dependency is one-directional. Two reasons to kill it on the diorama:
+- **A live hazard:** `BattleUI.Start:26` executes `btl_scene.PatNum = FF9StateSystem.Battle.patternIndex;`
+  with **no isDebug guard**, running after `HonoluluBattleMain.Start` — clobbering PatNum *after*
+  `InitBattleScene` already built the actors from `ChoicePattern()`'s roll. A silent PatNum/actor
+  mismatch unique to this scene.
+- Its `OnGUI` draws the full SQEX map/pattern/sequence panel over the diorama whenever isDebug is on.
+
+**Also mirror the UIManager delta:** `UIManager.cs:282-290` omits `BattleHUDScene.Loading = true` and
+sets `isEnable = true`, so `:317` **enables player control** — inverted vs BattleMap (`:244-252`).
+A render-only guest wants control disabled.
+
+## THE WIRE (v8) — corrected
+
+### 1. The battle-OPEN frame (one-shot, FIFO lane — must not be collapsed)
+`[battleMapIndex u16][PatNum u8][StartType u8][isRandomEncounter u8][songId u16][MonsterCount u8][typeNo u8 × N]`
+
+**The enemy set is 100% scene-file data**, selected by the pair `(battleMapIndex, PatNum)` — NOT by
+`patternIndex` alone, and NOT randomized at spawn. The roster is immutable at runtime (all three
+exclusivity greps reproduce one write site each, inside `BTL_SCENE.ReadBattleScene`), and
+BattlePatch.txt cannot touch it by two independent mechanisms. **So typeNos are not needed for
+correctness** — send `battleMapIndex` + the host's **resolved PatNum** (read back after
+`HonoluluBattleMain.cs:185`; never mirror the RNG). Carry MonsterCount + typeNos as a **divergence
+assert** (`dbfile0000.raw16` is mod-overridable), and fold a scene-data hash into the version handshake.
+
+**StartType is NOT free** — `btl_sys.StartType` is a THIRD RNG (two `random8()` rolls vs
+backAttackChance=24 / preemptiveChance=16, further modified by party SAs). It flips enemy rotation
+180° on a pre-emptive, flips player base angle + `row ^= 1` on a back attack, and changes ATB seeding.
+Under isDebug it silently pins to `BTL_START_NORMAL_ATTACK` forever. **Carry it.**
+(A FOURTH RNG remains: player initial ATB, `Comn.random16() % btl.max.at`, `btl_init.cs:437`.)
+
+**Boot-order law:** `InitEnemyData` does NOT run at `HonoluluBattleMain.cs:189` — its only call site is
+`battle.cs:521`, inside `BattleLoadLoop` during PHASE_ENTER, **frames later**. So PatNum must be
+authoritative BEFORE `HonoluluBattleMain.Start` and remain stable until PHASE_ENTER completes; any
+re-stamp in that window repoints the STAT init away from the already-spawned MODELS.
+
+### 2. The action-playback lane (FIFO)
+**The choke point: `SBattleCalculator.CalcResult` (`SBattleCalculator.cs:141`), emitting at line 310**
+(`FrameAppliedEffectList.Add(v)`), immediately before the `if (target.bi.player != 0 || isDebug) return;`
+guard at :311. All three branches (guard/miss/hit) converge at :291; :291-309 are unconditional; :310
+is the last statement before the first conditional return. Results are **final AND post-application**
+(reflect ×, damage-limit clamp, 9999 cap, then `SetDamage` at :223 — all strictly before :310).
+
+Four corrections to the naive frame:
+- **Carry BOTH units, fresh, every call.** "One BattleCalculator = one (caster,target) triple" is FALSE:
+  `:264-284` is an entire `if (v.Caster.Flags != 0)` block applying HP/MP to the **caster** (drain,
+  recoil). WhiteDraw (`0041:33`) does `_v.Caster.Change(unit)` — its *target* never changes and the
+  whole effect is caster-side; a target-keyed frame would emit N no-ops and drop every point of MP
+  restored. Serialize `v.Caster.Id`, `v.Target.Id`, both `Flags`, both `HpDamage`/`MpDamage`. Never cache either.
+- **Send raw `Data.cur.hp` / `Data.cur.mp`, NOT `BattleUnit.CurrentHp`.** `CurrentHp` is a property over
+  `GetLogicalHP/SetLogicalHP` (`BattleUnit.cs:74-78`) that offsets by 10,000 for `FLG_NON_DYING_BOSS`
+  and force-overrides under IsHpMpFull. The round trip is **lossy** — it would corrupt exactly the boss
+  fights the diorama exists to show.
+- **Emit in a `finally`.** `CalcResult` has no try/catch of its own and runs inside `CalcMain`'s try
+  (catch at :115). An exception in :143-309 skips :310 while HP was ALREADY applied at :223 — host
+  damages, no frame ships. Pair with a periodic absolute HP resync.
+- **DO NOT hook `IOverloadOnBattleScriptEndScript` (:323)** — it sits BELOW the :311 guard, so it never
+  fires for player targets or under isDebug.
+
+Exactly 5 `PerformCalcResult=false` scripts exist (0040/0041/0049/0052/0061); all are covered.
+**Verified:** no ff9mapkit/s22-s37 patch touches SBattleCalculator, btl_para, btlseq, btl_cmd,
+BattleUnit, or BattleCalculator — the isDebug gates are stock.
+
+### 3. The status-tick lane
+`btl_stat.cs:301` (`OnOpr` dispatch, called from `battle.cs:228` + `HonoluluBattleMain.cs:558`) — the
+second and last hook. Either gate it on the guest and mirror ticks from the wire, or accept self-kill.
+Note the tick's floating number goes through `btl2d.Btl2dStatReq`, a DIFFERENT path from `btl.fig.hp`
+— the "damage number for free" property does **not** transfer to ticks.
+
+### 4. Type-1 stays the continuous truth
+HP/MP/ATB/status/death; the diorama reconciles toward the frame after every playback.
+
+## The rung ladder (revised — containment first)
+
+- **B3.0 — THE CONTAINMENT GATE.** `NetSyncDiorama.Active` + the 13-lane suppression set + the
+  snapshot/restore of the counter families. **No rendering.** PROVABLE SOLO: boot BattleMapDebug from
+  F6 with the gate on, let it run, leave — assert the guest's party/gil/counters/flags are byte-identical
+  to before (a selftest that snapshots, boots, and diffs). *This rung is pure save-safety and lands alone.*
+- **B3.1 — boot + return.** `isDebug`/`isRandomEncounter`/`debugStartType` stamped, `BattleUI`
+  neutralised, `SwirlInBlack` transition, the `mode = prevMode` + `Replace("FieldMap")` return.
+  SOLO-PROVABLE via a synthetic open-frame from F6 (no peer needed).
+- **B3.2 — the mirrored party.** Extend wire section 1 with **`basis{max_hp,max_mp,dex,str,mgc,wpr}`**
+  (~12B) + `status` + `permanent_status` + `trance` + `sa`/`saExtended`. **Carry basis, NOT max** —
+  `FF9Play_Update` begins `play.max.hp = play.basis.max_hp` unconditionally (`ff9play.cs:276-277`), so a
+  written max does not survive; and carrying only max leaves `elem[4]` at the level-1 minimum. This is
+  exactly what the save's own PLAYER-deserialize path carries (`JsonParser.cs:827-835` → restore →
+  `FF9Play_Update`). Follow the save's precedent.
+  **ORDER LAW:** mutate `FF9.player[charId]` IN PLACE (never construct a bare PLAYER; `party.member[i]`
+  aliases the dict via `FF9Play_SetParty`), write row+equip+Name+level+basis, then **`FF9Play_Update`**
+  (NOT `Build` — Build re-derives basis from the guest's zeroed `bonus` and destroys it), then assign
+  `cur.hp`/`cur.mp` **LAST**.
+  Traps: don't write `info.menu_type` without resizing `pa[]` (`BattleHUD.cs:1375-1383` indexes
+  unchecked → IndexOutOfRange); `Name` silently falls back to the stock default if dropped
+  (`PLAYER.cs:127-136`). Freebie: a wire hp of 0 gives a correctly-downed actor for free
+  (`btl_init.cs:477-484`).
+  **`CreatePlayer` is a red herring** — it reads ONE field (`p.info.serial_no`) and everything else comes
+  from the static `BattleParameterList`. The real build is `btl_init.OrganizePlayerData` (`:369-488`).
+  `serial_no` itself is DERIVED (NCalc over equip[0]) and force-recomputed after every battle/equip/load
+  — redundant on the wire given equip[5].
+- **B3.3 — enemies.** The open-frame's `(battleMapIndex, PatNum)` through the stock spawn.
+  **`btl_sys.AddCharacter` NREs on an EMPTY list** (`btl_sys.cs:293` dereferences `btlData.next.bi.line_no`;
+  the head's `.next` is nulled at InitBattleSystem) — the first actor must be inserted manually.
+  Actors must be linked into `btl_list` or they get **no texture animation** (`BattleTexAnimWatcher.Update`
+  walks that list to create the render textures). Spawn after `CreateBattleRoot` (`:176`) and always
+  pass `isBattle:true` or the parenting at `ModelFactory.cs:199` silently skips.
+- **B3.4 — drive the truth.** Type-1 → HP/MP/ATB bars, death poses, trance glows. ~150 ms reconcile.
+- **B3.5 — action playback.** The CalcResult lane → btlseq choreography + the host's numbers.
+  Watch `btlseq.cs:498-502` — actors SNAP to `original_pos` at sequence end under isDebug (the most
+  visible cosmetic artifact).
+- **B3.6 — the UI merge.** B1 digit menus over the diorama; the OnGUI spectate panel retires or becomes
+  the no-diorama fallback.
+
+## Recon status
+
+**PASS 1 COMPLETE (2026-07-15)** — 8 questions, each answered from source then adversarially verified
+(16 agents). 7 of 8 answers were materially corrected by the verify pass; the corrections are folded in
+above. Notable saves: the `IOprStatusScript` self-kill lane (the original answer built a false safety
+guarantee on a `// Dummied` function with zero callers), the `basis`-vs-`max` party contract, the
+caster-side result frame (WhiteDraw), and `CurrentHp`'s lossy round-trip on non-dying bosses.
+
+**Cross-resolved:** the swirl agent settled the lifecycle agent's one open premise by reading the
+shipped Unity scene assets directly — `BattleMapDebug` provably carries `HonoluluBattleMain`.
+
+**Still UNRESOLVED from source (needs in-game or asset confirmation):**
+- Whether `BattleUI`'s attachment is prefab-side (no `AddComponent<BattleUI>`/`GetComponent<BattleUI>`
+  exists anywhere in the assembly). The asset read says BattleMapDebug's `Battle Main` carries it;
+  confirm before relying on either reading.
+- Custom-FBX prefabs carrying a serialized HonoBehavior — the residual unknown in the teardown census.
+  The diorama controls that input anyway.
+
+**Not started:** every rung. **Wire v8:** not cut.
