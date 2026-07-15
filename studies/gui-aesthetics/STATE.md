@@ -49,8 +49,44 @@ phases of accessibility work:
 6. `accent_fg/accent` fenced at **3.0** (the *non-text* floor) guarding a **13px button label** — sub-AA in 4 of 8.
 7. `help` fenced against **nothing**; `muted` fenced on 3 of 4 grounds.
 
+8. **The hero's overline inked in `text_subtle`** — 2.5:1, sub-AA in **8 of 8**, on the front door. The
+   Rejected table forbids that token for text *in writing*; PLAN.md's Phase 6 spec prescribed `muted`.
+   **The implementation drifted from its own spec inside one round** (found by the round-4 workflow).
+9. **The hero's status line inked in `muted`** — sub-AA in **3 of 8** (light 3.63, sol-light 3.98,
+   dracula 4.35). Found only by measuring #8 properly. Nobody had ever measured it.
+
 **The pattern:** 4, 5, 6 and 7 were all *fences set at the wrong bar, green the whole time.* A fence that
 covers 3 of 4 grounds just moves the bug to the 4th.
+
+### THE NINTH-GROUND LAW (from #8 and #9 — durable)
+
+> **Every text tier is fenced against the elevation ramp. A surface that paints itself off the ramp
+> voids every one of those fences, silently.**
+
+The mist bloom composites `$text` over the plate and lifts the ground **past `surface_3` in 7 of 8
+palettes**. `muted` clears 4.5 on `surface_3` in all 8 (4.57–5.70) and **still fails on that band**
+(overline 4.09–4.79, status 3.63–5.37) because it is fenced to sit *at* the floor and has no headroom for
+a lifted ground. It cannot acquire any: swept `_MIST_ALPHA` to **zero** and it still only reaches 4.72.
+**There is no alpha that makes a dim tier legal on the mist.**
+
+So the hero writes **everything in `$text`** (overline 5.16–12.34, status 4.64–10.85, 8/8), and
+subordination comes from **type** — PLAN.md's own law, written before the band existed. The render
+confirms it: the 28px serif wordmark still dominates an 11px tracked overline in the same ink.
+
+**Corollary for any future painted surface:** if you invent a ground, you owe it a fence. The ramp's
+guarantees stop at the ramp.
+
+### The instrument, and the two that lied first
+
+`audit_contrast.py` **cannot see the hero at all** — it reads ink from `w.palette().color(...)`, a QLabel
+API, and the band is 100% `QPainter` with no QLabel children. The front door is invisible to the
+instrument **by construction**. Two replacements failed before one worked:
+
+| method | why it lied |
+|---|---|
+| **model the ground** (bg → gradient → bloom) | needs `_axis()`'s geometry to be right. Applied the bloom at full alpha 40 where the render says ~32. **Wrong by a full point.** |
+| **mode of a row strip** | the ground is a *gradient* — hundreds of near-identical colours, few px each — while the ink is **one flat colour**. So the mode returns the ground for a SHORT string and **the ink itself** for a long one. It scored the status line at **1.00 against "ground" == muted** and looked plausible. |
+| ✅ **render twice, suppress `drawText`, read the ground under the glyphs** | exact. Legal *only* because the band is paint-only with no layout, so the reflow objection that killed blank-and-diff for the QSS audit does not apply here. |
 
 ---
 
