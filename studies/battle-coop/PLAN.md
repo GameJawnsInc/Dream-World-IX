@@ -10,6 +10,15 @@
 > state-mirror backup. This plan is safe to execute as written; nothing has drifted underneath it except
 > the two gaps below, which were always there and are now caught.
 
+> **EXECUTION STATUS (2026-07-15):** Phases 0, 1a, 1b, 1d, 1e, and 2 are **DONE** — the kit test is
+> committed, both engine bugs are fixed in the Memoria tree, the doc is corrected, and the rebuild
+> shipped clean (0 errors; `NetSyncState`/`ApplyStoryTo`/`TypeState` confirmed in the binary; both
+> deployed DLLs hash-identical to `Output\`; pre-build backups at
+> `C:\gd\FFIX\Memoria\backups\Assembly-CSharp.dll.preSTATEMIRROR.{x64,x86}.20260715-014556`).
+> **1c was deliberately skipped** (optional wire hygiene — deferred to a later patch round to keep this
+> round's delta minimal). **NOW WAITING at the Phase 3 gate**: human solo playtest, then Phase 4 patch
+> regen. Do not regen the patch before the solo proof passes.
+
 ## TL;DR for whoever executes this (Fable)
 
 - The uncommitted engine code matches the build spec closely: **all 5 wire-protocol claims, all 5
