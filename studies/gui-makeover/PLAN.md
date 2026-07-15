@@ -162,8 +162,32 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >
 > Verified: **full suite 3475 passed / 2 skipped** (+8 Phase-5 tests; the byte-level suite now runs too), smoke
 > green (Ctrl-K rows, concept resolve, a humanized Problems tooltip). Concept cards + the forms badge
-> screenshot-verified. Next: **Phase 6 (IA / navigation reorg)** — the workspace rail that swaps tab sets, the
-> Import split, and the verb-first Ctrl-K — the first structural phase (needs the P2–P3 card/elevation vocabulary).
+> screenshot-verified.
+
+> **★ Phase 6 (IA / navigation reorg) COMPLETE** (2026-07-14, 4 commits) — the first STRUCTURAL phase.
+> - **The workspace rail** (`e358e3b`) — a segmented control above the tab strip groups the 10 tabs by intent
+>   (Home / Author / Assets / State / Ship) and shows only the active group's tabs, so the strip never
+>   overflows the 640px pane into a chevron at 1280px — *without* touching the central `[300,640,240]` splitter
+>   (tree + inspector unmoved). Any setCurrentWidget self-heals via a `currentChanged`→`_sync_rail` hook (zero
+>   call-site changes across ~38 switches). The one subtlety — switching to a rail-hidden tab must LAND on it,
+>   not cascade onto an adjacent visible tab — fixed with a tiny `_RailTabs(QTabWidget)` that shows the target
+>   just before it becomes current (overriding BOTH switch methods, since Qt's `setCurrentIndex` isn't virtual;
+>   diagnosed via an empirical probe). Active segment = a raised pill (`#railSeg`).
+> - **Verb-first Ctrl-K** (`bd76341`) — a new `palette.display_row` shapes each row as "Action · New Field… ⌨
+>   Ctrl+N": a category prefix (Action / Go to / Learn / Recent), the redundant leading verb stripped for the
+>   Go-to / Learn rows, and a ⌨ keybinding hint. Display-only — the stored label (and every fuzzy match + test)
+>   is untouched.
+> - **Import split** (`7990613`) — the four fused jobs collapse to one clear task: the default view is just
+>   *Fork a real field*; region / catalog+archive / repaint / models / read sit behind a collapsed "More ways
+>   to import" disclosure. New reusable `widgets.disclosure()` (a flat ▸/▾ toggle over a hidden content area).
+> - **Build collapse** (`dc5a803`) — the routine deploy is field / campaign / journey; the niche battle target
+>   + the New-Game single-owner footgun are fenced behind an "Advanced" disclosure (auto-revealed when Build is
+>   aimed at a battle.toml, since the battle box lives inside it).
+>
+> Verified: **full suite 3476 passed / 2 skipped**, smoke asserts the rail swap + a rail click + both collapsed
+> drawers + battle auto-reveal; the five rail groups (1280px no-overflow), the foregrounded Import, and the
+> fenced Build screenshot-verified. Next: **Phase 7 (cohesion spine + per-doc disclosure + Guided/Full mode)**
+> — the mode-aware next-action strip, Battle/Save disclosure, and the global beginner mode (Q2 = build it).
 
 
 ## 1. North-star vision
