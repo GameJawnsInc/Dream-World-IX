@@ -11,9 +11,14 @@ This round asks only the aesthetic question. Research pass 2026-07-15 — **and 
 its headline was found to be wrong.** See *Outcome* below; the docs carry inline `SUPERSEDED`/`SHIPPED`
 markers and [CORRECTIONS.md](CORRECTIONS.md) carries the audit.
 
-- **[CORRECTIONS.md](CORRECTIONS.md)** — ⚠ **READ FIRST.** The audit of the three docs below against the
-  code that was actually built from them (126 claims re-verified; 25 auditor verdicts overturned on review).
-  The plan's headline was wrong; this says how.
+- **[STATE.md](STATE.md)** — ⚠ **START HERE.** What shipped (19 commits), the seven live defects it found,
+  and the ranked next steps. Nothing in this arc has been playtested — that is step 1.
+- **[IDENTITY.md](IDENTITY.md)** — **SIGNET**, round 3: the FF9 front door + the opt-in Mist climate.
+  Produced by a round framed to COMMIT rather than to refute — see the last section of STATE.md for why
+  that reframing was necessary and what it says about research harnesses generally.
+- **[CORRECTIONS.md](CORRECTIONS.md)** — ⚠ **READ BEFORE PLAN.md.** The audit of the three round-2 docs
+  against the code actually built from them (126 claims re-verified; 25 auditor verdicts overturned on
+  review). The plan's headline was wrong; this says how.
 - **[PLAN.md](PLAN.md)** — the deliverable: the diagnosis, the named direction + three laws, a gated first
   spike, 7 phases (P0–P6) with file:line changes / token diffs / tests / an explicit *"you'll see:"* per phase,
   a **Rejected** table, and 5 open questions with recommendations.
