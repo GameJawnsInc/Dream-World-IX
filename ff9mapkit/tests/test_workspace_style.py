@@ -135,6 +135,10 @@ def test_a_diagnostic_value_can_keep_full_weight():
 
     The role-scoped rules must still out-rank the generic one (more attributes = higher specificity), so a
     muted hint keeps its own tint rather than inheriting the value tint.
+
+    It must wire to the DERIVED *_text rung, not the raw hue: the raw hue is fenced at 3.0 (the non-text
+    floor) because its first job is icons, and as TEXT it measured 3.51 (warn, solarized-dark) / 2.67
+    (error, nord). A diagnostic you cannot read is not a diagnostic.
     """
     for mode, pal in theme.THEMES.items():
         css = style.qss(pal)
@@ -143,9 +147,13 @@ def test_a_diagnostic_value_can_keep_full_weight():
         err = [ln for ln in css.splitlines() if 'QLabel[state="error"]' in ln and "role=" not in ln]
         assert warn, f"{mode}: a roleless value label cannot show a warn state"
         assert err, f"{mode}: a roleless value label cannot show an error state"
-        assert d["warn"] in warn[0] and d["error"] in err[0], f"{mode}: state colours not wired to the palette"
+        assert d["warn_text"] in warn[0], f"{mode}: warn TEXT must use the derived AA rung, not the raw hue"
+        assert d["error_text"] in err[0], f"{mode}: error TEXT must use the derived AA rung, not the raw hue"
         # the role-scoped variants must still exist, or a muted hint would lose its own warn tint
         assert 'QLabel[role="muted"][state="warn"]' in css, f"{mode}: the muted-hint warn rule went missing"
+        # the banner STRIPE is non-text and must keep the canonical hue (3.0 is the right bar there)
+        stripe = [ln for ln in css.splitlines() if 'role="banner"][state="error"]' in ln]
+        assert stripe and d["error"] in stripe[0], f"{mode}: the banner stripe must keep the canonical hue"
 
 
 def test_accent_button_keeps_a_visible_focus_ring():

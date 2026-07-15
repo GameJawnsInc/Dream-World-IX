@@ -52,7 +52,12 @@ DARK = {
     "text": "#e6e8eb",
     "muted": "#9aa3ad",
     "accent": "#4c8dff",
-    "accent_fg": "#ffffff",
+    # Dark ink, not white. A 13px button label is NORMAL text (AA 4.5); white on this accent measures only
+    # 3.20 -- the suite fenced accent_fg/accent at 3.0, the LARGE-text floor, which is the wrong bar for a
+    # button label. The accent's own luminance (0.278) is well past the 0.220 crossover where dark ink beats
+    # white, so the hue is untouched and only the ink flips: 3.20 -> 5.39. Same strategy dracula/gruvbox/
+    # mist already use. #181b20 is this palette's OWN log_bg -- in-family, not an imported black.
+    "accent_fg": "#181b20",
     "accent_hover": "#3d7df0",
     "accent_pressed": "#356fda",
     "help": "#9d7bff",          # help / info affordance (violet -- distinct from accent/success/warn)
@@ -81,8 +86,12 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "field": "#3b4252",
     "text": "#eceff4",          # nord6 (snow storm)
     "muted": "#aab2c1",         # lifted to WCAG AA 4.5:1 on bg/surface AND surface_2 (3.87 -> 4.61)
-    "accent": "#5e81ac",        # nord10 (frost, deep blue)
-    "accent_fg": "#ffffff",     # white over the mid-blue accent (snow-storm #eceff4 was a touch low-contrast)
+    # nord10 #5e81ac, deepened 8%. Its luminance (0.211) falls in the DEAD BAND 0.183..0.220, where NEITHER
+    # white ink (4.03) nor dark ink from nord's own ramp (nord0 = 3.10) clears 4.5 -- dark ink would need
+    # #121419, far below Polar Night. So the accent moves instead, the minimum that works, and nord keeps
+    # its white-on-frost convention. Visually still nord10; measured 4.03 -> 4.64.
+    "accent": "#56779e",        # nord10, deepened to carry a button label
+    "accent_fg": "#ffffff",     # white over the frost blue
     "accent_hover": "#6a8cb6",
     "accent_pressed": "#547299",
     "help": "#b48ead",          # nord15 (aurora, purple)
@@ -132,8 +141,10 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     # than text, and at text's bare minimum there is no headroom for both (the solver ran muted to #ffffff).
     "text": "#a2aeae",          # base1, lifted to AA 4.5:1 on surface_2 (4.22 -> 4.94)
     "muted": "#8eaaaa",         # lifted to AA 4.5:1 on base03/base02 AND surface_2 (3.91 -> 4.55)
-    "accent": "#268bd2",        # blue
-    "accent_fg": "#ffffff",     # white over the blue accent (base3 cream reads low-contrast on it)
+    "accent": "#268bd2",        # blue -- CANONICAL solarized, untouched
+    # base03-deep ink (this palette's own log_bg), not white: white on solarized blue is 3.68, sub-AA for a
+    # button label. accent lum 0.235 clears the 0.220 crossover, so the ink flips and the blue stays exact.
+    "accent_fg": "#00212b",     # 3.68 -> 4.56
     "accent_hover": "#3597db",
     "accent_pressed": "#1f78ba",
     "help": "#6c71c4",          # violet
@@ -158,7 +169,10 @@ SOLARIZED_LIGHT = {
     "field": "#f7f1de",
     "text": "#4a6067",          # base01 deepened to WCAG AA 4.5:1 body text on the cream bg
     "muted": "#566c74",         # deepened for hint legibility -- AA 4.5:1, still lighter than text
-    "accent": "#268bd2",        # blue
+    # Solarized blue #268bd2 deepened 12%: at lum 0.235 white ink gives only 3.68, and this is a LIGHT
+    # theme -- every one of its own neutrals is far too light to serve as dark ink, so the flip that fixes
+    # solarized-DARK is unavailable here. The blue deepens instead; 3.68 -> 4.62.
+    "accent": "#217ab9",        # solarized blue, deepened to carry a button label
     "accent_fg": "#ffffff",     # white over the blue accent
     "accent_hover": "#1f7ec0",
     "accent_pressed": "#1a6ca8",
@@ -309,7 +323,8 @@ def pick_palette(mode: str = "auto") -> dict:
 # guaranteed to meet the WCAG 3:1 non-text floor, and an info status hue. All outputs are #rrggbb (no
 # rgba) so the hex/parity guarantees still hold; QSS composites solid fills over the surface anyway, so a
 # pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
-_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info")
+_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info",
+                 "success_text", "warn_text", "error_text")
 
 
 def _mix(a: str, b: str, t: float) -> str:
@@ -345,6 +360,36 @@ def _focus_token(accent: str, surface: str) -> str:
     return focus
 
 
+def _text_token(hue: str, surfaces: tuple, dark: bool) -> str:
+    """A status hue, moved toward the palette's ink just enough to clear WCAG AA 4.5:1 AS TEXT on EVERY
+    surface it can land on. Mirrors :func:`_focus_token`; most hues in most themes pass unchanged.
+
+    ``surfaces`` is every ground a status line sits on -- the page, a panel, a card -- and it must be all
+    of them, because WHICH ONE IS TIGHTEST FLIPS WITH THE MODE. A dark theme writes LIGHT ink, so the
+    lightest ground (surface_2, the card) is worst. A light theme writes DARK ink, so the DARKEST ground
+    (bg) is worst. Tuning against surface_2 alone passed every dark palette and left light's success_text
+    at 4.31 on a panel -- caught by the fence, which is the only reason this signature takes a tuple.
+
+    WHY A DERIVED VARIANT INSTEAD OF FIXING THE HUE. `success`/`warn`/`error` are fenced at 3.0 -- the
+    NON-TEXT floor -- because their first job is icons and stripes, where 3.0 is the correct bar. But the
+    app also writes them as TEXT ("netsync MISSING", "overwrites, no undo"), and normal text needs 4.5.
+    Measured on the card fill: error 2.67 on nord, 2.69 solarized-dark, 3.29 gruvbox; warn 3.51
+    solarized-dark; success 3.52 solarized-dark. Sub-AA.
+
+    Lifting the hues IN PLACE was measured and rejected: it needs +38% toward white on nord's aurora red,
+    +38% on solarized-dark's, +30% on gruvbox's -- those are the palettes' signature reds and it washes
+    them out. So the canonical hue KEEPS its job (shapes, 3.0) and text gets its own derived rung. The
+    base palettes stay untouched and no new palette KEY is taxed -- the same trick `focus` has always used.
+    """
+    ink = "#ffffff" if dark else "#000000"        # a dark theme lifts toward light; a light theme deepens
+    out = hue
+    for _ in range(40):
+        if all(_contrast(out, s) >= 4.5 for s in surfaces):
+            break
+        out = _mix(out, ink, 0.04)
+    return out
+
+
 def derive(pal: dict) -> dict:
     """Return ``pal`` extended with the derived semantic tokens (idempotent -- an already-derived palette
     passes through, so a consumer can call it defensively on either a base or a derived dict)."""
@@ -360,6 +405,13 @@ def derive(pal: dict) -> dict:
     out["text_subtle"] = _mix(pal["muted"], pal["bg"], 0.28)          # a third, dimmer text tier
     out["focus"] = _focus_token(pal["accent"], pal["surface"])        # meets WCAG 3:1 on the surface
     out["info"] = pal["accent"]                                       # info status hue (aliases accent for now)
+    # The status hues AS TEXT. The canonical hue keeps its own job (icons + the banner stripe, where the
+    # 3.0 non-text floor is right); these clear 4.5 as normal text on the CARD FILL, which is the tightest
+    # surface any status line lands on -- so they are safe on bg and surface too. See _text_token for why
+    # this is a derived rung and not a fix to the hue itself.
+    _grounds = (pal["bg"], pal["surface"], out["surface_2"])   # every ground a status line lands on
+    for _k in ("success", "warn", "error"):
+        out[f"{_k}_text"] = _text_token(pal[_k], _grounds, dark)
     return out
 
 

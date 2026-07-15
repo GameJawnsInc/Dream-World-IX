@@ -271,17 +271,20 @@ _QSS = Template(
     QLabel[role="label"]   { font-weight: 500; }
     QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
     QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
-    QLabel[role="ok"]      { color: $success; }               /* a done/healthy status mark (e.g. a ✓) */
-    QLabel[role="muted"][state="warn"]  { color: $warn; }      /* a status line that turns cautionary */
+    /* TEXT gets the derived *_text rung (AA 4.5 on the card fill); SHAPES below keep the canonical hue,
+       where the 3.0 non-text floor is the right bar. Lifting the hues themselves was measured and
+       rejected -- it needs +38% toward white on nord's and solarized's reds, washing them out. */
+    QLabel[role="ok"]      { color: $success_text; }          /* a done/healthy status mark (e.g. a ✓) */
+    QLabel[role="muted"][state="warn"]  { color: $warn_text; } /* a status line that turns cautionary */
     QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
     /* A state on a plain (roleless) value label -- e.g. a definition-list value that IS the answer to
        "why is this broken" ("netsync MISSING"). The role-scoped rules above carry more attributes and so
        out-rank this, which is what we want: a muted hint keeps its own warn tint. Never demote a
        diagnostic to 11px grey -- demote the EXPLANATION, never the answer. */
-    QLabel[state="warn"]  { color: $warn; }
-    QLabel[state="error"] { color: $error; }
-    QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */
-    QLabel[role="caption"][state="warn"]  { color: $warn; }    /* a soft warning (e.g. text may overflow) */
+    QLabel[state="warn"]  { color: $warn_text; }
+    QLabel[state="error"] { color: $error_text; }
+    QLabel[role="caption"][state="error"] { color: $error_text; } /* a live parse error turns the hint red */
+    QLabel[role="caption"][state="warn"]  { color: $warn_text; } /* a soft warning (e.g. text may overflow) */
     QLabel[role="subtle"]  { color: $text_subtle; }
     /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
        caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */

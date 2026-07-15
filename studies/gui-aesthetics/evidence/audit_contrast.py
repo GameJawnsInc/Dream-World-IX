@@ -68,7 +68,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "ff
 from PySide6.QtCore import Qt                                                    # noqa: E402
 from PySide6.QtGui import QColor                                                 # noqa: E402
 from PySide6.QtWidgets import (                                                  # noqa: E402
-    QApplication, QCheckBox, QLabel, QPushButton, QRadioButton, QToolButton, QWidget,
+    QAbstractScrollArea, QApplication, QCheckBox, QLabel, QPushButton, QRadioButton, QToolButton, QWidget,
 )
 
 from ff9mapkit.editor import theme                                              # noqa: E402
@@ -92,6 +92,29 @@ def _cr(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
+def _fully_painted(w, g, win):
+    """Is every pixel of `w` actually on screen -- i.e. inside the window AND inside every scroll viewport
+    that clips it?
+
+    Checking the WINDOW alone is not enough and this was the tool's biggest source of lies: a widget
+    scrolled out of a viewport can still map to a rect INSIDE the window, so the crop samples whatever the
+    viewport painted there instead of the widget. Light's "PLAY STYLE" reported 4.31 on log_bg that way; it
+    really sits on the card at 5.31 (spot-checked). Anything not fully painted is skipped, not guessed at.
+    """
+    if not win.rect().contains(g):
+        return False
+    p = w.parentWidget()
+    while p is not None:
+        if isinstance(p, QAbstractScrollArea):
+            vp = p.viewport()
+            r = vp.rect()
+            r.moveTopLeft(vp.mapTo(win, vp.rect().topLeft()))
+            if not r.contains(g):
+                return False
+        p = p.parentWidget()
+    return True
+
+
 def _crop(img, w, win):
     g = w.geometry()
     g.moveTopLeft(w.mapTo(win, w.rect().topLeft()))
@@ -110,23 +133,34 @@ def audit(mode, app, verbose=False):
     findings = []
     for i in range(win.tabs.count()):
         win.tabs.setCurrentIndex(i)
+        # SETTLE THE LAYOUT before grabbing. One processEvents is not enough: a freshly-shown tab's
+        # widgets can still carry stale geometry, so the crop lands on the chrome behind them and healthy
+        # text reports a false low ratio (light's "PLAY STYLE" read 4.31 on log_bg; it is really 5.31 on
+        # the card). activate() forces the layout to run NOW; the second pump flushes the repaint.
+        page = win.tabs.widget(i)
+        if page is not None and page.layout() is not None:
+            page.layout().activate()
+        app.processEvents()
         app.processEvents()
         tab = win.tabs.tabText(i)
 
         targets = [w for w in win.findChildren(QWidget)          # findChildren takes ONE type, not a tuple
-                   if isinstance(w, TEXTY) and w.isVisible() and (w.text() or "").strip()
+                   if isinstance(w, TEXTY) and w.isVisible() and w.isEnabled()
+                   # WCAG 1.4.3 EXEMPTS inactive controls -- a disabled button is meant to recede, and
+                   # `#accent:disabled` deliberately swaps to muted-on-surface_btn. Auditing them reports
+                   # the greyed-out state as a defect (solarized-dark's disabled Deploy read 4.39).
+                   and (w.text() or "").strip()
                    and not w.objectName().startswith("qt_")
                    and w.width() > 8 and w.height() > 8]
         if not targets:
             continue
 
         shot = win.grab().toImage()
-        vis = win.rect()
         for w in targets:
             g = w.geometry()
             g.moveTopLeft(w.mapTo(win, w.rect().topLeft()))
-            if not vis.contains(g):
-                continue                          # scrolled below the fold: nothing painted there
+            if not _fully_painted(w, g, win):
+                continue
             crop = shot.copy(g)
             bg = collections.Counter(
                 crop.pixelColor(x, y).name()
