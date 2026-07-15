@@ -128,6 +128,26 @@ def _apply_app_theme(app, pal):
         app.setStyle("fusion")
     app.setPalette(_qpalette(pal))
 
+
+class _RailTabs(QTabWidget):
+    """A QTabWidget for the Phase-6 workspace rail: switching to a tab the rail currently HIDES
+    (``setTabVisible(False)``) must reliably LAND on it, not cascade onto an adjacent visible tab. So make the
+    target tab visible just before it becomes current. Both switch methods are overridden because Qt's
+    ``setCurrentIndex`` isn't virtual, so a C++ ``setCurrentWidget`` wouldn't dispatch to a Python override of
+    the other -- our switches all originate in Python, so overriding both catches them; ``_sync_rail`` then
+    re-groups from ``currentChanged``."""
+
+    def setCurrentIndex(self, index):              # noqa: N802 (Qt override)
+        if 0 <= index < self.count():
+            self.setTabVisible(index, True)
+        super().setCurrentIndex(index)
+
+    def setCurrentWidget(self, widget):            # noqa: N802 (Qt override)
+        i = self.indexOf(widget)
+        if i >= 0:
+            self.setTabVisible(i, True)
+        super().setCurrentWidget(widget)
+
 # section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
@@ -978,7 +998,7 @@ class Workspace(QMainWindow):
         tv.addWidget(self.tree, 1)
         split.addWidget(tree_col)
 
-        self.tabs = QTabWidget()
+        self.tabs = _RailTabs()
         self.tabs.setDocumentMode(True)
         self._welcome()
         # the Editor tab: a scrollable host we refill with the selected node's form (Phase 4)
@@ -1026,7 +1046,47 @@ class Workspace(QMainWindow):
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
         self.tabs.currentChanged.connect(self._on_tab_changed)
-        split.addWidget(self.tabs)
+        # Phase 6: the workspace RAIL -- a segmented control above the tab strip that swaps WHICH tabs show
+        # (grouped by intent), so the strip never overflows the 640px pane into a chevron. The tree (left) +
+        # inspector (right) are unmoved; only the middle tab set swaps. Any setCurrentWidget self-heals: it
+        # fires currentChanged -> _on_tab_changed -> _sync_rail reveals the tab's group (proven: switching to
+        # a setTabVisible(False) tab still works + fires the signal).
+        self._rail_groups = [
+            ("Home", [self._welcome_tab]),
+            ("Author", [self.doc_scroll, self.map]),
+            ("Assets", [self.import_field, self.models_doc, self.battle]),
+            ("State", [self.story_state, self.item_equip]),
+            ("Ship", [self.build_deploy, self.coop_doc]),
+        ]
+        self._rail_busy = False
+        rail = QWidget()
+        rail.setObjectName("railBar")
+        rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)   # paint the #railBar bg rule
+        rl = QHBoxLayout(rail)
+        rl.setContentsMargins(6, 4, 6, 0)
+        rl.setSpacing(4)
+        self._rail_segs = []
+        for gi, (name, _members) in enumerate(self._rail_groups):
+            seg = QToolButton()
+            seg.setText(name)
+            seg.setObjectName("railSeg")
+            seg.setCheckable(True)
+            seg.setAutoExclusive(True)                  # arrow-key nav within the segmented control
+            seg.setCursor(Qt.CursorShape.PointingHandCursor)
+            seg.setAccessibleName(f"{name} workspace")
+            seg.setToolTip(f"{name} — " + ", ".join(self.tabs.tabText(self.tabs.indexOf(m)).replace("&&", "&")
+                                                     for m in _members))
+            seg.clicked.connect(lambda _=False, i=gi: self._activate_group(i))
+            self._rail_segs.append(seg)
+            rl.addWidget(seg)
+        rl.addStretch(1)
+        mid_col = QWidget()
+        mcl = QVBoxLayout(mid_col)
+        mcl.setContentsMargins(0, 0, 0, 0)
+        mcl.setSpacing(0)
+        mcl.addWidget(rail)
+        mcl.addWidget(self.tabs, 1)
+        split.addWidget(mid_col)
 
         insp = QWidget()
         iv = QVBoxLayout(insp)
@@ -1060,6 +1120,7 @@ class Workspace(QMainWindow):
         split.setStretchFactor(1, 1)
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
+        self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
 
     def _panel_header(self, text):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
@@ -3413,6 +3474,42 @@ class Workspace(QMainWindow):
             self._set_chip(None)
             if w is self._welcome_tab:              # Home: refresh the 'Currently editing …' line on show
                 self._refresh_home_status()
+        if hasattr(self, "_rail_segs"):             # Phase 6: keep the rail pointed at the current tab's group
+            self._sync_rail()
+
+    def _activate_group(self, gi, *, switch=True):
+        """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a
+        rail click) moves to the group's first tab when the current tab isn't in it; ``switch`` False (a sync
+        from a programmatic tab change) keeps the current tab. Guarded against re-entrancy."""
+        if self._rail_busy or not (0 <= gi < len(self._rail_groups)):
+            return
+        self._rail_busy = True
+        try:
+            members = self._rail_groups[gi][1]
+            for i in range(self.tabs.count()):
+                self.tabs.setTabVisible(i, self.tabs.widget(i) in members)
+            for j, seg in enumerate(self._rail_segs):
+                seg.setChecked(j == gi)
+            if switch and self.tabs.currentWidget() not in members:
+                self.tabs.setCurrentWidget(members[0])
+        finally:
+            self._rail_busy = False
+
+    def _group_of(self, widget):
+        """The rail-group index containing ``widget`` (a tab page), or None."""
+        for gi, (_name, members) in enumerate(self._rail_groups):
+            if widget in members:
+                return gi
+        return None
+
+    def _sync_rail(self):
+        """Point the rail at whatever tab is now current -- so ANY setCurrentWidget (Ctrl-K, a cross-tab jump,
+        Close→Home) reveals that tab's group + checks its segment. A no-op while a group activation is running."""
+        if self._rail_busy or not hasattr(self, "_rail_segs"):
+            return
+        gi = self._group_of(self.tabs.currentWidget())
+        if gi is not None:
+            self._activate_group(gi, switch=False)
 
     def _on_tree_double(self, item, _col=0):
         """Double-click = explicit 'open': a field/object -> the Editor; a campaign/journey root -> the Map;
@@ -7472,6 +7569,18 @@ def _smoke(win):
     assert win.crumb._chip.isHidden(), "Import shows project context but NO edit-target chip"
     win.tabs.setCurrentWidget(win.doc_scroll)                 # back to the Editor -> the field trail is RESTORED
     assert win.crumb._chip.text() == "FIELD" and win._content_crumbs == _field_trail, "content trail restored"
+    # Phase 6: the workspace RAIL swaps tab sets -- switching to a tab reveals its group + checks the rail
+    # segment, and hides the OTHER groups' tabs (so the strip never overflows). Every setCurrentWidget above
+    # self-healed through it; assert the mechanism directly.
+    win.tabs.setCurrentWidget(win.battle)                     # Battle is in the Assets group
+    _seg = {b.text(): b for b in win._rail_segs}
+    assert _seg["Assets"].isChecked() and not _seg["State"].isChecked(), "the rail follows the current tab"
+    assert win.tabs.isTabVisible(win.tabs.indexOf(win.models_doc)), "the group's sibling tabs are shown"
+    assert not win.tabs.isTabVisible(win.tabs.indexOf(win.story_state)), "another group's tab is hidden"
+    win._activate_group([b.text() for b in win._rail_segs].index("State"))   # click the State rail segment
+    assert win.tabs.currentWidget() in (win.story_state, win.item_equip), "a rail click swaps to that workspace"
+    assert _seg["State"].isChecked() and not _seg["Assets"].isChecked(), "the clicked segment is the active one"
+    win.tabs.setCurrentWidget(win.doc_scroll)                 # restore the Editor for the rest of the smoke
     # per-ENTITY summaries: probe an NPC (with an HTML-ish name for the escaping path) + a member gateway,
     # a real-FF9 gateway, and an out-of-campaign gateway, then clean up
     pdoc = win._doc("IC_ENT")

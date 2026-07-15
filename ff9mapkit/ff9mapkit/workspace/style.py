@@ -233,6 +233,17 @@ _QSS = Template(
     QWidget#consoleHead { background: $surface; border-top: 1px solid $border; }
     QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
+    /* the workspace RAIL (Phase 6): a segmented control above the tabs that swaps which tab set shows, so
+       the strip never overflows. The active segment is a raised pill (distinct from a tab's underline). */
+    QWidget#railBar { background: $surface; border-bottom: 1px solid $border; }
+    QToolButton#railSeg {
+        background: transparent; color: $muted; border: 1px solid transparent;
+        border-radius: 7px; padding: 5px 14px; font-weight: 600;
+    }
+    QToolButton#railSeg:hover   { color: $text; background: $hover; }
+    QToolButton#railSeg:checked { color: $text; background: $surface_3; border: 1px solid $border; }
+    QToolButton#railSeg:focus   { border: 1px solid $focus; }
+
     /* the "?" concept badge next to a jargon form label -- a small circular help affordance */
     QToolButton#conceptBadge {
         background: transparent; color: $muted; border: 1px solid $border; border-radius: 9px;
