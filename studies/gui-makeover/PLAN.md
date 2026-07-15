@@ -117,8 +117,30 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >
 > Verified: **full suite 2842 passed / 230 skipped** (+6 new tests), smoke green (incl. a live density-toggle
 > round-trip), dark+light screenshots of the Inspector, all four empty states, Comfortable vs Compact, and the
-> palette. Next: **Phase 4/5 (additive learnability)** — sample gallery + teaching empty-state deepening,
-> concept cards, plain-language errors (parallelizable; no reorg dependency).
+> palette.
+
+> **★ Phase 4 (Learnability, additive part 1) COMPLETE** (2026-07-14, 2 commits). **⚠ PROVENANCE COURSE-
+> CORRECTION:** the plan's "sample gallery" (open bundled example fields read-only) was **scrapped** — the kit
+> ships **zero** FF9 content by design (the provenance gate), Vivi's Hut is a broken golden-byte fixture, and
+> opening/shipping any FF9-derived field would violate that gate. The newcomer's first working project must be
+> one **they fork from their own install**, not one we ship. So Phase 4 became a *provenance-clean* onboarding:
+> - **The 'Get started' checklist** (`46e19ed`) — Home leads with a live 3-step path: ① point the kit at your
+>   FF9 install → ② extract the base templates (one-time) → ③ **fork your first field from the game** (→ Import).
+>   A provenance note leads ("includes **no** FINAL FANTASY IX content — you point it at your own copy…").
+>   Rebuilt every Home show, so a step ticks ✓ the moment it's done; the ONE accent is the first not-yet-done
+>   step (the exact next action). Shown for a newcomer / empty Workspace, hidden for a configured user
+>   mid-project; supersedes the terse `_home_setup` banner. New reusable QSS role `ok` (success ✓).
+> - **The 'Try it now' reassurance** (`f29987f`) — a footer closing the fork→deploy→play arc: "press F9 to try
+>   it in your game — it deploys to a safe test slot and backs up first, so you can explore without risk."
+>
+> The destination (Import) already frames itself provenance-first ("Bring content in from your real FF9
+> install. Fork a single real field…"), so the path is coherent end-to-end. **Deferred (with cause):** the
+> "just get me started" id-band/mod-folder defaults are already handled (fork writes to a discoverable user
+> folder with defaults; Run-setup uses defaults), and the Import tab's density is **Phase 6**'s to simplify.
+> Verified: **full suite 2842 passed / 230 skipped**, smoke green (structural, machine-state-independent
+> asserts), full-Home dark screenshot. Next: **Phase 5 (Learnability part 2)** — concept cards for the jargon
+> (fork/field/walkmesh/gEventGlobal/…) via What's-This + an Inspector "About this…" panel (hosts on the Phase-3
+> grouped Inspector), plus a plain-language error layer in the Problems dock.
 
 
 ## 1. North-star vision
@@ -213,7 +235,13 @@ Ordered so foundations land first and each phase ships visible value. The offscr
 - **Success criteria:** Inspector shows three labelled sections instead of a flat list (screenshot); every empty state = icon + purpose line + action, no black void, no double sentence; density toggle visibly re-rhythms tree/form rows; no repaint regressions.
 
 ### Phase 4 — Learnability, additive part 1: first-run, sample gallery, "Try it now"
-- **Goal:** convert the first 10 minutes from "read a paragraph, fail a form, find a diagnostics panel" into "get set up in order, open a working example, poke a safe sandbox." *No hiding; parallelizable with 2–3.*
+> **⚠ SUPERSEDED IN PART BY A PROVENANCE CORRECTION (see the progress note up top).** The "Learn by example →
+> open bundled example fields" item below was **scrapped**: the kit ships zero FF9 content (the provenance
+> gate), Vivi's Hut is a broken golden-byte fixture, and opening/shipping any FF9-derived field violates that
+> gate. It was replaced by a *provenance-clean* onboarding — a "Get started" checklist that teaches the user to
+> **fork their own first field from their install** (setup → extract templates → Import). The first-run
+> sequencing, "Try it now" framing, and defaults items below were kept/were-already-handled.
+- **Goal:** convert the first 10 minutes from "read a paragraph, fail a form, find a diagnostics panel" into "get set up in order, ~~open a working example~~ fork your own first field from your game, poke a safe sandbox." *No hiding; parallelizable with 2–3.*
 - **Scope (in):** a **3-step guided first-run** that *sequences* the existing `SetupHealthDialog` actions (locate game → extract templates → open a sample / make first field) and ends on a creative action, with the consent modal deferred to after it; a **"Learn by example" Home section** opening read-only copies of the bundled `examples/` (vivi-hut, stolen-ember, thirteenth-character) into tree+Editor with **no engine-param dialog**; a **"Try it now" safe-sandbox framing** of the existing 4003/F6 loop (Report G-P11); a **"just get me started" default setup path** deferring id-band/mod-folder choices to sane defaults (Report G-P8). **(out):** concept cards, error layer, hiding mode.
 - **Deliverables:** Reports D-§4 (first-run, samples), G-P8/P11, H stages 0–1.
 - **Dependencies:** Phase 1 (components). **Effort:** M.
