@@ -123,7 +123,18 @@ _QSS = Template(
     QPushButton:focus, QToolButton:focus, QPushButton#search:focus { border: 1px solid $focus; }
     QTabBar::tab:focus { border-color: $focus; color: $text; }
     QTreeWidget:focus, QTreeView:focus, QListWidget:focus { border: 1px solid $focus; }
-    QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid $focus; }
+    /* NB: pseudo-ELEMENT before pseudo-CLASS -- `::indicator:focus`, NEVER `:focus::indicator`. Qt does
+       not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
+       `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test
+       `(0 & state) == 0` is true in EVERY state. The rule silently degenerates to an unconditional
+       `QRadioButton, QCheckBox { border: 1px solid $focus; }` -- which shipped, and boxed every radio and
+       checkbox in the app in a permanent accent rect while giving them NO focus ring at all.
+       test_qss_has_no_malformed_subcontrol_selectors now guards the whole class of typo. */
+    QCheckBox::indicator:focus, QRadioButton::indicator:focus { border: 1px solid $focus; }
+    /* A CHECKED indicator is already filled $accent, and $focus == $accent in 6 of 7 palettes, so the rule
+       above would be invisible exactly when a radio is clicked or arrowed into. $accent_fg is the one token
+       guaranteed legible ON $accent. Specificity (0x31 > 0x21) wins this, not source order. */
+    QCheckBox::indicator:checked:focus, QRadioButton::indicator:checked:focus { border: 1px solid $accent_fg; }
 
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;

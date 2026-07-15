@@ -58,6 +58,10 @@ from ff9mapkit.workspace.style import qss                                     # 
 BROKEN_T = "QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid %s; }"
 FIXED_T = "QCheckBox::indicator:focus, QRadioButton::indicator:focus { border: 1px solid %s; }"
 
+# The fix LANDED (Phase 0, style.py:126), so the shipped QSS is now the "after". This script keeps
+# reproducing the original by RE-INJECTING the malformed selector into the live sheet -- so it stays a
+# runnable record of the bug rather than bit-rotting the moment it was fixed.
+
 app = QApplication.instance() or QApplication([])
 
 
@@ -99,12 +103,14 @@ pal = derive(DARK)
 focus = pal.get("focus", pal["accent"])
 print(f"DARK accent = {pal['accent']}   focus = {focus}   bg = {pal['bg']}")
 
-base = qss(DARK)
+fixed_css = qss(DARK)
 broken, fixed = BROKEN_T % focus, FIXED_T % focus
-assert broken in base, "the shipped QSS no longer contains the broken selector -- has it been fixed?"
+assert fixed in fixed_css, (
+    "style.py no longer contains the CORRECT `::indicator:focus` selector -- has Phase 0 been reverted?")
+broken_css = fixed_css.replace(fixed, broken)       # reconstruct the original bug
 
-before = render(base, "CURRENT (style.py:126 as shipped)")
-after = render(base.replace(broken, fixed), "FIXED (::indicator:focus)")
+before = render(broken_css, "THE BUG (`:focus::indicator`, as it shipped)")
+after = render(fixed_css, "SHIPPED NOW (`::indicator:focus`, Phase 0)")
 
 hit_before = [k for k, v in before.items() if v.lower() == focus.lower()]
 hit_after = [k for k, v in after.items() if v.lower() == focus.lower()]

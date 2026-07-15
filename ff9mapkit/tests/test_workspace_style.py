@@ -94,3 +94,24 @@ def test_qss_compact_is_tighter_than_comfortable():
     assert comfy != tight
     assert "padding: 6px 8px" in comfy and "padding: 6px 8px" not in tight   # the roomy row padding is comfy-only
     assert "padding: 3px 4px" in tight                                       # compact's tighter row padding
+
+
+def test_qss_has_no_malformed_subcontrol_selectors():
+    """A pseudo-CLASS before a pseudo-ELEMENT (`QCheckBox:focus::indicator`) is silently catastrophic.
+
+    Qt does not reject it. `Selector::pseudoElement()` reads the FIRST pseudo, recognises `focus` as a known
+    CLASS, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`. The match test
+    `(0 & state) == 0` is true in EVERY state, so the rule degenerates to an unconditional
+    `QCheckBox { border: ... }` -- it targets the whole widget, always, instead of the sub-control on focus.
+
+    This shipped at style.py:126 and put a permanent accent rect around every radio and checkbox in the app
+    (it *was* the "cards don't read well" screenshot) while leaving them with no focus ring at all. The a11y
+    focus test (test_workspace_a11y.py:136) greps for four known-good selector STRINGS and structurally
+    cannot see a malformed one, so it passed throughout. Hence a shape check, not a substring check.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        # Widget:class::element -- the correct order is ALWAYS Widget::element:class, so any hit is a bug.
+        bad = re.findall(r"[A-Za-z_][\w-]*:[a-z-]+::[a-z-]+", css)
+        assert not bad, f"{mode}: pseudo-class before sub-control (Qt matches neither): {bad}"

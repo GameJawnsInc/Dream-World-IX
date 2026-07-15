@@ -80,7 +80,7 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "surface_btn": "#3b4252",   # nord1
     "field": "#3b4252",
     "text": "#eceff4",          # nord6 (snow storm)
-    "muted": "#9aa3b5",         # lifted to WCAG AA 4.5:1 on nord0/nord surface
+    "muted": "#aab2c1",         # lifted to WCAG AA 4.5:1 on bg/surface AND surface_2 (3.87 -> 4.61)
     "accent": "#5e81ac",        # nord10 (frost, deep blue)
     "accent_fg": "#ffffff",     # white over the mid-blue accent (snow-storm #eceff4 was a touch low-contrast)
     "accent_hover": "#6a8cb6",
@@ -104,7 +104,7 @@ DRACULA = {                     # https://draculatheme.com
     "surface_btn": "#3a3d4d",
     "field": "#21222c",
     "text": "#f8f8f2",
-    "muted": "#8f95bc",         # comment #6272a4, lifted to WCAG AA 4.5:1 on surface
+    "muted": "#9ca2c4",         # comment #6272a4, lifted to AA 4.5:1 on bg/surface AND surface_2 (3.91 -> 4.56)
     "accent": "#bd93f9",        # purple
     "accent_fg": "#282a36",
     "accent_hover": "#caa6fb",
@@ -127,8 +127,11 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     "surface": "#073642",       # base02
     "surface_btn": "#0b4350",
     "field": "#073642",
-    "text": "#93a1a1",          # base1
-    "muted": "#7f9e9e",         # lifted to WCAG AA 4.5:1 on base03/base02
+    # base1 #93a1a1 measured only 4.22:1 on surface_2 -- the ONLY palette whose BODY text was sub-AA on an
+    # elevated panel. Lifted past its own 4.5 minimum on purpose: muted must clear 4.5 too AND stay dimmer
+    # than text, and at text's bare minimum there is no headroom for both (the solver ran muted to #ffffff).
+    "text": "#a2aeae",          # base1, lifted to AA 4.5:1 on surface_2 (4.22 -> 4.94)
+    "muted": "#8eaaaa",         # lifted to AA 4.5:1 on base03/base02 AND surface_2 (3.91 -> 4.55)
     "accent": "#268bd2",        # blue
     "accent_fg": "#ffffff",     # white over the blue accent (base3 cream reads low-contrast on it)
     "accent_hover": "#3597db",
@@ -178,7 +181,7 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
     "surface_btn": "#3c3836",   # bg1
     "field": "#3c3836",
     "text": "#ebdbb2",          # fg1
-    "muted": "#a89984",         # gray
+    "muted": "#b1a390",         # gray, lifted to AA 4.5:1 on surface_2 (4.07 -> 4.58)
     "accent": "#fe8019",        # bright orange
     "accent_fg": "#282828",
     "accent_hover": "#ff8f33",

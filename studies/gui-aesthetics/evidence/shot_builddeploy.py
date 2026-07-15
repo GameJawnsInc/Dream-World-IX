@@ -31,12 +31,16 @@ from ff9mapkit.workspace.style import qss                                      #
 BROKEN_T = "QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid %s; }"
 FIXED_T = "QCheckBox::indicator:focus, QRadioButton::indicator:focus { border: 1px solid %s; }"
 
+# The fix LANDED (Phase 0, style.py:126), so the shipped QSS is now the "after". The "before" is
+# reconstructed by RE-INJECTING the malformed selector, so this stays runnable rather than bit-rotting.
+
 app = QApplication.instance() or QApplication([])
 pal = derive(DARK)
 focus = pal.get("focus", pal["accent"])
-base = qss(DARK)
+fixed_css = qss(DARK)
 broken, fixed = BROKEN_T % focus, FIXED_T % focus
-assert broken in base, "shipped QSS no longer contains the broken selector -- already fixed?"
+assert fixed in fixed_css, "style.py lacks the correct `::indicator:focus` -- has Phase 0 been reverted?"
+broken_css = fixed_css.replace(fixed, broken)
 
 
 def shot(sheet, name):
@@ -59,6 +63,6 @@ def shot(sheet, name):
 
 print(f"platform={app.platformName()}  (must NOT be 'offscreen' -- see the harness note)")
 print(f"DARK focus={focus}\n")
-shot(base, "before")
-shot(base.replace(broken, fixed), "after")
+shot(broken_css, "before")
+shot(fixed_css, "after")
 print("\nOpen both. The 'before' should show a blue rect around every radio row; the 'after' none.")

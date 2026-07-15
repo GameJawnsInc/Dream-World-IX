@@ -102,6 +102,16 @@ def test_palette_contrast_invariants():
         assert _contrast(pal["text"], pal["surface"]) >= 4.5, f"{mode}: body text on surface"
         assert _contrast(pal["muted"], pal["bg"]) >= 4.5, f"{mode}: hint text on bg"
         assert _contrast(pal["muted"], pal["surface"]) >= 4.5, f"{mode}: hint text on surface"
+        # ...and on an ELEVATED panel (surface_2 -- what every QGroupBox is). This rung was UNTESTED, and
+        # four palettes shipped sub-AA on it for real: muted measured 3.87 nord / 3.91 dracula / 3.91
+        # solarized-dark / 4.07 gruvbox-dark, and solarized-dark's BODY text 4.22. Every hint inside a
+        # groupbox lands here, so it is not a hypothetical surface.
+        assert _contrast(pal["text"], d["surface_2"]) >= 4.5, f"{mode}: body text on a groupbox"
+        assert _contrast(pal["muted"], d["surface_2"]) >= 4.5, f"{mode}: hint text on a groupbox"
+        # muted is the DIMMER tier by definition -- a contrast lift must never invert it past text (a naive
+        # solve for the floors above did exactly that on solarized-dark: muted 0.3740 vs text 0.3720).
+        assert (_luminance(pal["muted"]) < _luminance(pal["text"])) is bool(pal["dark"]), \
+            f"{mode}: muted must stay dimmer than text"
         assert _contrast(pal["accent_fg"], pal["accent"]) >= 3.0, f"{mode}: text on the accent button"
         assert _contrast(d["focus"], pal["surface"]) >= 3.0, f"{mode}: focus ring on surface"
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
