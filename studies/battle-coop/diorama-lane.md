@@ -68,6 +68,7 @@ the counter families, which are fed from four different files.
 | 11 | **'No enemy left' auto-end** | `battle.cs:180-207` → sets `PHASE_CLOSE`/`SEQ_DEFEATCLOSE_FADEOUT`; the fade fires LATER at `battle.cs:168` | Gating only :180 is insufficient — :168 stays reachable whenever btl_phase reaches PHASE_CLOSE by any route |
 | 12 | **Reward layer** | `BattleResultUI.cs:558/590/700/715` | Unreachable today only via the IsOver accident. Gate `GoToBattleResult` explicitly **before ever setting IsOver** |
 | 13 | **In-battle menu** | `BattleHUD.Public.cs:801/813/820`, `BattleHUD.cs:2632-2641`, `:2775-2784` | Immediate item add/remove + party rewrite. Blocking the menu covers all of it |
+| 14 | **★ THE ENCOUNT HOLE** | `DoEventCode.cs:957` (ENCOUNT `0x2A`) **and `:969` (ENCOUNT2 `0x8C`)** | `SuppressEncounters` reaches only `IsNoEncounter` (the random/step + worldmap counters) — **both scripted-battle opcodes are untouched**, so a following guest can run a full LOCAL battle and collect local rewards (`BattleResultUI.cs:700/715`) + Steal (`BattleCalculator.cs:766`). → `inventory-authority.md` |
 
 **Also restore at teardown:** `isDebug`, `battleMapIndex`, `patternIndex`, `debugStartType`,
 `party.battle_no`, `categoryKillCount[8]`, `modelKillCount`, Achievement counters, `party.gil`,
