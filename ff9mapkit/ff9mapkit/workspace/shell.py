@@ -407,6 +407,7 @@ class Workspace(QMainWindow):
         self._undo_stack = []                      # [_UndoRec] -- applied edits (Ctrl-Z pops the last)
         self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
+        self._deployed_target = None               # the file path last deployed OK -> the spine's post-deploy hint
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
@@ -962,6 +963,30 @@ class Workspace(QMainWindow):
         self._refresh_deploy_btn()
         v.addWidget(crumb_row)
 
+        # Phase 7: the cohesion SPINE -- a modest 'what do I do next' strip below the breadcrumb, driven by the
+        # shell state (empty / unsaved / ready / just-deployed). Answers the third question ("what's my next
+        # step") the breadcrumb ("where am I") + Ctrl-K ("what is X") don't. Auto-hides when it has nothing to
+        # say. Rebuilt (state-cached, so it's free per keystroke) via _refresh_spine.
+        spine = QWidget()
+        spine.setObjectName("spineRow")
+        spine.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        sh = QHBoxLayout(spine)
+        sh.setContentsMargins(12, 5, 8, 5)
+        sh.setSpacing(8)
+        _sglyph = QLabel("→")
+        _sglyph.setProperty("role", "accent")
+        sh.addWidget(_sglyph)
+        self._spine_text = QLabel("")
+        self._spine_text.setProperty("role", "muted")
+        sh.addWidget(self._spine_text, 1)
+        self._spine_btns_lay = QHBoxLayout()
+        self._spine_btns_lay.setContentsMargins(0, 0, 0, 0)
+        self._spine_btns_lay.setSpacing(6)
+        sh.addLayout(self._spine_btns_lay)
+        self._spine_row = spine
+        spine.setVisible(False)
+        v.addWidget(spine)
+
         # The console (Problems · Output) is the bottom pane of a VERTICAL splitter, not a QDockWidget --
         # see _build_console. Floating/re-docking it was never useful and its drag machinery mis-sized the
         # panes above it; a splitter pane with a collapse toggle is what the panel always wanted to be.
@@ -1121,6 +1146,7 @@ class Workspace(QMainWindow):
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
         self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
+        self._refresh_spine()                      # show the cohesion spine's cold-start (EMPTY) guidance
 
     def _panel_header(self, text):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
@@ -3284,6 +3310,7 @@ class Workspace(QMainWindow):
             root.setIcon(0, self._dot_icon if any_unsaved else self._blank_icon)
         self.setWindowTitle("Dream World IX — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
+        self._refresh_spine()                          # dirty state feeds the cohesion spine's next action
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -6417,6 +6444,46 @@ class Workspace(QMainWindow):
             f"Save everything, then Build / Deploy {Path(t).name} exactly as the Build & Deploy tab is "
             f"configured (F9). Output streams below." if t
             else "Open a field / campaign / journey / battle first (F9)")
+        self._refresh_spine()                          # the same state changes drive the cohesion spine
+
+    def _next_actions(self):
+        """``(guidance, [(label, callback, is_primary)])`` for the cohesion spine -- the single 'what do I do
+        next' for the current shell state. The deploy itself stays the ONE crumb-row Deploy button (F9); the
+        spine points at it rather than duplicating it, and carries buttons only for non-crumb actions (fork /
+        open / save). Empty actions + empty guidance -> the strip hides."""
+        if self._current_target()[0] is None:          # EMPTY -- nothing open
+            return ("New here? Fork a real field from your own game to get started.",
+                    [("Fork a field", lambda: self.tabs.setCurrentWidget(self.import_field), True),
+                     ("Open a project…", self.on_open_campaign, False)])
+        if self._dirty_members():                       # UNSAVED edits
+            return ("You have unsaved edits — save them, then press Deploy (F9, top-right) to try it.",
+                    [("Save all", self._save_all, True)])
+        t = self._deploy_target()
+        if not t:                                       # a journey overview / save doc -- nothing to deploy
+            return ("", [])
+        if self._deployed_target == t:                  # JUST DEPLOYED this target
+            return ("Deployed to your test slot — in your game, press F6 → Reload field (or Warp to it).", [])
+        return ("Ready — press Deploy (F9, top-right) to build it into a safe test slot and play it.", [])
+
+    def _refresh_spine(self):
+        """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
+        unchanged, so it's free to call per keystroke / tab change."""
+        if not hasattr(self, "_spine_row"):
+            return
+        guidance, actions = self._next_actions()
+        key = (guidance, tuple(a[0] for a in actions))
+        if key == getattr(self, "_spine_key", None):
+            return
+        self._spine_key = key
+        self._clear_layout(self._spine_btns_lay)
+        self._spine_text.setText(guidance)
+        for label, cb, primary in actions:
+            b = QPushButton(label)
+            if primary:
+                b.setObjectName("accent")
+            b.clicked.connect(lambda _=False, c=cb: c())
+            self._spine_btns_lay.addWidget(b)
+        self._spine_row.setVisible(bool(guidance or actions))
 
     def _deploy_now(self):
         """F9 — the dev loop in one keystroke: fold + save every unsaved edit, then run the Build tab's
@@ -7119,6 +7186,9 @@ class Workspace(QMainWindow):
         v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
                                fail_hint=fail_hint)
         self._show_problems(v, [])
+        if code == 0 and ("deploy" in subject.lower() or "install to game" in subject.lower()):
+            self._deployed_target = self._deploy_target()   # -> the spine's 'now press F6 in-game' hint
+            self._refresh_spine()
         if on_finished:
             on_finished(code)
 
@@ -8695,6 +8765,11 @@ def _smoke(win):
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
     # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
     assert "Nothing open" in win._home_status.text(), "Home resets its status after Close"
+    # Phase 7: the cohesion SPINE answers 'what do I do next' per state. EMPTY -> a fork/open nudge; a clean
+    # open project -> a deploy nudge; unsaved edits -> a save nudge. (Deploy stays the ONE crumb button; the
+    # spine points at it rather than duplicating it.)
+    _g_empty, _a_empty = win._next_actions()
+    assert "Fork a real field" in _g_empty and any(lbl == "Fork a field" for lbl, _c, _p in _a_empty), _g_empty
     _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
     assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
     # Phase 4: the provenance-clean 'Get started' checklist shows on the empty Home -- 3 live steps ending on
