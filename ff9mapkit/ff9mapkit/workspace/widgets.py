@@ -149,6 +149,38 @@ def prose(text, width=PROSE_W, *, parent=None):
     return Prose(text, width, parent)
 
 
+OPT_INDENT = 30    # the radio/checkbox TEXT column, so a caption lines up under the label and not under
+                   # the indicator. MEASURED: style().subElementRect(SE_RadioButtonContents).x(), identical
+                   # in both densities. Do NOT derive it arithmetically from the indicator width + spacing
+                   # -- that lands a pixel out (the plan said 31), because QSS puts the indicator's border
+                   # OUTSIDE its width and the control carries its own padding.
+
+
+def option(rb, description, lay, *, width=PROSE_W):
+    """A choice is a NAME; its consequence is a caption BENEATH it, on the label's own column.
+
+    The third law: never put prose inside a widget. `QRadioButton("Test slot 4003 -- quick + reversible;
+    play via F6 -> Warp  (or New Game -> hut door)")` is a label doing a description's job -- it makes every
+    option the same visual weight as its own explanation, so nothing on the card can be scanned. Split it:
+    13px `$text` for what you pick, 11px `$muted` for what it means.
+
+    The caption is a `Prose` (not a raw wrapped QLabel with a maximumWidth) because it is NESTED, and a
+    nested wrapped label with a raw cap silently clips -- see :class:`Prose`.
+
+    Also sets the radio's accessible DESCRIPTION, so a screen reader still reads the consequence that used
+    to live in the label. (Name = the choice; description = the caption. That is the correct split.)
+    """
+    lay.addWidget(rb)
+    if description:
+        cap = Prose(description, width)
+        cap.setProperty("role", "caption")
+        cap.setContentsMargins(OPT_INDENT, 0, 0, 6)
+        lay.addWidget(cap)
+        rb.setAccessibleDescription(description)
+        rb.description_label = cap
+    return rb
+
+
 def section(title, *, parent=None):
     """A titled CARD -- the QGroupBox replacement.
 

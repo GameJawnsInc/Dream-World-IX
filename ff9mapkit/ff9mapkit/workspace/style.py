@@ -115,6 +115,13 @@ _QSS = Template(
     /* a disabled accent button (e.g. Save with nothing to save) must grey out -- the #accent id
        selector otherwise out-ranks the generic :disabled rule and would stay blue. */
     QPushButton#accent:disabled { background: $surface_btn; color: $muted; border: 1px solid $border; }
+    /* The primary needs its OWN focus ring. `QPushButton#accent` (specificity 0,1,0,1) out-ranks the
+       generic `QPushButton:focus` (0,0,1,1) -- exactly the trap the :disabled rule above documents -- so
+       every accent button in the app had NO focus indication at all, including the crumb-row Deploy F9,
+       the primary action of the whole application. Measured: 0 px changed on focus, before this rule.
+       $accent_fg, not $focus: $focus == $accent in 6 of 7 palettes, so a $focus ring on an $accent fill
+       would be invisible. */
+    QPushButton#accent:focus { border: 1px solid $accent_fg; }
 
     /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
        drawing the native checked dot, so without this the selected state renders INVISIBLE. */
@@ -224,7 +231,7 @@ _QSS = Template(
 
     QPlainTextEdit, QTextEdit {
         background: $log_bg; color: $log_fg; border: 1px solid $border; border-radius: 8px;
-        font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; padding: 6px;
+        font-family: "Cascadia Code", "Consolas", monospace; font-size: $type_mono; padding: 6px;
     }
 
     /* dropdown menus (the toolbar Field / Campaign / Journey buttons) */
@@ -275,6 +282,18 @@ _QSS = Template(
     QLabel[role="empty_glyph"] { font-size: 34px; color: $text_subtle; }
     QLabel[role="empty_title"] { font-size: $type_h2; font-weight: 600; color: $text; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
+    /* THE MONO REGISTER. This app's whole subject is machine tokens -- 4003, 30110, ff9-XXXXXXXX,
+       FF9CustomMap, C:/.../FF9CustomMap. Set in the body face they read as prose and the eye slides off
+       them; set in mono they read as things you copy, and it is the one real texture in the composition.
+       FAMILY ONLY -- no font-size, so it inherits 13px and neither row heights nor 24px hit targets move.
+       An orthogonal `mono` property, NOT a role= value: role is single-valued across ~111 call sites, so
+       role="id" on a label would silently drop its existing role="muted".
+       Cascadia ships with VS / Windows Terminal, NOT with Windows -- on a clean machine this falls to
+       Consolas, which is fine. The register is the win, not the letterforms. Do not bundle a font. */
+    QLabel[mono="true"], QLineEdit[mono="true"] {
+        font-family: "Cascadia Code", "Consolas", monospace;
+    }
+
     QLabel[role="chip"] {
         background: $surface_3; border: 1px solid $border; border-radius: $radius_sm;
         padding: 2px $space_2; color: $muted; font-size: $type_caption;

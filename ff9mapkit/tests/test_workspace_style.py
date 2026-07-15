@@ -126,6 +126,45 @@ def test_checked_indicators_carry_a_tick_and_a_dot():
         assert dot, f"{mode}: checked radio has no dot gradient"
 
 
+def test_accent_button_keeps_a_visible_focus_ring():
+    """The primary button must show focus -- it had NO ring at all until this rule.
+
+    `QPushButton#accent` (specificity 0,1,0,1) out-ranks the generic `QPushButton:focus` (0,0,1,1), so the
+    id selector silently won and every accent button in the app -- including the crumb-row Deploy F9, the
+    primary action of the whole application -- rendered identically focused and unfocused. Measured before
+    the fix: 0 px changed. Same specificity trap the `#accent:disabled` rule already documents.
+
+    The ring must be `$accent_fg`, not `$focus`: `$focus == $accent` in 6 of 7 palettes, so a $focus ring
+    on an $accent fill would be invisible in all but one.
+    """
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(pal)
+        rule = [ln for ln in css.splitlines() if "QPushButton#accent:focus" in ln]
+        assert rule, f"{mode}: the primary button has no focus ring (the #accent id out-ranks :focus)"
+        assert d["accent_fg"] in rule[0], f"{mode}: accent focus ring must be accent_fg, not $focus"
+
+
+def test_mono_register_sets_family_only():
+    """Machine tokens (ids, session codes, paths) get a mono FAMILY -- and must not get a size.
+
+    Family-only is load-bearing: a font-size here would change row heights and could drag a control under
+    the 24px target floor (WCAG 2.5.8) in compact density. It inherits 13px from the base QWidget rule.
+    `mono` is an orthogonal property, NOT a role= value, because role is single-valued across ~111 call
+    sites -- role="id" on a label would silently drop its existing role="muted".
+    """
+    css = style.qss(theme.DARK)
+    assert 'QLabel[mono="true"]' in css, "no mono register rule"
+    block = css.split('QLabel[mono="true"]')[1].split("}")[0]
+    assert "font-family" in block
+    assert "font-size" not in block, "the mono register must not set a size -- it would move row heights"
+    # Inspect the TEMPLATE, not the rendered css: $type_mono IS "12px", so the output is byte-identical
+    # whether the console hardcodes 12px or spends the token. Only the source can tell them apart.
+    tmpl = style._QSS.template
+    console = tmpl.split("QPlainTextEdit")[1].split("}")[0]
+    assert "$type_mono" in console, "the console should spend the $type_mono token, not hardcode a size"
+
+
 def test_qss_has_no_malformed_subcontrol_selectors():
     """A pseudo-CLASS before a pseudo-ELEMENT (`QCheckBox:focus::indicator`) is silently catastrophic.
 

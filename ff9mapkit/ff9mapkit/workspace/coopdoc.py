@@ -93,17 +93,18 @@ class CoopDoc(QWidget):
 
         sess = widgets.section("Session")
         gv = sess.content_layout
-        self.rb_host = QRadioButton("Host — start a new session (your code is shared with the other player)")
-        self.rb_join = QRadioButton("Join — enter the host's session code")
+        self.rb_host = QRadioButton("Host")
+        self.rb_join = QRadioButton("Join")
         self.rb_host.setChecked(True)
         self.rb_host.toggled.connect(self._render_role)
-        gv.addWidget(self.rb_host)
-        gv.addWidget(self.rb_join)
+        widgets.option(self.rb_host, "Start a new session. Your code is shared with the other player.", gv)
+        widgets.option(self.rb_join, "Enter the host's session code.", gv)
 
         code_row = QHBoxLayout()
         self.code_label = QLabel("Session code:")
         self.code = QLineEdit()
         self.code.setPlaceholderText("ff9-XXXXXXXX")
+        self.code.setProperty("mono", True)             # the most-copied string in the app
         self.code.setMaximumWidth(260)                  # a 12-char code, not a 970px trough
         self.btn_copy = _pad(QPushButton("Copy"))
         self.btn_copy.clicked.connect(self._copy_code)
@@ -120,8 +121,10 @@ class CoopDoc(QWidget):
         gv.addLayout(code_row)
 
         lan_row = QHBoxLayout()
-        self.rb_relay = QRadioButton("Internet (relay) — works from anywhere")
-        self.rb_lan = QRadioButton("Direct LAN — same WiFi, no relay")
+        self.rb_relay = QRadioButton("Internet (relay)")
+        self.rb_relay.setToolTip("Works from anywhere; the session is bridged through a relay.")
+        self.rb_lan = QRadioButton("Direct LAN")
+        self.rb_lan.setToolTip("Same WiFi only, no relay.")
         self.rb_relay.setChecked(True)
         self.rb_relay.toggled.connect(self._render_role)
         self.lan_ip = QLineEdit()
