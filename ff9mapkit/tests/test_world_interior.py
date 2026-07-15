@@ -224,13 +224,18 @@ def test_signed_area_orientation():
     assert IN.signed_area(list(reversed(ccw))) == pytest.approx(-16.0)
 
 
-def _patch_donor(monkeypatch, donor_bm):
+def _patch_donor(monkeypatch, donor):
+    """``donor``: one BlockMesh (served for any block) or ``{(x, y): BlockMesh}``."""
     from ff9mapkit.world import extract as X
 
     def fake_read_block(x, y, *, disc=1, lod="0_1", part="terrain", game=None):
         if part != "terrain":
             raise FileNotFoundError("no object part in the synthetic donor")
-        return donor_bm
+        if isinstance(donor, dict):
+            if (x, y) not in donor:
+                raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found")
+            return donor[(x, y)]
+        return donor
     monkeypatch.setattr(X, "read_block", fake_read_block)
 
 
@@ -265,7 +270,7 @@ def test_carve_mountain_refusals(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="not clear plain-grass"):
         IN.carve_mountain(soup, center=(46.0, -46.0), alcove=None, game=tmp_path,
                           log=lambda *a: None)
-    with pytest.raises(ValueError, match="no deployed override"):
+    with pytest.raises(ValueError, match="needs deployed Terrain overrides"):
         IN.carve_mountain(soup, near=(500.0, -500.0), alcove=None, game=tmp_path,
                           log=lambda *a: None)
     # a grass-only donor has no massif
@@ -273,6 +278,86 @@ def test_carve_mountain_refusals(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="no rock massif"):
         IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
                           log=lambda *a: None)
+
+
+def _cone_donor_blocks(cx=64.0, cz=-32.0, radius=26.0, apex=6.0):
+    """A subdivided rock cone straddling donor blocks (0,0)/(1,0), pre-split at the 64u
+    border exactly like stock data ships (identity welds at the cut)."""
+    import math as _m
+    rings = [(radius, 0.0), (radius * 0.75, apex * 0.25),
+             (radius * 0.5, apex * 0.5), (radius * 0.25, apex * 0.75)]
+    NSEG = 24
+
+    def ring_pt(r, y, k):
+        a = 2 * _m.pi * k / NSEG
+        return (cx + r * _m.cos(a), y, cz + r * _m.sin(a))
+
+    def up(tri):
+        a, b, c = tri
+        cy = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])
+        return tri if cy > 0 else (a, c, b)
+
+    tris3 = []
+    for (r1, y1), (r2, y2) in zip(rings, rings[1:]):
+        for k in range(NSEG):
+            p00, p01 = ring_pt(r1, y1, k), ring_pt(r1, y1, k + 1)
+            p10, p11 = ring_pt(r2, y2, k), ring_pt(r2, y2, k + 1)
+            tris3.append(up((p00, p01, p10)))
+            tris3.append(up((p01, p11, p10)))
+    r4, y4 = rings[-1]
+    for k in range(NSEG):
+        tris3.append(up((ring_pt(r4, y4, k), ring_pt(r4, y4, k + 1), (cx, apex, cz))))
+    parents = [(tuple((*p, _MAIN_U, 0.5, 0.0, 1.0, 0.0) for p in t), MASSIF_DONOR, "m")
+               for t in tris3]
+    out = {}
+    for blk, pieces in IN.split_borders8(parents).items():
+        bx, by = blk
+        rows = [(tuple((c[0] - 64.0 * bx, c[1], c[2] + 64.0 * by) for c in corners),
+                 MASSIF_DONOR, _MAIN_U) for corners, idall, fam in pieces]
+        out[blk] = _bm(rows, name=f"Block[{bx}][{by}] Terrain", x=bx, y=by)
+    return out
+
+
+def _grid_block(bx, by, y=3.2, n=16, cell=4.0, extra=()):
+    """A full-width (64u) mains grid block in local coords, plus optional extra tris."""
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            x0, x1 = i * cell, (i + 1) * cell
+            z0, z1 = -j * cell, -(j + 1) * cell
+            tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
+    tris.extend(extra)
+    return _bm(tris, name=f"Block[{bx}][{by}] Terrain", x=bx, y=by)
+
+
+def test_carve_mountain_multiblock_span(monkeypatch, tmp_path):
+    """A cross-border donor massif carried onto a 2x2 target span: the blob merges from
+    two donor blocks, new tris split at the 64u borders, all four span blocks re-emit,
+    and the rigid-carry + crack gates hold across the internal borders."""
+    _patch_donor(monkeypatch, _cone_donor_blocks())
+    coast = [(((2.0, 3.2, -2.0), (6.0, 3.2, -2.0), (2.0, 3.2, -6.0)), ROCK, 0.9)]
+    soup = IN.soup_from_blocks({
+        (0, 1): _grid_block(0, 1, extra=coast), (1, 1): _grid_block(1, 1),
+        (0, 2): _grid_block(0, 2), (1, 2): _grid_block(1, 2)})
+    res = IN.carve_mountain(soup, near=(64.0, -128.0), donor=[(0, 0), (1, 0)],
+                            alcove=None, game=tmp_path, log=lambda *a: None)
+    assert set(res["changed"]) == {(0, 1), (1, 1), (0, 2), (1, 2)}
+    r = res["report"]
+    assert sorted(map(tuple, r["blocks"])) == [(0, 1), (0, 2), (1, 1), (1, 2)]
+    assert r["peak_y"] == pytest.approx(3.2 + 6.0, abs=1e-6)
+    assert r["rock_rigid"] < 1e-6
+    # the split massif lands rock (dispatch-stripped) in more than one block
+    blocks_with_rock = [blk for blk, bm in res["changed"].items()
+                        if any(t4[0] == MASSIF for t4 in bm.chan_arrays[CH_TAN])]
+    assert len(blocks_with_rock) >= 2
+    # a missing span block refuses up front
+    soup2 = IN.soup_from_blocks({
+        (0, 1): _grid_block(0, 1, extra=coast), (1, 1): _grid_block(1, 1),
+        (0, 2): _grid_block(0, 2)})
+    with pytest.raises(ValueError, match="needs deployed Terrain overrides"):
+        IN.carve_mountain(soup2, near=(64.0, -128.0), donor=[(0, 0), (1, 0)],
+                          alcove=None, game=tmp_path, log=lambda *a: None)
 
 
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
