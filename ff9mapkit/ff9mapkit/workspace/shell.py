@@ -22,7 +22,8 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
+    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap,
+    QShortcut, QTextCharFormat, QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -43,7 +44,7 @@ from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import jobs
 from ..editor.model import FieldDoc, protected_reason
-from ..editor.theme import THEME_CHOICES, pick_palette
+from ..editor.theme import THEME_CHOICES, derive, pick_palette
 from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
@@ -1404,6 +1405,10 @@ class Workspace(QMainWindow):
         ov.addLayout(out_head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        # The log accumulates across jobs now (run_job no longer clears), so it needs a ceiling. 5000
+        # blocks is a deep build's whole output several times over, and it is the cheap price of the
+        # header meaning anything.
+        self.output.setMaximumBlockCount(5000)
         self.output.setAccessibleName("Output console")
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
@@ -7472,7 +7477,18 @@ class Workspace(QMainWindow):
 
     def _show_problems(self, verdict, problems):
         glyph = {fb.OK: "✓", fb.WARN: "⚠", fb.ERROR: "✕", fb.RUNNING: "…"}.get(verdict.level, "")
-        tail = f"   —   {verdict.next_action}" if verdict.next_action else ""
+        # The banner shows the verdict's own next_action when it has one. When it does NOT, fall back to
+        # the humanised first error -- feedback.py carries hand-written plain-language rules producing a
+        # (friendly, next_step) pair, and every one of them was reachable ONLY by hovering a Problems row.
+        # Nobody hovers a log row to find out what to do. This is the cheapest legibility win in the app:
+        # the advice already exists, written, and was posted somewhere nobody looks.
+        nxt = verdict.next_action
+        if not nxt:
+            first_err = next((p for p in problems if p.severity == fb.ERROR), None)
+            help_ = fb.humanize(first_err.message) if first_err else None
+            if help_:
+                nxt = help_[1]
+        tail = f"   —   {nxt}" if nxt else ""
         self.banner.setText(f"  {glyph}  {verdict.headline}{tail}")
         self.banner.setProperty("state",             # the QLabel[role=banner][state] stripe colour
                                 {fb.OK: "ok", fb.WARN: "warn", fb.ERROR: "error", fb.RUNNING: "running"}
@@ -7512,9 +7528,12 @@ class Workspace(QMainWindow):
         if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
             return False
         self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
-        self.output.clear()
-        self.output.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {subject}\n"
-                                    f"$ {' '.join(str(a) for a in argv[1:])}")
+        # No clear(). The header is a SEPARATOR, and a separator with nothing above it separates nothing --
+        # wiping the console on every job meant the log only ever held one job and the timestamp was
+        # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
+        # Clear button still exists for when you actually want it.
+        self._log(f"[{time.strftime('%H:%M:%S')}] {subject}", "head")
+        self._log(f"$ {' '.join(str(a) for a in argv[1:])}", "echo")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_console()
         self._set_busy(True)                            # loading state: 'Working…' until _proc_done clears it
@@ -7535,10 +7554,57 @@ class Workspace(QMainWindow):
         self.run_job([sys.executable, "-m", "ff9mapkit", "lint-campaign", str(self.campaign_path)],
                      cwd=KIT, subject="Lint (CLI)", ok_headline="Lint (CLI) — done")
 
+    # The Python traceback's first line is FIXED by the interpreter, so this is an exact anchor rather
+    # than a guess. Deliberately NOT extended to sniffing "error"/"warning" anywhere in a line: a build
+    # log is full of paths and prose containing both, and a register that cries wolf is worse than none.
+    _TRACE_ANCHOR = "Traceback (most recent call last):"
+
+    def _log(self, text, kind="body"):
+        """Append to the console in one of four REGISTERS, keyed on PROVENANCE.
+
+        A build log is a flat grey wall in which a traceback and forty lines of `wrote ...` are the
+        identical ink. These four tiers are not sniffed -- three of them are things the GUI writes ITSELF
+        and therefore knows with certainty (the job header, the command echo, the process's own stdout),
+        and the fourth keys on the interpreter's fixed traceback anchor.
+
+        THE REGISTER IS WEIGHT, NOT A THIRD GREY, and that is forced rather than chosen: `text`, `log_fg`
+        and `muted` were each authored per-palette from their own scheme's canon with no relationship to
+        one another, so they are not a ladder. Measured: dracula's `text` and `log_fg` are BYTE-IDENTICAL
+        (#f8f8f2), and both Solarizeds have the order INVERTED (muted is brighter than log_fg). A tonal
+        register would silently collapse in three of eight palettes. Weight costs zero contrast headroom,
+        which is exactly why it survives in the palettes that have none.
+
+        600, not 550. The cut list is PER-FAMILY and the console is not the app's face: on Cascadia Code
+        550 is a real SemiBold, but on CONSOLAS -- the clean-Windows fallback, which ships Regular+Bold
+        only -- 550 renders byte-identical to 400 and 600 is the first weight that reaches Bold. A weight
+        that works in one family is a no-op in another.
+
+        QTextCursor + setCharFormat, NEVER appendHtml: appendHtml switches the document to rich text, and
+        every subsequent line of raw stdout containing a `<` would be eaten as markup.
+        """
+        fmt = QTextCharFormat()
+        pal = self.pal
+        if kind == "head":
+            fmt.setForeground(QColor(pal["text"]))
+            fmt.setFontWeight(600)
+        elif kind == "echo":
+            fmt.setForeground(QColor(pal["log_fg"]))
+            fmt.setFontWeight(600)
+        elif kind == "trace":
+            fmt.setForeground(QColor(derive(dict(pal))["error_text"]))
+        else:
+            fmt.setForeground(QColor(pal["log_fg"]))
+        cur = self.output.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        cur.setCharFormat(fmt)
+        cur.insertText(("" if self.output.document().isEmpty() else "\n") + text)
+        self.output.setTextCursor(cur)
+        self.output.ensureCursorVisible()
+
     def _drain_proc(self):
         text = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace").rstrip()
         if text:
-            self.output.appendPlainText(text)
+            self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
 
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state

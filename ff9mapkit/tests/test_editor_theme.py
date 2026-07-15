@@ -408,3 +408,43 @@ def test_the_selection_cannot_be_confused_with_hover():
             f"{mode}: the selected row is only {got}/255 from its own HOVER -- the cursor and the "
             f"selection look the same. Contrast will not catch this; it is blind to chroma."
         )
+
+
+def test_every_log_register_is_legible_on_the_well():
+    """The console's four registers all land on `log_bg` -- a ground that was fenced against NOTHING
+    until solarized-light shipped its own body text at 3.97 there.
+
+    `text` (the job header), `log_fg` (the command echo and the body) and `error_text` (a traceback) are
+    each authored or derived against OTHER grounds entirely, so none of them was ever checked here.
+    Worst across all 8 and all three inks: 4.99 (solarized-light).
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        for ink in ("text", "log_fg", "error_text"):
+            got = _contrast(d[ink], d["log_bg"])
+            assert got >= 4.5, f"{mode}: the log's {ink} register is {got:.2f} on the well"
+
+
+def test_the_log_registers_cannot_be_a_tonal_ladder():
+    """WHY the log's register is WEIGHT and not a third grey -- fenced, because the reason is invisible.
+
+    `text`, `log_fg` and `muted` were each authored per-palette from their own scheme's canon with no
+    relationship to one another. They are not a ladder, and this asserts the specific counter-examples so
+    that nobody "simplifies" the weight register into a tonal one:
+
+      dracula          -- text and log_fg are BYTE-IDENTICAL (#f8f8f2): a tonal head tier is invisible
+      solarized-*      -- the order INVERTS (muted is brighter than log_fg)
+
+    Weight costs zero contrast headroom, which is why it survives in the palettes that have none.
+    """
+    d = theme.derive(dict(theme.DRACULA))
+    assert d["text"] == d["log_fg"], (
+        "dracula's text and log_fg used to be identical -- if that changed, re-check whether the log's "
+        "register could now be tonal. It is currently weight BECAUSE of this."
+    )
+    for mode in ("solarized-dark", "solarized-light"):
+        d = theme.derive(dict(theme.THEMES[mode]))
+        ordered = (_luminance(d["text"]) > _luminance(d["log_fg"]) > _luminance(d["muted"])
+                   if d["dark"] else
+                   _luminance(d["text"]) < _luminance(d["log_fg"]) < _luminance(d["muted"]))
+        assert not ordered, f"{mode}: the tiers now form a ladder -- the weight register may be revisitable"

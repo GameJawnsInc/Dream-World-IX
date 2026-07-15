@@ -498,3 +498,60 @@ def test_the_nameplate_outranks_the_body_it_crowns():
     glyph = int(re.search(r'role="empty_glyph"[^}]*font-size:\s*(\d+)px', css).group(1))
     rungs = [r for r in rungs if r != glyph]
     assert 26 > max(rungs), f"the nameplate must be the largest type rung; found {max(rungs)}px"
+
+
+def test_the_log_register_uses_a_weight_the_mono_face_actually_has():
+    """600, not 550 -- THE CUT LIST IS PER-FAMILY, and the console is not the app's face.
+
+    NAMEPLATE's fence encodes SEGOE UI's cuts, where 550 is the first weight reaching Semibold. The
+    console renders in the mono chain, and measured natively:
+
+        Cascadia Code (dev boxes; ships with VS / Windows Terminal)
+            550 -> a real SemiBold cut
+        Consolas      (the CLEAN-Windows fallback; ships Regular + Bold only)
+            550 -> renders BYTE-IDENTICAL to 400 -- a total no-op
+            600 -> Bold
+
+    So a weight that is a real register in one family is invisible in another, and the head/echo tiers
+    would silently flatten on exactly the machines that do not have a developer's fonts installed. 600 is
+    the first weight that lands heavier in BOTH.
+
+    Asserted as data, not by render: the suite runs offscreen, where the font DB is stubbed.
+    """
+    from ff9mapkit.workspace import shell as shell_mod
+
+    code = _code_only(shell_mod.Workspace._log)     # docstrings stripped: this one NAMES both weights
+    assert "setFontWeight(600)" in code, "the log's head/echo register must be 600 -- 550 is a no-op on Consolas"
+    assert "setFontWeight(550)" not in code, "550 renders as Regular on Consolas, the clean-Windows fallback"
+
+
+def _code_only(obj) -> str:
+    """The SOURCE of `obj` with comments AND docstrings removed.
+
+    A source-grepping fence must read CODE, not prose -- and this study has now tripped on that three
+    times, because the prose next to a rule is exactly where the rule gets NAMED. A docstring saying
+    "never appendHtml" makes a naive `"appendHtml" not in src` fail on the very file that obeys it.
+    ast.unparse drops every docstring and comment, so what is left is what actually executes.
+    """
+    import ast
+    import inspect
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(obj)))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
+
+
+def test_the_log_never_switches_the_document_to_rich_text():
+    """appendHtml is banned in the console: it flips the QTextDocument to rich text, and from then on any
+    line of raw stdout containing a `<` is eaten as markup. A build log is full of them (generics, shell
+    redirects, XML). QTextCursor + setCharFormat + insertText keeps the document plain.
+    """
+    from ff9mapkit.workspace import shell as shell_mod
+
+    assert "appendHtml" not in _code_only(shell_mod.Workspace), \
+        "appendHtml switches the console to rich text and mangles stdout"

@@ -38,7 +38,12 @@ LIGHT = {
     "hover": "#dfe2e7",         # neutral button hover
     "pressed": "#d4d8de",
     "scroll": "#bcc1c9",        # scrollbar thumb
-    "log_bg": "#e1e3e7",
+    # RAISED from #e1e3e7 -- this palette's own `field` hex, already in this dict two lines up and
+    # described there as "just-off-white". The old well was a grey smudge sunk UNDER the page, and it left
+    # no headroom for the log's registers: the console is a document, not a hole full of dust. It rises to
+    # `field` rather than #ffffff because #ffffff IS this palette's surface_3 -- a well may not collide
+    # with the top of the elevation ramp. Every register clears AA on it (worst 5.29, the trace tint).
+    "log_bg": "#fbfcfd",
     "log_fg": "#374151",
     "error": "#c0392b",
     "warn": "#9a6b00",
