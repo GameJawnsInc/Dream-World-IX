@@ -17,17 +17,42 @@ import collections
 import html
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
+    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QToolButton, QVBoxLayout,
+    QWhatsThis, QWidget,
 )
 
-from . import widgets
+from . import concepts, widgets
 from .. import dialogue as _dlg
 from .. import infohub
 from ..content.text import DEFAULT_WRAP_WIDTH
 from ..editor import forms
+
+# A form field whose value is a story-flag / scenario reference gets a "?" concept badge derived from its
+# KIND (so every flag/scenario field is covered without tagging each Field); an explicit Field.concept wins.
+_KIND_CONCEPT = {forms.FLAGREF: "story-flag", forms.FLAGPAIR: "story-flag",
+                 forms.FLAGDICTLIST: "story-flag", forms.SCENARIOREF: "scenario"}
+
+
+def _concept_badge(term, palette):
+    """A small '?' help badge that opens the plain-language concept card for ``term`` (via a lightweight
+    What's-This bubble -- self-contained, no shell callback). Returns ``(button, card_html)`` or ``None`` if
+    the term doesn't resolve to a card."""
+    c = concepts.resolve(term)
+    if c is None:
+        return None
+    card_html = f"<b>{c.title}</b><br>{c.html(palette['muted'])}"
+    btn = QToolButton()
+    btn.setText("?")
+    btn.setObjectName("conceptBadge")
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setFixedSize(18, 18)
+    btn.setToolTip(f"What's a {c.title.lower()}?")
+    btn.setAccessibleName(f"What is {c.title}")
+    btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))
+    return btn, card_html
 
 # Fields whose value is a line shown in an FF9 text window -> they get a live wrap-preview (FF9 never
 # auto-wraps, so the kit pre-breaks long lines; this shows exactly where). Keys match editor.forms specs.
@@ -178,7 +203,21 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
             v.addWidget(_wrap_preview_panel(widget, getters[f.key], wrap_width))
         label = widgets.role_label(f.label + ":", "label")   # weight-500 field label (the type ramp)
-        lay.addRow(label, box)
+        term = f.concept or _KIND_CONCEPT.get(f.kind)         # a jargon field -> a "?" concept badge (Phase 5)
+        badge = _concept_badge(term, palette) if term else None
+        if badge is not None:
+            btn, card_html = badge
+            widget.setWhatsThis(card_html)                    # Shift-F1 on the field too, not just the badge
+            lw = QWidget()
+            lh = QHBoxLayout(lw)
+            lh.setContentsMargins(0, 0, 0, 0)
+            lh.setSpacing(5)
+            lh.addWidget(label)
+            lh.addWidget(btn)
+            lh.addStretch(1)
+            lay.addRow(lw, box)
+        else:
+            lay.addRow(label, box)
 
     def validate():
         """Live per-field check: a value that fails its parser turns the hint red with the error; an OK

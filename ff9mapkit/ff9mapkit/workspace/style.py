@@ -233,6 +233,13 @@ _QSS = Template(
     QWidget#consoleHead { background: $surface; border-top: 1px solid $border; }
     QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
+    /* the "?" concept badge next to a jargon form label -- a small circular help affordance */
+    QToolButton#conceptBadge {
+        background: transparent; color: $muted; border: 1px solid $border; border-radius: 9px;
+        padding: 0; font-weight: 700; font-size: 11px;
+    }
+    QToolButton#conceptBadge:hover { color: $accent; border-color: $accent; }
+    QToolButton#conceptBadge:focus { border: 1px solid $focus; }
     """
 )
 

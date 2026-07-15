@@ -85,6 +85,21 @@ def test_command_palette_is_a_frameless_shadowed_card(app):
     assert card is not None and isinstance(card.graphicsEffect(), QGraphicsDropShadowEffect)
 
 
+def test_build_form_adds_a_concept_badge_to_jargon_fields(app):
+    # Phase 5: a field whose KIND is a story-flag/scenario reference (or that sets Field.concept) gets a "?"
+    # badge that opens the plain-language card; a plain field gets none.
+    from PySide6.QtWidgets import QToolButton
+
+    from ff9mapkit.editor import forms, theme
+    from ff9mapkit.workspace import forms_qt
+    pal = theme.pick_palette("dark")
+    w, _g = forms_qt.build_form(forms.NPC_SPEC, {"name": "G", "requires_flag": "x"}, pal)
+    badges = [b for b in w.findChildren(QToolButton) if b.objectName() == "conceptBadge"]
+    assert badges and any("Story flag" in b.accessibleName() for b in badges), "flag field needs a concept badge"
+    w2, _g2 = forms_qt.build_form([forms.Field("name", "Name", forms.STR)], {"name": "x"}, pal)
+    assert not [b for b in w2.findChildren(QToolButton) if b.objectName() == "conceptBadge"], "plain field: none"
+
+
 def test_build_form_flips_a_bad_field_to_the_error_state(app):
     # The Phase-2 forms_qt migration replaced the inline red/muted hint styles with a caption `role` + a
     # `state` property (styled by QSS, repolished on change). Assert the mechanism: a value that fails its
