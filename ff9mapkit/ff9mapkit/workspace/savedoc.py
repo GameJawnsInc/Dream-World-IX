@@ -18,7 +18,7 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -518,6 +518,11 @@ class ItemEquipDoc(QWidget):
 
         lay.addStretch(1)
         scroll = QScrollArea()
+        # NoFrame like the other 7: Qt draws its own frame here otherwise, in a colour taken from the
+        # STYLE palette rather than ours -- it is in no palette, never re-tints on a theme switch, and
+        # measured #eaebee/1.011 in light and ~1.24 in the darks. Quiet, but un-chosen. 7 of 10 already
+        # set this; these were the stragglers.
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidgetResizable(True)
         scroll.setWidget(page)
         ov.addWidget(scroll, 1)                            # the middle (sections) takes the stretch + scrolls

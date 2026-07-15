@@ -173,7 +173,13 @@ SOLARIZED_LIGHT = {
     "surface_btn": "#e8e1cd",
     "field": "#f7f1de",
     "text": "#4a6067",          # base01 deepened to WCAG AA 4.5:1 body text on the cream bg
-    "muted": "#546a72",         # deepened for hint legibility -- AA 4.5 on EVERY ground, still lighter than text
+    # Deepened AGAIN (#546a72 -> #4f646b): the old value said "AA 4.5 on EVERY ground" and was 4.37 on
+    # surface_btn -- a ground the fence had never checked, and the one an UNSELECTED TAB LABEL lands on.
+    # So the app shipped sub-AA text on the tab strip in this palette. Same shape as the hero's overline:
+    # a fence that covers most grounds just moves the bug to the one it missed.
+    # The window here is one step wide: at t=0.10 muted goes DARKER than text (#4a6067) and the hierarchy
+    # inverts. #4f646b clears all six grounds (surface_btn 4.78) and stays lighter than text.
+    "muted": "#4f646b",
     # Solarized blue #268bd2 deepened 12%: at lum 0.235 white ink gives only 3.68, and this is a LIGHT
     # theme -- every one of its own neutrals is far too light to serve as dark ink, so the flip that fixes
     # solarized-DARK is unavailable here. The blue deepens instead; 3.68 -> 4.62.
@@ -188,7 +194,12 @@ SOLARIZED_LIGHT = {
     "hover": "#ded7c0",         # was #e6dfc9 -- present but ~invisible (btn->hover measured 1.0203)
     "pressed": "#d3cbb0",       # deepened so pressed still reads above the new hover
     "scroll": "#c9c2aa",
-    "log_bg": "#e4ddc8",
+    # base3, RAISED from #e4ddc8: the console's own body text measured 3.97 on the old well -- sub-AA, on
+    # the surface you stare at during every build, and never fenced because log_bg was not a ground any
+    # text test knew about. It survives BECAUSE it rises: dropping the well to bg (#eee8d5) scores 4.39
+    # and still fails. #ffffff is unavailable -- it IS this palette's surface_3, and a well may not
+    # collide with the top of the elevation ramp. base3 clears at 4.99.
+    "log_bg": "#fdf6e3",
     "log_fg": "#586e75",
     "error": "#dc322f",         # red
     "warn": "#a47c00",          # yellow, deepened to clear 3:1 (WCAG 1.4.11) on the cream page + surface

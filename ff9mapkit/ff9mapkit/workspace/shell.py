@@ -333,7 +333,16 @@ class BreadcrumbBar(QWidget):
         self._lay = QHBoxLayout(self)
         self._lay.setContentsMargins(12, 6, 12, 6)
         self._lay.setSpacing(6)
-        self.setStyleSheet(f"background:{pal['surface']};border-bottom:1px solid {pal['border']};")
+        # NO stylesheet. A SELECTOR-LESS widget sheet ("background:...;border-bottom:...") does not
+        # apply to this widget -- it applies to this widget AND CASCADES TO EVERY CHILD, so each
+        # crumb label, the chevron and the type icon wore their own stray underline six pixels above
+        # the real rule. Rendered proof: the selector-less form paints border ink on TWO rows (the
+        # bar's own edge AND the labels'); scoped to an id, only one. The clickable ancestors escaped
+        # it only because they set `border:none` themselves -- so the app underlined the one crumb you
+        # cannot click and left the ones you can flat.
+        # Deleting it needs no replacement: this is a QWidget SUBCLASS without WA_StyledBackground, so
+        # it does not paint the universal QWidget{background-color:$bg} rule either -- #crumbRow shows
+        # through, and the bar becomes theme-live for free (the hand re-tint below is gone too).
         self._chip = QLabel("")                    # a PERSISTENT left-anchored doc-mode chip (never cleared by set)
         self._chip.setVisible(False)
         self._lay.addWidget(self._chip)
@@ -356,7 +365,7 @@ class BreadcrumbBar(QWidget):
         not QSS-driven) plus the trail labels (rebuilt from the new palette). The persistent chip is
         re-driven by the caller (it knows the current mode -> the right palette key)."""
         self.pal = pal
-        self.setStyleSheet(f"background:{pal['surface']};border-bottom:1px solid {pal['border']};")
+        # NO stylesheet -- see __init__. The bar is transparent; #crumbRow paints it, live.
         self.set(self._crumbs)                      # rebuild the trail in the new palette
 
     def set(self, crumbs):
@@ -1175,6 +1184,11 @@ class Workspace(QMainWindow):
         self._welcome()
         # the Editor tab: a scrollable host we refill with the selected node's form (Phase 4)
         self.doc_scroll = QScrollArea()
+        # NoFrame like the other 7: Qt draws its own frame here otherwise, in a colour taken from the
+        # STYLE palette rather than ours -- it is in no palette, never re-tints on a theme switch, and
+        # measured #eaebee/1.011 in light and ~1.24 in the darks. Quiet, but un-chosen. 7 of 10 already
+        # set this; these were the stragglers.
+        self.doc_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.doc_scroll.setWidgetResizable(True)
         self.doc_host = QWidget()
         self.doc_host_lay = QVBoxLayout(self.doc_host)

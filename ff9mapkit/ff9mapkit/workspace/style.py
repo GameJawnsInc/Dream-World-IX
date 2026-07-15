@@ -480,7 +480,15 @@ _QSS = Template(
     }
     QToolButton#hub:hover { background: $hover; color: $help_hover; border-color: $help_hover; }
     QToolButton#hub:focus { border: 1px solid $accent; }
-    QWidget#crumbRow    { background: $surface; border-bottom: 1px solid $border; }
+    /* NO border-bottom. THE LAW: a border belongs to the band whose existence it is CONDITIONAL ON.
+       The band under this one is the spine, and the spine HIDES (shell.py: setVisible(bool(guidance or
+       actions))) -- so this line's job depends on a widget that is usually not there. Measured: with the
+       spine hidden, which is the common case, this border separated surface from surface -- contrast
+       1.000, a line between a colour and itself. The line that delineates the spine now belongs to the
+       SPINE, below, as a border-top: it exists exactly when the thing it delineates does.
+       NB a naive adjacency check does not see this. It reads crumb|spine as surface|surface_2 (1.168 --
+       a real boundary) and concludes the border is earning its keep. */
+    QWidget#crumbRow    { background: $surface; }
     /* THE LIP. The console is a hole cut into the bottom of the app, and this strip is the plate's near
        edge above it -- so it catches the light, exactly like a button's top edge. It is the one band in
        the chrome that is a MATERIAL boundary rather than a grouping rule, which is why it takes
@@ -488,8 +496,17 @@ _QSS = Template(
     QWidget#consoleHead { background: $surface; border-top: 1px solid $border_lit; }
     QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
-    /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb. */
-    QWidget#spineRow { background: $surface_2; border-bottom: 1px solid $border; }
+    /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb.
+       BOTH edges, and it owns them. This band hides, so the line above it must come and go WITH it --
+       that line used to live on the crumb row, where it outlived the thing it delineated and spent the
+       rest of its time separating surface from surface (1.000).
+       It needs both because tone cannot carry it alone: surface_2 against surface is 1.168 in dark and
+       1.046 in LIGHT, so with no edges an inset strip would simply not exist in half the palettes. This
+       is the one band in the chrome that is a delineated inset rather than part of the plate. */
+    QWidget#spineRow {
+        background: $surface_2;
+        border-top: 1px solid $border; border-bottom: 1px solid $border;
+    }
 
     /* the workspace RAIL (Phase 6): a segmented control above the tabs that swaps which tab set shows, so
        the strip never overflows. The active segment is a raised pill (distinct from a tab's underline). */

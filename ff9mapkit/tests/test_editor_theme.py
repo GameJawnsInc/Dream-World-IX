@@ -106,13 +106,20 @@ def test_palette_contrast_invariants():
         # four palettes shipped sub-AA on it for real: muted measured 3.87 nord / 3.91 dracula / 3.91
         # solarized-dark / 4.07 gruvbox-dark, and solarized-dark's BODY text 4.22. Every hint inside a
         # groupbox lands here, so it is not a hypothetical surface.
-        # EVERY ground a text tier can land on, not just the page. Each rung of the elevation ladder is a
-        # real surface under real text -- surface_2 is the card fill, surface_3 is the RAIL SEGMENT -- and
-        # the fence stopped one rung short: muted on surface_3 measured 3.86 (dracula) / 4.13 (dark) while
-        # this test was green. A fence that covers 3 of 4 grounds just moves the bug to the 4th.
-        for _g in ("surface_2", "surface_3"):
+        # EVERY ground a text tier can land on -- and "every" has had to be widened THREE times now, each
+        # time by a real sub-AA defect found in shipped pixels:
+        #   surface_2 (the card fill)   -- 4 palettes shipped sub-AA muted on it
+        #   surface_3 (the rail segment) -- dracula 3.86 / dark 4.13, while this test was green
+        #   surface_btn (a BUTTON, and an UNSELECTED TAB LABEL) -- solarized-light shipped muted at 4.37
+        # Each widening was written next to the sentence "a fence that covers 3 of 4 grounds just moves
+        # the bug to the 4th", and then the bug moved to the ground the list still missed. So the list is
+        # now every FILL the sheet paints text on, and adding a fill to the palette means adding it here.
+        for _g in ("surface_2", "surface_3", "surface_btn", "field"):
             assert _contrast(pal["text"], d[_g]) >= 4.5, f"{mode}: body text on {_g}"
             assert _contrast(pal["muted"], d[_g]) >= 4.5, f"{mode}: hint text on {_g}"
+        # The console is its OWN pair and was fenced against nothing: solarized-light shipped log_fg at
+        # 3.97 on log_bg -- the body text of the surface you watch during every build.
+        assert _contrast(pal["log_fg"], pal["log_bg"]) >= 4.5, f"{mode}: console body text on its own well"
         # `help` is TEXT: it labels the Info Hub button (its one and only use, as the label AND the
         # border). It was fenced against NOTHING and measured 2.97 on solarized-dark.
         assert _contrast(pal["help"], pal["bg"]) >= 4.5, f"{mode}: help text on bg"
