@@ -1756,3 +1756,122 @@ def test_second_donor_10_17_two_cut_slide_config():
     assert all(g["dropped"] == 64 and g["clipped"] == 0
                and g["area2"] == pytest.approx(1024.0) for g in drops)
     assert sorted(s["cells"]) == ["9,3", "9,4"]            # the empty east column never deploys
+
+
+# ------------------------------------------------------- GroundRetile (the translation law)
+
+#: the (7,17) byte-read sand anchors (grass pins -> the desert SAND_BANDS pins)
+_ANCHORS = ((0.56641, 0.53516), (0.59473, 0.56543), (0.60059, 0.56641), (0.625, 0.59668))
+
+
+def _retile(**kw):
+    kw.setdefault("dst", "desert")
+    kw.setdefault("sand_anchors", _ANCHORS)
+    return TR.GroundRetile(**kw)
+
+
+def _tri(uv, idall, *, part_y=0.0, cell=(0, 0)):
+    """One tri inside 4u cell ``cell`` with every vert at the same uv."""
+    x0 = 4.0 * cell[0] + 0.5
+    z0 = 4.0 * cell[1] + 0.5
+    return [_v(x0, part_y, z0, uv, idall), _v(x0 + 3.0, part_y, z0, uv, idall),
+            _v(x0, part_y, z0 + 3.0, uv, idall)]
+
+
+def test_ground_retile_mains_delta_topo_and_idbits():
+    from ff9mapkit.world.extract import decode_id, encode_id
+    gt = _retile()
+    src = encode_id(event=1, area=5, topograph=0, flags=2)
+    out = gt.apply("terrain", _tri((0.05, 0.8), float(src)))
+    for (_, _, uv, tan) in out:
+        assert uv == (0.05 + 0.65332, 0.8 - 0.09863)
+        d = decode_id(int(round(tan[0])))
+        assert (d["event"], d["area"], d["topograph"], d["flags"]) == (1, 5, 17, 2)
+    assert gt.n["mains"] == 1
+
+
+def test_ground_retile_wall_band_delta_topo_unchanged():
+    from ff9mapkit.world.extract import decode_id, encode_id
+    gt = _retile()
+    out = gt.apply("terrain", _tri((0.75, 0.9), float(encode_id(topograph=58))))
+    for (_, _, uv, tan) in out:
+        assert uv == (0.75 - 0.27127, 0.9 - 0.02066)
+        assert decode_id(int(round(tan[0])))["topograph"] == 58
+    assert gt.n["wall"] == 1
+
+
+def test_ground_retile_sand_pins_exact_and_conforming_lerp():
+    from ff9mapkit.world.extract import decode_id, encode_id
+    gt = _retile()
+    idall = float(encode_id(topograph=31))
+    tri = [_v(0, 0, -1, (0.28, 0.56641), idall),      # run land pin -> EXACT desert pin
+           _v(3, 0, -1, (0.30, 0.59473), idall),      # run seam pin -> EXACT desert pin
+           _v(0, 0, -4, (0.30, 0.58057), idall)]      # conforming mid -> in-band lerp
+    out = gt.apply("terrain", tri)
+    assert [round(v[2][0] - t[2][0], 10) for v, t in zip(out, tri)] == [round(335.0 / 1024, 10)] * 3
+    assert out[0][2][1] == 0.53516 and out[1][2][1] == 0.56543
+    assert 0.53516 < out[2][2][1] < 0.56543
+    assert all(decode_id(int(round(v[3][0])))["topograph"] == 32 for v in out)
+    assert gt.n["sand"] == 1
+
+
+def test_ground_retile_water_and_sea_parts_untouched():
+    from ff9mapkit.world.extract import encode_id
+    gt = _retile()
+    wet = _tri((0.4, 0.4), float(encode_id(topograph=57)))
+    assert gt.apply("terrain", wet) is wet
+    sea = _tri((0.4, 0.4), float(encode_id(topograph=0)))
+    assert gt.apply("sea4", sea) is sea
+    assert not gt.n and not gt.unclassified
+
+
+def test_ground_retile_foam_relabels_only():
+    from ff9mapkit.world.extract import decode_id, encode_id
+    gt = _retile()
+    tri = _tri((0.25, 0.5), float(encode_id(topograph=30)))
+    out = gt.apply("beach1", tri)
+    assert all(v[2] == t[2] and v[0] == t[0] for v, t in zip(out, tri))
+    assert all(decode_id(int(round(v[3][0])))["topograph"] == 34 for v in out)
+    assert gt.n["foam"] == 1
+
+
+def test_ground_retile_recover_cell_and_refusal():
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world.extract import decode_id, encode_id
+    gt = _retile(recover_cells={(0, -1): ((0, 1), 90)}, recover_budget=1,
+                 expected={"recovered": 1})
+    path = _tri((0.88, 0.55), float(encode_id(topograph=3)), cell=(0, -1))
+    out = gt.apply("terrain", path)
+    lo_u, lo_v, hi_u, hi_v = G.ground_main_region("desert")
+    for (_, _, uv, tan) in out:
+        assert lo_u <= uv[0] <= hi_u and lo_v <= uv[1] <= hi_v
+        assert decode_id(int(round(tan[0])))["topograph"] == 17
+    assert gt.gate()["ok"] is True
+    # the same content OUTSIDE a recover cell refuses via the gate
+    gt2 = _retile()
+    bad = _tri((0.88, 0.55), float(encode_id(topograph=3)), cell=(2, -9))
+    assert gt2.apply("terrain", bad) is bad
+    g = gt2.gate()
+    assert g["ok"] is False and "t3" in str(g["unclassified"])
+
+
+def test_ground_retile_unknown_family_refuses():
+    with pytest.raises(ValueError, match="unknown ground family"):
+        TR.GroundRetile(dst="lava")
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_for_donor_717_desert_census():
+    """The (7,17)->desert factory reproduces the census: 4 byte-read sand anchors, the
+    2-cell beach path + the (7,16) N-strip band as recover cells (budget 16), and the
+    frozen per-class expectations (island717_retile_census.py, 2026-07-15)."""
+    gt = TR.GroundRetile.for_donor((7, 17), "desert")
+    assert gt.src == "grass" and gt.dst == "desert"
+    assert gt.sand_anchors == _ANCHORS
+    assert gt.recover_budget == 16
+    assert {(123, -280), (124, -280)} <= set(gt.recover_cells)   # the beach path cells
+    assert gt.expected == {"mains": 75, "wall": 57, "sand": 16, "foam": 14, "recovered": 16}
+    s = TR.transplant("UNUSED", cell=(4, 19), donor=(7, 17), tweaks=[gt], dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
+    assert rg["unclassified"] == 0 and rg["recovered"] == 16
