@@ -731,6 +731,33 @@ and are the productized island-E studies, proven by a zero-byte-diff identity ru
   census. The `--near` scan only offers footprints inside the ROLLING-RELIEF envelope (pure mains, y-span ≤ 2.4u,
   clear of forest/stamps/rim) — it will refuse rather than stack a hill on prior displacement.
 
+### A real mountain on a deployed island — `world-mountain` (★ productized 2026-07-15)
+
+`world-mountain --mod-folder M --near WX,WZ` (or `--center` exact, rotation 0) carries a REAL rock massif whole —
+the productized Uaho carry (in-game approved 2026-07-13: *"the cliff is great — walkable, seams against the grass
+great"*). Small mountains are TERRAIN+OBJECT **ensembles**, and the carry honours that: the blob is the donor's
+largest massif-rock component (topos **49/7/62** — not the coastal-lip topo 58) plus any enclosed raised tris, the
+donor-conditional **alcove floor** (Uaho's notch pocket; a new `--donor` needs its own anatomy pass first), and the
+Object-mesh **aperture plugs** (THE FALLS-APERTURE LAW: extra blob rims must be literal Object-vertex rings; the
+plugs wear the rock collar's own affine UV chart, gated against the atlas rock band). The mechanism stack:
+
+* **THE ROCK-RIGID LAW** — carried rock never deforms beyond the global affine (a least-squares rim **de-tilt** +
+  the vertical anchor `DY`); ALL seating deformation goes to the GRASS, a donor-shaped pure-Y apron lift rising
+  from bench ground to the rigid rim (the proven hill-at-scale mechanism), tapered at block borders and before the
+  coast band.
+* **THE WELD-SAFE LIFT** — worldmap meshes don't share vertex entries, so every lift computes per POSITION and
+  applies to every coincident entry (a one-sided lift splits the weld = sea visible through the sliver).
+* Hole carve + a **minimal-total-chord DP zip** (a greedy walk stalls on floor-mouth concavity) + an apron normal
+  re-smooth blended by lift magnitude.
+* Gates: single-rim accounting, dropped-tris-all-plain-grass, baseline-subtracted once-edges (cracks), down-facing,
+  near-miss welds, ROCK-RIGID drift < 3.5%, zip rise ≤ 2.34 / winding ≥ 0.83, apron slope ≤ 29.5°, the placement
+  probes (blob centre grounds on carried rock; the grass just outside stays plain), the Moguri-atlas alpha gate
+  (when installed), and the census. The whole working band must fit inside ONE deployed block.
+
+Acceptance was proven by IDENTITY (`studies/overworld-topography/mountain_productize_check.py`): the pristine bench
+mint → module carve reproduces the deployed, playtested Uaho bench **byte-for-byte**; the go-forward fresh-mint path
+differs only by the mint's own concave-dent fix, far outside the carve. Run `world-mirror` after deploying.
+
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 
 **The atlas is global + shared, not per-block.** The overworld's terrain uses ONE **1024×1024** atlas

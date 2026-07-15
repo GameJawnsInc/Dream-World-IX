@@ -1,17 +1,21 @@
-"""world-forest / world-hill -- the interior-topography verbs (hermetic).
+"""world-forest / world-hill / world-mountain -- the interior-topography verbs (hermetic).
 
 The full-fidelity acceptance is the zero-byte-diff identity proof against the deployed,
-in-game-proven island E (``studies/overworld-topography/interior_productize_check.py`` --
-mint -> module forest carve -> module hill reproduces the playtested bytes exactly); it
-needs the install + the deployed archipelago, so it stays a local study script. These
-tests cover the hermetic machinery:
+in-game-proven island E / Uaho bench (``studies/overworld-topography/
+interior_productize_check.py`` + ``mountain_productize_check.py`` -- mint -> module carve
+reproduces the playtested bytes exactly); it needs the install + the deployed blocks, so
+it stays a local study script. These tests cover the hermetic machinery:
 
   * chain_ring (simple-cycle chaining + degeneracy refusal)
+  * chain_rings (multi-cycle chaining + degree-2 refusal) + signed_area orientation
   * split_borders8 (64u border split, channel lerp, THE WALL LAW's true-3D-area filter)
   * raised_cosine + decode_cell_pick determinism
   * soup_from_blocks byte-fam classification (main/stamp/forest/rock + the coast proxy)
   * build_hill on a synthetic mains grid: gates pass, pure-Y displacement, local normals,
     the rolling-relief envelope refusing a STACKED second hill, the slope-envelope refusal
+  * carve_mountain end-to-end on a synthetic donor pyramid + mains-grid bench (the donor
+    read is monkeypatched -- no game bytes): rigid carry, hole+zip accounting, the
+    rock-probe, and the no-rock / footprint / in-block / double-carry refusals
   * read_deployed_blocks against a temp game dir (found / not-found semantics)
 """
 from __future__ import annotations
@@ -163,6 +167,117 @@ def test_build_hill_refuses_stacking_and_steep_flanks():
     with pytest.raises(ValueError, match="flank slope"):
         IN.build_hill(soup3, center=(24.0, -24.0), height=5.5, radius=14.0,
                       log=lambda *a: None)
+
+
+# ---- the mountain ----------------------------------------------------------------------------
+
+MASSIF = float(encode_id(topograph=49))
+
+
+def _pyramid_donor(cx=24.0, cz=-24.0, half=4.0, apex=4.0):
+    """A 4-tri rock pyramid (topo 49) in donor block (0,0)'s local frame -- the minimal
+    massif: base ring of 4 once-edges, rigid up-wound faces, no apertures."""
+    c00 = (cx - half, 0.0, cz - half)
+    c10 = (cx + half, 0.0, cz - half)
+    c11 = (cx + half, 0.0, cz + half)
+    c01 = (cx - half, 0.0, cz + half)
+    top = (cx, apex, cz)
+    tris = []
+    for a, b in ((c10, c00), (c11, c10), (c01, c11), (c00, c01)):
+        tris.append(((a, b, top), MASSIF, _MAIN_U))
+    return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
+
+
+def _mountain_bench(y=3.2, n=13, cell=4.0):
+    """The mains grid plus one topo-58 coast tri in the far corner (the mountain scan
+    needs SOME non-plain tri to measure clearance against)."""
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            x0, x1 = i * cell, (i + 1) * cell
+            z0, z1 = -j * cell, -(j + 1) * cell
+            tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
+    tris.append((((54.0, y, -54.0), (58.0, y, -54.0), (54.0, y, -58.0)), ROCK, 0.9))
+    return _bm(tris)
+
+
+def test_chain_rings_chains_multiple_cycles_and_refuses_degeneracy():
+    sq1 = [IN.kk3(p) for p in ((0, 0, 0), (4, 0, 0), (4, 0, -4), (0, 0, -4))]
+    sq2 = [IN.kk3(p) for p in ((10, 0, 0), (14, 0, 0), (14, 0, -4), (10, 0, -4))]
+    edges = [tuple(sorted((sq1[k], sq1[(k + 1) % 4]))) for k in range(4)] + \
+            [tuple(sorted((sq2[k], sq2[(k + 1) % 4]))) for k in range(4)]
+    rings = IN.chain_rings(edges, "test")
+    assert sorted(len(r) for r in rings) == [4, 4]
+    assert {frozenset(r) for r in rings} == {frozenset(sq1), frozenset(sq2)}
+    with pytest.raises(ValueError, match="not degree-2"):
+        IN.chain_rings(edges[:-1], "test")
+
+
+def test_signed_area_orientation():
+    ccw = [(0, 0, 0), (4, 0, 0), (4, 0, 4), (0, 0, 4)]
+    assert IN.signed_area(ccw) == pytest.approx(16.0)
+    assert IN.signed_area(list(reversed(ccw))) == pytest.approx(-16.0)
+
+
+def _patch_donor(monkeypatch, donor_bm):
+    from ff9mapkit.world import extract as X
+
+    def fake_read_block(x, y, *, disc=1, lod="0_1", part="terrain", game=None):
+        if part != "terrain":
+            raise FileNotFoundError("no object part in the synthetic donor")
+        return donor_bm
+    monkeypatch.setattr(X, "read_block", fake_read_block)
+
+
+def test_carve_mountain_carries_the_pyramid_rigidly(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _pyramid_donor())
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res = IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                            log=lambda *a: None)
+    r = res["report"]
+    assert r["blob_tris"] == 4 and r["plugs"] == 0 and res["rot"] in (0, 1, 2, 3)
+    # rigid carry: the apex sits at bench ground + the donor's prominence
+    assert r["peak_y"] == pytest.approx(3.2 + 4.0, abs=1e-6)
+    assert r["rock_rigid"] == pytest.approx(0.0, abs=1e-9)
+    (blk, bm), = res["changed"].items()
+    assert blk == (0, 0)
+    # tri accounting: kept = bench - dropped; new = 4 massif + zip
+    bench_tris = len(_mountain_bench().tris)
+    assert len(bm.tris) == bench_tris - r["dropped"] + 4 + r["zip_tris"]
+    # the massif tris kept their rock idall verbatim
+    rock_ids = [t4[0] for t4 in bm.chan_arrays[CH_TAN] if t4[0] == MASSIF]
+    assert len(rock_ids) == 4 * 3
+
+
+def test_carve_mountain_refusals(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _pyramid_donor())
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    with pytest.raises(ValueError, match="leaves block"):
+        IN.carve_mountain(soup, center=(60.0, -26.0), alcove=None, game=tmp_path,
+                          log=lambda *a: None)
+    with pytest.raises(ValueError, match="not clear plain-grass"):
+        IN.carve_mountain(soup, center=(46.0, -46.0), alcove=None, game=tmp_path,
+                          log=lambda *a: None)
+    with pytest.raises(ValueError, match="no deployed override"):
+        IN.carve_mountain(soup, near=(500.0, -500.0), alcove=None, game=tmp_path,
+                          log=lambda *a: None)
+    # a grass-only donor has no massif
+    _patch_donor(monkeypatch, _mains_grid())
+    with pytest.raises(ValueError, match="no rock massif"):
+        IN.carve_mountain(soup, near=(26.0, -26.0), alcove=None, game=tmp_path,
+                          log=lambda *a: None)
+
+
+def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _pyramid_donor())
+    soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})
+    res = IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, game=tmp_path,
+                            log=lambda *a: None)
+    soup2 = IN.soup_from_blocks(res["changed"])
+    with pytest.raises(ValueError, match="not clear plain-grass"):
+        IN.carve_mountain(soup2, center=(26.0, -26.0), alcove=None, game=tmp_path,
+                          log=lambda *a: None)
 
 
 # ---- the deployed-block loader ---------------------------------------------------------------

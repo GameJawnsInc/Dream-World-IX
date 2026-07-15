@@ -2750,6 +2750,41 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_mountain(args: argparse.Namespace) -> int:
+    """Carry a REAL rock massif (verbatim topo-49/7/62 geometry+UV+normals+aperture plugs) onto a
+    DEPLOYED kit island -- the productized Uaho carry (in-game proven 2026-07-13). Gates: ROCK-RIGID +
+    weld-safe lift + zip envelope + placement probes + census."""
+    from .world import interior as IN
+    try:
+        (wx, wz), exact = _parse_world_point(args)
+        dx, dy = (int(v) for v in args.donor.split(","))
+        blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
+                                         disc=args.disc, game=args.game)
+        soup = IN.soup_from_blocks(blocks)
+        res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
+                                near=None if exact else (wx, wz), donor=(dx, dy),
+                                disc=args.disc, game=args.game)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game)
+        if not args.dry_run:
+            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                              game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = res["center"]
+    r = res["report"]
+    tx, tz = r["teleport"]
+    print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg: "
+          f"{r['blob_tris']} donor tris (+{r['plugs']} aperture plugs), {r['dropped']} island tris "
+          f"carved, {r['zip_tris']} zip tris; peak y {r['peak_y']}, rock rigidity drift "
+          f"{r['rock_rigid'] * 100:.1f}% (<= 3.5), apron slope {r['apron_slope']} deg "
+          f"(<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the placement probes + census. "
+          f"F6 -> World -> re-enter, then teleport ({tx}, {tz}) and face the massif; walk the "
+          f"whole rim. Run world-mirror after any custom-ocean deploy.")
+    return 0
+
+
 def _cmd_world_mirror(args: argparse.Namespace) -> int:
     """Mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree (the overworld ships TWO
     asset trees -- disc1 serves discs 1-3, disc4 has its own -- and every s34 lookup is keyed on the
@@ -5749,6 +5784,29 @@ def build_parser() -> argparse.ArgumentParser:
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     whl.set_defaults(func=_cmd_world_hill)
+
+    wmt = sub.add_parser("world-mountain",
+                         help="carry a REAL rock massif (verbatim topo-49/7/62 geometry+UV+normals, incl. "
+                              "Object-aperture plugs) onto a DEPLOYED kit island -- the in-game-proven Uaho "
+                              "carry (rock stays RIGID, the grass apron rises to meet it; hole carve + DP-zip "
+                              "annulus). Gated by ROCK-RIGID + the weld-safe lift + the zip envelope + "
+                              "placement probes + the census. Needs the custom engine; re-enter the world.")
+    wmt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
+    _mtg = wmt.add_mutually_exclusive_group(required=True)
+    _mtg.add_argument("--center", metavar="WX,WZ",
+                      help="EXACT massif centre in world coords, rotation 0 (gated, no scan)")
+    _mtg.add_argument("--near", metavar="WX,WZ",
+                      help="scan a ~20u window around this point for the best lawful plain-grass placement "
+                           "(exact 90-deg rotations as fallbacks)")
+    wmt.add_argument("--donor", default="0,0", metavar="BX,BY",
+                     help="real block whose rock massif to carry (default 0,0 = Uaho, the only donor with a "
+                          "full anatomy study behind it -- a new donor needs its own alcove/aperture pass; "
+                          "see studies/overworld-topography/README.md before adding others)")
+    wmt.add_argument("--reach", type=float, default=96.0,
+                     help="deployed-block load window around the point in units (default 96)")
+    wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wmt.set_defaults(func=_cmd_world_mountain)
 
     wmi = sub.add_parser("world-mirror",
                          help="mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree -- the "
