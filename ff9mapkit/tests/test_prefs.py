@@ -46,3 +46,34 @@ def test_non_string_theme_falls_back(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     prefs.put("theme", 123)                           # a malformed value must not break theme()
     assert prefs.theme() == "auto"
+
+
+def test_density_defaults_and_round_trips(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.density() == "comfortable"           # the built-in default (newcomer-friendly)
+    prefs.set_density("compact")
+    assert prefs.density() == "compact" and prefs.load()["density"] == "compact"
+    prefs.set_density("bogus")                         # an unknown value is coerced back to the default
+    assert prefs.density() == "comfortable"
+    prefs.put("density", 5)                            # a malformed on-disk value degrades to the default
+    assert prefs.density() == "comfortable"
+
+
+def test_guided_mode_defaults_and_round_trips(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.guided() is True                      # Guided is the newcomer-friendly default
+    prefs.set_guided(False)
+    assert prefs.guided() is False and prefs.load()["guided"] is False
+    prefs.set_guided(True)
+    assert prefs.guided() is True
+
+
+def test_motion_defaults_and_round_trips(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert prefs.motion() == "auto"                    # follow the OS by default
+    prefs.set_motion("off")
+    assert prefs.motion() == "off" and prefs.load()["motion"] == "off"
+    prefs.set_motion("on")
+    assert prefs.motion() == "on"
+    prefs.set_motion("bogus")                          # an unknown value coerces back to auto
+    assert prefs.motion() == "auto"

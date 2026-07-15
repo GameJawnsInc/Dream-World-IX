@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from . import widgets
 from ..editor import feedback as fb
 from ..editor import jobs
 
@@ -64,11 +65,12 @@ class BuildDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(14, 14, 14, 14)
-        v.setSpacing(10)
+        v.setContentsMargins(16, 16, 16, 16)           # 4pt-grid page padding
+        v.setSpacing(12)                                # 4pt-grid rhythm between the raised panels
         row = QHBoxLayout()
         row.addWidget(QLabel("Project file:"))
         self.path = QLineEdit()
+        self.path.setAccessibleName("Project file to build or deploy")
         self.path.setPlaceholderText("a .field.toml, campaign.toml, journeys.toml, or battle.toml")
         self.path.textChanged.connect(self._on_path)
         browse = QPushButton("Browse…")
@@ -79,14 +81,20 @@ class BuildDoc(QWidget):
 
         self.status = QLabel("Pick a field, campaign, journey, or battle file.")
         self.status.setWordWrap(True)
-        self.status.setStyleSheet(f"color:{self.pal['muted']};")
+        self.status.setProperty("role", "muted")
         v.addWidget(self.status)
 
         v.addWidget(self._field_box())
         v.addWidget(self._campaign_box())
         v.addWidget(self._journey_box())
-        v.addWidget(self._battle_box())
-        v.addWidget(self._newgame_box())
+        # Phase 6: the routine deploy is field / campaign / journey (the F9 button drives these). The niche
+        # battle target and the New-Game footgun (single-owner -- a wholesale campaign re-deploy WIPES it) are
+        # fenced behind an Advanced drawer so they're not visually co-equal with routine deploy.
+        adv = widgets.disclosure("Advanced — battle deploy · New Game entry (single-owner)")
+        adv.content_layout.addWidget(self._battle_box())
+        adv.content_layout.addWidget(self._newgame_box())
+        self._advanced = adv
+        v.addWidget(adv)
 
         btns = QHBoxLayout()
         self.chk = QPushButton("Check logic")
@@ -149,7 +157,7 @@ class BuildDoc(QWidget):
         gv.addLayout(of)
         self.dest = QLabel("")
         self.dest.setWordWrap(True)
-        self.dest.setStyleSheet(f"color:{self.pal['accent']};")
+        self.dest.setProperty("role", "accent")
         gv.addWidget(self.dest)
         if not self.has_tools:                         # installed: no test-slot/F6 -> default to Install to game / Build only
             self.rb_test.setEnabled(False)
@@ -212,7 +220,7 @@ class BuildDoc(QWidget):
         jv.addWidget(self.ng_group)
         self.journey_hint = QLabel("")
         self.journey_hint.setWordWrap(True)
-        self.journey_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        self.journey_hint.setProperty("role", "caption")
         jv.addWidget(self.journey_hint)
         self.journey_box = box
         return box
@@ -240,7 +248,7 @@ class BuildDoc(QWidget):
                       "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
                       "to test.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "caption")            # de-emphasise the jargon paragraph (smaller, quieter)
         gv.addWidget(hint)
         self.newgame_box = box
         return box
@@ -249,7 +257,7 @@ class BuildDoc(QWidget):
         box = QGroupBox("Deploy battle map")
         bv = QVBoxLayout(box)
         self.battle_dest = QLabel(f"Test mod folder: {self.mod_folder}")
-        self.battle_dest.setStyleSheet(f"color:{self.pal['muted']};")
+        self.battle_dest.setProperty("role", "muted")
         bv.addWidget(self.battle_dest)
         tf = QHBoxLayout()
         tf.addWidget(QLabel("Trigger field (optional):"))
@@ -259,7 +267,7 @@ class BuildDoc(QWidget):
         self.trigger_hint = QLabel("repoint a deployed field's encounter at the minted scene (only for a "
                                    "from-scratch new scene, not a reskin/fork).")
         self.trigger_hint.setWordWrap(True)
-        self.trigger_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        self.trigger_hint.setProperty("role", "caption")
         tf.addWidget(self.trigger_hint, 1)
         bv.addLayout(tf)
         self.battle_box = box
@@ -297,6 +305,8 @@ class BuildDoc(QWidget):
         self.campaign_box.setVisible(self.kind == "campaign")
         self.journey_box.setVisible(self.kind == "journey")
         self.battle_box.setVisible(self.kind == "battle")
+        if self.kind == "battle" and hasattr(self, "_advanced"):
+            self._advanced.toggle_button.setChecked(True)   # the battle box lives in the Advanced drawer -> reveal it
         self.rev.setEnabled(True)                  # default; _update_dest disables it for a field's no-undo destinations
         self.rev.setToolTip("Undo the last deploy and restore the previous state.")
         if self.kind == "campaign" and self.plan is not None:
@@ -509,7 +519,7 @@ class BuildDoc(QWidget):
                       "to FF9_Launcher.exe installs it. Build/Deploy first — pack takes the OUTPUT folder. "
                       "For a single-folder journey, pack the deployed <game>/<merged folder>.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "caption")
         v.addWidget(hint)
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Mod folder:"))

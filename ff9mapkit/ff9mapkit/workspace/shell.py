@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QProgressBar, QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QTreeWidgetItemIterator, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
@@ -52,9 +53,12 @@ from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 from . import thumbs as _thumbs
+from . import anim
+from . import concepts
+from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard
+from .widgets import PlaceholderListWidget, install_wheel_guard, repolish
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -127,6 +131,26 @@ def _apply_app_theme(app, pal):
         app.setStyle("fusion")
     app.setPalette(_qpalette(pal))
 
+
+class _RailTabs(QTabWidget):
+    """A QTabWidget for the Phase-6 workspace rail: switching to a tab the rail currently HIDES
+    (``setTabVisible(False)``) must reliably LAND on it, not cascade onto an adjacent visible tab. So make the
+    target tab visible just before it becomes current. Both switch methods are overridden because Qt's
+    ``setCurrentIndex`` isn't virtual, so a C++ ``setCurrentWidget`` wouldn't dispatch to a Python override of
+    the other -- our switches all originate in Python, so overriding both catches them; ``_sync_rail`` then
+    re-groups from ``currentChanged``."""
+
+    def setCurrentIndex(self, index):              # noqa: N802 (Qt override)
+        if 0 <= index < self.count():
+            self.setTabVisible(index, True)
+        super().setCurrentIndex(index)
+
+    def setCurrentWidget(self, widget):            # noqa: N802 (Qt override)
+        i = self.indexOf(widget)
+        if i >= 0:
+            self.setTabVisible(i, True)
+        super().setCurrentWidget(widget)
+
 # section key -> forms spec.  Single tables + the list-entity kinds the Qt editor can edit today.
 # (cutscene steps + choice options are list-in-list sub-editors -- a Phase-4b follow-up.)
 _SECTION_SPEC = {"field": forms.FIELD_SPEC, "encounter": forms.ENCOUNTER_SPEC, "music": forms.MUSIC_SPEC,
@@ -157,7 +181,17 @@ _LIST_DEFAULTS = {
 }
 _ROLE = Qt.UserRole                                # per-item payload: (kind, label, key)
 _DETAIL = Qt.UserRole + 1                           # read-only decoded detail (logic-map nodes): list[str]
+_TINT = Qt.UserRole + 2                             # optional per-item icon tint hex (a field's _health colour)
 _LOGIC_KINDS = ("logic_root", "logic_entry", "logic_node")   # read-only logic-map nodes (not editable)
+
+# tree-node KIND -> its SVG icon (Phase 8; the same family as the breadcrumb/Home). Unmapped kinds
+# (group / note / undef_spatial / lazy placeholders) keep the reserved transparent slot. The four spine
+# kinds render in the accent colour (matching their accent text); the rest in subtle body text, except a
+# field, whose icon takes its _health tint (entry green / warn amber / error red) so status stays visible.
+_KIND_ICON = {"jset": "hub", "journey": "journey", "jcampaign": "campaign", "campaign": "campaign",
+              "jbare": "bare", "field": "field", "chocobo_root": "chocobo", "object": "object",
+              "logic_root": "script"}
+_ACCENT_KINDS = {"jset", "journey", "campaign", "jcampaign"}
 
 # Hover help per tree-node KIND -- so a glyph is never the ONLY cue to what a row is (the icons read alike).
 _KIND_HELP = {
@@ -286,6 +320,10 @@ class BreadcrumbBar(QWidget):
     """A one-line clickable path built from :func:`..editor.breadcrumb.trail`. ``on_nav(crumb)`` fires
     when an ancestor segment is clicked (the leaf is inert)."""
 
+    # each hierarchy level -> its SVG icon (the same family as the tree/Home), replacing bc.GLYPH's unicode
+    _CRUMB_ICON = {bc.HUB: "hub", bc.JOURNEY: "journey", bc.CAMPAIGN: "campaign", bc.FIELD: "field",
+                   bc.OBJECT: "object", bc.BATTLE: "battle", bc.SAVE: "save"}
+
     def __init__(self, pal):
         super().__init__()
         self.pal = pal
@@ -327,23 +365,31 @@ class BreadcrumbBar(QWidget):
                 w.deleteLater()
         if not crumbs:
             ph = QLabel("No campaign open  —  Open a campaign.toml to navigate it.")
-            ph.setStyleSheet(f"color:{self.pal['muted']};")
+            ph.setProperty("role", "muted")
             self._lay.addWidget(ph)
             self._lay.addStretch(1)
             return
         last = len(crumbs) - 1
         for i, c in enumerate(crumbs):
             if i:
-                sep = QLabel("▸")
-                sep.setStyleSheet(f"color:{self.pal['muted']};")
+                sep = QLabel()                          # the ▸ separator -> a muted chevron icon (family-consistent)
+                sep.setPixmap(icons.pixmap("chevron-right", self.pal["muted"], 12))
+                sep.setAlignment(Qt.AlignmentFlag.AlignVCenter)
                 self._lay.addWidget(sep)
-            text = f"{bc.GLYPH.get(c.level, '')} {c.label}"
+            name = self._CRUMB_ICON.get(c.level)
             if i == last:
-                leaf = QLabel(text)
-                leaf.setStyleSheet(f"color:{self.pal['text']};font-weight:600;")
+                if name:                                # a leading type-icon pixmap, then the strong label
+                    ic = QLabel()
+                    ic.setPixmap(icons.pixmap(name, self.pal["text"], 14))
+                    ic.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+                    self._lay.addWidget(ic)
+                leaf = QLabel(c.label)
+                leaf.setProperty("role", "strong")
                 self._lay.addWidget(leaf)
             else:
-                btn = QPushButton(text)
+                btn = QPushButton(c.label)              # the ancestor: an icon + label flat link
+                if name:
+                    btn.setIcon(icons.icon(name, self.pal["accent"], 14))
                 btn.setFlat(True)
                 btn.setCursor(Qt.PointingHandCursor)
                 btn.setStyleSheet(
@@ -386,6 +432,7 @@ class Workspace(QMainWindow):
         self._undo_stack = []                      # [_UndoRec] -- applied edits (Ctrl-Z pops the last)
         self._redo_stack = []                      # [_UndoRec] -- undone edits (Ctrl-Shift-Z re-applies)
         self._undo_base = {}                       # member -> deepcopy(doc.data) at the last checkpoint
+        self._deployed_target = None               # the file path last deployed OK -> the spine's post-deploy hint
         self._last_new_dir = str(REPO)             # remembered folder for the New Field / New Campaign pickers
         self._content_crumbs = []                  # cached tree-driven trail -> restored when returning to a content tab
         self._content_chip = None                  # cached chip mode for the SELECTED node (hub/journey/campaign/field)
@@ -395,10 +442,13 @@ class Workspace(QMainWindow):
         self.setWindowIcon(_app_icon())
         self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
+        self._density = prefs.density()            # UI density (comfortable default / compact); live-toggleable
+        from . import forms_qt as _fq             # Guided/Full beginner mode read by build_form
+        _fq.set_guided(prefs.guided())
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
-        self.setStyleSheet(qss(pal))
+        self.setStyleSheet(qss(pal, self._density))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
@@ -407,10 +457,10 @@ class Workspace(QMainWindow):
         self._thumb_rerender.setSingleShot(True)
         self._thumb_rerender.setInterval(250)
         self._thumb_rerender.timeout.connect(lambda: self.map.rerender())
-        self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
-        self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
-        self._root_items = []                                 # so toggling the dot never resizes/shifts a row
-        self._build_toolbar()
+        self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon reserving the slot for
+        self._root_items = []                                 # kinds with no type icon (the dot rides the type icon)
+        self._icon_retint = []                                # apply-callbacks re-tinting persistent SVG icons on a
+        self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
         self._build_console()
         self.statusBar().showMessage("Open a campaign.toml to begin.")
@@ -438,34 +488,87 @@ class Workspace(QMainWindow):
         else:
             self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
 
-    def _retint_hub_button(self):
-        """Re-apply the Info Hub button's violet tint for the current palette (after a theme switch)."""
-        if getattr(self, "_hub_btn", None) is not None:
-            self._hub_btn.setStyleSheet(
-                f"QToolButton {{ background:{self.pal['help']}; color:{self.pal['accent_fg']}; "
-                f"border:1px solid {self.pal['help']}; border-radius:6px; padding:6px 12px; font-weight:600; }}"
-                f"QToolButton:hover {{ background:{self.pal['help_hover']}; border-color:{self.pal['help_hover']}; }}")
+    def _icon_color(self, role):
+        """Resolve an icon-tint ROLE to a hex from the current palette (falls back to body text)."""
+        return self.pal.get(role, self.pal["text"])
+
+    def _set_btn_icon(self, btn, name, role="text", size=16):
+        """Give a button an SVG icon tinted by ``role``, and register it so a live theme switch re-tints it."""
+        apply = lambda: btn.setIcon(icons.icon(name, self._icon_color(role), size))  # noqa: E731
+        apply()
+        self._icon_retint.append(apply)
+
+    def _set_lbl_icon(self, lbl, name, role="text", size=16):
+        """Put an SVG icon pixmap on a QLabel (tinted by ``role``), registered for live re-tint."""
+        apply = lambda: lbl.setPixmap(icons.pixmap(name, self._icon_color(role), size))  # noqa: E731
+        apply()
+        self._icon_retint.append(apply)
 
     def retheme(self, pal):
-        """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the always-alive inline-styled
-        chrome (version chip, Info Hub button, the unsaved-changes dot). Panels that get rebuilt on
-        navigation read the new ``self.pal`` automatically; the one currently open keeps its inline hint
-        colours until it's next rebuilt (clicking away and back refreshes it)."""
+        """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the small remaining chrome that is
+        NOT QSS-driven (the version chip's 2-state colour, the doc-mode chip, the unsaved-changes dot, the
+        breadcrumb bar's own background, and the SVG icons — a fresh colour is a fresh render). Everything
+        role/#id-styled (labels, Info Hub button, inspector body, console/crumb strips) re-tints
+        automatically via ``setStyleSheet(qss)`` below."""
         self.pal = pal
         app = QApplication.instance()
         if app is not None:
             _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
-        self.setStyleSheet(qss(pal))
-        self._dot_icon = self._make_dot_icon(pal["warn"])     # new rows use the re-tinted dot
+        self.setStyleSheet(qss(pal, self._density))
+        self._retint_tree_icons()                             # tree type icons (+ the unsaved dot) re-render for pal
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
-        self._retint_version_chip()
-        self._retint_hub_button()
+        for _svd in (getattr(self, "story_state", None), getattr(self, "item_equip", None)):
+            _sl = getattr(_svd, "slots", None)                # the save docs' empty slot-list hint (painted, not QSS)
+            if isinstance(_sl, PlaceholderListWidget):
+                _sl.placeholder_color = pal["muted"]
+        self._retint_version_chip()                           # dynamic 2-state (accent 'update' vs muted)
+        for _apply in getattr(self, "_icon_retint", []):      # toolbar / Home SVG icons -> re-render under pal
+            _apply()
+        self._refresh_deploy_btn()                            # the Deploy rocket follows accent_fg + enabled state
         if getattr(self, "crumb", None) is not None:
-            self.crumb.repaint_pal(pal)                       # bar bg/border + trail labels (not QSS-driven)
-            self._set_chip(getattr(self, "_chip_mode", None)) # re-tint the persistent chip from the new palette
-        if getattr(self, "insp_body", None) is not None:
-            self.insp_body.setStyleSheet(f"color:{pal['muted']};")   # the always-alive inspector base colour
+            self.crumb.repaint_pal(pal)                       # the bar's own bg/border + its icons (rebuilt on set)
+            self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
+        if getattr(self, "map", None) is not None:
+            self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
+
+    def _apply_density(self, density):
+        """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
+        no palette change. Used by Preferences' live preview and the Ctrl-K toggle."""
+        self._density = density if density in prefs.DENSITIES else "comfortable"
+        self.setStyleSheet(qss(self.pal, self._density))
+
+    def _toggle_density(self):
+        """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
+        self._apply_density("compact" if self._density == "comfortable" else "comfortable")
+        prefs.set_density(self._density)
+        self.statusBar().showMessage(f"Density: {self._density}", 3000)
+
+    def _toggle_motion(self):
+        """Flip UI motion on <-> off and persist it (the Ctrl-K quick command). Explicit on/off overrides the
+        'auto' (match-system) default; nothing here loops or auto-plays."""
+        new = "off" if anim.enabled() else "on"
+        anim.configure(new)
+        prefs.set_motion(new)
+        self.statusBar().showMessage(f"Motion: {new}", 3000)
+
+    def _apply_guided(self, on):
+        """Set Guided/Full beginner mode LIVE + re-mount the open form so it applies now. Guided tucks each
+        form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed."""
+        from . import forms_qt
+        forms_qt.set_guided(bool(on))
+        if getattr(self, "tree", None) is not None and self.tree.currentItem() is not None:
+            self._on_select()                              # re-render the current form under the new mode
+
+    def _toggle_guided(self):
+        """Flip Guided <-> Full and persist it (the Ctrl-K quick command)."""
+        from . import forms_qt
+        on = not forms_qt._GUIDED
+        prefs.set_guided(on)
+        self._apply_guided(on)
+        self.statusBar().showMessage(
+            "Beginner mode: Guided — expert fields tucked into an Advanced drawer" if on
+            else "Beginner mode: Full — every field shown inline", 5000)
 
     def startup_update_flow(self):
         """First-run opt-in prompt, then (if opted in) a quiet once-a-day background check. Called from
@@ -654,10 +757,32 @@ class Workspace(QMainWindow):
         combo.setCurrentIndex(ix if ix >= 0 else 0)
         combo.currentIndexChanged.connect(lambda i: self.retheme(pick_palette(combo.itemData(i))))
         form.addRow("Theme", combo)
+        dens_combo = QComboBox()
+        for mode, label in (("comfortable", "Comfortable — roomier (default)"), ("compact", "Compact — tighter")):
+            dens_combo.addItem(label, mode)
+        dix = dens_combo.findData(self._density)
+        dens_combo.setCurrentIndex(dix if dix >= 0 else 0)
+        dens_combo.currentIndexChanged.connect(lambda i: self._apply_density(dens_combo.itemData(i)))
+        form.addRow("Density", dens_combo)
+        mode_combo = QComboBox()
+        for val, label in ((True, "Guided — tuck expert fields into an Advanced drawer (default)"),
+                           (False, "Full — show every field inline")):
+            mode_combo.addItem(label, val)
+        mode_combo.setCurrentIndex(0 if prefs.guided() else 1)
+        mode_combo.currentIndexChanged.connect(lambda i: self._apply_guided(mode_combo.itemData(i)))
+        form.addRow("Beginner mode", mode_combo)
+        motion_combo = QComboBox()
+        for val, label in (("auto", "Match system (default)"), ("on", "On — subtle transitions"),
+                           ("off", "Off — no animation")):
+            motion_combo.addItem(label, val)
+        mmix = motion_combo.findData(prefs.motion())
+        motion_combo.setCurrentIndex(mmix if mmix >= 0 else 0)
+        motion_combo.currentIndexChanged.connect(lambda i: anim.configure(motion_combo.itemData(i)))
+        form.addRow("Motion", motion_combo)
         lay.addLayout(form)
         hint = QLabel("Applies instantly. “Match system” follows your Windows light/dark setting.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "muted")
         lay.addWidget(hint)
         restore = QCheckBox("Reopen the last project on launch")
         restore.setObjectName("restore_chk")
@@ -675,26 +800,80 @@ class Workspace(QMainWindow):
             note = QLabel("Update checks apply to installed copies — you're running from a source checkout "
                           "(update with git pull).")
             note.setWordWrap(True)
-            note.setStyleSheet(f"color:{self.pal['muted']};")
+            note.setProperty("role", "muted")
             lay.addWidget(note)
         lay.addStretch(1)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         lay.addWidget(bb)
         original = self.pal
+        original_density = self._density
+        original_guided = prefs.guided()
+        original_motion = prefs.motion()
         state = {"ok": False}
 
         def _accept():
             state["ok"] = True
             prefs.set_theme(combo.currentData())
+            prefs.set_density(dens_combo.currentData())
+            prefs.set_guided(bool(mode_combo.currentData()))
+            prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
             if chk is not None:                           # the toggle only exists on an installed copy
                 update_check.set_preference(chk.isChecked())
             dlg.accept()
 
+        def _finish(_r):
+            if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density + mode preview
+                self._density = original_density
+                self._apply_guided(original_guided)
+                anim.configure(original_motion)           # revert the live motion preview too
+                self.retheme(original)                    # re-applies qss() with the restored density
+
         bb.accepted.connect(_accept)
         bb.rejected.connect(dlg.reject)
-        dlg.finished.connect(lambda _r: None if state["ok"] else self.retheme(original))
+        dlg.finished.connect(_finish)
         dlg.exec()
+
+    def _concept_dialog(self, concept):
+        """Build (but do NOT exec) the small themed concept card -- separated so it's grab-testable."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(concept.title)
+        dlg.setMinimumWidth(430)
+        lay = QVBoxLayout(dlg)
+        title = QLabel(concept.title)
+        title.setProperty("role", "h2")
+        lay.addWidget(title)
+        body = QLabel(concept.plain)
+        body.setWordWrap(True)
+        lay.addWidget(body)
+        if concept.engine_term:
+            aside = QLabel(f"Under the hood: {concept.engine_term}")
+            aside.setWordWrap(True)
+            aside.setProperty("role", "caption")
+            aside.setContentsMargins(0, 4, 0, 0)
+            lay.addWidget(aside)
+        lay.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.accept)                # the Close button (Esc too) just dismisses
+        bb.accepted.connect(dlg.accept)
+        lay.addWidget(bb)
+        return dlg
+
+    def _show_concept(self, concept):
+        """Pop a small, themed concept card explaining one domain term in plain language -- the shared viewer
+        for the Ctrl-K 'What is X?' rows, a '?' jargon badge, and What's-This. ``concept`` may be a Concept or
+        a free-text term (resolved via concepts.resolve); a miss is a silent no-op."""
+        if isinstance(concept, str):
+            concept = concepts.resolve(concept)
+        if concept is None:
+            return
+        self._concept_dialog(concept).exec()
+
+    def _show_concept_map(self):
+        """Open the 'How it all fits' concept map -- a diagram of how a project nests (journey ▸ campaign ▸
+        field ▸ contents), each box opening its plain-language card."""
+        from .conceptmap import show_concept_map
+        show_concept_map(self, self.pal, self._show_concept).exec()
 
     def _open_about(self):
         """An About box: icon, version + install mode, the provenance/license one-liner, and links."""
@@ -780,6 +959,7 @@ class Workspace(QMainWindow):
         self.act_save_all.setToolTip("Save every field with unsaved changes (Ctrl-Shift-S)")
         self.act_save_all.triggered.connect(self._save_all)
         tb.addAction(self.act_save_all)
+        tb.addSeparator()                               # end the EDIT group (undo/redo/save) before VALIDATE
         self.act_check = QAction("Check", self)
         self.act_check.setToolTip("Validate the open field/campaign now, in-process (schema + story/flag "
                                   "logic) — findings appear in the Problems panel. Fast; no subprocess.")
@@ -800,13 +980,14 @@ class Workspace(QMainWindow):
         self.act_lint_cli.triggered.connect(self.run_cli_lint)
         self.act_lint_cli.setEnabled(False)
         tb.addAction(self.act_lint_cli)
+        tb.addSeparator()                               # set the INFO group (browse/reference) apart
         self.act_hub = QAction("Info Hub", self)
         self.act_hub.setToolTip("Open the Info Hub catalog library (browse models / NPCs / props / items / "
                                 "flags by name)")
         self.act_hub.triggered.connect(self._open_catalog)
         tb.addAction(self.act_hub)
-        self._hub_btn = tb.widgetForAction(self.act_hub)   # color it violet (= the 'info / reference' hue, like
-        self._retint_hub_button()                           # the Info Hub's own ? badge) so the popup stands out
+        self._hub_btn = tb.widgetForAction(self.act_hub)   # a violet OUTLINE (info hue, secondary to Deploy) via
+        self._hub_btn.setObjectName("hub")                  # the QToolButton#hub id-rule in style.py (re-tints on theme switch)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         spacer.setStyleSheet("background: transparent;")   # the global QWidget rule painted it $bg -- a
@@ -814,21 +995,25 @@ class Workspace(QMainWindow):
         # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
         # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
         # features were invisible until the window grew. Now it shrinks first and never evicts anything.
-        search = QPushButton("⌕  Search anything  (Ctrl-K)")
+        search = QPushButton("Search anything  (Ctrl-K)")
         search.setObjectName("search")
+        self._set_btn_icon(search, "search", "text", 16)   # the ⌕ glyph -> the SVG search icon (re-tints on theme)
         search.setToolTip("Jump to any command, field, or object (Ctrl-K)")
         search.setMinimumWidth(150)
         search.setMaximumWidth(360)
         search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
-        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, Setup, About, and updates", [
+        self._settings_btn = self._menu_button(tb, "", "Preferences, Setup, About, and updates", [
             ("Setup && health…", self._open_setup),
             ("Preferences…", self._open_preferences),
             ("Check for updates…", self._open_update_dialog),
             ("About Dream World IX", self._open_about),
         ])
         self._settings_btn.setObjectName("gear")           # compact, chevron-free (see the QSS #gear rules)
+        self._settings_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self._settings_btn.setAccessibleName("Settings")   # the ⚙ glyph -> the SVG settings icon; name it for a11y
+        self._set_btn_icon(self._settings_btn, "settings", "text", 18)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
@@ -862,21 +1047,49 @@ class Workspace(QMainWindow):
         # whatever is open. Lives here (not the toolbar, which is width-budgeted to fit 1280) because it
         # acts on exactly the thing the breadcrumb names.
         crumb_row = QWidget()
-        crumb_row.setStyleSheet(f"background:{self.pal['surface']};"
-                                f"border-bottom:1px solid {self.pal['border']};")
+        crumb_row.setObjectName("crumbRow")                 # bg/border via QWidget#crumbRow (re-tints on theme switch)
+        crumb_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)   # a bare QWidget needs this to paint an ancestor bg rule
         ch = QHBoxLayout(crumb_row)
         ch.setContentsMargins(0, 0, 8, 0)
         ch.setSpacing(6)
         self.crumb = BreadcrumbBar(self.pal)
         self.crumb.on_nav = self._on_crumb
         ch.addWidget(self.crumb, 1)
-        self.deploy_btn = QPushButton("▶ Deploy   F9")
+        self.deploy_btn = QPushButton("Deploy   F9")      # the ▶ glyph -> the SVG rocket (set in _refresh_deploy_btn)
         self.deploy_btn.setObjectName("accent")
+        self.deploy_btn.setToolTip(
+            "Save everything, then build & deploy what the breadcrumb names (F9).\n"
+            "Reversible — your game files are backed up first. After it deploys, press F6 in-game to "
+            "reload the field (or F6 → Warp to jump straight to it).")
         self.deploy_btn.clicked.connect(self._deploy_now)
         self.deploy_btn.setEnabled(False)
         ch.addWidget(self.deploy_btn)
         self._refresh_deploy_btn()
         v.addWidget(crumb_row)
+
+        # Phase 7: the cohesion SPINE -- a modest 'what do I do next' strip below the breadcrumb, driven by the
+        # shell state (empty / unsaved / ready / just-deployed). Answers the third question ("what's my next
+        # step") the breadcrumb ("where am I") + Ctrl-K ("what is X") don't. Auto-hides when it has nothing to
+        # say. Rebuilt (state-cached, so it's free per keystroke) via _refresh_spine.
+        spine = QWidget()
+        spine.setObjectName("spineRow")
+        spine.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        sh = QHBoxLayout(spine)
+        sh.setContentsMargins(12, 5, 8, 5)
+        sh.setSpacing(8)
+        _sglyph = QLabel("→")
+        _sglyph.setProperty("role", "accent")
+        sh.addWidget(_sglyph)
+        self._spine_text = QLabel("")
+        self._spine_text.setProperty("role", "muted")
+        sh.addWidget(self._spine_text, 1)
+        self._spine_btns_lay = QHBoxLayout()
+        self._spine_btns_lay.setContentsMargins(0, 0, 0, 0)
+        self._spine_btns_lay.setSpacing(6)
+        sh.addLayout(self._spine_btns_lay)
+        self._spine_row = spine
+        spine.setVisible(False)
+        v.addWidget(spine)
 
         # The console (Problems · Output) is the bottom pane of a VERTICAL splitter, not a QDockWidget --
         # see _build_console. Floating/re-docking it was never useful and its drag machinery mis-sized the
@@ -893,14 +1106,20 @@ class Workspace(QMainWindow):
         tv.setContentsMargins(0, 0, 0, 0)
         tv.setSpacing(4)
         self.tree_filter = QLineEdit()
-        self.tree_filter.setPlaceholderText("⌕ filter the tree…")
+        self.tree_filter.setPlaceholderText("Filter the tree…")     # the ⌕ glyph -> a leading SVG search icon
+        self.tree_filter.setAccessibleName("Filter the tree")       # placeholder isn't a screen-reader name
+        _tf_act = self.tree_filter.addAction(icons.icon("search", self._icon_color("muted"), 14),
+                                             QLineEdit.ActionPosition.LeadingPosition)
+        self._icon_retint.append(lambda: _tf_act.setIcon(icons.icon("search", self._icon_color("muted"), 14)))
         self.tree_filter.setClearButtonEnabled(True)
         self.tree_filter.textChanged.connect(self._filter_tree)
         tv.addWidget(self.tree_filter)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setUniformRowHeights(True)        # the unsaved-dot icon must NOT change a row's height
-        self.tree.setIconSize(QSize(12, 12))        # ...so the tree doesn't jump when a dot appears/clears
+        self.tree.setAccessibleName("Project navigator")   # a headerless custom tree -> name it for a screen reader
+        self.tree.setAccessibleDescription("The open journey, campaign, or field and the objects inside it")
+        self.tree.setUniformRowHeights(True)        # the type icon + unsaved dot must NOT change a row's height
+        self.tree.setIconSize(QSize(16, 16))        # room for the SVG type icons (was 12 for the dot-only slot)
         self.tree.itemSelectionChanged.connect(self._on_select)
         self.tree.itemExpanded.connect(self._on_expand)
         self.tree.itemDoubleClicked.connect(self._on_tree_double)   # double-click = open (Editor / Map)
@@ -914,7 +1133,7 @@ class Workspace(QMainWindow):
         tv.addWidget(self.tree, 1)
         split.addWidget(tree_col)
 
-        self.tabs = QTabWidget()
+        self.tabs = _RailTabs()
         self.tabs.setDocumentMode(True)
         self._welcome()
         # the Editor tab: a scrollable host we refill with the selected node's form (Phase 4)
@@ -929,6 +1148,8 @@ class Workspace(QMainWindow):
         self._doc_placeholder("Select a field or an object on the left to edit it.")
         self.map = CampaignMap(self.pal, on_open=self._select_member,   # the campaign graph as a document
                                thumbs=self.thumbs.cached)               # nodes show the real art when cached
+        self.map.setAccessibleName("Campaign map")       # a custom-painted canvas is a screen-reader void without this
+        self.map.setAccessibleDescription("The open campaign's fields and the gateways between them")
         self.tabs.addTab(self.map, "Map")
         # the save docs route their console output to the shared bottom Output panel (so the doc body
         # reclaims that height); standalone (output=None) they'd keep an in-pane console.
@@ -962,14 +1183,57 @@ class Workspace(QMainWindow):
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
         # so it doesn't fire mid-construction (current index is the Home tab, which _on_tab_changed no-ops).
         self.tabs.currentChanged.connect(self._on_tab_changed)
-        split.addWidget(self.tabs)
+        # Phase 6: the workspace RAIL -- a segmented control above the tab strip that swaps WHICH tabs show
+        # (grouped by intent), so the strip never overflows the 640px pane into a chevron. The tree (left) +
+        # inspector (right) are unmoved; only the middle tab set swaps. Any setCurrentWidget self-heals: it
+        # fires currentChanged -> _on_tab_changed -> _sync_rail reveals the tab's group (proven: switching to
+        # a setTabVisible(False) tab still works + fires the signal).
+        self._rail_groups = [
+            ("Home", [self._welcome_tab]),
+            ("Author", [self.doc_scroll, self.map]),
+            ("Assets", [self.import_field, self.models_doc, self.battle]),
+            ("State", [self.story_state, self.item_equip]),
+            ("Ship", [self.build_deploy, self.coop_doc]),
+        ]
+        self._rail_busy = False
+        rail = QWidget()
+        rail.setObjectName("railBar")
+        rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)   # paint the #railBar bg rule
+        rl = QHBoxLayout(rail)
+        rl.setContentsMargins(6, 4, 6, 0)
+        rl.setSpacing(4)
+        rail_icon = {"Home": "home", "Author": "author", "Assets": "assets", "State": "state", "Ship": "rocket"}
+        self._rail_segs = []
+        for gi, (name, _members) in enumerate(self._rail_groups):
+            seg = QToolButton()
+            seg.setText(name)
+            seg.setObjectName("railSeg")
+            seg.setCheckable(True)
+            seg.setAutoExclusive(True)                  # arrow-key nav within the segmented control
+            seg.setCursor(Qt.CursorShape.PointingHandCursor)
+            seg.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)   # a leading group icon + the label
+            self._set_btn_icon(seg, rail_icon[name], "text", 16)   # (Ship shares the Deploy rocket -- the eye links them)
+            seg.setAccessibleName(f"{name} workspace")
+            seg.setToolTip(f"{name} — " + ", ".join(self.tabs.tabText(self.tabs.indexOf(m)).replace("&&", "&")
+                                                     for m in _members))
+            seg.clicked.connect(lambda _=False, i=gi: self._activate_group(i))
+            self._rail_segs.append(seg)
+            rl.addWidget(seg)
+        rl.addStretch(1)
+        mid_col = QWidget()
+        mcl = QVBoxLayout(mid_col)
+        mcl.setContentsMargins(0, 0, 0, 0)
+        mcl.setSpacing(0)
+        mcl.addWidget(rail)
+        mcl.addWidget(self.tabs, 1)
+        split.addWidget(mid_col)
 
         insp = QWidget()
         iv = QVBoxLayout(insp)
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
-        self.insp_title.setStyleSheet("font-weight:600;font-size:15px;")
+        self.insp_title.setProperty("role", "h3")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
@@ -978,7 +1242,7 @@ class Workspace(QMainWindow):
                                                | Qt.TextInteractionFlag.TextSelectableByMouse)
         self.insp_body.linkActivated.connect(self._inspect_link)
         self._inspect_path = None
-        self.insp_body.setStyleSheet(f"color:{self.pal['muted']};")
+        self.insp_body.setProperty("role", "muted")   # re-tints via QSS -> retheme's insp_body re-tint was dropped
         self.insp_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         iv.addWidget(self.insp_title)
         iv.addWidget(self.insp_body, 1)
@@ -996,12 +1260,14 @@ class Workspace(QMainWindow):
         split.setStretchFactor(1, 1)
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
+        self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
+        self._refresh_spine()                      # show the cohesion spine's cold-start (EMPTY) guidance
 
     def _panel_header(self, text):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
         at once)."""
         lab = QLabel(text)
-        lab.setStyleSheet(f"color:{self.pal['text']};font-weight:600;")
+        lab.setProperty("role", "strong")
         return lab
 
     def _build_console(self):
@@ -1014,20 +1280,31 @@ class Workspace(QMainWindow):
         panel_v.setSpacing(0)
 
         head = QWidget()                            # the always-visible title strip = the collapse control
-        head.setStyleSheet(f"background:{self.pal['surface']};"
-                           f"border-top:1px solid {self.pal['border']};")
+        head.setObjectName("consoleHead")           # bg/border via QWidget#consoleHead (re-tints on theme switch)
+        head.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)   # a bare QWidget needs this to paint an ancestor bg rule
         hh = QHBoxLayout(head)
         hh.setContentsMargins(4, 0, 4, 0)
         self._console_btn = QToolButton()
+        self._console_btn.setObjectName("consoleToggle")   # flat link-style toggle via QToolButton#consoleToggle
         self._console_btn.setAutoRaise(True)
         self._console_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._console_btn.setStyleSheet(
-            f"QToolButton {{ background:transparent; border:0; padding:5px 6px; "
-            f"color:{self.pal['muted']}; font-weight:600; }}"
-            f"QToolButton:hover {{ color:{self.pal['text']}; }}")
         self._console_btn.clicked.connect(lambda: self._toggle_console())
         hh.addWidget(self._console_btn)
         hh.addStretch(1)
+        # a loading state so a long build never reads as a frozen panel: a 'Working…' label (always) + an
+        # indeterminate bar (only when motion is on -- an animated barber-pole is exactly what reduced-motion
+        # asks to avoid; the text carries the meaning either way).
+        self._busy_label = QLabel("Working…")
+        self._busy_label.setProperty("role", "muted")
+        self._busy_label.setVisible(False)
+        hh.addWidget(self._busy_label)
+        self._busy_bar = QProgressBar()
+        self._busy_bar.setRange(0, 0)                # indeterminate
+        self._busy_bar.setTextVisible(False)
+        self._busy_bar.setFixedSize(120, 6)
+        self._busy_bar.setVisible(False)
+        self._busy_bar.setAccessibleName("Working")
+        hh.addWidget(self._busy_bar)
         self._console_head = head
         panel_v.addWidget(head)
 
@@ -1039,11 +1316,14 @@ class Workspace(QMainWindow):
         pv.setSpacing(6)
         pv.addWidget(self._panel_header("Problems"))
         self.banner = QLabel("")
+        self.banner.setProperty("role", "banner")   # a per-verdict accent stripe; state set in _show_problems
         self.banner.setVisible(False)
         self.banner.setWordWrap(True)
         self.problems = PlaceholderListWidget(
             "No problems yet — Check (toolbar) validates the open project and reports here.",
             self.pal["muted"])
+        self.problems.setAccessibleName("Problems")
+        self.problems.setIconSize(QSize(16, 16))     # room for the per-row severity icon (error/warn shapes)
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -1072,6 +1352,7 @@ class Workspace(QMainWindow):
         ov.addLayout(out_head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        self.output.setAccessibleName("Output console")
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
         ov.addWidget(self.output, 1)
@@ -1096,6 +1377,10 @@ class Workspace(QMainWindow):
         self._console_open = True                    # the state of record: a not-yet-shown body reads
         self._console_sizes = None                   # isVisible() == False, which would flip the arrow
         self._sync_console_btn()                     # the last EXPANDED [docs, console] split, for re-expand
+        # Start COLLAPSED to its header strip: on a cold start there is nothing to show (both panels are
+        # empty placeholders) and the reclaimed height goes to the documents. Any job re-expands it
+        # (run_job -> _raise_console); a restored session (below, opt-in) overrides this if it was open.
+        self._toggle_console(expand=False)
 
     # ---- the collapsible console (was a QDockWidget) ----
     def _console_head_h(self):
@@ -1156,7 +1441,7 @@ class Workspace(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
         title = QLabel("Dream World IX — Workspace")
-        title.setStyleSheet("font-size:22px;font-weight:700;")
+        title.setProperty("role", "display")
         v.addWidget(title)
         self._home_status = QLabel("")
         self._home_status.setWordWrap(True)
@@ -1170,13 +1455,42 @@ class Workspace(QMainWindow):
         self._home_setup.setVisible(False)
         self._home_setup.linkActivated.connect(lambda _h: self._open_setup())
         v.addWidget(self._home_setup)
-        intro = QLabel("Start at <b>any</b> level — they nest (journey ▸ campaign ▸ field ▸ object), but none "
-                       "<i>requires</i> the one above. A <b>journey</b> is the front door (the whole arc); you "
-                       "can also open a single campaign or field directly.")
+        intro = QLabel("New here? A <b>field</b> is one explorable screen — the smallest piece, and the easiest "
+                       "place to start. <b>Campaigns</b> chain fields into a story; a <b>journey</b> bundles the "
+                       "whole arc. You can open any level directly — none needs the others.")
         intro.setWordWrap(True)
         intro.setTextFormat(Qt.TextFormat.RichText)
-        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        intro.setProperty("role", "muted")
         v.addWidget(intro)
+        # GET STARTED (Phase 4): a provenance-clean newcomer path. The kit ships ZERO FF9 content, so there's
+        # nothing to "open" out of the box -- the first working project is one the user FORKS from their own
+        # install. This is a live 3-step checklist (point at the game -> extract templates -> fork a real
+        # field), rebuilt each Home show so a step ticks ✓ the moment it's done. Placed first, before Recent.
+        self._start_head = self._home_section("Get started")
+        v.addWidget(self._start_head)
+        self._start_note = QLabel("Dream World IX includes <b>no</b> FINAL FANTASY IX content. You point it at "
+                                  "your own installed copy, and it reads every field, texture, and byte from "
+                                  "there — so the base game stays untouched and anything you make is yours.")
+        self._start_note.setWordWrap(True)
+        self._start_note.setTextFormat(Qt.TextFormat.RichText)
+        self._start_note.setProperty("role", "muted")
+        v.addWidget(self._start_note)
+        self._start_box = QWidget()
+        self._start_box.setStyleSheet("background: transparent;")
+        self._start_lay = QVBoxLayout(self._start_box)
+        self._start_lay.setContentsMargins(0, 2, 0, 4)
+        self._start_lay.setSpacing(8)
+        v.addWidget(self._start_box)
+        # 'Try it now' reassurance -- closes the first-10-minutes arc (fork → deploy → play) for a nervous
+        # newcomer: trying a fork in-game is a safe, reversible sandbox.
+        self._start_footer = QLabel("Once you've forked a field, press <b>F9</b> to try it in your game — it "
+                                    "deploys to a safe test slot and backs up first, so you can explore "
+                                    "without risk.")
+        self._start_footer.setWordWrap(True)
+        self._start_footer.setTextFormat(Qt.TextFormat.RichText)
+        self._start_footer.setProperty("role", "caption")
+        self._start_footer.setContentsMargins(0, 2, 0, 0)
+        v.addWidget(self._start_footer)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
         self._recent_head = self._home_section("Recent")
         v.addWidget(self._recent_head)
@@ -1187,27 +1501,30 @@ class Workspace(QMainWindow):
         self._recent_lay.setSpacing(5)
         v.addWidget(self._recent_box)
         v.addWidget(self._home_section("The project spine — top-down"))
-        v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
-                                   [("Open…", self.on_open_journey, True), ("New…", self.on_new_journey, False)]))
-        v.addWidget(self._home_row("▣", "Campaign", "a connected chain of fields",
+        v.addWidget(self._home_row("journey", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
+                                   [("Open…", self.on_open_journey, False), ("New…", self.on_new_journey, False)]))
+        v.addWidget(self._home_row("campaign", "Campaign", "a connected chain of fields",
                                    [("Open…", self.on_open_campaign, False), ("New…", self.on_new_campaign, False)]))
-        v.addWidget(self._home_row("●", "Field", "one explorable screen (edit it standalone)",
+        v.addWidget(self._home_row("field", "Field", "one explorable screen (edit it standalone)",
                                    [("Open…", self.on_open_field, False), ("New…", self.on_new_field, False)]))
         v.addWidget(self._home_section("Off to the side"))
-        v.addWidget(self._home_row("⚔", "Battle", "a battle background / encounter — a referenced sibling of a field",
+        v.addWidget(self._home_row("battle", "Battle", "a battle background / encounter — a referenced sibling of a field",
                                    [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle), False)]))
-        v.addWidget(self._home_row("⤵", "Import", "fork a real FF9 field into a new project",
+        v.addWidget(self._home_row("download", "Import", "fork a real FF9 field into a new project",
                                    [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field), False)]))
-        v.addWidget(self._home_row("🧍", "Models", "browse every FF9 3D model with previews — export, edit "
+        v.addWidget(self._home_row("assets", "Models", "browse every FF9 3D model with previews — export, edit "
                                    "in Blender, reimport",
                                    [("Go to Models", lambda: self.tabs.setCurrentWidget(self.models_doc), False)]))
-        v.addWidget(self._home_row("◈", "Save", "edit a real save's story flags / items / equipment "
+        v.addWidget(self._home_row("save", "Save", "edit a real save's story flags / items / equipment "
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
         v.addStretch(1)
-        hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <b>Close</b> (toolbar) returns here.")
+        hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <a href=\"conceptmap\">How it all fits</a> · "
+                      "<b>Close</b> (toolbar) returns here.")
         hint.setTextFormat(Qt.TextFormat.RichText)
-        hint.setStyleSheet(f"color:{self.pal['muted']};margin-top:6px;")
+        hint.setProperty("role", "muted")
+        hint.setContentsMargins(0, 6, 0, 0)                # was margin-top:6px in the inline sheet
+        hint.linkActivated.connect(lambda _h: self._show_concept_map())
         v.addWidget(hint)
         scroll.setWidget(page)
         self._welcome_tab = scroll                 # kept so Close can return here
@@ -1216,13 +1533,13 @@ class Workspace(QMainWindow):
 
     def _home_section(self, text):
         lab = QLabel(text.upper())
-        lab.setStyleSheet(f"color:{self.pal['muted']};font-weight:600;font-size:11px;"
-                          "letter-spacing:1px;margin-top:10px;")
+        lab.setProperty("role", "overline")
+        lab.setContentsMargins(0, 10, 0, 0)                # was margin-top:10px in the inline sheet
         return lab
 
-    def _home_row(self, glyph, title, desc, buttons):
-        """One entry-point CARD: a tinted glyph + name + one-line description on the left, its action
-        button(s) right-aligned (the same glyphs as the tree/breadcrumb, so the visual language is
+    def _home_row(self, icon_name, title, desc, buttons):
+        """One entry-point CARD: a tinted TYPE ICON + name + one-line description on the left, its action
+        button(s) right-aligned (the same icon family as the tree/breadcrumb, so the visual language is
         consistent). ``buttons`` = (label, callback, is_primary) -- the ONE primary action on the page
         (Journey ▸ Open, the recommended front door) renders in the accent colour."""
         box = QFrame()
@@ -1230,8 +1547,8 @@ class Workspace(QMainWindow):
         h = QHBoxLayout(box)
         h.setContentsMargins(16, 12, 14, 12)
         h.setSpacing(12)
-        g = QLabel(glyph)
-        g.setStyleSheet(f"color:{self.pal['accent']};font-size:17px;")
+        g = QLabel()
+        self._set_lbl_icon(g, icon_name, "accent", 20)    # the accent-tinted SVG type icon (re-tints on theme switch)
         g.setFixedWidth(26)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
@@ -1241,10 +1558,10 @@ class Workspace(QMainWindow):
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet("font-weight:600;font-size:14px;")
+        t.setProperty("role", "strong")
         d = QLabel(desc)
         d.setWordWrap(True)
-        d.setStyleSheet(f"color:{self.pal['muted']};")
+        d.setProperty("role", "muted")
         cv.addWidget(t)
         cv.addWidget(d)
         h.addWidget(col, 1)
@@ -1256,6 +1573,89 @@ class Workspace(QMainWindow):
             b.clicked.connect(lambda _=False, c=cb: c())
             h.addWidget(b)
         return box
+
+    def _getstarted_steps(self):
+        """The newcomer's provenance-clean first-steps, each with a ``done`` flag + a primary action. Nothing
+        here ships FF9 content: the setup steps point the kit at the user's OWN install, then the creative
+        endpoint forks a real field FROM that install. ``done=None`` marks the (always-available) action step."""
+        from .. import health, provision
+        game, _err = health.find_game()
+        have_game = game is not None
+        have_templates = False
+        if have_game:
+            try:
+                have_templates = bool(provision.templates_present())
+            except Exception:                          # noqa: BLE001 -- a probe hiccup must not break Home
+                have_templates = False
+        return [
+            ("Point the kit at your FF9 install", "So it can read the game's own fields, art, and data — "
+             "nothing is shipped with the tool.", have_game, "Locate game…", self._open_setup),
+            ("Extract the base templates (a one-time ~1–2 min copy)", "The kit builds from these, regenerated "
+             "from YOUR install — never from Square-Enix bytes.", have_templates, "Run setup…", self._open_setup),
+            ("Fork your first field from the game", "Turn any real FF9 screen into an editable project — "
+             "starting from one that already works is the fastest way to learn.", None, "Go to Import",
+             lambda: self.tabs.setCurrentWidget(self.import_field)),
+        ]
+
+    def _getstarted_row(self, num, title, desc, done, label, cb, primary):
+        """One numbered get-started step: a ✓ (done, green) or an accent step-number, the title + one-line
+        why, and the step's action (the ONE primary step renders accent; a done gate shows a muted 'done')."""
+        box = QFrame()
+        box.setObjectName("card")
+        h = QHBoxLayout(box)
+        h.setContentsMargins(16, 10, 14, 10)
+        h.setSpacing(12)
+        g = QLabel("✓" if done else str(num))
+        g.setProperty("role", "ok" if done else "accent")     # themed via QSS (no stale colour on retheme)
+        g.setStyleSheet("font-size:15px;font-weight:600;")    # size/weight cascade on top of the role colour
+        g.setFixedWidth(22)
+        g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        h.addWidget(g)
+        col = QWidget()
+        col.setStyleSheet("background: transparent;")
+        cv = QVBoxLayout(col)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(2)
+        t = QLabel(title)
+        t.setProperty("role", "strong")
+        d = QLabel(desc)
+        d.setWordWrap(True)
+        d.setProperty("role", "muted")
+        cv.addWidget(t)
+        cv.addWidget(d)
+        h.addWidget(col, 1)
+        if done:
+            chk = QLabel("done")
+            chk.setProperty("role", "muted")
+            h.addWidget(chk)
+        else:
+            b = QPushButton(label)
+            if primary:
+                b.setObjectName("accent")
+            b.setMinimumWidth(112)
+            b.clicked.connect(lambda _=False, c=cb: c())
+            h.addWidget(b)
+        return box
+
+    def _refresh_getstarted(self):
+        """Rebuild the Home 'Get started' checklist from the live setup state. Shown for a newcomer / an empty
+        Workspace (a configured user mid-project doesn't need it); the ONE accent is the first not-yet-done
+        step, so it points at the exact next thing to do. Supersedes the terse ``_home_setup`` banner."""
+        if not hasattr(self, "_start_box"):
+            return
+        self._clear_layout(self._start_lay)
+        steps = self._getstarted_steps()
+        setup_incomplete = any(s[2] is False for s in steps[:2])     # only the two gating steps count
+        show = setup_incomplete or self._current_target()[0] is None  # newcomer / empty -> guide; else hide
+        for w in (self._start_head, self._start_note, self._start_box, self._start_footer):
+            w.setVisible(show)
+        if show and hasattr(self, "_home_setup"):
+            self._home_setup.setVisible(False)                        # the checklist covers the setup warning
+        if not show:
+            return
+        primary_ix = next((i for i, s in enumerate(steps) if not s[2]), len(steps) - 1)
+        for i, (title, desc, done, label, cb) in enumerate(steps):
+            self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
 
     def _current_target(self):
         """(name, level-label) of what's currently open — for the Home 'Currently editing' line. (None, None)
@@ -1288,9 +1688,10 @@ class Workspace(QMainWindow):
                 self._home_setup.setText(
                     f'<span style="color:{self.pal["warn"]};">⚠ {_esc(" · ".join(issues))}</span> — '
                     f'<a href="setup">open Setup &amp; health</a> to fix it.')
+        self._refresh_getstarted()                     # the provenance-clean first-steps (may hide _home_setup)
         self._refresh_recent()
 
-    _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
+    _RECENT_ICON = {"journey": "journey", "campaign": "campaign", "field": "field", "save": "save"}
 
     @staticmethod
     def _recent_display(entry):
@@ -1316,15 +1717,24 @@ class Workspace(QMainWindow):
         self._recent_head.setVisible(bool(rows))
         self._recent_box.setVisible(bool(rows))
         for e in rows:
-            glyph = self._RECENT_GLYPH.get(e["kind"], "●")
-            lab = QLabel(f'<span style="color:{self.pal["accent"]};">{glyph}</span>&nbsp; '
-                         f'<a href="open">{_esc(self._recent_display(e))}</a>'
+            row = QWidget()
+            row.setStyleSheet("background: transparent;")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(6)
+            ic = QLabel()                              # the ◆/▣/●/◈ glyph -> its SVG type icon (accent)
+            ic.setPixmap(icons.pixmap(self._RECENT_ICON.get(e["kind"], "field"), self.pal["accent"], 14))
+            ic.setFixedWidth(18)
+            ic.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            rl.addWidget(ic)
+            lab = QLabel(f'<a href="open">{_esc(self._recent_display(e))}</a>'
                          f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
                          f'{_esc(_snip(e["path"], 64))}</span>')
             lab.setTextFormat(Qt.TextFormat.RichText)
             lab.setToolTip(e["path"])
             lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
-            self._recent_lay.addWidget(lab)
+            rl.addWidget(lab, 1)
+            self._recent_lay.addWidget(row)
 
     def _open_recent(self, kind, path):
         """Reopen a recent project by kind; a vanished file prunes itself instead of erroring."""
@@ -1338,13 +1748,13 @@ class Workspace(QMainWindow):
         return open_(path)
 
     # ---- item helpers ----
-    @staticmethod
-    def _mk(kind, label, key="", glyph=""):
-        it = QTreeWidgetItem([f"{glyph} {label}".strip()])
+    def _mk(self, kind, label, key=""):
+        it = QTreeWidgetItem([label])              # the leading unicode glyph is now an SVG type icon (Phase 8)
         it.setData(0, _ROLE, (kind, label, key))
+        it.setIcon(0, self._type_icon(kind))       # kind -> its family icon (blank slot for unmapped kinds)
         help_ = _KIND_HELP.get(kind)
         if help_:
-            it.setToolTip(0, help_)                # hover names the TYPE -- the glyph isn't the only cue
+            it.setToolTip(0, help_)                # hover names the TYPE -- the icon isn't the only cue
         return it
 
     @staticmethod
@@ -1405,26 +1815,20 @@ class Workspace(QMainWindow):
         self.tree.clear()
         self._root_items = []
         self._member_items = {}
-        jset = self._mk("jset", self.journey_name, "@journeys", "⌂")   # the HUB glyph -- distinct from a journey's ◆
+        jset = self._mk("jset", self.journey_name, "@journeys")   # the HUB (accent icon -- distinct from a journey)
         jset.setForeground(0, QBrush(QColor(self.pal["accent"])))
-        jset.setIcon(0, self._blank_icon)
         self.tree.addTopLevelItem(jset)
         jset.setExpanded(True)
         self._root_items.append(jset)
         for j in self.manifest.journeys:
-            jn = self._mk("journey", j.name or j.id, f"@journey:{j.id}", "◆")
-            jn.setIcon(0, self._blank_icon)
+            jn = self._mk("journey", j.name or j.id, f"@journey:{j.id}")
             jset.addChild(jn)
             jn.setExpanded(True)
             if j.is_bare:                          # a single-field journey -> the hub warps straight to a field
-                leaf = self._mk("jbare", f"→ field {j.entry.field}", f"@bare:{j.id}", "•")
-                leaf.setIcon(0, self._blank_icon)
-                jn.addChild(leaf)
+                jn.addChild(self._mk("jbare", f"→ field {j.entry.field}", f"@bare:{j.id}"))
             else:
                 for folder in j.campaigns:
-                    cn = self._mk("jcampaign", folder, folder, "▣")
-                    cn.setIcon(0, self._blank_icon)
-                    jn.addChild(cn)
+                    jn.addChild(self._mk("jcampaign", folder, folder))
 
     def _mount_journey_overview(self, selected_jid=None):
         """Show the resolved journey plan (campaigns, entry ids, flag windows, cross-campaign links) in the
@@ -1479,7 +1883,7 @@ class Workspace(QMainWindow):
             return
         row = QHBoxLayout()
         lbl = QLabel(f"Journey ‘{j.name or j.id}’:")
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         row.addWidget(lbl)
         seed_b = QPushButton("Set base party / seed…")
         seed_b.setToolTip("Edit [journey.seed] — the base party + start beat seeded into the entry member at "
@@ -1539,7 +1943,7 @@ class Workspace(QMainWindow):
                           "clears each one as it's forked.")
             hint.setTextFormat(Qt.TextFormat.RichText)
             hint.setWordWrap(True)
-            hint.setStyleSheet(f"color:{self.pal['muted']};")
+            hint.setProperty("role", "muted")
             gv.addWidget(hint)
         self._fork_buttons = {}
         self._fork_rows = {}                        # key -> the status QLabel (restyled while a fork runs)
@@ -1548,13 +1952,14 @@ class Workspace(QMainWindow):
             forked = self._campaign_forked(f)
             pf = self._fork_cmds.get(f)
             tag = QLabel(("✓ " if forked else "○ ") + f + (f"  (real field {pf.seed})" if pf else ""))
-            tag.setStyleSheet(f"color:{self.pal['accent'] if forked else self.pal['text']};")
+            if forked:
+                tag.setProperty("role", "accent")     # forked = accent; unforked leaves the default $text
             self._fork_rows[f] = tag
             row.addWidget(tag)
             row.addStretch(1)
             if forked:
                 lbl = QLabel("forked")
-                lbl.setStyleSheet(f"color:{self.pal['muted']};")
+                lbl.setProperty("role", "muted")
                 row.addWidget(lbl)
             elif pf:
                 b = QPushButton("Fork")
@@ -1563,7 +1968,7 @@ class Workspace(QMainWindow):
                 row.addWidget(b)
             else:
                 lbl = QLabel("fork manually")
-                lbl.setStyleSheet(f"color:{self.pal['muted']};")
+                lbl.setProperty("role", "muted")
                 row.addWidget(lbl)
             gv.addLayout(row)
         if missing_cmds:
@@ -1584,7 +1989,8 @@ class Workspace(QMainWindow):
         tag = getattr(self, "_fork_rows", {}).get(key)
         if tag is not None:
             tag.setText(f"⟳ {key}  (forking…)")
-            tag.setStyleSheet(f"color:{self.pal['accent']};")
+            tag.setProperty("role", "accent")
+            repolish(tag)                             # long-lived widget -> re-evaluate the role at runtime
         allb = getattr(self, "_fork_all_btn", None)
         if allb is not None:
             allb.setEnabled(False)
@@ -1709,7 +2115,7 @@ class Workspace(QMainWindow):
         note = QLabel("Each row is a menu choice on the hub. Install the slice first (fork + deploy); this row "
                       "just points New Game at its field id.")
         note.setWordWrap(True)
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -1764,11 +2170,12 @@ class Workspace(QMainWindow):
             note = QLabel("⚠ This is a BARE single-field journey: the base PARTY won't apply (it's injected into "
                           "a MULTI-campaign entry's script at deploy). Set the party on the entry FIELD's [party] "
                           "in the Editor instead. The start beat still seeds hub-side.")
-            note.setStyleSheet(f"color:{self.pal['warn']};")
+            note.setProperty("role", "muted")
+            note.setProperty("state", "warn")
         else:
             note = QLabel("The base party + start beat seed the journey's entry member at deploy (the story_flags "
                           "capstone). Zidane is implicit — New Game already seeds him in slot 0.")
-            note.setStyleSheet(f"color:{self.pal['muted']};")
+            note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -1881,7 +2288,7 @@ class Workspace(QMainWindow):
                        "boundary link is wired by 'Fill entry &amp; links from forks' after you fork it.")
         intro.setWordWrap(True)
         intro.setTextFormat(Qt.TextFormat.RichText)
-        intro.setStyleSheet(f"color:{self.pal['muted']};")
+        intro.setProperty("role", "muted")
         lay.addWidget(intro)
         lst = QListWidget()
         for a in arcset.arcs:
@@ -2114,7 +2521,7 @@ class Workspace(QMainWindow):
         form.addRow("Camera pitch", pitch)
         note = QLabel("A new walkable room with PLACEHOLDER art is created under "
                       "<dest>/<NAME>/ and opened. Repaint the layers + author it here.")
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2160,7 +2567,7 @@ class Workspace(QMainWindow):
         form.addRow("First field id", idb)
         note = QLabel("An empty campaign.toml is created here and opened. Right-click the campaign in the "
                       "tree (or its root) to <b>Add field…</b>.")
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2263,7 +2670,7 @@ class Workspace(QMainWindow):
                               "(or Ctrl-K → “Fork FF9 regions”) — a region catalog, not a journey.")
         regions_hint.setTextFormat(Qt.TextFormat.RichText)
         regions_hint.setWordWrap(True)
-        regions_hint.setStyleSheet(f"color:{self.pal['muted']};")
+        regions_hint.setProperty("role", "muted")
         tl.addWidget(regions_hint)
         form.addRow("Type", trow)
         name = QLineEdit()
@@ -2315,7 +2722,7 @@ class Workspace(QMainWindow):
         stack.addWidget(hub_panel)
         form.addRow(stack)
         note = QLabel()
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2397,7 +2804,7 @@ class Workspace(QMainWindow):
                       f"index at/above {floor} (clear of the other tiers + the auto-flag windows); safe band "
                       f"[{_flags.FIRST_SAFE_FLAG}, {_flags.CHOICE_SCRATCH_FLOOR}).")
         note.setWordWrap(True)
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         lay.addWidget(note)
         tbl = QTableWidget(0, 2)
         tbl.setHorizontalHeaderLabels(["Name", "Index"])
@@ -2427,9 +2834,11 @@ class Workspace(QMainWindow):
             add_row(f.get("name", ""), f.get("index", floor))
         lay.addWidget(tbl)
         btns = QHBoxLayout()
-        addb = QPushButton("+ Add flag")
+        addb = QPushButton("Add flag")
+        addb.setIcon(icons.icon("plus", self.pal["text"], 14))
         addb.clicked.connect(lambda: add_row())
-        rmb = QPushButton("− Remove")
+        rmb = QPushButton("Remove")
+        rmb.setIcon(icons.icon("minus", self.pal["text"], 14))
         rmb.setToolTip("Remove the selected flag row.")
         rmb.setEnabled(tbl.currentRow() >= 0)            # nothing selected -> nothing to remove (don't no-op silently)
         rmb.clicked.connect(lambda: tbl.removeRow(tbl.currentRow()) if tbl.currentRow() >= 0 else None)
@@ -2537,7 +2946,7 @@ class Workspace(QMainWindow):
         note = QLabel("A new blank, walkable room is scaffolded and added to this campaign.<br>"
                       "To fork a REAL field into the campaign, use the <b>Import</b> tab or "
                       "<code>ff9mapkit add-field --source</code>.")
-        note.setStyleSheet(f"color:{self.pal['muted']};")
+        note.setProperty("role", "muted")
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
@@ -2672,7 +3081,7 @@ class Workspace(QMainWindow):
         self.tree.clear()
         self._member_items = {}
         self._root_items = []                      # loose mode: the member IS the top-level (it gets its own dot)
-        mi = self._mk("field", name, name, "•")
+        mi = self._mk("field", name, name)
         self.tree.addTopLevelItem(mi)
         self._member_items[name] = mi
         mi.addChild(self._mk("__lazy__", "loading…"))   # lazy object load on expand (same as a member)
@@ -2811,23 +3220,24 @@ class Workspace(QMainWindow):
         g = C.campaign_graph(self.plan)
         parent = self.tree
         if self.journey_name:
-            jr = self._mk("journey", self.journey_name, "@journey", "◆")
+            jr = self._mk("journey", self.journey_name, "@journey")
             jr.setForeground(0, QBrush(QColor(self.pal["accent"])))
             self.tree.addTopLevelItem(jr)
             jr.setExpanded(True)
             parent = jr
             self._root_items.append(jr)
-        camp = self._mk("campaign", self.plan.name, "@campaign", "▣")
+        camp = self._mk("campaign", self.plan.name, "@campaign")
         camp.setForeground(0, QBrush(QColor(self.pal["accent"])))
         (parent.addChild(camp) if isinstance(parent, QTreeWidgetItem) else self.tree.addTopLevelItem(camp))
         camp.setExpanded(True)
         self._root_items.append(camp)
         self._member_items = {}
         for node in g.nodes:
-            mi = self._mk("field", node.name, node.name, _badge(node))
-            col = _health(node, self.pal)
-            if col:
+            mi = self._mk("field", node.name, node.name)
+            col = _health(node, self.pal)             # the _badge glyph is gone; status now tints the field icon
+            if col:                                   # (entry green / warn amber / error red) -- text + icon
                 mi.setForeground(0, QBrush(QColor(col)))
+                mi.setData(0, _TINT, col)             # remembered so _refresh_dirty_marks keeps the tint + adds the dot
             camp.addChild(mi)
             self._member_items[node.name] = mi
             mi.addChild(self._mk("__lazy__", "loading…"))   # placeholder -> lazy object load on expand
@@ -2871,7 +3281,7 @@ class Workspace(QMainWindow):
         try:                                            # a Hot & Cold forest fork -> a high-level authoring node
             from ..content import chocobo as _choco     # ABOVE the raw routine list (hidden on every other field)
             if _choco.scan(eb) is not None:
-                cn = self._mk("chocobo_root", "🐤  Chocobo Hot & Cold — prizes & timer", "chocobo")
+                cn = self._mk("chocobo_root", "Chocobo Hot & Cold — prizes & timer", "chocobo")   # 🐤 -> the feather icon
                 cn.setData(0, _DETAIL, [
                     "Author the dig PRIZE POOL + the game TIMER for this forest.",
                     self._muted("35 prize slots + the timer, edited in place (a [chocobo] block) — the popup, the "
@@ -3013,19 +3423,59 @@ class Workspace(QMainWindow):
 
     @staticmethod
     def _make_dot_icon(color):
-        """A 12px QIcon: a filled circle in ``color`` (the unsaved dot), or a TRANSPARENT same-size icon
-        when ``color`` is None -- a non-null blank icon still reserves the row's icon slot, so swapping it
-        for the dot never resizes or horizontally shifts the row."""
-        pm = QPixmap(12, 12)                        # matches the tree iconSize so it isn't scaled/blurred
+        """A 16px QIcon: a filled circle in ``color``, or a TRANSPARENT same-size icon when ``color`` is None.
+        The transparent form (``_blank_icon``) reserves the row's icon slot for kinds with no type icon, so a
+        clean row and an iconed row line up. (Since Phase 8 the unsaved dot rides a type icon via
+        :func:`icons.with_corner_dot`; this stays the slot-reserver.)"""
+        pm = QPixmap(16, 16)                        # matches the tree iconSize so it isn't scaled/blurred
         pm.fill(QColor(0, 0, 0, 0))
         if color is not None:
             p = QPainter(pm)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(color))
-            p.drawEllipse(2, 2, 8, 8)
+            p.drawEllipse(3, 3, 10, 10)
             p.end()
         return QIcon(pm)
+
+    def _type_icon(self, kind, *, unsaved=False, tint=None):
+        """The tree-row icon for a node ``kind`` (Phase 8): its SVG type glyph tinted by ``tint`` (a field's
+        _health colour), else accent for the spine kinds, else subtle body text. Unmapped kinds keep the
+        reserved transparent slot. ``unsaved`` composites the amber corner dot (the old dot-in-the-slot)."""
+        name = _KIND_ICON.get(kind)
+        if not name:
+            return self._blank_icon
+        if tint:
+            color = tint
+        elif kind in _ACCENT_KINDS:
+            color = self.pal["accent"]
+        else:
+            color = self.pal.get("text_subtle", self.pal["text"])
+        pm = icons.pixmap(name, color, 16)
+        if unsaved:
+            pm = icons.with_corner_dot(pm, self.pal["warn"])
+        return QIcon(pm)
+
+    def _type_icon_for(self, item, *, unsaved=False):
+        """Build :meth:`_type_icon` for a tree ITEM, reading its kind + stored tint from the item data."""
+        pl = self._payload(item)
+        kind = pl[0] if pl else None
+        return self._type_icon(kind, unsaved=unsaved, tint=item.data(0, _TINT))
+
+    def _retint_tree_icons(self):
+        """Re-render every tree row's type icon under the current palette (a live theme switch). Member/root
+        rows (which carry the unsaved dot) go through :meth:`_refresh_dirty_marks`; the rest re-tint here."""
+        if getattr(self, "tree", None) is None:
+            return
+        skip = {id(x) for x in getattr(self, "_root_items", [])}
+        skip |= {id(x) for x in getattr(self, "_member_items", {}).values()}
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            if id(item) not in skip and self._payload(item):
+                item.setIcon(0, self._type_icon_for(item))
+            it += 1
+        self._refresh_dirty_marks()                    # member + root icons (compose the unsaved dot)
 
     def _refresh_dirty_marks(self):
         """Show the amber unsaved-dot icon on each member row with unsaved changes (committed or
@@ -3033,12 +3483,13 @@ class Workspace(QMainWindow):
         visible even when the member rows are collapsed or scrolled away."""
         unsaved = self._unsaved()
         for name, mi in getattr(self, "_member_items", {}).items():
-            mi.setIcon(0, self._dot_icon if name in unsaved else self._blank_icon)
+            mi.setIcon(0, self._type_icon_for(mi, unsaved=name in unsaved))   # type icon + (amber dot if unsaved)
         any_unsaved = bool(unsaved)
         for root in getattr(self, "_root_items", []):
-            root.setIcon(0, self._dot_icon if any_unsaved else self._blank_icon)
+            root.setIcon(0, self._type_icon_for(root, unsaved=any_unsaved))   # roots roll up the dot
         self.setWindowTitle("Dream World IX — Workspace" + ("  •" if any_unsaved else ""))
         self._refresh_save_button()
+        self._refresh_spine()                          # dirty state feeds the cohesion spine's next action
 
     def _load_objects(self, member_item):
         name = self._payload(member_item)[1]
@@ -3229,6 +3680,42 @@ class Workspace(QMainWindow):
             self._set_chip(None)
             if w is self._welcome_tab:              # Home: refresh the 'Currently editing …' line on show
                 self._refresh_home_status()
+        if hasattr(self, "_rail_segs"):             # Phase 6: keep the rail pointed at the current tab's group
+            self._sync_rail()
+
+    def _activate_group(self, gi, *, switch=True):
+        """Show workspace group ``gi``'s tabs (hiding the rest) + check its rail segment. ``switch`` True (a
+        rail click) moves to the group's first tab when the current tab isn't in it; ``switch`` False (a sync
+        from a programmatic tab change) keeps the current tab. Guarded against re-entrancy."""
+        if self._rail_busy or not (0 <= gi < len(self._rail_groups)):
+            return
+        self._rail_busy = True
+        try:
+            members = self._rail_groups[gi][1]
+            for i in range(self.tabs.count()):
+                self.tabs.setTabVisible(i, self.tabs.widget(i) in members)
+            for j, seg in enumerate(self._rail_segs):
+                seg.setChecked(j == gi)
+            if switch and self.tabs.currentWidget() not in members:
+                self.tabs.setCurrentWidget(members[0])
+        finally:
+            self._rail_busy = False
+
+    def _group_of(self, widget):
+        """The rail-group index containing ``widget`` (a tab page), or None."""
+        for gi, (_name, members) in enumerate(self._rail_groups):
+            if widget in members:
+                return gi
+        return None
+
+    def _sync_rail(self):
+        """Point the rail at whatever tab is now current -- so ANY setCurrentWidget (Ctrl-K, a cross-tab jump,
+        Close→Home) reveals that tab's group + checks its segment. A no-op while a group activation is running."""
+        if self._rail_busy or not hasattr(self, "_rail_segs"):
+            return
+        gi = self._group_of(self.tabs.currentWidget())
+        if gi is not None:
+            self._activate_group(gi, switch=False)
 
     def _on_tree_double(self, item, _col=0):
         """Double-click = explicit 'open': a field/object -> the Editor; a campaign/journey root -> the Map;
@@ -3291,6 +3778,9 @@ class Workspace(QMainWindow):
             ("Go to Import", "view", lambda: self.tabs.setCurrentWidget(self.import_field)),
             ("Go to Co-op", "view", lambda: self.tabs.setCurrentWidget(self.coop_doc)),
             ("Deploy now (F9)", "command", self._deploy_now),
+            ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
+            ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
+            ("Toggle motion (animations on / off)", "command", self._toggle_motion),
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
@@ -3306,6 +3796,9 @@ class Workspace(QMainWindow):
         for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
             cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
                          "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
+        cmds.append(("How it all fits (concept map)", "learn", self._show_concept_map))
+        for c in concepts.all_concepts():              # 'What is X?' -> a plain-language concept card (Phase 5)
+            cmds.append((f"What is {c.title}?", "learn", lambda _c=c: self._show_concept(_c)))
         content = []
 
         def walk(item):
@@ -3629,7 +4122,7 @@ class Workspace(QMainWindow):
         self._clear_doc()
         self._set_editor_tab(None)
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         lbl.setWordWrap(True)
         self.doc_host_lay.addWidget(lbl)
         self.doc_host_lay.addStretch(1)
@@ -3766,8 +4259,9 @@ class Workspace(QMainWindow):
         self._header(f"{member}  ·  {sing}s",
                      f"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item "
                      "in the tree to edit it.")
-        btn = QPushButton(f"➕  Add {sing}")
+        btn = QPushButton(f"Add {sing}")
         btn.setObjectName("accent")
+        btn.setIcon(icons.icon("plus", self.pal["accent_fg"], 15))
         btn.clicked.connect(lambda _=False: self._add_list_item(member, kind))
         self.doc_host_lay.addWidget(btn, alignment=Qt.AlignLeft)
         self.doc_host_lay.addStretch(1)
@@ -3855,13 +4349,14 @@ class Workspace(QMainWindow):
 
     def _muted_label(self, text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         lbl.setWordWrap(True)
         return lbl
 
     def _warn_label(self, text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['warn']};")
+        lbl.setProperty("role", "muted")
+        lbl.setProperty("state", "warn")
         lbl.setWordWrap(True)
         return lbl
 
@@ -3878,7 +4373,7 @@ class Workspace(QMainWindow):
         btn.setChecked(open_)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         btn.setArrowType(Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
-        btn.setStyleSheet("QToolButton { border:none; font-weight:600; text-align:left; }")
+        btn.setProperty("role", "link")
         body = QWidget()
         bl = QVBoxLayout(body)
         bl.setContentsMargins(16, 0, 0, 0)
@@ -4274,7 +4769,7 @@ class Workspace(QMainWindow):
         btn.setChecked(open_)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         btn.setArrowType(Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
-        btn.setStyleSheet("QToolButton { border:none; font-weight:600; text-align:left; }")
+        btn.setProperty("role", "link")
         body = QWidget()
         bl = QVBoxLayout(body)
         bl.setContentsMargins(12, 0, 0, 0)
@@ -4616,7 +5111,7 @@ class Workspace(QMainWindow):
         hdr = QHBoxLayout()
         hdr.setContentsMargins(0, 12, 0, 0)
         title = QLabel(f"Added effects{f' · {len(adds)}' if adds else ''}")
-        title.setStyleSheet("font-weight:600;")
+        title.setProperty("role", "strong")
         hdr.addWidget(title)
         hdr.addStretch(1)
         addbtn = QPushButton("Add effect…")
@@ -5273,12 +5768,12 @@ class Workspace(QMainWindow):
 
     def _header(self, title, note=None):
         lbl = QLabel(title)
-        lbl.setStyleSheet("font-weight:600;font-size:15px;")
+        lbl.setProperty("role", "h3")
         self.doc_host_lay.addWidget(lbl)
         if note:
             h = QLabel(note)
             h.setWordWrap(True)
-            h.setStyleSheet(f"color:{self.pal['muted']};")
+            h.setProperty("role", "muted")
             self.doc_host_lay.addWidget(h)
 
     def _wrap_width(self, member):
@@ -5318,6 +5813,24 @@ class Workspace(QMainWindow):
                       lambda: self._delete_object(member, section, single=True, label=section))
         self._add_save(self._save, delete)
 
+    def _placed_note(self, text):
+        """A muted 'placed in Blender' note: a pin icon (was the 📍 emoji) + a wrapped muted label."""
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(6)
+        ic = QLabel()
+        ic.setPixmap(icons.pixmap("pin", self.pal["muted"], 14))
+        ic.setFixedWidth(18)
+        ic.setAlignment(Qt.AlignmentFlag.AlignTop)
+        rl.addWidget(ic)
+        lab = QLabel(text)
+        lab.setWordWrap(True)
+        lab.setProperty("role", "muted")
+        rl.addWidget(lab, 1)
+        return row
+
     def _scene_pos_banner(self, member, section, entity, *, single):
         """When an NPC/marker/gateway/event is placed in BLENDER, its position/zone lives in the scene.toml
         (the build overlays it, scene wins) -- so the field-only form would show a blank Position even though
@@ -5327,12 +5840,9 @@ class Workspace(QMainWindow):
             sp = self._scene_positions(member).get(("player", None)) or {}
             owned = [k for k in ("spawn", "face", "arrival") if k in sp]
             if owned:
-                note = QLabel(f"📍 Placed in Blender — {', '.join(owned)} come(s) from the scene.toml (scene "
-                              f"wins per key; edit in Blender / F5 to refresh). Keys the scene doesn't set "
-                              f"still apply from this form.")
-                note.setWordWrap(True)
-                note.setStyleSheet(f"color:{self.pal['muted']};")
-                self.doc_host_lay.addWidget(note)
+                self.doc_host_lay.addWidget(self._placed_note(
+                    f"Placed in Blender — {', '.join(owned)} come(s) from the scene.toml (scene wins per key; "
+                    f"edit in Blender / F5 to refresh). Keys the scene doesn't set still apply from this form."))
             return
         if single or section not in ("npc", "marker", "gateway", "event"):
             return
@@ -5340,13 +5850,10 @@ class Workspace(QMainWindow):
         if spatial is None:
             return
         fld = "zone" if section in ("gateway", "event") else "position"
-        msg = f"📍 Placed in Blender — {fld} {spatial} comes from the scene.toml (edit it there; F5 to refresh)."
+        msg = f"Placed in Blender — {fld} {spatial} comes from the scene.toml (edit it there; F5 to refresh)."
         if entity.get("zone" if section in ("gateway", "event") else "pos"):
             msg += f" This OVERRIDES the {fld} field below (scene wins)."
-        note = QLabel(msg)
-        note.setWordWrap(True)
-        note.setStyleSheet(f"color:{self.pal['muted']};")
-        self.doc_host_lay.addWidget(note)
+        self.doc_host_lay.addWidget(self._placed_note(msg))
 
     def _add_save(self, handler, delete=None):
         self._active_save = handler                            # Ctrl-S saves the mounted form
@@ -5611,7 +6118,7 @@ class Workspace(QMainWindow):
             note = QLabel(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
                           f"This form edits scene #1 — edit the others in the TOML.")
             note.setWordWrap(True)
-            note.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            note.setProperty("role", "caption")
             self.doc_host_lay.addWidget(note)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
@@ -5640,7 +6147,7 @@ class Workspace(QMainWindow):
         value_text.setVisible(False)
         hint = QLabel("")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        hint.setProperty("role", "caption")
         actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
         actor_line.setPlaceholderText("blank = sole cast member / narration voice")
         actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
@@ -5886,6 +6393,18 @@ class Workspace(QMainWindow):
             self.on_set_journey_tuning(href[len("jtuning:"):])
         elif href == "openparent":
             self._open_parent_campaign()
+        elif href.startswith("concept:"):
+            self._show_concept(href[len("concept:"):])       # the Inspector 'About this…' -> a plain-language card
+
+    def _concept_for_payload(self, kind, key):
+        """The plain-language concept card (if any) for a selected tree node -- so the Inspector can offer an
+        'About this…' link. Fields/campaigns/journeys map by kind; an object/group maps by its section name
+        (via the concept registry's alias/substring resolve, so gateway/encounter/prop/save-point land)."""
+        if kind in ("field", "campaign", "journey"):
+            return concepts.get(kind)
+        if kind in ("object", "group") and key:
+            return concepts.resolve(str(key).split(":")[0])
+        return None
 
     def _goto_battle_scene(self, sid_text):
         """Cross-tab jump from a field's [[encounter]] to the Battle tab. battle.toml is a standalone SIBLING
@@ -5941,7 +6460,43 @@ class Workspace(QMainWindow):
             lines = self._inspect_build(kind, key, field)
         except Exception:                                   # noqa: BLE001
             lines = [self._muted("— (could not inspect this node)")]
-        self.insp_body.setText("<br>".join(lines) if lines else "—")
+        about = None                                        # an 'About this…' link when the node maps to a concept
+        concept = self._concept_for_payload(kind, key)
+        if concept is not None:
+            about = self._muted("ⓘ ") + self._link(f"concept:{concept.term}", f"What's a {concept.title.lower()}?")
+        self.insp_body.setText(self._render_sections(lines, about))
+
+    def _section_header(self, text):
+        """A small muted overline that labels an Inspector section (Identity / Contents / Connections).
+        Inline HTML because the panel is ONE rich-text QLabel -- it reads ``self.pal`` so it re-tints on the
+        next selection after a retheme, exactly like :meth:`_muted` / :meth:`_link`."""
+        return (f'<div style="color:{self.pal["muted"]};font-weight:600;font-size:10px;'
+                f'margin-top:12px;margin-bottom:1px;">{_esc(text).upper()}</div>')
+
+    def _render_sections(self, groups, about=None):
+        """Render the Inspector body. ``groups`` is either a flat ``list[str]`` (rendered as one block, the
+        legacy path) or an ordered ``list[(header, list[str])]``. Section headers show only when ≥2 sections
+        carry content, so a short single-section card (an NPC, a marker) stays clean while a rich field card
+        reads as labelled groups (Identity / Contents / Connections). ``about`` (optional) is an 'About this…'
+        concept link appended below everything as a muted ABOUT section."""
+        body = self._render_body(groups)
+        if about:
+            tail = self._section_header("About") + f'<div>{about}</div>'
+            body = tail if body == "—" else body + tail
+        return body
+
+    def _render_body(self, groups):
+        if not groups:
+            return "—"
+        if isinstance(groups[0], str):                      # flat list -> the legacy single block
+            return "<br>".join(groups)
+        nonempty = [(h, ls) for (h, ls) in groups if ls]
+        if not nonempty:
+            return "—"
+        if len(nonempty) == 1:                              # one group -> no header noise
+            return "<br>".join(nonempty[0][1])
+        # each body in its OWN block so the (block) header can't glue to the first inline body line
+        return "".join(self._section_header(h) + f'<div>{"<br>".join(ls)}</div>' for h, ls in nonempty)
 
     def _inspect_build(self, kind, key, field):
         if kind == "field":
@@ -6031,11 +6586,16 @@ class Workspace(QMainWindow):
                 self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
                 self._central_split.setSizes(lay["central_split"])
-            if lay.get("console_split"):
-                self._console_sizes = list(lay["console_split"])
+            csplit = lay.get("console_split")
+            if csplit:
+                self._console_sizes = list(csplit)
                 self._vsplit.setSizes(self._console_sizes)
-            if lay.get("console_collapsed"):
-                self._toggle_console(expand=False)
+            # A saved session's console state wins over the collapsed-by-default (both directions). The
+            # prefs layer only persists console_collapsed when it's TRUE (an OPEN console drops the key),
+            # so a saved layout (console_split present) with NO flag == the user had it OPEN -> expand;
+            # a stored TRUE flag -> collapse. No saved layout at all -> the cold-start collapse stands.
+            if csplit or lay.get("console_collapsed"):
+                self._toggle_console(expand=not lay.get("console_collapsed", False))
         except Exception:   # noqa: BLE001  (never let a bad layout block launch)
             pass
 
@@ -6075,10 +6635,52 @@ class Workspace(QMainWindow):
             return
         t = self._deploy_target()
         self.deploy_btn.setEnabled(bool(t))
+        # the rocket follows the button's foreground: accent_fg when live, muted when disabled/greyed
+        self.deploy_btn.setIcon(icons.icon("rocket", self.pal["accent_fg"] if t else self.pal["muted"], 16))
         self.deploy_btn.setToolTip(
             f"Save everything, then Build / Deploy {Path(t).name} exactly as the Build & Deploy tab is "
             f"configured (F9). Output streams below." if t
             else "Open a field / campaign / journey / battle first (F9)")
+        self._refresh_spine()                          # the same state changes drive the cohesion spine
+
+    def _next_actions(self):
+        """``(guidance, [(label, callback, is_primary)])`` for the cohesion spine -- the single 'what do I do
+        next' for the current shell state. The deploy itself stays the ONE crumb-row Deploy button (F9); the
+        spine points at it rather than duplicating it, and carries buttons only for non-crumb actions (fork /
+        open / save). Empty actions + empty guidance -> the strip hides."""
+        if self._current_target()[0] is None:          # EMPTY -- nothing open
+            return ("New here? Fork a real field from your own game to get started.",
+                    [("Fork a field", lambda: self.tabs.setCurrentWidget(self.import_field), True),
+                     ("Open a project…", self.on_open_campaign, False)])
+        if self._dirty_members():                       # UNSAVED edits
+            return ("You have unsaved edits — save them, then press Deploy (F9, top-right) to try it.",
+                    [("Save all", self._save_all, True)])
+        t = self._deploy_target()
+        if not t:                                       # a journey overview / save doc -- nothing to deploy
+            return ("", [])
+        if self._deployed_target == t:                  # JUST DEPLOYED this target
+            return ("Deployed to your test slot — in your game, press F6 → Reload field (or Warp to it).", [])
+        return ("Ready — press Deploy (F9, top-right) to build it into a safe test slot and play it.", [])
+
+    def _refresh_spine(self):
+        """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
+        unchanged, so it's free to call per keystroke / tab change."""
+        if not hasattr(self, "_spine_row"):
+            return
+        guidance, actions = self._next_actions()
+        key = (guidance, tuple(a[0] for a in actions))
+        if key == getattr(self, "_spine_key", None):
+            return
+        self._spine_key = key
+        self._clear_layout(self._spine_btns_lay)
+        self._spine_text.setText(guidance)
+        for label, cb, primary in actions:
+            b = QPushButton(label)
+            if primary:
+                b.setObjectName("accent")
+            b.clicked.connect(lambda _=False, c=cb: c())
+            self._spine_btns_lay.addWidget(b)
+        self._spine_row.setVisible(bool(guidance or actions))
 
     def _deploy_now(self):
         """F9 — the dev loop in one keystroke: fold + save every unsaved edit, then run the Build tab's
@@ -6136,48 +6738,54 @@ class Workspace(QMainWindow):
         self._thumb_rerender.start()
 
     def _inspect_field(self, name):
-        """A campaign member (or a loose field): the background THUMBNAIL (the art, finally visible),
-        id/source/mode, a CONTENT rollup, the live cross-references (exits to / reached from -- clickable
-        member links + reachability flags), and the file-path link."""
-        lines = []
+        """A campaign member (or a loose field), grouped as a data card:
+          * **Identity** — the background THUMBNAIL (the art, finally visible), id / source / mode, the
+            owning-campaign jump, and the file-path link (where it lives on disk).
+          * **Contents** — the CONTENT rollup, the read-only battle/party/startup summary, and the field
+            health badge (verbatim forks explain their empty rollup here).
+          * **Connections** — the live cross-references (exits to / reached from -- clickable member links
+            + reachability flags), the SAME edges the Map draws.
+        Returns the ordered ``[(header, lines)]`` groups; :meth:`_render_sections` labels them only when ≥2
+        carry content."""
+        ident, contents, conn = [], [], []
         doc = self._safe_doc(name)
         png = self.thumbs.request(name, self.member_paths.get(name), self._member_real_id(name))
         if png:                                     # rich text renders the file:/// img. Landscape rooms cap
             pm = QPixmap(png)                       # by WIDTH (the 420px panel); tall scrolling rooms cap by
             if pm.height() > pm.width() * 1.4:      # HEIGHT so the card's text stays above the fold.
-                lines.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
+                ident.append(f'<img src="file:///{Path(png).as_posix()}" height="380">')
             else:
-                lines.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
+                ident.append(f'<img src="file:///{Path(png).as_posix()}" width="300">')
         if self.plan is not None:
             m = next((mm for mm in self.plan.members if mm.name == name), None)
             if m:
-                lines += [f"field id: {m.new_id}",
+                ident += [f"field id: {m.new_id}",
                           self._muted(f"source: real field {m.real_id} · mode: {m.mode}")]
         elif doc is not None:
-            lines.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
+            ident.append(f"field id: {(doc.data.get('field') or {}).get('id')}")
         if self.plan is None and name == self._loose and self._loose_parent[0] is not None:
             cname = self._loose_parent[2] or self._loose_parent[0].parent.name   # the upward jump (do-now #5)
-            lines.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
+            ident.append(f'▣ part of campaign <b>{_esc(str(cname))}</b> — '
                          + self._link("openparent", "Open the campaign (full context)"))
         if doc is not None:
-            lines.append(self._rollup(doc.data))
-            lines += self._battle_party_lines(doc.data)     # encounter scene / [party] / [startup] read-only detail
+            contents.append(self._rollup(doc.data))
+            contents += self._battle_party_lines(doc.data)  # encounter scene / [party] / [startup] read-only detail
             if doc.data.get("verbatim_eb"):             # explain the empty rollup BEFORE it confuses (the orig. Q)
-                lines.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
-                                         "see 'Script (verbatim .eb)'"))
+                contents.append(self._muted("verbatim fork — content is in the shipped .eb, not these lists; "
+                                            "see 'Script (verbatim .eb)'"))
             nbad = self._count_node_problems(name)      # field-level health badge (cheap per-node predicates)
             if nbad:
-                lines.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
-                             f'select one to see</span>')
+                contents.append(f'<span style="color:{self.pal["warn"]};">⚠ {nbad} object(s) with issues — '
+                                f'select one to see</span>')
         if self.plan is not None:
-            lines += self._field_xrefs(name)
+            conn += self._field_xrefs(name)
         path = self.member_paths.get(name)
         if path:
             self._inspect_path = str(path)
             self.insp_body.setToolTip(str(path))            # a long absolute path mustn't force the panel wide
-            lines.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
+            ident.append(f'<a href="copy" style="color:{self.pal["accent"]};text-decoration:none;">'
                          f'file: {Path(path).name}  ⧉ copy</a>')
-        return lines
+        return [("Identity", ident), ("Contents", contents), ("Connections", conn)]
 
     def _rollup(self, data):
         """A one-line 'what's in this field' tally -- the content the tree groups hide behind their counts."""
@@ -6198,7 +6806,8 @@ class Workspace(QMainWindow):
             bits.append("encounters")
         if data.get("music"):
             bits.append("BGM")
-        return self._muted("contents: " + (", ".join(bits) if bits else "empty"))
+        # no "contents:" lead-in -- this sits under the Inspector's CONTENTS section header
+        return self._muted(", ".join(bits) if bits else "empty")
 
     def _battle_party_lines(self, data):
         """Read-only battle/party summary lines for a field's Inspector card: the encounter scene (id + its
@@ -6710,21 +7319,36 @@ class Workspace(QMainWindow):
         self._show_problems(v, fb.problems(errs, warns))
 
     def _show_problems(self, verdict, problems):
-        col = {fb.OK: self.pal["success"], fb.WARN: self.pal["warn"], fb.ERROR: self.pal["error"],
-               fb.RUNNING: self.pal["muted"]}.get(verdict.level, self.pal["muted"])
         glyph = {fb.OK: "✓", fb.WARN: "⚠", fb.ERROR: "✕", fb.RUNNING: "…"}.get(verdict.level, "")
         tail = f"   —   {verdict.next_action}" if verdict.next_action else ""
         self.banner.setText(f"  {glyph}  {verdict.headline}{tail}")
-        self.banner.setStyleSheet(
-            f"background:{self.pal['surface']};color:{self.pal['text']};"
-            f"border-left:4px solid {col};border-radius:6px;padding:9px;")
+        self.banner.setProperty("state",             # the QLabel[role=banner][state] stripe colour
+                                {fb.OK: "ok", fb.WARN: "warn", fb.ERROR: "error", fb.RUNNING: "running"}
+                                .get(verdict.level, "running"))
+        repolish(self.banner)
         self.banner.setVisible(True)
         self.problems.clear()
         for p in problems:
-            it = QListWidgetItem(f"{'✕' if p.severity == fb.ERROR else '⚠'}  {p.message}")
-            it.setForeground(QBrush(QColor(self.pal["error"] if p.severity == fb.ERROR else self.pal["warn"])))
+            err = p.severity == fb.ERROR
+            # severity by a distinct-SHAPE icon (circle-x vs triangle-!) tinted the status hue -- NOT by
+            # colouring the message text (which would fail 4.5:1 text contrast on some themes). WCAG 1.4.1.
+            it = QListWidgetItem(icons.icon("alert-error" if err else "alert-warn",
+                                            self.pal["error"] if err else self.pal["warn"], 16), p.message)
+            help_ = fb.humanize(p.message)             # plain-language layer: enrich (never replace) the raw row
+            if help_:
+                friendly, step = help_
+                it.setToolTip(f"{friendly}\n\n→ {step}")           # hover the row for the plain explanation
+                it.setStatusTip(f"{friendly}   →   {step}")        # + the status bar as you arrow through
             self.problems.addItem(it)
         self._raise_console()
+
+    def _set_busy(self, on):
+        """Toggle the console 'Working…' loading state (shown while a subprocess job runs). The text label
+        always shows; the animated indeterminate bar shows only when motion is on (reduced-motion-safe)."""
+        if getattr(self, "_busy_label", None) is None:
+            return
+        self._busy_label.setVisible(bool(on))
+        self._busy_bar.setVisible(bool(on) and anim.enabled())
 
     def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
                 fail_hint="See the Output panel.", on_finished=None):
@@ -6741,6 +7365,7 @@ class Workspace(QMainWindow):
                                     f"$ {' '.join(str(a) for a in argv[1:])}")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_console()
+        self._set_busy(True)                            # loading state: 'Working…' until _proc_done clears it
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
         self.proc.setProgram(str(argv[0]))
@@ -6764,12 +7389,16 @@ class Workspace(QMainWindow):
             self.output.appendPlainText(text)
 
     def _proc_done(self, code, _status):
+        self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
         subject, ok_headline, ok_next, fail_hint, on_finished = getattr(
             self, "_job", ("Job", None, "", "See the Output panel.", None))
         v = fb.from_returncode(code, subject=subject, ok_headline=ok_headline, ok_next=ok_next,
                                fail_hint=fail_hint)
         self._show_problems(v, [])
+        if code == 0 and ("deploy" in subject.lower() or "install to game" in subject.lower()):
+            self._deployed_target = self._deploy_target()   # -> the spine's 'now press F6 in-game' hint
+            self._refresh_spine()
         if on_finished:
             on_finished(code)
 
@@ -6826,6 +7455,40 @@ def _smoke(win):
     win._refresh_recent()
     assert win._recent_lay.count() == 1, win._recent_lay.count()
     assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
+    # DENSITY toggle: Comfortable is the default; the Ctrl-K command flips it live (re-renders the QSS with the
+    # tighter padding profile) and the stylesheet visibly changes -- no palette/theme change.
+    assert win._density == "comfortable" and any("density" in lbl.lower() for lbl, _k, _cb in win._command_index())
+    _qss_comfy = win.styleSheet()
+    win._toggle_density()
+    assert win._density == "compact" and win.styleSheet() != _qss_comfy, "Compact re-renders the QSS"
+    win._toggle_density()
+    assert win._density == "comfortable" and win.styleSheet() == _qss_comfy, "toggling back restores Comfortable"
+    # Phase 7: the Guided/Full beginner mode -- the Ctrl-K toggle flips forms_qt's global mode (Guided tucks
+    # expert form fields into an Advanced drawer; Full shows all inline). Default Guided; nothing removed.
+    from . import forms_qt as _fqm
+    assert _fqm._GUIDED is True and any("beginner mode" in lbl.lower() for lbl, _k, _cb in win._command_index())
+    win._toggle_guided()
+    assert _fqm._GUIDED is False, "toggle flips to Full"
+    win._toggle_guided()
+    assert _fqm._GUIDED is True, "toggle flips back to Guided"
+    # CONCEPT CARDS (Phase 5): Ctrl-K carries a 'What is X?' row per domain term (fuzzy-searchable, so typing
+    # 'walkmesh' surfaces its card), and _show_concept resolves a free-text term to a card without raising.
+    _concept_rows = [lbl for lbl, k, _cb in win._command_index() if k == "learn"]
+    assert any("Walkmesh" in lbl for lbl in _concept_rows) and len(_concept_rows) >= 20, len(_concept_rows)
+    assert concepts.resolve("gEventGlobal").term == "story-flag"   # an engine-term alias -> the right card
+    win._show_concept("no-such-term")                     # a miss returns before any dialog -> a silent no-op
+    # Phase 7: the 'How it all fits' concept map -- a Ctrl-K row + a diagram whose boxes open concept cards.
+    assert any("How it all fits" in lbl for lbl, _k, _cb in win._command_index()), "no concept-map palette row"
+    from .conceptmap import ConceptMapView
+    _cmv = ConceptMapView(win.pal, lambda _t: None)       # builds the diagram (nodes + arrows) without raising
+    assert len([t for _x, _y, t in _cmv._boxes if t]) >= 8, "the concept map is under-populated"
+    # PLAIN-LANGUAGE ERROR LAYER: a Problems row whose raw message matches a rewrite rule gets a friendly
+    # tooltip (raw text stays visible for the expert; the plain explanation + next step ride the tooltip).
+    win._show_problems(fb.Verdict(fb.ERROR, "Check — 1 problem to fix"),
+                       [fb.Problem(fb.ERROR, "area must be >= 10 (got 4)")])
+    _prow = win.problems.item(0)
+    assert _prow is not None and "area must be" in _prow.text(), "the raw message stays visible"
+    assert "10 or higher" in _prow.toolTip(), _prow.toolTip()      # the humanized help rides the tooltip
     assert win._open_recent("campaign", _rec[0]["path"]) is True
     prefs.add_recent("field", d / "GONE" / "missing.field.toml")      # a dead path (never created)
     assert win._open_recent("field", str(d / "GONE" / "missing.field.toml")) is False
@@ -7105,14 +7768,18 @@ def _smoke(win):
     win.tree.setCurrentItem(ent_item)                                   # select the NPC, then press Delete
     win._delete_selected()
     assert len(win._doc("IC_ENT").data.get("npc", [])) == before_del - 1, "the Delete key removed the NPC"
-    # EDITING POLISH -- (1) unsaved-dot icon: touching a member dots its tree row; saving clears it. Clean
-    # rows carry a TRANSPARENT same-size icon (not a null one) so the dot never resizes/shifts the row.
-    is_dot = lambda it: it.icon(0).cacheKey() == win._dot_icon.cacheKey()        # noqa: E731
+    # EDITING POLISH -- (1) unsaved dot: touching a member composites the amber corner dot onto its type
+    # icon; saving clears it back to the plain type icon. (Since Phase 8 the dot rides the SVG type icon,
+    # so 'dotted' = the row's icon differs from the freshly-built clean type icon for that same row.)
+    def is_dot(it):
+        cur = it.icon(0).pixmap(QSize(16, 16)).toImage()
+        clean = win._type_icon_for(it, unsaved=False).pixmap(QSize(16, 16)).toImage()
+        return cur != clean
     win._mark_clean("IC_ENT")                          # known-clean baseline
     mi_ic = win._member_items["IC_ENT"]
-    assert not mi_ic.icon(0).isNull() and not is_dot(mi_ic), "a clean member reserves the slot (blank icon)"
+    assert not mi_ic.icon(0).isNull() and not is_dot(mi_ic), "a clean member shows its plain type icon"
     win._touch("IC_ENT")
-    assert is_dot(mi_ic), "an edited member shows the unsaved-dot icon"
+    assert is_dot(mi_ic), "an edited member composites the unsaved dot onto its type icon"
     # roll-up: the campaign root + the window title also reflect unsaved work (visible when collapsed)
     assert win._root_items and is_dot(win._root_items[0]), "the campaign root rolls up the dot"
     assert win.windowTitle().endswith("•"), "the window title marks unsaved work"
@@ -7163,7 +7830,8 @@ def _smoke(win):
     # same edges the Map draws). IC_ENT -> IC_COR is a stable plan edge.
     win.tree.setCurrentItem(win._member_items["IC_ENT"])
     ib = win.insp_body.text()
-    assert "contents:" in ib, ib
+    # the field card is grouped into labelled sections (Identity / Contents / Connections)
+    assert "IDENTITY" in ib and "CONTENTS" in ib and "CONNECTIONS" in ib, ib
     assert "party:" in ib and "Steiner" in ib, ib                  # read-only [party] roster (saved earlier)
     assert "exits to:" in ib and 'href="goto:IC_COR"' in ib, ib    # clickable member link
     # the goto link navigates: feeding it to the link dispatch selects that member in the tree
@@ -7198,6 +7866,18 @@ def _smoke(win):
     assert win.crumb._chip.isHidden(), "Import shows project context but NO edit-target chip"
     win.tabs.setCurrentWidget(win.doc_scroll)                 # back to the Editor -> the field trail is RESTORED
     assert win.crumb._chip.text() == "FIELD" and win._content_crumbs == _field_trail, "content trail restored"
+    # Phase 6: the workspace RAIL swaps tab sets -- switching to a tab reveals its group + checks the rail
+    # segment, and hides the OTHER groups' tabs (so the strip never overflows). Every setCurrentWidget above
+    # self-healed through it; assert the mechanism directly.
+    win.tabs.setCurrentWidget(win.battle)                     # Battle is in the Assets group
+    _seg = {b.text(): b for b in win._rail_segs}
+    assert _seg["Assets"].isChecked() and not _seg["State"].isChecked(), "the rail follows the current tab"
+    assert win.tabs.isTabVisible(win.tabs.indexOf(win.models_doc)), "the group's sibling tabs are shown"
+    assert not win.tabs.isTabVisible(win.tabs.indexOf(win.story_state)), "another group's tab is hidden"
+    win._activate_group([b.text() for b in win._rail_segs].index("State"))   # click the State rail segment
+    assert win.tabs.currentWidget() in (win.story_state, win.item_equip), "a rail click swaps to that workspace"
+    assert _seg["State"].isChecked() and not _seg["Assets"].isChecked(), "the clicked segment is the active one"
+    win.tabs.setCurrentWidget(win.doc_scroll)                 # restore the Editor for the rest of the smoke
     # per-ENTITY summaries: probe an NPC (with an HTML-ish name for the escaping path) + a member gateway,
     # a real-FF9 gateway, and an out-of-campaign gateway, then clean up
     pdoc = win._doc("IC_ENT")
@@ -7335,8 +8015,8 @@ def _smoke(win):
     assert any(win._payload(cor_grp2.child(i))[2] == "npc:Sentinel"
                for i in range(cor_grp2.childCount())), "Refresh surfaced the re-exported NPC"
     win._mark_clean("IC_COR")
-    # the unsaved-dot icon must not resize tree rows (uniform height + small icon -> no jump on save)
-    assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(12, 12)
+    # the type icon + unsaved dot must not resize tree rows (uniform height + fixed 16px icon slot)
+    assert win.tree.uniformRowHeights() and win.tree.iconSize() == QSize(16, 16)
     # (b) the Editor tab reflects what's open; placeholder resets it
     et = lambda: win.tabs.tabText(win.tabs.indexOf(win.doc_scroll))
     win._open_editor("IC_ENT", "field", "field")
@@ -7487,8 +8167,10 @@ def _smoke(win):
     assert not any(l.startswith("Campaign") for l in nolabels), nolabels
     assert any(l.startswith("Archetypes") for l in nolabels) and lib2.cats.count() >= 5, nolabels
     assert "Browse catalog (Info Hub)" in [e[0] for e in win._command_index()]
-    # the toolbar Info Hub button is tinted the violet 'info' hue (so the catalog popup stands out)
-    assert win._hub_btn is not None and win.pal["help"] in win._hub_btn.styleSheet()
+    # the toolbar Info Hub button is tinted the violet 'info' hue via the QToolButton#hub id-rule (Phase 2:
+    # moved out of an inline stylesheet so it re-tints on a live theme switch), so the catalog popup stands out
+    assert win._hub_btn is not None and win._hub_btn.objectName() == "hub"
+    assert "QToolButton#hub" in win.styleSheet() and win.pal["help"] in win.styleSheet()
 
     # Check surfaces the dangling GHOST edge as a problem
     win.on_check()
@@ -7645,6 +8327,10 @@ def _smoke(win):
     win.battle._pick_patch_kind = lambda: "ai_patch"                      # stub the AI/seq chooser dialog
     win.battle._add_patch()
     assert any(k == "ai_patch" for k, _ in win.battle._nodes) and win.battle._ctx["kind"] == "ai_patch"
+    # Phase 7: Guided mode tucks the Battle byte-level donor-site picker into an Advanced drawer below the form.
+    from PySide6.QtWidgets import QToolButton as _QTB_bd
+    _bt_draw = [b.text() for b in win.battle.findChildren(_QTB_bd) if b.objectName() == "disclosureToggle"]
+    assert any("donor sites" in t.lower() for t in _bt_draw), ("no Battle Advanced drawer", _bt_draw)
     win.battle._ctx["getters"].update(at=lambda: "1234", old=lambda: "50", new=lambda: "80")
     win.battle._save()
     assert _tl.loads(btoml.read_text(encoding="utf-8"))["scene"]["ai_patch"][0] == {"at": 1234, "old": 50, "new": 80}
@@ -7730,6 +8416,10 @@ def _smoke(win):
     assert win.battle.path == (d / "forked_fight" / "battle.toml")        # auto-opened the forked result
     assert win.battle.data["battlemap"]["bbg"] == "BBG_B042"
     assert Path(win.build_deploy.path.text()) == d / "forked_fight" / "battle.toml", "fork pre-aims Build & Deploy"
+    # Phase 6: Build & Deploy fences the niche battle target + the New-Game footgun behind an Advanced drawer
+    # (collapsed by default, keeping field/campaign/journey as the routine deploy). Aiming at a battle.toml
+    # auto-reveals the drawer, since the battle deploy box lives inside it.
+    assert win.build_deploy._advanced.toggle_button.isChecked(), "a battle target reveals the Advanced drawer"
     # Fork-dialog Browse: an install-gated list -> _choose -> fills the field; read once, then CACHED
     from PySide6.QtWidgets import QLineEdit as _QLE
     _calls = []
@@ -7823,6 +8513,9 @@ def _smoke(win):
     bd.on_revert_newgame()                                       # revert branch: no-op (no retarget) or captured
 
     imp = win.import_field
+    # Phase 6: the Import tab FOREGROUNDS the simple-fork path; the four other jobs (region/catalog/repaint/
+    # models/read) sit behind a collapsed disclosure by default (they still work while hidden -- exercised below).
+    assert not imp._more_import.toggle_button.isChecked(), "the 'More ways to import' drawer is collapsed by default"
     icap = []
     imp._run = lambda argv, **kw: (icap.append(list(map(str, argv))) or True)
     imp.field.setText("100")
@@ -8245,9 +8938,12 @@ def _smoke(win):
     _picker = {f.get("name") for f in win._flag_pick_context().flags}
     assert "camp_flag" in _picker and "met_quina" in _picker, _picker   # campaign-shared AND journey-global both show
     win.plan = _saved_plan
-    # ITERATION 2 (playtest feedback): the hub/journey/campaign rows must read DISTINCTLY -- the hub glyph (⌂)
-    # differs from a journey's (◆), and every row carries a TYPE tooltip (the glyph isn't the only cue).
-    assert jroot.text(0).startswith("⌂") and jnode.text(0).startswith("◆"), (jroot.text(0), jnode.text(0))
+    # ITERATION 2 + Phase 8: the hub/journey/campaign rows must read DISTINCTLY -- now via distinct SVG TYPE
+    # ICONS (the unicode glyph prefix is gone; the icon isn't the only cue -- every row also has a TYPE tooltip).
+    assert not jroot.text(0).startswith("⌂") and jroot.text(0).strip(), jroot.text(0)  # no unicode glyph in the text
+    assert not jroot.icon(0).isNull() and not jnode.icon(0).isNull(), "hub + journey rows carry type icons"
+    assert (jroot.icon(0).pixmap(QSize(16, 16)).toImage()
+            != jnode.icon(0).pixmap(QSize(16, 16)).toImage()), "the hub + journey type icons are distinct"
     assert "Hub" in jroot.toolTip(0) and "Journey" in jnode.toolTip(0) and "Campaign" in cnode.toolTip(0)
     # the CHIP names the SELECTED row's type (not just the open document), and the breadcrumb deepens to it
     win.tree.setCurrentItem(jroot)
@@ -8303,8 +8999,22 @@ def _smoke(win):
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
     # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
     assert "Nothing open" in win._home_status.text(), "Home resets its status after Close"
+    # Phase 7: the cohesion SPINE answers 'what do I do next' per state. EMPTY -> a fork/open nudge; a clean
+    # open project -> a deploy nudge; unsaved edits -> a save nudge. (Deploy stays the ONE crumb button; the
+    # spine points at it rather than duplicating it.)
+    _g_empty, _a_empty = win._next_actions()
+    assert "Fork a real field" in _g_empty and any(lbl == "Fork a field" for lbl, _c, _p in _a_empty), _g_empty
     _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
     assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
+    # Phase 4: the provenance-clean 'Get started' checklist shows on the empty Home -- 3 live steps ending on
+    # 'fork your first field from the game'. The kit ships NO FF9 content, so the newcomer's first working
+    # project is one THEY fork from their own install (no shipped samples). Structural asserts (machine-state
+    # independent): three rows, the provenance note, and the always-present fork-a-field action.
+    assert win._start_lay.count() == 3, win._start_lay.count()
+    _home_labels = " ".join(l.text() for l in win._welcome_tab.findChildren(QLabel))
+    assert "FINAL FANTASY IX content" in _home_labels, "the provenance note is missing"
+    assert "Fork your first field" in _home_labels, "the checklist must end on forking a real field"
+    assert "Go to Import" in {b.text() for b in win._start_box.findChildren(QPushButton)}, "no fork-a-field action"
 
     # RECONCILE (STEP 2): a reference-arc scaffold's ENTRY_MEMBER + link placeholders fill from the forked
     # campaigns beside it -- camp_a/A2 has a scripted Field() seam to 200 (== camp_b/B1's source) -> PRECISE.
@@ -8520,8 +9230,9 @@ def _smoke(win):
           f"({_newcamp_members} blank members) + Build/Deploy + Import docs (verbatim default + re-authorable + region-fork dry-run/fork + FF9-region catalog, argv-built) + Info Hub "
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
-          f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
-          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing') + "
+          f"per-tab (content/battle/save/build) + distinct hub/journey SVG type icons + type tooltips + Close-to-empty + "
+          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing' + "
+          f"provenance-clean Get-started checklist -> fork your own field) + "
           f"loose-field→parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
@@ -8549,6 +9260,7 @@ def main(argv=None):
         _smoke(win)
         return
     win.show()
+    anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
         try:

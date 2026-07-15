@@ -29,6 +29,7 @@ from ..editor import battle_forms as bf
 from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import model as _model
+from . import widgets
 from .forms_qt import build_form, read
 
 _MAP, _SCENE, _ENEMY, _AIPHASE = "battlemap", "scene", "enemy", "ai_phase"
@@ -189,14 +190,13 @@ class BattleDoc(QWidget):
         self.fork_btn.clicked.connect(self._fork_dialog)
         self.fork_btn.setEnabled(self._run is not None and self.kit is not None)
         top.addWidget(self.fork_btn)
-        self.path_lbl = QLabel("No battle map open — Open a battle.toml, or Fork one from a real FF9 "
-                               "battle background.")
-        self.path_lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        self.path_lbl = QLabel("No battle map open.")   # short status; the informative empty-state is the
+        self.path_lbl.setProperty("role", "muted")   # status; the informative empty-state is the host placeholder
         top.addWidget(self.path_lbl, 1)
         outer.addLayout(top)
 
         split = QSplitter()
-        left = QWidget()
+        self.left = left = QWidget()          # the action column -- hidden until a battle loads (see below)
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         self.nodes = QListWidget()
@@ -256,12 +256,13 @@ class BattleDoc(QWidget):
         btns.addStretch(1)
         rv.addLayout(btns)
         hint = QLabel("→ deploy on the Build & Deploy tab (open this same battle.toml there).")
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "muted")
         rv.addWidget(hint)
         split.addWidget(right)
         split.setSizes([200, 520])
         outer.addWidget(split, 1)
-        self._placeholder("Open a battle.toml to tune its encounter.")
+        self._placeholder()
+        self.left.setVisible(False)          # no dead column of disabled buttons on an empty tab
 
     def _clear(self):
         while self.host_lay.count():
@@ -270,12 +271,19 @@ class BattleDoc(QWidget):
             if w is not None:
                 w.deleteLater()
 
-    def _placeholder(self, text):
+    def _placeholder(self):
+        """The tab's teaching empty-state -- no battle map open. Points at the two real first actions (Fork
+        a real FF9 battle / open an existing battle.toml); Fork only appears when the install is available."""
+        from .widgets import empty_state
+        from . import icons
         self._clear()
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
-        lbl.setWordWrap(True)
-        self.host_lay.addWidget(lbl)
+        can_fork = self._run is not None and self.kit is not None
+        self.host_lay.addWidget(empty_state(
+            "", "No battle map open", icon_pixmap=icons.pixmap("battle", self.pal["muted"], 44),
+            teach=("A battle map defines an encounter — its enemies, AI, formation, and rewards. "
+                   "Fork one from a real FF9 battle, or open an existing battle.toml."),
+            actions=[("Fork a battle…", self._fork_dialog) if can_fork else None,
+                     ("Open battle.toml…", self.browse)]))
         self.host_lay.addStretch(1)
 
     def open_scene_id(self):
@@ -317,8 +325,10 @@ class BattleDoc(QWidget):
         mode = (f"minted scene {bm.get('scene_id')} — [scene] tuning applies" if is_mint
                 else "MAP-ONLY override — [scene] tuning (stats/camera/flags) needs a Fork scene to apply")
         self.path_lbl.setText(f"{self.path}    ·    {mode}")
-        self.path_lbl.setStyleSheet(f"color:{self.pal['muted' if is_mint else 'warn']};")
+        self.path_lbl.setProperty("state", "" if is_mint else "warn")   # a map-only override reads cautionary
+        widgets.repolish(self.path_lbl)
         self._ctx = None
+        self.left.setVisible(True)                         # a battle is loaded -> reveal the action column
         self._rebuild_nodes()
         self.add_enemy_btn.setEnabled(True)
         self.add_aiphase_btn.setEnabled(True)
@@ -446,6 +456,7 @@ class BattleDoc(QWidget):
 
     def _mount(self, kind, idx, spec, entity):
         self._clear()
+        advanced = []                                       # byte-level helper panels -> tucked in Guided mode
         if kind == _ENEMY:
             base = self._donor_baseline(entity)             # read-only "what you're tuning from" panel
             if base is not None:
@@ -455,13 +466,24 @@ class BattleDoc(QWidget):
             if facts is not None:
                 self.host_lay.addWidget(self._facts_panel("Donor scene (the fork you're tuning)", facts))
         elif kind == _AIPHASE:
-            ai = self._donor_ai_facts()                     # the entry/tag + attack indices the form needs
+            ai = self._donor_ai_facts()                     # the entry/tag + attack indices (B_MEMBER facts)
             if ai is not None:
-                self.host_lay.addWidget(self._ai_facts_panel(*ai))
-        elif kind in (_AIPATCH, _SEQPATCH):                 # a "Browse sites…" picker fills the offset + guard
-            self.host_lay.addWidget(self._sites_panel(kind))
+                advanced.append(self._ai_facts_panel(*ai))
+        elif kind in (_AIPATCH, _SEQPATCH):                 # the donor-site offset picker (fills offset + guard)
+            advanced.append(self._sites_panel(kind))
         form, getters = build_form(spec, forms.entity_to_values(spec, entity), self.pal)
         self.host_lay.addWidget(form)
+        # Phase 7: in Guided mode the byte-level donor-site / AI-facts panels tuck behind an Advanced drawer
+        # BELOW the form (a newcomer tunes the form; an expert opens it, or runs Full mode for them inline).
+        from . import forms_qt
+        if advanced and forms_qt._GUIDED:
+            drawer = widgets.disclosure("Advanced — donor sites / AI facts")
+            for _p in advanced:
+                drawer.content_layout.addWidget(_p)
+            self.host_lay.addWidget(drawer)
+        else:
+            for _p in advanced:
+                self.host_lay.addWidget(_p)
         self.host_lay.addStretch(1)
         self._ctx = {"kind": kind, "idx": idx, "spec": spec, "getters": getters}
         self.save_btn.setEnabled(True)
@@ -540,12 +562,13 @@ class BattleDoc(QWidget):
             note = QLabel("No forked scene to read — a same-length patch only applies to a MINTED fork (re-fork "
                           "WITH a Fork scene). You can still type an offset by hand, but it won't take effect here.")
             note.setWordWrap(True)
-            note.setStyleSheet(f"color:{self.pal['warn']};")
+            note.setProperty("role", "caption")
+            note.setProperty("state", "warn")
             v.addWidget(note)
             return box
         row = QHBoxLayout()
         lbl = QLabel(f"{len(sites)} patchable {which} in this fork.")
-        lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        lbl.setProperty("role", "muted")
         row.addWidget(lbl, 1)
         btn = QPushButton("Browse sites…")
         btn.setEnabled(bool(sites))
@@ -600,19 +623,19 @@ class BattleDoc(QWidget):
                                                    "enrage on (you'd need to author one in the battle AI script first)")
         e_lbl = QLabel(f"<b>Enrage-able</b> → set <b>Enemy AI entry</b> / <b>AI function</b> to: {html.escape(e_txt)}")
         e_lbl.setWordWrap(True)
-        e_lbl.setStyleSheet(f"color:{self.pal['muted']};")
+        e_lbl.setProperty("role", "muted")
         v.addWidget(e_lbl)
         if attacks:
             atk = " · ".join(f"{i}={html.escape(str(nm))}" for i, nm in attacks)
             a_lbl = QLabel(f"<b>Attacks</b> (then / else): {atk}")
             a_lbl.setWordWrap(True)
-            a_lbl.setStyleSheet(f"color:{self.pal['muted']};")
+            a_lbl.setProperty("role", "muted")
             v.addWidget(a_lbl)
         other = [f"entry {e} fn {t} ({n} atk)" for (e, _ty, t, _r, n) in ai_funcs if n != 1]
         if other:
             o_lbl = QLabel(f"other AI funcs: {html.escape(' · '.join(other))}")
             o_lbl.setWordWrap(True)
-            o_lbl.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            o_lbl.setProperty("role", "caption")
             v.addWidget(o_lbl)
         return box
 
@@ -629,7 +652,7 @@ class BattleDoc(QWidget):
         for i, (label, val) in enumerate(pairs):
             r, c = divmod(i, per_row)
             cell = QLabel(f"{label} <b>{val}</b>")
-            cell.setStyleSheet(f"color:{self.pal['muted']};")
+            cell.setProperty("role", "muted")
             grid.addWidget(cell, r, c)
         return box
 
@@ -971,7 +994,7 @@ class BattleDoc(QWidget):
                       "install). A bare BBG OVERRIDES that real map; add a Fork scene to mint a new one. The "
                       "result opens here when it's done.")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"color:{self.pal['muted']};")
+        hint.setProperty("role", "muted")
         form.addRow(hint)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(dlg.accept)

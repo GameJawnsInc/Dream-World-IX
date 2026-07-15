@@ -13,10 +13,11 @@ from pathlib import Path
 
 from . import provision
 
-_DEFAULTS = {"theme": "auto", "recent": []}
+_DEFAULTS = {"theme": "auto", "recent": [], "density": "comfortable"}
 
 RECENT_KINDS = ("journey", "campaign", "field", "save")   # the openable project kinds an MRU row can hold
 RECENT_LIMIT = 10
+DENSITIES = ("comfortable", "compact")                    # UI density: roomy (default) vs tight (power-user)
 
 
 def _path() -> Path:
@@ -62,6 +63,41 @@ def theme() -> str:
 
 def set_theme(mode: str) -> None:
     put("theme", mode)
+
+
+def density() -> str:
+    """The saved UI density: ``"comfortable"`` (roomy, the default) or ``"compact"`` (tight). Type-disciplined
+    -- a corrupt/unknown value degrades to the default."""
+    val = get("density", "comfortable")
+    return val if val in DENSITIES else "comfortable"
+
+
+def set_density(mode: str) -> None:
+    put("density", mode if mode in DENSITIES else "comfortable")
+
+
+def guided() -> bool:
+    """Beginner mode: True = Guided (expert form fields tuck into a per-form 'Advanced' drawer, the default),
+    False = Full (every field inline). Nothing is ever removed -- Guided only tucks. Default True."""
+    return get("guided", True) is not False
+
+
+def set_guided(on: bool) -> None:
+    put("guided", bool(on))
+
+
+MOTIONS = ("auto", "on", "off")                           # UI motion: follow the OS / always / never
+
+
+def motion() -> str:
+    """The UI-motion preference: ``"auto"`` (follow the OS reduce-motion setting, the default), ``"on"``, or
+    ``"off"``. Type-disciplined -- a corrupt/unknown value degrades to ``"auto"``."""
+    val = get("motion", "auto")
+    return val if val in MOTIONS else "auto"
+
+
+def set_motion(mode: str) -> None:
+    put("motion", mode if mode in MOTIONS else "auto")
 
 
 def recent() -> list:

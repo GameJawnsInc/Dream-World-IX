@@ -43,6 +43,7 @@ class CampaignMap(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)        # click-drag to pan
         self.setBackgroundBrush(QColor(palette["surface"]))
+        self._draw_empty()                                             # teaching empty-state until a campaign opens
 
     # -- public --
     def render(self, graph, current=None):
@@ -66,17 +67,61 @@ class CampaignMap(QGraphicsView):
         self._draw()
 
     def clear(self):
-        self._scene.clear()
         self._graph = None
         self._layout = None
         self._current = None
+        self._draw_empty()                         # a teaching empty-state, not a black void
+
+    def retheme(self, palette):
+        """Re-tint on a LIVE theme switch: the map is custom-painted (QSS can't reach a QGraphicsScene), so
+        the shell must hand it the new palette and redraw -- the stored graph if a campaign is open, else the
+        empty-state. Without this, nodes / legend / the empty message keep the old theme's colours."""
+        self.pal = palette
+        self.setBackgroundBrush(QColor(palette["surface"]))
+        if self._graph is not None:
+            self.rerender()
+        else:
+            self._draw_empty()
+
+    def resizeEvent(self, ev):                     # noqa: N802 (Qt override) -- re-center the empty message
+        super().resizeEvent(ev)
+        if self._layout is None:
+            self._draw_empty()
 
     # -- drawing --
+    def _draw_empty(self):
+        """A centered teaching empty-state (no campaign open) -- the visual twin of the tree's empty state,
+        so the Map tab never shows a bare canvas."""
+        sc, pal = self._scene, self.pal
+        sc.clear()
+        vw = max(self.viewport().width(), 480)
+        vh = max(self.viewport().height(), 320)
+        sc.setSceneRect(0, 0, vw, vh)
+        cx, cy = vw / 2, vh / 2
+        subtle = pal.get("text_subtle", pal["muted"])
+
+        def _centered(text, size, color, dy, bold=False):
+            weight = QFont.Weight.Bold if bold else QFont.Weight.Normal
+            it = sc.addSimpleText(text, QFont("Segoe UI", size, weight))
+            it.setBrush(QBrush(QColor(color)))
+            br = it.boundingRect()
+            it.setPos(cx - br.width() / 2, cy + dy)
+            return it
+
+        from . import icons                              # the ◇ glyph -> the campaign (layers) SVG icon
+        _pm = icons.pixmap("campaign", subtle, 46)
+        _pit = sc.addPixmap(_pm)
+        _pit.setPos(cx - (_pm.width() / _pm.devicePixelRatio()) / 2, cy - 82)
+        _centered("No campaign open", 13, pal["text"], -24, bold=True)
+        _centered("This map draws a campaign's fields and the gateways between them.", 9, pal["muted"], 6)
+        _centered("Open a campaign from the tree, or create one from Home.", 9, pal["muted"], 24)
+
     def _draw(self):
         sc, pal, lay = self._scene, self.pal, self._layout
-        sc.clear()
         if lay is None:
+            self._draw_empty()
             return
+        sc.clear()
         sc.setSceneRect(0, -42, max(lay.width, 560), lay.height + 42)   # a band at the top holds the legend
         self._draw_legend(-34)
         muted = QColor(pal["muted"])

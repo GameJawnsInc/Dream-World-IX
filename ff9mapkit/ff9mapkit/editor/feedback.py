@@ -90,6 +90,117 @@ def problems(errors=(), warnings=()) -> list:
     return rows
 
 
+# --- plain-language error layer ------------------------------------------------------------------
+# The raw CLI/engine/validation messages are precise but jargon-dense. This table maps the ones a
+# NON-technical newcomer most often hits to a plain-language sentence + a single concrete next step, so the
+# Problems dock can offer help on hover instead of leaving the user to read tea leaves. Each entry is
+# (lowercase substring to match, friendly, next_step); the FIRST match wins, so keep specific rules first.
+# Grounded against the real emit sites (discovered + spot-verified across build/lint/import/deploy/setup/
+# forms/saves) -- NOT invented. Additive: the raw message still shows; this only enriches the tooltip.
+_REWRITES = (
+    ("could not locate the final fantasy ix install",
+     "The app can't find your Final Fantasy IX game folder, so it can't read any of the game's data.",
+     "Open Setup & Health and click “Locate game…”, then pick your FF9 install folder."),
+    ("base templates not",
+     "The app needs to copy some starter data out of your own FF9 game first, and that one-time setup "
+     "step hasn't been run yet.",
+     "Open Setup & Health and click Run setup (or run 'ff9mapkit extract-templates')."),
+    ("unitypy",
+     "Reading the game's fields and art needs a free helper add-on called UnityPy, which isn't installed.",
+     "Install it by running: py -m pip install UnityPy, then try again."),
+    ("pycryptodome",
+     "Opening a real save file needs a free helper add-on called pycryptodome (it unlocks the save's "
+     "encryption), which isn't installed.",
+     "Install it by running: py -m pip install pycryptodome, then reopen the save."),
+    ("tomldecodeerror",
+     "Your project file (a .toml text file, like your field.toml) has a typo the app can't read — usually "
+     "a missing quote, bracket, or = sign.",
+     "Open the file, fix the line and column named in the error (look for an unclosed quote or bracket), "
+     "then Check again."),
+    ("area must be >= 10",
+     "The field's Area number is under 10, and areas 0–9 make the game load a black screen.",
+     "Set the [field] area to 10 or higher, then Check again."),
+    ("[field] missing required key",
+     "The field's [field] section is missing one of the three details it must always have: id, name, or area.",
+     "Add the missing line — id, name, or area, whichever the error names — to the [field] section."),
+    ("[camera] section is required",
+     "This field has no camera set up, so the game would have no way to show the room.",
+     "Add a [camera] section — either borrow a real field's camera or set pitch/distance/fov."),
+    ("out of range 1-32767",
+     "The field id you picked is below 1 or above 32767, and the game can't use an id outside that range.",
+     "Pick a field id between 4000 and 9899 for a custom field."),
+    ("custom band 4000",
+     "The id you entered isn't a free custom one — it's either a real, locked game id (below 4000) or above "
+     "the maximum allowed.",
+     "Choose an id from 4000 to 9899 (the usual range for a custom field)."),
+    ("id collision",
+     "Another mod folder in your game already uses this field's id number, and every field needs its own id, "
+     "so one of them would boot to a black screen.",
+     "Give this field a different, unused id (any free id in 4000-9899), then deploy again."),
+    ("try: ff9mapkit list-fields",
+     "No real FF9 field matches the id or name you typed, so there's nothing to import or fork.",
+     "Click Find… to look up the correct field, or run 'ff9mapkit list-fields' to see valid ones."),
+    ("not a forkable field",
+     "That id has no ordinary room background to fork — it's a special/cutscene screen (like the game's "
+     "opening), not a normal explorable room.",
+     "Pick a regular field that has art (use Find… or 'list-fields' to find one)."),
+    ("reserved region",
+     "The story flag (a saved on/off switch) you're setting sits in a range the game reserves for treasure "
+     "chests and its own bookkeeping, so writing there could corrupt the save.",
+     "Use a flag number of 8512 or higher — the safe custom range for your own flags."),
+    ("field id must be a number",
+     "The 'Field id' box needs a plain number — the id to give your new forked field — and what you typed "
+     "isn't one.",
+     "Type a numeric id like 4003 (any free custom id, 4000–9899) in the Field id box, then press Import "
+     "field again. (To name the field instead, use the Name box next to it.)"),
+    ("pick a .field.toml",
+     "You pressed Check, Build, or Deploy without first choosing a file to work on.",
+     "Select a .field.toml (or campaign/journeys/battle .toml) file, then press the button again."),
+    ("it will clone the player model",
+     "An NPC (a non-player character, like a townsperson) has no character model chosen, so in-game it "
+     "would appear as a copy of the main hero, Zidane.",
+     "Give the NPC a model, preset, or archetype — or delete it if it was only a leftover placeholder marker."),
+    ("that is a bundled example",
+     "You're trying to save changes to one of the app's built-in example fields, which are locked so the "
+     "originals stay intact.",
+     "Make your own copy first — use the Field menu > New Field (Ctrl-N), or copy the example's folder — "
+     "then edit that copy."),
+    ("development deploy loop",
+     "One-click Deploy (the quick test-slot + F6 loop) only works from the full developer source-code copy "
+     "of the app, not this installed copy.",
+     "In the Build panel, pick “Install to game” — it writes the mod straight into your FF9 game folder with "
+     "no developer checkout needed."),
+    ("unknown item",
+     "That item or equipment name doesn't match anything in the game's item list — usually a typo.",
+     "Fix it to a real item name (the error lists close “Did you mean…?” matches), then re-enter it."),
+    ("gil must be in",
+     "The Gil amount you entered is higher than the game's maximum of 9,999,999.",
+     "Enter 9,999,999 or less for Gil."),
+    ("whole number",
+     "A box that expects a plain number has letters, a decimal point, or is left blank.",
+     "Type a plain whole number (like 5 or 4003) in that box."),
+    ("invalid value — not saved",
+     "One of the boxes on this form contains something the app can't read, so it won't save until that's "
+     "fixed.",
+     "Re-check the values you typed on this form, fix the box the app couldn't read (for example, put a "
+     "plain number where a number is expected), then press Save again."),
+)
+
+
+def humanize(message):
+    """Map a raw error/warning ``message`` to a ``(friendly, next_step)`` pair in plain language, or ``None``
+    if there's no rewrite for it. Case-insensitive substring match; the first :data:`_REWRITES` entry that
+    matches wins (order = specificity). Additive -- callers keep showing the raw message and use this only to
+    enrich a tooltip / status tip, so an unmatched message simply gets no extra help."""
+    if not message:
+        return None
+    low = str(message).lower()
+    for match, friendly, next_step in _REWRITES:
+        if match in low:
+            return (friendly, next_step)
+    return None
+
+
 # --- the Tk widget (lazy import keeps the data layer above headless-importable) ------------------
 class FeedbackPanel:
     """A coloured verdict banner + a structured problems list, themed from a palette dict.

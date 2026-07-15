@@ -54,3 +54,43 @@ def test_qss_styles_dropdown_menus():
     # the toolbar Field/Campaign/Journey buttons open QMenus -- they must be themed (selected item = accent)
     css = style.qss(theme.DARK)
     assert "QMenu" in css and "QMenu::item:selected" in css
+
+
+def test_qss_uses_the_derived_tokens_and_scales():
+    # Phase-1 substrate: qss() derives the semantic tokens and merges the scales, then feeds the component
+    # role classes + the focus ring. NORD is the tell -- its focus token differs from its accent (the accent
+    # fails 3:1 on the nord surface, so derive() brightens the focus ring), so a distinct value must appear.
+    css = style.qss(theme.NORD)
+    d = theme.derive(theme.NORD)
+    assert d["focus"] != theme.NORD["accent"] and d["focus"] in css     # focus ring wired to the derived token
+    assert d["surface_2"] in css and d["surface_3"] in css              # elevation ladder reaches the rules
+    for role in ('QLabel[role="h1"]', 'QLabel[role="caption"]', 'QFrame[role="card"]'):
+        assert role in css, role                                        # component role classes present
+    assert "20px" in css                                               # the type ramp substituted (h1 = 20px)
+
+
+def test_qss_accepts_an_already_derived_palette():
+    # a caller may hand qss() a derived dict; derive() is idempotent, so this must not double-apply or raise
+    # -- and it renders identically to passing the base palette.
+    assert style.qss(theme.DARK) == style.qss(theme.derive(theme.DARK))
+
+
+def test_qss_density_profiles_both_substitute_cleanly():
+    # both density profiles must fully substitute (a missing $tb_pad/$row_pad/... would raise) for every theme
+    for mode, pal in theme.THEMES.items():
+        for dens in ("comfortable", "compact"):
+            css = style.qss(pal, dens)
+            assert "$" not in css, (mode, dens)
+    # an unknown density falls back to comfortable (never raises / never leaves a placeholder)
+    assert style.qss(theme.DARK, "bogus") == style.qss(theme.DARK, "comfortable")
+    assert style.qss(theme.DARK) == style.qss(theme.DARK, "comfortable")   # default is comfortable
+
+
+def test_qss_compact_is_tighter_than_comfortable():
+    # the point of the toggle: compact shrinks the control paddings. Comfortable keeps the roomy tree rows
+    # (6px 8px) it was given; compact drops them (3px 4px) -- so the two renders must differ, tightly.
+    comfy = style.qss(theme.DARK, "comfortable")
+    tight = style.qss(theme.DARK, "compact")
+    assert comfy != tight
+    assert "padding: 6px 8px" in comfy and "padding: 6px 8px" not in tight   # the roomy row padding is comfy-only
+    assert "padding: 3px 4px" in tight                                       # compact's tighter row padding

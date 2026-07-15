@@ -10,7 +10,43 @@ abbreviations work. PySide6-only view; the entry list + callbacks are the shell'
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtWidgets import QDialog, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QFrame, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+
+from ..editor.theme import derive
+from . import anim
+from .widgets import attach_shadow
+
+
+# Category prefix per command kind (Phase 6: verb-first, category-prefixed rows). The stored label is left
+# untouched (the fuzzy matcher + tests key on it); this only shapes the DISPLAY string.
+_CATEGORY = {
+    "command": "Action", "view": "Go to", "recent": "Recent", "learn": "Learn",
+    "field": "Go to", "object": "Go to", "group": "Go to", "campaign": "Go to",
+    "journey": "Go to", "jset": "Go to", "jcampaign": "Go to", "jbare": "Go to",
+}
+# Keybinding hints for the commands that have a global shortcut (shown as a trailing ⌨ tag).
+_SHORTCUTS = {
+    "New Field…": "Ctrl+N", "New Campaign…": "Ctrl+Shift+N",
+    "Save All fields": "Ctrl+Shift+S", "Deploy now": "F9", "Deploy now (F9)": "F9",
+}
+
+
+def display_row(label: str, kind: str) -> str:
+    """The palette DISPLAY string for one entry: a category prefix + the label (with a redundant leading verb
+    the category already conveys stripped for the common Go-to / Learn rows) + a keybinding hint if any."""
+    cat = _CATEGORY.get(kind, kind)
+    shown = label
+    if kind == "view" and shown.startswith("Go to "):
+        shown = shown[len("Go to "):]                  # "Go to · Battle", not "Go to · Go to Battle"
+    elif kind == "learn" and shown.startswith("What is ") and shown.endswith("?"):
+        shown = shown[len("What is "):-1]              # "Learn · Walkmesh", not "Learn · What is Walkmesh?"
+    if shown.endswith(" (F9)"):
+        shown = shown[:-len(" (F9)")]                  # the F9 hint moves to the ⌨ column
+    row = f"{cat}  ·  {shown}"
+    sc = _SHORTCUTS.get(label)
+    if sc:
+        row += f"      ⌨ {sc}"
+    return row
 
 
 def fuzzy(needle: str, hay: str) -> bool:
@@ -36,10 +72,26 @@ class CommandPalette(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Search content & commands")
         self.setModal(True)
+        # A Spotlight-style FLOATING overlay: frameless + translucent so the inner rounded card can carry a
+        # real drop shadow (a framed dialog would just get the OS chrome). The outer margin gives the blur room.
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.resize(580, 440)
         self._entries = list(entries)
         self._filtered = list(entries)
-        lay = QVBoxLayout(self)
+        d = derive(palette)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(18, 18, 18, 26)       # room for the shadow to spill (heavier at the bottom)
+        card = QFrame()
+        card.setObjectName("paletteCard")
+        card.setStyleSheet(f"QFrame#paletteCard {{ background:{d['surface_3']}; border:1px solid {d['border']}; "
+                           f"border-radius:10px; }}")
+        outer.addWidget(card)
+        attach_shadow(card)                            # the real QGraphicsDropShadowEffect (on the rounded card)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 12, 12, 12)
         self.q = QLineEdit()
         self.q.setPlaceholderText("Search content & commands…  (a field name, or a command)")
         self.q.textChanged.connect(self._refilter)
@@ -53,11 +105,14 @@ class CommandPalette(QDialog):
         self._fill()
         self.q.setFocus()
 
+    def showEvent(self, event):                        # noqa: N802 (Qt override)
+        super().showEvent(event)
+        anim.pop_in(self)                              # a subtle fade + rise into place (no-op if motion is off)
+
     def _fill(self):
         self.lst.clear()
         for label, kind, _cb in self._filtered:
-            it = QListWidgetItem(f"{label}     ·  {kind}")
-            self.lst.addItem(it)
+            self.lst.addItem(QListWidgetItem(display_row(label, kind)))
         if self._filtered:
             self.lst.setCurrentRow(0)
 

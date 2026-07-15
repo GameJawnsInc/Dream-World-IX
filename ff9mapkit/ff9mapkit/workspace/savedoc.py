@@ -18,13 +18,14 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMessageBox, QPlainTextEdit,
+    QComboBox, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .. import flags as _flags
 from .. import save as _save
 from .. import save_items as _si
+from .widgets import PlaceholderListWidget
 
 
 class StoryStateDoc(QWidget):
@@ -45,20 +46,24 @@ class StoryStateDoc(QWidget):
         self.open_btn = QPushButton("Open Save…")
         self.open_btn.clicked.connect(self.browse)
         self.path_lbl = QLabel("No save loaded.")
-        self.path_lbl.setStyleSheet(f"color:{palette['muted']};")
+        self.path_lbl.setProperty("role", "muted")
         bar.addWidget(self.open_btn)
         bar.addWidget(self.path_lbl, 1)
         v.addLayout(bar)
 
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
-        self.slots = QListWidget()
+        self.slots = PlaceholderListWidget("Open a save (above) to list its slots here.", palette["muted"])
+        self.slots.setAccessibleName("Save slots")
         self.slots.currentRowChanged.connect(lambda _r: self._on_slot())
         split.addWidget(self.slots)
 
         self.tabs = QTabWidget()
         self.inspect = QPlainTextEdit()
         self.inspect.setReadOnly(True)
+        self.inspect.setAccessibleName("Save slot details")
+        self.inspect.setPlaceholderText("Select a save slot on the left to read its scenario counter and "
+                                        "story flags.")
         self.tabs.addTab(self.inspect, "Inspect")
         self.tabs.addTab(self._build_diff(), "Diff")
         self.tabs.addTab(self._build_edit(), "Edit")
@@ -66,7 +71,7 @@ class StoryStateDoc(QWidget):
         split.setSizes([240, 620])
 
         self.status = QLabel("Open a SavedData_ww.dat (or a Memoria extra-save / save JSON) to inspect or edit.")
-        self.status.setStyleSheet(f"color:{palette['muted']};")
+        self.status.setProperty("role", "muted")
         v.addWidget(self.status)
 
     def _show_output(self, text):
@@ -95,6 +100,9 @@ class StoryStateDoc(QWidget):
         lay.addLayout(row)
         self.diff_txt = QPlainTextEdit()
         self.diff_txt.setReadOnly(True)
+        self.diff_txt.setAccessibleName("Save comparison")
+        self.diff_txt.setPlaceholderText("Open a second save (B) above and Compare to see which story flags "
+                                         "and scenario beats changed between them.")
         lay.addWidget(self.diff_txt, 1)
         return page
 
@@ -102,7 +110,7 @@ class StoryStateDoc(QWidget):
         page = QWidget()
         lay = QVBoxLayout(page)
         self.edit_target = QLabel("(no save selected)")
-        self.edit_target.setStyleSheet(f"color:{self.pal['muted']};")
+        self.edit_target.setProperty("role", "muted")
         self.edit_target.setWordWrap(True)
         lay.addWidget(self.edit_target)
         for label, attr, hint in (
@@ -115,7 +123,7 @@ class StoryStateDoc(QWidget):
             setattr(self, attr, le)
             row.addWidget(le, 1)
             h = QLabel(hint)
-            h.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+            h.setProperty("role", "caption")
             row.addWidget(h)
             lay.addLayout(row)
         # Overworld position: an actor picker (player / chocobo) + an X,Z field. The per-actor array in
@@ -129,7 +137,7 @@ class StoryStateDoc(QWidget):
         self.worldpos_var = QLineEdit()
         wrow.addWidget(self.worldpos_var, 1)
         wh = QLabel("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
-        wh.setStyleSheet(f"color:{self.pal['muted']};font-size:11px;")
+        wh.setProperty("role", "caption")
         wrow.addWidget(wh)
         lay.addLayout(wrow)
         btns = QHBoxLayout()
@@ -145,6 +153,7 @@ class StoryStateDoc(QWidget):
         if self._output is None:                 # standalone: an in-pane console; docked -> the bottom panel
             self.edit_txt = QPlainTextEdit()
             self.edit_txt.setReadOnly(True)
+            self.edit_txt.setAccessibleName("Save editor")
             lay.addWidget(self.edit_txt, 1)
         return page
 
@@ -397,25 +406,29 @@ class ItemEquipDoc(QWidget):
         self.open_btn = QPushButton("Open Save…")
         self.open_btn.clicked.connect(self.browse)
         self.path_lbl = QLabel("No save loaded.")
-        self.path_lbl.setStyleSheet(f"color:{palette['muted']};")
+        self.path_lbl.setProperty("role", "muted")
         bar.addWidget(self.open_btn)
         bar.addWidget(self.path_lbl, 1)
         v.addLayout(bar)
 
         split = QSplitter(Qt.Horizontal)
         v.addWidget(split, 1)
-        self.slots = QListWidget()
+        self.slots = PlaceholderListWidget("Open a save (above) to list its slots here.", palette["muted"])
+        self.slots.setAccessibleName("Save slots")
         self.slots.currentRowChanged.connect(lambda _r: self._on_slot())
         split.addWidget(self.slots)
         self.tabs = QTabWidget()
         self.inspect = QPlainTextEdit()
         self.inspect.setReadOnly(True)
+        self.inspect.setAccessibleName("Save slot details")
+        self.inspect.setPlaceholderText("Select a save slot on the left to read its gil, inventory, "
+                                        "equipment, stats, abilities and key items.")
         self.tabs.addTab(self.inspect, "Inspect")
         self.tabs.addTab(self._build_edit(), "Edit")
         split.addWidget(self.tabs)
         split.setSizes([240, 620])
         self.status = QLabel("Open a save to read/edit gil, inventory, equipment, stats, abilities, key items.")
-        self.status.setStyleSheet(f"color:{palette['muted']};")
+        self.status.setProperty("role", "muted")
         v.addWidget(self.status)
 
     def _show_output(self, text):
@@ -447,7 +460,7 @@ class ItemEquipDoc(QWidget):
         ov = QVBoxLayout(outer)
         self.edit_target = QLabel("(no save selected)")
         self.edit_target.setWordWrap(True)
-        self.edit_target.setStyleSheet(f"color:{self.pal['muted']};")
+        self.edit_target.setProperty("role", "muted")
         ov.addWidget(self.edit_target)
         # Only the edit SECTIONS scroll; the console (edit_txt) is pinned BELOW so Preview/Apply feedback
         # is always visible even on a short window (the bug: a single scroll hid the console off-screen).

@@ -17,33 +17,74 @@ import collections
 import html
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QVBoxLayout, QWidget,
+    QListWidget, QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTextEdit, QToolButton, QVBoxLayout,
+    QWhatsThis, QWidget,
 )
 
+from . import concepts, widgets
 from .. import dialogue as _dlg
 from .. import infohub
 from ..content.text import DEFAULT_WRAP_WIDTH
 from ..editor import forms
+
+# A form field whose value is a story-flag / scenario reference gets a "?" concept badge derived from its
+# KIND (so every flag/scenario field is covered without tagging each Field); an explicit Field.concept wins.
+_KIND_CONCEPT = {forms.FLAGREF: "story-flag", forms.FLAGPAIR: "story-flag",
+                 forms.FLAGDICTLIST: "story-flag", forms.SCENARIOREF: "scenario"}
+
+# Guided beginner mode (Phase 7): build_form tucks the expert fields of each spec into a per-form 'Advanced
+# options' drawer. Global (not threaded through the many call sites); the shell sets it at startup + on toggle
+# and re-mounts the open form. Nothing is removed -- Guided only tucks; Full shows every field inline.
+_GUIDED = True
+
+
+def set_guided(on):
+    """Set the global Guided beginner mode read by :func:`build_form`."""
+    global _GUIDED
+    _GUIDED = bool(on)
+
+
+def _is_advanced(f):
+    """An expert field the Guided mode tucks away: an explicit ``Field.advanced`` OR a help string that opens
+    with 'advanced' (the convention already used across the specs for model/animset/borrow_bg/…)."""
+    return getattr(f, "advanced", False) or (f.help or "").strip().lower().startswith("advanced")
+
+
+def _concept_badge(term, palette):
+    """A small '?' help badge that opens the plain-language concept card for ``term`` (via a lightweight
+    What's-This bubble -- self-contained, no shell callback). Returns ``(button, card_html)`` or ``None`` if
+    the term doesn't resolve to a card."""
+    c = concepts.resolve(term)
+    if c is None:
+        return None
+    card_html = f"<b>{c.title}</b><br>{c.html(palette['muted'])}"
+    btn = QToolButton()
+    btn.setText("?")
+    btn.setObjectName("conceptBadge")
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setFixedSize(22, 22)          # a bigger hit target (WCAG 2.5.8); it's inline next to the field label
+    btn.setToolTip(f"What's a {c.title.lower()}?")
+    btn.setAccessibleName(f"What is {c.title}")
+    btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))
+    return btn, card_html
 
 # Fields whose value is a line shown in an FF9 text window -> they get a live wrap-preview (FF9 never
 # auto-wraps, so the kit pre-breaks long lines; this shows exactly where). Keys match editor.forms specs.
 DIALOGUE_KEYS = {"dialogue", "message", "prompt", "reply"}
 
 
-def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
+def _wrap_preview_panel(line_edit, get_text, wrap_width):
     """A read-only pane under a dialogue field: how the line breaks on the FF9 screen, live as you type.
     Reuses the exact build-time wrapper (:func:`..dialogue.wrap_preview`). ``wrap_width`` None = the field
     set ``[dialogue] wrap = false`` (author wraps by hand) -> show the text raw, no preview break."""
     panel = QWidget()
     pv = QVBoxLayout(panel)
-    pv.setContentsMargins(0, 3, 0, 0)
-    pv.setSpacing(2)
-    cap = QLabel("On-screen preview — how it wraps in the FF9 window:")
-    cap.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
-    pv.addWidget(cap)
+    pv.setContentsMargins(0, 4, 0, 0)
+    pv.setSpacing(4)
+    pv.addWidget(widgets.caption("On-screen preview — how it wraps in the FF9 window:"))
     box = QPlainTextEdit()
     box.setReadOnly(True)
     box.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)     # show the kit's OWN break points, not Qt's
@@ -53,6 +94,7 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
     # toggling visibility would change the panel height and, inside the nested form/scroll, clip the
     # fixed-height box on the way back. A constant-height panel can't reflow.
     note = QLabel("")
+    note.setProperty("role", "caption")            # muted by default; state='warn' colours the overflow line
     note.setFixedHeight(16)
     pv.addWidget(note)
 
@@ -62,12 +104,13 @@ def _wrap_preview_panel(line_edit, get_text, palette, wrap_width):
         over = _dlg.overflow(txt, wrap_width) if (txt and wrap_width is not None) else []
         if over:
             note.setText(f"⚠ {len(over)} line(s) may overflow the window — verify in-game.")
-            note.setStyleSheet(f"color:{palette['warn']};font-size:11px;")
+            note.setProperty("state", "warn")
         elif txt:
             note.setText("✓ fits the window")
-            note.setStyleSheet(f"color:{palette['muted']};font-size:11px;")
+            note.setProperty("state", "")
         else:
             note.setText("")
+        widgets.repolish(note)
 
     line_edit.textChanged.connect(refresh)
     refresh()
@@ -98,12 +141,22 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     lay.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
     lay.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     lay.setHorizontalSpacing(14)
-    lay.setVerticalSpacing(10)
+    lay.setVerticalSpacing(12)                         # 4pt-grid rhythm: field -> field
     getters = {}
     hints = {}                                         # field key -> its hint QLabel (help text / live error)
     editable = []                                      # (key, widget) for wiring change -> validate + on_change
-    muted_style = f"color:{palette['muted']};font-size:11px;"
-    err_style = f"color:{palette['error']};font-size:11px;"
+    # Guided mode: expert fields go into an 'Advanced options' drawer (a second form layout) instead of inline.
+    adv_lay = None
+    adv_box = None
+    if _GUIDED and any(_is_advanced(f) for f in spec):
+        adv_box = widgets.disclosure("Advanced options")
+        _adv_inner = QWidget()
+        adv_lay = QFormLayout(_adv_inner)
+        adv_lay.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
+        adv_lay.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        adv_lay.setHorizontalSpacing(14)
+        adv_lay.setVerticalSpacing(12)
+        adv_box.content_layout.addWidget(_adv_inner)
 
     def browse(field, getter, setter):
         # a numeric field (e.g. the encounter battle scene, an INT) wants the picked entry's id, not its name
@@ -121,7 +174,7 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         box = QWidget()
         v = QVBoxLayout(box)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
+        v.setSpacing(4)                                # 4pt-grid rhythm: field -> its hint
         setter = None
         if f.kind == forms.BOOL:
             cb = QCheckBox()
@@ -171,16 +224,32 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             v.addWidget(widget)
         hint = QLabel(f.help or "")                    # always present (hidden if no help) so a live error
         hint.setWordWrap(True)                          # has somewhere to show
-        hint.setStyleSheet(muted_style)
+        hint.setProperty("role", "caption")             # muted 11px; state='error' turns it red in validate()
         v.addWidget(hint)                               # PARENT it BEFORE setVisible: setVisible(True) on a
         hint.setVisible(bool(f.help))                   # parentless widget flashes a top-level window (Windows)
         hints[f.key] = hint
         editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
-            v.addWidget(_wrap_preview_panel(widget, getters[f.key], palette, wrap_width))
-        label = QLabel(f.label + ":")
-        label.setStyleSheet("font-weight:500;")
-        lay.addRow(label, box)
+            v.addWidget(_wrap_preview_panel(widget, getters[f.key], wrap_width))
+        label = widgets.role_label(f.label + ":", "label")   # weight-500 field label (the type ramp)
+        term = f.concept or _KIND_CONCEPT.get(f.kind)         # a jargon field -> a "?" concept badge (Phase 5)
+        badge = _concept_badge(term, palette) if term else None
+        target = adv_lay if (adv_lay is not None and _is_advanced(f)) else lay   # Guided: expert -> Advanced drawer
+        if badge is not None:
+            btn, card_html = badge
+            widget.setWhatsThis(card_html)                    # Shift-F1 on the field too, not just the badge
+            lw = QWidget()
+            lh = QHBoxLayout(lw)
+            lh.setContentsMargins(0, 0, 0, 0)
+            lh.setSpacing(5)
+            lh.addWidget(label)
+            lh.addWidget(btn)
+            lh.addStretch(1)
+            target.addRow(lw, box)
+        else:
+            target.addRow(label, box)
+    if adv_box is not None:
+        lay.addRow(adv_box)                                   # the Advanced drawer spans, below the plain fields
 
     def validate():
         """Live per-field check: a value that fails its parser turns the hint red with the error; an OK
@@ -194,12 +263,14 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
                 forms._parse_field(f.kind, getters[f.key]())
             except ValueError as e:
                 h.setText(f"⚠  {e}")
-                h.setStyleSheet(err_style)
+                h.setProperty("state", "error")         # -> the red caption[state=error] rule
+                widgets.repolish(h)
                 h.setVisible(True)
                 bad += 1
                 continue
             h.setText(f.help or "")
-            h.setStyleSheet(muted_style)
+            h.setProperty("state", "")                  # back to the muted caption default
+            widgets.repolish(h)
             h.setVisible(bool(f.help))
         return bad
 
@@ -576,7 +647,7 @@ class CatalogLibrary(QDialog):
         except Exception as e:                             # noqa: BLE001  (no install / no UnityPy / bad token)
             QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "Export failed", f"{e}\n\n(The model export needs your FF9 install "
-                                                       "+ UnityPy — check ⚙ ▸ Setup & health.)")
+                                                       "+ UnityPy — check Settings ▸ Setup & health.)")
             return
         QApplication.restoreOverrideCursor()
         notes = []

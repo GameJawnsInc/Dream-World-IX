@@ -7,8 +7,15 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import QAbstractSpinBox, QApplication, QComboBox, QListWidget
+from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtWidgets import (
+    QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
+    QListWidget, QPushButton, QToolButton, QVBoxLayout, QWidget,
+)
+
+from . import anim
+
+_QWIDGETSIZE_MAX = 16777215                        # Qt's max size -- 'release the height pin' so a widget tracks content
 
 
 class WheelGuard(QObject):
@@ -56,6 +63,173 @@ class PlaceholderListWidget(QListWidget):
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
                              | Qt.TextFlag.TextWordWrap, self.placeholder)
             painter.end()
+
+
+# --- component factories (Phase 1 token foundation) ----------------------------------------
+# Thin QLabel/QFrame factories that stamp a dynamic `role` property (styled by the component QSS in
+# workspace.style) and fold in an accessible name -- so a heading / caption / card / chip is ONE call
+# with the a11y hook baked in, replacing the ad-hoc inline stylesheets adopted incrementally from Phase 2.
+
+def role_label(text="", role="body", *, parent=None):
+    """A QLabel carrying a ``role`` (display / h1 / h2 / caption / subtle / chip) for the component QSS,
+    with its text as the accessible name."""
+    lab = QLabel(text, parent)
+    lab.setProperty("role", role)
+    if text:
+        lab.setAccessibleName(text)
+    return lab
+
+
+def heading(text, level=1, *, parent=None):
+    """A titled label -- level 0 = display, 1 = h1, 2 = h2."""
+    return role_label(text, "display" if level == 0 else f"h{level}", parent=parent)
+
+
+def caption(text="", *, parent=None):
+    """A small muted caption label (the 11px type role)."""
+    return role_label(text, "caption", parent=parent)
+
+
+def card(*, parent=None):
+    """An elevated container frame (surface_2 + a rounded border) for grouped content."""
+    frame = QFrame(parent)
+    frame.setProperty("role", "card")
+    return frame
+
+
+def status_chip(text, kind="info", *, parent=None):
+    """A small pill label. ``kind`` (info / good / warn / crit) is stamped as a property for later
+    per-kind tinting; the accessible name names the kind, so status never rides on colour alone."""
+    lab = role_label(text, "chip", parent=parent)
+    lab.setProperty("kind", kind)
+    if text:
+        lab.setAccessibleName(f"{kind}: {text}")
+    return lab
+
+
+def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None, icon_pixmap=None):
+    """A centered TEACHING empty-state -- the antidote to a black void / a bare "nothing loaded" panel:
+    a large decorative icon/glyph, a one-line purpose, an optional teaching sentence, and optional
+    primary-action button(s). ``actions`` is an iterable of ``(label, callback)`` (falsy entries are
+    skipped, so a caller can gate one on availability); the first surviving action is accented as the
+    primary. ``icon_pixmap`` (Phase 8) shows an SVG icon instead of the text ``glyph``; either way the
+    mark is decorative (no accessible name) -- the purpose + teach lines carry the meaning for a screen
+    reader. Returns a QWidget ready to drop into any empty host layout."""
+    w = QWidget(parent)
+    v = QVBoxLayout(w)
+    v.setContentsMargins(24, 24, 24, 24)
+    v.setSpacing(8)
+    v.addStretch(1)
+    g = role_label("", "empty_glyph") if icon_pixmap is not None else role_label(glyph, "empty_glyph")
+    if icon_pixmap is not None:
+        g.setPixmap(icon_pixmap)
+    g.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    g.setAccessibleName("")                             # decorative -- don't announce the glyph/icon
+    v.addWidget(g)
+    p = role_label(purpose, "empty_title")
+    p.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    p.setWordWrap(True)
+    v.addWidget(p)
+    if teach:
+        t = caption(teach)
+        t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t.setWordWrap(True)
+        t.setMinimumWidth(380)                          # a word-wrapped label between stretches collapses to
+        t.setMaximumWidth(460)                          # its hint width -- pin a readable measure (~2 lines)
+        trow = QHBoxLayout()
+        trow.addStretch(1)
+        trow.addWidget(t)
+        trow.addStretch(1)
+        v.addLayout(trow)
+    acts = [a for a in actions if a]
+    if acts:
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        for i, (label, cb) in enumerate(acts):
+            b = QPushButton(label)
+            if i == 0:                                  # the first action is the primary -> accented
+                b.setObjectName("accent")
+            if cb is not None:
+                b.clicked.connect(lambda _=False, c=cb: c())
+            brow.addWidget(b)
+        brow.addStretch(1)
+        v.addLayout(brow)
+    v.addStretch(1)
+    return w
+
+
+def attach_shadow(widget, *, blur=32, dy=8, alpha=110):
+    """Give a FLOATING layer (a Ctrl-K palette card, a frameless popover) real depth via a
+    QGraphicsDropShadowEffect. Apply to a ROUNDED card that sits inside a transparent, margined host so the
+    blur has room to spill and the rounded corners don't bleed a hard rectangle (Report F-§2). No-op-safe:
+    returns the widget. Not for native top-level menus/dialogs -- those already get an OS shadow on Windows."""
+    eff = QGraphicsDropShadowEffect(widget)
+    eff.setBlurRadius(blur)
+    eff.setXOffset(0)
+    eff.setYOffset(dy)
+    eff.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(eff)
+    return widget
+
+
+def disclosure(title, *, expanded=False, parent=None):
+    """A collapsible 'advanced' section (progressive disclosure): a flat toggle header (▸/▾ + ``title``) over
+    a hidden-by-default content area. The caller fills ``box.content_layout``; ``box.toggle_button`` is the
+    header. Reusable for the Import secondary jobs + the Build advanced drawer -- keeps the routine path front
+    and centre while the power-user controls stay one click away."""
+    box = QWidget(parent)
+    v = QVBoxLayout(box)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(0)
+    btn = QToolButton()
+    btn.setObjectName("disclosureToggle")
+    btn.setCheckable(True)
+    btn.setChecked(expanded)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setText(("▾  " if expanded else "▸  ") + title)
+    btn.setAccessibleName(title)
+    body = QWidget()
+    body_lay = QVBoxLayout(body)
+    body_lay.setContentsMargins(2, 6, 0, 0)
+    body_lay.setSpacing(8)
+    body.setVisible(expanded)
+
+    def _toggle(on):
+        btn.setText(("▾  " if on else "▸  ") + title)
+        if on:                                          # expand: reveal, then grow 0 -> content height,
+            body.setVisible(True)                       # then release the pin so it tracks content again
+            target = max(body.sizeHint().height(), 1)
+            anim.animate_height(body, 0, target, on_finished=lambda: body.setMaximumHeight(_QWIDGETSIZE_MAX))
+        else:                                           # collapse: shrink current -> 0, THEN hide
+            anim.animate_height(body, body.height(), 0, on_finished=lambda: body.setVisible(False))
+    btn.toggled.connect(_toggle)
+    v.addWidget(btn)
+    v.addWidget(body)
+    box.content_layout = body_lay
+    box.toggle_button = btn
+    return box
+
+
+def repolish(widget):
+    """Re-evaluate ``widget``'s QSS after a dynamic property (role / state / kind) changed -- Qt does NOT
+    restyle automatically on a setProperty. Cheap; call it right after flipping a selector-affecting
+    property (e.g. a form hint toggling state='error')."""
+    st = widget.style()
+    st.unpolish(widget)
+    st.polish(widget)
+    widget.update()
+
+
+def tabular(widget):
+    """Turn ON tabular (fixed-width) figures on ``widget``'s font so ids / coordinates / byte offsets line
+    up in columns. Uses the Qt 6.7+ font-feature API; a silent no-op on older Qt. Returns the widget."""
+    try:
+        font = widget.font()
+        font.setFeature(QFont.Tag("tnum"), 1)
+        widget.setFont(font)
+    except Exception:       # noqa: BLE001  (older Qt lacks setFeature/Tag -> skip, non-fatal)
+        pass
+    return widget
 
 
 def install_wheel_guard(app=None):
