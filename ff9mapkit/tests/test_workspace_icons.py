@@ -27,6 +27,7 @@ REQUIRED = {
     "journey", "campaign", "field", "hub", "bare", "save", "battle", "object",  # tree/Home/crumb types
     "chocobo", "pin",                                                       # the two former emoji
     "search", "settings", "rocket", "chevron-right", "plus", "minus",       # toolbar/chrome
+    "alert-error", "alert-warn", "alert-ok", "alert-info",                   # status severity shapes
     "home", "author", "assets", "state", "download",                        # rail groups (+ ship=rocket)
 }
 
@@ -42,6 +43,15 @@ def test_every_icon_renders_non_null(app):
 def test_required_names_all_exist(app):
     missing = REQUIRED - set(icons.names())
     assert not missing, f"icon family is missing wired names: {sorted(missing)}"
+
+
+def test_status_shapes_are_distinct_at_one_colour(app):
+    # severity must read WITHOUT colour: the four alert marks are different shapes even rendered identically.
+    imgs = [icons.pixmap(n, "#000000", 24).toImage()
+            for n in ("alert-error", "alert-warn", "alert-ok", "alert-info")]
+    for i in range(len(imgs)):
+        for j in range(i + 1, len(imgs)):
+            assert imgs[i] != imgs[j], "two status marks share a shape (colour would be the only cue)"
 
 
 def test_tint_actually_changes_the_pixels(app):

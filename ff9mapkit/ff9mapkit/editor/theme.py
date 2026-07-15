@@ -94,7 +94,7 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     "scroll": "#4c566a",        # nord3
     "log_bg": "#272c36",
     "log_fg": "#d8dee9",        # nord4
-    "error": "#bf616a",         # nord11 (red)
+    "error": "#c36c74",         # nord11 red, nudged lighter to clear 3:1 (WCAG 1.4.11) on the elevated surface
     "warn": "#ebcb8b",          # nord13 (yellow)
 }
 DRACULA = {                     # https://draculatheme.com
@@ -142,7 +142,7 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     "scroll": "#586e75",        # base01
     "log_bg": "#00212b",
     "log_fg": "#839496",        # base0
-    "error": "#dc322f",         # red
+    "error": "#df4340",         # red, nudged lighter to clear 3:1 (WCAG 1.4.11) on the elevated surface
     "warn": "#b58900",          # yellow
 }
 SOLARIZED_LIGHT = {
@@ -169,7 +169,7 @@ SOLARIZED_LIGHT = {
     "log_bg": "#e4ddc8",
     "log_fg": "#586e75",
     "error": "#dc322f",         # red
-    "warn": "#b58900",          # yellow
+    "warn": "#a47c00",          # yellow, deepened to clear 3:1 (WCAG 1.4.11) on the cream page + surface
 }
 GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
     "dark": True,

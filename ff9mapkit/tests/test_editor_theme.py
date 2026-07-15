@@ -107,6 +107,17 @@ def test_palette_contrast_invariants():
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
 
 
+def test_status_hues_meet_non_text_contrast():
+    # WCAG 1.4.11: error / warn / success drive status ICONS + the lint stripe, so each must clear the 3:1
+    # non-text floor on BOTH the page (bg) and a panel (surface) -- the status stays perceivable as a shape
+    # in greyscale. (Text is NEVER coloured the status hue, so the 4.5 text floor doesn't apply here.)
+    for mode, pal in theme.THEMES.items():
+        for hue in ("error", "warn", "success"):
+            assert _contrast(pal[hue], pal["bg"]) >= 3.0, f"{mode}: {hue} on bg = {_contrast(pal[hue], pal['bg']):.2f}"
+            assert _contrast(pal[hue], pal["surface"]) >= 3.0, \
+                f"{mode}: {hue} on surface = {_contrast(pal[hue], pal['surface']):.2f}"
+
+
 def test_derive_extends_the_palette_all_hex_and_idempotent():
     for mode, pal in theme.THEMES.items():
         d = theme.derive(pal)

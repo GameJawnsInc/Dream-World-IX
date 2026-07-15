@@ -1289,6 +1289,7 @@ class Workspace(QMainWindow):
             "No problems yet — Check (toolbar) validates the open project and reports here.",
             self.pal["muted"])
         self.problems.setAccessibleName("Problems")
+        self.problems.setIconSize(QSize(16, 16))     # room for the per-row severity icon (error/warn shapes)
         pv.addWidget(self.banner)
         pv.addWidget(self.problems, 1)
         self.problems_page = prob_page
@@ -7293,8 +7294,11 @@ class Workspace(QMainWindow):
         self.banner.setVisible(True)
         self.problems.clear()
         for p in problems:
-            it = QListWidgetItem(f"{'✕' if p.severity == fb.ERROR else '⚠'}  {p.message}")
-            it.setForeground(QBrush(QColor(self.pal["error"] if p.severity == fb.ERROR else self.pal["warn"])))
+            err = p.severity == fb.ERROR
+            # severity by a distinct-SHAPE icon (circle-x vs triangle-!) tinted the status hue -- NOT by
+            # colouring the message text (which would fail 4.5:1 text contrast on some themes). WCAG 1.4.1.
+            it = QListWidgetItem(icons.icon("alert-error" if err else "alert-warn",
+                                            self.pal["error"] if err else self.pal["warn"], 16), p.message)
             help_ = fb.humanize(p.message)             # plain-language layer: enrich (never replace) the raw row
             if help_:
                 friendly, step = help_

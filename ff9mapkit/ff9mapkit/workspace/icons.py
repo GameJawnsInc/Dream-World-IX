@@ -81,6 +81,12 @@ _ICONS: dict[str, str] = {
     "rocket": '<path d="M12 3c3 2.2 5 5.8 5 9.5L14.5 15h-5L7 12.5C7 8.8 9 5.2 12 3z"/>'
               '<circle cx="12" cy="10" r="1.6" fill="currentColor" stroke="none"/>'
               '<path d="M9.5 15L7.5 20l3-1.4M14.5 15l2 5-3-1.4"/>',
+    # status marks -- DISTINCT SHAPES (not colour-alone): error=circle-x, warn=triangle-!, ok=circle-check,
+    # info=circle-i, so severity is legible in greyscale / to a colour-blind user (WCAG 1.4.1).
+    "alert-error": '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+    "alert-warn": '<path d="M12 3.5l9 15.5H3z"/><path d="M12 9.5v4.5"/><path d="M12 17.2v.3"/>',
+    "alert-ok": '<circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.6 2.6L16 9.2"/>',
+    "alert-info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.8v.3"/>',
     "chevron-right": '<path d="M9 6l6 6-6 6"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
     "minus": '<path d="M5 12h14"/>',

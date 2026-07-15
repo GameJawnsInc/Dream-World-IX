@@ -97,3 +97,21 @@ def test_rail_tabs_and_icon_only_buttons_are_named(win):
     assert all(seg.accessibleName() for seg in win._rail_segs), "every rail segment names its workspace"
     assert win._settings_btn.accessibleName() == "Settings", "the icon-only settings button is named"
     assert all(win.tabs.tabText(i).strip() for i in range(win.tabs.count())), "every tab has a visible label"
+
+
+def test_problems_convey_severity_by_icon_not_colour_alone(win):
+    """WCAG 1.4.1: each Problems row carries a distinct-shape severity ICON (error vs warn), so severity is
+    legible without relying on the text colour (which stays the readable body colour, not a status hue)."""
+    from ff9mapkit.editor import feedback as fb
+    errs, warns = ["boom: it broke"], ["heads up: check this"]
+    verdict = fb.classify(errs, warns, subject="a11y probe", clean_headline="clean")
+    win._show_problems(verdict, fb.problems(errs, warns))
+    items = [win.problems.item(i) for i in range(win.problems.count())]
+    assert len(items) == 2
+    assert all(not it.icon().isNull() for it in items), "every Problems row has a severity icon"
+    # the error and warn icons are DIFFERENT shapes (not just different colours)
+    err_it = next(it for it in items if "boom" in it.text())
+    warn_it = next(it for it in items if "heads up" in it.text())
+    from PySide6.QtCore import QSize
+    assert (err_it.icon().pixmap(QSize(16, 16)).toImage()
+            != warn_it.icon().pixmap(QSize(16, 16)).toImage()), "error vs warn are distinct shapes"
