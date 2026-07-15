@@ -133,9 +133,30 @@ class HeroBand(QWidget):
         p.fillRect(QRectF(0, h - 1, w, 1), QColor(pal["border"]))
 
         # 5. overline
+        # THE BAND'S ONE INK LAW: everything the hero writes is $text. Nothing here is dimmed, and that is
+        # not a preference -- no dim tier is LEGAL on this surface. Measured, per palette, by rendering:
+        #
+        #   THE MIST INVENTS A NINTH GROUND. Every text tier in this app is fenced against the elevation
+        #   ramp (bg / surface / surface_2 / surface_3). The bloom below composites $text over the plate,
+        #   which lifts the ground PAST surface_3 in 7 of 8 palettes -- so it lands on a ground no fence
+        #   covers and none of those guarantees apply here. $muted clears 4.5 on surface_3 in all 8
+        #   (4.57-5.70) and still fails ON THIS BAND: overline 4.09-4.79 (2/8), status 3.63-5.37 (5/8).
+        #   It is a tier fenced to sit AT the 4.5 floor, so it has no headroom for a lifted ground and
+        #   cannot acquire any: even at _MIST_ALPHA = 0 it only reaches 4.72. There is no alpha that
+        #   rescues it -- the mist is not negotiable and the dim tier is not affordable.
+        #
+        # $text clears 8/8 on both rows (overline 5.16-12.34, status 4.64-10.85). Subordination comes from
+        # TYPE, not from dimming -- PLAN.md's own law, written before this band existed: 11px DemiBold at
+        # +1.0 tracking against a 28px serif wordmark IS the hierarchy. This shipped as $text_subtle
+        # (2.5:1, sub-AA in 8/8) which that same Rejected table forbids for text in writing.
+        #
+        # audit_contrast.py can never see any of this: it reads ink via w.palette().color(foregroundRole()),
+        # a QLabel API, and this band has no QLabels. The fence lives in test_workspace_hero.py and works by
+        # rendering the band twice -- once with drawText suppressed -- because the ground is a gradient and
+        # cannot be sampled by mode or modelled by hand (both were tried; both lied).
         f = QFont("Segoe UI"); f.setPixelSize(11); f.setWeight(QFont.Weight.DemiBold)
         f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
-        p.setFont(f); p.setPen(QColor(d["text_subtle"]))
+        p.setFont(f); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, overline_y), "FF9 FIELD TOOLKIT \u00b7 1.0.0b15")
 
         # 6. wordmark -- pal["text"], NEVER gold. A gold "Dream World IX" is a fan-logo; it is the
@@ -180,8 +201,11 @@ class HeroBand(QWidget):
         dia.closeSubpath(); p.drawPath(dia)
 
         # 8. status -- painted, so it re-tints live (the QLabel version goes stale on retheme)
+        # $text, per the one-ink law at the overline. This shipped in $muted and was sub-AA in 3 of 8
+        # (light 3.63, solarized-light 3.98, dracula 4.35) -- found while fixing the overline, same cause:
+        # the mist lifts the ground past the top of the ramp that muted is fenced against.
         sf = QFont("Segoe UI"); sf.setPixelSize(13)
-        p.setFont(sf); p.setPen(QColor(pal["muted"]))
+        p.setFont(sf); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, status_y),
                    self._status or "Nothing open yet \u2014 pick a starting point below.")
         p.end()

@@ -249,3 +249,95 @@ def test_a_transparent_container_does_not_strip_its_children(app):
             f"(got {fill}, want {pal['accent']}) -- its label is now accent_fg on the raw page")
         host.deleteLater()
         app.processEvents()
+
+
+# --- the band's contrast fence -----------------------------------------------------------------
+# This cannot be a palette computation and it cannot use audit_contrast.py. Both were tried:
+#
+#   MODELLING the ground (bg -> linear gradient -> off-axis radial bloom) requires _axis()'s geometry to
+#   be right; a first attempt applied the bloom at full alpha where the render says it is ~32, and was
+#   wrong by a full point.
+#   MODE-SAMPLING a row strip returns the ground for a SHORT string and THE INK ITSELF for a long one,
+#   because the ground is a gradient (hundreds of near-identical colours, few px each) while the ink is
+#   one flat colour. It silently reported the status line at contrast 1.00 against "ground" == the ink.
+#
+# So: render twice, suppress drawText for the ground pass, and read the ground under the glyphs. The band
+# is 100% QPainter with NO layout, so suppressing text cannot reflow anything -- the objection that killed
+# blank-and-diff for the QSS audit does not apply to a paint-only widget.
+
+def _lum(rgb):
+    c = [v / 255 for v in rgb]
+    c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def _cr(a, b):
+    la, lb = _lum(a), _lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _bare_plate(d):
+    """The band with every glyph suppressed -- the real composited ground, no model."""
+    from PySide6.QtGui import QPainter
+    orig = QPainter.drawText
+    QPainter.drawText = lambda *a, **k: None
+    try:
+        b = hero_mod.HeroBand(d)
+        b.resize(1280, hero_mod._METRICS["comfortable"][0])
+        img = b.grab().toImage()
+        b.deleteLater()
+        return img
+    finally:
+        QPainter.drawText = orig
+
+
+def test_the_hero_writes_everything_in_text_because_no_dim_tier_is_legal_here(app):
+    """Both painted rows must clear 4.5:1 on the ground the band actually paints.
+
+    THE MIST INVENTS A NINTH GROUND. Every text tier is fenced against the elevation ramp (bg / surface /
+    surface_2 / surface_3). The bloom composites $text over the plate and lifts the ground PAST surface_3
+    in 7 of 8 palettes, so none of those fences reach this band.
+
+    $muted clears 4.5 on surface_3 in all 8 (4.57-5.70) and STILL fails here -- overline 4.09-4.79 (2/8),
+    status 3.63-5.37 (5/8) -- because it is fenced to sit AT the floor and has no headroom for a lifted
+    ground. It cannot get any: at _MIST_ALPHA = 0 it still only reaches 4.72. $text clears 8/8.
+
+    Shipped state when this was written: overline in $text_subtle (2.5:1, sub-AA in 8/8) and status in
+    $muted (sub-AA in 3/8). Both invisible to every test and to audit_contrast.py.
+    """
+    from PySide6.QtGui import QImage
+
+    rows = {"overline": 34, "status": 130}
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        img = _bare_plate(d)
+        ink = _rgb(pal["text"])
+        for name, y in rows.items():
+            worst = min(
+                _cr(ink, (lambda c: (c.red(), c.green(), c.blue()))(QImage.pixelColor(img, x, y)))
+                for x in range(200, 900, 5)
+            )
+            assert worst >= 4.5, f"{mode}: hero {name} {worst:.2f} on its painted ground -- sub-AA"
+
+
+def test_the_hero_never_dims_its_text(app):
+    """A shape check, because the value fence above can only measure the token it is handed.
+
+    Any future 'let's soften the version string' will reach for $muted or $text_subtle, and both are
+    illegal on this band for a reason no reviewer can see by reading: the bloom's ground is off the ramp
+    those tiers are fenced against. This test is the note that says so at the point of temptation.
+    """
+    import inspect
+
+    src = inspect.getsource(hero_mod.HeroBand.paintEvent)
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    for dim in ("text_subtle", "muted"):
+        assert dim not in code, (
+            f"the hero must not ink in ${dim}: the mist lifts its ground past surface_3, "
+            f"off the ramp every text tier is fenced against"
+        )
