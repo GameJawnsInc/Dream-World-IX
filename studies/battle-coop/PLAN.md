@@ -50,6 +50,27 @@
 > **PHASE 6 RESULTS (accumulating, 2026-07-15):**
 > - ★ **Fail-safe PROVEN two-machine** (package step 0): v6 host + v5 laptop on the same field — visible
 >   co-location but NO pairing, no crash, no half-state. Exactly the designed version-reject behavior.
+> - ★ **RENDER-MATCH PROVEN two-machine — the headline** (field 354, Dali weapon shop, rotating cast):
+>   the guest's cast re-stages to match the HOST's ScenarioCounter. The authoritative-host claim ("the
+>   guest renders the host's story, not scenario-zero") is proven on real stock content.
+> - **Expected-behavior note** (test methodology, not a bug): the host's F6 "Reload field" does NOT
+>   re-stage the guest — the follow listener keys on the host's broadcast FIELD ID changing, and the
+>   mirror applies at the guest's own field-load boundary. After an F6 ScenarioCounter edit, the guest
+>   re-stages on its next real warp/entry (natural story play re-stages both sides on room entry).
+> - ⚠ **SAVE-SAFETY HOLE FOUND (the test paid for itself): AUTOSAVE bypasses the spectator-save block.**
+>   The Continue slot is written by `EventEngine` at essentially EVERY field-load init
+>   (`serializer.Autosave`, gated only by a hardcoded cutscene `noSave` ladder + `[SaveFile]` config) —
+>   NOT by `SaveLoadUI.OnKeyConfirm`, so the manual-save block never sees it. A following guest's
+>   Continue gets the host's mirrored story AND the followed-to field position. **Engine fix STAGED
+>   (uncommitted, next DLL round):** `noSave |= NetSyncVisitor.SuppressEncounters ||
+>   NetSyncClient.IsMirroringStory` — same conditions as encounter suppression (following + connected,
+>   or selftest), fail-safe to vanilla on link-drop, host unaffected. `EventEngine.cs` JOINS THE s37
+>   FILE SET at the next regen (16 files; it carries fork-fidelity edits — full-stack baseline replay
+>   handles it). **Zero-rebuild mitigation for a live session:** `[SaveFile] DisableAutoSave = 1` in
+>   the GUEST's Memoria.ini (stock Memoria, launch-time read → relaunch; kills ALL autosaves, so
+>   revert after). Residual documented wart: a NON-following free-roam guest keeps vanilla autosave —
+>   hanging out at a coop room parks their Continue there (same as any F6 warp; "make a real save
+>   before co-op" stays in the README).
 
 ## TL;DR for whoever executes this (Fable)
 
