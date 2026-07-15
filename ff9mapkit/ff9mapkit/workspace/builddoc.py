@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
+    QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -118,8 +118,8 @@ class BuildDoc(QWidget):
         outer.addWidget(scroll)
 
     def _field_box(self):
-        box = QGroupBox("Build to (field)")
-        gv = QVBoxLayout(box)
+        box = widgets.section("Build to (field)")
+        gv = box.content_layout
         self.tg = QButtonGroup(self)
         tid = self.worktree_id or 4003
         # In-place: only meaningful for a verbatim fork of a REAL field -> hidden until such a project loads
@@ -142,6 +142,7 @@ class BuildDoc(QWidget):
         of = QHBoxLayout()
         self.rb_other = QRadioButton("Build only — to a folder:")
         self.other = QLineEdit()
+        self.other.setAccessibleName("Build output folder")   # its label is the RADIO, not a QLabel
         ob = QPushButton("Browse…")
         ob.clicked.connect(self.browse_other)
         of.addWidget(self.rb_other)
@@ -170,8 +171,8 @@ class BuildDoc(QWidget):
         return box
 
     def _campaign_box(self):
-        box = QGroupBox("Deploy campaign")
-        cv = QVBoxLayout(box)
+        box = widgets.section("Deploy campaign")
+        cv = box.content_layout
         self.cg = QButtonGroup(self)
         self.rb_camp_deploy = QRadioButton("Deploy to game (reversible)")
         self.rb_camp_deploy.setChecked(True)
@@ -187,8 +188,8 @@ class BuildDoc(QWidget):
         return box
 
     def _journey_box(self):
-        box = QGroupBox("Deploy journey")
-        jv = QVBoxLayout(box)
+        box = widgets.section("Deploy journey")
+        jv = box.content_layout
         self.jg = QButtonGroup(self)
         self.rb_jour_preview = QRadioButton("Preview deploy playbook (dry-run — no game files touched)")
         self.rb_jour_preview.setChecked(True)
@@ -205,8 +206,8 @@ class BuildDoc(QWidget):
                                          "whole journey — you lose cheap per-campaign re-deploy.")
         jv.addWidget(self.cb_single_folder)
         # New-Game landing: meaningful only for the one-shot deploy (single-owner) -> disabled otherwise
-        self.ng_group = QGroupBox("New Game landing (one-shot deploy — single-owner)")
-        ngv = QVBoxLayout(self.ng_group)
+        self.ng_group = widgets.section("New Game landing (one-shot deploy — single-owner)")
+        ngv = self.ng_group.content_layout
         self.ngg = QButtonGroup(self)
         self.rb_ng_none = QRadioButton("Don't wire New Game — reach the hub via F6 → Warp")
         self.rb_ng_none.setChecked(True)
@@ -227,8 +228,8 @@ class BuildDoc(QWidget):
 
     def _newgame_box(self):
         # always-visible: point New Game straight at a deployed field id (the hub-less single destination).
-        box = QGroupBox("New Game entry  (skip the hub — land straight on a field)")
-        gv = QVBoxLayout(box)
+        box = widgets.section("New Game entry  (skip the hub — land straight on a field)")
+        gv = box.content_layout
         row = QHBoxLayout()
         row.addWidget(QLabel("Field id:"))
         self.newgame_id = QLineEdit()
@@ -254,8 +255,8 @@ class BuildDoc(QWidget):
         return box
 
     def _battle_box(self):
-        box = QGroupBox("Deploy battle map")
-        bv = QVBoxLayout(box)
+        box = widgets.section("Deploy battle map")
+        bv = box.content_layout
         self.battle_dest = QLabel(f"Test mod folder: {self.mod_folder}")
         self.battle_dest.setProperty("role", "muted")
         bv.addWidget(self.battle_dest)

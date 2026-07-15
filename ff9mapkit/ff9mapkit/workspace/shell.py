@@ -26,7 +26,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
     QProgressBar, QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
     QTreeWidgetItemIterator, QVBoxLayout, QWidget,
@@ -58,7 +58,7 @@ from . import concepts
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard, repolish
+from .widgets import PlaceholderListWidget, install_wheel_guard, repolish, section
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -1934,8 +1934,8 @@ class Workspace(QMainWindow):
         done = [f for f in folders if self._campaign_forked(f)]
         missing_cmds = [f for f in folders if f not in done and f in self._fork_cmds]
 
-        box = QGroupBox(f"Fork the arcs   ({len(done)}/{len(folders)} forked)")
-        gv = QVBoxLayout(box)
+        box = section(f"Fork the arcs   ({len(done)}/{len(folders)} forked)")
+        gv = box.content_layout
         if len(done) < len(folders):
             hint = QLabel("These campaigns don't exist yet — <b>Step 1</b> is to fork them from their real FF9 "
                           "fields. Click <b>Fork</b> (runs <code>import-chain</code> into a folder beside this "

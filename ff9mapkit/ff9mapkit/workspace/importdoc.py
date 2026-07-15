@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
     QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
@@ -80,8 +80,8 @@ class ImportDoc(QWidget):
 
     # ------------------------------------------------------------------ fork-a-field
     def _fork_box(self):
-        box = QGroupBox("Fork a real field")
-        v = QVBoxLayout(box)
+        box = widgets.section("Fork a real field")
+        v = box.content_layout
         lbl = QLabel("ONE screen — an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016). For a whole "
                      "connected AREA (many screens wired together), use Fork a region below. "
                      "Find… looks up exact names/ids; Preview shows what a fork will/won't reproduce.")
@@ -91,6 +91,7 @@ class ImportDoc(QWidget):
         row = QHBoxLayout()
         self.field = QLineEdit()
         self.field.setPlaceholderText("field id or name")
+        self.field.setAccessibleName("Field id or name")        # no visible label to buddy
         self.find_btn = QPushButton("Find…")
         self.find_btn.setToolTip("List the real FF9 fields matching the box above (id + name) — the same lookup "
                                  "as 'List fields' under Read & inspect.")
@@ -120,8 +121,8 @@ class ImportDoc(QWidget):
         self.preview_img.setVisible(False)
         v.addWidget(self.preview_img)
 
-        mode = QGroupBox("Fork mode")
-        mv = QVBoxLayout(mode)
+        mode = widgets.section("Fork mode")
+        mv = mode.content_layout
         # NB: radio/checkbox labels can't word-wrap, so a long label forces the whole tab's minimum width
         # (horizontal scrolling at normal window sizes). Keep them SHORT; detail goes in the wrapped hints.
         self.mode_verbatim = QRadioButton("Verbatim — the truest fork (recommended)")
@@ -141,8 +142,8 @@ class ImportDoc(QWidget):
         self.mode_verbatim.toggled.connect(self._sync_mode)
         v.addWidget(mode)
 
-        self.art_box = QGroupBox("Background art")
-        av = QVBoxLayout(self.art_box)
+        self.art_box = widgets.section("Background art")
+        av = self.art_box.content_layout
         self.art_native = QRadioButton("Native — seamless + faithful; ANY field (recommended)")
         self.art_borrow = QRadioButton("BG-borrow — reuse the real art (fast; area ≥ 10)")
         self.art_editable = QRadioButton("Editable scene — repaintable layers (seam-prone)")
@@ -156,8 +157,8 @@ class ImportDoc(QWidget):
         av.addWidget(art_hint)
         v.addWidget(self.art_box)
 
-        self.carry_box = QGroupBox("Carry from the real field")
-        cv = QVBoxLayout(self.carry_box)
+        self.carry_box = widgets.section("Carry from the real field")
+        cv = self.carry_box.content_layout
         self.carry_npcs = QCheckBox("NPCs & props faithfully (push/talk interactions fire)")
         self.carry_text = QCheckBox("Real dialogue, verbatim (per language)")
         self.dialogue_stubs = QCheckBox("Dialogue as editable [[npc]] stubs (to RE-AUTHOR, not carry)")
@@ -173,8 +174,10 @@ class ImportDoc(QWidget):
         # Walk as (player swap): who you CONTROL in the fork, decoupled from [party] MEMBERSHIP. Applies to
         # EITHER fork mode (the CLI forces --verbatim when set), so it lives OUTSIDE the verbatim-only carry box.
         swap = QHBoxLayout()
-        swap.addWidget(QLabel("Walk as:"))
+        _l_swap = QLabel("Walk as:")
+        swap.addWidget(_l_swap)
         self.swap_player = QComboBox()
+        _l_swap.setBuddy(self.swap_player)     # see the buddy note in coopdoc
         self.swap_player.setEditable(True)
         self.swap_player.addItems(["", "zidane", "vivi", "steiner", "garnet", "freya", "quina", "eiko",
                                    "amarant"])
@@ -204,8 +207,10 @@ class ImportDoc(QWidget):
         v.addWidget(swap_hint)
 
         out = QHBoxLayout()
-        out.addWidget(QLabel("Write to:"))
+        _l_out = QLabel("Write to:")
+        out.addWidget(_l_out)
         self.out = QLineEdit(str(self.proj_base / "imported"))
+        _l_out.setBuddy(self.out)
         browse = QPushButton("Browse…")
         browse.clicked.connect(self.browse_out)
         out.addWidget(self.out, 1)
@@ -215,12 +220,16 @@ class ImportDoc(QWidget):
         self.mode_chip.setWordWrap(True)
         v.addWidget(self.mode_chip)
         ids = QHBoxLayout()
-        ids.addWidget(QLabel("Field id:"))
+        _l_fid = QLabel("Field id:")
+        ids.addWidget(_l_fid)
         self.fid = QLineEdit("4003")
+        _l_fid.setBuddy(self.fid)
         self.fid.setFixedWidth(80)
         ids.addWidget(self.fid)
-        ids.addWidget(QLabel("Name (optional):"))
+        _l_nm = QLabel("Name (optional):")
+        ids.addWidget(_l_nm)
         self.name = QLineEdit()
+        _l_nm.setBuddy(self.name)
         self.name.setFixedWidth(160)
         ids.addWidget(self.name)
         ids.addStretch(1)
@@ -274,8 +283,8 @@ class ImportDoc(QWidget):
 
     # ------------------------------------------------------------------ fork-a-region (import-chain)
     def _region_box(self):
-        box = QGroupBox("Fork a region  (a connected multi-field chain → one campaign)")
-        v = QVBoxLayout(box)
+        box = widgets.section("Fork a region  (a connected multi-field chain → one campaign)")
+        v = box.content_layout
         lbl = QLabel("Fork a whole connected AREA at once — the workflow behind the disc-1 opening. Enter one "
                      "or more seed fields (or click Browse FF9 regions… for a catalog of FF9's areas — pick one, "
                      "or several to compose into one campaign); the chain forks everything they reach into a "
@@ -467,8 +476,8 @@ class ImportDoc(QWidget):
 
     # ------------------------------------------------------------------ read & inspect
     def _read_box(self):
-        box = QGroupBox("Read & inspect  (read-only / maintenance)")
-        v = QVBoxLayout(box)
+        box = widgets.section("Read & inspect  (read-only / maintenance)")
+        v = box.content_layout
         dlg = QHBoxLayout()
         dlg.addWidget(QLabel("Dialogue of field:"))
         self.dlg_field = QLineEdit()
@@ -533,8 +542,8 @@ class ImportDoc(QWidget):
     def _archive_box(self):
         """`ff9mapkit import-all` — the whole-game (or one-zone) Blender-ready reference archive: the
         on-disk source of truth you copy field folders out of."""
-        box = QGroupBox("Reference archive  (import-all — every field, foldered)")
-        v = QVBoxLayout(box)
+        box = widgets.section("Reference archive  (import-all — every field, foldered)")
+        v = box.content_layout
         lbl = QLabel("Bulk-import fields into <out>/<ZONE>/<FBG>/ — lightweight model-against projects "
                      "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
                      "browsable reference you copy field folders out of.")
@@ -596,8 +605,8 @@ class ImportDoc(QWidget):
         """A pointer: the model round-trip GRADUATED to its own Models tab (browser with rendered
         previews + detail + the export/import/mint/clip actions). This stub keeps the workflow
         discoverable for anyone who learned it here."""
-        box = QGroupBox("Custom 3D models")
-        v = QVBoxLayout(box)
+        box = widgets.section("Custom 3D models")
+        v = box.content_layout
         lbl = QLabel("Model browsing + the whole edit round-trip (export .glb → Blender → import / mint / "
                      "clips) moved to the Models tab — every model, with rendered previews.")
         lbl.setWordWrap(True)
@@ -616,8 +625,8 @@ class ImportDoc(QWidget):
 
     # ------------------------------------------------------------------ repaint a native fork
     def _repaint_box(self):
-        box = QGroupBox("Repaint a native fork's art  (seamless HD round-trip)")
-        v = QVBoxLayout(box)
+        box = widgets.section("Repaint a native fork's art  (seamless HD round-trip)")
+        v = box.content_layout
         lbl = QLabel("A NATIVE fork ships its background as a tile-packed atlas.png — awkward to paint by hand. "
                      "Unpack it into spatial Overlay*.png layers (one per depth band, the same picture the engine "
                      "renders), repaint them in any editor, then Pack them back into atlas.png — SEAMLESS, no game "
@@ -825,8 +834,8 @@ class ImportDoc(QWidget):
             return
         from PySide6.QtWidgets import QSlider
         rows = sorted(rep.beat_roster, key=lambda r: r[0])
-        strip = QGroupBox("Roster by story beat  (drag to scrub ScenarioCounter)")
-        sv = QVBoxLayout(strip)
+        strip = widgets.section("Roster by story beat  (drag to scrub ScenarioCounter)")
+        sv = strip.content_layout
         srow = QHBoxLayout()
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(0, len(rows) - 1)
