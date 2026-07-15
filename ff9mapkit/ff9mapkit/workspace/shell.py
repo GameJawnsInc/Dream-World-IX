@@ -550,6 +550,18 @@ class Workspace(QMainWindow):
         prefs.set_density(self._density)
         self.statusBar().showMessage(f"Density: {self._density}", 3000)
 
+    def _set_theme(self, mode):
+        """Apply a theme LIVE and persist it (the Ctrl-K quick command).
+
+        One command PER theme rather than a cycler or a sub-picker: the palette is fuzzy-matched, so
+        "mist" lands "Theme: Mist (FF9)" in two keystrokes, which beats both cycling through eight and
+        four clicks into Preferences. Persists immediately -- unlike Preferences' live preview, there is
+        no Cancel to revert to, so a Ctrl-K pick is a decision, not a trial.
+        """
+        self.retheme(pick_palette(mode))
+        prefs.set_theme(mode)
+        self.statusBar().showMessage(f"Theme: {dict(THEME_CHOICES).get(mode, mode)}", 3000)
+
     def _toggle_motion(self):
         """Flip UI motion on <-> off and persist it (the Ctrl-K quick command). Explicit on/off overrides the
         'auto' (match-system) default; nothing here loops or auto-plays."""
@@ -3804,6 +3816,11 @@ class Workspace(QMainWindow):
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
             ("Toggle motion (animations on / off)", "command", self._toggle_motion),
+            # One row per theme, generated from the registry -- an 8th palette costs nothing here. The
+            # `m=mode` default arg is load-bearing: a bare `lambda: self._set_theme(mode)` closes over the
+            # LOOP VARIABLE, so every row would apply the last theme.
+            *[(f"Theme: {label}", "command", lambda m=mode: self._set_theme(m))
+              for mode, label in THEME_CHOICES],
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),

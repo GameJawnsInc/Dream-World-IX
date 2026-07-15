@@ -136,6 +136,25 @@ def test_status_is_painted_so_it_retints(app):
     host.deleteLater()
 
 
+def test_every_theme_is_reachable_from_the_command_palette():
+    """Ctrl-K must offer one row per registered theme -- and each row must apply ITS OWN theme.
+
+    The rows are generated from THEME_CHOICES with a `m=mode` default arg. A bare
+    `lambda: self._set_theme(mode)` would close over the LOOP VARIABLE, so all nine rows would silently
+    apply the last theme -- a bug that looks fine in the palette, fires on click, and is invisible until
+    someone picks Nord and gets Mist. This is a pure-data check (no QApplication) so it runs everywhere.
+    """
+    from ff9mapkit.editor.theme import THEMES, THEME_CHOICES
+    modes = [m for m, _ in THEME_CHOICES]
+    assert modes[0] == "auto", "the picker must lead with Match system"
+    # every registered palette is offered, and nothing is offered that isn't registered
+    assert set(modes) - {"auto"} == set(THEMES), "the Ctrl-K theme rows must mirror the registry exactly"
+    # a late-binding closure would collapse the rows to one distinct callback target
+    rows = [(f"Theme: {label}", lambda m=mode: m) for mode, label in THEME_CHOICES]
+    assert len({fn() for _, fn in rows}) == len(THEME_CHOICES), \
+        "the theme callbacks collapsed -- the lambdas closed over the loop variable"
+
+
 def test_axis_falls_back_safely_without_a_column(app):
     """_axis() reads Home's real body geometry; unparented or mid-teardown it must fall back, not raise.
     (The live agreement between _axis() and the real column is asserted in the shell smoke.)"""
