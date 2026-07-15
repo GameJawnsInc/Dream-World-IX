@@ -275,6 +275,50 @@ def test_show_config_reads_playstyle_in_human_terms(game):
     assert "follow-host: ON" in text
 
 
+# ------------------------------------------------- host/join end-to-end (run -> _setup)
+#
+# `coop host` must force FollowHost = 0 in the written ini (a host must never follow its guest --
+# FollowHost fires regardless of role, so a stale selftest value would drag the host to the guest's
+# field). playstyle_updates() alone can't prove this: the force lives in _setup's role branch.
+
+def _cli_args(**kw):
+    import types
+    base = dict(game=None, code=None, port=49201)     # only the attrs run()/_setup() read directly
+    base.update(kw)
+    return types.SimpleNamespace(**base)
+
+
+def test_coop_host_forces_follow_host_off(game, monkeypatch):
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    rc = coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True),
+                  out=lambda *_: None)
+    assert rc == 0
+    text = (game / "Memoria.ini").read_text(encoding="utf-8")
+    assert coop.read_ini_key(text, "Netsync", "FollowHost") == "0"
+    assert coop.read_ini_key(text, "Netsync", "Role") == "host"
+    assert coop.read_ini_key(text, "Netsync", "Enabled") == "1"
+
+
+def test_coop_host_explicit_follow_host_overrides(game, monkeypatch):
+    # --follow-host on stays honored: the explicit style write lands AFTER the role-branch force
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    rc = coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True, follow_host="on"),
+                  out=lambda *_: None)
+    assert rc == 0
+    text = (game / "Memoria.ini").read_text(encoding="utf-8")
+    assert coop.read_ini_key(text, "Netsync", "FollowHost") == "1"
+
+
+def test_coop_join_does_not_force_follow_host(game):
+    rc = coop.run(_cli_args(action="join", game=str(game), code="ff9-ABCD1234",
+                            lan="192.168.1.50", no_room=True), out=lambda *_: None)
+    assert rc == 0
+    text = (game / "Memoria.ini").read_text(encoding="utf-8")
+    assert coop.read_ini_key(text, "Netsync", "FollowHost") is None     # join leaves it alone
+    assert coop.read_ini_key(text, "Netsync", "Role") == "client"
+    assert coop.read_ini_key(text, "Netsync", "PeerAddress") == "192.168.1.50"
+
+
 def test_show_config_off_and_missing(game, tmp_path):
     lines = []
     assert coop.show_config(game, out=lines.append) == 0        # fixture ini has Enabled = 0

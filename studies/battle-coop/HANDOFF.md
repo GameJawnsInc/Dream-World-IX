@@ -4,6 +4,11 @@
 > [`README.md`](README.md) (§ "THE AUTHORITATIVE-HOST ROADMAP") and
 > [`state-mirror-lane.md`](state-mirror-lane.md) (the build spec). The durable narrative lives in the
 > project memory `project-ff9-multiplayer-injector.md`.
+>
+> **★ 2026-07-15: the "NEXT STEP 1/2/3" section below is now superseded by [`PLAN.md`](PLAN.md)** — a
+> research-backed, ordered execution plan written after a source-verification pass that re-checked every
+> claim here against the current uncommitted engine code and found two real (now-documented, fixable) bugs
+> the original handoff didn't know about. Read `PLAN.md` before acting on anything below.
 
 ## TL;DR — where the pillar is
 
