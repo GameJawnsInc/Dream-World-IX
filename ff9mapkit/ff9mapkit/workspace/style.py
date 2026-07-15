@@ -314,9 +314,38 @@ _QSS = Template(
         background: $surface; border: 1px solid $border; border-radius: $radius_lg; padding: 4px;
         border-top-color: $border_shade; border-bottom-color: $border_lit;
     }
-    QTreeView::item, QListWidget::item { padding: $row_pad; border-radius: $radius_sm; }
+    /* The rail is RESERVED on every row, transparent until selected. Without this the border appears on
+       selection, the content box shrinks, and every row jogs 3px sideways as you arrow through the tree. */
+    QTreeView::item, QListWidget::item {
+        padding: $row_pad; border-radius: $radius_sm; border-left: 3px solid transparent;
+    }
     QTreeView::item:hover, QListWidget::item:hover { background: $hover; }
-    QTreeView::item:selected, QListWidget::item:selected { background: $accent; color: $accent_fg; }
+    /* THE SELECTION STOPS SHOUTING. This used to paint the FULL accent -- the identical fill as the
+       primary CTA, on a PERSISTENT selection, three feet from the gold signet. "One corner, once" is a
+       claim about scarcity, and the loudest colour in the app was being spent on "which row is under the
+       cursor". This is the one place SIGNET's own contract was written down and never applied, and the
+       fix enforces it by SUBTRACTION: after this the crumb-row Deploy is the only full-accent object in
+       the window.
+
+       selection_bg finally renders. It has existed as a derived token since Phase 1 with ZERO rules --
+       tinted exactly for this job and never once spent.
+
+       The rail carries the signal the fill gives up: selection_rail is the accent lifted to clear 3:1 ON
+       the tinted fill (nord 3.19, solarized-dark 3.13; the other six already clear). Fill says "this row
+       is special", rail says "and it is THE one". */
+    QTreeView::item:selected, QListWidget::item:selected {
+        background: $selection_bg; color: $text; border-left: 3px solid $selection_rail;
+    }
+    /* Pinned: without it the generic :hover above wins on a selected row and the tint disappears under
+       the cursor -- exactly the row you are looking at. */
+    QTreeView::item:selected:hover, QListWidget::item:selected:hover {
+        background: $selection_bg; color: $text; border-left: 3px solid $selection_rail;
+    }
+    /* THE EXCEPTION, and it is a real distinction rather than a carve-out: in a TRANSIENT MODAL the
+       selection IS the interface -- the Ctrl-K palette is one list and one highlighted row, and there is
+       no CTA on screen for it to compete with. In a tree the selection is persistent state you leave
+       sitting there for an hour. An id selector (0,1,0,1) outranks the type+pseudo rule above (0,0,1,1). */
+    QListWidget#paletteList::item:selected { background: $accent; color: $accent_fg; border-left: 3px solid $accent; }
     QHeaderView::section { background: $surface_btn; color: $muted; border: 0; padding: 5px; }
 
     QTabWidget::pane { border: 1px solid $border; border-radius: $radius_lg; top: -1px; }

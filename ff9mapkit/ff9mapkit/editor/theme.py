@@ -339,8 +339,8 @@ def pick_palette(mode: str = "auto") -> dict:
 # guaranteed to meet the WCAG 3:1 non-text floor, and an info status hue. All outputs are #rrggbb (no
 # rgba) so the hex/parity guarantees still hold; QSS composites solid fills over the surface anyway, so a
 # pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
-_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info",
-                 "success_text", "warn_text", "error_text",
+_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "selection_rail", "text_subtle", "focus",
+                 "info", "success_text", "warn_text", "error_text",
                  "border_lit", "border_shade", "accent_lit", "accent_shade")
 
 # INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
@@ -380,6 +380,33 @@ def _contrast(a: str, b: str) -> float:
     la, lb = _rel_lum(a), _rel_lum(b)
     hi, lo = max(la, lb), min(la, lb)
     return (hi + 0.05) / (lo + 0.05)
+
+
+def _selection_token(surface: str, accent: str, hover: str) -> str:
+    """The selected row's fill: the surface tinted with the accent until it cannot be confused with HOVER.
+
+    THE GROUND IS THE POINT. A selected row is not confused with the page -- it is confused with the row
+    under your cursor, so the thing to solve against is `hover`, not `surface`. Tinting against the
+    surface (a fixed 16%) left nord's selection 11/255 from its own hover, because nord's accent is
+    nearly the same HUE as its surface and a 16% mix of a thing into a near-copy of itself barely moves.
+
+    AND CONTRAST IS THE WRONG INSTRUMENT HERE, which is why this measures a raw channel distance instead.
+    By contrast ratio, hover BEATS the old selection in four palettes -- yet rendered at 4x, gruvbox's
+    selection wins decisively. Contrast is luminance-only and blind to the axis a tint actually uses:
+    hover is a pure lightness step (dHue <=2.5deg, dSat ~0), a selection is a hue/chroma event (dSat up
+    to +0.42). A ratio cannot see that; a channel distance can.
+
+    The 20 floor is CALIBRATED against those two renders, not chosen: gruvbox reads decisively and sits
+    at 26; nord reads marginally and sits at 11. Everything the metric calls fine, the eye called fine.
+    Three palettes already clear it and are returned untouched (dark 21, solarized-light 21, gruvbox 26).
+    """
+    t, sel = 0.16, _mix(surface, accent, 0.16)
+    while t < 0.60 and max(abs(a - b) for a, b in zip(
+            [int(sel[i:i + 2], 16) for i in (1, 3, 5)],
+            [int(hover[i:i + 2], 16) for i in (1, 3, 5)])) < 20:
+        t += 0.02
+        sel = _mix(surface, accent, t)
+    return sel
 
 
 def _focus_token(accent: str, surface: str) -> str:
@@ -434,7 +461,14 @@ def derive(pal: dict) -> dict:
     # box-shadow, so depth is tint-on-tint (Material-3 style); Phase 3 adds real shadows to floating layers.
     out["surface_2"] = _mix(pal["surface"], "#ffffff", 0.05 if dark else 0.55)
     out["surface_3"] = _mix(pal["surface"], "#ffffff", 0.10 if dark else 1.00)
-    out["selection_bg"] = _mix(pal["surface"], pal["accent"], 0.16)   # tinted, replaces full-accent select
+    # Tinted, and it finally RENDERS -- this token has existed since Phase 1 with zero rules. Solved
+    # against HOVER rather than the surface, because those are the two states that get confused.
+    out["selection_bg"] = _selection_token(pal["surface"], pal["accent"], pal["hover"])
+    # The selected row's RAIL. _focus_token pointed at the ground the rail actually sits on -- the tinted
+    # selection fill, not the plain surface -- because a 3:1 mark must clear the thing it is drawn ON.
+    # Zero new math: nord lands 3.19 and solarized-dark 3.13 (both under 3.0 as the raw accent), and the
+    # other six already clear and return the accent unchanged.
+    out["selection_rail"] = _focus_token(pal["accent"], out["selection_bg"])
     out["text_subtle"] = _mix(pal["muted"], pal["bg"], 0.28)          # a third, dimmer text tier
     out["focus"] = _focus_token(pal["accent"], pal["surface"])        # meets WCAG 3:1 on the surface
     out["info"] = pal["accent"]                                       # info status hue (aliases accent for now)

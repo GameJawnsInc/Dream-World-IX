@@ -358,3 +358,53 @@ def test_a_restated_border_shorthand_never_flattens_a_lit_object():
                 f"{sel} restates `border:` (which resets per-side colour) without restating any edge "
                 f"-- it renders flat"
             )
+
+
+def test_the_selection_rail_clears_the_fill_it_sits_on():
+    """A 3:1 mark must clear the thing it is drawn ON -- and the rail sits on the TINTED fill, not the
+    plain surface.
+
+    `selection_rail` is `_focus_token` pointed at `selection_bg` rather than `surface`. Zero new math;
+    the ground is the fix. Measured: as the raw accent the rail would be 2.13 in nord and 2.87 in
+    solarized-dark -- both under the 3.0 non-text floor. Lifted, they land 3.19 and 3.13, and the other
+    six clear already and return the accent unchanged.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        got = _contrast(d["selection_rail"], d["selection_bg"])
+        assert got >= 3.0, f"{mode}: the selected row's rail is {got:.2f} on its own fill -- invisible"
+
+
+def test_selected_text_is_legible_on_the_tinted_fill():
+    """The row's LABEL now sits on `selection_bg` instead of the accent, so it is $text -- and $text must
+    clear AA on a ground that only started rendering with this change.
+
+    `selection_bg` shipped as a derived token with ZERO rules since Phase 1. This is the first time any
+    pixel has been painted with it, which means it is a NEW GROUND -- exactly the class of thing this
+    study keeps discovering after the fact (the hero's bloom, surface_btn, log_bg). Fence it on arrival.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        got = _contrast(d["text"], d["selection_bg"])
+        assert got >= 4.5, f"{mode}: a selected row's label is {got:.2f} on the tinted fill"
+
+
+def test_the_selection_cannot_be_confused_with_hover():
+    """A selected row is never confused with the PAGE. It is confused with the row under your cursor.
+
+    So `selection_bg` solves against `hover`, not `surface` -- and it measures a raw channel distance,
+    not a contrast ratio, because a ratio is the wrong instrument for this and the render proved it:
+    by contrast, hover BEATS the old fixed-16% selection in four palettes, yet rendered at 4x gruvbox's
+    selection wins decisively. Contrast is luminance-only; hover is a pure lightness step (dHue <=2.5deg,
+    dSat ~0) while a selection is a hue/chroma event (dSat up to +0.42). The ratio cannot see the axis
+    doing the work.
+
+    The floor is CALIBRATED to those renders: gruvbox reads decisively at 26, nord read marginally at 11.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        got = max(abs(a - b) for a, b in zip(_chan(d["selection_bg"]), _chan(d["hover"])))
+        assert got >= 20, (
+            f"{mode}: the selected row is only {got}/255 from its own HOVER -- the cursor and the "
+            f"selection look the same. Contrast will not catch this; it is blind to chroma."
+        )
