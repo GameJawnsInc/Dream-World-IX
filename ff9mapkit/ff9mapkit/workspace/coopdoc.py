@@ -66,8 +66,11 @@ class CoopDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(18, 14, 18, 18)
-        v.setSpacing(widgets.SECTION_GAP)   # the box borders are gone -- this gap IS the grouping now
+        widgets.page_margins(v)             # the page rung (was an asymmetric hand-typed 18/14/18/18)
+        # The gap between cards. The old comment here said "the box borders are gone -- this gap IS the
+        # grouping now", which the card reversal made false: the cards kept their borders, so the gap
+        # separates bounded objects rather than carrying the grouping alone. The value is unchanged.
+        v.setSpacing(widgets.SECTION_GAP)
 
         intro = widgets.prose("Two-player co-op: you and a friend each see the other's ghost walk a "
                               "shared field, and — if you grant it in Play style below — they command "
@@ -212,17 +215,21 @@ class CoopDoc(QWidget):
 
         btns = QHBoxLayout()
         self.btn_start = _pad(QPushButton("Start co-op"))
-        self.btn_start.setDefault(True)
+        # This tab's verb, and the only accent on the page. setDefault(True) used to sit here and was
+        # DOUBLY inert: CoopDoc is a QWidget, not a QDialog (so nothing arms a default button), and the
+        # stylesheet carries no `QPushButton:default` rule to paint one. It rendered exactly zero pixels.
+        self.btn_start.setObjectName("accent")
         self.btn_start.clicked.connect(self.start_coop)
         self.btn_stop = _pad(QPushButton("Stop bridge"))
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_bridge)
         self.btn_off = _pad(QPushButton("Disable co-op"))
+        self.btn_off.setProperty("role", "quiet")      # the ladder's bottom rung -- see style.py
         self.btn_off.clicked.connect(self.disable_coop)
         btns.addWidget(self.btn_start)
         btns.addWidget(self.btn_stop)
+        btns.addStretch(1)                             # Disable sits across the gap from the two verbs
         btns.addWidget(self.btn_off)
-        btns.addStretch(1)
         v.addLayout(btns)
 
         self.lbl_bridge = QLabel("bridge: not running")

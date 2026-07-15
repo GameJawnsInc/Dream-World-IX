@@ -31,6 +31,8 @@ which is the property that makes it safe. See [[project-ff9-main-repo-branch-tra
 | `2e7a939` | Co-op Status → a definition list; diagnostics shout |
 | `764ca74` `5ed0a21` `11fae9e` `5e61ebd` | **SIGNET** — the Mist palette, the stretch fix, the hero, the Ctrl-K theme command |
 | `f1c3867` `b758182` `721fb81` `0dcb2c4` `49c3df4` | **The contrast sweep** — the transparent-container bug, the audit tool, accent-as-text, the accent floor, the status hues, `help`/`muted` |
+| `53d2ed9` | **Phase 2a** — the quiet button tier; the action row gets an entry point; coop's Start becomes the accent |
+| `cbc0eb0` `7bb91d8` | **Phase 5** — nine radii → three tokens + three geometric pins; one card language; the dead QGroupBox block; the grid gets an int rung and the form docs stop each inventing a page frame |
 
 ## Seven live defects found — none visible to a test that reads source
 
@@ -64,14 +66,21 @@ dark/nord/solarized. Specifically judge:
   been seen.
 - **solarized-dark's body text was lifted twice** off base1 (+30%). It is the palette with no headroom;
   if it now reads washed, the honest fix is to drop the `surface_3` fence for it, not to re-invert the tiers.
+- **The 24px page frame** (Phase 5) is the one deliberately VISIBLE thing in an otherwise silent phase.
+  It is a ratio, not a taste: `section()` insets content by 16, so a 16px page frame put each card's
+  border exactly halfway between the page edge and its own content — cards stop reading as *on* a page.
+  If it now reads loose, `widgets.PAGE_PAD` is one number in one place.
+- **Co-op's Start is now the accent** and Package/Disable are unfilled. Verified by probe rather than by
+  eye (Start inks `accent_fg` `#181b20`, Disable inks full `$text`, Stop greys to `$muted` when disabled)
+  — but *seen* only in an offscreen grab.
 
 ### 2. Merge to master.
 Disjoint from master's overworld work; merge is clean.
 
-### 3. Both plans are SPENT — the phase accounting
+### 3. Both plans are now SPENT — the phase accounting
 
 The question *"do we still have a many-phased plan for beauty?"* has a precise answer: **no, and mostly by
-design.** Eleven planned phases across two rounds; here is every one of them.
+design.** Eleven planned phases across two rounds; here is every one of them. **All eleven are now closed.**
 
 **PLAN.md — round 2, WORKSHOP, 7 phases:**
 
@@ -79,29 +88,36 @@ design.** Eleven planned phases across two rounds; here is every one of them.
 |---|---|---|
 | P0 | contrast hole + the selector bug | ✅ shipped `86de3f5` |
 | P1 | name the options, demote the paragraph | ✅ shipped `c1073dc` |
-| P2 | button ladder **+** mono register | ◐ **split** — mono shipped `c1073dc`; **the ladder (2a) is unshipped** |
+| P2 | button ladder **+** mono register | ✅ mono `c1073dc`; **the ladder `53d2ed9`** |
 | P3 | ~~kill all 27 QGroupBoxes~~ | ✅ mechanism shipped `881e468` `0ecfa75` — **premise overruled by the user** |
 | P4 | widen the dark span | ⛔ **DEAD** — verified: it reverts P0's contrast floors on all 5 dark palettes |
-| P5 | radius / spacing / role hygiene | ✗ unshipped — *PLAN.md's own words: "land it silently; never bill it as beauty"* |
+| P5 | radius / spacing / role hygiene | ✅ `cbc0eb0` (radius + roles) `7bb91d8` (the grid) |
 | P6 | the Home page | ⇢ **superseded** — SIGNET's hero did this surface instead |
 
 **IDENTITY.md — round 3, SIGNET, 4 phases: ✅ 4 / 4 shipped.** palette `5ed0a21` · stretch fix `5ed0a21` ·
 hero `11fae9e` · record `764ca74` (+ `5e61ebd`, the Ctrl-K opt-in).
 
-**So: we are on small stuff because small stuff is all that is left — that is not drift.** Of the 7 WORKSHOP
-phases, 3 shipped, 1 is dead, 1 is superseded, and the **2 remaining are explicitly labelled hygiene by the
-plan that proposed them.** The round that was framed as the beauty plan produced a hygiene plan; the round
-framed to commit produced SIGNET, and SIGNET is complete. See the last section for *why* that happened —
-it is structural, not accidental.
+**So: the small stuff was all that was left — that was not drift.** Of the 7 WORKSHOP phases, 5 shipped,
+1 is dead, 1 is superseded. The round framed as the beauty plan produced a hygiene plan; the round framed
+to commit produced SIGNET. See the last section for *why* — it is structural, not accidental.
 
-Still unshipped and cheap, all hygiene:
-- **Phase 2a — the button ladder**: a `role="quiet"` tier so the action row has one entry point. Spec is
-  exact, incl. the `:disabled`/`:pressed` trap.
-- **Phase 5 — hygiene**: 9 radii → 3, spend `space_*`.
-- **`widgets.section()` interiors are still hard-coded** (16/12/16/16, `SECTION_GAP = 14`) and not tokenized.
-  The dead-`space_*` finding is now *stronger*, not weaker.
-- **The `QGroupBox` QSS block (`style.py`) + `$gb_margin_top`/`$gb_pad_top` are dead code** — QGroupBox is
-  constructed nowhere. Sweep.
+**What Phase 5 found by trying to SPEND the grid rather than read it** (the pattern holds: a fence, or a
+constant, that covers most of the app just moves the bug to the rest):
+- **`SECTION_GAP` existed, was documented, and had exactly ONE consumer.** Build and Import each hardcoded
+  `12` next to a comment calling it "4pt-grid rhythm". Co-op's page frame was an asymmetric `18/14/18/18`
+  that nothing explained.
+- **Nine radii** (3/4/5/6/7/8/9/10/11). `#search` and `#railSeg` wore a `7px` rung that existed nowhere
+  else — a value nobody could have chosen deliberately.
+- **A comment the card reversal falsified**: Co-op's gap was annotated *"the box borders are gone — this
+  gap IS the grouping now"*. The borders came back.
+- **`string.Template` has no concept of a CSS comment.** Naming a dead token as `$name` inside `/* */`
+  still substitutes (KeyError); a bare `$` is an Invalid-placeholder ValueError that takes down every
+  palette at import. Both broke the build *while the comment warning about them was being written.*
+
+**One spec claim was wrong and was not followed:** PLAN.md prescribed the 24px page frame for **all six**
+docs. Models and Battle are **splitter browsers** — their panes *are* the page, edge-to-edge is the
+convention, and an outer margin only eats pane width. Only the three **form docs** (one scrolling column
+of cards: Build & Deploy / Import / Co-op) take the page rung. The fence says so.
 
 ### 3b. If you want MORE beauty, it is a contract renegotiation — not a phase
 
@@ -124,7 +140,21 @@ themes, applied to **one** element per screen and nothing else. That is the high
 *aesthetic* move in either plan, and it is gated on a playtest verdict, not on more research.
 
 ### 4. Known, deliberate, not bugs
+- **The quiet tier is SUBTLE in the two light palettes.** A quiet button is `transparent` (so it shows
+  `$bg`); a default button is `$surface_btn`. That delta measures **1.215–1.382 in the six dark palettes**
+  but only **1.105 in light and 1.066 in solarized-light**. The *mechanism* is right everywhere (fill vs
+  no fill) and the magnitude is bounded by light's compressed surface ramp — the same wall PLAN.md's
+  Rejected table already hit ("LIGHT's `surface_3` is `#ffffff` and its rungs step 1.046/1.043. Dies
+  there."). Not fenced on a ratio, because a ratio fence would fail light and the honest fix isn't a
+  number. Worth a look in light before deciding it needs anything.
 - **`PROSE_W = 620`** is wide (~109 chars vs the 45–75 band). User: *"fine with 620 for the moment."*
+- **`SECTION_GAP = 14` is deliberately OFF-GRID** — the one number in `widgets.py` that is. Its grid
+  neighbours are 12 (too close to the 8px in-card row gap to read as a different *kind* of gap) and 16
+  (ties the card's own interior padding). The grid does not have to own every number; it has to stop
+  numbers being anonymous.
+- **`page_margins()` is comfortable-only.** The docs are constructed without knowing the density, so
+  layout density fan-out is a separate job (it needs `_apply_density` **and** `_finish`'s Cancel path, or
+  QSS reverts while layouts stay at the previewed density). `style.space()` already takes a density.
 - **The audit's chip false positive** — `audit_contrast.py` reports the breadcrumb chip as
   `#ffffff on #f4f5f7 = 1.09 INVISIBLE` in light/solarized-light. **It is fine** (filled `#2f6feb`, 847px,
   27px of white text; spot-checked). It is shown dynamically, so its geometry is stale at grab time. This is
@@ -132,12 +162,21 @@ themes, applied to **one** element per screen and nothing else. That is the high
 
 ---
 
-## The instrument
+## The instruments
 
 `evidence/audit_contrast.py` — every text-bearing control, every tab, every palette. **78 → 8 distinct
 findings** over this arc. Read its header before believing any output: it documents two methods that
 failed (ink-counting measures antialiasing fringes; blank-and-diff reflows the layout) and the one that
 works (ink from `QPalette`, background from pixels).
+
+`evidence/shot_ladder.py` — the action row + page frame, rendered on the **native** platform, with the
+quiet rules stripped in the A/B so it varies exactly one thing. It is honest about what it *cannot*
+isolate: the button order and the page frame are Python, so both shots share the new layout.
+
+**The eye failed here and the pixels did not — again.** The flat/ranked shots looked *identical* to me at
+a glance; sampling the Package button's interior showed `#2b3038` (the default fill) vs `#1e2127` (the
+page). A 1.215 delta is real and legible in situ, and invisible in a downscaled review. Sample the
+button, don't squint at the screenshot.
 
 **The rule this arc kept re-learning, six times:** *measure the pixels — and know which pixels your harness
 is lying about.* Colour is font-independent and trustworthy. Width, geometry, and anything from a
