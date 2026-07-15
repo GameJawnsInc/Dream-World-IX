@@ -1226,6 +1226,16 @@ class Workspace(QMainWindow):
         self._start_lay.setContentsMargins(0, 2, 0, 4)
         self._start_lay.setSpacing(8)
         v.addWidget(self._start_box)
+        # 'Try it now' reassurance -- closes the first-10-minutes arc (fork → deploy → play) for a nervous
+        # newcomer: trying a fork in-game is a safe, reversible sandbox.
+        self._start_footer = QLabel("Once you've forked a field, press <b>F9</b> to try it in your game — it "
+                                    "deploys to a safe test slot and backs up first, so you can explore "
+                                    "without risk.")
+        self._start_footer.setWordWrap(True)
+        self._start_footer.setTextFormat(Qt.TextFormat.RichText)
+        self._start_footer.setProperty("role", "caption")
+        self._start_footer.setContentsMargins(0, 2, 0, 0)
+        v.addWidget(self._start_footer)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
         self._recent_head = self._home_section("Recent")
         v.addWidget(self._recent_head)
@@ -1381,7 +1391,7 @@ class Workspace(QMainWindow):
         steps = self._getstarted_steps()
         setup_incomplete = any(s[2] is False for s in steps[:2])     # only the two gating steps count
         show = setup_incomplete or self._current_target()[0] is None  # newcomer / empty -> guide; else hide
-        for w in (self._start_head, self._start_note, self._start_box):
+        for w in (self._start_head, self._start_note, self._start_box, self._start_footer):
             w.setVisible(show)
         if show and hasattr(self, "_home_setup"):
             self._home_setup.setVisible(False)                        # the checklist covers the setup warning
