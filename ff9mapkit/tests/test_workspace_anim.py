@@ -80,3 +80,26 @@ def test_enabled_fade_in_returns_an_animation(app):
     assert a is not None and a.duration() <= 200
     a.stop()
     anim.set_enabled(False)
+
+
+def test_palette_pop_in_respects_the_motion_switch(app):
+    """The Ctrl-K palette fades+rises in when motion is on, and opens at full opacity (never stranded at 0)
+    when it's off -- the safety property that keeps the offscreen/smoke paths correct."""
+    from PySide6.QtWidgets import QWidget                                     # noqa: PLC0415
+    from ff9mapkit.editor.theme import pick_palette                          # noqa: PLC0415
+    from ff9mapkit.workspace.palette import CommandPalette                   # noqa: PLC0415
+    parent = QWidget()
+    entries = [("Open Campaign", "command", lambda: None)]
+    anim.set_enabled(False)
+    p = CommandPalette(parent, entries, pick_palette("dark"))
+    p.show()
+    app.processEvents()
+    assert p.windowOpacity() == 1.0, "motion off -> opens fully opaque"
+    p.close()
+    anim.set_enabled(True)
+    p2 = CommandPalette(parent, entries, pick_palette("dark"))
+    p2.show()
+    app.processEvents()
+    assert p2.windowOpacity() < 1.0, "motion on -> the fade-in has begun"
+    anim.set_enabled(False)
+    p2.close()

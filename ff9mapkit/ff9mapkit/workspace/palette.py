@@ -13,6 +13,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QDialog, QFrame, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
 
 from ..editor.theme import derive
+from . import anim
 from .widgets import attach_shadow
 
 
@@ -103,6 +104,10 @@ class CommandPalette(QDialog):
         self._muted = palette["muted"]
         self._fill()
         self.q.setFocus()
+
+    def showEvent(self, event):                        # noqa: N802 (Qt override)
+        super().showEvent(event)
+        anim.pop_in(self)                              # a subtle fade + rise into place (no-op if motion is off)
 
     def _fill(self):
         self.lst.clear()
