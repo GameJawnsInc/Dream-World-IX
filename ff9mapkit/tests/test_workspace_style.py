@@ -96,6 +96,36 @@ def test_qss_compact_is_tighter_than_comfortable():
     assert "padding: 3px 4px" in tight                                       # compact's tighter row padding
 
 
+def test_checked_indicators_carry_a_tick_and_a_dot():
+    """A checked checkbox must show a TICK and a checked radio a DOT -- in every palette.
+
+    What shipped was `background: $accent` and nothing else, so a checked checkbox was a solid accent
+    square and a checked radio a solid accent circle: identical except for the corner radius. That throws
+    away the only signal that separates "pick several" from "pick exactly one", and a filled swatch reads
+    as a colour chip rather than as "checked".
+
+    Checked here rather than by render because the pixel probe is genuinely treacherous: in DRACULA and
+    GRUVBOX_DARK `accent_fg` is EQUAL to `bg` (their accents are light, so the ink on them is dark), and a
+    naive ink count over the widget then counts the page background as tick pixels and "passes" even when
+    nothing drew. (The render was done once, by eye, at 9x -- see studies/gui-aesthetics.)
+    """
+    from pathlib import Path
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(pal)
+        assert "QCheckBox::indicator:checked" in css, mode
+        # the tick is an SVG on disk: QSS cannot draw a checkmark (no transform, no ::before content)
+        tick = [ln for ln in css.splitlines() if "QCheckBox::indicator:checked {" in ln]
+        assert tick and "image: url(" in tick[0], f"{mode}: checked checkbox has no tick image"
+        svg = tick[0].split("image: url(")[1].split(")")[0]
+        assert Path(svg).is_file(), f"{mode}: tick asset missing on disk: {svg}"
+        body = Path(svg).read_text(encoding="utf-8")
+        assert d["accent_fg"] in body, f"{mode}: tick is not tinted accent_fg (illegible on the accent fill)"
+        # the radio's dot is pure QSS -- a radial gradient, no asset
+        dot = [ln for ln in css.splitlines() if "qradialgradient" in ln]
+        assert dot, f"{mode}: checked radio has no dot gradient"
+
+
 def test_qss_has_no_malformed_subcontrol_selectors():
     """A pseudo-CLASS before a pseudo-ELEMENT (`QCheckBox:focus::indicator`) is silently catastrophic.
 
