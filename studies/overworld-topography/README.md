@@ -695,8 +695,22 @@ recovered harmlessly, counted honestly. **★ IN-GAME PROVEN 2026-07-15, round 1
 "the desert island looks verbatim, keep both"** — both islands stay deployed; the
 beach-on-our-islands prize is CLOSED by the carry (first-deploy pass, zero fix
 rounds — against the ladder mint's 4). Open follow-ons (earmarks, not scheduled):
-multi-block `--ground` (e.g. the (10,17)+2×2 island-B donor as desert), non-beach
-donors to the other island-class families (snow/canyon need no sand family).
+non-beach donors to the other island-class families (snow/canyon need no sand
+family). **→ MULTI-BLOCK `--ground` ★ BUILT + DEPLOYED same day** (user-called):
+`for_donor` grew `size=` — the prescan mirrors the REGION gather exactly (rect
+cells whole + outer-border strips at the region clip planes) and `--ground`
+composes with `--size`. The (10,17)+2×2 island-B donor census: a 1×2-data
+CLIFF-COAST island (topo 58+0 only — NO sand/beach1/object of its own; the
+continent-v1 island B's beach was the MINT's, not stock), so the retile is
+mains+wall — the W coverage strip contributes the (9,17) beach's border
+fragments (2 sand + 4 foam, cap-tier anchors only), retiled desert exactly as
+verbatim would carry them grass. First dry-run CLEAN through every region gate
+(prefab-parts, border-census incl.). DEPLOYED desert at target rect (22,18)+2×2 —
+data cells (22,18)+(22,19), the empty east column stays true prefab ocean — just
+east of the horseshoe massif bench (an offshore desert isle); island ≈
+(1442,−1214); disc-4 mirrored; playtest pending. (The near-bench rect (8,18)
+refused correctly: (9,18) is a REAL stock block — the target gate checks the
+whole rect.)
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

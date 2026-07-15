@@ -1875,3 +1875,21 @@ def test_ground_retile_for_donor_717_desert_census():
     assert s["clean"] is True, s["gates"]
     rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
     assert rg["unclassified"] == 0 and rg["recovered"] == 16
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_for_donor_region_10_17_desert():
+    """Multi-block --ground: the (10,17)+2x2 island-B donor (a cliff-coast island, no sand
+    of its own). The factory prescan mirrors the REGION gather -- the W coverage strip
+    contributes the (9,17) beach's border fragments (2 sand + 4 foam, cap-tier anchors
+    only), zero recover cells -- and the full region dry-run passes every gate."""
+    gt = TR.GroundRetile.for_donor((10, 17), "desert", size=(2, 2))
+    assert gt.src == "grass" and gt.dst == "desert"
+    assert gt.expected == {"mains": 30, "wall": 45, "sand": 2, "foam": 4, "recovered": 0}
+    assert gt.recover_budget == 0 and not gt.recover_cells
+    assert len(gt.sand_anchors) == 2                       # the strip window has cap pins only
+    s = TR.transplant_region("UNUSED", cell=(22, 18), donor=(10, 17), size=(2, 2),
+                             tweaks=[gt], dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
+    assert rg["ok"] and rg["unclassified"] == 0

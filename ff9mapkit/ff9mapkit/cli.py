@@ -2537,13 +2537,12 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         # THE GROUND-FAMILY RETILE (the translation law over the whole carried block):
         # built from the donor's own bytes, every class byte-measured, strict gate
         if getattr(args, "ground", None):
-            if (snx, sny) != (1, 1):
-                raise ConfigError("--ground retile is single-cell v1 -- drop --size")
             if args.in_place:
                 raise ConfigError("--ground rides the transplant path, not --in-place "
                                   "(retiling a REAL cell in place is unstudied)")
             gt = TR.GroundRetile.for_donor((dx, dy), args.ground.strip().lower(),
-                                           extra=args.extra, disc=args.disc, game=args.game)
+                                           size=(snx, sny), extra=args.extra,
+                                           disc=args.disc, game=args.game)
             print(f"ground retile {gt.src} -> {gt.dst}: sand anchors "
                   f"{[f'{s:.4f}->{d:.4f}' for (s, d) in gt.sand_anchors] or 'none'}; "
                   f"recover cells {sorted(gt.recover_cells) or 'none'} "
@@ -5619,7 +5618,8 @@ def build_parser() -> argparse.ArgumentParser:
                           "byte-verbatim. A donor texture class with no measured translation "
                           "REFUSES offline (path strips re-uv as target mains under a prescan "
                           "budget). Beach donors need a target with a measured sand family "
-                          "(currently: desert). Single-cell v1 (drop --size).")
+                          "(currently: desert). Composes with --size (the prescan mirrors the "
+                          "region gather).")
     wtp.add_argument("--strips-rebuild", action="store_true",
                      help="the STRIP-BAND identity rebuild (the sea5-emission proof): drop every "
                           "DECODABLE sea1 + sea5 Wang strip cell of the donor and re-derive its tiles "

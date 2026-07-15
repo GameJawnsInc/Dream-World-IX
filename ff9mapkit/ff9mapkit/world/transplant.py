@@ -402,24 +402,31 @@ class GroundRetile:
                 "unclassified": det if det else 0, "ok": ok}
 
     @classmethod
-    def for_donor(cls, donor, dst, *, src=None, extra: float = 8.0,
+    def for_donor(cls, donor, dst, *, size=(1, 1), src=None, extra: float = 8.0,
                   disc: int = 1, lod: str = "0_1", game=None):
         """Build the retile from the donor's own bytes: auto-detect the source family
         (the sand topo is PURE per block -- the census law), byte-read the donor's sand
-        pins as the v-remap anchors, prescan the exact content :func:`transplant` will
-        gather (donor + every neighbour's ``extra`` edge band, same clip planes) to
-        pre-assign the recover cells and freeze the per-class EXPECTED counts."""
+        pins as the v-remap anchors, prescan the exact content :func:`transplant` /
+        :func:`transplant_region` will gather (every donor rect cell whole + the
+        REGION's outer-border ``extra`` edge bands, same clip planes) to pre-assign
+        the recover cells and freeze the per-class EXPECTED counts."""
         from . import coastmorph as CM
         from . import grassland as G
         (dbx, dby) = donor
+        (nx, ny) = (int(size[0]), int(size[1]))
         polys = {"terrain": [], "beach1": []}
         for p in polys:
-            polys[p] += [list(t) for t in world_tris(dbx, dby, p, disc=disc, lod=lod, game=game)]
-        strip_specs = {"E": ((dbx + 1, dby), 0, 64.0 * (dbx + 1) + extra, True),
-                       "W": ((dbx - 1, dby), 0, 64.0 * dbx - extra, False),
-                       "N": ((dbx, dby - 1), 2, -64.0 * dby + extra, True),
-                       "S": ((dbx, dby + 1), 2, -64.0 * (dby + 1) - extra, False)}
-        for ((nx2, ny2), axis, plane, below) in strip_specs.values():
+            for j in range(ny):
+                for i in range(nx):
+                    polys[p] += [list(t) for t in world_tris(dbx + i, dby + j, p,
+                                                             disc=disc, lod=lod, game=game)]
+        strip_specs = [spec for specs in (
+            [((dbx + nx, dby + j), 0, 64.0 * (dbx + nx) + extra, True) for j in range(ny)],
+            [((dbx - 1, dby + j), 0, 64.0 * dbx - extra, False) for j in range(ny)],
+            [((dbx + i, dby - 1), 2, -64.0 * dby + extra, True) for i in range(nx)],
+            [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)],
+        ) for spec in specs]
+        for ((nx2, ny2), axis, plane, below) in strip_specs:
             if not (0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y):
                 continue
             for p in polys:
