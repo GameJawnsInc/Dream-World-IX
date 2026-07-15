@@ -274,12 +274,17 @@ class ImportDoc(QWidget):
         if self._effective_verbatim():
             txt = "Will fork: VERBATIM" + (" — forced by ‘Walk as’ (editable-scene / carry options ignored)"
                                            if forced else " (real script + dialogue, not editable content)")
-            col = self.pal["warn"] if forced else self.pal["accent"]
         else:
             txt = "Will fork: RE-AUTHORABLE (editable [[npc]]/content)"
-            col = self.pal["accent"]
         self.mode_chip.setText(txt)
-        self.mode_chip.setStyleSheet(f"color:{col};font-weight:600;")
+        # WAS an inline `color:{accent}` -- two bugs in one line. (a) accent-as-text measures 2.44:1 on
+        # nord and 3.06 on solarized-dark: sub-AA in 6 of 8 palettes, and this is a whole sentence of
+        # prose, which is exactly what accent must never be. (b) an inline hex baked from self.pal at
+        # build time goes STALE on a live theme switch (the same bug the Home status had).
+        # Now: muted by default; `warn` ONLY when the mode was FORCED, because that is the one branch
+        # that is a real diagnostic -- the user asked for one thing and is getting another.
+        self.mode_chip.setProperty("role", "muted")
+        widgets.set_state(self.mode_chip, "warn" if forced else "")
 
     # ------------------------------------------------------------------ fork-a-region (import-chain)
     def _region_box(self):

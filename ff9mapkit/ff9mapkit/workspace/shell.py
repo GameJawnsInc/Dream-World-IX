@@ -1112,7 +1112,9 @@ class Workspace(QMainWindow):
         sh.setContentsMargins(12, 5, 8, 5)
         sh.setSpacing(8)
         _sglyph = QLabel("→")
-        _sglyph.setProperty("role", "accent")
+        # muted, not accent: a pointer glyph is not a verb you press, and accent-as-text measures 2.44:1
+        # on nord / 3.06 solarized-dark (sub-AA). It now matches the guidance text it introduces.
+        _sglyph.setProperty("role", "muted")
         sh.addWidget(_sglyph)
         self._spine_text = QLabel("")
         self._spine_text.setProperty("role", "muted")
@@ -1655,7 +1657,11 @@ class Workspace(QMainWindow):
         h.setContentsMargins(16, 10, 14, 10)
         h.setSpacing(12)
         g = QLabel("✓" if done else str(num))
-        g.setProperty("role", "ok" if done else "accent")     # themed via QSS (no stale colour on retheme)
+        # The pending step's NUMBER was role="accent" -- 2.71:1 on solarized-light, 2.84 nord, below even
+        # the 3.0 large-text floor. It is a structural marker, not an action: the step's own accent BUTTON
+        # already says "do this". $text at 600 clears 4.94:1 everywhere. The done state keeps its green
+        # tick (shape + colour, per the status-by-icon-shape law).
+        g.setProperty("role", "ok" if done else "strong")     # themed via QSS (no stale colour on retheme)
         g.setStyleSheet("font-size:15px;font-weight:600;")    # size/weight cascade on top of the role colour
         g.setFixedWidth(22)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
@@ -2004,7 +2010,10 @@ class Workspace(QMainWindow):
             pf = self._fork_cmds.get(f)
             tag = QLabel(("✓ " if forked else "○ ") + f + (f"  (real field {pf.seed})" if pf else ""))
             if forked:
-                tag.setProperty("role", "accent")     # forked = accent; unforked leaves the default $text
+                # was role="accent" (2.44:1 on nord). The done-ness is already carried by the GLYPH
+                # (checkmark vs circle) -- the app's own status-by-icon-shape law -- so this only needs
+                # WEIGHT, not a hue. $text at 600 clears 4.94:1 in every palette.
+                tag.setProperty("role", "strong")
             self._fork_rows[f] = tag
             row.addWidget(tag)
             row.addStretch(1)
@@ -2040,7 +2049,7 @@ class Workspace(QMainWindow):
         tag = getattr(self, "_fork_rows", {}).get(key)
         if tag is not None:
             tag.setText(f"⟳ {key}  (forking…)")
-            tag.setProperty("role", "accent")
+            tag.setProperty("role", "strong")         # in-progress reads from the glyph, not a sub-AA hue
             repolish(tag)                             # long-lived widget -> re-evaluate the role at runtime
         allb = getattr(self, "_fork_all_btn", None)
         if allb is not None:

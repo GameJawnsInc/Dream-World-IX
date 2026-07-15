@@ -137,6 +137,37 @@ def test_status_is_painted_so_it_retints(app):
     host.deleteLater()
 
 
+def test_accent_is_never_spent_as_body_text():
+    """`role="accent"` must not label any text in the workspace.
+
+    Measured across all 8 palettes, accent on the card fill (surface_2) runs 2.44 (nord) .. 7.09 (mist) --
+    SUB-AA IN 6 OF 8. It was being spent on Home's step numbers, the spine's pointer glyph, the fork-row
+    tags and Import's "Will fork:" sentence. `text` (4.94 worst) and `muted` (4.55 worst) are the only
+    inks that survive as text on a card in every palette.
+
+    The law this pins: accent is a FILL for the verb you press, never a foreground for prose. It stays
+    legitimate on `QPushButton#accent` (a fill, where accent_fg rides on top) -- so this checks the ROLE
+    property, not the objectName.
+    """
+    import pathlib
+    import re
+
+    # A REGEX, not a substring. The real site was a TERNARY --
+    #     g.setProperty("role", "ok" if done else "accent")
+    # -- which contains no literal `setProperty("role", "accent")` at all. A substring guard passed with
+    # the bug re-injected; verified, which is the only reason this is a regex.
+    pat = re.compile(r"""setProperty\(\s*["']role["']\s*,[^)]*["']accent["']""")
+    gui = pathlib.Path(__file__).resolve().parents[1] / "ff9mapkit" / "workspace"
+    offenders = []
+    for f in sorted(gui.glob("*.py")):
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if pat.search(line):
+                offenders.append(f"{f.name}:{i}")
+    assert not offenders, (
+        "accent spent as TEXT (sub-AA on a card in 6 of 8 palettes) at: " + ", ".join(offenders)
+        + " -- use role='strong' ($text) or 'muted'; accent belongs on a FILL, not a foreground")
+
+
 def test_every_theme_is_reachable_from_the_command_palette():
     """Ctrl-K must offer one row per registered theme -- and each row must apply ITS OWN theme.
 
