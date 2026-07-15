@@ -214,6 +214,38 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > mode restores them). Easy to flip the default if you'd prefer Full. Next: **Phase 8 (iconography)** — the
 > SVG icon set (Q5), replacing the unicode/emoji glyphs across rail / tree / breadcrumb.
 
+> **★ Phase 8 (Iconography) COMPLETE** (2026-07-14, 4 commits) — one monochrome SVG glyph family across the
+> whole chrome, replacing the unicode/emoji glyphs (Q5).
+> - **The icon family** (`6242b9e`) — a self-authored `workspace/icons.py`: 21 drawings in the Lucide idiom
+>   (24×24 viewBox, 2px round strokes), rendered→tinted→cached via QtSvg (the `currentColor` token is
+>   substituted with the theme hex before `QSvgRenderer`). Self-authored (not vendored) buys **zero
+>   license/attribution burden** and **guaranteed-correct geometry** (no transcribed path data to drift),
+>   while meeting every Q5 criterion — a *real* vector set that tints uniformly, stays DPI-crisp, and survives
+>   high-contrast — that the ASCII/unicode/emoji glyphs can't. Ships a `with_corner_dot()` compositor. Inert
+>   this commit (the substrate, like Phase 1); +7 tests.
+> - **Toolbar / breadcrumb / Home** (`7d18b44`) — the search (⌕), settings (⚙), and Deploy (▶→rocket) buttons;
+>   the breadcrumb's per-level **type icons** + a muted **chevron** separator (was `bc.GLYPH` unicode); and the
+>   seven Home entry rows. A `_set_btn_icon`/`_set_lbl_icon` registry re-tints every persistent icon on a live
+>   theme switch; the Deploy rocket follows `accent_fg` (muted when disabled).
+> - **Tree type-icons + kill emoji** (`a47e4aa`) — every tree row's glyph (`⌂◆▣●•◈` + the **🐤 chocobo emoji**)
+>   becomes an SVG type icon: `_mk` sets it from the kind, spine kinds render in accent, a **field takes its
+>   `_health` tint** (entry green / warn amber / error red — so status survives dropping the `_badge` glyph),
+>   organizational kinds keep a blank slot. The **unsaved dot now rides the type icon** (`with_corner_dot`)
+>   instead of owning the slot — type + status in one glyph; iconSize 12→16. Home's Recent rows + the two
+>   **📍 emoji** "placed in Blender" notes get icons too; a live retheme re-renders the whole tree.
+> - **Rail + empty-states + actions** (`32fd5c4`) — the workspace rail's five segments gain a leading group
+>   icon (Home house / Author pencil / Assets package / State database / **Ship shares the Deploy rocket**),
+>   fits 1280px; the Battle (▦→shield) and Map (◇→layers) teaching empty-states swap glyph for icon; the ➕ Add
+>   and flag-editor +/− buttons get plus/minus icons.
+>
+> Verified: **full suite 3485 passed / 2 skipped** (+7 icon tests), smoke asserts the icon mechanism (dirty-mark
+> composite + distinct hub/journey type icons), and a **7-theme icon-retint matrix** (tree + rail + toolbar)
+> confirms the criterion "icons re-tint correctly across all 7 themes." Every icon is paired with a text label
+> or `accessibleName` (the gear got "Settings"; decorative empty-state icons stay unnamed, meaning carried by
+> the purpose/teach text). **Scope note:** the remaining monochrome status dingbats (`✓`/`⚠`/`✕`/`○`) in
+> rich-text hints / lint / Problems are **Phase 9**'s (status = icon + text, not colour-alone) — deliberately
+> untouched here.
+
 
 ## 1. North-star vision
 
