@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QApplication, QWidget                      # noqa:
 
 from ff9mapkit.editor import theme                                       # noqa: E402
 from ff9mapkit.workspace import hero as hero_mod                         # noqa: E402
+from ff9mapkit.workspace.style import qss                                # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -162,3 +163,58 @@ def test_axis_falls_back_safely_without_a_column(app):
     x, col = band._axis()                            # column_source is None here
     assert isinstance(x, int) and col > 0 and x >= 0
     host.deleteLater()
+
+
+def test_a_transparent_container_does_not_strip_its_children(app):
+    """A container marked transparent must not silence the controls inside it.
+
+    THE BUG THIS PINS (shipped for a long time; found on Home's get-started CTA):
+    `w.setStyleSheet("background: transparent;")` has an implicit UNIVERSAL selector, and in Qt a
+    stylesheet set on a WIDGET out-ranks the QApplication stylesheet REGARDLESS OF SPECIFICITY. So it
+    cascaded down and beat `QPushButton#accent { background: $accent; }` from the app sheet. The button
+    lost its FILL while keeping `color: $accent_fg` + `border: 1px solid $accent` (which the container
+    rule never set) -- leaving accent-coloured ink on the raw page. Where accent_fg is dark ink it went
+    invisible: dracula's #282a36 IS its bg, gruvbox's #282828 IS its bg. Measured on the newcomer's
+    primary button: 1.00:1 in dracula and gruvbox-dark, 1.02 mist, 1.09 light, 1.11 solarized-light.
+
+    `.QWidget` is Qt's EXACT-CLASS selector -- it matches a plain QWidget and not its subclasses -- so the
+    container goes transparent and every real control keeps its styling. Rendered, not reasoned: this test
+    fails against the bare rule and passes against the scoped one.
+    """
+    import collections
+
+    from PySide6.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
+
+    from ff9mapkit.workspace.shell import _TRANSPARENT
+
+    assert ".QWidget" in _TRANSPARENT, "the transparent idiom must be exact-class scoped, not universal"
+
+    for mode in ("dracula", "gruvbox-dark", "mist", "light"):     # the palettes it actually broke
+        pal = theme.pick_palette(mode)
+        host = QWidget()
+        host.setStyleSheet(qss(pal))
+        lay = QVBoxLayout(host)
+        box = QWidget()
+        box.setStyleSheet(_TRANSPARENT)                            # the container under test
+        bl = QVBoxLayout(box)
+        card = QFrame()
+        card.setObjectName("card")
+        cl = QVBoxLayout(card)
+        btn = QPushButton("Run setup")
+        btn.setObjectName("accent")                                # the primary CTA
+        cl.addWidget(btn)
+        bl.addWidget(card)
+        lay.addWidget(box)
+        host.resize(240, 120)
+        host.show()
+        app.processEvents()
+        img = host.grab().toImage().copy(
+            btn.geometry().translated(btn.mapTo(host, btn.rect().topLeft()) - btn.geometry().topLeft()))
+        fill = collections.Counter(
+            img.pixelColor(x, y).name()
+            for x in range(4, img.width() - 4) for y in range(4, img.height() - 4)).most_common(1)[0][0]
+        assert fill.lower() == pal["accent"].lower(), (
+            f"{mode}: the accent button lost its fill inside a transparent container "
+            f"(got {fill}, want {pal['accent']}) -- its label is now accent_fg on the raw page")
+        host.deleteLater()
+        app.processEvents()

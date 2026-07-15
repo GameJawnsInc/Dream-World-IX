@@ -406,6 +406,22 @@ class _UpdateSignals(QObject):
     done = Signal(dict)
 
 
+# A container that must not paint the page colour over what is behind it.
+#
+# THE EXACT-CLASS SELECTOR IS LOAD-BEARING. A bare `setStyleSheet("background: transparent;")` has an
+# implicit universal selector, and in Qt a stylesheet set on a WIDGET out-ranks the QApplication
+# stylesheet REGARDLESS OF SPECIFICITY -- so it cascades down and beats `QPushButton#accent { background:
+# $accent; }` from the app sheet. The button then loses its FILL while keeping `color: $accent_fg` and
+# `border: 1px solid $accent` (which the container rule never set), i.e. accent-coloured ink on the page.
+# Where accent_fg is dark ink -- dracula's #282a36 IS its bg, gruvbox's #282828 IS its bg -- the label
+# went literally invisible. Measured on Home's get-started CTA: 1.00:1 in dracula and gruvbox-dark, 1.02
+# in mist, 1.09 in light, 1.11 in solarized-light. Five of eight palettes; the newcomer's primary button.
+#
+# `.QWidget` matches a plain QWidget and NOT its subclasses (Qt's exact-class selector), so a container
+# goes transparent while every real control inside it keeps its own styling.
+_TRANSPARENT = ".QWidget { background: transparent; }"
+
+
 class Workspace(QMainWindow):
     """The shell: a project tree (left) + document tabs (center) + inspector (right) + Output/Problems
     console (bottom, collapsible), with a breadcrumb above. Open a campaign.toml to populate it."""
@@ -1008,7 +1024,7 @@ class Workspace(QMainWindow):
         self._hub_btn.setObjectName("hub")                  # the QToolButton#hub id-rule in style.py (re-tints on theme switch)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        spacer.setStyleSheet("background: transparent;")   # the global QWidget rule painted it $bg -- a
+        spacer.setStyleSheet(_TRANSPARENT)   # the global QWidget rule painted it $bg -- a
         tb.addWidget(spacer)                               # dark hole in the toolbar
         # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
         # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
@@ -1461,7 +1477,7 @@ class Workspace(QMainWindow):
         pv.addWidget(self._hero)
         self._icon_retint.append(lambda: self._hero.set_palette_(self.pal))   # retheme() iterates this
         row = QWidget()
-        row.setStyleSheet("background: transparent;")   # the universal QWidget{background-color:$bg} rule
+        row.setStyleSheet(_TRANSPARENT)   # the universal QWidget{background-color:$bg} rule
         ph = QHBoxLayout(row)                           # would otherwise paint the page over the band
         ph.setContentsMargins(30, 22, 30, 26)
         ph.addStretch(1)
@@ -1509,7 +1525,7 @@ class Workspace(QMainWindow):
         self._start_note.setProperty("role", "muted")
         v.addWidget(self._start_note)
         self._start_box = QWidget()
-        self._start_box.setStyleSheet("background: transparent;")
+        self._start_box.setStyleSheet(_TRANSPARENT)
         self._start_lay = QVBoxLayout(self._start_box)
         self._start_lay.setContentsMargins(0, 2, 0, 4)
         self._start_lay.setSpacing(8)
@@ -1528,7 +1544,7 @@ class Workspace(QMainWindow):
         self._recent_head = self._home_section("Recent")
         v.addWidget(self._recent_head)
         self._recent_box = QWidget()
-        self._recent_box.setStyleSheet("background: transparent;")
+        self._recent_box.setStyleSheet(_TRANSPARENT)
         self._recent_lay = QVBoxLayout(self._recent_box)
         self._recent_lay.setContentsMargins(4, 0, 0, 4)
         self._recent_lay.setSpacing(5)
@@ -1586,7 +1602,7 @@ class Workspace(QMainWindow):
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
         col = QWidget()
-        col.setStyleSheet("background: transparent;")
+        col.setStyleSheet(_TRANSPARENT)
         cv = QVBoxLayout(col)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
@@ -1645,7 +1661,7 @@ class Workspace(QMainWindow):
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
         col = QWidget()
-        col.setStyleSheet("background: transparent;")
+        col.setStyleSheet(_TRANSPARENT)
         cv = QVBoxLayout(col)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
@@ -1753,7 +1769,7 @@ class Workspace(QMainWindow):
         self._recent_box.setVisible(bool(rows))
         for e in rows:
             row = QWidget()
-            row.setStyleSheet("background: transparent;")
+            row.setStyleSheet(_TRANSPARENT)
             rl = QHBoxLayout(row)
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(6)
@@ -5856,7 +5872,7 @@ class Workspace(QMainWindow):
     def _placed_note(self, text):
         """A muted 'placed in Blender' note: a pin icon (was the 📍 emoji) + a wrapped muted label."""
         row = QWidget()
-        row.setStyleSheet("background: transparent;")
+        row.setStyleSheet(_TRANSPARENT)
         rl = QHBoxLayout(row)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(6)
