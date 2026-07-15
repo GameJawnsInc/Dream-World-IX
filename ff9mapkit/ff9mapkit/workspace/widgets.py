@@ -17,10 +17,10 @@ from . import anim
 
 _QWIDGETSIZE_MAX = 16777215                        # Qt's max size -- 'release the height pin' so a widget tracks content
 
-# The gap BETWEEN sections (see `section`). Deliberately ~2.4x the old 10px page spacing: with the box
-# border gone, this gap IS the grouping, so it has to be unmistakably larger than the 8px gap between the
-# rows INSIDE a section. Equal gaps carry no grouping information at all.
-SECTION_GAP = 24
+# The gap BETWEEN cards (see `section`). The card draws its own boundary, so this gap does not have to
+# carry the grouping by itself -- but it must still clearly exceed the 8px gap between rows INSIDE a card,
+# or the page reads as one undifferentiated stack. 14 sits between the old 10 and the borderless 24.
+SECTION_GAP = 14
 
 
 class WheelGuard(QObject):
@@ -141,39 +141,55 @@ def prose(text, width=PROSE_W, *, parent=None):
 
 
 def section(title, *, parent=None):
-    """A titled SECTION -- the replacement for QGroupBox, and the whole of the "cards don't read well" fix.
+    """A titled CARD -- the QGroupBox replacement.
 
-    A section is a small tracked-caps overline, then its rows, then a generous gap before the next one.
-    **No fill and no frame**: the grouping is carried by proximity and a shared left edge (the Linear /
-    Zed settings idiom), not by a stroke. A QGroupBox could not do this even in principle -- QSS silently
-    ignores ``font-*`` on ``QGroupBox::title`` (colour is its only lever), so the 11px/600/+1px-tracking
-    overline is unreachable by styling and the box had to go.
+    The card stays: it is a genuinely useful logical section indicator, and the measurements say the box
+    was never the problem. What was ugly is specific and fixable:
 
-    Call shape mirrors :func:`disclosure` (the established idiom in this module)::
+    1. **The caption sat ON the border**, breaking the stroke around itself -- the Win32 ``fieldset``
+       idiom every modern design language dropped. It is also the one thing QSS cannot fix: ``font-*`` on
+       ``QGroupBox::title`` is silently ignored (colour is its only lever), so the title could never be
+       given weight while Qt was drawing it. Hence a real QLabel, INSIDE the card, at the top.
+    2. **The title had no presence** -- ``$muted`` at the same 13px as the body it labelled. Now the
+       11px/600/+1px-tracking overline role, which reads as a marker rather than as weak body text.
+    3. **No horizontal padding** (``style.py``: "NB: no left/right padding") -- content ran to the edge.
+       That amputation was defending against an h-scroll bug that never existed at the claimed magnitude
+       (the offscreen QPA inflates text advances 2-3x; the widest real control is 642px against ~1080px
+       of pane). Padding restored.
+
+    NOT changed: the fill. ``surface_2`` on ``bg`` measures 1.31 in DARK -- a *stronger* step than
+    GitHub's dark card (1.09). The elevation was fine; the research's "the fills do nothing" measured
+    ``surface -> surface_2`` (1.17), which is not the pair a card on a page is seen against.
+
+    Call shape mirrors :func:`disclosure` (the established idiom here)::
 
         st = widgets.section("Status")      # was: st = QGroupBox("Status")
         sv = st.content_layout              # was: sv = QVBoxLayout(st)
         sv.addWidget(...)                   # unchanged
         v.addWidget(st)                     # unchanged
 
-    The title is upper-cased HERE, at the call site, because Qt has no ``text-transform``.
+    The title is upper-cased at the call site because Qt has no ``text-transform``.
 
-    **The host must pay the whitespace.** A section deleted from its box but left at a 10-12px page
-    spacing reads WORSE than the box did -- an overline floating equidistant between two groups is not a
-    section, it is an orphan. Set the parent layout to ``SECTION_GAP`` when you adopt this.
+    **Pair every adoption with a name.** Qt derives an unnamed control's screen-reader name from its
+    enclosing QGroupBox TITLE; a card has no title for it to find, so any control that was leaning on the
+    box goes silent. Give each one a ``setBuddy(label)`` (better names than the box gave anyway).
     """
-    box = QWidget(parent)
+    box = QFrame(parent)
+    box.setProperty("role", "card")                  # $surface_2 + $radius_lg + a 1px $border edge
     v = QVBoxLayout(box)
-    v.setContentsMargins(0, 0, 0, 0)
-    v.setSpacing(6)                                  # overline -> its own rows: tight (they belong together)
+    v.setContentsMargins(16, 12, 16, 16)             # the padding the fieldset never had
+    v.setSpacing(10)                                 # title -> its rows
     lab = role_label(title.upper(), "overline")
     lab.setAccessibleName(title)                     # announce the real title, not the shouty form
     v.addWidget(lab)
-    body = QWidget()
-    body_lay = QVBoxLayout(body)
+    # The content host is a LAYOUT, never a wrapper QWidget. The stylesheet opens with a universal
+    # `QWidget { background-color: $bg; }`, so a bare QWidget in here paints the PAGE colour on top of the
+    # card's fill -- a visible darker rectangle inside every card, i.e. the exact box-in-box this is meant
+    # to kill. It hides on a borderless section (bg on bg) and only surfaces once the card has a fill.
+    body_lay = QVBoxLayout()
     body_lay.setContentsMargins(0, 0, 0, 0)
     body_lay.setSpacing(8)
-    v.addWidget(body)
+    v.addLayout(body_lay)
     box.content_layout = body_lay
     box.title_label = lab
     return box
