@@ -349,8 +349,12 @@ the bench's topo-58 wall corners translated in place (zero geometry change), DEP
 `--ground grass|desert`** on `world-island` + `world-mountain` (`grassland.GROUNDS`,
 `ground_uv`; stamps disable off-grass): grass is the bit-frozen identity (BOTH
 byte-identity acceptances pass unchanged), and the full desert path runs green offline
-(module desert mint → verify clean → the crag carve, all gates). In-game verdict of
-the full desert bench pending.
+(module desert mint → verify clean → the crag carve, all gates). **The full desert
+bench is ★ IN-GAME PROVEN 2026-07-15 ("looks good": ground + shore + the native-ground
+crag).** EARMARKED for the future — **THE DESERT TILE FIDELITY CHECK**: the mint uses
+locked grass-form windows (stock desert slides FREE fractional windows, 48% locked) and
+reuses the grass relief field (stock desert: y std 2.44 vs grass 0.66–1.25); both fine
+at bench scale — revisit if a large desert landmass reads too regular/smooth.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
