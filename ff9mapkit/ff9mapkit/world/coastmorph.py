@@ -1776,10 +1776,11 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
         # strip it moves into CLIPPED at the translated chain (pure bytes, the SpillClip
         # precedent), the vacated shore re-laid by the language machinery above. ---
         from .mesh import _clip_edge, _poly_area2_xz  # the proven exact-footprint splitters
+        _fam = _sand_band_family(parts["terrain"], what="the reshape block") or _SAND_GRASS
         sand = [t for t in parts["terrain"]
-                if decode_id(int(round(t[0][3][0])))["topograph"] == 31]
+                if decode_id(int(round(t[0][3][0])))["topograph"] == _fam["topo"]]
         other = [t for t in parts["terrain"]
-                 if decode_id(int(round(t[0][3][0])))["topograph"] != 31]
+                 if decode_id(int(round(t[0][3][0])))["topograph"] != _fam["topo"]]
         sand_in = []
         for t3 in sand:
             if in_win(t3):
@@ -2187,8 +2188,9 @@ def _beach_slide_seaward(donor, start, end, depth, *, disc: int = 1, lod: str = 
      arcs, acc, seam_all) = _freeform_window(donor, start, end,
                                              disc=disc, lod=lod, game=game)
     topo = lambda t3: decode_id(int(round(t3[0][3][0])))["topograph"]
-    sand = [t for t in others["terrain"] if topo(t) == 31]
-    gother = [t for t in others["terrain"] if topo(t) != 31]
+    _fam = _sand_band_family(others["terrain"], what="the slide block") or _SAND_GRASS
+    sand = [t for t in others["terrain"] if topo(t) == _fam["topo"]]
+    gother = [t for t in others["terrain"] if topo(t) != _fam["topo"]]
     grass_k = {_pk(v[0]) for t3 in gother for v in t3}
     TAPER_REACH = max(12.0, depth * math.pi / 0.32)
 
@@ -3173,38 +3175,82 @@ SAND_V_CAP_SEAM = (0.625, 0.626, 0.627)
 _SAND_EPS_V = 0.0022
 _SAND_EPS_U = 0.004
 
+#: THE SAND-BAND FAMILIES (the beach translation law -- 2026-07-15,
+#: ``studies/overworld-topography/desert_beach_{anatomy,decode}.py``): the desert
+#: coast's sand band (topo 32 -- the Outer Continent's 14 beach blocks; 112 map-wide
+#: back-welds onto topo-17 ground) is the grass band's STRUCTURE at its own atlas
+#: spot: the u-strip shifted EXACTLY +335/1024 texels (P/Q split preserved, both
+#: rects used), and its own SINGLE-VALUED v pins -- run 548->579, cap 580->611
+#: (vs grass run 580->609/610, cap 612..615->640..642: land edges -32, seam edges
+#: -30 texels; the desert ribbon is 2 texels taller). The sand topo is FAMILY-KEYED
+#: 1:1 with the backing ground (every beach block is PURE 31 or PURE 32; 31 <=>
+#: grass-backed, 32 <=> desert-backed, zero exceptions). Foam (beach1) is universal.
+#: Desert ``eps_v`` must stay under half the 1-texel run-seam/cap-land gap (579 vs
+#: 580) or the tiers smear. topo 33 = the Lost Continent's foam-less frozen shore
+#: (+330 texels) -- measured, NOT yet a mintable family.
+SAND_BANDS = {
+    "grass": dict(topo=31, du=0.0, eps_v=_SAND_EPS_V,
+                  v_land=SAND_V_LAND, v_seam=SAND_V_SEAM,
+                  v_cap_land=SAND_V_CAP_LAND, v_cap_seam=SAND_V_CAP_SEAM),
+    "desert": dict(topo=32, du=335.0 / 1024, eps_v=0.0004,
+                   v_land=(0.53516,), v_seam=(0.56543,),
+                   v_cap_land=(0.56641,), v_cap_seam=(0.59668,)),
+}
+_SAND_GRASS = SAND_BANDS["grass"]
 
-def _sand_vclass(v):
+
+def _sand_band_family(terr, *, what="donor"):
+    """Detect a block's sand-band family from its terrain tris (PURE 31 or PURE 32
+    per the census; mixed = off-language, refuse). Returns the family dict with a
+    ``name`` key, or ``None`` when the block carries no sand at all."""
+    counts = {}
+    for t3 in terr:
+        tp = decode_id(int(round(t3[0][3][0])))["topograph"]
+        for name, fam in SAND_BANDS.items():
+            if tp == fam["topo"]:
+                counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return None
+    if len(counts) > 1:
+        raise ValueError(f"{what} carries MIXED sand families {counts} -- "
+                         f"off-language (the census: every beach block is pure)")
+    name = next(iter(counts))
+    return dict(SAND_BANDS[name], name=name)
+
+
+def _sand_vclass(v, fam=_SAND_GRASS):
     """A sand vert's v-band role, or ``None`` off every pin (the conforming tier)."""
-    for name, anchors in (("run_land", SAND_V_LAND), ("run_seam", SAND_V_SEAM),
-                          ("cap_land", SAND_V_CAP_LAND), ("cap_seam", SAND_V_CAP_SEAM)):
-        if any(abs(v - a) <= _SAND_EPS_V for a in anchors):
+    for name, anchors in (("run_land", fam["v_land"]), ("run_seam", fam["v_seam"]),
+                          ("cap_land", fam["v_cap_land"]),
+                          ("cap_seam", fam["v_cap_seam"])):
+        if any(abs(v - a) <= fam["eps_v"] for a in anchors):
             return name
     return None
 
 
-def _sand_tri_decode(t3):
+def _sand_tri_decode(t3, fam=_SAND_GRASS):
     """``(tier, rect)`` for a decodable sand tri -- tier ``run``/``cap`` with every v on
     that tier's chain pins and every u inside ONE u-rect; ``None`` = the conforming /
     spit-fold / skew-cap residual (stays verbatim, like the strips' inset variants)."""
-    cls = [_sand_vclass(v[2][1]) for v in t3]
+    cls = [_sand_vclass(v[2][1], fam) for v in t3]
     if any(c is None for c in cls):
         return None
     tier = "run" if all(c.startswith("run") for c in cls) else \
         "cap" if all(c.startswith("cap") for c in cls) else None
     if tier is None:
         return None
+    du = fam["du"]
     us = [v[2][0] for v in t3]
     rects = [r for r in (0, 1)
-             if all(SAND_ULAT[r] - _SAND_EPS_U <= u <= SAND_ULAT[r + 1] + _SAND_EPS_U
-                    for u in us)]
+             if all(SAND_ULAT[r] + du - _SAND_EPS_U <= u
+                    <= SAND_ULAT[r + 1] + du + _SAND_EPS_U for u in us)]
     if not rects:
         return None
     if tier == "cap" and rects != [1]:
         return None                       # the taper gradient only exists in rect Q
     # a tri hugging the shared edge 334 decodes to either rect; pick by span midpoint
     r = rects[0] if len(rects) == 1 else \
-        (0 if (min(us) + max(us)) / 2.0 < SAND_ULAT[1] else 1)
+        (0 if (min(us) + max(us)) / 2.0 < SAND_ULAT[1] + du else 1)
     return (tier, r)
 
 
@@ -3230,11 +3276,12 @@ def sand_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
     beach-mint prerequisite) and stay verbatim here, like the conforming tier.
     Self-check: every emitted tri must re-decode to its group's fresh rect."""
     terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
+    fam = _sand_band_family(terr, what=f"donor {donor}")
+    if fam is None:
+        raise ValueError(f"donor {donor} has no sand band -- not a sandy shore")
     sand = [t3 for t3 in terr
-            if decode_id(int(round(t3[0][3][0])))["topograph"] == 31]
-    if not sand:
-        raise ValueError(f"donor {donor} has no topo-31 sand band -- not a sandy shore")
-    dec = [_sand_tri_decode(t3) for t3 in sand]
+            if decode_id(int(round(t3[0][3][0])))["topograph"] == fam["topo"]]
+    dec = [_sand_tri_decode(t3, fam) for t3 in sand]
 
     def uv4(v):
         return (round(v[2][0], 4), round(v[2][1], 4))
@@ -3291,18 +3338,18 @@ def sand_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
             continue                      # half-quad / frame-split: verbatim residual
         us = [v[2][0] for i in mem for v in sand[i]]
         d0, d1 = min(us), max(us)
-        if abs(d0 - SAND_ULAT[rect]) > _SAND_EPS_U \
-                or abs(d1 - SAND_ULAT[rect + 1]) > _SAND_EPS_U:
+        if abs(d0 - SAND_ULAT[rect] - fam["du"]) > _SAND_EPS_U \
+                or abs(d1 - SAND_ULAT[rect + 1] - fam["du"]) > _SAND_EPS_U:
             continue                      # ports must span the FULL rect (never stretch)
         new_rect = 1 - rect
-        e0, e1 = SAND_ULAT[new_rect], SAND_ULAT[new_rect + 1]
+        e0, e1 = SAND_ULAT[new_rect] + fam["du"], SAND_ULAT[new_rect + 1] + fam["du"]
         scale = (e1 - e0) / (d1 - d0)
         new_tris = []
         for i in mem:
             new_tris.append([(v[0], v[1], (e0 + (v[2][0] - d0) * scale, v[2][1]), v[3])
                              for v in sand[i]])
         for t3 in new_tris:
-            got = _sand_tri_decode(t3)
+            got = _sand_tri_decode(t3, fam)
             if got != ("run", new_rect):
                 raise ValueError(f"sand group at {_pk(sand[mem[0]][0][0])}: the emitted "
                                  f"column re-decodes to {got} instead of "
@@ -3404,12 +3451,13 @@ def emit_foam_cap(sj, wj, sf, wf, *, slot, family, diag="wj-sf", nrm=None, idall
 
 
 def emit_sand_cap(lj, sj, lf, sf, *, land_pin, seam_pin, diag="sj-lf", nrm=None,
-                  idall=None):
+                  idall=None, fam=_SAND_GRASS):
     """SYNTHESIZE a sand row-B cap tile: corners land-junction / seam-junction /
-    land-free / seam-free; the per-cap v pins (byte-observed bands: land 612-615,
-    seam 640-642 /1024). u is LAW: rect Q with the junction edge at 0.3262 and the
-    free edge at 0.3867 (the taper points outward)."""
-    uJ, uF = SAND_ULAT[1], SAND_ULAT[2]
+    land-free / seam-free; the per-cap v pins (byte-observed bands: grass land
+    612-615, seam 640-642 /1024; desert 580 -> 611). u is LAW: rect Q (shifted per
+    family) with the junction edge at the split and the free edge at the strip end
+    (the taper points outward)."""
+    uJ, uF = SAND_ULAT[1] + fam["du"], SAND_ULAT[2] + fam["du"]
     uv = {id(lj): (uJ, land_pin), id(sj): (uJ, seam_pin),
           id(lf): (uF, land_pin), id(sf): (uF, seam_pin)}
     nrm = nrm or (0.0, 1.0, 0.0)
@@ -3539,10 +3587,13 @@ def cap_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
 
     # sand row-B caps: byte-identity through the emitter (rect Q forced = the proof)
     terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
+    fam = _sand_band_family(terr, what=f"donor {donor}") or _SAND_GRASS
+    uJ4 = round(SAND_ULAT[1] + fam["du"], 4)
+    uF4 = round(SAND_ULAT[2] + fam["du"], 4)
     sand_caps = [t3 for t3 in terr
-                 if decode_id(int(round(t3[0][3][0])))["topograph"] == 31
-                 and _sand_tri_decode(t3) is not None
-                 and _sand_tri_decode(t3)[0] == "cap"]
+                 if decode_id(int(round(t3[0][3][0])))["topograph"] == fam["topo"]
+                 and _sand_tri_decode(t3, fam) is not None
+                 and _sand_tri_decode(t3, fam)[0] == "cap"]
     drop_s, emit_s = [], []
     grouped = []                          # [[keyset, [tris]], ...]
     for t3 in sand_caps:
@@ -3565,11 +3616,11 @@ def cap_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
         vl = list(verts.values())
         us = sorted({round(v[2][0], 4) for v in vl})
         vs = sorted({round(v[2][1], 4) for v in vl})
-        if len(us) != 2 or len(vs) != 2 or us != [0.3262, 0.3867]:
+        if len(us) != 2 or len(vs) != 2 or us != [uJ4, uF4]:
             continue
         c = {}
         for v in vl:
-            j = abs(v[2][0] - 0.3262) < abs(v[2][0] - 0.3867)
+            j = abs(v[2][0] - uJ4) < abs(v[2][0] - uF4)
             land = abs(v[2][1] - vs[0]) < abs(v[2][1] - vs[1])
             c[("J" if j else "F") + ("L" if land else "S")] = v
         if len(c) != 4:
@@ -3578,7 +3629,7 @@ def cap_rebuild(donor, *, disc: int = 1, lod: str = "0_1", game=None):
         diag = "sj-lf" if both == {_pk(c["JS"][0]), _pk(c["FL"][0])} else "lj-sf"
         tris = emit_sand_cap(c["JL"][0], c["JS"][0], c["FL"][0], c["FS"][0],
                              land_pin=c["JL"][2][1], seam_pin=c["JS"][2][1],
-                             diag=diag, nrm=vl[0][1], idall=tuple(vl[0][3]))
+                             diag=diag, nrm=vl[0][1], idall=tuple(vl[0][3]), fam=fam)
         want = {frozenset((_pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
                           for v in t3) for t3 in grp}
         got = {frozenset((_pk(v[0]), round(v[2][0], 4), round(v[2][1], 4))
@@ -3642,16 +3693,17 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
     terr = TR.world_tris(*donor, "terrain", disc=disc, lod=lod, game=game)
     if not foam_all:
         raise ValueError(f"donor {donor} has no beach1 mesh -- not a sandy shore")
+    fam = _sand_band_family(terr, what=f"donor {donor}")
+    if fam is None:
+        raise ValueError(f"donor {donor} has no sand band")
     sand = [t3 for t3 in terr
-            if decode_id(int(round(t3[0][3][0])))["topograph"] == 31]
+            if decode_id(int(round(t3[0][3][0])))["topograph"] == fam["topo"]]
     other_k = {_pk(v[0]) for t3 in terr for v in t3
-               if decode_id(int(round(t3[0][3][0])))["topograph"] != 31}
+               if decode_id(int(round(t3[0][3][0])))["topograph"] != fam["topo"]}
     foam_k = {_pk(v[0]) for t3 in foam_all for v in t3}
     sea2_k = {_pk(v[0])
               for t3 in TR.world_tris(*donor, "sea2", disc=disc, lod=lod, game=game)
               for v in t3}
-    if not sand:
-        raise ValueError(f"donor {donor} has no sand band")
     family = _foam_family(foam_all)
     if family is None:
         raise ValueError(f"donor {donor}: no lawful foam run family decodes")
@@ -3681,7 +3733,7 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
     # donor pin constants (per-band lawful reads)
     run_pins = cap_pins = None
     for t3 in sand:
-        d = _sand_tri_decode(t3)
+        d = _sand_tri_decode(t3, fam)
         if d is None:
             continue
         vs = sorted({round(v[2][1], 4) for v in t3})
@@ -3719,7 +3771,7 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
             raise ValueError("land takes 0.3 <= land <= 4.0 (the band width envelope "
                              "binds long before 4)")
         other = [t for t in terr
-                 if decode_id(int(round(t[0][3][0])))["topograph"] != 31]
+                 if decode_id(int(round(t[0][3][0])))["topograph"] != fam["topo"]]
 
         def surf_y(x, z):
             for t3 in other:
@@ -3906,11 +3958,12 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
             if land is None:
                 sand_emit += emit_sand_cap(lj, sj, lf, sf, land_pin=cap_pins[0],
                                            seam_pin=cap_pins[1], diag=diag_s,
-                                           nrm=s_nrm, idall=s_id)
+                                           nrm=s_nrm, idall=s_id, fam=fam)
             else:
-                # the cap fan: same laws as emit_sand_cap (rect Q, junction 0.3262 /
-                # free 0.3867, cap v pins), land edge subdivided at the crossings
-                uJ, uF = SAND_ULAT[1], SAND_ULAT[2]
+                # the cap fan: same laws as emit_sand_cap (rect Q shifted per family,
+                # junction at the split / free at the strip end, cap v pins), land
+                # edge subdivided at the crossings
+                uJ, uF = SAND_ULAT[1] + fam["du"], SAND_ULAT[2] + fam["du"]
                 ua = uJ if lj is L2[i] else uF          # u at L2[i] / L2[i+1]
                 ub = uF if lj is L2[i] else uJ
                 la, lb = L2[i], L2[i + 1]
@@ -3935,7 +3988,7 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
                                        diag=diag_f, nrm=f_nrm, idall=f_id)
         else:                              # run columns: fresh language walks
             rect = 0 if TR._h01(L2[i][0] + 2.9, L2[i][2] + 1.3) < 0.5 else 1
-            u0, u1 = SAND_ULAT[rect], SAND_ULAT[rect + 1]
+            u0, u1 = SAND_ULAT[rect] + fam["du"], SAND_ULAT[rect + 1] + fam["du"]
             if land is None:
                 uv = {id(L2[i]): (u0, run_pins[0]), id(L2[i + 1]): (u1, run_pins[0]),
                       id(S[i]): (u0, run_pins[1]), id(S[i + 1]): (u1, run_pins[1])}
@@ -3977,7 +4030,7 @@ def beach_mint(donor, *, width=None, land=None, disc: int = 1, lod: str = "0_1",
 
     # --- self-check: every emitted tri decodes in its language ---
     for t3 in sand_emit:
-        if _sand_tri_decode(t3) is None:
+        if _sand_tri_decode(t3, fam) is None:
             raise ValueError("a minted sand tri does not decode -- the emission "
                              "self-check failed")
     for t3 in foam_emit:
@@ -4287,9 +4340,13 @@ def parse_bank_lower_spec(spec: str) -> dict:
 
 
 def parse_virgin_mint_spec(spec: str) -> dict:
-    """Parse the CLI ``--virgin-mint "X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY]"``
-    into the ``build_shore_tweaks(mint=...)`` dict (the fuse layout's
-    ``[placement.virgin_mint]`` shape)."""
+    """Parse the CLI ``--virgin-mint
+    "X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY][:wash=R]"`` into the
+    ``build_shore_tweaks(mint=...)`` dict (the fuse layout's
+    ``[placement.virgin_mint]`` shape). ``wash=R`` = the wash-apron reach:
+    sea3/sea5 within R of the waterline re-band to wash (default 4.0; real
+    beaches keep a much wider pure-wash apron -- the (16,5) A/B measured 13u+,
+    and a too-short reach reads as a squared deep-band tile against the foam)."""
     parts = [s.strip() for s in spec.strip().split(":")]
     if len(parts) < 2:
         raise ValueError("--virgin-mint needs at least X0,Z0:X1,Z1")
@@ -4301,9 +4358,12 @@ def parse_virgin_mint_spec(spec: str) -> dict:
             continue
         if "=" in seg:
             name, _, val = seg.partition("=")
-            if name.strip() != "pins":
+            if name.strip() == "pins":
+                out["pins_from"] = [int(v) for v in val.split(",")]
+            elif name.strip() == "wash":
+                out["wash_reach"] = float(val)
+            else:
                 raise ValueError(f"--virgin-mint: unknown named segment '{name}'")
-            out["pins_from"] = [int(v) for v in val.split(",")]
         else:
             if not pos_keys:
                 raise ValueError("--virgin-mint: too many positional segments")
@@ -4444,19 +4504,21 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
 
     def topo(t3):
         return decode_id(int(round(t3[0][3][0])))["topograph"]
-    sand = [t3 for t3 in terr if topo(t3) == 31]
-    other = [t3 for t3 in terr if topo(t3) != 31]
-    # the language pins (foam family + sand v-pins) come from the block's own
-    # beach, or -- on a beach-less block -- byte-read from a reference block via
-    # ``pins_from`` (the sand/foam atlas is the ONE world texture)
+    # the language pins (foam family + sand v-pins + the SAND FAMILY) come from the
+    # block's own beach, or -- on a beach-less block -- byte-read from a reference
+    # block via ``pins_from`` (the sand/foam atlas is the ONE world texture; the
+    # family follows the pins: a desert reference mints topo-32 desert sand)
     if pins_from is not None:
         pin_terr = TR.world_tris(*pins_from, "terrain", disc=disc, lod=lod,
                                  game=game)
         pin_foam = TR.world_tris(*pins_from, "beach1", disc=disc, lod=lod,
                                  game=game)
-        pin_sand = [t3 for t3 in pin_terr if topo(t3) == 31]
     else:
-        pin_foam, pin_sand = foam_all, sand
+        pin_terr, pin_foam = terr, foam_all
+    fam = _sand_band_family(pin_terr, what=f"the pins block") or _SAND_GRASS
+    sand = [t3 for t3 in terr if topo(t3) == fam["topo"]]
+    other = [t3 for t3 in terr if topo(t3) != fam["topo"]]
+    pin_sand = [t3 for t3 in pin_terr if topo(t3) == fam["topo"]]
     if not pin_foam:
         raise ValueError(f"donor {donor} carries no beach1 -- pass pins_from=a "
                          f"beach block to mint on a beach-less coast")
@@ -4468,7 +4530,7 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
         raise ValueError("no lawful foam run family decodes in the pins block")
     run_pins = cap_pins = None
     for t3 in pin_sand:
-        d = _sand_tri_decode(t3)
+        d = _sand_tri_decode(t3, fam)
         if d is None:
             continue
         vs = sorted({round(v[2][1], 4) for v in t3})
@@ -5218,7 +5280,7 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
         ld = decode_id(int(round(other[0][0][3][0])))
         pd = tuple(pin_sand[0][0][3])
         s_nrm = pin_sand[0][0][1]
-        s_id = (float(encode_id(event=0, area=ld["area"], topograph=31,
+        s_id = (float(encode_id(event=0, area=ld["area"], topograph=fam["topo"],
                                 flags=decode_id(int(round(pd[0])))["flags"])),
                 ) + tuple(pd[1:])
     if foam_all:
@@ -5231,7 +5293,7 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
         f_id = (float(encode_id(event=0, area=ld["area"],
                                 topograph=pfd["topograph"], flags=pfd["flags"])),
                 ) + tuple(pf[1:])
-    uJ_s, uF_s = SAND_ULAT[1], SAND_ULAT[2]
+    uJ_s, uF_s = SAND_ULAT[1] + fam["du"], SAND_ULAT[2] + fam["du"]
     bl = FOAM_FAMILIES[family]["BL"]
     sand_emit, foam_emit = [], []
 
@@ -5332,7 +5394,7 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
             continue
         # run column: sand
         rect = 0 if TR._h01(L[i][0] + 2.9, L[i][2] + 1.3) < 0.5 else 1
-        u0, u1 = SAND_ULAT[rect], SAND_ULAT[rect + 1]
+        u0, u1 = SAND_ULAT[rect] + fam["du"], SAND_ULAT[rect + 1] + fam["du"]
         la, lb = L[i], L[i + 1]
         el = plan(la, lb) or 1.0
 
@@ -5393,14 +5455,14 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
 
     cut_keys = {_pk(p) for cs in seg_cuts.values() for p in cs.values()}
     for t3 in sand_emit:
-        if _sand_tri_decode(t3) is not None:
+        if _sand_tri_decode(t3, fam) is not None:
             continue
         # a boundary-cut vert carries an affinely-interpolated v (lawful
         # subdivision, the u-strip law); every other vert must sit on the pins
         for v in t3:
             if _pk(v[0]) in cut_keys:
                 continue
-            if _sand_vclass(round(v[2][1], 4)) is None:
+            if _sand_vclass(round(v[2][1], 4), fam) is None:
                 raise ValueError("a minted sand tri does not decode -- the "
                                  "emission self-check failed")
     for t3 in foam_emit:

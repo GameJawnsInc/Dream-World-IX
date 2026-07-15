@@ -45,7 +45,7 @@ print(f"recovered forest center: ({fx:.3f},{fz:.3f}) -> {FOREST_CENTER}", flush=
 # ---- 1. clean mint -> module forest carve -------------------------------------------------
 print("rebuilding island E (seed 55) ...", flush=True)
 built = build_landmass(center=(344, -1152), base_radius=46, seed=55, lobes=3,
-                       relief="auto", stamps="auto")
+                       stamps="auto")
 soup = IN.soup_from_blocks(built["blocks"])
 res_f = IN.carve_forest(soup, center=FOREST_CENTER, donor=(15, 15))
 IN.census_gate(res_f["changed"], probe=(FOREST_CENTER, 37))

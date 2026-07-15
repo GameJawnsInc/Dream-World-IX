@@ -1,7 +1,8 @@
 """world-island + the placement simulator + the grass language: the synth-landmass builder.
 
-Hermetic -- the builder synthesizes everything (``flat`` mode needs no install data; relief/stamps are
-install-derived and covered by the gated tests elsewhere). Coverage:
+Hermetic -- the builder synthesizes everything (``flat`` mode needs no install data; meadow stamps are
+install-derived and covered by the gated tests elsewhere; interiors are FLAT by design -- the ambient
+relief field was retired 2026-07-15, THE DEAD-RELIEF DISCOVERY). Coverage:
   * the ENGINE PLACEMENT simulator's RE'd semantics (the rules that broke the original synth blob):
     winding filter, buffer-order-first (not nearest), mesh-order-first (Terrain shadows Sea), walk vs sky
     ray windows, the idall skip set, miss -> ground 0

@@ -695,10 +695,41 @@ the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
 
 `ff9mapkit world-island --mod-folder M --center WX,WZ --radius R [--seed S --lobes N --patches P]` synthesizes a
 fully-custom walkable landmass: organic multi-lobe coastline (gated against the measured FF9 coastline language),
-the ~73° rock rim, native grass mains + verbatim meadow stamps + rolling relief. Every footprint block must be TRUE
+the ~73° rock rim, native grass mains + verbatim meadow stamps. The interior is FLAT at `--height` by design —
+explicit relief comes from `world-hill` / `world-forest` / `world-mountain` (an ambient rolling-relief field shipped
+with the first release but never applied due to a coordinate-frame bug, and flat interiors were repeatedly in-game
+approved — up to an r52 pure-plain desert island — so it was retired, 2026-07-15). Every footprint block must be TRUE
 open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).
+
+**Ground families — `--ground` (★ 2026-07-15).** THE TRANSLATION LAW IS UNIVERSAL: every stock walkable
+ground family is the grass language translated in the atlas — same mains 2×2 rects (widths, gutters,
+cell mapping, rotations, neighbour policy) at the family's own spot, outer-bound byte-exact at 5dp
+(`grassland.GROUNDS`; measured by `studies/overworld-topography/desert_ground_anatomy.py` + the
+`ground_families_anatomy.py` census, whose grass control recovers delta (0,0) with zero spread). The
+registry: **grass** (identity) · **desert** (topo 17; mains +(0.65332, −0.09863), wall +(−0.27127,
+−0.02066); in-game proven) · **scrub** (topo 4; +(0.25977, −0.06738); the grass↔dirt ecotone set) ·
+**brush** (topo 38; +(0.45703, −0.20215); its stock cliff wall IS the desert wall — measured native
+adjacency) · **snow** (topo 27; +(0.0, −0.33691); icy wall +(−0.44021, +0.05161)) · **canyon** (topo 45;
++(0.7793, −0.31641); red-rock wall +(−0.69509, −0.49722)) · **dunes** (topo 41; +(0.38964, −0.13477);
+its own pale-sand set — the one family-model exception). Scrub and dunes never touch the coastal wall
+in stock, so they borrow the desert band (an authoring choice). In-family topo ids (grass 1/2/3/10-13/42,
+dirt 19/20) are byte-proven gameplay variants of the same tile set. `world-island --ground <fam>` mints
+the whole island in the family (meadow stamps are grass vocabulary and disable); `world-mountain
+--ground <fam>` speaks it in the carve's plain-ground checks + zip annulus. Real ground additionally
+slides FREE fractional windows over its painted-over internal gutter (THE COL-FREEDOM LAW at ground
+scale); the mint uses the locked grass-form window, itself a common real form.
+
+**Family CLASSES (`GROUNDS[..]["cls"]` — the ground-sampler playtest, 2026-07-15).** A translation
+makes the tiles paint right, but only **island-class** families (grass, desert, snow, canyon) are
+whole-landmass fills whose coast reads native. The others are stock vocabularies with a narrower role,
+and a filled island of them reads off-language (the CLI notes this and mints anyway): **scrub** is a
+*transition* set — stock lays it only as narrow seam strips between solid grass and dirt fields, with
+free grass-style placement (the macro-tile parity hypothesis measured false, ~chance), so a scrub
+field shows raw tiling mismatches; **brush** is a *slope* set — stock paints it on ~30°-median
+hillsides, so a flat fill reads as brush canopy and its rim lip doesn't line up; **dunes** is an
+*interior* fill — the ground reads fine but the family has no native coast band.
 
 ### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
 
@@ -730,6 +761,57 @@ and are the productized island-E studies, proven by a zero-byte-diff identity ru
   measured grass-language envelope (flank p99 ≤ 28.6°, peak ≤ the lowland band top 8.6), the crack scan, and the
   census. The `--near` scan only offers footprints inside the ROLLING-RELIEF envelope (pure mains, y-span ≤ 2.4u,
   clear of forest/stamps/rim) — it will refuse rather than stack a hill on prior displacement.
+
+### A real mountain on a deployed island — `world-mountain` (★ productized 2026-07-15)
+
+`world-mountain --mod-folder M --near WX,WZ` (or `--center` exact, rotation 0) carries a REAL rock massif whole —
+the productized Uaho carry (in-game approved 2026-07-13: *"the cliff is great — walkable, seams against the grass
+great"*). Small mountains are TERRAIN+OBJECT **ensembles**, and the carry honours that: the blob is the donor's
+largest massif-rock component (topos **49/7/62** — not the coastal-lip topo 58) plus any enclosed raised tris, the
+donor-conditional **alcove floor** (Uaho's notch pocket; a new `--donor` needs its own anatomy pass first), and the
+Object-mesh **aperture plugs** (THE FALLS-APERTURE LAW: extra blob rims must be literal Object-vertex rings; the
+plugs wear the rock collar's own affine UV chart, gated against the atlas rock band). The mechanism stack:
+
+* **THE ROCK-RIGID LAW** — carried rock never deforms beyond the global affine (a least-squares rim **de-tilt** +
+  the vertical anchor `DY`); ALL seating deformation goes to the GRASS, a donor-shaped pure-Y apron lift rising
+  from bench ground to the rigid rim (the proven hill-at-scale mechanism), tapered at block borders and before the
+  coast band.
+* **THE WELD-SAFE LIFT** — worldmap meshes don't share vertex entries, so every lift computes per POSITION and
+  applies to every coincident entry (a one-sided lift splits the weld = sea visible through the sliver).
+* Hole carve + a **minimal-total-chord DP zip** (a greedy walk stalls on floor-mouth concavity) + an apron normal
+  re-smooth blended by lift magnitude.
+* **THE DONOR-DISPATCH STRIP** — a carried IDALL keeps its topograph + flags but drops the donor's event/area
+  bits: area feeds the overworld camera's place bucket (`w_cameraArea2Place`; Uaho's baked area=63 = bucket 2 =
+  cameraDistance 6000, a visible zoom-out on the alcove floor) and event 1–3 marks a PLACE-ENTRANCE tile that
+  fires the world `.eb` — donor dispatch context, meaningless and hazardous on a custom island.
+* Gates: single-rim accounting, dropped-tris-all-plain-grass, baseline-subtracted once-edges (cracks), down-facing,
+  near-miss welds, ROCK-RIGID drift < 3.5%, zip rise ≤ 2.34 / winding ≥ 0.83, apron slope ≤ 29.5°, the placement
+  probes (blob centre grounds on carried rock; the grass just outside stays plain), the Moguri-atlas alpha gate
+  (when installed), and the census. The whole working band must fit inside ONE deployed block.
+
+Acceptance was proven by IDENTITY (`studies/overworld-topography/mountain_productize_check.py`): the pristine bench
+mint → module carve reproduces the deployed, playtested Uaho bench **byte-for-byte**; the go-forward fresh-mint path
+differs only by the mint's own concave-dent fix, far outside the carve. Run `world-mirror` after deploying.
+
+**THE ENSEMBLE CARRY.** A water-bearing massif's extra blob ring is a river/falls MOUTH owned by the UNION of
+the donor's `Object`/`Falls`/`River`/`RiverJoint` parts — Uaho's object-only aperture law is the small-mountain
+special case. Such rings classify as **ensemble apertures**: no plug is built; instead every auxiliary part
+component inside the massif footprint rides the same rigid map (positions de-tilt+rotate+translate, normals by
+inverse-transpose, REAL tangents as sheared directions, UVs verbatim — the animated water materials bind by part
+name) and deploys as per-block part overrides, with BLANKS for every uncarried ensemble part on every span block
+(un-overridden donor-prefab parts free-ride verbatim — the v4 law) and a `Donor.txt` divert to a donor block
+carrying all deployed part transforms. Proven end-to-end on the Daguerreo horseshoe (713 terrain + 122 aux tris,
+a 10-block span). Horseshoe-scale benches: `world-island` grows adaptive outline density past r60 and a
+conditional >8u interior refinement — both byte-frozen no-ops for every existing radius.
+
+**Multi-block carries.** `--donor` also accepts a block rect (`10,5-6` = the crag island's stock massif, one
+294-tri component straddling a border — the blob builds on the merged world-frame donor bytes; the crag's own
+anatomy pass is `studies/overworld-topography/crag_anatomy.py`). The TARGET sizes itself automatically: a blob
+that fits one block (`2·(radius + band) ≤ 64`) runs the proven single-block pipeline byte-identically; a bigger
+one works over the minimal SPAN of deployed blocks covering its footprint (every span block must hold a deployed
+Terrain override — mint a big enough island first). New tris split at the 64u borders exactly how stock
+cross-block mountains ship (identity welds via the shared clip plane); the apron lift welds internal span borders
+per POSITION and tapers only at the span's outer borders; the crack gate, probes, and census run span-wide.
 
 ## Overworld texturing — the model + the learned UV palette (RE 2026-07-02)
 

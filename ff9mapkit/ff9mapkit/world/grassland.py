@@ -18,8 +18,14 @@ FF9 grass is the OCEAN-MAINS grammar on land. Measured across the grass-richest 
   per-cell per-TRIANGLE geometry+UVs and replayed exactly. Stamps are DERIVED FROM THE INSTALL's bytes ->
   cached next to StreamingAssets (like the palette), never shipped.
 * **Relief**: real grass is NEVER flat (0 dead-flat cells; Y std 0.66-1.25, 4u-neighbour |dY| med ~0.2
-  p90 ~0.5-0.7). A dead-flat field renders every tile border as a naked straight line at the game's
-  oblique camera; the verbatim height field of a real grass region restores the masking.
+  p90 ~0.5-0.7; desert topo-17 is rougher still, y std 2.44). The mint deliberately does NOT reproduce
+  this: an ambient ``relief_field``/``relief_at`` pair shipped with the first world-island but a
+  coordinate-frame mismatch kept it at 0.0 everywhere in practice, and flat interiors were repeatedly
+  in-game APPROVED (up to an r52 pure-plain desert island, 2026-07-15) -- so it was RETIRED rather than
+  fixed (THE DEAD-RELIEF DISCOVERY). Explicit height comes from the studied verbs (world-hill /
+  world-forest / world-mountain). If a continent-scale plain ever reads too flat, resurrect relief as a
+  measured per-ground rung (stats above; frame fix = island-local or lattice-wrapped anchoring) --
+  the record lives in studies/overworld-topography/README.md (THE DESERT TILE FIDELITY CHECK).
 
 Full teardown: project memory ``project-ff9-overworld-coast-mosaic``; the placement rules the meshes must
 obey live in :mod:`ff9mapkit.world.placement`.
@@ -47,6 +53,70 @@ FAM_REGION = {
     "B": (STRIP_U[0], STRIPS_V[0][0], STRIP_U[1], STRIPS_V[3][1]),
     "?": (0.0, 0.0, 1.0, 1.0),
 }
+
+#: GROUND FAMILIES -- byte-measured TRANSLATION LAWS (2026-07-15, the desert study +
+#: the ground-families census, ``studies/overworld-topography/ground_families_anatomy.py``):
+#: THE TRANSLATION LAW is UNIVERSAL -- every stock walkable ground family is the grass
+#: language TRANSLATED in the atlas: the mains 2x2 rects (same widths 0.06054/0.03028,
+#: same gutters 0.00196/0.00097) and the coastal cliff-wall band (same 0.248-wide
+#: strip, one row) each sit at their own spot,
+#: outer-bound byte-exact at 5dp (the grass control recovers delta (0,0) with ZERO
+#: spread; dirt gameplay variants 19/20 recover the desert constants exactly).
+#: ``topo`` is the family's walkable topograph (in-family ids are gameplay variants);
+#: the ``wall_*`` deltas shift the mint's ROCK_U/ROCK_V band. Walls: brush fringes
+#: the DESERT wall in stock (byte-exact adjacency, measured); snow + canyon carry
+#: their own measured bands; scrub and dunes never touch topo-58 in stock, so they
+#: BORROW the desert wall -- an authoring choice, not a measurement. Real ground ALSO
+#: slides free fractional windows over its (painted-over) internal gutter -- the
+#: locked grass-form window is a common real form and the safe generative choice, so
+#: minting reuses :func:`mains_uv`.
+#:
+#: ``cls`` = the family's STOCK ROLE (the ground-sampler playtest, 2026-07-15): only
+#: ``"island"`` families are whole-landmass fills with a coast that reads native.
+#: ``"transition"`` (scrub) = a SEAM vocabulary -- stock lays it only as narrow strips
+#: between solid grass and dirt fields, free grass-style placement (the macro-tile
+#: parity hypothesis measured FALSE, 31% ~= chance), so a filled field of it reads as
+#: a tiling mismatch. ``"slope"`` (brush) = stock paints it on ~30-deg-median
+#: hillsides (the Black-Mage-Village brush); flat fills read as canopy, and the rim
+#: lip does not line up. ``"interior"`` (dunes) = the ground fill reads fine but the
+#: family has no native coast band -- use away from shorelines.
+GROUNDS = {
+    "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0,
+                  cls="island"),
+    "desert": dict(topo=17, mains_du=0.65332, mains_dv=-0.09863,
+                   wall_du=-0.27127, wall_dv=-0.02066, cls="island"),
+    "scrub": dict(topo=4, mains_du=0.25977, mains_dv=-0.06738,      # grass<->dirt ecotone
+                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
+                  cls="transition"),
+    "brush": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
+                     wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall
+                     cls="slope"),
+    "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
+                 wall_du=-0.44021, wall_dv=0.05161,                 # icy band, measured
+                 cls="island"),                                     # ★ sampler-proven
+    "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
+                   wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
+                   cls="island"),                                   # ★ verbatim-compared
+    "dunes": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event dunes
+                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
+                  cls="interior"),
+}
+
+
+def ground_uv(x: float, z: float, cell, quad, ori: int, ground: str = "grass"):
+    """:func:`mains_uv` re-based to a ground family (THE TRANSLATION LAW). ``grass`` is
+    the identity (bit-exact -- adding 0.0 changes no float)."""
+    g = GROUNDS[ground]
+    u, v = mains_uv(x, z, cell, quad, ori)
+    return [u + g["mains_du"], v + g["mains_dv"]]
+
+
+def ground_main_region(ground: str = "grass"):
+    """The ground family's mains region bounds (the FAM_REGION['main'] analogue)."""
+    g = GROUNDS[ground]
+    lo_u, lo_v, hi_u, hi_v = FAM_REGION["main"]
+    return (lo_u + g["mains_du"], lo_v + g["mains_dv"],
+            hi_u + g["mains_du"], hi_v + g["mains_dv"])
 
 _STAMP_CACHE = ".ff9stamps_grass"                           # cached next to StreamingAssets, per disc
 _STAMP_BLOCKS = [(15, 15), (16, 14), (14, 15), (15, 16), (19, 12), (17, 15), (18, 15), (18, 12), (16, 15), (17, 14)]
@@ -356,79 +426,6 @@ def stamp_geometry(placements) -> list:
                     corners.append((x, z, u, v))
                 out.append((corners, rec["fam"]))
     return out
-
-
-# ---- rolling relief (a verbatim real height field; real grass is never flat) ---------------------------------------
-
-def relief_field(source=(15, 15), *, disc: int = 1, game=None) -> dict:
-    """The VERBATIM lattice height field of a real grass block, plane-detrended and gap-filled (the lake):
-    ``{(i, j): dY}`` keyed by 4u lattice node. Apply via :func:`relief_at`."""
-    from . import extract as X
-    terr = X.read_block(source[0], source[1], disc=disc, part="terrain", game=game)
-    H = {}
-    for t in range(len(terr.flat_index) // 3):
-        if X.decode_id(int(round(terr.tangents[terr.flat_index[3 * t]][0])))["topograph"] != 0:
-            continue
-        for i in terr.flat_index[3 * t:3 * t + 3]:
-            v = terr.verts[i]
-            k = (round(v[0] / 4), round(v[2] / 4))
-            if abs(v[0] - 4 * k[0]) < 0.05 and abs(v[2] - 4 * k[1]) < 0.05:
-                H[k] = v[1]
-    if not H:
-        return {}
-    n = len(H)
-    sx = sum(k[0] for k in H)
-    sz = sum(k[1] for k in H)
-    sy = sum(H.values())
-    sxx = sum(k[0] * k[0] for k in H)
-    szz = sum(k[1] * k[1] for k in H)
-    sxz = sum(k[0] * k[1] for k in H)
-    syx = sum(k[0] * y for k, y in H.items())
-    syz = sum(k[1] * y for k, y in H.items())
-    Mx = [[sxx, sxz, sx], [sxz, szz, sz], [sx, sz, n]]
-    Yx = [syx, syz, sy]
-    for i in range(3):
-        p = max(range(i, 3), key=lambda r: abs(Mx[r][i]))
-        Mx[i], Mx[p] = Mx[p], Mx[i]
-        Yx[i], Yx[p] = Yx[p], Yx[i]
-        for r in range(i + 1, 3):
-            f = Mx[r][i] / Mx[i][i]
-            for c in range(i, 3):
-                Mx[r][c] -= f * Mx[i][c]
-            Yx[r] -= f * Yx[i]
-    pl = [0.0, 0.0, 0.0]
-    for i in (2, 1, 0):
-        pl[i] = (Yx[i] - sum(Mx[i][c] * pl[c] for c in range(i + 1, 3))) / Mx[i][i]
-    field = {k: y - (pl[0] * k[0] + pl[1] * k[1] + pl[2]) for k, y in H.items()}
-    for _ in range(12):
-        missing = [(i, j) for i in range(-16, 17) for j in range(-16, 17) if (i, j) not in field]
-        if not missing:
-            break
-        for (i, j) in missing:
-            nb = [field[m] for m in ((i+1, j), (i-1, j), (i, j+1), (i, j-1)) if m in field]
-            if nb:
-                field[(i, j)] = sum(nb) / len(nb)
-    return field
-
-
-def relief_at(field: dict, x: float, z: float, *, edge_dist: float, fade_lo: float = 2.0, fade_hi: float = 10.0):
-    """Bilinear relief at ``(x, z)``, faded to 0 within ``fade_lo``..``fade_hi`` units of the land edge
-    (``edge_dist`` = the caller's distance to the weld/rim -- the weld must keep its exact Y)."""
-    if not field:
-        return 0.0
-    w = max(0.0, min(1.0, (edge_dist - fade_lo) / (fade_hi - fade_lo)))
-    if w == 0.0:
-        return 0.0
-    gx = x / 4.0
-    gz = z / 4.0
-    i0 = math.floor(gx)
-    j0 = math.floor(gz)
-    tx = gx - i0
-    tz = gz - j0
-    h = 0.0
-    for (di, dj, wgt) in ((0, 0, (1-tx)*(1-tz)), (1, 0, tx*(1-tz)), (0, 1, (1-tx)*tz), (1, 1, tx*tz)):
-        h += field.get((i0 + di, j0 + dj), 0.0) * wgt
-    return h * w
 
 
 def smooth_normals(pos, tris, assign_vids):

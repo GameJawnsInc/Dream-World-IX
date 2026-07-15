@@ -951,3 +951,65 @@ def test_bank_lower_wall_lip_anchor():
             got = emit_by_plan.get((round(v[0][0], 4), round(v[0][2], 4), v[2][0]))
             assert got is None or got == v[2][1], \
                 "a surviving wall tri disagrees with an emission at a shared vert"
+
+
+# --- THE SAND-BAND FAMILIES (the beach translation law, 2026-07-15) ---------------------
+
+def test_sand_band_families_registry():
+    """The desert band's measured constants (the desert-beach study): u-strip exactly
+    +335/1024 texels from grass, single-valued v pins run 548->579 / cap 580->611,
+    an eps under half the 1-texel run-seam/cap-land gap."""
+    from ff9mapkit.world import coastmorph as CM
+    assert set(CM.SAND_BANDS) == {"grass", "desert"}
+    g, d = CM.SAND_BANDS["grass"], CM.SAND_BANDS["desert"]
+    assert (g["topo"], g["du"]) == (31, 0.0)
+    assert (d["topo"], d["du"]) == (32, 335.0 / 1024)
+    assert d["v_land"] == (0.53516,) and d["v_seam"] == (0.56543,)
+    assert d["v_cap_land"] == (0.56641,) and d["v_cap_seam"] == (0.59668,)
+    assert d["eps_v"] < (0.56641 - 0.56543) / 2.0
+    # grass wiring unchanged (the 44 golden tests above are the byte proof)
+    assert g["v_land"] is CM.SAND_V_LAND and g["v_seam"] is CM.SAND_V_SEAM
+
+
+def test_desert_band_decodes_and_rebuilds():
+    """The family auto-detection + decoder on a REAL desert beach block ((20,5): run 39
+    cap 2), and sand_rebuild's emission self-check runs green under the desert rects."""
+    from ff9mapkit.world import coastmorph as CM
+    from ff9mapkit.world import transplant as TR
+    terr = TR.world_tris(20, 5, "terrain", disc=1)
+    fam = CM._sand_band_family(terr, what="(20,5)")
+    assert fam is not None and fam["name"] == "desert" and fam["topo"] == 32
+    from ff9mapkit.world.extract import decode_id
+    sand = [t3 for t3 in terr
+            if decode_id(int(round(t3[0][3][0])))["topograph"] == 32]
+    dec = [CM._sand_tri_decode(t3, fam) for t3 in sand]
+    n_run = sum(1 for x in dec if x and x[0] == "run")
+    n_cap = sum(1 for x in dec if x and x[0] == "cap")
+    assert n_run >= 30 and n_cap >= 1
+    # the identity rebuild re-derives desert columns (rect flip + re-decode gate)
+    tw = CM.sand_rebuild((20, 5), disc=1)
+    assert sum(len(t.tris) for t in tw if type(t).__name__ == "EmitTris") >= 20
+
+
+def test_morph_in_place_refuses_absent_part_emission():
+    """THE (18,3) INCIDENT: an in-place morph must REFUSE a tweak that emits into a
+    part the real cell does not carry (its prefab has no transform to bind an
+    override to) -- never silently drop the emission while gates read clean."""
+    from ff9mapkit.world import transplant as TR
+
+    class _FakeEmit:
+        part = "beach1"
+
+        def apply(self, part, poly):
+            return poly
+
+        def emit(self):
+            v = ((1.0, 0.0, -1.0), (0.0, 1.0, 0.0), (0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
+            return [(v, v, v)]
+
+        def gate(self):
+            return {"gate": "emit[beach1]", "ok": True}
+
+    with pytest.raises(ValueError, match="carries no 'beach1'|could never render"):
+        TR.morph_in_place("FF9CustomMap-ptest", cell=(18, 3),
+                          tweaks=[_FakeEmit()], dry_run=True)

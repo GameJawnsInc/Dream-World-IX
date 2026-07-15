@@ -219,18 +219,26 @@ def _split_at_borders(parent_tris):
 
 def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int = 1, land_height: float = 3.2,
                    rim_run: float = 1.0, undulation: float = 0.11, n_corners: int = 3,
-                   corner_strength: float = 0.26, n_patches: int = 2, relief=None, stamps=None,
-                   mains_seed: int = 0xF91, stamp_seed: int = 0xF92, disc: int = 1, game=None) -> dict:
+                   corner_strength: float = 0.26, n_patches: int = 2, stamps=None,
+                   mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
+                   disc: int = 1, game=None) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
-    :func:`verify_landmass` checks it against the measured FF9 coastline language). ``relief`` = a
-    :func:`grassland.relief_field` dict, ``"auto"`` (load from the install), or ``None`` (flat --
-    hermetic). ``stamps`` likewise (a list / ``"auto"`` / ``None``). Returns
+    :func:`verify_landmass` checks it against the measured FF9 coastline language). The interior is
+    FLAT at ``land_height`` by design -- explicit height comes from the studied verbs (world-hill /
+    world-forest / world-mountain); an ambient relief field was RETIRED 2026-07-15 (never applied due
+    to a frame bug; flat repeatedly in-game approved -- THE DEAD-RELIEF DISCOVERY, resurrection notes
+    in studies/overworld-topography/README.md). ``stamps`` = a list / ``"auto"`` (load from the
+    install) / ``None`` (hermetic). ``ground`` picks the walkable
+    ground family from :data:`grassland.GROUNDS` (the byte-measured TRANSLATION LAWS): ``"grass"``
+    (the identity -- bit-frozen) or ``"desert"`` (topo-17 mains + the desert cliff-wall band; meadow
+    stamps are grass vocabulary and are disabled). Returns
     ``{"blocks": {(bx, by): BlockMesh}, "outline", "seed", "report"}`` -- run :func:`verify_landmass`
     (or let :func:`landmass` do it) before deploying."""
     from . import mesh as M
     from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    gspec = G.GROUNDS[ground]
 
     cx, cz = center
     if seed is None:
@@ -239,7 +247,12 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         outline, radii = M.multi_blob_outline(cx, cz, lobes=lobes, base_radius=base_radius, seed=seed,
                                               undulation=undulation)
     else:
+        # adaptive outline density (2026-07-15, the horseshoe-scale benches): the fixed
+        # n=96 ring leaves >8u rim segments past ~r60 (undulation stretches arcs; the 8u
+        # on-grain gate then fails). max(96, ceil(1.6*r)) keeps n = 96 for EVERY existing
+        # radius (r <= 60 -- all frozen identity baselines) and densifies beyond.
         outline, radii = M.blob_outline(cx, cz, base_radius=base_radius, seed=seed, undulation=undulation,
+                                        n=max(96, int(math.ceil(base_radius * 1.6))),
                                         n_corners=n_corners, corner_strength=corner_strength)
     nring = len(outline)
     rim = []
@@ -293,14 +306,51 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             keep[t] = True
     fill = [(allpts[i], allpts[j], allpts[k]) for t, (i, j, k) in enumerate(tri_idx) if keep[t]]
 
+    # THE BIG-MINT REFINEMENT (conditional, 2026-07-15): a large-radius interior Delaunay
+    # can leave a few grass tris with plan edges over the 8u on-grain gate (the
+    # horseshoe-scale r69+ mints). Split the longest such edge at its midpoint in BOTH
+    # owning tris (identical midpoint floats -> the weld holds) until none remain.
+    # STRICTLY a no-op on any mint that never trips it -- every frozen identity baseline
+    # (island E, the r31/r50/r52 benches) rebuilds bit-identically.
+    _kkm = lambda p: (round(p[0], 3), round(p[2], 3))  # noqa: E731
+    for _pass in range(64):
+        worst = None
+        for tri in fill:
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                d = math.hypot(tri[a][0] - tri[b][0], tri[a][2] - tri[b][2])
+                if d > 8.0 and (worst is None or d > worst[0]):
+                    worst = (d, tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))))
+        if worst is None:
+            break
+        owners = []
+        for fi, tri in enumerate(fill):
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                if tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))) == worst[1]:
+                    owners.append((fi, a, b))
+                    break
+        if len(owners) != 2:
+            raise ValueError(f"an over-8u grass edge has {len(owners)} owner(s) -- "
+                             f"change --seed/--radius")
+        (fi0, a0, b0) = owners[0]
+        pa, pb = fill[fi0][a0], fill[fi0][b0]
+        m = ((pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0, (pa[2] + pb[2]) / 2.0)
+        done = {fi for fi, _, _ in owners}
+        new_fill = [tri for fi, tri in enumerate(fill) if fi not in done]
+        for fi, a, b in owners:
+            tri = fill[fi]
+            c = [v for k2, v in enumerate(tri) if k2 not in (a, b)][0]
+            new_fill.append((tri[a], m, c))
+            new_fill.append((m, tri[b], c))
+        fill = new_fill
+
     cells_used = sorted({(math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4))
                          for (a, b, c) in fill})
     cell_quad, cell_ori = G.assign_mains(cells_used, seed=mains_seed)
 
+    if ground != "grass":
+        stamps = None                                    # meadow stamps are GRASS vocabulary
     if stamps == "auto":
         stamps = G.extract_stamps(disc, game=game)
-    if relief == "auto":
-        relief = G.relief_field(disc=disc, game=game)
 
     def box_ok(box):
         for (i, j) in box:
@@ -326,15 +376,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
         cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
 
-    rim_keys = {(round(x, 3), round(z, 3)) for (x, z) in rim}
-
-    def edge_dist(x, z):
-        return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top))
-
     def fill_y(x, z):
-        if (round(x, 3), round(z, 3)) in rim_keys:
-            return land_height                           # exact weld at the wall top
-        return land_height + G.relief_at(relief or {}, x, z, edge_dist=edge_dist(x, z))
+        return land_height                               # flat interior; exact weld at the wall top
 
     # global shore arc-length (continuous across cells -> the rock band chains block to block)
     cum = [0.0] * nring
@@ -351,14 +394,17 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         return cum[bi]
 
     idw = float(encode_id(topograph=CLIFF_TOPO))
-    idg = float(encode_id(topograph=LAND_TOPO))
+    idg = float(encode_id(topograph=gspec["topo"]))
     parent = []                                          # (corners[(x,y,z,u,v)]x3, idall, fam)
 
     def up(c0, c1, c2):
         ny = (c1[2]-c0[2])*(c2[0]-c0[0]) - (c1[0]-c0[0])*(c2[2]-c0[2])
         return (c0, c1, c2) if ny > 0 else (c0, c2, c1)
 
-    strip_w = ROCK_U[1] - ROCK_U[0]
+    # the cliff-wall band, shifted per ground family (THE WALL TRANSLATION LAW)
+    ru0, ru1 = ROCK_U[0] + gspec["wall_du"], ROCK_U[1] + gspec["wall_du"]
+    rv0, rv1 = ROCK_V[0] + gspec["wall_dv"], ROCK_V[1] + gspec["wall_dv"]
+    strip_w = ru1 - ru0
 
     def rock_uvs(pts3):
         s = [shore_s(p[0], p[2]) for p in pts3]
@@ -370,8 +416,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         span = max(ph) - min(ph)
         if off + span > strip_w:                         # window-translate: the wrap lands on a tri boundary
             off = max(0.0, strip_w - span)
-        return [(ROCK_U[0] + min(off + (p - min(ph)), strip_w),
-                 ROCK_V[0] + min(max(pt[1] / land_height, 0.0), 1.0) * (ROCK_V[1] - ROCK_V[0]))
+        return [(ru0 + min(off + (p - min(ph)), strip_w),
+                 rv0 + min(max(pt[1] / land_height, 0.0), 1.0) * (rv1 - rv0))
                 for p, pt in zip(ph, pts3)]
 
     for i in range(nring):                               # the wall band
@@ -392,7 +438,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             continue
         quad, ori = cell_quad[cell], cell_ori[cell]
         tri = up(*(( (p[0], fill_y(p[0], p[2]), p[2]) for p in (a, b, c) )))
-        corners = tuple((p[0], p[1], p[2], *G.mains_uv(p[0], p[2], cell, quad, ori)) for p in tri)
+        corners = tuple((p[0], p[1], p[2], *G.ground_uv(p[0], p[2], cell, quad, ori, ground))
+                        for p in tri)
         parent.append((corners, idg, "main"))
     for corners, fam in G.stamp_geometry(placements):    # verbatim meadow stamps (exact real corner UVs)
         pts = [(x, fill_y(x, z), z) for (x, z, _, _) in corners]
@@ -439,6 +486,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
 
     return {"blocks": blocks, "outline": outline, "rim": rim, "seed": seed, "center": (cx, cz),
             "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
+            "ground": ground,
             "world": {"pos": gpos, "tris": gtris, "meta": gmeta, "nrm": gnrm}}
 
 
@@ -454,6 +502,14 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
     gpos = built["world"]["pos"]
     gtris = built["world"]["tris"]
     gmeta = built["world"]["meta"]
+    ground = built.get("ground", "grass")
+    gspec = G.GROUNDS[ground]
+    g_topo = gspec["topo"]
+    main_region = G.ground_main_region(ground)
+    rock_lo_u = ROCK_U[0] + gspec["wall_du"]
+    rock_hi_u = ROCK_U[1] + gspec["wall_du"]
+    rock_lo_v = min(ROCK_V) + gspec["wall_dv"]
+    rock_hi_v = max(ROCK_V) + gspec["wall_dv"]
     report = {}
     seen = {}
     cracks = 0
@@ -477,13 +533,14 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
             steep += 1                                   # the engine's walkmesh filter would drop it
         _, idall, fam, uvv = gmeta[tidx]
         topo = decode_id(int(round(idall)))["topograph"]
-        if topo == LAND_TOPO:
+        if topo == g_topo:
             e = max(math.dist((a[0], a[2]), (b[0], b[2])), math.dist((b[0], b[2]), (c[0], c[2])),
                     math.dist((a[0], a[2]), (c[0], c[2])))
             if e > 8:
                 big += 1
-        lo_u, lo_v, hi_u, hi_v = (ROCK_U[0] - 1e-3, min(ROCK_V) - 1e-3, ROCK_U[1] + 1e-3, max(ROCK_V) + 1e-3) \
-            if fam == "rock" else G.FAM_REGION.get(fam, G.FAM_REGION["?"])
+        lo_u, lo_v, hi_u, hi_v = (rock_lo_u - 1e-3, rock_lo_v - 1e-3, rock_hi_u + 1e-3, rock_hi_v + 1e-3) \
+            if fam == "rock" else (main_region if fam == "main"
+                                   else G.FAM_REGION.get(fam, G.FAM_REGION["?"]))
         for (u, v) in uvv:
             if not (lo_u - 1e-4 <= u <= hi_u + 1e-4 and lo_v - 1e-4 <= v <= hi_v + 1e-4):
                 oob += 1
@@ -561,7 +618,7 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
             if 0.0 <= lx <= BLOCK and -BLOCK <= lz <= 0.0:
                 gy, nm, _, topo = P.place(meshlist, lx, lz)
                 entry["centre"] = (round(gy, 2), nm, topo)
-                entry["centre_ok"] = nm == "Terrain" and topo == LAND_TOPO
+                entry["centre_ok"] = nm == "Terrain" and topo == g_topo
             place_reports[blk] = entry
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
@@ -595,7 +652,8 @@ def _real_block_parts(blk, *, disc: int = 1, lod: str = "0_1", game=None) -> dic
 
 def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None, lobes: int = 1,
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
-             donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1", game=None, dry_run: bool = False) -> dict:
+             ground: str = "grass", donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1", game=None,
+             dry_run: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -609,8 +667,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         center = (BLOCK * cell[0] + BLOCK / 2, -BLOCK * cell[1] - BLOCK / 2)
     built = build_landmass(center=center, base_radius=base_radius, seed=seed, lobes=lobes,
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
-                           relief=None if flat else "auto", stamps=None if flat else "auto",
-                           disc=disc, game=game)
+                           stamps=None if flat else "auto",
+                           ground=ground, disc=disc, game=game)
     # THE OPEN-OCEAN TARGET LAW (the world-transplant gate, ported here 2026-07-12): every
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
     # Terrain override has no transform to bind to (the fragment silently never renders), and
