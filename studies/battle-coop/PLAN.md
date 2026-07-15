@@ -47,6 +47,21 @@
 > **NEXT = Phase 6, the two-machine session** (needs the laptop out). Then Phase 7 (party mirror → the
 > battle diorama).
 >
+> **DESIGN UPGRADE (2026-07-15, user-driven): the in-place flag restore is REPLACED by the AUTOLOAD EXIT
+> RAMP.** The user spotted that restoring the guest's own flags in place leaves them standing at the
+> HOST's location — own story + host position = a frankenstate the base game can't produce (a
+> sequence-break machine / softlock generator). New exit semantics: **leaving a mirrored session reloads
+> the guest's OWN AUTOSAVE** (`NetSyncState.ExitMirrorToOwnSave` — `Serializer.Autoload` + the verbatim
+> moogle-menu load transition; no autosave yet → title screen, like a game over). The autosave guard is
+> what makes this correct: Continue stays pristine all session, so it IS the coherent pre-session
+> (story, position, party) tuple — "leaving co-op = Continue" is stock semantics. Mechanics: link-drop
+> arms the ramp DEBOUNCED (3s — a relay blip must not yank the guest); a deliberate config change arms
+> it immediately; `_storyMirroring` stays true until the ramp fires so the manual-save block stays armed
+> through the gap; the ramp fires only free-standing on a field/world map (never mid-battle/mid-warp);
+> app teardown skips it (disk already coherent). The `_ownStory` capture/restore machinery is DELETED
+> (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
+> acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
+>
 > **PHASE 6 RESULTS (accumulating, 2026-07-15):**
 > - ★ **Fail-safe PROVEN two-machine** (package step 0): v6 host + v5 laptop on the same field — visible
 >   co-location but NO pairing, no crash, no half-state. Exactly the designed version-reject behavior.
