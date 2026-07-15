@@ -1,16 +1,21 @@
 # GUI aesthetics — state + next steps
 
-**Branch:** `claude/gui-card-readability-eb5d9f` · **19 commits** · 2898 tests + `--smoke` green ·
-**NOT merged to master.**
+**Branch:** `claude/gui-card-readability-eb5d9f` · **20 commits** · ✅ **MERGED to master 2026-07-15** as
+`5c212e2` · 2911 tests + `--smoke` green on the merged tree.
 
-> **⚠ NOTHING HERE HAS BEEN PLAYTESTED.** Every judgement in this arc was made from offscreen renders and
-> computed contrast ratios. The user approved *screenshots*, not the running app. Four palettes had their
-> `accent`/`accent_fg` changed and **nobody has seen them live**. That is the single biggest open risk and
-> it is cheap to close: launch `apps/ff9_workspace.pyw` and look.
+> **⚠ MOSTLY UNPLAYTESTED.** Every judgement in this arc was made from offscreen renders and computed
+> contrast ratios. **Confirmed live: Mist** (user, 2026-07-15: *"Mist looks good"*). **Still unseen:** the
+> hero's signet, and the retuned `accent`/`accent_fg` in dark / nord / solarized-dark / solarized-light —
+> in particular **dark's Deploy button is now dark-ink-on-blue, not white-on-blue** (3.20 → 5.39). That is
+> the most visible unjudged change in the tree. Cheap to close: launch `apps/ff9_workspace.pyw` and look.
 
-**Merge status: CLEAN.** Master moved ~10 commits ahead (overworld/beach work) while this ran, but the two
-sets are **disjoint — zero file overlap** (25 files here, 39 there). Merge, don't rebase. Verify with
-`git -C <repo> merge-base --is-ancestor master HEAD` before landing — see [[project-ff9-main-repo-branch-trap]].
+**Merge, as it actually went.** Master moved ~10 commits ahead (overworld/beach work) while this ran. The
+earlier claim of *zero* file overlap went **stale before landing** — `CLAUDE.md` ended up touched by both
+sides (master's mountain work, this arc's §10 line). Git auto-merged it; both survived. The trap was real
+and was avoided: the main repo sits on `claude/interior-topography-plan-b61671`, so a `cd repo && git merge`
+would have landed the GUI work on the topography branch. Master was checked out in **none** of the 11
+worktrees, so the landing was `git fetch . <branch>:master` from here — fetch refuses a non-fast-forward,
+which is the property that makes it safe. See [[project-ff9-main-repo-branch-trap]].
 
 ---
 
@@ -63,15 +68,60 @@ dark/nord/solarized. Specifically judge:
 ### 2. Merge to master.
 Disjoint from master's overworld work; merge is clean.
 
-### 3. Unshipped, specced, cheap
-- **Phase 2a — the button ladder** ([PLAN.md](PLAN.md)): a `role="quiet"` tier so the action row has one
-  entry point. Four equal buttons still. Spec is exact, incl. the `:disabled`/`:pressed` trap.
-- **Phase 5 — hygiene**: 9 radii → 3, spend `space_*`. PLAN.md's own instruction: *land it silently, never
-  bill it as beauty.*
+### 3. Both plans are SPENT — the phase accounting
+
+The question *"do we still have a many-phased plan for beauty?"* has a precise answer: **no, and mostly by
+design.** Eleven planned phases across two rounds; here is every one of them.
+
+**PLAN.md — round 2, WORKSHOP, 7 phases:**
+
+| | phase | status |
+|---|---|---|
+| P0 | contrast hole + the selector bug | ✅ shipped `86de3f5` |
+| P1 | name the options, demote the paragraph | ✅ shipped `c1073dc` |
+| P2 | button ladder **+** mono register | ◐ **split** — mono shipped `c1073dc`; **the ladder (2a) is unshipped** |
+| P3 | ~~kill all 27 QGroupBoxes~~ | ✅ mechanism shipped `881e468` `0ecfa75` — **premise overruled by the user** |
+| P4 | widen the dark span | ⛔ **DEAD** — verified: it reverts P0's contrast floors on all 5 dark palettes |
+| P5 | radius / spacing / role hygiene | ✗ unshipped — *PLAN.md's own words: "land it silently; never bill it as beauty"* |
+| P6 | the Home page | ⇢ **superseded** — SIGNET's hero did this surface instead |
+
+**IDENTITY.md — round 3, SIGNET, 4 phases: ✅ 4 / 4 shipped.** palette `5ed0a21` · stretch fix `5ed0a21` ·
+hero `11fae9e` · record `764ca74` (+ `5e61ebd`, the Ctrl-K opt-in).
+
+**So: we are on small stuff because small stuff is all that is left — that is not drift.** Of the 7 WORKSHOP
+phases, 3 shipped, 1 is dead, 1 is superseded, and the **2 remaining are explicitly labelled hygiene by the
+plan that proposed them.** The round that was framed as the beauty plan produced a hygiene plan; the round
+framed to commit produced SIGNET, and SIGNET is complete. See the last section for *why* that happened —
+it is structural, not accidental.
+
+Still unshipped and cheap, all hygiene:
+- **Phase 2a — the button ladder**: a `role="quiet"` tier so the action row has one entry point. Spec is
+  exact, incl. the `:disabled`/`:pressed` trap.
+- **Phase 5 — hygiene**: 9 radii → 3, spend `space_*`.
 - **`widgets.section()` interiors are still hard-coded** (16/12/16/16, `SECTION_GAP = 14`) and not tokenized.
   The dead-`space_*` finding is now *stronger*, not weaker.
 - **The `QGroupBox` QSS block (`style.py`) + `$gb_margin_top`/`$gb_pad_top` are dead code** — QGroupBox is
   constructed nowhere. Sweep.
+
+### 3b. If you want MORE beauty, it is a contract renegotiation — not a phase
+
+There is no "make Build & Deploy beautiful" phase to run, and that is **deliberate**. SIGNET's contract
+([IDENTITY.md](IDENTITY.md), *What we are NOT doing*) is:
+
+> *identity where you look for 5 seconds, restraint where you work for 3 hours.*
+
+Every work surface — dialogs, console, tree, inspector, toolbar, crumb row, tab strip — is neutral **on
+purpose**, and the gold is confined to one corner of one band because *"one corner, once, or it's a costume."*
+So extending the identity inward is not the next phase of SIGNET; it is the thing SIGNET forbids. Round 4
+would have to argue the contract is wrong.
+
+**The one genuine unresolved beauty question**, already measured and never answered, is PLAN.md's **Open
+Question #2 — "what is under the lamp on Build & Deploy?"** The pages are flat type with a single accent
+verb in the crumb row. That may be exactly right (*a form's focal point is its verb*). If it reads
+rudderless, the honest lift is already specced and already measured: **`role="card"` + a 4px accent
+left-stripe — 2.44–4.73 against `surface_2` in all 7 palettes**, the one delineation that survives the light
+themes, applied to **one** element per screen and nothing else. That is the highest-value unshipped
+*aesthetic* move in either plan, and it is gated on a playtest verdict, not on more research.
 
 ### 4. Known, deliberate, not bugs
 - **`PROSE_W = 620`** is wide (~109 chars vs the 45–75 band). User: *"fine with 620 for the moment."*
