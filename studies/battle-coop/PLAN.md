@@ -67,12 +67,18 @@
 > item-checked in EXACTLY ONE field in the whole game — **806 (S. Gate/Dali Gate)**, the gate guard's
 > talk routine (fail = "you gotta have a Gate Pass"; pass = he opens the gate). Key-item id 16
 > (menu/save-editor space) = generic script id 272 (important = 256+id). Every other South Gate booth
-> (800-805/807) gates on STORY FLAGS only — folklore falsified by disasm. Scan method (reusable): the
-> fork-report raw-expr regex generalized — `\x7d(..)\x64` = B_CONST <u16> B_HAVE_ITEM, `\x7d(..)\x6b` =
-> B_PARTYCHK — over every real field's `.eb`: 258 fields item-check, 230 party-check (the transcript
-> renderer does NOT surface these tokens — raw bytes are the only reliable census). Two-machine test:
-> host save WITH the pass, guest WITHOUT → negative control solo at 806 (refused) → follow → the guard
-> opens for the guest → disconnect/ramp → refused again.
+> (800-805/807) gates on STORY FLAGS only — folklore falsified by disasm. **THEN DOUBLY FALSIFIED by
+> the full 806 decode:** the pass is never load-bearing even there — the tag-22 guard opens for ANYONE
+> who answers Yes (talk twice: first talk = an instance-var-latched info line, second = the Yes/No; the
+> "…I guess you do" is theater), the other side's guard is scenario-windowed, and the game's ONLY
+> `have_item(272)` is a cosmetic pass-presenting gesture in the player sequence. Scan method
+> (reusable): the fork-report raw-expr regex generalized — `\x7d(..)\x64` = B_CONST <u16> B_HAVE_ITEM,
+> `\x7d(..)\x6b` = B_PARTYCHK — over every real field's `.eb`: 258 fields item-check, 230 party-check
+> (the transcript/disasm renderers do NOT surface these tokens — raw bytes are the only reliable
+> census). **THE REAL ACCEPTANCE TARGET: the moogle TENT offer** — `Tent = RegularItem 253` is the
+> most-checked item in the game (138 fields ≈ every save-moogle screen): host with ≥1 Tent, guest with
+> 0 → guest solo: no Tent offer from a moogle; guest FOLLOWING: the moogle offers the host's Tent →
+> disconnect/ramp → offer gone. Binary, save-cheap, zero scenario interference.
 >
 > **PHASE 7 RUNG 2 — THE PARTY MIRROR (wire v7) — BUILT 2026-07-15, solo proof pending.** The state
 > frame gains sections 1-3 (`NetSyncParty.cs`): **1 = the 4 party slots** (identity/looks/label stats
