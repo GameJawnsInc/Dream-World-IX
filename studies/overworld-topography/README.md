@@ -337,9 +337,12 @@ welds internal borders per POSITION and tapers only at the span's outer rect; cr
 span, zip rise 1.05 / ny 0.96 / rigidity 0.7% / apron 4.1° — far inside every envelope)
 and is DEPLOYED on a fresh r50 bench island at **(64,−1216)** (`world-island` seed 11 +
 `world-mountain --near 64,-1216 --donor 10,5-6`, placed (70,−1218) rot 0; teleport
-**(30.5, −1217.5)** face east) — in-game verdict pending, watch the FOOT FRINGE
-(the crag's transition tiles are painted against topo-17 wasteland, here seated on
-mains grass) and the two border seams through the massif body.
+**(30.5, −1217.5)** face east) — **★ MECHANISM IN-GAME PROVEN 2026-07-15** ("looks
+verbatim" + "rim walk is good": the border seams are invisible, the rim walks clean).
+The LOOK verdict is deliberately deferred: the crag's foot fringe is painted against
+topo-17 DESERT ground and reads foreign on mains grass — the DESERT GROUND-LANGUAGE
+study (census → tile decode → a desert island ground → re-seat the crag) is the next
+rung; only on native ground can "reads native" be judged.
 
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
