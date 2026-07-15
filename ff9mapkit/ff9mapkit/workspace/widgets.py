@@ -103,21 +103,24 @@ def status_chip(text, kind="info", *, parent=None):
     return lab
 
 
-def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None):
+def empty_state(glyph, purpose, *, teach=None, actions=(), parent=None, icon_pixmap=None):
     """A centered TEACHING empty-state -- the antidote to a black void / a bare "nothing loaded" panel:
-    a large muted glyph, a one-line purpose, an optional teaching sentence, and optional primary-action
-    button(s). ``actions`` is an iterable of ``(label, callback)`` (falsy entries are skipped, so a caller
-    can gate one on availability); the first surviving action is accented as the primary. The glyph is
-    decorative (no accessible name) -- the purpose + teach lines carry the meaning for a screen reader.
-    Returns a QWidget ready to drop into any empty host layout."""
+    a large decorative icon/glyph, a one-line purpose, an optional teaching sentence, and optional
+    primary-action button(s). ``actions`` is an iterable of ``(label, callback)`` (falsy entries are
+    skipped, so a caller can gate one on availability); the first surviving action is accented as the
+    primary. ``icon_pixmap`` (Phase 8) shows an SVG icon instead of the text ``glyph``; either way the
+    mark is decorative (no accessible name) -- the purpose + teach lines carry the meaning for a screen
+    reader. Returns a QWidget ready to drop into any empty host layout."""
     w = QWidget(parent)
     v = QVBoxLayout(w)
     v.setContentsMargins(24, 24, 24, 24)
     v.setSpacing(8)
     v.addStretch(1)
-    g = role_label(glyph, "empty_glyph")
+    g = role_label("", "empty_glyph") if icon_pixmap is not None else role_label(glyph, "empty_glyph")
+    if icon_pixmap is not None:
+        g.setPixmap(icon_pixmap)
     g.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    g.setAccessibleName("")                             # decorative -- don't announce the glyph char
+    g.setAccessibleName("")                             # decorative -- don't announce the glyph/icon
     v.addWidget(g)
     p = role_label(purpose, "empty_title")
     p.setAlignment(Qt.AlignmentFlag.AlignCenter)

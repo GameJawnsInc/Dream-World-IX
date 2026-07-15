@@ -108,7 +108,10 @@ class CampaignMap(QGraphicsView):
             it.setPos(cx - br.width() / 2, cy + dy)
             return it
 
-        _centered("◇", 30, subtle, -74)
+        from . import icons                              # the ◇ glyph -> the campaign (layers) SVG icon
+        _pm = icons.pixmap("campaign", subtle, 46)
+        _pit = sc.addPixmap(_pm)
+        _pit.setPos(cx - (_pm.width() / _pm.devicePixelRatio()) / 2, cy - 82)
         _centered("No campaign open", 13, pal["text"], -24, bold=True)
         _centered("This map draws a campaign's fields and the gateways between them.", 9, pal["muted"], 6)
         _centered("Open a campaign from the tree, or create one from Home.", 9, pal["muted"], 24)

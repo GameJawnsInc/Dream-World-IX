@@ -1174,6 +1174,7 @@ class Workspace(QMainWindow):
         rl = QHBoxLayout(rail)
         rl.setContentsMargins(6, 4, 6, 0)
         rl.setSpacing(4)
+        rail_icon = {"Home": "home", "Author": "author", "Assets": "assets", "State": "state", "Ship": "rocket"}
         self._rail_segs = []
         for gi, (name, _members) in enumerate(self._rail_groups):
             seg = QToolButton()
@@ -1182,6 +1183,8 @@ class Workspace(QMainWindow):
             seg.setCheckable(True)
             seg.setAutoExclusive(True)                  # arrow-key nav within the segmented control
             seg.setCursor(Qt.CursorShape.PointingHandCursor)
+            seg.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)   # a leading group icon + the label
+            self._set_btn_icon(seg, rail_icon[name], "text", 16)   # (Ship shares the Deploy rocket -- the eye links them)
             seg.setAccessibleName(f"{name} workspace")
             seg.setToolTip(f"{name} — " + ", ".join(self.tabs.tabText(self.tabs.indexOf(m)).replace("&&", "&")
                                                      for m in _members))
@@ -2786,9 +2789,11 @@ class Workspace(QMainWindow):
             add_row(f.get("name", ""), f.get("index", floor))
         lay.addWidget(tbl)
         btns = QHBoxLayout()
-        addb = QPushButton("+ Add flag")
+        addb = QPushButton("Add flag")
+        addb.setIcon(icons.icon("plus", self.pal["text"], 14))
         addb.clicked.connect(lambda: add_row())
-        rmb = QPushButton("− Remove")
+        rmb = QPushButton("Remove")
+        rmb.setIcon(icons.icon("minus", self.pal["text"], 14))
         rmb.setToolTip("Remove the selected flag row.")
         rmb.setEnabled(tbl.currentRow() >= 0)            # nothing selected -> nothing to remove (don't no-op silently)
         rmb.clicked.connect(lambda: tbl.removeRow(tbl.currentRow()) if tbl.currentRow() >= 0 else None)
@@ -4208,8 +4213,9 @@ class Workspace(QMainWindow):
         self._header(f"{member}  ·  {sing}s",
                      f"{n} {sing.lower()}(s) on this field. Add a new one below, or pick an existing item "
                      "in the tree to edit it.")
-        btn = QPushButton(f"➕  Add {sing}")
+        btn = QPushButton(f"Add {sing}")
         btn.setObjectName("accent")
+        btn.setIcon(icons.icon("plus", self.pal["accent_fg"], 15))
         btn.clicked.connect(lambda _=False: self._add_list_item(member, kind))
         self.doc_host_lay.addWidget(btn, alignment=Qt.AlignLeft)
         self.doc_host_lay.addStretch(1)

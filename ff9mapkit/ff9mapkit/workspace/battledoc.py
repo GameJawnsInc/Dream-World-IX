@@ -275,10 +275,11 @@ class BattleDoc(QWidget):
         """The tab's teaching empty-state -- no battle map open. Points at the two real first actions (Fork
         a real FF9 battle / open an existing battle.toml); Fork only appears when the install is available."""
         from .widgets import empty_state
+        from . import icons
         self._clear()
         can_fork = self._run is not None and self.kit is not None
         self.host_lay.addWidget(empty_state(
-            "▦", "No battle map open",
+            "", "No battle map open", icon_pixmap=icons.pixmap("battle", self.pal["muted"], 44),
             teach=("A battle map defines an encounter — its enemies, AI, formation, and rewards. "
                    "Fork one from a real FF9 battle, or open an existing battle.toml."),
             actions=[("Fork a battle…", self._fork_dialog) if can_fork else None,
