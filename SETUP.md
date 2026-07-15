@@ -275,7 +275,7 @@ console:
 
 ## 7. CLI command reference
 
-97 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
+114 subcommands, invoked as `ff9mapkit <cmd>` or `py -m ff9mapkit <cmd>`. Global flags —
 `--game <path>`, `--mod-folder <name>`, `--version` — go **before** the subcommand
 (`ff9mapkit --game <path> doctor`). Commands that read FF9's asset bundles need the `assets`
 extra (UnityPy).
@@ -370,16 +370,25 @@ extra (UnityPy).
 | `playable-anims <field>` | Route edited donor clips onto a custom playable character's own minted animset. |
 
 **Overworld** *(the mesh-writing commands — `world-terrain`, `world-reclaim`, `world-coast`,
-`world-transplant`, `world-water`, `world-entrance`, `world-deploy`, `world-mesh-build` — need
-the engine bundle's `s34` mesh-override patch; the atlas/texture, encounter, environment, and
-marker commands are stock-engine)*
+`world-transplant`, `world-fuse`, `world-island`, `world-forest`, `world-hill`,
+`world-mountain`, `world-water`, `world-entrance`, `world-deploy`, `world-mesh-build`,
+`world-mirror` — need the engine bundle's `s34` mesh-override patch; the atlas/texture,
+encounter, environment, marker, and minimap commands are stock-engine)*
 
 | command | what it does |
 |---|---|
 | `world-terrain` | Reshape walkable terrain (hill/crater/ridge/flatten) across blocks, seamlessly. |
 | `world-reclaim` | Reclaim ocean cells as walkable land. |
 | `world-coast` | Place a real FF9 coastal block (terrain + animated beach/foam) on reclaimed ocean (`--list` browses donors). |
-| `world-transplant` | Carry a complete real island (land + beach + Wang'd ocean) to a cell, with 90° rotation + 0-mod-4 shift, offline-gated. |
+| `world-transplant` | Carry a complete real island (land + beach + Wang'd ocean) to a cell, with 90° rotation + 0-mod-4 shift, offline-gated; `--in-place` runs the coast-morph verbs on a deployed block. |
+| `world-fuse` | Validate + deploy a multi-placement transplant LAYOUT (the cross-donor fuse) — several verbatim landmasses in adjacent rects, every shared border certified open water. |
+| `world-island` | Synthesize a fully-CUSTOM cliff island/landmass on open ocean: organic coastline + faithful rock wall + the real grass language, offline-gated (geometry + UV + placement census). |
+| `world-forest` | Carry a REAL canopy blob (verbatim topo-37) onto a deployed kit island — gated by the canopy STEP LAW + a perimeter walk-in simulation. |
+| `world-hill` | Raise a raised-cosine grass hill on a deployed kit island by pure-Y displacement, inside the measured grass-language envelope. |
+| `world-mountain` | Carry a REAL rock massif (verbatim rock + alcove floor + object-aperture plugs) onto a deployed kit island — ROCK-RIGID, the grass apron conforms. |
+| `world-morphs` | The coast WINDOW SCANNER: print a real block's lawful morph windows with per-verb depth ceilings (each line deploys as printed via `world-transplant --in-place`). |
+| `world-minimap` | Draw a mod folder's deployed overworld land onto the in-game all-world map image (no DLL; relaunch to apply). |
+| `world-mirror` | Mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree (+ pin free-ride donor parts) — run after any custom-ocean deploy. |
 | `world-water` | Synthesize graded open-ocean water (shallow→deep bands) on sea cells. |
 | `world-entrance` | Author a whole custom overworld entrance: trigger func + event tiles + optional building (`--cell`, `--field`, `--building`). |
 | `world-encounters` / `world-encounter-rate` | Inspect/re-table the overworld encounter table / retune its frequency. |
