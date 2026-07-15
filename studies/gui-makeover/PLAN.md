@@ -186,8 +186,33 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 >
 > Verified: **full suite 3476 passed / 2 skipped**, smoke asserts the rail swap + a rail click + both collapsed
 > drawers + battle auto-reveal; the five rail groups (1280px no-overflow), the foregrounded Import, and the
-> fenced Build screenshot-verified. Next: **Phase 7 (cohesion spine + per-doc disclosure + Guided/Full mode)**
-> — the mode-aware next-action strip, Battle/Save disclosure, and the global beginner mode (Q2 = build it).
+> fenced Build screenshot-verified.
+
+> **★ Phase 7 (cohesion spine + disclosure + Guided/Full mode) COMPLETE** (2026-07-14, 4 commits) — answers
+> "what do I do next" + finishes disclosure. **Milestone 3 (Coherence proven) reached.**
+> - **The cohesion spine** (`fbec726`) — a modest 'what do I do next' strip below the breadcrumb, driven by the
+>   live state: EMPTY → "Fork a real field" (+ Fork/Open); unsaved → "save, then Deploy (F9)" (+ Save-all);
+>   ready → "press Deploy (F9)…"; just-deployed → "in-game, F6 → Reload field". Deploy stays the ONE crumb
+>   button; the spine points at it (no double accent). State-cached (free per keystroke); auto-hides when idle.
+> - **Global Guided/Full mode** (`258e6c8`, Q2=yes) — Guided (**the default**) tucks each generated form's
+>   EXPERT fields into a per-form "Advanced options" drawer (a new `forms.Field.advanced` + auto-detection of
+>   the existing "advanced:"-help convention → model/animset/borrow_bg; mesID tagged); Full shows all inline.
+>   Nothing removed — every field keeps its getter, round-trips are identical. A global `forms_qt._GUIDED` (set
+>   from `prefs.guided()`) avoids threading; Preferences combo (revert-on-cancel) + a Ctrl-K toggle; re-mounts
+>   the open form on change.
+> - **Battle per-doc disclosure** (`88d1ac9`) — the byte-level donor-site picker + AI-facts panel tuck behind
+>   an "Advanced — donor sites / AI facts" drawer in Guided mode (Battle's editable fields were already covered
+>   by the Guided build_form split). *The Save Inspect/Diff/Edit sub-tabs were left as is — the Phase-6 rail
+>   already de-nested the save layer into its own State workspace, so a deeper flatten is a low-value deferral.*
+> - **"How it all fits" concept map** (`bd5a585`) — a static node-link diagram (Journey ▸ Campaign ▸ Field ▸
+>   contents + off-spine Battle/Overworld/Save), each box opening its concept card; Ctrl-K + a Home link.
+>
+> Verified: **full suite 3478 passed / 2 skipped**; smoke asserts the spine EMPTY nudge, the Guided/Full Ctrl-K
+> toggle, the Battle drawer, and the concept map; the four spine states, Guided-vs-Full forms, and the concept
+> map screenshot-verified. **⚠ Note for the user:** Guided is the DEFAULT (newcomer-first, matching the
+> Comfortable-density precedent) — expert form fields start tucked behind "Advanced options" (one click / Full
+> mode restores them). Easy to flip the default if you'd prefer Full. Next: **Phase 8 (iconography)** — the
+> SVG icon set (Q5), replacing the unicode/emoji glyphs across rail / tree / breadcrumb.
 
 
 ## 1. North-star vision
