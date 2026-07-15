@@ -550,6 +550,32 @@ exhibits for every family.
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
+**THE DESERT BEACH (★ offline 2026-07-15, the in-game rung PARKED at the transplant
+fork)** — `desert_beach_anatomy.py` / `desert_beach_decode.py` / the pin census →
+**THE BEACH TRANSLATION LAW**: stock desert beaches exist in force (14 Outer-Continent
+blocks, 112 sand↔topo-17 back welds) and their topo-32 sand band is the grass band's
+STRUCTURE at its own atlas spot — u-strip EXACTLY +335/1024 texels (P/Q preserved),
+own single-valued v pins (run 548→579, cap 580→611: land edges −32, seam edges −30,
+the ribbon 2 texels taller), foam universal, sand topo family-keyed 1:1 with the
+backing ground (zero mixed blocks; topo 33 = the Lost Continent's foam-less FROZEN
+SHORE at +330, measured only). **Productized as `coastmorph.SAND_BANDS`** + per-donor
+auto-detection through every sand-band verb; grass byte-frozen (44 golden tests),
+desert proven on all 15 real blocks (`desert_beach_acceptance.py`: decode 82% vs
+grass 73%, sand_rebuild 12/15, cap_rebuild byte-identity 11/15; refusals = the same
+residual classes as grass). En route: **THE ABSENT-PART LAW** — an in-place morph
+CANNOT emit into a part the real cell's prefab doesn't carry (no transform to bind
+the override; the (18,3) incident shipped a foam-less beach while gates read clean —
+morph_in_place now refuses actionably; the bad deploy was reverted). The window scan
+(`desert_beach_window_scan.py`, builders-as-the-oracle) closed the in-place path:
+bare desert coasts lack the parts, beach-block coasts are the cliff-lip by grammar
+(bay arcs!), and the two lawful (16,5) windows die between the FRAME gate (the bank
+field must cross block edges to sink enough berm) and the relief law (a narrower
+bank leaves the berm too steep). **The in-game proof's vehicle = the island-B
+TRANSPLANT pattern** (carry a desert-coast donor into the archipelago, bank+mint on
+the copy — no frame constraint, proven machinery); the bigger prize behind it = the
+LADDER MINT (sea5/sea1/wash bands over open sea4) that would give OUR minted islands
+(grass and desert alike) beaches — both open.
+
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
 placement scan + split-border emission.

@@ -5,6 +5,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — THE BEACH TRANSLATION LAW: the desert sand band (family-keyed beach verbs)
+- The desert-beach study (2026-07-15, `studies/overworld-topography/desert_beach_*.py`)
+  measured stock desert beaches (14 Outer-Continent blocks; 112 map-wide sand↔topo-17 back
+  welds): the topo-32 desert sand band is the grass band's structure at its own atlas spot —
+  the u-strip shifted exactly +335/1024 texels (P/Q split preserved) with its own
+  single-valued v pins (run 548→579, cap 580→611; the ribbon is 2 texels taller), foam
+  universal, and the sand topo family-keyed 1:1 with the backing ground (zero mixed blocks).
+  `coastmorph.SAND_BANDS` + per-donor auto-detection now run every sand-band verb
+  (`beach_mint`/`virgin_mint`/`sand_rebuild`/`cap_rebuild`/`beach_slide`/`beach_reshape`)
+  on either family; grass is byte-frozen through the refactor (the 44 golden tests are the
+  proof) and the desert side is proven against every real desert beach block (decode 82%
+  vs grass 73%; identity rebuilds green). topo 33 = the Lost Continent's foam-less frozen
+  shore (+330 texels) — measured, not yet mintable.
+
+### Fixed — `morph_in_place` silently dropped emissions into parts the cell doesn't carry
+- An in-place morph on a real cell whose prefab lacks a part's transform (e.g. minting a
+  beach on a never-beached block: no Beach1 to bind an override to) used to skip the part
+  entirely — INCLUDING tweak emissions into it — while the tweak gates still read clean, so
+  a deploy could ship a beach with no foam/wash. It now refuses actionably, naming the part
+  and the eaten tri count.
+
 ### Added — five more ground families: THE TRANSLATION LAW IS UNIVERSAL
 - The ground-families census (`studies/overworld-topography/ground_families_anatomy.py`,
   2026-07-15) ran the desert method over every remaining stock walkable ground: each one is the

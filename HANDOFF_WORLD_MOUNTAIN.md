@@ -109,8 +109,13 @@ identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs
    Remaining crumbs only: dirt-16's structure if the dry-lakebed look is ever wanted; the
    vocabulary-share earmark (stock grounds are only partly mains — desert precedent says it may never
    read at scale).
-2. **A desert beach** (shore sand, topos 31/32/33) — desert islands currently mint pure cliff rings;
-   this is the beach-mint analogue for sand shorelines.
+2. **A desert beach — rung A ★ DONE offline 2026-07-15** (THE BEACH TRANSLATION LAW: topo-32 desert
+   sand = the grass band +335 u-texels w/ own v pins; `coastmorph.SAND_BANDS`, every beach verb
+   family-keyed, desert proven on all 15 real blocks; + THE ABSENT-PART LAW fix in morph_in_place).
+   The in-game rung is PARKED at the fork: the in-place window census closed (frame gate × relief
+   law); the vehicle = the island-B TRANSPLANT pattern (desert-coast donor into the archipelago,
+   bank+mint on the copy), and the bigger prize behind it = the LADDER MINT (sea5/sea1/wash over
+   open sea4) that gives OUR minted islands beaches. → the coast-mosaic memory ("THE DESERT BEACH").
 3. **A composed showcase island** — the pieces (island + mountain + forest + hill + entrance +
    waystation field) have never been assembled into ONE designed place. This is where the arc's tools
    turn into content.

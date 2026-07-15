@@ -2145,6 +2145,18 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     for p in parts:
         tris = world_tris(bx, by, p, disc=disc, lod=lod, game=game)
         if not tris:
+            # a part the cell does not carry: the prefab has NO transform for it, so
+            # a loose override could never bind (the (6,17) lesson) -- a tweak that
+            # EMITS into it must refuse, not silently drop its tris (the (18,3)
+            # desert-beach incident: foam/wash/sea1 vanished while gates read clean)
+            eaten = sum(len(tw.emit() or ()) for tw in tweaks
+                        if getattr(tw, "part", None) == p)
+            if eaten:
+                raise ValueError(
+                    f"cell {cell} carries no '{p}' part -- its prefab has no such "
+                    f"transform, so the {eaten} emitted tris could never render. "
+                    f"An in-place morph can only emit into parts the REAL cell "
+                    f"already has; pick a window on a block that carries them")
             continue
         polys, touched = [], False
         for tri in tris:
