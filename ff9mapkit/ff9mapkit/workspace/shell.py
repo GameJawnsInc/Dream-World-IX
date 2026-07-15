@@ -6074,6 +6074,18 @@ class Workspace(QMainWindow):
             self.on_set_journey_tuning(href[len("jtuning:"):])
         elif href == "openparent":
             self._open_parent_campaign()
+        elif href.startswith("concept:"):
+            self._show_concept(href[len("concept:"):])       # the Inspector 'About this…' -> a plain-language card
+
+    def _concept_for_payload(self, kind, key):
+        """The plain-language concept card (if any) for a selected tree node -- so the Inspector can offer an
+        'About this…' link. Fields/campaigns/journeys map by kind; an object/group maps by its section name
+        (via the concept registry's alias/substring resolve, so gateway/encounter/prop/save-point land)."""
+        if kind in ("field", "campaign", "journey"):
+            return concepts.get(kind)
+        if kind in ("object", "group") and key:
+            return concepts.resolve(str(key).split(":")[0])
+        return None
 
     def _goto_battle_scene(self, sid_text):
         """Cross-tab jump from a field's [[encounter]] to the Battle tab. battle.toml is a standalone SIBLING
@@ -6129,7 +6141,11 @@ class Workspace(QMainWindow):
             lines = self._inspect_build(kind, key, field)
         except Exception:                                   # noqa: BLE001
             lines = [self._muted("— (could not inspect this node)")]
-        self.insp_body.setText(self._render_sections(lines))
+        about = None                                        # an 'About this…' link when the node maps to a concept
+        concept = self._concept_for_payload(kind, key)
+        if concept is not None:
+            about = self._muted("ⓘ ") + self._link(f"concept:{concept.term}", f"What's a {concept.title.lower()}?")
+        self.insp_body.setText(self._render_sections(lines, about))
 
     def _section_header(self, text):
         """A small muted overline that labels an Inspector section (Identity / Contents / Connections).
@@ -6138,11 +6154,19 @@ class Workspace(QMainWindow):
         return (f'<div style="color:{self.pal["muted"]};font-weight:600;font-size:10px;'
                 f'margin-top:12px;margin-bottom:1px;">{_esc(text).upper()}</div>')
 
-    def _render_sections(self, groups):
+    def _render_sections(self, groups, about=None):
         """Render the Inspector body. ``groups`` is either a flat ``list[str]`` (rendered as one block, the
         legacy path) or an ordered ``list[(header, list[str])]``. Section headers show only when ≥2 sections
         carry content, so a short single-section card (an NPC, a marker) stays clean while a rich field card
-        reads as labelled groups (Identity / Contents / Connections)."""
+        reads as labelled groups (Identity / Contents / Connections). ``about`` (optional) is an 'About this…'
+        concept link appended below everything as a muted ABOUT section."""
+        body = self._render_body(groups)
+        if about:
+            tail = self._section_header("About") + f'<div>{about}</div>'
+            body = tail if body == "—" else body + tail
+        return body
+
+    def _render_body(self, groups):
         if not groups:
             return "—"
         if isinstance(groups[0], str):                      # flat list -> the legacy single block
