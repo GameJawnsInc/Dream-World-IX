@@ -58,7 +58,6 @@ def test_disabled_helpers_apply_end_state_synchronously(app):
     assert a is None, "no animation object when motion is off"
     assert w.maximumHeight() == 120, "the end height is applied immediately"
     assert calls == [1], "on_finished still runs synchronously (a collapse still ends hidden)"
-    assert anim.fade_in(w) is None, "fade is a no-op when motion is off"
     assert anim.pop_in(w) is None, "pop-in is a no-op when motion is off"
 
 
@@ -73,13 +72,27 @@ def test_enabled_animate_height_makes_a_bounded_animation(app):
     anim.set_enabled(False)
 
 
-def test_enabled_fade_in_returns_an_animation(app):
-    anim.set_enabled(True)
-    w = QWidget()
-    a = anim.fade_in(w, duration=140)
-    assert a is not None and a.duration() <= 200
-    a.stop()
-    anim.set_enabled(False)
+def test_no_helper_may_silently_destroy_an_existing_graphics_effect(app):
+    """Qt allows ONE QGraphicsEffect per widget, so installing one DESTROYS whatever was there.
+
+    `anim.fade_in` did exactly that. It had ZERO production callers, and the one widget anyone would
+    plausibly fade -- the Ctrl-K palette card -- is the app's only `attach_shadow` caller. Verified via
+    shiboken: after fade_in, the shadow's C++ object is `isValid() == False`. Not detached -- DESTROYED,
+    with nothing to restore, and fade_in's own finish handler then sets the effect to None, leaving the
+    widget with no effect at all. A dead helper that quietly deletes a live one is worse than no helper.
+
+    So it is gone. This test is the headstone: any future opacity/blur helper must either refuse a widget
+    that already has an effect, or restore it -- and it cannot, because the original is destroyed.
+    """
+    import inspect
+    from ff9mapkit.workspace import anim as anim_mod
+
+    src = inspect.getsource(anim_mod)
+    assert "setGraphicsEffect" not in src, (
+        "a helper installs a QGraphicsEffect -- that DESTROYS any effect the widget already had "
+        "(shiboken: isValid() False), and there is no way to put it back"
+    )
+    assert not hasattr(anim_mod, "fade_in"), "fade_in was deleted: 0 callers, and it ate palette.py's shadow"
 
 
 def test_disclosure_expand_collapse_end_states_with_motion_off(app):

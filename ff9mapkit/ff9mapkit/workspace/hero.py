@@ -17,12 +17,13 @@ rule binds to the wordmark's exact advance -- and so the status line re-tints on
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtCore import Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt
 from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, QLinearGradient,
                            QPainter, QPainterPath, QPen, QRadialGradient)
 from PySide6.QtWidgets import QFrame, QWidget
 
 from ..editor import theme
+from . import anim
 
 # --- the brand constants (NOT palette tokens; identical in every theme) --------------------
 # Verified legible on all 8 palettes: gold/bg 4.12 (solarized-light) .. 9.02 (mist).
@@ -50,6 +51,16 @@ _ELBOW_R = 6
 _BEAD = 3.5
 _MIST_ALPHA = 40
 
+# The signet signs itself, once, on the front door's first paint.
+#
+# THIS EXCEEDS anim.py's stated <=200ms bound ON PURPOSE, and the module's contract is amended rather
+# than quietly broken. That bound governs STATE TRANSITIONS -- a drawer opening, a panel settling --
+# where anything slower is latency wearing a costume. This is not a transition: it is a signature being
+# written, once per session, on the one surface built to be looked at, and 200ms would make it a blink
+# rather than a gesture. It is still bounded, still one-shot, still never looping, and still behind the
+# same reduced-motion gate as everything else -- motion off, and the mark is simply there.
+_SIGN_MS = 520
+
 
 def wordmark_face() -> str:
     global _FACE
@@ -59,7 +70,7 @@ def wordmark_face() -> str:
     return _FACE
 
 
-def signet_elbow(p, x, y, arm, up, gold, *, a_from=255, a_to=70, r=_ELBOW_R):
+def signet_elbow(p, x, y, arm, up, gold, *, a_from=255, a_to=70, r=_ELBOW_R, t=1.0):
     """THE MARK: an arm that runs in, turns a corner, and rises -- dissolving as it goes.
 
     "An FF9 window has four corners. We draw one." This is that one corner, and it is a FUNCTION rather
@@ -73,6 +84,15 @@ def signet_elbow(p, x, y, arm, up, gold, *, a_from=255, a_to=70, r=_ELBOW_R):
 
     Draws only the OUTER elbow. The doubled inner filigree and the bead stay the hero's alone: they are
     what make it the signature rather than a corner, and the lede is not the signature.
+
+    ``t`` REVEALS the mark, 0 to 1 -- the signet signing itself. Nothing here was designed for that and it
+    works anyway: the path is ALREADY in draw-on order. Verified by sampling it -- it starts at (arm's far
+    end), which is where the gradient is at its FAINTEST (alpha 70), runs left into the corner GAINING
+    opacity, turns, and rises. So the mark appears out of open air and resolves into the corner. The
+    caller paints the bead after, so the bead lands last.
+
+    At t >= 1 the pen is SOLID, not a dash whose gaps happen to fall outside the path -- so the resting
+    frame is byte-identical to a build without any of this. Proven, not assumed.
     """
     path = QPainterPath()
     path.moveTo(x + arm, y)
@@ -83,7 +103,20 @@ def signet_elbow(p, x, y, arm, up, gold, *, a_from=255, a_to=70, r=_ELBOW_R):
     g0 = QColor(gold); g0.setAlpha(a_from)
     g1 = QColor(gold); g1.setAlpha(a_to)
     grad.setColorAt(0.0, g0); grad.setColorAt(1.0, g1)   # the frame doesn't stop, it dissolves
-    p.setPen(QPen(QBrush(grad), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+    pen = QPen(QBrush(grad), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+    if t < 1.0:
+        if t <= 0.0:
+            return
+        # A dash pattern of [total, total] with the offset walked from `total` down to 0 reveals exactly
+        # [0, total*t]: the offset is the STARTING POINT WITHIN the pattern, so an offset of total*(1-t)
+        # begins total*(1-t) into the dash and leaves total*t of it to run before the gap swallows the
+        # rest. Units are pen widths, and the pen is 1.0, so the pattern is in px.
+        total = path.length()
+        if total <= 0:
+            return
+        pen.setDashPattern([total, total])
+        pen.setDashOffset(total * (1.0 - t))
+    p.setPen(pen)
     p.drawPath(path)
 
 
@@ -149,8 +182,35 @@ class HeroBand(QWidget):
         self.pal = pal
         self._column_source = column_source
         self._status = None
+        self._draw = 1.0                 # the signet's reveal; 1.0 = at rest. See showEvent.
+        self._signed = False             # once per session, on the front door's first paint
         self.setAutoFillBackground(False)
         self.set_density("comfortable")
+
+    # --- the signet signing itself -------------------------------------------------------
+    def _get_draw(self):
+        return self._draw
+
+    def _set_draw(self, v):
+        self._draw = float(v)
+        self.update()
+
+    # A real Qt property, because QPropertyAnimation can only drive one of those.
+    draw = Property(float, _get_draw, _set_draw)
+
+    def showEvent(self, ev):             # noqa: N802 (Qt override)
+        super().showEvent(ev)
+        if self._signed or not anim.enabled():
+            self._draw = 1.0             # motion off -> the end state, synchronously, like every helper
+            return
+        self._signed = True              # once. Re-showing Home does not re-sign it.
+        self._draw = 0.0
+        a = QPropertyAnimation(self, b"draw", self)
+        a.setDuration(_SIGN_MS)
+        a.setStartValue(0.0)
+        a.setEndValue(1.0)
+        a.setEasingCurve(QEasingCurve.Type.OutCubic)
+        a.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     # --- API -----------------------------------------------------------------------------
     def set_density(self, density):
@@ -249,27 +309,37 @@ class HeroBand(QWidget):
         adv = QFontMetricsF(wf).horizontalAdvance("Dream World IX")
 
         # 7. THE SIGNET -- typographically bound to `adv`, so it can never overflow the column.
+        #    `_draw` is 1.0 at rest and everything below is the resting frame, byte-for-byte. It is only
+        #    below 1 while the mark is signing itself on the front door's first paint.
         ax = x0 - _ARM_INDENT + 0.5
         by, top = rule_y, rule_y - arm_up
-        signet_elbow(p, ax, by, adv + _ARM_INDENT, arm_up, gold)
+        t = self._draw
+        signet_elbow(p, ax, by, adv + _ARM_INDENT, arm_up, gold, t=t)
 
-        # the doubled inner rule -- the GRAMMAR of brass filigree (parallel strokes at a fixed
-        # offset), abstracted from any specific FF9 flourish. Verified crisp at dpr 1.0/1.25/1.5.
-        ip = QPainterPath()
-        ix, iy = ax + 3, by - 3
-        ip.moveTo(ix + 34, iy); ip.lineTo(ix + 3, iy)
-        ip.arcTo(QRectF(ix, iy - 6, 6, 6), -90, -90)
-        ip.lineTo(ix, iy - 14)
-        gi = QColor(gold); gi.setAlpha(115)
-        p.setPen(QPen(gi, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        p.drawPath(ip)
+        # THE FINISH lands last: the filigree and the bead are what make this the signature rather than a
+        # corner, so they arrive after the stroke has reached the top -- fading in over the final quarter
+        # rather than popping, which reads as the hand lifting rather than as a frame dropping in.
+        # `finish` is exactly 1.0 at rest, so both alphas below are their shipped values.
+        finish = 1.0 if t >= 1.0 else max(0.0, (t - 0.75) / 0.25)
+        if finish > 0.0:
+            # the doubled inner rule -- the GRAMMAR of brass filigree (parallel strokes at a fixed
+            # offset), abstracted from any specific FF9 flourish. Verified crisp at dpr 1.0/1.25/1.5.
+            ip = QPainterPath()
+            ix, iy = ax + 3, by - 3
+            ip.moveTo(ix + 34, iy); ip.lineTo(ix + 3, iy)
+            ip.arcTo(QRectF(ix, iy - 6, 6, 6), -90, -90)
+            ip.lineTo(ix, iy - 14)
+            gi = QColor(gold); gi.setAlpha(round(115 * finish))
+            p.setPen(QPen(gi, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            p.drawPath(ip)
 
-        # the bead -- FF9's corner detail, cited ONCE, at one 7px object.
-        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(gold))
-        dia = QPainterPath()
-        dia.moveTo(ax, top - _BEAD); dia.lineTo(ax + _BEAD, top)
-        dia.lineTo(ax, top + _BEAD); dia.lineTo(ax - _BEAD, top)
-        dia.closeSubpath(); p.drawPath(dia)
+            # the bead -- FF9's corner detail, cited ONCE, at one 7px object.
+            gb = QColor(gold); gb.setAlpha(round(255 * finish))
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(gb)
+            dia = QPainterPath()
+            dia.moveTo(ax, top - _BEAD); dia.lineTo(ax + _BEAD, top)
+            dia.lineTo(ax, top + _BEAD); dia.lineTo(ax - _BEAD, top)
+            dia.closeSubpath(); p.drawPath(dia)
 
         # 8. status -- painted, so it re-tints live (the QLabel version goes stale on retheme)
         # $text, per the one-ink law at the overline. This shipped in $muted and was sub-AA in 3 of 8

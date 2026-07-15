@@ -19,7 +19,6 @@ Keep new motion HERE (2-3 uses), not scattered across the docs -- that's the who
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation
-from PySide6.QtWidgets import QGraphicsOpacityEffect
 
 _ENABLED = False                                   # opt-in; the production launch flips it on (see shell.main)
 _EASE = QEasingCurve.Type.OutCubic                 # a calm decelerating ease for every transition
@@ -60,23 +59,6 @@ def os_reduced_motion() -> bool:
     except Exception:                               # noqa: BLE001 -- non-Windows / no ctypes / probe failure
         pass
     return False
-
-
-def fade_in(widget, *, duration: int = 140):
-    """Fade ``widget`` from transparent to opaque via a temporary opacity effect (removed when done, so it
-    leaves no residual render cost). No-op when motion is off. Returns the animation (or ``None``)."""
-    if not _ENABLED:
-        return None
-    eff = QGraphicsOpacityEffect(widget)
-    widget.setGraphicsEffect(eff)
-    a = QPropertyAnimation(eff, b"opacity", widget)
-    a.setDuration(duration)
-    a.setStartValue(0.0)
-    a.setEndValue(1.0)
-    a.setEasingCurve(_EASE)
-    a.finished.connect(lambda: widget.setGraphicsEffect(None))
-    a.start(_DELETE_WHEN_STOPPED)
-    return a
 
 
 def pop_in(window, *, dy: int = 10, duration: int = 150):

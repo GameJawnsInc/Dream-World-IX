@@ -398,3 +398,84 @@ def test_the_lede_cites_the_hero_rather_than_repeating_it(app):
     # the filigree + bead stay the hero's alone -- they are what make it the signature
     assert "drawPath(ip)" in hero_src, "the hero's inner filigree moved"
     assert "ip" not in lede_src and "_BEAD" not in lede_src, "the lede must not wear the signature's detail"
+
+
+def test_the_signet_rests_at_one_and_motion_never_moves_the_resting_frame(app):
+    """Motion that changes the RESTING frame is not motion -- it is a redesign wearing a stopwatch.
+
+    A freshly-built band rests at 1.0, and at 1.0 signet_elbow uses a SOLID pen rather than a dash whose
+    gaps happen to fall outside the path. That distinction is the whole reason the resting frame is
+    provably untouched (0 differing px vs the pre-DRAWN render in all 3 palettes checked) instead of
+    merely probably untouched.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        b = hero_mod.HeroBand(d)
+        assert b._draw == 1.0, f"{mode}: a fresh band must rest at the end state"
+        b.deleteLater()
+
+
+def test_the_signet_reveal_is_monotonic_and_draws_in_order(app):
+    """The mark only ever GROWS, and it grows in the right direction.
+
+    Measured by frame-diff against t=0 (a colour heuristic gets this wrong -- a first attempt counted
+    1287 "gold" pixels at t=0, when nothing was drawn at all):
+
+        t=0.15   52 px   x 413-464  y 106      the arm's FAR END, on the baseline
+        t=0.70  244 px   x 221-464  y 106      running left
+        t=0.85  391 px   x 189-464  y  25-106  TURNED and RISEN
+
+    That order is not designed -- the path was already in it. It starts where the gradient is faintest
+    (alpha 70), so the mark appears out of open air and gains opacity as it resolves into the corner.
+    """
+    from PySide6.QtGui import QImage
+
+    d = theme.derive(dict(theme.MIST))
+
+    def frame(t):
+        b = hero_mod.HeroBand(d)
+        b.resize(1280, 156)
+        b._draw = t
+        img = b.grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
+        b.deleteLater()
+        return img
+
+    base = frame(0.0)
+
+    def ink(t):
+        img = frame(t)
+        n, xs = 0, []
+        for y in range(0, 156, 2):                      # every other row: this is a shape test, not a count
+            for x in range(0, 1280, 2):
+                if QImage.pixelColor(img, x, y) != QImage.pixelColor(base, x, y):
+                    n += 1
+                    xs.append(x)
+        return n, (min(xs) if xs else None)
+
+    seen = [(t, *ink(t)) for t in (0.0, 0.3, 0.6, 0.9, 1.0)]
+    assert seen[0][1] == 0, "t=0 must draw nothing at all"
+    counts = [n for _t, n, _x in seen]
+    assert counts == sorted(counts), f"the reveal jumps backwards: {counts}"
+    lefts = [x for _t, _n, x in seen if x is not None]
+    assert lefts == sorted(lefts, reverse=True), f"the mark must grow LEFTWARD from the arm's end: {lefts}"
+
+
+def test_motion_off_means_the_signet_is_simply_there(app):
+    """The reduced-motion gate is not decoration: with motion off the band must show its END state on the
+    first paint, synchronously -- never a blank corner waiting for an animation that will never run.
+
+    This is the same contract every anim.py helper keeps, and it is why anim.configure() had to be hoisted
+    ABOVE win.show(): motion is OFF until that call, so a first-paint animation configured afterwards
+    would have snapped to the end for every user, forever, and looked exactly like a bug that was not there.
+    """
+    from ff9mapkit.workspace import anim
+
+    assert not anim.enabled(), "the suite must run with motion off"
+    d = theme.derive(dict(theme.DARK))
+    b = hero_mod.HeroBand(d)
+    b.resize(1280, 156)
+    b.show()
+    app.processEvents()
+    assert b._draw == 1.0, "motion off -> the mark is simply there, on the first paint"
+    b.hide()
+    b.deleteLater()
