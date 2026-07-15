@@ -382,9 +382,17 @@ don't pair.
 
 1. **Party mirror (rung 2)** — extend the same state-mirror lane with the party section (section 1 in the
    wire format) — it's felt on the field AND is the diorama's actor-spawn input.
-2. **The battle diorama (B3)** — boot the host's battle on the guest via `BattleMapDebug`
-   (AI/ATB off via the `isDebug` suppression), spawn the mirrored party, drive from the existing B0 state
-   stream. NEVER re-simulate (the unseeded-RNG dead-end).
+2. **The battle diorama (B3)** — boot the host's battle on the guest via `BattleMapDebug`, spawn the
+   mirrored party, drive from the existing B0 state stream. NEVER re-simulate (the unseeded-RNG dead-end).
+   **★ RECON PASS 1 DONE 2026-07-15** (8 questions, source-grounded + adversarially verified) → the full
+   spec is **`diorama-lane.md`**. It inverted this rung's own premise: **`isDebug` is a TRAP, not a
+   render-only switch** — a dead flag nothing ever sets, gating only the sim's INPUT half while
+   `ManageBattleEnd → SavePlayerData` writes the guest's REAL party **every frame** (IsOver is itself
+   isDebug-gated, so the battle never ends). **THE CONTAINMENT LAW: save-safety comes from an explicit
+   13-lane suppression set, never from `isDebug`; containment is rung ZERO — nothing renders until the
+   guest's save is provably untouchable.** Ladder: B3.0 containment → B3.1 boot+return → B3.2 mirrored
+   party (carry `basis`, NOT `max`) → B3.3 enemies → B3.4 truth → B3.5 action playback → B3.6 UI merge.
+   Choke point = `SBattleCalculator.CalcResult:310`. Wire v8 not cut.
 3. **Cutscene-drive** — the documented research frontier (host streams window-close / chosen-choice /
    tread-fired events, guest force-applies). Not scheduled.
 4. **Federated `[[coop]]` custom modes** — parked until the authoritative-host headline is solid.
