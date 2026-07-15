@@ -5,6 +5,9 @@
 > Memoria source `file:line` / a CSV column / a raw16 byte offset. This is the battle analog of
 > `FORK_FIDELITY.md`: what the kit can already do, what it can't yet, and the prioritized path.
 >
+> **For the ATB gauge & turn-cadence side — timing, Haste/Slow, battle-speed, the four combat-hook control
+> tiers, and the engine-hook opportunity map — see [`ATB_DESIGN.md`](ATB_DESIGN.md).**
+>
 > Provenance: this doc is analysis + citations only — **zero Square-Enix bytes**. All enemy stat bytes and
 > all CSV stat values are SE game DATA → read live from the user's install, never committed (the
 > `itemstats.py` read-live vs `_itemdb.py` committed-names split).
