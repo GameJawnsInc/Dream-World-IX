@@ -152,10 +152,15 @@ guest's LIVE array therefore mutates the guest's persistent save — if the gues
 session, their solo progress is overwritten by the host's. **Omitting this bricks the guest's save.**
 
 Requirements:
-- **On entering follower mode** (`FollowHost` on + connected, first apply): snapshot the guest's OWN
-  `gEventGlobal` **and** `gScriptVector`/`gScriptDictionary` (`EventState.cs:13-14`) into memory. This is
-  exactly F6 `Snapshot()` (`Ff9mkDebugMenu.cs:2016-2022`), extended to the two dictionaries
-  (`ClearFlagState` already touches both, `:2042-2047`).
+- **On the FIRST real apply** (`FollowHost` on + connected + the host's first `TypeState` snapshot in
+  hand): snapshot the guest's OWN `gEventGlobal` into memory, the same tick as the first live write —
+  never earlier, or anything the guest does between connecting and the host's first frame is silently
+  rolled back by the restore. This is exactly F6 `Snapshot()` (`Ff9mkDebugMenu.cs:2016-2022`).
+  *(Correction, 2026-07-15: this spec originally also required bracketing `gScriptVector`/
+  `gScriptDictionary` here — the implementation deliberately does NOT, and neither does the F6
+  `Snapshot()`/`RestoreSnapshot()` primitive this cites (those containers are only ever `.Clear()`'d
+  elsewhere). Inert for rung 1, which never writes them; becomes a real requirement only when a
+  future section starts carrying them — see §9.)*
 - **While following:** block or redirect saving. Simplest: disable the save-point menu / the save action
   while `_followHost && connected`. Alternative: redirect to a throwaway "co-op spectator" slot. Decide
   and document; blocking is the safe default.
