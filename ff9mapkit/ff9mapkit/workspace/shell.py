@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
-    QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QProgressBar, QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
     QTreeWidgetItemIterator, QVBoxLayout, QWidget,
 )
 
@@ -1291,6 +1291,20 @@ class Workspace(QMainWindow):
         self._console_btn.clicked.connect(lambda: self._toggle_console())
         hh.addWidget(self._console_btn)
         hh.addStretch(1)
+        # a loading state so a long build never reads as a frozen panel: a 'Working…' label (always) + an
+        # indeterminate bar (only when motion is on -- an animated barber-pole is exactly what reduced-motion
+        # asks to avoid; the text carries the meaning either way).
+        self._busy_label = QLabel("Working…")
+        self._busy_label.setProperty("role", "muted")
+        self._busy_label.setVisible(False)
+        hh.addWidget(self._busy_label)
+        self._busy_bar = QProgressBar()
+        self._busy_bar.setRange(0, 0)                # indeterminate
+        self._busy_bar.setTextVisible(False)
+        self._busy_bar.setFixedSize(120, 6)
+        self._busy_bar.setVisible(False)
+        self._busy_bar.setAccessibleName("Working")
+        hh.addWidget(self._busy_bar)
         self._console_head = head
         panel_v.addWidget(head)
 
@@ -7328,6 +7342,14 @@ class Workspace(QMainWindow):
             self.problems.addItem(it)
         self._raise_console()
 
+    def _set_busy(self, on):
+        """Toggle the console 'Working…' loading state (shown while a subprocess job runs). The text label
+        always shows; the animated indeterminate bar shows only when motion is on (reduced-motion-safe)."""
+        if getattr(self, "_busy_label", None) is None:
+            return
+        self._busy_label.setVisible(bool(on))
+        self._busy_bar.setVisible(bool(on) and anim.enabled())
+
     def run_job(self, argv, *, cwd=None, subject="Job", ok_headline=None, ok_next="",
                 fail_hint="See the Output panel.", on_finished=None):
         """Run ONE streaming subprocess job (lint / build / deploy / import): stream its stdout into the
@@ -7343,6 +7365,7 @@ class Workspace(QMainWindow):
                                     f"$ {' '.join(str(a) for a in argv[1:])}")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_console()
+        self._set_busy(True)                            # loading state: 'Working…' until _proc_done clears it
         self.act_lint_cli.setEnabled(False)
         self.proc = QProcess(self)
         self.proc.setProgram(str(argv[0]))
@@ -7366,6 +7389,7 @@ class Workspace(QMainWindow):
             self.output.appendPlainText(text)
 
     def _proc_done(self, code, _status):
+        self._set_busy(False)                           # clear the 'Working…' loading state
         self.act_lint_cli.setEnabled(self.campaign_path is not None)
         subject, ok_headline, ok_next, fail_hint, on_finished = getattr(
             self, "_job", ("Job", None, "", "See the Output panel.", None))

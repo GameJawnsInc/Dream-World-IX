@@ -100,6 +100,28 @@ def test_disclosure_expand_collapse_end_states_with_motion_off(app):
     assert not body.isVisible(), "motion off -> instant collapse ends hidden"
 
 
+def test_busy_loading_state_shows_working_and_gates_the_bar(app):
+    """A running job shows a 'Working…' loading state so a long build never reads as a frozen panel; the
+    animated indeterminate bar is gated on motion (reduced-motion shows just the text)."""
+    from ff9mapkit.editor.theme import pick_palette                          # noqa: PLC0415
+    from ff9mapkit.workspace.shell import Workspace, _apply_app_theme        # noqa: PLC0415
+    _apply_app_theme(app, pick_palette("dark"))
+    w = Workspace(pick_palette("dark"))
+    w.show()
+    app.processEvents()
+    anim.set_enabled(False)
+    w._set_busy(True)
+    assert w._busy_label.isVisible(), "the 'Working…' label shows during a job"
+    assert not w._busy_bar.isVisible(), "reduced motion -> no animated bar, just the text"
+    w._set_busy(False)
+    assert not w._busy_label.isVisible(), "cleared when the job ends"
+    anim.set_enabled(True)
+    w._set_busy(True)
+    assert w._busy_bar.isVisible(), "motion on -> the indeterminate bar shows too"
+    anim.set_enabled(False)
+    w.close()
+
+
 def test_palette_pop_in_respects_the_motion_switch(app):
     """The Ctrl-K palette fades+rises in when motion is on, and opens at full opacity (never stranded at 0)
     when it's off -- the safety property that keeps the offscreen/smoke paths correct."""

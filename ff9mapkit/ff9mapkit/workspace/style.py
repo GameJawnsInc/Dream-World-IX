@@ -174,6 +174,10 @@ _QSS = Template(
     QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
+    /* the slim 'Working…' busy bar in the console header (indeterminate while a job runs) */
+    QProgressBar { background: $surface_btn; border: 1px solid $border; border-radius: 3px; }
+    QProgressBar::chunk { background: $accent; border-radius: 3px; }
+
     QSplitter::handle { background: $border; }
     QSplitter::handle:horizontal { width: 1px; }
     QSplitter::handle:vertical { height: 1px; }
