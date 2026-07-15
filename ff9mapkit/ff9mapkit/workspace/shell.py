@@ -48,6 +48,7 @@ from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
+from .hero import HeroBand
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
@@ -460,6 +461,8 @@ class Workspace(QMainWindow):
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon reserving the slot for
         self._root_items = []                                 # kinds with no type icon (the dot rides the type icon)
         self._icon_retint = []                                # apply-callbacks re-tinting persistent SVG icons on a
+        # Home is built ONCE (inside __init__), so the hero can't re-read the palette on its own -- ride the
+        # sanctioned retint hook, which retheme() iterates.
         self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
         self._build_console()
@@ -537,6 +540,9 @@ class Workspace(QMainWindow):
         no palette change. Used by Preferences' live preview and the Ctrl-K toggle."""
         self._density = density if density in prefs.DENSITIES else "comfortable"
         self.setStyleSheet(qss(self.pal, self._density))
+        if getattr(self, "_hero", None) is not None:
+            self._hero.set_density(self._density)             # the band's metrics are PYTHON -- QSS re-render
+                                                              # alone would leave it at the old height
 
     def _toggle_density(self):
         """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
@@ -1429,28 +1435,39 @@ class Workspace(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        page = QWidget()                           # full-width page; the content column is width-capped and
-        ph = QHBoxLayout(page)                     # centred so lines don't stretch across a wide monitor
-        ph.setContentsMargins(30, 26, 30, 26)
-        body = QWidget()
-        body.setMaximumWidth(860)
+        # SIGNET (studies/gui-aesthetics/IDENTITY.md): the front door is a full-bleed painted band, then
+        # the existing width-capped centred column beneath it.
+        page = QWidget()
+        pv = QVBoxLayout(page)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(0)
+        body = QWidget()                           # the content column: width-capped + centred so lines
+        body.setMaximumWidth(860)                  # don't stretch across a wide monitor
+        # The hero reads the body's REAL geometry, so the wordmark, the gold elbow and every card below
+        # sit on ONE axis at any window width. A parallel formula disagrees with the layout by +30px.
+        self._hero = HeroBand(self.pal, column_source=body)
+        pv.addWidget(self._hero)
+        self._icon_retint.append(lambda: self._hero.set_palette_(self.pal))   # retheme() iterates this
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")   # the universal QWidget{background-color:$bg} rule
+        ph = QHBoxLayout(row)                           # would otherwise paint the page over the band
+        ph.setContentsMargins(30, 22, 30, 26)
         ph.addStretch(1)
-        # Stretch 20, not 4. At 4:1:1 the body only gets 4/6 of the width, so it reached its 860 cap only
-        # past ~1920px -- MEASURED: 512px at the 1280 default (pinned to its own minimum), 656 at 1600,
-        # 860 only at 1920. The column read narrow with fat dead gutters on every normal monitor. A large
-        # stretch lets the cap do the capping and the stretches only soak up the leftover.
+        # Stretch 20, not 4. At 4:1:1 the body got 4/6 of the width, which targeted 435px at the 1280
+        # default -- so the column was rescued only by its own 512px minimumSizeHint, and that minimum is
+        # propped up by un-word-wrapped labels. MEASURED: 512 at 1280, 656 at 1600, 860 only at 1920. The
+        # moment a future round wraps those labels the column would silently collapse to ~398. Factor 20
+        # pins it to 860 as early as geometry allows: 604 at 1280, 860 from 1600.
         ph.addWidget(body, 20)
         ph.addStretch(1)
+        pv.addWidget(row)
+        pv.addStretch(1)
         v = QVBoxLayout(body)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
-        title = QLabel("Dream World IX — Workspace")
-        title.setProperty("role", "display")
-        v.addWidget(title)
-        self._home_status = QLabel("")
-        self._home_status.setWordWrap(True)
-        self._home_status.setTextFormat(Qt.TextFormat.RichText)
-        v.addWidget(self._home_status)
+        # The display title and the status line now live in the hero, PAINTED. The QLabel status baked
+        # pal["muted"] into inline HTML at build time and went stale on a live theme switch; a painted one
+        # re-tints. (self._home_setup below STAYS a real QLabel -- it has a linkActivated connection.)
         # First-run affordance: when the install isn't configured (or templates aren't extracted), say so
         # HERE — the alternative is a fresh user meeting greyed-out buttons with no explanation.
         self._home_setup = QLabel("")
@@ -1674,13 +1691,15 @@ class Workspace(QMainWindow):
 
     def _refresh_home_status(self):
         """Update the Home 'Currently editing …' line (called when Home is shown, so it's always fresh)."""
-        if not hasattr(self, "_home_status"):
+        if not hasattr(self, "_hero"):
             return
         name, level = self._current_target()
+        # The hero PAINTS this, so it re-tints on a live theme switch. The old QLabel baked pal["muted"]
+        # into inline HTML at build time and went stale until you left Home and came back.
         if name is None:
-            self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
+            self._hero.set_status("Nothing open yet — pick a starting point below.")
         else:
-            self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
+            self._hero.set_status(f"Currently editing a {level}: {name}.")
         if hasattr(self, "_home_setup"):
             try:
                 from .. import health
@@ -8996,13 +9015,13 @@ def _smoke(win):
     assert win.plan is not None and win.manifest is not None, "drilled into journey+campaign"
     assert win.open_field(af) and win.manifest is None and win.plan is None, "Open Field escapes a drilled-in journey"
     win._refresh_home_status()                                          # do-now #4: Home reflects what's open
-    assert "Currently editing" in win._home_status.text() and "Field" in win._home_status.text()
+    assert "Currently editing" in win._hero._status and "Field" in win._hero._status
     win._close_project()
     assert win.manifest is None and win.plan is None and win._loose is None and win.tree.topLevelItemCount() == 0, \
         "Close returns to the empty Workspace"
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
     # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
-    assert "Nothing open" in win._home_status.text(), "Home resets its status after Close"
+    assert "Nothing open" in win._hero._status, "Home resets its status after Close"
     # Phase 7: the cohesion SPINE answers 'what do I do next' per state. EMPTY -> a fork/open nudge; a clean
     # open project -> a deploy nudge; unsaved edits -> a save nudge. (Deploy stays the ONE crumb button; the
     # spine points at it rather than duplicating it.)
