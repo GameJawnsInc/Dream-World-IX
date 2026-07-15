@@ -79,14 +79,22 @@ MTN_CLEAR = 2.5                  # annulus clearance around the carried rim
 MTN_GBLEND = 12.0                # ground-apron blend reach (the proven hill-at-scale value)
 MTN_MAX_EDGE = 9.0               # max new-tri edge length
 MTN_ZIP_RISE = 2.34              # zip-tri vertical span ceiling (engine step 2.34375)
-MTN_ZIP_NY_MIN = 0.83            # zip winding floor (~34 deg -- allows the alcove-mouth
-#                                  bank; tuned on Uaho, re-check before trusting a new donor)
+MTN_ZIP_NY_MIN = 0.83            # the zip winding ENVELOPE (~34 deg -- admits the Uaho
+#                                  alcove-mouth bank); a real donor rim may force a FEW
+#                                  steeper banks (the horseshoe's falls outlet: 2/137)
+MTN_ZIP_NY_FLOOR = 0.5           # the hard per-tri floor (~60 deg) for those banks
+MTN_ZIP_BANK_MAX = 2             # max zip tris allowed between FLOOR and ENVELOPE
 MTN_ROCK_RIGID = 0.035           # THE ROCK-RIGID GATE: max carried-edge length drift
 MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
 # The terrain atlas's rock-band UV phase (u, v) -- measured by daguerreo_massif_anatomy.py
 # (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
 # it (cols 5-10, rows 6-12 = the painted rock band).
 ROCK_CHART_PHASE = (0.015625, 0.01953125)
+# THE ENSEMBLE CARRY's auxiliary part universe (canonical override spellings): a big
+# massif's aperture is a river/falls MOUTH whose ring is owned by the UNION of these
+# parts (the horseshoe: object 22 + falls 12 + river 15 + riverjoint 4 of 43 ring pts) --
+# the parts carry under the same rigid map and cover the hole in-game exactly as stock.
+ENSEMBLE_PARTS = ("Object", "Falls", "River", "RiverJoint")
 
 kk3 = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))  # noqa: E731
 
@@ -1125,6 +1133,7 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
     # Object mesh's vertex set. Carried as verbatim PLUGS below.
     oV = oN = otris = None
     apertures = []
+    ensemble_apertures = []
     if len(rings1) > 1:
         oV_rows, oN_l, otris = [], [], []
         for (dbx, dby) in read_blocks:
@@ -1140,22 +1149,50 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
             nt = len(om.flat_index) // 3
             otris.extend([om.flat_index[3 * t] + base, om.flat_index[3 * t + 1] + base,
                           om.flat_index[3 * t + 2] + base] for t in range(nt))
-        if not oV_rows:
-            raise ValueError(f"blob has {len(rings1) - 1} extra ring(s) but donor "
-                             f"{list(donor_blocks)} has no Object part to plug them")
-        oV = np.asarray(oV_rows)
-        oN = oN_l
-        okeys = {kk3(p) for p in oV}
+        okeys = set()
+        if oV_rows:
+            oV = np.asarray(oV_rows)
+            oN = oN_l
+            okeys = {kk3(p) for p in oV}
+        pending = []
         for r in rings1[1:]:
-            if not all(p in okeys for p in r):
-                raise ValueError(f"extra blob ring is NOT an object aperture: {r[:3]}")
-            apertures.append(r)
+            if okeys and all(p in okeys for p in r):
+                apertures.append(r)                        # Uaho-class: the PLUG path
+            else:
+                pending.append(r)
+        if pending:
+            # THE ENSEMBLE-APERTURE LAW (the horseshoe, 2026-07-15): a big massif's
+            # aperture is the river/falls MOUTH -- its ring is owned by the UNION of
+            # the donor's auxiliary parts, which carry under the same rigid map and
+            # cover the hole in-game exactly as in stock. No plug is built.
+            union = set(okeys)
+            for part in ENSEMBLE_PARTS[1:]:                # object already read
+                for (dbx, dby) in read_blocks:
+                    try:
+                        pm = X.read_block(dbx, dby, disc=disc, game=game,
+                                          part=part.lower())
+                    except Exception:
+                        continue
+                    doff_b = np.array([BLOCK * dbx, 0.0, -BLOCK * dby])
+                    for p in (np.asarray(pm.verts, dtype=np.float64) + doff_b):
+                        union.add(kk3(p))
+            for r in pending:
+                bad = [p for p in r if p not in union]
+                if bad:
+                    raise ValueError(f"extra blob ring is neither an OBJECT aperture "
+                                     f"nor an ENSEMBLE aperture (points owned by no "
+                                     f"auxiliary part, e.g. {bad[:2]})")
+                ensemble_apertures.append(r)
     rim = rings1[0]
-    if len(rim) != len(oe) - sum(len(r) for r in apertures):
+    if len(rim) != len(oe) - sum(len(r) for r in apertures) \
+            - sum(len(r) for r in ensemble_apertures):
         raise ValueError("blob ring accounting failed (rim + apertures != once-edges)")
     if apertures:
         log(f"object apertures: {[len(r) for r in apertures]} pts "
             f"(plugged with the object's own tris)")
+    if ensemble_apertures:
+        log(f"ENSEMBLE apertures: {[len(r) for r in ensemble_apertures]} pts "
+            f"(covered by the carried {'/'.join(ENSEMBLE_PARTS)} parts, no plugs)")
     rim_set = set(rim)
     bpts = np.array([dV[i] for t in blob for i in dtri[t]])
     c_local = ((bpts[:, 0].min() + bpts[:, 0].max()) / 2,
@@ -1189,7 +1226,8 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
     rim2 = [detilt_p(p) for p in rim]
     return dict(read_blocks=read_blocks, dV=dV, dU=dU, dN=dN, dT=dT, dtri=dtri,
                 dtopo=dtopo, d_edge=d_edge, blob=blob, rim=rim, rim_set=rim_set,
-                apertures=apertures, oV=oV, oN=oN, otris=otris, c_local=c_local,
+                apertures=apertures, ensemble_apertures=ensemble_apertures,
+                oV=oV, oN=oN, otris=otris, c_local=c_local,
                 r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
 
 
@@ -1259,6 +1297,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     dV, dU, dN, dT = B["dV"], B["dU"], B["dN"], B["dT"]
     dtri, dtopo, d_edge = B["dtri"], B["dtopo"], B["d_edge"]
     blob, rim, rim_set, apertures = B["blob"], B["rim"], B["rim_set"], B["apertures"]
+    ensemble_apertures = B["ensemble_apertures"]
     oV, oN, otris = B["oV"], B["oN"], B["otris"]
     c_local, r_rim, ta, tb = B["c_local"], B["r_rim"], B["ta"], B["tb"]
     dV2, dN2, rim2 = B["dV2"], B["dN2"], B["rim2"]
@@ -1281,21 +1320,44 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         # the proven single-block pipeline (byte-frozen -- the Uaho identity acceptance)
         span = [seed_blk]
     else:
-        sx0 = int(math.floor((CX - half) / BLOCK))
-        sx1 = int(math.floor((CX + half) / BLOCK))
-        sy0 = int(math.floor(-(CZ + half) / BLOCK))
-        sy1 = int(math.floor(-(CZ - half) / BLOCK))
-        span = [(sbx, sby) for sby in range(sy0, sy1 + 1) for sbx in range(sx0, sx1 + 1)]
-        log(f"multi-block span {sorted(span)}: the blob (radius {r_rim:.1f}u) needs "
-            f"{2 * half:.0f}u of covered ground")
+        def rect(h):
+            sx0 = int(math.floor((CX - h) / BLOCK))
+            sx1 = int(math.floor((CX + h) / BLOCK))
+            sy0 = int(math.floor(-(CZ + h) / BLOCK))
+            sy1 = int(math.floor(-(CZ - h) / BLOCK))
+            return [(sbx, sby) for sby in range(sy0, sy1 + 1)
+                    for sbx in range(sx0, sx1 + 1)]
+        # the CORE rect (rim + band) must be fully covered -- the hole/zip live there.
+        # Around it, widen the span with every PRESENT block of the APRON rect (rim +
+        # gblend): the lift taper only fires at borders facing non-span blocks, and a
+        # rim within gblend of such a border starves the apron (the horseshoe's 0.59-ny
+        # zip bank). Present neighbours weld through the per-POSITION lift; absent ones
+        # (true ocean, no twin verts) keep the taper, which is then exactly right.
+        core = rect(half)
+        missing = [b for b in core if b not in soup["blocks"]]
+        if missing:
+            raise ValueError(f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs "
+                             f"deployed Terrain overrides on blocks {sorted(core)}, but "
+                             f"{sorted(missing)} have none -- mint a bigger island first")
+        wide = rect(r_rim + gblend + 2.0)
+        span = sorted(set(core) | {b for b in wide if b in soup["blocks"]})
+        log(f"multi-block span {span}: the blob (radius {r_rim:.1f}u) needs "
+            f"{2 * half:.0f}u of covered core ground")
+        # the placement/bounds rect stays the fully-covered CORE
+        span_rect = core
+    if len(span) == 1:
+        span_rect = span
     missing = [b for b in span if b not in soup["blocks"]]
     if missing:
         raise ValueError(f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs deployed "
                          f"Terrain overrides on blocks {sorted(span)}, but "
                          f"{sorted(missing)} have none -- mint a bigger island first")
     span = sorted(span)
-    SPX0, SPX1 = BLOCK * min(b[0] for b in span), BLOCK * (max(b[0] for b in span) + 1)
-    SPZ0, SPZ1 = -BLOCK * (max(b[1] for b in span) + 1), -BLOCK * min(b[1] for b in span)
+    span_set = set(span)
+    SPX0, SPX1 = (BLOCK * min(b[0] for b in span_rect),
+                  BLOCK * (max(b[0] for b in span_rect) + 1))
+    SPZ0, SPZ1 = (-BLOCK * (max(b[1] for b in span_rect) + 1),
+                  -BLOCK * min(b[1] for b in span_rect))
     gpos, gtris, gnrm, guv, gtan, gblk = [], [], [], [], [], []
     for blk in span:
         bm0 = soup["blocks"][blk]
@@ -1553,10 +1615,22 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         if wsum <= 0.0 or dmin2 >= gblend * gblend:
             return 0.0
         W = (1.0 - math.sqrt(dmin2) / gblend) ** 2
-        # taper at the span's OUTER borders only (an unloaded neighbor's twin vert
-        # cannot receive the lift); internal span borders weld through the
-        # per-POSITION lift applied to every coincident entry
-        bt = min(1.0, (min(px - SPX0, SPX1 - px, pz - SPZ0, SPZ1 - pz) - 0.5) / 3.0)
+        # taper only at borders facing NON-SPAN blocks (an unloaded neighbor's twin
+        # vert cannot receive the lift; a span neighbour's border is safe -- coincident
+        # entries on both sides get the identical per-POSITION lift). For a one-block
+        # span this reduces exactly to the block's four borders (the frozen baseline).
+        pbx = int(math.floor(px / BLOCK))
+        pby = int(math.floor(-pz / BLOCK))
+        bd = 64.0
+        if (pbx - 1, pby) not in span_set:
+            bd = min(bd, px - BLOCK * pbx)
+        if (pbx + 1, pby) not in span_set:
+            bd = min(bd, BLOCK * (pbx + 1) - px)
+        if (pbx, pby + 1) not in span_set:
+            bd = min(bd, pz + BLOCK * (pby + 1))
+        if (pbx, pby - 1) not in span_set:
+            bd = min(bd, -BLOCK * pby - pz)
+        bt = min(1.0, (bd - 0.5) / 3.0)
         pt = min(1.0, (dnp - 2.5) / 3.0)                   # die before the coast band
         return max(0.0, bt) * max(0.0, pt) * W * (hsum / wsum - py)
 
@@ -1630,7 +1704,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             c_edge[tuple(sorted((ka, kb)))] += 1
     crims = chain_rings([e for e, n in c_edge.items() if n == 1], "carried rim")
     crims.sort(key=lambda r: -abs(signed_area(r)))
-    if len(crims) != 1 + len(apertures):
+    if len(crims) != 1 + len(apertures) + len(ensemble_apertures):
         raise ValueError("carried ring count changed in transit")
     crim = crims[0]
 
@@ -1892,10 +1966,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     new_parents.extend(plug_parents)
     zip_rise = 0.0
     zip_ny_min = 1.0
+    zip_ny_low = 0
     for tri3 in zip_tris:
         a, b, c = (np.asarray(p, dtype=float) for p in tri3)
         nrm = np.cross(b - a, c - a)
         nl = float(np.linalg.norm(nrm)) or 1.0
+        zip_ny_low += (abs(float(nrm[1])) / nl) < MTN_ZIP_NY_MIN
         zip_ny_min = min(zip_ny_min, abs(float(nrm[1])) / nl)
         zip_rise = max(zip_rise, float(max(p[1] for p in tri3) - min(p[1] for p in tri3)))
         order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
@@ -1918,10 +1994,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                 raise ValueError(f"{fam} leaves block span {span}: {p[:3]}")
     down = 0
     maxe = 0.0
-    for corners, _, _ in new_parents:
+    for corners, _, fam in new_parents:
         a, b, c = (np.asarray(p[:3]) for p in corners)
         if np.cross(b - a, c - a)[1] < 0:
             down += 1
+        if fam != "zip":
+            continue                                       # verbatim rock/plug edges are stock-given
         for pq in ((a, b), (b, c), (c, a)):
             maxe = max(maxe, float(np.linalg.norm(pq[0] - pq[1])))
     ring_pts = np.array([list(p) for p in hole_ord] + [list(rimw(p)) for p in rim_ord])
@@ -1979,7 +2057,38 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                  for i in tri]
             for a, b in ((0, 1), (1, 2), (2, 0)):
                 eu3[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
-    inner_once = [e for e, n in eu3.items() if n == 1 and e not in once0]
+    # the transit rings beyond the outer rim (crims[1:]) are LAWFUL open boundaries:
+    # plug-class apertures get welded shut by their plugs (exemption = no-op, the Uaho
+    # baseline), ensemble-class apertures ship OPEN exactly as stock does (the water
+    # parts cover them). Their once-edges may be border-SPLIT halves of a ring edge, so
+    # the test is segment PROXIMITY, not edge identity.
+    open_segs = []
+    for ring_o in crims[1:]:
+        for i2 in range(len(ring_o)):
+            open_segs.append((ring_o[i2], ring_o[(i2 + 1) % len(ring_o)]))
+
+    def _on_open(pt):
+        for a3, b3 in open_segs:
+            ex, ey, ez = b3[0] - a3[0], b3[1] - a3[1], b3[2] - a3[2]
+            L2 = ex * ex + ey * ey + ez * ez
+            if L2 < 1e-12:
+                continue
+            t01 = ((pt[0] - a3[0]) * ex + (pt[1] - a3[1]) * ey + (pt[2] - a3[2]) * ez) / L2
+            t01 = max(0.0, min(1.0, t01))
+            dx3 = pt[0] - (a3[0] + t01 * ex)
+            dy3 = pt[1] - (a3[1] + t01 * ey)
+            dz3 = pt[2] - (a3[2] + t01 * ez)
+            if dx3 * dx3 + dy3 * dy3 + dz3 * dz3 < 0.0009:  # 0.03u: kk3 + split lerp
+                return True
+        return False
+
+    inner_once = []
+    for e, n in eu3.items():
+        if n != 1 or e in once0:
+            continue
+        if open_segs and _on_open(e[0]) and _on_open(e[1]):
+            continue
+        inner_once.append(e)
     for e in inner_once[:6]:
         log(f"  NEW ONCE EDGE: {e[0]} -- {e[1]}")
     worst_rig = 0.0                                        # THE ROCK-RIGID GATE
@@ -2000,13 +2109,16 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         g_worst = max(g_worst, math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L)))))
     log(f"gates: down={down} maxEdge={maxe:.1f} nearMiss={nm // 2} "
         f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f} "
+        f"(below-envelope {zip_ny_low}/{len(zip_tris)}) "
         f"rockRigid={worst_rig * 100:.1f}% apronSlope={g_worst:.1f}deg")
     if down or nm or inner_once or maxe >= MTN_MAX_EDGE:
         raise ValueError("mountain geometry gate failed (down/near-miss/annulus-crack/edge)")
-    if zip_rise > MTN_ZIP_RISE or zip_ny_min < MTN_ZIP_NY_MIN:
-        raise ValueError(f"zip steeper than the grass envelope (rise {zip_rise:.2f} "
-                         f"ny {zip_ny_min:.2f}; {MTN_ZIP_NY_MIN} ~ 34deg allows the "
-                         f"alcove-mouth bank)")
+    if zip_rise > MTN_ZIP_RISE or zip_ny_min < MTN_ZIP_NY_FLOOR \
+            or zip_ny_low > MTN_ZIP_BANK_MAX:
+        raise ValueError(f"zip steeper than the grass envelope (rise {zip_rise:.2f}, "
+                         f"ny min {zip_ny_min:.2f} < floor {MTN_ZIP_NY_FLOOR}, or "
+                         f"{zip_ny_low} banks below {MTN_ZIP_NY_MIN} > "
+                         f"{MTN_ZIP_BANK_MAX} allowed)")
     if worst_rig >= MTN_ROCK_RIGID:
         raise ValueError("carried rock deformed beyond the de-tilt affine")
     if g_worst > MTN_APRON_SLOPE:
@@ -2031,10 +2143,17 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         _wf.extend(i + base for i in bmB.flat_index)
     _w.verts, _w.tangents, _w.flat_index = _wv, _wt, _wf
     _wml = [("Terrain", _w)]
-    gy, nm_, _, tp = P.place(_wml, TX, TZ)
-    log(f"blob centre grounds: y={gy:.2f} {nm_} topo {tp}")
+    # probe the carried PEAK tri's centroid, not the bbox centre -- a horseshoe-class
+    # massif's bbox centre sits over the open mouth (a lawful hole), the peak is always
+    # carried rock
+    peak_t = max((t for t in blob if dtopo[t] in ROCK),
+                 key=lambda t: max(p[1] for p in carried[t]))
+    ppx = sum(p[0] for p in carried[peak_t]) / 3
+    ppz = sum(p[2] for p in carried[peak_t]) / 3
+    gy, nm_, _, tp = P.place(_wml, ppx, ppz)
+    log(f"carried peak grounds: y={gy:.2f} {nm_} topo {tp}")
     if nm_ != "Terrain" or tp not in ROCK:
-        raise ValueError(f"blob centre grounds on {nm_} topo {tp}, want carried rock")
+        raise ValueError(f"carried peak grounds on {nm_} topo {tp}, want carried rock")
     r_out = max(math.hypot(px - TX, pz - TZ) for (px, pz) in rim_poly) + 4.0
     gy2, nm2, _, tp2 = P.place(_wml, TX - r_out, TZ)
     log(f"ground probe west of the rim: y={gy2:.2f} {nm2} topo {tp2}")
@@ -2044,9 +2163,138 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
     _atlas_gate_mountain(new_parents, game=game, log=log)
 
+    # ---- 7. THE ENSEMBLE CARRY: the massif's auxiliary parts ride the same rigid map --
+    # (only when the blob has ensemble apertures -- object-only donors like Uaho keep
+    # the byte-frozen plug path above). Each donor part's weld components that sit in
+    # the massif footprint carry WHOLE (stock ships them per-block already): positions
+    # de-tilt + rotate + translate exactly like the rock, normals by inverse-transpose,
+    # REAL tangents as direction vectors under the same shear; UVs verbatim (the water
+    # materials bind by part name). Components assign to the bench block holding their
+    # transformed centroid, unsplit.
+    changed_parts = {}
+    donor_ref = None
+    n_ens_tris = 0
+    if ensemble_apertures:
+        rim_poly_d = [(p[0], p[2]) for p in rim]
+        ens_keys_d = set()                                 # donor-frame carried aux verts
+        parts_deployed = set()
+        for part in ENSEMBLE_PARTS:
+            for (dbx, dby) in B["read_blocks"]:
+                try:
+                    pm = X.read_block(dbx, dby, disc=disc, game=game, part=part.lower())
+                except Exception:
+                    continue
+                doff_b = np.array([BLOCK * dbx, 0.0, -BLOCK * dby])
+                pV = np.asarray(pm.verts, dtype=np.float64) + doff_b
+                pN, pU, pT = pm.normals, pm.uvs, pm.tangents
+                nt = len(pm.flat_index) // 3
+                ptri = [pm.flat_index[3 * t:3 * t + 3] for t in range(nt)]
+                e2t = defaultdict(list)
+                for t, tri in enumerate(ptri):
+                    for a, b in ((0, 1), (1, 2), (2, 0)):
+                        e2t[tuple(sorted((kk3(pV[tri[a]]), kk3(pV[tri[b]]))))].append(t)
+                padj = defaultdict(set)
+                for ts2 in e2t.values():
+                    for i2 in range(len(ts2)):
+                        for j2 in range(i2 + 1, len(ts2)):
+                            padj[ts2[i2]].add(ts2[j2]); padj[ts2[j2]].add(ts2[i2])
+                seenp = set()
+                for s in range(nt):
+                    if s in seenp:
+                        continue
+                    comp = {s}; stq = [s]
+                    while stq:
+                        t = stq.pop()
+                        for t2 in padj[t]:
+                            if t2 not in comp:
+                                comp.add(t2); stq.append(t2)
+                    seenp |= comp
+                    cpts = [pV[i] for t in comp for i in ptri[t]]
+                    if not any(pip(p[0], p[2], rim_poly_d) for p in cpts):
+                        continue                           # outside the massif footprint
+                    tv = {}
+                    for t in comp:
+                        for i in ptri[t]:
+                            if i not in tv:
+                                pr = rot_pt(detilt_p(pV[i]), ROT)
+                                tv[i] = (pr[0] + DX, pr[1] + DY, pr[2] + DZ)
+                                if not (SPX0 - 1.0 < tv[i][0] < SPX1 + 1.0 and
+                                        SPZ0 - 1.0 < tv[i][2] < SPZ1 + 1.0):
+                                    raise ValueError(f"ensemble {part} vert leaves the "
+                                                     f"span: {tv[i]}")
+                                ens_keys_d.add(kk3(pV[i]))
+                    ccx = sum(p[0] for p in tv.values()) / len(tv)
+                    ccz = sum(p[2] for p in tv.values()) / len(tv)
+                    blk = (int(math.floor(ccx / BLOCK)), int(math.floor(-ccz / BLOCK)))
+                    if blk not in span:
+                        raise ValueError(f"ensemble {part} component centres outside "
+                                         f"the span at ({ccx:.0f},{ccz:.0f})")
+                    dst = changed_parts.setdefault(blk, {}).setdefault(
+                        part, dict(pos=[], nrm=[], uv=[], tan=[], flat=[], tris=[]))
+                    sbx, sby = blk
+                    for t in comp:
+                        for i in ptri[t]:
+                            w = tv[i]
+                            dst["pos"].append([w[0] - BLOCK * sbx, w[1],
+                                               w[2] + BLOCK * (sby + 1) - BLOCK])
+                            dst["nrm"].append(rot_n(detilt_n(pN[i]), ROT))
+                            dst["uv"].append([pU[i][0], pU[i][1]])
+                            t4 = pT[i]
+                            d3 = (t4[0], t4[1] - ta * t4[0] - tb * t4[2], t4[2])
+                            r3 = rot_n([d3[0], d3[1], d3[2]], ROT)
+                            Lt = math.sqrt(r3[0] ** 2 + r3[1] ** 2 + r3[2] ** 2) or 1.0
+                            dst["tan"].append([r3[0] / Lt, r3[1] / Lt, r3[2] / Lt,
+                                               t4[3]])
+                            dst["flat"].append(len(dst["pos"]) - 1)
+                        dst["tris"].append([dst["flat"][-3], dst["flat"][-2],
+                                            dst["flat"][-1]])
+                        n_ens_tris += 1
+                    parts_deployed.add(part)
+        # THE COVERAGE GATE: every ensemble-aperture ring point must be a vert of some
+        # carried component (in the donor frame -- ring keys ARE part-vert keys)
+        for r in ensemble_apertures:
+            miss = [p for p in r if p not in ens_keys_d]
+            if miss:
+                raise ValueError(f"ensemble aperture not covered by carried parts "
+                                 f"(e.g. {miss[:2]}) -- a needed component was culled")
+        # the Donor.txt divert: ONE donor block must carry every deployed part transform
+        for (dbx, dby) in B["read_blocks"]:
+            ok = True
+            for part in parts_deployed:
+                try:
+                    X.read_block(dbx, dby, disc=disc, game=game, part=part.lower())
+                except Exception:
+                    ok = False
+                    break
+            if ok:
+                donor_ref = (dbx, dby)
+                break
+        if donor_ref is None:
+            raise ValueError(f"no single donor block carries all ensemble parts "
+                             f"{sorted(parts_deployed)} -- the Donor.txt divert needs "
+                             f"one prefab with every transform")
+        for blk, parts in changed_parts.items():
+            sbx, sby = blk
+            bm0 = soup["blocks"][blk]
+            for part, dst in list(parts.items()):
+                parts[part] = X.BlockMesh(
+                    name=f"Block[{sbx}][{sby}] {part}", disc=bm0.disc, x=sbx, y=sby,
+                    lod=bm0.lod, vcount=len(dst["pos"]), stride=48,
+                    channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2),
+                              X.CH_TAN: (32, 4)},
+                    chan_arrays={X.CH_POS: dst["pos"], X.CH_NRM: dst["nrm"],
+                                 X.CH_UV: dst["uv"], X.CH_TAN: dst["tan"]},
+                    flat_index=dst["flat"], tris=dst["tris"], raw_vbuf=b"",
+                    raw_ibuf=b"", use32=True, submeshes=[])
+        log(f"ensemble carry: {n_ens_tris} aux tris "
+            f"({', '.join(sorted(parts_deployed))}) across "
+            f"{sorted(changed_parts)}; Donor.txt divert -> {donor_ref}")
+
     return {"changed": changed, "center": (TX, TZ), "rot": ROT, "drop": drop,
+            "changed_parts": changed_parts, "donor_ref": donor_ref,
             "report": {"blob_tris": len(blob), "dropped": len(drop),
                        "zip_tris": len(zip_tris), "plugs": len(plug_parents),
+                       "ensemble_tris": n_ens_tris,
                        "rot_deg": ROT * 90, "blocks": [list(b) for b in span],
                        "peak_y": round(float(
                            max(p[1] for ps in carried.values() for p in ps)), 2),
@@ -2142,6 +2390,38 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None):
                     raise ValueError(f"probe grounded on {nm_} topo {topo}, "
                                      f"expected Terrain topo {want_topo}")
     log("placement census: MISS=0 in changed blocks")
+
+
+def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
+                          game=None, log=print) -> list:
+    """Deploy an ENSEMBLE carve's auxiliary part overrides: every span block gets ALL
+    of :data:`ENSEMBLE_PARTS` (carried content or a hidden blank -- the donor prefab's
+    own parts would otherwise FREE-RIDE verbatim at rot0/shift0), plus a ``Donor.txt``
+    naming the part-carrying donor block (the s34 divert binds each override to the
+    prefab's part transform BY NAME, so the donor must carry every deployed part)."""
+    changed_parts = res.get("changed_parts") or {}
+    donor_ref = res.get("donor_ref")
+    if donor_ref is None:
+        return []
+    out = []
+    span = [tuple(b) for b in res["report"]["blocks"]]
+    for blk in span:
+        bx, by = blk
+        for part in ENSEMBLE_PARTS:
+            bmP = changed_parts.get(blk, {}).get(part)
+            if bmP is None:
+                bmP = M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=disc,
+                                          x=bx, y=by, lod=lod)
+            p = M.deploy_override(bmP, mod_folder=mod_folder, game=game, lod=lod,
+                                  part=part)
+            if len(bmP.tris):
+                log(f"deployed {part} -> {p} ({len(bmP.tris)} tris)")
+            out.append(p)
+        M.deploy_donor_sidecar(donor_ref[0], donor_ref[1], mod_folder=mod_folder,
+                               disc=disc, x=bx, y=by, lod=lod, game=game)
+    log(f"Donor.txt -> {donor_ref} on {len(span)} span block(s) "
+        f"(+ blanks for uncarried parts)")
+    return out
 
 
 def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",

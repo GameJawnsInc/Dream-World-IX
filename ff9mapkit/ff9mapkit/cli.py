@@ -2780,6 +2780,8 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
                               game=args.game)
+            IN.deploy_mountain_parts(res, mod_folder=args.mod_folder, disc=args.disc,
+                                     game=args.game)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2787,9 +2789,11 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     cx, cz = res["center"]
     r = res["report"]
     tx, tz = r["teleport"]
+    ens = (f" + THE ENSEMBLE CARRY ({r['ensemble_tris']} falls/river/object tris riding "
+           f"the same rigid map, Donor.txt -> {res['donor_ref']})") if r.get("ensemble_tris") else ""
     print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg across "
           f"{len(r['blocks'])} block(s): {r['blob_tris']} donor tris (+{r['plugs']} aperture "
-          f"plugs), {r['dropped']} island tris carved, {r['zip_tris']} zip tris; peak y "
+          f"plugs), {r['dropped']} island tris carved, {r['zip_tris']} zip tris{ens}; peak y "
           f"{r['peak_y']}, rock rigidity drift {r['rock_rigid'] * 100:.1f}% (<= 3.5), apron "
           f"slope {r['apron_slope']} deg (<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the "
           f"placement probes + census. F6 -> World -> re-enter, then teleport ({tx}, {tz}) and "

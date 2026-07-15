@@ -247,7 +247,12 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         outline, radii = M.multi_blob_outline(cx, cz, lobes=lobes, base_radius=base_radius, seed=seed,
                                               undulation=undulation)
     else:
+        # adaptive outline density (2026-07-15, the horseshoe-scale benches): the fixed
+        # n=96 ring leaves >8u rim segments past ~r60 (undulation stretches arcs; the 8u
+        # on-grain gate then fails). max(96, ceil(1.6*r)) keeps n = 96 for EVERY existing
+        # radius (r <= 60 -- all frozen identity baselines) and densifies beyond.
         outline, radii = M.blob_outline(cx, cz, base_radius=base_radius, seed=seed, undulation=undulation,
+                                        n=max(96, int(math.ceil(base_radius * 1.6))),
                                         n_corners=n_corners, corner_strength=corner_strength)
     nring = len(outline)
     rim = []
@@ -300,6 +305,43 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         if not keep[t] and t not in outside:
             keep[t] = True
     fill = [(allpts[i], allpts[j], allpts[k]) for t, (i, j, k) in enumerate(tri_idx) if keep[t]]
+
+    # THE BIG-MINT REFINEMENT (conditional, 2026-07-15): a large-radius interior Delaunay
+    # can leave a few grass tris with plan edges over the 8u on-grain gate (the
+    # horseshoe-scale r69+ mints). Split the longest such edge at its midpoint in BOTH
+    # owning tris (identical midpoint floats -> the weld holds) until none remain.
+    # STRICTLY a no-op on any mint that never trips it -- every frozen identity baseline
+    # (island E, the r31/r50/r52 benches) rebuilds bit-identically.
+    _kkm = lambda p: (round(p[0], 3), round(p[2], 3))  # noqa: E731
+    for _pass in range(64):
+        worst = None
+        for tri in fill:
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                d = math.hypot(tri[a][0] - tri[b][0], tri[a][2] - tri[b][2])
+                if d > 8.0 and (worst is None or d > worst[0]):
+                    worst = (d, tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))))
+        if worst is None:
+            break
+        owners = []
+        for fi, tri in enumerate(fill):
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                if tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))) == worst[1]:
+                    owners.append((fi, a, b))
+                    break
+        if len(owners) != 2:
+            raise ValueError(f"an over-8u grass edge has {len(owners)} owner(s) -- "
+                             f"change --seed/--radius")
+        (fi0, a0, b0) = owners[0]
+        pa, pb = fill[fi0][a0], fill[fi0][b0]
+        m = ((pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0, (pa[2] + pb[2]) / 2.0)
+        done = {fi for fi, _, _ in owners}
+        new_fill = [tri for fi, tri in enumerate(fill) if fi not in done]
+        for fi, a, b in owners:
+            tri = fill[fi]
+            c = [v for k2, v in enumerate(tri) if k2 not in (a, b)][0]
+            new_fill.append((tri[a], m, c))
+            new_fill.append((m, tri[b], c))
+        fill = new_fill
 
     cells_used = sorted({(math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4))
                          for (a, b, c) in fill})

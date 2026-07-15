@@ -224,13 +224,16 @@ def test_signed_area_orientation():
     assert IN.signed_area(list(reversed(ccw))) == pytest.approx(-16.0)
 
 
-def _patch_donor(monkeypatch, donor):
-    """``donor``: one BlockMesh (served for any block) or ``{(x, y): BlockMesh}``."""
+def _patch_donor(monkeypatch, donor, parts=None):
+    """``donor``: one BlockMesh (served for any block) or ``{(x, y): BlockMesh}``;
+    ``parts``: optional ``{(x, y): {part_lowercase: BlockMesh}}`` auxiliary meshes."""
     from ff9mapkit.world import extract as X
 
     def fake_read_block(x, y, *, disc=1, lod="0_1", part="terrain", game=None):
         if part != "terrain":
-            raise FileNotFoundError("no object part in the synthetic donor")
+            if parts and part in parts.get((x, y), {}):
+                return parts[(x, y)][part]
+            raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found")
         if isinstance(donor, dict):
             if (x, y) not in donor:
                 raise ValueError(f"disc{disc} block[{x}][{y}] {part} mesh not found")
@@ -408,6 +411,83 @@ def test_carve_mountain_on_desert_ground(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="not clear plain-grass|no non-plain|no lawful"):
         IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, ground="grass",
                           game=tmp_path, log=lambda *a: None)
+
+
+def _frustum_donor_with_falls(cx=64.0, cz=-32.0, radius=26.0, apex=6.0):
+    """A rock FRUSTUM straddling donor blocks (0,0)/(1,0) whose OPEN top ring is closed
+    by a fake FALLS cap -- the minimal ENSEMBLE-aperture donor (the ring is owned by an
+    auxiliary part, not the Object part)."""
+    import math as _m
+    rings = [(radius, 0.0), (radius * 0.75, apex * 0.25),
+             (radius * 0.5, apex * 0.5), (radius * 0.25, apex * 0.75)]
+    NSEG = 24
+
+    def ring_pt(r, y, k):
+        a = 2 * _m.pi * k / NSEG
+        return (cx + r * _m.cos(a), y, cz + r * _m.sin(a))
+
+    def up(tri):
+        a, b, c = tri
+        cy = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2])
+        return tri if cy > 0 else (a, c, b)
+
+    tris3 = []
+    for (r1, y1), (r2, y2) in zip(rings, rings[1:]):
+        for k in range(NSEG):
+            p00, p01 = ring_pt(r1, y1, k), ring_pt(r1, y1, k + 1)
+            p10, p11 = ring_pt(r2, y2, k), ring_pt(r2, y2, k + 1)
+            tris3.append(up((p00, p01, p10)))
+            tris3.append(up((p01, p11, p10)))
+    parents = [(tuple((*p, _MAIN_U, 0.5, 0.0, 1.0, 0.0) for p in t), MASSIF_DONOR, "m")
+               for t in tris3]
+    terr = {}
+    for blk, pieces in IN.split_borders8(parents).items():
+        bx, by = blk
+        rows = [(tuple((c[0] - 64.0 * bx, c[1], c[2] + 64.0 * by) for c in corners),
+                 MASSIF_DONOR, _MAIN_U) for corners, idall, fam in pieces]
+        terr[blk] = _bm(rows, name=f"Block[{bx}][{by}] Terrain", x=bx, y=by)
+    r4, y4 = rings[-1]
+    cap = [(up((ring_pt(r4, y4, k), ring_pt(r4, y4, k + 1), (cx, y4, cz))),
+            MASSIF, _MAIN_U) for k in range(NSEG)]
+    falls = _bm(cap, name="Block[0][0] Falls", x=0, y=0)   # (0,0)-local == world here
+    return terr, {(0, 0): {"falls": falls}}
+
+
+def test_carve_mountain_ensemble_aperture(monkeypatch, tmp_path):
+    """THE ENSEMBLE CARRY: a blob ring owned by an auxiliary part (not the Object part)
+    classifies as an ensemble aperture, no plug is built, the part rides the same rigid
+    map into changed_parts, and deploy_mountain_parts writes content + blanks + the
+    Donor.txt divert."""
+    terr, parts = _frustum_donor_with_falls()
+    _patch_donor(monkeypatch, terr, parts=parts)
+    coast = [(((2.0, 3.2, -2.0), (6.0, 3.2, -2.0), (2.0, 3.2, -6.0)), ROCK, 0.9)]
+    soup = IN.soup_from_blocks({
+        (0, 1): _grid_block(0, 1, extra=coast), (1, 1): _grid_block(1, 1),
+        (0, 2): _grid_block(0, 2), (1, 2): _grid_block(1, 2)})
+    res = IN.carve_mountain(soup, near=(64.0, -128.0), donor=[(0, 0), (1, 0)],
+                            alcove=None, game=tmp_path, log=lambda *a: None)
+    r = res["report"]
+    assert r["plugs"] == 0 and r["ensemble_tris"] == 24
+    assert res["donor_ref"] == (0, 0)
+    all_parts = {p for pp in res["changed_parts"].values() for p in pp}
+    assert all_parts == {"Falls"}
+    # the cap rides rigidly: its highest vert sits at bench ground + the ring height
+    ys = [v[1] for pp in res["changed_parts"].values() for bmp in pp.values()
+          for v in bmp.chan_arrays[CH_POS]]
+    assert max(ys) == pytest.approx(3.2 + 4.5, abs=1e-6)
+    # deployment: content + blanks for every ensemble part + the Donor.txt divert
+    outs = IN.deploy_mountain_parts(res, mod_folder="modx", game=tmp_path,
+                                    log=lambda *a: None)
+    root = tmp_path / "modx" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1"
+    n_falls = n_donor = 0
+    for blk in map(tuple, r["blocks"]):
+        bx, by = blk
+        for part in IN.ENSEMBLE_PARTS:
+            assert (root / f"r{by}" / f"Block[{bx}][{by}] {part}.ff9mesh").exists()
+        d = root / f"r{by}" / f"Block[{bx}][{by}] Donor.txt"
+        assert d.exists()
+        n_donor += 1
+    assert outs and n_donor == len(r["blocks"])
 
 
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
