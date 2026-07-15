@@ -587,8 +587,23 @@ Outer Continent's east coast — `world-transplant --in-place --cell 16,5 --dono
 teleport ≈ (1074, −336); THE BUILT-IN A/B: the block's own REAL desert beach runs
 the west shore, centroid (1061, −358), ~15u around the corner. Real cell → disc 1
 only (no mirror; a world re-entry loads it); revert = delete the five deployed
-overrides. The LADDER MINT (sea5/sea1/wash over open sea4 → beaches on OUR minted
-islands) remains the arc's next prize.
+overrides. **Round 2 (playtest 2026-07-15): the beach itself "looks good"; the END
+CONNECTIONS read as tiny cliffs** — the radial r18 bank had sunk the flanking coast
+beyond the caps (real beach ends die against the TALL lip — the bay-arc grammar);
+re-deployed with the CORRIDOR bank (`:8:along=chord` — the sink hugs the beach line,
+the flanks keep stock height). **The user's second tell — a SQUARED SEA TILE against
+the foam — diagnosed structurally (THE WASH-APRON PROPORTION):** at the real beach
+everything within ~13u of the foam is PURE sea2 wash; at the mint, ring-re-banded
+sea1 sits at ~4u (a deeper band's animated texture butting the wash = the visible
+square). The mint's `wash_reach` lever (now CLI-exposed as `:wash=R`) only applies
+on DEEP shores (`deep_shore = no sea2 dropped`) — this window drops 3 sea2 tris (the
+real beach's ladder wraps into the corner), so the outer bands stay where stock had
+them. The truth underneath: this corner's bathymetry is a NARROW SHELF (deep water
+close-in = why no beach grew here naturally); a stock-proportioned apron needs the
+mint to RE-PROPORTION the ladder on shelf shores (convert near sea1/sea3 to wash +
+push the re-band ring outward — the LADDER-TAPER LAW's mint analogue), which is the
+next machinery rung alongside the LADDER MINT (sea5/sea1/wash over open sea4 →
+beaches on OUR minted islands).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

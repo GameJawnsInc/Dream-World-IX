@@ -4340,9 +4340,13 @@ def parse_bank_lower_spec(spec: str) -> dict:
 
 
 def parse_virgin_mint_spec(spec: str) -> dict:
-    """Parse the CLI ``--virgin-mint "X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY]"``
-    into the ``build_shore_tweaks(mint=...)`` dict (the fuse layout's
-    ``[placement.virgin_mint]`` shape)."""
+    """Parse the CLI ``--virgin-mint
+    "X0,Z0:X1,Z1[:WIDTH[:SWASH]][:pins=PX,PY][:wash=R]"`` into the
+    ``build_shore_tweaks(mint=...)`` dict (the fuse layout's
+    ``[placement.virgin_mint]`` shape). ``wash=R`` = the wash-apron reach:
+    sea3/sea5 within R of the waterline re-band to wash (default 4.0; real
+    beaches keep a much wider pure-wash apron -- the (16,5) A/B measured 13u+,
+    and a too-short reach reads as a squared deep-band tile against the foam)."""
     parts = [s.strip() for s in spec.strip().split(":")]
     if len(parts) < 2:
         raise ValueError("--virgin-mint needs at least X0,Z0:X1,Z1")
@@ -4354,9 +4358,12 @@ def parse_virgin_mint_spec(spec: str) -> dict:
             continue
         if "=" in seg:
             name, _, val = seg.partition("=")
-            if name.strip() != "pins":
+            if name.strip() == "pins":
+                out["pins_from"] = [int(v) for v in val.split(",")]
+            elif name.strip() == "wash":
+                out["wash_reach"] = float(val)
+            else:
                 raise ValueError(f"--virgin-mint: unknown named segment '{name}'")
-            out["pins_from"] = [int(v) for v in val.split(",")]
         else:
             if not pos_keys:
                 raise ValueError("--virgin-mint: too many positional segments")
