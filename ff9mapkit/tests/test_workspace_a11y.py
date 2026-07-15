@@ -99,6 +99,32 @@ def test_rail_tabs_and_icon_only_buttons_are_named(win):
     assert all(win.tabs.tabText(i).strip() for i in range(win.tabs.count())), "every tab has a visible label"
 
 
+def test_interactive_controls_meet_target_size(app):
+    """WCAG 2.5.8 (target size minimum, 24x24): every common control's clickable box clears 24px tall under
+    the real QSS -- we pad the control (not just the glyph). The inline '?' concept badge is a generous 22."""
+    from PySide6.QtWidgets import (QCheckBox, QComboBox, QLineEdit, QPushButton,  # noqa: PLC0415
+                                   QRadioButton, QVBoxLayout, QWidget)
+    from ff9mapkit.editor.theme import pick_palette                              # noqa: PLC0415
+    from ff9mapkit.workspace.style import qss                                    # noqa: PLC0415
+    host = QWidget()
+    host.setStyleSheet(qss(pick_palette("dark")))                                # scoped -> no app pollution
+    lay = QVBoxLayout(host)
+    controls = {"checkbox": QCheckBox("Enable"), "radio": QRadioButton("Pick"), "button": QPushButton("Deploy"),
+                "combo": QComboBox(), "lineedit": QLineEdit()}
+    for wd in controls.values():
+        lay.addWidget(wd)
+    host.show()
+    app.processEvents()
+    for name, wd in controls.items():
+        wd.ensurePolished()
+        assert wd.sizeHint().height() >= 24, f"{name}: target height {wd.sizeHint().height()} < 24 (WCAG 2.5.8)"
+    from ff9mapkit.workspace.forms_qt import _concept_badge                      # noqa: PLC0415
+    made = _concept_badge("walkmesh", pick_palette("dark"))
+    if made is not None:
+        badge = made[0]
+        assert badge.width() >= 22 and badge.height() >= 22, "the '?' concept badge is a generous inline target"
+
+
 def test_problems_convey_severity_by_icon_not_colour_alone(win):
     """WCAG 1.4.1: each Problems row carries a distinct-shape severity ICON (error vs warn), so severity is
     legible without relying on the text colour (which stays the readable body colour, not a status hue)."""

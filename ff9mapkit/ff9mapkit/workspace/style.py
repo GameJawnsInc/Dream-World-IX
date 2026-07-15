@@ -83,11 +83,13 @@ _QSS = Template(
 
     /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
        drawing the native checked dot, so without this the selected state renders INVISIBLE. */
-    QCheckBox, QRadioButton { background: transparent; spacing: 7px; }
+    /* padding 3px lifts the clickable row to a >=24px target height (WCAG 2.5.8); the indicator itself is
+       18px so it's a comfortable tap/hit -- we pad the control, not just the glyph. */
+    QCheckBox, QRadioButton { background: transparent; spacing: 8px; padding: 3px 2px; }
     QCheckBox::indicator, QRadioButton::indicator {
-        width: 15px; height: 15px; border: 1px solid $border; background: $field;
+        width: 18px; height: 18px; border: 1px solid $border; background: $field;
     }
-    QRadioButton::indicator { border-radius: 8px; }
+    QRadioButton::indicator { border-radius: 9px; }
     QCheckBox::indicator { border-radius: 4px; }
     QCheckBox::indicator:hover, QRadioButton::indicator:hover { border: 1px solid $accent; }
     QCheckBox::indicator:checked, QRadioButton::indicator:checked {
@@ -258,7 +260,7 @@ _QSS = Template(
 
     /* the "?" concept badge next to a jargon form label -- a small circular help affordance */
     QToolButton#conceptBadge {
-        background: transparent; color: $muted; border: 1px solid $border; border-radius: 9px;
+        background: transparent; color: $muted; border: 1px solid $border; border-radius: 11px;
         padding: 0; font-weight: 700; font-size: 11px;
     }
     QToolButton#conceptBadge:hover { color: $accent; border-color: $accent; }

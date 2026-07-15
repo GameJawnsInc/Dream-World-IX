@@ -65,7 +65,7 @@ def _concept_badge(term, palette):
     btn.setText("?")
     btn.setObjectName("conceptBadge")
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedSize(18, 18)
+    btn.setFixedSize(22, 22)          # a bigger hit target (WCAG 2.5.8); it's inline next to the field label
     btn.setToolTip(f"What's a {c.title.lower()}?")
     btn.setAccessibleName(f"What is {c.title}")
     btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))
