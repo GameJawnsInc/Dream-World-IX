@@ -601,9 +601,25 @@ real beach's ladder wraps into the corner), so the outer bands stay where stock 
 them. The truth underneath: this corner's bathymetry is a NARROW SHELF (deep water
 close-in = why no beach grew here naturally); a stock-proportioned apron needs the
 mint to RE-PROPORTION the ladder on shelf shores (convert near sea1/sea3 to wash +
-push the re-band ring outward — the LADDER-TAPER LAW's mint analogue), which is the
-next machinery rung alongside the LADDER MINT (sea5/sea1/wash over open sea4 →
-beaches on OUR minted islands).
+push the re-band ring outward — the LADDER-TAPER LAW's mint analogue), **→ THE SHELF
+RE-PROPORTION RUNG built same day** (user: "the ends look good now, build the ladder
+re-proportion rung"): explicit `wash=R` on a shelf shore now SEEDS whole sea1/sea3/sea5
+tiles within reach as planned wash conversions riding THE LADDER-REPAIR FIXPOINT
+(plan-then-emit, strip re-emission, every gate) — plus three new fixpoint rules minted
+through the (16,5) traces: **THE ROLLBACK RULE** (a pair needing a FRAME-ROW cell — the
+repair is border-blind; an in-place re-label breaks border welds — or a FALLEN cell
+(proven unlearnable) or a PARTIAL (part,cell) (cut fragments) reverts the shallow-side
+conversion instead, monotone, fall-through-to-legacy when nothing is revertible = every
+proven build byte-compatible, 47 goldens frozen); **THE COMPRESSED LADDER** (a
+rolled-back cell stays convertible DOWN-ladder: wash→sea1→frame-sea3 in adjacent
+columns is lawful and real — the east flank's form); **THE ENGULFED-TILE RULE** (a
+surviving sea1 whose new edge-set is [] has NO strip form — no such tile exists — and
+re-bands to wash, always lawful since es=[] means every neighbour is wash/sea1).
+Deployed at wash=13: the square's body IS wash now (rows −87..−89 converted, the sea1
+ring pushed to the frame column as the compressed ladder; the NW pocket rolled back
+untouched); the residue at the foam line = cut-fragment slivers (lawfully immovable).
+Playtest pending. The LADDER MINT (sea5/sea1/wash over open sea4 → beaches on OUR
+minted islands) remains open — and now inherits the fixpoint rules this rung minted.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

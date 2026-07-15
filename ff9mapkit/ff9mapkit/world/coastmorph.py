@@ -4432,10 +4432,11 @@ def build_shore_tweaks(donor, size=(1, 1), *, bank=None, mint=None,
         pins = mint.get("pins_from")
         if pins is not None:
             pins = (int(pins[0]), int(pins[1]))
-        tw = virgin_mint(blk, p0, p1,
+        wr = mint.get("wash_reach")                # None = the proven defaults
+        tw = virgin_mint(blk, p0, p1,              # (deep 4.0 / shelf off)
                          width=float(mint.get("width", 2.4)),
                          swash=float(mint.get("swash", 4.6)),
-                         wash_reach=float(mint.get("wash_reach", 4.0)),
+                         wash_reach=None if wr is None else float(wr),
                          pre=pre, pins_from=pins,
                          disc=disc, lod=lod, game=game)
         tweaks += list(tw)
@@ -4460,7 +4461,7 @@ W_Y = 0.195
 
 
 def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
-                pins_from=None, wash_reach=4.0, disc: int = 1,
+                pins_from=None, wash_reach=None, disc: int = 1,
                 lod: str = "0_1", game=None):
     """BEACH-MINT rung 3 -- THE VIRGIN-SHORE MINT: author a NEW beach on a bare grass
     coast, no donor beach to pin to. ``start``/``end`` are world ``(x, z)`` anchors for
@@ -5209,31 +5210,54 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
             wat_drop[p].append(list(t3))
             cut_frags.append((p, [_up_tri([_lift_v(v) for v in t_])
                                   for t_ in kept]))
-    # THE LADDER SYNTHESIS (a DEEP-fronted shore only -- the footprint cut no
-    # sea2, so there is no wash to continue): cut sea3/sea5 remainders re-band to
-    # WASH, and uncut deep tiles the W chain runs close by join it (the swash
-    # needs its real seaward sea2 depth); the ring trigger then interposes sea1.
-    # On a wash-fronted shore (sea2 was cut) everything keeps its own band.
+    # THE LADDER SYNTHESIS: on a DEEP-fronted shore (the footprint cut no sea2 --
+    # no wash to continue) cut sea3/sea5 remainders re-band to WASH, and uncut
+    # deep tiles the W chain runs close by join it (the swash needs its real
+    # seaward sea2 depth); the ring trigger then interposes sea1. On a
+    # wash-fronted SHELF shore everything keeps its own band by default -- but a
+    # real beach owns a PURE-WASH apron (the (16,5) A/B measured ~13u; a stock
+    # outer band at ~4u reads as a squared deep tile against the foam), so an
+    # EXPLICIT wash_reach re-proportions the ladder there too (THE LADDER-TAPER
+    # LAW's mint analogue): whole sea1/sea3/sea5 tiles within reach of the
+    # waterline re-band to wash, and the ladder-repair fixpoint interposes sea1
+    # at the new boundary + re-emits affected strip neighbours. wash_reach=None
+    # keeps every proven behavior byte-exact (deep -> 4.0, shelf -> off).
     deep_shore = not wat_drop["sea2"]
+    reach = ((4.0 if deep_shore else 0.0) if wash_reach is None
+             else float(wash_reach))
+    conv_parts = ("sea3", "sea5") if deep_shore else ("sea1", "sea3", "sea5")
+
+    def _near_w(t_):
+        """Within ``reach`` of the waterline chain (centroid to nearest segment).
+        Deliberately NOT restricted to the beach face: lateral growth into a
+        frame-bound pocket is handled by the repair fixpoint's ROLLBACK rule,
+        which knows the true criterion (does the cascade need a frame-row
+        cell), where geometry cannot (the (16,5) NW pocket is 'seaward' of the
+        chain's north run yet frame-bound; the SE lateral is open water)."""
+        cx_ = sum(v[0][0] for v in t_) / 3.0
+        cz_ = sum(v[0][2] for v in t_) / 3.0
+        return min(_pt_seg((cx_, 0.0, cz_), W[i], W[i + 1])
+                   for i in range(ncol)) <= reach
+
     for p, frags in cut_frags:
         if deep_shore and p in ("sea3", "sea5"):
             wat_emit["sea2"] += [_to_wash(t_) for t_ in frags]
         else:
             wat_emit[p] += frags
-    if deep_shore:
+    if deep_shore and reach > 0.0:
         wash_dropped = {p: {_key_set(t) for t in wat_drop[p]}
                         for p in ("sea3", "sea5")}
         for p in ("sea3", "sea5"):
             for t3 in tris[p]:
                 if _key_set(t3) in wash_dropped[p]:
                     continue
-                cx_ = sum(v[0][0] for v in t3) / 3.0
-                cz_ = sum(v[0][2] for v in t3) / 3.0
-                d = min(_pt_seg((cx_, 0.0, cz_), W[i], W[i + 1])
-                        for i in range(ncol))
-                if d <= wash_reach:
+                if _near_w(t3):
                     wat_drop[p].append(list(t3))
                     wat_emit["sea2"].append(_to_wash(list(t3)))
+    # shelf-shore re-proportion seeds ride THE LADDER-REPAIR FIXPOINT itself
+    # (planned below, next to the ring re-band): the repair's rollback rule is
+    # what makes them frame-safe, so they cannot be applied here.
+    shelf_reach = 0.0 if deep_shore else reach
     if abs(terr_consumed + wat_consumed - foot_area) > max(0.01 * foot_area, 0.05):
         raise ValueError(f"COVERAGE LEDGER: the footprint ({foot_area:.2f} sq-u) is "
                          f"covered by only {terr_consumed + wat_consumed:.2f} sq-u "
@@ -5511,8 +5535,9 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
         return {p for p in owner2.get(c, ()) if p in WATER_DEPTH}
 
     win_cells = {(math.floor(p[0] / 4.0), math.floor(p[2] / 4.0)) for p in L + S + W}
+    scan_r = max(3, int(math.ceil(reach / 4.0)) + 1)
     scan = {(cx_ + dx, cz_ + dz) for cx_, cz_ in win_cells
-            for dx in range(-3, 4) for dz in range(-3, 4)}
+            for dx in range(-scan_r, scan_r + 1) for dz in range(-scan_r, scan_r + 1)}
     ring_drop_by = defaultdict(list)
     ring_emit_by = defaultdict(list)
     post_reg = dict(reg)
@@ -5566,13 +5591,60 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
     # bookkeeping); geometry emits ONCE afterwards from the FINAL facts -- an
     # in-loop emission goes stale the moment a later conversion changes its
     # neighbour (the shade gate catches exactly that)
+    #
+    # THE SHELF RE-PROPORTION (the ladder-taper law's mint analogue): a real
+    # beach owns a PURE-WASH apron (the (16,5) A/B measured ~13u; a stock deep
+    # band at ~4u reads as a squared tile against the foam). An explicit
+    # wash_reach on a wash-fronted shore SEEDS whole facing tiles within reach
+    # as planned wash conversions -- they ride this fixpoint (plan-then-emit,
+    # strip re-emission, every gate) rather than the drop stage, because only
+    # the fixpoint can ROLL a seed BACK when its repair cascade would need a
+    # FRAME-ROW cell: the repair is border-blind by construction (an edge-set
+    # at the frame cannot see the neighbour block's bands, so a frame-row cell
+    # never re-bands lawfully in a single-cell morph -- the (16,5) NW-pocket
+    # trace). The apron grows exactly where the block allows.
+    fx0_, fx1_ = 64.0 * donor[0], 64.0 * donor[0] + 64.0
+    fz1_, fz0_ = -64.0 * donor[1], -64.0 * donor[1] - 64.0
+    frame_ring = set()
+    for p_ in water_parts:
+        for t3 in tris[p_]:
+            if any(min(abs(v[0][0] - fx0_), abs(v[0][0] - fx1_),
+                       abs(v[0][2] - fz0_), abs(v[0][2] - fz1_)) < 0.01
+                   for v in t3):
+                frame_ring.add(_cell_of_tri(t3))
+    cell_src = defaultdict(set)
+    partial_pc = set()   # (part, cell) with a cut tri: no whole tile of THAT part
+    for p_ in ("sea1", "sea3", "sea5"):
+        for t3 in tris[p_]:
+            c_ = _cell_of_tri(t3)
+            cell_src[c_].add(p_)
+            if _key_set(t3) in drop_sets:
+                partial_pc.add((p_, c_))
+    seeds = {}
+    if shelf_reach > 0.0:
+        for c_, srcs in sorted(cell_src.items()):
+            if c_ in frame_ring or len(srcs) != 1:
+                continue
+            src_ = next(iter(srcs))
+            if (src_, c_) in partial_pc:
+                continue
+            c_tris = [t3 for t3 in surv[src_] if _cell_of_tri(t3) == c_]
+            if not c_tris or not _near_w(c_tris[0]):
+                continue
+            seeds[c_] = src_
     conversions = {}                     # cell -> [source_part, current_target]
+    frozen = set()                       # rolled back -- never re-seeded
+    fallen = set()                       # sea1 attempt fell back -- proven unlearnable
+    for c_, src_ in sorted(seeds.items()):
+        conversions[c_] = [src_, "sea2"]
+        owner2[c_] = (owner2[c_] - {src_}) | {"sea2"}
+        changed_cells.add(c_)
     for _outer in range(20):
         for _round in range(400):
             viol = None
             hit = _foam_welded_deep()
             if hit is not None and hit[1] not in conversions:
-                viol = hit
+                viol = (hit[0], hit[1], None)
             for c in sorted(scan):
                 if viol is not None:
                     break
@@ -5597,11 +5669,35 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
                     if sp_ is None:
                         raise ValueError(f"adjacency repair: no ladder step for "
                                          f"{sorted(dw)} at {deep_c}")
-                    viol = (sp_, deep_c)
+                    viol = (sp_, deep_c, nb if deep_c is c else c)
                     break
             if viol is None:
                 break
-            sp, c = viol
+            sp, c, other = viol
+            if (c in frame_ring or c in fallen or (sp, c) in partial_pc) \
+                    and other is not None and other in conversions:
+                # THE ROLLBACK RULE: some cells should not re-band -- a
+                # FRAME-ROW cell (the repair is border-blind: its edge-set
+                # cannot see the neighbour block's bands, and an in-place
+                # deploy's frame gate would refuse the re-label), a FALLEN
+                # cell (proven unlearnable: its sea1 attempt fell back), and a
+                # PARTIAL (part, cell) (footprint-cut fragments have no whole
+                # tile to re-band). When the pair's shallow side is a
+                # revertible conversion, revert THAT instead (monotone: each
+                # rollback removes one conversion). A merely rolled-back cell
+                # stays convertible DOWN-ladder (the compressed
+                # wash->sea1->frame-sea3 form is lawful and real). With no
+                # revertible neighbour, fall through to the legacy behavior --
+                # the natural gates (no-ladder-step, the PARTIAL emit check,
+                # the deploy frame gate) stay the judges, byte-compatible with
+                # every proven build.
+                src0, cur0 = conversions.pop(other)
+                owner2[other] = (owner2[other] - {cur0, "sea2"}) | {src0}
+                frozen.add(other)
+                if os.environ.get("FF9_VIRGIN_DEBUG"):
+                    print(f"[debug] ladder ROLLBACK: {other} back to {src0} "
+                          f"(the pair needed frame/fallen/partial {c})")
+                continue
             prev = conversions.get(c)
             src = prev[0] if prev else sp
             cur = prev[1] if prev else sp
@@ -5654,6 +5750,7 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
                     print(f"[debug] ladder fallback: {src} at {c} -> sea2")
                 conversions[c] = [src, "sea2"]
                 owner2[c] = (owner2[c] - {tgt}) | {"sea2"}
+                fallen.add(c)
                 fell_back = True
                 break
             ri_c, oname_c = _strip_pick(es_c, c)
@@ -5717,6 +5814,25 @@ def virgin_mint(donor, start, end, *, width=2.4, swash=4.6, pre=(),
         if not touched or frozenset(es_new) == t["es"]:
             continue
         es_new = frozenset(es_new)
+        if p == "sea1" and not es_new and c not in frame_ring:
+            # THE ENGULFED-TILE RULE: an empty edge-set has NO strip form
+            # because no such tile exists (a strip band tile always fronts
+            # deeper water somewhere) -- a sea1 tile whose deep neighbours all
+            # re-banded is INTERIOR to the new wash apron and re-bands to wash
+            # itself. Always lawful by construction: es=[] means every
+            # neighbour is wash/sea1, so the conversion mints only {2,<=1}
+            # pairs. (A frame-row tile still refuses -- the part re-label
+            # would break the border welds.)
+            if os.environ.get("FF9_VIRGIN_DEBUG"):
+                print(f"[debug] engulfed sea1 at {c} -> sea2")
+            ring_drop_by[p].extend(t["gtris"])
+            ring_emit_by["sea2"].extend(_to_wash(t3) for t3 in t["gtris"])
+            surv[p] = [x for x in surv[p]
+                       if _key_set(x) not in {_key_set(g) for g in t["gtris"]}]
+            post_reg.pop((p, c), None)
+            owner2[c] = (owner2[c] - {p}) | {"sea2"}
+            changed_cells.add(c)
+            continue
         if t["row"] is None:
             raise ValueError(f"the {p} tile at {c} does not role-decode -- its "
                              f"re-emission would not be law-derived; refusing")
