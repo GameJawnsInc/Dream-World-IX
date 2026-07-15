@@ -322,11 +322,24 @@ pass the backlog required before extending `world-mountain --donor` beyond Uaho.
   not mains grass — a look-risk if ever seated on a grass island (offline-untestable).
 * **Dispatch**: all rock baked (event 0, area 62) — the DONOR-DISPATCH STRIP handles it.
 
-**Verdict: the crag cannot be a `world-mountain --donor` without a MULTI-BLOCK extension**
-(donor-side the blob build generalizes cleanly per A2; target-side needs a multi-block
-placement scan + split-border emission — a real project). Today's honest tool for a
-2-block massif is the proven **v4 transplant** (rect-window verbatim carry, Daguerreo
-class), not the mountain carve. `--donor 0,0` (Uaho) remains the only qualified donor.
+**Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
+donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
+placement scan + split-border emission.
+
+**→ THE MULTI-BLOCK EXTENSION (★ built same day, 2026-07-15).** `carve_mountain` now takes
+a donor block LIST/rect (the blob merges in the world frame) and auto-sizes the target: a
+blob that fits one block runs the frozen single-block pipeline (the Uaho identity
+acceptance passes bit-for-bit through the generalization — the refactor oracle), a bigger
+one works over the minimal SPAN of deployed blocks (new tris split at 64u borders via
+`split_borders8` — identity welds, exactly how the stock crag itself ships; the apron
+welds internal borders per POSITION and tapers only at the span's outer rect; crack gate
++ probes + census span-wide). The crag carry runs GREEN offline (294 tris over a 2×2
+span, zip rise 1.05 / ny 0.96 / rigidity 0.7% / apron 4.1° — far inside every envelope)
+and is DEPLOYED on a fresh r50 bench island at **(64,−1216)** (`world-island` seed 11 +
+`world-mountain --near 64,-1216 --donor 10,5-6`, placed (70,−1218) rot 0; teleport
+**(30.5, −1217.5)** face east) — in-game verdict pending, watch the FOOT FRINGE
+(the crag's transition tiles are painted against topo-17 wasteland, here seated on
+mains grass) and the two border seams through the massif body.
 
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 

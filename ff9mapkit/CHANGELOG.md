@@ -152,6 +152,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   module carve reproduces the deployed, playtested Uaho bench byte-for-byte (the scan converges
   on the study's exact placement, (162,-1246) rot 0); the go-forward fresh-mint path differs
   only by the mint's own concave-dent fix (24 tris at the two dents, far outside the carve).
+- MULTI-BLOCK carries: `--donor` also takes a block rect (`10,5-6` = the crag island's stock
+  massif, which straddles a border — the blob builds on the merged world-frame donor bytes),
+  and the TARGET sizes itself automatically: a blob that fits one block runs the proven
+  single-block pipeline byte-identically, a bigger one works over the minimal SPAN of deployed
+  blocks covering its footprint — new tris split at the 64u borders (`split_borders8`, identity
+  welds), the weld-safe apron lift welds internal borders per POSITION and tapers only at the
+  span's OUTER borders, and the crack/census gates run across the whole span. Proven offline by
+  the crag carry (294 tris across a 2×2 span, every gate green; the Uaho identity acceptance
+  still passes bit-for-bit through the generalization).
 
 ### Added — `world-forest` + `world-hill`: interior topography on a deployed island
 - The two in-game-proven island-E studies are now kit verbs (`ff9mapkit/world/interior.py`), operating
