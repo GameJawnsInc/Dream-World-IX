@@ -636,7 +636,26 @@ two ends MIRROR). Deployed: the first BEACH-BEARING minted island — desert, r1
 11 @ (288,−1243) block (4,19), beach on the south face (bearings 235–305), pins
 (15,1), 396 terrain tris + foam 34/wash/sea1/sea5, all gates clean incl. census 0
 MISS; teleport (288,−1243), disc-4 mirrored. Grass identity: BOTH byte-identity
-oracles pass (beach=None mints untouched). Playtest pending.
+oracles pass (beach=None mints untouched). **Round 1 (playtest): the ladder reads, but
+"hard edges around the beach sides" (the coverage fixpoint DROPPED taper wash tris =
+straight cuts in the light band) + "the escalating desert section looks stretched"
+(single 4.6u berm quads overrun their one cell's mains map and smear at the bleed
+clamp). Round 2 fixed both (RAISE-DON'T-DROP: taper wash lifted 0.02u over the kept
+plane; THE LATTICE-SCALE BERM: ~2.2u rows, one global row count, pinch-fan end columns
+-- the closed-surface gate caught both weld classes). Round 3 verdict: STILL z-fighting
+near the edges (the 0.02 lift is too thin; and the taper FOAM's W edge approaches y=0
+asymptotically over the kept sea4 = a near-coplanar sliver strip) and "oddly shaped in
+general -- doesn't fit the verbatim feel; THE HEIGHT OF THE ISLAND mixed with the slope
+of the beach is causing problems" (the user's diagnosis, ringing true: real beach
+coasts are LOW -- (20,5)'s backing terrain sits at y 1.56-2.73, and island B's recipe
+SANK the mesa rim to a cay before minting; a 3.2 plateau with a carved ramp reads as a
+funnel in a drum, not a beach).** NEXT ROUND (the cheap experiment first): mint the
+beach islet at `--height 1.6` -- a LOW island = the island-B cay shape with the wall
+short everywhere and the berm run gentle; if that restores the verbatim feel, the
+productized form is likely "beach arcs want low islands" (a lint/warning) or a local
+interior sink behind the arc (the island-B bank_lower INSIDE the mint). For the
+z-fight: raise the taper lift to ~0.1 + lift the taper foam's W-edge verts, or clip
+the taper tris at the cut boundary (honest but more work).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

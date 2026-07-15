@@ -62,6 +62,59 @@
 > (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
 > acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
 >
+> **THE SPECTATOR-FIELD PARADIGM (user-set, 2026-07-15):** the guest is a COMBAT participant and a
+> field SPECTATOR — field walking is a purely flavorful experience (unless a need emerges), and the
+> guest is not meant to INTERACT outside combat. Interaction authority is the HOST's alone. The
+> implied future research arc — **"play the game without a player"** — is the guest's client rendering
+> the host's interactions without a local driver: dialogue windows advancing on the HOST's confirms,
+> chests opening because the HOST opened them, gateways firing off the host's movement (follow-warp
+> already is this shape). The flip side (cheap, nearer-term): SUPPRESSING the guest's own field
+> interactions while following (talk/chest/gateway inhibition) so a wandering guest can't advance or
+> disturb the host's world. Noted, NOT scheduled — the battle diorama (B3) comes first.
+>
+> **★★ RUNG 2 CLOSED 2026-07-15 — TWO-MACHINE PROVEN on both axes.** Item mirror: guest with 0 Tents +
+> host with a Tent → the guest activates the Tent moogle (the offer reads the HOST's bag). Party
+> mirror: Ice Cavern **302**, the Vivi-required fire scene — the guest's field staged the party-gated
+> content from the HOST's party. (User note en route: the Tent lives in the regular-items menu, not
+> Key Items — the 75-field census list resolved the confusion.) NEXT = the final roadmap rung: the
+> battle DIORAMA (B3) — its actor-spawn input now rides the wire.
+>
+> **RUNG 2 SOLO TIER ★ PROVEN 2026-07-15** — `party-mirror selftest: sections codec OK (4 members,
+> 0 key items, 7 bag entries)`, zero errors. **THE ACCEPTANCE TARGET, byte-verified:** the Gate Pass is
+> item-checked in EXACTLY ONE field in the whole game — **806 (S. Gate/Dali Gate)**, the gate guard's
+> talk routine (fail = "you gotta have a Gate Pass"; pass = he opens the gate). Key-item id 16
+> (menu/save-editor space) = generic script id 272 (important = 256+id). Every other South Gate booth
+> (800-805/807) gates on STORY FLAGS only — folklore falsified by disasm. **THEN DOUBLY FALSIFIED by
+> the full 806 decode:** the pass is never load-bearing even there — the tag-22 guard opens for ANYONE
+> who answers Yes (talk twice: first talk = an instance-var-latched info line, second = the Yes/No; the
+> "…I guess you do" is theater), the other side's guard is scenario-windowed, and the game's ONLY
+> `have_item(272)` is a cosmetic pass-presenting gesture in the player sequence. Scan method
+> (reusable): the fork-report raw-expr regex generalized — `\x7d(..)\x64` = B_CONST <u16> B_HAVE_ITEM,
+> `\x7d(..)\x6b` = B_PARTYCHK — over every real field's `.eb`: 258 fields item-check, 230 party-check
+> (the transcript/disasm renderers do NOT surface these tokens — raw bytes are the only reliable
+> census). **THE REAL ACCEPTANCE TARGET: the moogle TENT offer** — `Tent = RegularItem 253` is the
+> most-checked item in the game (138 fields ≈ every save-moogle screen): host with ≥1 Tent, guest with
+> 0 → guest solo: no Tent offer from a moogle; guest FOLLOWING: the moogle offers the host's Tent →
+> disconnect/ramp → offer gone. Binary, save-cheap, zero scenario interference.
+>
+> **PHASE 7 RUNG 2 — THE PARTY MIRROR (wire v7) — BUILT 2026-07-15, solo proof pending.** The state
+> frame gains sections 1-3 (`NetSyncParty.cs`): **1 = the 4 party slots** (identity/looks/label stats
+> per member — charId/serial/level/row/hp/mp/equip×5/name; EXACTLY the diorama's future actor-spawn
+> input, zero throwaway) · **2 = key items** (`rare_item_obtained`) · **3 = the regular bag**. One frame
+> = one consistent snapshot (`SnapshotAll`), parsed at the same field-load apply boundary. **Guest apply
+> = the read-COMPARE wraps only** (no state mutation): `EventEngine.partychk` (B_PARTYCHK — the field's
+> "is Vivi with you?" gate), EBin's `PARTY_MEMBER` varfunc, and the event item read (B_HAVE_ITEM →
+> regular counts + key-item existence from the host; CARDS deliberately stay local) — so party/item-gated
+> NPCs/doors/branches stage the host's way. **DELIBERATELY NOT WRAPPED: `ETb.GetPartyMember`** — it
+> feeds the party-ACTOR SPAWN loop, and re-dressing the guest's own walking body is the diorama era's
+> identity problem. Item WRITES by mirrored scripts land on the guest's real bag but are session-scoped
+> by the exit-ramp architecture (no save + autoload exit). Session end → `NetSyncParty.Clear()`. New
+> selftest line: `party-mirror selftest: sections codec OK (N members, K key items, M bag entries)`.
+> s37 = **19 files** now (+`NetSyncParty.cs`, `EBin.cs`, `EventEngine.DoCalcOperationExt.cs`), gates
+> clean; wire v6→**v7** (mixed DLLs don't sync — update both). Two-machine acceptance: host with a
+> character/key item the guest lacks → a gated NPC/door on the guest stages per the HOST; guest solo
+> replay after disconnect stages per their OWN save again.
+>
 > **★★ PHASE 6 CLOSED 2026-07-15 — every acceptance box two-machine PROVEN.** The final round: manual
 > save refusal ✓ · Continue pristine through a followed session ✓ · **the AUTOLOAD EXIT RAMP ✓ on BOTH
 > kill paths** (host bridge Ctrl+C and host game quit — the guest on 30110 landed back at their own Dali

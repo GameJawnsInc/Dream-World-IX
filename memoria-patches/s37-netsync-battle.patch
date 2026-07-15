@@ -1,8 +1,8 @@
 diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
-index 83b846a..c8dc082 100644
+index 83b846a..eefd00c 100644
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
-@@ -1381,8 +1381,9 @@
+@@ -1381,8 +1381,10 @@
      <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
      <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
      <Compile Include="Memoria\Netsync\NetSyncRelay.cs" />
@@ -11,11 +11,47 @@ index 83b846a..c8dc082 100644
 +    <Compile Include="Memoria\Netsync\NetSyncBattle.cs" />
 +    <Compile Include="Memoria\Netsync\NetSyncVisitor.cs" />
 +    <Compile Include="Memoria\Netsync\NetSyncState.cs" />
++    <Compile Include="Memoria\Netsync\NetSyncParty.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
+diff --git a/Assembly-CSharp/Global/EBin.cs b/Assembly-CSharp/Global/EBin.cs
+index 0f70ef4..79e76cf 100644
+--- a/Assembly-CSharp/Global/EBin.cs
++++ b/Assembly-CSharp/Global/EBin.cs
+@@ -391,7 +391,12 @@ public class EBin
+                 _v0 = (Int32)ff9abil.GetSupportAbilityFromAbilityId(args[0]);
+                 break;
+             case flexible_varfunc.PARTY_MEMBER:
+-                _v0 = (Int32)ff9play.CharacterIDToOldIndex(FF9StateSystem.Common.FF9.party.GetCharacterId(args[0]));
++                {
++                    CharacterId pmId;   // a FOLLOWING co-op guest reads the HOST's party slot [ff9mapkit netsync party-mirror]
++                    if (!Memoria.Netsync.NetSyncParty.TryPartySlotChar(args[0], out pmId))
++                        pmId = FF9StateSystem.Common.FF9.party.GetCharacterId(args[0]);
++                    _v0 = (Int32)ff9play.CharacterIDToOldIndex(pmId);
++                }
+                 break;
+             case flexible_varfunc.ITEM_FULL_COUNT:
+                 _v0 = ff9item.FF9Item_GetAnyCount((RegularItem)args[0]);
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs
+index 446ebf5..ee41271 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs
+@@ -12,7 +12,11 @@ public partial class EventEngine
+         {
+             case EBin.op_binary.B_HAVE_ITEM:
+                 Int32 id = this.eBin.getv();
+-                result = ff9item.FF9Item_GetCount_Generic(id);
++                Int32 mirroredCount;   // a FOLLOWING co-op guest counts from the HOST's bag/key items (cards stay local) [ff9mapkit netsync party-mirror]
++                if (Memoria.Netsync.NetSyncParty.TryItemCount(id, out mirroredCount))
++                    result = mirroredCount;
++                else
++                    result = ff9item.FF9Item_GetCount_Generic(id);
+                 break;
+             case EBin.op_binary.B_BAFRAME:
+                 this.fieldmap.walkMesh.BGI_animGetFrame((UInt32)this.eBin.getv(), ref result);
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index 509cfd4..3f0a740 100644
+index 509cfd4..88cae5c 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 @@ -445,6 +445,45 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
@@ -72,6 +108,16 @@ index 509cfd4..3f0a740 100644
                  if (!noSave)
                  {
                      FF9StateSystem.Settings.UpdateTickTime();
+@@ -831,6 +871,9 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+     public Boolean partychk(Int32 x)
+     {
+         CharacterId charId = this.chr2slot(x);
++        Boolean mirrored;
++        if (Memoria.Netsync.NetSyncParty.TryPartyChk(charId, out mirrored))
++            return mirrored;   // a FOLLOWING co-op guest answers membership from the HOST's party [ff9mapkit netsync party-mirror]
+         for (Int32 index = 0; index < 4; ++index)
+         {
+             PLAYER player = FF9StateSystem.Common.FF9.party.member[index];
 diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
 index 804499c..78cc6bd 100644
 --- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
@@ -1785,10 +1831,10 @@ index 0000000..36cd119
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index a490fdb..981e064 100644
+index a490fdb..09ccd3d 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -1,652 +1,1042 @@
+@@ -1,652 +1,1048 @@
 -using System;
 -using Memoria.Prime;
 -using Memoria.Scripts;   // ShadersLoader
@@ -2846,6 +2892,7 @@ index a490fdb..981e064 100644
 +                    _exitRampPending = false;
 +                    _exitRampSince = 0;
 +                    _storyMirroring = false;
++                    NetSyncParty.Clear();          // the read wraps revert to the guest's own state
 +                    NetSyncState.ExitMirrorToOwnSave();
 +                }
 +            }
@@ -2912,6 +2959,10 @@ index a490fdb..981e064 100644
 +                        _storyProofDone = true;
 +                        Log.Message("[NetSync] state-mirror selftest: gEventGlobal codec round-trip "
 +                                    + (NetSyncState.SelfTest() ? "OK" : "MISMATCH"));
++                        String partyDetail;
++                        Boolean partyOk = NetSyncParty.SelfTest(out partyDetail);
++                        Log.Message("[NetSync] party-mirror selftest: sections codec "
++                                    + (partyOk ? "OK (" + partyDetail + ")" : "MISMATCH (" + partyDetail + ")"));
 +                    }
 +                    // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
 +                    // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
@@ -2978,7 +3029,7 @@ index a490fdb..981e064 100644
 +                if (_role == "host" && Environment.TickCount - _storyTick >= 150)
 +                {
 +                    _storyTick = Environment.TickCount;
-+                    _socket.SetLocalState(NetSyncState.SnapshotStory());
++                    _socket.SetLocalState(NetSyncState.SnapshotAll());
 +                }
 +
 +                // Visitor mode: my own random encounters pause while I'm FOLLOWING a connected host
@@ -3052,6 +3103,7 @@ index a490fdb..981e064 100644
 +            // save gates held all session); the next launch Continues from the pristine autosave.
 +            _storyMirroring = false;
 +            _exitRampPending = false;
++            NetSyncParty.Clear();
 +            NetSyncVisitor.SuppressEncounters = false;
 +        }
 +
@@ -3480,6 +3532,374 @@ index a490fdb..981e064 100644
 +            go.layer = layer;
 +            foreach (Transform child in go.transform)
 +                SetLayerRecursive(child.gameObject, layer);
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
+new file mode 100644
+index 0000000..3447f53
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
+@@ -0,0 +1,362 @@
++using System;
++using System.Collections.Generic;
++using System.Text;
++using Memoria.Data;
++
++namespace Memoria.Netsync
++{
++    // THE PARTY MIRROR (state-frame sections 1-3) -- rung 2 of the authoritative-host ladder.
++    //
++    // WHAT RIDES THE WIRE (host->guest, inside the same TypeState frame as the story section --
++    // one frame = one consistent snapshot; latest-slot semantics preserved):
++    //     section 1 = the 4 party slots: identity + looks + label stats per member
++    //                 [present u8][charId u8][serial u8][level u8][row u8]
++    //                 [curHp u32 LE][maxHp u32][curMp u32][maxMp u32][equip u16 x5]
++    //                 [nameLen u8][name utf8]
++    //                 This is EXACTLY the battle diorama's future actor-spawn input (B3 builds
++    //                 BTL_DATA from it); battle MECHANICS stay host-side (never re-simulate) --
++    //                 live HP rides the existing B0 battle stream, not this.
++    //     section 2 = key items ("rare/important"):  [n u16 LE][importantId u16 x n]
++    //     section 3 = the regular item bag:          [n u16 LE][(id u16, count u16) x n]
++    //
++    // WHAT THE GUEST DOES WITH IT (rung 2 scope -- the read-COMPARE wrap, no state mutation):
++    // while mirroring, the event engine's pure membership/possession READS answer from the HOST's
++    // party instead of the guest's own -- EventEngine.partychk (B_PARTYCHK, the field's "is Vivi
++    // with you?" gate), EBin's PARTY_MEMBER varfunc (party slot -> character), and the event
++    // item-count read (B_HAVE_ITEM -> FF9Item_GetCount_Generic: regular bag counts + key-item
++    // existence; CARD counts deliberately fall through to the guest's own). So party/item-gated
++    // NPCs, doors, and branches stage the way the host's field does. DELIBERATELY NOT WRAPPED:
++    // ETb.GetPartyMember -- it feeds the party-ACTOR SPAWN loop (EventEngine.InitEvents), and
++    // re-dressing the guest's own walking body is the diorama era's identity problem, not rung 2's.
++    // Menus and the guest's real FF9.party/item state are NEVER touched; item WRITES a mirrored
++    // script performs land on the guest's real bag but are session-scoped by design (saving is
++    // blocked while mirroring and the exit ramp reloads the guest's own autosave).
++    internal static class NetSyncParty
++    {
++        public const Byte SectionParty = 1;
++        public const Byte SectionKeyItems = 2;
++        public const Byte SectionBag = 3;
++        private const Int32 NameCap = 48;          // utf8 bytes; custom names carry, absurd ones clip
++
++        // One mirrored party slot (see the section-1 layout above).
++        public struct Slot
++        {
++            public Boolean Present;
++            public Byte CharId;
++            public Byte Serial;
++            public Byte Level;
++            public Byte Row;
++            public UInt32 CurHp, MaxHp, CurMp, MaxMp;
++            public UInt16[] Equip;
++            public String Name;
++        }
++
++        // GUEST: the latest parsed mirror (game thread only). MirrorActive gates every read wrap;
++        // it flips true on the first parsed party section and dies with the session (Clear).
++        public static Boolean MirrorActive;
++        public static readonly Slot[] Slots = new Slot[4];
++        private static readonly HashSet<Int32> _keyItems = new HashSet<Int32>();
++        private static readonly Dictionary<Int32, Int32> _bag = new Dictionary<Int32, Int32>();
++
++        public static void Clear()
++        {
++            MirrorActive = false;
++            for (Int32 i = 0; i < 4; i++)
++                Slots[i] = default(Slot);
++            _keyItems.Clear();
++            _bag.Clear();
++        }
++
++        // ---------------------------------------------------------------- HOST: serialize
++        // Sections 1-3 from my live party/bag, appended after the story section by SnapshotAll.
++        // Null when the state isn't loaded yet (title screen) -> the story section ships alone.
++        public static Byte[] SerializeSections()
++        {
++            try
++            {
++                FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++                if (ff9 == null || ff9.party == null)
++                    return null;
++                List<Byte> w = new List<Byte>(256);
++
++                // section 1: party ------------------------------------------------------------
++                List<Byte> body = new List<Byte>(192);
++                for (Int32 i = 0; i < 4; i++)
++                {
++                    PLAYER p = ff9.party.member[i];
++                    if (p == null)
++                    {
++                        body.Add(0);
++                        continue;
++                    }
++                    body.Add(1);
++                    body.Add((Byte)p.info.slot_no);
++                    body.Add((Byte)p.info.serial_no);
++                    body.Add(p.level);
++                    body.Add(p.info.row);
++                    W32(body, (UInt32)p.cur.hp);
++                    W32(body, (UInt32)p.max.hp);
++                    W32(body, (UInt32)p.cur.mp);
++                    W32(body, (UInt32)p.max.mp);
++                    for (Int32 j = 0; j < 5; j++)
++                        W16(body, (UInt16)p.equip[j]);
++                    Byte[] name = Encoding.UTF8.GetBytes(p.Name ?? String.Empty);
++                    Int32 nameLen = Math.Min(name.Length, NameCap);
++                    body.Add((Byte)nameLen);
++                    for (Int32 j = 0; j < nameLen; j++)
++                        body.Add(name[j]);
++                }
++                Section(w, SectionParty, body);
++
++                // section 2: key items --------------------------------------------------------
++                body = new List<Byte>(128);
++                Int32 n = 0;
++                List<Byte> ids = new List<Byte>(128);
++                foreach (Int32 rare in ff9.rare_item_obtained)
++                {
++                    W16(ids, (UInt16)rare);
++                    n++;
++                }
++                W16(body, (UInt16)n);
++                body.AddRange(ids);
++                Section(w, SectionKeyItems, body);
++
++                // section 3: the regular bag --------------------------------------------------
++                body = new List<Byte>(512);
++                n = 0;
++                ids = new List<Byte>(512);
++                foreach (FF9ITEM item in ff9.item)
++                {
++                    if (item == null || item.count <= 0)
++                        continue;
++                    W16(ids, (UInt16)item.id);
++                    W16(ids, item.count);
++                    n++;
++                }
++                W16(body, (UInt16)n);
++                body.AddRange(ids);
++                Section(w, SectionBag, body);
++
++                return w.ToArray();
++            }
++            catch
++            {
++                return null;
++            }
++        }
++
++        private static void Section(List<Byte> w, Byte id, List<Byte> body)
++        {
++            w.Add(id);
++            w.Add((Byte)(body.Count & 0xFF));
++            w.Add((Byte)((body.Count >> 8) & 0xFF));
++            w.AddRange(body);
++        }
++
++        private static void W16(List<Byte> w, UInt16 v) { w.Add((Byte)(v & 0xFF)); w.Add((Byte)(v >> 8)); }
++        private static void W32(List<Byte> w, UInt32 v)
++        { w.Add((Byte)(v & 0xFF)); w.Add((Byte)((v >> 8) & 0xFF)); w.Add((Byte)((v >> 16) & 0xFF)); w.Add((Byte)((v >> 24) & 0xFF)); }
++
++        // ---------------------------------------------------------------- GUEST: parse
++        // Walks the SAME section framing as ApplyStoryTo, consuming sections 1-3 into the statics.
++        // Unknown sections skip by length (the framing's whole point). Returns true when a party
++        // section landed; MirrorActive flips with it.
++        public static Boolean ParseSections(Byte[] payload)
++        {
++            if (payload == null)
++                return false;
++            Boolean gotParty = false;
++            Int32 off = 0;
++            while (off + 3 <= payload.Length)
++            {
++                Byte sectionId = payload[off];
++                Int32 len = payload[off + 1] | (payload[off + 2] << 8);
++                Int32 body = off + 3;
++                if (body + len > payload.Length)
++                    break;
++                try
++                {
++                    if (sectionId == SectionParty)
++                        gotParty = ParseParty(payload, body, len);
++                    else if (sectionId == SectionKeyItems)
++                        ParseKeyItems(payload, body, len);
++                    else if (sectionId == SectionBag)
++                        ParseBag(payload, body, len);
++                }
++                catch
++                {
++                    return false;   // malformed body: keep whatever parsed cleanly before it
++                }
++                off = body + len;
++            }
++            if (gotParty)
++                MirrorActive = true;
++            return gotParty;
++        }
++
++        private static Boolean ParseParty(Byte[] b, Int32 off, Int32 len)
++        {
++            Int32 end = off + len;
++            Slot[] parsed = new Slot[4];
++            for (Int32 i = 0; i < 4; i++)
++            {
++                if (off >= end) return false;
++                Boolean present = b[off++] != 0;
++                if (!present)
++                {
++                    parsed[i] = default(Slot);
++                    continue;
++                }
++                if (off + 4 + 16 + 10 + 1 > end) return false;
++                parsed[i].Present = true;
++                parsed[i].CharId = b[off++];
++                parsed[i].Serial = b[off++];
++                parsed[i].Level = b[off++];
++                parsed[i].Row = b[off++];
++                parsed[i].CurHp = R32(b, ref off);
++                parsed[i].MaxHp = R32(b, ref off);
++                parsed[i].CurMp = R32(b, ref off);
++                parsed[i].MaxMp = R32(b, ref off);
++                parsed[i].Equip = new UInt16[5];
++                for (Int32 j = 0; j < 5; j++)
++                    parsed[i].Equip[j] = R16(b, ref off);
++                Int32 nameLen = b[off++];
++                if (off + nameLen > end) return false;
++                parsed[i].Name = Encoding.UTF8.GetString(b, off, nameLen);
++                off += nameLen;
++            }
++            for (Int32 i = 0; i < 4; i++)
++                Slots[i] = parsed[i];
++            return true;
++        }
++
++        private static void ParseKeyItems(Byte[] b, Int32 off, Int32 len)
++        {
++            Int32 end = off + len;
++            Int32 n = R16(b, ref off);
++            HashSet<Int32> items = new HashSet<Int32>();
++            for (Int32 i = 0; i < n && off + 2 <= end; i++)
++                items.Add(R16(b, ref off));
++            _keyItems.Clear();
++            _keyItems.UnionWith(items);
++        }
++
++        private static void ParseBag(Byte[] b, Int32 off, Int32 len)
++        {
++            Int32 end = off + len;
++            Int32 n = R16(b, ref off);
++            Dictionary<Int32, Int32> bag = new Dictionary<Int32, Int32>();
++            for (Int32 i = 0; i < n && off + 4 <= end; i++)
++            {
++                Int32 id = R16(b, ref off);
++                Int32 count = R16(b, ref off);
++                bag[id] = count;
++            }
++            _bag.Clear();
++            foreach (KeyValuePair<Int32, Int32> kv in bag)
++                _bag[kv.Key] = kv.Value;
++        }
++
++        private static UInt16 R16(Byte[] b, ref Int32 off)
++        { UInt16 v = (UInt16)(b[off] | (b[off + 1] << 8)); off += 2; return v; }
++        private static UInt32 R32(Byte[] b, ref Int32 off)
++        { UInt32 v = (UInt32)(b[off] | (b[off + 1] << 8) | (b[off + 2] << 16) | ((UInt32)b[off + 3] << 24)); off += 4; return v; }
++
++        // ---------------------------------------------------------------- the read wraps
++        // Each returns FALSE when not mirroring -> the caller runs its stock read untouched.
++
++        // EventEngine.partychk (B_PARTYCHK): membership from the HOST's party.
++        public static Boolean TryPartyChk(CharacterId charId, out Boolean present)
++        {
++            present = false;
++            if (!MirrorActive)
++                return false;
++            for (Int32 i = 0; i < 4; i++)
++                if (Slots[i].Present && Slots[i].CharId == (Byte)charId)
++                { present = true; break; }
++            return true;
++        }
++
++        // EBin PARTY_MEMBER varfunc: party slot -> the HOST's character in that slot.
++        public static Boolean TryPartySlotChar(Int32 slot, out CharacterId charId)
++        {
++            charId = CharacterId.NONE;
++            if (!MirrorActive || slot < 0 || slot > 3)
++                return false;
++            if (Slots[slot].Present)
++                charId = (CharacterId)Slots[slot].CharId;
++            return true;
++        }
++
++        // The event item read (B_HAVE_ITEM -> FF9Item_GetCount_Generic): regular counts from the
++        // HOST's bag, key items from the HOST's set. Cards fall through to the guest's own
++        // (return false) -- card state is minigame-local and never carried.
++        public static Boolean TryItemCount(Int32 itemId, out Int32 count)
++        {
++            count = 0;
++            if (!MirrorActive)
++                return false;
++            if (ff9item.IsItemRegular(itemId))
++            {
++                _bag.TryGetValue((Int32)ff9item.GetRegularIdFromItemId(itemId), out count);
++                return true;
++            }
++            if (ff9item.IsItemImportant(itemId))
++            {
++                count = _keyItems.Contains(ff9item.GetImportantIdFromItemId(itemId)) ? 1 : 0;
++                return true;
++            }
++            return false;
++        }
++
++        // ---------------------------------------------------------------- solo codec proof
++        // Serialize my OWN party/items -> the real ParseSections -> compare vs the live state.
++        // Parses into the real statics (the data is identity, so no observable flicker), then
++        // Clears -- a selftest machine never stays MirrorActive. Message carries the counts so
++        // the log line proves substance, not just plumbing.
++        public static Boolean SelfTest(out String detail)
++        {
++            detail = "no state";
++            try
++            {
++                FF9StateGlobal ff9 = FF9StateSystem.Common.FF9;
++                if (ff9 == null || ff9.party == null)
++                    return false;
++                Byte[] payload = SerializeSections();
++                if (payload == null)
++                    return false;
++                if (!ParseSections(payload))
++                { detail = "party section did not parse"; return false; }
++                Int32 members = 0;
++                for (Int32 i = 0; i < 4; i++)
++                {
++                    PLAYER p = ff9.party.member[i];
++                    if ((p != null) != Slots[i].Present)
++                    { detail = "slot presence mismatch @" + i; return false; }
++                    if (p == null)
++                        continue;
++                    members++;
++                    if (Slots[i].CharId != (Byte)p.info.slot_no || Slots[i].Level != p.level
++                        || Slots[i].CurHp != (UInt32)p.cur.hp || Slots[i].Name != (p.Name ?? String.Empty))
++                    { detail = "slot data mismatch @" + i; return false; }
++                }
++                Int32 keyN = _keyItems.Count;
++                Int32 bagN = _bag.Count;
++                foreach (Int32 rare in ff9.rare_item_obtained)
++                    if (!_keyItems.Contains(rare))
++                    { detail = "key item missing: " + rare; return false; }
++                detail = members + " members, " + keyN + " key items, " + bagN + " bag entries";
++                return true;
++            }
++            catch (Exception err)
++            {
++                detail = err.GetType().Name;
++                return false;
++            }
++            finally
++            {
++                Clear();
++            }
 +        }
 +    }
 +}
@@ -4164,7 +4584,7 @@ index 1882591..21bb6fe 100644
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
-index 021eb8a..0d6ecb1 100644
+index 021eb8a..64900d9 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
 @@ -1,259 +1,522 @@
@@ -4493,7 +4913,7 @@ index 021eb8a..0d6ecb1 100644
 +    public static class NetSyncWire
 +    {
 +        public const Byte Magic = 0xF9;
-+        public const Byte Version = 6;
++        public const Byte Version = 7;   // v7 = the party-mirror sections ride TypeState (rung 2)
 +        public const Int32 HeaderSize = 5;
 +        public const Int32 MaxPayload = 8192;   // sanity cap; the largest frame (story ~2 KB, roster ~2 KB)
 +
@@ -4951,10 +5371,10 @@ index 021eb8a..0d6ecb1 100644
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
 new file mode 100644
-index 0000000..87545a7
+index 0000000..ac3e160
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,191 @@
 +using System;
 +using Assets.Scripts.Common;    // SceneDirector / FadeMode / SceneTransition (the load transition)
 +using Assets.SiliconSocial;     // AchievementManager
@@ -4970,8 +5390,9 @@ index 0000000..87545a7
 +    //
 +    // The payload is SECTION-TAGGED so the one lane extends without another wire break:
 +    //     payload := section+   where section := [sectionId u8][len u16 LE][bytes[len]]
-+    //     section 0 = gEventGlobal snapshot (2048 B)          -- RUNG 1 (this file)
-+    //     section 1 = party subset (the diorama's actor input) -- RUNG 2, deferred
++    //     section 0 = gEventGlobal snapshot (2048 B)            -- RUNG 1 (this file)
++    //     sections 1-3 = party / key items / bag (NetSyncParty) -- RUNG 2 (the party mirror; the
++    //                    party section doubles as the diorama's actor-spawn input)
 +    //
 +    // Bytes 2032-2041 are MASKED out of both the snapshot and the apply: those are the netsync coop cells
 +    // (2032-2039, NetSyncClient.WriteCoopCells) + reserved + the choice-mask scratch (2040). Copying the
@@ -5010,15 +5431,37 @@ index 0000000..87545a7
 +            return frame;
 +        }
 +
++        // HOST (game thread): the full published snapshot -- the story section plus the party-mirror
++        // sections (1-3, NetSyncParty), one frame = one consistent snapshot. Party absent (title
++        // screen etc.) -> the story section ships alone, exactly like rung 1.
++        public static Byte[] SnapshotAll()
++        {
++            Byte[] story = SnapshotStory();
++            if (story == null)
++                return null;
++            Byte[] party = NetSyncParty.SerializeSections();
++            if (party == null || party.Length == 0)
++                return story;
++            Byte[] both = new Byte[story.Length + party.Length];
++            Array.Copy(story, 0, both, 0, story.Length);
++            Array.Copy(party, 0, both, story.Length, party.Length);
++            return both;
++        }
++
 +        // GUEST (game thread): apply a received TypeState payload onto my live gEventGlobal -- section 0
-+        // only, skipping the masked window so my own coop cells survive. Returns true if a story section
-+        // was applied. Must run BEFORE the field's Main_Init reads a GLOB var.
++        // only, skipping the masked window so my own coop cells survive -- and consume the party-mirror
++        // sections into NetSyncParty's read-wrap statics (same field-load boundary = one consistency
++        // domain: the field stages from one snapshot). Returns true if a story section was applied.
++        // Must run BEFORE the field's Main_Init reads a GLOB var.
 +        public static Boolean ApplyStory(Byte[] payload)
 +        {
 +            Byte[] g;
 +            try { g = FF9StateSystem.EventState.gEventGlobal; }
 +            catch { return false; }
-+            return ApplyStoryTo(payload, g);
++            Boolean applied = ApplyStoryTo(payload, g);
++            if (applied)
++                NetSyncParty.ParseSections(payload);
++            return applied;
 +        }
 +
 +        // The real section-walking apply, targetable so SelfTest can prove THIS exact loop against a
