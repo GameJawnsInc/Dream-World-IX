@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -28,6 +28,7 @@ def _pad(btn: QPushButton) -> QPushButton:
     btn.setMinimumWidth(btn.fontMetrics().horizontalAdvance(btn.text()) + 34)
     return btn
 
+from . import widgets
 from ..editor import jobs
 
 
@@ -65,24 +66,25 @@ class CoopDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(14, 14, 14, 14)
-        v.setSpacing(10)
+        v.setContentsMargins(18, 14, 18, 18)
+        v.setSpacing(widgets.SECTION_GAP)   # the box borders are gone -- this gap IS the grouping now
 
-        intro = QLabel("Two-player co-op: you and a friend each see the other's ghost walk a shared "
-                       "field, and — if you grant it in Play style below — they command party members "
-                       "in your battles. Every save stays your own.")
-        intro.setWordWrap(True)
+        intro = widgets.prose("Two-player co-op: you and a friend each see the other's ghost walk a "
+                              "shared field, and — if you grant it in Play style below — they command "
+                              "party members in your battles. Every save stays your own.")
         v.addWidget(intro)
 
-        st = QGroupBox("Status")
-        sv = QVBoxLayout(st)
-        self.lbl_game = QLabel("game: …")
-        self.lbl_engine = QLabel("engine: …")
-        self.lbl_room = QLabel("room: …")
-        self.lbl_config = QLabel("config: …")
-        for w in (self.lbl_game, self.lbl_engine, self.lbl_room, self.lbl_config):
-            w.setWordWrap(True)
-            sv.addWidget(w)
+        st = widgets.section("Status")
+        sv = st.content_layout
+        # A definition list, not four sentences: a muted key column, the answers at full weight on one
+        # aligned left edge. The column is MEASURED off the widest key rather than guessed, so it stays
+        # right if a key is renamed or the font changes. Only `game` is mono -- it is a path; the others
+        # are prose, and mono on a sentence reads as a bug.
+        kw = self.fontMetrics().horizontalAdvance("engine") + 14
+        self.lbl_game = widgets.kv("game", sv, key_width=kw, mono=True)
+        self.lbl_engine = widgets.kv("engine", sv, key_width=kw)
+        self.lbl_room = widgets.kv("room", sv, key_width=kw)
+        self.lbl_config = widgets.kv("config", sv, key_width=kw)
         ref = _pad(QPushButton("Refresh"))
         ref.clicked.connect(self.refresh_status)
         row = QHBoxLayout()
@@ -91,36 +93,51 @@ class CoopDoc(QWidget):
         sv.addLayout(row)
         v.addWidget(st)
 
-        sess = QGroupBox("Session")
-        gv = QVBoxLayout(sess)
-        self.rb_host = QRadioButton("Host — start a new session (your code is shared with the other player)")
-        self.rb_join = QRadioButton("Join — enter the host's session code")
+        sess = widgets.section("Session")
+        gv = sess.content_layout
+        self.rb_host = QRadioButton("Host")
+        self.rb_join = QRadioButton("Join")
         self.rb_host.setChecked(True)
         self.rb_host.toggled.connect(self._render_role)
-        gv.addWidget(self.rb_host)
-        gv.addWidget(self.rb_join)
+        widgets.option(self.rb_host, "Start a new session. Your code is shared with the other player.", gv)
+        widgets.option(self.rb_join, "Enter the host's session code.", gv)
 
         code_row = QHBoxLayout()
         self.code_label = QLabel("Session code:")
         self.code = QLineEdit()
-        self.code.setPlaceholderText("generated on Start (host) / paste the host's ff9-XXXXXXXX (join)")
+        self.code.setPlaceholderText("ff9-XXXXXXXX")
+        self.code.setProperty("mono", True)             # the most-copied string in the app
+        self.code.setMaximumWidth(260)                  # a 12-char code, not a 970px trough
         self.btn_copy = _pad(QPushButton("Copy"))
         self.btn_copy.clicked.connect(self._copy_code)
+        # Qt derives an unnamed control's screen-reader name from its enclosing QGroupBox TITLE
+        # (QAccessibleWidget -> buddyString). Sections have no title, so every control that was leaning on
+        # the box for its name goes silent -- test_every_visible_actionable_control_has_a_screen_reader_name
+        # caught exactly this. setBuddy restores it from the VISIBLE label, which is a better name than the
+        # box title ever was ("Session code" beats "Session") and cannot drift out of sync.
+        self.code_label.setBuddy(self.code)
         code_row.addWidget(self.code_label)
-        code_row.addWidget(self.code, 1)
+        code_row.addWidget(self.code)
         code_row.addWidget(self.btn_copy)
+        code_row.addStretch(1)                          # controls size to CONTENT; the slack goes here
         gv.addLayout(code_row)
 
         lan_row = QHBoxLayout()
-        self.rb_relay = QRadioButton("Internet (relay) — works from anywhere")
-        self.rb_lan = QRadioButton("Direct LAN — same WiFi, no relay")
+        self.rb_relay = QRadioButton("Internet (relay)")
+        self.rb_relay.setToolTip("Works from anywhere; the session is bridged through a relay.")
+        self.rb_lan = QRadioButton("Direct LAN")
+        self.rb_lan.setToolTip("Same WiFi only, no relay.")
         self.rb_relay.setChecked(True)
         self.rb_relay.toggled.connect(self._render_role)
         self.lan_ip = QLineEdit()
-        self.lan_ip.setPlaceholderText("host's LAN IP (join only)")
+        self.lan_ip.setPlaceholderText("host's LAN IP")
+        self.lan_ip.setAccessibleName("Host's LAN IP")   # no visible label of its own to buddy to
+        self.lan_ip.setMaximumWidth(200)
         lan_row.addWidget(self.rb_relay)
+        lan_row.addSpacing(24)
         lan_row.addWidget(self.rb_lan)
-        lan_row.addWidget(self.lan_ip, 1)
+        lan_row.addWidget(self.lan_ip)
+        lan_row.addStretch(1)
         gv.addLayout(lan_row)
         v.addWidget(sess)
 
@@ -128,8 +145,8 @@ class CoopDoc(QWidget):
         # Each side sets its own: battle slots/wait cap govern MY battles, the outfit is how THEIR
         # ghost looks on MY screen, follow-host is for the joining side. Hot-reloads into a running
         # game, so Apply works mid-session.
-        self.style_box = QGroupBox("Play style — how co-op behaves on this machine")
-        pv = QVBoxLayout(self.style_box)
+        self.style_box = widgets.section("Play style")
+        pv = self.style_box.content_layout
 
         slots_row = QHBoxLayout()
         slots_lbl = QLabel("In my battles, my friend commands party slot(s):")
@@ -155,6 +172,7 @@ class CoopDoc(QWidget):
         self.spin_wait.setValue(30)
         self.spin_wait.setSuffix(" s")
         self.spin_wait.setSpecialValueText("no cap")
+        wait_lbl.setBuddy(self.spin_wait)           # see the buddy note in the Session section
         wait_row.addWidget(wait_lbl)
         wait_row.addWidget(self.spin_wait)
         wait_row.addStretch(1)
@@ -171,8 +189,11 @@ class CoopDoc(QWidget):
                             ("Steiner", "steiner"), ("Freya", "freya"), ("Quina", "quina"),
                             ("Eiko", "eiko"), ("Amarant", "amarant")):
             self.combo_ghost.addItem(label, data)
+        ghost_lbl.setBuddy(self.combo_ghost)        # see the buddy note in the Session section
         ghost_row.addWidget(ghost_lbl)
-        ghost_row.addWidget(self.combo_ghost, 1)
+        self.combo_ghost.setMaximumWidth(340)
+        ghost_row.addWidget(self.combo_ghost)
+        ghost_row.addStretch(1)
         pv.addLayout(ghost_row)
 
         self.cb_follow = QCheckBox("Follow the host between screens (joining side) — my game "
@@ -244,15 +265,17 @@ class CoopDoc(QWidget):
         except Exception:                        # ConfigError or anything env-shaped: report, don't crash
             self._game = None
         if self._game is None:
-            self.lbl_game.setText("game: NOT FOUND — run Setup & health… first")
-            self.lbl_engine.setText("engine: —")
-            self.lbl_room.setText("room: —")
-            self.lbl_config.setText("config: —")
+            self.lbl_game.setText("NOT FOUND — run Setup & health… first")
+            widgets.set_state(self.lbl_game, "warn")      # the answer to "why is nothing working"
+            self.lbl_engine.setText("—")
+            self.lbl_room.setText("—")
+            self.lbl_config.setText("—")
             self.btn_start.setEnabled(False)
             self.style_box.setEnabled(False)
             return
         self.btn_start.setEnabled(True)
-        self.lbl_game.setText(f"game: {self._game}")
+        self.lbl_game.setText(str(self._game))
+        widgets.set_state(self.lbl_game, "")
         dll = self._game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
         try:
             blob = dll.read_bytes() if dll.is_file() else b""
@@ -260,15 +283,16 @@ class CoopDoc(QWidget):
             blob = b""
         has_netsync = b"NetSyncClient" in blob
         has_s37 = b"NetSyncBattle" in blob          # the battle/visitor lanes shipped together (s37)
-        self.lbl_engine.setText("engine: netsync + battle/visitor co-op (s37) present" if has_s37 else
-                                "engine: netsync (s36) present — Play style needs the newer s37 engine"
+        self.lbl_engine.setText("netsync + battle/visitor co-op (s37) present" if has_s37 else
+                                "netsync (s36) present — Play style needs the newer s37 engine"
                                 if has_netsync else
-                                "engine: netsync MISSING — install the Dream World IX custom engine first")
+                                "netsync MISSING — install the Dream World IX custom engine first")
+        widgets.set_state(self.lbl_engine, "" if has_s37 else "warn")
         self.style_box.setEnabled(has_s37)
         folder = coop.find_registered_field(self._game, coop.COOP_FIELD)
-        self.lbl_room.setText(f"room: field {coop.COOP_FIELD} registered ({folder})"
+        self.lbl_room.setText(f"field {coop.COOP_FIELD} registered ({folder})"
                               if folder else
-                              f"room: not built yet — Start co-op builds it (field {coop.COOP_FIELD}, "
+                              f"not built yet — Start co-op builds it (field {coop.COOP_FIELD}, "
                               "takes a minute the first time)")
         try:
             ini = (self._game / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
@@ -280,8 +304,11 @@ class CoopDoc(QWidget):
         relay = coop.read_ini_key(ini, "Netsync", "RelayUrl") or ""
         target = (coop.read_ini_key(ini, "Netsync", "TargetField") or "0").strip()
         scope = "everywhere" if target in ("", "0") else f"field {target} only"
-        self.lbl_config.setText("config: co-op ON — " + role + (", relay" if relay else ", direct LAN")
-                                + ", " + scope if enabled else "config: co-op off")
+        self.lbl_config.setText("co-op ON — " + role + (", relay" if relay else ", direct LAN")
+                                + ", " + scope if enabled else "co-op off")
+        # The config row doubles as a validation channel (Start writes warnings into it), so a refresh must
+        # CLEAR the state -- otherwise a stale amber outlives the problem it described.
+        widgets.set_state(self.lbl_config, "")
         if self.rb_host.isChecked() and saved_code and not self.code.text():
             self.code.setText(saved_code)       # surface the persisted code without a Start
         self._load_playstyle(ini)               # widgets mirror the ini (Refresh = re-read)
@@ -333,10 +360,12 @@ class CoopDoc(QWidget):
         lan = self.rb_lan.isChecked()
         code = self.code.text().strip()
         if not hosting and not lan and not code:
-            self.lbl_config.setText("config: enter the HOST's session code first (ask your friend)")
+            widgets.set_state(self.lbl_config, "warn")
+            self.lbl_config.setText("enter the HOST's session code first (ask your friend)")
             return
         if lan and not hosting and not self.lan_ip.text().strip():
-            self.lbl_config.setText("config: direct LAN join needs the host's IP")
+            widgets.set_state(self.lbl_config, "warn")
+            self.lbl_config.setText("direct LAN join needs the host's IP")
             return
         style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host"),
                          self._playstyle_state())) if self.style_box.isEnabled() else {}
@@ -365,7 +394,8 @@ class CoopDoc(QWidget):
                             fail_hint="See the Output panel (is the game path configured?).",
                             on_finished=done)
         if not started:
-            self.lbl_config.setText("config: another job is running — wait for it to finish")
+            widgets.set_state(self.lbl_config, "warn")
+            self.lbl_config.setText("another job is running — wait for it to finish")
 
     def start_bridge(self):
         from .. import netsync_bridge as nb

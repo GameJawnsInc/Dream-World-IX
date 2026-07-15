@@ -94,3 +94,123 @@ def test_qss_compact_is_tighter_than_comfortable():
     assert comfy != tight
     assert "padding: 6px 8px" in comfy and "padding: 6px 8px" not in tight   # the roomy row padding is comfy-only
     assert "padding: 3px 4px" in tight                                       # compact's tighter row padding
+
+
+def test_checked_indicators_carry_a_tick_and_a_dot():
+    """A checked checkbox must show a TICK and a checked radio a DOT -- in every palette.
+
+    What shipped was `background: $accent` and nothing else, so a checked checkbox was a solid accent
+    square and a checked radio a solid accent circle: identical except for the corner radius. That throws
+    away the only signal that separates "pick several" from "pick exactly one", and a filled swatch reads
+    as a colour chip rather than as "checked".
+
+    Checked here rather than by render because the pixel probe is genuinely treacherous: in DRACULA and
+    GRUVBOX_DARK `accent_fg` is EQUAL to `bg` (their accents are light, so the ink on them is dark), and a
+    naive ink count over the widget then counts the page background as tick pixels and "passes" even when
+    nothing drew. (The render was done once, by eye, at 9x -- see studies/gui-aesthetics.)
+    """
+    from pathlib import Path
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(pal)
+        assert "QCheckBox::indicator:checked" in css, mode
+        # the tick is an SVG on disk: QSS cannot draw a checkmark (no transform, no ::before content)
+        tick = [ln for ln in css.splitlines() if "QCheckBox::indicator:checked {" in ln]
+        assert tick and "image: url(" in tick[0], f"{mode}: checked checkbox has no tick image"
+        svg = tick[0].split("image: url(")[1].split(")")[0]
+        assert Path(svg).is_file(), f"{mode}: tick asset missing on disk: {svg}"
+        body = Path(svg).read_text(encoding="utf-8")
+        assert d["accent_fg"] in body, f"{mode}: tick is not tinted accent_fg (illegible on the accent fill)"
+        # the radio's dot is pure QSS -- a radial gradient, no asset
+        dot = [ln for ln in css.splitlines() if "qradialgradient" in ln]
+        assert dot, f"{mode}: checked radio has no dot gradient"
+
+
+def test_a_diagnostic_value_can_keep_full_weight():
+    """A roleless value label must be able to carry a warn/error state.
+
+    The state colours were scoped to `role="muted"` / `role="caption"` only, so a definition-list VALUE --
+    which is deliberately roleless, because it is the answer at full weight -- had no way to turn amber.
+    "netsync MISSING" is the answer to "why doesn't co-op work"; demote the explanation, never the answer.
+
+    The role-scoped rules must still out-rank the generic one (more attributes = higher specificity), so a
+    muted hint keeps its own tint rather than inheriting the value tint.
+
+    It must wire to the DERIVED *_text rung, not the raw hue: the raw hue is fenced at 3.0 (the non-text
+    floor) because its first job is icons, and as TEXT it measured 3.51 (warn, solarized-dark) / 2.67
+    (error, nord). A diagnostic you cannot read is not a diagnostic.
+    """
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(pal)
+        warn = [ln for ln in css.splitlines() if 'QLabel[state="warn"]' in ln and "role=" not in ln]
+        err = [ln for ln in css.splitlines() if 'QLabel[state="error"]' in ln and "role=" not in ln]
+        assert warn, f"{mode}: a roleless value label cannot show a warn state"
+        assert err, f"{mode}: a roleless value label cannot show an error state"
+        assert d["warn_text"] in warn[0], f"{mode}: warn TEXT must use the derived AA rung, not the raw hue"
+        assert d["error_text"] in err[0], f"{mode}: error TEXT must use the derived AA rung, not the raw hue"
+        # the role-scoped variants must still exist, or a muted hint would lose its own warn tint
+        assert 'QLabel[role="muted"][state="warn"]' in css, f"{mode}: the muted-hint warn rule went missing"
+        # the banner STRIPE is non-text and must keep the canonical hue (3.0 is the right bar there)
+        stripe = [ln for ln in css.splitlines() if 'role="banner"][state="error"]' in ln]
+        assert stripe and d["error"] in stripe[0], f"{mode}: the banner stripe must keep the canonical hue"
+
+
+def test_accent_button_keeps_a_visible_focus_ring():
+    """The primary button must show focus -- it had NO ring at all until this rule.
+
+    `QPushButton#accent` (specificity 0,1,0,1) out-ranks the generic `QPushButton:focus` (0,0,1,1), so the
+    id selector silently won and every accent button in the app -- including the crumb-row Deploy F9, the
+    primary action of the whole application -- rendered identically focused and unfocused. Measured before
+    the fix: 0 px changed. Same specificity trap the `#accent:disabled` rule already documents.
+
+    The ring must be `$accent_fg`, not `$focus`: `$focus == $accent` in 6 of 7 palettes, so a $focus ring
+    on an $accent fill would be invisible in all but one.
+    """
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        d = theme.derive(pal)
+        rule = [ln for ln in css.splitlines() if "QPushButton#accent:focus" in ln]
+        assert rule, f"{mode}: the primary button has no focus ring (the #accent id out-ranks :focus)"
+        assert d["accent_fg"] in rule[0], f"{mode}: accent focus ring must be accent_fg, not $focus"
+
+
+def test_mono_register_sets_family_only():
+    """Machine tokens (ids, session codes, paths) get a mono FAMILY -- and must not get a size.
+
+    Family-only is load-bearing: a font-size here would change row heights and could drag a control under
+    the 24px target floor (WCAG 2.5.8) in compact density. It inherits 13px from the base QWidget rule.
+    `mono` is an orthogonal property, NOT a role= value, because role is single-valued across ~111 call
+    sites -- role="id" on a label would silently drop its existing role="muted".
+    """
+    css = style.qss(theme.DARK)
+    assert 'QLabel[mono="true"]' in css, "no mono register rule"
+    block = css.split('QLabel[mono="true"]')[1].split("}")[0]
+    assert "font-family" in block
+    assert "font-size" not in block, "the mono register must not set a size -- it would move row heights"
+    # Inspect the TEMPLATE, not the rendered css: $type_mono IS "12px", so the output is byte-identical
+    # whether the console hardcodes 12px or spends the token. Only the source can tell them apart.
+    tmpl = style._QSS.template
+    console = tmpl.split("QPlainTextEdit")[1].split("}")[0]
+    assert "$type_mono" in console, "the console should spend the $type_mono token, not hardcode a size"
+
+
+def test_qss_has_no_malformed_subcontrol_selectors():
+    """A pseudo-CLASS before a pseudo-ELEMENT (`QCheckBox:focus::indicator`) is silently catastrophic.
+
+    Qt does not reject it. `Selector::pseudoElement()` reads the FIRST pseudo, recognises `focus` as a known
+    CLASS, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`. The match test
+    `(0 & state) == 0` is true in EVERY state, so the rule degenerates to an unconditional
+    `QCheckBox { border: ... }` -- it targets the whole widget, always, instead of the sub-control on focus.
+
+    This shipped at style.py:126 and put a permanent accent rect around every radio and checkbox in the app
+    (it *was* the "cards don't read well" screenshot) while leaving them with no focus ring at all. The a11y
+    focus test (test_workspace_a11y.py:136) greps for four known-good selector STRINGS and structurally
+    cannot see a malformed one, so it passed throughout. Hence a shape check, not a substring check.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        # Widget:class::element -- the correct order is ALWAYS Widget::element:class, so any hit is a bug.
+        bad = re.findall(r"[A-Za-z_][\w-]*:[a-z-]+::[a-z-]+", css)
+        assert not bad, f"{mode}: pseudo-class before sub-control (Qt matches neither): {bad}"

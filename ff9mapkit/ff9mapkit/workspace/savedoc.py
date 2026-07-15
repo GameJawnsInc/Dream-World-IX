@@ -18,14 +18,14 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+    QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .. import flags as _flags
 from .. import save as _save
 from .. import save_items as _si
-from .widgets import PlaceholderListWidget
+from .widgets import PlaceholderListWidget, section
 
 
 class StoryStateDoc(QWidget):
@@ -440,8 +440,9 @@ class ItemEquipDoc(QWidget):
 
     # ---- edit UI ----
     def _section(self, parent_lay, title, widgets, buttons):
-        box = QGroupBox(title)
-        row = QHBoxLayout(box)
+        box = section(title)
+        row = QHBoxLayout()
+        box.content_layout.addLayout(row)
         for w in widgets:
             row.addWidget(QLabel(w[0])) if isinstance(w, tuple) else None
             row.addWidget(w[1] if isinstance(w, tuple) else w)

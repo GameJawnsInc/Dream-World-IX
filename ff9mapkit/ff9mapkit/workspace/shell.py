@@ -26,7 +26,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter,
     QProgressBar, QStackedWidget, QTabWidget, QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
     QTreeWidgetItemIterator, QVBoxLayout, QWidget,
@@ -48,6 +48,7 @@ from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
+from .hero import HeroBand
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
@@ -58,7 +59,7 @@ from . import concepts
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard, repolish
+from .widgets import PlaceholderListWidget, install_wheel_guard, repolish, section
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -405,6 +406,22 @@ class _UpdateSignals(QObject):
     done = Signal(dict)
 
 
+# A container that must not paint the page colour over what is behind it.
+#
+# THE EXACT-CLASS SELECTOR IS LOAD-BEARING. A bare `setStyleSheet("background: transparent;")` has an
+# implicit universal selector, and in Qt a stylesheet set on a WIDGET out-ranks the QApplication
+# stylesheet REGARDLESS OF SPECIFICITY -- so it cascades down and beats `QPushButton#accent { background:
+# $accent; }` from the app sheet. The button then loses its FILL while keeping `color: $accent_fg` and
+# `border: 1px solid $accent` (which the container rule never set), i.e. accent-coloured ink on the page.
+# Where accent_fg is dark ink -- dracula's #282a36 IS its bg, gruvbox's #282828 IS its bg -- the label
+# went literally invisible. Measured on Home's get-started CTA: 1.00:1 in dracula and gruvbox-dark, 1.02
+# in mist, 1.09 in light, 1.11 in solarized-light. Five of eight palettes; the newcomer's primary button.
+#
+# `.QWidget` matches a plain QWidget and NOT its subclasses (Qt's exact-class selector), so a container
+# goes transparent while every real control inside it keeps its own styling.
+_TRANSPARENT = ".QWidget { background: transparent; }"
+
+
 class Workspace(QMainWindow):
     """The shell: a project tree (left) + document tabs (center) + inspector (right) + Output/Problems
     console (bottom, collapsible), with a breadcrumb above. Open a campaign.toml to populate it."""
@@ -460,6 +477,8 @@ class Workspace(QMainWindow):
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon reserving the slot for
         self._root_items = []                                 # kinds with no type icon (the dot rides the type icon)
         self._icon_retint = []                                # apply-callbacks re-tinting persistent SVG icons on a
+        # Home is built ONCE (inside __init__), so the hero can't re-read the palette on its own -- ride the
+        # sanctioned retint hook, which retheme() iterates.
         self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
         self._build_console()
@@ -537,12 +556,27 @@ class Workspace(QMainWindow):
         no palette change. Used by Preferences' live preview and the Ctrl-K toggle."""
         self._density = density if density in prefs.DENSITIES else "comfortable"
         self.setStyleSheet(qss(self.pal, self._density))
+        if getattr(self, "_hero", None) is not None:
+            self._hero.set_density(self._density)             # the band's metrics are PYTHON -- QSS re-render
+                                                              # alone would leave it at the old height
 
     def _toggle_density(self):
         """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
         self._apply_density("compact" if self._density == "comfortable" else "comfortable")
         prefs.set_density(self._density)
         self.statusBar().showMessage(f"Density: {self._density}", 3000)
+
+    def _set_theme(self, mode):
+        """Apply a theme LIVE and persist it (the Ctrl-K quick command).
+
+        One command PER theme rather than a cycler or a sub-picker: the palette is fuzzy-matched, so
+        "mist" lands "Theme: Mist (FF9)" in two keystrokes, which beats both cycling through eight and
+        four clicks into Preferences. Persists immediately -- unlike Preferences' live preview, there is
+        no Cancel to revert to, so a Ctrl-K pick is a decision, not a trial.
+        """
+        self.retheme(pick_palette(mode))
+        prefs.set_theme(mode)
+        self.statusBar().showMessage(f"Theme: {dict(THEME_CHOICES).get(mode, mode)}", 3000)
 
     def _toggle_motion(self):
         """Flip UI motion on <-> off and persist it (the Ctrl-K quick command). Explicit on/off overrides the
@@ -990,7 +1024,7 @@ class Workspace(QMainWindow):
         self._hub_btn.setObjectName("hub")                  # the QToolButton#hub id-rule in style.py (re-tints on theme switch)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        spacer.setStyleSheet("background: transparent;")   # the global QWidget rule painted it $bg -- a
+        spacer.setStyleSheet(_TRANSPARENT)   # the global QWidget rule painted it $bg -- a
         tb.addWidget(spacer)                               # dark hole in the toolbar
         # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
         # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
@@ -1078,7 +1112,9 @@ class Workspace(QMainWindow):
         sh.setContentsMargins(12, 5, 8, 5)
         sh.setSpacing(8)
         _sglyph = QLabel("→")
-        _sglyph.setProperty("role", "accent")
+        # muted, not accent: a pointer glyph is not a verb you press, and accent-as-text measures 2.44:1
+        # on nord / 3.06 solarized-dark (sub-AA). It now matches the guidance text it introduces.
+        _sglyph.setProperty("role", "muted")
         sh.addWidget(_sglyph)
         self._spine_text = QLabel("")
         self._spine_text.setProperty("role", "muted")
@@ -1429,24 +1465,39 @@ class Workspace(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        page = QWidget()                           # full-width page; the content column is width-capped and
-        ph = QHBoxLayout(page)                     # centred so lines don't stretch across a wide monitor
-        ph.setContentsMargins(30, 26, 30, 26)
-        body = QWidget()
-        body.setMaximumWidth(860)
+        # SIGNET (studies/gui-aesthetics/IDENTITY.md): the front door is a full-bleed painted band, then
+        # the existing width-capped centred column beneath it.
+        page = QWidget()
+        pv = QVBoxLayout(page)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(0)
+        body = QWidget()                           # the content column: width-capped + centred so lines
+        body.setMaximumWidth(860)                  # don't stretch across a wide monitor
+        # The hero reads the body's REAL geometry, so the wordmark, the gold elbow and every card below
+        # sit on ONE axis at any window width. A parallel formula disagrees with the layout by +30px.
+        self._hero = HeroBand(self.pal, column_source=body)
+        pv.addWidget(self._hero)
+        self._icon_retint.append(lambda: self._hero.set_palette_(self.pal))   # retheme() iterates this
+        row = QWidget()
+        row.setStyleSheet(_TRANSPARENT)   # the universal QWidget{background-color:$bg} rule
+        ph = QHBoxLayout(row)                           # would otherwise paint the page over the band
+        ph.setContentsMargins(30, 22, 30, 26)
         ph.addStretch(1)
-        ph.addWidget(body, 4)
+        # Stretch 20, not 4. At 4:1:1 the body got 4/6 of the width, which targeted 435px at the 1280
+        # default -- so the column was rescued only by its own 512px minimumSizeHint, and that minimum is
+        # propped up by un-word-wrapped labels. MEASURED: 512 at 1280, 656 at 1600, 860 only at 1920. The
+        # moment a future round wraps those labels the column would silently collapse to ~398. Factor 20
+        # pins it to 860 as early as geometry allows: 604 at 1280, 860 from 1600.
+        ph.addWidget(body, 20)
         ph.addStretch(1)
+        pv.addWidget(row)
+        pv.addStretch(1)
         v = QVBoxLayout(body)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(10)
-        title = QLabel("Dream World IX — Workspace")
-        title.setProperty("role", "display")
-        v.addWidget(title)
-        self._home_status = QLabel("")
-        self._home_status.setWordWrap(True)
-        self._home_status.setTextFormat(Qt.TextFormat.RichText)
-        v.addWidget(self._home_status)
+        # The display title and the status line now live in the hero, PAINTED. The QLabel status baked
+        # pal["muted"] into inline HTML at build time and went stale on a live theme switch; a painted one
+        # re-tints. (self._home_setup below STAYS a real QLabel -- it has a linkActivated connection.)
         # First-run affordance: when the install isn't configured (or templates aren't extracted), say so
         # HERE — the alternative is a fresh user meeting greyed-out buttons with no explanation.
         self._home_setup = QLabel("")
@@ -1476,7 +1527,7 @@ class Workspace(QMainWindow):
         self._start_note.setProperty("role", "muted")
         v.addWidget(self._start_note)
         self._start_box = QWidget()
-        self._start_box.setStyleSheet("background: transparent;")
+        self._start_box.setStyleSheet(_TRANSPARENT)
         self._start_lay = QVBoxLayout(self._start_box)
         self._start_lay.setContentsMargins(0, 2, 0, 4)
         self._start_lay.setSpacing(8)
@@ -1495,7 +1546,7 @@ class Workspace(QMainWindow):
         self._recent_head = self._home_section("Recent")
         v.addWidget(self._recent_head)
         self._recent_box = QWidget()
-        self._recent_box.setStyleSheet("background: transparent;")
+        self._recent_box.setStyleSheet(_TRANSPARENT)
         self._recent_lay = QVBoxLayout(self._recent_box)
         self._recent_lay.setContentsMargins(4, 0, 0, 4)
         self._recent_lay.setSpacing(5)
@@ -1553,7 +1604,7 @@ class Workspace(QMainWindow):
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
         col = QWidget()
-        col.setStyleSheet("background: transparent;")
+        col.setStyleSheet(_TRANSPARENT)
         cv = QVBoxLayout(col)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
@@ -1606,13 +1657,17 @@ class Workspace(QMainWindow):
         h.setContentsMargins(16, 10, 14, 10)
         h.setSpacing(12)
         g = QLabel("✓" if done else str(num))
-        g.setProperty("role", "ok" if done else "accent")     # themed via QSS (no stale colour on retheme)
+        # The pending step's NUMBER was role="accent" -- 2.71:1 on solarized-light, 2.84 nord, below even
+        # the 3.0 large-text floor. It is a structural marker, not an action: the step's own accent BUTTON
+        # already says "do this". $text at 600 clears 4.94:1 everywhere. The done state keeps its green
+        # tick (shape + colour, per the status-by-icon-shape law).
+        g.setProperty("role", "ok" if done else "strong")     # themed via QSS (no stale colour on retheme)
         g.setStyleSheet("font-size:15px;font-weight:600;")    # size/weight cascade on top of the role colour
         g.setFixedWidth(22)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
         col = QWidget()
-        col.setStyleSheet("background: transparent;")
+        col.setStyleSheet(_TRANSPARENT)
         cv = QVBoxLayout(col)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(2)
@@ -1670,13 +1725,15 @@ class Workspace(QMainWindow):
 
     def _refresh_home_status(self):
         """Update the Home 'Currently editing …' line (called when Home is shown, so it's always fresh)."""
-        if not hasattr(self, "_home_status"):
+        if not hasattr(self, "_hero"):
             return
         name, level = self._current_target()
+        # The hero PAINTS this, so it re-tints on a live theme switch. The old QLabel baked pal["muted"]
+        # into inline HTML at build time and went stale until you left Home and came back.
         if name is None:
-            self._home_status.setText(self._muted("Nothing open yet — pick a starting point below."))
+            self._hero.set_status("Nothing open yet — pick a starting point below.")
         else:
-            self._home_status.setText(f"Currently editing a <b>{level}</b>: {_esc(str(name))}.")
+            self._hero.set_status(f"Currently editing a {level}: {name}.")
         if hasattr(self, "_home_setup"):
             try:
                 from .. import health
@@ -1718,7 +1775,7 @@ class Workspace(QMainWindow):
         self._recent_box.setVisible(bool(rows))
         for e in rows:
             row = QWidget()
-            row.setStyleSheet("background: transparent;")
+            row.setStyleSheet(_TRANSPARENT)
             rl = QHBoxLayout(row)
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(6)
@@ -1934,8 +1991,8 @@ class Workspace(QMainWindow):
         done = [f for f in folders if self._campaign_forked(f)]
         missing_cmds = [f for f in folders if f not in done and f in self._fork_cmds]
 
-        box = QGroupBox(f"Fork the arcs   ({len(done)}/{len(folders)} forked)")
-        gv = QVBoxLayout(box)
+        box = section(f"Fork the arcs   ({len(done)}/{len(folders)} forked)")
+        gv = box.content_layout
         if len(done) < len(folders):
             hint = QLabel("These campaigns don't exist yet — <b>Step 1</b> is to fork them from their real FF9 "
                           "fields. Click <b>Fork</b> (runs <code>import-chain</code> into a folder beside this "
@@ -1953,7 +2010,10 @@ class Workspace(QMainWindow):
             pf = self._fork_cmds.get(f)
             tag = QLabel(("✓ " if forked else "○ ") + f + (f"  (real field {pf.seed})" if pf else ""))
             if forked:
-                tag.setProperty("role", "accent")     # forked = accent; unforked leaves the default $text
+                # was role="accent" (2.44:1 on nord). The done-ness is already carried by the GLYPH
+                # (checkmark vs circle) -- the app's own status-by-icon-shape law -- so this only needs
+                # WEIGHT, not a hue. $text at 600 clears 4.94:1 in every palette.
+                tag.setProperty("role", "strong")
             self._fork_rows[f] = tag
             row.addWidget(tag)
             row.addStretch(1)
@@ -1989,7 +2049,7 @@ class Workspace(QMainWindow):
         tag = getattr(self, "_fork_rows", {}).get(key)
         if tag is not None:
             tag.setText(f"⟳ {key}  (forking…)")
-            tag.setProperty("role", "accent")
+            tag.setProperty("role", "strong")         # in-progress reads from the glyph, not a sub-AA hue
             repolish(tag)                             # long-lived widget -> re-evaluate the role at runtime
         allb = getattr(self, "_fork_all_btn", None)
         if allb is not None:
@@ -3781,6 +3841,11 @@ class Workspace(QMainWindow):
             ("Toggle beginner mode (Guided / Full)", "command", self._toggle_guided),
             ("Toggle density (Comfortable / Compact)", "command", self._toggle_density),
             ("Toggle motion (animations on / off)", "command", self._toggle_motion),
+            # One row per theme, generated from the registry -- an 8th palette costs nothing here. The
+            # `m=mode` default arg is load-bearing: a bare `lambda: self._set_theme(mode)` closes over the
+            # LOOP VARIABLE, so every row would apply the last theme.
+            *[(f"Theme: {label}", "command", lambda m=mode: self._set_theme(m))
+              for mode, label in THEME_CHOICES],
             ("Setup & health…", "command", self._open_setup),
             ("Preferences…", "command", self._open_preferences),
             ("Check for updates…", "command", self._open_update_dialog),
@@ -5816,7 +5881,7 @@ class Workspace(QMainWindow):
     def _placed_note(self, text):
         """A muted 'placed in Blender' note: a pin icon (was the 📍 emoji) + a wrapped muted label."""
         row = QWidget()
-        row.setStyleSheet("background: transparent;")
+        row.setStyleSheet(_TRANSPARENT)
         rl = QHBoxLayout(row)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(6)
@@ -8992,13 +9057,13 @@ def _smoke(win):
     assert win.plan is not None and win.manifest is not None, "drilled into journey+campaign"
     assert win.open_field(af) and win.manifest is None and win.plan is None, "Open Field escapes a drilled-in journey"
     win._refresh_home_status()                                          # do-now #4: Home reflects what's open
-    assert "Currently editing" in win._home_status.text() and "Field" in win._home_status.text()
+    assert "Currently editing" in win._hero._status and "Field" in win._hero._status
     win._close_project()
     assert win.manifest is None and win.plan is None and win._loose is None and win.tree.topLevelItemCount() == 0, \
         "Close returns to the empty Workspace"
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
     # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
-    assert "Nothing open" in win._home_status.text(), "Home resets its status after Close"
+    assert "Nothing open" in win._hero._status, "Home resets its status after Close"
     # Phase 7: the cohesion SPINE answers 'what do I do next' per state. EMPTY -> a fork/open nudge; a clean
     # open project -> a deploy nudge; unsaved edits -> a save nudge. (Deploy stays the ONE crumb button; the
     # spine points at it rather than duplicating it.)

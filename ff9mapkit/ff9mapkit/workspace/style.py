@@ -1,16 +1,51 @@
 """A Qt Style Sheet (QSS) for the workspace shell, generated from a theme palette.
 
-PySide6-FREE -- a pure ``str``-building function over a palette dict, so it's unit-testable on a headless
+PySide6-FREE -- a ``str``-building function over a palette dict, so it's unit-testable on a headless
 machine (the same discipline as :mod:`..editor.theme`, whose ``LIGHT``/``DARK`` palettes this consumes).
 QSS uses ``{`` / ``}`` heavily, so the template uses ``string.Template``'s ``$name`` placeholders (which
 leave braces alone) rather than ``str.format``.
+
+One side effect, and the reason it is not *quite* pure: the checkbox tick is an SVG on disk. QSS cannot
+draw a checkmark -- it has no ``transform`` (so the two-borders-rotated-45deg CSS trick is out), no
+``::before``/content, and Qt has no ``text-transform``. ``image: url(...)`` is the only lever, and it needs
+a real file. So :func:`qss` writes a per-tint SVG into a temp cache and substitutes its path. Writing a
+text file needs no Qt, so the headless-testability property that matters is preserved.
 """
 
 from __future__ import annotations
 
+import hashlib
+import tempfile
+from pathlib import Path
 from string import Template
 
 from ..editor.theme import derive
+
+# --- indicator art ---------------------------------------------------------------------------
+# A checked checkbox used to be a solid accent square and a checked radio a solid accent circle -- they
+# differed ONLY by corner radius, so "pick several" and "pick exactly one" looked identical, and a filled
+# swatch reads as a colour chip rather than as "checked". The radio's dot is pure QSS (a radial gradient);
+# the tick has to be an image (see the module docstring).
+
+_CHECK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" '
+    'stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M3.5 8.4l3.1 3.1 5.9-6.4"/></svg>'
+)
+
+
+def _asset(name: str, text: str) -> str:
+    """Write ``text`` to a content-addressed file in a temp cache and return a QSS-safe path.
+
+    Content-addressed on purpose: a tint is a new FILENAME, never a rewrite of an existing one. Qt caches
+    images by path, so overwriting ``check.svg`` on a theme switch would keep serving the stale pixmap.
+    """
+    cache = Path(tempfile.gettempdir()) / "ff9mapkit-qss"
+    cache.mkdir(parents=True, exist_ok=True)
+    dest = cache / f"{name}-{hashlib.sha1(text.encode('utf-8')).hexdigest()[:10]}.svg"
+    if not dest.exists():                          # cheap: one write per distinct tint, ever
+        dest.write_text(text, encoding="utf-8")
+    return dest.as_posix()                         # QSS url() wants forward slashes, even on Windows
 
 # Theme-independent scales threaded into the QSS template (and, in later phases, into Qt layout calls).
 # Values are px strings so they substitute straight in. Spacing is a 4px grid; type is the modern ramp.
@@ -80,6 +115,13 @@ _QSS = Template(
     /* a disabled accent button (e.g. Save with nothing to save) must grey out -- the #accent id
        selector otherwise out-ranks the generic :disabled rule and would stay blue. */
     QPushButton#accent:disabled { background: $surface_btn; color: $muted; border: 1px solid $border; }
+    /* The primary needs its OWN focus ring. `QPushButton#accent` (specificity 0,1,0,1) out-ranks the
+       generic `QPushButton:focus` (0,0,1,1) -- exactly the trap the :disabled rule above documents -- so
+       every accent button in the app had NO focus indication at all, including the crumb-row Deploy F9,
+       the primary action of the whole application. Measured: 0 px changed on focus, before this rule.
+       $accent_fg, not $focus: $focus == $accent in 6 of 7 palettes, so a $focus ring on an $accent fill
+       would be invisible. */
+    QPushButton#accent:focus { border: 1px solid $accent_fg; }
 
     /* Indicators MUST be fully specified: once a stylesheet touches a QCheckBox/QRadioButton, Qt stops
        drawing the native checked dot, so without this the selected state renders INVISIBLE. */
@@ -92,10 +134,30 @@ _QSS = Template(
     QRadioButton::indicator { border-radius: 9px; }
     QCheckBox::indicator { border-radius: 4px; }
     QCheckBox::indicator:hover, QRadioButton::indicator:hover { border: 1px solid $accent; }
-    QCheckBox::indicator:checked, QRadioButton::indicator:checked {
-        background: $accent; border: 1px solid $accent;
+    /* CHECKED must say WHICH KIND of control this is. A bare `background: $accent` (what shipped) made a
+       checked checkbox a solid square and a checked radio a solid circle -- identical but for the corner
+       radius, so pick-several and pick-exactly-one looked the same, and a filled swatch reads as a colour
+       chip, not as "checked". The tick and the dot are the whole signal; restore both. */
+    QCheckBox::indicator:checked { background: $accent; border: 1px solid $accent; image: url($check_img); }
+    /* The radio's dot is pure QSS -- no asset. The gradient radius is a fraction of the 18px indicator, so
+       stop 0.40 => a ~7px dot, the classic proportion. Keep the two stops adjacent (0.40 -> 0.46) or the
+       dot fades into the fill instead of reading as a disc. */
+    QRadioButton::indicator:checked {
+        border: 1px solid $accent;
+        background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                    stop:0 $accent_fg, stop:0.40 $accent_fg, stop:0.46 $accent, stop:1 $accent);
     }
     QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { border: 1px solid $muted; background: $bg; }
+    /* A disabled+checked control still has to show WHAT it is set to (it is state, not decoration) -- but
+       in $muted, so it reads as unavailable rather than active. Specificity 0x31 out-ranks :checked's 0x21. */
+    QCheckBox::indicator:checked:disabled {
+        background: $bg; border: 1px solid $muted; image: url($check_img_off);
+    }
+    QRadioButton::indicator:checked:disabled {
+        border: 1px solid $muted;
+        background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+                    stop:0 $muted, stop:0.40 $muted, stop:0.46 $bg, stop:1 $bg);
+    }
 
     QLineEdit {
         background: $field; color: $text; border: 1px solid $border; border-radius: 6px;
@@ -123,7 +185,18 @@ _QSS = Template(
     QPushButton:focus, QToolButton:focus, QPushButton#search:focus { border: 1px solid $focus; }
     QTabBar::tab:focus { border-color: $focus; color: $text; }
     QTreeWidget:focus, QTreeView:focus, QListWidget:focus { border: 1px solid $focus; }
-    QCheckBox:focus::indicator, QRadioButton:focus::indicator { border: 1px solid $focus; }
+    /* NB: pseudo-ELEMENT before pseudo-CLASS -- `::indicator:focus`, NEVER `:focus::indicator`. Qt does
+       not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
+       `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test
+       `(0 & state) == 0` is true in EVERY state. The rule silently degenerates to an unconditional
+       `QRadioButton, QCheckBox { border: 1px solid $focus; }` -- which shipped, and boxed every radio and
+       checkbox in the app in a permanent accent rect while giving them NO focus ring at all.
+       test_qss_has_no_malformed_subcontrol_selectors now guards the whole class of typo. */
+    QCheckBox::indicator:focus, QRadioButton::indicator:focus { border: 1px solid $focus; }
+    /* A CHECKED indicator is already filled $accent, and $focus == $accent in 6 of 7 palettes, so the rule
+       above would be invisible exactly when a radio is clicked or arrowed into. $accent_fg is the one token
+       guaranteed legible ON $accent. Specificity (0x31 > 0x21) wins this, not source order. */
+    QCheckBox::indicator:checked:focus, QRadioButton::indicator:checked:focus { border: 1px solid $accent_fg; }
 
     QTreeWidget, QTreeView, QListWidget {
         background: $surface; border: 1px solid $border; border-radius: 8px; padding: 4px;
@@ -158,7 +231,7 @@ _QSS = Template(
 
     QPlainTextEdit, QTextEdit {
         background: $log_bg; color: $log_fg; border: 1px solid $border; border-radius: 8px;
-        font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px; padding: 6px;
+        font-family: "Cascadia Code", "Consolas", monospace; font-size: $type_mono; padding: 6px;
     }
 
     /* dropdown menus (the toolbar Field / Campaign / Journey buttons) */
@@ -198,17 +271,38 @@ _QSS = Template(
     QLabel[role="label"]   { font-weight: 500; }
     QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
     QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
-    QLabel[role="ok"]      { color: $success; }               /* a done/healthy status mark (e.g. a ✓) */
-    QLabel[role="muted"][state="warn"]  { color: $warn; }      /* a status line that turns cautionary */
+    /* TEXT gets the derived *_text rung (AA 4.5 on the card fill); SHAPES below keep the canonical hue,
+       where the 3.0 non-text floor is the right bar. Lifting the hues themselves was measured and
+       rejected -- it needs +38% toward white on nord's and solarized's reds, washing them out. */
+    QLabel[role="ok"]      { color: $success_text; }          /* a done/healthy status mark (e.g. a ✓) */
+    QLabel[role="muted"][state="warn"]  { color: $warn_text; } /* a status line that turns cautionary */
     QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
-    QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */
-    QLabel[role="caption"][state="warn"]  { color: $warn; }    /* a soft warning (e.g. text may overflow) */
+    /* A state on a plain (roleless) value label -- e.g. a definition-list value that IS the answer to
+       "why is this broken" ("netsync MISSING"). The role-scoped rules above carry more attributes and so
+       out-rank this, which is what we want: a muted hint keeps its own warn tint. Never demote a
+       diagnostic to 11px grey -- demote the EXPLANATION, never the answer. */
+    QLabel[state="warn"]  { color: $warn_text; }
+    QLabel[state="error"] { color: $error_text; }
+    QLabel[role="caption"][state="error"] { color: $error_text; } /* a live parse error turns the hint red */
+    QLabel[role="caption"][state="warn"]  { color: $warn_text; } /* a soft warning (e.g. text may overflow) */
     QLabel[role="subtle"]  { color: $text_subtle; }
     /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
        caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */
     QLabel[role="empty_glyph"] { font-size: 34px; color: $text_subtle; }
     QLabel[role="empty_title"] { font-size: $type_h2; font-weight: 600; color: $text; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
+    /* THE MONO REGISTER. This app's whole subject is machine tokens -- 4003, 30110, ff9-XXXXXXXX,
+       FF9CustomMap, C:/.../FF9CustomMap. Set in the body face they read as prose and the eye slides off
+       them; set in mono they read as things you copy, and it is the one real texture in the composition.
+       FAMILY ONLY -- no font-size, so it inherits 13px and neither row heights nor 24px hit targets move.
+       An orthogonal `mono` property, NOT a role= value: role is single-valued across ~111 call sites, so
+       role="id" on a label would silently drop its existing role="muted".
+       Cascadia ships with VS / Windows Terminal, NOT with Windows -- on a clean machine this falls to
+       Consolas, which is fine. The register is the win, not the letterforms. Do not bundle a font. */
+    QLabel[mono="true"], QLineEdit[mono="true"] {
+        font-family: "Cascadia Code", "Consolas", monospace;
+    }
+
     QLabel[role="chip"] {
         background: $surface_3; border: 1px solid $border; border-radius: $radius_sm;
         padding: 2px $space_2; color: $muted; font-size: $type_caption;
@@ -282,4 +376,9 @@ def qss(palette: dict, density: str = "comfortable") -> str:
     both work -- callers (tests, the shell) need not derive up front. An unknown density falls back to
     comfortable."""
     dens = _DENSITY.get(density, _DENSITY["comfortable"])
-    return _QSS.substitute({**_SCALES, **dens, **derive(palette)})
+    pal = derive(palette)
+    art = {                                          # per-tint indicator art (see the module docstring)
+        "check_img": _asset("check", _CHECK_SVG.format(color=pal["accent_fg"])),
+        "check_img_off": _asset("check", _CHECK_SVG.format(color=pal["muted"])),
+    }
+    return _QSS.substitute({**_SCALES, **dens, **art, **pal})

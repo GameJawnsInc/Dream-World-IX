@@ -102,9 +102,90 @@ def test_palette_contrast_invariants():
         assert _contrast(pal["text"], pal["surface"]) >= 4.5, f"{mode}: body text on surface"
         assert _contrast(pal["muted"], pal["bg"]) >= 4.5, f"{mode}: hint text on bg"
         assert _contrast(pal["muted"], pal["surface"]) >= 4.5, f"{mode}: hint text on surface"
-        assert _contrast(pal["accent_fg"], pal["accent"]) >= 3.0, f"{mode}: text on the accent button"
+        # ...and on an ELEVATED panel (surface_2 -- what every QGroupBox is). This rung was UNTESTED, and
+        # four palettes shipped sub-AA on it for real: muted measured 3.87 nord / 3.91 dracula / 3.91
+        # solarized-dark / 4.07 gruvbox-dark, and solarized-dark's BODY text 4.22. Every hint inside a
+        # groupbox lands here, so it is not a hypothetical surface.
+        # EVERY ground a text tier can land on, not just the page. Each rung of the elevation ladder is a
+        # real surface under real text -- surface_2 is the card fill, surface_3 is the RAIL SEGMENT -- and
+        # the fence stopped one rung short: muted on surface_3 measured 3.86 (dracula) / 4.13 (dark) while
+        # this test was green. A fence that covers 3 of 4 grounds just moves the bug to the 4th.
+        for _g in ("surface_2", "surface_3"):
+            assert _contrast(pal["text"], d[_g]) >= 4.5, f"{mode}: body text on {_g}"
+            assert _contrast(pal["muted"], d[_g]) >= 4.5, f"{mode}: hint text on {_g}"
+        # `help` is TEXT: it labels the Info Hub button (its one and only use, as the label AND the
+        # border). It was fenced against NOTHING and measured 2.97 on solarized-dark.
+        assert _contrast(pal["help"], pal["bg"]) >= 4.5, f"{mode}: help text on bg"
+        assert _contrast(pal["help"], pal["surface"]) >= 4.5, f"{mode}: help text on surface"
+        # muted is the DIMMER tier by definition -- a contrast lift must never invert it past text (a naive
+        # solve for the floors above did exactly that on solarized-dark: muted 0.3740 vs text 0.3720).
+        assert (_luminance(pal["muted"]) < _luminance(pal["text"])) is bool(pal["dark"]), \
+            f"{mode}: muted must stay dimmer than text"
+        # 4.5, NOT 3.0. This fence shipped at the LARGE-text floor, but the thing it governs is a 13px
+        # BUTTON LABEL ("Deploy F9", "Fork a field", "Run setup..."), which is normal text under WCAG AA.
+        # At 3.0 it passed while dark measured 3.20, solarized 3.68 and nord 4.03 -- the app's primary
+        # action, unreadable-by-standard, in 4 of 8 palettes, with a green fence. The floor was the bug.
+        assert _contrast(pal["accent_fg"], pal["accent"]) >= 4.5, f"{mode}: the accent BUTTON LABEL is text"
         assert _contrast(d["focus"], pal["surface"]) >= 3.0, f"{mode}: focus ring on surface"
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
+
+
+def test_status_hues_are_legible_as_text_via_the_derived_rung():
+    """A status hue has TWO jobs at TWO different WCAG floors, and one token cannot serve both.
+
+    As a SHAPE (an alert icon, the banner stripe) the bar is 3.0 -- WCAG 1.4.11, non-text. That is what
+    `success`/`warn`/`error` are tuned for and `test_status_hues_meet_non_text_contrast` fences.
+    As TEXT ("netsync MISSING", "overwrites, no undo") the bar is 4.5 -- and measured on the card fill the
+    raw hues gave error 2.67 (nord) / 2.69 (solarized-dark) / 3.29 (gruvbox), warn 3.51, success 3.52.
+
+    Lifting the hues themselves was measured and REJECTED: reaching 4.5 needs +38% toward white on nord's
+    aurora red and solarized-dark's, +30% on gruvbox's -- it washes out the signature colour those palettes
+    are known for, to fix text that is rare.
+
+    So derive() adds a `*_text` rung per hue -- exactly the trick `focus` has always used to stay legible
+    without dragging the accent with it. Base palettes untouched, no new palette KEY taxed.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        for hue in ("success", "warn", "error"):
+            t = d[f"{hue}_text"]
+            assert _contrast(t, d["surface_2"]) >= 4.5, f"{mode}: {hue}_text is sub-AA on a card"
+            assert _contrast(t, pal["surface"]) >= 4.5, f"{mode}: {hue}_text is sub-AA on a panel"
+            assert _contrast(t, pal["bg"]) >= 4.5, f"{mode}: {hue}_text is sub-AA on the page"
+            # the derived rung must stay in the hue's FAMILY -- it is the same status, read louder, not a
+            # different colour. (Same channel ordering = same hue; only lightness may move.)
+            def _order(h):
+                h = h.lstrip("#")
+                v = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+                return [i for i, _ in sorted(enumerate(v), key=lambda x: -x[1])]
+            assert _order(t) == _order(pal[hue]), f"{mode}: {hue}_text drifted out of the hue's family"
+
+
+def test_hover_and_pressed_give_real_feedback():
+    """A button must visibly react to the pointer -- and `hover` shipped BYTE-IDENTICAL to `surface_btn`
+    in nord (#3b4252), dracula (#3a3d4d), solarized-dark (#0b4350) and gruvbox-dark (#3c3836), so four of
+    seven palettes had **no button hover feedback at all**. Nothing in the QSS could have saved them: the
+    rule `QPushButton:hover { background: $hover; }` was firing correctly and painting the same colour.
+
+    Three assertions, because each catches a different way of getting this wrong:
+      1. DIRECTION -- hover moves toward the light in a dark theme, toward the ink in a light one. This is
+         the one that catches the byte-identical bug (equal luminance is not `>`, so a dark palette fails).
+      2. MAGNITUDE -- a 1-bit difference would satisfy (1) and still be invisible. DARK ships 1.0756.
+      3. hover != pressed -- otherwise pressing adds no feedback beyond hovering. This is why the fix had
+         to shift BOTH rungs (nord: nord1 rest -> nord2 hover -> nord3 press) rather than just move hover
+         onto the old pressed value.
+
+    NB `$hover` serves two resting surfaces -- buttons rest on `surface_btn`, tree/list rows on `surface`
+    -- so a value that fixes the button must not flatten the row. Asserted below.
+    """
+    for mode, pal in theme.THEMES.items():
+        toward_light = _luminance(pal["hover"]) > _luminance(pal["surface_btn"])
+        assert toward_light is bool(pal["dark"]), \
+            f"{mode}: hover must move toward the light in dark themes, toward the ink in light ones " \
+            f"(hover {pal['hover']} vs surface_btn {pal['surface_btn']})"
+        assert _contrast(pal["hover"], pal["surface_btn"]) >= 1.05, f"{mode}: button hover is invisible"
+        assert _contrast(pal["pressed"], pal["hover"]) >= 1.03, f"{mode}: pressed adds nothing over hover"
+        assert _contrast(pal["hover"], pal["surface"]) >= 1.05, f"{mode}: tree/list row hover is invisible"
 
 
 def test_status_hues_meet_non_text_contrast():
