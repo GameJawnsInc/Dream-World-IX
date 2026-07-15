@@ -2644,8 +2644,9 @@ def _cmd_world_morphs(args: argparse.Namespace) -> int:
 
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
-    grass tile language (mains + meadow stamps + rolling relief), gated offline (geometry, UV language, and
-    the ENGINE PLACEMENT simulator) before deploy. Needs the custom engine (s34); re-enter the world map."""
+    grass tile language (mains + verbatim meadow stamps; flat interior by design), gated offline (geometry,
+    UV language, and the ENGINE PLACEMENT simulator) before deploy. Needs the custom engine (s34); re-enter
+    the world map."""
     from .world import island as I
     try:
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
@@ -5731,8 +5732,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     wis = sub.add_parser("world-island",
                          help="synthesize a fully-CUSTOM cliff island/landmass on open ocean: organic coastline + "
-                              "faithful rock wall + the real grass language (mains/meadow/relief), offline-gated "
-                              "(geometry + UV + engine-placement census). Needs the custom engine; re-enter the world.")
+                              "faithful rock wall + the real grass language (mains + verbatim meadow stamps), "
+                              "offline-gated (geometry + UV + engine-placement census). The interior is FLAT at "
+                              "--height by design (height = world-hill/world-forest/world-mountain). Needs the "
+                              "custom engine; re-enter the world.")
     wis.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
     _wtgt = wis.add_mutually_exclusive_group(required=True)
     _wtgt.add_argument("--cell", metavar="BX,BY", help="centre the island on ocean block BX,BY (grid 24x20)")
@@ -5753,7 +5756,7 @@ def build_parser() -> argparse.ArgumentParser:
     wis.add_argument("--patches", type=int, default=2,
                      help="max meadow patches (verbatim stamps; only perfectly-fitting ones place; default 2)")
     wis.add_argument("--flat", action="store_true",
-                     help="skip the rolling relief + meadow stamps (no install data needed; reads LESS faithful)")
+                     help="skip the verbatim meadow stamps (no install data needed)")
     wis.add_argument("--ground", choices=("grass", "desert"), default="grass",
                      help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default) or "
                           "desert (topo-17 mains + the desert cliff-wall band; meadow patches disabled)")

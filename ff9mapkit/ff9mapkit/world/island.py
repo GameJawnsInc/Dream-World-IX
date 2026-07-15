@@ -219,15 +219,18 @@ def _split_at_borders(parent_tris):
 
 def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int = 1, land_height: float = 3.2,
                    rim_run: float = 1.0, undulation: float = 0.11, n_corners: int = 3,
-                   corner_strength: float = 0.26, n_patches: int = 2, relief=None, stamps=None,
+                   corner_strength: float = 0.26, n_patches: int = 2, stamps=None,
                    mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
                    disc: int = 1, game=None) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
-    :func:`verify_landmass` checks it against the measured FF9 coastline language). ``relief`` = a
-    :func:`grassland.relief_field` dict, ``"auto"`` (load from the install), or ``None`` (flat --
-    hermetic). ``stamps`` likewise (a list / ``"auto"`` / ``None``). ``ground`` picks the walkable
+    :func:`verify_landmass` checks it against the measured FF9 coastline language). The interior is
+    FLAT at ``land_height`` by design -- explicit height comes from the studied verbs (world-hill /
+    world-forest / world-mountain); an ambient relief field was RETIRED 2026-07-15 (never applied due
+    to a frame bug; flat repeatedly in-game approved -- THE DEAD-RELIEF DISCOVERY, resurrection notes
+    in studies/overworld-topography/README.md). ``stamps`` = a list / ``"auto"`` (load from the
+    install) / ``None`` (hermetic). ``ground`` picks the walkable
     ground family from :data:`grassland.GROUNDS` (the byte-measured TRANSLATION LAWS): ``"grass"``
     (the identity -- bit-frozen) or ``"desert"`` (topo-17 mains + the desert cliff-wall band; meadow
     stamps are grass vocabulary and are disabled). Returns
@@ -306,8 +309,6 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         stamps = None                                    # meadow stamps are GRASS vocabulary
     if stamps == "auto":
         stamps = G.extract_stamps(disc, game=game)
-    if relief == "auto":
-        relief = G.relief_field(disc=disc, game=game)
 
     def box_ok(box):
         for (i, j) in box:
@@ -333,15 +334,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
         cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
 
-    rim_keys = {(round(x, 3), round(z, 3)) for (x, z) in rim}
-
-    def edge_dist(x, z):
-        return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top))
-
     def fill_y(x, z):
-        if (round(x, 3), round(z, 3)) in rim_keys:
-            return land_height                           # exact weld at the wall top
-        return land_height + G.relief_at(relief or {}, x, z, edge_dist=edge_dist(x, z))
+        return land_height                               # flat interior; exact weld at the wall top
 
     # global shore arc-length (continuous across cells -> the rock band chains block to block)
     cum = [0.0] * nring
@@ -631,7 +625,7 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         center = (BLOCK * cell[0] + BLOCK / 2, -BLOCK * cell[1] - BLOCK / 2)
     built = build_landmass(center=center, base_radius=base_radius, seed=seed, lobes=lobes,
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
-                           relief=None if flat else "auto", stamps=None if flat else "auto",
+                           stamps=None if flat else "auto",
                            ground=ground, disc=disc, game=game)
     # THE OPEN-OCEAN TARGET LAW (the world-transplant gate, ported here 2026-07-12): every
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the

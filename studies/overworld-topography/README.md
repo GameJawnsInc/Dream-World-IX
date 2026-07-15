@@ -394,10 +394,20 @@ ground spec STANDS as shipped — no free-window sampler, no vocabulary sampler,
 relief field needed for `--ground desert`. The check island is KEPT deployed (the
 first pure-plain `--ground desert` island proven at scale; remove = delete the
 28 files across blocks (11-12,18-19) + re-run `world-mirror`). THE DEAD-RELIEF
-DISCOVERY stands as an open KIT decision, now with an in-game data point in favor of
-flat: either fix the frame (future mints roll; the frozen flat-mint identity oracles
-break and re-baseline) or retire the field and make the docs honest (`relief="auto"`
-currently claims a verbatim rolling relief it never applies).
+DISCOVERY was resolved same day — **the user chose RETIRE over fix** ("B, with C as
+fallback"): `grassland.relief_field`/`relief_at` and `build_landmass(relief=...)` are
+REMOVED, `--flat` now means only "skip the meadow stamps", and every doc states the
+interior is flat at `--height` by design (explicit height = the studied verbs).
+**Proven a byte-no-op:** a post-retirement re-mint of this island reproduces all 32
+deployed files byte-for-byte (removing `+0.0` changes no floats), so the frozen
+identity oracles stand untouched. **THE RESURRECTION PATH (the user flags relief as
+"useful for big continents for sure"):** if a continent-scale plain ever reads too
+flat, rebuild relief as a measured per-ground rung — grass y std 0.66–1.25 /
+|dY| med ~0.2 / p90 ~0.5–0.7, desert y std 2.44 / med 0.33 / p90 1.04 (this study +
+`census.py` regenerate the stats) — with a position-independent frame (island-local
+or lattice-wrapped anchoring; the original bug was block-local field keys sampled
+with world coords), rim-fade preserved (welds keep exact Y), applied per ground
+family, and proven through the offline eye + one playtest like every other rung.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

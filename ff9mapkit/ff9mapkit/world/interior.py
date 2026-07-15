@@ -836,7 +836,7 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
             return None
         # the footprint must sit in the ROLLING-RELIEF envelope, not on prior displacement
         # (an existing hill's footprint is still pure mains -- stacking would bust the
-        # slope envelope; the mint's rolling relief spans well under this)
+        # slope envelope; a plain mint is flat, and stamp/zip variation spans well under this)
         if float(tri_cy[sel].max() - tri_cy[sel].min()) > 2.4:
             return None
         d_f = mind("forest", gx, gz) - FOOT

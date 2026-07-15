@@ -79,7 +79,7 @@ TILE_RECT = {tid: c.most_common(1)[0][0] for tid, c in _cnt.items()}
 
 # ---- 1. island F: deterministic rebuild == deployed bytes ------------------------------------
 built = build_landmass(center=(CX, CZ), base_radius=26, seed=15, lobes=1, n_patches=0,
-                       relief="auto", stamps="auto")
+                       stamps="auto")
 assert set(built["blocks"]) == {BLK}
 import tempfile
 _tmp = Path(tempfile.mkdtemp(prefix="ff9_twolevel_"))

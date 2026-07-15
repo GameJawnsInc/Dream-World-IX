@@ -695,7 +695,10 @@ the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
 
 `ff9mapkit world-island --mod-folder M --center WX,WZ --radius R [--seed S --lobes N --patches P]` synthesizes a
 fully-custom walkable landmass: organic multi-lobe coastline (gated against the measured FF9 coastline language),
-the ~73° rock rim, native grass mains + verbatim meadow stamps + rolling relief. Every footprint block must be TRUE
+the ~73° rock rim, native grass mains + verbatim meadow stamps. The interior is FLAT at `--height` by design —
+explicit relief comes from `world-hill` / `world-forest` / `world-mountain` (an ambient rolling-relief field shipped
+with the first release but never applied due to a coordinate-frame bug, and flat interiors were repeatedly in-game
+approved — up to an r52 pure-plain desert island — so it was retired, 2026-07-15). Every footprint block must be TRUE
 open ocean (the open-ocean target law — a real sea-skirt block loads its own prefab and the fragment silently never
 renders). Offline gates: geometry, UV language, the engine-placement census (0 MISS), Moguri-atlas alpha, shape.
 The proven canvas: archipelago island E (`--center 344,-1152 --radius 46 --lobes 3 --seed 55`).

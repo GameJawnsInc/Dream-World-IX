@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Removed — `world-island`: the ambient rolling-relief field (THE DEAD-RELIEF DISCOVERY)
+- The desert tile fidelity check (2026-07-15) found `relief="auto"` had NEVER applied: the field
+  keyed its lattice on the donor block's LOCAL 4u nodes (around world block (0,0)) while the mint
+  sampled it with WORLD coordinates — 0.0 everywhere in practice, so every island ever minted is
+  flat. Flat interiors are repeatedly in-game approved (up to an r52 pure-plain desert island:
+  "this looks like a fine desert"), so the dead plumbing is RETIRED rather than fixed:
+  `grassland.relief_field`/`relief_at` and `build_landmass(relief=...)` are removed, `--flat` now
+  means only "skip the verbatim meadow stamps", and docs state the interior is flat at `--height`
+  by design (explicit height = `world-hill`/`world-forest`/`world-mountain`). **Byte-identity
+  preserved:** removing a `+0.0` changes no floats — a post-change re-mint of the r52 desert
+  island reproduces the deployed files byte-for-byte. Resurrection notes for continent-scale
+  plains (per-ground measured relief + the frame fix) live in
+  `studies/overworld-topography/README.md` (THE DESERT TILE FIDELITY CHECK).
+
 ### Fixed — `world-island`: a concave corner dent could ship a one-triangle grass hole
 - In-game confirmed (2026-07-13, `--center 160,-1246 --radius 31 --seed 42`): Block[2][19] shipped
   with one grass face MISSING at the rim — a dark sliver through the grass, a closed 3-cycle of
