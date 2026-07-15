@@ -62,6 +62,13 @@
 > (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
 > acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
 >
+> **★★ RUNG 2 CLOSED 2026-07-15 — TWO-MACHINE PROVEN on both axes.** Item mirror: guest with 0 Tents +
+> host with a Tent → the guest activates the Tent moogle (the offer reads the HOST's bag). Party
+> mirror: Ice Cavern **302**, the Vivi-required fire scene — the guest's field staged the party-gated
+> content from the HOST's party. (User note en route: the Tent lives in the regular-items menu, not
+> Key Items — the 75-field census list resolved the confusion.) NEXT = the final roadmap rung: the
+> battle DIORAMA (B3) — its actor-spawn input now rides the wire.
+>
 > **RUNG 2 SOLO TIER ★ PROVEN 2026-07-15** — `party-mirror selftest: sections codec OK (4 members,
 > 0 key items, 7 bag entries)`, zero errors. **THE ACCEPTANCE TARGET, byte-verified:** the Gate Pass is
 > item-checked in EXACTLY ONE field in the whole game — **806 (S. Gate/Dali Gate)**, the gate guard's
