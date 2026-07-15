@@ -59,6 +59,8 @@ _ICONS: dict[str, str] = {
             '<path d="M17 21v-8H7v8"/><path d="M7 3v5h7"/>',
     # battle — a referenced fight scene: a shield.
     "battle": '<path d="M12 3l7 3v5c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6l7-3z"/>',
+    # object — a generic thing inside a field (NPC / gateway / marker): a neutral rounded node.
+    "object": '<rect x="5" y="5" width="14" height="14" rx="3.5"/>',
     # ---- extra domain glyphs ----
     # chocobo — the Hot & Cold minigame (was a color emoji): a feather.
     "chocobo": '<path d="M20 4C11 4 6 9 6 15v3l-2 2"/><path d="M16 8L4 20"/><path d="M17 15H9"/>',

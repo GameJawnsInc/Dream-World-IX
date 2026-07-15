@@ -53,6 +53,7 @@ from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss
 from . import thumbs as _thumbs
 from . import concepts
+from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
 from .widgets import PlaceholderListWidget, install_wheel_guard, repolish
@@ -307,6 +308,10 @@ class BreadcrumbBar(QWidget):
     """A one-line clickable path built from :func:`..editor.breadcrumb.trail`. ``on_nav(crumb)`` fires
     when an ancestor segment is clicked (the leaf is inert)."""
 
+    # each hierarchy level -> its SVG icon (the same family as the tree/Home), replacing bc.GLYPH's unicode
+    _CRUMB_ICON = {bc.HUB: "hub", bc.JOURNEY: "journey", bc.CAMPAIGN: "campaign", bc.FIELD: "field",
+                   bc.OBJECT: "object", bc.BATTLE: "battle", bc.SAVE: "save"}
+
     def __init__(self, pal):
         super().__init__()
         self.pal = pal
@@ -355,16 +360,24 @@ class BreadcrumbBar(QWidget):
         last = len(crumbs) - 1
         for i, c in enumerate(crumbs):
             if i:
-                sep = QLabel("▸")
-                sep.setProperty("role", "muted")
+                sep = QLabel()                          # the ▸ separator -> a muted chevron icon (family-consistent)
+                sep.setPixmap(icons.pixmap("chevron-right", self.pal["muted"], 12))
+                sep.setAlignment(Qt.AlignmentFlag.AlignVCenter)
                 self._lay.addWidget(sep)
-            text = f"{bc.GLYPH.get(c.level, '')} {c.label}"
+            name = self._CRUMB_ICON.get(c.level)
             if i == last:
-                leaf = QLabel(text)
+                if name:                                # a leading type-icon pixmap, then the strong label
+                    ic = QLabel()
+                    ic.setPixmap(icons.pixmap(name, self.pal["text"], 14))
+                    ic.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+                    self._lay.addWidget(ic)
+                leaf = QLabel(c.label)
                 leaf.setProperty("role", "strong")
                 self._lay.addWidget(leaf)
             else:
-                btn = QPushButton(text)
+                btn = QPushButton(c.label)              # the ancestor: an icon + label flat link
+                if name:
+                    btn.setIcon(icons.icon(name, self.pal["accent"], 14))
                 btn.setFlat(True)
                 btn.setCursor(Qt.PointingHandCursor)
                 btn.setStyleSheet(
@@ -435,7 +448,8 @@ class Workspace(QMainWindow):
         self._dot_icon = self._make_dot_icon(pal["warn"])     # the unsaved-changes dot (amber, not text)
         self._blank_icon = self._make_dot_icon(None)          # a transparent same-size icon for clean rows,
         self._root_items = []                                 # so toggling the dot never resizes/shifts a row
-        self._build_toolbar()
+        self._icon_retint = []                                # apply-callbacks re-tinting persistent SVG icons on a
+        self._build_toolbar()                                 # live theme switch (toolbar/rail/Home; see retheme)
         self._build_central()
         self._build_console()
         self.statusBar().showMessage("Open a campaign.toml to begin.")
@@ -463,11 +477,28 @@ class Workspace(QMainWindow):
         else:
             self.version_label.setStyleSheet(f"color:{self.pal['muted']};padding:0 8px;")
 
+    def _icon_color(self, role):
+        """Resolve an icon-tint ROLE to a hex from the current palette (falls back to body text)."""
+        return self.pal.get(role, self.pal["text"])
+
+    def _set_btn_icon(self, btn, name, role="text", size=16):
+        """Give a button an SVG icon tinted by ``role``, and register it so a live theme switch re-tints it."""
+        apply = lambda: btn.setIcon(icons.icon(name, self._icon_color(role), size))  # noqa: E731
+        apply()
+        self._icon_retint.append(apply)
+
+    def _set_lbl_icon(self, lbl, name, role="text", size=16):
+        """Put an SVG icon pixmap on a QLabel (tinted by ``role``), registered for live re-tint."""
+        apply = lambda: lbl.setPixmap(icons.pixmap(name, self._icon_color(role), size))  # noqa: E731
+        apply()
+        self._icon_retint.append(apply)
+
     def retheme(self, pal):
         """Apply ``pal`` LIVE: swap the global stylesheet, then re-tint the small remaining chrome that is
         NOT QSS-driven (the version chip's 2-state colour, the doc-mode chip, the unsaved-changes dot, the
-        breadcrumb bar's own background). Everything role/#id-styled (labels, Info Hub button, inspector
-        body, console/crumb strips) re-tints automatically via ``setStyleSheet(qss)`` below."""
+        breadcrumb bar's own background, and the SVG icons — a fresh colour is a fresh render). Everything
+        role/#id-styled (labels, Info Hub button, inspector body, console/crumb strips) re-tints
+        automatically via ``setStyleSheet(qss)`` below."""
         self.pal = pal
         app = QApplication.instance()
         if app is not None:
@@ -481,8 +512,11 @@ class Workspace(QMainWindow):
             if isinstance(_sl, PlaceholderListWidget):
                 _sl.placeholder_color = pal["muted"]
         self._retint_version_chip()                           # dynamic 2-state (accent 'update' vs muted)
+        for _apply in getattr(self, "_icon_retint", []):      # toolbar / Home SVG icons -> re-render under pal
+            _apply()
+        self._refresh_deploy_btn()                            # the Deploy rocket follows accent_fg + enabled state
         if getattr(self, "crumb", None) is not None:
-            self.crumb.repaint_pal(pal)                       # the bar's own bg/border (not QSS-driven)
+            self.crumb.repaint_pal(pal)                       # the bar's own bg/border + its icons (rebuilt on set)
             self._set_chip(getattr(self, "_chip_mode", None)) # the doc-mode chip (dynamic colour per mode)
         if getattr(self, "map", None) is not None:
             self.map.retheme(pal)                             # the custom-painted campaign map (nodes + empty-state)
@@ -931,21 +965,25 @@ class Workspace(QMainWindow):
         # A FLEXIBLE width (not the old fixed 320px): at the default window size the fixed button pushed
         # itself AND the settings menu into the toolbar's overflow chevron -- the app's two discoverability
         # features were invisible until the window grew. Now it shrinks first and never evicts anything.
-        search = QPushButton("⌕  Search anything  (Ctrl-K)")
+        search = QPushButton("Search anything  (Ctrl-K)")
         search.setObjectName("search")
+        self._set_btn_icon(search, "search", "text", 16)   # the ⌕ glyph -> the SVG search icon (re-tints on theme)
         search.setToolTip("Jump to any command, field, or object (Ctrl-K)")
         search.setMinimumWidth(150)
         search.setMaximumWidth(360)
         search.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         search.clicked.connect(self._open_palette)
         tb.addWidget(search)
-        self._settings_btn = self._menu_button(tb, "⚙", "Preferences, Setup, About, and updates", [
+        self._settings_btn = self._menu_button(tb, "", "Preferences, Setup, About, and updates", [
             ("Setup && health…", self._open_setup),
             ("Preferences…", self._open_preferences),
             ("Check for updates…", self._open_update_dialog),
             ("About Dream World IX", self._open_about),
         ])
         self._settings_btn.setObjectName("gear")           # compact, chevron-free (see the QSS #gear rules)
+        self._settings_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self._settings_btn.setAccessibleName("Settings")   # the ⚙ glyph -> the SVG settings icon; name it for a11y
+        self._set_btn_icon(self._settings_btn, "settings", "text", 18)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self._save_shortcut)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self._save_all)
@@ -987,7 +1025,7 @@ class Workspace(QMainWindow):
         self.crumb = BreadcrumbBar(self.pal)
         self.crumb.on_nav = self._on_crumb
         ch.addWidget(self.crumb, 1)
-        self.deploy_btn = QPushButton("▶ Deploy   F9")
+        self.deploy_btn = QPushButton("Deploy   F9")      # the ▶ glyph -> the SVG rocket (set in _refresh_deploy_btn)
         self.deploy_btn.setObjectName("accent")
         self.deploy_btn.setToolTip(
             "Save everything, then build & deploy what the breadcrumb names (F9).\n"
@@ -1405,21 +1443,21 @@ class Workspace(QMainWindow):
         self._recent_lay.setSpacing(5)
         v.addWidget(self._recent_box)
         v.addWidget(self._home_section("The project spine — top-down"))
-        v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
+        v.addWidget(self._home_row("journey", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
                                    [("Open…", self.on_open_journey, False), ("New…", self.on_new_journey, False)]))
-        v.addWidget(self._home_row("▣", "Campaign", "a connected chain of fields",
+        v.addWidget(self._home_row("campaign", "Campaign", "a connected chain of fields",
                                    [("Open…", self.on_open_campaign, False), ("New…", self.on_new_campaign, False)]))
-        v.addWidget(self._home_row("●", "Field", "one explorable screen (edit it standalone)",
+        v.addWidget(self._home_row("field", "Field", "one explorable screen (edit it standalone)",
                                    [("Open…", self.on_open_field, False), ("New…", self.on_new_field, False)]))
         v.addWidget(self._home_section("Off to the side"))
-        v.addWidget(self._home_row("⚔", "Battle", "a battle background / encounter — a referenced sibling of a field",
+        v.addWidget(self._home_row("battle", "Battle", "a battle background / encounter — a referenced sibling of a field",
                                    [("Go to Battle", lambda: self.tabs.setCurrentWidget(self.battle), False)]))
-        v.addWidget(self._home_row("⤵", "Import", "fork a real FF9 field into a new project",
+        v.addWidget(self._home_row("download", "Import", "fork a real FF9 field into a new project",
                                    [("Go to Import", lambda: self.tabs.setCurrentWidget(self.import_field), False)]))
-        v.addWidget(self._home_row("▦", "Models", "browse every FF9 3D model with previews — export, edit "
+        v.addWidget(self._home_row("assets", "Models", "browse every FF9 3D model with previews — export, edit "
                                    "in Blender, reimport",
                                    [("Go to Models", lambda: self.tabs.setCurrentWidget(self.models_doc), False)]))
-        v.addWidget(self._home_row("◈", "Save", "edit a real save's story flags / items / equipment "
+        v.addWidget(self._home_row("save", "Save", "edit a real save's story flags / items / equipment "
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
         v.addStretch(1)
@@ -1441,9 +1479,9 @@ class Workspace(QMainWindow):
         lab.setContentsMargins(0, 10, 0, 0)                # was margin-top:10px in the inline sheet
         return lab
 
-    def _home_row(self, glyph, title, desc, buttons):
-        """One entry-point CARD: a tinted glyph + name + one-line description on the left, its action
-        button(s) right-aligned (the same glyphs as the tree/breadcrumb, so the visual language is
+    def _home_row(self, icon_name, title, desc, buttons):
+        """One entry-point CARD: a tinted TYPE ICON + name + one-line description on the left, its action
+        button(s) right-aligned (the same icon family as the tree/breadcrumb, so the visual language is
         consistent). ``buttons`` = (label, callback, is_primary) -- the ONE primary action on the page
         (Journey ▸ Open, the recommended front door) renders in the accent colour."""
         box = QFrame()
@@ -1451,9 +1489,8 @@ class Workspace(QMainWindow):
         h = QHBoxLayout(box)
         h.setContentsMargins(16, 12, 14, 12)
         h.setSpacing(12)
-        g = QLabel(glyph)
-        g.setProperty("role", "accent")                   # themed colour via QSS (fixes theme-switch staleness)
-        g.setStyleSheet("font-size:17px;")                # the decorative glyph size cascades on top of the role
+        g = QLabel()
+        self._set_lbl_icon(g, icon_name, "accent", 20)    # the accent-tinted SVG type icon (re-tints on theme switch)
         g.setFixedWidth(26)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
@@ -6480,6 +6517,8 @@ class Workspace(QMainWindow):
             return
         t = self._deploy_target()
         self.deploy_btn.setEnabled(bool(t))
+        # the rocket follows the button's foreground: accent_fg when live, muted when disabled/greyed
+        self.deploy_btn.setIcon(icons.icon("rocket", self.pal["accent_fg"] if t else self.pal["muted"], 16))
         self.deploy_btn.setToolTip(
             f"Save everything, then Build / Deploy {Path(t).name} exactly as the Build & Deploy tab is "
             f"configured (F9). Output streams below." if t

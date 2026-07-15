@@ -24,7 +24,7 @@ def app():
 # The names the shell/rail/docs wire up. If a wiring site typos a name, this list keeps the test
 # honest (the icon would silently KeyError at render otherwise).
 REQUIRED = {
-    "journey", "campaign", "field", "hub", "bare", "save", "battle",       # tree/Home types
+    "journey", "campaign", "field", "hub", "bare", "save", "battle", "object",  # tree/Home/crumb types
     "chocobo", "pin",                                                       # the two former emoji
     "search", "settings", "rocket", "chevron-right", "plus", "minus",       # toolbar/chrome
     "home", "author", "assets", "state", "download",                        # rail groups (+ ship=rocket)
