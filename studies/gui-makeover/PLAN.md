@@ -276,6 +276,32 @@ app bug -- the plan guards against it with a repaint-regression check, it does n
 > (`test_workspace_a11y`), status-shape distinctness (`test_workspace_icons`). Verified: **full suite 3494
 > passed / 2 skipped** (+9 a11y/contrast tests), smoke green.
 
+> **★ Phase 10 (Polish & motion) COMPLETE** (2026-07-15, 4 commits) — **the makeover's final phase.** A
+> restrained motion layer + loading states, all gated so motion is opt-in and always disable-able.
+> - **`anim.py` — the ONE motion module** (`ef27a2d`) — `fade_in` / `pop_in` / `animate_height`, each ≤160ms
+>   with a calm ease, gated behind a single `enabled()` switch (WCAG 2.3.3). Motion is **default OFF**, flipped
+>   on only by the production launch (`main`, after `show()`), so the `--smoke` path + the offscreen tests get
+>   **instant end-states** (every helper applies its final value synchronously when off — a widget is never
+>   stranded mid-transition). A `motion` pref (`auto`/`on`/`off`) resolves via `configure()`; `"auto"` follows
+>   the OS reduce-motion setting (Windows `SPI_GETCLIENTAREAANIMATION`). Preferences combo (revert-on-cancel)
+>   + a Ctrl-K "Toggle motion".
+> - **Ctrl-K palette fade + rise** (`5475c31`) — the palette's `showEvent` fades + slides it 10px into place;
+>   off → opens fully opaque (the safety property, tested).
+> - **Disclosure drawer expand/collapse** (`d31c8fd`) — `widgets.disclosure` animates its body height (then
+>   releases the pin to track content); off → the same instant show/hide end states the smoke asserts.
+> - **"Working…" loading state** (`69b499d`) — `run_job` lights a console-header loading state so a long build
+>   never reads as a frozen panel: a "Working…" label (always) + a slim indeterminate bar (**only when motion
+>   is on** — an animated barber-pole is what reduced-motion asks to avoid).
+>
+> The three sanctioned animations live in one module (no motion sprawl), all ≤160ms, all disable-able, all
+> reduced-motion-aware. Earlier phases already delivered the rest of P10's polish list (status **chips** from
+> P1, the **elevation ladder** replacing nested GroupBox outlines from P2). Verified: **full suite 3504 passed
+> / 2 skipped** (+10 motion/prefs tests), smoke green, screenshots of the busy indicator + the palette on/off opacity.
+>
+> **★★★ THE WORKSPACE MAKEOVER IS COMPLETE — Phases 0–10 all shipped.** All three milestones proven
+> (De-smush end-P3, Newcomer end-P5, Coherence end-P7); AA green on all 7 themes; one coherent visual system,
+> icon family, and motion layer.
+
 
 ## 1. North-star vision
 
