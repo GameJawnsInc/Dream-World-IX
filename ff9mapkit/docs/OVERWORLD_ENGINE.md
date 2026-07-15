@@ -721,6 +721,16 @@ the whole island in the family (meadow stamps are grass vocabulary and disable);
 slides FREE fractional windows over its painted-over internal gutter (THE COL-FREEDOM LAW at ground
 scale); the mint uses the locked grass-form window, itself a common real form.
 
+**Family CLASSES (`GROUNDS[..]["cls"]` — the ground-sampler playtest, 2026-07-15).** A translation
+makes the tiles paint right, but only **island-class** families (grass, desert, snow, canyon) are
+whole-landmass fills whose coast reads native. The others are stock vocabularies with a narrower role,
+and a filled island of them reads off-language (the CLI notes this and mints anyway): **scrub** is a
+*transition* set — stock lays it only as narrow seam strips between solid grass and dirt fields, with
+free grass-style placement (the macro-tile parity hypothesis measured false, ~chance), so a scrub
+field shows raw tiling mismatches; **dirthill** is a *slope* set — stock paints it on ~30°-median
+hillsides, so a flat fill reads as brush canopy and its rim lip doesn't line up; **flats** is an
+*interior* fill — the ground reads fine but the family has no native coast band.
+
 ### THE TWO DISC TREES — `world-mirror` (custom land on disc 4, ★ built 2026-07-13)
 
 The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs 1–3 — there is no

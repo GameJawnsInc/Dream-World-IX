@@ -525,9 +525,24 @@ same day (playtest pending):** five r22 seed-11 islets in the row-19 open ocean,
 family, one block each, all gates clean, disc-4 mirrored — scrub (480,−1248) block (7,19)
 · dirthill (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) ·
 flats (1120,−1248) (17,19). First visit needs a world re-entry (new blocks); disc 4 a
-relaunch. Judge per island: ground reads as its biome + the cliff shore reads native
-(snow/canyon wear NEW measured wall bands; scrub/flats wear the borrowed desert wall —
-if a borrow clashes, that's the finding).
+relaunch.
+
+**★ SAMPLER ROUND 1 (playtest 2026-07-15) — the translation makes tiles paint right;
+whether a family is an ISLAND FILL is a second, independent axis.** Verdicts: **snow
+"looks good" ★** · **canyon "potentially looks good"** (verbatim compare pending — stock
+flat-canyon windows: (486,−678) block (7,10), alt (414,−774) block (6,12)) · **scrub =
+"tiling/wang mismatch"** — and the follow-up parity probe FALSIFIED the macro-tile
+hypothesis (stock places scrub grass-style free, parity-lock 31% ≈ the 25% chance floor,
+all 4 oris uniform): stock only ever lays scrub as narrow SEAM strips between solid
+grass/dirt fields, so the ecotone tiles read as "patchy edge" there and as raw mismatch
+when filled — scrub is a TRANSITION vocabulary, not a fill · **dirthill = usable but
+reads as forest-canopy top, rim dip doesn't line up** (user: likely the Black-Mage-
+Village area brush; census slope med 30° — a SLOPE vocabulary, stock never shows it
+flat-at-scale) · **flats = ground reads good, but an INTERIOR type — doesn't blend with
+the coastline** (the borrowed desert rim lip). Encoded as `GROUNDS[..]["cls"]`
+island/transition/slope/interior + a CLI mint note + `test_ground_families_registry`.
+The future consumption of the three non-island families = mixed-biome landmasses
+(scrub as the grass↔dirt seam, dirthill on carved slopes, flats as interior plains).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

@@ -70,20 +70,36 @@ FAM_REGION = {
 #: slides free fractional windows over its (painted-over) internal gutter -- the
 #: locked grass-form window is a common real form and the safe generative choice, so
 #: minting reuses :func:`mains_uv`.
+#:
+#: ``cls`` = the family's STOCK ROLE (the ground-sampler playtest, 2026-07-15): only
+#: ``"island"`` families are whole-landmass fills with a coast that reads native.
+#: ``"transition"`` (scrub) = a SEAM vocabulary -- stock lays it only as narrow strips
+#: between solid grass and dirt fields, free grass-style placement (the macro-tile
+#: parity hypothesis measured FALSE, 31% ~= chance), so a filled field of it reads as
+#: a tiling mismatch. ``"slope"`` (dirthill) = stock paints it on ~30-deg-median
+#: hillsides (the Black-Mage-Village brush); flat fills read as canopy, and the rim
+#: lip does not line up. ``"interior"`` (flats) = the ground fill reads fine but the
+#: family has no native coast band -- use away from shorelines.
 GROUNDS = {
-    "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0),
+    "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0,
+                  cls="island"),
     "desert": dict(topo=17, mains_du=0.65332, mains_dv=-0.09863,
-                   wall_du=-0.27127, wall_dv=-0.02066),
+                   wall_du=-0.27127, wall_dv=-0.02066, cls="island"),
     "scrub": dict(topo=4, mains_du=0.25977, mains_dv=-0.06738,      # grass<->dirt ecotone
-                  wall_du=-0.27127, wall_dv=-0.02066),              # borrowed desert wall
+                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
+                  cls="transition"),
     "dirthill": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
-                     wall_du=-0.27127, wall_dv=-0.02066),           # its REAL stock wall
+                     wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall
+                     cls="slope"),
     "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
-                 wall_du=-0.44021, wall_dv=0.05161),                # icy band, measured
+                 wall_du=-0.44021, wall_dv=0.05161,                 # icy band, measured
+                 cls="island"),                                     # ★ sampler-proven
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
-                   wall_du=-0.69509, wall_dv=-0.49722),             # red-rock band, measured
+                   wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
+                   cls="island"),                                   # pending verbatim compare
     "flats": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event flats
-                  wall_du=-0.27127, wall_dv=-0.02066),              # borrowed desert wall
+                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
+                  cls="interior"),
 }
 
 

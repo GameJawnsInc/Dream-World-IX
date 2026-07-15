@@ -2648,6 +2648,13 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     UV language, and the ENGINE PLACEMENT simulator) before deploy. Needs the custom engine (s34); re-enter
     the world map."""
     from .world import island as I
+    from .world.grassland import GROUNDS
+    gcls = GROUNDS.get(args.ground, {}).get("cls", "island")
+    if gcls != "island":
+        print(f"note: in stock FF9, '{args.ground}' is a {gcls.upper()} vocabulary "
+              f"(scrub = grass<->dirt seam strips; dirthill = ~30-deg hillsides; flats = "
+              f"coast-less interior fill) -- a whole island of it reads off-language "
+              f"(the 2026-07-15 ground-sampler playtest). Minting anyway.")
     try:
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
                   rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
@@ -5769,8 +5776,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="skip the verbatim meadow stamps (no install data needed)")
     wis.add_argument("--ground", choices=_ground_choices(), default="grass",
                      help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default), "
-                          "desert, scrub, dirthill, snow, canyon, flats -- each = the family's mains "
-                          "tiles + its cliff-wall band; meadow patches are grass-only")
+                          "desert, snow, canyon are island-complete fills; scrub/dirthill/flats are "
+                          "stock seam/slope/interior vocabularies (mintable, but a whole island of "
+                          "them reads off-language); meadow patches are grass-only")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)

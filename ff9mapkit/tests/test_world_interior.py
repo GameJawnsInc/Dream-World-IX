@@ -413,6 +413,11 @@ def test_ground_families_registry():
         assert gv == pytest.approx(v + g["mains_dv"], abs=1e-12), name
     assert G.GROUNDS["dirthill"]["wall_du"] == G.GROUNDS["desert"]["wall_du"]
     assert G.GROUNDS["dirthill"]["wall_dv"] == G.GROUNDS["desert"]["wall_dv"]
+    # stock-role classes (the 2026-07-15 ground-sampler playtest): only "island"
+    # families are whole-landmass fills whose coast reads native
+    assert {n: g["cls"] for n, g in G.GROUNDS.items()} == {
+        "grass": "island", "desert": "island", "snow": "island", "canyon": "island",
+        "scrub": "transition", "dirthill": "slope", "flats": "interior"}
     from ff9mapkit.cli import _ground_choices
     assert _ground_choices() == tuple(G.GROUNDS)
 

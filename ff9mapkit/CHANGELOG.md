@@ -18,6 +18,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   flats never coast in stock and borrow the desert wall. Grass and desert stay byte-identical
   (both frozen identity acceptances pass unchanged); constants pinned in
   `test_ground_families_registry`.
+- The ground-sampler playtest (five one-block islets, one per family) added a stock-role CLASS
+  per family (`GROUNDS[..]["cls"]`): grass/desert/snow/canyon are **island**-class (snow
+  sampler-proven; canyon pending a verbatim compare); **scrub** is a *transition* seam set (a
+  filled field shows raw tiling mismatches — stock only lays it as narrow grass↔dirt strips),
+  **dirthill** a *slope* set (flat fills read as brush canopy), **flats** an *interior* fill
+  (no native coast). `world-island` prints a note when minting a non-island-class ground.
 
 ### Removed — `world-island`: the ambient rolling-relief field (THE DEAD-RELIEF DISCOVERY)
 - The desert tile fidelity check (2026-07-15) found `relief="auto"` had NEVER applied: the field

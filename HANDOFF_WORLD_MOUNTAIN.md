@@ -33,9 +33,11 @@ ff9mapkit world-mirror   --mod-folder M          # ALWAYS after a custom-ocean d
 grass↔dirt ecotone set; borrows the desert wall) · dirthill (topo 38; `+(0.45703, −0.20215)`; its stock
 wall IS the desert wall) · snow (topo 27; `+(0.0, −0.33691)`; icy wall `+(−0.44021, +0.05161)`) · canyon
 (topo 45; `+(0.7793, −0.31641)`; red wall `+(−0.69509, −0.49722)`) · flats (topo 41; `+(0.38964,
-−0.13477)`; its OWN set — the family-model exception; borrows the desert wall). Grass+desert in-game
-proven; the four new families are offline-proven (atlas eye); THE GROUND SAMPLER is DEPLOYED
-(playtest pending) — see §3.
+−0.13477)`; its OWN set — the family-model exception; borrows the desert wall). Sampler round 1
+(2026-07-15) added the stock-role CLASS axis (`GROUNDS[..]["cls"]`): grass/desert/snow ★ island-class ·
+canyon island-class pending a verbatim compare (stock windows (486,−678) / (414,−774)) · scrub =
+TRANSITION (seam strips only — filled it's a tiling mismatch; macro-tile parity falsified) · dirthill =
+SLOPE (flat fills read as canopy) · flats = INTERIOR (no native coast). Sampler islets — see §3.
 
 ## 2. The two identity oracles (run these after ANY change to the carve/mint)
 
