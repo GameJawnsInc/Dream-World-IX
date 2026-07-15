@@ -360,6 +360,56 @@ def test_carve_mountain_multiblock_span(monkeypatch, tmp_path):
                           alcove=None, game=tmp_path, log=lambda *a: None)
 
 
+def test_ground_uv_desert_translation():
+    """THE DESERT TRANSLATION LAW: desert mains = grass mains + (0.65332, -0.09863),
+    byte-exact at 5dp against the measured desert rects."""
+    for quad in ((0, 0), (0, 1), (1, 0), (1, 1)):
+        gu, gv = G.mains_uv(2.0, -6.0, (0, -2), quad, 0)
+        du, dv = G.ground_uv(2.0, -6.0, (0, -2), quad, 0, "desert")
+        assert du == pytest.approx(gu + 0.65332, abs=1e-12)
+        assert dv == pytest.approx(gv + -0.09863, abs=1e-12)
+    # the translated region lands on the measured desert rects (5dp)
+    lo_u, lo_v, hi_u, hi_v = G.ground_main_region("desert")
+    assert lo_u == pytest.approx(0.65723, abs=1e-5)
+    assert hi_u == pytest.approx(0.78027, abs=1e-5)
+    assert lo_v == pytest.approx(0.66992, abs=1e-5)
+    assert hi_v == pytest.approx(0.73145, abs=1e-5)
+    # grass is the bit-frozen identity
+    assert G.ground_uv(2.0, -6.0, (0, -2), (1, 0), 90) == \
+        G.mains_uv(2.0, -6.0, (0, -2), (1, 0), 90)
+
+
+def test_carve_mountain_on_desert_ground(monkeypatch, tmp_path):
+    """A carve onto a desert-family bench: plain classification, zip topo + UVs, and
+    the outside-the-rim probe all speak topo-17 desert."""
+    DESERT = float(encode_id(topograph=17))
+    DES_U = _MAIN_U + 0.65332
+    _patch_donor(monkeypatch, _pyramid_donor())
+    tris = []
+    for i in range(13):
+        for j in range(13):
+            x0, x1 = i * 4.0, (i + 1) * 4.0
+            z0, z1 = -j * 4.0, -(j + 1) * 4.0
+            tris.append((((x0, 3.2, z0), (x1, 3.2, z0), (x0, 3.2, z1)), DESERT, DES_U))
+            tris.append((((x1, 3.2, z0), (x1, 3.2, z1), (x0, 3.2, z1)), DESERT, DES_U))
+    tris.append((((54.0, 3.2, -54.0), (58.0, 3.2, -54.0), (54.0, 3.2, -58.0)), ROCK, 0.9))
+    soup = IN.soup_from_blocks({(0, 0): _bm(tris)})
+    res = IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, ground="desert",
+                            game=tmp_path, log=lambda *a: None)
+    (blk, bm), = res["changed"].items()
+    ids = {t4[0] for t4 in bm.chan_arrays[CH_TAN]}
+    assert MASSIF in ids and DESERT in ids and GRASS not in ids
+    # the zip annulus samples the desert mains region
+    dlo, dvlo, dhi, dvhi = G.ground_main_region("desert")
+    zips = [uv for uv, t4 in zip(bm.chan_arrays[CH_UV], bm.chan_arrays[CH_TAN])
+            if t4[0] == DESERT]
+    assert all(dlo - 0.02 <= u <= dhi + 0.02 for (u, v) in zips)
+    # a grass-ground carve on the same desert bench refuses (no plain ground)
+    with pytest.raises(ValueError, match="not clear plain-grass|no non-plain|no lawful"):
+        IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, ground="grass",
+                          game=tmp_path, log=lambda *a: None)
+
+
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
     _patch_donor(monkeypatch, _pyramid_donor())
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})

@@ -341,6 +341,16 @@ assignment, zero geometry change, atlas gate 0 blanks, census MISS=0), DEPLOYED 
 mirrored — the crag now stands on its native ground; foot-fringe verdict pending.
 Known cosmetic remnant: the coastal cliff-top LIP ring still wears its grass-family
 tiles (the lip is its own vocabulary — a desert-island mint would need a desert lip).
+**→ closed same day by THE WALL TRANSLATION LAW** (`desert_shore.py`): the "lip" is
+painted INTO the mint's cliff-wall band texture, and the crag island's own coast
+measures the same 4-tile-wide one-row band at (−0.27127, −0.02066) from `ROCK_U/V` —
+the bench's topo-58 wall corners translated in place (zero geometry change), DEPLOYED
++ mirrored: the bench is now FULLY desert. **→ PRODUCTIZED same day as
+`--ground grass|desert`** on `world-island` + `world-mountain` (`grassland.GROUNDS`,
+`ground_uv`; stamps disable off-grass): grass is the bit-frozen identity (BOTH
+byte-identity acceptances pass unchanged), and the full desert path runs green offline
+(module desert mint → verify clean → the crag carve, all gates). In-game verdict of
+the full desert bench pending.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
