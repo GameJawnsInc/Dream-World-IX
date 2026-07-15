@@ -62,6 +62,18 @@
 > (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
 > acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
 >
+> **RUNG 2 SOLO TIER ★ PROVEN 2026-07-15** — `party-mirror selftest: sections codec OK (4 members,
+> 0 key items, 7 bag entries)`, zero errors. **THE ACCEPTANCE TARGET, byte-verified:** the Gate Pass is
+> item-checked in EXACTLY ONE field in the whole game — **806 (S. Gate/Dali Gate)**, the gate guard's
+> talk routine (fail = "you gotta have a Gate Pass"; pass = he opens the gate). Key-item id 16
+> (menu/save-editor space) = generic script id 272 (important = 256+id). Every other South Gate booth
+> (800-805/807) gates on STORY FLAGS only — folklore falsified by disasm. Scan method (reusable): the
+> fork-report raw-expr regex generalized — `\x7d(..)\x64` = B_CONST <u16> B_HAVE_ITEM, `\x7d(..)\x6b` =
+> B_PARTYCHK — over every real field's `.eb`: 258 fields item-check, 230 party-check (the transcript
+> renderer does NOT surface these tokens — raw bytes are the only reliable census). Two-machine test:
+> host save WITH the pass, guest WITHOUT → negative control solo at 806 (refused) → follow → the guard
+> opens for the guest → disconnect/ramp → refused again.
+>
 > **PHASE 7 RUNG 2 — THE PARTY MIRROR (wire v7) — BUILT 2026-07-15, solo proof pending.** The state
 > frame gains sections 1-3 (`NetSyncParty.cs`): **1 = the 4 party slots** (identity/looks/label stats
 > per member — charId/serial/level/row/hp/mp/equip×5/name; EXACTLY the diorama's future actor-spawn
