@@ -341,3 +341,60 @@ def test_the_hero_never_dims_its_text(app):
             f"the hero must not ink in ${dim}: the mist lifts its ground past surface_3, "
             f"off the ramp every text tier is fenced against"
         )
+
+
+def test_gold_is_never_a_left_stripe(app):
+    """A PERMANENT LAW, minted by measurement: gold and $warn are the same colour.
+
+    Measured across all 8: ΔHue 0.3-3.3° in SEVEN of them (only dracula's yellow-green warn is far, at
+    22.7°), and indistinguishable in luminance too in SIX (CR 1.073-1.312). And $warn's only shape in
+    this app IS a left stripe -- `QLabel[role="banner"][state="warn"] { border-left: 4px solid $warn }` --
+    while the warn banner shares a splitter with Home.
+
+    So a gold `border-left` would ship "your build has warnings" as "your next action", in the same hue,
+    on the same screen. The lede is a turned CORNER instead: a shape the status grammar has never used,
+    and one the app already owns.
+
+    The corner is also why this survives the identity contract. "One corner, once, or it's a costume"
+    forbids a REPEATED ornament -- and a stripe would be a second, different gold object. The lede is the
+    SAME mark from the SAME function at half the ink.
+    """
+    import inspect
+    from ff9mapkit.workspace import style as style_mod
+
+    # 1. no rule may put gold on a border-left
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        gold = (hero_mod.GOLD_DARK if pal.get("dark") else hero_mod.GOLD_LIGHT).lower()
+        css = style_mod.qss(pal).lower()
+        for ln in css.splitlines():
+            if "border-left" in ln:
+                assert gold not in ln, f"{mode}: gold spent as a left stripe -- that is $warn's shape"
+
+    # 2. the lede must paint the elbow, not a stripe. Read the CODE, not the prose: LedeCard's docstring
+    #    states this very law, so a naive substring check reads the law and calls it a violation.
+    src = inspect.getsource(hero_mod.LedeCard)
+    code = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#") and '"""' not in ln)
+    code = code.split("def ", 1)[-1] if "def " in code else code      # drop the class docstring body
+    assert "signet_elbow" in code, "the lede must draw the shared mark"
+    for banned in ("border-left", "fillRect", "drawRect"):
+        assert banned not in code, f"the lede must be a corner, not a {banned}"
+
+
+def test_the_lede_cites_the_hero_rather_than_repeating_it(app):
+    """One mark, one function, two call sites -- that IS the argument, so fence the shape of it.
+
+    If the lede ever grows its own path-drawing code, the claim "this is the same mark, not a second
+    ornament" stops being true the moment the two drift -- and nothing else in the codebase would notice.
+    """
+    import inspect
+
+    hero_src = inspect.getsource(hero_mod.HeroBand.paintEvent)
+    lede_src = inspect.getsource(hero_mod.LedeCard.paintEvent)
+    assert "signet_elbow(" in hero_src and "signet_elbow(" in lede_src
+    # the lede is subordinate BY CONSTRUCTION: a shorter arm at the same dissolve
+    assert hero_mod.LedeCard._ARM < 220, "the lede's arm must stay well under the hero's ~220px of ink"
+    # the filigree + bead stay the hero's alone -- they are what make it the signature
+    assert "drawPath(ip)" in hero_src, "the hero's inner filigree moved"
+    assert "ip" not in lede_src and "_BEAD" not in lede_src, "the lede must not wear the signature's detail"

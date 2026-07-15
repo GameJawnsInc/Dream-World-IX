@@ -48,7 +48,7 @@ from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
-from .hero import HeroBand
+from .hero import HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
@@ -59,7 +59,8 @@ from . import concepts
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard, nameplate, repolish, section
+from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
+                      prose as widgets_prose, repolish, section)
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
@@ -1501,6 +1502,9 @@ class Workspace(QMainWindow):
         # re-tints. (self._home_setup below STAYS a real QLabel -- it has a linkActivated connection.)
         # First-run affordance: when the install isn't configured (or templates aren't extracted), say so
         # HERE — the alternative is a fresh user meeting greyed-out buttons with no explanation.
+        # THE LEDE -- the ONE next thing, named, with the signet's own mark on it. First in the column so
+        # it sits directly under the wordmark, on the axis the hero already reads off `body`.
+        v.addWidget(self._build_lede())
         self._home_setup = QLabel("")
         self._home_setup.setWordWrap(True)
         self._home_setup.setTextFormat(Qt.TextFormat.RichText)
@@ -1713,6 +1717,68 @@ class Workspace(QMainWindow):
         for i, (title, desc, done, label, cb) in enumerate(steps):
             self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
 
+    def _build_lede(self):
+        """Home's LEDE: one card, one gold corner, one accent verb naming the next thing.
+
+        `_home_row`'s docstring has promised this since Phase 4 -- "the ONE primary action on the page
+        (Journey ▸ Open, the recommended front door) renders in the accent colour" -- and all ten call
+        sites pass ``False``, so `if primary:` is live code nothing reaches. SIGNET then built a title
+        page and handed straight off to an index: ten identical cards, none of which answers the question
+        Home exists to ask. This is the answer, and it is the ONLY accent on the page.
+        """
+        card = LedeCard(self.pal)
+        h = QHBoxLayout(card)
+        h.setContentsMargins(LedeCard._INSET + 22, 14, 16, 14)   # clear of the mark's arm
+        h.setSpacing(12)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self._lede_title = QLabel("")
+        self._lede_title.setProperty("role", "h3")
+        self._lede_note = widgets_prose("")
+        col.addWidget(self._lede_title)
+        col.addWidget(self._lede_note)
+        h.addLayout(col, 1)
+        self._lede_btn = QPushButton("")
+        self._lede_btn.setObjectName("accent")           # the page's ONE accent -- Law II
+        self._lede_btn.setMinimumHeight(28)
+        # Connected ONCE to a dispatcher; _refresh_lede re-points `_lede_cb` instead of reconnecting.
+        # Disconnect-and-reconnect looks equivalent and is not: PySide6 WARNS rather than raising on an
+        # empty disconnect ("Failed to disconnect (None) from signal clicked()"), so a try/except around
+        # it catches nothing and the console grows a warning on every Home show.
+        self._lede_cb = None
+        self._lede_btn.clicked.connect(lambda: self._lede_cb and self._lede_cb())
+        h.addWidget(self._lede_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._lede = card
+        self._icon_retint.append(lambda: setattr(self._lede, "pal", self.pal) or self._lede.update())
+        return card
+
+    def _lede_state(self):
+        """(title, note, button, callback) -- the next action for THIS user's state.
+
+        Zero new state: `_current_target()` and `_getstarted_steps()` already know everything. The
+        checklist's own primary rule is reused verbatim -- the first step whose ``done`` is falsy, which
+        includes the always-available fork step (``done=None``).
+        """
+        name, level = self._current_target()
+        if name is not None:
+            return (f"Continue {name}",
+                    f"You have a {level.lower()} open — build it and walk it in-game.",
+                    "Build & Deploy", lambda: self.tabs.setCurrentWidget(self.build_deploy))
+        steps = self._getstarted_steps()
+        i = next((k for k, s in enumerate(steps) if not s[2]), len(steps) - 1)
+        title, desc, _done, label, cb = steps[i]
+        return (title, desc, label, cb)
+
+    def _refresh_lede(self):
+        if not hasattr(self, "_lede"):
+            return
+        title, note, label, cb = self._lede_state()
+        self._lede_title.setText(title)
+        self._lede_note.setText(note)
+        self._lede_btn.setText(label)
+        self._lede_cb = cb                               # the dispatcher is already connected -- see _build_lede
+        self._lede_btn.setAccessibleName(f"{label} — {title}")
+
     def _current_target(self):
         """(name, level-label) of what's currently open — for the Home 'Currently editing' line. (None, None)
         when the Workspace is empty."""
@@ -1746,6 +1812,7 @@ class Workspace(QMainWindow):
                 self._home_setup.setText(
                     f'<span style="color:{self.pal["warn"]};">⚠ {_esc(" · ".join(issues))}</span> — '
                     f'<a href="setup">open Setup &amp; health</a> to fix it.')
+        self._refresh_lede()                           # the ONE next action, for this user's state
         self._refresh_getstarted()                     # the provenance-clean first-steps (may hide _home_setup)
         self._refresh_recent()
 

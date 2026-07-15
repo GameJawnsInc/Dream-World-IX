@@ -191,3 +191,37 @@ def test_the_page_rung_clears_the_card_interior():
     assert widgets.PAGE_PAD > 16, "the page frame must exceed the card's 16px interior"
     # and the inter-card gap sits between the in-card row gap (8) and the page frame (24)
     assert 8 < widgets.SECTION_GAP < widgets.PAGE_PAD
+
+
+def test_prose_w_is_a_real_measure_and_the_caption_face_has_its_own(app):
+    """A px cap is a measure for exactly ONE font size -- which is why there are two of these.
+
+    Measured on a native font DB: 13px Segoe runs ~5.59-5.72 px/char, 11px runs ~4.73-4.84. So a single
+    620px cap is ~109 chars on the body face and ~130 on the caption face: THE SAME NUMBER IS WORSE ON
+    THE SMALLER FACE. `option()`'s 11px caption defaulted to PROSE_W, so the body's compromise was
+    silently governing a face it was never measured for.
+
+    420 and not 430: at the worst measured rate a 430 cap lands 75.2ch and fails the 75 fence by a fifth
+    of a character. The rate is hard-coded here rather than measured because the suite runs offscreen,
+    where the font DB is stubbed and every advance is fiction.
+    """
+    WORST_13PX = 5.72          # px/char, real prose, native Segoe UI 13
+    assert widgets.PROSE_W / WORST_13PX <= 75, (
+        f"PROSE_W={widgets.PROSE_W} is {widgets.PROSE_W / WORST_13PX:.1f}ch -- above the 45-75 band"
+    )
+    assert widgets.PROSE_W / WORST_13PX >= 45, "PROSE_W is now too narrow to read as prose"
+    # the two faces must not share one token again
+    import inspect
+    src = inspect.getsource(widgets.option)
+    assert "width=CAPTION_W" in src, "option()'s 11px caption must not inherit the body's measure"
+
+
+def test_the_caption_measure_is_unchanged_on_purpose(app):
+    """CAPTION_W is 620 -- the reviewed-and-approved value, moved zero pixels by this split.
+
+    At 11px the real option captions are ~107-112 chars, so the cap does not bind: they are single lines
+    and narrowing it would re-wrap every one. That wants an eye, not a refactor. This test exists so the
+    number is understood as DELIBERATE rather than rediscovered as a bug -- and so that lowering it is a
+    decision somebody makes on purpose.
+    """
+    assert widgets.CAPTION_W == 620
