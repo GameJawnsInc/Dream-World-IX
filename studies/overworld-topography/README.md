@@ -348,8 +348,32 @@ enablers: adaptive outline density past r60 + the conditional >8u fill refinemen
 at (1280,−1184) blocks (18-21,17-19), the horseshoe at (1288,−1190) rot 0 — 713 terrain
 tris + 122 aux tris (Falls/River/RiverJoint/Object) across a 10-block span, census
 MISS=0, both byte-identity acceptances + 3515 tests green; teleport **(1227.5,
-−1189.5)** face east — in-game verdict pending (the falls/river ANIMATED materials are
-the one thing the offline eye cannot judge).
+−1189.5)** face east.
+
+**★ IN-GAME PROVEN + CLOSED over 3 rounds (2026-07-15).** Round 1: *"the falls animate,
+the bowl is walkable"* — the mechanism (part overrides + the Donor.txt divert binding
+ANIMATED materials) is proven — but a seam/see-through quad + a walk trap → **THE
+FOOTPRINT SWEEP**: 8 donor terrain tris sat plan-inside the rim uncarried (the mouth
+tunnel's topo-58 lining = the trap; a weld-isolated 2-tri rock SHINGLE = the
+see-through quad; a canopy bit). They cannot join the blob's manifold ring math (a free
+shingle touches the sheet at ONE vertex — THE WALL LAW's shingled reality), so every
+centroid-inside-rim tri now rides VERBATIM outside the ring accounting, its open edges
+exempt at the crack gate by segment proximity. Measured EMPTY on Uaho + the crag.
+Round 2: three walk defects (climb the falls, walk off the bridge into the water, still
+trappable) → **THE WALK-LEGALITY LAW**, read from the engine: the ground query reads
+the hit tri's `tangent.x` as the IDALL for MOVEMENT LEGALITY (`(id & 0xFC) >> 2` vs the
+per-vehicle 64-topo limit mask — `ff9.cs w_movementCheckTopographID`; the foot mask
+`{0x0010667F, 0xD8FF3CFF}` blocks 49/58, walks 0/13/17/37), and stock aux parts carry
+leftover REAL tangents whose x garbage-decodes to **topo 0 = walkable** (stock never
+noticed — its mouth interior is unreachable on foot) → **THE SCENERY SEAL**: worldmap
+shaders never consume tangents (Terrain stores IDALL floats in that channel and shades
+fine), so carried aux parts store a blocked-topo IDALL (49) — the bridge/falls/river
+ensemble becomes look-but-don't-touch scenery, exactly stock's semantics; ONE change
+sealed all three defects. Round 3: *"that worked, it's sealed now"*. The bowl stays
+scenery-only by choice (stock semantics; a walkable bowl would be a designed terrain
+path, not a carry fix). **`--donor` qualified: Uaho (0,0) · crag (10,5-6) · horseshoe
+(5-6,15-16)** — the mountain arc's claim is now *any studied massif, any size, water
+and all*.
 
 ## THE CRAG DONOR ANATOMY (★ 2026-07-15): measured, and DISQUALIFIED for single-block v1
 
