@@ -57,6 +57,12 @@
 >   re-stage the guest — the follow listener keys on the host's broadcast FIELD ID changing, and the
 >   mirror applies at the guest's own field-load boundary. After an F6 ScenarioCounter edit, the guest
 >   re-stages on its next real warp/entry (natural story play re-stages both sides on room entry).
+> - ★ **V2 `[[coop]]` GATES PROVEN two-machine** — the Twin Altar (30110) completed by two real players,
+>   including the held east-arch door (the one behavior mechanically impossible to test solo).
+> - ★ **BATTLE CO-OP B0+B1 PROVEN two-machine** — "works the same as usual": spectate panel + guest
+>   digit-menu commands over the real link behave exactly as the solo selftest tier did.
+> - ★ **VISITOR-MODE FOLLOW-WARP PROVEN two-machine** — the last two-machine-only untested s37 piece;
+>   the guest auto-warps to match the host's field transitions.
 > - ⚠ **SAVE-SAFETY HOLE FOUND (the test paid for itself): AUTOSAVE bypasses the spectator-save block.**
 >   The Continue slot is written by `EventEngine` at essentially EVERY field-load init
 >   (`serializer.Autosave`, gated only by a hardcoded cutscene `noSave` ladder + `[SaveFile]` config) —
