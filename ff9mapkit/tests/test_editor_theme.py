@@ -218,3 +218,136 @@ def test_derived_elevation_ladder_is_monotonic():
 
 def test_detect_os_dark_is_a_safe_bool():
     assert isinstance(theme.detect_os_dark(), bool)              # never raises, always a bool
+
+
+def _chan(hexstr: str):
+    return tuple(int(hexstr[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _delta(a: str, b: str) -> int:
+    """The largest per-channel step between two colours -- how far an edge moved from its anchor."""
+    return max(abs(x - y) for x, y in zip(_chan(a), _chan(b)))
+
+
+def test_the_edge_tokens_carry_in_every_palette():
+    """INTAGLIO's carrier must be real in all 8, and that is why it anchors on $border and not the fill.
+
+    The app's elevation ladder claims a light source ("higher = lighter") and never draws the light, so a
+    fill cannot say "this is an object": LIGHT's surface_btn IS surface (1.0000, the same hex),
+    solarized-dark's field IS surface, mist's button-in-a-card is 1.0017, nord/gruvbox 1.024/1.025.
+
+    Fill-anchored, LIGHT gets d5 on a card -- a no-op in the two palettes that need it most, because
+    light's surface_3 is #ffffff and its rungs step 1.043/1.046. Border-anchored the carrier lands
+    d26-d34 in every palette, no exceptions. That is the whole design, so fence the carrier.
+
+    The floor is d20, and it is not arbitrary: the FILL differences this edge replaces measure d0-d8
+    across the app (d0 in LIGHT, where surface_btn and surface are the same hex). d20 is the point where
+    the edge is unambiguously doing work the fill cannot. Measured today: border d26-d34, accent d24-d36.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        for src, lit, shade in (("border", "border_lit", "border_shade"),
+                                ("accent", "accent_lit", "accent_shade")):
+            carrier = max(_delta(d[src], d[lit]), _delta(d[src], d[shade]))
+            assert carrier >= 20, (
+                f"{mode}: {src}'s edge carrier is only d{carrier} -- the fills it replaces are d0-d8, so "
+                f"below ~d20 it stops being worth its own existence"
+            )
+
+
+def test_the_border_edge_never_becomes_a_bevel():
+    """THE TASTE CALL, FENCED. A raised object gets ONE readable edge; two is a bevel, and a bevel is
+    Windows 95.
+
+    The border pair is emitted on EVERY object in the app, so its quiet edge is the whole risk -- and it
+    is exactly what a future nudge to EDGE_T would break silently:
+
+        t=0.18 -> quiet edge d8-d17: FIVE palettes (nord 17, mist 17, dracula 16, sol-dark 16,
+                  gruvbox 14) grow a second, visible edge. Rendered at 6x, they read bevelled.
+        t=0.14 -> quiet edge d6-d13 in all 8. One edge carries everywhere. SHIPPED.
+
+    No contrast ratio distinguishes "lit" from "Win95" -- that judgement was made by rendering at 6x and
+    looking (evidence/shot_intaglio_zoom.py). This fence is how it survives the next person who moves the
+    number without looking.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        quiet = min(_delta(d["border"], d["border_lit"]), _delta(d["border"], d["border_shade"]))
+        assert quiet <= 13, (
+            f"{mode}: the border's quiet edge is d{quiet} -- both edges now read, on every object in the "
+            f"app. Lower theme.EDGE_T (currently {theme.EDGE_T}) and re-render at 6x before believing it."
+        )
+
+
+def test_a_saturated_hue_has_no_quiet_edge_so_the_accent_emits_only_one():
+    """The border pair's trick does NOT transfer to $accent, and this is why the accent rule differs.
+
+    $border is a desaturated grey: mixing toward white and toward black moves it by different amounts, so
+    one edge carries and the other is quiet enough for the palette to eat. $accent is SATURATED and has
+    no quiet edge -- dark's #4c8dff has B=255, so mixing toward black drops B by 36 while mixing toward
+    white cannot move it at all. Measured carrier/quiet: light 33/29, dark 36/25, nord 24/22, gruvbox
+    36/32. BOTH edges always read.
+
+    So the accent emits a lit top ONLY. Emitting the pair would put a symmetric bevel on the largest,
+    loudest object on the screen -- the one place Win95 would actually show. THE RULE, in one line:
+    emit both edges only where one of them is quiet; emit one where neither is.
+
+    This test asserts the PREMISE (accent has no quiet edge). test_workspace_style asserts the
+    CONSEQUENCE (the rule emits one edge). If a future palette ever gives accent a quiet edge, this fails
+    and the accent rule may be reconsidered -- deliberately, not by accident.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        quiet = min(_delta(d["accent"], d["accent_lit"]), _delta(d["accent"], d["accent_shade"]))
+        assert quiet > 13, (
+            f"{mode}: accent's quiet edge is only d{quiet} -- it now behaves like $border. The accent's "
+            f"one-edge rule was justified by the opposite; re-derive the decision, do not just relax this."
+        )
+
+
+def test_the_border_is_mode_aware_so_the_edges_need_no_branch():
+    """THE INVARIANT THE WHOLE DIRECTION RESTS ON -- fenced because it holds only by convention.
+
+    $border sits ABOVE its fill in all 6 dark palettes and BELOW it in both light ones. That is what lets
+    every edge rule emit BOTH edges with no `if dark:` anywhere: each palette's own border eats the edge
+    it cannot hold (light's lit edge lands at d8 and vanishes; dark's foot stays quiet).
+
+    Nothing enforces this. It is a property of eight hand-picked hexes, and a ninth palette that broke it
+    would silently light every object UPSIDE DOWN rather than fail -- so its author needs a failing test
+    at the moment they get it wrong, not a comment they will never read.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        above = _luminance(d["border"]) > _luminance(d["surface_btn"])
+        assert above == bool(pal.get("dark")), (
+            f"{mode}: border sits {'above' if above else 'below'} its fill but dark={bool(pal.get('dark'))}"
+            f" -- the no-branch edge rules assume the opposite and would light every object upside down"
+        )
+
+
+def test_a_restated_border_shorthand_never_flattens_a_lit_object():
+    """The QSS `border:` shorthand RESETS every per-side colour, so any rule restating it on a lit object
+    must restate its edge too -- or the object goes flat exactly when it matters.
+
+    Probed: #accent lost its lit top this way (its own `border: 1px solid $accent` reset the generic
+    QPushButton's per-side colours), and an input would have flattened on :focus -- the moment you are
+    looking straight at it. Both are invisible to a reviewer reading the diff, because the rule that
+    breaks them is correct on its own line. Only the ORDER is wrong, and order is not local.
+
+    AT LEAST ONE edge, not both: the accent deliberately emits only a lit top (it is saturated and has no
+    quiet edge -- see test_a_saturated_hue_has_no_quiet_edge_so_the_accent_emits_only_one). This fence is
+    about not LOSING the edge to a shorthand, which is a different question from how many edges are right.
+    """
+    from ff9mapkit.workspace import style
+
+    css = style.qss(theme.DARK)
+    for sel in ("QPushButton#accent", "QPushButton#accent:pressed", "QLineEdit:focus",
+                "QPushButton#search", "QComboBox:focus, QAbstractSpinBox:focus"):
+        m = re.search(re.escape(sel) + r"\s*\{([^}]*)\}", css)
+        assert m, f"{sel} not found -- did the selector move?"
+        body = m.group(1)
+        if "border:" in body:
+            assert "border-top-color" in body or "border-bottom-color" in body, (
+                f"{sel} restates `border:` (which resets per-side colour) without restating any edge "
+                f"-- it renders flat"
+            )

@@ -46,6 +46,115 @@
 > state-mirror render-match/save-safety acceptance and a pre-install v5-vs-v6 fail-safe check.
 > **NEXT = Phase 6, the two-machine session** (needs the laptop out). Then Phase 7 (party mirror → the
 > battle diorama).
+>
+> **DESIGN UPGRADE (2026-07-15, user-driven): the in-place flag restore is REPLACED by the AUTOLOAD EXIT
+> RAMP.** The user spotted that restoring the guest's own flags in place leaves them standing at the
+> HOST's location — own story + host position = a frankenstate the base game can't produce (a
+> sequence-break machine / softlock generator). New exit semantics: **leaving a mirrored session reloads
+> the guest's OWN AUTOSAVE** (`NetSyncState.ExitMirrorToOwnSave` — `Serializer.Autoload` + the verbatim
+> moogle-menu load transition; no autosave yet → title screen, like a game over). The autosave guard is
+> what makes this correct: Continue stays pristine all session, so it IS the coherent pre-session
+> (story, position, party) tuple — "leaving co-op = Continue" is stock semantics. Mechanics: link-drop
+> arms the ramp DEBOUNCED (3s — a relay blip must not yank the guest); a deliberate config change arms
+> it immediately; `_storyMirroring` stays true until the ramp fires so the manual-save block stays armed
+> through the gap; the ramp fires only free-standing on a field/world map (never mid-battle/mid-warp);
+> app teardown skips it (disk already coherent). The `_ownStory` capture/restore machinery is DELETED
+> (the 1b capture-timing fix with it — the race no longer exists) and the fiddly capture-timing
+> acceptance test is OBSOLETE. Built + deployed + s37 regenerated (16 files, gates clean).
+>
+> **THE SPECTATOR-FIELD PARADIGM (user-set, 2026-07-15):** the guest is a COMBAT participant and a
+> field SPECTATOR — field walking is a purely flavorful experience (unless a need emerges), and the
+> guest is not meant to INTERACT outside combat. Interaction authority is the HOST's alone. The
+> implied future research arc — **"play the game without a player"** — is the guest's client rendering
+> the host's interactions without a local driver: dialogue windows advancing on the HOST's confirms,
+> chests opening because the HOST opened them, gateways firing off the host's movement (follow-warp
+> already is this shape). The flip side (cheap, nearer-term): SUPPRESSING the guest's own field
+> interactions while following (talk/chest/gateway inhibition) so a wandering guest can't advance or
+> disturb the host's world. Noted, NOT scheduled — the battle diorama (B3) comes first.
+>
+> **★★ RUNG 2 CLOSED 2026-07-15 — TWO-MACHINE PROVEN on both axes.** Item mirror: guest with 0 Tents +
+> host with a Tent → the guest activates the Tent moogle (the offer reads the HOST's bag). Party
+> mirror: Ice Cavern **302**, the Vivi-required fire scene — the guest's field staged the party-gated
+> content from the HOST's party. (User note en route: the Tent lives in the regular-items menu, not
+> Key Items — the 75-field census list resolved the confusion.) NEXT = the final roadmap rung: the
+> battle DIORAMA (B3) — its actor-spawn input now rides the wire.
+>
+> **RUNG 2 SOLO TIER ★ PROVEN 2026-07-15** — `party-mirror selftest: sections codec OK (4 members,
+> 0 key items, 7 bag entries)`, zero errors. **THE ACCEPTANCE TARGET, byte-verified:** the Gate Pass is
+> item-checked in EXACTLY ONE field in the whole game — **806 (S. Gate/Dali Gate)**, the gate guard's
+> talk routine (fail = "you gotta have a Gate Pass"; pass = he opens the gate). Key-item id 16
+> (menu/save-editor space) = generic script id 272 (important = 256+id). Every other South Gate booth
+> (800-805/807) gates on STORY FLAGS only — folklore falsified by disasm. **THEN DOUBLY FALSIFIED by
+> the full 806 decode:** the pass is never load-bearing even there — the tag-22 guard opens for ANYONE
+> who answers Yes (talk twice: first talk = an instance-var-latched info line, second = the Yes/No; the
+> "…I guess you do" is theater), the other side's guard is scenario-windowed, and the game's ONLY
+> `have_item(272)` is a cosmetic pass-presenting gesture in the player sequence. Scan method
+> (reusable): the fork-report raw-expr regex generalized — `\x7d(..)\x64` = B_CONST <u16> B_HAVE_ITEM,
+> `\x7d(..)\x6b` = B_PARTYCHK — over every real field's `.eb`: 258 fields item-check, 230 party-check
+> (the transcript/disasm renderers do NOT surface these tokens — raw bytes are the only reliable
+> census). **THE REAL ACCEPTANCE TARGET: the moogle TENT offer** — `Tent = RegularItem 253` is the
+> most-checked item in the game (138 fields ≈ every save-moogle screen): host with ≥1 Tent, guest with
+> 0 → guest solo: no Tent offer from a moogle; guest FOLLOWING: the moogle offers the host's Tent →
+> disconnect/ramp → offer gone. Binary, save-cheap, zero scenario interference.
+>
+> **PHASE 7 RUNG 2 — THE PARTY MIRROR (wire v7) — BUILT 2026-07-15, solo proof pending.** The state
+> frame gains sections 1-3 (`NetSyncParty.cs`): **1 = the 4 party slots** (identity/looks/label stats
+> per member — charId/serial/level/row/hp/mp/equip×5/name; EXACTLY the diorama's future actor-spawn
+> input, zero throwaway) · **2 = key items** (`rare_item_obtained`) · **3 = the regular bag**. One frame
+> = one consistent snapshot (`SnapshotAll`), parsed at the same field-load apply boundary. **Guest apply
+> = the read-COMPARE wraps only** (no state mutation): `EventEngine.partychk` (B_PARTYCHK — the field's
+> "is Vivi with you?" gate), EBin's `PARTY_MEMBER` varfunc, and the event item read (B_HAVE_ITEM →
+> regular counts + key-item existence from the host; CARDS deliberately stay local) — so party/item-gated
+> NPCs/doors/branches stage the host's way. **DELIBERATELY NOT WRAPPED: `ETb.GetPartyMember`** — it
+> feeds the party-ACTOR SPAWN loop, and re-dressing the guest's own walking body is the diorama era's
+> identity problem. Item WRITES by mirrored scripts land on the guest's real bag but are session-scoped
+> by the exit-ramp architecture (no save + autoload exit). Session end → `NetSyncParty.Clear()`. New
+> selftest line: `party-mirror selftest: sections codec OK (N members, K key items, M bag entries)`.
+> s37 = **19 files** now (+`NetSyncParty.cs`, `EBin.cs`, `EventEngine.DoCalcOperationExt.cs`), gates
+> clean; wire v6→**v7** (mixed DLLs don't sync — update both). Two-machine acceptance: host with a
+> character/key item the guest lacks → a gated NPC/door on the guest stages per the HOST; guest solo
+> replay after disconnect stages per their OWN save again.
+>
+> **★★ PHASE 6 CLOSED 2026-07-15 — every acceptance box two-machine PROVEN.** The final round: manual
+> save refusal ✓ · Continue pristine through a followed session ✓ · **the AUTOLOAD EXIT RAMP ✓ on BOTH
+> kill paths** (host bridge Ctrl+C and host game quit — the guest on 30110 landed back at their own Dali
+> Continue spot in ~5s) · **automatic session resumption ✓** (host bridge restarted → re-pair,
+> re-follow, re-mirror, no relaunch). The ramp's first execution found one real bug, fixed same day:
+> `IsConnected` stays true when the HOST's bridge dies (the guest's own relay socket is fine) — peer-alive
+> must read the keepalive-fed POSITION lane (`_socket.GetRemote().Valid`, stale ~2s after the host dies).
+> THE LAW: **transport-up ≠ peer-alive; any session-end logic must gate on lane freshness, not
+> IsConnected.** NEXT = Phase 7: party mirror (rung 2) → the battle diorama (B3).
+>
+> **PHASE 6 RESULTS (accumulating, 2026-07-15):**
+> - ★ **Fail-safe PROVEN two-machine** (package step 0): v6 host + v5 laptop on the same field — visible
+>   co-location but NO pairing, no crash, no half-state. Exactly the designed version-reject behavior.
+> - ★ **RENDER-MATCH PROVEN two-machine — the headline** (field 354, Dali weapon shop, rotating cast):
+>   the guest's cast re-stages to match the HOST's ScenarioCounter. The authoritative-host claim ("the
+>   guest renders the host's story, not scenario-zero") is proven on real stock content.
+> - **Expected-behavior note** (test methodology, not a bug): the host's F6 "Reload field" does NOT
+>   re-stage the guest — the follow listener keys on the host's broadcast FIELD ID changing, and the
+>   mirror applies at the guest's own field-load boundary. After an F6 ScenarioCounter edit, the guest
+>   re-stages on its next real warp/entry (natural story play re-stages both sides on room entry).
+> - ★ **V2 `[[coop]]` GATES PROVEN two-machine** — the Twin Altar (30110) completed by two real players,
+>   including the held east-arch door (the one behavior mechanically impossible to test solo).
+> - ★ **BATTLE CO-OP B0+B1 PROVEN two-machine** — "works the same as usual": spectate panel + guest
+>   digit-menu commands over the real link behave exactly as the solo selftest tier did.
+> - ★ **VISITOR-MODE FOLLOW-WARP PROVEN two-machine** — the last two-machine-only untested s37 piece;
+>   the guest auto-warps to match the host's field transitions.
+> - ⚠ **SAVE-SAFETY HOLE FOUND (the test paid for itself): AUTOSAVE bypasses the spectator-save block.**
+>   The Continue slot is written by `EventEngine` at essentially EVERY field-load init
+>   (`serializer.Autosave`, gated only by a hardcoded cutscene `noSave` ladder + `[SaveFile]` config) —
+>   NOT by `SaveLoadUI.OnKeyConfirm`, so the manual-save block never sees it. A following guest's
+>   Continue gets the host's mirrored story AND the followed-to field position. **Engine fix STAGED
+>   (uncommitted, next DLL round):** `noSave |= NetSyncVisitor.SuppressEncounters ||
+>   NetSyncClient.IsMirroringStory` — same conditions as encounter suppression (following + connected,
+>   or selftest), fail-safe to vanilla on link-drop, host unaffected. `EventEngine.cs` JOINS THE s37
+>   FILE SET at the next regen (16 files; it carries fork-fidelity edits — full-stack baseline replay
+>   handles it). **Zero-rebuild mitigation for a live session:** `[SaveFile] DisableAutoSave = 1` in
+>   the GUEST's Memoria.ini (stock Memoria, launch-time read → relaunch; kills ALL autosaves, so
+>   revert after). Residual documented wart: a NON-following free-roam guest keeps vanilla autosave —
+>   hanging out at a coop room parks their Continue there (same as any F6 warp; "make a real save
+>   before co-op" stays in the README).
 
 ## TL;DR for whoever executes this (Fable)
 
