@@ -506,7 +506,6 @@ def derive(pal: dict) -> dict:
 
 
 # Motion tokens (Phase 1 constants; QSS cannot animate, so these feed QPropertyAnimation in Phase 10).
-MOTION = {"fast_ms": 140, "medium_ms": 220, "easing": (0.2, 0.0, 0.0, 1.0)}
 
 
 def apply_theme(root, mode: str = "auto") -> dict:

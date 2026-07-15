@@ -9477,8 +9477,12 @@ def main(argv=None):
     if smoke:
         _smoke(win)
         return
-    win.show()
+    # BEFORE show(), not after. Motion is opt-in and every helper is a synchronous no-op-to-end-state while
+    # it is off -- so anything that animates ON FIRST PAINT (the hero's signet drawing itself) would have
+    # silently snapped to its end state for every user, forever, and looked exactly like a bug that wasn't
+    # there. The --smoke path returns above and never reaches this, so it still gets instant end-states.
     anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
+    win.show()
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
         try:
