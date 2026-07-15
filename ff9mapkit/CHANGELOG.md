@@ -125,6 +125,57 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the mirrored island would wear disc-4 variants on disc-1 terrain. Run it after any
   custom-ocean world deploy; RELAUNCH to apply.
 
+### Added — `--ground desert`: a second walkable ground family (THE TRANSLATION LAWS)
+- The desert anatomy (`studies/overworld-topography/desert_ground_anatomy.py`) proved topo-17
+  wasteland speaks the grass ground grammar — exact linear-in-XZ per 4u cell, one 128px tile
+  per cell, 4 rotations, grass handedness, avoid-repeat neighbours — with its mains 2×2 rects
+  and its coastal cliff-wall band each sitting at a TRANSLATED atlas spot, byte-exact at 5dp:
+  mains (+0.65332, −0.09863), wall (−0.27127, −0.02066). `grassland.GROUNDS` records the
+  families; `ground_uv`/`ground_main_region` re-base the proven grass machinery.
+- `world-island --ground desert` mints a topo-17 desert island (desert mains + the desert
+  cliff band; meadow stamps are grass vocabulary and disable); `world-mountain --ground
+  desert` makes the carve's plain-ground checks, zip annulus (UVs + topograph), and rim
+  probes speak the bench's family. Grass is the bit-frozen identity: both byte-identity
+  acceptances (the Uaho bench AND island E) pass unchanged through the threading, and the
+  full desert path runs green offline end-to-end (desert mint → verify → the crag carve).
+
+### Added — `world-mountain`: carry a real rock massif onto a deployed island
+- The in-game-approved Uaho carry study (`massif_carry.py`, 2026-07-13 — "the cliff is great —
+  walkable, seams against the grass great") is now a kit verb (`interior.carve_mountain`):
+  * `world-mountain --mod-folder M --near WX,WZ` (or `--center` exact, rotation 0) carries the
+    donor block's REAL massif whole — the largest topo-49/7/62 rock component + enclosed raised
+    tris + the donor-conditional alcove floor + the Object-mesh APERTURE PLUGS wearing the rock
+    collar's own affine UV chart (small mountains are terrain+object ensembles; `--donor`
+    defaults to `0,0` = Uaho, the only donor with an anatomy study behind it).
+  * THE ROCK-RIGID LAW: carried rock never deforms beyond the de-tilt affine + the vertical
+    anchor; ALL seating deformation goes to the grass as a weld-safe per-POSITION pure-Y apron
+    lift (worldmap meshes don't share vertex entries — a one-sided lift splits the weld). Hole
+    carve + a minimal-total-chord DP zip + an apron normal re-smooth close the seam; the
+    placement scan (exact 90° rotations as fallbacks) keeps the whole band inside ONE block.
+  * Gates: rim/aperture accounting, baseline-subtracted once-edges, ROCK-RIGID drift < 3.5%,
+    zip rise/winding envelope, apron slope ≤ 29.5°, rock/grass placement probes, the
+    Moguri-atlas alpha gate (when installed), and the census.
+  * THE DONOR-DISPATCH STRIP: a carried IDALL keeps its topograph + flags but drops the donor's
+    event/area bits — dispatch CONTEXT that is meaningless and hazardous on a custom island
+    (Uaho's massif is baked area=63, which `w_cameraArea2Place[63]` maps to place bucket 2 =
+    cameraDistance 6000, the alcove camera zoom-out; five alcove-floor tiles even carry event=1,
+    a latent PLACE-ENTRANCE trigger into the world `.eb`). Verified surgical on the bench:
+    re-carve vs the prior approved bytes differs in exactly the 149 carried tris' tangent.x and
+    nothing else.
+- Acceptance was proven by IDENTITY (`mountain_productize_check.py`): the pristine bench mint →
+  module carve reproduces the deployed, playtested Uaho bench byte-for-byte (the scan converges
+  on the study's exact placement, (162,-1246) rot 0); the go-forward fresh-mint path differs
+  only by the mint's own concave-dent fix (24 tris at the two dents, far outside the carve).
+- MULTI-BLOCK carries: `--donor` also takes a block rect (`10,5-6` = the crag island's stock
+  massif, which straddles a border — the blob builds on the merged world-frame donor bytes),
+  and the TARGET sizes itself automatically: a blob that fits one block runs the proven
+  single-block pipeline byte-identically, a bigger one works over the minimal SPAN of deployed
+  blocks covering its footprint — new tris split at the 64u borders (`split_borders8`, identity
+  welds), the weld-safe apron lift welds internal borders per POSITION and tapers only at the
+  span's OUTER borders, and the crack/census gates run across the whole span. Proven offline by
+  the crag carry (294 tris across a 2×2 span, every gate green; the Uaho identity acceptance
+  still passes bit-for-bit through the generalization).
+
 ### Added — `world-forest` + `world-hill`: interior topography on a deployed island
 - The two in-game-proven island-E studies are now kit verbs (`ff9mapkit/world/interior.py`), operating
   on the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job):

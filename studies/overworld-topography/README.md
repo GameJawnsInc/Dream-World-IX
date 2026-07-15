@@ -277,6 +277,107 @@ y-span ≤ 2.4u — an existing hill's footprint is still pure mains, and the na
 self-selected it and tried to stack; the slope gate refused, and the envelope now keeps
 the scan honest). Hermetic tests: `ff9mapkit/tests/test_world_interior.py`.
 
+## THE PRODUCTIZATION (★ 2026-07-15): `world-mountain` is a kit verb
+
+`massif_carry.py` (the in-game-approved Uaho carry) is extracted into
+`interior.carve_mountain` + a CLI verb (`--near` scan with exact-90° rotation fallbacks /
+`--center` exact; `--donor` default `0,0` = Uaho, the only donor with an anatomy study —
+the alcove floor is donor-conditional and the aperture-plug chart phase is inlined from
+`daguerreo_massif_anatomy.py`). All study gates carried: ROCK-RIGID, the weld-safe
+per-POSITION apron lift, the DP zip envelope, baseline-subtracted once-edges, the
+rock/grass placement probes, the Moguri-atlas alpha gate, the census. **Proven by
+IDENTITY** (`mountain_productize_check.py`): the pristine bench mint (preserved game-side
+as the deployed file's `.pristine-r31s42` sibling) → module carve reproduces the
+deployed, in-game-approved bench **byte-for-byte** — the module's own scan converges on
+the study's exact placement ((162,−1246) rot 0) and its mint-hole patch replays the
+study's one patched hole; the go-forward fresh-mint path differs only by the mint's own
+concave-dent fix (24 tris at the two dents, far outside the carve; block (2,18)
+byte-identical). One robustness guard minted during extraction: the mint-hole detector
+now distinguishes a REAL hole from a legally-detached tri whose own edges chain into a
+3-cycle. Hermetic tests (incl. a synthetic pyramid-donor end-to-end carve with a
+monkeypatched donor read): `ff9mapkit/tests/test_world_interior.py`.
+
+## THE CRAG DONOR ANATOMY (★ 2026-07-15): measured, and DISQUALIFIED for single-block v1
+
+`crag_anatomy.py` → `out/crag_anatomy.json` + `out/crag_map.png` — the donor-qualification
+pass the backlog required before extending `world-mountain --donor` beyond Uaho. Findings:
+
+* **ONE cross-block massif.** The crag's rock is a single 294-tri component (pure topo 49,
+  no 7/62) straddling blocks **(10,5)+(10,6)** — 33×63u, peak y 26.5. Block (9,5) has no
+  terrain mesh at all; (9,6)/(9,7)/(10,7) hold no massif rock.
+* **Region-level, it is beautiful donor material**: the merged rim CHAINS cross-block into
+  ONE clean 42-pt foot ring at y[6.0,8.0] (max 2u oscillation!), radius **33.7u**, de-tilt
+  0.8°, residual ±1u; lattice-sheet class (v-weld 0.73, same class as Uaho/the horseshoe);
+  no apertures, no pockets, no object ensemble.
+* **Per block it is NOT a mountain**: each in-block fragment's "rim" includes the block-
+  border cut and mid-shoulder heights (rim y up to 17.6, de-tilt 22.7°/residual ±6 on
+  (10,5)) — and the real `carve_mountain` dry-carve REFUSES both, for the right reasons
+  ((10,5): zip rise 4.66 > 2.34; (10,6): radius 28.1 doesn't fit any in-block placement —
+  the hard ceiling is ~23.5u, the r31 bench pocket ~20u).
+* **Its own tile band**: sharply tiled (corner peakiness 9–12×) but a DIFFERENT chart —
+  phase (0.011719, 0.015625), exactly 1/256 off `ROCK_CHART_PHASE` in both axes, rows 2–6
+  + 13–14 vs the Uaho/Daguerreo band's 6–12. The plug-chart constants are BAND-SPECIFIC;
+  a donor from another rock look-family needs its own phase (moot here — no apertures).
+* **Feet on topo 17, not grass**: the crag's painted foot fringe meets wasteland ground,
+  not mains grass — a look-risk if ever seated on a grass island (offline-untestable).
+* **Dispatch**: all rock baked (event 0, area 62) — the DONOR-DISPATCH STRIP handles it.
+
+**THE DESERT GROUND LANGUAGE (★ 2026-07-15)** — `desert_ground_anatomy.py` →
+`out/desert_ground.json`; the sidebar the crag's foot fringe demanded (painted against
+topo-17 ground, unjudgeable on grass). Findings: 81 disc-1 blocks carry topo-17; the
+ground obeys the SAME laws as grass (exact linear-in-XZ per 4u cell, one ~128px tile per
+cell, 4 rotations, grass handedness 224:6, avoid-repeat neighbours 7%) with a busier
+vocabulary (39 half-tile origins; the dominant 2×2 mains set covers 32%; a 4-row strip
+column at u 0.844 = the B-strip analogue) and rougher relief (y std 2.44 vs grass
+0.66–1.25). Real desert cells use FREE fractional windows across the painted-over
+internal gutter (THE COL-FREEDOM LAW at ground scale — the naive 16-hypothesis gate
+passes only 48%), but the locked grass-form window is a common real form and stays
+inside painted art. **THE DESERT TRANSLATION LAW:** the desert mains region is the grass
+mains structure translated by exactly **(+0.65332, −0.09863)** in the atlas — same
+quadrant rects, widths, and gutters, byte-exact at 5dp — so the lawful mint form is
+literally `G.mains_uv(...) + (DU, DV)` with topograph 17. `desert_bench.py` applied it:
+the crag bench's 746 plain-grass tris retiled IN PLACE to desert mains (fresh per-cell
+assignment, zero geometry change, atlas gate 0 blanks, census MISS=0), DEPLOYED +
+mirrored — the crag now stands on its native ground; foot-fringe verdict pending.
+Known cosmetic remnant: the coastal cliff-top LIP ring still wears its grass-family
+tiles (the lip is its own vocabulary — a desert-island mint would need a desert lip).
+**→ closed same day by THE WALL TRANSLATION LAW** (`desert_shore.py`): the "lip" is
+painted INTO the mint's cliff-wall band texture, and the crag island's own coast
+measures the same 4-tile-wide one-row band at (−0.27127, −0.02066) from `ROCK_U/V` —
+the bench's topo-58 wall corners translated in place (zero geometry change), DEPLOYED
++ mirrored: the bench is now FULLY desert. **→ PRODUCTIZED same day as
+`--ground grass|desert`** on `world-island` + `world-mountain` (`grassland.GROUNDS`,
+`ground_uv`; stamps disable off-grass): grass is the bit-frozen identity (BOTH
+byte-identity acceptances pass unchanged), and the full desert path runs green offline
+(module desert mint → verify clean → the crag carve, all gates). **The full desert
+bench is ★ IN-GAME PROVEN 2026-07-15 ("looks good": ground + shore + the native-ground
+crag).** EARMARKED for the future — **THE DESERT TILE FIDELITY CHECK**: the mint uses
+locked grass-form windows (stock desert slides FREE fractional windows, 48% locked) and
+reuses the grass relief field (stock desert: y std 2.44 vs grass 0.66–1.25); both fine
+at bench scale — revisit if a large desert landmass reads too regular/smooth.
+
+**Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
+donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
+placement scan + split-border emission.
+
+**→ THE MULTI-BLOCK EXTENSION (★ built same day, 2026-07-15).** `carve_mountain` now takes
+a donor block LIST/rect (the blob merges in the world frame) and auto-sizes the target: a
+blob that fits one block runs the frozen single-block pipeline (the Uaho identity
+acceptance passes bit-for-bit through the generalization — the refactor oracle), a bigger
+one works over the minimal SPAN of deployed blocks (new tris split at 64u borders via
+`split_borders8` — identity welds, exactly how the stock crag itself ships; the apron
+welds internal borders per POSITION and tapers only at the span's outer rect; crack gate
++ probes + census span-wide). The crag carry runs GREEN offline (294 tris over a 2×2
+span, zip rise 1.05 / ny 0.96 / rigidity 0.7% / apron 4.1° — far inside every envelope)
+and is DEPLOYED on a fresh r50 bench island at **(64,−1216)** (`world-island` seed 11 +
+`world-mountain --near 64,-1216 --donor 10,5-6`, placed (70,−1218) rot 0; teleport
+**(30.5, −1217.5)** face east) — **★ MECHANISM IN-GAME PROVEN 2026-07-15** ("looks
+verbatim" + "rim walk is good": the border seams are invisible, the rim walks clean).
+The LOOK verdict is deliberately deferred: the crag's foot fringe is painted against
+topo-17 DESERT ground and reads foreign on mains grass — the DESERT GROUND-LANGUAGE
+study (census → tile decode → a desert island ground → re-seat the crag) is the next
+rung; only on native ground can "reads native" be judged.
+
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —

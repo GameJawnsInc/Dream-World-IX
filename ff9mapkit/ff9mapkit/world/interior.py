@@ -1,13 +1,15 @@
 """INTERIOR topography on a DEPLOYED kit island: ``world-forest`` (carry a real canopy
-blob) and ``world-hill`` (a raised-cosine grass hill) -- the productized forms of the two
-in-game-proven island-E studies (2026-07-12: the forest re-home "walked the whole rim
-aggressively, no more sticking"; the hill "looks natural, walkable from all sides").
+blob), ``world-hill`` (a raised-cosine grass hill) and ``world-mountain`` (carry a real
+rock massif whole) -- the productized forms of the in-game-proven island-E / Uaho-bench
+studies (2026-07-12/13: the forest re-home "walked the whole rim aggressively, no more
+sticking"; the hill "looks natural, walkable from all sides"; the Uaho carry "the cliff
+is great -- walkable, seams against the grass great").
 
-Both verbs RESHAPE the deployed override bytes (never a real map block -- reshaping stock
-land is ``world-terrain``'s job) and refuse when the working footprint leaves the deployed
-blocks. Everything below is a faithful port of ``studies/overworld-topography/
-forest_rehome.py`` + ``hill_at_scale.py`` -- the laws it encodes (full statements in
-memory ``project-ff9-overworld-interior-topography``):
+All three verbs RESHAPE the deployed override bytes (never a real map block -- reshaping
+stock land is ``world-terrain``'s job) and refuse when the working footprint leaves the
+deployed blocks. Everything below is a faithful port of ``studies/overworld-topography/
+forest_rehome.py`` + ``hill_at_scale.py`` + ``massif_carry.py`` -- the laws it encodes
+(full statements in memory ``project-ff9-overworld-interior-topography``):
 
 * THE CANOPY CARRY LAW -- canopy texture is hand-authored; carry a real topo-37 blob
   WHOLE (verbatim verts/UVs/normals/idall), never synthesize it.
@@ -24,6 +26,14 @@ memory ``project-ff9-overworld-interior-topography``):
   real, prominence 3.5-5.2 over 20-26u, peaks <= the lowland band top (~8.6); the hill is
   a PURE-Y raised-cosine displacement (mains UVs are XZ-linear, so vertical motion keeps
   every tile lawful) with LOCAL normal re-smoothing.
+* THE CARRY LAW (6th instance) -- rock texture organization is hand-authored; carry the
+  real massif WHOLE (verbatim verts/UVs/normals/idall), synthesize only the seam.
+* THE ROCK-RIGID LAW -- carried rock never deforms beyond the global affine (de-tilt +
+  DY); ALL seating deformation goes to the GRASS (the donor-shaped pure-Y apron lift).
+* THE WELD-SAFE LIFT -- worldmap meshes don't share vertex entries; every lift computes
+  per POSITION and applies to every coincident entry, or the weld splits (sea slivers).
+* THE FALLS-APERTURE LAW at mountain scale -- extra blob rims must be literal Object-mesh
+  apertures; they carry as verbatim plugs wearing the rock collar's own UV chart.
 """
 from __future__ import annotations
 
@@ -56,6 +66,27 @@ PEAK_CAP = 8.6                   # the lowland band top
 FOREST_CLEAR = 12.0              # hill footprint clearance from topo-37
 STAMP_CLEAR = 4.0
 RIM_CLEAR = 6.0
+
+# ---- the proven mountain constants (massif_carry.py, the Uaho carry) ----------------------
+MOUNTAIN_DONOR = (0, 0)          # Uaho island -- the only donor with a full anatomy study
+MOUNTAIN_ROCK_TOPOS = frozenset({49, 7, 62})   # massif rock (NOT the coastal-lip topo 58)
+# Uaho's alcove floor: ((x0, x1), (z0, z1), y_min) in the donor block's world frame -- the
+# notch's flat cave-floor pocket is mountain-attached terrain; without it the blob rim
+# oscillates 1.5<->6.3 inside the notch and no smooth apron can meet it. Donor-specific
+# (hand-measured); a new donor needs its own box (or none) -- see carve_mountain(alcove=).
+UAHO_ALCOVE = ((31.0, 40.5), (-38.5, -30.5), 4.5)
+MTN_CLEAR = 2.5                  # annulus clearance around the carried rim
+MTN_GBLEND = 12.0                # ground-apron blend reach (the proven hill-at-scale value)
+MTN_MAX_EDGE = 9.0               # max new-tri edge length
+MTN_ZIP_RISE = 2.34              # zip-tri vertical span ceiling (engine step 2.34375)
+MTN_ZIP_NY_MIN = 0.83            # zip winding floor (~34 deg -- allows the alcove-mouth
+#                                  bank; tuned on Uaho, re-check before trusting a new donor)
+MTN_ROCK_RIGID = 0.035           # THE ROCK-RIGID GATE: max carried-edge length drift
+MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
+# The terrain atlas's rock-band UV phase (u, v) -- measured by daguerreo_massif_anatomy.py
+# (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
+# it (cols 5-10, rows 6-12 = the painted rock band).
+ROCK_CHART_PHASE = (0.015625, 0.01953125)
 
 kk3 = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))  # noqa: E731
 
@@ -155,6 +186,53 @@ def chain_ring(edges, what: str):
     if len(ring) != len({*ring}) or len(ring) < 12:
         raise ValueError(f"{what} ring degenerate")
     return ring
+
+
+def chain_rings(edges, what: str):
+    """All simple cycles in a degree-2 once-edge set (the multi-ring form of
+    :func:`chain_ring` -- a massif blob legally owns several rings: the outer rim plus
+    Object-mesh apertures)."""
+    adj = defaultdict(list)
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+    bad = [p for p, l in adj.items() if len(l) != 2]
+    if bad:
+        raise ValueError(f"{what} ring set not degree-2 ({len(bad)} odd points)")
+    unused = set(map(tuple, (tuple(sorted(e)) for e in edges)))
+    rings = []
+    while unused:
+        e0 = next(iter(unused))
+        ring = [e0[0]]
+        prev = None
+        while True:
+            # pick the neighbor whose edge is still unused
+            nxt = None
+            for p in adj[ring[-1]]:
+                if p != prev and tuple(sorted((ring[-1], p))) in unused:
+                    nxt = p
+                    break
+            if nxt is None:
+                break
+            unused.discard(tuple(sorted((ring[-1], nxt))))
+            prev = ring[-1]
+            ring.append(nxt)
+            if ring[-1] == ring[0]:
+                ring.pop()
+                break
+        if len(ring) != len({*ring}) or len(ring) < 3:
+            raise ValueError(f"{what} ring degenerate")
+        rings.append(ring)
+    return rings
+
+
+def signed_area(ring):
+    s = 0.0
+    for i in range(len(ring)):
+        x1, z1 = ring[i][0], ring[i][2]
+        x2, z2 = ring[(i + 1) % len(ring)][0], ring[(i + 1) % len(ring)][2]
+        s += x1 * z2 - x2 * z1
+    return s / 2
 
 
 def pip(px, pz, poly):
@@ -880,6 +958,1159 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
     return {"changed": changed, "center": (CX, CZ),
             "report": {"displaced_tris": len(touched), "worst_flank": round(worst_slope, 1),
                        "peak_y": round(peak_y, 2)}}
+
+
+# ---- THE MOUNTAIN CARVE -----------------------------------------------------------------------
+def _norm_donor_blocks(donor):
+    """Normalize a donor spec -- one ``(bx, by)`` pair or an iterable of pairs -- to a
+    list of block tuples (order preserved, duplicates dropped)."""
+    if donor and isinstance(donor[0], (list, tuple)):
+        out = []
+        for b in donor:
+            t = (int(b[0]), int(b[1]))
+            if t not in out:
+                out.append(t)
+        return out
+    return [(int(donor[0]), int(donor[1]))]
+
+
+def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, log=print):
+    """Build the donor massif blob (largest ``rock_topos`` component + enclosed raised
+    tris + optional alcove floor + pocket fill + Object-aperture rings) from one or
+    several donor blocks merged in the WORLD frame -- a real massif may straddle a block
+    border (the crag spans two). Returns everything the carve needs donor-side; raises
+    ``ValueError`` on structural refusals."""
+    import numpy as np
+    ROCK = frozenset(rock_topos)
+    dV_rows, dU_rows, dN, dT, dtri = [], [], [], [], []
+    read_blocks = []
+    for (dbx, dby) in donor_blocks:
+        try:
+            don = X.read_block(dbx, dby, disc=disc, game=game)
+        except ValueError:
+            log(f"donor block ({dbx},{dby}) has no terrain mesh -- skipped")
+            continue
+        read_blocks.append((dbx, dby))
+        base = len(dV_rows)
+        doff_b = np.array([BLOCK * dbx, 0.0, -BLOCK * dby])
+        for row in (np.asarray(don.verts, dtype=np.float64) + doff_b):
+            dV_rows.append(row)
+        for row in np.asarray(don.uvs, dtype=np.float64):
+            dU_rows.append(row)
+        dN.extend(list(n) for n in don.normals)
+        dT.extend(list(t4) for t4 in don.tangents)
+        nt = len(don.flat_index) // 3
+        dtri.extend([don.flat_index[3 * t] + base, don.flat_index[3 * t + 1] + base,
+                     don.flat_index[3 * t + 2] + base] for t in range(nt))
+    if not read_blocks:
+        raise ValueError(f"no donor terrain mesh in {list(donor_blocks)}")
+    dV = np.asarray(dV_rows)
+    dU = np.asarray(dU_rows)
+    doff = np.array([BLOCK * read_blocks[0][0], 0.0, -BLOCK * read_blocks[0][1]])
+    dtopo = [X.decode_id(int(round(dT[i[0]][0])))["topograph"] for i in dtri]
+
+    d_edge = defaultdict(list)
+    for t, idx in enumerate(dtri):
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            d_edge[tuple(sorted((kk3(dV[idx[a]]), kk3(dV[idx[b]]))))].append(t)
+
+    adjR = defaultdict(set)
+    for e, ts in d_edge.items():
+        r = [t for t in ts if dtopo[t] in ROCK]
+        for i in range(len(r)):
+            for j in range(i + 1, len(r)):
+                adjR[r[i]].add(r[j]); adjR[r[j]].add(r[i])
+    seen, comps = set(), []
+    for s in range(len(dtri)):
+        if dtopo[s] not in ROCK or s in seen:
+            continue
+        comp = {s}; st = [s]
+        while st:
+            t = st.pop()
+            for t2 in adjR[t]:
+                if t2 not in comp:
+                    comp.add(t2); st.append(t2)
+        seen |= comp
+        comps.append(comp)
+    if not comps:
+        raise ValueError(f"donor block(s) {list(donor_blocks)} have no rock massif "
+                         f"(topos {sorted(ROCK)})")
+    comps.sort(key=len, reverse=True)
+    blob = set(comps[0])
+    log(f"donor rock component: {len(blob)} tris (next {[len(c) for c in comps[1:3]]})")
+
+    def once_edges(tset):
+        eu_ = Counter()
+        for t in tset:
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                eu_[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))] += 1
+        return [e for e, n in eu_.items() if n == 1]
+
+    rings0 = chain_rings(once_edges(blob), "donor blob")
+    rings0.sort(key=lambda r: -abs(signed_area(r)))
+    if len(rings0) > 1:                                    # inner rings enclose non-rock islands
+        inner_pts = {p for r in rings0[1:] for p in r}
+        seeds = []
+        for e in once_edges(blob):
+            if e[0] in inner_pts and e[1] in inner_pts:
+                seeds += [t for t in d_edge[e] if t not in blob]
+        st = list(seeds)
+        added = 0
+        while st:
+            t = st.pop()
+            if t in blob:
+                continue
+            blob.add(t); added += 1
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                for t2 in d_edge[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))]:
+                    if t2 not in blob and dtopo[t2] not in ROCK:
+                        st.append(t2)
+        log(f"enclosed raised tris flooded in: {added}")
+    # THE ALCOVE FLOOR CARRY (donor-conditional): a notch's flat floor is
+    # mountain-attached terrain; without it the blob rim oscillates inside the notch and
+    # no smooth ground apron can meet it. Carried verbatim; only the Object mesh itself
+    # (a separate part) stays behind. The box reads in the FIRST donor block's local frame.
+    if alcove_box is not None:
+        (nx0, nx1), (nz0, nz1), ny_min = alcove_box
+        NBOX = lambda c: nx0 < c[0] < nx1 and nz0 < c[2] < nz1  # noqa: E731
+        seeds = []
+        for e in once_edges(blob):
+            for t in d_edge[e]:
+                if t not in blob and dtopo[t] == 0:        # floor tris only, never canopy
+                    c = (dV[dtri[t]] - doff).mean(axis=0)
+                    if NBOX(c) and min(dV[i][1] for i in dtri[t]) > ny_min:
+                        seeds.append(t)
+        st = list(seeds)
+        added = 0
+        while st:
+            t = st.pop()
+            if t in blob:
+                continue
+            c = (dV[dtri[t]] - doff).mean(axis=0)
+            if not (NBOX(c) and min(dV[i][1] for i in dtri[t]) > ny_min):
+                continue
+            blob.add(t)
+            added += 1
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                for t2 in d_edge[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))]:
+                    if t2 not in blob and dtopo[t2] == 0:
+                        st.append(t2)
+        log(f"alcove floor carried: {added} tris (verbatim, incl. the cave-floor tiles)")
+
+    oe = once_edges(blob)
+    rings1 = chain_rings(oe, "blob rim")
+    rings1.sort(key=lambda r: -abs(signed_area(r)))
+    if len(rings1) > 1:                                    # fill enclosed pockets whole
+        inner_pts = {p for r in rings1[1:] for p in r}
+        st = [t for e in oe if e[0] in inner_pts and e[1] in inner_pts
+              for t in d_edge[e] if t not in blob]
+        filled = 0
+        while st:
+            t = st.pop()
+            if t in blob:
+                continue
+            blob.add(t)
+            filled += 1
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                for t2 in d_edge[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))]:
+                    if t2 not in blob:
+                        st.append(t2)
+        if filled:
+            log(f"enclosed pocket filled: {filled} tris (verbatim)")
+        oe = once_edges(blob)
+        rings1 = chain_rings(oe, "blob rim")
+        rings1.sort(key=lambda r: -abs(signed_area(r)))
+    # rings beyond the outer one must be OBJECT APERTURES -- the falls-aperture law at
+    # mountain scale: literal holes in the terrain whose boundary is exactly the embedded
+    # Object mesh's vertex set. Carried as verbatim PLUGS below.
+    oV = oN = otris = None
+    apertures = []
+    if len(rings1) > 1:
+        oV_rows, oN_l, otris = [], [], []
+        for (dbx, dby) in read_blocks:
+            try:
+                om = X.read_block(dbx, dby, disc=disc, game=game, part="object")
+            except Exception:
+                continue
+            base = len(oV_rows)
+            doff_b = np.array([BLOCK * dbx, 0.0, -BLOCK * dby])
+            for row in (np.asarray(om.verts, dtype=np.float64) + doff_b):
+                oV_rows.append(row)
+            oN_l.extend(list(n) for n in om.normals)
+            nt = len(om.flat_index) // 3
+            otris.extend([om.flat_index[3 * t] + base, om.flat_index[3 * t + 1] + base,
+                          om.flat_index[3 * t + 2] + base] for t in range(nt))
+        if not oV_rows:
+            raise ValueError(f"blob has {len(rings1) - 1} extra ring(s) but donor "
+                             f"{list(donor_blocks)} has no Object part to plug them")
+        oV = np.asarray(oV_rows)
+        oN = oN_l
+        okeys = {kk3(p) for p in oV}
+        for r in rings1[1:]:
+            if not all(p in okeys for p in r):
+                raise ValueError(f"extra blob ring is NOT an object aperture: {r[:3]}")
+            apertures.append(r)
+    rim = rings1[0]
+    if len(rim) != len(oe) - sum(len(r) for r in apertures):
+        raise ValueError("blob ring accounting failed (rim + apertures != once-edges)")
+    if apertures:
+        log(f"object apertures: {[len(r) for r in apertures]} pts "
+            f"(plugged with the object's own tris)")
+    rim_set = set(rim)
+    bpts = np.array([dV[i] for t in blob for i in dtri[t]])
+    c_local = ((bpts[:, 0].min() + bpts[:, 0].max()) / 2,
+               (bpts[:, 2].min() + bpts[:, 2].max()) / 2)
+    r_rim = max(math.hypot(p[0] - c_local[0], p[2] - c_local[1]) for p in rim)
+    log(f"blob: {len(blob)} tris, extent {bpts[:, 0].max() - bpts[:, 0].min():.0f}x"
+        f"{bpts[:, 2].max() - bpts[:, 2].min():.0f}u y[{bpts[:, 1].min():.1f},"
+        f"{bpts[:, 1].max():.1f}]; rim {len(rim)} pts max plan radius {r_rim:.1f}u")
+
+    # de-tilt: the donor mountain stands on sloped ground. Carried onto a flat bench, a
+    # raw rim conform would shear the foot courses -- the exact stretch class the carry
+    # exists to escape. Fit a least-squares plane over the RIM feet and subtract it from
+    # the WHOLE blob (an affine shear); the rim conform then handles only the mesa-scale
+    # residual. Normals get the shear's inverse-transpose.
+    Amat = np.array([[p[0] - c_local[0], p[2] - c_local[1], 1.0] for p in rim])
+    bvec = np.array([p[1] for p in rim])
+    (ta, tb, tc), *_ = np.linalg.lstsq(Amat, bvec, rcond=None)
+    res0 = bvec - Amat @ np.array([ta, tb, tc])
+    log(f"de-tilt: rim plane slope {math.degrees(math.atan(math.hypot(ta, tb))):.1f}deg, "
+        f"residual [{res0.min():+.2f},{res0.max():+.2f}]u")
+
+    def detilt_p(p):
+        return (p[0], p[1] - ta * (p[0] - c_local[0]) - tb * (p[2] - c_local[1]), p[2])
+
+    def detilt_n(n):
+        v3 = np.array([n[0] + ta * n[1], n[1], n[2] + tb * n[1]])
+        return (v3 / (np.linalg.norm(v3) or 1.0)).tolist()
+
+    dV2 = np.array([detilt_p(p) for p in dV])
+    dN2 = [detilt_n(n) for n in dN]
+    rim2 = [detilt_p(p) for p in rim]
+    return dict(read_blocks=read_blocks, dV=dV, dU=dU, dN=dN, dT=dT, dtri=dtri,
+                dtopo=dtopo, d_edge=d_edge, blob=blob, rim=rim, rim_set=rim_set,
+                apertures=apertures, oV=oV, oN=oN, otris=otris, c_local=c_local,
+                r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
+
+
+def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
+                   rock_topos=MOUNTAIN_ROCK_TOPOS, alcove="auto", clear=MTN_CLEAR,
+                   scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
+                   scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
+                   log=print) -> dict:
+    """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
+    + optional alcove floor + Object-aperture plugs) verbatim onto the island at
+    ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
+    ``near`` (exact 90-deg rotations as fallbacks -- rotation keeps UVs verbatim, det +1
+    keeps winding). A faithful port of ``studies/overworld-topography/massif_carry.py``
+    (the in-game-approved Uaho carry, 2026-07-13): rock stays RIGID (de-tilt affine + DY
+    only), the grass apron rises to meet the rigid rim over ``gblend``, hole carve +
+    minimal-total-chord DP zip + apron normal re-smooth, then the study's full gate set.
+
+    ``donor`` is one block ``(bx, by)`` or a list of blocks (a real massif may straddle
+    a border -- the crag spans (10,5)+(10,6)); the blob builds on the merged world-frame
+    bytes. The TARGET side sizes itself automatically: a blob that fits one block
+    (``2*(r_rim + band) <= 64``) runs the proven single-block pipeline byte-identically;
+    a bigger blob works over the minimal SPAN of deployed blocks covering its footprint
+    (every span block must hold a deployed override), with new tris split at 64u borders
+    (:func:`split_borders8`) and the apron taper applied at the span's OUTER borders
+    only -- internal borders weld through the per-POSITION lift.
+
+    Massif rock classifies from the donor's bytes by ``rock_topos`` (49/7/62) --
+    deliberately distinct from the coastal topo-58 ``"rock"`` fam in
+    :func:`soup_from_blocks`. ``alcove="auto"`` applies :data:`UAHO_ALCOVE` for the Uaho
+    donor and nothing for any other; pass ``((x0, x1), (z0, z1), y_min)`` in the FIRST
+    donor block's LOCAL frame to hand-tune a new donor (the aperture-plug path needs the
+    donor's own anatomy pass first -- see the studies README).
+
+    ``ground`` picks the bench's walkable ground family (:data:`grassland.GROUNDS` --
+    the byte-measured TRANSLATION LAWS): the plain-ground classification, the zip
+    annulus's mains UVs + topograph, and the outside-the-rim probe all speak that
+    family. ``"grass"`` is the bit-frozen identity (the Uaho acceptance).
+
+    Returns ``{"changed", "center", "rot", "drop", "report"}``; raises ``ValueError`` on
+    any gate."""
+    import numpy as np
+
+    gspec = G.GROUNDS[ground]
+    g_topo = gspec["topo"]
+    g_du, g_dv = gspec["mains_du"], gspec["mains_dv"]
+    donor_blocks = _norm_donor_blocks(donor)
+    if alcove == "auto":
+        alcove_box = UAHO_ALCOVE if donor_blocks == [MOUNTAIN_DONOR] else None
+    else:
+        alcove_box = alcove
+    SCAN_BAND = (clear + 4.0) if scan_band is None else scan_band
+    ROCK = frozenset(rock_topos)
+
+    # THE DONOR-DISPATCH STRIP: a carried IDALL keeps its topograph + flags but drops the
+    # donor's event/area bits -- those are DISPATCH CONTEXT (area feeds the overworld
+    # camera's place bucket via w_cameraArea2Place -- Uaho's baked area=63 is bucket 2 =
+    # cameraDistance 6000, the alcove zoom-out quirk -- and event 1-3 marks a PLACE
+    # ENTRANCE tile that fires the world .eb), meaningless and hazardous on a custom
+    # island. The kit's own synthetic emitters default to area=0/event=0.
+    def strip_dispatch(idall_f):
+        d = X.decode_id(int(round(idall_f)))
+        return float(X.encode_id(topograph=d["topograph"], flags=d["flags"]))
+
+    # ---- 1. the donor blob ----------------------------------------------------------------
+    B = _mountain_blob(donor_blocks, rock_topos=ROCK, alcove_box=alcove_box,
+                       disc=disc, game=game, log=log)
+    dV, dU, dN, dT = B["dV"], B["dU"], B["dN"], B["dT"]
+    dtri, dtopo, d_edge = B["dtri"], B["dtopo"], B["d_edge"]
+    blob, rim, rim_set, apertures = B["blob"], B["rim"], B["rim_set"], B["apertures"]
+    oV, oN, otris = B["oV"], B["oN"], B["otris"]
+    c_local, r_rim, ta, tb = B["c_local"], B["r_rim"], B["ta"], B["tb"]
+    dV2, dN2, rim2 = B["dV2"], B["dN2"], B["rim2"]
+
+    def detilt_p(p):
+        return (p[0], p[1] - ta * (p[0] - c_local[0]) - tb * (p[2] - c_local[1]), p[2])
+
+    def detilt_n(n):
+        v3 = np.array([n[0] + ta * n[1], n[1], n[2] + tb * n[1]])
+        return (v3 / (np.linalg.norm(v3) or 1.0)).tolist()
+
+    # ---- 2. the target span + the bench arrays -------------------------------------------
+    seed_pt = center if center is not None else near
+    if seed_pt is None:
+        raise ValueError("give center= (exact) or near= (scan)")
+    CX, CZ = float(seed_pt[0]), float(seed_pt[1])
+    seed_blk = (int(math.floor(CX / BLOCK)), int(math.floor(-CZ / BLOCK)))
+    half = r_rim + SCAN_BAND + 2.0
+    if 2.0 * half <= BLOCK:
+        # the proven single-block pipeline (byte-frozen -- the Uaho identity acceptance)
+        span = [seed_blk]
+    else:
+        sx0 = int(math.floor((CX - half) / BLOCK))
+        sx1 = int(math.floor((CX + half) / BLOCK))
+        sy0 = int(math.floor(-(CZ + half) / BLOCK))
+        sy1 = int(math.floor(-(CZ - half) / BLOCK))
+        span = [(sbx, sby) for sby in range(sy0, sy1 + 1) for sbx in range(sx0, sx1 + 1)]
+        log(f"multi-block span {sorted(span)}: the blob (radius {r_rim:.1f}u) needs "
+            f"{2 * half:.0f}u of covered ground")
+    missing = [b for b in span if b not in soup["blocks"]]
+    if missing:
+        raise ValueError(f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs deployed "
+                         f"Terrain overrides on blocks {sorted(span)}, but "
+                         f"{sorted(missing)} have none -- mint a bigger island first")
+    span = sorted(span)
+    SPX0, SPX1 = BLOCK * min(b[0] for b in span), BLOCK * (max(b[0] for b in span) + 1)
+    SPZ0, SPZ1 = -BLOCK * (max(b[1] for b in span) + 1), -BLOCK * min(b[1] for b in span)
+    gpos, gtris, gnrm, guv, gtan, gblk = [], [], [], [], [], []
+    for blk in span:
+        bm0 = soup["blocks"][blk]
+        sbx, sby = blk
+        vbase = len(gpos)
+        for v in bm0.verts:
+            gpos.append([v[0] + BLOCK * sbx, v[1], v[2] - BLOCK * (sby + 1) + BLOCK])
+        gnrm.extend(list(n) for n in bm0.chan_arrays[X.CH_NRM])
+        guv.extend(list(u) for u in bm0.chan_arrays[X.CH_UV])
+        gtan.extend(list(t) for t in bm0.chan_arrays[X.CH_TAN])
+        for tri in bm0.tris:
+            gtris.append([i + vbase for i in tri])
+            gblk.append(blk)
+    gtopo = [X.decode_id(int(round(gtan[t[0]][0])))["topograph"] for t in gtris]
+
+    # ---- 2b. THE MINT-HOLE PATCH: detect every once-edge 3-cycle above sea level and
+    # fill it with its neighbors' own language (uv = the centroid cell's own decoded
+    # mains mapping at the corners; normal/id from a coincident entry). A mint from the
+    # current kit ships hole-free (island.py's ring-conformity fix) so this is a genuine
+    # no-op there -- it stays because the in-game-approved bench predates the fix, and
+    # the identity acceptance replays that exact input.
+    eu_h = Counter()
+    for tri in gtris:
+        w = [gpos[i] for i in tri]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            eu_h[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
+    oh = [e for e, n in eu_h.items() if n == 1
+          and e[0][1] > 0.5 and e[1][1] > 0.5]
+    adj_h = defaultdict(set)
+    for a, b in oh:
+        adj_h[a].add(b)
+        adj_h[b].add(a)
+    holes3 = set()
+    for a in adj_h:
+        for b in adj_h[a]:
+            for c in adj_h[b]:
+                if c != a and c in adj_h[a]:
+                    holes3.add(tuple(sorted((a, b, c))))
+    ent_at = defaultdict(list)                             # position -> vertex entries
+    for tdx, tri in enumerate(gtris):
+        for i in tri:
+            ent_at[kk3(gpos[i])].append((tdx, i))
+    cell4 = lambda x, z: (math.floor(x / 4.0), math.floor(z / 4.0))  # noqa: E731
+    n_orig = len(gtris)
+
+    def decode_cell_early(ccell):
+        """The cell's (quad, ori) from any kept tri that exact-matches the mains language."""
+        for tdx in range(n_orig):
+            tri = gtris[tdx]
+            tc = np.mean([gpos[j] for j in tri], axis=0)
+            if cell4(tc[0], tc[2]) != ccell:
+                continue
+            for q in [(u2, v2) for u2 in (0, 1) for v2 in (0, 1)]:
+                for o in (0, 90, 180, 270):
+                    err = 0.0
+                    for j in tri:
+                        mu, mv = G.mains_uv(gpos[j][0], gpos[j][2], ccell, q, o)
+                        err = max(err, abs(mu + g_du - guv[j][0]),
+                                  abs(mv + g_dv - guv[j][1]))
+                    if err < 1e-4:
+                        return q, o
+        return None
+
+    patched_holes = 0
+    for cyc in sorted(holes3):
+        # a real hole has NO existing face spanning its three positions (a legally
+        # detached tri's own edges also chain into a 3-cycle -- that is not a hole)
+        t_sets = [set(t2 for t2, _ in ent_at[p]) for p in cyc]
+        if t_sets[0] & t_sets[1] & t_sets[2]:
+            continue
+        cen = np.mean([list(p) for p in cyc], axis=0)
+        ccell = cell4(cen[0], cen[2])
+        # uv = the centroid cell's OWN decoded mapping evaluated at the corners -- the
+        # mint's convention for cell-straddling tris (corner-copies from coincident
+        # entries mix NEIGHBORING cells' mappings when the hole straddles a cell edge).
+        qo = decode_cell_early(ccell)
+        if not qo:
+            raise ValueError(f"mint-hole cell {ccell} has no decodable mains tri")
+        q, o = qo
+        a3, b3, c3 = (np.array(p) for p in cyc)
+        order = cyc if np.cross(b3 - a3, c3 - a3)[1] > 0 else (cyc[0], cyc[2], cyc[1])
+        new_idx = []
+        for p in order:
+            pick = ent_at[p][0][1]                         # normal/id from any twin entry
+            gpos.append(list(gpos[pick]))
+            gnrm.append(list(gnrm[pick]))
+            mu, mv = G.mains_uv(p[0], p[2], ccell, q, o)
+            guv.append([mu + g_du, mv + g_dv])
+            gtan.append(list(gtan[pick]))
+            new_idx.append(len(gpos) - 1)
+        gtris.append(new_idx)
+        gblk.append((int(math.floor(cen[0] / BLOCK)), int(math.floor(-cen[2] / BLOCK))))
+        gtopo.append(X.decode_id(int(round(gtan[new_idx[0]][0])))["topograph"])
+        patched_holes += 1
+        log(f"mint hole PATCHED at ({cen[0]:.1f},{cen[2]:.1f}) y {cen[1]:.1f} "
+            f"(cell {ccell} quad {q} ori {o})")
+    lo_u, hi_u = G.FAM_REGION["main"][0], G.FAM_REGION["main"][2]
+    plain = []
+    for tdx, tri in enumerate(gtris):
+        plain.append(gtopo[tdx] == g_topo and
+                     all(lo_u - 0.02 <= guv[i][0] - g_du <= hi_u + 0.02 for i in tri))
+    tri_c = [((gpos[tri[0]][0] + gpos[tri[1]][0] + gpos[tri[2]][0]) / 3,
+              (gpos[tri[0]][2] + gpos[tri[1]][2] + gpos[tri[2]][2]) / 3)
+             for tri in gtris]
+    nonplain_c = np.array([tri_c[t] for t in range(len(gtris)) if not plain[t]])
+    if not len(nonplain_c):
+        raise ValueError(f"block span {span} has no non-plain tris at all -- not a kit "
+                         f"island (no coast to place against)")
+    log(f"bench: {len(gtris)} tris ({sum(plain)} plain-grass mains)")
+    # PRISTINE once-edge baseline, captured BEFORE any mutation: computed after the lift
+    # it cancels self-consistent weld splits and the crack gate goes blind
+    eu0 = Counter()
+    for tri in gtris:
+        w = [gpos[i] for i in tri]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            eu0[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
+    once0 = {e for e, n in eu0.items() if n == 1}
+
+    def rot_pt(p, k):
+        dx3, dz3 = p[0] - c_local[0], p[2] - c_local[1]
+        for _ in range(k):
+            dx3, dz3 = dz3, -dx3
+        return (c_local[0] + dx3, p[1], c_local[1] + dz3)
+
+    def rot_n(n, k):
+        nx, nz = n[0], n[2]
+        for _ in range(k):
+            nx, nz = nz, -nx
+        return [nx, n[1], nz]
+
+    def in_span(ROT, gx, gz):
+        """The hole band must stay inside the covered span (a mint can spill a few coast
+        tris into a neighbor block the pipeline can't see)."""
+        poly_pts = np.array([(p[0], p[2]) for p in (rot_pt(q, ROT) for q in rim)])
+        pp = poly_pts + np.array([gx - c_local[0], gz - c_local[1]])
+        return not (pp[:, 0].min() < SPX0 + SCAN_BAND + 2 or pp[:, 0].max() > SPX1 - SCAN_BAND - 2
+                    or pp[:, 1].min() < SPZ0 + SCAN_BAND + 2 or pp[:, 1].max() > SPZ1 - SCAN_BAND - 2)
+
+    def band_clean(ROT, gx, gz):
+        """Exact: no non-plain tri inside or near the placed rim polygon's band."""
+        DXc, DZc = gx - c_local[0], gz - c_local[1]
+        rp = [(p[0] + DXc, p[2] + DZc) for p in (rot_pt(q, ROT) for q in rim)]
+        for tdx, tri in enumerate(gtris):
+            if plain[tdx]:
+                continue
+            cx2, cz2 = tri_c[tdx]
+            if pip(cx2, cz2, rp) or near_poly(cx2, cz2, rp, SCAN_BAND) or any(
+                    pip(gpos[i][0], gpos[i][2], rp) or
+                    near_poly(gpos[i][0], gpos[i][2], rp, SCAN_BAND) for i in tri):
+                return False
+        return True
+
+    if center is not None:
+        ROT, TX, TZ = 0, CX, CZ
+        if not in_span(ROT, TX, TZ):
+            raise ValueError(f"massif at ({TX:.0f},{TZ:.0f}) leaves block span "
+                             f"{span} (the working band must stay on covered ground)")
+        if not band_clean(ROT, TX, TZ):
+            raise ValueError(f"massif footprint at ({TX:.0f},{TZ:.0f}) is not clear "
+                             f"plain-grass mains (band {SCAN_BAND}u)")
+        pp = (np.array([(p[0], p[2]) for p in (rot_pt(q, ROT) for q in rim)])
+              + np.array([TX - c_local[0], TZ - c_local[1]]))
+        dmin = float(np.sqrt(((nonplain_c[:, None, :] - pp[None, :, :]) ** 2)
+                             .sum(axis=2).min()))
+        log(f"placement (exact): rot 0deg, blob centre -> ({TX},{TZ}) "
+            f"(raw clearance {dmin:.1f}u)")
+    else:
+        cands = []                                         # (score, dmin, ROT, gx, gz)
+        for ROT in (0, 1, 2, 3):
+            poly_pts = np.array([(p[0], p[2]) for p in (rot_pt(q, ROT) for q in rim)])
+            for gx in range(int(CX) - search_radius, int(CX) + search_radius + 1, search_step):
+                for gz in range(int(CZ) - search_radius, int(CZ) + search_radius + 1, search_step):
+                    pp = poly_pts + np.array([gx - c_local[0], gz - c_local[1]])
+                    if pp[:, 0].min() < SPX0 + SCAN_BAND + 2 or pp[:, 0].max() > SPX1 - SCAN_BAND - 2 \
+                            or pp[:, 1].min() < SPZ0 + SCAN_BAND + 2 or pp[:, 1].max() > SPZ1 - SCAN_BAND - 2:
+                        continue
+                    # numpy prefilter: nearest non-plain centroid to any poly vertex
+                    dmin = float(np.sqrt(
+                        ((nonplain_c[:, None, :] - pp[None, :, :]) ** 2).sum(axis=2).min()))
+                    cands.append((dmin + (0.75 if ROT == 0 else 0.0), dmin, ROT, gx, gz))
+        if not cands:
+            raise ValueError(f"no in-span candidate near ({CX:.0f},{CZ:.0f}) -- the blob "
+                             f"(radius {r_rim:.1f}u + band {SCAN_BAND}u) does not fit "
+                             f"the covered span {span}")
+        cands.sort(reverse=True)
+        log(f"scan: best raw clearance {cands[0][1]:.1f}u (rot {cands[0][2] * 90}deg) "
+            f"of {len(cands)} in-bounds candidates")
+        chosen = None
+        for score, dmin, ROT, gx, gz in cands[:scan_cutoff]:
+            if dmin < SCAN_BAND:
+                break
+            if band_clean(ROT, gx, gz):
+                chosen = (ROT, gx, gz, dmin)
+                break
+        if not chosen:
+            raise ValueError(f"no lawful placement -- best raw clearance "
+                             f"{cands[0][1]:.1f}u vs the {SCAN_BAND}u band")
+        ROT, TX, TZ, dmin = chosen
+        log(f"placement: rot {ROT * 90}deg, blob centre -> ({TX},{TZ}) "
+            f"(clearance {dmin:.1f}u)")
+    DX, DZ = TX - c_local[0], TZ - c_local[1]
+    rim_poly = [(p[0] + DX, p[2] + DZ) for p in (rot_pt(q, ROT) for q in rim)]
+
+    # ---- 3. anchor + carry: ROCK RIGID, THE GROUND CONFORMS -----------------------------
+    # THE ROCK-RIGID LAW: carried rock never deforms beyond the global affine (de-tilt +
+    # DY); ALL seating deformation goes to the GRASS -- at the real donor the ground
+    # RISES to meet the high foot, so the bench gets a donor-shaped apron lift (pure-Y
+    # displacement of kept plain-grass verts, the proven hill-at-scale mechanism) rising
+    # from bench ground to the rigid rim over gblend, tapered at block borders (a
+    # displaced border vert would crack against the neighbor block's twin) AND near
+    # non-plain tris (the coast band must not deform).
+    rim_med = float(np.median([p[1] for p in rim2]))
+    near_ys = [gpos[i][1] for tdx, tri in enumerate(gtris) if plain[tdx] for i in tri
+               if not pip(gpos[i][0], gpos[i][2], rim_poly)
+               and near_poly(gpos[i][0], gpos[i][2], rim_poly, clear + 3.0)]
+    if not near_ys:
+        raise ValueError("no plain-grass ground around the rim to anchor against")
+    ground_med = float(np.median(near_ys))
+    DY = ground_med - rim_med
+
+    def carry_vert(i):
+        pr = rot_pt(dV2[i], ROT)
+        return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
+
+    # NOTE: rim_nodes iterates rim_set (a set) -- CPython's set order is deterministic
+    # for identical insertion sequences of identical (numeric-tuple) values, and the
+    # ground_lift float accumulation below inherits that order. The in-game-approved
+    # bytes were produced through this exact order; do NOT "clean this up" to sorted().
+    rim_nodes = []                                         # (x, z, RIGID rim height)
+    for p in rim_set:
+        pr = rot_pt(detilt_p(p), ROT)
+        rim_nodes.append((pr[0] + DX, pr[2] + DZ, pr[1] + DY))
+    log(f"rigid rim heights: [{min(n[2] for n in rim_nodes):.2f},"
+        f"{max(n[2] for n in rim_nodes):.2f}] vs ground med {ground_med:.2f} "
+        f"(the grass apron absorbs the difference over {gblend}u)")
+    # positions touched by ANY non-plain tri: the lift must be EXACTLY zero there --
+    # worldmap meshes don't share vertex entries (welds = coincident positions), so a
+    # lift applied to the grass-side entry but not the coast-side twin SPLITS the weld
+    nonplain_pos = np.array(sorted({(kk3(gpos[i])[0], kk3(gpos[i])[2])
+                                    for tdx, tri in enumerate(gtris) if not plain[tdx]
+                                    for i in tri}))
+
+    def ground_lift(px, pz, py, dnp):
+        """Pure-Y apron field: 0 far away -> (rim height - ground) at the rim."""
+        wsum = hsum = 0.0
+        dmin2 = 1e18
+        for (nx2, nz2, hy) in rim_nodes:
+            dd2 = (px - nx2) ** 2 + (pz - nz2) ** 2
+            dmin2 = min(dmin2, dd2)
+            if dd2 > gblend * gblend:
+                continue
+            w = 1.0 / (dd2 + 0.04)
+            wsum += w
+            hsum += w * hy
+        if wsum <= 0.0 or dmin2 >= gblend * gblend:
+            return 0.0
+        W = (1.0 - math.sqrt(dmin2) / gblend) ** 2
+        # taper at the span's OUTER borders only (an unloaded neighbor's twin vert
+        # cannot receive the lift); internal span borders weld through the
+        # per-POSITION lift applied to every coincident entry
+        bt = min(1.0, (min(px - SPX0, SPX1 - px, pz - SPZ0, SPZ1 - pz) - 0.5) / 3.0)
+        pt = min(1.0, (dnp - 2.5) / 3.0)                   # die before the coast band
+        return max(0.0, bt) * max(0.0, pt) * W * (hsum / wsum - py)
+
+    # lift by POSITION (computed once per unique position, dnp = exact distance to the
+    # nearest non-plain VERTEX position -- centroids under-measure at big coast tris),
+    # then applied to EVERY coincident vertex entry so no weld can split
+    cand = {}
+    for tdx, tri in enumerate(gtris):
+        if not plain[tdx]:
+            continue
+        for i in tri:
+            k = kk3(gpos[i])
+            if k in cand:
+                continue
+            dnp = float(np.sqrt(((nonplain_pos - np.array([k[0], k[2]])) ** 2)
+                                .sum(axis=1).min()))
+            cand[k] = ground_lift(k[0], k[2], gpos[i][1], dnp)
+    lift_of = {}
+    lift_max = 0.0
+    for i in range(len(gpos)):
+        lf = cand.get(kk3(gpos[i]), 0.0)
+        if abs(lf) > 1e-6:
+            gpos[i][1] += lf
+            lift_of[i] = lf
+            lift_max = max(lift_max, abs(lf))
+    log(f"ground apron: {len(lift_of)} vertex entries lifted "
+        f"({sum(1 for v in cand.values() if abs(v) > 1e-6)} positions, "
+        f"max {lift_max:.2f}u)")
+
+    # ---- 3b. hole carve (on the LIFTED bench; the drop test is plan-only) ---------------
+    drop = set()
+    for tdx, tri in enumerate(gtris):
+        for i in tri:
+            if pip(gpos[i][0], gpos[i][2], rim_poly) or \
+                    near_poly(gpos[i][0], gpos[i][2], rim_poly, clear):
+                drop.add(tdx)
+                break
+    fams = Counter(gtopo[t] for t in drop)
+    log(f"bench tris dropped: {len(drop)} (topos {dict(fams)})")
+    if set(fams) != {g_topo}:
+        raise ValueError(f"hole reaches non-ground island tris (topos {dict(fams)}, "
+                         f"ground topo {g_topo})")
+
+    eu2 = Counter()
+    for tdx, tri in enumerate(gtris):
+        if tdx in drop:
+            continue
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            eu2[tuple(sorted((kk3(gpos[tri[a]]), kk3(gpos[tri[b]]))))] += 1
+    dropped_edges = set()
+    for tdx in drop:
+        tri = gtris[tdx]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            dropped_edges.add(tuple(sorted((kk3(gpos[tri[a]]), kk3(gpos[tri[b]])))))
+    hole_es = [e for e, n in eu2.items() if n == 1 and e in dropped_edges]
+    holes = chain_rings(hole_es, "hole")
+    if len(holes) != 1:
+        raise ValueError(f"hole is {len(holes)} rings, want 1")
+    hole = holes[0]
+    log(f"hole ring: {len(hole)} positions")
+
+    carried = {t: [carry_vert(i) for i in dtri[t]] for t in blob}
+    c_edge = Counter()
+    c_float = {}
+    for t in blob:
+        ps = carried[t]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            ka, kb = kk3(ps[a]), kk3(ps[b])
+            c_float.setdefault(ka, ps[a])
+            c_float.setdefault(kb, ps[b])
+            c_edge[tuple(sorted((ka, kb)))] += 1
+    crims = chain_rings([e for e, n in c_edge.items() if n == 1], "carried rim")
+    crims.sort(key=lambda r: -abs(signed_area(r)))
+    if len(crims) != 1 + len(apertures):
+        raise ValueError("carried ring count changed in transit")
+    crim = crims[0]
+
+    # THE APERTURE PLUGS: the Object mesh's own geometry, verbatim, carried as terrain
+    # (winding up-facing). id = the adjacent rock's; normals de-tilted + rotated; verts
+    # snap to the carried blob floats so the plug welds shut. The object's own uvs
+    # target the OBJECT material (in the terrain atlas they'd sample grass); the plug
+    # instead CONTINUES the surrounding rock chart -- fit the affine of the collar (the
+    # rock tris touching the aperture, largest uv-continuous group) and evaluate it at
+    # the plug verts: the panel's own flow extended across the hole, exactly how every
+    # within-panel edge already flows (the gore-panel law).
+    plug_parents = []
+    plug_id = None
+    if apertures:
+        ap_pts = {p for r in apertures for p in r}
+        ap_carried = {}
+        for t in blob:
+            tri = dtri[t]
+            for k in range(3):
+                k0 = kk3(dV[tri[k]])
+                if k0 in ap_pts:
+                    ap_carried[k0] = carried[t][k]
+        for r in apertures:
+            for i2 in range(len(r)):
+                e = tuple(sorted((r[i2], r[(i2 + 1) % len(r)])))
+                for t2 in d_edge.get(e, ()):
+                    if dtopo[t2] in ROCK:
+                        plug_id = strip_dispatch(float(dT[dtri[t2][0]][0]))
+                        break
+                if plug_id:
+                    break
+            if plug_id:
+                break
+        if plug_id is None:
+            raise ValueError("aperture has no adjacent rock tri to take an id from")
+
+        def carry_pt(p):
+            pr = rot_pt(detilt_p(p), ROT)
+            return [pr[0] + DX, pr[1] + DY, pr[2] + DZ]
+
+        collar = [t for t in blob if dtopo[t] in ROCK
+                  and any(kk3(dV[i]) in ap_pts for i in dtri[t])]
+        cpar = {t: t for t in collar}
+
+        def cfind(t):
+            while cpar[t] != t:
+                cpar[t] = cpar[cpar[t]]
+                t = cpar[t]
+            return t
+
+        cuv = {(t, kk3(dV[i])): (dU[i][0], dU[i][1]) for t in collar for i in dtri[t]}
+        for t1 in collar:
+            for t2 in collar:
+                if t2 <= t1:
+                    continue
+                shared = [kk3(dV[i]) for i in dtri[t1]
+                          if kk3(dV[i]) in {kk3(dV[j]) for j in dtri[t2]}]
+                if len(shared) < 2:
+                    continue
+                if all(abs(cuv[(t1, s)][0] - cuv[(t2, s)][0]) < 0.0015
+                       and abs(cuv[(t1, s)][1] - cuv[(t2, s)][1]) < 0.0015 for s in shared):
+                    r1, r2 = cfind(t1), cfind(t2)
+                    if r1 != r2:
+                        cpar[r1] = r2
+        groups = defaultdict(list)
+        for t in collar:
+            groups[cfind(t)].append(t)
+        cg = max(groups.values(), key=len)
+        rows_, ru_, rv_ = [], [], []
+        for t in cg:
+            for i in dtri[t]:
+                rows_.append([dV[i][0], dV[i][1], dV[i][2], 1.0])
+                ru_.append(dU[i][0])
+                rv_.append(dU[i][1])
+        Am_ = np.array(rows_)
+        cu_, *_ = np.linalg.lstsq(Am_, np.array(ru_), rcond=None)
+        cv_, *_ = np.linalg.lstsq(Am_, np.array(rv_), rcond=None)
+        res_u = float(np.percentile(np.abs(Am_ @ cu_ - ru_) * 2048, 90))
+        res_v = float(np.percentile(np.abs(Am_ @ cv_ - rv_) * 4096, 90))
+        log(f"plug chart: collar {len(collar)} tris, biggest continuous group {len(cg)}, "
+            f"affine residual p90 u{res_u:.0f} v{res_v:.0f} px")
+
+        def plug_uv(p):
+            v4 = np.array([p[0], p[1], p[2], 1.0])
+            return float(v4 @ cu_), float(v4 @ cv_)
+
+        for tri in otris:
+            corners = []
+            for i in tri:
+                w = ap_carried.get(kk3(oV[i])) or carry_pt(oV[i])
+                n3 = rot_n(detilt_n(oN[i]), ROT)
+                uu, vv = plug_uv(oV[i])
+                corners.append((*w, uu, vv, *n3))
+            plug_parents.append((tuple(corners), plug_id, "plug"))
+        puA, pvA = ROCK_CHART_PHASE
+        pcols = sorted({math.floor((c[3] - puA) / 0.0625)
+                        for cs, _, _ in plug_parents for c in cs})
+        prows = sorted({math.floor((c[4] - pvA) / 0.03125)
+                        for cs, _, _ in plug_parents for c in cs})
+        log(f"aperture plugs: {len(plug_parents)} object tris carried as terrain "
+            f"(id {plug_id:.0f}, chart cols {pcols} rows {prows})")
+        if not (min(pcols) >= 5 and max(pcols) <= 10
+                and min(prows) >= 6 and max(prows) <= 12):
+            raise ValueError("plug chart left the rock band")
+    rim_nrm = {}
+    for t in blob:
+        for k in range(3):
+            key = kk3(carried[t][k])
+            rim_nrm.setdefault(key, rot_n(dN2[dtri[t][k]], ROT))
+    log(f"carried: peak y {max(p[1] for ps in carried.values() for p in ps):.1f}, "
+        f"DY {DY:+.2f}")
+
+    # ---- 5. zip annulus: minimal-total-chord DP (a greedy walk stalls on floor-mouth
+    # CONCAVITY into long chords at any rotation; the DP strip between the two rings is
+    # optimal and concavity-immune) -----------------------------------------------------
+    hole_ord = list(hole)
+    rim_base = list(crim)
+    if signed_area(hole_ord) * signed_area(rim_base) < 0:
+        rim_base.reverse()
+
+    def rimw(p):
+        return tuple(c_float[p])
+
+    def d2(p, q):
+        return (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
+
+    i0, j0 = min(((i, j) for i in range(len(hole_ord)) for j in range(len(rim_base))),
+                 key=lambda ij: d2(hole_ord[ij[0]], rimw(rim_base[ij[1]])))
+    H = hole_ord[i0:] + hole_ord[:i0]
+    R = rim_base[j0:] + rim_base[:j0]
+    NH, NR = len(H), len(R)
+    Rw = [rimw(p) for p in R]
+    INF = 1e18
+    cost = [[INF] * (NR + 1) for _ in range(NH + 1)]
+    back = [[None] * (NR + 1) for _ in range(NH + 1)]
+    cost[0][0] = 0.0
+    for i in range(NH + 1):
+        for j in range(NR + 1):
+            c0 = cost[i][j]
+            if c0 >= INF:
+                continue
+            if i < NH:
+                nc = c0 + math.sqrt(d2(H[(i + 1) % NH], Rw[j % NR]))
+                if nc < cost[i + 1][j]:
+                    cost[i + 1][j] = nc
+                    back[i + 1][j] = "h"
+            if j < NR:
+                nc = c0 + math.sqrt(d2(H[i % NH], Rw[(j + 1) % NR]))
+                if nc < cost[i][j + 1]:
+                    cost[i][j + 1] = nc
+                    back[i][j + 1] = "r"
+    zip_tris = []
+    i, j = NH, NR
+    while i > 0 or j > 0:
+        if back[i][j] == "h":
+            zip_tris.append((H[(i - 1) % NH], H[i % NH], Rw[j % NR]))
+            i -= 1
+        else:
+            zip_tris.append((H[i % NH], Rw[j % NR], Rw[(j - 1) % NR]))
+            j -= 1
+    rim_ord = R
+    zip_maxe = 0.0
+    for tri3 in zip_tris:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            zip_maxe = max(zip_maxe, math.sqrt(d2(tri3[a], tri3[b])))
+    log(f"zip annulus: {len(zip_tris)} tris (DP, max chord {zip_maxe:.1f}u)")
+
+    # ---- 5b. apron + zip shading: re-smooth the CHANGED grass in place ------------------
+    # the lift tilts the real surface but kept verts still wear the mint's flat-ground
+    # normals, and the zip interpolated donor-rock normals across its whole band --
+    # together = a visible seam ring. Re-smooth area-weighted over the FINAL geometry,
+    # applied only where the ground actually moved (blended by lift magnitude -> exact
+    # mint normals at the region edge, no new seam); rim verts keep the donor's
+    # feet-weld normals.
+    acc = defaultdict(lambda: np.zeros(3))
+
+    def acc_tri(p3):
+        a, b, c3 = (np.asarray(q, dtype=float) for q in p3)
+        fn = np.cross(b - a, c3 - a)
+        if fn[1] < 0:
+            fn = -fn
+        for q in p3:
+            acc[kk3(q)] += fn
+
+    for tdx, tri in enumerate(gtris):
+        if tdx not in drop:
+            acc_tri([gpos[i] for i in tri])
+    for t in blob:
+        acc_tri(carried[t])
+    for tri3 in zip_tris:
+        acc_tri(list(tri3))
+    n_ns = 0
+    for i, lf in lift_of.items():
+        s = min(1.0, abs(lf) / 0.4)
+        v3 = acc[kk3(gpos[i])]
+        L = float(np.linalg.norm(v3))
+        if s <= 0.0 or L < 1e-9:
+            continue
+        nb2 = np.asarray(gnrm[i], dtype=float) * (1 - s) + (v3 / L) * s
+        nb2 /= (np.linalg.norm(nb2) or 1.0)
+        gnrm[i] = nb2.tolist()
+        n_ns += 1
+    log(f"apron re-smooth: {n_ns} vert normals blended by lift")
+
+    cell_of = lambda x, z: (int(np.floor(x / 4.0)), int(np.floor(z / 4.0)))  # noqa: E731
+    kept_by_cell = defaultdict(list)
+    for tdx, tri in enumerate(gtris):
+        if tdx in drop or not plain[tdx]:
+            continue
+        kept_by_cell[cell_of(*tri_c[tdx])].append(tdx)
+    QUADS = [(u, v) for u in (0, 1) for v in (0, 1)]
+    ORIS = (0, 90, 180, 270)
+    _dec = {}
+
+    def decode_cell(cell):
+        if cell in _dec:
+            return _dec[cell]
+        best2 = None
+        for tdx in kept_by_cell.get(cell, []):
+            tri = gtris[tdx]
+            for q in QUADS:
+                for o in ORIS:
+                    err = 0.0
+                    for i in tri:
+                        mu, mv = G.mains_uv(gpos[i][0], gpos[i][2], cell, q, o)
+                        err = max(err, abs(mu + g_du - guv[i][0]),
+                                  abs(mv + g_dv - guv[i][1]))
+                    if err < 1e-4:
+                        best2 = (q, o)
+                        break
+                if best2:
+                    break
+            if best2:
+                break
+        if best2 is None:
+            import random as _r
+            i2, j2 = cell
+            rr = _r.Random((i2 * 73856093) ^ (j2 * 19349663) ^ 0xF95)
+            best2 = (QUADS[rr.randrange(4)], ORIS[rr.randrange(4)])
+        _dec[cell] = best2
+        return best2
+
+    pos_nrm = {}
+    for tdx, tri in enumerate(gtris):
+        if tdx in drop:
+            continue
+        for i in tri:
+            pos_nrm.setdefault(kk3(gpos[i]), list(gnrm[i]))
+
+    ID0 = float(X.encode_id(topograph=g_topo))
+    new_parents = []                                       # (corners8, idall, fam)
+    for t in blob:                                         # the mountain, verbatim channels
+        tri = dtri[t]
+        idall = strip_dispatch(float(dT[tri[0]][0]))
+        nr = [rot_n(dN2[tri[k]], ROT) for k in range(3)]
+        corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
+                        for k in range(3))
+        new_parents.append((corners, idall, "mountain"))
+    new_parents.extend(plug_parents)
+    zip_rise = 0.0
+    zip_ny_min = 1.0
+    for tri3 in zip_tris:
+        a, b, c = (np.asarray(p, dtype=float) for p in tri3)
+        nrm = np.cross(b - a, c - a)
+        nl = float(np.linalg.norm(nrm)) or 1.0
+        zip_ny_min = min(zip_ny_min, abs(float(nrm[1])) / nl)
+        zip_rise = max(zip_rise, float(max(p[1] for p in tri3) - min(p[1] for p in tri3)))
+        order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
+        cell = cell_of(float(a[0] + b[0] + c[0]) / 3, float(a[2] + b[2] + c[2]) / 3)
+        q, o = decode_cell(cell)
+        # plain positional mains, UNCLAMPED -- the mesa/forest-proven form
+        corners = []
+        for pnt in order:
+            key = kk3(pnt)
+            n3 = pos_nrm.get(key) or rim_nrm.get(key, [0.0, 1.0, 0.0])
+            u, v = G.mains_uv(float(pnt[0]), float(pnt[2]), cell, q, o)
+            corners.append((float(pnt[0]), float(pnt[1]), float(pnt[2]),
+                            u + g_du, v + g_dv, *n3))
+        new_parents.append((tuple(corners), ID0, "zip"))
+
+    # ---- 6. gates + assembly ------------------------------------------------------------
+    for corners, idall, fam in new_parents:
+        for p in corners:
+            if not (SPX0 + 0.5 < p[0] < SPX1 - 0.5 and SPZ0 + 0.5 < p[2] < SPZ1 - 0.5):
+                raise ValueError(f"{fam} leaves block span {span}: {p[:3]}")
+    down = 0
+    maxe = 0.0
+    for corners, _, _ in new_parents:
+        a, b, c = (np.asarray(p[:3]) for p in corners)
+        if np.cross(b - a, c - a)[1] < 0:
+            down += 1
+        for pq in ((a, b), (b, c), (c, a)):
+            maxe = max(maxe, float(np.linalg.norm(pq[0] - pq[1])))
+    ring_pts = np.array([list(p) for p in hole_ord] + [list(rimw(p)) for p in rim_ord])
+    nm = 0
+    for a_ in range(len(ring_pts)):
+        dd = np.sum((ring_pts - ring_pts[a_]) ** 2, axis=1)
+        nm += int(((dd > 1e-9) & (dd < 0.0025)).sum())
+    # per-block assembly: kept tris stay in their origin block, new tris split at the
+    # 64u borders (real cross-block mountains ship border-split with identity welds --
+    # split_borders8 cuts every parent at the same plane with the same lerp, so the
+    # welds hold); every span block re-emits
+    new_by_block = split_borders8(new_parents)
+    if not set(new_by_block) <= set(span):
+        raise ValueError(f"carve leaks outside the span blocks: "
+                         f"{sorted(set(new_by_block) - set(span))}")
+    changed = {}
+    for blk in span:
+        sbx, sby = blk
+        bm0 = soup["blocks"][blk]
+        pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+
+        def emit(p3, u2, n3, idall):
+            pos.append([p3[0] - BLOCK * sbx, p3[1], p3[2] + BLOCK * (sby + 1) - BLOCK])
+            uv.append(list(u2)); nrm.append(list(n3)); tan.append([idall, 0.0, 0.0, 1.0])
+            flat.append(len(pos) - 1)
+
+        for tdx, tri in enumerate(gtris):
+            if gblk[tdx] != blk or tdx in drop:
+                continue
+            for i in tri:
+                emit(gpos[i], guv[i], gnrm[i], gtan[i][0])
+            tris.append([flat[-3], flat[-2], flat[-1]])
+        for corners, idall, fam in new_by_block.get(blk, []):
+            for p in corners:
+                emit(p[:3], (p[3], p[4]), (p[5], p[6], p[7]), idall)
+            tris.append([flat[-3], flat[-2], flat[-1]])
+        changed[blk] = X.BlockMesh(
+            name=bm0.name, disc=bm0.disc, x=sbx, y=sby, lod=bm0.lod, vcount=len(pos),
+            stride=48,
+            channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2),
+                      X.CH_TAN: (32, 4)},
+            chan_arrays={X.CH_POS: pos, X.CH_NRM: nrm, X.CH_UV: uv, X.CH_TAN: tan},
+            flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+            submeshes=[])
+    # once-edge gate = BASELINE-SUBTRACTED against the PRISTINE snapshot (captured before
+    # the lift): the mint has its own legal once-edges; the build must not ADD any --
+    # including lift-split welds ANYWHERE in the span (internal span borders count 2
+    # here, one edge from each block's re-emit, exactly like the baseline)
+    eu3 = Counter()
+    for blk, bmB in changed.items():
+        sbx, sby = blk
+        v_ = bmB.chan_arrays[X.CH_POS]
+        for tri in bmB.tris:
+            w = [(v_[i][0] + BLOCK * sbx, v_[i][1], v_[i][2] - BLOCK * (sby + 1) + BLOCK)
+                 for i in tri]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                eu3[tuple(sorted((kk3(w[a]), kk3(w[b]))))] += 1
+    inner_once = [e for e, n in eu3.items() if n == 1 and e not in once0]
+    for e in inner_once[:6]:
+        log(f"  NEW ONCE EDGE: {e[0]} -- {e[1]}")
+    worst_rig = 0.0                                        # THE ROCK-RIGID GATE
+    for t in blob:
+        tri = dtri[t]
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            d0 = float(np.linalg.norm(dV[tri[a]] - dV[tri[b]]))
+            if d0 > 0.05:
+                worst_rig = max(worst_rig,
+                                abs(math.dist(carried[t][a], carried[t][b]) / d0 - 1.0))
+    g_worst = 0.0                                          # the apron slope envelope
+    for tdx, tri in enumerate(gtris):
+        if tdx in drop or not plain[tdx]:
+            continue
+        a, b, c3 = (np.array(gpos[i]) for i in tri)
+        fn = np.cross(b - a, c3 - a)
+        L = float(np.linalg.norm(fn)) or 1.0
+        g_worst = max(g_worst, math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L)))))
+    log(f"gates: down={down} maxEdge={maxe:.1f} nearMiss={nm // 2} "
+        f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f} "
+        f"rockRigid={worst_rig * 100:.1f}% apronSlope={g_worst:.1f}deg")
+    if down or nm or inner_once or maxe >= MTN_MAX_EDGE:
+        raise ValueError("mountain geometry gate failed (down/near-miss/annulus-crack/edge)")
+    if zip_rise > MTN_ZIP_RISE or zip_ny_min < MTN_ZIP_NY_MIN:
+        raise ValueError(f"zip steeper than the grass envelope (rise {zip_rise:.2f} "
+                         f"ny {zip_ny_min:.2f}; {MTN_ZIP_NY_MIN} ~ 34deg allows the "
+                         f"alcove-mouth bank)")
+    if worst_rig >= MTN_ROCK_RIGID:
+        raise ValueError("carried rock deformed beyond the de-tilt affine")
+    if g_worst > MTN_APRON_SLOPE:
+        raise ValueError("the ground apron exceeds the grass slope envelope")
+
+    # placement probes on the assembled meshes: the blob centre must ground on carried
+    # rock, and the grass just outside the rim must still ground as plain grass
+    from . import placement as P
+
+    class _W:
+        pass
+
+    _w = _W()
+    _wv, _wt, _wf = [], [], []
+    for blk, bmB in sorted(changed.items()):
+        sbx, sby = blk
+        base = len(_wv)
+        for k in range(bmB.vcount):
+            v_ = bmB.chan_arrays[X.CH_POS][k]
+            _wv.append((v_[0] + BLOCK * sbx, v_[1], v_[2] - BLOCK * (sby + 1) + BLOCK))
+            _wt.append(bmB.chan_arrays[X.CH_TAN][k])
+        _wf.extend(i + base for i in bmB.flat_index)
+    _w.verts, _w.tangents, _w.flat_index = _wv, _wt, _wf
+    _wml = [("Terrain", _w)]
+    gy, nm_, _, tp = P.place(_wml, TX, TZ)
+    log(f"blob centre grounds: y={gy:.2f} {nm_} topo {tp}")
+    if nm_ != "Terrain" or tp not in ROCK:
+        raise ValueError(f"blob centre grounds on {nm_} topo {tp}, want carried rock")
+    r_out = max(math.hypot(px - TX, pz - TZ) for (px, pz) in rim_poly) + 4.0
+    gy2, nm2, _, tp2 = P.place(_wml, TX - r_out, TZ)
+    log(f"ground probe west of the rim: y={gy2:.2f} {nm2} topo {tp2}")
+    if nm2 != "Terrain" or tp2 != g_topo:
+        raise ValueError(f"west ground probe grounds on {nm2} topo {tp2}, want plain "
+                         f"ground topo {g_topo}")
+
+    _atlas_gate_mountain(new_parents, game=game, log=log)
+
+    return {"changed": changed, "center": (TX, TZ), "rot": ROT, "drop": drop,
+            "report": {"blob_tris": len(blob), "dropped": len(drop),
+                       "zip_tris": len(zip_tris), "plugs": len(plug_parents),
+                       "rot_deg": ROT * 90, "blocks": [list(b) for b in span],
+                       "peak_y": round(float(
+                           max(p[1] for ps in carried.values() for p in ps)), 2),
+                       "zip_rise": round(zip_rise, 2), "rock_rigid": round(worst_rig, 4),
+                       "apron_slope": round(g_worst, 1), "lifted": len(lift_of),
+                       "patched_holes": patched_holes,
+                       "teleport": (math.floor(TX - r_out - 2) + 0.5,
+                                    math.floor(TZ) + 0.5)}}
+
+
+def _atlas_gate_mountain(new_parents, *, game=None, log=print):
+    """The Moguri-atlas alpha gate (the study's section 7 gate, minus the eye renders):
+    every new tri's interior must sample painted texels -- blank = transparent AND dark
+    (Moguri paints some in-tile edge strips with alpha 0 that an alpha-ignored opaque
+    shader renders fine; true gutter garbage is transparent AND near-black). Skips with a
+    log line when the Moguri worldmap atlas isn't installed -- it is a texture-source
+    check, not a geometry gate."""
+    from .. import config
+    gp = Path(config.find_game_path(game))
+    mog = gp / "MoguriMain" / "StreamingAssets" / "assets" / "resources" / "worldmap" / \
+        "textures" / "res(1_24)_terrain.png"
+    if not mog.exists():
+        log("atlas gate SKIPPED (no Moguri worldmap atlas found)")
+        return
+    from PIL import Image
+    atlas = Image.open(mog).convert("RGBA")
+    AW, AH = atlas.size
+    APX = atlas.load()
+
+    def at_b(u_, v_):
+        fx = (u_ % 1.0) * AW - 0.5
+        fy = (1.0 - v_ % 1.0) * AH - 0.5
+        x0, y0 = int(math.floor(fx)), int(math.floor(fy))
+        tx, ty = fx - x0, fy - y0
+        a4 = [0.0, 0.0, 0.0, 0.0]
+        for (dx2, dy2, wg) in ((0, 0, (1 - tx) * (1 - ty)), (1, 0, tx * (1 - ty)),
+                               (0, 1, (1 - tx) * ty), (1, 1, tx * ty)):
+            px_, py_ = min(max(x0 + dx2, 0), AW - 1), min(max(y0 + dy2, 0), AH - 1)
+            r, g2, b2, al = APX[px_, py_]
+            a4[0] += r * wg; a4[1] += g2 * wg; a4[2] += b2 * wg; a4[3] += al * wg
+        return a4[3], (int(a4[0]), int(a4[1]), int(a4[2]))
+
+    blank = 0
+    for corners, _, fam in new_parents:
+        nb = 0
+        for ii in range(11):
+            for jj in range(11 - ii):
+                w0, w1 = ii / 10.0, jj / 10.0
+                w2 = 1 - w0 - w1
+                if w2 < -1e-9:
+                    continue
+                u_ = w0 * corners[0][3] + w1 * corners[1][3] + w2 * corners[2][3]
+                v_ = w0 * corners[0][4] + w1 * corners[1][4] + w2 * corners[2][4]
+                aa_, rgb_ = at_b(u_, v_)
+                if aa_ < 24 and sum(rgb_) < 90:
+                    nb += 1
+        if nb:
+            blank += 1
+            log(f"  BLANK {fam} nb={nb} uv "
+                f"{[(round(c[3], 4), round(c[4], 4)) for c in corners]} "
+                f"at ({corners[0][0]:.1f},{corners[0][2]:.1f})")
+    log(f"atlas gate: transparent-sampling tris = {blank} (want 0)")
+    if blank:
+        raise ValueError(f"{blank} new tri(s) sample transparent atlas texels")
 
 
 # ---- census + deploy ------------------------------------------------------------------------

@@ -2649,8 +2649,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     from .world import island as I
     try:
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
-                  rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, disc=args.disc,
-                  game=args.game, dry_run=args.dry_run)
+                  rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
+                  disc=args.disc, game=args.game, dry_run=args.dry_run)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -2747,6 +2747,52 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
           f"(<= {IN.MAX_FLANK}), peak y {r['peak_y']} (<= {IN.PEAK_CAP}); "
           f"{len(res['changed'])} block(s) changed. All gates CLEAN. F6 -> World -> re-enter, "
           f"then walk the hill from all sides.")
+    return 0
+
+
+def _parse_block_rect(spec: str) -> list:
+    """``BX,BY`` or a rect ``BX0-BX1,BY0-BY1`` (either axis may be a range) -> block list."""
+    def rng(s):
+        if "-" in s:
+            a, b = s.split("-")
+            return list(range(int(a), int(b) + 1))
+        return [int(s)]
+    xs, ys = spec.split(",")
+    return [(x, y) for x in rng(xs) for y in rng(ys)]
+
+
+def _cmd_world_mountain(args: argparse.Namespace) -> int:
+    """Carry a REAL rock massif (verbatim topo-49/7/62 geometry+UV+normals+aperture plugs) onto a
+    DEPLOYED kit island -- the productized Uaho carry (in-game proven 2026-07-13). Gates: ROCK-RIGID +
+    weld-safe lift + zip envelope + placement probes + census."""
+    from .world import interior as IN
+    try:
+        (wx, wz), exact = _parse_world_point(args)
+        donor_blocks = _parse_block_rect(args.donor)
+        blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
+                                         disc=args.disc, game=args.game)
+        soup = IN.soup_from_blocks(blocks)
+        res = IN.carve_mountain(soup, center=(wx, wz) if exact else None,
+                                near=None if exact else (wx, wz), donor=donor_blocks,
+                                ground=args.ground, disc=args.disc, game=args.game)
+        IN.census_gate(res["changed"], disc=args.disc, game=args.game)
+        if not args.dry_run:
+            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                              game=args.game)
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    verb = "would deploy" if args.dry_run else "deployed"
+    cx, cz = res["center"]
+    r = res["report"]
+    tx, tz = r["teleport"]
+    print(f"{verb} the massif carry at world ({cx:.0f},{cz:.0f}) rot {r['rot_deg']}deg across "
+          f"{len(r['blocks'])} block(s): {r['blob_tris']} donor tris (+{r['plugs']} aperture "
+          f"plugs), {r['dropped']} island tris carved, {r['zip_tris']} zip tris; peak y "
+          f"{r['peak_y']}, rock rigidity drift {r['rock_rigid'] * 100:.1f}% (<= 3.5), apron "
+          f"slope {r['apron_slope']} deg (<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the "
+          f"placement probes + census. F6 -> World -> re-enter, then teleport ({tx}, {tz}) and "
+          f"face the massif; walk the whole rim. Run world-mirror after any custom-ocean deploy.")
     return 0
 
 
@@ -5708,6 +5754,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="max meadow patches (verbatim stamps; only perfectly-fitting ones place; default 2)")
     wis.add_argument("--flat", action="store_true",
                      help="skip the rolling relief + meadow stamps (no install data needed; reads LESS faithful)")
+    wis.add_argument("--ground", choices=("grass", "desert"), default="grass",
+                     help="walkable ground family (byte-measured TRANSLATION LAWS): grass (default) or "
+                          "desert (topo-17 mains + the desert cliff-wall band; meadow patches disabled)")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.set_defaults(func=_cmd_world_island)
@@ -5749,6 +5798,34 @@ def build_parser() -> argparse.ArgumentParser:
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     whl.set_defaults(func=_cmd_world_hill)
+
+    wmt = sub.add_parser("world-mountain",
+                         help="carry a REAL rock massif (verbatim topo-49/7/62 geometry+UV+normals, incl. "
+                              "Object-aperture plugs) onto a DEPLOYED kit island -- the in-game-proven Uaho "
+                              "carry (rock stays RIGID, the grass apron rises to meet it; hole carve + DP-zip "
+                              "annulus). Gated by ROCK-RIGID + the weld-safe lift + the zip envelope + "
+                              "placement probes + the census. Needs the custom engine; re-enter the world.")
+    wmt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
+    _mtg = wmt.add_mutually_exclusive_group(required=True)
+    _mtg.add_argument("--center", metavar="WX,WZ",
+                      help="EXACT massif centre in world coords, rotation 0 (gated, no scan)")
+    _mtg.add_argument("--near", metavar="WX,WZ",
+                      help="scan a ~20u window around this point for the best lawful plain-grass placement "
+                           "(exact 90-deg rotations as fallbacks)")
+    wmt.add_argument("--donor", default="0,0", metavar="BX[,-BX1],BY[-BY1]",
+                     help="real block(s) whose rock massif to carry: one block (default 0,0 = Uaho, alcove + "
+                          "aperture-plug anatomy studied) or a rect for a massif that straddles a border "
+                          "(10,5-6 = the crag; the target sizes itself to a multi-block span automatically). "
+                          "A new donor needs its own anatomy pass first -- see "
+                          "studies/overworld-topography/README.md.")
+    wmt.add_argument("--reach", type=float, default=96.0,
+                     help="deployed-block load window around the point in units (default 96)")
+    wmt.add_argument("--ground", choices=("grass", "desert"), default="grass",
+                     help="the bench island's ground family: the zip annulus + plain-ground checks speak "
+                          "it (match the island's world-island --ground)")
+    wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
+    wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wmt.set_defaults(func=_cmd_world_mountain)
 
     wmi = sub.add_parser("world-mirror",
                          help="mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree -- the "
