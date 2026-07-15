@@ -805,6 +805,12 @@ class Workspace(QMainWindow):
             return
         self._concept_dialog(concept).exec()
 
+    def _show_concept_map(self):
+        """Open the 'How it all fits' concept map -- a diagram of how a project nests (journey ▸ campaign ▸
+        field ▸ contents), each box opening its plain-language card."""
+        from .conceptmap import show_concept_map
+        show_concept_map(self, self.pal, self._show_concept).exec()
+
     def _open_about(self):
         """An About box: icon, version + install mode, the provenance/license one-liner, and links."""
         mode = "installed" if update_check.is_installed() else "source checkout"
@@ -1417,10 +1423,12 @@ class Workspace(QMainWindow):
                                    "(orthogonal state)",
                                    [("Open Save…", self._open_save, False)]))
         v.addStretch(1)
-        hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <b>Close</b> (toolbar) returns here.")
+        hint = QLabel("Press <b>Ctrl-K</b> to jump anywhere · <a href=\"conceptmap\">How it all fits</a> · "
+                      "<b>Close</b> (toolbar) returns here.")
         hint.setTextFormat(Qt.TextFormat.RichText)
         hint.setProperty("role", "muted")
         hint.setContentsMargins(0, 6, 0, 0)                # was margin-top:6px in the inline sheet
+        hint.linkActivated.connect(lambda _h: self._show_concept_map())
         v.addWidget(hint)
         scroll.setWidget(page)
         self._welcome_tab = scroll                 # kept so Close can return here
@@ -3646,6 +3654,7 @@ class Workspace(QMainWindow):
         for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
             cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
                          "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
+        cmds.append(("How it all fits (concept map)", "learn", self._show_concept_map))
         for c in concepts.all_concepts():              # 'What is X?' -> a plain-language concept card (Phase 5)
             cmds.append((f"What is {c.title}?", "learn", lambda _c=c: self._show_concept(_c)))
         content = []
@@ -7298,6 +7307,11 @@ def _smoke(win):
     assert any("Walkmesh" in lbl for lbl in _concept_rows) and len(_concept_rows) >= 20, len(_concept_rows)
     assert concepts.resolve("gEventGlobal").term == "story-flag"   # an engine-term alias -> the right card
     win._show_concept("no-such-term")                     # a miss returns before any dialog -> a silent no-op
+    # Phase 7: the 'How it all fits' concept map -- a Ctrl-K row + a diagram whose boxes open concept cards.
+    assert any("How it all fits" in lbl for lbl, _k, _cb in win._command_index()), "no concept-map palette row"
+    from .conceptmap import ConceptMapView
+    _cmv = ConceptMapView(win.pal, lambda _t: None)       # builds the diagram (nodes + arrows) without raising
+    assert len([t for _x, _y, t in _cmv._boxes if t]) >= 8, "the concept map is under-populated"
     # PLAIN-LANGUAGE ERROR LAYER: a Problems row whose raw message matches a rewrite rule gets a friendly
     # tooltip (raw text stays visible for the expert; the plain explanation + next step ride the tooltip).
     win._show_problems(fb.Verdict(fb.ERROR, "Check — 1 problem to fix"),
