@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from . import widgets
 from ..editor import feedback as fb
 from ..editor import jobs
 
@@ -85,8 +86,14 @@ class BuildDoc(QWidget):
         v.addWidget(self._field_box())
         v.addWidget(self._campaign_box())
         v.addWidget(self._journey_box())
-        v.addWidget(self._battle_box())
-        v.addWidget(self._newgame_box())
+        # Phase 6: the routine deploy is field / campaign / journey (the F9 button drives these). The niche
+        # battle target and the New-Game footgun (single-owner -- a wholesale campaign re-deploy WIPES it) are
+        # fenced behind an Advanced drawer so they're not visually co-equal with routine deploy.
+        adv = widgets.disclosure("Advanced — battle deploy · New Game entry (single-owner)")
+        adv.content_layout.addWidget(self._battle_box())
+        adv.content_layout.addWidget(self._newgame_box())
+        self._advanced = adv
+        v.addWidget(adv)
 
         btns = QHBoxLayout()
         self.chk = QPushButton("Check logic")
@@ -297,6 +304,8 @@ class BuildDoc(QWidget):
         self.campaign_box.setVisible(self.kind == "campaign")
         self.journey_box.setVisible(self.kind == "journey")
         self.battle_box.setVisible(self.kind == "battle")
+        if self.kind == "battle" and hasattr(self, "_advanced"):
+            self._advanced.toggle_button.setChecked(True)   # the battle box lives in the Advanced drawer -> reveal it
         self.rev.setEnabled(True)                  # default; _update_dest disables it for a field's no-undo destinations
         self.rev.setToolTip("Undo the last deploy and restore the previous state.")
         if self.kind == "campaign" and self.plan is not None:

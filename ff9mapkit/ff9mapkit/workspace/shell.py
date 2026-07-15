@@ -8115,6 +8115,10 @@ def _smoke(win):
     assert win.battle.path == (d / "forked_fight" / "battle.toml")        # auto-opened the forked result
     assert win.battle.data["battlemap"]["bbg"] == "BBG_B042"
     assert Path(win.build_deploy.path.text()) == d / "forked_fight" / "battle.toml", "fork pre-aims Build & Deploy"
+    # Phase 6: Build & Deploy fences the niche battle target + the New-Game footgun behind an Advanced drawer
+    # (collapsed by default, keeping field/campaign/journey as the routine deploy). Aiming at a battle.toml
+    # auto-reveals the drawer, since the battle deploy box lives inside it.
+    assert win.build_deploy._advanced.toggle_button.isChecked(), "a battle target reveals the Advanced drawer"
     # Fork-dialog Browse: an install-gated list -> _choose -> fills the field; read once, then CACHED
     from PySide6.QtWidgets import QLineEdit as _QLE
     _calls = []
