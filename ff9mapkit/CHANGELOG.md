@@ -125,6 +125,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the mirrored island would wear disc-4 variants on disc-1 terrain. Run it after any
   custom-ocean world deploy; RELAUNCH to apply.
 
+### Added — `world-mountain`: carry a real rock massif onto a deployed island
+- The in-game-approved Uaho carry study (`massif_carry.py`, 2026-07-13 — "the cliff is great —
+  walkable, seams against the grass great") is now a kit verb (`interior.carve_mountain`):
+  * `world-mountain --mod-folder M --near WX,WZ` (or `--center` exact, rotation 0) carries the
+    donor block's REAL massif whole — the largest topo-49/7/62 rock component + enclosed raised
+    tris + the donor-conditional alcove floor + the Object-mesh APERTURE PLUGS wearing the rock
+    collar's own affine UV chart (small mountains are terrain+object ensembles; `--donor`
+    defaults to `0,0` = Uaho, the only donor with an anatomy study behind it).
+  * THE ROCK-RIGID LAW: carried rock never deforms beyond the de-tilt affine + the vertical
+    anchor; ALL seating deformation goes to the grass as a weld-safe per-POSITION pure-Y apron
+    lift (worldmap meshes don't share vertex entries — a one-sided lift splits the weld). Hole
+    carve + a minimal-total-chord DP zip + an apron normal re-smooth close the seam; the
+    placement scan (exact 90° rotations as fallbacks) keeps the whole band inside ONE block.
+  * Gates: rim/aperture accounting, baseline-subtracted once-edges, ROCK-RIGID drift < 3.5%,
+    zip rise/winding envelope, apron slope ≤ 29.5°, rock/grass placement probes, the
+    Moguri-atlas alpha gate (when installed), and the census.
+- Acceptance was proven by IDENTITY (`mountain_productize_check.py`): the pristine bench mint →
+  module carve reproduces the deployed, playtested Uaho bench byte-for-byte (the scan converges
+  on the study's exact placement, (162,-1246) rot 0); the go-forward fresh-mint path differs
+  only by the mint's own concave-dent fix (24 tris at the two dents, far outside the carve).
+
 ### Added — `world-forest` + `world-hill`: interior topography on a deployed island
 - The two in-game-proven island-E studies are now kit verbs (`ff9mapkit/world/interior.py`), operating
   on the DEPLOYED override bytes of a kit island (never a real block — that is `world-terrain`'s job):

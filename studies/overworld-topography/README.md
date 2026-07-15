@@ -277,6 +277,26 @@ y-span ≤ 2.4u — an existing hill's footprint is still pure mains, and the na
 self-selected it and tried to stack; the slope gate refused, and the envelope now keeps
 the scan honest). Hermetic tests: `ff9mapkit/tests/test_world_interior.py`.
 
+## THE PRODUCTIZATION (★ 2026-07-15): `world-mountain` is a kit verb
+
+`massif_carry.py` (the in-game-approved Uaho carry) is extracted into
+`interior.carve_mountain` + a CLI verb (`--near` scan with exact-90° rotation fallbacks /
+`--center` exact; `--donor` default `0,0` = Uaho, the only donor with an anatomy study —
+the alcove floor is donor-conditional and the aperture-plug chart phase is inlined from
+`daguerreo_massif_anatomy.py`). All study gates carried: ROCK-RIGID, the weld-safe
+per-POSITION apron lift, the DP zip envelope, baseline-subtracted once-edges, the
+rock/grass placement probes, the Moguri-atlas alpha gate, the census. **Proven by
+IDENTITY** (`mountain_productize_check.py`): the pristine bench mint (preserved game-side
+as the deployed file's `.pristine-r31s42` sibling) → module carve reproduces the
+deployed, in-game-approved bench **byte-for-byte** — the module's own scan converges on
+the study's exact placement ((162,−1246) rot 0) and its mint-hole patch replays the
+study's one patched hole; the go-forward fresh-mint path differs only by the mint's own
+concave-dent fix (24 tris at the two dents, far outside the carve; block (2,18)
+byte-identical). One robustness guard minted during extraction: the mint-hole detector
+now distinguishes a REAL hole from a legally-detached tri whose own edges chain into a
+3-cycle. Hermetic tests (incl. a synthetic pyramid-donor end-to-end carve with a
+monkeypatched donor read): `ff9mapkit/tests/test_world_interior.py`.
+
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —
