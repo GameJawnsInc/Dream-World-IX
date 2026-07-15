@@ -708,9 +708,11 @@ verbatim would carry them grass. First dry-run CLEAN through every region gate
 (prefab-parts, border-census incl.). DEPLOYED desert at target rect (22,18)+2×2 —
 data cells (22,18)+(22,19), the empty east column stays true prefab ocean — just
 east of the horseshoe massif bench (an offshore desert isle); island ≈
-(1442,−1214); disc-4 mirrored; playtest pending. (The near-bench rect (8,18)
-refused correctly: (9,18) is a REAL stock block — the target gate checks the
-whole rect.)
+(1442,−1214); disc-4 mirrored. (The near-bench rect (8,18) refused correctly:
+(9,18) is a REAL stock block — the target gate checks the whole rect.)
+**★ IN-GAME PROVEN 2026-07-15 round 1: "the desert island B looks verbatim,
+keep it"** — kept deployed; two donors, two first-deploy passes, zero fix
+rounds. The retile arc is CLOSED as a proven verb (single + multi-block).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
