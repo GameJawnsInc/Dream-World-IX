@@ -103,6 +103,10 @@ class CommandPalette(QDialog):
         self.q.installEventFilter(self)                # forward Up/Down to the list while typing
         lay.addWidget(self.q)
         self.lst = QListWidget()
+        # The Ctrl-K palette KEEPS the full accent, by id. A transient modal's selection IS the
+        # interface -- one list, one highlighted row, no CTA on screen to compete with. A tree's
+        # selection is persistent state and takes the quiet tint instead (see style.py).
+        self.lst.setObjectName("paletteList")
         self.lst.itemActivated.connect(lambda _i: self._run_current())
         lay.addWidget(self.lst, 1)
         self._muted = palette["muted"]

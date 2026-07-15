@@ -38,7 +38,12 @@ LIGHT = {
     "hover": "#dfe2e7",         # neutral button hover
     "pressed": "#d4d8de",
     "scroll": "#bcc1c9",        # scrollbar thumb
-    "log_bg": "#e1e3e7",
+    # RAISED from #e1e3e7 -- this palette's own `field` hex, already in this dict two lines up and
+    # described there as "just-off-white". The old well was a grey smudge sunk UNDER the page, and it left
+    # no headroom for the log's registers: the console is a document, not a hole full of dust. It rises to
+    # `field` rather than #ffffff because #ffffff IS this palette's surface_3 -- a well may not collide
+    # with the top of the elevation ramp. Every register clears AA on it (worst 5.29, the trace tint).
+    "log_bg": "#fbfcfd",
     "log_fg": "#374151",
     "error": "#c0392b",
     "warn": "#9a6b00",
@@ -173,7 +178,13 @@ SOLARIZED_LIGHT = {
     "surface_btn": "#e8e1cd",
     "field": "#f7f1de",
     "text": "#4a6067",          # base01 deepened to WCAG AA 4.5:1 body text on the cream bg
-    "muted": "#546a72",         # deepened for hint legibility -- AA 4.5 on EVERY ground, still lighter than text
+    # Deepened AGAIN (#546a72 -> #4f646b): the old value said "AA 4.5 on EVERY ground" and was 4.37 on
+    # surface_btn -- a ground the fence had never checked, and the one an UNSELECTED TAB LABEL lands on.
+    # So the app shipped sub-AA text on the tab strip in this palette. Same shape as the hero's overline:
+    # a fence that covers most grounds just moves the bug to the one it missed.
+    # The window here is one step wide: at t=0.10 muted goes DARKER than text (#4a6067) and the hierarchy
+    # inverts. #4f646b clears all six grounds (surface_btn 4.78) and stays lighter than text.
+    "muted": "#4f646b",
     # Solarized blue #268bd2 deepened 12%: at lum 0.235 white ink gives only 3.68, and this is a LIGHT
     # theme -- every one of its own neutrals is far too light to serve as dark ink, so the flip that fixes
     # solarized-DARK is unavailable here. The blue deepens instead; 3.68 -> 4.62.
@@ -188,7 +199,12 @@ SOLARIZED_LIGHT = {
     "hover": "#ded7c0",         # was #e6dfc9 -- present but ~invisible (btn->hover measured 1.0203)
     "pressed": "#d3cbb0",       # deepened so pressed still reads above the new hover
     "scroll": "#c9c2aa",
-    "log_bg": "#e4ddc8",
+    # base3, RAISED from #e4ddc8: the console's own body text measured 3.97 on the old well -- sub-AA, on
+    # the surface you stare at during every build, and never fenced because log_bg was not a ground any
+    # text test knew about. It survives BECAUSE it rises: dropping the well to bg (#eee8d5) scores 4.39
+    # and still fails. #ffffff is unavailable -- it IS this palette's surface_3, and a well may not
+    # collide with the top of the elevation ramp. base3 clears at 4.99.
+    "log_bg": "#fdf6e3",
     "log_fg": "#586e75",
     "error": "#dc322f",         # red
     "warn": "#a47c00",          # yellow, deepened to clear 3:1 (WCAG 1.4.11) on the cream page + surface
@@ -328,8 +344,8 @@ def pick_palette(mode: str = "auto") -> dict:
 # guaranteed to meet the WCAG 3:1 non-text floor, and an info status hue. All outputs are #rrggbb (no
 # rgba) so the hex/parity guarantees still hold; QSS composites solid fills over the surface anyway, so a
 # pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
-_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info",
-                 "success_text", "warn_text", "error_text",
+_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "selection_rail", "text_subtle", "focus",
+                 "info", "success_text", "warn_text", "error_text",
                  "border_lit", "border_shade", "accent_lit", "accent_shade")
 
 # INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
@@ -369,6 +385,33 @@ def _contrast(a: str, b: str) -> float:
     la, lb = _rel_lum(a), _rel_lum(b)
     hi, lo = max(la, lb), min(la, lb)
     return (hi + 0.05) / (lo + 0.05)
+
+
+def _selection_token(surface: str, accent: str, hover: str) -> str:
+    """The selected row's fill: the surface tinted with the accent until it cannot be confused with HOVER.
+
+    THE GROUND IS THE POINT. A selected row is not confused with the page -- it is confused with the row
+    under your cursor, so the thing to solve against is `hover`, not `surface`. Tinting against the
+    surface (a fixed 16%) left nord's selection 11/255 from its own hover, because nord's accent is
+    nearly the same HUE as its surface and a 16% mix of a thing into a near-copy of itself barely moves.
+
+    AND CONTRAST IS THE WRONG INSTRUMENT HERE, which is why this measures a raw channel distance instead.
+    By contrast ratio, hover BEATS the old selection in four palettes -- yet rendered at 4x, gruvbox's
+    selection wins decisively. Contrast is luminance-only and blind to the axis a tint actually uses:
+    hover is a pure lightness step (dHue <=2.5deg, dSat ~0), a selection is a hue/chroma event (dSat up
+    to +0.42). A ratio cannot see that; a channel distance can.
+
+    The 20 floor is CALIBRATED against those two renders, not chosen: gruvbox reads decisively and sits
+    at 26; nord reads marginally and sits at 11. Everything the metric calls fine, the eye called fine.
+    Three palettes already clear it and are returned untouched (dark 21, solarized-light 21, gruvbox 26).
+    """
+    t, sel = 0.16, _mix(surface, accent, 0.16)
+    while t < 0.60 and max(abs(a - b) for a, b in zip(
+            [int(sel[i:i + 2], 16) for i in (1, 3, 5)],
+            [int(hover[i:i + 2], 16) for i in (1, 3, 5)])) < 20:
+        t += 0.02
+        sel = _mix(surface, accent, t)
+    return sel
 
 
 def _focus_token(accent: str, surface: str) -> str:
@@ -423,7 +466,14 @@ def derive(pal: dict) -> dict:
     # box-shadow, so depth is tint-on-tint (Material-3 style); Phase 3 adds real shadows to floating layers.
     out["surface_2"] = _mix(pal["surface"], "#ffffff", 0.05 if dark else 0.55)
     out["surface_3"] = _mix(pal["surface"], "#ffffff", 0.10 if dark else 1.00)
-    out["selection_bg"] = _mix(pal["surface"], pal["accent"], 0.16)   # tinted, replaces full-accent select
+    # Tinted, and it finally RENDERS -- this token has existed since Phase 1 with zero rules. Solved
+    # against HOVER rather than the surface, because those are the two states that get confused.
+    out["selection_bg"] = _selection_token(pal["surface"], pal["accent"], pal["hover"])
+    # The selected row's RAIL. _focus_token pointed at the ground the rail actually sits on -- the tinted
+    # selection fill, not the plain surface -- because a 3:1 mark must clear the thing it is drawn ON.
+    # Zero new math: nord lands 3.19 and solarized-dark 3.13 (both under 3.0 as the raw accent), and the
+    # other six already clear and return the accent unchanged.
+    out["selection_rail"] = _focus_token(pal["accent"], out["selection_bg"])
     out["text_subtle"] = _mix(pal["muted"], pal["bg"], 0.28)          # a third, dimmer text tier
     out["focus"] = _focus_token(pal["accent"], pal["surface"])        # meets WCAG 3:1 on the surface
     out["info"] = pal["accent"]                                       # info status hue (aliases accent for now)

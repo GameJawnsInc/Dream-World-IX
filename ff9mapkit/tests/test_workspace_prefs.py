@@ -48,14 +48,28 @@ def test_retheme_retints_the_version_chip(app):
 
 
 def test_retheme_retints_persistent_chrome(app):
-    # the always-alive chrome must follow a theme switch. Phase 2 moved the Info Hub button to the
-    # QToolButton#hub id-rule, so its violet tint now lives in the app QSS (re-applied by setStyleSheet(qss)),
-    # not an inline sheet; the breadcrumb bar's OWN background stays inline (dynamic, re-applied by repaint_pal).
+    """The always-alive chrome must follow a theme switch -- and the best way to guarantee that is to
+    have no inline sheet to re-tint at all.
+
+    This test used to assert the OPPOSITE for the breadcrumb: that its background was re-applied inline
+    on every retheme. That inline sheet was SELECTOR-LESS, so it did not style the bar -- it styled the
+    bar AND cascaded a stray underline onto every crumb label, six pixels above the real rule (rendered
+    proof: two rows of border ink instead of one). Deleting it needed no replacement, because the bar is
+    a QWidget subclass without WA_StyledBackground: it paints no background of its own, `#crumbRow` shows
+    through from the app sheet, and it became theme-live for free.
+
+    So the assertion inverts. An inline sheet is now the defect, not the mechanism.
+    """
     w = _win(app)
     w.retheme(pick_palette("gruvbox-dark"))
     assert w._hub_btn.objectName() == "hub"
     assert theme.GRUVBOX_DARK["help"] in w.styleSheet()                 # #hub violet tint tracks pal['help']
-    assert theme.GRUVBOX_DARK["surface"] in w.crumb.styleSheet()        # breadcrumb bar bg re-applied (still inline)
+    assert not w.crumb.styleSheet(), (
+        "the breadcrumb must carry NO inline sheet -- a selector-less one cascades to every child, and "
+        "any inline one has to be hand-re-tinted and can go stale"
+    )
+    # and the app sheet really does paint that band, so deleting the inline sheet lost nothing
+    assert "QWidget#crumbRow" in w.styleSheet()
 
 
 def test_run_upgrade_without_uv_shows_manual_command(app, monkeypatch):

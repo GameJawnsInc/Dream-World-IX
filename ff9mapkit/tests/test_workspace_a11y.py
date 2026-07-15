@@ -168,3 +168,44 @@ def test_problems_convey_severity_by_icon_not_colour_alone(win):
     from PySide6.QtCore import QSize
     assert (err_it.icon().pixmap(QSize(16, 16)).toImage()
             != warn_it.icon().pixmap(QSize(16, 16)).toImage()), "error vs warn are distinct shapes"
+
+
+def test_the_log_registers_render_and_plain_text_survives(win):
+    """Drive all four registers for real -- the tests that only READ the source missed a NameError.
+
+    The `trace` branch calls `derive()`, which was not imported into shell.py. Every source-grepping
+    fence passed, the whole suite passed, and the first traceback the console ever streamed would have
+    crashed the drain. Only exercising the branch found it.
+
+    The `win` fixture builds from a BASE palette (pick_palette), exactly as main() does -- which is the
+    condition that exposes it: a pre-derived dict would have carried error_text and hidden the bug.
+
+    Also asserts the reason appendHtml is banned: a build log is full of `<`, and rich text would eat it.
+    """
+    from ff9mapkit.editor import theme as th
+
+    w = win
+    w.output.clear()
+    w._log("[12:34:56] Build & Deploy", "head")
+    w._log("$ py -m ff9mapkit build a.toml", "echo")
+    w._log("wrote p0data7.bin  <generic>  a < b", "body")
+    w._log("Traceback (most recent call last):", "trace")
+
+    txt = w.output.toPlainText()
+    assert "<generic>" in txt and "a < b" in txt, "the console must stay PLAIN text"
+
+    d = th.derive(dict(w.pal))
+    doc = w.output.document()
+    seen = []
+    b = doc.begin()
+    while b.isValid():
+        it = b.begin()
+        if not it.atEnd():
+            f = it.fragment().charFormat()
+            seen.append((int(f.fontWeight()), f.foreground().color().name().lower()))
+        b = b.next()
+    assert seen[0] == (600, d["text"].lower()), "head: weight 600 in $text"
+    assert seen[1] == (600, d["log_fg"].lower()), "echo: weight 600 in $log_fg"
+    assert seen[2] == (400, d["log_fg"].lower()), "body: normal weight"
+    assert seen[3][1] == d["error_text"].lower(), "trace: the error tint"
+    assert doc.maximumBlockCount() == 5000, "the log accumulates now -- it needs a ceiling"

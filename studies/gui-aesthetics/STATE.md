@@ -113,6 +113,61 @@ confirms it: the 28px serif wordmark still dominates an 11px tracked overline in
 **Corollary for any future painted surface:** if you invent a ground, you owe it a fence. The ramp's
 guarantees stop at the ramp.
 
+### CONTRAST IS NOT THE INSTRUMENT FOR A TINT (REGISTER P1 — the sharpest finding in round 4)
+
+> **A contrast ratio is luminance-only. It is blind to the axis a coloured fill actually uses.**
+
+The tree's selected row painted the **full accent** — the same fill as the primary CTA, on a *persistent*
+selection. Replacing it with the tinted `selection_bg` looked fatal by the numbers: **hover out-contrasts
+the new selection in four palettes** (gruvbox 1.488 vs 1.294, nord 1.327 vs 1.161, dracula, sol-dark).
+
+Rendered at 4× with a real synthetic hover, gruvbox's selection **wins decisively** — because hover is a
+pure *lightness* step (ΔHue ≤2.5°, ΔSat ≈0) while a selection is a *hue/chroma* event (ΔSat up to +0.42,
+ΔHue up to 93.8°). The ratio cannot see the thing doing the work.
+
+**But the render also refused to rubber-stamp the argument.** Nord came back *marginal*, honestly so: its
+accent is nearly its own surface's hue, so a fixed 16% tint of a thing into a near-copy of itself barely
+moves — 11/255 from its own hover, with the rail carrying it alone.
+
+**So the ground and the metric both changed.** A selected row is never confused with the *page*; it is
+confused with **hover**. `_selection_token` now raises the tint until the fill is ≥20/255 from that
+palette's own hover, as a raw channel distance. **The floor is calibrated to the two renders, not chosen**
+— gruvbox reads and sits at 26, nord didn't and sat at 11 — and the metric then independently reproduces
+both verdicts: it leaves gruvbox/dark/solarized-light untouched and lifts nord to 0.50. An earlier solve
+against *contrast* was discarded for over-tinting gruvbox, which the eye says needs nothing.
+
+**The transferable rule:** when a fence and a render disagree, the render is not automatically right
+either — it tells you the fence is measuring the wrong axis. Then go find the axis.
+
+### THE CUT LIST IS PER-FAMILY (REGISTER P2)
+
+NAMEPLATE P1 measured Segoe UI's real weight cuts — `[100-300][350][400-500][550-650][700-800][900]` —
+and fenced them. **That list is Segoe's, and the console is not Segoe.** Measured natively:
+
+| face | 550 | 600 |
+|---|---|---|
+| **Cascadia Code** (dev boxes; ships with VS / Windows Terminal) | a real SemiBold | SemiBold |
+| **Consolas** (the clean-Windows fallback; Regular + Bold only) | **byte-identical to 400 — a no-op** | Bold |
+
+So the log's head/echo register is **600**, the first weight that lands heavier in *both* — otherwise it
+would silently flatten on exactly the machines without a developer's fonts installed. And note the
+advance test that caught Segoe's dead 500 is **blind** here: mono advances never move, only the ink does.
+
+### A SOURCE-GREPPING FENCE MUST READ CODE, NOT PROSE
+
+Three fences in this arc tripped on their **own docstrings** — because the prose beside a rule is exactly
+where the rule gets *named*. A docstring saying *"never appendHtml"* fails a naive
+`"appendHtml" not in src` on the very file that obeys it. `LedeCard`'s docstring states the gold-stripe
+law and failed the gold-stripe fence. `tests/_code_only()` now strips docstrings and comments via
+`ast.unparse`; what's left is what executes.
+
+### AND THE BUG THE SOURCE-GREPPING FENCES COULDN'T SEE
+
+The log's `trace` branch called `derive()`, which **was not imported into shell.py**. Every source fence
+passed. The whole 3569-test suite passed. The first traceback the console ever streamed would have
+crashed the drain. **A probe that DROVE the branch found it in one run.** Reading source proves what the
+code says; only running it proves what it does.
+
 ### The instrument, and the two that lied first
 
 `audit_contrast.py` **cannot see the hero at all** — it reads ink from `w.palette().color(...)`, a QLabel

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QGuiApplication, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
@@ -155,6 +155,11 @@ class ModelsDoc(QWidget):
         rv.addStretch(1)
 
         right = QScrollArea()
+        # NoFrame like the other 7: Qt draws its own frame here otherwise, in a colour taken from the
+        # STYLE palette rather than ours -- it is in no palette, never re-tints on a theme switch, and
+        # measured #eaebee/1.011 in light and ~1.24 in the darks. Quiet, but un-chosen. 7 of 10 already
+        # set this; these were the stragglers.
+        right.setFrameShape(QFrame.Shape.NoFrame)
         right.setWidgetResizable(True)
         # vertical-only: wrappable labels + shrinkable line edits must re-flow, never clip sideways
         right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
