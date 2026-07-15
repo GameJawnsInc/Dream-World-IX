@@ -13,6 +13,14 @@ seamless in-game, the law is generative material for world-mountain.
 Operates directly on the DEPLOYED bench block (2,19) (uvs are verbatim, so the patch
 decomposition is identical to the donor study). Backup -> repo backups/.
 
+ROUND 3 VERDICT (2026-07-15, the UNCONFOUNDED re-run on the byte-verified rigid carry):
+REJECTED -- "stretched face" at the west panel (vertical smear vs the neighbors'
+hand-authored grain). Rounds 1+2 were confounded by the old conform stretch; this one
+was not, so the falsification is now clean: the sheared-normalized-box + exact-pin
+recipe reproduces the law's MEASURED parameters but not the painted look -- THE FORM
+LESSON again, at panel scale. PARKED; the bench was restored to the approved carry
+(acceptance re-verified). A 4th round needs a new measurement idea, not a re-fit.
+
 Usage:  py studies/overworld-topography/uaho_probe_panel.py [deploy]
 """
 import math

@@ -20,7 +20,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox,
+    QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
     QSplitter, QVBoxLayout, QWidget,
 )
@@ -553,8 +553,8 @@ class BattleDoc(QWidget):
         """A read-only header above the patch form: how many sites the fork exposes + a 'Browse sites…' button
         that fills Offset + Current value (so the user never needs `battle-ai`/`battle-seq --sites`)."""
         which = "AI constants" if kind == _AIPATCH else "sequence operands"
-        box = QGroupBox("Donor sites — pick an offset to patch")
-        v = QVBoxLayout(box)
+        box = widgets.section("Donor sites — pick an offset to patch")
+        v = box.content_layout
         v.setContentsMargins(8, 4, 8, 4)
         v.setSpacing(4)
         sites = self._donor_patch_sites(kind)
@@ -614,8 +614,8 @@ class BattleDoc(QWidget):
 
     def _ai_facts_panel(self, attacks, ai_funcs):
         import html
-        box = QGroupBox("Donor AI (this fork) — indices for the form below")
-        v = QVBoxLayout(box)
+        box = widgets.section("Donor AI (this fork) — indices for the form below")
+        v = box.content_layout
         v.setContentsMargins(8, 4, 8, 4)
         v.setSpacing(3)
         enrage = [f"entry {e}, function {t}" for (e, _ty, t, _r, n) in ai_funcs if n == 1]   # exactly one Attack
@@ -644,8 +644,9 @@ class BattleDoc(QWidget):
 
     def _facts_panel(self, title, pairs, per_row=6):
         """A read-only grid of (label, value) facts in a titled box (the donor enemy baseline / scene rules)."""
-        box = QGroupBox(title)
-        grid = QGridLayout(box)
+        box = widgets.section(title)
+        grid = QGridLayout()
+        box.content_layout.addLayout(grid)
         grid.setContentsMargins(8, 4, 8, 4)
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(2)

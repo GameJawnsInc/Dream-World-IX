@@ -277,6 +277,389 @@ y-span ≤ 2.4u — an existing hill's footprint is still pure mains, and the na
 self-selected it and tried to stack; the slope gate refused, and the envelope now keeps
 the scan honest). Hermetic tests: `ff9mapkit/tests/test_world_interior.py`.
 
+## THE PRODUCTIZATION (★ 2026-07-15): `world-mountain` is a kit verb
+
+`massif_carry.py` (the in-game-approved Uaho carry) is extracted into
+`interior.carve_mountain` + a CLI verb (`--near` scan with exact-90° rotation fallbacks /
+`--center` exact; `--donor` default `0,0` = Uaho, the only donor with an anatomy study —
+the alcove floor is donor-conditional and the aperture-plug chart phase is inlined from
+`daguerreo_massif_anatomy.py`). All study gates carried: ROCK-RIGID, the weld-safe
+per-POSITION apron lift, the DP zip envelope, baseline-subtracted once-edges, the
+rock/grass placement probes, the Moguri-atlas alpha gate, the census. **Proven by
+IDENTITY** (`mountain_productize_check.py`): the pristine bench mint (preserved game-side
+as the deployed file's `.pristine-r31s42` sibling) → module carve reproduces the
+deployed, in-game-approved bench **byte-for-byte** — the module's own scan converges on
+the study's exact placement ((162,−1246) rot 0) and its mint-hole patch replays the
+study's one patched hole; the go-forward fresh-mint path differs only by the mint's own
+concave-dent fix (24 tris at the two dents, far outside the carve; block (2,18)
+byte-identical). One robustness guard minted during extraction: the mint-hole detector
+now distinguishes a REAL hole from a legally-detached tri whose own edges chain into a
+3-cycle. Hermetic tests (incl. a synthetic pyramid-donor end-to-end carve with a
+monkeypatched donor read): `ff9mapkit/tests/test_world_interior.py`.
+
+## THE HORSESHOE DONOR CHECK (★ 2026-07-15): DISQUALIFIED — THE ENSEMBLE-APERTURE FINDING
+
+`horseshoe_donor_check.py` → `out/horseshoe_donor.json` — the qualification pass for the
+Daguerreo horseshoe (blocks (5-6,15-16), the v4 transplant's centerpiece), run through
+the SHIPPED `_mountain_blob`/`carve_mountain`. The massif is structurally beautiful
+donor material — 562 rock tris + the flooded hanging bowl (121 topo-13 + 30 interior
+topo-58) = a 713-tri blob, ONE clean 62-pt foot rim at y[2.4,6.4], radius **54.3u**,
+one interior ring — but the qualification DISQUALIFIES it on three independent axes:
+
+1. **THE ENSEMBLE-APERTURE FINDING** (the headline law): the interior ring (43 pts,
+   y[15.2,29.4] = the river/falls MOUTH through the massif) is 100% owned by the UNION
+   of the donor's auxiliary parts (object 22 / falls 12 / river 15 / riverjoint 4,
+   overlapping) — **Uaho's object-only aperture law is the small-mountain special
+   case**. The shipped aperture gate refuses, correctly.
+2. Even with a union-validated gate, the Uaho-style plug would seal a **14u-tall river
+   mouth with collar rock** and carry the bowl as a dry dead pond — a form alteration of
+   exactly the class THE FORM LESSON kills. The faithful path is **THE ENSEMBLE CARRY**
+   (a future rung): transform falls/river/riverjoint/object parts under the same rigid
+   map and deploy them as part overrides — real new machinery (part deployment, the
+   animated water materials, object SUBSETTING: the object part also holds Daguerreo's
+   entrance scenery).
+3. **Bench feasibility**: horseshoe scale needs ~r69 mints, and `world-island` r69 is
+   not robustly clean (seeds 7/11/23/42 trip `grass_over_8u` by 2-3 interior slivers;
+   seed 55 trips the shape gate) — a mint-robustness rung of its own. Free 3×3 ocean
+   windows are NOT the constraint (19 exist map-wide).
+
+Today's tool for placing the horseshoe remains the proven **v4 rect transplant** (the
+water system free-rides). `--donor` stays Uaho + the crag.
+
+**→ THE ENSEMBLE CARRY (★ built same day, 2026-07-15, user green-lit).** The
+disqualification became the spec: `ensemble_inventory.py` measured the aux parts (ALL
+components 100% inside the rim — no town scenery in the donor rect; 122 tris total;
+stride-48 with REAL tangents; parts ship per-block) and `carve_mountain` now carries
+them: rings not object-backed validate against the PART UNION (`ENSEMBLE_PARTS`) and
+classify as **ensemble apertures** (no plugs — the parts cover the hole exactly as
+stock); each aux component in the rim footprint rides the same rigid map (positions
+de-tilt+rot+DY, normals inverse-transpose, tangents as sheared directions, UVs verbatim)
+into per-block part overrides; `deploy_mountain_parts` writes content + BLANKS for every
+ensemble part on every span block (the free-ride trap) + the **Donor.txt divert** to a
+part-carrying donor block ((5,15) has all five transforms). Gates evolved en route, each
+Uaho-frozen: the crack gate exempts open ensemble rings by SEGMENT proximity
+(border-split halves), the edge gate covers synthetic zip only (verbatim stock rock is
+donor-given), the zip envelope gains a bank allowance (≤2 tris in [0.5, 0.83) — the
+horseshoe's falls-outlet bank, min ny 0.59), the peak probe replaces the bbox-centre
+probe (a horseshoe's centre is its open mouth), and the span widens with PRESENT
+apron-rect blocks under a per-position taper (border starvation fix). Plus the bench
+enablers: adaptive outline density past r60 + the conditional >8u fill refinement in
+`world-island` (both no-ops on every frozen baseline). **DEPLOYED**: r72 seed-42 bench
+at (1280,−1184) blocks (18-21,17-19), the horseshoe at (1288,−1190) rot 0 — 713 terrain
+tris + 122 aux tris (Falls/River/RiverJoint/Object) across a 10-block span, census
+MISS=0, both byte-identity acceptances + 3515 tests green; teleport **(1227.5,
+−1189.5)** face east.
+
+**★ IN-GAME PROVEN + CLOSED over 3 rounds (2026-07-15).** Round 1: *"the falls animate,
+the bowl is walkable"* — the mechanism (part overrides + the Donor.txt divert binding
+ANIMATED materials) is proven — but a seam/see-through quad + a walk trap → **THE
+FOOTPRINT SWEEP**: 8 donor terrain tris sat plan-inside the rim uncarried (the mouth
+tunnel's topo-58 lining = the trap; a weld-isolated 2-tri rock SHINGLE = the
+see-through quad; a canopy bit). They cannot join the blob's manifold ring math (a free
+shingle touches the sheet at ONE vertex — THE WALL LAW's shingled reality), so every
+centroid-inside-rim tri now rides VERBATIM outside the ring accounting, its open edges
+exempt at the crack gate by segment proximity. Measured EMPTY on Uaho + the crag.
+Round 2: three walk defects (climb the falls, walk off the bridge into the water, still
+trappable) → **THE WALK-LEGALITY LAW**, read from the engine: the ground query reads
+the hit tri's `tangent.x` as the IDALL for MOVEMENT LEGALITY (`(id & 0xFC) >> 2` vs the
+per-vehicle 64-topo limit mask — `ff9.cs w_movementCheckTopographID`; the foot mask
+`{0x0010667F, 0xD8FF3CFF}` blocks 49/58, walks 0/13/17/37), and stock aux parts carry
+leftover REAL tangents whose x garbage-decodes to **topo 0 = walkable** (stock never
+noticed — its mouth interior is unreachable on foot) → **THE SCENERY SEAL**: worldmap
+shaders never consume tangents (Terrain stores IDALL floats in that channel and shades
+fine), so carried aux parts store a blocked-topo IDALL (49) — the bridge/falls/river
+ensemble becomes look-but-don't-touch scenery, exactly stock's semantics; ONE change
+sealed all three defects. Round 3: *"that worked, it's sealed now"*. The bowl stays
+scenery-only by choice (stock semantics; a walkable bowl would be a designed terrain
+path, not a carry fix). **`--donor` qualified: Uaho (0,0) · crag (10,5-6) · horseshoe
+(5-6,15-16)** — the mountain arc's claim is now *any studied massif, any size, water
+and all*.
+
+## THE CRAG DONOR ANATOMY (★ 2026-07-15): measured, and DISQUALIFIED for single-block v1
+
+`crag_anatomy.py` → `out/crag_anatomy.json` + `out/crag_map.png` — the donor-qualification
+pass the backlog required before extending `world-mountain --donor` beyond Uaho. Findings:
+
+* **ONE cross-block massif.** The crag's rock is a single 294-tri component (pure topo 49,
+  no 7/62) straddling blocks **(10,5)+(10,6)** — 33×63u, peak y 26.5. Block (9,5) has no
+  terrain mesh at all; (9,6)/(9,7)/(10,7) hold no massif rock.
+* **Region-level, it is beautiful donor material**: the merged rim CHAINS cross-block into
+  ONE clean 42-pt foot ring at y[6.0,8.0] (max 2u oscillation!), radius **33.7u**, de-tilt
+  0.8°, residual ±1u; lattice-sheet class (v-weld 0.73, same class as Uaho/the horseshoe);
+  no apertures, no pockets, no object ensemble.
+* **Per block it is NOT a mountain**: each in-block fragment's "rim" includes the block-
+  border cut and mid-shoulder heights (rim y up to 17.6, de-tilt 22.7°/residual ±6 on
+  (10,5)) — and the real `carve_mountain` dry-carve REFUSES both, for the right reasons
+  ((10,5): zip rise 4.66 > 2.34; (10,6): radius 28.1 doesn't fit any in-block placement —
+  the hard ceiling is ~23.5u, the r31 bench pocket ~20u).
+* **Its own tile band**: sharply tiled (corner peakiness 9–12×) but a DIFFERENT chart —
+  phase (0.011719, 0.015625), exactly 1/256 off `ROCK_CHART_PHASE` in both axes, rows 2–6
+  + 13–14 vs the Uaho/Daguerreo band's 6–12. The plug-chart constants are BAND-SPECIFIC;
+  a donor from another rock look-family needs its own phase (moot here — no apertures).
+* **Feet on topo 17, not grass**: the crag's painted foot fringe meets wasteland ground,
+  not mains grass — a look-risk if ever seated on a grass island (offline-untestable).
+* **Dispatch**: all rock baked (event 0, area 62) — the DONOR-DISPATCH STRIP handles it.
+
+**THE DESERT GROUND LANGUAGE (★ 2026-07-15)** — `desert_ground_anatomy.py` →
+`out/desert_ground.json`; the sidebar the crag's foot fringe demanded (painted against
+topo-17 ground, unjudgeable on grass). Findings: 81 disc-1 blocks carry topo-17; the
+ground obeys the SAME laws as grass (exact linear-in-XZ per 4u cell, one ~128px tile per
+cell, 4 rotations, grass handedness 224:6, avoid-repeat neighbours 7%) with a busier
+vocabulary (39 half-tile origins; the dominant 2×2 mains set covers 32%; a 4-row strip
+column at u 0.844 = the B-strip analogue) and rougher relief (y std 2.44 vs grass
+0.66–1.25). Real desert cells use FREE fractional windows across the painted-over
+internal gutter (THE COL-FREEDOM LAW at ground scale — the naive 16-hypothesis gate
+passes only 48%), but the locked grass-form window is a common real form and stays
+inside painted art. **THE DESERT TRANSLATION LAW:** the desert mains region is the grass
+mains structure translated by exactly **(+0.65332, −0.09863)** in the atlas — same
+quadrant rects, widths, and gutters, byte-exact at 5dp — so the lawful mint form is
+literally `G.mains_uv(...) + (DU, DV)` with topograph 17. `desert_bench.py` applied it:
+the crag bench's 746 plain-grass tris retiled IN PLACE to desert mains (fresh per-cell
+assignment, zero geometry change, atlas gate 0 blanks, census MISS=0), DEPLOYED +
+mirrored — the crag now stands on its native ground; foot-fringe verdict pending.
+Known cosmetic remnant: the coastal cliff-top LIP ring still wears its grass-family
+tiles (the lip is its own vocabulary — a desert-island mint would need a desert lip).
+**→ closed same day by THE WALL TRANSLATION LAW** (`desert_shore.py`): the "lip" is
+painted INTO the mint's cliff-wall band texture, and the crag island's own coast
+measures the same 4-tile-wide one-row band at (−0.27127, −0.02066) from `ROCK_U/V` —
+the bench's topo-58 wall corners translated in place (zero geometry change), DEPLOYED
++ mirrored: the bench is now FULLY desert. **→ PRODUCTIZED same day as
+`--ground grass|desert`** on `world-island` + `world-mountain` (`grassland.GROUNDS`,
+`ground_uv`; stamps disable off-grass): grass is the bit-frozen identity (BOTH
+byte-identity acceptances pass unchanged), and the full desert path runs green offline
+(module desert mint → verify clean → the crag carve, all gates). **The full desert
+bench is ★ IN-GAME PROVEN 2026-07-15 ("looks good": ground + shore + the native-ground
+crag).** EARMARKED for the future — **THE DESERT TILE FIDELITY CHECK**: the mint uses
+locked grass-form windows (stock desert slides FREE fractional windows, 48% locked) and
+reuses the grass relief field (stock desert: y std 2.44 vs grass 0.66–1.25); both fine
+at bench scale — revisit if a large desert landmass reads too regular/smooth.
+
+**THE DESERT TILE FIDELITY CHECK — round 1 (2026-07-15, playtest pending).** The check's
+vehicle: a pure-plain r52 seed-11 desert island at **(768,−1216)**, blocks (11–12,18–19)
+(the last free 2×2 ocean window in rows 14–19), deployed to FF9CustomMap-world + disc-4
+mirrored, all gates clean. `desert_fidelity_eye.py` = the offline eye (plan-view
+Moguri renders: TEXTURE / HILLSHADE / COMBINED; mint interior vs stock desert blocks
+(12,4) + (12,5)) → `out/desert_fidelity_eye.png`. Offline verdicts:
+1. **THE DEAD-RELIEF DISCOVERY (a real kit bug, worse than the earmark):** the mint
+   applies NO relief anywhere in practice — `grassland.relief_field` keys its lattice on
+   the donor block's LOCAL 4u nodes (i∈[0,16], j∈[−16,0], gap-filled to ±16 around the
+   world ORIGIN) while `island.fill_y` samples `relief_at` with WORLD coords, so every
+   island away from block (0,0) gets `field.get(...) → 0.0`. Verified: a fresh island-E
+   re-mint is byte-flat at 3.20 (its deployed roll is entirely the forest rim-lift +
+   hill builds), and the fidelity island's deployed bytes are y∈{0, 3.2} exactly. The
+   grass/mountain byte-identity acceptances stayed green through this because BOTH sides
+   of the comparison were flat — identity proves consistency, not relief. The never-flat
+   law is silently unmet by every mint to date (they read OK in-game at bench scale, so
+   this was invisible until now).
+2. **The texture gap reads as VOCABULARY, not window phase:** at 64×64u the mint's
+   locked-window repetition is subtle (desert mains are low-contrast), but stock desert
+   is only ~32% mains — its look at scale comes from the OTHER origins (shrub-rosette
+   clusters, vegetation clumps, grass inclusions, the u-0.844 strip column) scattered as
+   loose patches. The mint is a uniform mains carpet; the free-window sampler alone
+   would NOT close this — the busier tile vocabulary is the visible axis.
+In-game round 1 = judge the deployed island as-is (both axes in one walk). If it reads
+wrong, the extension order suggested by the eye: (a) a desert RELIEF field scaled from
+the measured stats (also fixes the dead-relief bug — decide whether grass mints adopt
+it too, which breaks the frozen flat-mint identity oracles), then (b) the vocabulary
+sampler (mains + measured shares of the non-mains origins per the census), then
+(c) free fractional windows last (least visible offline).
+
+**★ VERDICT — THE CHECK IS CLOSED (playtest 2026-07-15): "no and no — this looks like
+a fine desert."** Neither gap reads in-game at r52 scale: the locked-window mains
+carpet passes, and dead-flat ground passes (the player-height oblique camera + the
+low-contrast desert texture hide both axes the plan-view eye could see). The desert
+ground spec STANDS as shipped — no free-window sampler, no vocabulary sampler, no
+relief field needed for `--ground desert`. The check island is KEPT deployed (the
+first pure-plain `--ground desert` island proven at scale; remove = delete the
+28 files across blocks (11-12,18-19) + re-run `world-mirror`). THE DEAD-RELIEF
+DISCOVERY was resolved same day — **the user chose RETIRE over fix** ("B, with C as
+fallback"): `grassland.relief_field`/`relief_at` and `build_landmass(relief=...)` are
+REMOVED, `--flat` now means only "skip the meadow stamps", and every doc states the
+interior is flat at `--height` by design (explicit height = the studied verbs).
+**Proven a byte-no-op:** a post-retirement re-mint of this island reproduces all 32
+deployed files byte-for-byte (removing `+0.0` changes no floats), so the frozen
+identity oracles stand untouched. **THE RESURRECTION PATH (the user flags relief as
+"useful for big continents for sure"):** if a continent-scale plain ever reads too
+flat, rebuild relief as a measured per-ground rung — grass y std 0.66–1.25 /
+|dY| med ~0.2 / p90 ~0.5–0.7, desert y std 2.44 / med 0.33 / p90 1.04 (this study +
+`census.py` regenerate the stats) — with a position-independent frame (island-local
+or lattice-wrapped anchoring; the original bug was block-local field keys sampled
+with world coords), rim-fade preserved (welds keep exact Y), applied per ground
+family, and proven through the offline eye + one playtest like every other rung.
+
+**THE GROUND FAMILIES (★ offline 2026-07-15, playtest pending)** —
+`ground_families_anatomy.py` → `out/ground_families.json` + `.log`;
+`ground_families_eye.py` → `out/ground_families_eye.png` (the atlas contact sheet).
+The desert method (census → per-4u-cell exact-affine decode → mural screen → AUTO 2×2
+detection → 5dp rect recovery → translation fit → wall probe) run over every remaining
+walkable family + controls. **THE TRANSLATION LAW IS UNIVERSAL**: every family with
+tiled data is the grass mains 2×2 translated, outer-bound exact at 5dp —
+
+| family | topos | mains (du, dv) | wall (du, dv) | notes |
+|---|---|---|---|---|
+| grass (control) | 0 | (0, 0) zero spread | (+0.00022, −0.00015) ≈ 0 | machinery validated both ends |
+| grass variants (control) | 1,2,3,10-13,42 | (0, 0) | — | family model BYTE-proven |
+| scrub | 4,5,6 | (0.25977, −0.06738) | none in stock | the grass↔dirt ECOTONE tile set |
+| brush | 38 | (0.45703, −0.20215) | (−0.27127, −0.02066) | wall = THE DESERT WALL VERBATIM (measured stock adjacency) |
+| snow | 27,28 | (0.0, −0.33691) | (−0.44021, +0.05161) | same u-COLUMN as grass, v-shift only; icy band rows 0.94434/0.97461 (the memory's lip-row 0.944 ✓) |
+| canyon | 45,46 | (0.7793, −0.31641) | (−0.69509, −0.49722) | red band shows a 3rd v-level (possible 2-row course wall) |
+| dirt 19 / 20 | 19, 20 | = DESERT exactly | desert | family model BYTE-proven |
+| dirt 41 | 41 | (0.38964, −0.13477) | none in stock | **family-model EXCEPTION** — its own pale-sand set, NOT desert's |
+| dirt 16 | 16 | — | — | thin (6 blocks); COLUMN origin structure, no clean 2×2 (dry lakebed) |
+
+Method fix en route: the naive 8-edge translation fit fails on EVERYTHING including the
+grass control (identical 0.00196/0.00097 "spread" everywhere) because the mode-voted
+INTERNAL hi/lo edges are contaminated by the gutter-crossing free-window form — the fit
+must use the 2×2 OUTER BOUNDS (bleed-immune; the desert law itself came from lo edges).
+The locked-form (mint-form) share is a minority REAL form even on grass (22% of mains
+cells) — the gate is a diagnostic, not an acceptance; the locked mint is in-game proven.
+The eye sheet confirms every translated region paints coherent art (scrub = green/dirt
+ecotone, snow = white field + pale-blue ice wall, canyon = red tiers + dark red wall,
+dunes41 = pale fine sand; 0% blank texels everywhere). **PRODUCTIZED same day**:
+`grassland.GROUNDS` grew scrub/brush/snow/canyon/dunes (walls: brush = its real
+measured desert wall; scrub/dunes BORROW the desert wall — an authoring choice, stock
+never coasts them), `--ground` choices now track the registry on `world-island` +
+`world-mountain`, constants pinned in `test_ground_families_registry`; both byte-identity
+oracles pass unchanged (grass/desert entries untouched). **THE GROUND SAMPLER deployed
+same day (playtest pending):** five r22 seed-11 islets in the row-19 open ocean, one per
+family, one block each, all gates clean, disc-4 mirrored — scrub (480,−1248) block (7,19)
+· brush (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) ·
+dunes (1120,−1248) (17,19). First visit needs a world re-entry (new blocks); disc 4 a
+relaunch.
+
+**★ SAMPLER ROUND 1 (playtest 2026-07-15) — the translation makes tiles paint right;
+whether a family is an ISLAND FILL is a second, independent axis.** Verdicts: **snow
+"looks good" ★** · **canyon ★ "looks alright against verbatim"** (compared at the stock
+flat-canyon window (486,−678) block (7,10); noted nuance — verbatim mixes MORE lighter
+browns into the dark: the vocabulary-share axis again (stock grounds are only partly
+mains; cf. desert's ~32%) — earmark-only, the desert fidelity precedent says it may
+never read at scale) · **scrub =
+"tiling/wang mismatch"** — and the follow-up parity probe FALSIFIED the macro-tile
+hypothesis (stock places scrub grass-style free, parity-lock 31% ≈ the 25% chance floor,
+all 4 oris uniform): stock only ever lays scrub as narrow SEAM strips between solid
+grass/dirt fields, so the ecotone tiles read as "patchy edge" there and as raw mismatch
+when filled — scrub is a TRANSITION vocabulary, not a fill · **brush = usable but
+reads as forest-canopy top, rim dip doesn't line up** (user: likely the Black-Mage-
+Village area brush; census slope med 30° — a SLOPE vocabulary, stock never shows it
+flat-at-scale) · **dunes = ground reads good, but an INTERIOR type — doesn't blend with
+the coastline** (the borrowed desert rim lip; the ground fill itself ★ verbatim-checked
+at (1242,−294) blk (19,4) — "checks out"). Encoded as `GROUNDS[..]["cls"]`
+island/transition/slope/interior + a CLI mint note + `test_ground_families_registry`.
+**ALL FIVE sampler islets are KEPT deployed** (user, 2026-07-15) — the row-19 reference
+exhibits for every family.
+The future consumption of the three non-island families = mixed-biome landmasses
+(scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
+
+**THE DESERT BEACH (★ offline 2026-07-15, the in-game rung PARKED at the transplant
+fork)** — `desert_beach_anatomy.py` / `desert_beach_decode.py` / the pin census →
+**THE BEACH TRANSLATION LAW**: stock desert beaches exist in force (14 Outer-Continent
+blocks, 112 sand↔topo-17 back welds) and their topo-32 sand band is the grass band's
+STRUCTURE at its own atlas spot — u-strip EXACTLY +335/1024 texels (P/Q preserved),
+own single-valued v pins (run 548→579, cap 580→611: land edges −32, seam edges −30,
+the ribbon 2 texels taller), foam universal, sand topo family-keyed 1:1 with the
+backing ground (zero mixed blocks; topo 33 = the Lost Continent's foam-less FROZEN
+SHORE at +330, measured only). **Productized as `coastmorph.SAND_BANDS`** + per-donor
+auto-detection through every sand-band verb; grass byte-frozen (44 golden tests),
+desert proven on all 15 real blocks (`desert_beach_acceptance.py`: decode 82% vs
+grass 73%, sand_rebuild 12/15, cap_rebuild byte-identity 11/15; refusals = the same
+residual classes as grass). En route: **THE ABSENT-PART LAW** — an in-place morph
+CANNOT emit into a part the real cell's prefab doesn't carry (no transform to bind
+the override; the (18,3) incident shipped a foam-less beach while gates read clean —
+morph_in_place now refuses actionably; the bad deploy was reverted). The window scan
+(`desert_beach_window_scan.py`, builders-as-the-oracle) first seemed to close the
+in-place path: bare desert coasts lack the parts, beach-block coasts are the
+cliff-lip by grammar (bay arcs!), and the two lawful (16,5) windows failed the
+IN-PLACE-FRAME gate. **The transplant path (island-B) IS closed** — the census
+truth: no self-contained desert landmass exists in stock (`desert_beach_transplant
+_scan.py`: every desert beach block is continent coast; land-fit fails everywhere;
+the only clean multi-block landmasses in FF9 are grass — (9,5)+2×3 and island B's
+own (10,17)+2×2). But the frame-failure DIAGNOSIS re-opened in-place: the failing
+verts were pure PART RE-LABELING (the wash re-band flipping sea3→sea2 at the frame,
+water-union byte-identical) — and lawfully refused, since the NEIGHBOR's band at
+those verts is sea3 ({2,3} off-language across the border, where a single-cell
+morph can't re-band). The lever: **the wash reached the frame only at the default
+swash 4.6 — at swash 3.8 (inside the ribbon envelope) the whole re-band stays
+in-cell and the 14.6u window runs CLEAN through every gate.** ★ DEPLOYED
+2026-07-15 (playtest pending): the first MINTED DESERT BEACH, block (16,5), the
+Outer Continent's east coast — `world-transplant --in-place --cell 16,5 --donor
+16,5 --bank-lower "1075.22,-333.89:18" --virgin-mint "1071.19,-328.14:1079.26,
+-339.64:2.4:3.8:pins=20,5"`; minted foam/sand/wash at (1071–1079, −328..−340),
+teleport ≈ (1074, −336); THE BUILT-IN A/B: the block's own REAL desert beach runs
+the west shore, centroid (1061, −358), ~15u around the corner. Real cell → disc 1
+only (no mirror; a world re-entry loads it); revert = delete the five deployed
+overrides. **Round 2 (playtest 2026-07-15): the beach itself "looks good"; the END
+CONNECTIONS read as tiny cliffs** — the radial r18 bank had sunk the flanking coast
+beyond the caps (real beach ends die against the TALL lip — the bay-arc grammar);
+re-deployed with the CORRIDOR bank (`:8:along=chord` — the sink hugs the beach line,
+the flanks keep stock height). **The user's second tell — a SQUARED SEA TILE against
+the foam — diagnosed structurally (THE WASH-APRON PROPORTION):** at the real beach
+everything within ~13u of the foam is PURE sea2 wash; at the mint, ring-re-banded
+sea1 sits at ~4u (a deeper band's animated texture butting the wash = the visible
+square). The mint's `wash_reach` lever (now CLI-exposed as `:wash=R`) only applies
+on DEEP shores (`deep_shore = no sea2 dropped`) — this window drops 3 sea2 tris (the
+real beach's ladder wraps into the corner), so the outer bands stay where stock had
+them. The truth underneath: this corner's bathymetry is a NARROW SHELF (deep water
+close-in = why no beach grew here naturally); a stock-proportioned apron needs the
+mint to RE-PROPORTION the ladder on shelf shores (convert near sea1/sea3 to wash +
+push the re-band ring outward — the LADDER-TAPER LAW's mint analogue), **→ THE SHELF
+RE-PROPORTION RUNG built same day** (user: "the ends look good now, build the ladder
+re-proportion rung"): explicit `wash=R` on a shelf shore now SEEDS whole sea1/sea3/sea5
+tiles within reach as planned wash conversions riding THE LADDER-REPAIR FIXPOINT
+(plan-then-emit, strip re-emission, every gate) — plus three new fixpoint rules minted
+through the (16,5) traces: **THE ROLLBACK RULE** (a pair needing a FRAME-ROW cell — the
+repair is border-blind; an in-place re-label breaks border welds — or a FALLEN cell
+(proven unlearnable) or a PARTIAL (part,cell) (cut fragments) reverts the shallow-side
+conversion instead, monotone, fall-through-to-legacy when nothing is revertible = every
+proven build byte-compatible, 47 goldens frozen); **THE COMPRESSED LADDER** (a
+rolled-back cell stays convertible DOWN-ladder: wash→sea1→frame-sea3 in adjacent
+columns is lawful and real — the east flank's form); **THE ENGULFED-TILE RULE** (a
+surviving sea1 whose new edge-set is [] has NO strip form — no such tile exists — and
+re-bands to wash, always lawful since es=[] means every neighbour is wash/sea1).
+Deployed at wash=13: the square's body IS wash now (rows −87..−89 converted, the sea1
+ring pushed to the frame column as the compressed ladder; the NW pocket rolled back
+untouched); the residue at the foam line = cut-fragment slivers (lawfully immovable).
+Playtest pending. **→ THE LADDER MINT ★ BUILT + DEPLOYED same day** (the user reverted
+(16,5) and called the rung): `world-island --beach B0,B1[:W[:S]] --beach-pins BX,BY`
+(`islandbeach.py`) replaces the cliff wall along an outline arc with the measured beach
+profile (berm → sand band L→S → foam ribbon S→W, chains pinching at the arc's interior
+ends against the full-height flanks) and mints the water ladder: the wash collar (a
+greedy zip from W to the sea1 ring's lattice staircase, sea2 mains uvs
+position-evaluated), sea1 + sea5 rings (1-cell dilation = adjacency lawful BY
+CONSTRUCTION; tiles via the learned Wang table + `_strip_emit` with the PINS block's
+float dialect — (20,5) is dialect-MIXED, (15,1) clean, so desert pins default needs
+care), and THE COVERAGE CUT (the sea4 plane loses only cells the ladder FULLY owns —
+16-sample coverage fixpoint; wash tris straying into kept-plane cells drop = the
+z-fight law; the pinch tapers keep deep water under them like the flanking coast).
+En-route fixes: the pinch anchors moved to the arc's interior ends (the rim-ring
+sliver), and beach TRANSITION wall quads pick their diagonal by best worst-lean (the
+two ends MIRROR). Deployed: the first BEACH-BEARING minted island — desert, r18 seed
+11 @ (288,−1243) block (4,19), beach on the south face (bearings 235–305), pins
+(15,1), 396 terrain tris + foam 34/wash/sea1/sea5, all gates clean incl. census 0
+MISS; teleport (288,−1243), disc-4 mirrored. Grass identity: BOTH byte-identity
+oracles pass (beach=None mints untouched). Playtest pending.
+
+**Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
+donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
+placement scan + split-border emission.
+
+**→ THE MULTI-BLOCK EXTENSION (★ built same day, 2026-07-15).** `carve_mountain` now takes
+a donor block LIST/rect (the blob merges in the world frame) and auto-sizes the target: a
+blob that fits one block runs the frozen single-block pipeline (the Uaho identity
+acceptance passes bit-for-bit through the generalization — the refactor oracle), a bigger
+one works over the minimal SPAN of deployed blocks (new tris split at 64u borders via
+`split_borders8` — identity welds, exactly how the stock crag itself ships; the apron
+welds internal borders per POSITION and tapers only at the span's outer rect; crack gate
++ probes + census span-wide). The crag carry runs GREEN offline (294 tris over a 2×2
+span, zip rise 1.05 / ny 0.96 / rigidity 0.7% / apron 4.1° — far inside every envelope)
+and is DEPLOYED on a fresh r50 bench island at **(64,−1216)** (`world-island` seed 11 +
+`world-mountain --near 64,-1216 --donor 10,5-6`, placed (70,−1218) rot 0; teleport
+**(30.5, −1217.5)** face east) — **★ MECHANISM IN-GAME PROVEN 2026-07-15** ("looks
+verbatim" + "rim walk is good": the border seams are invisible, the rim walks clean).
+The LOOK verdict is deliberately deferred: the crag's foot fringe is painted against
+topo-17 DESERT ground and reads foreign on mains grass — the DESERT GROUND-LANGUAGE
+study (census → tile decode → a desert island ground → re-seat the crag) is the next
+rung; only on native ground can "reads native" be judged.
+
 ## Round 4: THE v3 BEND-CARRY (deployed, then rejected -- see the verdict above)
 
 `two_level_v3.py` **DEPLOYED** (1431 tris): the escarpment is now a CARRIED real wall —

@@ -223,7 +223,7 @@ CLEAR_OUT = d_land + 3.5                                   # land footprint + ap
 
 # ---- 2. island F: deterministic rebuild == deployed bytes ------------------------------------
 built = build_landmass(center=(CX, CZ), base_radius=26, seed=15, lobes=1, n_patches=0,
-                       relief="auto", stamps="auto")
+                       stamps="auto")
 assert set(built["blocks"]) == {BLK}
 import tempfile
 _tmp = Path(tempfile.mkdtemp(prefix="ff9_twolevel3_"))

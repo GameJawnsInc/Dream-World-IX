@@ -46,7 +46,7 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 
 ## Commands
 
-97 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
+114 subcommands — `ff9mapkit -h` lists them; the grouped reference with flags is in
 [`SETUP.md` §7](../SETUP.md#7-cli-command-reference). The families:
 
 - **Setup** — `setup` · `doctor` · `extract-templates`
@@ -63,8 +63,8 @@ First-time walkthroughs → [`docs/tutorials/`](docs/tutorials/README.md).
 - **3D models** — `model-gltf` / `model-import` / `model-mint` / `model-anim` / `model-export` /
   `playable-anims`
 - **Overworld** — `world-terrain` / `world-reclaim` / `world-coast` / `world-transplant` /
-  `world-water` / `world-island` / `world-forest` / `world-hill` / `world-entrance` /
-  `world-encounters` and the rest of the `world-*` suite
+  `world-water` / `world-island` / `world-forest` / `world-hill` / `world-mountain` /
+  `world-entrance` / `world-encounters` and the rest of the `world-*` suite
 - **Audio** — `audio-import` · `music-list` / `sfx-list`
 - **Catalogs & dialogue** — `catalog` / `models` / `animations` / `archetypes` / `items` /
   `scenes` / `flags` / `sps` · `dialogue` / `dialogue-import`

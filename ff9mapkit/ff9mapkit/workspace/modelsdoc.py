@@ -19,13 +19,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QGuiApplication, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
 from .. import catalog
 from ..models.appearance import appearance_notes
-from . import thumbs as thumbs_mod
+from . import thumbs as thumbs_mod, widgets
 
 _ICON = 56                                       # list-row icon size (px)
 _DETAIL_IMG = 224                                # detail-pane preview size (px)
@@ -168,15 +168,17 @@ class ModelsDoc(QWidget):
         """The DLL-free round-trip, keyed on the selected model. Same argv shapes the Import tab's old
         models box streamed -- the object names (mdl_*) are kept so the smoke + muscle memory carry."""
         muted = f"color:{self.pal['muted']};"
-        box = QGroupBox("Edit this model")
-        v = QVBoxLayout(box)
+        box = widgets.section("Edit this model")
+        v = box.content_layout
 
         dep = QHBoxLayout()
-        dep.addWidget(QLabel("Deploy into:"))
+        _l_dep = QLabel("Deploy into:")
+        dep.addWidget(_l_dep)
         from ..editor import jobs
         gm = jobs.detect_game_mod()
         self.mdl_mod = QLineEdit(str(gm) if gm else "")
         self.mdl_mod.setPlaceholderText("a mod folder, e.g. <game>/FF9CustomMap")
+        _l_dep.setBuddy(self.mdl_mod)          # see the buddy note in coopdoc
         dep.addWidget(self.mdl_mod, 1)
         mb = QPushButton("Browse…")
         mb.clicked.connect(self.browse_model_mod)
@@ -189,8 +191,10 @@ class ModelsDoc(QWidget):
                                      "(File ▸ Import ▸ glTF 2.0): mesh + rig + textures + animations.")
         self.mdl_gltf_btn.clicked.connect(self.on_model_gltf)
         exp.addWidget(self.mdl_gltf_btn)
-        exp.addWidget(QLabel("anims:"))
+        _l_anims = QLabel("anims:")
+        exp.addWidget(_l_anims)
         self.mdl_anims = QComboBox()
+        _l_anims.setBuddy(self.mdl_anims)
         self.mdl_anims.addItems(["auto", "all", "none"])
         self.mdl_anims.setToolTip("Which clips to embed in the .glb: auto = idle/walk/run/turns; "
                                   "all = the model's whole folder; none = mesh only.")
@@ -223,8 +227,10 @@ class ModelsDoc(QWidget):
         v.addLayout(rsk)
 
         imp = QHBoxLayout()
-        imp.addWidget(QLabel("Edited .glb:"))
+        _l_glb = QLabel("Edited .glb:")
+        imp.addWidget(_l_glb)
         self.mdl_glb = QLineEdit()
+        _l_glb.setBuddy(self.mdl_glb)
         self.mdl_glb.setPlaceholderText("the .glb you exported from Blender (drag-and-drop works too)")
         imp.addWidget(self.mdl_glb, 1)
         gb = QPushButton("Browse…")
@@ -238,8 +244,10 @@ class ModelsDoc(QWidget):
         v.addLayout(imp)
 
         mint = QHBoxLayout()
-        mint.addWidget(QLabel("Mint new id:"))
+        _l_mint = QLabel("Mint new id:")
+        mint.addWidget(_l_mint)
         self.mdl_mint_id = QLineEdit("6000")
+        _l_mint.setBuddy(self.mdl_mint_id)
         self.mdl_mint_id.setFixedWidth(70)
         self.mdl_mint_id.setToolTip("The new model id — ≥ 6000 (clear of every real id).")
         mint.addWidget(self.mdl_mint_id)
@@ -266,11 +274,13 @@ class ModelsDoc(QWidget):
         minted animset (donor untouched). Field-toml-scoped -- the [[playable]] block must carry
         custom_battle_anims = true (editable in the field editor's Playables section)."""
         muted = f"color:{self.pal['muted']};"
-        box = QGroupBox("Custom playable's battle animset")
-        v = QVBoxLayout(box)
+        box = widgets.section("Custom playable's battle animset")
+        v = box.content_layout
         frow = QHBoxLayout()
-        frow.addWidget(QLabel("field.toml:"))
+        _l_pa = QLabel("field.toml:")
+        frow.addWidget(_l_pa)
         self.pa_field = QLineEdit()
+        _l_pa.setBuddy(self.pa_field)
         self.pa_field.setPlaceholderText("the field.toml carrying the [[playable]] custom_battle_anims block")
         frow.addWidget(self.pa_field, 1)
         fb = QPushButton("Browse…")
@@ -344,9 +354,10 @@ class ModelsDoc(QWidget):
         mints / anim overrides / dangling 3DModel lines -- with a confirm-first per-entry revert.
         The loose-override system is write-only; this is the read side."""
         muted = f"color:{self.pal['muted']};"
-        box = QGroupBox("Deployed in this mod folder")
-        v = QVBoxLayout(box)
+        box = widgets.section("Deployed in this mod folder")
+        v = box.content_layout
         self.dep_list = QListWidget()
+        self.dep_list.setAccessibleName("Models deployed in this mod folder")   # no visible label to buddy
         self.dep_list.setMaximumHeight(170)
         v.addWidget(self.dep_list)
         row = QHBoxLayout()

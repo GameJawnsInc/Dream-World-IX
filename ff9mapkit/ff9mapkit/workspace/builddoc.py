@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGroupBox, QHBoxLayout, QLabel,
+    QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QMessageBox, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -65,8 +65,8 @@ class BuildDoc(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
         v = QVBoxLayout(inner)
-        v.setContentsMargins(16, 16, 16, 16)           # 4pt-grid page padding
-        v.setSpacing(12)                                # 4pt-grid rhythm between the raised panels
+        widgets.page_margins(v)                         # the page rung (was a hand-typed 16)
+        v.setSpacing(widgets.SECTION_GAP)               # the rhythm between the raised panels (was 12)
         row = QHBoxLayout()
         row.addWidget(QLabel("Project file:"))
         self.path = QLineEdit()
@@ -104,22 +104,26 @@ class BuildDoc(QWidget):
         self.rev = QPushButton("Revert test deploy")
         self.rev.clicked.connect(self.on_revert)
         self.pack_btn = QPushButton("Package (zip)…")
+        self.pack_btn.setProperty("role", "quiet")     # the ladder's bottom rung -- see style.py
         self.pack_btn.setToolTip("Zip a BUILT mod folder into a shareable release — the last step of the "
                                  "funnel. Unzipping it next to FF9_Launcher.exe installs the mod.")
         self.pack_btn.clicked.connect(self.on_pack)
         btns.addWidget(self.chk)
         btns.addWidget(self.go)
         btns.addWidget(self.rev)
-        btns.addWidget(self.pack_btn)
+        # The stretch sits BETWEEN the build verbs and Package, not after all four -- it used to trail the
+        # row, which packed four equally-filled buttons flush left with no entry point. Package is a
+        # different job (ship a BUILT folder), so it belongs across the gap, quiet.
         btns.addStretch(1)
+        btns.addWidget(self.pack_btn)
         v.addLayout(btns)
         v.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
 
     def _field_box(self):
-        box = QGroupBox("Build to (field)")
-        gv = QVBoxLayout(box)
+        box = widgets.section("Build to (field)")
+        gv = box.content_layout
         self.tg = QButtonGroup(self)
         tid = self.worktree_id or 4003
         # In-place: only meaningful for a verbatim fork of a REAL field -> hidden until such a project loads
@@ -128,12 +132,12 @@ class BuildDoc(QWidget):
         self.rb_inplace.setVisible(False)
         self.tg.addButton(self.rb_inplace)
         self.rb_inplace.toggled.connect(self._update_dest)
-        self.rb_test = QRadioButton(f"Test slot {tid} — quick + reversible; play via F6 → Warp"
-                                    + ("  (or New Game → hut door)" if tid == 4003 else ""))
+        self.rb_test = QRadioButton(f"Test slot {tid}")
         self.rb_test.setChecked(self.has_tools)        # installed copy: no F6 dev engine -> default to Install to game
         # label = the folder NAME only; the full path lives in the tooltip. (An unwrappable radio label
         # carrying the whole install path forced the tab's minimum width past the pane -> h-scrolling.)
-        self.rb_game = QRadioButton(f"Install to game (shipping mod folder): {Path(self.game_mod).name}"
+        # KEEP the ternary -- jobs.detect_game_mod() returns None and Path(None) raises TypeError.
+        self.rb_game = QRadioButton(f"Install to game: {Path(self.game_mod).name}"
                                     if self.game_mod else "Install to game — (game install not found)")
         if self.game_mod:
             self.rb_game.setToolTip(str(self.game_mod))
@@ -142,6 +146,8 @@ class BuildDoc(QWidget):
         of = QHBoxLayout()
         self.rb_other = QRadioButton("Build only — to a folder:")
         self.other = QLineEdit()
+        self.other.setAccessibleName("Build output folder")   # its label is the RADIO, not a QLabel
+        self.other.setProperty("mono", True)                  # a path is a machine token, not prose
         ob = QPushButton("Browse…")
         ob.clicked.connect(self.browse_other)
         of.addWidget(self.rb_other)
@@ -151,13 +157,25 @@ class BuildDoc(QWidget):
             self.tg.addButton(rb)
             rb.toggled.connect(self._update_dest)
         self.other.textChanged.connect(self._update_dest)
-        gv.addWidget(self.rb_inplace)
-        gv.addWidget(self.rb_test)
-        gv.addWidget(self.rb_game)
+        gv.addWidget(self.rb_inplace)                 # its caption is filled by set_field (donor-dependent)
+        widgets.option(self.rb_test,
+                       "Quick and reversible. Your field's own id is overridden — play it with F6 → Warp"
+                       + (", or New Game → the hut door." if tid == 4003 else "."), gv)
+        widgets.option(self.rb_game,
+                       "Installs at the field's OWN id, into your shipping mod folder. Overwrites whatever "
+                       "is there — no automatic undo.", gv)
+        # "Build only — to a folder:" keeps its sentence: it is a FIELD LABEL for the adjacent QLineEdit,
+        # not prose. Cutting it orphans the input.
         gv.addLayout(of)
+        # WAS role="accent" -- a ~140-char sentence in accent blue, the loudest thing on the card and the
+        # least important. style.py documents that role as "an actionable VALUE (e.g. a deploy target)", and
+        # measured, accent-as-text is sub-AA in 6 of 7 palettes (NORD 2.44:1 on surface_2). It is now a
+        # short muted value line; the per-option captions above carry the explanation, and the rev tooltips
+        # keep the detail. state="warn" on the one branch that is a real diagnostic (see _update_dest).
         self.dest = QLabel("")
         self.dest.setWordWrap(True)
-        self.dest.setProperty("role", "accent")
+        self.dest.setProperty("role", "muted")
+        self.dest.setProperty("mono", True)                   # it is all ids, folders and paths
         gv.addWidget(self.dest)
         if not self.has_tools:                         # installed: no test-slot/F6 -> default to Install to game / Build only
             self.rb_test.setEnabled(False)
@@ -170,8 +188,8 @@ class BuildDoc(QWidget):
         return box
 
     def _campaign_box(self):
-        box = QGroupBox("Deploy campaign")
-        cv = QVBoxLayout(box)
+        box = widgets.section("Deploy campaign")
+        cv = box.content_layout
         self.cg = QButtonGroup(self)
         self.rb_camp_deploy = QRadioButton("Deploy to game (reversible)")
         self.rb_camp_deploy.setChecked(True)
@@ -187,8 +205,8 @@ class BuildDoc(QWidget):
         return box
 
     def _journey_box(self):
-        box = QGroupBox("Deploy journey")
-        jv = QVBoxLayout(box)
+        box = widgets.section("Deploy journey")
+        jv = box.content_layout
         self.jg = QButtonGroup(self)
         self.rb_jour_preview = QRadioButton("Preview deploy playbook (dry-run — no game files touched)")
         self.rb_jour_preview.setChecked(True)
@@ -205,8 +223,8 @@ class BuildDoc(QWidget):
                                          "whole journey — you lose cheap per-campaign re-deploy.")
         jv.addWidget(self.cb_single_folder)
         # New-Game landing: meaningful only for the one-shot deploy (single-owner) -> disabled otherwise
-        self.ng_group = QGroupBox("New Game landing (one-shot deploy — single-owner)")
-        ngv = QVBoxLayout(self.ng_group)
+        self.ng_group = widgets.section("New Game landing (one-shot deploy — single-owner)")
+        ngv = self.ng_group.content_layout
         self.ngg = QButtonGroup(self)
         self.rb_ng_none = QRadioButton("Don't wire New Game — reach the hub via F6 → Warp")
         self.rb_ng_none.setChecked(True)
@@ -227,11 +245,12 @@ class BuildDoc(QWidget):
 
     def _newgame_box(self):
         # always-visible: point New Game straight at a deployed field id (the hub-less single destination).
-        box = QGroupBox("New Game entry  (skip the hub — land straight on a field)")
-        gv = QVBoxLayout(box)
+        box = widgets.section("New Game entry  (skip the hub — land straight on a field)")
+        gv = box.content_layout
         row = QHBoxLayout()
         row.addWidget(QLabel("Field id:"))
         self.newgame_id = QLineEdit()
+        self.newgame_id.setProperty("mono", True)   # a field id is a machine token
         self.newgame_id.setFixedWidth(90)
         self.newgame_id.setPlaceholderText("4100")
         self.set_ng = QPushButton("Point New Game here")
@@ -254,14 +273,15 @@ class BuildDoc(QWidget):
         return box
 
     def _battle_box(self):
-        box = QGroupBox("Deploy battle map")
-        bv = QVBoxLayout(box)
+        box = widgets.section("Deploy battle map")
+        bv = box.content_layout
         self.battle_dest = QLabel(f"Test mod folder: {self.mod_folder}")
         self.battle_dest.setProperty("role", "muted")
         bv.addWidget(self.battle_dest)
         tf = QHBoxLayout()
         tf.addWidget(QLabel("Trigger field (optional):"))
         self.trigger = QLineEdit()
+        self.trigger.setProperty("mono", True)   # a field id is a machine token
         self.trigger.setFixedWidth(90)
         tf.addWidget(self.trigger)
         self.trigger_hint = QLabel("repoint a deployed field's encounter at the minted scene (only for a "
@@ -380,31 +400,39 @@ class BuildDoc(QWidget):
             return
         tid = self.worktree_id or 4003
         own = self.field_id if self.field_id is not None else "?"
+        # Each branch resolves to a short VALUE LINE (the option's caption above already explains the mode,
+        # and the rev tooltip keeps the fine print) -- say each fact exactly once. `warn` marks the ONE
+        # branch that is a real diagnostic: an install to the game has no automatic undo. Never demote the
+        # answer to "why is this dangerous" into 11px grey.
+        warn = False
         if self._inplace_available and self.rb_inplace.isChecked():
             t = self.inplace_target
-            msg = (f"→ deploys IN PLACE on field {t['donor']} in {self.mod_folder} (reversible). The engine "
-                   f"loads this instead of the real field — reach it the normal way, or F6 → Warp {t['donor']}."
-                   + ("  Keeps the Chocobo dig HUD." if t["is_forest"] else ""))
+            # KEEP "in place" + the donor id unsplit: test_builddoc_inplace.py:58 asserts on dest.text().
+            msg = f"→ in place on field {t['donor']} in {self.mod_folder} · reversible"
+            if t["is_forest"]:
+                msg += " · keeps the Chocobo dig HUD"
             self.rev.setEnabled(True)              # the deploy writes a per-id revert script
             self.rev.setToolTip(f"Undo the last in-place deploy on field {t['donor']} (restores its previous "
                                 "contents).")
         elif self.rb_test.isChecked():
-            msg = (f"→ deploys to field {tid} in {self.mod_folder} (your test slot; reversible). "
-                   f"Your field's own id ({own}) is overridden — reach it via F6 → Warp to {tid}.")
+            msg = f"→ field {tid} in {self.mod_folder} · reversible"
             self.rev.setEnabled(True)              # the test deploy writes a revert script
             self.rev.setToolTip("Undo the last test-slot deploy (restores the slot's previous contents).")
         elif self.rb_game.isChecked():
             where = self.game_mod or "(game install not found)"
-            msg = f"→ installs at field {own} (the field's OWN id) in {where} — overwrites any field {own} there."
+            msg = f"→ field {own} in {where} · overwrites, no undo"
+            warn = True
             self.rev.setEnabled(False)             # a direct game install overwrites in place -- no revert script
             self.rev.setToolTip(f"A direct game install overwrites field {own} in place — there's no automatic "
                                 "undo. Restore from your backup, or re-install the original field.")
         else:
             folder = self.other.text().strip() or "(pick a folder)"
-            msg = f"→ builds field {own} into {folder} — no game change."
+            msg = f"→ field {own} → {folder} · no game change"
             self.rev.setEnabled(False)             # building into a plain folder deploys nothing to revert
             self.rev.setToolTip("Builds into a plain folder — nothing was deployed to the game to revert.")
         self.dest.setText(msg)
+        self.dest.setProperty("state", "warn" if warn else "")
+        widgets.repolish(self.dest)                # setProperty does NOT restyle; _update_dest runs post-polish
 
     def _journey_newgame_mode(self) -> str:
         """The selected New-Game landing for the one-shot deploy: ``"hub"`` / ``"entry"`` / ``"none"``."""

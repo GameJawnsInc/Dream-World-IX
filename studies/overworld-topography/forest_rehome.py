@@ -59,7 +59,7 @@ kk3 = lambda p: (round(p[0], 3), round(p[1], 3), round(p[2], 3))
 # ---- 1. deterministic island E rebuild --------------------------------------------------
 print("rebuilding island E (seed 55) ...", flush=True)
 built = build_landmass(center=CENTER, base_radius=RADIUS, seed=SEED, lobes=LOBES,
-                       relief="auto", stamps="auto")
+                       stamps="auto")
 gpos = built["world"]["pos"]
 gtris = built["world"]["tris"]
 gmeta = built["world"]["meta"]

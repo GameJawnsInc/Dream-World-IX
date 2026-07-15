@@ -13,9 +13,38 @@ from PySide6.QtWidgets import (
     QListWidget, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import anim
+from . import anim, style
 
 _QWIDGETSIZE_MAX = 16777215                        # Qt's max size -- 'release the height pin' so a widget tracks content
+
+# The gap BETWEEN cards (see `section`). The card draws its own boundary, so this gap does not have to
+# carry the grouping by itself -- but it must still clearly exceed the 8px gap between rows INSIDE a card,
+# or the page reads as one undifferentiated stack. 14 sits between the old 10 and the borderless 24.
+# DELIBERATELY OFF-GRID, and the one number here that is: the grid's neighbours are 12 (too close to the
+# 8px in-card row gap to read as a different KIND of gap) and 16 (which ties the card's own 16px interior
+# padding, so a card would sit as far from its neighbour as its content sits from its own edge). The grid
+# does not have to own every number -- it has to stop numbers being anonymous. This one has a reason.
+SECTION_GAP = 14
+
+# A form doc's PAGE padding -- the frame around the scrolling column of cards. One rung above the card's
+# own 16px interior (widgets.section), so the page frame reads as the outer container rather than tying
+# it: 24 outside, 16 inside. Applies to the form docs (Build & Deploy / Import / Co-op: a single scrolling
+# column, no splitter). NOT to the splitter browsers (Models / Battle), where the panes are the page and
+# edge-to-edge is the convention -- an outer margin there just eats pane width.
+PAGE_PAD = style.space("space_6")
+
+
+def page_margins(lay) -> None:
+    """Apply the page rung to a form doc's page-level layout.
+
+    One definition, three call sites: the three form docs had drifted to 16 / 16 / (18,14,18,18), which
+    is the whole reason this is a function and not a number typed three times.
+
+    NB: comfortable-only. Layout density fan-out is not wired -- the docs are constructed without knowing
+    the density, and threading it through every doc + `_apply_density` + `_finish`'s Cancel path is a
+    separate job. `style.space` takes a density for when it is.
+    """
+    lay.setContentsMargins(PAGE_PAD, PAGE_PAD, PAGE_PAD, PAGE_PAD)
 
 
 class WheelGuard(QObject):
@@ -95,6 +124,185 @@ def card(*, parent=None):
     frame = QFrame(parent)
     frame.setProperty("role", "card")
     return frame
+
+
+# Max measure for a wrapped sentence, px. It caps a real problem: a full-window paragraph on a 1180px pane
+# runs ~200 chars/line and reads as unformatted output rather than as text somebody wrote.
+#
+# HONEST RECEIPT (an earlier comment here claimed "~75-85 chars" -- that was simply wrong, and measured):
+# real prose averages 5.691 px/char at 13px Segoe UI on a NATIVE font DB, so 620px is ~109 chars/line --
+# ABOVE the classic 45-75ch band (which would be 256-427px). 620 is a deliberate compromise for a dense
+# settings pane rather than a typographic ideal, and it is the value that was reviewed and approved on the
+# Co-op tab. Narrowing it toward ~440 (~77ch) is an open design call, not a bug fix -- it re-wraps every
+# adopted caption, so it wants a look before it lands.
+# NB: measure this on the NATIVE platform only. QT_QPA_PLATFORM=offscreen stubs the font DB and inflates
+# advances 2-3x, which is how the dossier invented a horizontal-scroll emergency that never existed.
+PROSE_W = 620
+
+
+class Prose(QLabel):
+    """A word-wrapped label with a REAL measure cap.
+
+    A raw ``setMaximumWidth`` on a wrapped QLabel silently CLIPS: ``QBoxLayout::calcHfw`` asks
+    ``heightForWidth()`` at the full CELL width (say 900px -> "2 lines please"), then lays the label out at
+    its capped 620px, where the text actually needs 4. The bottom two lines are cut off. Overriding
+    ``heightForWidth`` to answer for the *capped* width -- never the cell's -- is what makes the cap honest.
+
+    Do NOT "fix" this with an HBox + addStretch wrapper: that collapses the label to its sizeHint (its
+    natural single-line width) and throws the measure away entirely.
+    """
+
+    def __init__(self, text="", width=PROSE_W, parent=None):
+        super().__init__(text, parent)
+        self._cap = width
+        self.setWordWrap(True)
+        self.setMaximumWidth(width)
+
+    def heightForWidth(self, w):                   # noqa: N802 (Qt override)
+        return super().heightForWidth(min(w, self._cap))
+
+    def sizeHint(self):                            # noqa: N802 (Qt override)
+        s = super().sizeHint()
+        s.setWidth(min(s.width(), self._cap))
+        s.setHeight(self.heightForWidth(self._cap))
+        return s
+
+
+def prose(text, width=PROSE_W, *, parent=None):
+    """A wrapped sentence held to a readable measure (see :class:`Prose`)."""
+    return Prose(text, width, parent)
+
+
+OPT_INDENT = 30    # the radio/checkbox TEXT column, so a caption lines up under the label and not under
+                   # the indicator. MEASURED: style().subElementRect(SE_RadioButtonContents).x(), identical
+                   # in both densities. Do NOT derive it arithmetically from the indicator width + spacing
+                   # -- that lands a pixel out (the plan said 31), because QSS puts the indicator's border
+                   # OUTSIDE its width and the control carries its own padding.
+
+
+def option(rb, description, lay, *, width=PROSE_W):
+    """A choice is a NAME; its consequence is a caption BENEATH it, on the label's own column.
+
+    The third law: never put prose inside a widget. `QRadioButton("Test slot 4003 -- quick + reversible;
+    play via F6 -> Warp  (or New Game -> hut door)")` is a label doing a description's job -- it makes every
+    option the same visual weight as its own explanation, so nothing on the card can be scanned. Split it:
+    13px `$text` for what you pick, 11px `$muted` for what it means.
+
+    The caption is a `Prose` (not a raw wrapped QLabel with a maximumWidth) because it is NESTED, and a
+    nested wrapped label with a raw cap silently clips -- see :class:`Prose`.
+
+    Also sets the radio's accessible DESCRIPTION, so a screen reader still reads the consequence that used
+    to live in the label. (Name = the choice; description = the caption. That is the correct split.)
+    """
+    lay.addWidget(rb)
+    if description:
+        cap = Prose(description, width)
+        cap.setProperty("role", "caption")
+        cap.setContentsMargins(OPT_INDENT, 0, 0, 6)
+        lay.addWidget(cap)
+        rb.setAccessibleDescription(description)
+        rb.description_label = cap
+    return rb
+
+
+def kv(key, lay, *, key_width, mono=False, placeholder="…"):
+    """One row of a definition list: a MUTED key in a fixed column, the value beside it.
+
+    `game: C:\\Program Files (x86)\\...` as a single 13px label makes the key and the answer the same
+    weight, so four such rows are a wall you read linearly instead of a table you scan. Splitting them
+    puts the labels in one muted column and the answers in another at full weight -- the key names the
+    question, the value IS the information.
+
+    ``key_width`` is a MEASURED column (see the caller): a fixed px width aligns every value to the same
+    left edge, which is the whole point of a definition list. Pass the widest key's advance + padding.
+
+    ``mono`` is for values that are machine tokens (a path, an id) -- NOT for prose. Mono on a sentence
+    reads as a bug.
+
+    Returns the VALUE label. Callers keep their existing ``self.lbl_x.setText(...)`` sites; they just stop
+    writing the ``"key: "`` prefix into the text.
+    """
+    row = QHBoxLayout()
+    row.setSpacing(0)
+    k = role_label(key, "muted")
+    k.setFixedWidth(key_width)
+    k.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+    val = QLabel(placeholder)
+    val.setWordWrap(True)
+    if mono:
+        val.setProperty("mono", True)
+    val.setAccessibleName(key)          # a screen reader still hears "game" for this value
+    row.addWidget(k)
+    row.addWidget(val, 1)
+    lay.addLayout(row)
+    val.key_label = k
+    return val
+
+
+def set_state(label, state=""):
+    """Set a label's ``state`` (``""`` / ``warn`` / ``error``) and restyle it.
+
+    ``setProperty`` alone does NOT re-evaluate the QSS -- a status line would keep its old colour. Always
+    pair them; that is what this exists for.
+    """
+    label.setProperty("state", state)
+    repolish(label)
+    return label
+
+
+def section(title, *, parent=None):
+    """A titled CARD -- the QGroupBox replacement.
+
+    The card stays: it is a genuinely useful logical section indicator, and the measurements say the box
+    was never the problem. What was ugly is specific and fixable:
+
+    1. **The caption sat ON the border**, breaking the stroke around itself -- the Win32 ``fieldset``
+       idiom every modern design language dropped. It is also the one thing QSS cannot fix: ``font-*`` on
+       ``QGroupBox::title`` is silently ignored (colour is its only lever), so the title could never be
+       given weight while Qt was drawing it. Hence a real QLabel, INSIDE the card, at the top.
+    2. **The title had no presence** -- ``$muted`` at the same 13px as the body it labelled. Now the
+       11px/600/+1px-tracking overline role, which reads as a marker rather than as weak body text.
+    3. **No horizontal padding** (``style.py``: "NB: no left/right padding") -- content ran to the edge.
+       That amputation was defending against an h-scroll bug that never existed at the claimed magnitude
+       (the offscreen QPA inflates text advances 2-3x; the widest real control is 642px against ~1080px
+       of pane). Padding restored.
+
+    NOT changed: the fill. ``surface_2`` on ``bg`` measures 1.31 in DARK -- a *stronger* step than
+    GitHub's dark card (1.09). The elevation was fine; the research's "the fills do nothing" measured
+    ``surface -> surface_2`` (1.17), which is not the pair a card on a page is seen against.
+
+    Call shape mirrors :func:`disclosure` (the established idiom here)::
+
+        st = widgets.section("Status")      # was: st = QGroupBox("Status")
+        sv = st.content_layout              # was: sv = QVBoxLayout(st)
+        sv.addWidget(...)                   # unchanged
+        v.addWidget(st)                     # unchanged
+
+    The title is upper-cased at the call site because Qt has no ``text-transform``.
+
+    **Pair every adoption with a name.** Qt derives an unnamed control's screen-reader name from its
+    enclosing QGroupBox TITLE; a card has no title for it to find, so any control that was leaning on the
+    box goes silent. Give each one a ``setBuddy(label)`` (better names than the box gave anyway).
+    """
+    box = QFrame(parent)
+    box.setProperty("role", "card")                  # $surface_2 + $radius_lg + a 1px $border edge
+    v = QVBoxLayout(box)
+    v.setContentsMargins(16, 12, 16, 16)             # the padding the fieldset never had
+    v.setSpacing(10)                                 # title -> its rows
+    lab = role_label(title.upper(), "overline")
+    lab.setAccessibleName(title)                     # announce the real title, not the shouty form
+    v.addWidget(lab)
+    # The content host is a LAYOUT, never a wrapper QWidget. The stylesheet opens with a universal
+    # `QWidget { background-color: $bg; }`, so a bare QWidget in here paints the PAGE colour on top of the
+    # card's fill -- a visible darker rectangle inside every card, i.e. the exact box-in-box this is meant
+    # to kill. It hides on a borderless section (bg on bg) and only surfaces once the card has a fill.
+    body_lay = QVBoxLayout()
+    body_lay.setContentsMargins(0, 0, 0, 0)
+    body_lay.setSpacing(8)
+    v.addLayout(body_lay)
+    box.content_layout = body_lay
+    box.title_label = lab
+    return box
 
 
 def status_chip(text, kind="info", *, parent=None):

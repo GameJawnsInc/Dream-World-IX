@@ -48,6 +48,9 @@ ROCK_DENSITY = 0.0125                                    # texels/u along the sh
 SEA_PLANE_SOURCE = (12, 0)                               # the game's only full-cell deep Sea4 plane
 DEFAULT_DONOR = (0, 0)                                   # Uaho: a Terrain-carrying donor for the s34 divert
 HIDDEN_PARTS = ("Object", "Sea1", "Sea2", "Sea3", "Sea5")
+#: per-family beach reference blocks (language pins AND the beach block's divert
+#: donor -- both host Terrain+Sea1/2/4/5+Beach1 transforms, verified 2026-07-15)
+BEACH_PINS = {"grass": (7, 17), "desert": (20, 5)}
 
 
 # --------------------------------------------------------------------------- geometry helpers
@@ -219,18 +222,26 @@ def _split_at_borders(parent_tris):
 
 def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int = 1, land_height: float = 3.2,
                    rim_run: float = 1.0, undulation: float = 0.11, n_corners: int = 3,
-                   corner_strength: float = 0.26, n_patches: int = 2, relief=None, stamps=None,
-                   mains_seed: int = 0xF91, stamp_seed: int = 0xF92, disc: int = 1, game=None) -> dict:
+                   corner_strength: float = 0.26, n_patches: int = 2, stamps=None,
+                   mains_seed: int = 0xF91, stamp_seed: int = 0xF92, ground: str = "grass",
+                   beach=None, disc: int = 1, game=None) -> dict:
     """Build a synthetic cliff landmass around WORLD ``center = (cx, cz)`` as per-block ``Terrain``
     meshes. ``lobes=1`` = the perturbed-circle outline; ``lobes>=2`` = the ASYMMETRIC multi-lobe union
     (:func:`mesh.multi_blob_outline` -- elongation, waists, natural corner creases; the shape gate in
-    :func:`verify_landmass` checks it against the measured FF9 coastline language). ``relief`` = a
-    :func:`grassland.relief_field` dict, ``"auto"`` (load from the install), or ``None`` (flat --
-    hermetic). ``stamps`` likewise (a list / ``"auto"`` / ``None``). Returns
+    :func:`verify_landmass` checks it against the measured FF9 coastline language). The interior is
+    FLAT at ``land_height`` by design -- explicit height comes from the studied verbs (world-hill /
+    world-forest / world-mountain); an ambient relief field was RETIRED 2026-07-15 (never applied due
+    to a frame bug; flat repeatedly in-game approved -- THE DEAD-RELIEF DISCOVERY, resurrection notes
+    in studies/overworld-topography/README.md). ``stamps`` = a list / ``"auto"`` (load from the
+    install) / ``None`` (hermetic). ``ground`` picks the walkable
+    ground family from :data:`grassland.GROUNDS` (the byte-measured TRANSLATION LAWS): ``"grass"``
+    (the identity -- bit-frozen) or ``"desert"`` (topo-17 mains + the desert cliff-wall band; meadow
+    stamps are grass vocabulary and are disabled). Returns
     ``{"blocks": {(bx, by): BlockMesh}, "outline", "seed", "report"}`` -- run :func:`verify_landmass`
     (or let :func:`landmass` do it) before deploying."""
     from . import mesh as M
     from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
+    gspec = G.GROUNDS[ground]
 
     cx, cz = center
     if seed is None:
@@ -239,14 +250,37 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         outline, radii = M.multi_blob_outline(cx, cz, lobes=lobes, base_radius=base_radius, seed=seed,
                                               undulation=undulation)
     else:
+        # adaptive outline density (2026-07-15, the horseshoe-scale benches): the fixed
+        # n=96 ring leaves >8u rim segments past ~r60 (undulation stretches arcs; the 8u
+        # on-grain gate then fails). max(96, ceil(1.6*r)) keeps n = 96 for EVERY existing
+        # radius (r <= 60 -- all frozen identity baselines) and densifies beyond.
         outline, radii = M.blob_outline(cx, cz, base_radius=base_radius, seed=seed, undulation=undulation,
+                                        n=max(96, int(math.ceil(base_radius * 1.6))),
                                         n_corners=n_corners, corner_strength=corner_strength)
     nring = len(outline)
+    # THE LADDER MINT (islandbeach): a beach arc pulls its rim back to the bank run,
+    # so the berm profile replaces the wall there (beach=None = byte-identical mints)
+    barc, arc_interior = None, set()
+    if beach is not None:
+        from . import islandbeach as IB
+        barc = IB.plan_arc(outline, (cx, cz), beach["bearing"])
+        arc_interior = set(barc["idx"])
+        bank_run = float(beach.get("bank_run", 7.0))
     rim = []
-    for (ox, oz), r in zip(outline, radii):
+    for i, ((ox, oz), r) in enumerate(zip(outline, radii)):
         ux, uz = (ox - cx) / r, (oz - cz) / r
-        rim.append((cx + ux * (r - rim_run), cz + uz * (r - rim_run)))
+        ins = bank_run if i in arc_interior else rim_run
+        rim.append((cx + ux * (r - ins), cz + uz * (r - ins)))
     top = [(x, land_height, z) for (x, z) in rim]
+    bch = None
+    if barc is not None:
+        bch = IB.build_beach(outline, radii, (cx, cz), barc, ground=ground,
+                             land_height=land_height, rim=rim,
+                             width=float(beach.get("width", 2.4)),
+                             swash=float(beach.get("swash", 4.0)),
+                             pins_from=tuple(beach.get("pins_from")
+                                             or BEACH_PINS[ground]),
+                             disc=disc, game=game)
 
     def was_land(px, pz):
         return _pip(px, pz, rim)
@@ -293,14 +327,52 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             keep[t] = True
     fill = [(allpts[i], allpts[j], allpts[k]) for t, (i, j, k) in enumerate(tri_idx) if keep[t]]
 
+    # THE BIG-MINT REFINEMENT (conditional, 2026-07-15): a large-radius interior Delaunay
+    # can leave a few grass tris with plan edges over the 8u on-grain gate (the
+    # horseshoe-scale r69+ mints). Split the longest such edge at its midpoint in BOTH
+    # owning tris (identical midpoint floats -> the weld holds) until none remain.
+    # STRICTLY a no-op on any mint that never trips it -- every frozen identity baseline
+    # (island E, the r31/r50/r52 benches) rebuilds bit-identically.
+    _kkm = lambda p: (round(p[0], 3), round(p[2], 3))  # noqa: E731
+    for _pass in range(64):
+        worst = None
+        for tri in fill:
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                d = math.hypot(tri[a][0] - tri[b][0], tri[a][2] - tri[b][2])
+                if d > 8.0 and (worst is None or d > worst[0]):
+                    worst = (d, tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))))
+        if worst is None:
+            break
+        owners = []
+        for fi, tri in enumerate(fill):
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                if tuple(sorted((_kkm(tri[a]), _kkm(tri[b])))) == worst[1]:
+                    owners.append((fi, a, b))
+                    break
+        if len(owners) != 2:
+            raise ValueError(f"an over-8u grass edge has {len(owners)} owner(s) -- "
+                             f"change --seed/--radius")
+        (fi0, a0, b0) = owners[0]
+        pa, pb = fill[fi0][a0], fill[fi0][b0]
+        m = ((pa[0] + pb[0]) / 2.0, (pa[1] + pb[1]) / 2.0, (pa[2] + pb[2]) / 2.0)
+        done = {fi for fi, _, _ in owners}
+        new_fill = [tri for fi, tri in enumerate(fill) if fi not in done]
+        for fi, a, b in owners:
+            tri = fill[fi]
+            c = [v for k2, v in enumerate(tri) if k2 not in (a, b)][0]
+            new_fill.append((tri[a], m, c))
+            new_fill.append((m, tri[b], c))
+        fill = new_fill
+
     cells_used = sorted({(math.floor((a[0]+b[0]+c[0])/3 / 4), math.floor((a[2]+b[2]+c[2])/3 / 4))
-                         for (a, b, c) in fill})
+                         for (a, b, c) in fill}
+                        | (set(bch["berm_cells"]) if bch is not None else set()))
     cell_quad, cell_ori = G.assign_mains(cells_used, seed=mains_seed)
 
+    if ground != "grass":
+        stamps = None                                    # meadow stamps are GRASS vocabulary
     if stamps == "auto":
         stamps = G.extract_stamps(disc, game=game)
-    if relief == "auto":
-        relief = G.relief_field(disc=disc, game=game)
 
     def box_ok(box):
         for (i, j) in box:
@@ -326,15 +398,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     placements, stamped_cell = ([], {}) if not stamps else G.place_stamps(
         cells_used, stamps, box_ok=box_ok, seed=stamp_seed, n_patches=n_patches)
 
-    rim_keys = {(round(x, 3), round(z, 3)) for (x, z) in rim}
-
-    def edge_dist(x, z):
-        return math.sqrt(min((x - tx) ** 2 + (z - tz) ** 2 for (tx, _, tz) in top))
-
     def fill_y(x, z):
-        if (round(x, 3), round(z, 3)) in rim_keys:
-            return land_height                           # exact weld at the wall top
-        return land_height + G.relief_at(relief or {}, x, z, edge_dist=edge_dist(x, z))
+        return land_height                               # flat interior; exact weld at the wall top
 
     # global shore arc-length (continuous across cells -> the rock band chains block to block)
     cum = [0.0] * nring
@@ -351,14 +416,17 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         return cum[bi]
 
     idw = float(encode_id(topograph=CLIFF_TOPO))
-    idg = float(encode_id(topograph=LAND_TOPO))
+    idg = float(encode_id(topograph=gspec["topo"]))
     parent = []                                          # (corners[(x,y,z,u,v)]x3, idall, fam)
 
     def up(c0, c1, c2):
         ny = (c1[2]-c0[2])*(c2[0]-c0[0]) - (c1[0]-c0[0])*(c2[2]-c0[2])
         return (c0, c1, c2) if ny > 0 else (c0, c2, c1)
 
-    strip_w = ROCK_U[1] - ROCK_U[0]
+    # the cliff-wall band, shifted per ground family (THE WALL TRANSLATION LAW)
+    ru0, ru1 = ROCK_U[0] + gspec["wall_du"], ROCK_U[1] + gspec["wall_du"]
+    rv0, rv1 = ROCK_V[0] + gspec["wall_dv"], ROCK_V[1] + gspec["wall_dv"]
+    strip_w = ru1 - ru0
 
     def rock_uvs(pts3):
         s = [shore_s(p[0], p[2]) for p in pts3]
@@ -370,17 +438,41 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         span = max(ph) - min(ph)
         if off + span > strip_w:                         # window-translate: the wrap lands on a tri boundary
             off = max(0.0, strip_w - span)
-        return [(ROCK_U[0] + min(off + (p - min(ph)), strip_w),
-                 ROCK_V[0] + min(max(pt[1] / land_height, 0.0), 1.0) * (ROCK_V[1] - ROCK_V[0]))
+        return [(ru0 + min(off + (p - min(ph)), strip_w),
+                 rv0 + min(max(pt[1] / land_height, 0.0), 1.0) * (rv1 - rv0))
                 for p, pt in zip(ph, pts3)]
 
+    wall_skip = bch["wall_skip"] if bch is not None else ()
     for i in range(nring):                               # the wall band
         j = (i + 1) % nring
+        if (i, j) in wall_skip:
+            continue                                     # the beach profile replaces the wall here
         o0 = (outline[i][0], 0.0, outline[i][1])
         o1 = (outline[j][0], 0.0, outline[j][1])
         r0 = (rim[i][0], land_height, rim[i][1])
         r1 = (rim[j][0], land_height, rim[j][1])
-        for tri in (up(o0, o1, r0), up(r0, o1, r1)):
+        # a beach TRANSITION segment mixes rim insets (1u wall -> the 7u bank); the
+        # default diagonal can mint a near-vertical sliver, and the two arc ends
+        # MIRROR -- pick the diagonal with the healthier worst lean (only ever
+        # taken with a beach: existing mints stay byte-identical)
+        if bch is not None and (i in arc_interior or j in arc_interior):
+            def _min_ny(tris_):
+                worst = 1.0
+                for t_ in tris_:
+                    (a_, b_, c_) = t_
+                    e1_ = [b_[q] - a_[q] for q in range(3)]
+                    e2_ = [c_[q] - a_[q] for q in range(3)]
+                    gn_ = [e1_[1]*e2_[2]-e1_[2]*e2_[1], e1_[2]*e2_[0]-e1_[0]*e2_[2],
+                           e1_[0]*e2_[1]-e1_[1]*e2_[0]]
+                    gl_ = math.sqrt(sum(q*q for q in gn_)) or 1.0
+                    worst = min(worst, abs(gn_[1]) / gl_)
+                return worst
+            cand_a = (up(o0, o1, r0), up(r0, o1, r1))
+            cand_b = (up(o0, o1, r1), up(o0, r1, r0))
+            split = cand_a if _min_ny(cand_a) >= _min_ny(cand_b) else cand_b
+        else:
+            split = (up(o0, o1, r0), up(r0, o1, r1))
+        for tri in split:
             uvs = rock_uvs(tri)
             parent.append((tuple((p[0], p[1], p[2], u, v) for p, (u, v) in zip(tri, uvs)), idw, "rock"))
 
@@ -392,7 +484,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             continue
         quad, ori = cell_quad[cell], cell_ori[cell]
         tri = up(*(( (p[0], fill_y(p[0], p[2]), p[2]) for p in (a, b, c) )))
-        corners = tuple((p[0], p[1], p[2], *G.mains_uv(p[0], p[2], cell, quad, ori)) for p in tri)
+        corners = tuple((p[0], p[1], p[2], *G.ground_uv(p[0], p[2], cell, quad, ori, ground))
+                        for p in tri)
         parent.append((corners, idg, "main"))
     for corners, fam in G.stamp_geometry(placements):    # verbatim meadow stamps (exact real corner UVs)
         pts = [(x, fill_y(x, z), z) for (x, z, _, _) in corners]
@@ -400,6 +493,22 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
         order = up(*pts)
         remap = [pts.index(p) for p in order]
         parent.append((tuple((p[0], p[1], p[2], *uvv[r]) for p, r in zip(order, remap)), idg, fam))
+
+    if bch is not None:                                  # THE LADDER MINT's terrain half
+        from . import islandbeach as IB
+        id_sand = float(encode_id(topograph=IB.SAND_TOPO[ground]))
+        for item, famname in bch["terrain"]:
+            if famname == "berm":                        # the island's own ground family
+                ccx = sum(p[0] for p in item) / 3.0
+                ccz = sum(p[2] for p in item) / 3.0
+                cell = (math.floor(ccx / 4), math.floor(ccz / 4))
+                quad, ori = cell_quad[cell], cell_ori[cell]
+                corners = tuple((p[0], p[1], p[2],
+                                 *G.ground_uv(p[0], p[2], cell, quad, ori, ground))
+                                for p in item)
+                parent.append((corners, idg, "main"))
+            else:                                        # sand: uvs already assigned
+                parent.append((item, id_sand, "sand"))
 
     by_block = _split_at_borders(parent)
 
@@ -439,6 +548,7 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
 
     return {"blocks": blocks, "outline": outline, "rim": rim, "seed": seed, "center": (cx, cz),
             "was_land": was_land, "top": top, "placements": placements, "ring_edge_flips": ring_flips,
+            "ground": ground, "beach": bch,
             "world": {"pos": gpos, "tris": gtris, "meta": gmeta, "nrm": gnrm}}
 
 
@@ -454,6 +564,14 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
     gpos = built["world"]["pos"]
     gtris = built["world"]["tris"]
     gmeta = built["world"]["meta"]
+    ground = built.get("ground", "grass")
+    gspec = G.GROUNDS[ground]
+    g_topo = gspec["topo"]
+    main_region = G.ground_main_region(ground)
+    rock_lo_u = ROCK_U[0] + gspec["wall_du"]
+    rock_hi_u = ROCK_U[1] + gspec["wall_du"]
+    rock_lo_v = min(ROCK_V) + gspec["wall_dv"]
+    rock_hi_v = max(ROCK_V) + gspec["wall_dv"]
     report = {}
     seen = {}
     cracks = 0
@@ -477,13 +595,14 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
             steep += 1                                   # the engine's walkmesh filter would drop it
         _, idall, fam, uvv = gmeta[tidx]
         topo = decode_id(int(round(idall)))["topograph"]
-        if topo == LAND_TOPO:
+        if topo == g_topo:
             e = max(math.dist((a[0], a[2]), (b[0], b[2])), math.dist((b[0], b[2]), (c[0], c[2])),
                     math.dist((a[0], a[2]), (c[0], c[2])))
             if e > 8:
                 big += 1
-        lo_u, lo_v, hi_u, hi_v = (ROCK_U[0] - 1e-3, min(ROCK_V) - 1e-3, ROCK_U[1] + 1e-3, max(ROCK_V) + 1e-3) \
-            if fam == "rock" else G.FAM_REGION.get(fam, G.FAM_REGION["?"])
+        lo_u, lo_v, hi_u, hi_v = (rock_lo_u - 1e-3, rock_lo_v - 1e-3, rock_hi_u + 1e-3, rock_hi_v + 1e-3) \
+            if fam == "rock" else (main_region if fam == "main"
+                                   else G.FAM_REGION.get(fam, G.FAM_REGION["?"]))
         for (u, v) in uvv:
             if not (lo_u - 1e-4 <= u <= hi_u + 1e-4 and lo_v - 1e-4 <= v <= hi_v + 1e-4):
                 oob += 1
@@ -527,7 +646,16 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
                 continue                                 # a rounded-zero-length key is not an edge: the
             ecnt[tuple(sorted((pts[q], pts[(q + 1) % 3])))] += 1  # border clip mints ~0.0005u hairline
             # cut-vert pairs (real surface per THE HAIRLINE LAW; island E carries one at x=384)
-    open_bad = [e for e, n in ecnt.items() if n == 1 and not (e[0][1] <= 1e-3 and e[1][1] <= 1e-3)]
+    # a beach terrain lawfully ENDS at the sand seam (welded by the separate Beach1
+    # part) -- once-edges with BOTH verts on the S chain are the beach analogue of
+    # the y=0 skirt ring
+    beach_seam = set()
+    if built.get("beach"):
+        beach_seam = {(round(p[0], 3), round(p[1], 3), round(p[2], 3))
+                      for p in built["beach"]["chains"]["S"]}
+    open_bad = [e for e, n in ecnt.items() if n == 1
+                and not (e[0][1] <= 1e-3 and e[1][1] <= 1e-3)
+                and not (e[0] in beach_seam and e[1] in beach_seam)]
     open_adj = collections.defaultdict(set)
     for ea, eb in open_bad:
         open_adj[ea].add(eb)
@@ -549,19 +677,29 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
     if sea_plane is not None:
         from . import mesh as M
         cx, cz = built["center"]
+        beach = built.get("beach")
         for blk, bm in built["blocks"].items():
             bx, by = blk
             hid = lambda nm: M.hidden_block_mesh(name=nm, disc=bm.disc, x=bx, y=by)  # noqa: E731
-            meshlist = [("Object", hid("Object")), ("Terrain", bm),
-                        ("Sea1", hid("Sea1")), ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")),
-                        ("Sea4", sea_plane), ("Sea5", hid("Sea5"))]
+            if beach is not None and tuple(beach["block"]) == blk:
+                meshlist = [("Object", hid("Object")), ("Terrain", bm),
+                            ("Sea1", _part_blockmesh("Sea1", blk, beach["sea1"], bm.disc)),
+                            ("Sea2", _part_blockmesh("Sea2", blk, beach["wash"], bm.disc)),
+                            ("Sea3", hid("Sea3")),
+                            ("Sea4", _cut_plane(sea_plane, bx, by, beach["sea4_cut"])),
+                            ("Sea5", _part_blockmesh("Sea5", blk, beach["sea5"], bm.disc)),
+                            ("Beach1", _part_blockmesh("Beach1", blk, beach["foam"], bm.disc))]
+            else:
+                meshlist = [("Object", hid("Object")), ("Terrain", bm),
+                            ("Sea1", hid("Sea1")), ("Sea2", hid("Sea2")), ("Sea3", hid("Sea3")),
+                            ("Sea4", sea_plane), ("Sea5", hid("Sea5"))]
             cen = P.census(meshlist)
             entry = {"counts": cen["counts"], "miss": len(cen["miss"])}
             lx, lz = cx - BLOCK * bx, cz + BLOCK * (by + 1) - BLOCK
             if 0.0 <= lx <= BLOCK and -BLOCK <= lz <= 0.0:
                 gy, nm, _, topo = P.place(meshlist, lx, lz)
                 entry["centre"] = (round(gy, 2), nm, topo)
-                entry["centre_ok"] = nm == "Terrain" and topo == LAND_TOPO
+                entry["centre_ok"] = nm == "Terrain" and topo == g_topo
             place_reports[blk] = entry
         report["placement"] = place_reports
     report["clean"] = (cracks == 0 and down == 0 and steep == 0 and big == 0 and oob == 0 and holes == 0
@@ -571,6 +709,54 @@ def verify_landmass(built: dict, *, sea_plane=None, land_height: float = 3.2) ->
 
 
 # --------------------------------------------------------------------------- deploy
+
+def _part_blockmesh(part, blk, tris, disc):
+    """World-frame ``[(pos, nrm, uv, tan) x3]`` tris -> a block-local BlockMesh
+    (the beach's Sea1/Sea2/Sea5/Beach1 parts)."""
+    from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+    bx, by = blk
+    pos, nrm, uv, tan, flat, tidx = [], [], [], [], [], []
+    for t3 in tris:
+        base = len(pos)
+        for (p, n, u, t4) in t3:
+            pos.append([p[0] - BLOCK * bx, p[1], p[2] + BLOCK * by])
+            nrm.append(list(n))
+            uv.append([u[0], u[1]])
+            tan.append(list(t4))
+            flat.append(len(pos) - 1)
+        tidx.append([base, base + 1, base + 2])
+    return BlockMesh(name=f"Block[{bx}][{by}] {part}", disc=disc, x=bx, y=by, lod="0_1",
+                     vcount=len(pos), stride=48,
+                     channels={CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)},
+                     chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                     flat_index=flat, tris=tidx, raw_vbuf=b"", raw_ibuf=b"", use32=True,
+                     submeshes=[])
+
+
+def _cut_plane(plane, bx, by, cut_cells):
+    """The block's full-cell Sea4 plane MINUS the beach-claimed lattice cells (the
+    ladder owns them: undropped deep tiles under new bands are off-language)."""
+    from .extract import CH_POS, CH_NRM, CH_UV, CH_TAN
+    ca = plane.chan_arrays
+    pos, nrm, uv, tan, flat, tidx = [], [], [], [], [], []
+    for tri in plane.tris:
+        cxw = sum(ca[CH_POS][j][0] for j in tri) / 3.0 + BLOCK * bx
+        czw = sum(ca[CH_POS][j][2] for j in tri) / 3.0 - BLOCK * by
+        if (math.floor(cxw / 4.0), math.floor(czw / 4.0)) in cut_cells:
+            continue
+        base = len(pos)
+        for j in tri:
+            pos.append(list(ca[CH_POS][j]))
+            nrm.append(list(ca[CH_NRM][j]))
+            uv.append(list(ca[CH_UV][j]))
+            tan.append(list(ca[CH_TAN][j]))
+            flat.append(len(pos) - 1)
+        tidx.append([base, base + 1, base + 2])
+    return dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4",
+                               vcount=len(pos),
+                               chan_arrays={CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan},
+                               flat_index=flat, tris=tidx, raw_vbuf=b"", raw_ibuf=b"")
+
 
 def _sea_plane(disc: int = 1, game=None):
     from . import extract as X
@@ -595,7 +781,8 @@ def _real_block_parts(blk, *, disc: int = 1, lod: str = "0_1", game=None) -> dic
 
 def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None, lobes: int = 1,
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
-             donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1", game=None, dry_run: bool = False) -> dict:
+             ground: str = "grass", beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
+             game=None, dry_run: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
@@ -609,8 +796,8 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         center = (BLOCK * cell[0] + BLOCK / 2, -BLOCK * cell[1] - BLOCK / 2)
     built = build_landmass(center=center, base_radius=base_radius, seed=seed, lobes=lobes,
                            land_height=land_height, rim_run=rim_run, n_patches=n_patches,
-                           relief=None if flat else "auto", stamps=None if flat else "auto",
-                           disc=disc, game=game)
+                           stamps=None if flat else "auto",
+                           ground=ground, beach=beach, disc=disc, game=game)
     # THE OPEN-OCEAN TARGET LAW (the world-transplant gate, ported here 2026-07-12): every
     # footprint block must be TRUE open ocean. No escape hatch -- on a sea-only real block the
     # Terrain override has no transform to bind to (the fragment silently never renders), and
@@ -629,17 +816,40 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         raise ValueError(f"landmass NOT CLEAN -- refusing to deploy: { {k: v for k, v in report.items() if k != 'placement'} }")
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
                "radius": base_radius, "blocks": [], "report": report}
+    bch = built.get("beach")
     for blk, bm in sorted(built["blocks"].items()):
         bx, by = blk
         entry = {"block": [bx, by], "verts": bm.vcount, "tris": len(bm.tris)}
+        is_bch = bch is not None and tuple(bch["block"]) == blk
         if not dry_run:
             M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
-            sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
+            if is_bch:
+                sea = _cut_plane(plane, bx, by, bch["sea4_cut"])
+            else:
+                sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
             M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, part="Sea4")
-            for part in HIDDEN_PARTS:
-                M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=disc, x=bx, y=by),
-                                  mod_folder=mod_folder, game=game, lod=lod, part=part)
-            M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc, x=bx, y=by,
-                                   lod=lod, game=game)
+            if is_bch:
+                # the beach block: real ladder parts + the beach-bearing divert donor
+                for part, key in (("Sea1", "sea1"), ("Sea2", "wash"),
+                                  ("Sea5", "sea5"), ("Beach1", "foam")):
+                    M.deploy_override(_part_blockmesh(part, blk, bch[key], disc),
+                                      mod_folder=mod_folder, game=game, lod=lod, part=part)
+                for part in ("Object", "Sea3"):
+                    M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
+                                                          disc=disc, x=bx, y=by),
+                                      mod_folder=mod_folder, game=game, lod=lod, part=part)
+                M.deploy_donor_sidecar(bch["pins_from"][0], bch["pins_from"][1],
+                                       mod_folder=mod_folder, disc=disc, x=bx, y=by,
+                                       lod=lod, game=game)
+                entry["beach"] = {"tris": {k: len(bch[k]) for k in
+                                           ("foam", "wash", "sea1", "sea5")},
+                                  "sea4_cut": len(bch["sea4_cut"]),
+                                  "divert": list(bch["pins_from"])}
+            else:
+                for part in HIDDEN_PARTS:
+                    M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=disc, x=bx, y=by),
+                                      mod_folder=mod_folder, game=game, lod=lod, part=part)
+                M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc, x=bx, y=by,
+                                       lod=lod, game=game)
         summary["blocks"].append(entry)
     return summary
