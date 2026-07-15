@@ -520,8 +520,14 @@ flats41 = pale fine sand; 0% blank texels everywhere). **PRODUCTIZED same day**:
 measured desert wall; scrub/flats BORROW the desert wall — an authoring choice, stock
 never coasts them), `--ground` choices now track the registry on `world-island` +
 `world-mountain`, constants pinned in `test_ground_families_registry`; both byte-identity
-oracles pass unchanged (grass/desert entries untouched). In-game check pending: a
-ground-sampler deploy (one small island per new family).
+oracles pass unchanged (grass/desert entries untouched). **THE GROUND SAMPLER deployed
+same day (playtest pending):** five r22 seed-11 islets in the row-19 open ocean, one per
+family, one block each, all gates clean, disc-4 mirrored — scrub (480,−1248) block (7,19)
+· dirthill (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) ·
+flats (1120,−1248) (17,19). First visit needs a world re-entry (new blocks); disc 4 a
+relaunch. Judge per island: ground reads as its biome + the cliff shore reads native
+(snow/canyon wear NEW measured wall bands; scrub/flats wear the borrowed desert wall —
+if a borrow clashes, that's the finding).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

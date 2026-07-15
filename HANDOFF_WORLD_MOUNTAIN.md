@@ -34,7 +34,8 @@ grass↔dirt ecotone set; borrows the desert wall) · dirthill (topo 38; `+(0.45
 wall IS the desert wall) · snow (topo 27; `+(0.0, −0.33691)`; icy wall `+(−0.44021, +0.05161)`) · canyon
 (topo 45; `+(0.7793, −0.31641)`; red wall `+(−0.69509, −0.49722)`) · flats (topo 41; `+(0.38964,
 −0.13477)`; its OWN set — the family-model exception; borrows the desert wall). Grass+desert in-game
-proven; the four new families are offline-proven (atlas eye) — ground-sampler playtest pending.
+proven; the four new families are offline-proven (atlas eye); THE GROUND SAMPLER is DEPLOYED
+(playtest pending) — see §3.
 
 ## 2. The two identity oracles (run these after ANY change to the carve/mint)
 
@@ -55,6 +56,7 @@ suite reports missing fixtures.
 | Crag (DESERT) | r50 seed 11 @ (64,−1216), blocks (0-1,18-19) | (70,−1218) | (30.5, −1217.5) E |
 | Horseshoe (ensemble) | r72 seed 42 @ (1280,−1184), blocks (18-21,17-19) | (1288,−1190) | (1227.5, −1189.5) E |
 | Desert check island | r52 @ (768,−1216), blocks (11-12,18-19) | — (pure plain) | — |
+| THE GROUND SAMPLER (5 islets, r22 seed 11, row 19) | scrub (480,−1248) (7,19) · dirthill (608,−1248) (9,19) · snow (864,−1248) (13,19) · canyon (992,−1248) (15,19) · flats (1120,−1248) (17,19) | — | teleport to each centre |
 
 Uaho's pristine mint is preserved game-side as the deployed file's `.pristine-r31s42` sibling (the
 identity oracle's TRACK A input). New blocks need a world re-entry; disc 4 needs a relaunch.
