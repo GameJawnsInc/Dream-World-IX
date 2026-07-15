@@ -2534,6 +2534,21 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             for n in sh_notes:
                 print(n)
             tweaks = list(tweaks) + sh
+        # THE GROUND-FAMILY RETILE (the translation law over the whole carried block):
+        # built from the donor's own bytes, every class byte-measured, strict gate
+        if getattr(args, "ground", None):
+            if (snx, sny) != (1, 1):
+                raise ConfigError("--ground retile is single-cell v1 -- drop --size")
+            if args.in_place:
+                raise ConfigError("--ground rides the transplant path, not --in-place "
+                                  "(retiling a REAL cell in place is unstudied)")
+            gt = TR.GroundRetile.for_donor((dx, dy), args.ground.strip().lower(),
+                                           extra=args.extra, disc=args.disc, game=args.game)
+            print(f"ground retile {gt.src} -> {gt.dst}: sand anchors "
+                  f"{[f'{s:.4f}->{d:.4f}' for (s, d) in gt.sand_anchors] or 'none'}; "
+                  f"recover cells {sorted(gt.recover_cells) or 'none'} "
+                  f"(budget {gt.recover_budget} tris)")
+            tweaks = list(tweaks) + [gt]
         if args.in_place:
             if (bx, by) != (dx, dy):
                 raise ConfigError("--in-place morphs the donor's own REAL cell: --cell "
@@ -5595,6 +5610,16 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--ground", default=None, metavar="FAMILY",
+                     help="RETILE the carried block to another ground family by the byte-measured "
+                          "TRANSLATION LAWS (grassland.GROUNDS + coastmorph.SAND_BANDS): ground "
+                          "mains and the rock wall band shift by the family deltas, the sand band "
+                          "re-pins onto the target's own pins (topo 31->32), beach1 foam relabels "
+                          "(30->34, the texture is universal); geometry/heights/water stay "
+                          "byte-verbatim. A donor texture class with no measured translation "
+                          "REFUSES offline (path strips re-uv as target mains under a prescan "
+                          "budget). Beach donors need a target with a measured sand family "
+                          "(currently: desert). Single-cell v1 (drop --size).")
     wtp.add_argument("--strips-rebuild", action="store_true",
                      help="the STRIP-BAND identity rebuild (the sea5-emission proof): drop every "
                           "DECODABLE sea1 + sea5 Wang strip cell of the donor and re-derive its tiles "

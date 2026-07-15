@@ -655,7 +655,48 @@ short everywhere and the berm run gentle; if that restores the verbatim feel, th
 productized form is likely "beach arcs want low islands" (a lint/warning) or a local
 interior sink behind the arc (the island-B bank_lower INSIDE the mint). For the
 z-fight: raise the taper lift to ~0.1 + lift the taper foam's W-edge verts, or clip
-the taper tris at the cut boundary (honest but more work).
+the taper tris at the cut boundary (honest but more work). **Round 4 (the stock-true
+cay --height 2.7344 + the 0.1/0.05 lifts): WORSE — "still z-fighting, now there's
+seams. you're doing the aggressive synthing again"** (the lifted taper tris read as
+lit ledges = the lift traded z-fight for seams; the berm band still stretched-noise;
+the west transition wall a hard crease). **THE LADDER MINT IS CLOSED AS FALSIFIED
+after 4 rounds** — THE FORM LESSON's beach instance, the exact massif_synth
+trajectory (each round fixes the named defect and mints a new one, because the mint
+reproduces a beach's measured properties, never its look). `islandbeach.py` stays as
+the record; the ring/zip/coverage-cut water mechanics remain sound vocabulary.
+
+**→ THE (7,17)→DESERT RETILE (the pivot — carry, don't synth; ★ BUILT + DEPLOYED
+2026-07-15, playtest pending)** — user-picked option 1: transplant FF9's only
+fully-in-block beach island **(7,17)** (`world-transplant`, the byte-proven vehicle
+whose own help text names it) and RE-FAMILY the carried bytes desert via the
+translation laws. `island717_retile_census.py` = the feasibility answer, and it is
+TOTAL: **(7,17) carries NO painted berm** — its 62/62 ground tris are pure grass
+MAINS (the sand back-welds straight onto mains 8/8, and desert beaches mirror that:
+their sand welds onto desert mains 86/111), 35/35 wall tris in the rock band, 16
+sand tris on the pins, 14 foam tris = topo-relabel-only (30→34, texture universal),
+water untouched. The ONLY residual: a 4-tri 2-cell dirt PATH strip stepping down to
+the beach (its own u-column [0.8555,0.916], v per-cell) — stock desert has NO path
+analogue (sand→mains direct weld), so those 2 cells re-uv as position-evaluated
+desert mains (the one non-verbatim decision, 12 uv rewrites, budgeted). Productized
+as **`transplant.GroundRetile`** + **`world-transplant --ground desert`**: per-class
+uv translation (GROUNDS mains/wall deltas + the SAND_BANDS re-pin over
+donor-byte-read anchor pairs — monotone, EXACT on classified pins, per-tier lerp on
+conforming verts), event/area/flags bits preserved on every relabel, geometry/
+normals/water byte-verbatim, and a STRICT gate: prescan-frozen per-class expected
+counts, a recover budget, and ZERO unclassified content (an unmeasured donor class
+refuses actionably — study it, don't guess it). Acceptance
+`island717_retile_acceptance.py`: 7563 checks, 0 failures; full pipeline dry-run
+green (weld 0, census miss 0). DEPLOYED: the ladder-mint bench REVERTED
+(`backups/ladder-mint-bench.20260715/`), the desert island at cell **(4,19)**
+(shift −8: island ≈ (292,−1245)) + the UNTOUCHED grass control at **(6,19)**
+(≈ (420,−1245)) for same-session A/B, disc-4 mirrored. The N-strip nicety: the
+(7,16) continent band contributes 12 recover tris that clip away at zero z-shift —
+recovered harmlessly, counted honestly. **★ IN-GAME PROVEN 2026-07-15, round 1:
+"the desert island looks verbatim, keep both"** — both islands stay deployed; the
+beach-on-our-islands prize is CLOSED by the carry (first-deploy pass, zero fix
+rounds — against the ladder mint's 4). Open follow-ons (earmarks, not scheduled):
+multi-block `--ground` (e.g. the (10,17)+2×2 island-B donor as desert), non-beach
+donors to the other island-class families (snow/canyon need no sand family).
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
