@@ -192,6 +192,7 @@ _QSS = Template(
     QLabel[role="label"]   { font-weight: 500; }
     QLabel[role="muted"]   { color: $muted; }                 /* secondary text, unchanged size */
     QLabel[role="accent"]  { color: $accent; }                /* an actionable value (e.g. a deploy target) */
+    QLabel[role="ok"]      { color: $success; }               /* a done/healthy status mark (e.g. a ✓) */
     QLabel[role="muted"][state="warn"]  { color: $warn; }      /* a status line that turns cautionary */
     QLabel[role="caption"] { font-size: $type_caption; color: $muted; }
     QLabel[role="caption"][state="error"] { color: $error; }   /* a live parse error turns the hint red */

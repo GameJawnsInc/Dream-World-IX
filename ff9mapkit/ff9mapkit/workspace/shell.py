@@ -1207,6 +1207,25 @@ class Workspace(QMainWindow):
         intro.setTextFormat(Qt.TextFormat.RichText)
         intro.setProperty("role", "muted")
         v.addWidget(intro)
+        # GET STARTED (Phase 4): a provenance-clean newcomer path. The kit ships ZERO FF9 content, so there's
+        # nothing to "open" out of the box -- the first working project is one the user FORKS from their own
+        # install. This is a live 3-step checklist (point at the game -> extract templates -> fork a real
+        # field), rebuilt each Home show so a step ticks ✓ the moment it's done. Placed first, before Recent.
+        self._start_head = self._home_section("Get started")
+        v.addWidget(self._start_head)
+        self._start_note = QLabel("Dream World IX includes <b>no</b> FINAL FANTASY IX content. You point it at "
+                                  "your own installed copy, and it reads every field, texture, and byte from "
+                                  "there — so the base game stays untouched and anything you make is yours.")
+        self._start_note.setWordWrap(True)
+        self._start_note.setTextFormat(Qt.TextFormat.RichText)
+        self._start_note.setProperty("role", "muted")
+        v.addWidget(self._start_note)
+        self._start_box = QWidget()
+        self._start_box.setStyleSheet("background: transparent;")
+        self._start_lay = QVBoxLayout(self._start_box)
+        self._start_lay.setContentsMargins(0, 2, 0, 4)
+        self._start_lay.setSpacing(8)
+        v.addWidget(self._start_box)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
         self._recent_head = self._home_section("Recent")
         v.addWidget(self._recent_head)
@@ -1218,7 +1237,7 @@ class Workspace(QMainWindow):
         v.addWidget(self._recent_box)
         v.addWidget(self._home_section("The project spine — top-down"))
         v.addWidget(self._home_row("◆", "Journey", "the whole arc: a hub + member campaigns + links (the front door)",
-                                   [("Open…", self.on_open_journey, True), ("New…", self.on_new_journey, False)]))
+                                   [("Open…", self.on_open_journey, False), ("New…", self.on_new_journey, False)]))
         v.addWidget(self._home_row("▣", "Campaign", "a connected chain of fields",
                                    [("Open…", self.on_open_campaign, False), ("New…", self.on_new_campaign, False)]))
         v.addWidget(self._home_row("●", "Field", "one explorable screen (edit it standalone)",
@@ -1289,6 +1308,89 @@ class Workspace(QMainWindow):
             h.addWidget(b)
         return box
 
+    def _getstarted_steps(self):
+        """The newcomer's provenance-clean first-steps, each with a ``done`` flag + a primary action. Nothing
+        here ships FF9 content: the setup steps point the kit at the user's OWN install, then the creative
+        endpoint forks a real field FROM that install. ``done=None`` marks the (always-available) action step."""
+        from .. import health, provision
+        game, _err = health.find_game()
+        have_game = game is not None
+        have_templates = False
+        if have_game:
+            try:
+                have_templates = bool(provision.templates_present())
+            except Exception:                          # noqa: BLE001 -- a probe hiccup must not break Home
+                have_templates = False
+        return [
+            ("Point the kit at your FF9 install", "So it can read the game's own fields, art, and data — "
+             "nothing is shipped with the tool.", have_game, "Locate game…", self._open_setup),
+            ("Extract the base templates (a one-time ~1–2 min copy)", "The kit builds from these, regenerated "
+             "from YOUR install — never from Square-Enix bytes.", have_templates, "Run setup…", self._open_setup),
+            ("Fork your first field from the game", "Turn any real FF9 screen into an editable project — "
+             "starting from one that already works is the fastest way to learn.", None, "Go to Import",
+             lambda: self.tabs.setCurrentWidget(self.import_field)),
+        ]
+
+    def _getstarted_row(self, num, title, desc, done, label, cb, primary):
+        """One numbered get-started step: a ✓ (done, green) or an accent step-number, the title + one-line
+        why, and the step's action (the ONE primary step renders accent; a done gate shows a muted 'done')."""
+        box = QFrame()
+        box.setObjectName("card")
+        h = QHBoxLayout(box)
+        h.setContentsMargins(16, 10, 14, 10)
+        h.setSpacing(12)
+        g = QLabel("✓" if done else str(num))
+        g.setProperty("role", "ok" if done else "accent")     # themed via QSS (no stale colour on retheme)
+        g.setStyleSheet("font-size:15px;font-weight:600;")    # size/weight cascade on top of the role colour
+        g.setFixedWidth(22)
+        g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        h.addWidget(g)
+        col = QWidget()
+        col.setStyleSheet("background: transparent;")
+        cv = QVBoxLayout(col)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(2)
+        t = QLabel(title)
+        t.setProperty("role", "strong")
+        d = QLabel(desc)
+        d.setWordWrap(True)
+        d.setProperty("role", "muted")
+        cv.addWidget(t)
+        cv.addWidget(d)
+        h.addWidget(col, 1)
+        if done:
+            chk = QLabel("done")
+            chk.setProperty("role", "muted")
+            h.addWidget(chk)
+        else:
+            b = QPushButton(label)
+            if primary:
+                b.setObjectName("accent")
+            b.setMinimumWidth(112)
+            b.clicked.connect(lambda _=False, c=cb: c())
+            h.addWidget(b)
+        return box
+
+    def _refresh_getstarted(self):
+        """Rebuild the Home 'Get started' checklist from the live setup state. Shown for a newcomer / an empty
+        Workspace (a configured user mid-project doesn't need it); the ONE accent is the first not-yet-done
+        step, so it points at the exact next thing to do. Supersedes the terse ``_home_setup`` banner."""
+        if not hasattr(self, "_start_box"):
+            return
+        self._clear_layout(self._start_lay)
+        steps = self._getstarted_steps()
+        setup_incomplete = any(s[2] is False for s in steps[:2])     # only the two gating steps count
+        show = setup_incomplete or self._current_target()[0] is None  # newcomer / empty -> guide; else hide
+        for w in (self._start_head, self._start_note, self._start_box):
+            w.setVisible(show)
+        if show and hasattr(self, "_home_setup"):
+            self._home_setup.setVisible(False)                        # the checklist covers the setup warning
+        if not show:
+            return
+        primary_ix = next((i for i, s in enumerate(steps) if not s[2]), len(steps) - 1)
+        for i, (title, desc, done, label, cb) in enumerate(steps):
+            self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
+
     def _current_target(self):
         """(name, level-label) of what's currently open — for the Home 'Currently editing' line. (None, None)
         when the Workspace is empty."""
@@ -1320,6 +1422,7 @@ class Workspace(QMainWindow):
                 self._home_setup.setText(
                     f'<span style="color:{self.pal["warn"]};">⚠ {_esc(" · ".join(issues))}</span> — '
                     f'<a href="setup">open Setup &amp; health</a> to fix it.')
+        self._refresh_getstarted()                     # the provenance-clean first-steps (may hide _home_setup)
         self._refresh_recent()
 
     _RECENT_GLYPH = {"journey": "◆", "campaign": "▣", "field": "●", "save": "◈"}
@@ -8388,6 +8491,15 @@ def _smoke(win):
     assert "Nothing open" in win._home_status.text(), "Home resets its status after Close"
     _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
     assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
+    # Phase 4: the provenance-clean 'Get started' checklist shows on the empty Home -- 3 live steps ending on
+    # 'fork your first field from the game'. The kit ships NO FF9 content, so the newcomer's first working
+    # project is one THEY fork from their own install (no shipped samples). Structural asserts (machine-state
+    # independent): three rows, the provenance note, and the always-present fork-a-field action.
+    assert win._start_lay.count() == 3, win._start_lay.count()
+    _home_labels = " ".join(l.text() for l in win._welcome_tab.findChildren(QLabel))
+    assert "FINAL FANTASY IX content" in _home_labels, "the provenance note is missing"
+    assert "Fork your first field" in _home_labels, "the checklist must end on forking a real field"
+    assert "Go to Import" in {b.text() for b in win._start_box.findChildren(QPushButton)}, "no fork-a-field action"
 
     # RECONCILE (STEP 2): a reference-arc scaffold's ENTRY_MEMBER + link placeholders fill from the forked
     # campaigns beside it -- camp_a/A2 has a scripted Field() seam to 200 (== camp_b/B1's source) -> PRECISE.
@@ -8604,7 +8716,8 @@ def _smoke(win):
           f"LIBRARY (sectioned + detail pane) + INSPECTOR (rollup + clickable cross-refs + encounter->Battle jump) + "
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
           f"per-tab (content/battle/save/build) + distinct hub⌂/journey◆ glyphs + type tooltips + Close-to-empty + "
-          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing') + "
+          f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing' + "
+          f"provenance-clean Get-started checklist -> fork your own field) + "
           f"loose-field→parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
