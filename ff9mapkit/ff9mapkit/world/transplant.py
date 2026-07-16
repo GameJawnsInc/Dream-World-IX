@@ -402,24 +402,41 @@ class GroundRetile:
                 "unclassified": det if det else 0, "ok": ok}
 
     @classmethod
-    def for_donor(cls, donor, dst, *, src=None, extra: float = 8.0,
-                  disc: int = 1, lod: str = "0_1", game=None):
+    def for_donor(cls, donor, dst, *, size=(1, 1), src=None, strips="auto",
+                  extra: float = 8.0, disc: int = 1, lod: str = "0_1", game=None):
         """Build the retile from the donor's own bytes: auto-detect the source family
         (the sand topo is PURE per block -- the census law), byte-read the donor's sand
-        pins as the v-remap anchors, prescan the exact content :func:`transplant` will
-        gather (donor + every neighbour's ``extra`` edge band, same clip planes) to
-        pre-assign the recover cells and freeze the per-class EXPECTED counts."""
+        pins as the v-remap anchors, prescan the exact content :func:`transplant` /
+        :func:`transplant_region` will gather (every donor rect cell whole + the
+        REGION's outer-border ``extra`` edge bands per ``strips``, same clip planes)
+        to pre-assign the recover cells and freeze the per-class EXPECTED counts.
+        ``strips`` must MATCH the transplant call's -- the expected counts are exact."""
         from . import coastmorph as CM
         from . import grassland as G
         (dbx, dby) = donor
+        (nx, ny) = (int(size[0]), int(size[1]))
         polys = {"terrain": [], "beach1": []}
         for p in polys:
-            polys[p] += [list(t) for t in world_tris(dbx, dby, p, disc=disc, lod=lod, game=game)]
-        strip_specs = {"E": ((dbx + 1, dby), 0, 64.0 * (dbx + 1) + extra, True),
-                       "W": ((dbx - 1, dby), 0, 64.0 * dbx - extra, False),
-                       "N": ((dbx, dby - 1), 2, -64.0 * dby + extra, True),
-                       "S": ((dbx, dby + 1), 2, -64.0 * (dby + 1) - extra, False)}
-        for ((nx2, ny2), axis, plane, below) in strip_specs.values():
+            for j in range(ny):
+                for i in range(nx):
+                    polys[p] += [list(t) for t in world_tris(dbx + i, dby + j, p,
+                                                             disc=disc, lod=lod, game=game)]
+        all_specs = {
+            "E": [((dbx + nx, dby + j), 0, 64.0 * (dbx + nx) + extra, True) for j in range(ny)],
+            "W": [((dbx - 1, dby + j), 0, 64.0 * dbx - extra, False) for j in range(ny)],
+            "N": [((dbx + i, dby - 1), 2, -64.0 * dby + extra, True) for i in range(nx)],
+            "S": [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)]}
+        if strips in ("auto", "all"):
+            gathered = set(all_specs)
+        elif strips in ("none", None):
+            gathered = set()
+        else:
+            gathered = {str(d).upper() for d in strips}
+            if not gathered <= set(all_specs):
+                raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of "
+                                 f"E/W/N/S -- got {strips!r}")
+        strip_specs = [spec for d in sorted(gathered) for spec in all_specs[d]]
+        for ((nx2, ny2), axis, plane, below) in strip_specs:
             if not (0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y):
                 continue
             for p in polys:
@@ -464,6 +481,24 @@ class GroundRetile:
         for p, pl in polys.items():
             for poly in pl:
                 pre.apply(p, poly)
+        # THE WALL-CONTEXT LAW (family_wall_envelope.py, 2026-07-15): wall bands are
+        # CONTEXT-keyed, not just atlas-keyed. A donor whose walls reach the waterline
+        # (sea cliffs) can only retile to a family whose band is MEASURED coastal
+        # (grass/desert/snow); canyon's red band is interior-only in stock (0/748
+        # coastal faces -- the Forgotten's sea cliffs are topo-49 murals).
+        coastal_walls = sum(
+            1 for t3 in polys["terrain"]
+            if all(pre._in(v[2], pre.wall_rect) for v in t3)
+            and min(v[0][1] for v in t3) < 0.05)
+        if coastal_walls and G.GROUNDS[dst].get("wall_coastal") is not True:
+            why = ("is INTERIOR-ONLY in stock (0 coastal faces map-wide)"
+                   if G.GROUNDS[dst].get("wall_coastal") is False
+                   else "has no MEASURED coastal usage")
+            raise ValueError(f"--ground {dst}: THE WALL-CONTEXT LAW -- donor "
+                             f"({dbx},{dby}) has {coastal_walls} sea-cliff wall tris, "
+                             f"and the {dst} wall band {why}; a {dst} sea cliff is "
+                             f"off-language. Coastal-wall targets: "
+                             f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
         rec = sorted({u["cell"] for u in pre.unclassified
                       if u["part"] == "terrain" and u["topo"] in cls.GRASS_TOPOS})
         cq, co = G.assign_mains(set(rec), seed=0xF93)
@@ -2023,6 +2058,41 @@ class SeaBump:
                 "ok": self.applied == self.expected and self.folds == 0}
 
 
+def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
+                        allow=False):
+    """THE MOD-OVERWRITE GATE (2026-07-15, the dunes-islet incident): the real-target
+    gate reads STOCK data only, so a target cell already holding a PRIOR MOD DEPLOY (a
+    minted islet, an older transplant) sailed straight through and was silently
+    overwritten. Every DATA cell is checked for existing override files in the deploy
+    tree; existing files REFUSE unless the cell's ``Donor.txt`` names this deploy's OWN
+    sidecar donor (= a re-deploy/iteration of the same transplant -- the proven loop).
+    ``cell_donors`` maps world cell ``(bx, by)`` -> the sidecar donor to be written.
+    ``allow`` (the --allow-mod-overwrite flag) waives the gate deliberately."""
+    from .. import config
+    hits = []
+    redeploys = 0
+    try:
+        root = config.find_game_path(game) / mod_folder
+    except Exception:
+        root = None                              # no install resolvable: nothing to hit
+    if root is not None:
+        for (cx, cy), (sdx, sdy) in sorted(cell_donors.items()):
+            rdir = root / f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{cy}"
+            prefix = f"Block[{cx}][{cy}] "
+            existing = sorted(p.name for p in rdir.iterdir()
+                              if p.name.startswith(prefix)) if rdir.is_dir() else []
+            if not existing:
+                continue
+            dt = rdir / f"{prefix}Donor.txt"
+            if dt.is_file() and dt.read_text(encoding="utf-8").strip() == f"{sdx},{sdy}":
+                redeploys += 1                   # the same transplant, iterated in place
+            else:
+                have = dt.read_text(encoding="utf-8").strip() if dt.is_file() else "?"
+                hits.append(f"({cx},{cy}) {len(existing)} files donor={have}")
+    return {"gate": "mod-overwrite", "cells": len(cell_donors), "redeploys": redeploys,
+            "existing": "; ".join(hits) if hits else 0, "ok": allow or not hits}
+
+
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
     ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
@@ -2056,7 +2126,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
-               dry_run: bool = False) -> dict:
+               allow_mod_overwrite: bool = False, dry_run: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -2348,6 +2418,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     gates.append({"gate": "census", "miss": len(cen["miss"]), "inherited": inherited,
                   "introduced": len(introduced), "samples": census_samples * census_samples,
                   "ok": not introduced})
+    gates.append(_mod_overwrite_gate(mod_folder, {(bx, by): (dbx, dby)}, disc=disc,
+                                     lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     summary = {"op": "transplant", "donor": [dbx, dby], "cell": [bx, by], "rot": rot,
@@ -2460,7 +2532,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
                       census_samples: int = 24, allow_real_target: bool = False,
-                      allow_object_misalign: bool = False, dry_run: bool = False) -> dict:
+                      allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
+                      dry_run: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
     ``cell``, as ONE rigid assembly -- rotated by ``rot`` about the REGION centre (a 90/270
@@ -2901,6 +2974,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                     bholes.append((px, pz))
     gates.append({"gate": "border-census", "holes": len(bholes), "probed": bprobed,
                   "ok": not bholes})
+    gates.append(_mod_overwrite_gate(
+        mod_folder,
+        {(bx + i, by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
+        disc=disc, lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     # FRAME BORDER PROFILES (the cross-donor FUSE law's input, 2026-07-09): per frame edge,

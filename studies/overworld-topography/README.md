@@ -546,7 +546,59 @@ the coastline** (the borrowed desert rim lip; the ground fill itself ★ verbati
 at (1242,−294) blk (19,4) — "checks out"). Encoded as `GROUNDS[..]["cls"]`
 island/transition/slope/interior + a CLI mint note + `test_ground_families_registry`.
 **ALL FIVE sampler islets are KEPT deployed** (user, 2026-07-15) — the row-19 reference
-exhibits for every family.
+exhibits for every family. **Later the same day: the CANYON islet (15,19) was REMOVED**
+(THE WALL-CONTEXT LAW — minted red sea cliffs are off-language; user: "remove both";
+backup `backups/canyon-removals.20260715/`). **⚠ And a deploy OVERSIGHT surfaced during
+the removal hunt: the DUNES islet at (17,19) had been OVERWRITTEN by the snow island B's
+south data cell** (the snow target scan misread the occupancy notes; the transplant's
+real-target gate checks STOCK, not the mod folder — so nothing refused). The stale dunes
+`Object.ff9mesh` remained at (17,19) but silently didn't render (Donor.txt named
+(10,18), whose prefab lacks Object — the prefab-parts law). **RESOLVED same day (user:
+option 1)**: the dunes islet RE-MINTED at block (10,19), centre **(672,−1248)** (same
+r22 seed-11 spec; the exhibit row is whole again), the stale (17,19) dunes leftovers
+(Object/Sea1/Sea2, both discs) swept to `backups/dunes-stale-1719.20260715/`, disc-4
+re-mirrored. **And the incident is productized as THE MOD-OVERWRITE GATE**
+(`transplant._mod_overwrite_gate`, on both transplant pipelines + `--allow-mod-overwrite`):
+a target DATA cell already holding mod overrides now REFUSES unless its Donor.txt names
+this deploy's own sidecar donor (a re-deploy of the same transplant — the proven
+iteration loop stays free); the live-folder test proves the exact dunes configuration
+now refuses on this gate alone. (The re-minted islet's coast wears the borrowed desert
+wall — dunes touches topo-58 ZERO times in stock; the user re-affirmed 2026-07-15:
+**kept as-is as a REFERENCE EXHIBIT, not a verbatim claim** — same status as the scrub
+and brush islets.)
+
+**THE MIXED-BIOME LANDMASS (rung 1 ★ BUILT + DEPLOYED 2026-07-15, playtest pending)**
+— user-called. The composition grammar first (`biome_adjacency_census.py` +
+`biome_seam_anatomy.py`): **the adjacency graph is SPARSE and DESERT-HUBBED** —
+grass|desert 193 edges (flat direct welds), scrub|desert 958 (the dominant seam;
+scrub barely touches grass, 58), desert|brush 532, desert|dunes 190 (patches 8–53u,
+EXCLUSIVELY inside desert); snow and canyon touch NO walkable family. Boundary
+anatomy: grass|desert and desert|dunes are NEVER plain-mains on both sides — each
+pair has a dedicated one-tile ECOTONE STRIP COLUMN (width 0.0605, ~4 v-rows), and
+**THE ECOTONE-STRIP TRANSLATION FINDING**: the columns are the grass B-strips
+(STRIP_U/STRIPS_V) translated — dunes ecotone ≈ B + (−0.13478, −0.06738), the
+grass|desert column at u[0.918,0.9785] ≈ B + (+0.5244, −0.047) (5dp fits = an
+earmarked decode; desert|scrub needs NO strip — scrub mains ARE the transition,
+355/958 plain|plain attested, and scrub-mains overlap onto the desert-topo side
+122/199). **Rung 1 = the verbatim BIOME-PATCH WINDOW CARRY**
+(`dunes_patch_carry.py`): a lattice CELL-SET window (straddle fixpoint over the
+surface layer — topo-59 base and 62 are neither carried nor foreign — + THE
+DESERT-RING CLOSURE absorbing pockets until the ring closes in desert + THE
+DONOR-CONTEXT RING GATE: every ring edge's donor OUTSIDE must be desert-family, so
+the deployed outside (mint desert mains) reproduces the donor context modulo the
+free within-family texel swap). Built for DUNES first and **FALSIFIED BY CENSUS:
+THE NO-ENCLOSED-DUNES LAW — no dunes ensemble in stock closes in desert alone**
+(cliff-free or cliffs-carried, cap 2000 cells: every closure chains into
+brush/grass first) — a dunes patch has NO verbatim window; it waits on the ecotone
+vocabulary decode (or rides a future mixed-donor mountain-class carry). **SCRUB
+CONVERGES: 16 desert-ringed windows** (9–15 cells, the Outer-Continent belt near
+(988,−312)). DEPLOYED: a fresh desert islet at block (8,19) centre **(544,−1248)**
+(r26 seed 2, the exhibit row) with a 19-cell verbatim scrub ensemble carried into
+its flat interior (38 tris: 24 scrub + 14 desert ring, real relief y 3.04–3.85
+conformed to H=3.2 by ring plane-fit + ring-exact IDW; area/event id bits rewritten
+to the islet's, topo+texels donor-verbatim; gates: boundary-invariance ok, weld 0,
+full census 0 MISS). The REAL ensemble for A/B: block (13,3) centre (1210,−386).
+Disc-4 mirrored.
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
@@ -695,8 +747,73 @@ recovered harmlessly, counted honestly. **★ IN-GAME PROVEN 2026-07-15, round 1
 "the desert island looks verbatim, keep both"** — both islands stay deployed; the
 beach-on-our-islands prize is CLOSED by the carry (first-deploy pass, zero fix
 rounds — against the ladder mint's 4). Open follow-ons (earmarks, not scheduled):
-multi-block `--ground` (e.g. the (10,17)+2×2 island-B donor as desert), non-beach
-donors to the other island-class families (snow/canyon need no sand family).
+non-beach donors to the other island-class families (snow/canyon need no sand
+family). **→ MULTI-BLOCK `--ground` ★ BUILT + DEPLOYED same day** (user-called):
+`for_donor` grew `size=` — the prescan mirrors the REGION gather exactly (rect
+cells whole + outer-border strips at the region clip planes) and `--ground`
+composes with `--size`. The (10,17)+2×2 island-B donor census: a 1×2-data
+CLIFF-COAST island (topo 58+0 only — NO sand/beach1/object of its own; the
+continent-v1 island B's beach was the MINT's, not stock), so the retile is
+mains+wall — the W coverage strip contributes the (9,17) beach's border
+fragments (2 sand + 4 foam, cap-tier anchors only), retiled desert exactly as
+verbatim would carry them grass. First dry-run CLEAN through every region gate
+(prefab-parts, border-census incl.). DEPLOYED desert at target rect (22,18)+2×2 —
+data cells (22,18)+(22,19), the empty east column stays true prefab ocean — just
+east of the horseshoe massif bench (an offshore desert isle); island ≈
+(1442,−1214); disc-4 mirrored. (The near-bench rect (8,18) refused correctly:
+(9,18) is a REAL stock block — the target gate checks the whole rect.)
+**★ IN-GAME PROVEN 2026-07-15 round 1: "the desert island B looks verbatim,
+keep it"** — kept deployed; two donors, two first-deploy passes, zero fix
+rounds. The retile arc is CLOSED as a proven verb (single + multi-block).
+**→ THE SNOW ISLAND B ★ BUILT + DEPLOYED same day** (user-called): same
+(10,17)+2×2 donor, `--ground snow` (topo 0→27, mains dv −0.33691, walls →
+the measured ICY band — the first REAL wall set through the icy delta).
+The build minted the STRIPS-PARITY rung: with auto strips the W coverage
+band drags in (9,17)'s beach fragments and snow lawfully REFUSES (no
+measured sand family) — but the desert build's carried counts prove strip
+content ALL clips at the frame (shipped bytes = the donor's own tris
+exactly), so `--strips none` is byte-equivalent and lawful; `for_donor`
+grew `strips=` (the prescan must MATCH the transplant call — expected
+counts are exact). Deployed at (17,18)+2×2 — data (17,18)+(17,19), island
+≈ (1122,−1214), just west of the horseshoe bench; every gate green incl.
+census/border with no strips; disc-4 mirrored. (Target hunt: (10,18)
+refused = the donor's own cell; row-18 cols 14-16 are real stock coast —
+the gates did the map-reading.) **★ IN-GAME PROVEN 2026-07-15 round 1
+("good")** — kept; the icy wall band is real-wall proven; three families
+(grass verbatim / desert / snow) on the same donor, three first-deploy
+passes. **→ THE CANYON ISLAND B ★ DEPLOYED same day** (the last island-class
+family): same donor, `--ground canyon --strips none` + **ROT 180** — the
+retile is rotation-invariant (donor-frame apply), and the flip solved the
+target hunt: rect (22,17)+2×2 is all stock-ocean but its west column holds
+the desert island B — rot 180 lands the data in the EAST column
+(23,17)+(23,18), zero writes west, and the flipped silhouette won't read
+as a copy of its desert twin diagonally below. Island ≈ (1502,−1154), NE
+of desert island B; first REAL walls through the red-rock band
+(du −0.69509, dv −0.49722); every gate green; disc-4 mirrored. (Rows 16-17
+mid-map probed all real stock — the south ocean band is the bench row for
+a reason.) **Playtest round 1: "I don't recall any real canyon tiles with
+cliffs this high" → THE WALL-CONTEXT LAW (`family_wall_envelope.py`)**:
+a family's wall band is context-keyed, not just atlas-keyed. Map-wide:
+canyon's red band = 748 wall tris, **0 coastal** — every face is an
+INTERIOR tier edge; where Forgotten canyon ground meets the sea the
+cliffs are topo-49 MURALS (unmintable, the baked-terrain law); grey-band
+walls under canyon ground: zero instances. Literal height is in-envelope
+(real red faces reach 4.48u vs the donor's 3.91) — the violation is a red
+wall rising from open water, which stock never shows. **Canyon therefore
+has NO lawful coastal wall dress → a canyon ISLAND is off-language**
+(canyon stays lawful as interior/highland ground behind another coast;
+the sampler canyon islet shares the violation). **Snow re-verified the
+opposite way: 733/733 icy-band wall tris map-wide are COASTAL, faces to
+5.73u — the snow island B is squarely in-language.** **Disposition (user:
+"remove both and add the guard"): the canyon island B ((23,17)+(23,18))
+and the sampler canyon islet ((15,19)) are REMOVED from both disc trees
+(backup `backups/canyon-removals.20260715/`), and THE GUARD is shipped at
+BOTH chokepoints** — `build_landmass` refuses `--ground canyon` outright
+(a mint's rim is a sea cliff by construction), and `GroundRetile.for_donor`
+refuses any coastal-wall donor whose target family's band isn't MEASURED
+coastal (`wall_coastal` flags in GROUNDS: grass/desert/snow True (measured),
+canyon False, borrows unmeasured). Canyon remains lawful as interior
+ground behind a lawful coast.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block

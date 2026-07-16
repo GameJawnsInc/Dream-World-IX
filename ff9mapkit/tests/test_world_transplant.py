@@ -1875,3 +1875,97 @@ def test_ground_retile_for_donor_717_desert_census():
     assert s["clean"] is True, s["gates"]
     rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
     assert rg["unclassified"] == 0 and rg["recovered"] == 16
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_for_donor_region_10_17_desert():
+    """Multi-block --ground: the (10,17)+2x2 island-B donor (a cliff-coast island, no sand
+    of its own). The factory prescan mirrors the REGION gather -- the W coverage strip
+    contributes the (9,17) beach's border fragments (2 sand + 4 foam, cap-tier anchors
+    only), zero recover cells -- and the full region dry-run passes every gate."""
+    gt = TR.GroundRetile.for_donor((10, 17), "desert", size=(2, 2))
+    assert gt.src == "grass" and gt.dst == "desert"
+    assert gt.expected == {"mains": 30, "wall": 45, "sand": 2, "foam": 4, "recovered": 0}
+    assert gt.recover_budget == 0 and not gt.recover_cells
+    assert len(gt.sand_anchors) == 2                       # the strip window has cap pins only
+    s = TR.transplant_region("UNUSED", cell=(22, 18), donor=(10, 17), size=(2, 2),
+                             tweaks=[gt], dry_run=True)
+    assert s["clean"] is True, s["gates"]
+    rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
+    assert rg["ok"] and rg["unclassified"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_for_donor_strips_none_snow():
+    """--strips none prescan parity (the snow island-B config): with auto strips the W
+    coverage band drags in the (9,17) beach fragments and snow lawfully REFUSES (no
+    measured sand family); with strips none the prescan gathers only the donor's own
+    cells (desert-build proof: strip content all clipped at the frame anyway) and the
+    deployed (17,18) region dry-run passes every gate."""
+    with pytest.raises(ValueError, match="no measured sand family"):
+        TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2))
+    gt = TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2), strips="none")
+    assert gt.expected == {"mains": 25, "wall": 38, "sand": 0, "foam": 0, "recovered": 0}
+    assert gt.sand_anchors == ()
+    s = TR.transplant_region("UNUSED", cell=(17, 18), donor=(10, 17), size=(2, 2),
+                             strips="none", tweaks=[gt], dry_run=True)
+    assert s["clean"] is True, s["gates"]
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_canyon_refuses_coastal_donor():
+    """THE WALL-CONTEXT LAW (family_wall_envelope.py): canyon's red band is INTERIOR-ONLY
+    in stock (0/748 coastal wall faces -- the Forgotten's sea cliffs are topo-49 murals),
+    so a sea-cliff donor like (10,17) REFUSES a canyon retile. (The canyon island B that
+    shipped before the law was measured was removed in-game 2026-07-15.) Snow stays
+    lawful -- 733/733 icy wall tris map-wide are coastal."""
+    with pytest.raises(ValueError, match="WALL-CONTEXT"):
+        TR.GroundRetile.for_donor((10, 17), "canyon", size=(2, 2), strips="none")
+    # the measured-coastal families still build (snow proven in-game on this donor)
+    gt = TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2), strips="none")
+    assert gt.expected["wall"] == 38
+
+
+# ------------------------------------------------------- THE MOD-OVERWRITE GATE
+
+def test_mod_overwrite_gate_logic(monkeypatch, tmp_path):
+    """The dunes-islet incident, productized: existing override files at a target data
+    cell refuse -- unless the cell's Donor.txt names this deploy's own sidecar donor
+    (a re-deploy of the same transplant), or the gate is deliberately waived."""
+    from ff9mapkit import config
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    rdir = tmp_path / "modx" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r19"
+    rdir.mkdir(parents=True)
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert g["ok"] and g["existing"] == 0                      # empty cell: clean
+    (rdir / "Block[17][19] Terrain.ff9mesh").write_bytes(b"x")
+    (rdir / "Block[17][19] Object.ff9mesh").write_bytes(b"x")
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert not g["ok"] and "donor=?" in g["existing"]          # files, no Donor.txt
+    (rdir / "Block[17][19] Donor.txt").write_text("0,0", encoding="utf-8")
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert not g["ok"] and "donor=0,0" in g["existing"]        # a FOREIGN prior deploy
+    assert TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1, allow=True)["ok"]
+    (rdir / "Block[17][19] Donor.txt").write_text("10,18", encoding="utf-8")
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert g["ok"] and g["redeploys"] == 1                     # the same transplant, iterated
+    # a neighbouring cell's files never match the prefix (no substring bleed)
+    g = TR._mod_overwrite_gate("modx", {(1, 19): (7, 17)}, disc=1)
+    assert g["ok"] and g["existing"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_mod_overwrite_gate_live_folder():
+    """Against the live FF9CustomMap-world: re-deploying the proven desert island at
+    (4,19) is a SAME-DONOR iteration (Donor.txt = 7,17 -> ok), while targeting the
+    Uaho bench cell (2,19) (Donor.txt = 0,0) refuses on exactly this gate -- the
+    configuration that would have saved the dunes islet."""
+    s = TR.transplant("FF9CustomMap-world", cell=(4, 19), donor=(7, 17), dry_run=True)
+    g = [x for x in s["gates"] if x["gate"] == "mod-overwrite"][0]
+    assert g["ok"] and g["redeploys"] == 1
+    s2 = TR.transplant("FF9CustomMap-world", cell=(2, 19), donor=(7, 17), dry_run=True)
+    g2 = [x for x in s2["gates"] if x["gate"] == "mod-overwrite"][0]
+    assert not g2["ok"] and "donor=0,0" in g2["existing"]
+    assert s2["clean"] is False
+    bad = [x["gate"] for x in s2["gates"] if not x["ok"]]
+    assert bad == ["mod-overwrite"]

@@ -82,24 +82,29 @@ FAM_REGION = {
 #: family has no native coast band -- use away from shorelines.
 GROUNDS = {
     "grass": dict(topo=0, mains_du=0.0, mains_dv=0.0, wall_du=0.0, wall_dv=0.0,
-                  cls="island"),
+                  cls="island", wall_coastal=True),
     "desert": dict(topo=17, mains_du=0.65332, mains_dv=-0.09863,
-                   wall_du=-0.27127, wall_dv=-0.02066, cls="island"),
+                   wall_du=-0.27127, wall_dv=-0.02066, cls="island",
+                   wall_coastal=True),                              # 12/13 faces coastal, to 5.03u
     "scrub": dict(topo=4, mains_du=0.25977, mains_dv=-0.06738,      # grass<->dirt ecotone
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
-                  cls="transition"),
+                  cls="transition"),                                # wall_coastal UNMEASURED (a borrow)
     "brush": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
                      wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall
-                     cls="slope"),
+                     cls="slope"),                                  # wall_coastal UNMEASURED
     "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
                  wall_du=-0.44021, wall_dv=0.05161,                 # icy band, measured
-                 cls="island"),                                     # ★ sampler-proven
+                 cls="island", wall_coastal=True),                  # ★ 733/733 faces coastal, to 5.73u
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
                    wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
-                   cls="island"),                                   # ★ verbatim-compared
+                   cls="island", wall_coastal=False),               # ★ ground verbatim-compared; ⚠ THE
+    #                                  WALL-CONTEXT LAW (family_wall_envelope.py): the red band is
+    #                                  INTERIOR-ONLY in stock (748 wall tris map-wide, 0 coastal — the
+    #                                  Forgotten's sea cliffs are topo-49 MURALS): a canyon SEA cliff is
+    #                                  off-language. Canyon = interior ground behind a lawful coast.
     "dunes": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event dunes
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
-                  cls="interior"),
+                  cls="interior"),                                  # wall_coastal UNMEASURED (a borrow)
 }
 
 

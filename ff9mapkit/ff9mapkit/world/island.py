@@ -242,6 +242,16 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     from . import mesh as M
     from .extract import BlockMesh, encode_id, CH_POS, CH_NRM, CH_UV, CH_TAN
     gspec = G.GROUNDS[ground]
+    # THE WALL-CONTEXT LAW (family_wall_envelope.py, 2026-07-15): a mint's rim walls are
+    # SEA cliffs by construction, and a family whose wall band is measured INTERIOR-ONLY
+    # (canyon: 748 red-band wall tris map-wide, 0 coastal -- the Forgotten's sea cliffs
+    # are topo-49 murals) can never dress them in-language.
+    if gspec.get("wall_coastal") is False:
+        raise ValueError(f"--ground {ground}: THE WALL-CONTEXT LAW -- the {ground} wall "
+                         f"band is INTERIOR-ONLY in stock (0 coastal faces map-wide); a "
+                         f"minted island's rim is a sea cliff, so a {ground} island is "
+                         f"off-language. Use {ground} as interior ground behind a lawful "
+                         f"coast instead.")
 
     cx, cz = center
     if seed is None:
