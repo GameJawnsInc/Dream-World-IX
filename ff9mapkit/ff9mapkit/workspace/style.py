@@ -413,6 +413,30 @@ _QSS = Template(
     QPushButton:focus, QToolButton:focus, QPushButton#search:focus { border: 1px solid $focus; }
     QTabBar::tab:focus { border-color: $focus; color: $text; }
     QTreeWidget:focus, QTreeView:focus, QListWidget:focus { border: 1px solid $focus; }
+    /* THE READ-ONLY WELLS -- the main Output console, the Co-op bridge log, the save-slot detail pane.
+       The comment above says "every interactive control", and for one round it meant "every BUTTON": these
+       are real tab stops (StrongFocus) and measured 0 px on focus, so a keyboard user landed in the app's
+       largest reading surface with no way to tell. They are not a special case and never were -- the rest
+       rule already gives them a 1px border (no dollar -- THE COMMENT-PLACEHOLDER LAW, 8th instance, caught
+       by its own fence while writing THIS), so this is the same free recolour the comment
+       describes, and it was simply never written. (Read-only is why it hid: an EDITABLE QPlainTextEdit
+       shows a text CARET, which looks like feedback and is not a focus ring; suppress the caret and the
+       control goes silent.) Like the tree above, the shorthand resets the well's per-side cut edges while
+       focused -- deliberate and consistent: the ring IS the state, and it replaces the material for as
+       long as it is on. */
+    QPlainTextEdit:focus, QTextEdit:focus { border: 1px solid $focus; }
+    /* The campaign MAP -- a QGraphicsView you can pan and zoom from the keyboard, and the only doc that is
+       ITSELF the tab stop. Free, like the wells: Qt gives it a 1px StyledPanel frame (frameWidth == 1), so
+       this only recolours what is already drawn. */
+    QGraphicsView:focus { border: 1px solid $focus; }
+    /* THE SCROLL AREAS ARE THE ONE PLACE THE RING IS NOT FREE, because they are the one place with no
+       border to recolour: the shell builds them `setFrameShape(NoFrame)` so the panes read edge-to-edge.
+       So the border is RESERVED TRANSPARENT at rest and only coloured on focus -- the same move #railSeg
+       and #consoleToggle use, and the only one that does not make the pane JUMP 2px when you tab to it.
+       (A scroll area is a real stop: it is how a keyboard user scrolls a long document, and the Inspector
+       has no focusable children at all, so tabbing to it is the ONLY way to read it.) */
+    QScrollArea { border: 1px solid transparent; }
+    QScrollArea:focus { border: 1px solid $focus; }
     /* NB: pseudo-ELEMENT before pseudo-CLASS -- `::indicator:focus`, NEVER `:focus::indicator`. Qt does
        not reject the wrong order: `Selector::pseudoElement()` reads the FIRST pseudo, sees the known class
        `focus`, and returns ""; `pseudoClass()` then returns 0 on the unknown `indicator`, so the match test

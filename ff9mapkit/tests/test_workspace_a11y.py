@@ -528,3 +528,78 @@ def test_a_recent_row_never_dictates_home_width(win, app, tmp_path):
     finally:
         prefs.recent = real
         win._refresh_recent()
+
+
+def test_every_real_tab_stop_shows_where_the_keyboard_is(win, app):
+    """WCAG 2.4.7, for the WHOLE focus chain -- not just the buttons.
+
+    `* { outline: 0 }` kills Fusion's native focus rect app-wide, and style.py promises the QSS then gives
+    "every interactive control ONE deliberate accent ring". For one round that meant "every BUTTON": the
+    round that re-asserted the law fenced the seven id-scoped buttons and left the rest at 0 px --
+    including THE MAIN OUTPUT CONSOLE, the app's largest reading surface. A keyboard user tabbed into it
+    and nothing said so.
+
+    None of them were special cases. The wells and the map already carry a 1px border, so their ring is the
+    same free recolour the buttons got; only the scroll areas needed anything (they are `NoFrame`, so the
+    border is reserved transparent and coloured on focus).
+
+    WHY read-only hid it: an EDITABLE QPlainTextEdit shows a text CARET, which looks like feedback and is
+    not a focus ring. Suppress the caret -- `setReadOnly(True)` -- and the control goes silent.
+
+    A TAB STOP IS WHAT TAB REACHES. This walks `focusNextChild()`, which is what Qt does on Tab, rather
+    than filtering on `focusPolicy`. Both filter attempts over-counted and each would have manufactured
+    work: `!= NoFocus` swept in a ClickFocus QLabel a Tab walk can never land on, and `& TabFocus` swept in
+    QAbstractScrollArea's VIEWPORT, which reports StrongFocus and is not in the chain. (The review that
+    prompted this counted "CampaignMap + its viewport" -- the same widget twice, by that second mistake.
+    Reproducing a number does not make it right; reproducing the METHOD reproduces the error.)
+
+    Offscreen is honest here: a focus ring is a colour change on a widget that already exists, and nothing
+    below is a text-derived WIDTH -- which is the only thing this harness lies about.
+    """
+    # ENSURE, DO NOT TOGGLE. `win` is a module-scoped fixture, so by the time this runs another test may
+    # already have flipped the console -- and a toggle applied to an unknown state lands in the OTHER one.
+    # This failed exactly that way on the first run: `_toggle_console()` CLOSED an already-open console
+    # and the fence then reported the console as missing. A toggle is not an instruction, it is a flip.
+    # AND THE WINDOW MUST BE THE ACTIVE ONE. Qt paints focus only on the active window, and this module's
+    # other fixtures show their own top-levels (the `themed` host, the narrow-toolbar Workspace) -- so by
+    # the time this runs, `win` is not active and EVERY setFocus() paints nothing. Run alone it passed; run
+    # in the file it reported all 34 tab stops dead, which is not 34 defects, it is one inactive window.
+    # A probe that builds a single window never meets this and will never warn you about it.
+    #   "A baseline you did not put into a known state is not a baseline" -- and WHICH WINDOW IS ACTIVE is
+    #   part of that state.
+    win.activateWindow()
+    win.raise_()
+    app.processEvents()
+    was_open = win.output.isVisible()
+    if not was_open:
+        win._toggle_console()                # collapsed by default; it is the biggest surface at stake
+        app.processEvents()
+    try:
+        assert win.output.isVisible(), "the console did not open -- its row would be silently missing"
+        dead = []
+        for i in range(win.tabs.count()):
+            win.tabs.setCurrentIndex(i)
+            app.processEvents()
+            chain, guard = [], set()
+            for _ in range(400):
+                if not win.focusNextChild():
+                    break
+                f = win.focusWidget()
+                if f is None or id(f) in guard:
+                    break
+                guard.add(id(f))
+                chain.append(f)
+            for w in chain:
+                if not w.isVisible() or not w.isEnabled() or w.objectName().startswith("qt_"):
+                    continue
+                if _state_delta(app, w, lambda b, on: (b.setFocus() if on else b.clearFocus())) == 0:
+                    dead.append(f"{type(w).__name__}"
+                                f"#{w.objectName() or '-'} {w.accessibleName() or ''}".strip())
+        assert not dead, (
+            "these are real Tab stops that show NOTHING when focused -- `* { outline: 0 }` removed "
+            f"Fusion's ring and nothing replaced it here: {sorted(set(dead))}"
+        )
+    finally:
+        if not was_open:                     # leave the shared fixture exactly as it was found
+            win._toggle_console()
+            app.processEvents()

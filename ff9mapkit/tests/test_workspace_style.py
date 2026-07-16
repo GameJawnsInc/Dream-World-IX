@@ -198,7 +198,12 @@ def test_mono_register_sets_family_only():
     # Inspect the TEMPLATE, not the rendered css: $type_mono IS "12px", so the output is byte-identical
     # whether the console hardcodes 12px or spends the token. Only the source can tell them apart.
     tmpl = style._QSS.template
-    console = tmpl.split("QPlainTextEdit")[1].split("}")[0]
+    # SPLIT ON THE RULE, NOT ON THE FIRST MATCH OF ITS NAME. This read `tmpl.split("QPlainTextEdit")[1]`,
+    # which takes whatever follows the FIRST occurrence -- so the moment a `QPlainTextEdit:focus` rule was
+    # added ABOVE the rest rule, this fence started inspecting that instead and failed on a file it does
+    # not govern. A positional slice is a line number wearing a string: it breaks when something it does
+    # not guard moves. Key it on the declaration itself.
+    console = tmpl.split("QPlainTextEdit, QTextEdit {")[1].split("}")[0]
     assert "$type_mono" in console, "the console should spend the $type_mono token, not hardcode a size"
 
 
