@@ -522,3 +522,50 @@ def test_the_form_docs_build_their_page_through_the_column(app):
     from ff9mapkit.workspace import shell
     home = inspect.getsource(shell.Workspace._build_home) if hasattr(shell.Workspace, "_build_home") else ""
     assert widgets.PAGE_W == 860, "the form docs' column must stay the number Home already uses"
+
+
+def test_no_control_carries_prose_as_its_own_label(app):
+    """THE THIRD LAW, fenced: never put prose inside a widget.
+
+    `widgets.option`'s docstring has stated it since Phase 4 -- "a label doing a description's job" -- and
+    Co-op shipped a QCheckBox whose label was a 763px sentence. A QCheckBox does NOT word-wrap, so its
+    minimumSizeHint IS the whole string: that ONE control put a 797px floor under its card and held the
+    entire Co-op page open, which is why it forced a horizontal scrollbar where every other doc fitted.
+
+    A law in a docstring is a wish. This is the law.
+
+    Fenced on LENGTH, not on px: the pixel cost depends on the font, the rung and the dial, but "a check
+    or radio label is a NAME" is true at every size.
+
+    80 IS NOT A TASTE CALL -- IT IS A GAP IN THE DATA. Censused, the app's check/radio labels are:
+
+        130 (Co-op's follow-host), 107, 101   <- SENTENCES. All three pinned a card open.
+         71, 70, 70, 67, 66, 63, 60, 60, 60, 58, 57, 57, 53, 53, 49   <- "Name -- short qualifier"
+
+    A 30-character hole sits between 101 and 71, and it separates two genuinely different things: a
+    sentence that happens to be in a widget, versus the ordinary "Native -- seamless + faithful" idiom
+    that reads fine and compresses acceptably. Fencing in the gap catches the defect and does not
+    re-litigate 15 labels that were never the problem. If a future round wants the whole tier through
+    option(), that is a decision to make on purpose -- and this number is where to make it.
+    """
+    import ast
+    import pathlib
+    ws = pathlib.Path(widgets.__file__).parent
+    LIMIT = 80
+    offenders = []
+    for py in sorted(ws.glob("*.py")):
+        for node in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if getattr(fn, "id", None) not in ("QCheckBox", "QRadioButton"):
+                continue
+            for a in node.args:
+                # implicit concatenation folds to one Constant, which is exactly the shape to catch
+                if isinstance(a, ast.Constant) and isinstance(a.value, str) and len(a.value) > LIMIT:
+                    offenders.append(f"{py.name}:{node.lineno} ({len(a.value)} chars) {a.value[:44]!r}")
+    assert not offenders, (
+        "these controls carry PROSE as their label. A check/radio does not word-wrap, so its "
+        "minimumSizeHint is the whole sentence and it pins its card's width open. Use widgets.option(): "
+        f"the NAME you tick, the consequence in a capped caption beneath it. {offenders}"
+    )
