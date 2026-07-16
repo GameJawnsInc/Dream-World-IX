@@ -13,6 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtGui import QFont                      # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel   # noqa: E402
 
+from ff9mapkit.editor import theme                   # noqa: E402
 from ff9mapkit.workspace import style, widgets       # noqa: E402
 
 
@@ -133,10 +134,20 @@ def test_build_form_tucks_advanced_fields_in_guided_mode(app):
         forms_qt.set_guided(True)                          # restore the module default for other tests
 
 
-def test_build_form_flips_a_bad_field_to_the_error_state(app):
-    # The Phase-2 forms_qt migration replaced the inline red/muted hint styles with a caption `role` + a
-    # `state` property (styled by QSS, repolished on change). Assert the mechanism: a value that fails its
-    # parser puts its hint into state='error' (which the QSS colours red) -- no inline setStyleSheet.
+def test_a_bad_value_raises_a_notice_and_the_help_survives_it(app):
+    """DICTION, and the bug it was really about.
+
+    This test used to assert that a bad value turns THE HINT red -- which is the defect, written down as
+    the contract. One label did two jobs: `validate()` did `h.setText(f"⚠ {e}")` over the help text and
+    only gave it back once the value parsed. So the sentence telling you what a valid value LOOKS like
+    ("a unique number for your field (use >= 4000)") vanished at exactly the moment you were failing to
+    type one -- the only moment it was load-bearing. Proven live before the fix, not inferred.
+
+    The sheet had already written the law, four lines above the rule that broke it: "Never demote a
+    diagnostic to 11px grey -- demote the EXPLANATION, never the answer."
+
+    Now: the hint TEACHES and is constant; the notice REPORTS and is the variable.
+    """
     from PySide6.QtWidgets import QLineEdit
 
     from ff9mapkit.editor import forms, theme
@@ -145,10 +156,73 @@ def test_build_form_flips_a_bad_field_to_the_error_state(app):
     pal = theme.pick_palette("dark")
     w, _getters = forms_qt.build_form(forms.FIELD_SPEC, {"id": 4000, "name": "ROOM", "area": 11}, pal)
     id_edit = next(e for e in w.findChildren(QLineEdit) if e.text() == "4000")   # the INT id field
+    help_before = [lb.text() for lb in w.findChildren(QLabel)
+                   if lb.property("role") == "caption" and lb.text().strip()]
+    assert help_before, "the form's hints should carry role='caption'"
+
     id_edit.setText("not-an-int")                                                # fires validate()
-    captions = [lb for lb in w.findChildren(QLabel) if lb.property("role") == "caption"]
-    assert captions, "the form's hints should carry role='caption'"
-    assert any(c.property("state") == "error" for c in captions), "a bad value must set state='error'"
+
+    notices = [lb for lb in w.findChildren(QLabel)
+               if lb.property("role") == "notice" and lb.text().strip()]
+    assert notices, "a bad value must raise a NOTICE -- not repaint the hint"
+    assert any(n.property("state") == "error" for n in notices), "the notice must carry state='error'"
+
+    # THE FIX, asserted: the teaching is still on screen while the error is up.
+    help_after = [lb.text() for lb in w.findChildren(QLabel)
+                  if lb.property("role") == "caption" and lb.text().strip()]
+    assert help_before == help_after, (
+        "the error destroyed a field's help text -- the hint must never be repainted by validate(); "
+        f"lost: {set(help_before) - set(help_after)}"
+    )
+    assert not any(c.property("state") == "error" for c in w.findChildren(QLabel)
+                   if c.property("role") == "caption"), "an error must not be filed in the caption tier"
+
+    # ...and it clears without taking the help with it
+    id_edit.setText("4001")
+    assert not [lb for lb in w.findChildren(QLabel)
+                if lb.property("role") == "notice" and lb.text().strip()], "the notice must clear"
+    assert [lb.text() for lb in w.findChildren(QLabel)
+            if lb.property("role") == "caption" and lb.text().strip()] == help_before
+
+
+def test_a_diagnostic_is_never_smaller_than_the_field_it_is_about(app):
+    """The split's whole point, fenced as the RELATIONSHIP.
+
+    `notice` is the body rung and `caption` is the caption rung -- pinning 14 and 12 would pass happily
+    while the ramp moved away underneath both. What must stay true is the ORDER: you do not read an error,
+    you are interrupted by one, so it can never be set smaller and quieter than the prose beside it.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    n = re.search(r'QLabel\[role="notice"\]\s*\{([^}]*)\}', css)
+    c = re.search(r'QLabel\[role="caption"\]\s*\{([^}]*)\}', css)
+    assert n and c, "the notice/caption rules are gone"
+    n_px = int(re.search(r"font-size:\s*(\d+)px", n.group(1)).group(1))
+    c_px = int(re.search(r"font-size:\s*(\d+)px", c.group(1)).group(1))
+    assert n_px > c_px, f"a notice ({n_px}px) must outrank the hint it interrupts ({c_px}px)"
+    assert n_px == style.type_px("type_body", 100), "a notice IS the body rung, not its own number"
+
+
+def test_a_notice_declines_a_ground_of_its_own(app):
+    """THE NINTH-GROUND LAW, applied BEFORE the ground exists rather than after.
+
+    A notice is state-coloured text on the card it belongs to, and must not acquire a chip/badge fill.
+    Measured over all 8 palettes: error/warn on `surface_2` (where a form lives) pass 4.54-10.22, but on
+    `surface_3` they are SUB-AA IN 6 OF 8 (error 3.84-4.23). That is zero pixels today only because
+    nothing grounds state text there -- give a notice a chip and it lights up in six palettes at once.
+
+    So the rule may set a colour and a size; it may not set a background. Fenced because "we decided not
+    to" is exactly the kind of decision a later round re-makes by accident.
+    """
+    import re
+    for mode, pal in theme.THEMES.items():
+        css = style.qss(pal)
+        for m in re.finditer(r'QLabel\[role="notice"\][^{]*\{([^}]*)\}', css):
+            body = m.group(1)
+            assert "background" not in body, (
+                f"{mode}: a notice grew a ground. error_text is sub-AA on surface_3 in 6/8 palettes -- "
+                f"extend derive()'s grounds and fence them FIRST, or leave the notice on the card."
+            )
 
 
 def test_the_form_docs_share_one_page_rung(app):

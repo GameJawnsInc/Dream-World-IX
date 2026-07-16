@@ -698,3 +698,48 @@ before and after (`1024/import=H 1024/build=H 1024/coop=H 1280/import=H 1280/bui
 1600/all=-`). **Pre-existing:** Co-op has a card with a **797px minimum** that refuses to compress. Left
 alone and recorded — a change that merely coincides with a bug is not its cause. Worth a round of its own.
 
+---
+
+## Round 5, part 7 — DICTION: an error stops eating the help that explains it
+
+**SHIPPED.** The `notice` tier + the forms_qt bug fix. 3605 tests.
+
+### The bug, proven live
+
+```
+valid   (4000) -> 'a unique number for your field (use >= 4000)'
+INVALID (abc)  -> '⚠  expected a whole number, got 'abc''      <- the help is GONE
+```
+
+`validate()` did `h.setText(f"⚠ {e}")` on the HINT and restored `f.help` only once the value parsed. One
+label, two jobs — so **the sentence telling you what a valid value looks like vanished at exactly the
+moment you were failing to type one.** Now the hint is the constant and the notice is the variable.
+
+### The law and its violation were adjacent lines
+
+`style.py` has said since Phase 2: *"Never demote a diagnostic to 11px grey — demote the EXPLANATION,
+never the answer."* The **very next rule** was `QLabel[role="caption"][state="error"]`. **A law written in
+a comment above the code that breaks it is not a law** — it is a wish with good phrasing. The law lost for
+three rounds and a green test held the defect in place as the contract.
+
+### The split: is it READ, or is it GLANCED?
+
+| tier | posture | set as |
+|---|---|---|
+| `caption` | **read** — prose attached to a control | caption rung, muted, measured (COLUMN) |
+| `notice` | **glanced** — anything that REPORTS | **body rung**, state-coloured, never smaller than its field |
+| `chip` / `overline` | a **tag** — a label is not prose | caption rung |
+
+One tier had been doing all three, which is why it got **both axes backwards**: the longest text got the
+smallest face, and a warning was filed at 11px grey because "small = quiet" was the only tool in the box.
+
+### The ninth-ground law, applied BEFORE the ground exists
+
+A notice gets **no chip, no badge, no fill** — and a fence refuses any `background` in the rule. Measured
+across all 8: error/warn on `surface_2` (where forms live) pass **4.54–10.22**; on `surface_3` they are
+**sub-AA in 6 of 8** (error 3.84–4.23). Zero pixels today only because nothing grounds state text there —
+give a notice a chip and it lights up in six palettes at once. **The tier declines the ground.** "We
+decided not to" is exactly the kind of decision a later round re-makes by accident.
+
+**Unplaytested**, with COLUMN and the page column.
+
