@@ -724,9 +724,12 @@ exactly), so `--strips none` is byte-equivalent and lawful; `for_donor`
 grew `strips=` (the prescan must MATCH the transplant call — expected
 counts are exact). Deployed at (17,18)+2×2 — data (17,18)+(17,19), island
 ≈ (1122,−1214), just west of the horseshoe bench; every gate green incl.
-census/border with no strips; disc-4 mirrored; playtest pending. (Target
-hunt: (10,18) refused = the donor's own cell; row-18 cols 14-16 are real
-stock coast — the gates did the map-reading.)
+census/border with no strips; disc-4 mirrored. (Target hunt: (10,18)
+refused = the donor's own cell; row-18 cols 14-16 are real stock coast —
+the gates did the map-reading.) **★ IN-GAME PROVEN 2026-07-15 round 1
+("good")** — kept; the icy wall band is real-wall proven; three families
+(grass verbatim / desert / snow) on the same donor, three first-deploy
+passes. Canyon remains the one untested island-class family.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
