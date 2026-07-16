@@ -315,3 +315,128 @@ def test_the_dots_geometry_is_float_not_truncated(app):
                 "drawEllipse takes truncated ints -- it must take a QRectF or the halo is eaten"
             )
             assert getattr(node.args[0].func, "id", None) == "QRectF", "the dot's geometry must be QRectF"
+
+
+
+
+# ---------------------------------------------------------------------------------------------------
+# PRESS -- the states a SOURCE-reading fence structurally cannot see.
+# ---------------------------------------------------------------------------------------------------
+# `test_focus_rings_are_defined_for_keyboard_users` above asserts `"QPushButton:focus" in css`. That is a
+# real fence and it catches a DELETED rule. It cannot catch a rule that is present, correct, and LOSES:
+#
+#     #id       -> specificity (0,1,0,1)
+#     :pressed  -> specificity (0,0,1,1)
+#
+# so `QToolButton#railSeg { background: transparent; }` out-ranks `QToolButton:pressed { background:
+# $pressed; }` and the press paints nothing. The rule is in the sheet; the sheet is correct; the string is
+# present; the fence is green; the button is dead. Only the rendered pixels know.
+_ID_BUTTONS = ["search", "hub", "railSeg", "consoleToggle", "disclosureToggle", "conceptBadge", "gear"]
+
+
+@pytest.fixture(scope="module")
+def themed(app):
+    """A shown host carrying the REAL sheet, with test buttons parented under it.
+
+    THE QSS IS A *WIDGET* STYLESHEET IN THIS APP, NOT AN APPLICATION ONE. `_apply_app_theme` sets only the
+    Fusion style and the QPalette; the rules live on the Workspace itself (`self.setStyleSheet(qss(...))`)
+    and reach controls by INHERITANCE. So a bare top-level QToolButton sees none of them.
+
+    THIS COST ME A VACUOUS FENCE, and it is worth the paragraph. The first cut of the state fences took the
+    bare `app` fixture and never applied any sheet -- so they measured FUSION'S OWN native chrome. Fusion
+    draws its own pressed state, so all 7 press fences went GREEN while testing nothing whatsoever: they
+    would have passed with the bug fully present. The focus half failed loudly, which is the only reason
+    the vacuity surfaced at all -- A FENCE THAT IS WRONG IN THE SAFE DIRECTION IS THE ONE THAT SHIPS.
+
+    So the host replicates the real structure (sheet on an ancestor, inherited by the button) and ASSERTS
+    the sheet is on it. Scoped to the host -- no app pollution, per the target-size test above.
+    """
+    from PySide6.QtWidgets import QVBoxLayout                                    # noqa: PLC0415
+    from ff9mapkit.editor.theme import pick_palette                              # noqa: PLC0415
+    from ff9mapkit.workspace.style import qss                                    # noqa: PLC0415
+    pal = pick_palette("dark")
+    _apply_app_theme(app, pal)                       # Fusion + the QPalette (what the real app does)
+    host = QWidget()
+    host.setStyleSheet(qss(pal))                     # ...and the QSS, where the real app puts it
+    lay = QVBoxLayout(host)
+    made = {}
+    for oid in _ID_BUTTONS:
+        from PySide6.QtWidgets import QPushButton, QToolButton                   # noqa: PLC0415
+        w = (QPushButton if oid == "search" else QToolButton)()
+        w.setText("Sample")
+        w.setObjectName(oid)
+        w.setCheckable(oid in ("railSeg", "disclosureToggle"))
+        lay.addWidget(w)
+        made[oid] = w
+    host.resize(360, 60 * len(made))
+    host.show()
+    app.processEvents()
+    assert host.styleSheet(), "no sheet on the host -- these fences would measure Fusion, not the app"
+    assert host.isVisible(), "host never shown -- every delta would be a fiction"
+    # `host` IS RETURNED SO IT STAYS ALIVE. It is not decoration: PySide reference-counts the Python
+    # wrapper, so dropping the only reference to the parent deletes the C++ object AND every child --
+    # the buttons then raise "Internal C++ object already deleted" on first touch. The Python objects
+    # outlive their C++ selves, which is a lifetime bug that looks exactly like a Qt bug.
+    return app, made, host
+
+
+def _state_delta(app, w, setter) -> int:
+    """Pixels that change when `setter` puts `w` into a state.
+
+    THE BASELINE IS FORCED TO REST FIRST, and that is not hygiene -- it is the whole measurement. Qt hands
+    focus to the first widget in the tab chain the moment a window shows, so grabbing `rest` without
+    clearing focus reads the FIRST control as already-focused and reports it as having NO focus ring. That
+    exact artifact produced a false finding while this was being written, in a probe built to catch
+    precisely this class of thing.
+        A BASELINE YOU DID NOT PUT INTO A KNOWN STATE IS NOT A BASELINE.
+    """
+    w.clearFocus()
+    app.processEvents()
+    assert not w.hasFocus(), "not at rest -- the delta would be measured from the wrong image"
+    rest = w.grab().toImage()
+    setter(w, True)
+    app.processEvents()
+    after = w.grab().toImage()
+    setter(w, False)
+    app.processEvents()
+    return sum(rest.pixelColor(x, y) != after.pixelColor(x, y)
+               for y in range(rest.height()) for x in range(rest.width()))
+
+
+@pytest.mark.parametrize("oid", _ID_BUTTONS)
+def test_an_id_scoped_button_still_reacts_to_a_click(themed, oid):
+    """Six of the app's seven id-scoped buttons shipped DEAD ON CLICK -- the Ctrl-K search pill, the nav
+    rail, the Info Hub button, every disclosure drawer, every "?" badge. Hover worked; the click did
+    nothing. That is the entire custom-chrome layer not acknowledging the mouse.
+
+    style.py documents this trap THREE times (`#accent:disabled`, `#accent:focus`, `[role="quiet"]`), each
+    as a hard-won measurement, each fixed at the one site where it was noticed. The lesson never left the
+    site it was learned at -- which is the round's whole theme: a law that lives in a comment is a wish.
+
+    `#gear` IS PARAMETRIZED IN DELIBERATELY, as the control: it is the one id-scoped button that does not
+    restate `background`, and the one that never broke. Measured 3905 px against the other six at exactly
+    0. That is what makes this a cascade shadow rather than a Qt limitation -- and if a refactor ever
+    breaks #gear too, this row says so.
+    """
+    app, made, _host = themed
+    n = _state_delta(app, made[oid], lambda b, on: b.setDown(on))
+    assert n > 0, (
+        f"#{oid} changes NOTHING when pressed -- its id rule restates `background` and so out-ranks the "
+        f"generic `:pressed`. Give it its own `#{oid}:pressed`."
+    )
+
+
+@pytest.mark.parametrize("oid", _ID_BUTTONS)
+def test_an_id_scoped_button_shows_where_the_keyboard_is(themed, oid):
+    """WCAG 2.4.7. `* { outline: 0; }` kills Fusion's native focus rect APP-WIDE, and style.py claims the
+    QSS then gives "every interactive control ONE deliberate accent ring". Grepped for violations:
+    `#consoleToggle` was the only id-scoped QToolButton with no `:focus` rule at all -- its four siblings
+    each had one -- so the console's own toggle was a real tab stop with ZERO focus indication.
+
+    A ring on a `border: 0` control is not free: adding one moves the box 2px per axis, so the control
+    JUMPS when you tab to it. The border is reserved TRANSPARENT at rest and only coloured on focus, with
+    padding paying the 1px back -- the move `#railSeg` already used. Measured: both boxes unchanged.
+    """
+    app, made, _host = themed
+    n = _state_delta(app, made[oid], lambda b, on: (b.setFocus() if on else b.clearFocus()))
+    assert n > 0, f"#{oid} shows nothing on focus -- a keyboard user cannot see where they are"

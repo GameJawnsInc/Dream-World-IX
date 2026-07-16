@@ -228,6 +228,14 @@ _QSS = Template(
         padding: 6px 12px; text-align: left;
     }
     QPushButton#search:hover { border-color: $accent; color: $text; background: $field; }
+    /* :pressed IS NOT OPTIONAL ON AN id RULE -- the same trap #accent:disabled and [role=quiet] below each
+       document and fix at their own site, shipped at six more. `#search` (0,1,0,1) out-ranks the generic
+       `QPushButton:pressed` (0,0,1,1), so this pill -- the Ctrl-K opener, in the toolbar, clicked all day
+       -- changed NOTHING on click. Measured 0 px, against #gear's 3905: #gear is the one id-scoped button
+       that does not restate `background`, and the one that still worked. A cascade shadow, not Qt.
+       The fill, not the edge: this is already a CUT object (shade on top, lit at the foot), so there is no
+       raised edge left to invert -- pressing deepens the well. Same move as [role="quiet"]:pressed. */
+    QPushButton#search:pressed { background: $pressed; border-color: $accent; color: $text; }
     /* The primary is the ONE most-raised object on a screen, lit from its own hue rather than from
        border. It MUST restate its edge -- `border: 1px solid accent` resets the per-side colours set on
        the generic QPushButton above, which silently flattened it when probed.
@@ -626,6 +634,7 @@ _QSS = Template(
         border-radius: $radius_md; padding: 6px 10px; font-weight: 600;
     }
     QToolButton#hub:hover { background: $hover; color: $help_hover; border-color: $help_hover; }
+    QToolButton#hub:pressed { background: $pressed; color: $help_hover; border-color: $help_hover; }
     QToolButton#hub:focus { border: 1px solid $accent; }
     /* NO border-bottom. THE LAW: a border belongs to the band whose existence it is CONDITIONAL ON.
        The band under this one is the spine, and the spine HIDES (shell.py: setVisible(bool(guidance or
@@ -646,8 +655,19 @@ _QSS = Template(
        which CALIBRE could not reach: audited, the label's line box outgrows a frozen 24 at 125%. 24 is
        also the WCAG 2.5.8 target floor, so scale_px only ever grows it. */
     QPushButton#consoleHeadBtn { min-height: $console_h; max-height: $console_h; }
-    QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
+    /* THE FOCUS RING RESERVES ITS OWN SPACE. This was `border: 0; padding: 5px 6px` and had NO :focus
+       rule at all -- the ONLY id-scoped QToolButton missing one (its 4 siblings #hub/#railSeg/
+       #disclosureToggle/#conceptBadge all have theirs), so the console's own show/hide toggle was a real
+       tab stop with ZERO focus indication: measured 0 px, a WCAG 2.4.7 failure that `* { outline: 0 }`
+       created and its replacement never covered.
+       A ring cannot be added to `border: 0` without moving the box 2px in each axis on focus -- a control
+       that JUMPS when you tab to it. So the border is reserved TRANSPARENT at rest and only coloured on
+       focus, which is exactly what #railSeg below already does; the padding drops 5/6 -> 4/5 to pay for
+       the 1px, keeping the rendered box byte-identical (asserted: probe_state_delta.py). */
+    QToolButton#consoleToggle       { background: transparent; border: 1px solid transparent; padding: 4px 5px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
+    QToolButton#consoleToggle:pressed { background: $pressed; color: $text; }
+    QToolButton#consoleToggle:focus { border: 1px solid $focus; color: $text; }
     /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb.
        BOTH edges, and it owns them. This band hides, so the line above it must come and go WITH it --
        that line used to live on the crumb row, where it outlived the thing it delineated and spent the
@@ -668,17 +688,33 @@ _QSS = Template(
         border-radius: $radius_md; padding: 5px 14px; font-weight: 600;
     }
     QToolButton#railSeg:hover   { color: $text; background: $hover; }
+    QToolButton#railSeg:pressed { color: $text; background: $pressed; }
     QToolButton#railSeg:checked { color: $text; background: $surface_3; border: 1px solid $border; }
     QToolButton#railSeg:focus   { border: 1px solid $focus; }
 
     /* progressive-disclosure toggle (widgets.disclosure): a flat, left-aligned 'advanced' section header */
+    /* The border is reserved TRANSPARENT so the focus ring costs no layout (same move as #consoleToggle
+       and #railSeg); padding pays the 1px back (6/2 -> 5/1) so the box is unchanged. */
     QToolButton#disclosureToggle {
-        background: transparent; border: none; color: $muted; font-weight: 600;
-        padding: 6px 2px; text-align: left;
+        background: transparent; border: 1px solid transparent; color: $muted; font-weight: 600;
+        padding: 5px 1px; text-align: left;
     }
     QToolButton#disclosureToggle:hover   { color: $text; }
+    QToolButton#disclosureToggle:pressed { color: $text; background: $pressed; }
     QToolButton#disclosureToggle:checked { color: $text; }
-    QToolButton#disclosureToggle:focus   { color: $text; }
+    /* :focus WAS `color: text` -- byte-identical to :hover above, so focus was visible but INDISTINGUISH-
+       ABLE from hovering: a keyboard user could not tell where they were from a passing mouse. A state
+       that renders as another state is not a state. The ring is what makes it its own.
+       (No leading dollar on that `text`, deliberately -- THE COMMENT-PLACEHOLDER LAW. string.Template has
+       no concept of a CSS comment, so a dollar-prefixed token named in PROSE still substitutes, and still
+       KeyErrors the moment that token is renamed or removed.
+       Instances 5 AND 6 of that law are this very comment. #5: it shipped `color: [dollar]text` and
+       test_no_placeholder_hides_in_a_qss_comment went red -- the law's own fence catching a comment ABOUT
+       the law. #6: the sentence you are reading FIXED #5 by explaining the rule using a literal
+       [dollar]name as the example, which Template then tried to substitute -- KeyError 'name', 68 tests
+       down, every palette dead. The law has now broken the build twice from inside its own explanation.
+       There is no way to write the token in prose. Say "dollar-prefixed" and move on.) */
+    QToolButton#disclosureToggle:focus   { color: $text; border: 1px solid $focus; }
 
     /* the "?" concept badge next to a jargon form label -- a small circular help affordance.
        TWO ELEVENS, AND THEY ARE NOT THE SAME ELEVEN. The border-radius is GEOMETRIC: half of forms_qt's
@@ -702,6 +738,7 @@ _QSS = Template(
         padding: 0; font-weight: 700; font-size: $type_badge;
     }
     QToolButton#conceptBadge:hover { color: $accent; border-color: $accent; }
+    QToolButton#conceptBadge:pressed { color: $accent; border-color: $accent; background: $pressed; }
     QToolButton#conceptBadge:focus { border: 1px solid $focus; }
     """
 )
