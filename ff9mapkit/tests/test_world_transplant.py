@@ -1913,14 +1913,14 @@ def test_ground_retile_for_donor_strips_none_snow():
 
 
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
-def test_ground_retile_for_donor_canyon_rot180():
-    """The canyon island-B config: same donor, --strips none, ROT 180 -- the retile is
-    rotation-invariant (donor-frame apply), the data lands in the target EAST column
-    ((23,17)+(23,18); the west column holds the desert island B and receives no writes),
-    and the deployed dry-run passes every gate."""
-    gt = TR.GroundRetile.for_donor((10, 17), "canyon", size=(2, 2), strips="none")
-    assert gt.expected == {"mains": 25, "wall": 38, "sand": 0, "foam": 0, "recovered": 0}
-    s = TR.transplant_region("UNUSED", cell=(22, 17), donor=(10, 17), size=(2, 2),
-                             rot=180, strips="none", tweaks=[gt], dry_run=True)
-    assert s["clean"] is True, s["gates"]
-    assert sorted(s["cells"]) == ["23,17", "23,18"]
+def test_ground_retile_canyon_refuses_coastal_donor():
+    """THE WALL-CONTEXT LAW (family_wall_envelope.py): canyon's red band is INTERIOR-ONLY
+    in stock (0/748 coastal wall faces -- the Forgotten's sea cliffs are topo-49 murals),
+    so a sea-cliff donor like (10,17) REFUSES a canyon retile. (The canyon island B that
+    shipped before the law was measured was removed in-game 2026-07-15.) Snow stays
+    lawful -- 733/733 icy wall tris map-wide are coastal."""
+    with pytest.raises(ValueError, match="WALL-CONTEXT"):
+        TR.GroundRetile.for_donor((10, 17), "canyon", size=(2, 2), strips="none")
+    # the measured-coastal families still build (snow proven in-game on this donor)
+    gt = TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2), strips="none")
+    assert gt.expected["wall"] == 38

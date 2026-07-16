@@ -481,6 +481,24 @@ class GroundRetile:
         for p, pl in polys.items():
             for poly in pl:
                 pre.apply(p, poly)
+        # THE WALL-CONTEXT LAW (family_wall_envelope.py, 2026-07-15): wall bands are
+        # CONTEXT-keyed, not just atlas-keyed. A donor whose walls reach the waterline
+        # (sea cliffs) can only retile to a family whose band is MEASURED coastal
+        # (grass/desert/snow); canyon's red band is interior-only in stock (0/748
+        # coastal faces -- the Forgotten's sea cliffs are topo-49 murals).
+        coastal_walls = sum(
+            1 for t3 in polys["terrain"]
+            if all(pre._in(v[2], pre.wall_rect) for v in t3)
+            and min(v[0][1] for v in t3) < 0.05)
+        if coastal_walls and G.GROUNDS[dst].get("wall_coastal") is not True:
+            why = ("is INTERIOR-ONLY in stock (0 coastal faces map-wide)"
+                   if G.GROUNDS[dst].get("wall_coastal") is False
+                   else "has no MEASURED coastal usage")
+            raise ValueError(f"--ground {dst}: THE WALL-CONTEXT LAW -- donor "
+                             f"({dbx},{dby}) has {coastal_walls} sea-cliff wall tris, "
+                             f"and the {dst} wall band {why}; a {dst} sea cliff is "
+                             f"off-language. Coastal-wall targets: "
+                             f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
         rec = sorted({u["cell"] for u in pre.unclassified
                       if u["part"] == "terrain" and u["topo"] in cls.GRASS_TOPOS})
         cq, co = G.assign_mains(set(rec), seed=0xF93)

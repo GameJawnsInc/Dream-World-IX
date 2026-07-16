@@ -546,7 +546,16 @@ the coastline** (the borrowed desert rim lip; the ground fill itself ★ verbati
 at (1242,−294) blk (19,4) — "checks out"). Encoded as `GROUNDS[..]["cls"]`
 island/transition/slope/interior + a CLI mint note + `test_ground_families_registry`.
 **ALL FIVE sampler islets are KEPT deployed** (user, 2026-07-15) — the row-19 reference
-exhibits for every family.
+exhibits for every family. **Later the same day: the CANYON islet (15,19) was REMOVED**
+(THE WALL-CONTEXT LAW — minted red sea cliffs are off-language; user: "remove both";
+backup `backups/canyon-removals.20260715/`). **⚠ And a deploy OVERSIGHT surfaced during
+the removal hunt: the DUNES islet at (17,19) had been OVERWRITTEN by the snow island B's
+south data cell** (the snow target scan misread the occupancy notes; the transplant's
+real-target gate checks STOCK, not the mod folder — so nothing refused). The stale dunes
+`Object.ff9mesh` remains at (17,19) but silently doesn't render (Donor.txt now names
+(10,18), whose prefab lacks Object — the prefab-parts law). Disposition pending the
+user: re-mint dunes at a free row-19 block, or move the snow island and restore dunes
+at (17,19).
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
@@ -752,8 +761,16 @@ has NO lawful coastal wall dress → a canyon ISLAND is off-language**
 (canyon stays lawful as interior/highland ground behind another coast;
 the sampler canyon islet shares the violation). **Snow re-verified the
 opposite way: 733/733 icy-band wall tris map-wide are COASTAL, faces to
-5.73u — the snow island B is squarely in-language.** Disposition of the
-canyon island B + the sampler canyon islet = the user's call.
+5.73u — the snow island B is squarely in-language.** **Disposition (user:
+"remove both and add the guard"): the canyon island B ((23,17)+(23,18))
+and the sampler canyon islet ((15,19)) are REMOVED from both disc trees
+(backup `backups/canyon-removals.20260715/`), and THE GUARD is shipped at
+BOTH chokepoints** — `build_landmass` refuses `--ground canyon` outright
+(a mint's rim is a sea cliff by construction), and `GroundRetile.for_donor`
+refuses any coastal-wall donor whose target family's band isn't MEASURED
+coastal (`wall_coastal` flags in GROUNDS: grass/desert/snow True (measured),
+canyon False, borrows unmeasured). Canyon remains lawful as interior
+ground behind a lawful coast.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
