@@ -552,10 +552,17 @@ backup `backups/canyon-removals.20260715/`). **⚠ And a deploy OVERSIGHT surfac
 the removal hunt: the DUNES islet at (17,19) had been OVERWRITTEN by the snow island B's
 south data cell** (the snow target scan misread the occupancy notes; the transplant's
 real-target gate checks STOCK, not the mod folder — so nothing refused). The stale dunes
-`Object.ff9mesh` remains at (17,19) but silently doesn't render (Donor.txt now names
-(10,18), whose prefab lacks Object — the prefab-parts law). Disposition pending the
-user: re-mint dunes at a free row-19 block, or move the snow island and restore dunes
-at (17,19).
+`Object.ff9mesh` remained at (17,19) but silently didn't render (Donor.txt named
+(10,18), whose prefab lacks Object — the prefab-parts law). **RESOLVED same day (user:
+option 1)**: the dunes islet RE-MINTED at block (10,19), centre **(672,−1248)** (same
+r22 seed-11 spec; the exhibit row is whole again), the stale (17,19) dunes leftovers
+(Object/Sea1/Sea2, both discs) swept to `backups/dunes-stale-1719.20260715/`, disc-4
+re-mirrored. **And the incident is productized as THE MOD-OVERWRITE GATE**
+(`transplant._mod_overwrite_gate`, on both transplant pipelines + `--allow-mod-overwrite`):
+a target DATA cell already holding mod overrides now REFUSES unless its Donor.txt names
+this deploy's own sidecar donor (a re-deploy of the same transplant — the proven
+iteration loop stays free); the live-folder test proves the exact dunes configuration
+now refuses on this gate alone.
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 

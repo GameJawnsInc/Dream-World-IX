@@ -2058,6 +2058,41 @@ class SeaBump:
                 "ok": self.applied == self.expected and self.folds == 0}
 
 
+def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
+                        allow=False):
+    """THE MOD-OVERWRITE GATE (2026-07-15, the dunes-islet incident): the real-target
+    gate reads STOCK data only, so a target cell already holding a PRIOR MOD DEPLOY (a
+    minted islet, an older transplant) sailed straight through and was silently
+    overwritten. Every DATA cell is checked for existing override files in the deploy
+    tree; existing files REFUSE unless the cell's ``Donor.txt`` names this deploy's OWN
+    sidecar donor (= a re-deploy/iteration of the same transplant -- the proven loop).
+    ``cell_donors`` maps world cell ``(bx, by)`` -> the sidecar donor to be written.
+    ``allow`` (the --allow-mod-overwrite flag) waives the gate deliberately."""
+    from .. import config
+    hits = []
+    redeploys = 0
+    try:
+        root = config.find_game_path(game) / mod_folder
+    except Exception:
+        root = None                              # no install resolvable: nothing to hit
+    if root is not None:
+        for (cx, cy), (sdx, sdy) in sorted(cell_donors.items()):
+            rdir = root / f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{cy}"
+            prefix = f"Block[{cx}][{cy}] "
+            existing = sorted(p.name for p in rdir.iterdir()
+                              if p.name.startswith(prefix)) if rdir.is_dir() else []
+            if not existing:
+                continue
+            dt = rdir / f"{prefix}Donor.txt"
+            if dt.is_file() and dt.read_text(encoding="utf-8").strip() == f"{sdx},{sdy}":
+                redeploys += 1                   # the same transplant, iterated in place
+            else:
+                have = dt.read_text(encoding="utf-8").strip() if dt.is_file() else "?"
+                hits.append(f"({cx},{cy}) {len(existing)} files donor={have}")
+    return {"gate": "mod-overwrite", "cells": len(cell_donors), "redeploys": redeploys,
+            "existing": "; ".join(hits) if hits else 0, "ok": allow or not hits}
+
+
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
     ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
@@ -2091,7 +2126,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
-               dry_run: bool = False) -> dict:
+               allow_mod_overwrite: bool = False, dry_run: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -2383,6 +2418,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     gates.append({"gate": "census", "miss": len(cen["miss"]), "inherited": inherited,
                   "introduced": len(introduced), "samples": census_samples * census_samples,
                   "ok": not introduced})
+    gates.append(_mod_overwrite_gate(mod_folder, {(bx, by): (dbx, dby)}, disc=disc,
+                                     lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     summary = {"op": "transplant", "donor": [dbx, dby], "cell": [bx, by], "rot": rot,
@@ -2495,7 +2532,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
                       census_samples: int = 24, allow_real_target: bool = False,
-                      allow_object_misalign: bool = False, dry_run: bool = False) -> dict:
+                      allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
+                      dry_run: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
     ``cell``, as ONE rigid assembly -- rotated by ``rot`` about the REGION centre (a 90/270
@@ -2936,6 +2974,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                     bholes.append((px, pz))
     gates.append({"gate": "border-census", "holes": len(bholes), "probed": bprobed,
                   "ok": not bholes})
+    gates.append(_mod_overwrite_gate(
+        mod_folder,
+        {(bx + i, by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
+        disc=disc, lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     # FRAME BORDER PROFILES (the cross-donor FUSE law's input, 2026-07-09): per frame edge,

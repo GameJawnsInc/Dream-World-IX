@@ -1924,3 +1924,48 @@ def test_ground_retile_canyon_refuses_coastal_donor():
     # the measured-coastal families still build (snow proven in-game on this donor)
     gt = TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2), strips="none")
     assert gt.expected["wall"] == 38
+
+
+# ------------------------------------------------------- THE MOD-OVERWRITE GATE
+
+def test_mod_overwrite_gate_logic(monkeypatch, tmp_path):
+    """The dunes-islet incident, productized: existing override files at a target data
+    cell refuse -- unless the cell's Donor.txt names this deploy's own sidecar donor
+    (a re-deploy of the same transplant), or the gate is deliberately waived."""
+    from ff9mapkit import config
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    rdir = tmp_path / "modx" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r19"
+    rdir.mkdir(parents=True)
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert g["ok"] and g["existing"] == 0                      # empty cell: clean
+    (rdir / "Block[17][19] Terrain.ff9mesh").write_bytes(b"x")
+    (rdir / "Block[17][19] Object.ff9mesh").write_bytes(b"x")
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert not g["ok"] and "donor=?" in g["existing"]          # files, no Donor.txt
+    (rdir / "Block[17][19] Donor.txt").write_text("0,0", encoding="utf-8")
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert not g["ok"] and "donor=0,0" in g["existing"]        # a FOREIGN prior deploy
+    assert TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1, allow=True)["ok"]
+    (rdir / "Block[17][19] Donor.txt").write_text("10,18", encoding="utf-8")
+    g = TR._mod_overwrite_gate("modx", {(17, 19): (10, 18)}, disc=1)
+    assert g["ok"] and g["redeploys"] == 1                     # the same transplant, iterated
+    # a neighbouring cell's files never match the prefix (no substring bleed)
+    g = TR._mod_overwrite_gate("modx", {(1, 19): (7, 17)}, disc=1)
+    assert g["ok"] and g["existing"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_mod_overwrite_gate_live_folder():
+    """Against the live FF9CustomMap-world: re-deploying the proven desert island at
+    (4,19) is a SAME-DONOR iteration (Donor.txt = 7,17 -> ok), while targeting the
+    Uaho bench cell (2,19) (Donor.txt = 0,0) refuses on exactly this gate -- the
+    configuration that would have saved the dunes islet."""
+    s = TR.transplant("FF9CustomMap-world", cell=(4, 19), donor=(7, 17), dry_run=True)
+    g = [x for x in s["gates"] if x["gate"] == "mod-overwrite"][0]
+    assert g["ok"] and g["redeploys"] == 1
+    s2 = TR.transplant("FF9CustomMap-world", cell=(2, 19), donor=(7, 17), dry_run=True)
+    g2 = [x for x in s2["gates"] if x["gate"] == "mod-overwrite"][0]
+    assert not g2["ok"] and "donor=0,0" in g2["existing"]
+    assert s2["clean"] is False
+    bad = [x["gate"] for x in s2["gates"] if not x["ok"]]
+    assert bad == ["mod-overwrite"]

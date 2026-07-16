@@ -2561,7 +2561,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         else:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
-                      game=args.game, census_samples=args.samples, dry_run=args.dry_run)
+                      game=args.game, census_samples=args.samples,
+                      allow_mod_overwrite=args.allow_mod_overwrite, dry_run=args.dry_run)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
             else:
@@ -5610,6 +5611,13 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--allow-mod-overwrite", action="store_true",
+                     help="waive THE MOD-OVERWRITE GATE: by default a target data cell that "
+                          "already holds override files in the mod folder REFUSES unless its "
+                          "Donor.txt names this deploy's own sidecar donor (a re-deploy of the "
+                          "same transplant). The stock real-target gate cannot see mod content "
+                          "-- this one keeps a prior islet/transplant from being silently "
+                          "replaced (the dunes-islet incident, 2026-07-15).")
     wtp.add_argument("--ground", default=None, metavar="FAMILY",
                      help="RETILE the carried block to another ground family by the byte-measured "
                           "TRANSLATION LAWS (grassland.GROUNDS + coastmorph.SAND_BANDS): ground "
