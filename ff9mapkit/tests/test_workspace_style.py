@@ -3,6 +3,7 @@ headless tests). The Qt shell itself is exercised by `py apps/ff9_workspace.pyw 
 
 from __future__ import annotations
 
+from ff9mapkit import prefs
 from ff9mapkit.editor import theme
 from ff9mapkit.workspace import style
 
@@ -639,3 +640,152 @@ def test_the_body_rung_is_a_token_so_the_card_title_cannot_drift_off_it():
     assert "$type_body" in body_rule, "the QWidget base re-hard-coded its font-size"
     card_rule = re.search(r'QLabel\[role="cardtitle"\][^{]*\{([^}]*)\}', style._QSS.template).group(1)
     assert "$type_body" in card_rule, "the card title must BE the body rung, not merely equal it today"
+
+
+# --- QUARTO P3: the type table -------------------------------------------------------------------
+
+def test_the_sheet_hard_codes_no_type_size():
+    """QUARTO P3: every size the stylesheet sets comes from _TYPE. No exceptions, no strays.
+
+    Before P3 the ramp was split -- 3 tokens and 5 anonymous px typed into the sheet -- which is why the
+    app shipped EIGHT distinct sizes while its docs described six, and why the "?" badge sat at 11px, a
+    pixel under the OS floor, for a whole round after QUARTO P1 raised the caption rung. Nothing
+    connected them, so nothing noticed.
+
+    This is also CALIBRE's foundation and the reason P3 precedes it: a scale that reaches only _SCALES
+    would raise the hint while the body stayed frozen -- the annotation outgrowing what it annotates.
+    """
+    import re
+    strays = re.findall(r"font-size:\s*(\d+)px", style._QSS.template)
+    assert not strays, (
+        f"{len(strays)} hard-coded font-size(s) in the sheet: {strays}px. Every type size belongs in "
+        f"_TYPE -- a size the table cannot see is a size no scale can reach and no fence can check."
+    )
+
+
+def test_no_text_rung_sits_below_the_os_floor():
+    """The floor applies to the TABLE, not just to the two rules I happened to fence in QUARTO P1.
+
+    Segoe UI 9pt -- the Windows default -- resolves to exactly 12px. Nothing the user READS may sit under
+    it. type_glyph is exempt by name and says why at its site: it is an icon that happens to be drawn by
+    the font, never read as text.
+
+    Fenced against 12 as a CONSTANT rather than QFontInfo(app.font()) at runtime: a fence that reads the
+    developer's own machine passes or fails on their Windows font settings, and would go green on a box
+    where the OS default happens to be small.
+    """
+    ICON_NOT_TEXT = {"type_glyph"}
+    for name, px in style._TYPE.items():
+        if name in ICON_NOT_TEXT:
+            continue
+        assert px >= 12, (
+            f"{name} is {px}px -- below the 12px Windows default. Text the user reads must not be "
+            f"smaller than what the OS itself calls text."
+        )
+
+
+def test_the_badge_stays_a_circle_at_every_text_scale():
+    """The badge's TWO ELEVENS were never the same eleven, and this is what keeps them apart.
+
+    border-radius was 11px because it is HALF of forms_qt's 22x22 box -- the definition of a circle. The
+    font-size was 11px for entirely unrelated reasons. Welding them is the obvious refactor and it is
+    wrong in both directions: scale the glyph alone and the "?" is silently clipped (measured natively:
+    the glyph fits a frozen 22px box at 11/12 and OVERFLOWS at 13 -- and setFixedSize clips, never grows);
+    scale the box alone and the circle becomes a rounded square.
+
+    So the box is computed, and the two invariants that make it a circle are asserted at EVERY shipped
+    scale rather than pinned as a literal (the old fence asserted "border-radius: 11px" in the template
+    and broke the moment the value became correct -- it had encoded the mechanism, not the rule):
+      * the radius is exactly half the box  ->  requires the box to be EVEN, which badge_box guarantees
+      * the box never shrinks below today's 22, whatever the dial says
+    """
+    for pct in prefs.TEXT_SCALES:
+        box = style.badge_box(pct)
+        assert box % 2 == 0, f"{pct}%: badge box {box} is odd -- its radius cannot be exactly half"
+        assert box >= 2 * style.BADGE_HALF, f"{pct}%: badge box {box} shrank below the shipped 22"
+        assert box >= style.type_px("type_badge", pct) + 4, (
+            f"{pct}%: badge box {box} is too tight for a {style.type_px('type_badge', pct)}px glyph"
+        )
+    # and the sheet must SPEND the tokens rather than re-hard-code a number beside them
+    import re
+    m = re.search(r"QToolButton#conceptBadge\s*\{([^}]*)\}", style._QSS.template)
+    assert m, "the concept badge rule is gone"
+    body = m.group(1)
+    assert "$badge_radius" in body and "$badge_box" in body, (
+        "the badge's box and radius must both come from style.badge_box -- a literal beside a token is "
+        "how the circle silently becomes a squircle at the next scale"
+    )
+    # the rendered radius really is half the rendered widget box, at every scale
+    for pct in prefs.TEXT_SCALES:
+        css = style.qss(theme.DARK, "comfortable", pct)
+        rule = re.search(r"QToolButton#conceptBadge\s*\{([^}]*)\}", css).group(1)
+        radius = int(re.search(r"border-radius:\s*(\d+)px", rule).group(1))
+        content = int(re.search(r"min-width:\s*(\d+)px", rule).group(1))
+        assert radius * 2 == content + 2, (
+            f"{pct}%: radius {radius} is not half the {content + 2}px widget box (QSS min-width sizes the "
+            f"CONTENTS; the 1px border on each side makes the widget 2px wider)"
+        )
+
+
+def test_a_box_drawn_around_text_never_shrinks_below_its_shipped_size():
+    """CALIBRE may only ever GROW a pin. 24 is also the WCAG 2.5.8 target floor.
+
+    scale_px floors at the 100% value on purpose: a dial that shrank a box would clip at a setting that
+    is provably fine today, and the whole point of the floor is that 100% is the one setting nobody has
+    to re-audit.
+    """
+    for pct in prefs.TEXT_SCALES:
+        assert style.scale_px(style.CONSOLE_H, pct) >= style.CONSOLE_H, f"{pct}% shrank the console pin"
+    assert style.scale_px(style.CONSOLE_H, 100) == style.CONSOLE_H, "100% must be inert"
+    # it must actually clear the text it wraps: audited, the label outgrows a frozen 24 at 125%
+    assert style.scale_px(style.CONSOLE_H, 125) >= 26, "the console head clips its own label at 125%"
+
+
+def test_the_text_scale_is_provably_inert_at_100_percent():
+    """CALIBRE's central promise: turning the dial to its default changes NOTHING.
+
+    Not "we believe it is inert" -- the default path and the explicit-100 path must render the same
+    string, for every palette and both densities. int(px * 100/100 + 0.5) == px for every int, so this
+    holds by construction; the fence exists so a future refactor of type_px cannot quietly break the one
+    setting nobody re-audits.
+    """
+    for mode, pal in theme.THEMES.items():
+        for dens in ("comfortable", "compact"):
+            assert style.qss(pal, dens) == style.qss(pal, dens, 100), (mode, dens)
+            assert "$" not in style.qss(pal, dens, 100), (mode, dens)
+
+
+def test_every_shipped_text_scale_substitutes_cleanly():
+    """A scale that leaves a placeholder is a black screen, not a big font."""
+    for pct in prefs.TEXT_SCALES:
+        for mode, pal in theme.THEMES.items():
+            assert "$" not in style.qss(pal, "comfortable", pct), (mode, pct)
+    assert "$" not in style.qss(theme.DARK, "comfortable", 137)   # an unknown scale must not raise either
+
+
+def test_the_type_ramp_never_inverts_at_any_scale():
+    """THE REASON QUARTO P3 EXISTS, fenced.
+
+    Before the table, _SCALES owned 3 of the 8 sizes. A scale reaching only those would have raised the
+    hint while the body stayed frozen -- the annotation outgrowing the thing it annotates. That is not
+    hypothetical: it is exactly what CALIBRE would have shipped on the old code, and it is why P3 came
+    first.
+
+    Half-up rounding is what keeps this true. Python's banker's round() breaks ties toward even, and the
+    table hits exact .5 ties (h3=15 at 110% is 16.5; body=14 at 125% is 17.5) -- so round() would shrink
+    one rung and grow the next from the same tie, collapsing steps that must stay ordered.
+    """
+    for pct in list(prefs.TEXT_SCALES) + [105, 115, 137, 200]:
+        body = style.type_px("type_body", pct)
+        hint = style.type_px("type_caption", pct)
+        name = style.type_px("type_name", pct)
+        assert hint < body, f"{pct}%: the hint ({hint}) reached the body ({body}) -- the ramp inverted"
+        assert body <= name, f"{pct}%: the body ({body}) outgrew the nameplate ({name})"
+        assert style.type_px("type_h2", pct) >= body, f"{pct}%: h2 fell below the body"
+
+
+def test_the_scale_is_monotonic_in_every_rung():
+    """Turning the dial UP may never make any rung smaller. Half-up guarantees it; round() would not."""
+    for k in style._TYPE:
+        seen = [style.type_px(k, p) for p in sorted(prefs.TEXT_SCALES)]
+        assert seen == sorted(seen), f"{k} is not monotonic across the dial: {seen}"
