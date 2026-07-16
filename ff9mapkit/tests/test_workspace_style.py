@@ -639,3 +639,71 @@ def test_the_body_rung_is_a_token_so_the_card_title_cannot_drift_off_it():
     assert "$type_body" in body_rule, "the QWidget base re-hard-coded its font-size"
     card_rule = re.search(r'QLabel\[role="cardtitle"\][^{]*\{([^}]*)\}', style._QSS.template).group(1)
     assert "$type_body" in card_rule, "the card title must BE the body rung, not merely equal it today"
+
+
+# --- QUARTO P3: the type table -------------------------------------------------------------------
+
+def test_the_sheet_hard_codes_no_type_size():
+    """QUARTO P3: every size the stylesheet sets comes from _TYPE. No exceptions, no strays.
+
+    Before P3 the ramp was split -- 3 tokens and 5 anonymous px typed into the sheet -- which is why the
+    app shipped EIGHT distinct sizes while its docs described six, and why the "?" badge sat at 11px, a
+    pixel under the OS floor, for a whole round after QUARTO P1 raised the caption rung. Nothing
+    connected them, so nothing noticed.
+
+    This is also CALIBRE's foundation and the reason P3 precedes it: a scale that reaches only _SCALES
+    would raise the hint while the body stayed frozen -- the annotation outgrowing what it annotates.
+    """
+    import re
+    strays = re.findall(r"font-size:\s*(\d+)px", style._QSS.template)
+    assert not strays, (
+        f"{len(strays)} hard-coded font-size(s) in the sheet: {strays}px. Every type size belongs in "
+        f"_TYPE -- a size the table cannot see is a size no scale can reach and no fence can check."
+    )
+
+
+def test_no_text_rung_sits_below_the_os_floor():
+    """The floor applies to the TABLE, not just to the two rules I happened to fence in QUARTO P1.
+
+    Segoe UI 9pt -- the Windows default -- resolves to exactly 12px. Nothing the user READS may sit under
+    it. type_glyph is exempt by name and says why at its site: it is an icon that happens to be drawn by
+    the font, never read as text.
+
+    Fenced against 12 as a CONSTANT rather than QFontInfo(app.font()) at runtime: a fence that reads the
+    developer's own machine passes or fails on their Windows font settings, and would go green on a box
+    where the OS default happens to be small.
+    """
+    ICON_NOT_TEXT = {"type_glyph"}
+    for name, px in style._TYPE.items():
+        if name in ICON_NOT_TEXT:
+            continue
+        assert px >= 12, (
+            f"{name} is {px}px -- below the 12px Windows default. Text the user reads must not be "
+            f"smaller than what the OS itself calls text."
+        )
+
+
+def test_the_badge_glyph_still_fits_the_circle_it_lives_in():
+    """The badge's TWO ELEVENS are not the same eleven, and this is what stops them being welded.
+
+    border-radius: 11px is GEOMETRIC -- half of forms_qt's setFixedSize(22, 22), the definition of a
+    circle. font-size was 11px for unrelated reasons. Measured natively, the glyph's sizeHint against
+    that 22px pin: 11px -> 16x20 (fits), 12px -> 17x21 (fits), 13px -> 19x23 (OVERFLOWS). setFixedSize
+    CLIPS rather than grows, so an overflow is a silently cut "?", not a bigger badge.
+
+    Checked as arithmetic, not by rendering: the suite runs offscreen, where the font DB is stubbed and
+    every advance is fiction. The 13px overflow is what makes this a real bound rather than a wish -- and
+    it is exactly why CALIBRE cannot scale the glyph alone: 12 * 1.25 = 15 and the "?" would be cut.
+    """
+    box = 22                       # forms_qt._concept_badge's setFixedSize(22, 22)
+    assert style._TYPE["type_badge"] <= 12, (
+        f'the "?" badge glyph is {style._TYPE["type_badge"]}px; measured, it overflows its {box}px pin '
+        f"at 13 (sizeHint 19x23) and setFixedSize clips. Grow the pin AND the border-radius with it."
+    )
+    import re
+    m = re.search(r"QToolButton#conceptBadge\s*\{([^}]*)\}", style._QSS.template)
+    assert m, "the concept badge rule is gone"
+    assert f"border-radius: {box // 2}px" in m.group(1), (
+        "the badge's border-radius must stay HALF its pinned box -- that is what makes it a circle. It "
+        "is geometry, not a type token, and must never be scaled as one."
+    )
