@@ -226,9 +226,14 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   explicitly before ever setting `IsOver`.**
   SELFTEST (`NetSyncDiorama.SelfTest`, wired into the existing `_storyProofDone` block): proves the
   predicate is fail-safe and the bracket lossless — **without booting a scene**, since booting is rung 1.
-- **B3.1 — boot + return.** `isDebug`/`isRandomEncounter`/`debugStartType` stamped, `BattleUI`
-  neutralised, `SwirlInBlack` transition, the `mode = prevMode` + `Replace("FieldMap")` return.
-  SOLO-PROVABLE via a synthetic open-frame from F6 (no peer needed).
+- **B3.1 — boot + return. ★ IN-GAME PROVEN 2026-07-15** (solo, F6 → Go → Battle diorama): the scene
+  boots, renders the party, **ATB frozen and nobody acts** (isDebug's input-half suppression, confirmed
+  visually), **returns cleanly**, **gil untouched**. Boot = the STOCK recipe verbatim
+  (`battleMapIndex` + `patternIndex` → `Replace("BattleMapDebug", FadeOutToBlack_FadeIn)`); `SwirlInBlack`
+  deliberately deferred (untested pairing + its BGM song id resolves from the LOCAL fldMapNo). The scene
+  list is read live from `FF9StateSystem.Battle.mapName` (the shipped `BattleMapList.txt`) so ids are
+  never guessed. **The predicate went through three rejected designs — see the block below; each was a
+  real hole.**
 - **B3.2 — the mirrored party.** Extend wire section 1 with **`basis{max_hp,max_mp,dex,str,mgc,wpr}`**
   (~12B) + `status` + `permanent_status` + `trance` + `sa`/`saExtended`. **Carry basis, NOT max** —
   `FF9Play_Update` begins `play.max.hp = play.basis.max_hp` unconditionally (`ff9play.cs:276-277`), so a
@@ -260,6 +265,45 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
 - **B3.6 — the UI merge.** B1 digit menus over the diorama; the OnGUI spectate panel retires or becomes
   the no-diorama fallback.
 
+## THE PREDICATE — three rejected designs, each a real hole (2026-07-15)
+
+`NetSyncDiorama.Active` guards a save-corruption path, so its shape was adversarially attacked before
+shipping. Every earlier candidate was wrong:
+
+| Candidate | Why it FAILED |
+|---|---|
+| `_armed && IsMirroringStory` | `IsMirroringStory` needs a live socket, and **the selftest branch returns before the socket is ever built** — so it is STRUCTURALLY UNREACHABLE in `Role=selftest`, the project's own solo-proof mode. The diorama could never be benched, and the containment selftest became a **TAUTOLOGY that could not fail** (`IsMirroringStory \|\| !Active` — either disjunct is trivially true). It reported green while proving nothing. |
+| `CurrentScene != "BattleMap"` (suppress unless proven a real battle) | **DANGEROUS.** A real battle boots THROUGH THE SWIRL, so `CurrentScene` reads `"SwirlScene"` while the real BattleMap activates → the test is TRUE → **a stuck flag suppresses a REAL battle**. It flips a fail-safe default into a fail-dangerous one. |
+| `SceneDirector.CurrentScene == "BattleMapDebug"` | `CurrentScene` is SceneDirector's **bookkeeping copy and LAGS the live scene**: `ChangeSceneAsync` assigns it only *after* an awaited `LoadLevelAsync`, which ACTIVATES the scene first. Reachable whenever `_discChange != 0` — and that flag is **never reset after a disc change**. Scene live + predicate false = uncontained writes. |
+
+**SHIPPED:** `_armed && _booted && Application.loadedLevelName == "BattleMapDebug"` — the ENGINE's live
+scene name (correct by the new scene's `Awake`, hence before `HonoluluBattleMain.Start`; it is what
+SceneDirector itself seeds `CurrentScene` FROM, and what `UIManager.OnLevelWasLoaded` keys on). The test
+is **POSITIVE**, so every uncertainty fails toward "diorama unsuppressed" (a bug) rather than "real
+battle suppressed" (corruption).
+
+### The companion bugs the same pass found — all were LIVE in the first cut
+- **`NetSyncBattle.SelfTest` is DEFAULT-TRUE** on every install that never wrote a `[Netsync]` section
+  (`_role != "host" && _role != "client"`, **not** gated on `_enabled`). Using it bare in the boot gate
+  would have let **any vanilla player** boot a diorama. → new `NetSyncClient.IsSelfTestRole` (positive,
+  enabled-gated, so a typo'd role fails CLOSED). *Its one existing consumer is safe only because it
+  always pairs it: `if (!Enabled || !SelfTest)`.*
+- **`Leave()` cleared containment BEFORE the fade** — `Replace` fades over MULTIPLE FRAMES with the
+  diorama still live and `BattleMain()` still pumping, now unsuppressed, with `btl_phase` possibly parked
+  in PHASE_VICTORY/DEFEAT whose branches call `ManageBattleEnd → SavePlayerData`. → Leave is
+  **request-only**; teardown moved to `HonoluluBattleMain.OnDestroy` **gated on `Booted`** (unconditional
+  would Restore a stale snapshot over EVERY REAL battle's rewards — the fix that is itself a bug).
+- **`SceneDirector.Replace` silently no-ops while fading** (`if (this.IsFading) return;`). Booting
+  mid-fade would arm + set `isDebug` and never change scene → **isDebug stranded TRUE on a live field**,
+  which softlocks the next real battle (the overworld encounter path never clears it, and with it on the
+  battle can never end). → Boot gates on `IsFading`; Leave defers instead of stranding.
+- **`Arm()` was a loaded gun** — it early-returned without re-snapshotting, so a leaked `_armed` meant the
+  next `Disarm` wrote a STALE snapshot over real progress. → always re-snapshot.
+- **`party.battle_no`** (`battle.cs:61`) runs from `InitBattle ← Start` with the isDebug gate AFTER it —
+  no call site to gate. → bracket-only, by necessity.
+- **Boot's catch called `Leave()`** → now DISCARDS the bracket (nothing has scribbled yet; applying it
+  would write stale state for no reason).
+
 ## Recon status
 
 **PASS 1 COMPLETE (2026-07-15)** — 8 questions, each answered from source then adversarially verified
@@ -271,10 +315,14 @@ caster-side result frame (WhiteDraw), and `CurrentHp`'s lossy round-trip on non-
 **Cross-resolved:** the swirl agent settled the lifecycle agent's one open premise by reading the
 shipped Unity scene assets directly — `BattleMapDebug` provably carries `HonoluluBattleMain`.
 
-**Still UNRESOLVED from source (needs in-game or asset confirmation):**
-- Whether `BattleUI`'s attachment is prefab-side (no `AddComponent<BattleUI>`/`GetComponent<BattleUI>`
-  exists anywhere in the assembly). The asset read says BattleMapDebug's `Battle Main` carries it;
-  confirm before relying on either reading.
+**RESOLVED IN-GAME 2026-07-15 (was UNRESOLVED from source):** `BattleUI` **IS** attached to the
+BattleMapDebug scene. The C# tree could never settle it — scene composition lives in the bundles, and no
+`AddComponent<BattleUI>`/`GetComponent<BattleUI>` exists anywhere in the assembly. The first diorama boot
+drew its "Pattern 1/1" panel over the scene. **So both of its hazards are LIVE**: `Start:26` re-stamps
+`btl_scene.PatNum` with no isDebug guard (benign for us — we author `patternIndex`, so it agrees), and
+`OnGUI` is held shut only by `isDebug`, which the diorama must set. Closed by gating `BattleUI.OnGUI` on
+`NetSyncDiorama.Active` — which also kills its **"Back" button, a rogue `Replace("MainMenu")` under
+isDebug** that would skip the authored Leave and dump a guest into the main menu.
 - Custom-FBX prefabs carrying a serialized HonoBehavior — the residual unknown in the teardown census.
   The diorama controls that input anyway.
 
