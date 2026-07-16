@@ -542,7 +542,75 @@ much better"*. That is the first live judgement since Mist. CALIBRE + P3 are **n
   does outrun the narrowest column, so it fails loudly if it ever stops testing anything rather than
   passing vacuously.
 
-**Still open:** GAUGE is now the last live CALIBRE defect — `PROSE_W` is a fixed 420px, so the measure
-decays as the type grows: 61.9ch at 100%, 48.1 at 125%, **41.3 at 150% — below the 45 floor.** The measure
-fails at exactly the setting a low-vision user turned on to be helped, and no fence notices.
+**Still open:** GAUGE — `PROSE_W` is a fixed 420px, so the measure decays as the type grows.
+(⚠ The numbers first written here — "61.9ch at 100%, 41.3 at 150%, below the 45 floor" — are WRONG, from a
+synthetic rate. Measured on the app's real prose it is 67.6–71.9ch at 100% and **45.0 at 150%: ON the
+floor, not below it.** See part 4 below; the defect is real but it is not this.)
 
+---
+
+## Round 5, part 4 — GAUGE. And the measure was never the defect.
+
+**SHIPPED**, but for a reason nobody predicted — and the numbers going in were wrong three times.
+
+### The measure's real history (native, `evidence/probe_measure_rate.py`)
+
+| claim | source | verdict |
+|---|---|---|
+| 61.9 ch | my alphabet probe | **wrong** — synthetic rate, ~9% off |
+| 77.5 ch | round 5's audit | **was true**, at the 13px body |
+| 41.3 ch @150%, "below the floor" | me, told to the user | **wrong** — it is 45.0, ON the floor |
+| **67.6–71.9 ch** | the app's real strings @ 14px | measured |
+
+**My instrument lied and I published it.** `'abcdefghijklmnopqrstuvwxyz '` has ONE space in 27; English has
+~1 in 6, and the space is the narrowest glyph in the face. A synthetic rate overstates px/char, which
+understates the measure. **A rate measured on the alphabet is a measurement of the alphabet, not of prose.**
+
+**And QUARTO P1 fixed the real defect by accident.** At 13px the Build & Deploy crown note ran 77.5ch —
+over the band. At 14px it runs 71.9 — inside it. **Raising the body NARROWS the measure in characters**,
+because every character got wider. The type bump the user asked for closed the case GAUGE was chartered for.
+
+### So GAUGE shipped for the reason that survived: nothing could TELL
+
+The measure held at every dial setting **by luck** (45.0ch at 150%, zero headroom), and the fence could not
+have noticed if it stopped: it divided `PROSE_W` by `WORST_13PX = 5.72` — **a constant over a constant, a
+rate from a font size the app no longer sets.** It passed at 150% exactly as happily as at 100%, and would
+have kept passing with the cap welded to 420 forever.
+
+### The mechanism: scale, don't re-derive (PLINTH's move again)
+
+Segoe's advance is **LINEAR in px** (12→28px, max error 0.065%), so `chars = (cap·k)/(rate·k) = cap/rate`
+— **the character count is INVARIANT under scaling.** Proven end-to-end on the real string through the real
+dial: **71.9ch at 100 / 110 / 125 / 150%**, flat; `cap/px` exactly 30.00 at every rung.
+
+Re-deriving from a "characters" target would need a calibrated rate, and every honest candidate misses 420:
+`averageCharWidth()` reads 5.953 at 13px, **above every real string in the app** (5.42–5.89), because it
+averages a glyph set nobody types. **Scaling needs no rate at all.**
+
+`Prose` reads its OWN polished font (`changeEvent` → `FontChange`) rather than being told the scale — so it
+is right no matter who changed the type. A cap threaded from the shell would be a second source of truth
+for the same fact, and the two would drift the first time one was missed.
+
+### THE OFFSCREEN LIE, THIRD INSTANCE — and this one wrote a PASSING FENCE FOR A BROKEN FEATURE
+
+**`QFontInfo(...).pixelSize()` returns `-1` under `QT_QPA_PLATFORM=offscreen`**, even for a font with an
+explicit `setPixelSize(21)` — offscreen stubs the font engine QFontInfo consults. A QFontInfo-only
+`_resolve_cap` hit its `k=1.0` guard in *every* test, held the cap at 420 forever, and **the fence written
+to catch exactly that failure reported it as a pass.** Fixed by asking `QFont.pixelSize()` first (explicit,
+survives the stub) and falling back to `QFontInfo` (resolves a point-size font — the Windows system font is
+Segoe 9pt and reports `-1`, which would multiply every cap by a negative). Neither source alone suffices.
+
+The standing warning "offscreen lies about the font DB" was already here. What is new: **it lies to your
+fences, in the direction of green.**
+
+### Corrected en route
+
+`test_the_caption_measure_is_unchanged_on_purpose` laundered an approval (620 was approved for PROSE at
+13px, then inherited onto the 11px caption where the same number is strictly worse) *and* cited evidence
+describing 1 of its 3 strings. Rewritten to say what is true — and to name the real caption defect:
+`option()` is 3 of ~38 sites; **the other ~35 are raw QLabels with NO cap, growing 1:1 with the window**
+(125ch at 1280 → 388 at 2560). That is COLUMN, unbuilt, and now the largest un-taken readability win here.
+
+**The user cleared ALL standing playtest debt before this landed** (CALIBRE, QUARTO P3, the badge bump, the
+spine cut, PLINTH — all validated live). GAUGE itself is unplaytested, though invisible at 100% by
+construction.

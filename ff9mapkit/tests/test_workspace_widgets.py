@@ -13,7 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtGui import QFont                      # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel   # noqa: E402
 
-from ff9mapkit.workspace import widgets              # noqa: E402
+from ff9mapkit.workspace import style, widgets       # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -204,24 +204,134 @@ def test_prose_w_is_a_real_measure_and_the_caption_face_has_its_own(app):
     420 and not 430: at the worst measured rate a 430 cap lands 75.2ch and fails the 75 fence by a fifth
     of a character. The rate is hard-coded here rather than measured because the suite runs offscreen,
     where the font DB is stubbed and every advance is fiction.
+
+    THE RATE MOVED WITH THE BODY, and for two rounds this fence did not notice. It divided PROSE_W by a
+    rate measured at 13px -- and QUARTO P1 put the body at 14. A constant over a constant cannot see the
+    app; this one was answering a question about a font size nothing sets any more, and passing.
+
+    Re-measured natively on the app's OWN prose at the 14px rung (evidence/probe_measure_rate.py):
+    5.841-6.217 px/char, so 420px is 67.6-71.9ch. The band's ceiling is the risk here, and the ceiling is
+    hit by the NARROWEST rate (fewer px per char = more chars on the line), so that is what is pinned.
     """
-    WORST_13PX = 5.72          # px/char, real prose, native Segoe UI 13
-    assert widgets.PROSE_W / WORST_13PX <= 75, (
-        f"PROSE_W={widgets.PROSE_W} is {widgets.PROSE_W / WORST_13PX:.1f}ch -- above the 45-75 band"
-    )
-    assert widgets.PROSE_W / WORST_13PX >= 45, "PROSE_W is now too narrow to read as prose"
+    WORST_14PX = 5.841         # px/char: the app's real prose at the body rung, native Segoe UI 14.
+    #                            The NARROWEST real rate -- it is the one that puts the most characters
+    #                            on a line, so it is the one the 75 ceiling must survive.
+    ch = widgets.PROSE_W / WORST_14PX
+    assert ch <= 75, f"PROSE_W={widgets.PROSE_W} is {ch:.1f}ch -- above the 45-75 band"
+    assert ch >= 45, "PROSE_W is now too narrow to read as prose"
     # the two faces must not share one token again
     import inspect
     src = inspect.getsource(widgets.option)
-    assert "width=CAPTION_W" in src, "option()'s 11px caption must not inherit the body's measure"
+    assert "width=CAPTION_W" in src, "option()'s caption must not inherit the body's measure"
+    assert 'base="caption"' in src, "option()'s caption must scale against the CAPTION rung, not the body"
 
 
 def test_the_caption_measure_is_unchanged_on_purpose(app):
-    """CAPTION_W is 620 -- the reviewed-and-approved value, moved zero pixels by this split.
+    """CAPTION_W is 620 -- still, deliberately, and this docstring is the second attempt at saying why.
 
-    At 11px the real option captions are ~107-112 chars, so the cap does not bind: they are single lines
-    and narrowing it would re-wrap every one. That wants an eye, not a refactor. This test exists so the
-    number is understood as DELIBERATE rather than rediscovered as a bug -- and so that lowering it is a
-    decision somebody makes on purpose.
+    THE FIRST ATTEMPT LAUNDERED AN APPROVAL. It called 620 "the reviewed-and-approved value", and the
+    approval was real -- but it was given to PROSE_W at 13px. LEDE then cut prose to 420 and moved the
+    620 onto the 11px caption, where the same number is strictly worse, and this fence went on citing the
+    approval for a tier it was never granted to. The number stood still while its meaning moved.
+
+    THE SECOND CLAIM WAS ALSO WRONG, and its own evidence said so. "At 11px the real option captions are
+    ~107-112 chars" describes exactly ONE of the three literal captions this app has; the others are 63
+    and 30 chars. The three average 61ch -- inside the band. And "the cap does not bind ... narrowing it
+    would re-wrap every one" offered the benefit as if it were the cost: re-wrapping a 110-char line to
+    ~70 is what a measure is FOR. A cap that never binds is not protecting anything.
+
+    What is actually true, measured: `option()` is 3 of ~38 caption sites, its captions do not bind this
+    cap, and the app's real caption problem is the OTHER ~35 -- raw QLabels with no cap at all, growing
+    1:1 with the window (125ch at 1280px, 257 at 1920, 388 at 2560). That is COLUMN, unbuilt. 620 stays
+    because moving it fixes nothing and re-wraps three approved lines; it is now SCALED rather than fixed
+    (see Prose), so it at least keeps its character count when the dial moves.
     """
     assert widgets.CAPTION_W == 620
+
+
+def test_the_measure_holds_its_character_count_at_every_text_size(app):
+    """GAUGE. The measure is in PIXELS and the text is not, so the dial pulled them apart.
+
+    Why this can be a fence at all, when the suite runs offscreen and every advance here is fiction:
+    Segoe's advance is LINEAR in pixel size (measured natively 12..28px, max error 0.065% --
+    evidence/probe_measure_rate.py). So
+
+        chars = (cap * k) / (rate * k) = cap / rate
+
+    the character count is INVARIANT under scaling, which means fencing the MECHANISM at any one scale
+    fences every scale, using no font metrics at all. What is asserted is the ratio Prose applies; the
+    real-rate check lives in test_prose_w_is_a_real_measure, at 100%, where the constant is honest.
+
+    THE OLD FENCE COULD NOT HAVE CAUGHT THIS. It divided PROSE_W by a hard-coded rate -- two constants,
+    no app, no font, no scale. It passed at 150% exactly as happily as at 100%, and it would have gone on
+    passing if the cap had been welded to 420 forever.
+    """
+    from PySide6.QtGui import QFont
+
+    base = style.type_px("type_body", 100)
+    p = widgets.Prose("x" * 200)
+    f = QFont("Segoe UI")
+    f.setPixelSize(base)
+    p.setFont(f)                                   # fires FontChange -> _resolve_cap
+    assert p._cap == widgets.PROSE_W, f"at 100% the cap must be the approved {widgets.PROSE_W}, got {p._cap}"
+
+    for pct in (110, 125, 150):
+        px = style.type_px("type_body", pct)
+        f2 = QFont("Segoe UI")
+        f2.setPixelSize(px)
+        p.setFont(f2)
+        want = int(widgets.PROSE_W * px / base + 0.5)
+        assert p._cap == want, f"{pct}%: cap is {p._cap}, expected {want} -- the column did not track the type"
+        # the invariant itself, stated the way it matters: the column grew as fast as the letters did
+        assert abs(p._cap / px - widgets.PROSE_W / base) < 0.05, (
+            f"{pct}%: cap/px drifted -- the measure no longer holds its character count"
+        )
+    p.deleteLater()
+
+
+def test_a_caption_scales_against_the_caption_rung_not_the_body(app):
+    """The base is load-bearing and its failure is silent.
+
+    CAPTION_W was chosen against the 12px caption rung; PROSE_W against the 14px body. Resolve a caption
+    against the body's base and every cap is wrong by 14/12 -- at EVERY setting including 100%, where
+    nothing else would look amiss. That is a 17% measure error that no render would obviously show and no
+    ratio fence would catch, because the ratios would all still be internally consistent.
+    """
+    from PySide6.QtGui import QFont
+
+    cap_px = style.type_px("type_caption", 100)
+    body_px = style.type_px("type_body", 100)
+    assert cap_px != body_px, "this fence needs the two rungs to differ or it proves nothing"
+
+    c = widgets.Prose("x" * 200, widgets.CAPTION_W, base="caption")
+    f = QFont("Segoe UI")
+    f.setPixelSize(cap_px)
+    c.setFont(f)
+    assert c._cap == widgets.CAPTION_W, (
+        f"a caption at 100% must be the approved {widgets.CAPTION_W}px, got {c._cap} -- it is being "
+        f"scaled against the wrong rung"
+    )
+    f2 = QFont("Segoe UI")
+    f2.setPixelSize(style.type_px("type_caption", 150))
+    c.setFont(f2)
+    assert c._cap > widgets.CAPTION_W, "the caption's measure did not follow the dial"
+    c.deleteLater()
+
+
+def test_an_unpolished_font_does_not_collapse_the_measure(app):
+    """QFontInfo, not QFont -- and this is the difference between a cap and a zero.
+
+    A QFont carrying a POINT size reports pixelSize() == -1 (unresolved). Multiply the cap by -1/14 and
+    every Prose in the app silently caps at a NEGATIVE width, i.e. collapses. The Windows system font is
+    Segoe UI 9pt and reports exactly that, so this is the default state of any label the stylesheet has
+    not reached yet -- not a hypothetical.
+    """
+    from PySide6.QtGui import QFont
+
+    p = widgets.Prose("x" * 200)
+    f = QFont("Segoe UI")
+    f.setPointSize(9)                              # pixelSize() == -1; QFontInfo resolves it
+    p.setFont(f)
+    assert p._cap > 0, f"an unresolved point-size font collapsed the measure to {p._cap}"
+    assert p.maximumWidth() > 0
+    p.deleteLater()
