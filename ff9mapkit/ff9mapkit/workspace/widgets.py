@@ -7,7 +7,7 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QFontInfo, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
     QListWidget, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
@@ -212,7 +212,7 @@ def card(*, parent=None):
 #
 # 420, not 430: at the worst measured rate (5.72) a 430 cap lands 75.2ch and fails its own fence by a
 # fifth of a character. 420 gives 73.4-75.1. Fenced by test_prose_w_is_a_real_measure.
-PROSE_W = 420
+PROSE_W = 420          # ...OF BODY-RUNG TEXT. See _BASE below -- that clause is the whole of GAUGE.
 
 # The 11px caption face, and DELIBERATELY still 620 -- an unchanged number, not an oversight.
 #
@@ -222,6 +222,37 @@ PROSE_W = 420
 # (the 13px face gets its real measure) and moves the 11px face zero pixels. The receipt above is recorded
 # so a future round can act on it deliberately rather than discover it again.
 CAPTION_W = 620
+
+# GAUGE. Both numbers above are the APPROVED design and NEITHER moves here -- what changes is that they
+# stop being "420px" and become "420px OF 14px TEXT". A px cap is a measure for exactly ONE font size;
+# this module has said so, at length, since the tokens split, and then defined two px constants anyway.
+# CALIBRE's dial made the comment's own point: at 150% the letters grew and the column did not.
+#
+# THE FIX IS TO SCALE, NOT TO RE-DERIVE -- and that is not a shortcut, it is exact. Segoe's advance is
+# LINEAR in pixel size (measured 12..28px: max error 0.065%, evidence/probe_measure_rate.py), so
+#
+#       chars = (cap * k) / (rate * k) = cap / rate
+#
+# the measure in CHARACTERS is INVARIANT under scaling. Widen the column exactly as fast as the letters
+# grow and the line still holds the same number of them. Re-deriving a cap from a "characters" target
+# would instead need a calibrated rate, and every honest candidate misses 420: averageCharWidth reads
+# 5.953 at 13px, ABOVE every real string in this app (5.42-5.89), because it averages a glyph set nobody
+# types. Scaling needs no rate at all.
+#
+# THE MEASURE WAS NEVER THE DEFECT THE ROUND EXPECTED, and the numbers are worth keeping because two
+# instruments lied about them first:
+#   * A synthetic rate (the bare alphabet) said 61.9ch -- "comfortably fine". It has ONE space in 27
+#     where English has ~1 in 6, and the space is the narrowest glyph in the face, so it overstates
+#     px/char and understates the measure by ~9%.
+#   * Round 5's audit said 77.5ch -- "already out of band". True at the time, at the 13px body.
+#   Measured on the REAL strings at the REAL rung: 420px is 67.6-71.9ch. QUARTO P1 FIXED IT BY ACCIDENT:
+#   raising the body 13 -> 14 NARROWS the measure in characters, because every character got wider.
+#   And at 150% it reads 45.0ch -- exactly ON the 45 floor, passing with zero headroom, by luck.
+#
+# So GAUGE ships for the reason that survived: nothing could TELL. The old fence divided a constant by a
+# constant (WORST_13PX = 5.72, a rate from a font size the app no longer sets) and could not see the app
+# at all. The measure held at every dial setting by accident, and nobody would have known when it stopped.
+_BASE = {"prose": "type_body", "caption": "type_caption"}
 
 
 class Prose(QLabel):
@@ -236,11 +267,55 @@ class Prose(QLabel):
     natural single-line width) and throws the measure away entirely.
     """
 
-    def __init__(self, text="", width=PROSE_W, parent=None):
+    def __init__(self, text="", width=PROSE_W, parent=None, base="prose"):
         super().__init__(text, parent)
+        self._base_cap = width
+        self._base_px = style.type_px(_BASE[base], 100)   # the rung `width` was chosen against
         self._cap = width
         self.setWordWrap(True)
         self.setMaximumWidth(width)
+        self._resolve_cap()
+
+    def _resolve_cap(self):
+        """Re-resolve the px cap against the font this label is ACTUALLY wearing.
+
+        The label does not need to be told the text-size scale, and deliberately is not: it reads its own
+        polished font, so it is right no matter WHO changed the type -- the dial, a density switch, a
+        stylesheet a future round has not written yet. A cap threaded from the shell would be a second
+        source of truth for the same fact, and the two would drift the first time one of them was missed.
+
+        BOTH sources, in this order, and each covers the other's blind spot:
+
+        * ``QFont.pixelSize()`` is the EXPLICIT size. The stylesheet sets `font-size: 21px`, so this is 21
+          -- exact, and available even where the font DB is stubbed.
+        * ``QFontInfo.pixelSize()`` RESOLVES a font that carries a point size instead (the Windows system
+          font is Segoe UI 9pt and reports QFont.pixelSize() == -1). Multiply a cap by -1 and every Prose
+          in the app collapses to a negative width.
+
+        Neither alone is enough, and the discovery cost a wrong fence: under QT_QPA_PLATFORM=offscreen --
+        which is how the whole suite runs -- QFontInfo returns -1 even for a font with an explicit
+        pixelSize, because offscreen stubs the font engine QFontInfo asks. A QFontInfo-only version
+        therefore fell back to k=1.0 for every test, held the cap at 420 forever, and the fence written to
+        catch exactly that failure reported it as a pass. The harness lies about fonts; it lies here too.
+        """
+        px = self.font().pixelSize()                      # explicit (QSS px) -- survives the stub
+        if px <= 0:
+            px = QFontInfo(self.font()).pixelSize()        # resolved (a point-size font, e.g. Segoe 9pt)
+        k = px / self._base_px if px > 0 and self._base_px > 0 else 1.0
+        cap = int(self._base_cap * k + 0.5)               # k == 1.0 at 100% -> the approved px, exactly
+        if cap == self._cap:
+            return
+        self._cap = cap
+        self.setMaximumWidth(cap)
+        self.updateGeometry()
+
+    def changeEvent(self, ev):                     # noqa: N802 (Qt override)
+        # FontChange is the signal the stylesheet cannot send: QSS re-renders the sheet, Qt re-polishes
+        # the label, and THIS fires. Without it the cap would be correct only for whatever scale happened
+        # to be set when the widget was constructed -- and these are built once, at startup.
+        if ev.type() == QEvent.Type.FontChange:
+            self._resolve_cap()
+        super().changeEvent(ev)
 
     def heightForWidth(self, w):                   # noqa: N802 (Qt override)
         return super().heightForWidth(min(w, self._cap))
@@ -280,7 +355,10 @@ def option(rb, description, lay, *, width=CAPTION_W):
     """
     lay.addWidget(rb)
     if description:
-        cap = Prose(description, width)
+        # base="caption": CAPTION_W was chosen against the 12px caption rung, not the 14px body. Passing
+        # the wrong base here would not be a rounding error -- it would scale this cap by 14/12 at every
+        # setting, silently, including at 100%.
+        cap = Prose(description, width, base="caption")
         cap.setProperty("role", "caption")
         cap.setContentsMargins(OPT_INDENT, 0, 0, 6)
         lay.addWidget(cap)
