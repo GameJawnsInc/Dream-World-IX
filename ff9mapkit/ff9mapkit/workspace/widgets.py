@@ -144,9 +144,16 @@ class PlaceholderListWidget(QListWidget):
     """A QListWidget that paints a muted hint while it is empty (the QLineEdit-placeholder idiom, which
     plain list views lack) -- so an empty Problems panel says what will appear there instead of sitting as
     a silent grey box. Set ``placeholder`` / ``placeholder_color`` (a '#rrggbb' string) any time; the
-    shell's retheme updates the colour."""
+    shell's retheme updates the colour.
 
-    def __init__(self, placeholder="", color="#808080", parent=None):
+    ``color`` IS REQUIRED, and used to default to ``"#808080"``. All three real call sites pass
+    ``pal["muted"]``, so that default never fired -- it was dead, and loaded: a palette-blind grey that any
+    fourth call site would have picked up silently, landing sub-AA on most of the 8 grounds. The sibling
+    law is that a defensive default whose value IS the shipped behaviour is not a default but the code; a
+    default that can never fire is the same coin's other face -- it reads as a convenience and is really an
+    unexploded one. This widget paints with QPainter, where no QSS rule and no fence can reach it."""
+
+    def __init__(self, placeholder, color, parent=None):
         super().__init__(parent)
         self.placeholder = placeholder
         self.placeholder_color = color

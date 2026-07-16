@@ -346,7 +346,8 @@ def pick_palette(mode: str = "auto") -> dict:
 # pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
 _DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "selection_rail", "text_subtle", "focus",
                  "info", "success_text", "warn_text", "error_text",
-                 "border_lit", "border_shade", "accent_lit", "accent_shade")
+                 "border_lit", "border_shade", "accent_lit", "accent_shade",
+                 "warn_fg", "help_fg")
 
 # INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
 # the whole direction, isolated to one number on purpose -- and settled by RENDERING it at 6x, because no
@@ -455,6 +456,54 @@ def _text_token(hue: str, surfaces: tuple, dark: bool) -> str:
     return out
 
 
+def _fg_token(fill: str, pal: dict) -> str:
+    """The ink that rides ON a saturated FILL (a chip, a round button) -- AA 4.5:1 as normal text.
+
+    WHY THIS IS DERIVED WHILE `accent_fg` IS AUTHORED. Both answer "what ink goes on this fill", so the
+    obvious move is one rule for both. Measured, that is wrong: a single argmax rule reproduces only 5 of
+    the 8 hand-authored `accent_fg` values, and where it misses it picks MORE contrast than the author
+    chose (dracula 6.55 vs 5.90, gruvbox 6.49 vs 5.84, mist 9.75 vs 9.43) -- because `#282a36` and
+    `#282828` are those projects' signature backgrounds, not compromises. That is taste, and a formula
+    must not overwrite it. `warn` and `help` are the opposite case: NOBODY EVER CHOSE, so there is no
+    taste to overwrite -- only a hole that ships white-on-yellow at 1.12:1. Derive those; spend the
+    authored token on `accent`. (`studies/gui-aesthetics/evidence/probe_fg_rule.py`)
+
+    THE DIRECTION IS PER-FILL, NEVER PER MODE, and three palettes prove it: `nord` is DARK and its accent
+    takes WHITE ink; `light` (#9a6b00) and `solarized-light` (#a47c00) want OPPOSITE inks on the SAME
+    `warn` semantic -- light fails on black at 4.48, solarized-light fails on white at 3.85. So `target`
+    is whichever extreme the fill can actually carry, chosen per fill.
+
+    THE START MUST LIE ON THE TARGET'S SIDE. This is the whole subtlety and v1 shipped without it:
+    starting at `log_bg` unconditionally and walking, as :func:`_text_token` does, ASSERTED ITSELF SUB-AA
+    on solarized-light -- 3.56 in, **3.42 out**, having dipped to **1.02** on the way. Walking that
+    palette's CREAM log ink toward black must cross its mid GOLD fill, so contrast collapses to invisible
+    and only then climbs.
+
+        A WALK TOWARD AN EXTREME IS MONOTONIC ONLY IF YOU START ON THAT EXTREME'S SIDE OF THE GROUND.
+
+    `_text_token`/`_focus_token` are safe from this by accident of their inputs, not by construction --
+    they pick the direction from the MODE and every ground they touch (bg/surface/surface_2) is on the
+    mode's side. A saturated fill has arbitrary luminance and that guarantee evaporates.
+
+    `log_bg` and `text` are the palette's two authored extremes and always sit opposite each other, so at
+    least one lies on any achievable side. In 15 of 16 real cases the chosen one already clears AA and is
+    used VERBATIM -- the walk is dead code for every palette except solarized-light's `warn`, whose fill
+    (luminance 0.223, landing on the 0.220 crossover this file's `dark` accent_fg comment names) is
+    carried by NONE of that palette's 35 hexes: best is #ffffff at 3.85. There the walk starts at `text`
+    (#4a6067, darker than the fill, so monotonic) and lands #151b1d at 4.53 -- still in-family, never an
+    imported black. Fenced by test_editor_theme::test_a_filled_ground_carries_its_ink.
+    """
+    target = max(("#ffffff", "#000000"), key=lambda c: _contrast(c, fill))
+    up = _rel_lum(target) > _rel_lum(fill)              # the only direction that can reach AA
+    side = [c for c in (pal["log_bg"], pal["text"]) if (_rel_lum(c) > _rel_lum(fill)) == up]
+    out = max(side, key=lambda c: _contrast(c, fill)) if side else target
+    for _ in range(40):
+        if _contrast(out, fill) >= 4.5:
+            break
+        out = _mix(out, target, 0.04)
+    return out
+
+
 def derive(pal: dict) -> dict:
     """Return ``pal`` extended with the derived semantic tokens (idempotent -- an already-derived palette
     passes through, so a consumer can call it defensively on either a base or a derived dict)."""
@@ -484,6 +533,20 @@ def derive(pal: dict) -> dict:
     _grounds = (pal["bg"], pal["surface"], out["surface_2"])   # every ground a status line lands on
     for _k in ("success", "warn", "error"):
         out[f"{_k}_text"] = _text_token(pal[_k], _grounds, dark)
+    # The ink ON a saturated FILL -- the mirror of the *_text rung above. `*_text` is a hue moved until it
+    # reads AS text ON a surface; `*_fg` is the ink that reads ON the hue when the hue is the ground.
+    #
+    # ONLY THE TWO FILLS THAT ACTUALLY CARRY TEXT. Censused by reading every `background:{...}` in an
+    # inline setStyleSheet across `workspace/`: the breadcrumb chip (`$accent`, or `$warn` for BATTLE) and
+    # the round help button (`$help`). `$success`/`$error` are NEVER fills -- they are borders and text
+    # only -- so they get no `_fg` here. This file already carries the cost of the other habit: `info` was
+    # derived "for now", has ZERO consumers to this day, and a design argument in MIST's own comment rests
+    # on it. A token with no call site is not future-proofing, it is a wish with a keyword.
+    #
+    # `accent_fg` is DELIBERATELY ABSENT -- it is hand-authored per palette and _fg_token would overwrite
+    # 3 of the 8 with more contrast than their authors wanted. See :func:`_fg_token`.
+    for _k in ("warn", "help"):
+        out[f"{_k}_fg"] = _fg_token(pal[_k], pal)
     # INTAGLIO -- one light, from above. The app's whole elevation ladder claims a light source ("higher =
     # lighter") and never draws the light, so an object's fill cannot say it is an object: LIGHT's
     # surface_btn IS surface (contrast 1.0000, the same hex); solarized-dark's field IS surface; mist's

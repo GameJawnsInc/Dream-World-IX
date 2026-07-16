@@ -889,6 +889,70 @@ def test_no_widget_carries_a_private_font_size_the_dial_cannot_reach():
     )
 
 
+def test_no_widget_paints_a_colour_the_palette_never_chose():
+    """The sibling of the font-size fence above, for the axis that actually shipped a 1.12:1 defect.
+
+    THE PATTERN THE COLOUR SURVEY FOUND, four times over: a correct token exists and the call site ignores
+    it. `accent_fg` exists -> the chip hardcoded `#ffffff`. `error_text` exists -> sites write the raw hue.
+    `text_subtle` exists -> a `.get` fell past it in every palette. Every one of those lives in an INLINE
+    `setStyleSheet` or a QPainter call. The QSS template is clean, because `$token` substitution makes the
+    palette the only way to name a colour. Python has no such gate -- so this is it.
+
+    A hex literal in this package is one of exactly two things: an identity colour deliberately held
+    OUTSIDE the palette (the signet gold, and only hero.py owns that), or a bug. There is no third kind.
+    A palette-blind hex cannot follow a theme switch and was never measured against any of the 8 grounds.
+
+    PROSE COMES IN THREE FORMS HERE AND TWO OF THEM ARE STRINGS. A fence must read code, not writing
+    about code -- and this package stores its writing in three different ways:
+      1. a Python DOCSTRING is an ast.Constant, so it reaches this loop. The font-size fence beside this
+         one flagged its OWN prose on its first cut. Stripped by id().
+      2. a CSS COMMENT inside the QSS template is not a comment to anything but a CSS parser -- to Python
+         it is just more of the string. This fence's first cut flagged style.py's own measurement notes
+         ("dark's #4c8dff has B=255...", "resolves to text (#e6e8eb in dark) instead of muted (#a4acb5)").
+         This is the same surface as THE COMMENT-PLACEHOLDER LAW, which this study minted the hard way:
+         `string.Template` has no concept of a CSS comment either, so a `$name` inside `/* */` still
+         substitutes and still KeyErrors. Stripped by regex -- NOT by exempting style.py, which is exactly
+         where a hardcoded hex in a real rule would matter most.
+      3. a Python COMMENT is not an ast node at all, so it never arrives.
+
+    WHAT IT ALREADY CAUGHT, before it was even written: `PlaceholderListWidget(placeholder, color)` had
+    `color="#808080"` as a DEFAULT. All 3 call sites pass `pal["muted"]`, so it never fired -- dead, and
+    loaded: any 4th call site would have picked up a palette-blind grey, and the widget paints via
+    QPainter where no QSS rule and no other fence can reach. The default is gone; the parameter is
+    required.
+    """
+    import ast
+    import pathlib
+    import re
+    ws = pathlib.Path(style.__file__).parent
+    bad = []
+    for py in sorted(ws.glob("*.py")):
+        if py.name == "hero.py":
+            continue        # THE ONE EXEMPTION, and it is the whole point of the arc's identity rule:
+                            # the signet gold (#d9b45c/#8a6a1f) is deliberately NOT a palette token, so it
+                            # can never be spent twice or leak into a work surface. hero.py owns exactly 2
+                            # hexes and test_workspace_hero fences their contrast and their scarcity.
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        docs = set()
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                d = n.body[0] if n.body else None
+                if isinstance(d, ast.Expr) and isinstance(d.value, ast.Constant):
+                    docs.add(id(d.value))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if id(node) in docs:
+                continue                 # form 1: a docstring is prose, not code
+            src = re.sub(r"/\*.*?\*/", "", node.value, flags=re.S)   # form 2: a CSS comment is prose too
+            for m in re.finditer(r"#[0-9a-fA-F]{6}\b", src):
+                bad.append(f"{py.name}:{node.lineno} {m.group(0)}")
+    assert not bad, (
+        "these paint a hex the palette never chose, so they cannot follow a theme switch and were never "
+        f"measured against any of the 8 grounds -- name a token instead: {bad}"
+    )
+
+
 def test_the_sheet_never_reads_the_developers_own_accessibility_slider():
     """HEED's one way to poison the suite, fenced.
 

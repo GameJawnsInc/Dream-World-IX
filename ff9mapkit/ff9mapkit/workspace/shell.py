@@ -349,16 +349,30 @@ class BreadcrumbBar(QWidget):
         self._lay.addWidget(self._chip)
         self.set([])
 
-    def set_chip(self, text, color=None):
+    def set_chip(self, text, fill=None, ink=None):
         """The always-visible 'what am I editing' chip (JOURNEY / CAMPAIGN / FIELD / BATTLE / SAVE / BUILD).
-        Empty text hides it. Persists across :meth:`set` so it stays truthful on every tab."""
+        Empty text hides it. Persists across :meth:`set` so it stays truthful on every tab.
+
+        FILL AND INK TRAVEL TOGETHER, because they were never two decisions. This line took a `color` and
+        hardcoded `#ffffff` against it -- the only hardcoded white in the package -- and the caller was
+        free to hand it any fill at all. Measured across the 8 palettes: the accent chip fails AA in 5 and
+        the BATTLE chip (a `$warn` fill) fails in 7, bottoming out at **1.12:1** on dracula -- white on
+        pale yellow, at 12px/600, on screen, on every tab. Not latent: rendered and counted, 168 white
+        pixels of it.
+
+        The palette carried the answer the whole time. `accent_fg` is hand-authored per palette and
+        `theme.py` explains at length why white on an accent is wrong; the Tk editor spends it in six
+        places. This chip -- the app's most-visible piece of coloured text -- did not. Now the caller
+        resolves both hexes from ONE key, so a fill can never again arrive without its ink.
+        """
         if not text:
             self._chip.setVisible(False)
             return
-        col = color or self.pal["accent"]
+        fill = fill or self.pal["accent"]
+        ink = ink or self.pal["accent_fg"]      # a RAW key: authored per palette, present without derive()
         self._chip.setText(text)
         self._chip.setStyleSheet(
-            f"background:{col};color:#ffffff;border-radius:3px;padding:1px 7px;font-weight:600;")
+            f"background:{fill};color:{ink};border-radius:3px;padding:1px 7px;font-weight:600;")
         self._chip.setVisible(True)
 
     def repaint_pal(self, pal):
@@ -3909,7 +3923,13 @@ class Workspace(QMainWindow):
             self.crumb.set_chip("")
             return
         label, ckey = spec
-        self.crumb.set_chip(label, self.pal.get(ckey, self.pal["accent"]))
+        # ONE key resolves BOTH hexes. `_derived` (not `self.pal`) because `self.pal` is RAW and `warn_fg`
+        # is computed -- while `accent_fg` is authored and raw. derive() returns both kinds, so this call
+        # site never has to know which is which, and adding a third chip colour cannot reintroduce the bug.
+        # The old `self.pal.get(ckey, self.pal["accent"])` is gone: `ckey` comes from the literal above and
+        # is only ever "accent" or "warn", so that default was unreachable -- a defensive get guarding a
+        # case that cannot happen reads as caution and is really just noise.
+        self.crumb.set_chip(label, self.pal[ckey], self._derived(f"{ckey}_fg"))
 
     def _journey_crumbs(self, item):
         """The full hub▸journey▸campaign/field trail to a selected JOURNEY-mode tree node (each crumb keyed by

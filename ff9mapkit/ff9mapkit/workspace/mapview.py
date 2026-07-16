@@ -16,6 +16,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, Q
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from ..editor.graphview import compute_layout
+from ..editor.theme import derive
 
 _THUMB_H = 86                                   # the art band inside a node (when any thumbnail is ready)
 
@@ -31,7 +32,12 @@ class CampaignMap(QGraphicsView):
 
     def __init__(self, palette, *, on_open=None, thumbs=None):
         super().__init__()
-        self.pal = palette
+        # DERIVED AT THE DOOR -- and BOTH doors (see :meth:`retheme`). The shell constructs us with its RAW
+        # palette, so `text_subtle` (a derived key) was never present and `_draw_empty`'s
+        # `pal.get("text_subtle", pal["muted"])` fell back EVERY time, in EVERY palette: the dimmer tier it
+        # names has never once been drawn here. Deriving once at the boundary is what lets the code below
+        # index tokens directly and mean it.
+        self.pal = derive(dict(palette))
         self.on_open = on_open
         self.thumbs = thumbs
         self._graph = None
@@ -76,7 +82,7 @@ class CampaignMap(QGraphicsView):
         """Re-tint on a LIVE theme switch: the map is custom-painted (QSS can't reach a QGraphicsScene), so
         the shell must hand it the new palette and redraw -- the stored graph if a campaign is open, else the
         empty-state. Without this, nodes / legend / the empty message keep the old theme's colours."""
-        self.pal = palette
+        self.pal = derive(dict(palette))       # the SECOND door -- the shell hands a raw palette here too
         self.setBackgroundBrush(QColor(palette["surface"]))
         if self._graph is not None:
             self.rerender()
@@ -98,7 +104,7 @@ class CampaignMap(QGraphicsView):
         vh = max(self.viewport().height(), 320)
         sc.setSceneRect(0, 0, vw, vh)
         cx, cy = vw / 2, vh / 2
-        subtle = pal.get("text_subtle", pal["muted"])
+        subtle = pal["text_subtle"]        # derived at the door now, so this is the tier it says it is
 
         def _centered(text, size, color, dy, bold=False):
             weight = QFont.Weight.Bold if bold else QFont.Weight.Normal

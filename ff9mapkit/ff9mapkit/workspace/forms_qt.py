@@ -29,6 +29,7 @@ from .. import dialogue as _dlg
 from .. import infohub
 from ..content.text import DEFAULT_WRAP_WIDTH
 from ..editor import forms
+from ..editor.theme import derive
 
 # A form field whose value is a story-flag / scenario reference gets a "?" concept badge derived from its
 # KIND (so every flag/scenario field is covered without tagging each Field); an explicit Field.concept wins.
@@ -536,6 +537,13 @@ class CatalogLibrary(QDialog):
         self.setWindowTitle("Info Hub — catalog library")
         self.resize(900, 580)
         self.plan = plan
+        # DERIVE AT THE DOOR. The shell hands us its RAW palette (`CatalogLibrary(self, self.plan,
+        # self.pal, ...)`), so a derived key -- `help_fg`, below -- is simply not in it and would raise.
+        # derive() is idempotent and documented safe on a base OR an already-derived dict, so one call
+        # here makes every token reachable and nothing downstream has to know which kind it holds. This is
+        # the alternative to the `pal.get("derived_key", pal["raw_key"])` idiom, whose fallback fires 100%
+        # of the time and quietly renders the wrong tier forever.
+        palette = derive(dict(palette))
         self.pal = palette
         self.sps_context = sps_context                     # {label: sps_dir} of the open project's carried effects
         self._entries = []
@@ -599,8 +607,12 @@ class CatalogLibrary(QDialog):
         # they stay pinned here; only the GLYPH joins the ramp. Its 15px was a private number one rung under
         # the app's head, and deaf to the dial like everything else in this module's widget stylesheets.
         helpb.setFixedSize(30, 30)
+        # `help_fg`, not `accent_fg`. This wore the ACCENT's ink on the HELP fill -- two hexes nothing had
+        # ever asserted were compatible, because `accent_fg` is fenced against `$accent` alone
+        # (test_editor_theme::test_the_accent_button_label_is_text). Measured on nord it lands 2.51:1, a
+        # sub-AA glyph. A token borrowed from the ground next door is not a token, it is a coincidence.
         helpb.setStyleSheet(
-            f"QPushButton {{ background:{palette['help']}; color:{palette['accent_fg']}; border:0; "
+            f"QPushButton {{ background:{palette['help']}; color:{palette['help_fg']}; border:0; "
             f"border-radius:15px; font-weight:bold; font-size:{_px('type_body')}px; }}"
             f"QPushButton:hover {{ background:{palette['help_hover']}; }}")
         helpb.clicked.connect(self._show_help)

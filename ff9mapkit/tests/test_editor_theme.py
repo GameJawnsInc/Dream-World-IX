@@ -168,6 +168,55 @@ def test_status_hues_are_legible_as_text_via_the_derived_rung():
             assert _order(t) == _order(pal[hue]), f"{mode}: {hue}_text drifted out of the hue's family"
 
 
+def test_a_filled_ground_carries_its_ink():
+    """The MIRROR of the `*_text` rung above. `*_text` is a hue moved until it reads AS text ON a surface;
+    `*_fg` is the ink that reads ON the hue, when the hue is the ground.
+
+    WHAT SHIPPED WITHOUT THIS FENCE. The breadcrumb chip took a fill from its caller and hardcoded
+    `color:#ffffff` -- so the accent chip was sub-AA in 5 of 8 palettes and the BATTLE chip (a `$warn`
+    fill) in 7 of 8, bottoming out at **1.12:1** on dracula: white on pale yellow, 12px/600, on screen, on
+    every tab. Nothing could catch it, because the ink was a literal and the fill was an argument -- there
+    were never two tokens to compare.
+
+    THE BAR IS 4.5. A chip is 12px/600 and the help glyph 14px/bold; weight does not buy the large-text
+    bar (18.66px bold does). Both are normal text.
+
+    `accent_fg` IS AUTHORED, NOT DERIVED, and this fence covers it anyway -- that is the point. It is
+    hand-picked per palette and a formula reproduces only 5 of its 8 values, choosing MORE contrast than
+    the author wanted in the other 3 (dracula's `#282a36` and gruvbox's `#282828` are those projects'
+    signature backgrounds, not compromises). So the ink's ORIGIN differs per ground -- authored where
+    someone chose, derived where nobody did -- and the CONTRACT does not: whatever ink rides a fill, it
+    clears AA on it. See `_fg_token` and studies/gui-aesthetics/evidence/probe_fg_rule.py.
+    """
+    # (fill, ink) -- every FILL in the app that carries text, censused by reading each `background:{...}`
+    # in an inline setStyleSheet under workspace/. `$success`/`$error` are never fills, so they are absent:
+    # a token with no call site is the `info` mistake (derived "for now", zero consumers to this day).
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        for fill, ink in (("accent", "accent_fg"),      # the chip (7 of 8 modes) + QPushButton#accent
+                          ("warn", "warn_fg"),          # the BATTLE chip -- the 1.12:1 site
+                          ("help", "help_fg")):         # the round "?" concept button
+            assert _contrast(d[ink], d[fill]) >= 4.5, \
+                f"{mode}: ${ink} is sub-AA on its own ${fill} fill"
+
+
+def test_an_ink_is_never_borrowed_from_the_ground_next_door():
+    """Each fill gets ITS OWN ink. The round help button wore `accent_fg` on a `$help` fill -- two hexes
+    nothing had ever asserted were compatible, because `accent_fg` is fenced against `$accent` alone. It
+    measured 2.51:1 on nord.
+
+    This asserts the ACTUAL defect (a mismatch is sub-AA somewhere) rather than the mechanism, so it stays
+    true if the tokens are ever re-homed. It is the reason the pairing above is a table and not a habit:
+    a token that happens to work on the ground next door is a coincidence, and a coincidence is not fenced.
+    """
+    borrowed = [("help", "accent_fg"), ("warn", "accent_fg"), ("accent", "warn_fg")]
+    for fill, ink in borrowed:
+        worst = min(_contrast(theme.derive(p)[ink], theme.derive(p)[fill]) for p in theme.THEMES.values())
+        assert worst < 4.5, (
+            f"${ink} now happens to clear AA on ${fill} in all 8 palettes. That is luck, not design -- "
+            f"re-check whether these grounds still need separate inks before deleting this fence.")
+
+
 def test_hover_and_pressed_give_real_feedback():
     """A button must visibly react to the pointer -- and `hover` shipped BYTE-IDENTICAL to `surface_btn`
     in nord (#3b4252), dracula (#3a3d4d), solarized-dark (#0b4350) and gruvbox-dark (#3c3836), so four of
