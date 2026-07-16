@@ -1,6 +1,7 @@
 # GUI aesthetics — state + next steps
 
-**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **MERGED to master** · **3622 tests** + `--smoke` green.
+**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–5 MERGED to master** · **3644 tests**.
+> ⚠ **ROUND 6 (below) IS UNPLAYTESTED.** The green header that follows covers rounds 2–5 ONLY.
 
 > ## ✅ FULLY PLAYTESTED — 2026-07-16
 >
@@ -272,6 +273,13 @@ convention, and an outer margin only eats pane width. Only the three **form docs
 of cards: Build & Deploy / Import / Co-op) take the page rung. The fence says so.
 
 ### 3b. If you want MORE beauty, it is a contract renegotiation — not a phase
+>
+> **RESOLVED 2026-07-16 (round 6).** This section framed the choice as *"round 4 would have to argue the
+> contract is wrong"*. Round 6 put the contract's one open question to the user with both states rendered,
+> and **the contract won on its own terms**: flat, deliberately. So SIGNET's *"identity where you look for
+> 5 seconds, restraint where you work for 3 hours"* is not merely un-renegotiated — it is now **ratified by
+> a verdict against the alternative**, with the alternative's three defeats measured (below). The section
+> stands; read it as settled rather than as a standing offer.
 
 There is no "make Build & Deploy beautiful" phase to run, and that is **deliberate**. SIGNET's contract
 ([IDENTITY.md](IDENTITY.md), *What we are NOT doing*) is:
@@ -283,13 +291,27 @@ purpose**, and the gold is confined to one corner of one band because *"one corn
 So extending the identity inward is not the next phase of SIGNET; it is the thing SIGNET forbids. Round 4
 would have to argue the contract is wrong.
 
-**The one genuine unresolved beauty question**, already measured and never answered, is PLAN.md's **Open
-Question #2 — "what is under the lamp on Build & Deploy?"** The pages are flat type with a single accent
-verb in the crumb row. That may be exactly right (*a form's focal point is its verb*). If it reads
-rudderless, the honest lift is already specced and already measured: **`role="card"` + a 4px accent
-left-stripe — 2.44–4.73 against `surface_2` in all 7 palettes**, the one delineation that survives the light
-themes, applied to **one** element per screen and nothing else. That is the highest-value unshipped
-*aesthetic* move in either plan, and it is gated on a playtest verdict, not on more research.
+~~**The one genuine unresolved beauty question**~~ — ✅ **ANSWERED 2026-07-16 (round 6). There are now no
+unresolved beauty questions in either plan.**
+
+PLAN.md's **Open Question #2 — "what is under the lamp on Build & Deploy?"** — open since round 2, called
+here "the highest-value unshipped *aesthetic* move in either plan", and gated on *"a playtest verdict, not
+more research"*. The gate opened when the arc was playtested; round 6 rendered both states natively
+(`evidence/shot_lamp.py`) and put them to the user. **Verdict: "A — flat, and close the question."**
+
+**The answer is: on a work surface, nothing is lit — and that is the design, not an omission.** A form's
+focal point is its verb. This ratifies PLAN.md's own primary recommendation; the stripe was always the
+contingency and its condition ("if the page feels rudderless") was never met. CRITIC.md's charge that the
+vision *"never names the lamp"* is now discharged: it is named.
+
+**And the contingency was already dead on the facts, independently of taste** — full receipts in PLAN.md
+§Open Questions #2:
+- **elevation is unexpressible** (`surface_3` vs `surface_2` = **1.043–1.182, all 8** — invisible), so the
+  vision's literal *"one lifted surface"* was unbuildable the day it was written;
+- **the spec's number is stale** — "2.44–4.73 in all 7" predates SIGNET's palette retune and MIST; it is
+  **2.118–7.095** now, floor below the 3.0 non-text bar;
+- **the 4px left-stripe idiom was already taken** by `role="banner"` (status verdicts), shipped **one day
+  before** the recommendation was written, and visible beside the doc whenever the console is open.
 
 ### 4. Known, deliberate, not bugs
 - **The quiet tier is SUBTLE in the two light palettes.** A quiet button is `transparent` (so it shows
@@ -299,7 +321,12 @@ themes, applied to **one** element per screen and nothing else. That is the high
   Rejected table already hit ("LIGHT's `surface_3` is `#ffffff` and its rungs step 1.046/1.043. Dies
   there."). Not fenced on a ratio, because a ratio fence would fail light and the honest fix isn't a
   number. Worth a look in light before deciding it needs anything.
-- **`PROSE_W = 620`** is wide (~109 chars vs the 45–75 band). User: *"fine with 620 for the moment."*
+- ~~**`PROSE_W = 620`** is wide (~109 chars vs the 45–75 band). User: *"fine with 620 for the moment."*~~
+  **STALE — struck 2026-07-16.** `PROSE_W` is **420** and `CAPTION_W` **380** since COLUMN + GAUGE (round 5
+  parts 4–5), which measured the tier and capped it. This entry sat in a list headed *"Known, deliberate,
+  not bugs"* quoting a user decision that a later round had already superseded — i.e. exactly the
+  stale-status defect this file's own header retired for the arc as a whole. A status list is only load-
+  bearing if its entries are dated.
 - **`SECTION_GAP = 14` is deliberately OFF-GRID** — the one number in `widgets.py` that is. Its grid
   neighbours are 12 (too close to the 8px in-card row gap to read as a different *kind* of gap) and 16
   (ties the card's own interior padding). The grid does not have to own every number; it has to stop
@@ -975,3 +1002,159 @@ beside it**: re-broke the line, watched it go red with the same NameError, resto
   the file. *A fence that breaks when nothing it guards has changed trains people to re-number it without
   reading it.* Keyed on the variable now.
 
+
+---
+
+# ROUND 6 — the call sites, and the oldest open question
+
+> **Status: 4 fixes + 1 verdict. ⚠ UNPLAYTESTED** — the header above covers rounds 2–5 only.
+> `master` + 5 commits · **3644 tests**.
+
+## The finding, measured four independent ways
+
+The round opened with four surveys against the axes this arc had never examined — spacing, colour,
+interaction states, the splitter. They came back with **one finding**:
+
+> **A CORRECT MECHANISM EXISTS, AND THE CALL SITE DOES NOT SPEND IT.**
+
+| survey | the mechanism | what shipped |
+|---|---|---|
+| colour | `accent_fg`, authored per palette, fenced at 4.5 | the chip hardcoded `#ffffff` — **1.12:1**, every tab |
+| colour | `error_text`, derived + fenced | **8 sites** write the raw hue, down to 2.67:1 |
+| states | the generic `:pressed` rule | **6 of 7** id-scoped buttons shadow it — dead on click |
+| spacing | the 4px grid | **1 use** in a 542-line sheet; `space()` 3 call sites vs 148 literals |
+
+**That is round 2's original diagnosis, still true three rounds later.** VISION.md §1: every ranking
+mechanism was *"built, tokenized, tested, and then never spent"*. This arc made **type** a system and spent
+it end to end; colour, spacing and states were measured, tokenized, fenced — and left in the box. Not
+drift. The same disease, with four independent measurements.
+
+## What shipped
+
+- **SPEND** `c31cd6f` — the chip spends `accent_fg`/`warn_fg`: dracula's BATTLE chip **1.12 → 14.13**,
+  verified by driving the real widget and counting pixels (16/16, zero sub-AA). `accent_fg` is **authored,
+  not derived**, and a probe proved why: a single rule reproduces only **5 of 8** authored values, and where
+  it misses it picks *more* contrast than the author chose (dracula's `#282a36`, gruvbox's `#282828` — those
+  projects' signature backgrounds). **Authored where someone chose, derived where nobody did.** The census
+  also found a site the survey missed: the "?" button wore `accent_fg` on a `help` fill — **2.51 on nord**,
+  two hexes nothing had ever asserted were compatible.
+- **PRESS** `c881380` — 6 dead buttons react; `#consoleToggle` gets the focus ring it never had (WCAG
+  2.4.7); `#disclosureToggle`'s focus stops being byte-identical to its hover. The ring costs **zero
+  layout** (both boxes byte-identical, measured).
+- **THE DOC PANE** `bbab828` — a floor for the document, `setWordWrap` for the recent row (Home needed
+  **903** and scrolled at 1280 *and* 1440, because its width depended on the user's own folder name).
+- **BREATHE** `69f3755` — space joins the dial (card air at 150%: **96 → 114**), and the toolbar pays
+  **zero items**.
+- **THE LAMP** — ✅ **the verdict: flat.** The oldest open question in the study is now a decision. See
+  PLAN.md Open Question #2.
+
+## THE INSTRUMENT WAS WRONG SIX TIMES, AND IT WAS ALWAYS THE THING UNDER TEST
+
+Every one was caught by a tell, not by luck. **The tells are the transferable part.**
+
+1. **THE OFFSCREEN LIE, 4th INSTANCE — and the first to MANUFACTURE a defect rather than hide one.**
+   Offscreen's stub font DB renders ~14px/char, so an 81-char label reports 1134px instead of ~440. Because
+   `QStackedWidget`'s minimum is the max over ALL pages, it "proved" that two ordinary teaching sentences —
+   on tabs you may never open — pinned the whole app at a 1296px floor and crushed the tree to 74px.
+   Mechanical, reproducible, **confirmed against clean master** — and entirely false. Native: 542 and 1280.
+   It also **inverted the fix**: at the fake 1156 minimum `setMinimumWidth(700)` *lowers* the floor; at the
+   real 542 it raises it. The same line, opposite meanings, decided by the harness. I was one step from
+   "fixing" two innocent labels.
+   → **Colour is font-independent and safe offscreen. WIDTH IS NOT. If a number came from text, go native.**
+2. **A FENCE THAT IS WRONG IN THE SAFE DIRECTION IS THE ONE THAT SHIPS.** PRESS's first fences took the bare
+   `app` fixture — but `_apply_app_theme` sets only Fusion + the QPalette; **the QSS is a *widget*
+   stylesheet** on the Workspace, reaching controls by inheritance. So they measured *Fusion's own chrome*.
+   All 7 press fences went **green while testing nothing**; they would have passed with the bug fully
+   present. Only the focus half failed, loudly, which is the sole reason it surfaced.
+3. **A BASELINE YOU DID NOT PUT INTO A KNOWN STATE IS NOT A BASELINE.** Qt focuses the first widget in the
+   tab chain on `show()`, so the state probe's first entity grabbed a "rest" image already wearing its focus
+   ring and reported the generic QToolButton as having none. **A probe built to find dead states, reporting
+   its own reflection.**
+4. **A PROBE THAT INVENTS ITS OWN INPUT RANGE IS MEASURING A PRODUCT THAT DOES NOT EXIST.** BREATHE's
+   toolbar count ran 100..200 and came back **non-monotonic** — 15/14/13/11, then 15/15 again at 200%. The
+   tell was right: `_apply_text_scale` is `pct if pct in prefs.TEXT_SCALES else 100`, so 200 silently fell
+   back to 100 and that row measured the baseline while claiming the extreme.
+5. **A WALK TOWARD AN EXTREME IS MONOTONIC ONLY IF YOU START ON THAT EXTREME'S SIDE OF THE GROUND.** The
+   first `_fg_token` copied `_text_token` and **asserted itself sub-AA**: in at 3.56, out at 3.42, having
+   **dipped to 1.02** — a cream ink walked toward black must cross a gold fill, so the walk is a valley, not
+   a ramp. `_text_token`/`_focus_token` are safe from this **by accident of their inputs, not by
+   construction** (they pick direction from the MODE and every ground they touch is on the mode's side).
+   Nothing in the file said so, because nothing had needed it to.
+6. **THE EYE FAILED AND THE PIXELS DID NOT — AGAIN.** In the LAMP render I read the lede's words as
+   accent-coloured and nearly reported accent-as-prose. Sampled: **0 accent pixels**. The "cyan" was
+   ClearType **subpixel fringing** (`#0f4288` a blue, `#e9a96a` an orange — colours no palette contains),
+   the exact artifact `audit_contrast.py`'s header already warns about.
+
+## THE COMMENT-PLACEHOLDER LAW took instances 5, 6 AND 7 — all from inside its own explanation
+
+`string.Template` has no concept of a CSS comment, so a dollar-prefixed token named in *prose* still
+substitutes. This round:
+
+- **#5** — wrote `color: [dollar]text` in a comment *documenting* the focus==hover defect.
+  `test_no_placeholder_hides_in_a_qss_comment` went red: **the law's own fence catching a comment about the
+  law.**
+- **#6** — the fix for #5 explained the rule using a literal `[dollar]name` as the example. Template
+  substituted it: **KeyError 'name', 68 tests down, all 8 palettes dead.**
+- **#7** — BREATHE's toolbar comment named `[dollar]btn_pad` as the culprit. Red again.
+
+**There is no way to write the token in prose. Say "dollar-prefixed" and move on.** The fence's docstring
+already said *"a comment cannot hold this law"* — this round is three more proofs, and the fence earned its
+keep three times in one afternoon.
+
+## Corrections to my own prior claims
+
+- **The splitter default is CLEAN.** My Co-op commit said it allocated the doc 44% and that re-balancing
+  "wants its own eye". Measured natively: `[300, 640, 240]` → `[300, 738, 240]` at 1280, **every tab clear**.
+  The defect is entirely the **persisted** layout replayed narrow — every scrollbar threshold is exactly
+  `fresh+180`, and `180 = 420−240`, the inspector's saved excess. I measured the symptom and named the wrong
+  cause.
+- **"Clear at 1600+" was conservative** — everything is clear from **1440**.
+- **PLAN.md's stripe number is stale**: "2.44–4.73 in all 7" predates SIGNET's palette retune and MIST. It is
+  **2.118–7.095** now.
+- **A default that can never fire is the `.get` law's other face.** `PlaceholderListWidget(color="#808080")`
+  never fired (all 3 call sites pass `pal["muted"]`) — dead, and loaded: a 4th call site picks up a
+  palette-blind grey, in a QPainter widget no QSS rule and no other fence can reach.
+
+## Deleted en route (worth more than what shipped)
+
+- **`_snip(display, 40)`** on the recent row. Took Home **903 → 840**: still over the 724 viewport, still
+  scrolling at 1280, and it "fixed" 1440 only by luck. Tuning it to fit would be curve-fitting a constant to
+  one font at one scale — the text dial re-breaks it at 125%. And once `setWordWrap` is in, **the cap changes
+  nothing**: same 525, same row heights to the pixel. **A constant that buys nothing is worse than no
+  constant, because the next reader assumes it is load-bearing.**
+- **`setMinimumWidth(0)` + `SizePolicy.Ignored`** on the same row — shrinks it by **clipping rich text**,
+  i.e. trading a scrollbar for the silent-clip trap `widgets.py` exists to document.
+
+## One token, two jobs — the shape BREATHE's toolbar exemption exposed
+
+Exempting `tb_pad`/`tb_space` and stopping there made the budget **worse than doing nothing**:
+
+```
+visible toolbar items at 1280      100%    110%    125%    150%
+type scale only (before BREATHE)   15/15   14/15   13/15   11/15
++ spacing, tb_pad/tb_space exempt  15/15   13/15   11/15   10/15   <- WORSE
++ a QToolBar QToolButton rule      15/15   14/15   13/15   11/15   <- the baseline
+```
+
+The generic rule hands every toolbar button `btn_pad` — padding around **prose** on a card, where it must
+grow, and around an **icon** in the toolbar, where it must not. **An icon does not need a wider gutter
+because the body text grew.** Net: BREATHE costs the toolbar zero items, and that is a count, not an
+argument.
+
+## The remainder, named rather than silent
+
+- **BREATHE's layout half.** Only 7 of 29 spacing declarations can move: `$space_N` appears **once** in the
+  542-line sheet, and the grid has 3 call sites against 148 layout calls. Card margins and `SECTION_GAP` are
+  **layout** calls set at build time — they neither scale nor could update live without a rebuild path, the
+  same gap `page_margins` already documents for density. That is why the card lands at 48.9% air instead of
+  its 55.7%.
+- **The toolbar is already overdrawn by the TYPE scale alone** — 14/15 at 110%, 11/15 at 150%. Items stay
+  reachable via Qt's chevron; the cost is discoverability. Pre-existing, not fixed here.
+- **`dark`'s button hover is the weakest in the tree at 1.0756** vs 1.10–1.31 for the other seven, and the
+  1.05 fence floor is unjustified by any measurement (the file's only calibration point calls 1.0203
+  "present but ~invisible"). The 6 community palettes were each audited and fixed; **the default never was.**
+  A candidate, not a finding.
+- **`info` is derived and has ZERO consumers** to this day — and MIST's own argument against gold rests
+  partly on it. **A token with no call site is not future-proofing; it is a wish with a keyword.**
+- **`text_subtle` is a loaded gun**: 3.20–3.59 on `surface_2` in 8/8. Fine where it is now spent (a 46px
+  glyph, non-text bar 3.0, worst 3.06), sub-AA the moment anyone sets `role="subtle"` on real text.
