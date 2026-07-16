@@ -432,3 +432,74 @@ That indirection is not ceremony: the first cut faked the "before" by patching t
 **structurally impossible** for RUBRIC — its change is in *Python* (`widgets.section` picks the role and
 drops the `.upper()`). No QSS patch can reproduce the old widget. **The only faithful before is the old
 code, run as the old code.** The anchor guard refusing to render a dishonest shot is what surfaced it.
+
+---
+
+## Round 5, part 2 — QUARTO P3 + CALIBRE shipped; PUNCH FALSIFIED by its own condition
+
+**SHIPPED:** QUARTO P3 (one `_TYPE` table, gated byte-identical on effective CSS 16/16) and **CALIBRE**
+(Preferences -> Text size 100/110/125/150%, live + persisted + Cancel-reverts). 3591 tests.
+
+**NOT shipped: PUNCH.** It was user-selected, built up to the render, and the render killed it. That is
+the FORM LESSON doing its job, not a wasted round — *statistics reproduce a thing's measured properties
+and never its look*, and PUNCH's axis was **measured and real**:
+
+- The six-cut optical family IS installed and IS a genuine axis (x/px: Segoe .500 · Sitka Small .503 ·
+  Text .477 · Subheading .462 · Heading .449 · Display .439 · Banner .430), each cut itself
+  scale-invariant — so the axis lives ACROSS the family: you pick the cut for the size.
+- **And the app already spends it correctly at the top.** The 40px wordmark wears Sitka Banner (the most
+  extreme display cut); the 26px crown wears Sitka Display. "Spends only 2 of 6" was true and was never
+  a defect — those are the right 2 for those sizes. The display end was already done.
+- **P1 (tracking) buys nothing an eye can see.** Rendered at 1x and at 3x nearest-neighbour: the crown at
+  0 / −0.25 / −0.50 measures 153.56 / 150.06 / 146.56px — a 3.5px change on a 153px word. Sitka Display
+  is *already drawn tight*; tightening reveals no flaw, it just narrows. The hint at +0.15/+0.30/+0.50 is
+  noise at best and stretches the app's worst-measure tier at worst.
+- **P2 (a small optical cut for captions) dies on arithmetic:** Sitka Small buys **+0.5% x-height for
+  +17.9% width**. A small optical cut exists to give MORE x-height at small sizes — but Segoe UI is
+  already a UI face drawn for exactly that job at 0.500 vs Sitka Small's 0.503. It buys nothing it was
+  chosen for. **`test_only_the_nameplate_wears_the_serif` was RIGHT and stays.**
+
+### What PUNCH did produce (all durable, all recorded in `style._TYPE`'s comment)
+
+- **THE RAMP IS NOT OPTICALLY LINEAR.** `_TYPE`'s numbers are NOMINAL px; the eye reads x-height and the
+  faces differ. The crown's true size over the body is **1.63×**, not the 1.86× its numbers imply.
+- **My brief's FACT 2 ("x-height scales exactly linearly") is corrected**: true WITHIN Segoe, false across
+  the shipped ramp. Its `name 26px -> x 13.00` row was **Segoe 26 — the fallback**, not the face the
+  nameplate wears.
+- **A live, unlooked-for finding: QUARTO P1 quietly demoted the crown.** Optical dominance moves INVERSELY
+  with the body while the crown's own number never changes — body 13 -> 14 took the nameplate from 1.76×
+  to 1.63×, and nobody noticed because 26 stayed 26. Left as-is (the user approved the result live), but
+  any future round that moves `type_body` is also moving the crown.
+- **QSS `letter-spacing` works exactly** (±0.500px/char, to the hundredth) and is spent on 1 QSS rule
+  (`overline`) plus `hero._WORD_TRACK = 0.5` in QPainter, which the sheet cannot see.
+
+### THE INSTRUMENT LESSONS OF THIS ROUND (three, and they rhyme)
+
+All three are the same error as [the simulated-mechanism law](#) one layer down — **asserting a condition
+without checking it took**:
+
+1. **`resize(1280)` is a REQUEST.** On a 1920 screen the window ignored it, so `probe_toolbar_budget`
+   printed "@1280" while measuring 1920. Now: `setFixedWidth` + **assert `win.width() == width`**.
+2. **A baseline that reads the current code is not a baseline.** That probe's `"body 14, naive"` case
+   passed `tb_space=None`, inheriting whatever SHIPS — so once QUARTO P1 shipped `tb_space` 4, "naive"
+   silently meant *"with the fix already applied"*, and the probe appeared to **refute the claim it
+   existed to prove**. Pin every condition explicitly.
+3. Those two **cancelled into a confident, self-consistent, wrong table** that nearly made me revert a
+   correct change. Re-measured at a real asserted 1280, QUARTO P1's receipt stands exactly as committed:
+   body 14 + `tb_space` 6 = 14/15, `tb_space` 4 buys it back to 15/15, body 15 recovers at neither.
+
+Also corrected, repo-wide: **"offscreen forces Fusion while the app runs windows11" is HALF FALSE.**
+`shell.py:129` calls `setStyle("fusion")` deliberately — **the app runs Fusion**. Offscreen's Fusion is
+CORRECT; only its stubbed font DB lies. Every shot/probe now calls `app.setStyle("fusion")`, because a
+bare probe QApplication on the platform default is the thing rendering chrome the app never ships.
+
+### CALIBRE's measured price, not hidden
+
+The toolbar chevrons at 1280: **15/15 at 100% · 14/15 at 110% · 13/15 at 125% · 11/15 at 150%**; 15/15 at
+1600+. Chevroned items stay reachable (and Ctrl-K reaches everything), and the a11y suite already fences
+graceful overflow. Recorded in `prefs.TEXT_SCALES`. **The hero band does not scale** — QPainter at hard px,
+no stylesheet reaches it. That is PLINTH, unbuilt, and at 150% the front door stays put while the app
+grows around it.
+
+**Live-confirmed this round:** the user has now seen QUARTO P1 + RUBRIC in the running app — *"fonts look
+much better"*. That is the first live judgement since Mist. CALIBRE + P3 are **not** yet playtested.
