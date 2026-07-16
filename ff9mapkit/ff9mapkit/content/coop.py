@@ -24,7 +24,8 @@ long-index bit for offsets > 0xFF.
 THE GATES (rungs 1 + 2). ``mode = "once"`` (default) fires ONCE and latches ``set_flag``:
 two-plate form (``plate_a``/``plate_b`` -- players on both simultaneously, either arrangement)
 or gather form (``zone`` -- both players in ONE shared zone; must be wider than the player
-spacing, > 250 x in selftest). Each plate becomes a region (the proven camera-switch shape --
+spacing -- in selftest, wider than the mirror offset: > 250 x at the ``[Netsync] SelfTestOffset``
+default of ``"250,0"``). Each plate becomes a region (the proven camera-switch shape --
 Range tag-2 runs every frame while standing inside) whose body is::
 
     [requires_flag arming gate]       # rung 2: sequencing -- inert until an earlier flag is set
@@ -184,7 +185,8 @@ def inject_gather(data, zone_rect, flag: int, message_txid: int | None = None,
     """Inject a GATHER gate (``zone =``): both players standing in ONE shared zone -- rung-1's
     two-plate compile collapsed to a single region whose body checks the peer against the SAME
     rect the local player is standing in. The zone must be wider than the two players' spacing
-    to be satisfiable (in selftest: > 250 on x). Returns the new ``.eb`` bytes."""
+    to be satisfiable (in selftest: wider than the mirror offset -- > 250 on x at the
+    ``[Netsync] SelfTestOffset`` default of ``"250,0"``). Returns the new ``.eb`` bytes."""
     out = data if isinstance(data, (bytes, bytearray)) else data.to_bytes()
     out, _slot = _region.inject_region(out, rect_zone(zone_rect),
                                        gate_range_body(zone_rect, flag, message_txid,

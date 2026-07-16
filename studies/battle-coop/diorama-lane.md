@@ -420,10 +420,16 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   per-slot containment, `FF9Abil_SetEnableSA` replay, and the *never Validate**\* law — the 9999
   clamp and default-SA gaps close); the type-1 **trance-gauge byte**; F2 receiver drain-and-discard;
   F3 nonce plumbing; the self-cast aliasing skip (found at build time: target.fig IS caster.fig).
-  **Accepted gaps (documented, per-design):** Poison/Regen TICK figures never pop (they bypass
-  CalcResult — the most visible gap; a future Btl2dStatReq emit closes it), enemy caster motions
-  (their `mot` sets have no generic swing), the trance ENTER burst, IFigurePointStatusScript display
-  modifiers. **Solo bench** = F6 "Figure bench (pop 1234)" (the audit's precondition: prove
+  **Accepted gaps (documented, per-design):** ~~Poison/Regen TICK figures never pop~~ **CLOSED by
+  B3.6 lane 2** (the StatTick marker on the type-6 lane: host emits from the three Btl2dStatReq call
+  sites, guest pops through `Btl2dStatReq` — Yofs −12 tick styling, host figure verbatim, structural
+  branch not the three coincidental self-skips; en route it minted **the STATE-WRITE ⟺
+  HORIZON-CONSUME law**: any frame that writes a unit's HP/MP must stamp that unit's seq-horizon
+  gate, or the next 150 ms reconcile un-writes it). Still per-design: enemy caster motions (their
+  `mot` sets have no generic swing), the trance ENTER burst, IFigurePointStatusScript display
+  modifiers. **OUT-OF-SCOPE figure lanes — do NOT count these against the tick rung in playtest:**
+  Doom/GradualPetrify count-down HUDMessage counters (a different display system), Scripts-DLL
+  `DamageWithoutContext`/`Btl2dReqInstant` surfaces (zero in-tree callers), BattleVoice callouts. **Solo bench** = F6 "Figure bench (pop 1234)" (the audit's precondition: prove
   Singleton<HUDMessage> aliveness before trusting the lane) + the state bench regression + a real
   selftest battle (the emit side runs on any host battle; selftest loops it through TryParseAction
   with a codec-drift log). Two-machine = README boxes 11-14.
@@ -698,3 +704,55 @@ touch the guest's save):
   truth rides the wire regardless. Cheapest visible recipe: host equips an Auto-Float source (Feather
   Boots) → the seated copy should HOVER at battle start (status carried at seat time); the >9999
   max-HP readout needs a heavily-SA'd host save and can wait.
+
+## B3.6 — THE POLISH ROUND ★ BUILT (2026-07-16, wire v10, DLL `F135888F941445A9` both arches; solo playtest pending)
+
+Six lanes in one round — spec + checklists = **`b36-round.md`** (canonical): the swirl+BGM carry
+(type-1 boot block gains `songId` u16; `[Netsync] DioramaSwirl` default 1 = boot through the real
+swirl with the HOST's music; sentinels 0xFFFF unknown → local fallback, 0xFFFE host-silent) · the
+Poison/Regen **StatTick** figures (type-6 marker bit, guest pops via `Btl2dStatReq`, Yofs −12) ·
+the spectate panel as **no-diorama fallback** (suppressed while `Active`; assist menu always) ·
+the F6 **opt-out replay fix** (both halves) · the guest **PatNum guard** (`ValidateWireBoot` sync
+pre-read, BEHIND the rate limit) · **`[Netsync] SelfTestOffset`** ("dx,dz", default "250,0").
+
+**Build shape held:** recon (6/6 verdicts CORRECTED) → delegated implementation → 7-skeptic
+adversarial verify (2 lanes CLEAN) → repair → a focused re-verify that walked all NINE leave
+paths clean. The round's real find is a law:
+
+**THE LEAVE-INTENT LAW.** Both engine should-fixes were the same defect: *who initiated a
+teardown* was being inferred after the fact (fence 1 assumed "watcher", a lane blip let the
+watcher steal a user's in-flight opt-out). Intent is now recorded AT THE INITIATOR —
+`NetSyncDiorama._leaveTick` stamped beside Leave's own Replace, read as `LeaveRequestedRecently`
+(<5 s). **A tick with decay, not a Boolean, by construction:** an evaporated leave (Replace
+refused mid-fade, trigger gone) self-heals in 5 s, where a stuck flag would wedge every future
+auto-leave. Semantics: user F6 and the fence-2 watchdog SETTLE (stamp the skip → spectate panel);
+the watcher's staleness-leave and a dropped-boot Replace RETRY. The re-verify also killed the
+round's own `PendingNextScene` disjunct in the mid-swirl deferral — SceneDirector never clears
+that field on plain fades, so one strand recovery would have read "mid-swirl" forever
+(`CurrentScene == "SwirlScene"` alone covers the dangerous pipeline; the pre-swirl gap is covered
+by Leave's own IsFading defer).
+
+**Documented residuals (one-shot / self-healing, not chased):** a deferred watcher-leave whose
+trigger evaporates leaves the watcher flag stale and eats ONE later user opt-out once (cleared by
+any fresh boot); a user F6 Leave from a HEALTHY swirl's idle window can race `ReplacePending`
+into a boot (F6 again from the loaded diorama settles it); fence-1's classification window is the
+5 s decay (a >5 s SwirlScene→FieldMap load would classify as dropped-boot).
+
+**Solo boxes (main PC, before any patch regen):**
+1. F6 → Go → Battle diorama: boots THROUGH the swirl (encounter swish audible), local BGM
+   (manual boot = no wire song), renders, F6 Leave clean. `DioramaSwirl=0` hot-reload → the old
+   plain-fade boot.
+2. F6 → Wire bench: round-trip line asserts `song 156`; the diorama plays the ENDING THEME (the
+   deliberately distinctive bench marker).
+3. A real selftest encounter: the spectate boot-block line shows `song N`; the panel is
+   suppressed over the diorama and returns with `Diorama=0`.
+4. Poison a character in a selftest battle: no codec-drift/error lines from the StatTick lane
+   (visual tick numbers on the mirrored side = two-machine box).
+5. Selftest battle → F6 → Leave diorama: log shows `diorama leave noted (nonce N)`, no re-boot
+   of that battle; the NEXT battle boots (`diorama skip spent`).
+6. `SelfTestOffset = "0,250"` hot-reload: the mirror moves from +x to +z in ~2 s; restore after.
+7. Regression: one REAL battle (co-op off) — swirl, BGM, rewards all vanilla.
+**Two-machine boxes:** host music heard on the guest's diorama (incl. a BattlePatch `Music:`
+fork field) · poison/regen tick numbers pop on the guest · the panel/fallback swap · opt-out
+sticks across lane blips. **Then emit the arc as s41** (patch regen AFTER solo proof, per the
+cadence).
