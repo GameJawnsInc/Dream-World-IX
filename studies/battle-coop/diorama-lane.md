@@ -522,6 +522,33 @@ diagnosis that took the better part of an hour and a source dive to reach). Two 
 Root cause of the mirror not arming: **still unknown** — that is exactly what the new telemetry
 answers on the next run, whichever way it goes. No wire change (still v8; mixed same-version DLLs
 pair fine, both machines updated anyway — `CCD07F16C06CC0D2`).
+
+### B3.3c — THE TICK-BASELINE LAW (2026-07-16; the REAL root cause, both runs)
+The B3.3b telemetry earned its keep in ONE run: `state-mirror ARMED` printed 3 s after pairing —
+**the mirror was never the problem, and run 1's diagnosis-by-absence was wrong.** This run's
+healthy-silent rising edge (no durable block to name) narrowed the decline to the gates classified
+"transient", and exactly one of them can be permanent:
+```
+private Int32 _dioramaActionTick;                                  // = 0
+if (Environment.TickCount - _dioramaActionTick < 1000) return;     // silent
+```
+**`Environment.TickCount` wraps NEGATIVE at 24.86 days of machine uptime** (the laptop: 25 d 7 h,
+CONFIRMED). `now - baseline` is wrap-safe only between two REAL ticks; against a field's 0 default
+it flips permanently on one side of the wrap — `now - 0 < 1000` became always-true and the watcher
+declined every frame, forever, on that one machine, under every DLL. **The timeline corroborates:
+the laptop crossed the boundary between 07-15 and 07-16 — the same suite passed one day and failed
+the next with zero code change.** THE LAW: every tick baseline initializes from
+`Environment.TickCount` at construction; never compare a tick against a 0/MinValue default.
+The sweep fixed 8 fields, most of them LATENT pre-existing members of the same class, keyed to
+whichever machine's uptime crosses first: `_dioramaActionTick` (the actual failure) ·
+`_storyTick` (a long-uptime HOST would never publish TypeState — the story mirror itself) ·
+`_lastSampleTick`/`_lastRosterTick` (a long-uptime host never streams battles — B0/B1 dead) ·
+`_lastPoll` (config hot-reload dead — dead on the laptop since 07-15) · `_ghostLightTick` (ghost
+tint never re-applies) · `_lastSendTick` (assist keys swallowed forever) · `_assistTick`, the
+**MinValue variant**: `TickCount - MinValue` OVERFLOWS small/negative for half the tick space, so
+on ordinary positive-tick machines a host's GuestSlots read guest-owned with NO guest ever
+connected. (B3.3b's relaxation + telemetry both stay — good design that found the truth in one
+run vs an hour of absence-forensics.)
 **Next:** B3.4 (type-1 → HP/death/trance on the diorama's actors) · B3.2b (the party v9 extension:
 basis/status/trance/SA — ride it with B3.5's action lane, one bump) · the swirl/BGM pairing · the
 scene-data hash divergence assert. Emit the whole B3 arc as **s40** when it settles (s39 is taken).
