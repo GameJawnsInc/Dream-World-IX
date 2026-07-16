@@ -394,9 +394,32 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   source — the BattleUI precedent), SetTranceModel pose-pop outside a SysTrans, faded-revive
   shadow/texanim residue, death-pose latency acceptability, and whether the party panel renders bars
   worth driving.
-- **B3.5 — action playback.** The CalcResult lane → btlseq choreography + the host's numbers.
-  Watch `btlseq.cs:498-502` — actors SNAP to `original_pos` at sequence end under isDebug (the most
-  visible cosmetic artifact).
+- **B3.5 — action playback. ★ BUILT 2026-07-16 (wire v9, DLL `6F999C4575266592`), solo bench pending.**
+  Recon = `b35-recon.md` (workflow `wf_c9729bc5-5b2`, 11 agents, 5/5 CORRECTED + the audit's 13-item
+  checklist); implementation delegated against the checklist, then adversarially verified — **the
+  first large round of the arc with ZERO confirmed defects** (the CalcResult surgery diffed
+  byte-exact; the seq-horizon math holds at every boundary; the party codec byte-symmetric; F1-F6
+  all realized). What shipped: **the TypeAction FIFO** (type 6, own 64-cap queue pair in the shared
+  frame-slots — never collapsible, both transports); **the CalcResult emit** (whole-body try +
+  `emitted` flag + finally backstop; dual dmg_mot capture incl. the DirectHP branch; ~46 B frames:
+  both units' raw post-application HP/MP, both fig triples, flags, cmd identity, and the
+  **seq-horizon** — the emit CONSUMES the sampler's shared `_seq`, so `sample.seq >= horizon ⇔
+  post-application`, exact by construction); **the guest ActionTick** (drain-before-reconcile;
+  apply order: nonce gate → resolve → FIGURES FIRST via hand-built empty-modifier `Btl2dReq` (never
+  Btl2dReqInstant — the v9 status carry arms the IFigurePointStatusScript trap) → guarded
+  flinch/player-swing decided from WIRE lethality → raw-vs-raw state writes bypassing the logical
+  lanes → per-slot horizon gates that make a stale type-1 sample skip the whole unit); **party v9**
+  (section-1 basis/status/trance/SA carry; the seat gains the equip ContainsKey→NoItem guard,
+  per-slot containment, `FF9Abil_SetEnableSA` replay, and the *never Validate**\* law — the 9999
+  clamp and default-SA gaps close); the type-1 **trance-gauge byte**; F2 receiver drain-and-discard;
+  F3 nonce plumbing; the self-cast aliasing skip (found at build time: target.fig IS caster.fig).
+  **Accepted gaps (documented, per-design):** Poison/Regen TICK figures never pop (they bypass
+  CalcResult — the most visible gap; a future Btl2dStatReq emit closes it), enemy caster motions
+  (their `mot` sets have no generic swing), the trance ENTER burst, IFigurePointStatusScript display
+  modifiers. **Solo bench** = F6 "Figure bench (pop 1234)" (the audit's precondition: prove
+  Singleton<HUDMessage> aliveness before trusting the lane) + the state bench regression + a real
+  selftest battle (the emit side runs on any host battle; selftest loops it through TryParseAction
+  with a codec-drift log). Two-machine = README boxes 11-14.
 - **B3.6 — the UI merge.** B1 digit menus over the diorama; the OnGUI spectate panel retires or becomes
   the no-diorama fallback.
 
