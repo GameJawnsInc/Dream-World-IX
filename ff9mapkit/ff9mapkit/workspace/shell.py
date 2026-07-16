@@ -569,8 +569,8 @@ class Workspace(QMainWindow):
         self._density = density if density in prefs.DENSITIES else "comfortable"
         self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
         if getattr(self, "_hero", None) is not None:
-            self._hero.set_density(self._density)             # the band's metrics are PYTHON -- QSS re-render
-                                                              # alone would leave it at the old height
+            self._hero.set_density(self._density, self._text_scale)   # the band's metrics are PYTHON -- a QSS
+                                                                      # re-render alone leaves its old height
 
     def _toggle_density(self):
         """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
@@ -592,10 +592,10 @@ class Workspace(QMainWindow):
         self._text_scale = pct if pct in prefs.TEXT_SCALES else 100
         self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
         if getattr(self, "_hero", None) is not None:
-            # the band paints with QPainter at hard pixel sizes -- no QSS reaches it, so at any scale but
-            # 100% the front door stays put while the app around it grows. Making the hero measure its own
-            # type is PLINTH, unbuilt; until then the dial deliberately does not touch it.
-            self._hero.set_density(self._density)
+            # PLINTH: the band paints with QPainter, so no QSS reaches it -- it has to be TOLD. This call
+            # already existed and was inert (it re-applied the density and dropped the scale on the floor),
+            # which is why the front door used to sit at 156px while every tab around it grew.
+            self._hero.set_density(self._density, self._text_scale)
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -1542,7 +1542,9 @@ class Workspace(QMainWindow):
         body.setMaximumWidth(860)                  # don't stretch across a wide monitor
         # The hero reads the body's REAL geometry, so the wordmark, the gold elbow and every card below
         # sit on ONE axis at any window width. A parallel formula disagrees with the layout by +30px.
-        self._hero = HeroBand(self.pal, column_source=body)
+        # scale= at CONSTRUCTION, not only via set_density: Home is built once, and a session that LAUNCHES
+        # at 125% would otherwise paint its first front door at 100% and only correct if the dial was touched.
+        self._hero = HeroBand(self.pal, column_source=body, scale=self._text_scale)
         pv.addWidget(self._hero)
         self._icon_retint.append(lambda: self._hero.set_palette_(self.pal))   # retheme() iterates this
         row = QWidget()
