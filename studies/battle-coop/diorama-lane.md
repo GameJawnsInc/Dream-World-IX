@@ -685,10 +685,9 @@ chained fights/the nonce), 6-8 (live HP · deaths mirror · revive mirrors), 11 
 action FIFO, host's exact figures), 12 (flinches + player weapon swings), 14 (the trance gauge).
 The living diorama and the action lane both hold two-machine. User note on auto-leave, recorded
 verbatim: *"auto-leave kicks the guest to the field then loads their save though successfully"* —
-⚠ AMBIGUOUS: if a save-LOAD transition follows EVERY diorama auto-leave (not just session end), the
-autoload exit ramp may be firing on battle-end when the followed session is still live — ask next
-session whether the load screen appeared per-fight or once; if per-fight, that is a real bug lane
-(the ramp must not fire while `IsLiveFollowedSession` holds).
+**RESOLVED (user, same day): the autosave load fired exactly ONCE, at session end, and mid-session
+auto-leaves look like a plain field warp with no load screen.** That is the exit ramp behaving
+exactly as designed — no bug lane; the ⚠ is closed.
 
 **Untested boxes, ruled NON-GATING** (all three are render-fidelity lanes; their failure modes are
 cosmetic, and the containment bracket + `Booted` save block are independent of all of them — none can
@@ -756,3 +755,33 @@ into a boot (F6 again from the loaded diorama settles it); fence-1's classificat
 fork field) · poison/regen tick numbers pop on the guest · the panel/fallback swap · opt-out
 sticks across lane blips. **Then emit the arc as s41** (patch regen AFTER solo proof, per the
 cadence).
+
+### ★ SOLO ROUND 1 (2026-07-16, same day) — 5 of 7 boxes pass; the two "failures" were the checklist's own prose
+
+- **PASS:** swirl boot + clean Leave (box 1) · wire bench `song 156` + the ending theme (box 2) ·
+  a real battle fully vanilla (box 7) · box 5's FUNCTIONAL half (the left battle stays left, the
+  next battle boots) · **box 3's encode half — "song 0" IS the correct value**: the kit's own
+  `battle_bgm.py` census law says *every random-encounter field maps to song 0 = the generic
+  Battle Theme* (non-zero songs all belong to scripted battles). The sampled outcome rode the
+  wire and displayed. To see a NON-zero id solo: a scripted/boss fight, or a kit fork with a
+  BattlePatch `Music:` line.
+- **THE CHECKLIST'S OWN BUGS (both over-promised solo-observable signals):** box 3's "panel is
+  suppressed" half is **two-machine-only by construction** — the suppression gates on a live
+  DIORAMA (`Active`), and your own selftest battle never boots one; the panel over your own
+  fight is correct B0 behavior (the lane-3 verify pass said exactly this and the checklist
+  ignored it). Box 5's `diorama leave noted` line prints only for **wire-booted** dioramas (the
+  consume block gates on `_dioramaWireNonce >= 0`); manual-F6 and bench boots never set it — no
+  line solo is correct, the functional half is the test.
+- **Box 4 (poison ticks) untested** — no poison source on hand; the solo half (no codec errors)
+  can piggyback on any later session; the visual half was always two-machine.
+- **THE ONE REAL DEFECT — SelfTestOffset (box 6) — root cause: the CHECKLIST'S OWN SYNTAX.** It
+  printed `SelfTestOffset = "0,250"` WITH quotes; Memoria's `IniFile.GetSetting` returns quotes
+  VERBATIM (`[Mod] FolderNames` trains everyone to quote strings in this file), so the parse
+  split `"0` / `250"`, failed, logged one malformed-value line nobody saw, and kept 250,0 on
+  every reload path the user tried. **Fixed same day: the parser now strips one pair of
+  surrounding quotes** (both syntaxes legal) — rebuild deployed, DLL `0537BC580F0D68C7` both
+  arches (supersedes `F135888F941445A9`; laptop package refreshed in place). RETEST = the one
+  open solo box: `SelfTestOffset = 0,250` (or quoted, both work now) → the mirror moves +z
+  within ~2 s. The lesson is the round's leave-intent lesson wearing config clothes: **a knob
+  whose natural syntax silently keeps the default is a trap** — and a checklist is code; it can
+  ship bugs.
