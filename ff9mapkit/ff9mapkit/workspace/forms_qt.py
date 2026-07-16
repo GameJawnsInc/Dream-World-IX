@@ -154,7 +154,11 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     lay.setHorizontalSpacing(14)
     lay.setVerticalSpacing(12)                         # 4pt-grid rhythm: field -> field
     getters = {}
-    hints = {}                                         # field key -> its hint QLabel (help text / live error)
+    hints = {}                                         # field key -> its HINT (the help; constant, teaches)
+    notes = {}                                         # field key -> its NOTICE (the live error; reports)
+    #                                                    Two dicts because they are two jobs -- see DICTION
+    #                                                    at the call site below. One label used to be both,
+    #                                                    and the error ate the help.
     editable = []                                      # (key, widget) for wiring change -> validate + on_change
     # Guided mode: expert fields go into an 'Advanced options' drawer (a second form layout) instead of inline.
     adv_lay = None
@@ -233,10 +237,20 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             v.addLayout(row)
         else:
             v.addWidget(widget)
-        hint = widgets.caption(f.help or "")                    # always present (hidden if no help) so a live error   # muted 11px; state='error' turns it red in validate()
+        # DICTION: TWO labels, because they are two different things and one of them was eating the other.
+        # The HINT teaches ("a unique number for your field (use >= 4000)") and is always on screen. The
+        # NOTICE reports ("expected a whole number, got 'abc'") and only appears when it has something to
+        # say. They used to be ONE label: validate() overwrote the help with the error and only restored it
+        # once the value parsed -- so the sentence telling you what a valid value LOOKS like vanished at
+        # exactly the moment you were failing to type one. Proven live, not inferred.
+        hint = widgets.caption(f.help or "")
         v.addWidget(hint)                               # PARENT it BEFORE setVisible: setVisible(True) on a
         hint.setVisible(bool(f.help))                   # parentless widget flashes a top-level window (Windows)
         hints[f.key] = hint
+        note = widgets.notice("")                       # the body rung -- an error is never smaller than
+        v.addWidget(note)                               # the field it is about (see style.py's notice rule)
+        note.setVisible(False)
+        notes[f.key] = note
         editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
             v.addWidget(_wrap_preview_panel(widget, getters[f.key], wrap_width))
@@ -261,26 +275,30 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         lay.addRow(adv_box)                                   # the Advanced drawer spans, below the plain fields
 
     def validate():
-        """Live per-field check: a value that fails its parser turns the hint red with the error; an OK
-        field shows its normal help. Returns the count of invalid fields."""
+        """Live per-field check: a value that fails its parser raises a NOTICE under the field; the help
+        stays put either way. Returns the count of invalid fields.
+
+        THE HINT IS NEVER TOUCHED HERE, and that is the fix. This used to `h.setText(f"⚠ {e}")` -- one
+        label doing two jobs, so the error DESTROYED the teaching and only gave it back once the value
+        parsed. The help said "use >= 4000"; type "abc" and it vanished, which is the only moment it was
+        load-bearing. Now the help is a constant and the notice is the variable.
+        """
         bad = 0
         for f in spec:
             if f.kind == forms.BOOL:
                 continue
-            h = hints[f.key]
+            n = notes[f.key]
             try:
                 forms._parse_field(f.kind, getters[f.key]())
             except ValueError as e:
-                h.setText(f"⚠  {e}")
-                h.setProperty("state", "error")         # -> the red caption[state=error] rule
-                widgets.repolish(h)
-                h.setVisible(True)
+                n.setText(f"⚠  {e}")
+                n.setProperty("state", "error")         # -> the notice[state=error] rule, at the body rung
+                widgets.repolish(n)
+                n.setVisible(True)
                 bad += 1
                 continue
-            h.setText(f.help or "")
-            h.setProperty("state", "")                  # back to the muted caption default
-            widgets.repolish(h)
-            h.setVisible(bool(f.help))
+            n.setText("")
+            n.setVisible(False)                         # a notice with nothing to report says nothing
         return bad
 
     def on_field_change():

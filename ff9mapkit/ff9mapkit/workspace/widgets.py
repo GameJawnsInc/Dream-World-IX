@@ -80,6 +80,28 @@ def page_column(host):
     return v
 
 
+def notice(text="", *, kind="", parent=None):
+    """A REPORT: something the app is telling you went wrong, or nearly did.
+
+    DICTION's other half. A notice is not a hint and the difference is not importance, it is POSTURE: a
+    hint is READ (prose you consult), a notice is GLANCED (you are interrupted by it). They had been the
+    same tier -- `role="caption"` with a `state` -- which put every error at the caption rung, in grey's
+    little sibling, breaking a law the sheet had written down four lines above the offending rule.
+
+    Body rung, state-coloured, and NEVER smaller than the field it is about. `kind` is "" / "warn" /
+    "error". Deliberately NOT capped to a measure: a notice is one line you glance at, and a wrapped
+    column would make it prose.
+    """
+    lab = QLabel(text, parent)
+    lab.setProperty("role", "notice")
+    if kind:
+        lab.setProperty("state", kind)
+    lab.setWordWrap(True)
+    if text:
+        lab.setAccessibleName(text)
+    return lab
+
+
 def page_margins(lay) -> None:
     """Apply the page rung to a form doc's page-level layout.
 

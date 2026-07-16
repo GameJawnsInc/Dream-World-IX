@@ -524,8 +524,29 @@ _QSS = Template(
        diagnostic to 11px grey -- demote the EXPLANATION, never the answer. */
     QLabel[state="warn"]  { color: $warn_text; }
     QLabel[state="error"] { color: $error_text; }
-    QLabel[role="caption"][state="error"] { color: $error_text; } /* a live parse error turns the hint red */
     QLabel[role="caption"][state="warn"]  { color: $warn_text; } /* a soft warning (e.g. text may overflow) */
+
+    /* DICTION -- THE NOTICE. The comment four lines up has stated this law since Phase 2: "Never demote a
+       diagnostic to 11px grey -- demote the EXPLANATION, never the answer." The rule immediately BELOW it
+       was `QLabel[role="caption"][state="error"]`: an error, at the caption rung, in the tier reserved for
+       explanations. The law and its violation were adjacent lines, and the law lost for three rounds.
+       So the diagnostic gets its own tier, and the split is ONE question -- IS IT READ, OR IS IT GLANCED?
+         caption -> READ.    Prose attached to a control. Small, muted, measured (COLUMN).
+         notice  -> GLANCED. Anything that REPORTS. Body rung, state-coloured, never smaller than the
+                    field it is about -- because you do not read an error, you are interrupted by one.
+         chip/overline -> a TAG. Stays at the caption rung; a label is not prose.
+       The tier this replaces was doing all three jobs at once, which is why it got both axes backwards:
+       the LONGEST text got the SMALLEST face, and a warning was filed at 11px grey because "small = quiet"
+       was the only tool in the box.
+       NO CHIP, NO BADGE, NO GROUND OF ITS OWN -- deliberately. A notice is state-coloured text on the card
+       it belongs to. Measured over all 8 palettes: error/warn on surface_2 (where a form lives) pass
+       4.54-10.22, but on surface_3 they are SUB-AA IN 6 OF 8 (error 3.84-4.23). That is zero pixels today
+       because nothing grounds state text there -- and giving a notice a chip would light it up in six
+       palettes at once. THE NINTH-GROUND LAW: invent a ground, you owe it a fence. This tier declines the
+       ground instead. */
+    QLabel[role="notice"] { font-size: $type_body; color: $text; }
+    QLabel[role="notice"][state="error"] { color: $error_text; }
+    QLabel[role="notice"][state="warn"]  { color: $warn_text; }
     QLabel[role="subtle"]  { color: $text_subtle; }
     /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
        caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */
