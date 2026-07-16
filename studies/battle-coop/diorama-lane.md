@@ -304,6 +304,86 @@ battle suppressed" (corruption).
 - **Boot's catch called `Leave()`** → now DISCARDS the bracket (nothing has scribbled yet; applying it
   would write stale state for no reason).
 
+## B3.2 — THE MIRRORED PARTY (design settled 2026-07-15; adversarially verified)
+
+### THE SCRATCH-PARTY IS DEAD — not risky, structurally impossible
+A battle actor's identity is a **`Byte`**, not a pointer: `btl_init.cs:378` stamps
+`btl.bi.slot_no = (Byte)p.info.slot_no`, and from that instant **every** PLAYER resolution is a
+**dictionary lookup keyed on that byte** — `btl_util.getPlayerPtr/getSerialNumber/getWeaponNumber`, and
+`BattleUnit.Player` (the accessor the whole battle system uses). A scratch PLAYER reachable only via
+`party.member[]` is abandoned the moment the spawn path hands it off, and the engine finds the guest's
+own character again. One HUD would disagree with itself: `BattleHUD.cs:1160` reads `unit.Player` (dict)
+while `:428` reads `party.member[..].PresetId` (pointer).
+*Corroborating invariant:* all **13** writes to `party.member[]` in the tree assign `null` or a
+**dict-resolved** PLAYER. No PLAYER outside the dict has ever been in that array.
+*Also:* there is **no same-call bracket** — `CreateBattleData` runs in `Start`, `InitPlayerData` runs
+**N frames later** inside `BattleMain`, `SFX.InitBattleParty` later still. Any mutation spans the
+diorama's whole lifetime: Boot -> ForceDisarm.
+
+### THE SHIPPED SHAPE — THE DICT-VALUE (REFERENCE) SWAP
+Install a **scratch** into the dict slot (`ff9.player[id] = scratch`) and put the **original object
+references** back on teardown. Pointer and dict agree (both see the scratch), and **the guest's own
+PLAYER objects are never touched** — so "a missed field in the bracket" becomes *impossible* rather than
+carefully avoided. **Total by construction.**
+> Rejected: mutate-in-place + a per-field content bracket. The ORDER LAW mandates `FF9Play_Update`,
+> which resets `mpCostFactor` + 4 limits and `Clear()`s saForced/saBanish/saHidden — so in-place needs a
+> bracket over **14 reference members plus re-derived scalars**: a list that rots. **Pick one; never
+> stack them** (a reference bracket is worthless under in-place).
+> Rejected: a JSON round-trip clone. `ParseCommonDataToJson` is private + whole-state, and the save does
+> **not** persist `permanent_status`/`mpCostFactor`/`saForced`/`saBanish`/`saHidden`. Not total.
+> **Every copy helper in this family is already rotted:** `btl_init.CopyPoints` drops POINTS' 5th field
+> (`at_coef`); `CharacterEquipment.Clone()` drops `Comment` + `Id`.
+
+### The build, with the traps that crash it
+- **`new PLAYER()` does NOT construct `info` or `pa`** (`PLAYER.cs:10-31` builds cur/max/elem/defence/
+  basis/equip/bonus/sa but not those two) -> NRE on the first `p.info.serial_no`. **`FF9Play_New(id)` is
+  mandatory** (it sets info + sizes `pa[]`).
+- **`Mathf.Clamp((Int32)s.Level, 1, ff9level.LEVEL_COUNT)`** — Level is a wire **Byte**; >99 indexes
+  `CharacterLevelUps[lv-1]` out of range. (The engine's own two-sided precedent: `DoEventCode.cs:3111`.)
+- **Guard the throwing indexers**: `ff9level.CharacterBaseStats.ContainsKey(id)` and
+  `btl_mot.BattleParameterList.ContainsKey(serial)` — both fed by unchecked wire bytes.
+- **`MirrorHostParty` needs its OWN try/catch calling `RestoreParty`** — `HonoluluBattleMain.Start`
+  swallows everything (`catch (Exception err) { Log.Error(err); }`), which would hide the failure AND
+  strand the swap.
+- **Set the snapshot flag BEFORE the scribble.**
+- **Assign `party.member[i]` DIRECTLY — never `FF9Play_SetParty`**: it calls `FF9Play_Add`, which sets
+  `player.info.party = 1` — **save-persistent** and read by 4 live sites. It would permanently mark a
+  guest's character as in-party. (`FF9Play_SetFaceDirty` is dead — zero callers.)
+- **`FF9Play_Build(scratch, lv, init:true, lvup:false)` is legal on a scratch** (`lvup:false` only reads
+  `bonus`) and is the engine's canonical source for `basis.dex/str/mgc/wpr`, which the wire lacks.
+- **NEVER write `info.slot_no`** (it is the dict key's identity) or `info.menu_type` (the `pa[]` trap).
+- Restore: dict entries by key to the **original objects**, then element-wise `Array.Copy` into the
+  existing `party.member` array (`BattleHUD.cs:2641` writes into it). Wire into `ForceDisarm()`, gated on
+  `Booted`, never `Active`.
+
+### RUNG 2.5 FIRST — the bracket before the apply
+The diorama bracket covers gil/battle_no/kill-counters and **nothing about the party**, and
+**`Role=selftest` has NO save guard at all** (`IsMirroringStory` needs a socket, so the autosave block,
+the manual-save block and the ENCOUNT gates never fire) — on the very machine the bench runs on.
+**Extend the bracket — or add an explicit save block on `NetSyncDiorama.Booted` — BEFORE any apply.**
+
+### The solo bench — "the impostor slot", and why the obvious bench is vacuous
+A loopback that mirrors the guest's **own** party makes a correct apply **invisible** — the same vacuous
+trap as the old `failsafe=OK`. So the bench needs **TWO** markers:
+- **Marker A (the SEAT)** — an **impostor** CharId in slot 0. Select it as the first `CharacterId` in
+  `FF9.player` **absent from `party.member[]`** — *never* `info.party == 0`, which means RECRUITED, not
+  benched. Falsifies model, tag, row-from-dict, shadow-from-dict, and the HUD name.
+- **Marker B (the CARRY)** — a **scratch source** PLAYER (fields copied **explicitly**; `PLAYER_INFO` is
+  a **class**, so a shallow clone aliases) with `Name = "BENCH"`, `level = 99`. A source-swap seam makes
+  every wire scalar identity for the impostor, so Marker A alone proves the seat, **not the carry**.
+- Add a `SlotSource` seam to `NetSyncParty` (mirror of `NetSyncDiorama.SceneName`), restored in a
+  `finally`. Arm it in **`HonoluluBattleMain.Start()`**, not `Boot()` — a Boot-time arm opens a
+  mirrored-field window on a machine with no save guard.
+- `Clear()` on Disarm must be **selftest-gated**: production's mirror is **field-load-scoped**
+  (`ParseSections` has one production caller, `HonoluluFieldMain.cs:135`), so an unconditional Clear
+  wipes a real host mirror on every diorama exit.
+- **PASS = the impostor's model in slot 0 AND the HUD reads BENCH at level 99.** Both, or it proved half.
+
+### Known fidelity gap (a wire question, not a safety one)
+The wire carries no SA data, so the scratch's `mpCostFactor`/limits/SA re-derive from an empty
+`saExtended` -> host characters render with correct stats/equip/HP but **default SA modifiers**. And
+`max.hp` clamps to `maxHpLimit` 9999, so a modded host's HP renders capped. -> v8 (B3.2b).
+
 ## Recon status
 
 **PASS 1 COMPLETE (2026-07-15)** — 8 questions, each answered from source then adversarially verified
