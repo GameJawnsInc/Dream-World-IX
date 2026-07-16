@@ -394,7 +394,14 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   source — the BattleUI precedent), SetTranceModel pose-pop outside a SysTrans, faded-revive
   shadow/texanim residue, death-pose latency acceptability, and whether the party panel renders bars
   worth driving.
-- **B3.5 — action playback. ★ BUILT 2026-07-16 (wire v9, DLL `6F999C4575266592`), solo bench pending.**
+- **B3.5 — action playback. ★ SOLO PROVEN 2026-07-16 (wire v9, DLL `6F999C4575266592`) — "solo test
+  100% pass."** The figure bench popped its hand-built 1234 over enemy slot 4 repeatedly (the
+  Singleton<HUDMessage>-aliveness precondition holds — the wire lane's display path is real); the
+  state bench regression passed on an 8-unit scene ×2 cycles; a real selftest battle ran the emit
+  with zero codec-drift lines; clean teardown. Bonus proof: the user's 2-second carnage→restore
+  gap let one fast-fading enemy reach die_seq 5, and **the faded-revive guard fired live with its
+  designed telemetry** ("unsupported, holding dead") — the documented limitation observed exactly
+  as specified, not discovered as a bug.
   Recon = `b35-recon.md` (workflow `wf_c9729bc5-5b2`, 11 agents, 5/5 CORRECTED + the audit's 13-item
   checklist); implementation delegated against the checklist, then adversarially verified — **the
   first large round of the arc with ZERO confirmed defects** (the CalcResult surgery diffed
