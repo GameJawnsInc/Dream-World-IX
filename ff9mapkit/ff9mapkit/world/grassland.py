@@ -96,7 +96,11 @@ GROUNDS = {
                  cls="island"),                                     # ★ sampler-proven
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
                    wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
-                   cls="island"),                                   # ★ verbatim-compared
+                   cls="island"),                                   # ★ ground verbatim-compared; ⚠ the red
+    #                                  wall band is INTERIOR-ONLY in stock (748 tris map-wide, 0 coastal —
+    #                                  the Forgotten's sea cliffs are topo-49 MURALS): a canyon SEA cliff is
+    #                                  off-language (family_wall_envelope.py, THE WALL-CONTEXT LAW). Snow's
+    #                                  icy band is the opposite — 733/733 coastal, faces to 5.73u.
     "dunes": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event dunes
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
                   cls="interior"),

@@ -737,9 +737,23 @@ the desert island B — rot 180 lands the data in the EAST column
 (23,17)+(23,18), zero writes west, and the flipped silhouette won't read
 as a copy of its desert twin diagonally below. Island ≈ (1502,−1154), NE
 of desert island B; first REAL walls through the red-rock band
-(du −0.69509, dv −0.49722); every gate green; disc-4 mirrored; playtest
-pending. (Rows 16-17 mid-map probed all real stock — the south ocean band
-is the bench row for a reason.)
+(du −0.69509, dv −0.49722); every gate green; disc-4 mirrored. (Rows 16-17
+mid-map probed all real stock — the south ocean band is the bench row for
+a reason.) **Playtest round 1: "I don't recall any real canyon tiles with
+cliffs this high" → THE WALL-CONTEXT LAW (`family_wall_envelope.py`)**:
+a family's wall band is context-keyed, not just atlas-keyed. Map-wide:
+canyon's red band = 748 wall tris, **0 coastal** — every face is an
+INTERIOR tier edge; where Forgotten canyon ground meets the sea the
+cliffs are topo-49 MURALS (unmintable, the baked-terrain law); grey-band
+walls under canyon ground: zero instances. Literal height is in-envelope
+(real red faces reach 4.48u vs the donor's 3.91) — the violation is a red
+wall rising from open water, which stock never shows. **Canyon therefore
+has NO lawful coastal wall dress → a canyon ISLAND is off-language**
+(canyon stays lawful as interior/highland ground behind another coast;
+the sampler canyon islet shares the violation). **Snow re-verified the
+opposite way: 733/733 icy-band wall tris map-wide are COASTAL, faces to
+5.73u — the snow island B is squarely in-language.** Disposition of the
+canyon island B + the sampler canyon islet = the user's call.
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
