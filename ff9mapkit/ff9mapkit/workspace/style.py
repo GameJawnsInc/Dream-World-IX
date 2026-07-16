@@ -60,11 +60,26 @@ _GRID_COMPACT = {"space_1": 4, "space_2": 6, "space_3": 8, "space_4": 12, "space
 # straight in. THE RADIUS LANGUAGE IS THESE THREE TOKENS -- everything else in the sheet is a documented
 # geometric pin (a circle's half-box, a capsule's half-height), never a fourth opinion about roundness.
 # Fenced by test_qss_uses_only_the_radius_language.
+# QUARTO P1 -- THE TYPE FLOOR. Two rungs moved, and the receipts are worth keeping:
+#
+# type_caption 11 -> 12: the Windows system font is Segoe UI 9pt, which RESOLVES TO 12px (QFontInfo, not
+#   QFont -- the app font carries pointSize=9 and pixelSize=-1). So the tier whose entire job is to TEACH
+#   was set one pixel below what the OS itself calls text. 12 is not a taste call: it is the floor.
+# type_body 13 -> 14: measured cost, measured buyback. At 1280px a 14px body pushes one toolbar button
+#   into Qt's hidden extension chevron (15/15 -> 14/15) -- the exact bug the comment at QToolBar guards.
+#   tb_space 6 -> 4 buys it back to 15/15. 15px does NOT recover (13/15), which is why this rung stops at
+#   14. Reproduced natively under Fusion: evidence/probe_toolbar_budget.py.
+#
+# type_body EXISTS so that role="cardtitle" can BE the body rung rather than repeat its number (RUBRIC).
+# The remaining literals (26px name, 15px h3, 34px glyph, 11px badge) are still hard-typed in the sheet
+# below -- collapsing all eight onto one table is QUARTO P3, and CALIBRE is load-bearing on it: _SCALES
+# owns 3 of the 8 sizes, so scaling it alone would INVERT the ramp (hints outgrowing the body).
 _SCALES = {
     **{k: f"{v}px" for k, v in _GRID.items()},
     "radius_sm": "4px", "radius_md": "6px", "radius_lg": "8px",
     "type_h2": "16px",
-    "type_caption": "11px", "type_mono": "12px",
+    "type_body": "14px",
+    "type_caption": "12px", "type_mono": "12px",
 }
 
 
@@ -84,7 +99,7 @@ def space(key: str, density: str = "comfortable") -> int:
 # gains live in the content surfaces (rows), and Compact only ever shrinks.
 _DENSITY = {
     "comfortable": {
-        "tb_pad": "5px 8px", "tb_space": "6px", "btn_pad": "6px 10px",
+        "tb_pad": "5px 8px", "tb_space": "4px", "btn_pad": "6px 10px",   # 6 -> 4: QUARTO P1's body bump
         "input_pad": "6px 9px", "combo_pad": "4px 8px", "row_pad": "6px 8px",
         "tab_pad": "7px 16px", "menu_pad": "6px 22px",
     },
@@ -99,11 +114,16 @@ _DENSITY = {
 _QSS = Template(
     """
     * { outline: 0; }
-    QWidget { background-color: $bg; color: $text; font-family: "Segoe UI"; font-size: 13px; }
+    QWidget { background-color: $bg; color: $text; font-family: "Segoe UI"; font-size: $type_body; }
 
-    /* Toolbar metrics are deliberately COMPACT (spacing 6 / button padding 10): every action plus the
+    /* Toolbar metrics are deliberately COMPACT (spacing 4 / button padding 10): every action plus the
        search pill and the gear menu must FIT at the default 1280px window -- overflowing items land in
-       Qt's hidden extension chevron, which is how the Ctrl-K search and Preferences went invisible. */
+       Qt's hidden extension chevron, which is how the Ctrl-K search and Preferences went invisible.
+       SPACING WAS 6 AND IS NOW 4 -- that is QUARTO P1's body bump being paid for, not a free tidy. The
+       14px body costs exactly one button at 1280 (15/15 -> 14/15) and this rung buys it back (15/15),
+       measured natively under Fusion by evidence/probe_toolbar_budget.py. Compact density already shipped
+       4px, so this is a rung the app owns, not a new number. If a future round grows the body again:
+       15px loses two items and tightening does NOT recover them -- the budget is spent. */
     QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: $tb_pad; spacing: $tb_space; }
     QToolBar::separator { background: $border; width: 1px; margin: 5px 4px; }
     /* INTAGLIO -- one light, from above. A RAISED object catches the light on its top edge and shades its
@@ -474,7 +494,10 @@ _QSS = Template(
     /* THE MONO REGISTER. This app's whole subject is machine tokens -- 4003, 30110, ff9-XXXXXXXX,
        FF9CustomMap, C:/.../FF9CustomMap. Set in the body face they read as prose and the eye slides off
        them; set in mono they read as things you copy, and it is the one real texture in the composition.
-       FAMILY ONLY -- no font-size, so it inherits 13px and neither row heights nor 24px hit targets move.
+       FAMILY ONLY -- no font-size, so it inherits the body rung and neither row heights nor 24px hit
+       targets move. (This said "13px" until QUARTO P1 moved the body to 14. The RULE was always
+       "inherit"; the number was the stale part, and naming it here is what made it able to go stale.
+       Do not write the token name here either -- a placeholder in a QSS comment still substitutes.)
        An orthogonal `mono` property, NOT a role= value: role is single-valued across ~111 call sites, so
        role="id" on a label would silently drop its existing role="muted".
        Cascadia ships with VS / Windows Terminal, NOT with Windows -- on a clean machine this falls to
@@ -492,6 +515,23 @@ _QSS = Template(
     QLabel[role="strong"]   { font-weight: 600; }                                   /* 600-weight body text */
     QLabel[role="h3"]       { font-size: 15px; font-weight: 600; }                  /* a sub-h2 section title */
     QLabel[role="overline"] { font-size: $type_caption; font-weight: 600; color: $muted; letter-spacing: 1px; }
+    /* RUBRIC -- a card's title is a TITLE. widgets.section() titled all 25 cards with role="overline":
+       the caption rung, 600, muted. role="caption" -- the hint text INSIDE those cards -- is the caption
+       rung, 400, muted. Same size. Same colour. The title out-ranked its own explanation by one weight
+       step, which Segoe draws at +4.5% of advance, plus a pixel of tracking. A card's whole hierarchy
+       spanned two pixels, and its top and bottom rung were the same pixel.
+       QUARTO P1 alone would have made that WORSE, not better: body -> 14 and hint -> 12 while the title
+       stayed pinned to the caption token at 12 -- the title tying the smallest text on its own card.
+       So: the body rung (a real step over the hint), 600, and the full text ink -- a colour step, not a
+       weight's worth of grey. Contrast RISES everywhere (muted -> text over a card ground is 5.31 -> 6.20
+       worst-case, solarized-light); this is about RANK, and nothing here is a compliance fix.
+       (No token names in this comment on purpose -- a placeholder inside a QSS comment still substitutes,
+       and writing THIS paragraph is exactly when you reach for one. That law has now bitten four times.)
+       A NEW role rather than an edit to overline, because overline still has a job: the nameplate's
+       kicker, a small-caps eyebrow OVER a big title -- a tier SIGNET already got right. Uppercase +
+       tracking is a convention that works BECAUSE it is small. Promoted to the body rung it stops being
+       an eyebrow and starts being a shout, which is why the .upper() goes with it (see widgets.section). */
+    QLabel[role="cardtitle"] { font-size: $type_body; font-weight: 600; color: $text; }
     QToolButton[role="link"] { border: none; font-weight: 600; text-align: left; } /* flat link-style header btn */
     /* the lint verdict banner: a static frame with a per-verdict accent stripe (state set at runtime) */
     QLabel[role="banner"] {
