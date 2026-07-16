@@ -253,7 +253,8 @@ def test_parse_vdf_old_schema():
     assert config._parse_vdf_library_paths(text) == [r"E:\Games\Steam", r"F:\Steam"]
 
 
-# ---- installed vs repo: the GUI deploy-tools gate (PySide6-free; the Qt shell is covered by --smoke) ----
+# ---- installed vs repo: the GUI deploy-tools gate (PySide6-free; the Qt shell is covered by --smoke,
+#      which test_workspace_smoke.py runs -- this line was a wish until then) ----
 def test_has_deploy_tools(tmp_path):
     from ff9mapkit.editor import jobs
     assert jobs.has_deploy_tools(tmp_path) is False              # installed-like: no tools/ in the wheel

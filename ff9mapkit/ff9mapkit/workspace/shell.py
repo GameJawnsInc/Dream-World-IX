@@ -7834,6 +7834,26 @@ def _smoke(win):
     check the tree, the breadcrumb, lazy object load, and the Problems panel -- the Qt analogue of the
     tkinter campaign-editor smoke. Runs under QT_QPA_PLATFORM=offscreen."""
     import tempfile
+    # THE SMOKE CONTROLS ITS OWN STATE -- and it already half-did. `main()` builds this run's palette as
+    # `pick_palette("dark" if smoke else prefs.theme())`, and the recent-store is stubbed below so a run
+    # never WRITES the developer's prefs. Beginner-mode was the gap: the shell seeds it from prefs, and
+    # nothing pinned it here.
+    #
+    # So on a machine whose owner has turned Guided off (`"guided": false`) this run tested a different
+    # product and failed on their preference. THREE asserts down-file depend on Guided: the mode check, the
+    # toggle round-trip, and the Battle "Advanced drawer" -- which only EXISTS in Guided, so it reported
+    # "no Battle Advanced drawer" as a defect when the drawer was correctly absent.
+    #
+    #   A TEST THAT READS THE DEVELOPER'S PREFS IS A REPORT ON THE DEVELOPER.
+    #
+    # That is the poison test_the_sheet_never_reads_the_developers_own_accessibility_slider fences for the
+    # type dial -- here in the one surface that had no fence, and it is why this smoke was RED on the
+    # user's own machine while its commits reported it green.
+    # No restore: `main()` does `_smoke(win); return` and the process exits, so a "then put it back" line
+    # would be decoration -- and a claim in a comment that the code does not keep is the exact defect this
+    # round has been paying for.
+    from . import forms_qt as _fq_smoke
+    _fq_smoke.set_guided(True)
     # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
     # a smoke run never writes temp paths into the developer's real prefs.json.
     _rec = []
@@ -7882,20 +7902,32 @@ def _smoke(win):
     assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
     # DENSITY toggle: Comfortable is the default; the Ctrl-K command flips it live (re-renders the QSS with the
     # tighter padding profile) and the stylesheet visibly changes -- no palette/theme change.
-    assert win._density == "comfortable" and any("density" in lbl.lower() for lbl, _k, _cb in win._command_index())
-    _qss_comfy = win.styleSheet()
+    # ROUND-TRIP FROM WHATEVER THIS MACHINE IS SET TO. This asserted `_density == "comfortable"` -- the
+    # factory default -- but density is a PREF, so on a Compact user's machine the smoke failed on their
+    # setting. The promise is not "you are in Comfortable"; it is "the toggle flips the profile and
+    # re-renders the sheet, and flipping back restores it exactly". That is true from either end.
+    _d0, _qss0 = win._density, win.styleSheet()
+    assert any("density" in lbl.lower() for lbl, _k, _cb in win._command_index())
     win._toggle_density()
-    assert win._density == "compact" and win.styleSheet() != _qss_comfy, "Compact re-renders the QSS"
+    assert win._density != _d0 and win.styleSheet() != _qss0, "toggling density re-renders the QSS"
     win._toggle_density()
-    assert win._density == "comfortable" and win.styleSheet() == _qss_comfy, "toggling back restores Comfortable"
+    assert win._density == _d0 and win.styleSheet() == _qss0, "toggling density back restores the sheet"
     # Phase 7: the Guided/Full beginner mode -- the Ctrl-K toggle flips forms_qt's global mode (Guided tucks
     # expert form fields into an Advanced drawer; Full shows all inline). Default Guided; nothing removed.
     from . import forms_qt as _fqm
-    assert _fqm._GUIDED is True and any("beginner mode" in lbl.lower() for lbl, _k, _cb in win._command_index())
+    # THE TOGGLE IS THE MECHANISM; THE DEFAULT IS THE USER'S. This asserted `_GUIDED is True` -- the
+    # factory default -- but the shell seeds the mode from PREFS at startup, so on any machine whose owner
+    # has turned Guided off (`"guided": false`) the smoke failed on their own preference. It is the poison
+    # test_the_sheet_never_reads_the_developers_own_accessibility_slider fences for the type dial, in the
+    # one check that had no fence: A TEST THAT READS THE DEVELOPER'S PREFS IS A REPORT ON THE DEVELOPER.
+    # Round-trip from whatever mode this machine is in: the toggle must FLIP and RESTORE. That is the
+    # behaviour the feature promises, and it is true for both starting states.
+    _g0 = _fqm._GUIDED
+    assert any("beginner mode" in lbl.lower() for lbl, _k, _cb in win._command_index())
     win._toggle_guided()
-    assert _fqm._GUIDED is False, "toggle flips to Full"
+    assert _fqm._GUIDED is (not _g0), "the beginner-mode toggle does not flip"
     win._toggle_guided()
-    assert _fqm._GUIDED is True, "toggle flips back to Guided"
+    assert _fqm._GUIDED is _g0, "the beginner-mode toggle does not flip back"
     # CONCEPT CARDS (Phase 5): Ctrl-K carries a 'What is X?' row per domain term (fuzzy-searchable, so typing
     # 'walkmesh' surfaces its card), and _show_concept resolves a free-text term to a card without raising.
     _concept_rows = [lbl for lbl, k, _cb in win._command_index() if k == "learn"]
@@ -8505,10 +8537,17 @@ def _smoke(win):
     assert prev_box and prev_box[0].toPlainText() == _dlg.wrap_preview(longnpc["dialogue"], 12), \
         (prev_box and prev_box[0].toPlainText())
     assert "\n" in prev_box[0].toPlainText(), "a long line pre-breaks in the preview"
-    # the overflow note is FIXED-height (always in the layout, not visibility-toggled) so flipping
-    # warn<->fits can't reflow/clip the preview box (the reported resize bug)
-    note = [lb for lb in prev_box[0].parent().findChildren(QLabel) if lb.maximumHeight() == 16]
-    assert note and note[0].minimumHeight() == 16, "the wrap-preview note is fixed-height (no reflow)"
+    # The overflow note is FIXED-height (always in the layout, not visibility-toggled) so flipping
+    # warn<->fits can't reflow/clip the preview box (the reported resize bug).
+    #
+    # ASSERT THE LAW, NOT THE NUMBER. This read `maximumHeight() == 16` -- and QUARTO P1 re-pinned the note
+    # to 18 to fit the 12px caption rung, so the filter matched NOTHING, `note` was [], and the smoke has
+    # been RED since that round while its commit reported it green. The law here was never "16": the
+    # comment above says it in words -- the note must not REFLOW. min == max is that law, and it survives
+    # the next re-pin, which is the whole reason the number was the wrong thing to assert.
+    note = [lb for lb in prev_box[0].parent().findChildren(QLabel)
+            if lb.minimumHeight() == lb.maximumHeight() > 0]
+    assert note, "the wrap-preview note is fixed-height (no reflow)"
     # MULTI-LINE dialogue: the EDITABLE dialogue widget is a QPlainTextEdit that holds real newlines, and
     # an interior \n survives build_entity (only edges are stripped) -> FF9's native in-window line break
     edit_box = [pte for pte in pw.findChildren(_PTE) if not pte.isReadOnly()]
@@ -9424,11 +9463,18 @@ def _smoke(win):
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
     # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
     assert "Nothing open" in win._hero._status, "Home resets its status after Close"
-    # Phase 7: the cohesion SPINE answers 'what do I do next' per state. EMPTY -> a fork/open nudge; a clean
-    # open project -> a deploy nudge; unsaved edits -> a save nudge. (Deploy stays the ONE crumb button; the
-    # spine points at it rather than duplicating it.)
+    # The cohesion SPINE answers 'what do I do next' -- but ONLY when the screen does not already say it.
+    # EMPTY is SILENT: Home's own lede, 100px below on the same screen, already says "fork your first field
+    # from the game" and points at the same destination, so the spine was spending 43px on a restatement.
+    # UNSAVED and JUST-DEPLOYED still speak (see _next_actions' docstring for the full receipt).
+    #
+    # THIS ASSERT WAS STALE AND SO WAS ITS COMMENT. Both described the OLD spine ("EMPTY -> a fork/open
+    # nudge") -- the exact behaviour the round that changed it deliberately removed. So the smoke was RED
+    # from that commit onward while the commit reported it green: a test asserting a design decision that
+    # had been reversed, with a comment above it still teaching the reversed design to the next reader.
     _g_empty, _a_empty = win._next_actions()
-    assert "Fork a real field" in _g_empty and any(lbl == "Fork a field" for lbl, _c, _p in _a_empty), _g_empty
+    assert (_g_empty, _a_empty) == ("", []), \
+        f"the spine must stay SILENT on EMPTY -- Home's lede already says it: {(_g_empty, _a_empty)}"
     _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
     assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
     # Phase 4: the provenance-clean 'Get started' checklist shows on the empty Home -- 3 live steps ending on
@@ -9658,7 +9704,7 @@ def _smoke(win):
           f"per-tab (content/battle/save/build) + distinct hub/journey SVG type icons + type tooltips + Close-to-empty + "
           f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing' + "
           f"provenance-clean Get-started checklist -> fork your own field) + "
-          f"loose-field→parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
+          f"loose-field->parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "

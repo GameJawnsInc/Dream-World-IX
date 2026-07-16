@@ -1,5 +1,7 @@
 """The PySide6-FREE half of the workspace: the QSS builder. No Qt, no display (like the editor's
-headless tests). The Qt shell itself is exercised by `py apps/ff9_workspace.pyw --smoke` (offscreen)."""
+headless tests). The Qt shell itself is exercised by the --smoke run, which test_workspace_smoke.py now
+DRIVES -- for a whole round this line said "is exercised by" and nothing ran it, so the smoke sat red
+while five commits reported it green."""
 
 from __future__ import annotations
 
