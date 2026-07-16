@@ -95,7 +95,14 @@ def _wrap_preview_panel(line_edit, get_text, wrap_width):
     # fixed-height box on the way back. A constant-height panel can't reflow.
     note = QLabel("")
     note.setProperty("role", "caption")            # muted by default; state='warn' colours the overflow line
-    note.setFixedHeight(16)
+    # 18, not 16: QUARTO P1 moved the caption rung 11 -> 12 and this pin was the wall it hit. A 12px Segoe
+    # line box is 15.94px against the old 16 -- it "fits" with 0.06px to spare, i.e. one hinting or DPI
+    # nudge from clipping its own descenders, silently, in the panel that reports overflow. (At 11px it had
+    # 1.39px; at 13px it clips outright by 1.27.) The height is FIXED on purpose -- see above, a
+    # constant-height panel cannot reflow and clip the box behind it -- so the number has to be raised by
+    # hand rather than released. 18 restores ~2px of headroom at the new rung. If the body/caption rungs
+    # ever move again this is a real blocker, not a warning: it is checked by test_workspace_forms.
+    note.setFixedHeight(18)
     pv.addWidget(note)
 
     def refresh(*_):

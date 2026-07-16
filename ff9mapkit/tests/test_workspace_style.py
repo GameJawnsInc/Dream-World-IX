@@ -555,3 +555,87 @@ def test_the_log_never_switches_the_document_to_rich_text():
 
     assert "appendHtml" not in _code_only(shell_mod.Workspace), \
         "appendHtml switches the console to rich text and mangles stdout"
+
+
+def test_the_hint_tier_is_never_smaller_than_the_os_thinks_text_is():
+    """QUARTO P1's floor, fenced as the RULE and not as the number 12.
+
+    The Windows system font is Segoe UI 9pt, which RESOLVES to 12px. The tier whose entire job is to teach
+    a newcomer what a control does was set to 11 -- one pixel BELOW what the OS itself calls text. That is
+    the defect the user reported ("the info/hint text in particular is pretty small") and it is the only
+    part of their report that was purely a size problem: contrast passes AA in all 8 palettes (4.59 worst)
+    and the shipped option captions average ~61 chars, inside the 45-75 band.
+
+    Fenced against 12 as a CONSTANT, deliberately, rather than against QFontInfo(app.font()) at runtime:
+    a fence that reads the developer's own machine would pass or fail depending on their Windows font
+    settings, and would go green on a box where the OS default happens to be small. 12 is Segoe UI 9pt at
+    96 DPI -- the Windows default since Vista. If a future round proves a different floor, move it here
+    WITH its receipt; do not let it drift down silently.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    for role in ("caption", "chip"):
+        m = re.search(r'QLabel\[role="%s"\][^{]*\{([^}]*)\}' % role, css)
+        assert m, f'the {role} rule is gone'
+        size = re.search(r"font-size:\s*(\d+)px", m.group(1))
+        assert size, f"the {role} rule stopped declaring a size -- it now inherits the BODY, which is bigger"
+        assert int(size.group(1)) >= 12, (
+            f'role="{role}" is {size.group(1)}px -- below the 12px Windows default. The tier that '
+            f"explains the app must not be smaller than what the OS calls text."
+        )
+
+
+def test_a_card_title_outranks_the_hint_text_inside_the_card():
+    """RUBRIC, fenced on the RELATIONSHIP -- the thing that was actually broken.
+
+    Both rules pointed at the same rung and the same colour, so a card's title was exactly the size and
+    the grey of its own footnotes; only a weight step (+4.5% of advance in Segoe) and a pixel of tracking
+    told them apart. Pinning cardtitle == 14px would not have caught that -- the bug was never the value,
+    it was that two DIFFERENT jobs resolved to ONE token. So assert the rank, in both axes.
+
+    This also fences the trap QUARTO P1 set: raising the body/caption rungs while the title stayed pinned
+    to $type_caption would have made the card title the SMALLEST text on its own card.
+    """
+    import re
+    css = style.qss(theme.DARK)
+
+    def rule(sel):
+        m = re.search(r"QLabel\[role=\"%s\"\][^{]*\{([^}]*)\}" % sel, css)
+        assert m, f"the {sel} rule is gone"
+        return m.group(1)
+
+    title, hint = rule("cardtitle"), rule("caption")
+    t_px = int(re.search(r"font-size:\s*(\d+)px", title).group(1))
+    h_px = int(re.search(r"font-size:\s*(\d+)px", hint).group(1))
+    assert t_px > h_px, f"a card's title ({t_px}px) must be LARGER than the hint inside it ({h_px}px)"
+
+    # ...and a colour step, not a weight's worth of grey. $muted resolves to the same hex in both if the
+    # title is still on the caption's colour, which is exactly the old bug.
+    t_col = re.search(r"color:\s*(#[0-9a-fA-F]+)", title).group(1).lower()
+    h_col = re.search(r"color:\s*(#[0-9a-fA-F]+)", hint).group(1).lower()
+    assert t_col != h_col, (
+        f"a card's title and its hint are both {t_col} -- the title needs a colour step, not just a size one"
+    )
+    assert t_col == theme.derive(dict(theme.DARK))["text"].lower(), "the card title should be full $text"
+
+
+def test_the_body_rung_is_a_token_so_the_card_title_cannot_drift_off_it():
+    """role="cardtitle" IS the body rung -- a relationship, not a coincidence of two 14s.
+
+    Typed as a literal in both places they drift the moment either moves, and nothing would notice: the
+    rank fence above would still pass with the title at 14 and the body at 18. The token is what makes
+    "the title is set at reading size" true by construction. (Collapsing the REMAINING literals -- 26px
+    name, 15px h3, 34px glyph, 11px badge -- onto one table is QUARTO P3, and CALIBRE is load-bearing on
+    it: _SCALES owns 3 of 8 sizes, so scaling it alone would invert the ramp.)
+    """
+    import re
+    # NB: assert against the LIVE dict, not the source text. _code_only() runs ast.unparse, which
+    # normalizes quotes to single -- so a '"type_body"' probe can never match and would fail for a reason
+    # that has nothing to do with the rule. (It did. A fence must read code, not prose -- and not the
+    # formatter's opinion of the code either.)
+    assert "type_body" in style._SCALES, "the body rung stopped being a token"
+    # the sheet must SPEND it in both places rather than repeat the number
+    body_rule = re.search(r"QWidget \{[^}]*\}", style._QSS.template).group(0)
+    assert "$type_body" in body_rule, "the QWidget base re-hard-coded its font-size"
+    card_rule = re.search(r'QLabel\[role="cardtitle"\][^{]*\{([^}]*)\}', style._QSS.template).group(1)
+    assert "$type_body" in card_rule, "the card title must BE the body rung, not merely equal it today"

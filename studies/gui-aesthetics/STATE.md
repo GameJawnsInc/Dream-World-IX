@@ -345,3 +345,90 @@ correct, and the sum was a plan with no positive vision.
 Round 3 inverted the frame — generators had to **commit**, taste was an allowed input, and measurement's job
 was to make a committed idea *work* rather than to veto it. That produced SIGNET. **A research harness
 optimized to refute will converge on correctness and never on beauty.**
+
+---
+
+## Round 5 — the type floor. And a claim of mine that was false.
+
+**SHIPPED: QUARTO P1 + RUBRIC.** The hint rung 11 -> 12, the body 13 -> 14 (paid for with `tb_space`
+6 -> 4), the `forms_qt.py:98` pin 16 -> 18, and `role="cardtitle"` so a card's title stops being the
+size and colour of its own footnotes. 3583 tests. **Still unplaytested, like everything since Mist.**
+
+### THE SIMULATED-MECHANISM LAW (the one worth carrying out of this round)
+
+I told the user, and then briefed 23 agents as GROUND TRUTH, that *"every hard-coded QSS px is deaf to
+the Windows accessibility text-size slider"* — a WCAG 1.4.4 defect. **It is false, and the research pass
+killed it:**
+
+- The slider writes `HKCU\...\Accessibility\TextScaleFactor`. It does **not** touch
+  `NONCLIENTMETRICS.lfMessageFont`, which is where Qt reads its font. (Set the key to 150, broadcast
+  `WM_SETTINGCHANGE`, `lfMessageFont` stays at −12 Segoe UI.)
+- `TextScaleFactor` appears in **0 of 338 Qt DLLs**. **Qt cannot see that slider. No Qt app can.**
+- The app *already* honours Display->Scale correctly — QSS px are logical px, multiplied by dpr.
+
+**The mechanism of the error, which is the durable part.** My probe `probe_os_text_scale.py` *simulated*
+the slider with `app.setFont()` and never checked that the slider does that. It carried a control, the
+control **passed**, and it still measured nothing — because the control validated the PLUMBING while the
+PREMISE went untested. This study already had the law *"a probe whose control fails is measuring
+nothing."* Round 5 mints its complement:
+
+> **A PASSING CONTROL LICENSES THE INSTRUMENT, NOT THE PREMISE.** Before simulating a mechanism, prove
+> the mechanism exists. A control can only tell you your measurement is sound; it can never tell you
+> that you are measuring the right thing.
+
+The same error, twice more in the same probe:
+- **`em` does not work.** Qt QSS `font-size` takes only px and pt; `em`/`ex`/`%` are **silently
+  discarded** and fall back to the inherited size. My probe reported "qss_em TRACKS x1.50" — it was
+  `inherit` under another name, and **the disproof was in my own output**: the em row read 15.94/23.94,
+  *byte-identical* to the inherit row, when 1.1em should have been 10% larger at both ends. My verdict
+  function only asked "did it grow", so a fallback read as a success. **Assert the DISTINGUISHING value,
+  not the direction of travel.**
+- **"offscreen forces Fusion while the app runs windows11" is HALF FALSE** and had been repeated across
+  this study for rounds. `shell.py:129 _apply_app_theme` calls `app.setStyle("fusion")` deliberately
+  ("the one built-in style that fully honours stylesheets"). **The app runs Fusion.** Offscreen's Fusion
+  is *correct*; only its stubbed font DB lies. A bare probe `QApplication` left on the platform default
+  is the thing rendering chrome the app never ships — **`app.setStyle("fusion")` in every shot.**
+
+The honest accessibility position: **the app resizes fine. It lacks a text-only lever, and on Windows
+the only lever that can exist is one we ship.** That is CALIBRE (user-selected, queued).
+
+### What I also got wrong, in the same direction
+
+I claimed the hint tier "runs at 116 chars/line". **That is the CAP's capacity, not what anything
+renders at** — the same mistake `test_the_caption_measure_is_unchanged_on_purpose` makes. The 3 real
+`option()` captions average **61 chars, inside the band**. But the pass found the real defect I had
+walked past: **`option()` is 3 of 38 caption sites.** The other ~35 are raw `QLabel` + `setWordWrap`
+with **no cap at all**, growing 1:1 with the window — **125 chars at 1280px, 257 at 1920, 388 at 2560**.
+That is COLUMN, un-chosen, and it is the bigger half of "the hints are hard to read".
+
+### Verified and durable
+
+- **The hint tier's problem was ONLY size.** Contrast passes AA in all 8 palettes (`muted` worst 4.59
+  in light; `error_text` worst 4.87 in solarized-light). And **growing text can never loosen a contrast
+  requirement** — every rung except `name` is below WCAG's 24px large-text threshold, so 4.5:1 applies
+  before and after. `theme.derive()` reads no font size at all.
+- **The toolbar budget is now SPENT.** 13px = 15/15 at 1280. 14px naive = **14/15** (a button in Qt's
+  hidden chevron — the exact bug `style.py`'s QToolBar comment guards). 14px + `tb_space` 4 = 15/15.
+  **15px = 13/15 and tightening does NOT recover it.** Any future body bump must find another payer.
+  → `evidence/probe_toolbar_budget.py`
+- **The ramp is not a scale**: 26/16/15/13/12/11 has five different ratios, and h2->h3 is a **6.7%
+  cap-height step** — a tier Segoe cannot draw. The size analogue of the PER-FAMILY CUT LIST law. QUARTO
+  P2 (merge h2+h3 into one `type_head`) is un-chosen and still open.
+- **8 sizes ship, not 6** — including a **10px** header at `shell.py:6630`. The declared ramp is not the
+  shipped one.
+- **`h3`'s docstring is a lie**: it says "a sub-h2 section title"; **zero** h3 sites nest under an h2.
+- **A real bug, un-chosen (DICTION):** `forms_qt.py:265` **destroys** a field's help text on a parse
+  error and only restores it when the value parses. The teaching vanishes exactly when the user is
+  failing.
+- **The `<` footgun**, if LEADING is ever taken: `'ids < 4003 are real'` renders as `'ids '`. Silent
+  truncation, no error, in an app whose whole subject is field ids.
+- **THE COMMENT-PLACEHOLDER LAW BIT A FOURTH TIME**, in this very round, while writing RUBRIC's comment
+  *about* tokens. It fires precisely when you explain a token in prose. The fence caught all three.
+
+### The instrument note
+
+`evidence/shot_quarto.py` renders ONE state; `shot_quarto_ab` stashes and re-runs it in a fresh process.
+That indirection is not ceremony: the first cut faked the "before" by patching the stylesheet, which was
+**structurally impossible** for RUBRIC — its change is in *Python* (`widgets.section` picks the role and
+drops the `.upper()`). No QSS patch can reproduce the old widget. **The only faithful before is the old
+code, run as the old code.** The anchor guard refusing to render a dishonest shot is what surfaced it.
