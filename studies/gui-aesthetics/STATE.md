@@ -1259,10 +1259,18 @@ to the digit.
 
 ### Standing, recorded, not fixed here
 
-- **14 of 115 visible tab stops have a 0px focus delta** — including the main **Output console** — because
-  `* { outline: 0 }` is app-wide and no `QAbstractScrollArea:focus` rule exists. Pre-existing; but **the
-  diff re-asserts the law and pays only the button half.** Fix: `QAbstractScrollArea:focus { border: 1px
-  solid $accent; }`.
+- ~~**14 of 115 visible tab stops have a 0px focus delta**~~ — ✅ **CLOSED 2026-07-16, `105fcf9`. 0 dead on
+  the real Tab chain**, and the count was wrong in both directions. The console/logs/map already carried a
+  1px border, so their ring was the same free recolour the buttons got — **it was simply never written**;
+  only the `NoFrame` scroll areas needed a reserved border (2px of viewport, no new scrollbars, no reflow).
+  **A TAB STOP IS WHAT TAB REACHES**: `focusPolicy != NoFocus` sweeps in ClickFocus labels, and
+  `& TabFocus` sweeps in QAbstractScrollArea's **viewport**, which reports StrongFocus and is not in the
+  chain — the review's "CampaignMap + its viewport" was the same widget twice, and I reproduced the error
+  by reproducing the method. Real count: **6**. `focusNextChild()` is the only honest census. Two more
+  shared-state burns fell out, both invisible when the fence ran alone: **a toggle is not an instruction,
+  it is a flip** (a module-scoped `win` meant `_toggle_console()` CLOSED it), and **Qt paints focus only on
+  the ACTIVE window** (another fixture's top-level made all 34 stops read as dead — one inactive window,
+  not 34 defects).
 - **`$text` on `$pressed` is 4.09 in solarized-light** (systemic, via the generic rule). The real fix is
   adding `pressed` to `derive()`'s `_grounds` and spending a derived token at those four sites.
 - `dark`'s button hover is still the weakest at 1.0756, and the 1.05 fence floor is unjustified by any
