@@ -889,3 +889,33 @@ def test_no_widget_carries_a_private_font_size_the_dial_cannot_reach():
         "these hard-code a font size in a literal, so they sit outside the ramp AND cannot hear the "
         f"text-size dial -- substitute type_px(rung, scale): {bad}"
     )
+
+
+def test_the_sheet_never_reads_the_developers_own_accessibility_slider():
+    """HEED's one way to poison the suite, fenced.
+
+    Round 5's audit named this exactly: "a registry-seeded default makes those tests pass or fail
+    depending on the developer's own accessibility slider". Every px fence in this file asserts a rendered
+    number, so if `qss()` ever reached for `prefs.text_scale()` instead of taking a parameter, this whole
+    file would become a report on whoever ran it.
+
+    The seam is already right and this keeps it right: `scale` is an EXPLICIT parameter defaulting to 100,
+    injected only by the app at startup. The sheet is a pure function of (palette, density, scale).
+    """
+    import ast
+    import inspect
+    src = inspect.getsource(style)
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            assert not (node.value.id == "prefs" and "text_scale" in node.attr), (
+                "style.py reached for prefs.text_scale() -- the sheet must take `scale` as a parameter, or "
+                "every px assertion in this file starts depending on the developer's Windows settings"
+            )
+    assert "prefs" not in {n.name.split(".")[0] for n in ast.walk(tree)
+                           if isinstance(n, ast.alias)}, "style.py imported prefs"
+    # the default is the inert setting, and it is a real default rather than a sentinel
+    import inspect as _i
+    sig = _i.signature(style.qss)
+    assert sig.parameters["scale"].default == 100
+    assert style.qss(theme.DARK) == style.qss(theme.DARK, "comfortable", 100)

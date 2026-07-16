@@ -788,3 +788,45 @@ happens to be stored as a string.* Second instance this session.
 card) ship 13/14/15px HTML — the Info Hub renders at the OLD body size and cannot hear the dial. Exempted
 by name in the fence; it wants its own decision, since forms_qt has no access to the scale.
 
+---
+
+## Round 5, part 9 — HEED: read the slider Qt refuses to read
+
+**SHIPPED.** `prefs.os_text_scale()` seeds CALIBRE's default from Windows. 3616 tests.
+
+Qt cannot see the Accessibility → Text size slider — settled, not fixable (it writes `TextScaleFactor`,
+never touches `lfMessageFont`, and appears in **zero of Qt's 338 DLLs**). But it is a registry value, and
+**Python can read it.** Proven end to end on a faked 150% machine: first launch opens at 150% (body 21px,
+band 234px — PLINTH carries it), and an explicit 100% then beats it.
+
+- **An explicit choice always wins — that ordering IS the feature.** A saved value means the user went to
+  Preferences and said what they want; the OS never overrides it. Only an *absence* takes the seed. Fenced
+  first, including the case that looks like nothing: **choosing 100% is a choice, not an absence.**
+- **A corrupt value degrades to the SEED, not to a bare 100** — a hand-edited file must not silently cost
+  a low-vision user their text size.
+- **Not a new pattern**, which is most of why it's defensible: `theme.detect_os_dark` has shipped this
+  exact shape for rounds (HKCU read, bare except → safe default, fenced by monkeypatching the *function*).
+- **Nearest, clamped by our own top.** MS documents [100, 225]; we ship (100,110,125,150). Common stops
+  land exactly; 175/200/225 → 150. Nearest rather than snap-down because **under-serving someone who asked
+  for bigger text is the wrong direction to err.** Junk (10000, 0, −5) is clamped, never obeyed — a
+  registry value is user-writable.
+- **The alibi shipped, not cut**: Preferences labels the OS's rung *"— following Windows text size"*. An
+  app that quietly scales when nothing else on the desktop does reads as **broken**, not considerate.
+- **Fenced against poisoning the suite** — the risk the audit named by name. Every px fence asserts a
+  rendered number, so if `qss()` ever reached for `prefs.text_scale()` that file would become a report on
+  whoever ran it. A fence reads style.py's AST for any reach at `prefs`.
+
+On this machine the key is **absent entirely** (the slider has never moved — the common case), so the
+feature is inert.
+
+### An investigation worth recording: I thought I'd clobbered the user's prefs
+
+`prefs.text_scale()` read **110** early in the round and **100** later, and the file's mtime was minutes
+old. Rather than assume, I tested it in an isolated store: `_apply_text_scale()` does **not** persist (a
+live preview stays a preview) and `close()` → `_save_layout()` → `set_layout()` → `put()` is a
+read-modify-write that **preserves `text_scale` intact**. The app is innocent; the user changed it while
+validating. Also confirmed `tests/conftest.py` has an autouse fixture isolating prefs for **every** test,
+so the suite never touches the real store. **No damage — but the check was right to run: probes that
+construct a real `Workspace` and call `close()` are one careless `set_*` away from editing the developer's
+own settings.**
+
