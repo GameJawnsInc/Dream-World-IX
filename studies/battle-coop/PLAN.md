@@ -402,8 +402,16 @@ don't pair.
    `debugStartType`/`isRandomEncounter` carried and bracketed. En route: the diorama never arms gMode
    (isDebug skips StartEvents) so the B1 assist menus stay usable over it — most of B3.6 early; the
    STACKED-STALENESS law; the Boot-refuses-without-a-snapshot containment fix. Two-machine checklist =
-   the laptop package `FF9Coop-laptop-update-20260716`. NEXT: B3.4 (drive HP/death/trance from type-1),
-   then B3.2b party v9 riding B3.5's action lane; emit the arc as s40.
+   the laptop package `FF9Coop-laptop-update-20260716`. B3.4 (the living diorama) + B3.5 (the action
+   lane + party v9, wire v9) landed same day, solo-proven; the whole arc emitted as **s40**.
+   **★★ B3.4 + B3.5 TWO-MACHINE PROVEN 2026-07-16 (second session, same package):** boxes 1-3 / 6-8 /
+   11-12 / 14 all passed on the real link — auto-boot/auto-leave/chained fights, live HP, deaths,
+   revives, damage numbers, flinches, trance gauges. Boxes 9/10/13 (trance ENTER, hidden enemies,
+   SA fidelity) untested by setup circumstance and ruled **NON-GATING** (render-fidelity lanes with
+   cosmetic failure modes; the containment bracket + `Booted` save block are independent of all
+   three) — the close-out recipes live in `diorama-lane.md`. NEXT = the **B3.6 polish round**
+   (swirl/BGM songId carry, stat-tick figures, spectate-panel fallback, the F6 opt-out intro-replay
+   bug, guest PatNum guard, SelfTestOffset).
 3. **Cutscene-drive** — the documented research frontier (host streams window-close / chosen-choice /
    tread-fired events, guest force-applies). Not scheduled.
 4. **Federated `[[coop]]` custom modes** — parked until the authoritative-host headline is solid.

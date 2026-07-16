@@ -670,3 +670,31 @@ run vs an hour of absence-forensics.)
 **Next:** B3.4 (type-1 → HP/death/trance on the diorama's actors) · B3.2b (the party v9 extension:
 basis/status/trance/SA — ride it with B3.5's action lane, one bump) · the swirl/BGM pairing · the
 scene-data hash divergence assert. Emit the whole B3 arc as **s40** when it settles (s39 is taken).
+
+## ★★ B3.4 + B3.5 TWO-MACHINE PROVEN (2026-07-16) — the arc's checklist closes
+
+Second two-machine session on the 20260716 package (wire v9, DLL `6F999C4575266592`), run against the
+package README's 14-box checklist. **PROVEN on the real link:** boxes 1-3 (auto-boot · auto-leave ·
+chained fights/the nonce), 6-8 (live HP · deaths mirror · revive mirrors), 11 (damage numbers — the
+action FIFO, host's exact figures), 12 (flinches + player weapon swings), 14 (the trance gauge).
+The living diorama and the action lane both hold two-machine. User note on auto-leave, recorded
+verbatim: *"auto-leave kicks the guest to the field then loads their save though successfully"* —
+⚠ AMBIGUOUS: if a save-LOAD transition follows EVERY diorama auto-leave (not just session end), the
+autoload exit ramp may be firing on battle-end when the followed session is still live — ask next
+session whether the load screen appeared per-fight or once; if per-fight, that is a real bug lane
+(the ramp must not fire while `IsLiveFollowedSession` holds).
+
+**Untested boxes, ruled NON-GATING** (all three are render-fidelity lanes; their failure modes are
+cosmetic, and the containment bracket + `Booted` save block are independent of all of them — none can
+touch the guest's save):
+- **Box 9 — trance ENTER (model swap on gain).** Partially observed already: a trance fired and
+  mirrored during the CARNAGE/cascade state-bench run; the ENTER burst is a documented accepted gap
+  by design. 30-second recipe when convenient: host toggles the Memoria TranceFull booster mid-fight
+  (instant trance) → the guest's copy should glow + model-swap. (R3 gates the booster GUEST-side in a
+  diorama; the HOST's booster is legitimate and rides the wire like a natural trance.)
+- **Box 10 — hidden enemies (the case-33 submerge idiom).** Was blocked on "which battles have them" —
+  the offline census (`hidden-enemy-census`, this study dir) answers it with concrete fights.
+- **Box 13 — SA/v9 party fidelity.** Worst case = wrong displayed stats on the seated copy; damage
+  truth rides the wire regardless. Cheapest visible recipe: host equips an Auto-Float source (Feather
+  Boots) → the seated copy should HOVER at battle start (status carried at seat time); the >9999
+  max-HP readout needs a heavily-SA'd host save and can wait.
