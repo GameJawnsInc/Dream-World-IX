@@ -1380,6 +1380,30 @@ class Workspace(QMainWindow):
 
         split.setSizes([300, 640, 240])
         split.setStretchFactor(1, 1)
+        # THE DOCUMENT KEEPS A FLOOR -- AND WHAT IT DEFENDS AGAINST IS THE PERSISTED LAYOUT, NOT THIS
+        # DEFAULT. Measured natively: the default above is CLEAN. At a 1280 window it resolves to
+        # [300, 738, 240] and every tab clears (Import needs 603, Co-op 570, Home 525). The defect appears
+        # only once `layout.central_split` is restored: a layout saved at 1920 -- [300, 1198, 420] -- and
+        # replayed at 1280 leaves the document 558, under both. `setStretchFactor(1, 1)` is what makes the
+        # doc absorb all of the window's growth, and therefore all of its shrink, so the whole deficit
+        # lands here. Isolated arithmetically: every scrollbar threshold is exactly fresh+180, and
+        # 180 = 420-240 -- the inspector's saved excess over its default. (An earlier commit of mine said
+        # the DEFAULT allocated the doc only 44% and wanted re-balancing. That was measured off the
+        # persisted layout and was simply wrong about the default.)
+        #
+        # A MINIMUM, NOT A RE-BALANCE, because those sizes are the USER'S -- they dragged them. Restoring
+        # ratios instead would silently shrink a deliberate 420px inspector to 280; clamping the restored
+        # inspector discards the drag outright. A minimum bites ONLY when the window is too narrow to
+        # honour the saved layout, and never at the widths it works at: 1280 -> [229, 700, 349], no
+        # scrollbars, both sides giving proportionally; 1440 and up hand back [300, 718, 420] untouched.
+        # No persistence-format change, nothing to migrate.
+        #
+        # 700 CLEARS THE WIDEST REAL NEED (Import, 603) WITH ROOM, and the panes can pay it: neither side
+        # sets a minimumWidth, so the tree (minimumSizeHint 74) and inspector (64) can both give. NB this
+        # is a REAL raise only because mid_col's own minimum is 542 -- see probe_doc_pane.py, and note
+        # that setMinimumWidth OVERRIDES the layout-derived minimum in both directions, so a number BELOW
+        # 542 would quietly LOWER the floor rather than raise it.
+        mid_col.setMinimumWidth(700)
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
         self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
@@ -1956,6 +1980,27 @@ class Workspace(QMainWindow):
                          f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
                          f'{_esc(_snip(e["path"], 64))}</span>')
             lab.setTextFormat(Qt.TextFormat.RichText)
+            # A RECENT ROW MUST NOT DICTATE HOME'S WIDTH, AND THIS ONE DID. Un-wrapped, a QLabel's
+            # minimumSizeHint IS its fully-rendered line -- so HOME'S MINIMUM WIDTH DEPENDED ON WHAT THE
+            # USER HAD OPENED. Measured natively with a real history: Home needed 903 and horizontal-
+            # scrolled at 1280 AND 1440. No test could have seen it -- the trigger lives in the user's
+            # prefs, not in the repo, and a journey/campaign's display name is its parent FOLDER's name,
+            # i.e. as long as whatever the user called their directory.
+            #
+            # ONE LINE, AND IT IS THE WHOLE FIX: wrapped, the row's minimum is its longest WORD, so Home
+            # falls back to its own 525 and never scrolls at any width. The row gives, instead of the page.
+            #
+            # TWO FIXES DIED HERE AND BOTH LOOKED RIGHT:
+            #   * setMinimumWidth(0) + SizePolicy.Ignored -- shrinks the row by CLIPPING rich text, i.e.
+            #     trades a scrollbar for the silent-clip trap widgets.py exists to document.
+            #   * _snip(display, 40) -- cap the name the way the path above is capped. Measured, it took
+            #     903 -> 840: still over the 724 viewport, still scrolling at 1280, and it "fixed" 1440
+            #     only by luck. Tuning it to fit would be curve-fitting a constant to one font at one
+            #     scale, and the text dial would re-break it at 125%. And once wrap is in, the cap changes
+            #     NOTHING: same 525, same row heights to the pixel (38/19/38). A constant that buys
+            #     nothing is worse than no constant -- the next reader assumes it is load-bearing.
+            # The tooltip carries the full path regardless.
+            lab.setWordWrap(True)
             lab.setToolTip(e["path"])
             lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
             rl.addWidget(lab, 1)

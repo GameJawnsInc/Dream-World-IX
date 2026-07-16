@@ -440,3 +440,80 @@ def test_an_id_scoped_button_shows_where_the_keyboard_is(themed, oid):
     app, made, _host = themed
     n = _state_delta(app, made[oid], lambda b, on: (b.setFocus() if on else b.clearFocus()))
     assert n > 0, f"#{oid} shows nothing on focus -- a keyboard user cannot see where they are"
+
+
+# ---------------------------------------------------------------------------------------------------
+# THE DOC PANE -- structural fences only, and that restraint is the point.
+# ---------------------------------------------------------------------------------------------------
+# This module sets QT_QPA_PLATFORM=offscreen, where THE FONT DB IS STUBBED AND EVERY TEXT-DERIVED WIDTH
+# IS FICTION. Measured side by side while writing these: offscreen puts mid_col's minimum at 1156 and the
+# window floor at 1296; native says 542 and 1280. Offscreen renders ~14px per character, so it inflated
+# two ordinary 80-char labels into a fake window-wide constraint -- a coherent, checkable story about a
+# defect that does not exist.
+#
+# So NOTHING BELOW ASSERTS A WIDTH IT MEASURED. Both fences assert a STRUCTURAL property that is true
+# regardless of the font: "a floor is set" and "the row wraps". The real numbers live in
+# studies/gui-aesthetics/evidence/probe_doc_pane.py, which refuses to run offscreen.
+
+
+def test_the_document_pane_keeps_a_floor(win):
+    """The document must not be squeezed under the widest doc's need when a WIDE SAVED LAYOUT is replayed
+    on a NARROW window.
+
+    The default is fine and this does not touch it: [300, 640, 240] resolves to [300, 738, 240] at 1280
+    and every tab clears (Import 603, Co-op 570, Home 525 -- all native). The defect is the PERSISTED
+    layout: [300, 1198, 420], saved at 1920, replayed at 1280 leaves the doc 558. `setStretchFactor(1, 1)`
+    makes the doc absorb all growth and therefore all shrink, so the entire deficit lands on it. Every
+    scrollbar threshold was exactly fresh+180 -- and 180 = 420-240, the inspector's saved excess.
+
+    A MINIMUM RATHER THAN A RE-BALANCE, because those sizes are the user's own drag. It bites only when
+    the window cannot honour them (1280 -> [229, 700, 349], no scrollbars) and returns their layout
+    untouched at 1440+.
+
+    WHY >= 700 AND NOT "the widest doc's need": that need is text-derived, and this suite cannot measure
+    text. 700 was chosen natively against Import's 603.
+    """
+    mid = win._central_split.widget(1)
+    assert mid.minimumWidth() >= 700, (
+        "the document pane has no floor -- a layout saved at 1920 and replayed at 1280 will squeeze it "
+        "under Import's need and force a horizontal scrollbar"
+    )
+
+
+def test_a_recent_row_never_dictates_home_width(win, app, tmp_path):
+    """HOME'S MINIMUM WIDTH MUST NOT DEPEND ON WHAT THE USER HAS OPENED -- and it did.
+
+    A recent row is a rich-text QLabel; un-wrapped, its minimumSizeHint IS the fully-rendered line, and a
+    journey's display name is its parent FOLDER's name. Measured natively with a real history: Home needed
+    903 and horizontal-scrolled at 1280 AND 1440. Wrapped, its minimum is its longest WORD and Home falls
+    back to its own 525 at every width.
+
+    NO TEST COULD HAVE CAUGHT THIS BEFORE, which is why it is worth a fence now: the trigger lived in the
+    user's prefs, not in the repo. So this one BUILDS a history rather than hoping for one.
+
+    Asserts `wordWrap()`, not a width: this suite is offscreen and cannot measure text (see the block
+    comment above). Wrap is the mechanism, it is font-independent, and it is the thing that was missing.
+    """
+    import json
+    from PySide6.QtWidgets import QLabel                                     # noqa: PLC0415
+    from ff9mapkit import prefs                                              # noqa: PLC0415
+    proj = tmp_path / "a-project-folder-with-a-comfortably-long-name"
+    proj.mkdir()
+    entry = proj / "journey.toml"
+    entry.write_text(json.dumps({}), encoding="utf-8")
+    rows = [{"kind": "journey", "path": str(entry)}]
+    real = prefs.recent
+    prefs.recent = lambda: rows          # the row is display-filtered on existence, so the path is real
+    try:
+        win._refresh_recent()
+        app.processEvents()
+        labs = [x for x in win.findChildren(QLabel) if x.toolTip() == str(entry)]
+        assert labs, "the recent row was not built -- this fence is measuring nothing"
+        for lab in labs:
+            assert lab.wordWrap(), (
+                "a recent row does not wrap, so its minimumSizeHint is its whole rendered line and "
+                "HOME'S width now depends on the length of the user's project folder name"
+            )
+    finally:
+        prefs.recent = real
+        win._refresh_recent()
