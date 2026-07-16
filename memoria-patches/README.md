@@ -30,7 +30,8 @@ the original field's tuned behavior. This is the set that makes a forked field p
 
 | File | What it adds |
 |---|---|
-| `s34-worldmap-mesh-override.patch` | Load a world-map block TERRAIN mesh from a loose **`.ff9mesh`** file in a mod folder instead of the baked Resources mesh — so overworld geometry can be edited **without** an AssetBundle repack (FF9 is Unity 5.2.3; `AssetManager.LoadFromDisc<Mesh>` is unsupported, so there is no other loose-mesh hook). New class `Memoria.World.WorldMeshOverride` (reads the kit's [`ff9mapkit.world.mesh`](../ff9mapkit/ff9mapkit/world/mesh.py) format) + a hook in **`WMWorld.RegisterBlockComponent`** — the RUNTIME block-stream path. ⚠ The first cut hooked `WMWorldPrefabMaker.LoadMesh`, which is reachable only from `LoadModelAsset` — an **editor-only prefab-builder with ZERO runtime callers** (the overworld loads a *pre-built* WorldDisc prefab and streams blocks via `WMWorld.LoadBlock`), so it never fired. The live hook reads `block.InitialX/InitialY` (grid coords) + `transform.name` to build the override path, and swaps the `MeshFilter.sharedMesh` (render) **and** the `mesh` fed to `WMBlock.AddWalkMesh` (collision + the `tangent.x` entry id) — one object. Identity-safe: no override file → stock mesh. **Also add `<Compile Include="Memoria\World\WorldMeshOverride.cs" />` to the csproj.** ★ Built + deployed 2026-06-30 (re-hooked + rebuilt clean); IN-GAME UNVERIFIED — awaiting the `world-deploy --spike` playtest. The foundation for Path C (geometry-edit the real world) and Path D (a minted continent's geometry). → `project-ff9-worldmap-feasibility`. |
+| `s39-world-selfheal-control.patch` | **The overworld black-screen SELF-HEAL** (`ff9.w_worldSelfHealControl`, captured from the live tree 2026-07-15). Recovers the "no controlled actor" state (`project-ff9-overworld-actor-brick`): editing overworld geometry under a saved spawn leaves the leader with no `wmActor` / no control designator → `ff9.GetControlChar()` null → `w_frameUpdate` keeps `w_moveActorPtr` on the DUMMY → the camera has nothing to follow → **BLACK, baked into the save**. Called from `w_frameUpdate` case 0 ONLY when `GetControlChar()` is null; rebuilds the control body, ensures every active world actor has a `wmActor` (`w_movementChrInitSlice` dereferences it with no null check), force-grounds via a sky-cast, and binds the camera actor. **SELF-TERMINATES** (once it binds a real actor the else-branch never fires again — no one-shot flag) and is try/catch-wrapped so recovery can never crash the frame loop. Never touches the Bee scene. ⚠ Carries a live **TODO from its author**: the degenerate-spawn fallback `kWorldSafeFallback` (768, −640) is the map centre and **"may be sea"** — confirm it is walkable LAND before release. |
+| `s34-worldmap-mesh-override.patch` | Load a world-map block TERRAIN mesh from a loose **`.ff9mesh`** file in a mod folder instead of the baked Resources mesh — so overworld geometry can be edited **without** an AssetBundle repack (FF9 is Unity 5.2.3; `AssetManager.LoadFromDisc<Mesh>` is unsupported, so there is no other loose-mesh hook). New class `Memoria.World.WorldMeshOverride` (reads the kit's [`ff9mapkit.world.mesh`](../ff9mapkit/ff9mapkit/world/mesh.py) format) + a hook in **`WMWorld.RegisterBlockComponent`** — the RUNTIME block-stream path. ⚠ The first cut hooked `WMWorldPrefabMaker.LoadMesh`, which is reachable only from `LoadModelAsset` — an **editor-only prefab-builder with ZERO runtime callers** (the overworld loads a *pre-built* WorldDisc prefab and streams blocks via `WMWorld.LoadBlock`), so it never fired. The live hook reads `block.InitialX/InitialY` (grid coords) + `transform.name` to build the override path, and swaps the `MeshFilter.sharedMesh` (render) **and** the `mesh` fed to `WMBlock.AddWalkMesh` (collision + the `tangent.x` entry id) — one object. Identity-safe: no override file → stock mesh. **Also add `<Compile Include="Memoria\World\WorldMeshOverride.cs" />` to the csproj** — ⚠ that Compile line currently lives in **`s22`**, misattributed but load-bearing (it is the only patch adding it); moving it here is deferred while the csproj is in flight (see STACK HEALTH). **Also carries the custom-ocean loose-TEXTURE override** (recaptured from the live tree 2026-07-15, previously in no patch): `WorldMeshOverride.TryLoadTexture` + a render hook in `RegisterBlockComponent` that clones the material and swaps `mainTexture` when a loose custom texture exists for a cell+part, **keeping the sea shader** — so a custom ocean renders as a continuous gradient instead of discrete tile shades. Cell-scoped; identity-safe (no override file → stock material). ★ Built + deployed 2026-06-30 (re-hooked + rebuilt clean); IN-GAME UNVERIFIED — awaiting the `world-deploy --spike` playtest. The foundation for Path C (geometry-edit the real world) and Path D (a minted continent's geometry). → `project-ff9-worldmap-feasibility`. |
 
 ## Multiplayer co-op (experimental) — NEW capability
 
@@ -52,10 +53,11 @@ the original field's tuned behavior. This is the set that makes a forked field p
 |---|---|
 | `s22-debug-menu-f6.patch` | The F6 in-game debug menu (Warp / Move / Cheats / Flags / Time, in field + battle) **plus a `World` tab on the overworld**: live pos/cell/block/topograph/disc/vehicle readout, vehicle-mode swap (`gEventGlobal[190]` + `w_movementChange`), disc 1↔4 switch, a Disable-control toggle, and a working **teleport** (the fix defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`, see `../ff9mapkit/docs/OVERWORLD_ENGINE.md`). The Flags tab has a **Batch** box: many bit/byte/word writes in one click (`1520 !1423 b191=5 w0=7200`), all-or-nothing validated, with the live text + named one-click presets persisted via PlayerPrefs — multi-flag warp-in recipes (e.g. the Chocobo Hot & Cold one) stop being seven manual round-trips. The Go tab also has a **Reload + anims** button beside Reload field: it clears the static `AnimationClipReader.LoadedClips` cache before reloading so a re-deployed loose `.anim` (the model animation-edit loop) shows without a full relaunch — Reload field alone keeps the cached clip. A tester convenience; the beta bundle includes it, but it is not part of the fork-fidelity set or the upstream-candidate set. |
 
-## ⚠ STACK HEALTH — the replay works; the stack does NOT yet reconstruct the live tree (2026-07-15)
+## ⚠ STACK HEALTH — the stable drift is recaptured; s37 + the in-flight set are still open (2026-07-15)
 
-Emitting `s38` forced a full replay of the stack from `BASE_COMMIT` for the first time in a while. Two
-repairs landed, and one real problem is left open.
+Emitting `s38` forced a full replay of the stack from `BASE_COMMIT` for the first time in a while (round 1,
+below). A follow-up recapture (round 2) then closed every *stable* gap it found, corrected three of its
+diagnoses, and scoped what is left.
 
 **REPAIRED — s22 was contaminated.** Its csproj hunk added `Memoria\Netsync\NetSyncClient.cs` and
 `NetSyncSocket.cs` — s36's lines, in the F6-debug-menu patch (leaked in by an earlier regen emitted
@@ -73,20 +75,56 @@ reconstructed baseline dropped from a phantom **6943-line rewrite to a real 152/
 these patches with `patch --binary`** — plain text mode silently rewrites CRLF files as LF and seeds
 exactly this drift.
 
-**OPEN — the live tree has changes no patch captures.** Diffing `base + s22..s36` against the live tree
-leaves files that are not s37's and are not explained by content s37 owns:
-| File | What's there | Owner |
-|---|---|---|
-| `Global/WM/WMWorld/WMWorld.cs` | the custom-ocean loose-texture render hook (`WorldMeshOverride.TryLoadTexture`) | s34-ish, uncaptured |
-| `Global/ff9/ff9.cs` | `w_worldSelfHealControl` — the overworld "no controlled actor" black-screen self-heal | uncaptured |
-| `Global/UI/UIKey/Ff9mkDebugMenu.cs` | live is ~2.7 KB **smaller** than s22 produces | s22 stale |
-| `Memoria/World/WorldMeshOverride.cs` | live is ~1.7 KB **larger** than s34 produces | s34 stale |
-| `Global/Field/Map/Actor/FieldMapActorController.cs` | live has **lost** s24/s29 fork gates | the known regression, user decision pending |
+**RECAPTURED (2026-07-15, round 2) — the stable drift is now in the stack.** Every file the round-1 note
+listed as uncaptured/stale is captured. `base + s22..s36 + s39` replays under the documented
+`patch -p1 -F0 -s -f --binary` at **zero fuzz, zero rejects, zero `.orig`**, and the four files below are
+**byte-identical to live** (`cmp`):
 
-Consequence: **a from-patches rebuild would not reproduce the shipped DLL.** The live tree is the source
-of truth today. `s38` sidesteps this entirely — it is diffed against *live-minus-Road-A*, and both gates
-(reverse-dry-run against live; forward-apply byte-identical) pass. A full drift recapture is its own
-task. → `project-ff9-memoria-conflict-forensics`.
+| File | Was | Now |
+|---|---|---|
+| `Global/UI/UIKey/Ff9mkDebugMenu.cs` | "live ~2.7 KB smaller, s22 stale" | **s22 regenerated** — real drift was 54 add / 4 del lines |
+| `Global/WM/WMWorld/WMWorld.cs` | custom-ocean loose-texture hook, uncaptured | **s34 regenerated** — hook captured |
+| `Memoria/World/WorldMeshOverride.cs` | "live ~1.7 KB larger, s34 stale" | **s34 regenerated** — `TryLoadTexture` (35 lines) captured |
+| `Global/ff9/ff9.cs` | `w_worldSelfHealControl`, uncaptured | **`s39-world-selfheal-control.patch`** (NEW) — 86 lines / 3 hunks |
+
+Three of round 1's findings were **misdiagnoses, and all three had the same root**:
+
+- **The KB deltas were the EOL trap this very section warns about.** Live's `Ff9mkDebugMenu.cs` was LF:
+  2453 lines → 2453 missing CR bytes ≈ the "2.7 KB smaller" (and the sign pointed the wrong way). Same for
+  `WorldMeshOverride.cs`. Real content drift was 54/4 and 35/0 lines. **LAW: never size-compare across an
+  EOL boundary — normalize first, then diff.**
+- **`DataPatchers.cs.orig` was never a leftover to delete.** It is not in the live tree. GNU patch's
+  default is `--backup-if-mismatch`, so *any* hunk applying at an offset writes a `.orig` — and s33's
+  DataPatchers hunk #2 applied at **offset 17** (authored before s24/s31 added lines above it). The `.orig`
+  was **regenerated on every replay**. s33 is now re-based (change-content identical, line numbers only) and
+  applies at zero offset, so the artifact is gone at the root.
+- **`s24` was never stale.** A first cut diffed `ff9.cs` against `HEAD` (the BASE commit) instead of the
+  s24-applied state, pulling s24's own `ForkSiblingField` redirect into the diff. s24 already carries it.
+  **LAW: a mid-stack patch must be diffed against ITS stack position, not `HEAD`.**
+
+**The EOL defect is a CLASS, not one file.** Every **untracked** file in the live tree is LF; every tracked
+one is CRLF. `autocrlf` normalizes tracked files on checkout but never touches untracked ones — so the files
+a patch **creates** are exactly the ones a past text-mode `patch` run left LF. `Ff9mkDebugMenu.cs` and
+`WorldMeshOverride.cs` were converted back to CRLF (pure EOL: delta == line count exactly, content
+byte-identical). ⚠ **Still LF, deliberately untouched:** all 8 `Memoria/Netsync/*.cs` — they belong to the
+deferred s36/s37 regen below. Fix them in that round, not by hand.
+
+**Gate correction.** "Reverse-dry-run against live" is only valid for the **top** of the stack (s38). A
+mid-stack patch cannot reverse against live — later patches sit on top of its files. The correct gates for a
+mid-stack patch are: forward-applies at its stack position at zero fuzz; its files are `cmp`-identical to
+live after a full replay; and forward+reverse returns the tree to its pre-patch state.
+
+**OPEN — deliberately deferred, not forgotten:**
+| Item | Why deferred |
+|---|---|
+| `s37` **does not apply** to a clean replay | It carries stale **removals** of superseded s18/s21 content (the `Attack9999` auto-enable, the F6/F10 hotkey block) and of the s22 csproj duplicates repaired in round 1. End state converges; s37 needs regenerating. Round 1 never caught this — it only ever verified s22..s36. |
+| the `s22`→`s34` csproj line move | `Assembly-CSharp.csproj` is being actively written by the in-flight B3 diorama work. s22 still carries s34's `WorldMeshOverride.cs` Compile line — misattributed, load-bearing, flagged (unchanged from round 1). |
+| `s38` + B3 diorama files (`NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs`) | Uncommitted work in progress in the **shared** engine clone (`C:\gd\FFIX\Memoria` is shared, not per-worktree). Capturing a moving tree would bake half-finished work into the stack. |
+| `Global/Field/Map/Actor/FieldMapActorController.cs` | The known regression — **user decision pending**. Live is **byte-identical to pristine base**: the s24/s29 gates were not partially lost, the file was reverted wholesale, so the **shipped DLL has no fork gates here at all** (Iifa 1751, Dali 404, Prima Vista 205/Steiner off-mesh exemptions). Do not silently re-add or drop. |
+
+Consequence: a from-patches rebuild still would not reproduce the shipped DLL — the gap is now **only** the
+deferred set above, and every remaining diff is attributed (zero unexplained residue).
+→ `project-ff9-memoria-conflict-forensics`.
 
 ## Superseded / historical — kept for the build record, do NOT apply
 

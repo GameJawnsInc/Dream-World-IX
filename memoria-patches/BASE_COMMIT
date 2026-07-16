@@ -1,4 +1,4 @@
-# The exact upstream Albeoris/Memoria commit our engine patch stack (s22-s37) is
+# The exact upstream Albeoris/Memoria commit our engine patch stack (s22-s39) is
 # authored against, and that the shipped dwix-custom-memoria bundle is built from.
 #
 # This is a DELIBERATE PIN. Do not bump it casually: moving to a newer Memoria
