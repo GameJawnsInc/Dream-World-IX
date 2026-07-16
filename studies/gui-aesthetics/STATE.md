@@ -887,3 +887,39 @@ the old defensive `.get` was hiding. Added `_derived(key)`: derive on demand, ca
 `w.palette().color(w.foregroundRole())` — a QLabel API. It is **blind to a QPixmap**. An icon tier can fail
 in every palette and no audit will ever say so. The fences check **(tint, ground, STATE)**.
 
+---
+
+## Round 5, part 11 — the Co-op card, and the third law gets a fence
+
+**SHIPPED.** Play-style card **797 → 522**. 3621 tests.
+
+`widgets.option`'s docstring has said it since Phase 4: **"THE THIRD LAW: never put prose inside a
+widget."** Co-op shipped a QCheckBox whose label was a **130-character sentence** — and a QCheckBox does
+not word-wrap, so its `minimumSizeHint` IS the whole string (763px). **That one control put a 797px floor
+under its card and held the whole page open.**
+
+> **A law in a docstring is a wish.** (Third instance this round — after `style.py`'s "never demote a
+> diagnostic", which sat directly above the rule that broke it.)
+
+The other two rows were the same defect in different clothes: a **411px hint inline beside a button** (a
+bare QLabel in an HBox can neither wrap nor compress), and `setMaximumWidth(340)` on the ghost combo which
+capped how wide it *may* get and **left its minimum alone** — a QComboBox's minimum is its longest item.
+
+### 80 is a gap in the data, not a taste call
+
+The census: **130 / 107 / 101**, then **71 / 70 / 70 / 67 / 66 / 63 / 60×3 / 58 / 57×2 / 53×2 / 49**. A
+**30-character hole** separates a *sentence that happens to be in a widget* from the ordinary "Native —
+seamless + faithful" idiom, which reads fine and compresses acceptably. Fencing in the gap catches the
+defect without re-litigating 15 labels that were never the problem. The two sentences it caught (builddoc's
+101 and 107) are split here.
+
+### What this does NOT fix — and it is not the card's fault
+
+Co-op still scrollbars at 1280: it needs 570 (522 + 48 page margins) against a **544** pane. The pane is
+544 because the central splitter allocates **[300 tree, 558 doc, 420 inspector]** of a 1280 window — the
+side panels take **56%** and the document gets **44%**.
+
+**IMPORT NEEDS 603 AND HAS NO OVERSIZED CARD AT ALL**, which is the tell: this is an *allocation* question,
+not a card defect. At 1600+ every doc is clear. Left alone deliberately — those splitter sizes are
+persisted, so they are partly the user's own, and re-balancing the default wants its own eye.
+

@@ -195,22 +195,41 @@ class CoopDoc(QWidget):
         ghost_lbl.setBuddy(self.combo_ghost)        # see the buddy note in the Session section
         ghost_row.addWidget(ghost_lbl)
         self.combo_ghost.setMaximumWidth(340)
+        # ...and a MINIMUM, which is the half that was missing. A QComboBox's minimumSizeHint is its
+        # LONGEST ITEM ("Auto — the party member they command" = 294px), so setMaximumWidth capped how wide
+        # it may get while the row stayed pinned at label+294. AdjustToMinimumContentsLengthWithIcon (Qt6 dropped
+        # the non-icon variant) makes the item list stop dictating the floor; the popup still shows every
+        # option at full width.
+        self.combo_ghost.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_ghost.setMinimumContentsLength(18)
         ghost_row.addWidget(self.combo_ghost)
         ghost_row.addStretch(1)
         pv.addLayout(ghost_row)
 
-        self.cb_follow = QCheckBox("Follow the host between screens (joining side) — my game "
-                                   "auto-warps to their field and my random encounters pause")
-        pv.addWidget(self.cb_follow)
+        # THE THIRD LAW: never put prose inside a widget (widgets.option). This shipped as one QCheckBox
+        # whose LABEL was the whole sentence -- and a QCheckBox does not word-wrap, so its minimumSizeHint
+        # was the full 763px string. That single control set a 797px floor under the Play-style CARD, which
+        # is why Co-op forced a horizontal scrollbar at 1280 while every other doc fitted: one label the
+        # layout could not compress, holding the whole page open.
+        # option() splits it the way the rest of the app already does -- the NAME you tick, the consequence
+        # in a capped caption beneath it -- and carries the consequence into the accessible description, so
+        # a screen reader still reads what it used to say.
+        self.cb_follow = QCheckBox("Follow the host between screens")
+        widgets.option(self.cb_follow,
+                       "Joining side: my game auto-warps to their field and my random encounters pause.",
+                       pv)
 
         apply_row = QHBoxLayout()
         self.btn_style = _pad(QPushButton("Apply play style"))
         self.btn_style.clicked.connect(self.apply_playstyle)
         apply_row.addWidget(self.btn_style)
-        note = QLabel("applies to a running game within a couple of seconds — no restart")
-        apply_row.addWidget(note)
         apply_row.addStretch(1)
         pv.addLayout(apply_row)
+        # The note is BELOW the button, not beside it. Inline it was a bare QLabel in an HBox: a 411px
+        # minimum that could not wrap and could not compress, so button+note pinned this row at 530px --
+        # the widest thing in the card once the checkbox was split. A hint gets a hint's treatment
+        # (widgets.caption: capped, wrapped, on the ramp), and the row collapses to the button.
+        pv.addWidget(widgets.caption("Applies to a running game within a couple of seconds — no restart."))
         v.addWidget(self.style_box)
 
         btns = QHBoxLayout()
