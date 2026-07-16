@@ -1,13 +1,11 @@
 diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
-index 83b846a..eefd00c 100644
+index fa0a3ee6..2e031464 100644
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
-@@ -1381,8 +1381,10 @@
+@@ -1381,6 +1381,10 @@
      <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
      <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
      <Compile Include="Memoria\Netsync\NetSyncRelay.cs" />
--    <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
--    <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
 +    <Compile Include="Memoria\Netsync\NetSyncBattle.cs" />
 +    <Compile Include="Memoria\Netsync\NetSyncVisitor.cs" />
 +    <Compile Include="Memoria\Netsync\NetSyncState.cs" />
@@ -16,7 +14,7 @@ index 83b846a..eefd00c 100644
      <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
 diff --git a/Assembly-CSharp/Global/EBin.cs b/Assembly-CSharp/Global/EBin.cs
-index 0f70ef4..79e76cf 100644
+index fc3a4335..5efc91ad 100644
 --- a/Assembly-CSharp/Global/EBin.cs
 +++ b/Assembly-CSharp/Global/EBin.cs
 @@ -391,7 +391,12 @@ public class EBin
@@ -34,7 +32,7 @@ index 0f70ef4..79e76cf 100644
              case flexible_varfunc.ITEM_FULL_COUNT:
                  _v0 = ff9item.FF9Item_GetAnyCount((RegularItem)args[0]);
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs
-index 446ebf5..ee41271 100644
+index a923a63e..7f57f9ae 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.DoCalcOperationExt.cs
 @@ -12,7 +12,11 @@ public partial class EventEngine
@@ -51,7 +49,7 @@ index 446ebf5..ee41271 100644
              case EBin.op_binary.B_BAFRAME:
                  this.fieldmap.walkMesh.BGI_animGetFrame((UInt32)this.eBin.getv(), ref result);
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index 509cfd4..88cae5c 100644
+index c75eeb63..edc5cafb 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 @@ -445,6 +445,45 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
@@ -119,7 +117,7 @@ index 509cfd4..88cae5c 100644
          {
              PLAYER player = FF9StateSystem.Common.FF9.party.member[index];
 diff --git a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
-index 804499c..78cc6bd 100644
+index b50b4d89..4a05c256 100644
 --- a/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
 +++ b/Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs
 @@ -132,6 +132,7 @@ public class HonoluluFieldMain : HonoBehavior
@@ -131,7 +129,7 @@ index 804499c..78cc6bd 100644
          FF9StateSystem.Field.SetTwistAD(this.ee.GetTwistA(), this.ee.GetTwistD());
          ETb.InitMessage();
 diff --git a/Assembly-CSharp/Global/SaveLoadUI.cs b/Assembly-CSharp/Global/SaveLoadUI.cs
-index 8f525a7..4418c50 100644
+index 43d8176f..b4b3115c 100644
 --- a/Assembly-CSharp/Global/SaveLoadUI.cs
 +++ b/Assembly-CSharp/Global/SaveLoadUI.cs
 @@ -147,6 +147,15 @@ public class SaveLoadUI : UIScene
@@ -151,7 +149,7 @@ index 8f525a7..4418c50 100644
                      if (this.isFileExistList[this.currentFile])
                      {
 diff --git a/Assembly-CSharp/Global/SettingsState.cs b/Assembly-CSharp/Global/SettingsState.cs
-index b7d8d1b..e70679f 100644
+index f683c782..56227a42 100644
 --- a/Assembly-CSharp/Global/SettingsState.cs
 +++ b/Assembly-CSharp/Global/SettingsState.cs
 @@ -50,7 +50,8 @@ public class SettingsState : MonoBehaviour
@@ -164,67 +162,14 @@ index b7d8d1b..e70679f 100644
      public Boolean IsFastForward => IsBoosterButtonActive[1];
      public Boolean IsMasterSkill => IsBoosterButtonActive[7];
      public Boolean IsAutoRotation => IsBoosterButtonActive[2];
-@@ -77,10 +78,6 @@ public class SettingsState : MonoBehaviour
-     {
-         Boolean[] flagArray = new Boolean[8];
-         flagArray[2] = true;
--        // [Memoria debug build] Auto-enable Attack9999 (F3, one-shot) for fast test battles. SpeedMode
--        // (F1 superspeed) is intentionally NOT auto-enabled -> starts OFF but stays F1-toggleable
--        // (Cheats.SpeedMode=1 keeps the hotkey live). NoRandomEncounter also stays OFF (want encounters).
--        flagArray[3] = Configuration.Cheats.Attack9999;
-         IsBoosterButtonActive = flagArray;
-     }
- 
-@@ -134,7 +131,6 @@ public class SettingsState : MonoBehaviour
-         cfg = new FF9CFG();
-         Boolean[] flagArray = new Boolean[8];
-         flagArray[2] = true;
--        flagArray[3] = Configuration.Cheats.Attack9999;    // [Memoria debug build] auto-enable F3 Attack9999 (SpeedMode stays OFF, F1-toggleable)
-         IsBoosterButtonActive = flagArray;
-         SetSound();
-         SetSoundEffect();
 diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-index d878a21..48caa1f 100644
+index eb9103ef..28c2f269 100644
 --- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
-@@ -172,40 +172,12 @@ public class UIKeyTrigger : MonoBehaviour
+@@ -172,6 +172,12 @@ public class UIKeyTrigger : MonoBehaviour
                  Ff9mkDebugMenu.Toggle();
                  return;
              }
--            // [ff9mapkit dev] F6 = reload the current field; F10 = reset event/save state + reload.
--            // Read here in UIKeyTrigger.Update (runs every render frame, reliable input) instead of
--            // FieldMap.HonoLateUpdate, which runs on the ~30fps logical tick and frequently MISSES the
--            // single-render-frame GetKeyDown (the "dead press" + booster error SFX). F6 reloads the
--            // field (re-runs Main_Init: replays once=false cutscenes, re-creates NPCs, escapes a
--            // cutscene softlock). F10 additionally zeroes gEventGlobal (the save-backed story/once flag
--            // array) + Memoria's persistent script stores so once-gated content (levers, chests,
--            // cutscenes, requires_flag gates) re-arms WITHOUT a New Game -- inventory/gil/party
--            // untouched. Intercepted before HandleBoosterButton so F6 no longer also fires the
--            // LvMax-disabled SFX. Dev engine only; not part of the shipped mod.
--            if (PersistenSingleton<UIManager>.Instance.State == UIManager.UIState.FieldHUD)
--            {
--                Boolean ff9mkReload = UnityXInput.Input.GetKeyDown(KeyCode.F6);
--                Boolean ff9mkReset = UnityXInput.Input.GetKeyDown(KeyCode.F10);
--                if (ff9mkReload || ff9mkReset)
--                {
--                    if (ff9mkReset)
--                    {
--                        System.Array.Clear(FF9StateSystem.EventState.gEventGlobal, 0, FF9StateSystem.EventState.gEventGlobal.Length);
--                        FF9StateSystem.EventState.gScriptVector.Clear();
--                        FF9StateSystem.EventState.gScriptDictionary.Clear();
--                    }
--                    // Drop user control before the (soft) reload. The player object keeps its current
--                    // position across SetNextMap+nextMode=1, so without this a region you're STANDING IN
--                    // (a tread zone / chest) fires on the first frame after reload -- before Main_Init
--                    // repositions you to spawn -- because the tread check is gated only on usercontrol.
--                    // Main_Init re-enables control after positioning, by which point you're at spawn.
--                    PersistenSingleton<EventEngine>.Instance.SetUserControl(false);
--                    PersistenSingleton<EventEngine>.Instance.SetNextMap(FF9StateSystem.Common.FF9.fldMapNo);
--                    FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
--                    PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
--                    return;
--                }
--            }
 +            // [ff9mapkit s37] while the co-op assist panel awaits a battle command, the digit keys
 +            // belong to IT -- swallow them here (the F6 pattern, before every game handler) so a
 +            // digit bound to a game control (Alpha1 = the default help/Select binding) doesn't ALSO
@@ -235,7 +180,7 @@ index d878a21..48caa1f 100644
              HandleDialogControlKeyPressCustomInput();
          }
 diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
-index 8f90e7b..2f3a7e7 100644
+index b4e27a1c..6393e5b7 100644
 --- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
 +++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Public.cs
 @@ -729,7 +729,8 @@ public partial class BattleHUD : UIScene
@@ -271,7 +216,7 @@ index 8f90e7b..2f3a7e7 100644
                      if (ReadyQueue.IndexOf(current) > 0)
                      {
 diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
-index b960288..2aba760 100644
+index 02ae22d4..fbe95901 100644
 --- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
 +++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Scene.cs
 @@ -422,7 +422,8 @@ public partial class BattleHUD : UIScene
@@ -285,7 +230,7 @@ index b960288..2aba760 100644
                              if (i > 0)
                              {
 diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
-index 70e20c5..9236f7f 100644
+index ec0c876e..010881ce 100644
 --- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
 +++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.Unity.cs
 @@ -285,7 +285,8 @@ public partial class BattleHUD : UIScene
@@ -536,7 +481,7 @@ index 70e20c5..9236f7f 100644
      {
          CMD_DATA testCommand = new CMD_DATA
 diff --git a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
-index 7311319..e1ccb37 100644
+index 44e70038..e58d2676 100644
 --- a/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
 +++ b/Assembly-CSharp/Global/battle/BattleHUD/BattleHUD.cs
 @@ -1241,6 +1241,8 @@ public partial class BattleHUD : UIScene
@@ -550,7 +495,7 @@ index 7311319..e1ccb37 100644
          CurrentPlayerIndex = playerId;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
 new file mode 100644
-index 0000000..36cd119
+index 00000000..36cd1198
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
 @@ -0,0 +1,1276 @@
@@ -1831,677 +1776,19 @@ index 0000000..36cd119
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index a490fdb..09ccd3d 100644
+index 373c4fb3..09ccd3d4 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -1,652 +1,1048 @@
--using System;
--using Memoria.Prime;
--using Memoria.Scripts;   // ShadersLoader
--using UnityEngine;
--
--namespace Memoria.Netsync
--{
--    // Persistent co-op "ghost sync" client. Config comes from Memoria.ini [Netsync]:
--    //   Enabled     = 0 | 1                 master switch; OFF by default (zero footprint on a normal game)
--    //   Role        = selftest | host | client
--    //   PeerAddress = <host LAN IP>         (client only; the machine running Role=host)
--    //   Port        = 49200
--    //   TargetField = 0                     0/absent = co-op EVERYWHERE (ghosts appear on any screen both
--    //                                       players share); a field id = only on that one field
--    //
--    //   selftest      spawn a ghost beside the local player, mirroring it -- proves the pipeline solo.
--    //   host/client   NetSyncSocket carries {field,pos,rot,anim} both ways; each side renders the peer as
--    //                 a ghost while both are in TargetField. All Unity access is on the main thread here;
--    //                 the socket only swaps lock-guarded byte slots.
--    //
--    // Bootstrapped from HonoluluFieldMain.HonoAwake() via Ensure() (idempotent; only creates the object
--    // when Enabled). Render setup mirrors FieldMap.AddPlayer() (CreateModel + AddAnim + field-character
--    // shader) but WITHOUT a FieldMapActorController (it would re-snap the ghost to the walkmesh) or a real
--    // Actor -- we drive transform.localPosition ourselves, force huge skinned-mesh bounds so the PSX-shader-
--    // projected model isn't frustum-culled, and apply the PEER's per-submesh visibility mask. The ghost
--    // wears the peer's own model (FF9BattleDB.GEO id sent on the wire; Zidane is only the fallback).
--    public sealed class NetSyncClient : MonoBehaviour
--    {
--        private static NetSyncClient _instance;
--
--        private static Boolean _configLoaded;
--        private static DateTime _iniStamp;               // Memoria.ini mtime at the last read (hot-reload gate)
--        private static String _cfgSig = "";              // parsed-value signature (our own code-persist != a change)
--        private static Boolean _enabled;
--        private static String _role = "selftest";       // selftest | host | client
--        private static String _peer = "127.0.0.1";
--        private static Int32 _port = 49200;
--        private static Int32 _targetField;               // 0 = everywhere (see class comment)
--        private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
--        private static String _sessionCode = "";
--        private static Boolean _insecureTls;
--
--        private const String FallbackGeo = "GEO_MAIN_F0_ZDN";   // worn ONLY when the peer's model can't resolve/load
--
--        private INetTransport _socket;
--        private GameObject _ghost;
--        private Animation _ghostAnim;
--        private String _ghostClip;
--        private UInt16 _ghostModel = UInt16.MaxValue;    // which GEO the ghost currently wears
--        private Renderer[] _ghostRends;                  // the ghost's renderers (the peer's mask applies to these)
--        private Renderer[] _localRends;                  // the LOCAL player's renderers (the outgoing mask reads these)
--        private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
--        private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
--        private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
--
--        // On-screen status overlay -- the user-facing half of session setup: shows the session code +
--        // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
--        // moment the peer's ghost is up (the ghost itself is the "it works" signal).
--        private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4,
--                            OvlPeerElsewhere = 5;
--        private Int32 _ovlState = -1;
--        private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
--        private String _ovlText;
--        private static Texture2D _ovlBg;
--        private static GUIStyle _ovlStyle;
--
--        private Int32 _lastPoll;                         // Environment.TickCount of the last config poll
--
--        // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
--        // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
--        // [Netsync] Enabled=1 (nothing is created while disabled -> zero cost on a normal game), and
--        // applies a live config edit to an already-running client.
--        public static void Ensure()
--        {
--            Boolean changed = LoadConfigIfChanged();
--            if (_instance == null)
--            {
--                if (!_enabled)
--                    return;
--                GameObject go = new GameObject("NetSyncClient");
--                UnityEngine.Object.DontDestroyOnLoad(go);
--                _instance = go.AddComponent<NetSyncClient>();
--            }
--            else if (changed)
--            {
--                _instance.ApplyConfigChange();
--            }
--        }
--
--        // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
--        // parsed values are signature-compared so our own session-code persist never counts as an edit).
--        // Returns true when the EFFECTIVE config changed on a reload (never on the first load). Lets the
--        // coop CLI / Workspace / a hand edit reconfigure a RUNNING game -- no relaunch.
--        private static Boolean LoadConfigIfChanged()
--        {
--            DateTime stamp;
--            try { stamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
--            catch { return false; }               // unreadable right now -> keep the current config
--            if (_configLoaded && stamp == _iniStamp)
--                return false;
--            _iniStamp = stamp;
--            try
--            {
--                IniFile ini = new IniFile(IniFile.MemoriaIniPath);   // Memoria.IniFile: reads ./Memoria.ini
--                Boolean enabled = ini.GetSetting("Netsync", "Enabled", "0").Trim() == "1";
--                String role = ini.GetSetting("Netsync", "Role", "selftest").Trim().ToLowerInvariant();
--                String peer = ini.GetSetting("Netsync", "PeerAddress", "127.0.0.1").Trim();
--                Int32 port = _port, field = _targetField, n;
--                if (Int32.TryParse(ini.GetSetting("Netsync", "Port", "49200"), out n) && n > 0)
--                    port = n;
--                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
--                    field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
--                String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
--                String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
--                Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
--                if (enabled && relayUrl.Length > 0 && code.Length == 0)
--                {
--                    if (role == "host")
--                    {
--                        // The session code is the real access gate on the shared relay (it pairs by opaque
--                        // code): random so a stranger can't guess it, "ff9-" namespaced so it can never
--                        // cross-wire with another game's live session. Generated once, persisted into
--                        // Memoria.ini so it survives relaunches and the host can read it out to the guest.
--                        code = GenerateSessionCode();
--                        PersistSessionCode(code);
--                        try { _iniStamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
--                        catch { }                 // our own write isn't an edit -> don't re-read it next tick
--                        Log.Message("[NetSync] generated session code " + code +
--                                    " (saved to Memoria.ini; the guest must set the SAME SessionCode)");
--                    }
--                    else
--                    {
--                        // An empty code would pair with ANY other empty-code stranger on the relay --
--                        // refuse to connect instead (Update skips transport creation while the code is empty).
--                        Log.Message("[NetSync] SessionCode is empty -- set it to the host's code " +
--                                    "(shown in the host's Memoria.ini after their first launch)");
--                    }
--                }
--                String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
--                             "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
--                Boolean first = !_configLoaded;
--                _configLoaded = true;
--                if (sig == _cfgSig)
--                    return false;                 // e.g. an edit to some OTHER Memoria.ini section
--                _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
--                _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure; _cfgSig = sig;
--                Log.Message("[NetSync] config enabled=" + _enabled + " role=" + _role + " field=" + _targetField +
--                            (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
--                                                  : " peer=" + _peer + ":" + _port));
--                return !first;
--            }
--            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); return false; }
--        }
--
--        // A config edit landed while the game runs: drop the transport (Update lazily redials with the
--        // new settings on the target field), clear the ghost + overlay so nothing carries stale state.
--        // Main thread only (HonoAwake / Update).
--        private void ApplyConfigChange()
--        {
--            Log.Message("[NetSync] config change applied live" +
--                        (_enabled ? " (role=" + _role + (_relayUrl.Length > 0 ? ", relay)" : ", direct)")
--                                  : " (disabled)"));
--            if (_socket != null)
--            {
--                _socket.Stop();
--                _socket = null;
--            }
--            DespawnGhost();
--            _ovlState = -1;
--            _ovlDetail = 0;
--            _ovlText = null;
--        }
--
--        // "ff9-" + 8 random chars from [A-Z0-9]. The relay uppercases codes (pairing is case-insensitive);
--        // ~41 bits of entropy -- plenty for an unguessable rendezvous string.
--        private static String GenerateSessionCode()
--        {
--            const String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
--            Byte[] rnd = Guid.NewGuid().ToByteArray();
--            Char[] code = new Char[8];
--            for (Int32 i = 0; i < code.Length; i++)
--                code[i] = alphabet[rnd[i] % alphabet.Length];
--            return "ff9-" + new String(code);
--        }
--
--        // Write the generated code back into Memoria.ini [Netsync] with a targeted line edit (IniFile has
--        // no disk writer). Replaces an existing SessionCode line in the section, else inserts one right
--        // after the [Netsync] header. Best-effort: any failure just logs (the code still works this launch).
--        private static void PersistSessionCode(String code)
--        {
--            try
--            {
--                String[] lines = System.IO.File.ReadAllLines(IniFile.MemoriaIniPath);
--                System.Collections.Generic.List<String> outLines = new System.Collections.Generic.List<String>(lines.Length + 1);
--                Boolean inSection = false, written = false;
--                foreach (String line in lines)
--                {
--                    String trimmed = line.Trim();
--                    if (trimmed.StartsWith("[", StringComparison.Ordinal))
--                    {
--                        if (inSection && !written)
--                        {
--                            outLines.Add("SessionCode = " + code);   // section ended without the key -> insert
--                            written = true;
--                        }
--                        inSection = trimmed.StartsWith("[Netsync]", StringComparison.OrdinalIgnoreCase);
--                    }
--                    else if (inSection && !written)
--                    {
--                        Int32 eq = line.IndexOf('=');
--                        if (eq > 0 && line.Substring(0, eq).Trim().Equals("SessionCode", StringComparison.OrdinalIgnoreCase))
--                        {
--                            outLines.Add("SessionCode = " + code);
--                            written = true;
--                            continue;
--                        }
--                    }
--                    outLines.Add(line);
--                }
--                if (!written)
--                {
--                    if (!inSection)   // no [Netsync] section at all (shouldn't happen when Enabled=1)
--                        outLines.Add("[Netsync]");
--                    outLines.Add("SessionCode = " + code);
--                }
--                System.IO.File.WriteAllLines(IniFile.MemoriaIniPath, outLines.ToArray());
--            }
--            catch (Exception err)
--            {
--                Log.Error(err, "[NetSync] could not save the session code to Memoria.ini (still active this launch)");
--            }
--        }
--
--        private void Update()
--        {
--            // Live config: notice a Memoria.ini edit (the coop CLI / the Workspace tab / a hand edit)
--            // within ~2s -- one file stat every 2s, main thread. Runs even while disabled, so flipping
--            // co-op back ON applies live too.
--            if (Environment.TickCount - _lastPoll > 2000)
--            {
--                _lastPoll = Environment.TickCount;
--                if (LoadConfigIfChanged())
--                    ApplyConfigChange();
--            }
--            if (!_enabled)
--                return;
--
--            // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
--            // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
--            // players share; > 0 = the original single-hangout-field mode. Any failure reading the
--            // global state (e.g. a scene without it) is treated as "not here" without spamming the log.
--            Int32 fld;
--            EventEngine ee = null;
--            try
--            {
--                fld = FF9StateSystem.Common.FF9.fldMapNo;
--                ee = PersistenSingleton<EventEngine>.Instance;
--            }
--            catch { fld = -1; }
--            Boolean onField = fld > 0 && ee != null && ee.gMode == 1 && ee.fieldmap != null;
--            Boolean inScope = onField && (_targetField <= 0 || fld == _targetField);
--
--            try
--            {
--                if (_role != "host" && _role != "client")
--                {
--                    // "selftest": mirror the local player, offset beside it (solo sanity check)
--                    if (!inScope)
--                    {
--                        DespawnGhost();
--                        SetOverlay(OvlOff);
--                        return;
--                    }
--                    Actor me = ee.GetControlChar() as Actor;
--                    if (me == null || me.fieldMapActor == null)
--                        return;   // player not fully spawned yet this frame
--                    SetOverlay(OvlOff);
--                    EnsureGhost(ee, me.model);           // the mirror wears whoever YOU are walking as
--                    if (_ghost != null)
--                    {
--                        DriveGhost(me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f),
--                                   me.fieldMapActor.transform.localRotation, me.anim);
--                        ApplyGhostMask(LocalMeshMask(me));
--                    }
--                    return;
--                }
--
--                // Real co-op: dial once we've seen any field; the transport then lives for the whole
--                // session (pairing survives doors, menus, battles -- only the ghost comes and goes).
--                if (_socket == null)
--                {
--                    if (!onField)
--                        return;
--                    if (_relayUrl.Length > 0)
--                    {
--                        if (_sessionCode.Length == 0)
--                        {
--                            SetOverlay(OvlNoCode);
--                            return;   // guest without the host's code (see LoadConfig) -- never dial empty
--                        }
--                        _socket = new NetSyncRelay(_relayUrl, _sessionCode, _role == "host" ? "host" : "guest", _insecureTls);
--                    }
--                    else
--                        _socket = new NetSyncSocket(_role == "host", _peer, _port);
--                    _socket.Start();
--                }
--
--                // Broadcast my TRUE location every frame -- including "not on a walkable field" (field 0)
--                // during menus/battle/transitions/out-of-scope. The write loop re-sends the latest packet
--                // as keepalive, so a stale real field id would FREEZE my ghost on the peer's screen after
--                // I leave; the sentinel makes it despawn instead.
--                Actor local = inScope ? ee.GetControlChar() as Actor : null;
--                if (local != null && local.fieldMapActor != null)
--                {
--                    Transform pt = local.fieldMapActor.transform;
--                    _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
--                                     pt.localPosition, pt.localRotation);
--                }
--                else
--                {
--                    _socket.SetLocal(0, 0, 0, 0, Vector3.zero, Quaternion.identity);
--                    local = null;
--                }
--
--                RemoteState rs = _socket.GetRemote();                    // apply the peer
--                if (local != null && rs.Valid && rs.Field == fld)
--                {
--                    SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
--                    EnsureGhost(ee, rs.Model);             // the ghost wears whoever the PEER is walking as
--                    if (_ghost != null)
--                    {
--                        DriveGhost(rs.Pos, rs.Rot, rs.Anim);
--                        ApplyGhostMask(rs.MeshVis);        // the peer's own per-submesh visibility (weapons etc.)
--                    }
--                }
--                else
--                {
--                    DespawnGhost();
--                    if (local == null)
--                        SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
--                    else if (!_socket.IsConnected)
--                        SetOverlay(OvlConnecting);
--                    else if (rs.Valid && rs.Field > 0 && rs.Field != fld)
--                        SetOverlay(OvlPeerElsewhere, rs.Field);          // connected; friend on another screen
--                    else
--                        SetOverlay(OvlWaiting);
--                }
--            }
--            catch (Exception err)
--            {
--                Log.Error(err, "[NetSync] update failed");
--            }
--        }
--
--        private void OnDestroy()
--        {
--            if (_socket != null)
--            {
--                _socket.Stop();
--                _socket = null;
--            }
--        }
--
--        // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
--        private void SetOverlay(Int32 state)
--        {
--            SetOverlay(state, 0);
--        }
--
--        private void SetOverlay(Int32 state, Int32 detail)
--        {
--            if (_role == "selftest")
--                state = OvlOff;                          // dev mode -- no player-facing overlay
--            if (state == _ovlState && detail == _ovlDetail)
--                return;
--            _ovlState = state;
--            _ovlDetail = detail;
--            String code = _sessionCode.Length > 0 ? _sessionCode : "(no code)";
--            switch (state)
--            {
--                case OvlElsewhere:
--                    _ovlText = "FF9 co-op is ON (" + (_role == "host" ? "hosting, code " + code : "joining " + code) +
--                               ")\nmeet your friend:  F6 > Warp to field > " + _targetField;
--                    break;
--                case OvlNoCode:
--                    _ovlText = "FF9 co-op: SessionCode is EMPTY -- nothing to join.\n" +
--                               "Get the host's code, then run:  ff9mapkit coop join <code>";
--                    break;
--                case OvlConnecting:
--                    if (_relayUrl.Length > 0)
--                        _ovlText = "FF9 co-op: connecting to the relay...\n" +
--                                   "If this never clears, the bridge isn't running:  ff9mapkit coop " +
--                                   (_role == "host" ? "host" : "join " + code) + "  (" + _relayUrl + ")";
--                    else if (_role == "host")
--                        _ovlText = "FF9 co-op: waiting for the other player to connect\n" +
--                                   "(direct LAN -- they join your IP, port " + _port + ")";
--                    else
--                        _ovlText = "FF9 co-op: connecting to " + _peer + ":" + _port + " (direct LAN)...";
--                    break;
--                case OvlWaiting:
--                    _ovlText = "FF9 co-op: connected -- waiting for your friend to arrive on this screen\n" +
--                               "session code:  " + code;
--                    break;
--                case OvlPeerElsewhere:
--                    _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
--                               "stand on the same screen to see each other";
--                    break;
--                default:
--                    _ovlText = null;
--                    break;
--            }
--        }
--
--        private void OnGUI()
--        {
--            if (_ovlText == null)
--                return;
--            if (_ovlStyle == null)
--            {
--                _ovlBg = new Texture2D(1, 1, TextureFormat.ARGB32, false);
--                _ovlBg.SetPixel(0, 0, new Color(0.05f, 0.06f, 0.10f, 0.82f));
--                _ovlBg.Apply();
--                _ovlStyle = new GUIStyle(GUI.skin.label);
--                _ovlStyle.fontSize = Mathf.Max(13, Screen.height / 60);
--                _ovlStyle.richText = false;
--                _ovlStyle.normal.textColor = new Color(0.92f, 0.94f, 0.98f, 1f);
--            }
--            GUIContent content = new GUIContent(_ovlText);
--            Vector2 size = _ovlStyle.CalcSize(content);
--            const Single pad = 10f;
--            Rect box = new Rect(Screen.width - size.x - pad * 2f - 16f, 12f, size.x + pad * 2f, size.y + pad * 1.4f);
--            GUI.DrawTexture(box, _ovlBg);
--            GUI.Label(new Rect(box.x + pad, box.y + pad * 0.7f, size.x, size.y), content, _ovlStyle);
--        }
--
--        // Spawn (or RE-DRESS) the ghost as the given GEO model, using AddPlayer's proven model setup
--        // (CreateModel + AddAnim + the field-character shader), but without the controller/FieldMapActor
--        // (see class comment). The peer's model id resolves through FF9BattleDB.GEO exactly like the
--        // event engine spawns actors; the Zidane rig is worn ONLY when the id can't resolve or its assets
--        // are missing (e.g. the peer walks a modded character this install doesn't have).
--        private void EnsureGhost(EventEngine ee, UInt16 model)
--        {
--            if (_ghost != null && _ghostModel == model)
--                return;
--            if (_ghost != null)
--                DespawnGhost();                            // the peer changed character -> re-dress
--            try
--            {
--                String geo;
--                if (!FF9BattleDB.GEO.TryGetValue((Int32)model, out geo) || String.IsNullOrEmpty(geo))
--                    geo = FallbackGeo;
--                GameObject g = ModelFactory.CreateModel(geo, false, true,
--                                                        Configuration.Graphics.ElementsSmoothTexture);
--                if (g == null && geo != FallbackGeo)
--                {
--                    Log.Message("[NetSync] peer model " + geo + " (id " + model + ") didn't load -- ghost falls back to " + FallbackGeo);
--                    geo = FallbackGeo;
--                    g = ModelFactory.CreateModel(geo, false, true, Configuration.Graphics.ElementsSmoothTexture);
--                }
--                if (g == null)
--                {
--                    Log.Message("[NetSync] CreateModel returned null for " + geo);
--                    return;
--                }
--                GeoTexAnim.addTexAnim(g, geo);             // texture anims (blinking etc.) -- engine parity
--                AnimationFactory.AddAnimToGameObject(g, geo);
--                g.name = "NetSyncGhost";
--                g.SetActive(true);                                    // defensive: ensure the model is active
--                g.transform.parent = ee.fieldmap.transform;           // share the field's local frame
--                g.transform.localScale = new Vector3(-1f, -1f, 1f);   // AddPlayer's final scale
--                // Match the controlled player's field-render layer (the field camera's culling mask).
--                Actor lp = ee.GetControlChar() as Actor;
--                if (lp != null && lp.fieldMapActor != null)
--                    SetLayerRecursive(g, lp.fieldMapActor.gameObject.layer);
--
--                Renderer[] renderers = g.GetComponentsInChildren<Renderer>();
--                for (Int32 i = 0; i < renderers.Length; i++)
--                {
--                    Renderer renderer = renderers[i];
--                    // Enable everything at spawn; the peer's OWN per-submesh mask (ApplyGhostMask, each
--                    // frame) then hides whatever they have hidden -- sheathed weapons and all -- without
--                    // this side guessing anything about a rig it may not even know.
--                    renderer.enabled = true;
--                    SkinnedMeshRenderer smr = renderer as SkinnedMeshRenderer;
--                    if (smr != null)
--                    {
--                        // FF9 characters live in far field-world space but are placed on screen by the PSX
--                        // projection IN THE SHADER, so normal frustum culling on the world bounds wrongly
--                        // hides them. Force huge local bounds so the renderer is never culled.
--                        smr.updateWhenOffscreen = false;
--                        smr.localBounds = new Bounds(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
--                    }
--                    foreach (Material material in renderer.materials)
--                    {
--                        material.shader = ShadersLoader.Find(Configuration.Shaders.FieldCharacterShader);
--                        ModelFactory.SetMatFilter(material, Configuration.Graphics.ElementsSmoothTexture);
--                    }
--                }
--                NormalSolver.SmoothCharacterMesh(renderers);
--                _ghost = g;
--                _ghostModel = model;
--                _ghostRends = renderers;
--                _ghostAnim = g.GetComponent<Animation>();
--                if (_ghostAnim != null)
--                    _ghostAnim.wrapMode = WrapMode.Loop;   // default clips to looping
--                _ghostClip = null;
--                _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
--                ApplyGhostLighting(ee, model);             // the field's per-char tint (see the helper)
--                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo);
--            }
--            catch (Exception err)
--            {
--                Log.Error(err, "[NetSync] ghost spawn failed");
--                _ghost = null;
--            }
--        }
--
--        // Field-character LIGHTING (the last cosmetic gap): the engine tints every REGISTERED character
--        // with a flat material _Color each frame -- charClr(model) + lightClr(floor), both from the
--        // field's mapconfig (fldmcf.ff9fieldMCFService computes it into charStateArray; fldchar applies
--        // it) -- but the ghost lives outside the char table (no uid, no walkmesh floor tracking), so it
--        // rendered UNTINTED against lit players. Replicate the same math once at spawn: the GHOST model's
--        // char color + the LOCAL player's floor light (two players on one screen near-always share a
--        // lighting zone; the field default light is the fallback). Same '(char + light) << 3' bytes, same
--        // _Color rgb-only write. Applies to anything spawned around the actor system, not just co-op.
--        private void ApplyGhostLighting(EventEngine ee, UInt16 model)
--        {
--            try
--            {
--                DMSMapConf? mcfPtr = FF9StateSystem.Field.FF9Field.loc.map.mcfPtr;
--                if (mcfPtr == null || _ghostRends == null)
--                    return;
--                DMSMapConf mcf = mcfPtr.Value;
--                DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
--                if (mapChar == null)
--                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
--                if (mapChar == null)
--                    return;
--                DMSMapLight? light = null;
--                DMSMapLight? ladder = null;
--                Actor lp = ee.GetControlChar() as Actor;
--                if (lp != null)
--                {
--                    Int16 floorNo = 0;
--                    light = fldmcf.ff9fieldMCFGetLightByCharFloor(mcf, (Int32)lp.uid, ref floorNo);
--                }
--                if (light == null)
--                    fldmcf.ff9fieldMCFGetLightDefault(mcf, ref light, ref ladder);
--                SByte[] charClr = mapChar.Value.clr;
--                SByte[] lightClr = light != null ? light.Value.clr : new SByte[4];
--                Byte r = (Byte)((Int32)charClr[0] + (Int32)lightClr[0] << 3);   // engine-exact: (char+light)<<3
--                Byte gr = (Byte)((Int32)charClr[1] + (Int32)lightClr[1] << 3);
--                Byte b = (Byte)((Int32)charClr[2] + (Int32)lightClr[2] << 3);
--                for (Int32 i = 0; i < _ghostRends.Length; i++)
--                {
--                    if (_ghostRends[i] == null)
--                        continue;
--                    foreach (Material material in _ghostRends[i].materials)
--                    {
--                        Color32 c = material.GetColor("_Color");   // rgb-only write, alpha kept (fldchar-style)
--                        c.r = r; c.g = gr; c.b = b;
--                        material.SetColor("_Color", c);
--                    }
--                }
--            }
--            catch (Exception err)
--            {
--                Log.Error(err, "[NetSync] ghost lighting failed (ghost stays untinted)");
--            }
--        }
--
--        // My player's per-submesh visibility, as a 16-bit mask (bit i = renderer i enabled). Sent with
--        // every packet so the peer's ghost of ME shows exactly the parts my model shows (weapon draws in
--        // cutscenes included). The renderer array is cached per player GameObject (it changes per field).
--        private UInt16 LocalMeshMask(Actor local)
--        {
--            GameObject owner = local.fieldMapActor.gameObject;
--            if (_localRends == null || !ReferenceEquals(_localRendsOwner, owner))
--            {
--                _localRends = owner.GetComponentsInChildren<Renderer>();
--                _localRendsOwner = owner;
--            }
--            UInt16 mask = 0;
--            for (Int32 i = 0; i < _localRends.Length && i < 16; i++)
--                if (_localRends[i] != null && _localRends[i].enabled)
--                    mask |= (UInt16)(1 << i);
--            return mask;
--        }
--
--        // Apply the peer's mask to the ghost. Same model on both sides -> same renderer order, so the
--        // index-wise mapping is exact. Renderers past bit 15 stay as spawned (no known model needs more).
--        private void ApplyGhostMask(UInt16 mask)
--        {
--            if (_ghostRends == null)
--                return;
--            for (Int32 i = 0; i < _ghostRends.Length && i < 16; i++)
--                if (_ghostRends[i] != null)
--                    _ghostRends[i].enabled = (mask & (1 << i)) != 0;
--        }
--
--        // Position + rotate the ghost and mirror one animation clip (resolved from the FF9 anim id).
--        private void DriveGhost(Vector3 targetPos, Quaternion targetRot, UInt16 animId)
--        {
--            Transform t = _ghost.transform;
--            if (!_ghostPlaced)
--            {
--                t.localPosition = targetPos;      // snap on the first frame (correct initial placement)
--                t.localRotation = targetRot;
--                _ghostPlaced = true;
--            }
--            else
--            {
--                // exponential smoothing toward the latest known state -> hides network jitter/latency
--                Single a = 1f - Mathf.Exp(-LerpRate * Time.deltaTime);
--                t.localPosition = Vector3.Lerp(t.localPosition, targetPos, a);
--                t.localRotation = Quaternion.Slerp(t.localRotation, targetRot, a);
--            }
--            if (_ghostAnim == null)
--                return;
--            String clip = FF9DBAll.AnimationDB.GetValue((Int32)animId);
--            if (String.IsNullOrEmpty(clip) || clip == _ghostClip)
--                return;   // same clip already playing -- don't restart it every frame
--            if (!_ghostAnim.IsPlaying(clip))
--            {
--                AnimationFactory.AddAnimWithAnimatioName(_ghost, clip);
--                AnimationState st = _ghostAnim[clip];
--                if (st != null)
--                    st.wrapMode = WrapMode.Loop;   // locomotion clips loop; Play() alone runs one cycle then freezes
--                _ghostAnim.Play(clip);
--            }
--            _ghostClip = clip;
--        }
--
--        private void DespawnGhost()
--        {
--            if (_ghost != null)
--                UnityEngine.Object.Destroy(_ghost);
--            _ghost = null;
--            _ghostAnim = null;
--            _ghostClip = null;
--            _ghostModel = UInt16.MaxValue;
--            _ghostRends = null;
--        }
--
--        private static void SetLayerRecursive(GameObject go, Int32 layer)
--        {
--            go.layer = layer;
--            foreach (Transform child in go.transform)
--                SetLayerRecursive(child.gameObject, layer);
--        }
--    }
--}
-+using System;
+@@ -1,4 +1,5 @@
+ using System;
 +using Assets.Scripts.Common;   // SceneDirector (the follow-warp fade, same as the F6 warp)
-+using Memoria.Prime;
-+using Memoria.Scripts;   // ShadersLoader
-+using UnityEngine;
-+
-+namespace Memoria.Netsync
-+{
-+    // Persistent co-op "ghost sync" client. Config comes from Memoria.ini [Netsync]:
-+    //   Enabled     = 0 | 1                 master switch; OFF by default (zero footprint on a normal game)
-+    //   Role        = selftest | host | client
-+    //   PeerAddress = <host LAN IP>         (client only; the machine running Role=host)
-+    //   Port        = 49200
-+    //   TargetField = 0                     0/absent = co-op EVERYWHERE (ghosts appear on any screen both
-+    //                                       players share); a field id = only on that one field
+ using Memoria.Prime;
+ using Memoria.Scripts;   // ShadersLoader
+ using UnityEngine;
+@@ -12,6 +13,25 @@ namespace Memoria.Netsync
+     //   Port        = 49200
+     //   TargetField = 0                     0/absent = co-op EVERYWHERE (ghosts appear on any screen both
+     //                                       players share); a field id = only on that one field
 +    //   GuestSlots  = 0                     EXPERIMENTAL battle co-op (B1): bitmask of MY battle party
 +    //                                       slots 0-3 the PEER commands (2 = the second slot). 0 = the
 +    //                                       peer just spectates my battles (B0). See NetSyncBattle.
@@ -2521,64 +1808,38 @@ index a490fdb..09ccd3d 100644
 +    // engine knows NOTHING about plates (mechanism here, policy in the .eb). Never written unless
 +    // Enabled: a vanilla player's save is never touched. Selftest writes the mirror's position, so
 +    // gates with plates 250 units apart are provable solo.
-+    //
-+    //   selftest      spawn a ghost beside the local player, mirroring it -- proves the pipeline solo.
-+    //   host/client   NetSyncSocket carries {field,pos,rot,anim} both ways; each side renders the peer as
-+    //                 a ghost while both are in TargetField. All Unity access is on the main thread here;
-+    //                 the socket only swaps lock-guarded byte slots.
-+    //
-+    // Bootstrapped from HonoluluFieldMain.HonoAwake() via Ensure() (idempotent; only creates the object
-+    // when Enabled). Render setup mirrors FieldMap.AddPlayer() (CreateModel + AddAnim + field-character
-+    // shader) but WITHOUT a FieldMapActorController (it would re-snap the ghost to the walkmesh) or a real
-+    // Actor -- we drive transform.localPosition ourselves, force huge skinned-mesh bounds so the PSX-shader-
-+    // projected model isn't frustum-culled, and apply the PEER's per-submesh visibility mask. The ghost
-+    // wears the peer's own model (FF9BattleDB.GEO id sent on the wire; Zidane is only the fallback).
-+    public sealed class NetSyncClient : MonoBehaviour
-+    {
-+        private static NetSyncClient _instance;
-+
-+        private static Boolean _configLoaded;
-+        private static DateTime _iniStamp;               // Memoria.ini mtime at the last read (hot-reload gate)
-+        private static String _cfgSig = "";              // parsed-value signature (our own code-persist != a change)
-+        private static Boolean _enabled;
-+        private static String _role = "selftest";       // selftest | host | client
-+        private static String _peer = "127.0.0.1";
-+        private static Int32 _port = 49200;
-+        private static Int32 _targetField;               // 0 = everywhere (see class comment)
+     //
+     //   selftest      spawn a ghost beside the local player, mirroring it -- proves the pipeline solo.
+     //   host/client   NetSyncSocket carries {field,pos,rot,anim} both ways; each side renders the peer as
+@@ -36,6 +56,9 @@ namespace Memoria.Netsync
+         private static String _peer = "127.0.0.1";
+         private static Int32 _port = 49200;
+         private static Int32 _targetField;               // 0 = everywhere (see class comment)
 +        private static Int32 _guestSlots;                // battle co-op: party slots the peer commands (class comment)
 +        private static String _ghostAs = "";             // visitor mode: dress the peer's ghost (class comment)
 +        private static Boolean _followHost;              // visitor mode: auto-warp to the peer's field (class comment)
-+        private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
-+        private static String _sessionCode = "";
-+        private static Boolean _insecureTls;
-+
-+        private const String FallbackGeo = "GEO_MAIN_F0_ZDN";   // worn ONLY when the peer's model can't resolve/load
-+
-+        private INetTransport _socket;
-+        private GameObject _ghost;
-+        private Animation _ghostAnim;
-+        private String _ghostClip;
-+        private UInt16 _ghostModel = UInt16.MaxValue;    // which GEO the ghost currently wears
-+        private Renderer[] _ghostRends;                  // the ghost's renderers (the peer's mask applies to these)
-+        private Renderer[] _localRends;                  // the LOCAL player's renderers (the outgoing mask reads these)
-+        private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
-+        private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
-+        private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
+         private static String _relayUrl = "";            // set -> use the WS relay instead of direct TCP
+         private static String _sessionCode = "";
+         private static Boolean _insecureTls;
+@@ -52,12 +75,13 @@ namespace Memoria.Netsync
+         private GameObject _localRendsOwner;             // cache key: refresh when the player object changes
+         private Boolean _ghostPlaced;                    // snap on the first frame, then interpolate
+         private const Single LerpRate = 12f;             // ghost smoothing rate (higher = snappier)
 +        private Int32 _ghostLightTick;                   // last lighting re-apply (the engine re-tints per frame)
-+
-+        // On-screen status overlay -- the user-facing half of session setup: shows the session code +
-+        // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
-+        // moment the peer's ghost is up (the ghost itself is the "it works" signal).
-+        private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4,
+ 
+         // On-screen status overlay -- the user-facing half of session setup: shows the session code +
+         // pairing state IN GAME (nobody digs through Memoria.ini/log mid-session), and disappears the
+         // moment the peer's ghost is up (the ghost itself is the "it works" signal).
+         private const Int32 OvlOff = 0, OvlElsewhere = 1, OvlNoCode = 2, OvlConnecting = 3, OvlWaiting = 4,
+-                            OvlPeerElsewhere = 5;
 +                            OvlPeerElsewhere = 5, OvlFollowing = 6, OvlPeerNoField = 7;
-+        private Int32 _ovlState = -1;
-+        private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
-+        private String _ovlText;
-+        private static Texture2D _ovlBg;
-+        private static GUIStyle _ovlStyle;
-+
-+        private Int32 _lastPoll;                         // Environment.TickCount of the last config poll
-+
+         private Int32 _ovlState = -1;
+         private Int32 _ovlDetail;                        // e.g. the peer's field id (recompose when it changes)
+         private String _ovlText;
+@@ -66,6 +90,31 @@ namespace Memoria.Netsync
+ 
+         private Int32 _lastPoll;                         // Environment.TickCount of the last config poll
+ 
 +        // FOLLOW-HOST warp (visitor mode): auto-warp my game to the peer's field, using the exact F6
 +        // deferred-fade recipe (fade to black, THEN change map, so the destination loads clean).
 +        private const Int32 FollowStableMs = 1200;       // the peer's field id must hold this long (debounce doors)
@@ -2604,27 +1865,13 @@ index a490fdb..09ccd3d 100644
 +        private Boolean _storyProofDone;                 // selftest: log the codec proof once
 +        private const Int32 ExitRampDebounceMs = 3000;   // a relay blip must not yank the guest to Continue
 +
-+        // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
-+        // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
-+        // [Netsync] Enabled=1 (nothing is created while disabled -> zero cost on a normal game), and
-+        // applies a live config edit to an already-running client.
-+        public static void Ensure()
-+        {
-+            Boolean changed = LoadConfigIfChanged();
-+            if (_instance == null)
-+            {
-+                if (!_enabled)
-+                    return;
-+                GameObject go = new GameObject("NetSyncClient");
-+                UnityEngine.Object.DontDestroyOnLoad(go);
-+                _instance = go.AddComponent<NetSyncClient>();
-+            }
-+            else if (changed)
-+            {
-+                _instance.ApplyConfigChange();
-+            }
-+        }
-+
+         // Idempotent bootstrap -- mirrors Ff9mkDebugMenu.Ensure(). Called from HonoAwake on each field
+         // load: (re)reads the config when Memoria.ini changed, creates the DontDestroyOnLoad object when
+         // [Netsync] Enabled=1 (nothing is created while disabled -> zero cost on a normal game), and
+@@ -87,6 +136,39 @@ namespace Memoria.Netsync
+             }
+         }
+ 
 +        // FIELD-LOAD HOOK (called from HonoluluFieldMain right before ee.StartEvents -- i.e. before the
 +        // field's Main_Init reads any GLOB var): a FOLLOWING guest overwrites its gEventGlobal with the
 +        // host's latest snapshot so THIS field stages the HOST's story state ("play the standard game
@@ -2658,29 +1905,13 @@ index a490fdb..09ccd3d 100644
 +            get { return _instance != null && _instance._storyMirroring; }
 +        }
 +
-+        // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
-+        // parsed values are signature-compared so our own session-code persist never counts as an edit).
-+        // Returns true when the EFFECTIVE config changed on a reload (never on the first load). Lets the
-+        // coop CLI / Workspace / a hand edit reconfigure a RUNNING game -- no relaunch.
-+        private static Boolean LoadConfigIfChanged()
-+        {
-+            DateTime stamp;
-+            try { stamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
-+            catch { return false; }               // unreadable right now -> keep the current config
-+            if (_configLoaded && stamp == _iniStamp)
-+                return false;
-+            _iniStamp = stamp;
-+            try
-+            {
-+                IniFile ini = new IniFile(IniFile.MemoriaIniPath);   // Memoria.IniFile: reads ./Memoria.ini
-+                Boolean enabled = ini.GetSetting("Netsync", "Enabled", "0").Trim() == "1";
-+                String role = ini.GetSetting("Netsync", "Role", "selftest").Trim().ToLowerInvariant();
-+                String peer = ini.GetSetting("Netsync", "PeerAddress", "127.0.0.1").Trim();
-+                Int32 port = _port, field = _targetField, n;
-+                if (Int32.TryParse(ini.GetSetting("Netsync", "Port", "49200"), out n) && n > 0)
-+                    port = n;
-+                if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
-+                    field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
+         // HOT-RELOAD: re-read [Netsync] whenever Memoria.ini CHANGES (mtime-gated -- one file stat; the
+         // parsed values are signature-compared so our own session-code persist never counts as an edit).
+         // Returns true when the EFFECTIVE config changed on a reload (never on the first load). Lets the
+@@ -110,6 +192,14 @@ namespace Memoria.Netsync
+                     port = n;
+                 if (Int32.TryParse(ini.GetSetting("Netsync", "TargetField", "0"), out n))
+                     field = n;   // 0 (or absent) = co-op EVERYWHERE; a field id = only on that field
 +                Int32 guestSlots = 0;
 +                if (Int32.TryParse(ini.GetSetting("Netsync", "GuestSlots", "0"), out n))
 +                    guestSlots = n & 0x0F;
@@ -2689,40 +1920,21 @@ index a490fdb..09ccd3d 100644
 +                    guestWait = n;
 +                String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
 +                Boolean followHost = ini.GetSetting("Netsync", "FollowHost", "0").Trim() == "1";
-+                String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
-+                String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
-+                Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
-+                if (enabled && relayUrl.Length > 0 && code.Length == 0)
-+                {
-+                    if (role == "host")
-+                    {
-+                        // The session code is the real access gate on the shared relay (it pairs by opaque
-+                        // code): random so a stranger can't guess it, "ff9-" namespaced so it can never
-+                        // cross-wire with another game's live session. Generated once, persisted into
-+                        // Memoria.ini so it survives relaunches and the host can read it out to the guest.
-+                        code = GenerateSessionCode();
-+                        PersistSessionCode(code);
-+                        try { _iniStamp = System.IO.File.GetLastWriteTimeUtc(IniFile.MemoriaIniPath); }
-+                        catch { }                 // our own write isn't an edit -> don't re-read it next tick
-+                        Log.Message("[NetSync] generated session code " + code +
-+                                    " (saved to Memoria.ini; the guest must set the SAME SessionCode)");
-+                    }
-+                    else
-+                    {
-+                        // An empty code would pair with ANY other empty-code stranger on the relay --
-+                        // refuse to connect instead (Update skips transport creation while the code is empty).
-+                        Log.Message("[NetSync] SessionCode is empty -- set it to the host's code " +
-+                                    "(shown in the host's Memoria.ini after their first launch)");
-+                    }
-+                }
-+                String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
+                 String relayUrl = ini.GetSetting("Netsync", "RelayUrl", "").Trim();
+                 String code = ini.GetSetting("Netsync", "SessionCode", "").Trim();
+                 Boolean insecure = ini.GetSetting("Netsync", "InsecureTls", "0").Trim() == "1";
+@@ -137,14 +227,27 @@ namespace Memoria.Netsync
+                     }
+                 }
+                 String sig = (enabled ? "1" : "0") + "|" + role + "|" + peer + "|" + port + "|" + field +
 +                             "|" + guestSlots + "|" + guestWait + "|" + ghostAs + "|" + (followHost ? "1" : "0") +
-+                             "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
-+                Boolean first = !_configLoaded;
-+                _configLoaded = true;
-+                if (sig == _cfgSig)
-+                    return false;                 // e.g. an edit to some OTHER Memoria.ini section
-+                _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
+                              "|" + relayUrl + "|" + code + "|" + (insecure ? "1" : "0");
+                 Boolean first = !_configLoaded;
+                 _configLoaded = true;
+                 if (sig == _cfgSig)
+                     return false;                 // e.g. an edit to some OTHER Memoria.ini section
+                 _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
+-                _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure; _cfgSig = sig;
 +                _guestSlots = guestSlots; _ghostAs = ghostAs; _followHost = followHost;
 +                _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure;
 +                _cfgSig = sig;
@@ -2733,31 +1945,17 @@ index a490fdb..09ccd3d 100644
 +                NetSyncVisitor.Enabled = _enabled;                                  // the visitor lane's config mirror
 +                NetSyncVisitor.GhostAs = _ghostAs;
 +                NetSyncVisitor.FollowHost = _followHost;
-+                Log.Message("[NetSync] config enabled=" + _enabled + " role=" + _role + " field=" + _targetField +
+                 Log.Message("[NetSync] config enabled=" + _enabled + " role=" + _role + " field=" + _targetField +
 +                            (_guestSlots != 0 ? " guestSlots=" + _guestSlots : "") +
 +                            (_ghostAs.Length > 0 ? " ghostAs=" + _ghostAs : "") +
 +                            (_followHost ? " followHost=1" : "") +
-+                            (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
-+                                                  : " peer=" + _peer + ":" + _port));
-+                return !first;
-+            }
-+            catch (Exception err) { Log.Error(err, "[NetSync] config load failed"); return false; }
-+        }
-+
-+        // A config edit landed while the game runs: drop the transport (Update lazily redials with the
-+        // new settings on the target field), clear the ghost + overlay so nothing carries stale state.
-+        // Main thread only (HonoAwake / Update).
-+        private void ApplyConfigChange()
-+        {
-+            Log.Message("[NetSync] config change applied live" +
-+                        (_enabled ? " (role=" + _role + (_relayUrl.Length > 0 ? ", relay)" : ", direct)")
-+                                  : " (disabled)"));
-+            if (_socket != null)
-+            {
-+                _socket.Stop();
-+                _socket = null;
-+            }
-+            DespawnGhost();
+                             (_relayUrl.Length > 0 ? " relay=" + _relayUrl + " code=" + _sessionCode
+                                                   : " peer=" + _peer + ":" + _port));
+                 return !first;
+@@ -166,11 +269,48 @@ namespace Memoria.Netsync
+                 _socket = null;
+             }
+             DespawnGhost();
 +            NetSyncBattle.Reset();
 +            NetSyncVisitor.SuppressEncounters = false;
 +            WriteCoopCells(0, Vector3.zero);   // incl. the enabled->disabled edge: leave no stale presence
@@ -2768,11 +1966,11 @@ index a490fdb..09ccd3d 100644
 +                _exitRampPending = true;   // deliberate config change ends the session NOW: ramp to the
 +                                           // guest's own autosave at the next safe tick (no debounce);
 +                                           // _storyMirroring stays true so the save-block stays armed
-+            _ovlState = -1;
-+            _ovlDetail = 0;
-+            _ovlText = null;
-+        }
-+
+             _ovlState = -1;
+             _ovlDetail = 0;
+             _ovlText = null;
+         }
+ 
 +        // THE COOP CELLS (see the class comment): peer presence + walkmesh X/Z into gEventGlobal
 +        // bytes 2032-2039, where kit-compiled [[coop]] gates read them as ordinary GLOB vars. The
 +        // Int16 LE byte layout matches EBin.GetVariableValueInternal's byte-offset read exactly.
@@ -2800,77 +1998,13 @@ index a490fdb..09ccd3d 100644
 +            }
 +        }
 +
-+        // "ff9-" + 8 random chars from [A-Z0-9]. The relay uppercases codes (pairing is case-insensitive);
-+        // ~41 bits of entropy -- plenty for an unguessable rendezvous string.
-+        private static String GenerateSessionCode()
-+        {
-+            const String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-+            Byte[] rnd = Guid.NewGuid().ToByteArray();
-+            Char[] code = new Char[8];
-+            for (Int32 i = 0; i < code.Length; i++)
-+                code[i] = alphabet[rnd[i] % alphabet.Length];
-+            return "ff9-" + new String(code);
-+        }
-+
-+        // Write the generated code back into Memoria.ini [Netsync] with a targeted line edit (IniFile has
-+        // no disk writer). Replaces an existing SessionCode line in the section, else inserts one right
-+        // after the [Netsync] header. Best-effort: any failure just logs (the code still works this launch).
-+        private static void PersistSessionCode(String code)
-+        {
-+            try
-+            {
-+                String[] lines = System.IO.File.ReadAllLines(IniFile.MemoriaIniPath);
-+                System.Collections.Generic.List<String> outLines = new System.Collections.Generic.List<String>(lines.Length + 1);
-+                Boolean inSection = false, written = false;
-+                foreach (String line in lines)
-+                {
-+                    String trimmed = line.Trim();
-+                    if (trimmed.StartsWith("[", StringComparison.Ordinal))
-+                    {
-+                        if (inSection && !written)
-+                        {
-+                            outLines.Add("SessionCode = " + code);   // section ended without the key -> insert
-+                            written = true;
-+                        }
-+                        inSection = trimmed.StartsWith("[Netsync]", StringComparison.OrdinalIgnoreCase);
-+                    }
-+                    else if (inSection && !written)
-+                    {
-+                        Int32 eq = line.IndexOf('=');
-+                        if (eq > 0 && line.Substring(0, eq).Trim().Equals("SessionCode", StringComparison.OrdinalIgnoreCase))
-+                        {
-+                            outLines.Add("SessionCode = " + code);
-+                            written = true;
-+                            continue;
-+                        }
-+                    }
-+                    outLines.Add(line);
-+                }
-+                if (!written)
-+                {
-+                    if (!inSection)   // no [Netsync] section at all (shouldn't happen when Enabled=1)
-+                        outLines.Add("[Netsync]");
-+                    outLines.Add("SessionCode = " + code);
-+                }
-+                System.IO.File.WriteAllLines(IniFile.MemoriaIniPath, outLines.ToArray());
-+            }
-+            catch (Exception err)
-+            {
-+                Log.Error(err, "[NetSync] could not save the session code to Memoria.ini (still active this launch)");
-+            }
-+        }
-+
-+        private void Update()
-+        {
-+            // Live config: notice a Memoria.ini edit (the coop CLI / the Workspace tab / a hand edit)
-+            // within ~2s -- one file stat every 2s, main thread. Runs even while disabled, so flipping
-+            // co-op back ON applies live too.
-+            if (Environment.TickCount - _lastPoll > 2000)
-+            {
-+                _lastPoll = Environment.TickCount;
-+                if (LoadConfigIfChanged())
-+                    ApplyConfigChange();
-+            }
+         // "ff9-" + 8 random chars from [A-Z0-9]. The relay uppercases codes (pairing is case-insensitive);
+         // ~41 bits of entropy -- plenty for an unguessable rendezvous string.
+         private static String GenerateSessionCode()
+@@ -242,9 +382,36 @@ namespace Memoria.Netsync
+                 if (LoadConfigIfChanged())
+                     ApplyConfigChange();
+             }
 +
 +            // SESSION EXIT RAMP: a mirrored session that ended must not leave the guest playing the
 +            // host's story at the host's location. Once the guest is free-standing on a FIELD or the
@@ -2896,28 +2030,18 @@ index a490fdb..09ccd3d 100644
 +                    NetSyncState.ExitMirrorToOwnSave();
 +                }
 +            }
-+            if (!_enabled)
-+                return;
-+
+             if (!_enabled)
+                 return;
+ 
 +            ServiceFollowWarp();   // a follow-warp in flight finishes regardless of what else this frame does
 +
-+            // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
-+            // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
-+            // players share; > 0 = the original single-hangout-field mode. Any failure reading the
-+            // global state (e.g. a scene without it) is treated as "not here" without spamming the log.
-+            Int32 fld;
-+            EventEngine ee = null;
-+            try
-+            {
-+                fld = FF9StateSystem.Common.FF9.fldMapNo;
-+                ee = PersistenSingleton<EventEngine>.Instance;
-+            }
-+            catch { fld = -1; }
-+            Boolean onField = fld > 0 && ee != null && ee.gMode == 1 && ee.fieldmap != null;
-+            Boolean inScope = onField && (_targetField <= 0 || fld == _targetField);
-+
-+            try
-+            {
+             // Where am I? A ghost only makes sense standing on a walkable FIELD (gMode 1 -- battle and
+             // the overworld are out of scope). TargetField <= 0 = co-op EVERYWHERE: any screen both
+             // players share; > 0 = the original single-hangout-field mode. Any failure reading the
+@@ -262,25 +429,69 @@ namespace Memoria.Netsync
+ 
+             try
+             {
 +                // STATE-MIRROR session end: if we WERE mirroring the host's story but the session is
 +                // gone, arm the exit ramp -- debounced so a relay blip doesn't yank the guest to
 +                // Continue. "Gone" must include a SILENT peer, not just a downed transport: killing the
@@ -2937,23 +2061,25 @@ index a490fdb..09ccd3d 100644
 +                }
 +                else
 +                    _exitRampSince = 0;
-+                if (_role != "host" && _role != "client")
-+                {
+                 if (_role != "host" && _role != "client")
+                 {
+-                    // "selftest": mirror the local player, offset beside it (solo sanity check)
 +                    // "selftest": mirror the local player, offset beside it (solo sanity check).
 +                    // The battle lane loops back through the full codec here -- entering a battle with
 +                    // GuestSlots set turns this into the solo proof of B0+B1 (see NetSyncBattle).
 +                    NetSyncBattle.SelfTestPump(ee);
-+                    if (!inScope)
-+                    {
-+                        DespawnGhost();
-+                        SetOverlay(OvlOff);
+                     if (!inScope)
+                     {
+                         DespawnGhost();
+                         SetOverlay(OvlOff);
 +                        WriteCoopCells(0, Vector3.zero);
-+                        return;
-+                    }
-+                    Actor me = ee.GetControlChar() as Actor;
-+                    if (me == null || me.fieldMapActor == null)
-+                        return;   // player not fully spawned yet this frame
-+                    SetOverlay(OvlOff);
+                         return;
+                     }
+                     Actor me = ee.GetControlChar() as Actor;
+                     if (me == null || me.fieldMapActor == null)
+                         return;   // player not fully spawned yet this frame
+                     SetOverlay(OvlOff);
+-                    EnsureGhost(ee, me.model);           // the mirror wears whoever YOU are walking as
 +                    if (!_storyProofDone)
 +                    {
 +                        _storyProofDone = true;
@@ -2972,8 +2098,11 @@ index a490fdb..09ccd3d 100644
 +                    Vector3 stMirror = me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f);
 +                    WriteCoopCells(1, stMirror);   // the mirror IS the peer: [[coop]] gates prove solo
 +                    EnsureGhost(ee, stDress != 0 ? stDress : me.model);
-+                    if (_ghost != null)
-+                    {
+                     if (_ghost != null)
+                     {
+-                        DriveGhost(me.fieldMapActor.transform.localPosition + new Vector3(250f, 0f, 0f),
+-                                   me.fieldMapActor.transform.localRotation, me.anim);
+-                        ApplyGhostMask(LocalMeshMask(me));
 +                        UInt16 stAnim = stDress != 0
 +                            ? NetSyncVisitor.LocoAnim(stRig, NetSyncVisitor.ClassifyLoco(me.model, me.anim))
 +                            : me.anim;
@@ -2981,48 +2110,23 @@ index a490fdb..09ccd3d 100644
 +                        if (stDress == 0 || stDress == me.model)
 +                            ApplyGhostMask(LocalMeshMask(me));   // a mask is index-valid only on the SAME model
 +                        ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
-+                    }
-+                    return;
-+                }
-+
-+                // Real co-op: dial once we've seen any field; the transport then lives for the whole
-+                // session (pairing survives doors, menus, battles -- only the ghost comes and goes).
-+                if (_socket == null)
-+                {
-+                    if (!onField)
-+                        return;
-+                    if (_relayUrl.Length > 0)
-+                    {
-+                        if (_sessionCode.Length == 0)
-+                        {
-+                            SetOverlay(OvlNoCode);
-+                            return;   // guest without the host's code (see LoadConfig) -- never dial empty
-+                        }
-+                        _socket = new NetSyncRelay(_relayUrl, _sessionCode, _role == "host" ? "host" : "guest", _insecureTls);
-+                    }
-+                    else
-+                        _socket = new NetSyncSocket(_role == "host", _peer, _port);
-+                    _socket.Start();
-+                }
-+
-+                // Broadcast my TRUE location every frame -- including "not on a walkable field" (field 0)
-+                // during menus/battle/transitions/out-of-scope. The write loop re-sends the latest packet
-+                // as keepalive, so a stale real field id would FREEZE my ghost on the peer's screen after
-+                // I leave; the sentinel makes it despawn instead.
-+                Actor local = inScope ? ee.GetControlChar() as Actor : null;
-+                if (local != null && local.fieldMapActor != null)
-+                {
-+                    Transform pt = local.fieldMapActor.transform;
-+                    _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
+                     }
+                     return;
+                 }
+@@ -314,37 +525,77 @@ namespace Memoria.Netsync
+                 {
+                     Transform pt = local.fieldMapActor.transform;
+                     _socket.SetLocal(fld, local.anim, local.model, LocalMeshMask(local),
 +                                     NetSyncVisitor.ClassifyLoco(local.model, local.anim),
-+                                     pt.localPosition, pt.localRotation);
-+                }
-+                else
-+                {
+                                      pt.localPosition, pt.localRotation);
+                 }
+                 else
+                 {
+-                    _socket.SetLocal(0, 0, 0, 0, Vector3.zero, Quaternion.identity);
 +                    _socket.SetLocal(0, 0, 0, 0, 0, Vector3.zero, Quaternion.identity);
-+                    local = null;
-+                }
-+
+                     local = null;
+                 }
+ 
 +                // HOST: publish my authoritative story state (~7 Hz); a FOLLOWING guest applies it at its
 +                // field-load boundary so its fields render MY world. Host-only + one-way (the guest never
 +                // produces TypeState). SnapshotStory() returns null before event state loads -> stop sending.
@@ -3036,19 +2140,22 @@ index a490fdb..09ccd3d 100644
 +                // (only their battles exist; I assist). Fail-safe by construction: link down -> normal.
 +                NetSyncVisitor.SuppressEncounters = _followHost && _socket.IsConnected;
 +
-+                RemoteState rs = _socket.GetRemote();                    // apply the peer
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
 +                FollowHostTick(rs, fld, onField);                        // visitor mode: chase the peer's field
-+                if (local != null && rs.Valid && rs.Field == fld)
-+                {
-+                    SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
+                 if (local != null && rs.Valid && rs.Field == fld)
+                 {
+                     SetOverlay(OvlOff);                    // paired on this screen -- the ghost IS the status
+-                    EnsureGhost(ee, rs.Model);             // the ghost wears whoever the PEER is walking as
 +                    WriteCoopCells(1, rs.Pos);             // the peer's TRUE position feeds the [[coop]] gates
 +                    // Visitor mode may DRESS the peer's ghost as one of MY party members (the one they
 +                    // command in battle); their rig-neutral loco byte then picks the dressed rig's clip.
 +                    Int32 dressRig;
 +                    UInt16 dressModel = NetSyncVisitor.ResolveDress(_guestSlots, out dressRig);
 +                    EnsureGhost(ee, dressModel != 0 ? dressModel : rs.Model);
-+                    if (_ghost != null)
-+                    {
+                     if (_ghost != null)
+                     {
+-                        DriveGhost(rs.Pos, rs.Rot, rs.Anim);
+-                        ApplyGhostMask(rs.MeshVis);        // the peer's own per-submesh visibility (weapons etc.)
 +                        UInt16 animId = dressModel != 0 ? NetSyncVisitor.LocoAnim(dressRig, rs.Loco) : rs.Anim;
 +                        DriveGhost(rs.Pos, rs.Rot, animId);
 +                        // A mask is index-valid only on the model it was read from -- apply the best one
@@ -3059,46 +2166,39 @@ index a490fdb..09ccd3d 100644
 +                        else if (local != null && dressModel == local.model)
 +                            ApplyGhostMask(LocalMeshMask(local));
 +                        ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
-+                    }
-+                }
-+                else
-+                {
-+                    DespawnGhost();
+                     }
+                 }
+                 else
+                 {
+                     DespawnGhost();
 +                    WriteCoopCells(0, Vector3.zero);       // not paired on this screen -> no presence
-+                    if (local == null)
-+                        SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
-+                    else if (!_socket.IsConnected)
-+                        SetOverlay(OvlConnecting);
+                     if (local == null)
+                         SetOverlay(onField && !inScope ? OvlElsewhere : OvlOff);   // wrong field (targeted mode)
+                     else if (!_socket.IsConnected)
+                         SetOverlay(OvlConnecting);
 +                    else if (_followWarpPending >= 0)
 +                        SetOverlay(OvlFollowing, _followWarpPending);    // following the friend to their field
 +                    else if (rs.Valid && rs.Field > 0 && rs.Field != fld && _followHost &&
 +                             !EventEngineUtils.eventIDToFBGID.ContainsKey(rs.Field))
 +                        SetOverlay(OvlPeerNoField, rs.Field);            // can't follow: field not on this install
-+                    else if (rs.Valid && rs.Field > 0 && rs.Field != fld)
-+                        SetOverlay(OvlPeerElsewhere, rs.Field);          // connected; friend on another screen
+                     else if (rs.Valid && rs.Field > 0 && rs.Field != fld)
+                         SetOverlay(OvlPeerElsewhere, rs.Field);          // connected; friend on another screen
 +                    else if (NetSyncBattle.PeerBattleLive)
 +                        SetOverlay(OvlOff);                // friend is IN BATTLE -- the battle panel is the status
-+                    else
-+                        SetOverlay(OvlWaiting);
-+                }
+                     else
+                         SetOverlay(OvlWaiting);
+                 }
 +
 +                // Battle co-op lanes (B0 spectate + B1 guest commands) -- runs every frame the transport
 +                // lives, in AND out of battle; a no-op when neither side is fighting.
 +                NetSyncBattle.Pump(_socket, ee);
-+            }
-+            catch (Exception err)
-+            {
-+                Log.Error(err, "[NetSync] update failed");
-+            }
-+        }
-+
-+        private void OnDestroy()
-+        {
-+            if (_socket != null)
-+            {
-+                _socket.Stop();
-+                _socket = null;
-+            }
+             }
+             catch (Exception err)
+             {
+@@ -359,6 +610,86 @@ namespace Memoria.Netsync
+                 _socket.Stop();
+                 _socket = null;
+             }
 +            // teardown = the app/object is dying: no autoload here. The disk is already coherent (the
 +            // save gates held all session); the next launch Continues from the pristine autosave.
 +            _storyMirroring = false;
@@ -3179,50 +2279,14 @@ index a490fdb..09ccd3d 100644
 +            {
 +                Log.Error(err, "[NetSync] follow-warp failed");
 +            }
-+        }
-+
-+        // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
-+        private void SetOverlay(Int32 state)
-+        {
-+            SetOverlay(state, 0);
-+        }
-+
-+        private void SetOverlay(Int32 state, Int32 detail)
-+        {
-+            if (_role == "selftest")
-+                state = OvlOff;                          // dev mode -- no player-facing overlay
-+            if (state == _ovlState && detail == _ovlDetail)
-+                return;
-+            _ovlState = state;
-+            _ovlDetail = detail;
-+            String code = _sessionCode.Length > 0 ? _sessionCode : "(no code)";
-+            switch (state)
-+            {
-+                case OvlElsewhere:
-+                    _ovlText = "FF9 co-op is ON (" + (_role == "host" ? "hosting, code " + code : "joining " + code) +
-+                               ")\nmeet your friend:  F6 > Warp to field > " + _targetField;
-+                    break;
-+                case OvlNoCode:
-+                    _ovlText = "FF9 co-op: SessionCode is EMPTY -- nothing to join.\n" +
-+                               "Get the host's code, then run:  ff9mapkit coop join <code>";
-+                    break;
-+                case OvlConnecting:
-+                    if (_relayUrl.Length > 0)
-+                        _ovlText = "FF9 co-op: connecting to the relay...\n" +
-+                                   "If this never clears, the bridge isn't running:  ff9mapkit coop " +
-+                                   (_role == "host" ? "host" : "join " + code) + "  (" + _relayUrl + ")";
-+                    else if (_role == "host")
-+                        _ovlText = "FF9 co-op: waiting for the other player to connect\n" +
-+                                   "(direct LAN -- they join your IP, port " + _port + ")";
-+                    else
-+                        _ovlText = "FF9 co-op: connecting to " + _peer + ":" + _port + " (direct LAN)...";
-+                    break;
-+                case OvlWaiting:
-+                    _ovlText = "FF9 co-op: connected -- waiting for your friend to arrive on this screen\n" +
-+                               "session code:  " + code;
-+                    break;
-+                case OvlPeerElsewhere:
-+                    _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
+         }
+ 
+         // Compose the overlay text once per state (or detail) CHANGE (Update calls this every frame).
+@@ -403,7 +734,14 @@ namespace Memoria.Netsync
+                     break;
+                 case OvlPeerElsewhere:
+                     _ovlText = "FF9 co-op: your friend is on another screen (field " + detail + ")\n" +
+-                               "stand on the same screen to see each other";
 +                               (_followHost ? "following them there..." : "stand on the same screen to see each other");
 +                    break;
 +                case OvlFollowing:
@@ -3231,46 +2295,21 @@ index a490fdb..09ccd3d 100644
 +                case OvlPeerNoField:
 +                    _ovlText = "FF9 co-op: your friend is on field " + detail + ", which this install doesn't have\n" +
 +                               "(a custom field needs its mod on BOTH machines)";
-+                    break;
-+                default:
-+                    _ovlText = null;
-+                    break;
-+            }
-+        }
-+
-+        private void OnGUI()
-+        {
+                     break;
+                 default:
+                     _ovlText = null;
+@@ -413,6 +751,7 @@ namespace Memoria.Netsync
+ 
+         private void OnGUI()
+         {
 +            NetSyncBattle.DrawGUI();   // the battle spectate/assist panel (independent of the status overlay)
-+            if (_ovlText == null)
-+                return;
-+            if (_ovlStyle == null)
-+            {
-+                _ovlBg = new Texture2D(1, 1, TextureFormat.ARGB32, false);
-+                _ovlBg.SetPixel(0, 0, new Color(0.05f, 0.06f, 0.10f, 0.82f));
-+                _ovlBg.Apply();
-+                _ovlStyle = new GUIStyle(GUI.skin.label);
-+                _ovlStyle.fontSize = Mathf.Max(13, Screen.height / 60);
-+                _ovlStyle.richText = false;
-+                _ovlStyle.normal.textColor = new Color(0.92f, 0.94f, 0.98f, 1f);
-+            }
-+            GUIContent content = new GUIContent(_ovlText);
-+            Vector2 size = _ovlStyle.CalcSize(content);
-+            const Single pad = 10f;
-+            Rect box = new Rect(Screen.width - size.x - pad * 2f - 16f, 12f, size.x + pad * 2f, size.y + pad * 1.4f);
-+            GUI.DrawTexture(box, _ovlBg);
-+            GUI.Label(new Rect(box.x + pad, box.y + pad * 0.7f, size.x, size.y), content, _ovlStyle);
-+        }
-+
-+        // Spawn (or RE-DRESS) the ghost as the given GEO model, using AddPlayer's proven model setup
-+        // (CreateModel + AddAnim + the field-character shader), but without the controller/FieldMapActor
-+        // (see class comment). The peer's model id resolves through FF9BattleDB.GEO exactly like the
-+        // event engine spawns actors; the Zidane rig is worn ONLY when the id can't resolve or its assets
-+        // are missing (e.g. the peer walks a modded character this install doesn't have).
-+        private void EnsureGhost(EventEngine ee, UInt16 model)
-+        {
-+            if (_ghost != null && _ghostModel == model)
-+                return;
-+            if (_ghost != null)
+             if (_ovlText == null)
+                 return;
+             if (_ovlStyle == null)
+@@ -443,7 +782,19 @@ namespace Memoria.Netsync
+             if (_ghost != null && _ghostModel == model)
+                 return;
+             if (_ghost != null)
 +            {
 +                // RE-DRESS only while the FIELD HUD owns the screen: a party reorder changes the dress
 +                // target while the MENU is still open, and destroying+recreating the ghost mid-menu
@@ -3282,80 +2321,33 @@ index a490fdb..09ccd3d 100644
 +                        return;
 +                }
 +                catch { }
-+                DespawnGhost();                            // the peer changed character -> re-dress
+                 DespawnGhost();                            // the peer changed character -> re-dress
 +            }
-+            try
-+            {
-+                String geo;
-+                if (!FF9BattleDB.GEO.TryGetValue((Int32)model, out geo) || String.IsNullOrEmpty(geo))
-+                    geo = FallbackGeo;
-+                GameObject g = ModelFactory.CreateModel(geo, false, true,
-+                                                        Configuration.Graphics.ElementsSmoothTexture);
-+                if (g == null && geo != FallbackGeo)
-+                {
-+                    Log.Message("[NetSync] peer model " + geo + " (id " + model + ") didn't load -- ghost falls back to " + FallbackGeo);
-+                    geo = FallbackGeo;
-+                    g = ModelFactory.CreateModel(geo, false, true, Configuration.Graphics.ElementsSmoothTexture);
-+                }
-+                if (g == null)
-+                {
-+                    Log.Message("[NetSync] CreateModel returned null for " + geo);
-+                    return;
-+                }
-+                GeoTexAnim.addTexAnim(g, geo);             // texture anims (blinking etc.) -- engine parity
-+                AnimationFactory.AddAnimToGameObject(g, geo);
-+                g.name = "NetSyncGhost";
-+                g.SetActive(true);                                    // defensive: ensure the model is active
-+                g.transform.parent = ee.fieldmap.transform;           // share the field's local frame
-+                g.transform.localScale = new Vector3(-1f, -1f, 1f);   // AddPlayer's final scale
-+                // Match the controlled player's field-render layer (the field camera's culling mask).
-+                Actor lp = ee.GetControlChar() as Actor;
-+                if (lp != null && lp.fieldMapActor != null)
-+                    SetLayerRecursive(g, lp.fieldMapActor.gameObject.layer);
-+
-+                Renderer[] renderers = g.GetComponentsInChildren<Renderer>();
-+                for (Int32 i = 0; i < renderers.Length; i++)
-+                {
-+                    Renderer renderer = renderers[i];
-+                    // Enable everything at spawn; the peer's OWN per-submesh mask (ApplyGhostMask, each
-+                    // frame) then hides whatever they have hidden -- sheathed weapons and all -- without
-+                    // this side guessing anything about a rig it may not even know.
-+                    renderer.enabled = true;
-+                    SkinnedMeshRenderer smr = renderer as SkinnedMeshRenderer;
-+                    if (smr != null)
-+                    {
-+                        // FF9 characters live in far field-world space but are placed on screen by the PSX
-+                        // projection IN THE SHADER, so normal frustum culling on the world bounds wrongly
-+                        // hides them. Force huge local bounds so the renderer is never culled.
-+                        smr.updateWhenOffscreen = false;
-+                        smr.localBounds = new Bounds(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
-+                    }
-+                    foreach (Material material in renderer.materials)
-+                    {
-+                        material.shader = ShadersLoader.Find(Configuration.Shaders.FieldCharacterShader);
-+                        ModelFactory.SetMatFilter(material, Configuration.Graphics.ElementsSmoothTexture);
-+                    }
-+                }
-+                NormalSolver.SmoothCharacterMesh(renderers);
-+                _ghost = g;
-+                _ghostModel = model;
-+                _ghostRends = renderers;
-+                _ghostAnim = g.GetComponent<Animation>();
-+                if (_ghostAnim != null)
-+                    _ghostAnim.wrapMode = WrapMode.Loop;   // default clips to looping
-+                _ghostClip = null;
-+                _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
-+                ApplyGhostLighting(ee, model);             // the field's per-char tint (see the helper)
+             try
+             {
+                 String geo;
+@@ -506,7 +857,8 @@ namespace Memoria.Netsync
+                 _ghostClip = null;
+                 _ghostPlaced = false;                      // first DriveGhost snaps, then interpolates
+                 ApplyGhostLighting(ee, model);             // the field's per-char tint (see the helper)
+-                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo);
 +                Log.Message("[NetSync] ghost spawned as " + geo + " on field " + FF9StateSystem.Common.FF9.fldMapNo +
 +                            " (ui=" + PersistenSingleton<UIManager>.Instance.State + ")");
-+            }
-+            catch (Exception err)
-+            {
-+                Log.Error(err, "[NetSync] ghost spawn failed");
-+                _ghost = null;
-+            }
-+        }
-+
+             }
+             catch (Exception err)
+             {
+@@ -515,14 +867,27 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // Field-character LIGHTING (the last cosmetic gap): the engine tints every REGISTERED character
+-        // with a flat material _Color each frame -- charClr(model) + lightClr(floor), both from the
+-        // field's mapconfig (fldmcf.ff9fieldMCFService computes it into charStateArray; fldchar applies
+-        // it) -- but the ghost lives outside the char table (no uid, no walkmesh floor tracking), so it
+-        // rendered UNTINTED against lit players. Replicate the same math once at spawn: the GHOST model's
+-        // char color + the LOCAL player's floor light (two players on one screen near-always share a
+-        // lighting zone; the field default light is the fallback). Same '(char + light) << 3' bytes, same
+-        // _Color rgb-only write. Applies to anything spawned around the actor system, not just co-op.
 +        // Field-character LIGHTING: the engine tints every REGISTERED character with a flat material
 +        // _Color EACH FRAME -- charClr(model) + lightClr(floor), both from the field's mapconfig
 +        // (fldmcf.ff9fieldMCFService computes it into charStateArray; fldchar applies it) -- but the
@@ -3377,16 +2369,15 @@ index a490fdb..09ccd3d 100644
 +            ApplyGhostLighting(ee, _ghostModel == UInt16.MaxValue ? (UInt16)0 : _ghostModel);
 +        }
 +
-+        private void ApplyGhostLighting(EventEngine ee, UInt16 model)
-+        {
-+            try
-+            {
-+                DMSMapConf? mcfPtr = FF9StateSystem.Field.FF9Field.loc.map.mcfPtr;
-+                if (mcfPtr == null || _ghostRends == null)
-+                    return;
-+                DMSMapConf mcf = mcfPtr.Value;
+         private void ApplyGhostLighting(EventEngine ee, UInt16 model)
+         {
+             try
+@@ -531,14 +896,21 @@ namespace Memoria.Netsync
+                 if (mcfPtr == null || _ghostRends == null)
+                     return;
+                 DMSMapConf mcf = mcfPtr.Value;
 +                Actor lp = ee.GetControlChar() as Actor;
-+                DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
+                 DMSMapChar? mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)model);
 +                // A DRESSED ghost usually wears a model this field's mapconfig has no entry for (the
 +                // config lists the field's own cast) -- the LOCAL PLAYER's entry is the right stand-in
 +                // (same scene, correct shading; a fellow party member's tint, not the generic default,
@@ -3394,107 +2385,21 @@ index a490fdb..09ccd3d 100644
 +                // lighting").
 +                if (mapChar == null && lp != null)
 +                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, (Int32)lp.model);
-+                if (mapChar == null)
-+                    mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
-+                if (mapChar == null)
-+                    return;
-+                DMSMapLight? light = null;
-+                DMSMapLight? ladder = null;
-+                if (lp != null)
-+                {
-+                    Int16 floorNo = 0;
-+                    light = fldmcf.ff9fieldMCFGetLightByCharFloor(mcf, (Int32)lp.uid, ref floorNo);
-+                }
-+                if (light == null)
-+                    fldmcf.ff9fieldMCFGetLightDefault(mcf, ref light, ref ladder);
-+                SByte[] charClr = mapChar.Value.clr;
-+                SByte[] lightClr = light != null ? light.Value.clr : new SByte[4];
-+                Byte r = (Byte)((Int32)charClr[0] + (Int32)lightClr[0] << 3);   // engine-exact: (char+light)<<3
-+                Byte gr = (Byte)((Int32)charClr[1] + (Int32)lightClr[1] << 3);
-+                Byte b = (Byte)((Int32)charClr[2] + (Int32)lightClr[2] << 3);
-+                for (Int32 i = 0; i < _ghostRends.Length; i++)
-+                {
-+                    if (_ghostRends[i] == null)
-+                        continue;
-+                    foreach (Material material in _ghostRends[i].materials)
-+                    {
-+                        Color32 c = material.GetColor("_Color");   // rgb-only write, alpha kept (fldchar-style)
-+                        c.r = r; c.g = gr; c.b = b;
-+                        material.SetColor("_Color", c);
-+                    }
-+                }
-+            }
-+            catch (Exception err)
-+            {
-+                Log.Error(err, "[NetSync] ghost lighting failed (ghost stays untinted)");
-+            }
-+        }
-+
-+        // My player's per-submesh visibility, as a 16-bit mask (bit i = renderer i enabled). Sent with
-+        // every packet so the peer's ghost of ME shows exactly the parts my model shows (weapon draws in
-+        // cutscenes included). The renderer array is cached per player GameObject (it changes per field).
-+        private UInt16 LocalMeshMask(Actor local)
-+        {
-+            GameObject owner = local.fieldMapActor.gameObject;
-+            if (_localRends == null || !ReferenceEquals(_localRendsOwner, owner))
-+            {
-+                _localRends = owner.GetComponentsInChildren<Renderer>();
-+                _localRendsOwner = owner;
-+            }
-+            UInt16 mask = 0;
-+            for (Int32 i = 0; i < _localRends.Length && i < 16; i++)
-+                if (_localRends[i] != null && _localRends[i].enabled)
-+                    mask |= (UInt16)(1 << i);
-+            return mask;
-+        }
-+
-+        // Apply the peer's mask to the ghost. Same model on both sides -> same renderer order, so the
-+        // index-wise mapping is exact. Renderers past bit 15 stay as spawned (no known model needs more).
-+        private void ApplyGhostMask(UInt16 mask)
-+        {
-+            if (_ghostRends == null)
-+                return;
-+            for (Int32 i = 0; i < _ghostRends.Length && i < 16; i++)
-+                if (_ghostRends[i] != null)
-+                    _ghostRends[i].enabled = (mask & (1 << i)) != 0;
-+        }
-+
-+        // Position + rotate the ghost and mirror one animation clip (resolved from the FF9 anim id).
-+        private void DriveGhost(Vector3 targetPos, Quaternion targetRot, UInt16 animId)
-+        {
-+            Transform t = _ghost.transform;
-+            if (!_ghostPlaced)
-+            {
-+                t.localPosition = targetPos;      // snap on the first frame (correct initial placement)
-+                t.localRotation = targetRot;
-+                _ghostPlaced = true;
-+            }
-+            else
-+            {
-+                // exponential smoothing toward the latest known state -> hides network jitter/latency
-+                Single a = 1f - Mathf.Exp(-LerpRate * Time.deltaTime);
-+                t.localPosition = Vector3.Lerp(t.localPosition, targetPos, a);
-+                t.localRotation = Quaternion.Slerp(t.localRotation, targetRot, a);
-+            }
-+            if (_ghostAnim == null)
-+                return;
-+            String clip = FF9DBAll.AnimationDB.GetValue((Int32)animId);
-+            if (String.IsNullOrEmpty(clip) || clip == _ghostClip)
-+                return;   // same clip already playing -- don't restart it every frame
-+            if (!_ghostAnim.IsPlaying(clip))
-+            {
-+                AnimationFactory.AddAnimWithAnimatioName(_ghost, clip);
-+                AnimationState st = _ghostAnim[clip];
-+                if (st != null)
-+                    st.wrapMode = WrapMode.Loop;   // locomotion clips loop; Play() alone runs one cycle then freezes
-+                _ghostAnim.Play(clip);
-+            }
-+            _ghostClip = clip;
-+        }
-+
-+        private void DespawnGhost()
-+        {
-+            if (_ghost != null)
+                 if (mapChar == null)
+                     mapChar = fldmcf.ff9fieldMCFGetCharByID(mcf, -1);   // the mapconfig's default char entry
+                 if (mapChar == null)
+                     return;
+                 DMSMapLight? light = null;
+                 DMSMapLight? ladder = null;
+-                Actor lp = ee.GetControlChar() as Actor;
+                 if (lp != null)
+                 {
+                     Int16 floorNo = 0;
+@@ -634,7 +1006,31 @@ namespace Memoria.Netsync
+         private void DespawnGhost()
+         {
+             if (_ghost != null)
+-                UnityEngine.Object.Destroy(_ghost);
 +            {
 +                // The ghost's GeoTexAnim is a HonoBehavior -- it self-registered in HonoBehaviorSystem
 +                // at Awake. A raw Destroy() races the system: its Update SWEEPS the behavior list
@@ -3520,24 +2425,12 @@ index a490fdb..09ccd3d 100644
 +                if (!systemOwnsDestroy)
 +                    UnityEngine.Object.Destroy(_ghost);
 +            }
-+            _ghost = null;
-+            _ghostAnim = null;
-+            _ghostClip = null;
-+            _ghostModel = UInt16.MaxValue;
-+            _ghostRends = null;
-+        }
-+
-+        private static void SetLayerRecursive(GameObject go, Int32 layer)
-+        {
-+            go.layer = layer;
-+            foreach (Transform child in go.transform)
-+                SetLayerRecursive(child.gameObject, layer);
-+        }
-+    }
-+}
+             _ghost = null;
+             _ghostAnim = null;
+             _ghostClip = null;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
 new file mode 100644
-index 0000000..3447f53
+index 00000000..3447f53f
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncParty.cs
 @@ -0,0 +1,362 @@
@@ -3904,426 +2797,70 @@ index 0000000..3447f53
 +    }
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
-index 1882591..21bb6fe 100644
+index ae3f5ad4..21bb6fee 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncRelay.cs
-@@ -1,315 +1,360 @@
--using System;
--using System.IO;
--using System.Net.Security;
--using System.Net.Sockets;
--using System.Security.Cryptography;
--using System.Text;
--using System.Threading;
--using Memoria.Prime;
--using UnityEngine;
--
--namespace Memoria.Netsync
--{
--    // Relay transport: a minimal RFC-6455 WebSocket CLIENT that connects to the shared byte-pump relay
--    // (jawn-relay: pairs a "host" + "guest" by session code and forwards binary frames verbatim). This
+@@ -1,4 +1,5 @@
+ using System;
++using System.Collections.Generic;
+ using System.IO;
+ using System.Net.Security;
+ using System.Net.Sockets;
+@@ -12,8 +13,9 @@ namespace Memoria.Netsync
+ {
+     // Relay transport: a minimal RFC-6455 WebSocket CLIENT that connects to the shared byte-pump relay
+     // (jawn-relay: pairs a "host" + "guest" by session code and forwards binary frames verbatim). This
 -    // solves NAT — both players dial OUT to the public relay, no port-forwarding/VPN. Same fixed-size payload
 -    // as NetSyncSocket (reuses NetSyncSocket.Serialize/Deserialize), just wrapped in WS frames.
--    //
--    // URL: <RelayUrl>/sess/<CODE>?role=host|guest   e.g. ws://127.0.0.1:7777  or  wss://relay.example.com
--    // ⚠ ws:// = plaintext (needs a reachable plaintext endpoint or a local ws->wss bridge). wss:// uses
--    //   SslStream, which this old Unity Mono likely CANNOT negotiate (no TLS 1.2) — it will log + retry;
--    //   the supported path from FF9 is ws:// (to a bridge or a LAN/plaintext relay).
--    // ⚠ SessionCode must be UNIQUE to co-op (the relay cross-wires anyone sharing a code) — use "FF9-...".
--    //
--    // All socket I/O on background threads; the game thread only swaps lock-guarded slots (like NetSyncSocket).
--    public sealed class NetSyncRelay : INetTransport
--    {
--        private const String WsGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
--        private const Int32 StaleMs = 2000;
--
--        private readonly Boolean _secure;
--        private readonly String _host;
--        private readonly Int32 _port;
--        private readonly String _path;      // /sess/<CODE>?role=<role>
--        private readonly Boolean _insecureTls;
--
--        private volatile Boolean _running;
--        private volatile Boolean _connected;
--        private Stream _stream;
--        private Thread _thread;
--
--        public Boolean IsConnected { get { return _connected; } }
--
--        private readonly System.Object _lock = new System.Object();
--        private readonly System.Object _writeLock = new System.Object();   // serialize ALL frame writes (writer + pong)
++    // solves NAT — both players dial OUT to the public relay, no port-forwarding/VPN. Same NetSyncWire
++    // frames as NetSyncSocket (whatever NetSyncWire.Version is current, one frame per WS binary message),
++    // just wrapped in WS framing.
+     //
+     // URL: <RelayUrl>/sess/<CODE>?role=host|guest   e.g. ws://127.0.0.1:7777  or  wss://relay.example.com
+     // ⚠ ws:// = plaintext (needs a reachable plaintext endpoint or a local ws->wss bridge). wss:// uses
+@@ -42,9 +44,7 @@ namespace Memoria.Netsync
+ 
+         private readonly System.Object _lock = new System.Object();
+         private readonly System.Object _writeLock = new System.Object();   // serialize ALL frame writes (writer + pong)
 -        private RemoteState _remote;
 -        private Int32 _lastRecvTick;
 -        private Byte[] _localPacket;
--        private UInt32 _maskCtr;
--
--        // relayUrl = scheme://host[:port] ; role = "host" | "guest" ; insecureTls accepts any wss cert.
--        public NetSyncRelay(String relayUrl, String sessionCode, String role, Boolean insecureTls)
--        {
--            _insecureTls = insecureTls;
--            String url = (relayUrl ?? "").Trim();
--            String scheme = "ws";
--            Int32 sep = url.IndexOf("://", StringComparison.Ordinal);
--            if (sep >= 0) { scheme = url.Substring(0, sep).ToLowerInvariant(); url = url.Substring(sep + 3); }
--            _secure = (scheme == "wss");
--            // strip any trailing path the user included; we own the /sess route
--            Int32 slash = url.IndexOf('/');
--            if (slash >= 0) url = url.Substring(0, slash);
--            Int32 colon = url.IndexOf(':');
--            if (colon >= 0)
--            {
--                _host = url.Substring(0, colon);
--                Int32 p; _port = Int32.TryParse(url.Substring(colon + 1), out p) ? p : (_secure ? 443 : 80);
--            }
--            else
--            {
--                _host = url;
--                _port = _secure ? 443 : 80;
--            }
--            String code = Uri.EscapeDataString((sessionCode ?? "").Trim());
--            _path = "/sess/" + code + "?role=" + role;
--            // keepalive sentinel so the peer always receives traffic (field 65535 -> filtered as "not here"),
--            // which keeps the ReceiveTimeout dead-peer detection honest even before we first enter the field.
++        private readonly NetSyncFrames _frames = new NetSyncFrames();
+         private UInt32 _maskCtr;
+ 
+         // relayUrl = scheme://host[:port] ; role = "host" | "guest" ; insecureTls accepts any wss cert.
+@@ -74,7 +74,8 @@ namespace Memoria.Netsync
+             _path = "/sess/" + code + "?role=" + role;
+             // keepalive sentinel so the peer always receives traffic (field 65535 -> filtered as "not here"),
+             // which keeps the ReceiveTimeout dead-peer detection honest even before we first enter the field.
 -            _localPacket = NetSyncSocket.Serialize(65535, 0, 0, 0, Vector3.zero, Quaternion.identity);
--        }
--
--        public void Start()
--        {
--            _running = true;
--            _thread = new Thread(ConnectLoop) { IsBackground = true, Name = "NetSync-relay" };
--            _thread.Start();
--        }
--
--        public void Stop()
--        {
--            _running = false;
--            try { if (_stream != null) _stream.Close(); } catch { }
--        }
--
++            _frames.SetPos(NetSyncWire.BuildFrame(NetSyncWire.TypePos,
++                           NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity)));
+         }
+ 
+         public void Start()
+@@ -90,22 +91,44 @@ namespace Memoria.Netsync
+             try { if (_stream != null) _stream.Close(); } catch { }
+         }
+ 
 -        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
--        {
++        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Byte loco, Vector3 pos, Quaternion rot)
+         {
 -            Byte[] pkt = NetSyncSocket.Serialize(field, anim, model, meshVis, pos, rot);
 -            lock (_lock) { _localPacket = pkt; }
--        }
--
++            _frames.SetPos(NetSyncWire.BuildFrame(NetSyncWire.TypePos,
++                           NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot)));
+         }
+ 
 -        public RemoteState GetRemote()
--        {
++        public void SetLocalBattle(Byte[] payload)
+         {
 -            lock (_lock)
 -            {
 -                if (_remote.Valid && (Environment.TickCount - _lastRecvTick) > StaleMs)
 -                    return new RemoteState { Valid = false };
 -                return _remote;
 -            }
--        }
--
--        private void ConnectLoop()
--        {
--            while (_running)
--            {
--                Socket sock = null;
--                try
--                {
--                    sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
--                    sock.Connect(_host, _port);
--                    sock.NoDelay = true;
--                    // ⚠ MUST out-wait the relay's 60s pairing window: the relay forwards NOTHING until the
--                    // peer joins (and doesn't even read our socket while waiting), so a short timeout here
--                    // makes an unpaired host churn reconnects -- and each reconnect hits "slot taken" because
--                    // the relay hasn't noticed the old conn die. Dead-PAIRED-peer detection stays fast via
--                    // the 30 Hz keepalive + StaleMs; this long timeout only covers silent half-open sockets.
--                    sock.ReceiveTimeout = 75000;
--                    Stream stream = new NetworkStream(sock, true);
--                    if (_secure)
--                    {
--                        SslStream ssl = new SslStream(stream, false, ValidateCert);
--                        ssl.AuthenticateAsClient(_host);   // ⚠ likely fails on old Mono (no TLS 1.2)
--                        stream = ssl;
--                    }
--                    Handshake(stream);
--                    _stream = stream;
--                    _connected = true;
--                    Log.Message("[NetSync] relay connected " + (_secure ? "wss" : "ws") + "://" + _host + ":" + _port + _path);
--                    RunConnection(stream);
--                    Log.Message("[NetSync] relay disconnected; retrying");
--                }
--                catch (Exception err)
--                {
--                    Log.Message("[NetSync] relay connect to " + _host + ":" + _port + " failed (" + err.Message + ")");
--                }
--                finally
--                {
--                    _connected = false;
--                    try { if (sock != null) sock.Close(); } catch { }
--                    lock (_lock) { _remote = new RemoteState { Valid = false }; }
--                }
--                if (_running) Thread.Sleep(2000);
--            }
--        }
--
--        private Boolean ValidateCert(System.Object s, System.Security.Cryptography.X509Certificates.X509Certificate c,
--                                     System.Security.Cryptography.X509Certificates.X509Chain ch, SslPolicyErrors e)
--        {
--            return _insecureTls || e == SslPolicyErrors.None;
--        }
--
--        // --- RFC 6455 opening handshake (client) ---
--        private void Handshake(Stream stream)
--        {
--            Byte[] keyBytes = Guid.NewGuid().ToByteArray();            // 16 bytes, unique per connection
--            String key = Convert.ToBase64String(keyBytes);
--            StringBuilder req = new StringBuilder();
--            req.Append("GET ").Append(_path).Append(" HTTP/1.1\r\n");
--            req.Append("Host: ").Append(_host).Append(_secure ? "" : (":" + _port)).Append("\r\n");
--            req.Append("Upgrade: websocket\r\n");
--            req.Append("Connection: Upgrade\r\n");
--            req.Append("Sec-WebSocket-Key: ").Append(key).Append("\r\n");
--            req.Append("Sec-WebSocket-Version: 13\r\n\r\n");
--            Byte[] reqBytes = Encoding.ASCII.GetBytes(req.ToString());
--            stream.Write(reqBytes, 0, reqBytes.Length);
--            stream.Flush();
--
--            String resp = ReadHttpHeaders(stream);
--            if (resp.IndexOf(" 101", StringComparison.Ordinal) < 0)
--                throw new Exception("relay refused upgrade: " + resp.Split('\r')[0]);
--            String expect;
--            using (SHA1 sha = SHA1.Create())
--                expect = Convert.ToBase64String(sha.ComputeHash(Encoding.ASCII.GetBytes(key + WsGuid)));
--            if (resp.IndexOf(expect, StringComparison.Ordinal) < 0)
--                throw new Exception("relay bad Sec-WebSocket-Accept");
--        }
--
--        private static String ReadHttpHeaders(Stream stream)
--        {
--            // read byte-by-byte until CRLFCRLF (headers are small; avoids over-reading into frame data)
--            StringBuilder sb = new StringBuilder();
--            Int32 state = 0;   // matches \r \n \r \n
--            Byte[] one = new Byte[1];
--            while (state < 4)
--            {
--                Int32 n = stream.Read(one, 0, 1);
--                if (n <= 0) throw new Exception("relay closed during handshake");
--                Char c = (Char)one[0];
--                sb.Append(c);
--                if ((state % 2 == 0 && c == '\r') || (state % 2 == 1 && c == '\n')) state++;
--                else state = (c == '\r') ? 1 : 0;
--                if (sb.Length > 8192) throw new Exception("relay handshake headers too large");
--            }
--            return sb.ToString();
--        }
--
--        private void RunConnection(Stream stream)
--        {
--            Thread writer = new Thread(() => WriteLoop(stream)) { IsBackground = true, Name = "NetSync-relay-write" };
--            writer.Start();
--            try { ReadLoop(stream); }
--            finally { try { stream.Close(); } catch { } }
--        }
--
--        // --- send: client frames MUST be masked (RFC 6455 §5.3) ---
--        private void WriteLoop(Stream stream)
--        {
--            try
--            {
--                while (_running)
--                {
--                    Byte[] pkt;
--                    lock (_lock) { pkt = _localPacket; }
--                    if (pkt != null)
--                        WriteBinaryFrame(stream, pkt);
--                    Thread.Sleep(33);   // ~30 Hz
--                }
--            }
--            catch { /* disconnect -> ReadLoop finally cleans up */ }
--        }
--
--        private void WriteBinaryFrame(Stream stream, Byte[] payload)
--        {
--            Int32 len = payload.Length;                 // always 34 here (< 126)
--            Byte[] mask = new Byte[4];
--            UInt32 m;
--            lock (_lock) { m = unchecked(_maskCtr++ * 2654435761u) ^ (UInt32)Environment.TickCount; }
--            mask[0] = (Byte)(m); mask[1] = (Byte)(m >> 8); mask[2] = (Byte)(m >> 16); mask[3] = (Byte)(m >> 24);
--            Byte[] frame = new Byte[2 + 4 + len];
--            frame[0] = 0x82;                            // FIN + opcode 0x2 (binary)
--            frame[1] = (Byte)(0x80 | len);              // MASK bit + 7-bit length
--            frame[2] = mask[0]; frame[3] = mask[1]; frame[4] = mask[2]; frame[5] = mask[3];
--            for (Int32 i = 0; i < len; i++)
--                frame[6 + i] = (Byte)(payload[i] ^ mask[i & 3]);
--            lock (_writeLock) { stream.Write(frame, 0, frame.Length); stream.Flush(); }
--        }
--
--        // --- receive: server frames are NOT masked; handle binary + ping/close ---
--        private void ReadLoop(Stream stream)
--        {
--            Byte[] hdr = new Byte[2];
--            while (_running)
--            {
--                if (!ReadFull(stream, hdr, 2)) break;
--                Boolean fin = (hdr[0] & 0x80) != 0;
--                Int32 opcode = hdr[0] & 0x0F;
--                Boolean masked = (hdr[1] & 0x80) != 0;
--                Int64 len = hdr[1] & 0x7F;
--                if (len == 126)
--                {
--                    Byte[] ext = new Byte[2]; if (!ReadFull(stream, ext, 2)) break;
--                    len = (ext[0] << 8) | ext[1];
--                }
--                else if (len == 127)
--                {
--                    Byte[] ext = new Byte[8]; if (!ReadFull(stream, ext, 8)) break;
--                    len = 0; for (Int32 i = 0; i < 8; i++) len = (len << 8) | ext[i];
--                }
--                Byte[] mask = null;
--                if (masked) { mask = new Byte[4]; if (!ReadFull(stream, mask, 4)) break; }
--                if (len < 0 || len > 1 << 20) break;    // sanity cap (our payloads are tiny)
--                Byte[] payload = new Byte[(Int32)len];
--                if (len > 0 && !ReadFull(stream, payload, (Int32)len)) break;
--                if (masked && mask != null)
--                    for (Int32 i = 0; i < payload.Length; i++) payload[i] ^= mask[i & 3];
--
--                if (opcode == 0x8) break;               // close
--                if (opcode == 0x9) { WritePong(stream, payload); continue; }   // ping -> pong
--                if (opcode == 0xA) continue;            // pong
--                if ((opcode == 0x2 || opcode == 0x1) && fin && payload.Length == NetSyncSocket.PacketSize)
--                {
--                    RemoteState rs;
--                    if (NetSyncSocket.Deserialize(payload, out rs))
--                        lock (_lock) { _remote = rs; _lastRecvTick = Environment.TickCount; }
--                }
--                // (fragmented / oversized frames ignored -- our own sends are always single PacketSize frames)
--            }
--        }
--
--        private void WritePong(Stream stream, Byte[] appData)
--        {
--            Int32 len = appData != null ? Math.Min(appData.Length, 125) : 0;   // control frames <= 125
--            Byte[] mask = new Byte[4];
--            UInt32 m; lock (_lock) { m = unchecked(_maskCtr++ * 2654435761u); }
--            mask[0] = (Byte)m; mask[1] = (Byte)(m >> 8); mask[2] = (Byte)(m >> 16); mask[3] = (Byte)(m >> 24);
--            Byte[] frame = new Byte[2 + 4 + len];
--            frame[0] = 0x8A;                            // FIN + opcode 0xA (pong)
--            frame[1] = (Byte)(0x80 | len);
--            frame[2] = mask[0]; frame[3] = mask[1]; frame[4] = mask[2]; frame[5] = mask[3];
--            for (Int32 i = 0; i < len; i++) frame[6 + i] = (Byte)(appData[i] ^ mask[i & 3]);
--            try { lock (_writeLock) { stream.Write(frame, 0, frame.Length); stream.Flush(); } } catch { }
--        }
--
--        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
--        {
--            Int32 off = 0;
--            while (off < count)
--            {
--                Int32 n;
--                try { n = stream.Read(buf, off, count - off); }
--                catch { return false; }
--                if (n <= 0) return false;
--                off += n;
--            }
--            return true;
--        }
--    }
--}
-+using System;
-+using System.Collections.Generic;
-+using System.IO;
-+using System.Net.Security;
-+using System.Net.Sockets;
-+using System.Security.Cryptography;
-+using System.Text;
-+using System.Threading;
-+using Memoria.Prime;
-+using UnityEngine;
-+
-+namespace Memoria.Netsync
-+{
-+    // Relay transport: a minimal RFC-6455 WebSocket CLIENT that connects to the shared byte-pump relay
-+    // (jawn-relay: pairs a "host" + "guest" by session code and forwards binary frames verbatim). This
-+    // solves NAT — both players dial OUT to the public relay, no port-forwarding/VPN. Same NetSyncWire
-+    // frames as NetSyncSocket (whatever NetSyncWire.Version is current, one frame per WS binary message),
-+    // just wrapped in WS framing.
-+    //
-+    // URL: <RelayUrl>/sess/<CODE>?role=host|guest   e.g. ws://127.0.0.1:7777  or  wss://relay.example.com
-+    // ⚠ ws:// = plaintext (needs a reachable plaintext endpoint or a local ws->wss bridge). wss:// uses
-+    //   SslStream, which this old Unity Mono likely CANNOT negotiate (no TLS 1.2) — it will log + retry;
-+    //   the supported path from FF9 is ws:// (to a bridge or a LAN/plaintext relay).
-+    // ⚠ SessionCode must be UNIQUE to co-op (the relay cross-wires anyone sharing a code) — use "FF9-...".
-+    //
-+    // All socket I/O on background threads; the game thread only swaps lock-guarded slots (like NetSyncSocket).
-+    public sealed class NetSyncRelay : INetTransport
-+    {
-+        private const String WsGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-+        private const Int32 StaleMs = 2000;
-+
-+        private readonly Boolean _secure;
-+        private readonly String _host;
-+        private readonly Int32 _port;
-+        private readonly String _path;      // /sess/<CODE>?role=<role>
-+        private readonly Boolean _insecureTls;
-+
-+        private volatile Boolean _running;
-+        private volatile Boolean _connected;
-+        private Stream _stream;
-+        private Thread _thread;
-+
-+        public Boolean IsConnected { get { return _connected; } }
-+
-+        private readonly System.Object _lock = new System.Object();
-+        private readonly System.Object _writeLock = new System.Object();   // serialize ALL frame writes (writer + pong)
-+        private readonly NetSyncFrames _frames = new NetSyncFrames();
-+        private UInt32 _maskCtr;
-+
-+        // relayUrl = scheme://host[:port] ; role = "host" | "guest" ; insecureTls accepts any wss cert.
-+        public NetSyncRelay(String relayUrl, String sessionCode, String role, Boolean insecureTls)
-+        {
-+            _insecureTls = insecureTls;
-+            String url = (relayUrl ?? "").Trim();
-+            String scheme = "ws";
-+            Int32 sep = url.IndexOf("://", StringComparison.Ordinal);
-+            if (sep >= 0) { scheme = url.Substring(0, sep).ToLowerInvariant(); url = url.Substring(sep + 3); }
-+            _secure = (scheme == "wss");
-+            // strip any trailing path the user included; we own the /sess route
-+            Int32 slash = url.IndexOf('/');
-+            if (slash >= 0) url = url.Substring(0, slash);
-+            Int32 colon = url.IndexOf(':');
-+            if (colon >= 0)
-+            {
-+                _host = url.Substring(0, colon);
-+                Int32 p; _port = Int32.TryParse(url.Substring(colon + 1), out p) ? p : (_secure ? 443 : 80);
-+            }
-+            else
-+            {
-+                _host = url;
-+                _port = _secure ? 443 : 80;
-+            }
-+            String code = Uri.EscapeDataString((sessionCode ?? "").Trim());
-+            _path = "/sess/" + code + "?role=" + role;
-+            // keepalive sentinel so the peer always receives traffic (field 65535 -> filtered as "not here"),
-+            // which keeps the ReceiveTimeout dead-peer detection honest even before we first enter the field.
-+            _frames.SetPos(NetSyncWire.BuildFrame(NetSyncWire.TypePos,
-+                           NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity)));
-+        }
-+
-+        public void Start()
-+        {
-+            _running = true;
-+            _thread = new Thread(ConnectLoop) { IsBackground = true, Name = "NetSync-relay" };
-+            _thread.Start();
-+        }
-+
-+        public void Stop()
-+        {
-+            _running = false;
-+            try { if (_stream != null) _stream.Close(); } catch { }
-+        }
-+
-+        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Byte loco, Vector3 pos, Quaternion rot)
-+        {
-+            _frames.SetPos(NetSyncWire.BuildFrame(NetSyncWire.TypePos,
-+                           NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot)));
-+        }
-+
-+        public void SetLocalBattle(Byte[] payload)
-+        {
 +            _frames.SetBattle(payload != null ? NetSyncWire.BuildFrame(NetSyncWire.TypeBattle, payload) : null);
 +        }
 +
@@ -4340,8 +2877,8 @@ index 1882591..21bb6fe 100644
 +        public void SetLocalState(Byte[] payload)
 +        {
 +            _frames.SetState(payload != null ? NetSyncWire.BuildFrame(NetSyncWire.TypeState, payload) : null);
-+        }
-+
+         }
+ 
 +        public void SendCommand(Byte[] payload)
 +        {
 +            _frames.EnqueueCommand(NetSyncWire.BuildFrame(NetSyncWire.TypeCommand, payload));
@@ -4354,137 +2891,54 @@ index 1882591..21bb6fe 100644
 +        public Byte[] GetRemoteState() { return _frames.GetState(); }
 +        public Byte[] NextRemoteCommand() { return _frames.NextCommand(); }
 +
-+        private void ConnectLoop()
-+        {
-+            while (_running)
-+            {
-+                Socket sock = null;
-+                try
-+                {
-+                    sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-+                    sock.Connect(_host, _port);
-+                    sock.NoDelay = true;
-+                    // ⚠ MUST out-wait the relay's 60s pairing window: the relay forwards NOTHING until the
-+                    // peer joins (and doesn't even read our socket while waiting), so a short timeout here
-+                    // makes an unpaired host churn reconnects -- and each reconnect hits "slot taken" because
-+                    // the relay hasn't noticed the old conn die. Dead-PAIRED-peer detection stays fast via
-+                    // the 30 Hz keepalive + StaleMs; this long timeout only covers silent half-open sockets.
-+                    sock.ReceiveTimeout = 75000;
-+                    Stream stream = new NetworkStream(sock, true);
-+                    if (_secure)
-+                    {
-+                        SslStream ssl = new SslStream(stream, false, ValidateCert);
-+                        ssl.AuthenticateAsClient(_host);   // ⚠ likely fails on old Mono (no TLS 1.2)
-+                        stream = ssl;
-+                    }
-+                    Handshake(stream);
-+                    _stream = stream;
-+                    _connected = true;
-+                    Log.Message("[NetSync] relay connected " + (_secure ? "wss" : "ws") + "://" + _host + ":" + _port + _path);
-+                    RunConnection(stream);
-+                    Log.Message("[NetSync] relay disconnected; retrying");
-+                }
-+                catch (Exception err)
-+                {
-+                    Log.Message("[NetSync] relay connect to " + _host + ":" + _port + " failed (" + err.Message + ")");
-+                }
-+                finally
-+                {
-+                    _connected = false;
-+                    try { if (sock != null) sock.Close(); } catch { }
+         private void ConnectLoop()
+         {
+             while (_running)
+@@ -144,7 +167,7 @@ namespace Memoria.Netsync
+                 {
+                     _connected = false;
+                     try { if (sock != null) sock.Close(); } catch { }
+-                    lock (_lock) { _remote = new RemoteState { Valid = false }; }
 +                    _frames.ClearRemote();
-+                }
-+                if (_running) Thread.Sleep(2000);
-+            }
-+        }
-+
-+        private Boolean ValidateCert(System.Object s, System.Security.Cryptography.X509Certificates.X509Certificate c,
-+                                     System.Security.Cryptography.X509Certificates.X509Chain ch, SslPolicyErrors e)
-+        {
-+            return _insecureTls || e == SslPolicyErrors.None;
-+        }
-+
-+        // --- RFC 6455 opening handshake (client) ---
-+        private void Handshake(Stream stream)
-+        {
-+            Byte[] keyBytes = Guid.NewGuid().ToByteArray();            // 16 bytes, unique per connection
-+            String key = Convert.ToBase64String(keyBytes);
-+            StringBuilder req = new StringBuilder();
-+            req.Append("GET ").Append(_path).Append(" HTTP/1.1\r\n");
-+            req.Append("Host: ").Append(_host).Append(_secure ? "" : (":" + _port)).Append("\r\n");
-+            req.Append("Upgrade: websocket\r\n");
-+            req.Append("Connection: Upgrade\r\n");
-+            req.Append("Sec-WebSocket-Key: ").Append(key).Append("\r\n");
-+            req.Append("Sec-WebSocket-Version: 13\r\n\r\n");
-+            Byte[] reqBytes = Encoding.ASCII.GetBytes(req.ToString());
-+            stream.Write(reqBytes, 0, reqBytes.Length);
-+            stream.Flush();
-+
-+            String resp = ReadHttpHeaders(stream);
-+            if (resp.IndexOf(" 101", StringComparison.Ordinal) < 0)
-+                throw new Exception("relay refused upgrade: " + resp.Split('\r')[0]);
-+            String expect;
-+            using (SHA1 sha = SHA1.Create())
-+                expect = Convert.ToBase64String(sha.ComputeHash(Encoding.ASCII.GetBytes(key + WsGuid)));
-+            if (resp.IndexOf(expect, StringComparison.Ordinal) < 0)
-+                throw new Exception("relay bad Sec-WebSocket-Accept");
-+        }
-+
-+        private static String ReadHttpHeaders(Stream stream)
-+        {
-+            // read byte-by-byte until CRLFCRLF (headers are small; avoids over-reading into frame data)
-+            StringBuilder sb = new StringBuilder();
-+            Int32 state = 0;   // matches \r \n \r \n
-+            Byte[] one = new Byte[1];
-+            while (state < 4)
-+            {
-+                Int32 n = stream.Read(one, 0, 1);
-+                if (n <= 0) throw new Exception("relay closed during handshake");
-+                Char c = (Char)one[0];
-+                sb.Append(c);
-+                if ((state % 2 == 0 && c == '\r') || (state % 2 == 1 && c == '\n')) state++;
-+                else state = (c == '\r') ? 1 : 0;
-+                if (sb.Length > 8192) throw new Exception("relay handshake headers too large");
-+            }
-+            return sb.ToString();
-+        }
-+
-+        private void RunConnection(Stream stream)
-+        {
-+            Thread writer = new Thread(() => WriteLoop(stream)) { IsBackground = true, Name = "NetSync-relay-write" };
-+            writer.Start();
-+            try { ReadLoop(stream); }
-+            finally { try { stream.Close(); } catch { } }
-+        }
-+
-+        // --- send: client frames MUST be masked (RFC 6455 §5.3) ---
-+        private void WriteLoop(Stream stream)
-+        {
+                 }
+                 if (_running) Thread.Sleep(2000);
+             }
+@@ -212,14 +235,15 @@ namespace Memoria.Netsync
+         // --- send: client frames MUST be masked (RFC 6455 §5.3) ---
+         private void WriteLoop(Stream stream)
+         {
 +            List<Byte[]> due = new List<Byte[]>(8);
-+            try
-+            {
-+                while (_running)
-+                {
+             try
+             {
+                 while (_running)
+                 {
+-                    Byte[] pkt;
+-                    lock (_lock) { pkt = _localPacket; }
+-                    if (pkt != null)
+-                        WriteBinaryFrame(stream, pkt);
 +                    due.Clear();
 +                    _frames.CollectOutgoing(due);
 +                    for (Int32 i = 0; i < due.Count; i++)
 +                        WriteBinaryFrame(stream, due[i]);
-+                    Thread.Sleep(33);   // ~30 Hz
-+                }
-+            }
-+            catch { /* disconnect -> ReadLoop finally cleans up */ }
-+        }
-+
-+        private void WriteBinaryFrame(Stream stream, Byte[] payload)
-+        {
+                     Thread.Sleep(33);   // ~30 Hz
+                 }
+             }
+@@ -228,17 +252,25 @@ namespace Memoria.Netsync
+ 
+         private void WriteBinaryFrame(Stream stream, Byte[] payload)
+         {
+-            Int32 len = payload.Length;                 // always 34 here (< 126)
 +            Int32 len = payload.Length;                 // our frames are tiny (battle state ~400 B max)
-+            Byte[] mask = new Byte[4];
-+            UInt32 m;
-+            lock (_lock) { m = unchecked(_maskCtr++ * 2654435761u) ^ (UInt32)Environment.TickCount; }
-+            mask[0] = (Byte)(m); mask[1] = (Byte)(m >> 8); mask[2] = (Byte)(m >> 16); mask[3] = (Byte)(m >> 24);
+             Byte[] mask = new Byte[4];
+             UInt32 m;
+             lock (_lock) { m = unchecked(_maskCtr++ * 2654435761u) ^ (UInt32)Environment.TickCount; }
+             mask[0] = (Byte)(m); mask[1] = (Byte)(m >> 8); mask[2] = (Byte)(m >> 16); mask[3] = (Byte)(m >> 24);
+-            Byte[] frame = new Byte[2 + 4 + len];
 +            Int32 hdrLen = len < 126 ? 2 : 4;           // 7-bit or 16-bit payload length (we never exceed 64K)
 +            Byte[] frame = new Byte[hdrLen + 4 + len];
-+            frame[0] = 0x82;                            // FIN + opcode 0x2 (binary)
+             frame[0] = 0x82;                            // FIN + opcode 0x2 (binary)
+-            frame[1] = (Byte)(0x80 | len);              // MASK bit + 7-bit length
+-            frame[2] = mask[0]; frame[3] = mask[1]; frame[4] = mask[2]; frame[5] = mask[3];
 +            if (len < 126)
 +                frame[1] = (Byte)(0x80 | len);          // MASK bit + 7-bit length
 +            else
@@ -4494,45 +2948,22 @@ index 1882591..21bb6fe 100644
 +                frame[3] = (Byte)(len & 0xFF);
 +            }
 +            frame[hdrLen] = mask[0]; frame[hdrLen + 1] = mask[1]; frame[hdrLen + 2] = mask[2]; frame[hdrLen + 3] = mask[3];
-+            for (Int32 i = 0; i < len; i++)
+             for (Int32 i = 0; i < len; i++)
+-                frame[6 + i] = (Byte)(payload[i] ^ mask[i & 3]);
 +                frame[hdrLen + 4 + i] = (Byte)(payload[i] ^ mask[i & 3]);
-+            lock (_writeLock) { stream.Write(frame, 0, frame.Length); stream.Flush(); }
-+        }
-+
-+        // --- receive: server frames are NOT masked; handle binary + ping/close ---
-+        private void ReadLoop(Stream stream)
-+        {
-+            Byte[] hdr = new Byte[2];
-+            while (_running)
-+            {
-+                if (!ReadFull(stream, hdr, 2)) break;
-+                Boolean fin = (hdr[0] & 0x80) != 0;
-+                Int32 opcode = hdr[0] & 0x0F;
-+                Boolean masked = (hdr[1] & 0x80) != 0;
-+                Int64 len = hdr[1] & 0x7F;
-+                if (len == 126)
-+                {
-+                    Byte[] ext = new Byte[2]; if (!ReadFull(stream, ext, 2)) break;
-+                    len = (ext[0] << 8) | ext[1];
-+                }
-+                else if (len == 127)
-+                {
-+                    Byte[] ext = new Byte[8]; if (!ReadFull(stream, ext, 8)) break;
-+                    len = 0; for (Int32 i = 0; i < 8; i++) len = (len << 8) | ext[i];
-+                }
-+                Byte[] mask = null;
-+                if (masked) { mask = new Byte[4]; if (!ReadFull(stream, mask, 4)) break; }
-+                if (len < 0 || len > 1 << 20) break;    // sanity cap (our payloads are tiny)
-+                Byte[] payload = new Byte[(Int32)len];
-+                if (len > 0 && !ReadFull(stream, payload, (Int32)len)) break;
-+                if (masked && mask != null)
-+                    for (Int32 i = 0; i < payload.Length; i++) payload[i] ^= mask[i & 3];
-+
-+                if (opcode == 0x8) break;               // close
-+                if (opcode == 0x9) { WritePong(stream, payload); continue; }   // ping -> pong
-+                if (opcode == 0xA) continue;            // pong
+             lock (_writeLock) { stream.Write(frame, 0, frame.Length); stream.Flush(); }
+         }
+ 
+@@ -274,13 +306,26 @@ namespace Memoria.Netsync
+                 if (opcode == 0x8) break;               // close
+                 if (opcode == 0x9) { WritePong(stream, payload); continue; }   // ping -> pong
+                 if (opcode == 0xA) continue;            // pong
+-                if ((opcode == 0x2 || opcode == 0x1) && fin && payload.Length == NetSyncSocket.PacketSize)
 +                if ((opcode == 0x2 || opcode == 0x1) && fin && payload.Length >= NetSyncWire.HeaderSize)
-+                {
+                 {
+-                    RemoteState rs;
+-                    if (NetSyncSocket.Deserialize(payload, out rs))
+-                        lock (_lock) { _remote = rs; _lastRecvTick = Environment.TickCount; }
 +                    // One NetSyncWire frame per WS message. An old-version peer's frames fail the header
 +                    // check (version byte) and are ignored SILENTLY -> that lane just stays stale
 +                    // ("waiting"), the established mixed-versions-don't-sync fail-safe. NOTE: unlike
@@ -4549,344 +2980,50 @@ index 1882591..21bb6fe 100644
 +                            Array.Copy(payload, NetSyncWire.HeaderSize, body, 0, flen);
 +                        _frames.Accept(type, body);
 +                    }
-+                }
+                 }
+-                // (fragmented / oversized frames ignored -- our own sends are always single PacketSize frames)
 +                // (fragmented frames ignored -- our own sends are always single unfragmented frames)
-+            }
-+        }
-+
-+        private void WritePong(Stream stream, Byte[] appData)
-+        {
-+            Int32 len = appData != null ? Math.Min(appData.Length, 125) : 0;   // control frames <= 125
-+            Byte[] mask = new Byte[4];
-+            UInt32 m; lock (_lock) { m = unchecked(_maskCtr++ * 2654435761u); }
-+            mask[0] = (Byte)m; mask[1] = (Byte)(m >> 8); mask[2] = (Byte)(m >> 16); mask[3] = (Byte)(m >> 24);
-+            Byte[] frame = new Byte[2 + 4 + len];
-+            frame[0] = 0x8A;                            // FIN + opcode 0xA (pong)
-+            frame[1] = (Byte)(0x80 | len);
-+            frame[2] = mask[0]; frame[3] = mask[1]; frame[4] = mask[2]; frame[5] = mask[3];
-+            for (Int32 i = 0; i < len; i++) frame[6 + i] = (Byte)(appData[i] ^ mask[i & 3]);
-+            try { lock (_writeLock) { stream.Write(frame, 0, frame.Length); stream.Flush(); } } catch { }
-+        }
-+
-+        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
-+        {
-+            Int32 off = 0;
-+            while (off < count)
-+            {
-+                Int32 n;
-+                try { n = stream.Read(buf, off, count - off); }
-+                catch { return false; }
-+                if (n <= 0) return false;
-+                off += n;
-+            }
-+            return true;
-+        }
-+    }
-+}
+             }
+         }
+ 
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
-index 021eb8a..64900d9 100644
+index 0324aa38..64900d90 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
-@@ -1,259 +1,522 @@
--using System;
--using System.IO;
--using System.Net;
--using System.Net.Sockets;
--using System.Threading;
--using Memoria.Prime;
--using UnityEngine;
--
--namespace Memoria.Netsync
--{
--    // One peer's latest state (plain data; produced on the socket thread, consumed on the game thread).
--    public struct RemoteState
--    {
--        public Boolean Valid;
--        public Int32 Field;    // the peer's current fldMapNo
--        public UInt16 Anim;    // FF9 animation id (GLOBAL -- resolves to a model-specific clip name)
--        public UInt16 Model;   // the peer's GEO model id (their ghost wears what THEY wear)
--        public UInt16 MeshVis; // bitmask of the peer's per-submesh renderer.enabled (their own model's truth)
--        public Vector3 Pos;    // the peer player's transform.localPosition (same field frame -> 1:1)
--        public Quaternion Rot;
--    }
--
--    // Common surface for both transports (direct TCP + relay WebSocket) so NetSyncClient stays
--    // transport-agnostic. Start/Stop may be called from any thread; SetLocal/GetRemote from the game thread.
--    public interface INetTransport
--    {
--        void Start();
--        void Stop();
--        void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot);
--        RemoteState GetRemote();
--        Boolean IsConnected { get; }   // transport link up (peer may still be absent -- see GetRemote)
--    }
--
--    // TCP transport for co-op ghost sync. One side is HOST (listens), the other CLIENT (connects to the
--    // host's LAN IP). Once connected, BOTH sides symmetrically send their own state every tick and receive
--    // the peer's. ALL socket I/O runs on background threads; the game thread only swaps lock-guarded slots
--    // (Unity objects are touched only by NetSyncClient on the main thread). Auto-reconnects on drop, so
--    // relaunching one instance re-pairs. Modeled on Memoria.Test.GameObjectService (proven TCP in-engine).
--    public sealed class NetSyncSocket : INetTransport
--    {
--        private readonly Boolean _isHost;
--        private readonly String _peerAddress;
--        private readonly Int32 _port;
--
--        private volatile Boolean _running;
--        private volatile Boolean _connected;
--        private Socket _conn;
--        private Thread _acceptThread;
--
--        public Boolean IsConnected { get { return _connected; } }
--
--        private readonly System.Object _lock = new System.Object();
--        private RemoteState _remote;      // latest peer state (guarded)
--        private Int32 _lastRecvTick;      // Environment.TickCount of the last received packet (guarded)
--        private Byte[] _localPacket;      // latest local packet to send (guarded)
--
--        private const Int32 StaleMs = 2000;   // no packet for this long -> treat the peer as gone
--
--        public NetSyncSocket(Boolean isHost, String peerAddress, Int32 port)
--        {
--            _isHost = isHost;
--            _peerAddress = peerAddress;
--            _port = port;
--        }
--
--        public void Start()
--        {
--            _running = true;
--            _acceptThread = new Thread(_isHost ? (ThreadStart)HostLoop : ClientLoop)
--            {
--                IsBackground = true,
--                Name = "NetSync-" + (_isHost ? "host" : "client"),
--            };
--            _acceptThread.Start();
--        }
--
--        public void Stop()
--        {
--            _running = false;
--            try { if (_conn != null) _conn.Close(); } catch { }
--        }
--
--        // Game thread: publish my current state (serialized immediately so the caller's Vector3 is copied).
--        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
--        {
--            Byte[] pkt = Serialize(field, anim, model, meshVis, pos, rot);
--            lock (_lock) { _localPacket = pkt; }
--        }
--
--        // Game thread: the peer's latest state, or Valid=false if none / stale (peer left field or dropped).
--        public RemoteState GetRemote()
--        {
--            lock (_lock)
--            {
--                if (_remote.Valid && (Environment.TickCount - _lastRecvTick) > StaleMs)
--                    return new RemoteState { Valid = false };
--                return _remote;
--            }
--        }
--
--        private void HostLoop()
--        {
--            TcpListener listener = null;
--            try
--            {
--                listener = new TcpListener(IPAddress.Any, _port);
--                listener.Start();
--                Log.Message("[NetSync] host listening on port " + _port);
--                while (_running)
--                {
--                    Socket s = listener.AcceptSocket();   // blocks until a client connects
--                    Log.Message("[NetSync] peer connected: " + s.RemoteEndPoint);
--                    HandleConnection(s);
--                    Log.Message("[NetSync] peer disconnected; awaiting reconnect");
--                }
--            }
--            catch (Exception err) { Log.Error(err, "[NetSync] host loop failed"); }
--            finally { try { if (listener != null) listener.Stop(); } catch { } }
--        }
--
--        private void ClientLoop()
--        {
--            while (_running)
--            {
--                try
--                {
--                    Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
--                    s.Connect(_peerAddress, _port);
--                    Log.Message("[NetSync] connected to host " + _peerAddress + ":" + _port);
--                    HandleConnection(s);
--                    Log.Message("[NetSync] lost host; retrying");
--                }
--                catch (Exception err)
--                {
--                    Log.Message("[NetSync] connect to " + _peerAddress + ":" + _port + " failed (" + err.Message + ")");
--                }
--                if (_running) Thread.Sleep(2000);   // retry backoff
--            }
--        }
--
--        // Both roles: run a write thread + a read loop on the connected socket until it drops.
--        private void HandleConnection(Socket s)
--        {
--            s.NoDelay = true;
--            _conn = s;
--            _connected = true;
--            Thread writer = new Thread(() => WriteLoop(s)) { IsBackground = true, Name = "NetSync-write" };
--            writer.Start();
--            try
--            {
--                ReadLoop(s);   // blocks until disconnect/error
--            }
--            finally
--            {
--                _connected = false;
--                try { s.Close(); } catch { }
--                lock (_lock) { _remote = new RemoteState { Valid = false }; }   // clear the peer on drop
--            }
--        }
--
--        private void ReadLoop(Socket s)
--        {
--            Byte[] buf = new Byte[PacketSize];
--            using (NetworkStream stream = new NetworkStream(s, FileAccess.Read, false))
--            {
--                while (_running && s.Connected)
--                {
--                    if (!ReadFull(stream, buf, PacketSize))
--                        break;   // disconnected / error
--                    RemoteState rs;
--                    if (Deserialize(buf, out rs))
--                        lock (_lock) { _remote = rs; _lastRecvTick = Environment.TickCount; }
--                }
--            }
--        }
--
--        private void WriteLoop(Socket s)
--        {
--            try
--            {
--                using (NetworkStream stream = new NetworkStream(s, FileAccess.Write, false))
--                {
--                    while (_running && s.Connected)
--                    {
--                        Byte[] pkt;
--                        lock (_lock) { pkt = _localPacket; }
--                        if (pkt != null)
--                            stream.Write(pkt, 0, pkt.Length);
--                        Thread.Sleep(33);   // ~30 Hz
--                    }
--                }
--            }
--            catch { /* disconnect -> ReadLoop's finally cleans up */ }
--        }
--
--        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
--        {
--            Int32 off = 0;
--            while (off < count)
--            {
--                Int32 n;
--                try { n = stream.Read(buf, off, count - off); }
--                catch { return false; }
--                if (n <= 0) return false;   // graceful close
--                off += n;
--            }
--            return true;
--        }
--
--        // --- wire format v2: magic + version + field(u16) + anim(u16) + model(u16) + meshVis(u16)
--        //     + pos(3f) + rot(4f) = 38 bytes. v1 (34B, no model/meshVis) peers are REJECTED by both the
--        //     length filter and the version byte -> mixed engine versions silently don't sync (fail-safe;
--        //     update both machines together when the wire changes). ---
--        internal const Int32 PacketSize = 38;
--        private const Byte Magic = 0xF9;
--        private const Byte Version = 2;
--
--        internal static Byte[] Serialize(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
--        {
--            Byte[] b = new Byte[PacketSize];
--            using (MemoryStream ms = new MemoryStream(b))
--            using (BinaryWriter bw = new BinaryWriter(ms))
--            {
--                bw.Write(Magic);
--                bw.Write(Version);
--                bw.Write((UInt16)field);
--                bw.Write(anim);
--                bw.Write(model);
--                bw.Write(meshVis);
--                bw.Write(pos.x); bw.Write(pos.y); bw.Write(pos.z);
--                bw.Write(rot.x); bw.Write(rot.y); bw.Write(rot.z); bw.Write(rot.w);
--            }
--            return b;
--        }
--
--        internal static Boolean Deserialize(Byte[] buf, out RemoteState rs)
--        {
--            rs = new RemoteState();
--            if (buf.Length < PacketSize || buf[0] != Magic || buf[1] != Version)
--                return false;
--            using (MemoryStream ms = new MemoryStream(buf))
--            using (BinaryReader br = new BinaryReader(ms))
--            {
--                br.ReadByte();                         // magic
--                br.ReadByte();                         // version
--                rs.Field = br.ReadUInt16();
--                rs.Anim = br.ReadUInt16();
--                rs.Model = br.ReadUInt16();
--                rs.MeshVis = br.ReadUInt16();
--                Single px = br.ReadSingle(), py = br.ReadSingle(), pz = br.ReadSingle();
--                Single rx = br.ReadSingle(), ry = br.ReadSingle(), rz = br.ReadSingle(), rw = br.ReadSingle();
--                rs.Pos = new Vector3(px, py, pz);
--                rs.Rot = new Quaternion(rx, ry, rz, rw);
--                rs.Valid = true;
--                return true;
--            }
--        }
--    }
--}
-+using System;
+@@ -1,4 +1,5 @@
+ using System;
 +using System.Collections.Generic;
-+using System.IO;
-+using System.Net;
-+using System.Net.Sockets;
-+using System.Threading;
-+using Memoria.Prime;
-+using UnityEngine;
-+
-+namespace Memoria.Netsync
-+{
-+    // One peer's latest state (plain data; produced on the socket thread, consumed on the game thread).
-+    public struct RemoteState
-+    {
-+        public Boolean Valid;
-+        public Int32 Field;    // the peer's current fldMapNo
-+        public UInt16 Anim;    // FF9 animation id (GLOBAL -- resolves to a model-specific clip name)
-+        public UInt16 Model;   // the peer's GEO model id (their ghost wears what THEY wear)
-+        public UInt16 MeshVis; // bitmask of the peer's per-submesh renderer.enabled (their own model's truth)
+ using System.IO;
+ using System.Net;
+ using System.Net.Sockets;
+@@ -16,26 +17,310 @@ namespace Memoria.Netsync
+         public UInt16 Anim;    // FF9 animation id (GLOBAL -- resolves to a model-specific clip name)
+         public UInt16 Model;   // the peer's GEO model id (their ghost wears what THEY wear)
+         public UInt16 MeshVis; // bitmask of the peer's per-submesh renderer.enabled (their own model's truth)
 +        public Byte Loco;      // rig-neutral locomotion (0 other, 1 idle, 2 walk, 3 run, 4 turnL, 5 turnR) --
 +                               // classified by the SENDER against its own rig, so a DRESSED ghost (visitor
 +                               // mode) can play the equivalent clip on a different rig
-+        public Vector3 Pos;    // the peer player's transform.localPosition (same field frame -> 1:1)
-+        public Quaternion Rot;
-+    }
-+
-+    // Common surface for both transports (direct TCP + relay WebSocket) so NetSyncClient stays
+         public Vector3 Pos;    // the peer player's transform.localPosition (same field frame -> 1:1)
+         public Quaternion Rot;
+     }
+ 
+     // Common surface for both transports (direct TCP + relay WebSocket) so NetSyncClient stays
+-    // transport-agnostic. Start/Stop may be called from any thread; SetLocal/GetRemote from the game thread.
 +    // transport-agnostic. Start/Stop may be called from any thread; the Set/Get/Send methods from the
 +    // game thread only.
-+    public interface INetTransport
-+    {
-+        void Start();
-+        void Stop();
+     public interface INetTransport
+     {
+         void Start();
+         void Stop();
+-        void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot);
 +        // Latest-slot STATE lanes (the write loop re-sends the newest value as keepalive):
 +        void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Byte loco, Vector3 pos, Quaternion rot);
 +        void SetLocalBattle(Byte[] payload);   // null = not in battle (stop sending)
 +        void SetLocalControl(Byte[] payload);  // null = nothing to declare
 +        void SetLocalRoster(Byte[] payload);   // guest-slot menu data (abilities/items); null = none
 +        void SetLocalState(Byte[] payload);    // HOST->GUEST authoritative story-state snapshot; null = none
-+        RemoteState GetRemote();
+         RemoteState GetRemote();
+-        Boolean IsConnected { get; }   // transport link up (peer may still be absent -- see GetRemote)
 +        Byte[] GetRemoteBattle();              // freshest battle-state payload, or null if absent/stale
 +        Byte[] GetRemoteControl();             // freshest control payload, or null if absent/stale
 +        Byte[] GetRemoteRoster();              // freshest roster payload, or null if absent/stale
@@ -4895,8 +3032,13 @@ index 021eb8a..64900d9 100644
 +        void SendCommand(Byte[] payload);
 +        Byte[] NextRemoteCommand();            // dequeue the next pending command payload, or null
 +        Boolean IsConnected { get; }           // transport link up (peer may still be absent -- see GetRemote)
-+    }
-+
+     }
+ 
+-    // TCP transport for co-op ghost sync. One side is HOST (listens), the other CLIENT (connects to the
+-    // host's LAN IP). Once connected, BOTH sides symmetrically send their own state every tick and receive
+-    // the peer's. ALL socket I/O runs on background threads; the game thread only swaps lock-guarded slots
+-    // (Unity objects are touched only by NetSyncClient on the main thread). Auto-reconnects on drop, so
+-    // relaunching one instance re-pairs. Modeled on Memoria.Test.GameObjectService (proven TCP in-engine).
 +    // --- wire format v6: every message is one FRAME  [magic 0xF9][version 6][type u8][len u16 LE][payload]
 +    //     type 0 = position state (37 B payload: field u16, anim u16, model u16, meshVis u16, loco u8,
 +    //                              pos 3f, rot 4f -- loco = the sender-classified rig-neutral locomotion)
@@ -5170,54 +3312,46 @@ index 021eb8a..64900d9 100644
 +    // the peer's. ALL socket I/O runs on background threads; the game thread only swaps lock-guarded
 +    // frame slots (Unity objects are touched only by NetSyncClient on the main thread). Auto-reconnects
 +    // on drop, so relaunching one instance re-pairs. Modeled on Memoria.Test.GameObjectService.
-+    public sealed class NetSyncSocket : INetTransport
-+    {
-+        private readonly Boolean _isHost;
-+        private readonly String _peerAddress;
-+        private readonly Int32 _port;
-+
-+        private volatile Boolean _running;
-+        private volatile Boolean _connected;
-+        private Socket _conn;
-+        private Thread _acceptThread;
-+
-+        public Boolean IsConnected { get { return _connected; } }
-+
+     public sealed class NetSyncSocket : INetTransport
+     {
+         private readonly Boolean _isHost;
+@@ -49,12 +334,7 @@ namespace Memoria.Netsync
+ 
+         public Boolean IsConnected { get { return _connected; } }
+ 
+-        private readonly System.Object _lock = new System.Object();
+-        private RemoteState _remote;      // latest peer state (guarded)
+-        private Int32 _lastRecvTick;      // Environment.TickCount of the last received packet (guarded)
+-        private Byte[] _localPacket;      // latest local packet to send (guarded)
+-
+-        private const Int32 StaleMs = 2000;   // no packet for this long -> treat the peer as gone
 +        private readonly NetSyncFrames _frames = new NetSyncFrames();
-+
-+        public NetSyncSocket(Boolean isHost, String peerAddress, Int32 port)
-+        {
-+            _isHost = isHost;
-+            _peerAddress = peerAddress;
-+            _port = port;
-+        }
-+
-+        public void Start()
-+        {
-+            _running = true;
-+            _acceptThread = new Thread(_isHost ? (ThreadStart)HostLoop : ClientLoop)
-+            {
-+                IsBackground = true,
-+                Name = "NetSync-" + (_isHost ? "host" : "client"),
-+            };
-+            _acceptThread.Start();
-+        }
-+
-+        public void Stop()
-+        {
-+            _running = false;
-+            try { if (_conn != null) _conn.Close(); } catch { }
-+        }
-+
-+        // Game thread: publish my current state (serialized immediately so the caller's Vector3 is copied).
+ 
+         public NetSyncSocket(Boolean isHost, String peerAddress, Int32 port)
+         {
+@@ -81,23 +361,44 @@ namespace Memoria.Netsync
+         }
+ 
+         // Game thread: publish my current state (serialized immediately so the caller's Vector3 is copied).
+-        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
 +        public void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Byte loco, Vector3 pos, Quaternion rot)
-+        {
+         {
+-            Byte[] pkt = Serialize(field, anim, model, meshVis, pos, rot);
+-            lock (_lock) { _localPacket = pkt; }
 +            _frames.SetPos(NetSyncWire.BuildFrame(NetSyncWire.TypePos,
 +                           NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot)));
-+        }
-+
+         }
+ 
+-        // Game thread: the peer's latest state, or Valid=false if none / stale (peer left field or dropped).
+-        public RemoteState GetRemote()
 +        public void SetLocalBattle(Byte[] payload)
-+        {
+         {
+-            lock (_lock)
+-            {
+-                if (_remote.Valid && (Environment.TickCount - _lastRecvTick) > StaleMs)
+-                    return new RemoteState { Valid = false };
+-                return _remote;
+-            }
 +            _frames.SetBattle(payload != null ? NetSyncWire.BuildFrame(NetSyncWire.TypeBattle, payload) : null);
 +        }
 +
@@ -5229,8 +3363,8 @@ index 021eb8a..64900d9 100644
 +        public void SetLocalRoster(Byte[] payload)
 +        {
 +            _frames.SetRoster(payload != null ? NetSyncWire.BuildFrame(NetSyncWire.TypeRoster, payload) : null);
-+        }
-+
+         }
+ 
 +        public void SetLocalState(Byte[] payload)
 +        {
 +            _frames.SetState(payload != null ? NetSyncWire.BuildFrame(NetSyncWire.TypeState, payload) : null);
@@ -5248,75 +3382,32 @@ index 021eb8a..64900d9 100644
 +        public Byte[] GetRemoteState() { return _frames.GetState(); }
 +        public Byte[] NextRemoteCommand() { return _frames.NextCommand(); }
 +
-+        private void HostLoop()
-+        {
-+            TcpListener listener = null;
-+            try
-+            {
-+                listener = new TcpListener(IPAddress.Any, _port);
-+                listener.Start();
-+                Log.Message("[NetSync] host listening on port " + _port);
-+                while (_running)
-+                {
-+                    Socket s = listener.AcceptSocket();   // blocks until a client connects
-+                    Log.Message("[NetSync] peer connected: " + s.RemoteEndPoint);
-+                    HandleConnection(s);
-+                    Log.Message("[NetSync] peer disconnected; awaiting reconnect");
-+                }
-+            }
-+            catch (Exception err) { Log.Error(err, "[NetSync] host loop failed"); }
-+            finally { try { if (listener != null) listener.Stop(); } catch { } }
-+        }
-+
-+        private void ClientLoop()
-+        {
-+            while (_running)
-+            {
-+                try
-+                {
-+                    Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-+                    s.Connect(_peerAddress, _port);
-+                    Log.Message("[NetSync] connected to host " + _peerAddress + ":" + _port);
-+                    HandleConnection(s);
-+                    Log.Message("[NetSync] lost host; retrying");
-+                }
-+                catch (Exception err)
-+                {
-+                    Log.Message("[NetSync] connect to " + _peerAddress + ":" + _port + " failed (" + err.Message + ")");
-+                }
-+                if (_running) Thread.Sleep(2000);   // retry backoff
-+            }
-+        }
-+
-+        // Both roles: run a write thread + a read loop on the connected socket until it drops.
-+        private void HandleConnection(Socket s)
-+        {
-+            s.NoDelay = true;
-+            _conn = s;
-+            _connected = true;
-+            Thread writer = new Thread(() => WriteLoop(s)) { IsBackground = true, Name = "NetSync-write" };
-+            writer.Start();
-+            try
-+            {
-+                ReadLoop(s);   // blocks until disconnect/error
-+            }
-+            finally
-+            {
-+                _connected = false;
-+                try { s.Close(); } catch { }
+         private void HostLoop()
+         {
+             TcpListener listener = null;
+@@ -154,38 +455,49 @@ namespace Memoria.Netsync
+             {
+                 _connected = false;
+                 try { s.Close(); } catch { }
+-                lock (_lock) { _remote = new RemoteState { Valid = false }; }   // clear the peer on drop
 +                _frames.ClearRemote();   // clear the peer on drop
-+            }
-+        }
-+
-+        private void ReadLoop(Socket s)
-+        {
+             }
+         }
+ 
+         private void ReadLoop(Socket s)
+         {
+-            Byte[] buf = new Byte[PacketSize];
 +            Byte[] hdr = new Byte[NetSyncWire.HeaderSize];
-+            using (NetworkStream stream = new NetworkStream(s, FileAccess.Read, false))
-+            {
-+                while (_running && s.Connected)
-+                {
+             using (NetworkStream stream = new NetworkStream(s, FileAccess.Read, false))
+             {
+                 while (_running && s.Connected)
+                 {
+-                    if (!ReadFull(stream, buf, PacketSize))
 +                    if (!ReadFull(stream, hdr, NetSyncWire.HeaderSize))
-+                        break;   // disconnected / error
+                         break;   // disconnected / error
+-                    RemoteState rs;
+-                    if (Deserialize(buf, out rs))
+-                        lock (_lock) { _remote = rs; _lastRecvTick = Environment.TickCount; }
 +                    Byte type;
 +                    Int32 len;
 +                    if (!NetSyncWire.TryParseHeader(hdr, out type, out len))
@@ -5330,48 +3421,88 @@ index 021eb8a..64900d9 100644
 +                    if (len > 0 && !ReadFull(stream, payload, len))
 +                        break;
 +                    _frames.Accept(type, payload);
-+                }
-+            }
-+        }
-+
-+        private void WriteLoop(Socket s)
-+        {
+                 }
+             }
+         }
+ 
+         private void WriteLoop(Socket s)
+         {
 +            List<Byte[]> due = new List<Byte[]>(8);
-+            try
-+            {
-+                using (NetworkStream stream = new NetworkStream(s, FileAccess.Write, false))
-+                {
-+                    while (_running && s.Connected)
-+                    {
+             try
+             {
+                 using (NetworkStream stream = new NetworkStream(s, FileAccess.Write, false))
+                 {
+                     while (_running && s.Connected)
+                     {
+-                        Byte[] pkt;
+-                        lock (_lock) { pkt = _localPacket; }
+-                        if (pkt != null)
+-                            stream.Write(pkt, 0, pkt.Length);
 +                        due.Clear();
 +                        _frames.CollectOutgoing(due);
 +                        for (Int32 i = 0; i < due.Count; i++)
 +                            stream.Write(due[i], 0, due[i].Length);
-+                        Thread.Sleep(33);   // ~30 Hz
-+                    }
-+                }
-+            }
-+            catch { /* disconnect -> ReadLoop's finally cleans up */ }
-+        }
-+
-+        private static Boolean ReadFull(Stream stream, Byte[] buf, Int32 count)
-+        {
-+            Int32 off = 0;
-+            while (off < count)
-+            {
-+                Int32 n;
-+                try { n = stream.Read(buf, off, count - off); }
-+                catch { return false; }
-+                if (n <= 0) return false;   // graceful close
-+                off += n;
-+            }
-+            return true;
-+        }
-+    }
-+}
+                         Thread.Sleep(33);   // ~30 Hz
+                     }
+                 }
+@@ -206,54 +518,5 @@ namespace Memoria.Netsync
+             }
+             return true;
+         }
+-
+-        // --- wire format v2: magic + version + field(u16) + anim(u16) + model(u16) + meshVis(u16)
+-        //     + pos(3f) + rot(4f) = 38 bytes. v1 (34B, no model/meshVis) peers are REJECTED by both the
+-        //     length filter and the version byte -> mixed engine versions silently don't sync (fail-safe;
+-        //     update both machines together when the wire changes). ---
+-        internal const Int32 PacketSize = 38;
+-        private const Byte Magic = 0xF9;
+-        private const Byte Version = 2;
+-
+-        internal static Byte[] Serialize(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Vector3 pos, Quaternion rot)
+-        {
+-            Byte[] b = new Byte[PacketSize];
+-            using (MemoryStream ms = new MemoryStream(b))
+-            using (BinaryWriter bw = new BinaryWriter(ms))
+-            {
+-                bw.Write(Magic);
+-                bw.Write(Version);
+-                bw.Write((UInt16)field);
+-                bw.Write(anim);
+-                bw.Write(model);
+-                bw.Write(meshVis);
+-                bw.Write(pos.x); bw.Write(pos.y); bw.Write(pos.z);
+-                bw.Write(rot.x); bw.Write(rot.y); bw.Write(rot.z); bw.Write(rot.w);
+-            }
+-            return b;
+-        }
+-
+-        internal static Boolean Deserialize(Byte[] buf, out RemoteState rs)
+-        {
+-            rs = new RemoteState();
+-            if (buf.Length < PacketSize || buf[0] != Magic || buf[1] != Version)
+-                return false;
+-            using (MemoryStream ms = new MemoryStream(buf))
+-            using (BinaryReader br = new BinaryReader(ms))
+-            {
+-                br.ReadByte();                         // magic
+-                br.ReadByte();                         // version
+-                rs.Field = br.ReadUInt16();
+-                rs.Anim = br.ReadUInt16();
+-                rs.Model = br.ReadUInt16();
+-                rs.MeshVis = br.ReadUInt16();
+-                Single px = br.ReadSingle(), py = br.ReadSingle(), pz = br.ReadSingle();
+-                Single rx = br.ReadSingle(), ry = br.ReadSingle(), rz = br.ReadSingle(), rw = br.ReadSingle();
+-                rs.Pos = new Vector3(px, py, pz);
+-                rs.Rot = new Quaternion(rx, ry, rz, rw);
+-                rs.Valid = true;
+-                return true;
+-            }
+-        }
+     }
+ }
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
 new file mode 100644
-index 0000000..ac3e160
+index 00000000..ac3e1607
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
 @@ -0,0 +1,191 @@
@@ -5568,7 +3699,7 @@ index 0000000..ac3e160
 +}
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
 new file mode 100644
-index 0000000..46ca5a7
+index 00000000..46ca5a75
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
 @@ -0,0 +1,152 @@
