@@ -784,4 +784,15 @@ cadence).
   open solo box: `SelfTestOffset = 0,250` (or quoted, both work now) → the mirror moves +z
   within ~2 s. The lesson is the round's leave-intent lesson wearing config clothes: **a knob
   whose natural syntax silently keeps the default is a trap** — and a checklist is code; it can
-  ship bugs.
+  ship bugs. **★ RETEST PASSED same day ("mirror moved south") — the B3.6 solo round is CLOSED**
+  (poison ticks piggyback a later session by design; the visual tick proof was always two-machine).
+
+### s41 EMITTED — the stack closes at s22..s41 (2026-07-16)
+
+`s41-netsync-diorama-polish.patch` (6 files, ~63 KB) captures the whole B3.6 round including the
+leave-intent repair, the mid-swirl-deferral tightening, and the quote-tolerant SelfTestOffset
+parse. Emitted via the proven live-minus-the-change sidestep (the pre-round snapshots were taken
+before the implementation agent ran): forward `git apply` onto the snapshots == live bytes on all
+6 files · GNU `patch -R -p1 --dry-run -F0` clean on the live tree · forward dry-run clean on the
+pre-tree · stored `i/lf w/crlf` like the rest of the stack. Deployed DLL `0537BC580F0D68C7` ==
+base + s22..s41 (the standing FieldMapActorController exclusion unchanged).
