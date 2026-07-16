@@ -312,7 +312,61 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   `btl_list` or they get no texture animation (`BattleTexAnimWatcher.Update`); spawn after
   `CreateBattleRoot` (`:176`) and always pass `isBattle:true` or `ModelFactory.cs:199` silently
   skips parenting.)*
-- **B3.4 — drive the truth.** Type-1 → HP/MP/ATB bars, death poses, trance glows. ~150 ms reconcile.
+- **B3.4 — drive the truth. ★ RECON DONE 2026-07-16** (workflow `wf_9eeb1bc2-c3a`, 13 agents, 4 CONFIRMED /
+  2 CORRECTED / 0 REFUTED; **full verified record = `b34-recon.md`** — read it before building). The
+  distilled design:
+  **THE RESOLUTION PRIMITIVE (C1):** wire Index == the `btl_data` ARRAY SLOT (GetIndex = log2(btl_id);
+  players = COMPACTED party positions 0-3, enemies 4-7 in pattern order — deterministic, no RNG on the
+  identity path; no mid-battle unit creation exists anywhere: summons/multi-part = pre-spawned pattern
+  units relinked with btl_id unchanged). Resolve by DIRECT `btl_data[Index]` + guards (btl_id == 1<<i,
+  side match, player bi.slot_no vs the HOST-compacted NetSyncParty.Slots CharId — never the guest's own
+  party). **NEVER EnumerateBattleUnits** (btl_list is blind to DelCharacter'd units) and **NEVER
+  GetIndex() guest-side** (btl_id==0 → infinite loop). Ready when the boot latch AND
+  `btl_load_status & (LOAD_INITNPC|LOAD_INITCHR)` == both (one BattleLoadLoop frame sets ALL of it).
+  **THE HP WRITE SPLIT (C2, dissolves the logical-vs-raw conflict):** btl_para's ±10000 boss transform
+  is ENEMY-only (bi.player==0) and the IsHpMpFull booster snap is PLAYER-only (bi.player!=0) ⇒
+  **players = raw `Data.cur.hp/cur.mp`** (exact, booster-immune) · **enemies = logical
+  `CurrentHp`/`MaximumHp`** (the inverse of the host's logical sample) · MP raw both · max lane FIRST
+  (CheckPointData clamps cur to max next frame).
+  **DEATH (the pipeline is ungated and self-driving):** wire-dead + no Death status ⇒ raw `cur.hp = 0`
+  ONCE (+ optional same-tick AlterStatus(Death) + one SetDefaultIdle for snappy onset) — CheckPointData
+  applies Death next frame; the POSE comes from btlseq.DispCharacter's anim-END block → SetDefaultIdle
+  (NOT DieSequence — its setMotion is commented out), so up to one idle-cycle latency. Dead stays dead:
+  Death status present ⇒ write NOTHING (idempotent). **REVIVE = HP FIRST, then RemoveStatus(Death)**
+  (the engine's own AutoLife idiom; fail-safe on an aborted tick). A fully-faded enemy (die_seq 6,
+  DelCharacter'd) needs FindBattleUnitUnlimited + a MANUAL tail-safe re-link (**AddCharacter NREs on
+  tail insertion**) + SetDisappear(false,5) + renderer + die_fade_rate from a boot snapshot.
+  **TRANCE:** raw stat.cur Trance bit (**REQUIRED for enemies too** — the glow candidate list builds
+  from CurrentStatus; enable_trance_glow is only the inner key) + `enable_trance_glow`; players' model
+  swap via the STATELESS PROBE `(data.gameObject == data.tranceGo) != wire.InTrance` →
+  btl_vfx.SetTranceModel (corpse-safe, revive-self-healing; C4: Death does NOT strip the bit in a
+  command-less diorama — edge-triggers are fragile, the probe isn't). Never AlterStatus(Trance), never
+  SetTranceModel on enemies (tranceGo null).
+  **ATB (safe to drive):** players only — raw `max.at` then CurrentAtb clamped; menu-wake impossible
+  (AddPlayerToReady's only caller is inside the gated ProcessActiveTime chain). Enemies have no gauge.
+  **R1-R6 — THE RESIDUAL CONTAINMENT SET (ships in the SAME DLL round; R1-R4 are preconditions):**
+  R1 `battle.cs:180` auto-end block on !Active (the last mirrored enemy death → die_seq 5 →
+  DelCharacter → the UNGATED "no enemy left" cascade → btl_result/fades/ManageBattleEnd per frame →
+  VICTORY achievement); R2 `btl_stat.cs:125` player UpdateAbnormalStatus on !Active (save-serialized +
+  fires at diorama BOOT via OrganizePlayerData's status replay — definition-level, a bracket can't
+  undo a live Steam report); R3 `SettingsState.SetTranceFull` on Active (per-frame booster war:
+  AlterStatus→SysTrans→CommandEngine→persistent trance achievement); **R4 the BUMPER-ESCAPE HOLE —
+  LIVE IN THE CURRENT DIORAMA TODAY**: BattleMapDebug runs in UIState.BattleHUD, and after the
+  PHASE_NORMAL command-enable a guest holding L+R bumpers drives btl_sys.CheckEscape → the flee
+  script runs the SIM (gate BattleHUD.Unity's combo or CheckEscape on !Active); R5 the
+  `btl_para.cs:98` IOverloadUnitCheckPointScript dispatch on !Active (the kit's OWN Overload hub runs
+  per frame on mirrored actors — a [deathrules] second-wind would resurrect reconciled deaths; +
+  PARITY LAW: Scripts-DLL parity joins the DLL-version law); R6 (hygiene) AutoSplitterPipe already
+  double-gated by Speedrun config — document only.
+  **WIRING:** ReconcileTick from NetSyncClient.Update right after DioramaTick; data via an internal
+  `NetSyncBattle.TryGetPeerUnits` struct-copy seam; guard ladder Booted+Active → btl_phase ==
+  PHASE_NORMAL exact → the load latch → fresh seq. Laws: trust Alive over HpCur; wire frame missing a
+  known index ⇒ hold last state; NEVER mirror AutoLife/DeathChanger statuses; boosters documented-off
+  (with R3 + raw player writes they stop being load-bearing).
+  **In-game-only residue:** the phase-flipper census (a baked scene MonoBehaviour is invisible to
+  source — the BattleUI precedent), SetTranceModel pose-pop outside a SysTrans, faded-revive
+  shadow/texanim residue, death-pose latency acceptability, and whether the party panel renders bars
+  worth driving.
 - **B3.5 — action playback.** The CalcResult lane → btlseq choreography + the host's numbers.
   Watch `btlseq.cs:498-502` — actors SNAP to `original_pos` at sequence end under isDebug (the most
   visible cosmetic artifact).
