@@ -64,9 +64,9 @@ class BuildDoc(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
-        v = QVBoxLayout(inner)
-        widgets.page_margins(v)                         # the page rung (was a hand-typed 16)
-        v.setSpacing(widgets.SECTION_GAP)               # the rhythm between the raised panels (was 12)
+        v = widgets.page_column(inner)                  # the centred 860 reading column + the page rung +
+        #                                                 the card rhythm. Was a bare QVBoxLayout, so these
+        #                                                 cards stretched to the window (1102px at 1920).
         # THE CROWN, and the answer to the study's OQ#2 ("what is under the lamp on Build & Deploy?").
         # Nothing was: this screen opened straight into "Project file:" with no title at all, six cards
         # deep, and its card titles are 11px overlines -- SMALLER than the 13px body they label. The

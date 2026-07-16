@@ -65,12 +65,10 @@ class CoopDoc(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
-        v = QVBoxLayout(inner)
-        widgets.page_margins(v)             # the page rung (was an asymmetric hand-typed 18/14/18/18)
-        # The gap between cards. The old comment here said "the box borders are gone -- this gap IS the
-        # grouping now", which the card reversal made false: the cards kept their borders, so the gap
-        # separates bounded objects rather than carrying the grouping alone. The value is unchanged.
-        v.setSpacing(widgets.SECTION_GAP)
+        # The centred 860 reading column + the page rung + the card rhythm, in one call. (The gap between
+        # cards lives in page_column now: the cards kept their borders through the card reversal, so that
+        # gap separates bounded objects rather than carrying the grouping alone. The value is unchanged.)
+        v = widgets.page_column(inner)
 
         crown, _ = widgets.nameplate(
             "", "Co-op",

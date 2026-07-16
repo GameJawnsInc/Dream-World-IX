@@ -658,12 +658,43 @@ form docs do not.** Import's cards measure **640 / 1102 / 1136** at a 1920 windo
 now sits in an 1100px card at 3:1 — readable per line, but a narrow ribbon in a wide pane, which is the
 exact failure the shot's own docstring predicted.
 
-**The fix is a page column for the form docs, not a wider hint** — 480 reads 94ch and is back over the
-band. Two things argue the current state is already defensible: the page ALREADY carries a 420px Prose
-(the crown note, approved), so 380 captions make it ONE reading column instead of a mix of 420 and 1100.
-Renders: `evidence/col_before_import.png` vs `col_after_import.png`. **User's call.**
+**✅ RESOLVED — the page column shipped** (see part 6). The fix was the page, not the hint: 480 reads
+94ch and would be back over the band. Renders: `col_before_import.png` → `col_after_import.png` →
+`col_pagecol_import.png`.
 
 *(Note: the user's real prefs sit at `text_scale = 110` — they use CALIBRE. Every probe here PINS the
 scale to 100; a probe that inherits the user's dial reports the wrong rung and I did that once already,
 measuring "12px" captions that were really 13.)*
+
+---
+
+## Round 5, part 6 — the page column
+
+**SHIPPED.** `widgets.page_column()`; the three form docs (build / import / co-op) now build into Home's
+centred 860 reading column instead of a bare layout. 3603 tests.
+
+| window | import (before → after) |
+|---|---|
+| 1920 | `[640, 1102, 1136]` → **`[640, 778, 812]`** |
+| 2560 | stretched → **`[640, 778, 812]`** (stops growing) |
+
+812 = 860 − the 24px page margins each side, so cards land exactly on Home's column; 604 at 1280 and 860
+from 1600 is Home's own documented curve, because it is Home's own geometry.
+
+- **The instinct was wrong and the arithmetic said so.** A 380px hint in an 1102px card reads at 3:1 and
+  looks like a ribbon — but widening the hint to 480 puts it at **94ch, back over the ceiling**. *The hint
+  was never too narrow; the page was too wide.* The app already had the answer and spent it on one screen.
+- **860, the same number**, because a page that is 860 here and 900 there does not have a column — it has
+  two opinions.
+- **Stretch 20, not 4 — a copied SOLUTION, not a copied number.** Home's comment is the receipt: 4:1:1
+  targets 435px at 1280 and is rescued only by a 512px minimumSizeHint propped up by un-word-wrapped
+  labels. **That trap is now LIVE for these docs and was not before** — COLUMN just wrapped every hint on
+  them.
+
+### I checked that I did not cause the horizontal scrollbar
+
+Some docs show one at 1024/1280. Stashing the change and re-measuring gives a **byte-identical** pattern
+before and after (`1024/import=H 1024/build=H 1024/coop=H 1280/import=H 1280/build=- 1280/coop=H
+1600/all=-`). **Pre-existing:** Co-op has a card with a **797px minimum** that refuses to compress. Left
+alone and recorded — a change that merely coincides with a bug is not its cause. Worth a round of its own.
 
