@@ -1,13 +1,22 @@
 # GUI aesthetics — state + next steps
 
-**Branch:** `claude/gui-card-readability-eb5d9f` · **20 commits** · ✅ **MERGED to master 2026-07-15** as
-`5c212e2` · 2911 tests + `--smoke` green on the merged tree.
+**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **MERGED to master** · **3622 tests** + `--smoke` green.
 
-> **⚠ MOSTLY UNPLAYTESTED.** Every judgement in this arc was made from offscreen renders and computed
-> contrast ratios. **Confirmed live: Mist** (user, 2026-07-15: *"Mist looks good"*). **Still unseen:** the
-> hero's signet, and the retuned `accent`/`accent_fg` in dark / nord / solarized-dark / solarized-light —
-> in particular **dark's Deploy button is now dark-ink-on-blue, not white-on-blue** (3.20 → 5.39). That is
-> the most visible unjudged change in the tree. Cheap to close: launch `apps/ff9_workspace.pyw` and look.
+> ## ✅ FULLY PLAYTESTED — 2026-07-16
+>
+> **The standing risk this study carried since round 2 is CLOSED.** Every direction in rounds 2–5 has now
+> been seen in the running app and approved by the user, in stages: *"Mist looks good"* → *"fonts look much
+> better"* (QUARTO P1 + RUBRIC) → *"i validated all the standing debt"* (CALIBRE, QUARTO P3, the badge,
+> the spine cut, PLINTH) → *"looks good"* (COLUMN, the page column, DICTION, QUARTO P2, HEED) →
+> *"playtested, all good"* (KEYLINE, the Co-op card, the Info Hub).
+>
+> **What that costs a reader: nothing here is now a guess about the screen.** Every number below was
+> measured; every look-judgement was made by a human at the real app. Where a claim is still derived rather
+> than seen, it says so at its own site.
+>
+> **What it does NOT retire:** the instrument laws. The renders were right and the *probes* were wrong six
+> separate times this round — see "the instrument lessons" below. Playtesting confirms the result; it does
+> not make the measurements trustworthy retroactively.
 
 **Merge, as it actually went.** Master moved ~10 commits ahead (overworld/beach work) while this ran. The
 earlier claim of *zero* file overlap went **stale before landing** — `CLAUDE.md` ended up touched by both
@@ -352,7 +361,9 @@ optimized to refute will converge on correctness and never on beauty.**
 
 **SHIPPED: QUARTO P1 + RUBRIC.** The hint rung 11 -> 12, the body 13 -> 14 (paid for with `tb_space`
 6 -> 4), the `forms_qt.py:98` pin 16 -> 18, and `role="cardtitle"` so a card's title stops being the
-size and colour of its own footnotes. 3583 tests. **Still unplaytested, like everything since Mist.**
+size and colour of its own footnotes. 3583 tests. *(Playtest status as of writing: unseen. Confirmed
+live shortly after — "fonts look much better". The header is the authority; these per-round lines record
+the state at the time they were written.)*
 
 ### THE SIMULATED-MECHANISM LAW (the one worth carrying out of this round)
 
@@ -612,7 +623,7 @@ describing 1 of its 3 strings. Rewritten to say what is true — and to name the
 (125ch at 1280 → 388 at 2560). That is COLUMN, unbuilt, and now the largest un-taken readability win here.
 
 **The user cleared ALL standing playtest debt before this landed** (CALIBRE, QUARTO P3, the badge bump, the
-spine cut, PLINTH — all validated live). GAUGE itself is unplaytested, though invisible at 100% by
+spine cut, PLINTH — all validated live). GAUGE was unplaytested as of writing, and is invisible at 100% by
 construction.
 
 ---
