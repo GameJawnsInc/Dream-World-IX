@@ -127,9 +127,7 @@ class ModelsDoc(QWidget):
         self.d_facts = QLabel("")
         self.d_facts.setWordWrap(True)
         facts_col.addWidget(self.d_facts)
-        self.d_notes = QLabel("")
-        self.d_notes.setWordWrap(True)
-        self.d_notes.setProperty("role", "caption")     # appearance caveats -> a small cautionary note
+        self.d_notes = widgets.caption("")   # appearance caveats -> a small cautionary note
         self.d_notes.setProperty("state", "warn")
         facts_col.addWidget(self.d_notes)
         self.d_anims = QLabel("")

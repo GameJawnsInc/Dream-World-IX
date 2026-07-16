@@ -64,9 +64,9 @@ class BuildDoc(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
-        v = QVBoxLayout(inner)
-        widgets.page_margins(v)                         # the page rung (was a hand-typed 16)
-        v.setSpacing(widgets.SECTION_GAP)               # the rhythm between the raised panels (was 12)
+        v = widgets.page_column(inner)                  # the centred 860 reading column + the page rung +
+        #                                                 the card rhythm. Was a bare QVBoxLayout, so these
+        #                                                 cards stretched to the window (1102px at 1920).
         # THE CROWN, and the answer to the study's OQ#2 ("what is under the lamp on Build & Deploy?").
         # Nothing was: this screen opened straight into "Project file:" with no title at all, six cards
         # deep, and its card titles are 11px overlines -- SMALLER than the 13px body they label. The
@@ -244,9 +244,7 @@ class BuildDoc(QWidget):
             ngv.addWidget(rb)
         self.ng_group.setEnabled(False)
         jv.addWidget(self.ng_group)
-        self.journey_hint = QLabel("")
-        self.journey_hint.setWordWrap(True)
-        self.journey_hint.setProperty("role", "caption")
+        self.journey_hint = widgets.caption("")
         jv.addWidget(self.journey_hint)
         self.journey_box = box
         return box
@@ -270,12 +268,10 @@ class BuildDoc(QWidget):
         row.addWidget(self.rev_ng)
         row.addStretch(1)
         gv.addLayout(row)
-        hint = QLabel("Single-owner: CREATES the field-70 override from stock (opening FMV preserved) and "
-                      "replaces the current New-Game landing (skips any World Hub) — works even on a clean "
-                      "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
-                      "to test.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")            # de-emphasise the jargon paragraph (smaller, quieter)
+        hint = widgets.caption("Single-owner: CREATES the field-70 override from stock (opening FMV preserved) and "   # de-emphasise the jargon paragraph (smaller, quieter)
+                               "replaces the current New-Game landing (skips any World Hub) — works even on a clean "
+                               "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
+                               "to test.")
         gv.addWidget(hint)
         self.newgame_box = box
         return box
@@ -292,10 +288,8 @@ class BuildDoc(QWidget):
         self.trigger.setProperty("mono", True)   # a field id is a machine token
         self.trigger.setFixedWidth(90)
         tf.addWidget(self.trigger)
-        self.trigger_hint = QLabel("repoint a deployed field's encounter at the minted scene (only for a "
-                                   "from-scratch new scene, not a reskin/fork).")
-        self.trigger_hint.setWordWrap(True)
-        self.trigger_hint.setProperty("role", "caption")
+        self.trigger_hint = widgets.caption("repoint a deployed field's encounter at the minted scene (only for a "
+                                            "from-scratch new scene, not a reskin/fork).")
         tf.addWidget(self.trigger_hint, 1)
         bv.addLayout(tf)
         self.battle_box = box
@@ -551,11 +545,9 @@ class BuildDoc(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Package mod for sharing")
         v = QVBoxLayout(dlg)
-        hint = QLabel("Zips a BUILT mod folder (DictionaryPatch.txt + StreamingAssets/…) so unzipping next "
-                      "to FF9_Launcher.exe installs it. Build/Deploy first — pack takes the OUTPUT folder. "
-                      "For a single-folder journey, pack the deployed <game>/<merged folder>.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("Zips a BUILT mod folder (DictionaryPatch.txt + StreamingAssets/…) so unzipping next "
+                               "to FF9_Launcher.exe installs it. Build/Deploy first — pack takes the OUTPUT folder. "
+                               "For a single-folder journey, pack the deployed <game>/<merged folder>.")
         v.addWidget(hint)
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Mod folder:"))

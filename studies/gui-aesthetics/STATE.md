@@ -432,3 +432,314 @@ That indirection is not ceremony: the first cut faked the "before" by patching t
 **structurally impossible** for RUBRIC — its change is in *Python* (`widgets.section` picks the role and
 drops the `.upper()`). No QSS patch can reproduce the old widget. **The only faithful before is the old
 code, run as the old code.** The anchor guard refusing to render a dishonest shot is what surfaced it.
+
+---
+
+## Round 5, part 2 — QUARTO P3 + CALIBRE shipped; PUNCH FALSIFIED by its own condition
+
+**SHIPPED:** QUARTO P3 (one `_TYPE` table, gated byte-identical on effective CSS 16/16) and **CALIBRE**
+(Preferences -> Text size 100/110/125/150%, live + persisted + Cancel-reverts). 3591 tests.
+
+**NOT shipped: PUNCH.** It was user-selected, built up to the render, and the render killed it. That is
+the FORM LESSON doing its job, not a wasted round — *statistics reproduce a thing's measured properties
+and never its look*, and PUNCH's axis was **measured and real**:
+
+- The six-cut optical family IS installed and IS a genuine axis (x/px: Segoe .500 · Sitka Small .503 ·
+  Text .477 · Subheading .462 · Heading .449 · Display .439 · Banner .430), each cut itself
+  scale-invariant — so the axis lives ACROSS the family: you pick the cut for the size.
+- **And the app already spends it correctly at the top.** The 40px wordmark wears Sitka Banner (the most
+  extreme display cut); the 26px crown wears Sitka Display. "Spends only 2 of 6" was true and was never
+  a defect — those are the right 2 for those sizes. The display end was already done.
+- **P1 (tracking) buys nothing an eye can see.** Rendered at 1x and at 3x nearest-neighbour: the crown at
+  0 / −0.25 / −0.50 measures 153.56 / 150.06 / 146.56px — a 3.5px change on a 153px word. Sitka Display
+  is *already drawn tight*; tightening reveals no flaw, it just narrows. The hint at +0.15/+0.30/+0.50 is
+  noise at best and stretches the app's worst-measure tier at worst.
+- **P2 (a small optical cut for captions) dies on arithmetic:** Sitka Small buys **+0.5% x-height for
+  +17.9% width**. A small optical cut exists to give MORE x-height at small sizes — but Segoe UI is
+  already a UI face drawn for exactly that job at 0.500 vs Sitka Small's 0.503. It buys nothing it was
+  chosen for. **`test_only_the_nameplate_wears_the_serif` was RIGHT and stays.**
+
+### What PUNCH did produce (all durable, all recorded in `style._TYPE`'s comment)
+
+- **THE RAMP IS NOT OPTICALLY LINEAR.** `_TYPE`'s numbers are NOMINAL px; the eye reads x-height and the
+  faces differ. The crown's true size over the body is **1.63×**, not the 1.86× its numbers imply.
+- **My brief's FACT 2 ("x-height scales exactly linearly") is corrected**: true WITHIN Segoe, false across
+  the shipped ramp. Its `name 26px -> x 13.00` row was **Segoe 26 — the fallback**, not the face the
+  nameplate wears.
+- **A live, unlooked-for finding: QUARTO P1 quietly demoted the crown.** Optical dominance moves INVERSELY
+  with the body while the crown's own number never changes — body 13 -> 14 took the nameplate from 1.76×
+  to 1.63×, and nobody noticed because 26 stayed 26. Left as-is (the user approved the result live), but
+  any future round that moves `type_body` is also moving the crown.
+- **QSS `letter-spacing` works exactly** (±0.500px/char, to the hundredth) and is spent on 1 QSS rule
+  (`overline`) plus `hero._WORD_TRACK = 0.5` in QPainter, which the sheet cannot see.
+
+### THE INSTRUMENT LESSONS OF THIS ROUND (three, and they rhyme)
+
+All three are the same error as [the simulated-mechanism law](#) one layer down — **asserting a condition
+without checking it took**:
+
+1. **`resize(1280)` is a REQUEST.** On a 1920 screen the window ignored it, so `probe_toolbar_budget`
+   printed "@1280" while measuring 1920. Now: `setFixedWidth` + **assert `win.width() == width`**.
+2. **A baseline that reads the current code is not a baseline.** That probe's `"body 14, naive"` case
+   passed `tb_space=None`, inheriting whatever SHIPS — so once QUARTO P1 shipped `tb_space` 4, "naive"
+   silently meant *"with the fix already applied"*, and the probe appeared to **refute the claim it
+   existed to prove**. Pin every condition explicitly.
+3. Those two **cancelled into a confident, self-consistent, wrong table** that nearly made me revert a
+   correct change. Re-measured at a real asserted 1280, QUARTO P1's receipt stands exactly as committed:
+   body 14 + `tb_space` 6 = 14/15, `tb_space` 4 buys it back to 15/15, body 15 recovers at neither.
+
+Also corrected, repo-wide: **"offscreen forces Fusion while the app runs windows11" is HALF FALSE.**
+`shell.py:129` calls `setStyle("fusion")` deliberately — **the app runs Fusion**. Offscreen's Fusion is
+CORRECT; only its stubbed font DB lies. Every shot/probe now calls `app.setStyle("fusion")`, because a
+bare probe QApplication on the platform default is the thing rendering chrome the app never ships.
+
+### CALIBRE's measured price, not hidden
+
+The toolbar chevrons at 1280: **15/15 at 100% · 14/15 at 110% · 13/15 at 125% · 11/15 at 150%**; 15/15 at
+1600+. Chevroned items stay reachable (and Ctrl-K reaches everything), and the a11y suite already fences
+graceful overflow. Recorded in `prefs.TEXT_SCALES`. **The hero band does not scale** — QPainter at hard px,
+no stylesheet reaches it. That is PLINTH, unbuilt, and at 150% the front door stays put while the app
+grows around it.
+
+**Live-confirmed this round:** the user has now seen QUARTO P1 + RUBRIC in the running app — *"fonts look
+much better"*. That is the first live judgement since Mist. CALIBRE + P3 are **not** yet playtested.
+
+---
+
+## Round 5, part 3 — PLINTH: the front door measures itself
+
+**SHIPPED.** The band tracks the text-size dial, and its two private faces joined the ramp. 3596 tests.
+
+- **The wiring already existed and was inert.** `shell._apply_text_scale` was ALREADY calling
+  `self._hero.set_density(...)` on every scale change — and `set_density` read only `_METRICS[density]`,
+  so the scale was dropped on the floor. The call site even carried a comment saying PLINTH was unbuilt
+  and "the dial deliberately does not touch it". One argument closed it.
+- **The 100% tuples are the DESIGN, not a derivation.** `band_metrics(d, 100)` returns the shipped tuple
+  **identically** (asserted `==`, not "within a pixel"). 106.5 and 94.5 are half-pixel rule positions
+  chosen by eye against a 40px serif; re-deriving them from `QFontMetricsF` would swap a composition for
+  an average — and the regression would be indistinguishable from an improvement, since both arrive as
+  "the numbers changed slightly". So this SCALES the design. Every other scale is that same composition,
+  larger: band 156 → 172 → 195 → 234, wordmark 40 → 44 → 50 → 60, verified through the real dial.
+- **The ramp-join** (the other half): the band kept private 11px/13px faces, so after QUARTO P1 raised the
+  caption floor to 12, **the hero was the only surface in the app still shipping 11px text** — the front
+  door wearing exactly the small type the user asked us to fix everywhere else. Now `type_caption` /
+  `type_body`. Rendered as an isolated delta with the geometry frozen (`plinth_ramp_*.png`) and it reads
+  as **almost nothing**, which is the correct outcome. The WORDMARK deliberately does not join: 40px
+  Sitka Banner is a brand constant, type chosen as a drawing rather than as a tier. It scales; it never
+  tiers, and a fence asserts it is not equal to any rung.
+- **THE INVARIANT THAT WAS TRUE BY TASTE.** `signet_elbow`'s docstring promised the mark "can never
+  overflow the column". "Bound to `adv`" binds the arm to the **wordmark**; nothing bound the wordmark to
+  the **column**. At 100% it never mattered (~300px against a 604–860px column) — but PLINTH grows the arm
+  with the dial while the column does not, so a scaled band in a narrow window would run the mark out of
+  its own composition. Now `min(adv, col)`: structural, not lucky. **An invariant a new feature can
+  falsify was never an invariant** — and this one had shipped, documented, for three rounds.
+- **Fenced at the source, not per-number:** `test_the_hero_holds_no_private_type_sizes` walks the AST and
+  refuses any `setPixelSize(<literal>)` in the module. Reads code, not prose — this module's comments are
+  full of "11px" and would pass a naive grep vacuously. The ramp fences assert the RELATIONSHIP (`==
+  type_px("type_caption")`), never the values 12/14, because pinning values passes happily while the ramp
+  moves away underneath them, which is the exact bug being closed.
+- The overflow fence carries a **self-invalidation guard**: it asserts the wordmark at max scale really
+  does outrun the narrowest column, so it fails loudly if it ever stops testing anything rather than
+  passing vacuously.
+
+**Still open:** GAUGE — `PROSE_W` is a fixed 420px, so the measure decays as the type grows.
+(⚠ The numbers first written here — "61.9ch at 100%, 41.3 at 150%, below the 45 floor" — are WRONG, from a
+synthetic rate. Measured on the app's real prose it is 67.6–71.9ch at 100% and **45.0 at 150%: ON the
+floor, not below it.** See part 4 below; the defect is real but it is not this.)
+
+---
+
+## Round 5, part 4 — GAUGE. And the measure was never the defect.
+
+**SHIPPED**, but for a reason nobody predicted — and the numbers going in were wrong three times.
+
+### The measure's real history (native, `evidence/probe_measure_rate.py`)
+
+| claim | source | verdict |
+|---|---|---|
+| 61.9 ch | my alphabet probe | **wrong** — synthetic rate, ~9% off |
+| 77.5 ch | round 5's audit | **was true**, at the 13px body |
+| 41.3 ch @150%, "below the floor" | me, told to the user | **wrong** — it is 45.0, ON the floor |
+| **67.6–71.9 ch** | the app's real strings @ 14px | measured |
+
+**My instrument lied and I published it.** `'abcdefghijklmnopqrstuvwxyz '` has ONE space in 27; English has
+~1 in 6, and the space is the narrowest glyph in the face. A synthetic rate overstates px/char, which
+understates the measure. **A rate measured on the alphabet is a measurement of the alphabet, not of prose.**
+
+**And QUARTO P1 fixed the real defect by accident.** At 13px the Build & Deploy crown note ran 77.5ch —
+over the band. At 14px it runs 71.9 — inside it. **Raising the body NARROWS the measure in characters**,
+because every character got wider. The type bump the user asked for closed the case GAUGE was chartered for.
+
+### So GAUGE shipped for the reason that survived: nothing could TELL
+
+The measure held at every dial setting **by luck** (45.0ch at 150%, zero headroom), and the fence could not
+have noticed if it stopped: it divided `PROSE_W` by `WORST_13PX = 5.72` — **a constant over a constant, a
+rate from a font size the app no longer sets.** It passed at 150% exactly as happily as at 100%, and would
+have kept passing with the cap welded to 420 forever.
+
+### The mechanism: scale, don't re-derive (PLINTH's move again)
+
+Segoe's advance is **LINEAR in px** (12→28px, max error 0.065%), so `chars = (cap·k)/(rate·k) = cap/rate`
+— **the character count is INVARIANT under scaling.** Proven end-to-end on the real string through the real
+dial: **71.9ch at 100 / 110 / 125 / 150%**, flat; `cap/px` exactly 30.00 at every rung.
+
+Re-deriving from a "characters" target would need a calibrated rate, and every honest candidate misses 420:
+`averageCharWidth()` reads 5.953 at 13px, **above every real string in the app** (5.42–5.89), because it
+averages a glyph set nobody types. **Scaling needs no rate at all.**
+
+`Prose` reads its OWN polished font (`changeEvent` → `FontChange`) rather than being told the scale — so it
+is right no matter who changed the type. A cap threaded from the shell would be a second source of truth
+for the same fact, and the two would drift the first time one was missed.
+
+### THE OFFSCREEN LIE, THIRD INSTANCE — and this one wrote a PASSING FENCE FOR A BROKEN FEATURE
+
+**`QFontInfo(...).pixelSize()` returns `-1` under `QT_QPA_PLATFORM=offscreen`**, even for a font with an
+explicit `setPixelSize(21)` — offscreen stubs the font engine QFontInfo consults. A QFontInfo-only
+`_resolve_cap` hit its `k=1.0` guard in *every* test, held the cap at 420 forever, and **the fence written
+to catch exactly that failure reported it as a pass.** Fixed by asking `QFont.pixelSize()` first (explicit,
+survives the stub) and falling back to `QFontInfo` (resolves a point-size font — the Windows system font is
+Segoe 9pt and reports `-1`, which would multiply every cap by a negative). Neither source alone suffices.
+
+The standing warning "offscreen lies about the font DB" was already here. What is new: **it lies to your
+fences, in the direction of green.**
+
+### Corrected en route
+
+`test_the_caption_measure_is_unchanged_on_purpose` laundered an approval (620 was approved for PROSE at
+13px, then inherited onto the 11px caption where the same number is strictly worse) *and* cited evidence
+describing 1 of its 3 strings. Rewritten to say what is true — and to name the real caption defect:
+`option()` is 3 of ~38 sites; **the other ~35 are raw QLabels with NO cap, growing 1:1 with the window**
+(125ch at 1280 → 388 at 2560). That is COLUMN, unbuilt, and now the largest un-taken readability win here.
+
+**The user cleared ALL standing playtest debt before this landed** (CALIBRE, QUARTO P3, the badge bump, the
+spine cut, PLINTH — all validated live). GAUGE itself is unplaytested, though invisible at 100% by
+construction.
+
+---
+
+## Round 5, part 5 — COLUMN: the hint tier stops growing with the monitor
+
+**SHIPPED.** 35 hand-rolled caption labels routed through `widgets.caption()` (now a capped, scaling
+`Prose`); `CAPTION_W` 620 → **380**. 3602 tests.
+
+**Before → after**, measured live on the real labels at real window widths:
+
+| window | before | after |
+|---|---|---|
+| 1280 | 103.6 ch/line | **74.1** |
+| 1920 | 198.5 | **74.1** |
+| 2560 | 313.7 | **74.1** |
+
+0/4 over the ceiling at every width (was 4/4), 4/4 capped (was 0/4). **Flat** — the measure no longer
+tracks the screen.
+
+- **620 was never a measure.** At the real 12px rung, on all 23 real caption strings (rate band
+  5.113–5.661; the ceiling is set by the NARROWEST rate — fewest px/char = most characters per line), 620
+  renders **121 ch, 62% over, even where it binds**. 380 = 74.3ch is the widest cap that holds every real
+  caption. It survived three rounds on two defences, **both built from a sample of one**: an approval
+  granted to PROSE_W at 13px, and "the cap does not bind" — which was the indictment, not the defence.
+- **Its fence went red and made the change deliberate — which is precisely why it existed** ("so that
+  lowering it is a decision somebody makes on purpose"). Kept and inverted rather than deleted.
+- **The factory already existed with the right name.** `widgets.caption()` just returned a bare
+  `role_label`, and 37 sites had quietly stopped calling it. A fence checking only "everyone calls the
+  factory" would pass perfectly against that, so a second one asserts the factory actually caps.
+
+### The sweep found a live NameError that py_compile could not
+
+`savedoc.py` imports `from .widgets import PlaceholderListWidget, section` — **no bare `widgets` name** —
+so its two converted sites would have raised on the Save tab. `py_compile` passes on an undefined global;
+only importing the module and asking `hasattr` finds it. Same class as this arc's earlier
+"caught by a PROBE, not by 3569 passing tests". **The import check is now part of the conversion.**
+
+### ⚠ STANDING QUESTION FOR THE EYE — the form docs have no page column
+
+Fixing the measure exposed the real structural gap: **Home caps its content at 860 and centres it; the
+form docs do not.** Import's cards measure **640 / 1102 / 1136** at a 1920 window, so a correct 380px hint
+now sits in an 1100px card at 3:1 — readable per line, but a narrow ribbon in a wide pane, which is the
+exact failure the shot's own docstring predicted.
+
+**✅ RESOLVED — the page column shipped** (see part 6). The fix was the page, not the hint: 480 reads
+94ch and would be back over the band. Renders: `col_before_import.png` → `col_after_import.png` →
+`col_pagecol_import.png`.
+
+*(Note: the user's real prefs sit at `text_scale = 110` — they use CALIBRE. Every probe here PINS the
+scale to 100; a probe that inherits the user's dial reports the wrong rung and I did that once already,
+measuring "12px" captions that were really 13.)*
+
+---
+
+## Round 5, part 6 — the page column
+
+**SHIPPED.** `widgets.page_column()`; the three form docs (build / import / co-op) now build into Home's
+centred 860 reading column instead of a bare layout. 3603 tests.
+
+| window | import (before → after) |
+|---|---|
+| 1920 | `[640, 1102, 1136]` → **`[640, 778, 812]`** |
+| 2560 | stretched → **`[640, 778, 812]`** (stops growing) |
+
+812 = 860 − the 24px page margins each side, so cards land exactly on Home's column; 604 at 1280 and 860
+from 1600 is Home's own documented curve, because it is Home's own geometry.
+
+- **The instinct was wrong and the arithmetic said so.** A 380px hint in an 1102px card reads at 3:1 and
+  looks like a ribbon — but widening the hint to 480 puts it at **94ch, back over the ceiling**. *The hint
+  was never too narrow; the page was too wide.* The app already had the answer and spent it on one screen.
+- **860, the same number**, because a page that is 860 here and 900 there does not have a column — it has
+  two opinions.
+- **Stretch 20, not 4 — a copied SOLUTION, not a copied number.** Home's comment is the receipt: 4:1:1
+  targets 435px at 1280 and is rescued only by a 512px minimumSizeHint propped up by un-word-wrapped
+  labels. **That trap is now LIVE for these docs and was not before** — COLUMN just wrapped every hint on
+  them.
+
+### I checked that I did not cause the horizontal scrollbar
+
+Some docs show one at 1024/1280. Stashing the change and re-measuring gives a **byte-identical** pattern
+before and after (`1024/import=H 1024/build=H 1024/coop=H 1280/import=H 1280/build=- 1280/coop=H
+1600/all=-`). **Pre-existing:** Co-op has a card with a **797px minimum** that refuses to compress. Left
+alone and recorded — a change that merely coincides with a bug is not its cause. Worth a round of its own.
+
+---
+
+## Round 5, part 7 — DICTION: an error stops eating the help that explains it
+
+**SHIPPED.** The `notice` tier + the forms_qt bug fix. 3605 tests.
+
+### The bug, proven live
+
+```
+valid   (4000) -> 'a unique number for your field (use >= 4000)'
+INVALID (abc)  -> '⚠  expected a whole number, got 'abc''      <- the help is GONE
+```
+
+`validate()` did `h.setText(f"⚠ {e}")` on the HINT and restored `f.help` only once the value parsed. One
+label, two jobs — so **the sentence telling you what a valid value looks like vanished at exactly the
+moment you were failing to type one.** Now the hint is the constant and the notice is the variable.
+
+### The law and its violation were adjacent lines
+
+`style.py` has said since Phase 2: *"Never demote a diagnostic to 11px grey — demote the EXPLANATION,
+never the answer."* The **very next rule** was `QLabel[role="caption"][state="error"]`. **A law written in
+a comment above the code that breaks it is not a law** — it is a wish with good phrasing. The law lost for
+three rounds and a green test held the defect in place as the contract.
+
+### The split: is it READ, or is it GLANCED?
+
+| tier | posture | set as |
+|---|---|---|
+| `caption` | **read** — prose attached to a control | caption rung, muted, measured (COLUMN) |
+| `notice` | **glanced** — anything that REPORTS | **body rung**, state-coloured, never smaller than its field |
+| `chip` / `overline` | a **tag** — a label is not prose | caption rung |
+
+One tier had been doing all three, which is why it got **both axes backwards**: the longest text got the
+smallest face, and a warning was filed at 11px grey because "small = quiet" was the only tool in the box.
+
+### The ninth-ground law, applied BEFORE the ground exists
+
+A notice gets **no chip, no badge, no fill** — and a fence refuses any `background` in the rule. Measured
+across all 8: error/warn on `surface_2` (where forms live) pass **4.54–10.22**; on `surface_3` they are
+**sub-AA in 6 of 8** (error 3.84–4.23). Zero pixels today only because nothing grounds state text there —
+give a notice a chip and it lights up in six palettes at once. **The tier declines the ground.** "We
+decided not to" is exactly the kind of decision a later round re-makes by accident.
+
+**Unplaytested**, with COLUMN and the page column.
+

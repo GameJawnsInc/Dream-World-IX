@@ -92,8 +92,20 @@ _GRID_COMPACT = {"space_1": 4, "space_2": 6, "space_3": 8, "space_4": 12, "space
 #     12 and OVERFLOWS at 13 (sizeHint 19x23 vs 22), and setFixedSize clips rather than grows. So scaling
 #     the glyph without the box clips the "?" at 1.25x; scaling the box without the radius turns the
 #     circle into a rounded square. Any scale must move all three together.
+# THE RAMP IS NOT OPTICALLY LINEAR, and that is deliberate -- do not "fix" it by reading these numbers.
+# They are NOMINAL px; the eye reads X-HEIGHT, and the faces differ. Measured natively
+# (evidence/probe_optical.py): Segoe UI is flat at x/px 0.500 at EVERY size (one master, linearly scaled),
+# but the crown wears Sitka Display at 0.439 and the hero's wordmark wears Sitka Banner at 0.430 -- real
+# display cuts from a real six-cut optical family (Small .503 / Text .477 / Subheading .462 / Heading .449
+# / Display .439 / Banner .430, all installed, each itself scale-invariant). So the app already spends the
+# optical axis where it pays, at the top, and the crown's true size over the body is 1.63x -- NOT the 1.86x
+# these two numbers imply.
+#
+# CONSEQUENCE WORTH KNOWING BEFORE MOVING type_body: the crown's optical dominance moves INVERSELY with the
+# body and its own number never changes. QUARTO P1 (body 13 -> 14) quietly took the nameplate from 1.76x to
+# 1.63x. Nobody noticed, because 26 stayed 26.
 _TYPE = {
-    "type_name": 26,          # the nameplate crown (role="name"), Sitka Display
+    "type_name": 26,          # the nameplate crown (role="name"), Sitka Display -- x/px 0.439, not 0.500
     "type_h2": 16,
     "type_h3": 15,            # NB: 1px under h2 -- a 6.7% cap-height step, a tier Segoe cannot draw, and
                               # its "sub-h2 section title" docstring describes a nesting that does not
@@ -512,8 +524,29 @@ _QSS = Template(
        diagnostic to 11px grey -- demote the EXPLANATION, never the answer. */
     QLabel[state="warn"]  { color: $warn_text; }
     QLabel[state="error"] { color: $error_text; }
-    QLabel[role="caption"][state="error"] { color: $error_text; } /* a live parse error turns the hint red */
     QLabel[role="caption"][state="warn"]  { color: $warn_text; } /* a soft warning (e.g. text may overflow) */
+
+    /* DICTION -- THE NOTICE. The comment four lines up has stated this law since Phase 2: "Never demote a
+       diagnostic to 11px grey -- demote the EXPLANATION, never the answer." The rule immediately BELOW it
+       was `QLabel[role="caption"][state="error"]`: an error, at the caption rung, in the tier reserved for
+       explanations. The law and its violation were adjacent lines, and the law lost for three rounds.
+       So the diagnostic gets its own tier, and the split is ONE question -- IS IT READ, OR IS IT GLANCED?
+         caption -> READ.    Prose attached to a control. Small, muted, measured (COLUMN).
+         notice  -> GLANCED. Anything that REPORTS. Body rung, state-coloured, never smaller than the
+                    field it is about -- because you do not read an error, you are interrupted by one.
+         chip/overline -> a TAG. Stays at the caption rung; a label is not prose.
+       The tier this replaces was doing all three jobs at once, which is why it got both axes backwards:
+       the LONGEST text got the SMALLEST face, and a warning was filed at 11px grey because "small = quiet"
+       was the only tool in the box.
+       NO CHIP, NO BADGE, NO GROUND OF ITS OWN -- deliberately. A notice is state-coloured text on the card
+       it belongs to. Measured over all 8 palettes: error/warn on surface_2 (where a form lives) pass
+       4.54-10.22, but on surface_3 they are SUB-AA IN 6 OF 8 (error 3.84-4.23). That is zero pixels today
+       because nothing grounds state text there -- and giving a notice a chip would light it up in six
+       palettes at once. THE NINTH-GROUND LAW: invent a ground, you owe it a fence. This tier declines the
+       ground instead. */
+    QLabel[role="notice"] { font-size: $type_body; color: $text; }
+    QLabel[role="notice"][state="error"] { color: $error_text; }
+    QLabel[role="notice"][state="warn"]  { color: $warn_text; }
     QLabel[role="subtle"]  { color: $text_subtle; }
     /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
        caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */

@@ -23,7 +23,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, 
 from PySide6.QtWidgets import QFrame, QWidget
 
 from ..editor import theme
-from . import anim
+from . import anim, style
 
 # --- the brand constants (NOT palette tokens; identical in every theme) --------------------
 # Verified legible on all 8 palettes: gold/bg 4.12 (solarized-light) .. 9.02 (mist).
@@ -42,7 +42,7 @@ _WORD_WEIGHT = QFont.Weight.Normal
 _WORD_PX = 40
 _WORD_TRACK = 0.5
 
-_METRICS = {           # (band_h, overline_y, word_y, rule_y, status_y, arm_up)
+_METRICS = {           # (band_h, overline_y, word_y, rule_y, status_y, arm_up)  -- AT 100%
     "comfortable": (156, 36, 92, 106.5, 132, 78),
     "compact":     (136, 30, 80,  94.5, 118, 70),
 }
@@ -50,6 +50,44 @@ _ARM_INDENT = 18       # the arm sits in the GUTTER: at 0 it impales the "D" and
 _ELBOW_R = 6
 _BEAD = 3.5
 _MIST_ALPHA = 40
+
+
+def band_metrics(density: str = "comfortable", scale: int = 100):
+    """The band's geometry at CALIBRE's ``scale`` (a percent; 100 = the shipped design).
+
+    PLINTH. The band paints with QPainter, so no stylesheet reaches it -- which meant the text-size dial
+    grew every tab while the front door sat at exactly 156px, the one surface in the app that ignored the
+    accessibility feature. (`shell._apply_text_scale` was already CALLING the hero on every scale change;
+    the scale simply never arrived. The wiring was there and inert.)
+
+    THE 100% TUPLES ARE NOT DERIVED -- THEY ARE THE DESIGN, and this scales them rather than recomputing
+    them. 106.5 and 94.5 are half-pixel rule positions somebody chose by eye against a 40px serif; a
+    formula that re-derives them from font metrics replaces a composition with an average and calls it a
+    refactor. So ``scale=100`` returns the shipped tuple IDENTICALLY, by construction rather than by
+    arithmetic luck, and every other scale is that same composition, larger. The whole band moves as one
+    thing: the mist bloom is keyed to `h`, the rule to the wordmark's baseline, the bead to the rule.
+    """
+    m = _METRICS.get(density, _METRICS["comfortable"])
+    if scale == 100:
+        return m                                   # the gate: identity, not a round-trip through floats
+    k = scale / 100.0
+    return (int(m[0] * k + 0.5),) + tuple(v * k for v in m[1:])
+
+
+def band_type(scale: int = 100):
+    """``(overline_px, word_px, status_px)`` -- the band's three faces at ``scale``.
+
+    The overline and the status JOIN THE RAMP (they are `type_caption` / `type_body`, the same rungs the
+    rest of the app spends) rather than keeping private 11 and 13. That is the other half of PLINTH: after
+    QUARTO P1 raised the caption floor to 12, the hero was the ONLY surface left shipping 11px text -- the
+    front door still wearing exactly the small type the user asked us to fix everywhere else.
+
+    The WORDMARK is not a rung and never joins one: 40px Sitka Banner is a brand constant, the one piece
+    of type here chosen as a drawing rather than as a tier. It scales; it does not tier.
+    """
+    return (style.type_px("type_caption", scale),
+            int(_WORD_PX * scale / 100 + 0.5),
+            style.type_px("type_body", scale))
 
 # The signet signs itself, once, on the front door's first paint.
 #
@@ -177,15 +215,17 @@ class HeroBand(QWidget):
     """Full-bleed front-door band. ``column_source`` is Home's ``body`` widget -- the hero reads its
     REAL geometry so the wordmark, the gold elbow and every card below sit on ONE axis."""
 
-    def __init__(self, pal, parent=None, column_source=None):
+    def __init__(self, pal, parent=None, column_source=None, scale=100):
         super().__init__(parent)
         self.pal = pal
         self._column_source = column_source
         self._status = None
         self._draw = 1.0                 # the signet's reveal; 1.0 = at rest. See showEvent.
         self._signed = False             # once per session, on the front door's first paint
+        self._density = "comfortable"
+        self._scale = scale              # CALIBRE's percent -- see set_density / band_metrics
         self.setAutoFillBackground(False)
-        self.set_density("comfortable")
+        self.set_density(self._density)
 
     # --- the signet signing itself -------------------------------------------------------
     def _get_draw(self):
@@ -213,9 +253,19 @@ class HeroBand(QWidget):
         a.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     # --- API -----------------------------------------------------------------------------
-    def set_density(self, density):
-        self._m = _METRICS.get(density, _METRICS["comfortable"])
-        self.setFixedHeight(self._m[0])
+    def set_density(self, density, scale=None):
+        """Re-lay the band. ``scale`` is CALIBRE's percent; omit it to keep the current one.
+
+        Both knobs land here because both move the same six numbers, and the band's metrics are PYTHON --
+        a QSS re-render alone leaves it at the old height. `setFixedHeight` is the whole reason this must
+        be called rather than inferred: the band cannot grow itself.
+        """
+        if scale is not None:
+            self._scale = scale
+        self._density = density if density in _METRICS else "comfortable"
+        self._m = band_metrics(self._density, self._scale)
+        self._type = band_type(self._scale)
+        self.setFixedHeight(int(self._m[0]))
         self.updateGeometry()
         self.update()
 
@@ -249,6 +299,12 @@ class HeroBand(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         w, h = self.width(), self.height()
         _bh, overline_y, word_y, rule_y, status_y, arm_up = self._m
+        overline_px, word_px, status_px = self._type
+        # PLINTH's one multiplier. The six METRICS and the three faces are already scaled (band_metrics /
+        # band_type); `k` is for the mark's own geometry -- the arm's gutter, the elbow radius, the
+        # filigree's offsets, the bead. Those are drawing, not type, so they scale here rather than
+        # through the ramp. At 100% k is exactly 1.0 and every product below is its shipped literal.
+        k = self._scale / 100.0
         pal = self.pal
         d = theme.derive(dict(pal))
         gold = QColor(GOLD_DARK if pal.get("dark") else GOLD_LIGHT)
@@ -295,15 +351,15 @@ class HeroBand(QWidget):
         # a QLabel API, and this band has no QLabels. The fence lives in test_workspace_hero.py and works by
         # rendering the band twice -- once with drawText suppressed -- because the ground is a gradient and
         # cannot be sampled by mode or modelled by hand (both were tried; both lied).
-        f = QFont("Segoe UI"); f.setPixelSize(11); f.setWeight(QFont.Weight.DemiBold)
-        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+        f = QFont("Segoe UI"); f.setPixelSize(overline_px); f.setWeight(QFont.Weight.DemiBold)
+        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0 * k)
         p.setFont(f); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, overline_y), "FF9 FIELD TOOLKIT \u00b7 1.0.0b15")
 
         # 6. wordmark -- pal["text"], NEVER gold. A gold "Dream World IX" is a fan-logo; it is the
         #    most predictable move available and why every FF9 fan project looks the same.
-        wf = QFont(wordmark_face()); wf.setPixelSize(_WORD_PX); wf.setWeight(_WORD_WEIGHT)
-        wf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, _WORD_TRACK)
+        wf = QFont(wordmark_face()); wf.setPixelSize(word_px); wf.setWeight(_WORD_WEIGHT)
+        wf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, _WORD_TRACK * k)
         p.setFont(wf); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, word_y), "Dream World IX")
         adv = QFontMetricsF(wf).horizontalAdvance("Dream World IX")
@@ -311,10 +367,17 @@ class HeroBand(QWidget):
         # 7. THE SIGNET -- typographically bound to `adv`, so it can never overflow the column.
         #    `_draw` is 1.0 at rest and everything below is the resting frame, byte-for-byte. It is only
         #    below 1 while the mark is signing itself on the front door's first paint.
-        ax = x0 - _ARM_INDENT + 0.5
+        #
+        #    THAT INVARIANT WAS TRUE BY TASTE AND IS NOW TRUE BY CONSTRUCTION. "Bound to adv" only bounds
+        #    the arm to the WORDMARK; nothing bounded the wordmark to the column. At 100% that never
+        #    mattered -- a 40px "Dream World IX" is ~300px against a 604-860px column -- but the arm grows
+        #    with the type while the column does not, so a scaled band in a narrow window would run the
+        #    mark straight out of its own composition. min() makes the docstring's promise structural:
+        #    the arm ends at the wordmark's right edge, or at the column's, whichever comes first.
+        ax = x0 - _ARM_INDENT * k + 0.5
         by, top = rule_y, rule_y - arm_up
         t = self._draw
-        signet_elbow(p, ax, by, adv + _ARM_INDENT, arm_up, gold, t=t)
+        signet_elbow(p, ax, by, min(adv, col) + _ARM_INDENT * k, arm_up, gold, t=t, r=_ELBOW_R * k)
 
         # THE FINISH lands last: the filigree and the bead are what make this the signature rather than a
         # corner, so they arrive after the stroke has reached the top -- fading in over the final quarter
@@ -325,27 +388,28 @@ class HeroBand(QWidget):
             # the doubled inner rule -- the GRAMMAR of brass filigree (parallel strokes at a fixed
             # offset), abstracted from any specific FF9 flourish. Verified crisp at dpr 1.0/1.25/1.5.
             ip = QPainterPath()
-            ix, iy = ax + 3, by - 3
-            ip.moveTo(ix + 34, iy); ip.lineTo(ix + 3, iy)
-            ip.arcTo(QRectF(ix, iy - 6, 6, 6), -90, -90)
-            ip.lineTo(ix, iy - 14)
+            ix, iy = ax + 3 * k, by - 3 * k
+            ip.moveTo(ix + 34 * k, iy); ip.lineTo(ix + 3 * k, iy)
+            ip.arcTo(QRectF(ix, iy - 6 * k, 6 * k, 6 * k), -90, -90)
+            ip.lineTo(ix, iy - 14 * k)
             gi = QColor(gold); gi.setAlpha(round(115 * finish))
-            p.setPen(QPen(gi, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            p.setPen(QPen(gi, 1.0 * k, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
             p.drawPath(ip)
 
             # the bead -- FF9's corner detail, cited ONCE, at one 7px object.
+            bead = _BEAD * k
             gb = QColor(gold); gb.setAlpha(round(255 * finish))
             p.setPen(Qt.PenStyle.NoPen); p.setBrush(gb)
             dia = QPainterPath()
-            dia.moveTo(ax, top - _BEAD); dia.lineTo(ax + _BEAD, top)
-            dia.lineTo(ax, top + _BEAD); dia.lineTo(ax - _BEAD, top)
+            dia.moveTo(ax, top - bead); dia.lineTo(ax + bead, top)
+            dia.lineTo(ax, top + bead); dia.lineTo(ax - bead, top)
             dia.closeSubpath(); p.drawPath(dia)
 
         # 8. status -- painted, so it re-tints live (the QLabel version goes stale on retheme)
         # $text, per the one-ink law at the overline. This shipped in $muted and was sub-AA in 3 of 8
         # (light 3.63, solarized-light 3.98, dracula 4.35) -- found while fixing the overline, same cause:
         # the mist lifts the ground past the top of the ramp that muted is fenced against.
-        sf = QFont("Segoe UI"); sf.setPixelSize(13)
+        sf = QFont("Segoe UI"); sf.setPixelSize(status_px)
         p.setFont(sf); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, status_y),
                    self._status or "Nothing open yet \u2014 pick a starting point below.")

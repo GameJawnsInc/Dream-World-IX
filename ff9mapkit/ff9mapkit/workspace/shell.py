@@ -54,7 +54,7 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss, space
-from . import thumbs as _thumbs
+from . import thumbs as _thumbs, widgets
 from . import anim
 from . import concepts
 from . import icons
@@ -569,8 +569,8 @@ class Workspace(QMainWindow):
         self._density = density if density in prefs.DENSITIES else "comfortable"
         self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
         if getattr(self, "_hero", None) is not None:
-            self._hero.set_density(self._density)             # the band's metrics are PYTHON -- QSS re-render
-                                                              # alone would leave it at the old height
+            self._hero.set_density(self._density, self._text_scale)   # the band's metrics are PYTHON -- a QSS
+                                                                      # re-render alone leaves its old height
 
     def _toggle_density(self):
         """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
@@ -592,10 +592,10 @@ class Workspace(QMainWindow):
         self._text_scale = pct if pct in prefs.TEXT_SCALES else 100
         self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
         if getattr(self, "_hero", None) is not None:
-            # the band paints with QPainter at hard pixel sizes -- no QSS reaches it, so at any scale but
-            # 100% the front door stays put while the app around it grows. Making the hero measure its own
-            # type is PLINTH, unbuilt; until then the dial deliberately does not touch it.
-            self._hero.set_density(self._density)
+            # PLINTH: the band paints with QPainter, so no QSS reaches it -- it has to be TOLD. This call
+            # already existed and was inert (it re-applied the density and dropped the scale on the floor),
+            # which is why the front door used to sit at 156px while every tab around it grew.
+            self._hero.set_density(self._density, self._text_scale)
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -927,9 +927,7 @@ class Workspace(QMainWindow):
         body.setWordWrap(True)
         lay.addWidget(body)
         if concept.engine_term:
-            aside = QLabel(f"Under the hood: {concept.engine_term}")
-            aside.setWordWrap(True)
-            aside.setProperty("role", "caption")
+            aside = widgets.caption(f"Under the hood: {concept.engine_term}")
             aside.setContentsMargins(0, 4, 0, 0)
             lay.addWidget(aside)
         lay.addStretch(1)
@@ -1148,9 +1146,13 @@ class Workspace(QMainWindow):
         v.addWidget(crumb_row)
 
         # Phase 7: the cohesion SPINE -- a modest 'what do I do next' strip below the breadcrumb, driven by the
-        # shell state (empty / unsaved / ready / just-deployed). Answers the third question ("what's my next
-        # step") the breadcrumb ("where am I") + Ctrl-K ("what is X") don't. Auto-hides when it has nothing to
-        # say. Rebuilt (state-cached, so it's free per keystroke) via _refresh_spine.
+        # shell state. Answers the third question ("what's my next step") the breadcrumb ("where am I") +
+        # Ctrl-K ("what is X") don't. Auto-hides when it has nothing to say. Rebuilt (state-cached, so it's
+        # free per keystroke) via _refresh_spine.
+        # It drove FOUR states and now drives TWO: it is hidden at cold start and when merely ready, because
+        # those were restating Home's lede and the visible Deploy button respectively -- 43px on every tab
+        # for a sentence the screen already carried. The full argument is in _next_actions. A strip that is
+        # usually silent is what makes it worth reading when it speaks.
         spine = QWidget()
         spine.setObjectName("spineRow")
         spine.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1348,7 +1350,10 @@ class Workspace(QMainWindow):
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
         self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
-        self._refresh_spine()                      # show the cohesion spine's cold-start (EMPTY) guidance
+        self._refresh_spine()                      # settle the spine's initial state (it starts HIDDEN: at
+        #                                            cold start Home's lede owns the "what next" -- see
+        #                                            _next_actions. The call still matters: it seeds
+        #                                            _spine_key so the first real state change repaints.)
 
     def _panel_header(self, text):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
@@ -1535,7 +1540,9 @@ class Workspace(QMainWindow):
         body.setMaximumWidth(860)                  # don't stretch across a wide monitor
         # The hero reads the body's REAL geometry, so the wordmark, the gold elbow and every card below
         # sit on ONE axis at any window width. A parallel formula disagrees with the layout by +30px.
-        self._hero = HeroBand(self.pal, column_source=body)
+        # scale= at CONSTRUCTION, not only via set_density: Home is built once, and a session that LAUNCHES
+        # at 125% would otherwise paint its first front door at 100% and only correct if the dial was touched.
+        self._hero = HeroBand(self.pal, column_source=body, scale=self._text_scale)
         pv.addWidget(self._hero)
         self._icon_retint.append(lambda: self._hero.set_palette_(self.pal))   # retheme() iterates this
         row = QWidget()
@@ -1597,12 +1604,10 @@ class Workspace(QMainWindow):
         v.addWidget(self._start_box)
         # 'Try it now' reassurance -- closes the first-10-minutes arc (fork → deploy → play) for a nervous
         # newcomer: trying a fork in-game is a safe, reversible sandbox.
-        self._start_footer = QLabel("Once you've forked a field, press <b>F9</b> to try it in your game — it "
-                                    "deploys to a safe test slot and backs up first, so you can explore "
-                                    "without risk.")
-        self._start_footer.setWordWrap(True)
+        self._start_footer = widgets.caption("Once you've forked a field, press <b>F9</b> to try it in your game — it "
+                                             "deploys to a safe test slot and backs up first, so you can explore "
+                                             "without risk.")
         self._start_footer.setTextFormat(Qt.TextFormat.RichText)
-        self._start_footer.setProperty("role", "caption")
         self._start_footer.setContentsMargins(0, 2, 0, 0)
         v.addWidget(self._start_footer)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
@@ -6311,10 +6316,8 @@ class Workspace(QMainWindow):
         self._set_editor_tab("Cutscene")
         _raw_cs = doc.data.get("cutscene")
         if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
-            note = QLabel(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
+            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
                           f"This form edits scene #1 — edit the others in the TOML.")
-            note.setWordWrap(True)
-            note.setProperty("role", "caption")
             self.doc_host_lay.addWidget(note)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
@@ -6341,9 +6344,7 @@ class Workspace(QMainWindow):
         value_text.setFixedHeight(64)
         value_text.setToolTip("Line break: press Enter, or type \\n.   New window: type [PAGE].")
         value_text.setVisible(False)
-        hint = QLabel("")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("")
         actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
         actor_line.setPlaceholderText("blank = sole cast member / narration voice")
         actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
@@ -6841,22 +6842,33 @@ class Workspace(QMainWindow):
 
     def _next_actions(self):
         """``(guidance, [(label, callback, is_primary)])`` for the cohesion spine -- the single 'what do I do
-        next' for the current shell state. The deploy itself stays the ONE crumb-row Deploy button (F9); the
-        spine points at it rather than duplicating it, and carries buttons only for non-crumb actions (fork /
-        open / save). Empty actions + empty guidance -> the strip hides."""
-        if self._current_target()[0] is None:          # EMPTY -- nothing open
-            return ("New here? Fork a real field from your own game to get started.",
-                    [("Fork a field", lambda: self.tabs.setCurrentWidget(self.import_field), True),
-                     ("Open a project…", self.on_open_campaign, False)])
+        next' for the current shell state. Empty actions + empty guidance -> the strip hides.
+
+        THE SPINE ONLY SPEAKS WHEN IT HAS SOMETHING THE SCREEN DOES NOT ALREADY SAY. It costs 43px of
+        height on every tab, permanently, and two of its four states were spending that on a restatement:
+
+        * EMPTY said "New here? Fork a real field from your own game to get started." + [Fork a field] --
+          while Home's LEDE, 100px below it on the same screen, said "Fork your first field from the game"
+          + [Go to Import]. Same message, same destination, stacked. Measured live, not inferred.
+        * READY said "press Deploy (F9, top-right)" -- pointing at a button that is, in fact, visible in
+          the top right. The spine's own charter was to point at that button "rather than duplicating it",
+          and a full-width strip describing an on-screen control is duplication with extra steps.
+
+        What survives is what is genuinely absent from the screen: UNSAVED (Save all -- reachable from any
+        tab, and Home's lede never shows it) and JUST-DEPLOYED (press F6 -> Reload field -- the only thing
+        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app).
+        """
+        if self._current_target()[0] is None:           # EMPTY -- Home's lede already says exactly this
+            return ("", [])
         if self._dirty_members():                       # UNSAVED edits
             return ("You have unsaved edits — save them, then press Deploy (F9, top-right) to try it.",
                     [("Save all", self._save_all, True)])
         t = self._deploy_target()
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
-        if self._deployed_target == t:                  # JUST DEPLOYED this target
+        if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
             return ("Deployed to your test slot — in your game, press F6 → Reload field (or Warp to it).", [])
-        return ("Ready — press Deploy (F9, top-right) to build it into a safe test slot and play it.", [])
+        return ("", [])                                 # READY -- the Deploy button is already right there
 
     def _refresh_spine(self):
         """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
