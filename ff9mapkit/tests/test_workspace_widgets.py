@@ -226,27 +226,30 @@ def test_prose_w_is_a_real_measure_and_the_caption_face_has_its_own(app):
     assert 'base="caption"' in src, "option()'s caption must scale against the CAPTION rung, not the body"
 
 
-def test_the_caption_measure_is_unchanged_on_purpose(app):
-    """CAPTION_W is 620 -- still, deliberately, and this docstring is the second attempt at saying why.
+def test_lowering_the_caption_measure_was_a_deliberate_decision(app):
+    """620 -> 380. This test used to assert `CAPTION_W == 620` and it DID ITS JOB: it existed so that
+    "lowering it is a decision somebody makes on purpose", and it went red and made this one be that.
+    It is kept, inverted, rather than deleted -- the number's history is the reason it is defensible.
 
-    THE FIRST ATTEMPT LAUNDERED AN APPROVAL. It called 620 "the reviewed-and-approved value", and the
-    approval was real -- but it was given to PROSE_W at 13px. LEDE then cut prose to 420 and moved the
-    620 onto the 11px caption, where the same number is strictly worse, and this fence went on citing the
-    approval for a tier it was never granted to. The number stood still while its meaning moved.
+    620 SURVIVED THREE ROUNDS ON TWO FALSE DEFENCES.
 
-    THE SECOND CLAIM WAS ALSO WRONG, and its own evidence said so. "At 11px the real option captions are
-    ~107-112 chars" describes exactly ONE of the three literal captions this app has; the others are 63
-    and 30 chars. The three average 61ch -- inside the band. And "the cap does not bind ... narrowing it
-    would re-wrap every one" offered the benefit as if it were the cost: re-wrapping a 110-char line to
-    ~70 is what a measure is FOR. A cap that never binds is not protecting anything.
+    "The reviewed-and-approved value" -- the approval was real, and was given to PROSE_W at 13px. LEDE cut
+    prose to 420 and moved the 620 onto the caption rung, where the same number is strictly worse, and the
+    fence went on citing an approval for a tier it was never granted to. The number stood still while its
+    meaning moved underneath it.
 
-    What is actually true, measured: `option()` is 3 of ~38 caption sites, its captions do not bind this
-    cap, and the app's real caption problem is the OTHER ~35 -- raw QLabels with no cap at all, growing
-    1:1 with the window (125ch at 1280px, 257 at 1920, 388 at 2560). That is COLUMN, unbuilt. 620 stays
-    because moving it fixes nothing and re-wraps three approved lines; it is now SCALED rather than fixed
-    (see Prose), so it at least keeps its character count when the dial moves.
+    "The cap does not bind" -- true, and it was the indictment, not the defence. It only failed to bind
+    because `option()` is 3 of 37 caption sites and its strings are short. The moment COLUMN routed a real
+    hint through it, 620 rendered 121 characters to the line: 62% over the ceiling, measured at the real
+    rung on the real strings. A cap that never binds is not protecting anything; it is decoration.
+
+    (Its second claim, "the real option captions are ~107-112 chars", described exactly ONE of the three.
+    The others are 63 and 30. Both defences were built from a sample of one.)
     """
-    assert widgets.CAPTION_W == 620
+    assert widgets.CAPTION_W == 380, (
+        "CAPTION_W moved. It is not a free number: it is the widest cap that keeps EVERY real caption "
+        "inside 75ch at the 12px rung. Re-measure with evidence/probe_column.py before changing it."
+    )
 
 
 def test_the_measure_holds_its_character_count_at_every_text_size(app):
@@ -335,3 +338,77 @@ def test_an_unpolished_font_does_not_collapse_the_measure(app):
     assert p._cap > 0, f"an unresolved point-size font collapsed the measure to {p._cap}"
     assert p.maximumWidth() > 0
     p.deleteLater()
+
+
+def test_every_hint_is_built_by_the_factory_not_by_hand(app):
+    """COLUMN. A hint is `widgets.caption(...)` -- never a QLabel wearing role="caption".
+
+    37 sites built their own: `QLabel(...)`, `setWordWrap(True)`, `setProperty("role", "caption")`. A
+    wrapped QLabel with no maximumWidth takes whatever the pane hands it, so the tier whose whole job is
+    to explain the app ran (measured live, on the real labels) 103 ch/line at a 1280 window, 198 at 1920
+    and 314 at 2560 -- growing 1:1 with the monitor, against a 45-75 band.
+
+    Reads the AST rather than grepping: this module's prose is full of the word "caption", and several of
+    these files DISCUSS the pattern in comments. A grep fence would pass on its own documentation.
+
+    THE ONE EXEMPTION is real and must stay explicit: forms_qt's wrap-preview `note` is a constant-height
+    panel (setFixedHeight on the label itself -- toggling its height would clip the fixed-height preview
+    box above it). Prose WRAPS, and wrapping inside a fixed height clips silently. It stays a bare label.
+    """
+    import ast
+    import pathlib
+    ws = pathlib.Path(widgets.__file__).parent
+    ALLOWED = {("forms_qt.py", 100), ("forms_qt.py", 101)}      # the fixed-height note; see above
+    offenders = []
+    for py in sorted(ws.glob("*.py")):
+        if py.name == "widgets.py":
+            continue                                            # the factory itself sets the role
+        for node in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "attr", None) != "setProperty" or len(node.args) != 2:
+                continue
+            a1 = node.args[1]
+            if isinstance(a1, ast.Constant) and a1.value == "caption":
+                if (py.name, node.lineno) in ALLOWED:
+                    continue
+                offenders.append(f"{py.name}:{node.lineno}")
+    assert not offenders, (
+        "these build a hint by hand instead of calling widgets.caption(), so they have no measure and "
+        f"grow with the window: {offenders}"
+    )
+
+
+def test_the_caption_factory_returns_a_measured_prose(app):
+    """The factory has to actually DO the three things, or the fence above is theatre.
+
+    A `caption()` that returned a bare label would pass "every hint uses the factory" perfectly while
+    every hint stayed uncapped -- which is precisely the state COLUMN found (the factory existed, it just
+    returned a role_label, and 37 sites had quietly stopped calling it).
+    """
+    c = widgets.caption("a hint about something")
+    assert isinstance(c, widgets.Prose), "caption() must return a Prose -- a measure, not just a role"
+    assert c.property("role") == "caption"
+    assert c.wordWrap()
+    assert c.maximumWidth() == widgets.CAPTION_W
+    assert c._base_px == style.type_px("type_caption", 100), "a caption must scale against the CAPTION rung"
+
+
+def test_the_caption_cap_is_a_real_measure_at_the_caption_rung(app):
+    """CAPTION_W = 380, and 620 was never a measure.
+
+    Measured on all 23 REAL caption strings, on the labels the app actually builds, at the real 12px rung:
+    the rate band is 5.113-5.661 px/char. The CEILING is set by the NARROWEST rate -- fewest px per char
+    puts the MOST characters on the line -- so that is the divisor here, not the median.
+
+        620px -> 121 ch   62% over, EVEN WHERE IT BINDS
+        420px ->  82 ch   still over
+        380px ->  74.3 ch <- the widest cap that holds every real caption
+
+    Hard-coded rather than measured because the suite runs offscreen, where the font DB is stubbed and
+    every advance is fiction. Re-measure with evidence/probe_column.py, natively, if the rung moves.
+    """
+    NARROWEST_12PX = 5.113     # px/char: the app's real caption strings at the caption rung, native Segoe
+    ch = widgets.CAPTION_W / NARROWEST_12PX
+    assert ch <= 75, f"CAPTION_W={widgets.CAPTION_W} is {ch:.1f}ch on the tightest real caption -- over the band"
+    assert ch >= 45, f"CAPTION_W={widgets.CAPTION_W} is {ch:.1f}ch -- too narrow to read"

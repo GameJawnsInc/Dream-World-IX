@@ -84,11 +84,9 @@ class ImportDoc(QWidget):
     def _fork_box(self):
         box = widgets.section("Fork a real field")
         v = box.content_layout
-        lbl = QLabel("ONE screen — an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016). For a whole "
-                     "connected AREA (many screens wired together), use Fork a region below. "
-                     "Find… looks up exact names/ids; Preview shows what a fork will/won't reproduce.")
-        lbl.setWordWrap(True)
-        lbl.setProperty("role", "caption")
+        lbl = widgets.caption("ONE screen — an id, or an FBG-name substring (e.g. 100, grgr, alxt_map016). For a whole "
+                              "connected AREA (many screens wired together), use Fork a region below. "
+                              "Find… looks up exact names/ids; Preview shows what a fork will/won't reproduce.")
         v.addWidget(lbl)
         row = QHBoxLayout()
         self.field = QLineEdit()
@@ -132,14 +130,12 @@ class ImportDoc(QWidget):
         self.mode_verbatim.setChecked(True)
         mv.addWidget(self.mode_verbatim)
         mv.addWidget(self.mode_authorable)
-        mhint = QLabel("Verbatim ships the field's real event script + dialogue WHOLE — it runs the original "
-                       "logic, story gating, real doors and rotating cast (the proven faithful path), carrying "
-                       "every NPC/prop/line itself. A verbatim fork boots at scenario zero — use Preview fidelity "
-                       "for the suggested starting beat, then add a [startup] block in the editor. The scene + "
-                       "carry options appear only in Re-authorable mode (which drops the real logic for editable "
-                       "[[npc]]/content you re-author).")
-        mhint.setWordWrap(True)
-        mhint.setProperty("role", "caption")
+        mhint = widgets.caption("Verbatim ships the field's real event script + dialogue WHOLE — it runs the original "
+                                "logic, story gating, real doors and rotating cast (the proven faithful path), carrying "
+                                "every NPC/prop/line itself. A verbatim fork boots at scenario zero — use Preview fidelity "
+                                "for the suggested starting beat, then add a [startup] block in the editor. The scene + "
+                                "carry options appear only in Re-authorable mode (which drops the real logic for editable "
+                                "[[npc]]/content you re-author).")
         mv.addWidget(mhint)
         self.mode_verbatim.toggled.connect(self._sync_mode)
         v.addWidget(mode)
@@ -152,10 +148,8 @@ class ImportDoc(QWidget):
         self.art_native.setChecked(True)
         for r in (self.art_native, self.art_borrow, self.art_editable):
             av.addWidget(r)
-        art_hint = QLabel("Editable scenes show grid seams — to repaint seamlessly, fork Native and use "
-                          "‘Repaint a native fork’ below. BG-borrow points DictionaryPatch at the real art.")
-        art_hint.setWordWrap(True)
-        art_hint.setProperty("role", "caption")
+        art_hint = widgets.caption("Editable scenes show grid seams — to repaint seamlessly, fork Native and use "
+                                   "‘Repaint a native fork’ below. BG-borrow points DictionaryPatch at the real art.")
         av.addWidget(art_hint)
         v.addWidget(self.art_box)
 
@@ -200,12 +194,10 @@ class ImportDoc(QWidget):
         swap.addWidget(self.rooms_btn)
         swap.addStretch(1)                        # left-align the compact combo + checkbox
         v.addLayout(swap)
-        swap_hint = QLabel("Optional: control a different character (a playable name) or any model (a GEO id, "
-                           "e.g. a moogle 199) instead of the field's real player. Implies a verbatim fork. On "
-                           "a story field the swapped rig's scripted GESTURES glitch — tick Neutralize to stand "
-                           "cleanly (it won't emote), or fork a free-roam field.")
-        swap_hint.setWordWrap(True)
-        swap_hint.setProperty("role", "caption")
+        swap_hint = widgets.caption("Optional: control a different character (a playable name) or any model (a GEO id, "
+                                    "e.g. a moogle 199) instead of the field's real player. Implies a verbatim fork. On "
+                                    "a story field the swapped rig's scripted GESTURES glitch — tick Neutralize to stand "
+                                    "cleanly (it won't emote), or fork a free-roam field.")
         v.addWidget(swap_hint)
 
         out = QHBoxLayout()
@@ -239,8 +231,7 @@ class ImportDoc(QWidget):
         self.import_btn.clicked.connect(self.on_import)
         ids.addWidget(self.import_btn)
         v.addLayout(ids)
-        hint = QLabel("→ then deploy what you made on the Build & Deploy tab.")
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("→ then deploy what you made on the Build & Deploy tab.")
         v.addWidget(hint)
         self._sync_mode()       # now swap_player + mode_chip exist: set art/carry visibility + the resolved-mode chip
         return box
@@ -292,12 +283,10 @@ class ImportDoc(QWidget):
     def _region_box(self):
         box = widgets.section("Fork a region  (a connected multi-field chain → one campaign)")
         v = box.content_layout
-        lbl = QLabel("Fork a whole connected AREA at once — the workflow behind the disc-1 opening. Enter one "
-                     "or more seed fields (or click Browse FF9 regions… for a catalog of FF9's areas — pick one, "
-                     "or several to compose into one campaign); the chain forks everything they reach into a "
-                     "single campaign, doors rewired in-fork. Dry-run first to see the blast radius.")
-        lbl.setWordWrap(True)
-        lbl.setProperty("role", "caption")
+        lbl = widgets.caption("Fork a whole connected AREA at once — the workflow behind the disc-1 opening. Enter one "
+                              "or more seed fields (or click Browse FF9 regions… for a catalog of FF9's areas — pick one, "
+                              "or several to compose into one campaign); the chain forks everything they reach into a "
+                              "single campaign, doors rewired in-fork. Dry-run first to see the blast radius.")
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Seeds:"))
@@ -316,11 +305,9 @@ class ImportDoc(QWidget):
         self.rg_verbatim.setChecked(True)
         v.addWidget(self.rg_whole)
         v.addWidget(self.rg_verbatim)
-        scope_hint = QLabel("Whole zone overrides the catalog's single-visit scope (more fields/ids — Dry-run to "
-                            "preview). Unchecking Verbatim forks re-authorable members whose logic you rebuild "
-                            "yourself.")
-        scope_hint.setWordWrap(True)
-        scope_hint.setProperty("role", "caption")
+        scope_hint = widgets.caption("Whole zone overrides the catalog's single-visit scope (more fields/ids — Dry-run to "
+                                     "preview). Unchecking Verbatim forks re-authorable members whose logic you rebuild "
+                                     "yourself.")
         v.addWidget(scope_hint)
         # Walk as (player swap) for the WHOLE chain -- the region analogue of the single-fork swap.
         rswap = QHBoxLayout()
@@ -335,11 +322,9 @@ class ImportDoc(QWidget):
         rswap.addWidget(self.rg_neutralize)
         rswap.addStretch(1)
         v.addLayout(rswap)
-        swap_hint = QLabel("Optional: play the WHOLE chain as a different character (a playable name) or any "
-                           "model (a GEO id). Implies verbatim; cutscene members' scripted gestures glitch — "
-                           "tick Neutralize to stand cleanly through them.")
-        swap_hint.setWordWrap(True)
-        swap_hint.setProperty("role", "caption")
+        swap_hint = widgets.caption("Optional: play the WHOLE chain as a different character (a playable name) or any "
+                                    "model (a GEO id). Implies verbatim; cutscene members' scripted gestures glitch — "
+                                    "tick Neutralize to stand cleanly through them.")
         v.addWidget(swap_hint)
         out = QHBoxLayout()
         out.addWidget(QLabel("Write campaign to:"))
@@ -364,16 +349,12 @@ class ImportDoc(QWidget):
         ids.addWidget(self.rg_fresh)
         ids.addStretch(1)
         v.addLayout(ids)
-        collide_hint = QLabel("Field ids are GLOBAL across every stacked mod folder — to keep TWO regions side by "
-                              "side, give each a DISTINCT id base AND a unique Name prefix, or the second black-"
-                              "screens. The shipped disc-1 opening occupies ~6000–6371.")
-        collide_hint.setWordWrap(True)
-        collide_hint.setProperty("role", "caption")
+        collide_hint = widgets.caption("Field ids are GLOBAL across every stacked mod folder — to keep TWO regions side by "
+                                       "side, give each a DISTINCT id base AND a unique Name prefix, or the second black-"
+                                       "screens. The shipped disc-1 opening occupies ~6000–6371.")
         v.addWidget(collide_hint)
-        fresh_hint = QLabel("Re-forking into the SAME folder reuses the prior fork's ids by default, so in-fork "
-                            "saves survive. Tick --fresh-ids only to re-number from scratch.")
-        fresh_hint.setWordWrap(True)
-        fresh_hint.setProperty("role", "caption")
+        fresh_hint = widgets.caption("Re-forking into the SAME folder reuses the prior fork's ids by default, so in-fork "
+                                     "saves survive. Tick --fresh-ids only to re-number from scratch.")
         v.addWidget(fresh_hint)
         btns = QHBoxLayout()
         self.dryrun_btn = QPushButton("Dry-run (preview blast radius)")
@@ -385,8 +366,7 @@ class ImportDoc(QWidget):
         btns.addStretch(1)
         btns.addWidget(self.fork_region_btn)
         v.addLayout(btns)
-        hint = QLabel("→ then open the campaign on the Build & Deploy tab to compile + deploy the whole chain.")
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("→ then open the campaign on the Build & Deploy tab to compile + deploy the whole chain.")
         v.addWidget(hint)
         return box
 
@@ -444,11 +424,9 @@ class ImportDoc(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Fork FF9 regions")
         lay = QVBoxLayout(dlg)
-        intro = QLabel(f"<b>{arcset.title}</b> — pick FF9 regions to fork. Check ONE to fork it alone, or "
-                       "SEVERAL to compose their seeds into ONE campaign. 'Use selected' fills the Fork-a-region "
-                       "box (review id base / name prefix, then Dry-run or Fork).")
-        intro.setWordWrap(True)
-        intro.setProperty("role", "caption")
+        intro = widgets.caption(f"<b>{arcset.title}</b> — pick FF9 regions to fork. Check ONE to fork it alone, or "
+                                "SEVERAL to compose their seeds into ONE campaign. 'Use selected' fills the Fork-a-region "
+                                "box (review id base / name prefix, then Dry-run or Fork).")
         lay.addWidget(intro)
         lst = QListWidget()
         for a in arcset.arcs:
@@ -461,11 +439,9 @@ class ImportDoc(QWidget):
                 it.setToolTip(a.note)
             lst.addItem(it)
         lay.addWidget(lst)
-        foot = QLabel("Each region forks just its OWN story-state visit (the revisits of a place are separate "
-                      "regions). Check 'Whole zone' on the Fork box to fork all visits instead. A region's "
-                      "starting beat isn't applied here — add a [startup] beat in the editor after forking.")
-        foot.setWordWrap(True)
-        foot.setProperty("role", "caption")
+        foot = widgets.caption("Each region forks just its OWN story-state visit (the revisits of a place are separate "
+                               "regions). Check 'Whole zone' on the Fork box to fork all visits instead. A region's "
+                               "starting beat isn't applied here — add a [startup] beat in the editor after forking.")
         lay.addWidget(foot)
         bb = QDialogButtonBox()
         bb.addButton("Use selected", QDialogButtonBox.ButtonRole.AcceptRole)
@@ -538,8 +514,7 @@ class ImportDoc(QWidget):
         tpl = QHBoxLayout()
         self.tpl_btn = QPushButton("Regenerate base templates")
         self.tpl_btn.clicked.connect(self.on_templates)
-        tplhint = QLabel("rebuild the kit's base assets from YOUR install (ships no game data)")
-        tplhint.setProperty("role", "caption")
+        tplhint = widgets.caption("rebuild the kit's base assets from YOUR install (ships no game data)")
         tpl.addWidget(self.tpl_btn)
         tpl.addWidget(tplhint, 1)
         v.addLayout(tpl)
@@ -551,11 +526,9 @@ class ImportDoc(QWidget):
         on-disk source of truth you copy field folders out of."""
         box = widgets.section("Reference archive  (import-all — every field, foldered)")
         v = box.content_layout
-        lbl = QLabel("Bulk-import fields into <out>/<ZONE>/<FBG>/ — lightweight model-against projects "
-                     "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
-                     "browsable reference you copy field folders out of.")
-        lbl.setWordWrap(True)
-        lbl.setProperty("role", "caption")
+        lbl = widgets.caption("Bulk-import fields into <out>/<ZONE>/<FBG>/ — lightweight model-against projects "
+                              "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
+                              "browsable reference you copy field folders out of.")
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Archive root:"))
@@ -583,10 +556,8 @@ class ImportDoc(QWidget):
         opts.addWidget(self.arc_btn)
         opts.addStretch(1)
         v.addLayout(opts)
-        hint = QLabel("Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special "
-                      "fields with no scene) are listed and skipped.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("Whole game: ~15–20 s lightweight, minutes + ~2–3 GB editable. Failures (world/special "
+                               "fields with no scene) are listed and skipped.")
         v.addWidget(hint)
         return box
 
@@ -614,10 +585,8 @@ class ImportDoc(QWidget):
         discoverable for anyone who learned it here."""
         box = widgets.section("Custom 3D models")
         v = box.content_layout
-        lbl = QLabel("Model browsing + the whole edit round-trip (export .glb → Blender → import / mint / "
-                     "clips) moved to the Models tab — every model, with rendered previews.")
-        lbl.setWordWrap(True)
-        lbl.setProperty("role", "caption")
+        lbl = widgets.caption("Model browsing + the whole edit round-trip (export .glb → Blender → import / mint / "
+                              "clips) moved to the Models tab — every model, with rendered previews.")
         v.addWidget(lbl)
         row = QHBoxLayout()
         self.models_tab_btn = QPushButton("Open the Models tab")
@@ -634,13 +603,11 @@ class ImportDoc(QWidget):
     def _repaint_box(self):
         box = widgets.section("Repaint a native fork's art  (seamless HD round-trip)")
         v = box.content_layout
-        lbl = QLabel("A NATIVE fork ships its background as a tile-packed atlas.png — awkward to paint by hand. "
-                     "Unpack it into spatial Overlay*.png layers (one per depth band, the same picture the engine "
-                     "renders), repaint them in any editor, then Pack them back into atlas.png — SEAMLESS, no game "
-                     "needed. The atlas stays byte-identical until you actually change a layer. THEN deploy the "
-                     "NATIVE *.field.toml (not an editable .bgx fork — those are seam-prone).")
-        lbl.setWordWrap(True)
-        lbl.setProperty("role", "caption")
+        lbl = widgets.caption("A NATIVE fork ships its background as a tile-packed atlas.png — awkward to paint by hand. "
+                              "Unpack it into spatial Overlay*.png layers (one per depth band, the same picture the engine "
+                              "renders), repaint them in any editor, then Pack them back into atlas.png — SEAMLESS, no game "
+                              "needed. The atlas stays byte-identical until you actually change a layer. THEN deploy the "
+                              "NATIVE *.field.toml (not an editable .bgx fork — those are seam-prone).")
         v.addWidget(lbl)
         row = QHBoxLayout()
         row.addWidget(QLabel("Native project:"))
@@ -661,11 +628,9 @@ class ImportDoc(QWidget):
         btns.addStretch(1)
         btns.addWidget(self.rp_pack_btn)
         v.addLayout(btns)
-        hint = QLabel("Native forks only — this is the seamless+repaintable path. (BG-borrow reuses the real "
-                      "art; an editable .bgx fork is repaintable too but SEAM-PRONE.) → then deploy the NATIVE "
-                      "field.toml on Build & Deploy to see the repaint in-game.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("Native forks only — this is the seamless+repaintable path. (BG-borrow reuses the real "
+                               "art; an editable .bgx fork is repaintable too but SEAM-PRONE.) → then deploy the NATIVE "
+                               "field.toml on Build & Deploy to see the repaint in-game.")
         v.addWidget(hint)
         return box
 
@@ -804,10 +769,8 @@ class ImportDoc(QWidget):
         dlg.setWindowTitle(f"Field logic — {field} (read-only)")
         dlg.resize(860, 660)
         dv = QVBoxLayout(dlg)
-        hint = QLabel("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
-                      "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
+                               "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
         dv.addWidget(hint)
         self._mount_beat_strip(dv, rep)
         body = QPlainTextEdit()
@@ -830,13 +793,11 @@ class ImportDoc(QWidget):
         if rep is None:
             return
         if not rep.beat_roster:
-            note = QLabel("Roster: static — the cast doesn't rotate with the story"
+            note = widgets.caption("Roster: static — the cast doesn't rotate with the story"
                           + (f" (gates on SC {', '.join(str(v) for v in rep.sc_gates)})" if rep.sc_gates
                              else " (no ScenarioCounter gating)")
                           + (f" · suggested [startup] scenario = {rep.suggested_scenario}"
                              if rep.suggested_scenario is not None else ""))
-            note.setWordWrap(True)
-            note.setProperty("role", "caption")
             dv.addWidget(note)
             return
         from PySide6.QtWidgets import QSlider

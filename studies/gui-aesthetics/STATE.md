@@ -614,3 +614,56 @@ describing 1 of its 3 strings. Rewritten to say what is true — and to name the
 **The user cleared ALL standing playtest debt before this landed** (CALIBRE, QUARTO P3, the badge bump, the
 spine cut, PLINTH — all validated live). GAUGE itself is unplaytested, though invisible at 100% by
 construction.
+
+---
+
+## Round 5, part 5 — COLUMN: the hint tier stops growing with the monitor
+
+**SHIPPED.** 35 hand-rolled caption labels routed through `widgets.caption()` (now a capped, scaling
+`Prose`); `CAPTION_W` 620 → **380**. 3602 tests.
+
+**Before → after**, measured live on the real labels at real window widths:
+
+| window | before | after |
+|---|---|---|
+| 1280 | 103.6 ch/line | **74.1** |
+| 1920 | 198.5 | **74.1** |
+| 2560 | 313.7 | **74.1** |
+
+0/4 over the ceiling at every width (was 4/4), 4/4 capped (was 0/4). **Flat** — the measure no longer
+tracks the screen.
+
+- **620 was never a measure.** At the real 12px rung, on all 23 real caption strings (rate band
+  5.113–5.661; the ceiling is set by the NARROWEST rate — fewest px/char = most characters per line), 620
+  renders **121 ch, 62% over, even where it binds**. 380 = 74.3ch is the widest cap that holds every real
+  caption. It survived three rounds on two defences, **both built from a sample of one**: an approval
+  granted to PROSE_W at 13px, and "the cap does not bind" — which was the indictment, not the defence.
+- **Its fence went red and made the change deliberate — which is precisely why it existed** ("so that
+  lowering it is a decision somebody makes on purpose"). Kept and inverted rather than deleted.
+- **The factory already existed with the right name.** `widgets.caption()` just returned a bare
+  `role_label`, and 37 sites had quietly stopped calling it. A fence checking only "everyone calls the
+  factory" would pass perfectly against that, so a second one asserts the factory actually caps.
+
+### The sweep found a live NameError that py_compile could not
+
+`savedoc.py` imports `from .widgets import PlaceholderListWidget, section` — **no bare `widgets` name** —
+so its two converted sites would have raised on the Save tab. `py_compile` passes on an undefined global;
+only importing the module and asking `hasattr` finds it. Same class as this arc's earlier
+"caught by a PROBE, not by 3569 passing tests". **The import check is now part of the conversion.**
+
+### ⚠ STANDING QUESTION FOR THE EYE — the form docs have no page column
+
+Fixing the measure exposed the real structural gap: **Home caps its content at 860 and centres it; the
+form docs do not.** Import's cards measure **640 / 1102 / 1136** at a 1920 window, so a correct 380px hint
+now sits in an 1100px card at 3:1 — readable per line, but a narrow ribbon in a wide pane, which is the
+exact failure the shot's own docstring predicted.
+
+**The fix is a page column for the form docs, not a wider hint** — 480 reads 94ch and is back over the
+band. Two things argue the current state is already defensible: the page ALREADY carries a 420px Prose
+(the crown note, approved), so 380 captions make it ONE reading column instead of a mix of 420 and 1100.
+Renders: `evidence/col_before_import.png` vs `col_after_import.png`. **User's call.**
+
+*(Note: the user's real prefs sit at `text_scale = 110` — they use CALIBRE. Every probe here PINS the
+scale to 100; a probe that inherits the user's dial reports the wrong rung and I did that once already,
+measuring "12px" captions that were really 13.)*
+

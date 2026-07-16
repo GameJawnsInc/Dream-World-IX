@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .. import flags as _flags
 from .. import save as _save
 from .. import save_items as _si
+from . import widgets
 from .widgets import PlaceholderListWidget, section
 
 
@@ -122,8 +123,7 @@ class StoryStateDoc(QWidget):
             le = QLineEdit()
             setattr(self, attr, le)
             row.addWidget(le, 1)
-            h = QLabel(hint)
-            h.setProperty("role", "caption")
+            h = widgets.caption(hint)
             row.addWidget(h)
             lay.addLayout(row)
         # Overworld position: an actor picker (player / chocobo) + an X,Z field. The per-actor array in
@@ -136,8 +136,7 @@ class StoryStateDoc(QWidget):
         wrow.addWidget(self.world_actor_combo)
         self.worldpos_var = QLineEdit()
         wrow.addWidget(self.worldpos_var, 1)
-        wh = QLabel("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
-        wh.setProperty("role", "caption")
+        wh = widgets.caption("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
         wrow.addWidget(wh)
         lay.addLayout(wrow)
         btns = QHBoxLayout()
