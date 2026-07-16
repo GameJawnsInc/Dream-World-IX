@@ -1,9 +1,8 @@
 # GUI aesthetics — state + next steps
 
-**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–6 MERGED to master** · round 7 (THE SQUEEZE)
-committed, ⚠ awaiting playtest · **3657 tests**.
+**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–7 MERGED to master + PLAYTESTED** · **3657 tests**.
 
-> ## ★ ROUND 7 — THE SQUEEZE: *a squeeze is not a preference*
+> ## ✅ ROUND 7 — THE SQUEEZE: *a squeeze is not a preference*  ·  PLAYTESTED (*"much better"*)
 >
 > **The report:** *"the default sizes of the left and right panels (the tree and the inspector) are very
 > small... as a default they need to be wider."* **The default was not what the user was seeing, and the
@@ -23,6 +22,13 @@ committed, ⚠ awaiting playtest · **3657 tests**.
 > **exactly 0** is the opposite: `childrenCollapsible` is on, so 0 means the user dragged it shut, and it is
 > kept. Hence `0 < size <= floor + 2`. **The default's own width is UNCHANGED** — the user chose to judge
 > the real default first rather than have a taste change ride along with a bug fix.
+>
+> **✅ AND THAT CLOSES THE WIDTH QUESTION: *"much better"*.** `[300, 640, 240]` was right all along; the
+> report was never about the default. **The measured 1280 trade-off never had to be spent** — widening the
+> panels would have cost the document pane (Models' 700px sizeHint starts scrolling below ~700), and that
+> cost bought nothing. *The bug report named a symptom; the fix was one layer below the words.* Had I
+> widened the default on the literal ask, the squeeze would still be there, the panels would still have
+> been 78/66 for this user, and the doc pane would have been narrower for everyone else.
 >
 > **⚠ THE INSTRUMENT WAS WRONG THREE TIMES OUT OF FOUR PROBES, and it was never the app:**
 > - **offscreen reported `mid_col`'s minimum as 1156** (real: **542**) and "proved" the default was never
