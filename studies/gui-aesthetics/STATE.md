@@ -1,6 +1,49 @@
 # GUI aesthetics — state + next steps
 
-**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–6 MERGED to master** · **3655 tests**.
+**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–6 MERGED to master** · round 7 (THE SQUEEZE)
+committed, ⚠ awaiting playtest · **3657 tests**.
+
+> ## ★ ROUND 7 — THE SQUEEZE: *a squeeze is not a preference*
+>
+> **The report:** *"the default sizes of the left and right panels (the tree and the inspector) are very
+> small... as a default they need to be wider."* **The default was not what the user was seeing, and the
+> number they were judging had never been chosen by anyone.**
+>
+> **The bug.** The document column has a hard minimum (542px at 100%, 796 at 150%). When the window is
+> narrower than the layout wants, the only panes that can give are the outer two — and they clamp to their
+> own minimums (78 / 66). `_save_layout` persisted that clamp **as if it were a preference**. On the next
+> launch `setStretchFactor(1, 1)` handed the *entire* surplus to the middle pane, so a layout saved at
+> ~700px reopened at 1280 as `[90, 1122, 66]`: **the panels never came back at any window width. One narrow
+> session, ever, was permanent.** The user's real `prefs.json` read `[76, 1138, 64]` — reproduced to within
+> 2px by seeding a 700px session — and their window is 1280×820 on a 1920 screen, so they had simply never
+> seen the actual default (`[300, 738, 240]` at their size).
+>
+> **The fix.** `_repair_central_split`: an outer pane within 2px of its own `minimumSizeHint` is the fossil
+> of a clamp — there was no width there to have chosen — so restore falls back to the default. A pane at
+> **exactly 0** is the opposite: `childrenCollapsible` is on, so 0 means the user dragged it shut, and it is
+> kept. Hence `0 < size <= floor + 2`. **The default's own width is UNCHANGED** — the user chose to judge
+> the real default first rather than have a taste change ride along with a bug fix.
+>
+> **⚠ THE INSTRUMENT WAS WRONG THREE TIMES OUT OF FOUR PROBES, and it was never the app:**
+> - **offscreen reported `mid_col`'s minimum as 1156** (real: **542**) and "proved" the default was never
+>   honoured at all — a complete fiction, and the *same* stub-font-DB artifact that manufactured a 1296px
+>   window floor in round 6, wearing a different hat. I had a fix designed for it before checking.
+> - **an in-session resize probe FALSIFIED the ratchet** — 1280 → 700 → 1920 recovers perfectly. It does:
+>   a live splitter still holds its original `setSizes()` request and re-derives from it on every resize.
+>   **The ratchet needs a RESTART to lose that memory.** → **A PROBE THAT CANNOT REPRODUCE THE LIFECYCLE
+>   CANNOT FALSIFY A LIFECYCLE BUG.**
+> - **"a fat tab pins the column open"** — measured with the user's own 12-field campaign open: `mid_col`
+>   stays 542, every tab clears. No.
+>
+> **The fences, and neither is vacuous** (both re-run against a no-op `_repair`, both go red):
+> `test_a_squeezed_panel_is_not_a_preference` **reads the floor at runtime** rather than writing `78` — the
+> floor is font-dependent (78 real / 74 offscreen) and that module runs offscreen.
+> `test_the_restore_path_spends_the_repair` asserts the **request** via a `QSplitter.setSizes` spy, not the
+> rendered sizes: offscreen re-clamps the healed layout straight back to `[74, 1156, 66]`, so asserting
+> `sizes()` **fails on a correct fix**. It is the call-site half — this arc's oldest lesson.
+>
+> **The wider law:** *a value the app COMPUTED under duress is not a value the user CHOSE.* Persistence
+> layers cannot tell them apart unless someone writes the tell down.
 
 > ## ✅ FULLY PLAYTESTED — rounds 2–6, 2026-07-16
 >
@@ -21,10 +64,17 @@
 **Merge, as it actually went.** Master moved ~10 commits ahead (overworld/beach work) while this ran. The
 earlier claim of *zero* file overlap went **stale before landing** — `CLAUDE.md` ended up touched by both
 sides (master's mountain work, this arc's §10 line). Git auto-merged it; both survived. The trap was real
-and was avoided: the main repo sits on `claude/interior-topography-plan-b61671`, so a `cd repo && git merge`
-would have landed the GUI work on the topography branch. Master was checked out in **none** of the 11
-worktrees, so the landing was `git fetch . <branch>:master` from here — fetch refuses a non-fast-forward,
-which is the property that makes it safe. See [[project-ff9-main-repo-branch-trap]].
+and was avoided: at that moment the main repo sat on `claude/interior-topography-plan-b61671`, so a
+`cd repo && git merge` would have landed the GUI work on the topography branch; the landing was
+`git fetch . <branch>:master` from here.
+
+> **⚠ AND THAT PARAGRAPH IS ITSELF THE LESSON — it went stale within the day.** By the round-6 playtest the
+> main repo *was* on `master`, and `fetch . branch:master` **failed** (*"refusing to fetch into branch
+> 'refs/heads/master' checked out at C:/gd/Dream-World-IX"*). The landing was `git merge --ff-only` from the
+> main repo instead. **The durable fact is not which branch it is on — it is that the branch is a VARIABLE:
+> read it with `git -C <repo> rev-parse --abbrev-ref HEAD` first, and gate on `--is-ancestor`.** Each path
+> fails loudly in the other's situation *except* `cd repo && git merge`, which fails **silently**. See
+> [[project-ff9-main-repo-branch-trap]].
 
 ---
 
