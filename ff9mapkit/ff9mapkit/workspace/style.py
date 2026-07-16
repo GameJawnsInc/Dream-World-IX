@@ -241,7 +241,7 @@ _QSS = Template(
        cut into the plate, so it takes the input rule's ordering. The material performs the interaction
        at the cost of one rule and zero motion. */
     QPushButton:pressed, QToolButton:pressed {
-        background: $pressed;
+        background: $pressed; color: $pressed_fg;
         border-top-color: $border_shade; border-bottom-color: $border_lit;
     }
     /* A disabled object is not lit: it is not raised, it is inert. Flat edges, no light. */
@@ -277,7 +277,7 @@ _QSS = Template(
        that does not restate `background`, and the one that still worked. A cascade shadow, not Qt.
        The fill, not the edge: this is already a CUT object (shade on top, lit at the foot), so there is no
        raised edge left to invert -- pressing deepens the well. Same move as [role="quiet"]:pressed. */
-    QPushButton#search:pressed { background: $pressed; border-color: $accent; color: $text; }
+    QPushButton#search:pressed { background: $pressed; border-color: $accent; color: $pressed_fg; }
     /* The primary is the ONE most-raised object on a screen, lit from its own hue rather than from
        border. It MUST restate its edge -- `border: 1px solid accent` resets the per-side colours set on
        the generic QPushButton above, which silently flattened it when probed.
@@ -330,7 +330,7 @@ _QSS = Template(
        duration of every build/deploy run, which is exactly when the user is watching that row. */
     QPushButton[role="quiet"]          { background: transparent; border: 1px solid $border; color: $text; }
     QPushButton[role="quiet"]:hover    { background: $hover; }
-    QPushButton[role="quiet"]:pressed  { background: $pressed; }
+    QPushButton[role="quiet"]:pressed  { background: $pressed; color: $pressed_fg; }
     QPushButton[role="quiet"]:focus    { border: 1px solid $focus; }
     QPushButton[role="quiet"]:disabled { color: $muted; background: $bg; border: 1px solid $border; }
 
@@ -742,7 +742,7 @@ _QSS = Template(
        the 1px, keeping the rendered box byte-identical (asserted: probe_state_delta.py). */
     QToolButton#consoleToggle       { background: transparent; border: 1px solid transparent; padding: 4px 5px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
-    QToolButton#consoleToggle:pressed { background: $pressed; color: $text; }
+    QToolButton#consoleToggle:pressed { background: $pressed; color: $pressed_fg; }
     QToolButton#consoleToggle:focus { border: 1px solid $focus; color: $text; }
     /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb.
        BOTH edges, and it owns them. This band hides, so the line above it must come and go WITH it --
@@ -774,7 +774,7 @@ _QSS = Template(
        The press fence missed it because it called setCheckable(True) and never setChecked(True); it does
        both now. (#disclosureToggle survived the same shape only by luck -- its :checked sets `color`, not
        `background`, so there was nothing to lose.) */
-    QToolButton#railSeg:pressed { color: $text; background: $pressed; }
+    QToolButton#railSeg:pressed { color: $pressed_fg; background: $pressed; }
     QToolButton#railSeg:focus   { border: 1px solid $focus; }
 
     /* progressive-disclosure toggle (widgets.disclosure): a flat, left-aligned 'advanced' section header */
@@ -785,7 +785,7 @@ _QSS = Template(
         padding: 5px 1px; text-align: left;
     }
     QToolButton#disclosureToggle:hover   { color: $text; }
-    QToolButton#disclosureToggle:pressed { color: $text; background: $pressed; }
+    QToolButton#disclosureToggle:pressed { color: $pressed_fg; background: $pressed; }
     QToolButton#disclosureToggle:checked { color: $text; }
     /* :focus WAS `color: text` -- byte-identical to :hover above, so focus was visible but INDISTINGUISH-
        ABLE from hovering: a keyboard user could not tell where they were from a passing mouse. A state

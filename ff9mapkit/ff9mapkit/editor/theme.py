@@ -347,7 +347,7 @@ def pick_palette(mode: str = "auto") -> dict:
 _DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "selection_rail", "text_subtle", "focus",
                  "info", "success_text", "warn_text", "error_text",
                  "border_lit", "border_shade", "accent_lit", "accent_shade",
-                 "warn_fg", "help_fg")
+                 "warn_fg", "help_fg", "pressed_fg")
 
 # INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
 # the whole direction, isolated to one number on purpose -- and settled by RENDERING it at 6x, because no
@@ -547,6 +547,26 @@ def derive(pal: dict) -> dict:
     # 3 of the 8 with more contrast than their authors wanted. See :func:`_fg_token`.
     for _k in ("warn", "help"):
         out[f"{_k}_fg"] = _fg_token(pal[_k], pal)
+    # `pressed` IS A FILL TOO, and it is the one nobody noticed because it is TRANSIENT. Every button in
+    # the app renders its label on it while held: measured, `text` on `pressed` is 4.09 in solarized-light
+    # and 4.47 in solarized-dark -- sub-AA, in the generic rule, for every button in those two palettes.
+    #
+    # THE GROUND CANNOT MOVE, AND THAT IS WHY THIS IS AN INK. `pressed` is a rung of a TONAL LADDER
+    # (surface_btn -> hover -> pressed) fenced at contrast(pressed, hover) >= 1.03. In BOTH failing
+    # palettes the ladder's direction is the OPPOSITE of legibility's: solarized-light's press walks DARKER
+    # (toward its dark text) and solarized-dark's walks LIGHTER (toward its light text). Retuning the fill
+    # to clear 4.5 costs solarized-light 5 steps and lands contrast(pressed, hover) at 1.0192 -- UNDER the
+    # fence. You would fix the label by making the press invisible.
+    #
+    # So the fill keeps its job and the ink gets its own rung -- the same trade `_text_token` documents
+    # above ("the canonical hue KEEPS its job and text gets its own derived rung"), and `focus` before it.
+    # NEARLY FREE: `_fg_token` returns `text` UNCHANGED in 6 of 8, so six palettes RENDER IDENTICALLY and
+    # only the two that were broken move (solarized-dark 4.47 -> 4.57, solarized-light 4.09 -> 4.61).
+    # RENDER-identical, not byte-identical: the generic :pressed rule had no `color` at all (the label
+    # inherited `text` from the QWidget base), so naming the token changes the SHEET in all 8 while
+    # changing the PIXELS in two. Worth the distinction -- "byte-identical" is a claim a fence can check,
+    # and it would fail.
+    out["pressed_fg"] = _fg_token(pal["pressed"], pal)
     # INTAGLIO -- one light, from above. The app's whole elevation ladder claims a light source ("higher =
     # lighter") and never draws the light, so an object's fill cannot say it is an object: LIGHT's
     # surface_btn IS surface (contrast 1.0000, the same hex); solarized-dark's field IS surface; mist's

@@ -195,7 +195,16 @@ def test_a_filled_ground_carries_its_ink():
         d = theme.derive(pal)
         for fill, ink in (("accent", "accent_fg"),      # the chip (7 of 8 modes) + QPushButton#accent
                           ("warn", "warn_fg"),          # the BATTLE chip -- the 1.12:1 site
-                          ("help", "help_fg")):         # the round "?" concept button
+                          ("help", "help_fg"),          # the round "?" concept button
+                          # `pressed` is a fill too -- the one nobody saw, because it is TRANSIENT: every
+                          # button in the app renders its label on it WHILE HELD. `text` measured 4.09 on
+                          # solarized-light and 4.47 on solarized-dark, in the GENERIC rule, so it was
+                          # every button in those two palettes. The ground could not move: `pressed` is a
+                          # tonal-ladder rung fenced at contrast(pressed, hover) >= 1.03, and in BOTH
+                          # failing palettes the ladder walks the OPPOSITE way to legibility -- clearing
+                          # 4.5 by retuning the fill drops solarized-light's press feedback to 1.0192,
+                          # i.e. fixes the label by making the press invisible. So the ink moved instead.
+                          ("pressed", "pressed_fg")):
             assert _contrast(d[ink], d[fill]) >= 4.5, \
                 f"{mode}: ${ink} is sub-AA on its own ${fill} fill"
 
