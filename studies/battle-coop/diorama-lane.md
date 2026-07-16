@@ -312,9 +312,26 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   `btl_list` or they get no texture animation (`BattleTexAnimWatcher.Update`); spawn after
   `CreateBattleRoot` (`:176`) and always pass `isBattle:true` or `ModelFactory.cs:199` silently
   skips parenting.)*
-- **B3.4 — drive the truth. ★ RECON DONE 2026-07-16** (workflow `wf_9eeb1bc2-c3a`, 13 agents, 4 CONFIRMED /
-  2 CORRECTED / 0 REFUTED; **full verified record = `b34-recon.md`** — read it before building). The
-  distilled design:
+- **B3.4 — drive the truth. ★ BUILT 2026-07-16 (DLL `76D672AF81CCF689`), solo bench pending.**
+  Recon = workflow `wf_9eeb1bc2-c3a` (13 agents, 4 CONFIRMED / 2 CORRECTED / 0 REFUTED; **full
+  verified record = `b34-recon.md`**). The BUILD verify pass (2 more agents) then killed two of my
+  own deviations before the DLL: **(1) the missing-as-dead sweep REFUTED** — it contradicted the
+  recon's hold-last-state law and would have PERMANENTLY killed alive-but-unlinked host enemies
+  (the case-33 submerge/reinforcement idiom); fixed at the ROOT the way the recon prescribed: the
+  host sampler now enumerates **`btl_data` directly** (dead units ride the wire as Alive=false — a
+  late-joining guest kills them on its first reconcile, no inference; script-hidden units carry a
+  new **HIDDEN bit** — info bit 16, v8-benign — that the guest mirrors as the case-33 renderer
+  idiom without the list surgery); **(2) the Alive bit read LOGICAL CurrentHp** — under
+  `CustomBattleFlagsMeaning=1` a non-dying boss inside its dying band reads logical 0 while alive
+  and the guest would kill it; the sampler now derives Alive from **raw `cur.hp` + the Death
+  status**. En route: the slot IS GetIndex, so the sampler's log2 loop is gone. PHASE_NORMAL
+  reachability in the diorama was CONFIRMED from source (the MENU_ON→NORMAL promotion is neither
+  isDebug- nor containment-gated) — the reconciler runs. The five R-gates verified to preserve
+  every normal path. **The solo bench** = F6 in a diorama → "State bench (kill/restore)": carnage
+  kills ALL enemies (doubling as the phase-flipper proof: with CheckBattlePhase + R1 both gated,
+  the all-dead diorama must simply STAND) + player 0 at HP 123 / MP 45 + TRANCE + half ATB;
+  restore revives everyone (the real revive lane if pressed before the fade completes).
+  The distilled design:
   **THE RESOLUTION PRIMITIVE (C1):** wire Index == the `btl_data` ARRAY SLOT (GetIndex = log2(btl_id);
   players = COMPACTED party positions 0-3, enemies 4-7 in pattern order — deterministic, no RNG on the
   identity path; no mid-battle unit creation exists anywhere: summons/multi-part = pre-spawned pattern
