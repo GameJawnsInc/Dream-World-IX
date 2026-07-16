@@ -219,6 +219,13 @@ class CoopDoc(QWidget):
                        "Joining side: my game auto-warps to their field and my random encounters pause.",
                        pv)
 
+        self.cb_diorama = QCheckBox("Boot into the host's battles (diorama)")
+        self.cb_diorama.setChecked(True)                   # the engine default (s40): on
+        widgets.option(self.cb_diorama,
+                       "Joining side: when the host fights, my screen boots the same battle live "
+                       "(render-only — my own save is never touched). Untick for the text spectate panel.",
+                       pv)
+
         apply_row = QHBoxLayout()
         self.btn_style = _pad(QPushButton("Apply play style"))
         self.btn_style.clicked.connect(self.apply_playstyle)
@@ -309,12 +316,18 @@ class CoopDoc(QWidget):
             blob = b""
         has_netsync = b"NetSyncClient" in blob
         has_s37 = b"NetSyncBattle" in blob          # the battle/visitor lanes shipped together (s37)
-        self.lbl_engine.setText("netsync + battle/visitor co-op (s37) present" if has_s37 else
+        has_s40 = b"NetSyncDiorama" in blob         # the battle diorama (s40)
+        self.lbl_engine.setText("netsync + battle co-op + diorama (s40) present" if has_s40 else
+                                "netsync + battle/visitor co-op (s37) — the battle diorama needs "
+                                "the newer s40 engine" if has_s37 else
                                 "netsync (s36) present — Play style needs the newer s37 engine"
                                 if has_netsync else
                                 "netsync MISSING — install the Dream World IX custom engine first")
         widgets.set_state(self.lbl_engine, "" if has_s37 else "warn")
         self.style_box.setEnabled(has_s37)
+        # The diorama checkbox alone keys on s40: greyed on an s37-only engine so Apply/Start
+        # never write a key the engine can't read (None -> the flag is simply not passed).
+        self.cb_diorama.setEnabled(has_s40)
         folder = coop.find_registered_field(self._game, coop.COOP_FIELD)
         self.lbl_room.setText(f"field {coop.COOP_FIELD} registered ({folder})"
                               if folder else
@@ -359,13 +372,17 @@ class CoopDoc(QWidget):
         idx = self.combo_ghost.findData(ghost)
         self.combo_ghost.setCurrentIndex(idx if idx >= 0 else 0)
         self.cb_follow.setChecked((coop.read_ini_key(ini_text, "Netsync", "FollowHost") or "") == "1")
+        # Diorama defaults ON in the engine (s40): an absent key reads as checked.
+        self.cb_diorama.setChecked((coop.read_ini_key(ini_text, "Netsync", "Diorama") or "1") != "0")
 
     def _playstyle_state(self):
-        """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow) --
-        the same human-level values the CLI flags take."""
+        """The widgets' current play style as (slot_spec, wait_seconds, ghost_as, follow, diorama) --
+        the same human-level values the CLI flags take. ``diorama`` is None when the engine
+        predates s40 (the checkbox is greyed) so nothing downstream writes the key."""
         slots = [str(i + 1) for i, cb in enumerate(self.cb_slots) if cb.isChecked()]
         return (",".join(slots) or "none", self.spin_wait.value(),
-                self.combo_ghost.currentData() or "off", self.cb_follow.isChecked())
+                self.combo_ghost.currentData() or "off", self.cb_follow.isChecked(),
+                self.cb_diorama.isChecked() if self.cb_diorama.isEnabled() else None)
 
     def _refresh_bridge_row(self):
         running = self._thread is not None and self._thread.is_alive()
@@ -393,7 +410,7 @@ class CoopDoc(QWidget):
             widgets.set_state(self.lbl_config, "warn")
             self.lbl_config.setText("direct LAN join needs the host's IP")
             return
-        style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host"),
+        style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host", "diorama"),
                          self._playstyle_state())) if self.style_box.isEnabled() else {}
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
                                     lan=("" if hosting else self.lan_ip.text().strip()) if lan else None,
@@ -450,9 +467,9 @@ class CoopDoc(QWidget):
         from .. import coop
         if self._game is None:
             return
-        slots, wait, ghost, follow = self._playstyle_state()
+        slots, wait, ghost, follow, diorama = self._playstyle_state()
         try:
-            updates = coop.playstyle_updates(slots, wait, ghost, follow)
+            updates = coop.playstyle_updates(slots, wait, ghost, follow, diorama)
             coop.write_netsync(self._game, updates, out=self._append_log)
         except (ValueError, OSError, FileNotFoundError) as e:
             self._append_log(f"could not apply the play style: {e}")

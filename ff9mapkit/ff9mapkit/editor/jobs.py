@@ -488,11 +488,13 @@ def revert_battle_argv(repo_root):
 
 
 def coop_setup_argv(action, code=None, *, lan=None, new_code=False, rebuild_room=False,
-                    guest_slots=None, guest_wait=None, ghost_as=None, follow_host=None):
+                    guest_slots=None, guest_wait=None, ghost_as=None, follow_host=None,
+                    diorama=None):
     """``ff9mapkit coop host|join`` argv, setup only (``--no-bridge`` -- the GUI runs the bridge
     in-process). ``lan``: None = relay mode; ``""`` = bare ``--lan`` (host); an IP = ``--lan <ip>`` (join).
     The play-style knobs (s37) pass through when not None: ``guest_slots`` a human slot spec
-    ('none'/'2'/'2,3'), ``guest_wait`` seconds, ``ghost_as`` off/auto/name, ``follow_host`` a bool."""
+    ('none'/'2'/'2,3'), ``guest_wait`` seconds, ``ghost_as`` off/auto/name, ``follow_host`` a bool,
+    ``diorama`` a bool (s40 -- boot the host's battles live on the guest)."""
     a = [sys.executable, "-m", "ff9mapkit", "coop", str(action)]
     if code:
         a.append(str(code))
@@ -511,4 +513,6 @@ def coop_setup_argv(action, code=None, *, lan=None, new_code=False, rebuild_room
         a += ["--ghost-as", str(ghost_as)]
     if follow_host is not None:
         a += ["--follow-host", "on" if follow_host else "off"]
+    if diorama is not None:
+        a += ["--diorama", "on" if diorama else "off"]
     return a

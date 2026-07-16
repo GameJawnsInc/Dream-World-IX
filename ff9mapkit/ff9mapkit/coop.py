@@ -26,6 +26,9 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
                                                                   -> GhostAs
     --follow-host on       guest side: auto-warp to the host's field; your own
                            random encounters pause while paired   -> FollowHost
+    --diorama on           guest side (s40 engine): when the host fights, your
+                           screen boots the SAME battle live (render-only);
+                           "off" keeps the text spectate panel    -> Diorama
 
 Co-op works EVERYWHERE by default: ghosts appear on any screen both players
 share (``--field N`` restricts it to one field). What ``host``/``join`` do:
@@ -122,10 +125,12 @@ def parse_ghost_as(name: str) -> str:
 
 
 def playstyle_updates(guest_slots: str | None = None, guest_wait: int | None = None,
-                      ghost_as: str | None = None, follow_host: bool | None = None) -> dict:
+                      ghost_as: str | None = None, follow_host: bool | None = None,
+                      diorama: bool | None = None) -> dict:
     """The ``[Netsync]`` play-style updates for whichever knobs were actually given (None = leave
     the ini alone -- a re-run must not clobber hand-tuned values). ``guest_wait`` is SECONDS
-    (0 = no cap); the ini key is milliseconds."""
+    (0 = no cap); the ini key is milliseconds. ``diorama`` follows the engine default ON (s40):
+    only an explicit off writes ``0``."""
     updates: dict = {}
     if guest_slots is not None:
         updates["GuestSlots"] = str(parse_guest_slots(guest_slots))
@@ -137,6 +142,8 @@ def playstyle_updates(guest_slots: str | None = None, guest_wait: int | None = N
         updates["GhostAs"] = parse_ghost_as(ghost_as)
     if follow_host is not None:
         updates["FollowHost"] = "1" if follow_host else "0"
+    if diorama is not None:
+        updates["Diorama"] = "1" if diorama else "0"
     return updates
 
 
@@ -377,6 +384,8 @@ def show_config(game: Path, *, out=print) -> int:
     out(f"  ghost as:    " + ("their own model" if ghost in ("", "off", "0") else
                               "auto (the party member they command)" if ghost == "auto" else ghost))
     out(f"  follow-host: " + ("ON (auto-warp + encounter pause)" if key("FollowHost") == "1" else "off"))
+    out(f"  diorama:     " + ("ON (their battles boot live on my screen; s40 engine)"
+                              if key("Diorama", "1") != "0" else "off (text spectate panel)"))
     return 0
 
 
@@ -416,11 +425,13 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
 
     # validate the play-style flags FIRST -- a typo must not cost the minute-long room build
     follow = getattr(args, "follow_host", None)
+    diorama = getattr(args, "diorama", None)
     try:
         style = playstyle_updates(getattr(args, "guest_slots", None),
                                   getattr(args, "guest_wait", None),
                                   getattr(args, "ghost_as", None),
-                                  None if follow is None else follow == "on")
+                                  None if follow is None else follow == "on",
+                                  None if diorama is None else diorama == "on")
     except ValueError as e:
         out(f"  {e}")
         return 2
@@ -472,6 +483,11 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         out("  visitor: follow-host " + ("ON -- your game auto-warps to their field and your "
                                          "random encounters pause while paired"
                                          if style["FollowHost"] == "1" else "off"))
+    if "Diorama" in style:
+        out("  battle diorama " + ("ON -- when they fight, your screen boots the same battle "
+                                   "live (render-only; needs the s40 engine on this machine)"
+                                   if style["Diorama"] == "1" else
+                                   "off -- their battles show as the text spectate panel"))
 
     out("")
     if role == "host":

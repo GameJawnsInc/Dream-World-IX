@@ -8038,16 +8038,38 @@ def _smoke(win):
     assert "session code" in cd.lbl_config.text(), cd.lbl_config.text()
     cd.rb_host.setChecked(True)
     # the play-style group (s37): widgets -> the same human values the CLI flags take -> valid ini keys
-    cd.cb_slots[1].setChecked(True)
+    # Set EVERY slot checkbox, not just the one under test: refresh_status ran _load_playstyle
+    # against THIS machine's real Memoria.ini, so any slot bit a past co-op session left there
+    # rides into the tuple. The old `cb_slots[1].setChecked(True)`-only line was green for weeks,
+    # then the ini gained slot 3 and the smoke went red with zero code change — the same
+    # environment-keyed rot as reading the dev's prefs.
+    for _i, _cb in enumerate(cd.cb_slots):
+        _cb.setChecked(_i == 1)
     cd.spin_wait.setValue(30)
     cd.combo_ghost.setCurrentIndex(cd.combo_ghost.findData("auto"))
     cd.cb_follow.setChecked(True)
-    assert cd._playstyle_state() == ("2", 30, "auto", True)
-    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=True)
+    # Force the diorama checkbox's enablement both ways so the assert never reads THIS machine's
+    # DLL (an environment-dependent smoke is how the last one rotted): enabled -> a real bool,
+    # disabled (s37-only engine) -> None, meaning the key is never written.
+    cd.style_box.setEnabled(True)
+    cd.cb_diorama.setEnabled(True)
+    cd.cb_diorama.setChecked(False)
+    _pstate = cd._playstyle_state()
+    assert _pstate == ("2", 30, "auto", True, False), _pstate
+    cd.cb_diorama.setEnabled(False)
+    assert cd._playstyle_state()[4] is None
+    cd.cb_diorama.setEnabled(True)
+    cd.cb_diorama.setChecked(True)
+    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=True,
+                 diorama=False)
     assert "--guest-slots" in _argv and _argv[_argv.index("--follow-host") + 1] == "on"
+    assert _argv[_argv.index("--diorama") + 1] == "off"
+    assert "--diorama" not in _csa("host", guest_slots="2")     # None -> flag omitted
     from .. import coop as _coop
     assert _coop.playstyle_updates("2", 30, "auto", True) == {
         "GuestSlots": "2", "GuestWaitMs": "30000", "GhostAs": "auto", "FollowHost": "1"}
+    assert _coop.playstyle_updates(diorama=True) == {"Diorama": "1"}
+    assert _coop.playstyle_updates(diorama=False) == {"Diorama": "0"}
     for cb in cd.cb_slots:
         cb.setChecked(False)
     cd.cb_follow.setChecked(False)

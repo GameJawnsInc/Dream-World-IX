@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `--diorama on|off`: the battle diorama's config surface (s40 engine)
+- The s40 engine's `[Netsync] Diorama` knob (default ON: a following guest's screen boots the
+  host's battles live, render-only) joins the established play-style surface: `coop host|join
+  --diorama on|off` (written only when given, like every play-style flag), a `coop show` line
+  (an absent key reads as the engine default ON), and a Workspace Co-op tab checkbox that greys
+  out when the installed DLL predates s40 (`NetSyncDiorama` scan) so the key is never written
+  for an engine that can't read it.
+
 ### Added — THE BEACH TRANSLATION LAW: the desert sand band (family-keyed beach verbs)
 - The desert-beach study (2026-07-15, `studies/overworld-topography/desert_beach_*.py`)
   measured stock desert beaches (14 Outer-Continent blocks; 112 map-wide sand↔topo-17 back

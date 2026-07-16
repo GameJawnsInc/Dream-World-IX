@@ -159,6 +159,7 @@ pre-built engine bundle. Every save stays each player's own.
 | Internet play through a public rendezvous relay (random private session codes), or direct LAN (`coop host --lan`) | ✓ | `coop -h` |
 | Battle co-op — guest spectates, or commands granted party slots with the full menu set (`--guest-slots`, `--guest-wait`) | ✓ | `coop -h` |
 | Visitor mode — the ghost dresses as a party member, follow-host auto-warp + encounter pause (`--ghost-as`, `--follow-host`) | ✓ | `coop -h` |
+| The battle diorama — a following guest's screen boots the host's battles live, render-only (`--diorama`; s40 engine) | ✓ | `coop -h` |
 | Print the current co-op config in human terms (`coop show`); hot-reload — a running game applies changes in seconds | ✓ | `coop -h` |
 | The Workspace **Co-op** tab: point-and-click host/join + the Play-style panel for all of the above | ✓ | Workspace → Co-op |
 
