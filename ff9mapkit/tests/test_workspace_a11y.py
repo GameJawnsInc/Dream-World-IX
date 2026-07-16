@@ -209,3 +209,109 @@ def test_the_log_registers_render_and_plain_text_survives(win):
     assert seen[2] == (400, d["log_fg"].lower()), "body: normal weight"
     assert seen[3][1] == d["error_text"].lower(), "trace: the error tint"
     assert doc.maximumBlockCount() == 5000, "the log accumulates now -- it needs a ceiling"
+
+
+def _ratio(a, b):
+    def lum(h):
+        h = h.lstrip("#")
+        c = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        c = [(x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4) for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    l1, l2 = sorted((lum(a), lum(b)), reverse=True)
+    return (l1 + 0.05) / (l2 + 0.05)
+
+
+def test_every_tree_icon_tier_is_legible_selected_and_not():
+    """KEYLINE. An icon tier can fail in every palette and no audit will ever say so.
+
+    `audit_contrast.py` reads ink via `w.palette().color(w.foregroundRole())` -- a QLabel API. It is
+    STRUCTURALLY BLIND to a QPixmap, so the icon tiers have never been covered by anything. That is why
+    this is a test and not an audit entry, and why it fences (tint, ground, STATE) rather than just tint.
+
+    The leaf tier shipped `text_subtle`, which is fenced for TEXT against the elevation ramp and was never
+    fenced as ink for a DRAWING: 3.06 (light) / 3.12 (solarized-light) on the tree's ground -- a hair over
+    the 3.0 non-text floor -- and 2.32-3.07 on a SELECTED row, failing 6 of 8. `muted` is the same tier's
+    honest value.
+
+    3.0, not 4.5: an icon is a non-text graphic (WCAG 1.4.11), and it sits beside a label that names it.
+
+    THE SPINE TIER IS `focus`, NOT `accent`, and this fence is what found that: nord's raw accent reads
+    2.47 on the tree's own ground. `focus` IS "the accent brightened until it clears 3:1 on the surface",
+    so only the failing palettes move (nord 2.47 -> 3.08); the other seven return it unchanged. A separate
+    `accent_mark` token would be _focus_token(accent, surface) -- identical by construction.
+    """
+    from ff9mapkit.editor import theme
+    for mode, base in theme.THEMES.items():
+        d = theme.derive(dict(base))
+        for tier, ink in (("leaf", d["muted"]), ("spine", d["focus"])):
+            r = _ratio(ink, d["surface"])
+            assert r >= 3.0, f"{mode}: the {tier} icon tier is {r:.2f} on the tree ground -- under 3.0"
+        # SELECTED is a different ground and a different ink -- the state is half the fence
+        r = _ratio(d["text"], d["selection_bg"])
+        assert r >= 3.0, f"{mode}: a selected row's icon is {r:.2f} on selection_bg -- under 3.0"
+
+
+def test_a_selected_tree_icon_is_explicit_not_qts_guess(win):
+    """`QIcon(pm)` hands Qt ONE pixmap and lets QCommonStyle::generatedIconPixmap invent the Selected
+    state. Its invention is "tint 30% toward Highlight" -- guaranteed to erase an icon whose colour is
+    near the highlight, which is exactly what an accent icon on an accent selection was (measured
+    1.00-1.01 in all 8; byte-identically zero differing pixels in two palettes).
+
+    REGISTER P1's tint has since fixed six of those for free -- but an app must not depend on a style
+    hook's guess to keep its icons visible. Assert the Selected pixmap is REALLY there and REALLY differs
+    from Normal, which is the only thing that proves Qt is not guessing.
+    """
+    ic = win._type_icon("field")
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QIcon
+    normal = ic.pixmap(QSize(16, 16), QIcon.Mode.Normal)
+    selected = ic.pixmap(QSize(16, 16), QIcon.Mode.Selected)
+    assert not normal.isNull() and not selected.isNull()
+    assert normal.toImage() != selected.toImage(), (
+        "the Selected pixmap is identical to Normal -- Qt is generating it, and its guess erases an icon "
+        "that sits near the highlight colour"
+    )
+
+
+def test_the_unsaved_dot_does_not_eat_the_glyph_it_annotates(app):
+    """KEYLINE's sharpest defect, and ONLY A RENDER COULD SEE IT.
+
+    The dot was `r = w * 0.30` -- at w=16 the dot plus its halo spanned 11.6px of a 16px icon: 72% of the
+    icon's WIDTH, punched out of the bottom-right corner. `field` became an amber blob with a fragment of
+    a frame attached; `hub` lost two of its four squares; `chocobo`'s feather was bisected -- on the row
+    you are editing.
+
+    THE OBVIOUS MEASUREMENT CANNOT CATCH IT, and that is worth the fence's existence alone: the punch-out
+    CLEARS and the dot then FILLS, so every destroyed pixel comes back at alpha 255. An "is this pixel
+    still ink?" test counts the amber dot as surviving glyph and reports 98% kept. This asks the geometry
+    instead, which is the thing that was actually wrong.
+    """
+    from ff9mapkit.workspace import icons
+    for w in (16, 24):                      # the two sizes the tree and the crumb actually use
+        r = w * icons._DOT_K
+        span = 2 * (r + icons._DOT_PAD)     # the dot AND the transparent halo it punches
+        assert span / w <= 0.55, (
+            f"at w={w} the unsaved dot spans {span:.1f}px = {100 * span / w:.0f}% of the icon -- it is "
+            f"eating the glyph it annotates, not annotating it"
+        )
+        assert 5.0 <= 2 * r <= 8.0 or w != 16, f"at w=16 the dot should read ~6px, got {2 * r:.1f}"
+
+
+def test_the_dots_geometry_is_float_not_truncated(app):
+    """The `int()` was the bug's other half, not a rounding detail.
+
+    `int(cx - r - 1)` truncates the origin and `int((r + 1) * 2)` truncates the extent, so the halo lost
+    up to a pixel per side and landed asymmetrically. At k=0.19 the 1px pad IS the whole margin, so
+    truncation would eat it outright -- the radius fix alone does not survive it.
+    """
+    import ast
+    import inspect
+    from ff9mapkit.workspace import icons
+    src = inspect.getsource(icons.with_corner_dot)
+    tree = ast.parse(src.strip())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "drawEllipse":
+            assert node.args and isinstance(node.args[0], ast.Call), (
+                "drawEllipse takes truncated ints -- it must take a QRectF or the halo is eaten"
+            )
+            assert getattr(node.args[0].func, "id", None) == "QRectF", "the dot's geometry must be QRectF"
