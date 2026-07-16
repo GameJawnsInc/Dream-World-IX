@@ -53,7 +53,7 @@ from .hero import HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
-from .style import qss, space
+from .style import qss, space, type_px
 from . import thumbs as _thumbs, widgets
 from . import anim
 from . import concepts
@@ -596,6 +596,8 @@ class Workspace(QMainWindow):
             # already existed and was inert (it re-applied the density and dropped the scale on the floor),
             # which is why the front door used to sit at 156px while every tab around it grew.
             self._hero.set_density(self._density, self._text_scale)
+        if getattr(self, "_lede", None) is not None:
+            self._lede.set_scale(self._text_scale)     # the card's mark is PAINTED -- see LedeCard._up
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -921,7 +923,7 @@ class Workspace(QMainWindow):
         dlg.setMinimumWidth(430)
         lay = QVBoxLayout(dlg)
         title = QLabel(concept.title)
-        title.setProperty("role", "h2")
+        title.setProperty("role", "head")
         lay.addWidget(title)
         body = QLabel(concept.plain)
         body.setWordWrap(True)
@@ -1322,7 +1324,7 @@ class Workspace(QMainWindow):
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
-        self.insp_title.setProperty("role", "h3")
+        self.insp_title.setProperty("role", "head")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
@@ -1730,7 +1732,11 @@ class Workspace(QMainWindow):
         # already says "do this". $text at 600 clears 4.94:1 everywhere. The done state keeps its green
         # tick (shape + colour, per the status-by-icon-shape law).
         g.setProperty("role", "ok" if done else "strong")     # themed via QSS (no stale colour on retheme)
-        g.setStyleSheet("font-size:15px;font-weight:600;")    # size/weight cascade on top of the role colour
+        # The size is INLINE because `role` is single-valued and already spent on the colour above -- but it
+        # is no longer a private number. It was a hard 15px: a stray one pixel over the body, which is not a
+        # tier (QUARTO P2 killed the same 1px step between h2 and h3), and an inline font-size cannot hear
+        # the text-size dial, so this marker would have frozen while its own row grew around it.
+        g.setStyleSheet(f"font-size:{type_px('type_body', self._text_scale)}px;font-weight:600;")
         g.setFixedWidth(22)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
@@ -1789,14 +1795,14 @@ class Workspace(QMainWindow):
         page and handed straight off to an index: ten identical cards, none of which answers the question
         Home exists to ask. This is the answer, and it is the ONLY accent on the page.
         """
-        card = LedeCard(self.pal)
+        card = LedeCard(self.pal, scale=self._text_scale)
         h = QHBoxLayout(card)
         h.setContentsMargins(LedeCard._INSET + 22, 14, 16, 14)   # clear of the mark's arm
         h.setSpacing(12)
         col = QVBoxLayout()
         col.setSpacing(2)
         self._lede_title = QLabel("")
-        self._lede_title.setProperty("role", "h3")
+        self._lede_title.setProperty("role", "head")
         self._lede_note = widgets_prose("")
         col.addWidget(self._lede_title)
         col.addWidget(self._lede_note)
@@ -6667,7 +6673,13 @@ class Workspace(QMainWindow):
         """A small muted overline that labels an Inspector section (Identity / Contents / Connections).
         Inline HTML because the panel is ONE rich-text QLabel -- it reads ``self.pal`` so it re-tints on the
         next selection after a retheme, exactly like :meth:`_muted` / :meth:`_link`."""
-        return (f'<div style="color:{self.pal["muted"]};font-weight:600;font-size:10px;'
+        # 10px was the SMALLEST TEXT IN THE APP -- two pixels under the Windows default, and a full rung
+        # under role="overline" (12px), which is the same thing this is: an uppercase tag over a section.
+        # It never joined the ramp because it is HTML inside a rich-text QLabel, where no QSS role reaches
+        # it -- the tier was invisible to every fence and every sweep. Substituting the rung fixes both the
+        # floor and the dial: an inline size cannot hear CALIBRE either.
+        return (f'<div style="color:{self.pal["muted"]};font-weight:600;'
+                f'font-size:{type_px("type_caption", self._text_scale)}px;'
                 f'margin-top:12px;margin-bottom:1px;">{_esc(text).upper()}</div>')
 
     def _render_sections(self, groups, about=None):

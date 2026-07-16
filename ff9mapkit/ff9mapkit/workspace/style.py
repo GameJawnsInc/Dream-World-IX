@@ -106,10 +106,19 @@ _GRID_COMPACT = {"space_1": 4, "space_2": 6, "space_3": 8, "space_4": 12, "space
 # 1.63x. Nobody noticed, because 26 stayed 26.
 _TYPE = {
     "type_name": 26,          # the nameplate crown (role="name"), Sitka Display -- x/px 0.439, not 0.500
-    "type_h2": 16,
-    "type_h3": 15,            # NB: 1px under h2 -- a 6.7% cap-height step, a tier Segoe cannot draw, and
-                              # its "sub-h2 section title" docstring describes a nesting that does not
-                              # exist (zero h3 sites sit under an h2). Merging them is QUARTO P2, unbuilt.
+    # QUARTO P2 -- ONE head rung, 18. Was h2=16 AND h3=15: two roles, 1px apart, for ONE job.
+    #
+    # 15 vs 16 is a 6.7% CAP-HEIGHT step (10.50 vs 11.20, measured) where a legible tier is 15-25%. It was
+    # a hierarchy Segoe cannot draw -- the size analogue of the PER-FAMILY CUT LIST law about weights, and
+    # exactly RUBRIC's defect mirrored: there ONE token did three jobs, here TWO roles did one.
+    # And the distinction it claimed was fiction. h3's docstring said "a sub-h2 section title"; ALL FOUR
+    # sites are top-level titles of independent containers -- a QDialog (the concept card), the models
+    # detail pane, the Inspector panel, the lede card. ZERO sit under an h2. There was no nesting to name.
+    #
+    # 18, not 16: at 16 the head was only 1.14x the body -- a 14% nominal step that draws as ~11% of cap.
+    # 18 makes it 1.286 (cap 12.59 vs 9.80 = a 28.5% step, real). The ramp is now FOUR rungs and every one
+    # of them is visible: 12 -> 14 -> 18 -> 26, steps 1.167 / 1.286 / 1.444, zero dead. Fenced.
+    "type_head": 18,
     "type_body": 14,          # the QWidget base; every other rung is read against this
     "type_caption": 12,       # THE FLOOR: Segoe UI 9pt (the Windows default) resolves to exactly 12px
     "type_mono": 12,
@@ -503,7 +512,13 @@ _QSS = Template(
        rounds -- no widget ever set either. They were kept alive only by tests that tested them, which
        is the argument backwards: the tests existed because the code existed, not because anyone used
        it. role="name" is the top rung now, and it has call sites. */
-    QLabel[role="h2"]      { font-size: $type_h2; font-weight: 600; color: $text; }
+    /* THE HEAD -- the title of a panel, a card, or a dialog. ONE rung, because there is ONE job here.
+       Was role="h2" (16) AND role="h3" (15): two roles a pixel apart, which Segoe draws as a 6.7%
+       cap-height step -- a distinction the code claimed and the screen could not show. h3's own docstring
+       named the nesting that justified it ("a sub-h2 section title") and no such nesting existed: all
+       four sites were top-level titles of independent containers. The roles are merged, not aliased --
+       an alias would keep two names for one thing and invite the split to grow back. */
+    QLabel[role="head"]    { font-size: $type_head; font-weight: 600; color: $text; }
     /* 600, NOT 500. Segoe UI ships no Medium -- measured natively, weights 400/450/500 render
        BYTE-IDENTICAL (advance 63.22 each) and 550 is the first that reaches Semibold (65.97). So this
        tier spent three rounds declaring a distinction the font cannot draw: every form label in the
@@ -551,7 +566,7 @@ _QSS = Template(
     /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
        caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */
     QLabel[role="empty_glyph"] { font-size: $type_glyph; color: $text_subtle; }
-    QLabel[role="empty_title"] { font-size: $type_h2; font-weight: 600; color: $text; }
+    QLabel[role="empty_title"] { font-size: $type_head; font-weight: 600; color: $text; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
     /* THE MONO REGISTER. This app's whole subject is machine tokens -- 4003, 30110, ff9-XXXXXXXX,
        FF9CustomMap, C:/.../FF9CustomMap. Set in the body face they read as prose and the eye slides off
@@ -575,10 +590,8 @@ _QSS = Template(
 
     /* --- shell.py chrome roles (Phase 2, file 7/7) --- */
     QLabel[role="strong"]   { font-weight: 600; }                                   /* 600-weight body text */
-    /* h3 -- 1px under h2, which is a 6.7% cap-height step: a tier the font cannot draw. And its old
-       "a sub-h2 section title" gloss described a nesting that does not exist -- zero h3 sites sit under
-       an h2; both are top-level panel titles. Merging the two into one head rung is QUARTO P2, unbuilt. */
-    QLabel[role="h3"]       { font-size: $type_h3; font-weight: 600; }
+    /* (h3 lived here: 1px under h2, a 6.7% cap-height step the font could not draw, glossed as "a sub-h2
+       section title" for a nesting that never existed. QUARTO P2 merged it into role="head" above.) */
     QLabel[role="overline"] { font-size: $type_caption; font-weight: 600; color: $muted; letter-spacing: 1px; }
     /* RUBRIC -- a card's title is a TITLE. widgets.section() titled all 25 cards with role="overline":
        the caption rung, 600, muted. role="caption" -- the hint text INSIDE those cards -- is the caption
