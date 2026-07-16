@@ -67,6 +67,7 @@ KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproje
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 _LAYOUT_VERSION = 2                                # bump when saveState()'s object graph changes (2 = no docks)
 _DEFAULT_CONSOLE_SPLIT = [560, 220]                # [documents, console] px when nothing is persisted
+_DEFAULT_CENTRAL_SPLIT = [300, 640, 240]           # [tree, documents, inspector] px when nothing is persisted
 
 # The detached PowerShell helper for the one-click "Upgrade & restart" (see Workspace._run_upgrade). It
 # waits for the app to exit so uv isn't fighting a locked venv, upgrades, then relaunches the GUI. All
@@ -1384,7 +1385,7 @@ class Workspace(QMainWindow):
         insp_scroll.setWidget(insp)
         split.addWidget(insp_scroll)
 
-        split.setSizes([300, 640, 240])
+        split.setSizes(list(_DEFAULT_CENTRAL_SPLIT))
         split.setStretchFactor(1, 1)
         # NO FLOOR ON THE DOCUMENT PANE, AND THE ATTEMPT IS WORTH RECORDING.
         # The real defect: a layout saved at 1920 ([300, 1198, 420]) replayed at 1280 leaves the document
@@ -6939,6 +6940,36 @@ class Workspace(QMainWindow):
         for i in range(self.tree.topLevelItemCount()):
             walk(self.tree.topLevelItem(i))
 
+    def _repair_central_split(self, sizes):
+        """A SQUEEZE IS NOT A PREFERENCE. Return the saved sizes, or the default when they are the fossil
+        of a too-narrow window rather than anything the user chose.
+
+        THE BUG THIS EXISTS FOR (measured, real platform -- offscreen lies about all of these widths):
+        the document column has a hard minimum (542px at 100%, 796 at 150%), so when the window is narrower
+        than the layout needs, the ONLY panes that can give are the outer two, and they clamp to their own
+        minimums (78 / 66). `_save_layout` then persists that as if it were a choice. On the next launch
+        `setStretchFactor(1, 1)` hands the ENTIRE surplus to the middle pane -- so [90, 542, 66] saved at
+        700px reopens at 1280 as [90, 1122, 66], and the panels never come back AT ANY WINDOW WIDTH. One
+        narrow session, ever, was permanent. (The user's own prefs read [76, 1138, 64]; reproduced exactly.)
+
+        Note this is NOT reproducible inside one session -- a live splitter still holds its original
+        setSizes() request and re-derives from it on every resize, which is why an in-session probe
+        "falsified" the ratchet. It takes a restart to lose that memory.
+
+        WHY *AT THE MINIMUM* IS THE RIGHT TELL, and where it deliberately stops: a pane pinned to within a
+        pixel or two of its minimumSizeHint is what a clamp leaves behind -- there is no width there to
+        have chosen. A pane at EXACTLY 0 is the opposite: childrenCollapsible is on, so 0 means the user
+        dragged it shut on purpose. Hence `0 < size <= floor + 2` -- collapsed stays collapsed, forced
+        gets healed."""
+        sp = self._central_split
+        if len(sizes) != sp.count():                       # arity is fenced in prefs.layout(), belt-and-braces
+            return list(_DEFAULT_CENTRAL_SPLIT)
+        for i in (0, 2):                                   # the outer panes; the middle is the one that pushes
+            floor = sp.widget(i).minimumSizeHint().width()
+            if 0 < sizes[i] <= floor + 2:
+                return list(_DEFAULT_CENTRAL_SPLIT)
+        return list(sizes)
+
     def _restore_layout(self):
         """Apply the persisted window geometry / toolbar state / splitter sizes + console collapse
         (best-effort; a stale or corrupt value falls back to the built-in defaults)."""
@@ -6952,7 +6983,7 @@ class Workspace(QMainWindow):
                 # is REFUSED by Qt rather than half-applied.
                 self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
-                self._central_split.setSizes(lay["central_split"])
+                self._central_split.setSizes(self._repair_central_split(lay["central_split"]))
             csplit = lay.get("console_split")
             if csplit:
                 self._console_sizes = list(csplit)

@@ -278,6 +278,67 @@ def test_layout_prefs_carry_the_console_pane(prefs_file):
     assert p.layout() == {}
 
 
+def test_a_squeezed_panel_is_not_a_preference(app):
+    """One narrow session must not be permanent.
+
+    THE BUG: the document column has a hard minimum, so a too-narrow window can only take the width out of
+    the OUTER panes, which clamp to their minimums. _save_layout persisted that as a choice, and because
+    the middle pane holds stretch factor 1 it swallowed the entire surplus on the next launch -- so
+    [90, 542, 66] saved at 700px reopened at 1280 as [90, 1122, 66] and the panels never came back at any
+    width. (The reporter's real prefs read [76, 1138, 64].)
+
+    The floor is READ, never written as a literal: it is font-dependent (78 real / 74 offscreen), and this
+    module runs offscreen, whose stub font DB has already manufactured a fake width once this arc.
+    """
+    w = _win(app)
+    sp = w._central_split
+    tree_floor = sp.widget(0).minimumSizeHint().width()
+    insp_floor = sp.widget(2).minimumSizeHint().width()
+
+    # PINNED AT THE MINIMUM == forced by the window. Heal it. (A no-op _repair fails both of these.)
+    assert w._repair_central_split([tree_floor, 1138, 640]) == shell._DEFAULT_CENTRAL_SPLIT
+    assert w._repair_central_split([640, 1138, insp_floor]) == shell._DEFAULT_CENTRAL_SPLIT
+    assert w._repair_central_split([tree_floor + 2, 1138, 640]) == shell._DEFAULT_CENTRAL_SPLIT
+
+    # COLLAPSED TO ZERO == chosen (childrenCollapsible is on -- the user dragged it shut). Keep it.
+    assert w._repair_central_split([0, 940, 240]) == [0, 940, 240]
+    assert w._repair_central_split([240, 940, 0]) == [240, 940, 0]
+
+    # Comfortably above the floor == a real drag. Keep it.
+    assert w._repair_central_split([420, 620, 380]) == [420, 620, 380]
+    assert w._repair_central_split(list(shell._DEFAULT_CENTRAL_SPLIT)) == list(shell._DEFAULT_CENTRAL_SPLIT)
+
+    # Wrong arity never reaches setSizes (prefs.layout() fences it too -- belt and braces).
+    assert w._repair_central_split([300, 640]) == shell._DEFAULT_CENTRAL_SPLIT
+    w.close()
+
+
+def test_the_restore_path_spends_the_repair(app, monkeypatch):
+    """The mechanism above is worth nothing if the call site does not spend it -- this arc's oldest lesson.
+    A saved squeeze must not survive _restore_layout.
+
+    THIS ASSERTS THE REQUEST, NOT THE RENDERED SIZES, and the distinction is the whole reason the test is
+    written this way: offscreen's stub font DB reports mid_col's minimum as 1156 (real: 542), so offscreen
+    re-clamps the healed [300, 640, 240] straight back to [74, 1156, 66]. Asserting sizes() here fails on
+    a CORRECT fix -- the harness, not the code. What restore owes us is that it never HANDS the squeeze to
+    the splitter; what the splitter then does with a fake font DB is offscreen's business.
+    """
+    from PySide6.QtWidgets import QSplitter
+    seen = []
+    orig = QSplitter.setSizes
+
+    def spy(self, sizes):
+        seen.append(list(sizes))
+        return orig(self, sizes)
+
+    monkeypatch.setattr(QSplitter, "setSizes", spy)
+    monkeypatch.setattr(shell.prefs, "layout", lambda: {"central_split": [76, 1138, 64]})
+    w = _win(app)                                        # __init__ runs _restore_layout
+    assert [76, 1138, 64] not in seen, "the squeeze was replayed -- the repair is not wired into restore"
+    assert list(shell._DEFAULT_CENTRAL_SPLIT) in seen, "restore never asked for the healed layout"
+    w.close()
+
+
 def test_console_collapses_to_its_header_and_re_expands(app):
     w = _win(app)
     w.show()                                                     # the splitter needs a layout pass
