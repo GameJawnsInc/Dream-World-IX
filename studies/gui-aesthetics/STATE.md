@@ -1161,3 +1161,109 @@ argument.
   partly on it. **A token with no call site is not future-proofing; it is a wish with a keyword.**
 - **`text_subtle` is a loaded gun**: 3.20–3.59 on `surface_2` in 8/8. Fine where it is now spent (a 46px
   glyph, non-text bar 3.0, worst 3.06), sub-AA the moment anyone sets `role="subtle"` on real text.
+
+---
+
+## Round 6b — the adversarial review, and it was right about all of it
+
+76 agents, 6 lenses, every finding then attacked by 3 skeptics (reproduce / already-deliberate /
+instrument-error). **19 survived, 4 refuted.** I re-verified each survivor myself before acting; they hold.
+This section exists because the findings are more useful than the round they audited.
+
+### The shape of what it found
+
+Round 6's whole thesis is *"a correct mechanism exists and the call site does not spend it."* The review's
+verdict is that **I committed that same disease four more times while curing it**:
+
+| I shipped | in the round about |
+|---|---|
+| two `:pressed` rules rendering **1.59** and **2.23** | a chip at **1.12** |
+| `#railSeg:pressed` losing a **cascade tie** → the active segment dead on click | `#id` shadowing `:pressed` → 6 buttons dead on click |
+| mapview's glyph onto **text_subtle at 3.06** | — the tier KEYLINE had *just* moved the tree OFF, citing 3.06 |
+| **two vacuous fences** | a round that re-broke every fence to prove it fails |
+
+**A law you are actively teaching is not a law you are following.** Writing the rule down, fencing it, and
+quoting it in a commit message did not stop me applying its inverse two files away.
+
+### The single most useful finding
+
+**`probe_doc_pane.py` repointed `LOCALAPPDATA` at an empty tempdir — which makes `prefs.text_scale()` fall
+through to `os_text_scale()`, the developer's Windows slider.** The probe that justified
+`setMinimumWidth(700)` measured exactly one text scale: this machine's. That is *the same poison the last
+commit in the range is about* — "a test that reads the developer's prefs is a report on the developer" —
+reintroduced two commits earlier, by the probe that was supposed to be the evidence.
+
+> **AN EMPTY TEMPDIR IS NOT A CLEAN ROOM. IT IS A HOLE THE OS FALLS THROUGH.**
+> Every probe must PIN `prefs.text_scale` explicitly and sweep all four rungs.
+
+It produced a constant that was **stale the moment it landed**, and the fence guarding it
+(`assert mid.minimumWidth() >= 700`, offscreen) was structurally incapable of noticing, because it
+asserted the constant was *present*, not that it was *right*.
+
+### `setMinimumWidth(700)` — wrong in BOTH directions, reverted
+
+|  | 100% | 110% | 125% | 150% |
+|---|---|---|---|---|
+| with the pin | 844 | 848 | 856 | 868 |
+| reverted (Qt governs) | **686** | 723 | 841 | 964 |
+
+- **It raised the app's hard floor 686 → 844.** `resize(720)` returned 844 — a **720px window became
+  unreachable**, and 720 is exactly what `test_toolbar_overflows_gracefully_at_narrow_width` asks for. That
+  test kept passing while silently measuring 844.
+- **And it "helped" at 150% only by letting the document sit BELOW its own content minimum** (700 against a
+  real 796). That is not a floor; it is permission to clip. The flat row above is the tell.
+
+Not a tuning error: **any** explicit minimum above the pane's own 542 raises the window floor, so "fix the
+narrow-persisted case" and "keep 720 reachable" cannot both hold this way. The narrow-persisted case still
+scrollbars — it is the user's own saved layout, it is one scrollbar, and it is cheaper than an app that
+refuses to be 720px wide. The honest fix (clamp the restored SIZES) re-proportions a layout the user
+dragged and wants its own eye.
+
+### `$pressed` is a ground nothing was ever solved against
+
+`derive()`'s `_grounds = (bg, surface, surface_2)`. So I put three inks on `$pressed` by eye. Measured,
+**nothing is legible there**: text 6/8, accent_fg 1/8, help_fg 0/8, muted 1/8. The press now **fills** with
+the hue and spends the pair the palette already fences — `help_fg`/`help` (5.19), `accent_fg`/`accent`
+(4.56). 8/8. *A fence that covers 3 of 4 grounds moves the bug to the 4th* — the arc's oldest law, and
+`$pressed` is the 4th.
+
+### The two vacuous fences, and why each could not fail
+
+- **`test_the_dial_may_only_ever_grow_a_gap`** asserted monotonic + the 100% anchor. **A constant sequence
+  satisfies both.** Revert BREATHE's grid half and it stayed green: `[8, 8, 8, 8]` is monotonic and
+  anchored. → **A law of the form "X must change" cannot be built only from invariants a no-op satisfies.
+  It needs one assertion the no-op FAILS.**
+- **The press fence** called `setCheckable(True)` and never `setChecked(True)`. → **A state fence that never
+  enters the state is testing the other state.** It missed `#railSeg:pressed` tying `:checked` at (0,1,1,1)
+  and losing on source order — the segment you are ON was dead at 0px while its siblings changed 2968.
+
+### Claims of mine it falsified
+
+- *"Home never scrolls at any width"* — wrap makes the minimum the longest **unbreakable run**, not a
+  constant: 53ch hyphenated → 525, 55ch CamelCase → 539, **a 90ch single token → 732, still scrolling at
+  1280**. Smaller and rarer, not zero — and saying zero is how the next reader stops looking.
+- *"#consoleToggle was the ONLY id-scoped QToolButton missing a `:focus` rule"* — **#gear has none either.**
+  The mechanism claim was right; the census was wrong.
+- *"0 of 29 / 7 of 29"* — the probe prints **7 of 30**. Stale *inside the commit that added the 30th rule*.
+- `set_chip`'s docstring promised "a fill can never again arrive without its ink" while its two defaults
+  were **independent**: `set_chip("BATTLE", pal["warn"])` → 1.56 on nord.
+
+### What it cleared — do not re-verify
+
+Every changed (ink, fill) pair at 4.5+ in all 8, recomputed with independent arithmetic · `_fg_token`'s
+monotonic re-mix (the "it terminates sub-AA" accusation was refuted 3 ways — the accuser's re-implementation
+was broken) · BREATHE / WCAG 2.5.8 (zero shrinks, nothing under 24) · **the `themed` fixture, rebuilt three
+ways** (no sheet → search 5896: my first cut *would* have passed on Fusion's own chrome, exactly as the
+commit confesses; `:pressed` removed → 0/0/0 — it fails when it should) · probe_doc_pane's splitter numbers
+to the digit.
+
+### Standing, recorded, not fixed here
+
+- **14 of 115 visible tab stops have a 0px focus delta** — including the main **Output console** — because
+  `* { outline: 0 }` is app-wide and no `QAbstractScrollArea:focus` rule exists. Pre-existing; but **the
+  diff re-asserts the law and pays only the button half.** Fix: `QAbstractScrollArea:focus { border: 1px
+  solid $accent; }`.
+- **`$text` on `$pressed` is 4.09 in solarized-light** (systemic, via the generic rule). The real fix is
+  adding `pressed` to `derive()`'s `_grounds` and spending a derived token at those four sites.
+- `dark`'s button hover is still the weakest at 1.0756, and the 1.05 fence floor is unjustified by any
+  measurement.
