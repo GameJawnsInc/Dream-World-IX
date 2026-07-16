@@ -452,7 +452,7 @@ def test_the_type_ramp_assert_actually_measures_the_type_ramp():
     import re
     css = style.qss(theme.DARK)
     assert re.search(r'role="name"[^}]*font-size:\s*26px', css), "the nameplate rung is gone or resized"
-    assert re.search(r'role="h2"[^}]*font-size:\s*16px', css), "the h2 rung is gone or resized"
+    assert re.search(r'role="head"[^}]*font-size:\s*18px', css), "the head rung is gone or resized"
 
 
 def test_only_the_nameplate_wears_the_serif():
@@ -781,7 +781,7 @@ def test_the_type_ramp_never_inverts_at_any_scale():
         name = style.type_px("type_name", pct)
         assert hint < body, f"{pct}%: the hint ({hint}) reached the body ({body}) -- the ramp inverted"
         assert body <= name, f"{pct}%: the body ({body}) outgrew the nameplate ({name})"
-        assert style.type_px("type_h2", pct) >= body, f"{pct}%: h2 fell below the body"
+        assert style.type_px("type_head", pct) >= body, f"{pct}%: the head fell below the body"
 
 
 def test_the_scale_is_monotonic_in_every_rung():
@@ -789,3 +789,103 @@ def test_the_scale_is_monotonic_in_every_rung():
     for k in style._TYPE:
         seen = [style.type_px(k, p) for p in sorted(prefs.TEXT_SCALES)]
         assert seen == sorted(seen), f"{k} is not monotonic across the dial: {seen}"
+
+
+def test_the_ramp_has_no_dead_rungs():
+    """QUARTO P2's fence, and the one that makes the whole ramp a SCALE rather than six accreted numbers.
+
+    The shipped ramp was 26/16/15/13/12/11 -- six rungs and TWO real steps. Its ratios were 1.625 / 1.067 /
+    1.154 / 1.083 / 1.091: three of five under 1.15, which Segoe cannot draw as a hierarchy. The worst was
+    h2 vs h3 at 1.067 -- a 6.7% CAP-HEIGHT step (10.50 vs 11.20, measured natively) between two roles that
+    turned out to be doing the same job at four top-level sites.
+
+    1.15 IS A CHOSEN FENCE, NOT A MEASURED CONSTANT -- it is the rough floor below which a size step stops
+    reading as a tier and starts reading as a rounding error. It is here to be argued with, deliberately:
+    a future round may move it, but it may not drift under it by accident, which is how 15 and 16 came to
+    coexist for three rounds.
+
+    The reading ramp is caption -> body -> head -> name. type_mono is EXCLUDED (a register, not a rung: it
+    is the body size in another face, and equal by design). type_glyph and type_badge are excluded and the
+    table says why at their own entries -- a decorative icon and a glyph pinned inside a 22px circle.
+    """
+    rungs = ["type_caption", "type_body", "type_head", "type_name"]
+    sizes = [style._TYPE[r] for r in rungs]
+    assert sizes == sorted(sizes), f"the ramp is not monotonic: {dict(zip(rungs, sizes))}"
+    for lo_name, hi_name in zip(rungs, rungs[1:]):
+        lo, hi = style._TYPE[lo_name], style._TYPE[hi_name]
+        step = hi / lo
+        assert step >= 1.15, (
+            f"{lo_name}({lo}) -> {hi_name}({hi}) is a {step:.3f} step -- under 1.15 it is not a tier the "
+            f"font can draw, it is a rounding error with a name."
+        )
+    # ...and the register really is the body in another face, not a rung pretending to be one
+    assert style._TYPE["type_mono"] <= style._TYPE["type_body"]
+
+
+def test_the_head_is_one_rung_not_two():
+    """h2 and h3 are MERGED, not aliased. An alias keeps two names for one thing and invites the split to
+    grow back -- which is exactly how a "sub-h2 section title" came to describe a nesting that never
+    existed at any of its four call sites.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    assert "type_h2" not in style._TYPE and "type_h3" not in style._TYPE, "the old head tokens survive"
+    for dead in ('role="h2"', 'role="h3"'):
+        assert not re.search(re.escape(dead) + r"\]\s*[,{]", css), f"{dead} still has a rule in the sheet"
+    head = re.search(r'QLabel\[role="head"\]\s*\{([^}]*)\}', css)
+    assert head, "the head rule is gone"
+    assert f"font-size: {style._TYPE['type_head']}px" in head.group(1)
+
+
+def test_no_widget_carries_a_private_font_size_the_dial_cannot_reach():
+    """The strays. QUARTO P3 put every size in one table; this stops new ones appearing beside it.
+
+    Two shipped and both were invisible to the ramp:
+      * a 15px step-number glyph, set by an INLINE widget stylesheet (one pixel over the body -- the same
+        non-tier P2 just deleted between h2 and h3);
+      * a 10px Inspector section header, set in INLINE HTML inside a rich-text QLabel -- the smallest text
+        in the app, two pixels under the Windows default, and a full rung under role="overline", which is
+        the same thing it is. No QSS role reaches HTML, so no fence or sweep could see it.
+    Both now substitute a rung at the live scale, which fixes the ramp AND the dial in one move: an inline
+    size cannot hear CALIBRE, so those two would have frozen while everything around them grew.
+
+    THIS FENCE CAUGHT ITSELF FIRST, which is the point of writing it down. Its first cut walked every
+    ast.Constant -- and a DOCSTRING is an ast.Constant, so it flagged `widgets.Prose._resolve_cap`'s own
+    prose ("The stylesheet sets `font-size: 21px`, so this is 21") as a violation. A fence must read code,
+    not prose, and a docstring is prose that happens to be stored as a string. Docstrings are stripped.
+
+    KNOWN EXEMPTION, and it is a real limit rather than a dodge: forms_qt's rich-text DOCUMENT bodies (the
+    Info Hub catalog card, the concept card, the wrap preview). Those are QTextEdit documents, not chrome
+    -- HTML the app authors and hands to a text engine, where no QSS role reaches. They ship 13/14/15px,
+    which means the Info Hub renders at the OLD body size and cannot hear the dial either. That is real
+    and it is NOT this round: forms_qt has no access to the scale, so fixing it means threading one
+    through or reading prefs at build time, and it wants its own decision. Named here so it is a deferred
+    defect rather than a silent one.
+    """
+    import ast
+    import pathlib
+    import re
+    ws = pathlib.Path(style.__file__).parent
+    DOC_BODIES = {"forms_qt.py"}          # see the exemption above -- rich text, not chrome
+    bad = []
+    for py in sorted(ws.glob("*.py")):
+        if py.name in ("style.py", "hero.py") or py.name in DOC_BODIES:
+            continue                     # style.py IS the table; hero.py is fenced by test_workspace_hero
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        docs = set()
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                d = n.body[0] if n.body else None
+                if isinstance(d, ast.Expr) and isinstance(d.value, ast.Constant):
+                    docs.add(id(d.value))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if id(node) in docs:
+                continue                 # a docstring is prose, not code
+            for m in re.finditer(r"font-size:\s*(\d+)px", node.value):
+                bad.append(f"{py.name}:{node.lineno} font-size:{m.group(1)}px")
+    assert not bad, (
+        "these hard-code a font size in a literal, so they sit outside the ramp AND cannot hear the "
+        f"text-size dial -- substitute type_px(rung, scale): {bad}"
+    )

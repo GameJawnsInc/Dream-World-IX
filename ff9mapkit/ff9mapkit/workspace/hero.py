@@ -192,22 +192,48 @@ class LedeCard(QFrame):
     """
 
     _ARM = 170          # ~0.49x the hero's ink at the same dissolve -- subordinate BY CONSTRUCTION
-    _UP = 26
     _INSET = 10
+    _TOP = 14           # the card layout's top margin (shell._build_lede) -- where the title's box starts
 
-    def __init__(self, pal, parent=None):
+    def __init__(self, pal, parent=None, scale=100):
         super().__init__(parent)
         self.pal = pal
+        self._scale = scale
         self.setProperty("role", "card")
+
+    def set_scale(self, scale):
+        self._scale = scale
+        self.update()
+
+    def _up(self):
+        """The arm's rise -- and therefore where its rule LANDS. Derived, because a number here breaks.
+
+        This was `_UP = 26`, chosen by eye against a 15px title, which put the rule at y=36.5 with 2.6px of
+        clearance under the title's box. QUARTO P2 merged h2/h3 into an 18px head rung, the title's box
+        grew to y=37.9 -- and the rule went straight THROUGH the words. Nothing caught it: no test measures
+        a QPainter stroke against a sibling QLabel, and a 1.4px overlap reads as an underline rather than
+        as a bug. The render caught it.
+
+        The rule's job is to sit UNDER the title, exactly as the hero's rule sits under the wordmark. So it
+        is computed from the rung the title actually wears, plus the layout's own top margin: change the
+        head rung, or turn the text-size dial, and the mark follows instead of striking through.
+        """
+        f = QFont("Segoe UI")
+        f.setPixelSize(style.type_px("type_head", self._scale))
+        f.setWeight(QFont.Weight.DemiBold)
+        clear = self._TOP + QFontMetricsF(f).height() + 2      # +2: a rule ON the descenders is not a rule
+        return max(26, int(clear - self._INSET + 0.5))          # never tighter than the shipped 26
 
     def paintEvent(self, ev):                          # noqa: N802 (Qt override)
         super().paintEvent(ev)                         # the QSS card fill + border, then the mark on top
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         gold = QColor(GOLD_DARK if self.pal.get("dark") else GOLD_LIGHT)
+        k = self._scale / 100.0
+        up = self._up()
         x = self._INSET + 0.5
-        y = self._INSET + self._UP + 0.5
-        signet_elbow(p, x, y, self._ARM, self._UP, gold)
+        y = self._INSET + up + 0.5
+        signet_elbow(p, x, y, self._ARM * k, up, gold, r=_ELBOW_R * k)
         p.end()
 
 

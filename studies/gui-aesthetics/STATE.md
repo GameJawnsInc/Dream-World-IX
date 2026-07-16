@@ -743,3 +743,48 @@ decided not to" is exactly the kind of decision a later round re-makes by accide
 
 **Unplaytested**, with COLUMN and the page column.
 
+---
+
+## Round 5, part 8 — QUARTO P2: the ramp has no dead rungs
+
+**SHIPPED.** h2+h3 merged into `role="head"` (18px); the strays swept; a step fence. 3608 tests.
+
+| | ramp | cap ratios |
+|---|---|---|
+| before | 26 / 16 / 15 / 14 / 12 | .615 / **.937** / **.933** / .856 — **two dead steps** |
+| after | 26 / 18 / 14 / 12 | .692 / .778 / .856 — zero |
+
+The head over the body went from a **7.1% cap step (h3) to 28.5%**.
+
+- **The distinction h3 claimed was fiction.** Its docstring said "a sub-h2 section title"; all four sites
+  are top-level titles of independent containers (a QDialog, the models pane, the Inspector, the lede).
+  **Zero sit under an h2.** The role described a hierarchy that has never existed.
+- **Merged, not aliased** — an alias keeps two names for one thing and invites the split to grow back.
+- **The strays were invisible because neither is QSS**: a 15px step glyph set by an inline widget
+  stylesheet, and the Inspector's section headers at **10px in inline HTML** — the smallest text in the
+  app, two under the OS default, and a full rung under `role="overline"`, which is the same thing it is.
+  No role reaches HTML. Both now substitute a rung at the live scale (an inline size can't hear CALIBRE).
+
+### P2 struck a gold line through the lede's own title, and only the render caught it
+
+`LedeCard` pinned its rule at `_UP = 26` → y=36.5, chosen by eye against a 15px title whose box bottomed
+at **33.9**: a 2.6px clearance nobody had written down. An 18px title bottoms at **37.9**, so the rule
+crossed the words — and **a 1.4px overlap reads as an underline, not as a bug**. No test measures a
+QPainter stroke against a sibling QLabel's font, so no test could fail.
+
+**The fix is not a new constant — a constant is what broke.** The rise now derives from the rung the title
+wears, so it tracks the ramp and the dial. Clear at 100/110/125/150%, fenced, including a fence that
+refuses a re-pinned `_UP`. **This is the third time this round a PAINTED surface went stale against a
+token change** (the hero's band, the hero's arm-vs-column invariant, now the lede's rule). QPainter code
+is where the ramp's blind spot lives.
+
+### And my own fence caught itself first
+
+Walking every `ast.Constant` flags **docstrings** — so it reported `Prose._resolve_cap`'s prose *about*
+`font-size: 21px` as a violation. *A fence must read code, not prose — and a docstring is prose that
+happens to be stored as a string.* Second instance this session.
+
+**Deferred, named rather than silent:** forms_qt's rich-text document bodies (Info Hub catalog, concept
+card) ship 13/14/15px HTML — the Info Hub renders at the OLD body size and cannot hear the dial. Exempted
+by name in the fence; it wants its own decision, since forms_qt has no access to the scale.
+
