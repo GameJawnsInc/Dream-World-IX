@@ -10,15 +10,13 @@ index c0c537ca..df1f1c2a 100644
      <Compile Include="Global\UI\UILabel.cs" />
      <Compile Include="Global\UI\UILocalize.cs" />
      <Compile Include="Global\UI\UIManager.cs" />
-@@ -1374,8 +1375,11 @@
+@@ -1374,8 +1375,9 @@
      <Compile Include="Memoria\Test\Values\Unity\Vector3Message.cs" />
      <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
      <Compile Include="Memoria\World\WorldConfiguration.cs" />
 +    <Compile Include="Memoria\World\WorldMeshOverride.cs" />
      <Compile Include="Memoria\World\WorldEffect.cs" />
      <Compile Include="Memoria\World\WorldPlace.cs" />
-+    <Compile Include="Memoria\Netsync\NetSyncClient.cs" />
-+    <Compile Include="Memoria\Netsync\NetSyncSocket.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
