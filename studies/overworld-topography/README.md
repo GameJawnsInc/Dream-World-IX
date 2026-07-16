@@ -562,7 +562,10 @@ re-mirrored. **And the incident is productized as THE MOD-OVERWRITE GATE**
 a target DATA cell already holding mod overrides now REFUSES unless its Donor.txt names
 this deploy's own sidecar donor (a re-deploy of the same transplant — the proven
 iteration loop stays free); the live-folder test proves the exact dunes configuration
-now refuses on this gate alone.
+now refuses on this gate alone. (The re-minted islet's coast wears the borrowed desert
+wall — dunes touches topo-58 ZERO times in stock; the user re-affirmed 2026-07-15:
+**kept as-is as a REFERENCE EXHIBIT, not a verbatim claim** — same status as the scrub
+and brush islets.)
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
