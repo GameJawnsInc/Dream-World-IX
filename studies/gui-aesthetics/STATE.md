@@ -1,9 +1,8 @@
 # GUI aesthetics — state + next steps
 
-**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–5 MERGED to master** · **3644 tests**.
-> ⚠ **ROUND 6 (below) IS UNPLAYTESTED.** The green header that follows covers rounds 2–5 ONLY.
+**Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–6 MERGED to master** · **3655 tests**.
 
-> ## ✅ FULLY PLAYTESTED — 2026-07-16
+> ## ✅ FULLY PLAYTESTED — rounds 2–6, 2026-07-16
 >
 > **The standing risk this study carried since round 2 is CLOSED.** Every direction in rounds 2–5 has now
 > been seen in the running app and approved by the user, in stages: *"Mist looks good"* → *"fonts look much
@@ -1007,8 +1006,19 @@ beside it**: re-broke the line, watched it go red with the same NameError, resto
 
 # ROUND 6 — the call sites, and the oldest open question
 
-> **Status: 4 fixes + 1 verdict. ⚠ UNPLAYTESTED** — the header above covers rounds 2–5 only.
-> `master` + 5 commits · **3644 tests**.
+> **Status: ✅ MERGED + PLAYTESTED 2026-07-16** — *"playtested, all good"*. 4 fixes + 1 verdict, then an
+> adversarial review and everything it forced. **3655 tests**, smoke green.
+>
+> **What the verdict covers:** SPEND · PRESS · THE DOC PANE · BREATHE · THE LAMP (flat) · the smoke ·
+> round 6b's review fixes · the focus chain (0 dead tab stops) · `pressed_fg` · the narrowed accent ladder.
+>
+> **What it does NOT retire — the same carve-out round 5 made, and this round needs it more.** The
+> INSTRUMENT was wrong about ten times here, and playtesting confirms the RESULT, not the measurements: a
+> probe that manufactured a 1296px window floor out of a stubbed font DB, two fences that passed with their
+> own defect fully reverted, a "tab stop" census that counted a viewport, a walk that asserted itself
+> sub-AA, an input range the product does not have, a toggle applied to an unknown state, and a window that
+> was never active. **None of those became trustworthy because the app looks right.** They became *invisible*
+> — which is worse. The laws are in the round-6 and 6b sections; read them before writing the next probe.
 
 ## The finding, measured four independent ways
 
