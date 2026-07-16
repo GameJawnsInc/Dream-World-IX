@@ -206,10 +206,26 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
 
 ## The rung ladder (revised — containment first)
 
-- **B3.0 — THE CONTAINMENT GATE.** `NetSyncDiorama.Active` + the 13-lane suppression set + the
-  snapshot/restore of the counter families. **No rendering.** PROVABLE SOLO: boot BattleMapDebug from
-  F6 with the gate on, let it run, leave — assert the guest's party/gil/counters/flags are byte-identical
-  to before (a selftest that snapshots, boots, and diffs). *This rung is pure save-safety and lands alone.*
+- **B3.0 — THE CONTAINMENT GATE. ★ BUILT 2026-07-15** (`NetSyncDiorama.cs`), solo-selftest pending.
+  `NetSyncDiorama.Active` = `_armed && NetSyncClient.IsMirroringStory` — **fail-safe by construction**:
+  a flag stuck true can never suppress a real player's battle. Five gates + one bracket:
+  | Lane | Where | Shape |
+  |---|---|---|
+  | Party writeback | `btl_sys.SavePlayerData:260` | early-return the **definition** (covers all 3 call sites) |
+  | Win/lose evaluator | `btl_sys.CheckBattlePhase:52` | early-return the **definition** (covers all **5**) |
+  | **The status tick** | `btl_stat.cs:301` | skip the `OnOpr` dispatch — *the buried one* |
+  | Story flags | `BattleActionCode.cs:698` | skip the `gEventGlobal` write |
+  | Next-field hijack | `btl_scrp.cs:829` (op 37) | skip `SetNextMap` |
+  | gil + **both** kill-counter families | `Snapshot()`/`Restore()` bracket | fed from 4 files — a bracket can't be out-flanked |
+  Types corrected against source: `categoryKillCount` is **`Int16[]`**, `modelKillCount` is
+  **`EntryCollection<Int16,Int16>`** (a `Dictionary` subclass whose indexer returns a default rather than
+  throwing — probe with `ContainsKey`).
+  **Already closed upstream, not re-done here:** the Steam achievement escape and ENCOUNT/ENCOUNT2 (Road A,
+  s38). The **reward layer** (`BattleResultUI`) stays unreachable *only because* the return substitutes
+  `mode = prevMode` + `Replace("FieldMap")` instead of setting `IsOver` — **gate `GoToBattleResult`
+  explicitly before ever setting `IsOver`.**
+  SELFTEST (`NetSyncDiorama.SelfTest`, wired into the existing `_storyProofDone` block): proves the
+  predicate is fail-safe and the bracket lossless — **without booting a scene**, since booting is rung 1.
 - **B3.1 — boot + return.** `isDebug`/`isRandomEncounter`/`debugStartType` stamped, `BattleUI`
   neutralised, `SwirlInBlack` transition, the `mode = prevMode` + `Replace("FieldMap")` return.
   SOLO-PROVABLE via a synthetic open-frame from F6 (no peer needed).
