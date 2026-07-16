@@ -53,9 +53,12 @@ Each machine computes its gate locally and sets its OWN save's flag -- zero stat
 story-divergence problem (both sides run the same authored field). The minted flag then gates
 doors / gateways / cutscenes / NPCs through the EXISTING vocabulary; ``[[coop]]`` only mints it.
 
-SOLO-PROVABLE: ``Role = selftest`` mirrors the player at exactly +250 x and the engine writes the
-mirror's position into the cells -- plates spaced :data:`SELFTEST_MIRROR_DX` apart center-to-center
-fire the gate with one player standing on plate A.
+SOLO-PROVABLE: ``Role = selftest`` mirrors the player at +250 x BY DEFAULT and the engine writes
+the mirror's position into the cells -- plates spaced :data:`SELFTEST_MIRROR_DX` apart
+center-to-center fire the gate with one player standing on plate A. Since the s40-era engine the
+offset is configurable (``[Netsync] SelfTestOffset = "dx,dz"``, default ``"250,0"``) so a
+west-side or z-axis gate can be solo-tested too; plates authored to the +250 convention keep
+working untouched.
 """
 
 from __future__ import annotations
@@ -70,7 +73,9 @@ from . import region as _region
 COOP_PRESENCE_BYTE = 2032
 COOP_PEER_X = 2034
 COOP_PEER_Z = 2036
-#: the Role=selftest mirror stands at exactly +x this many walkmesh units from the player
+#: the Role=selftest mirror's DEFAULT stance: +x this many walkmesh units from the player.
+#: The engine knob [Netsync] SelfTestOffset = "dx,dz" (s40-era) can move it; this constant is
+#: the documented authoring convention, not an engine read.
 SELFTEST_MIRROR_DX = 250
 
 
