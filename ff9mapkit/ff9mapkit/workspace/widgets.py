@@ -373,8 +373,17 @@ def section(title, *, parent=None):
     v = QVBoxLayout(box)
     v.setContentsMargins(16, 12, 16, 16)             # the padding the fieldset never had
     v.setSpacing(10)                                 # title -> its rows
-    lab = role_label(title.upper(), "overline")
-    lab.setAccessibleName(title)                     # announce the real title, not the shouty form
+    # RUBRIC: the body rung, 600, $text -- a real size step AND a colour step over the hint text inside the
+    # card. Was role="overline" (the caption rung, $muted), which made a card's title exactly the size and
+    # colour of its own footnotes. See style.py's cardtitle rule for the full receipt.
+    #
+    # The .upper() goes with it, and the two are coupled rather than a separate taste call: uppercase +
+    # letter-spacing is an EYEBROW convention, and it works because it is small. At the body rung it reads
+    # as a shout. Measured, dropping it also makes the six longest real titles 12.7-16.2% NARROWER, so the
+    # size bump costs no width -- it pays for itself. setAccessibleName stays: it is now redundant with the
+    # visible text, which is the point -- a screen reader and the screen finally say the same thing.
+    lab = role_label(title, "cardtitle")
+    lab.setAccessibleName(title)
     v.addWidget(lab)
     # The content host is a LAYOUT, never a wrapper QWidget. The stylesheet opens with a universal
     # `QWidget { background-color: $bg; }`, so a bare QWidget in here paints the PAGE colour on top of the
