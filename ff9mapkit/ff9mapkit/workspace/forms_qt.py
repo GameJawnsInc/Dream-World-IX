@@ -65,7 +65,11 @@ def _concept_badge(term, palette):
     btn.setText("?")
     btn.setObjectName("conceptBadge")
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedSize(22, 22)          # a bigger hit target (WCAG 2.5.8); it's inline next to the field label
+    # The 22x22 box (a bigger hit target, WCAG 2.5.8) is now QSS -- style.py's conceptBadge rule pins it
+    # via min/max-width+height, keyed to style.badge_box(scale). It used to be setFixedSize(22, 22) here,
+    # which CALIBRE could not reach: a Python pin freezes the circle while the "?" inside it grows with
+    # the text (audited: the glyph overflows a frozen 22px box at 150%), and any badge built before a live
+    # scale change would keep the stale size. In QSS, one re-render moves the box and the glyph together.
     btn.setToolTip(f"What's a {c.title.lower()}?")
     btn.setAccessibleName(f"What is {c.title}")
     btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))

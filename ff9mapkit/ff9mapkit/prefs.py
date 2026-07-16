@@ -86,6 +86,42 @@ def set_guided(on: bool) -> None:
     put("guided", bool(on))
 
 
+# CALIBRE -- the text-size dial, as INTEGER PERCENTS (never floats: this round-trips through JSON, and a
+# 1.1 that reads back as 1.1000000000000001 would make the byte-identity gate at 100% flap).
+#
+# Why an in-app dial rather than following Windows: THE APP CANNOT FOLLOW WINDOWS. The Accessibility ->
+# Text size slider writes HKCU\Software\Microsoft\Accessibility\TextScaleFactor and does NOT touch
+# NONCLIENTMETRICS.lfMessageFont, which is where Qt reads its font -- verified by setting the key to 150,
+# broadcasting WM_SETTINGCHANGE, and watching lfMessageFont stay at -12 Segoe UI. The string
+# TextScaleFactor appears in ZERO of the 338 DLLs Qt ships. No Qt app on the desktop tracks that slider.
+# (Display -> Scale is a different setting and the app already honours it correctly: QSS px are LOGICAL
+# px, multiplied by devicePixelRatio. That part was never broken.)
+# So: the only text-only lever that can exist on Windows is one we ship. This is it.
+#
+# THE PRICE, MEASURED AND NOT HIDDEN (evidence/probe_toolbar_budget.py, at a REAL asserted 1280px window):
+# the toolbar is tight, and bigger text pushes items into Qt's extension chevron, where they are reachable
+# but INVISIBLE -- 15/15 at 100%, 14/15 at 110%, 13/15 at 125%, 11/15 at 150%. At 1600px and above,
+# every scale is 15/15. That is a real cost and it is judged worth paying: a user who turns text up has
+# said they want bigger text more than they want a dense toolbar, the items stay reachable via the
+# chevron AND via Ctrl-K, and the a11y suite already fences graceful toolbar overflow as the app's
+# accepted behaviour at narrow widths. It is NOT silent -- it is written here.
+# Everything else is clean: audited natively at all four scales, nothing else in the app clips
+# (evidence/audit_text_scale.py). The one surface the dial deliberately does not move is the hero band,
+# which paints with QPainter at hard pixel sizes that no stylesheet reaches -- that is PLINTH, unbuilt.
+TEXT_SCALES = (100, 110, 125, 150)
+
+
+def text_scale() -> int:
+    """The saved text-size percent -- one of :data:`TEXT_SCALES`, default 100. Type-disciplined: a corrupt
+    or hand-edited value degrades to 100 (which is the provably-inert setting)."""
+    val = get("text_scale", 100)
+    return val if val in TEXT_SCALES else 100
+
+
+def set_text_scale(pct: int) -> None:
+    put("text_scale", pct if pct in TEXT_SCALES else 100)
+
+
 MOTIONS = ("auto", "on", "off")                           # UI motion: follow the OS / always / never
 
 

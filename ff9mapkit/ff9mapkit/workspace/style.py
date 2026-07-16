@@ -74,12 +74,41 @@ _GRID_COMPACT = {"space_1": 4, "space_2": 6, "space_3": 8, "space_4": 12, "space
 # The remaining literals (26px name, 15px h3, 34px glyph, 11px badge) are still hard-typed in the sheet
 # below -- collapsing all eight onto one table is QUARTO P3, and CALIBRE is load-bearing on it: _SCALES
 # owns 3 of the 8 sizes, so scaling it alone would INVERT the ramp (hints outgrowing the body).
+# THE TYPE TABLE (QUARTO P3) -- every size the sheet sets, in ONE place, as ints.
+#
+# It was split before this: 3 sizes were tokens here and 5 were anonymous px typed into the sheet below.
+# That made "nudge the type up" a scavenger hunt rather than an edit -- but the real cost is that a SCALE
+# could not exist. Multiplying _SCALES alone would raise the hint to 15px while the body stayed frozen at
+# 14: the annotation outgrowing the thing it annotates. CALIBRE is load-bearing on this table, which is
+# why it exists before CALIBRE does.
+#
+# TWO ENTRIES ARE NOT RUNGS OF THE READING RAMP, and the distinction is load-bearing for anything that
+# iterates this table:
+#   type_glyph -- role="empty_glyph". A large DECORATIVE glyph: an icon that happens to be drawn by the
+#     font. Never read as text, so it is exempt from the ramp fences (which name it explicitly).
+#   type_badge -- the "?" concept badge's glyph. It sits inside forms_qt's setFixedSize(22, 22), whose
+#     border-radius (11px) is HALF THAT BOX -- a geometric pin that shares the number 11 with this type
+#     value for completely unrelated reasons. DO NOT WELD THEM. Measured: the glyph fits its pin at 11 and
+#     12 and OVERFLOWS at 13 (sizeHint 19x23 vs 22), and setFixedSize clips rather than grows. So scaling
+#     the glyph without the box clips the "?" at 1.25x; scaling the box without the radius turns the
+#     circle into a rounded square. Any scale must move all three together.
+_TYPE = {
+    "type_name": 26,          # the nameplate crown (role="name"), Sitka Display
+    "type_h2": 16,
+    "type_h3": 15,            # NB: 1px under h2 -- a 6.7% cap-height step, a tier Segoe cannot draw, and
+                              # its "sub-h2 section title" docstring describes a nesting that does not
+                              # exist (zero h3 sites sit under an h2). Merging them is QUARTO P2, unbuilt.
+    "type_body": 14,          # the QWidget base; every other rung is read against this
+    "type_caption": 12,       # THE FLOOR: Segoe UI 9pt (the Windows default) resolves to exactly 12px
+    "type_mono": 12,
+    "type_glyph": 34,         # not a rung -- see above
+    "type_badge": 12,         # not a rung, but it IS text: 11 -> 12 joins the floor (see below)
+}
+
 _SCALES = {
     **{k: f"{v}px" for k, v in _GRID.items()},
     "radius_sm": "4px", "radius_md": "6px", "radius_lg": "8px",
-    "type_h2": "16px",
-    "type_body": "14px",
-    "type_caption": "12px", "type_mono": "12px",
+    **{k: f"{v}px" for k, v in _TYPE.items()},
 }
 
 
@@ -456,7 +485,7 @@ _QSS = Template(
        property -- delete the font-family line and this is Segoe 24/700 at 1.85x. */
     QLabel[role="name"] {
         font-family: "Sitka Display", "Sitka Text", "Georgia", "Segoe UI";
-        font-size: 26px; font-weight: 400; color: $text;
+        font-size: $type_name; font-weight: 400; color: $text;
     }
     /* role="display" (24/700) and role="h1" (20/600) lived here and rendered ZERO pixels for three
        rounds -- no widget ever set either. They were kept alive only by tests that tested them, which
@@ -488,7 +517,7 @@ _QSS = Template(
     QLabel[role="subtle"]  { color: $text_subtle; }
     /* teaching empty-states (workspace.widgets.empty_state): a large decorative glyph + a title, over the
        caption teaching line + optional action buttons -- replaces black-void / bare 'nothing loaded' panels */
-    QLabel[role="empty_glyph"] { font-size: 34px; color: $text_subtle; }
+    QLabel[role="empty_glyph"] { font-size: $type_glyph; color: $text_subtle; }
     QLabel[role="empty_title"] { font-size: $type_h2; font-weight: 600; color: $text; }
     QFrame[role="card"] { background: $surface_2; border: 1px solid $border; border-radius: $radius_lg; }
     /* THE MONO REGISTER. This app's whole subject is machine tokens -- 4003, 30110, ff9-XXXXXXXX,
@@ -513,7 +542,10 @@ _QSS = Template(
 
     /* --- shell.py chrome roles (Phase 2, file 7/7) --- */
     QLabel[role="strong"]   { font-weight: 600; }                                   /* 600-weight body text */
-    QLabel[role="h3"]       { font-size: 15px; font-weight: 600; }                  /* a sub-h2 section title */
+    /* h3 -- 1px under h2, which is a 6.7% cap-height step: a tier the font cannot draw. And its old
+       "a sub-h2 section title" gloss described a nesting that does not exist -- zero h3 sites sit under
+       an h2; both are top-level panel titles. Merging the two into one head rung is QUARTO P2, unbuilt. */
+    QLabel[role="h3"]       { font-size: $type_h3; font-weight: 600; }
     QLabel[role="overline"] { font-size: $type_caption; font-weight: 600; color: $muted; letter-spacing: 1px; }
     /* RUBRIC -- a card's title is a TITLE. widgets.section() titled all 25 cards with role="overline":
        the caption rung, 600, muted. role="caption" -- the hint text INSIDE those cards -- is the caption
@@ -563,6 +595,11 @@ _QSS = Template(
        the chrome that is a MATERIAL boundary rather than a grouping rule, which is why it takes
        border_lit while every other band keeps the flat border. */
     QWidget#consoleHead { background: $surface; border-top: 1px solid $border_lit; }
+    /* the console head's Wrap / Copy / Clear. Pinned height so the head stays a thin strip -- but the pin
+       is a box around text, so it scales (style.CONSOLE_H). It was a bare setFixedHeight(24) in shell.py,
+       which CALIBRE could not reach: audited, the label's line box outgrows a frozen 24 at 125%. 24 is
+       also the WCAG 2.5.8 target floor, so scale_px only ever grows it. */
+    QPushButton#consoleHeadBtn { min-height: $console_h; max-height: $console_h; }
     QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
     /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb.
@@ -597,11 +634,26 @@ _QSS = Template(
     QToolButton#disclosureToggle:checked { color: $text; }
     QToolButton#disclosureToggle:focus   { color: $text; }
 
-    /* the "?" concept badge next to a jargon form label -- a small circular help affordance */
-    /* GEOMETRIC, not a token: 11px is half of forms_qt.py's setFixedSize(22, 22) = a circle. */
+    /* the "?" concept badge next to a jargon form label -- a small circular help affordance.
+       TWO ELEVENS, AND THEY ARE NOT THE SAME ELEVEN. The border-radius is GEOMETRIC: half of forms_qt's
+       setFixedSize(22, 22), i.e. the definition of a circle -- it must never become a type token. The
+       font-size IS type -- and it was the last text in the app under the 12px OS floor, a leftover from
+       QUARTO P1, which moved the caption rung and left this behind because nothing connected them. Now
+       12, and free: measured, the glyph fits its pin at 12 (sizeHint 17x21) and only overflows at 13
+       (19x23), and setFixedSize CLIPS rather than grows -- so the circle is untouched.
+       THIS IS THE WHOLE ARGUMENT FOR THE TABLE. The rung was invisible while it was an anonymous 11 in a
+       rule 500 lines from the ramp; the moment every size sat in one dict, a value below the floor was
+       impossible not to see. Fenced by test_no_text_rung_sits_below_the_os_floor.
+       THE BOX IS QSS NOW, not forms_qt's setFixedSize -- so one sheet re-render resizes it and the glyph,
+       together, and CALIBRE cannot leave a big "?" in a small circle. That is also why the radius is a
+       token: it must stay exactly half the box at every scale (style.badge_box keeps the box even so it
+       can). Audited: the glyph overflows a frozen 22px box at 150%. */
     QToolButton#conceptBadge {
-        background: transparent; color: $muted; border: 1px solid $border; border-radius: 11px;
-        padding: 0; font-weight: 700; font-size: 11px;
+        background: transparent; color: $muted; border: 1px solid $border;
+        border-radius: $badge_radius;
+        min-width: $badge_box; max-width: $badge_box;
+        min-height: $badge_box; max-height: $badge_box;
+        padding: 0; font-weight: 700; font-size: $type_badge;
     }
     QToolButton#conceptBadge:hover { color: $accent; border-color: $accent; }
     QToolButton#conceptBadge:focus { border: 1px solid $focus; }
@@ -609,7 +661,49 @@ _QSS = Template(
 )
 
 
-def qss(palette: dict, density: str = "comfortable") -> str:
+def type_px(name: str, scale: int = 100) -> int:
+    """One rung of the type table at ``scale`` percent -- THE single definition of that arithmetic.
+
+    A function, not an inline expression, because three places need the identical answer: the sheet (via
+    :func:`qss`), any Python that pins geometry around text (``setFixedHeight`` on a caption), and the
+    fences. Two of those computing it slightly differently is how a glyph ends up 1px taller than the box
+    someone sized for it.
+
+    HALF-UP, NOT ``round()``. Python's ``round`` is BANKER'S rounding: it breaks ties toward even, so
+    ``round(16.5) == 16`` while ``round(17.5) == 18``. The table hits exact .5 ties constantly -- h3 (15)
+    at 110% is exactly 16.5, and body (14) at 125% is exactly 17.5 -- so banker's would shrink one rung
+    and grow the next from the same tie, silently collapsing steps. ``int(x + 0.5)`` is half-up and
+    monotonic, which is the only property a type ramp actually needs from its rounding.
+    """
+    return int(_TYPE[name] * scale / 100 + 0.5)
+
+
+# CALIBRE's geometry half. A box drawn AROUND text must grow WITH the text, or the box wins and the text
+# is cut -- setFixedSize clips, it never grows. Audited natively (evidence/audit_text_scale.py): the whole
+# app has exactly TWO such boxes, not the ~75 setFixed* sites a static count suggests. The other ~73 pin
+# panel geometry that owes the font nothing.
+#
+#   BADGE_HALF -- the "?" concept badge. Its box is 2x this and its border-radius IS this, which is what
+#     makes it a circle rather than a rounded square. Kept EVEN by construction (2 * a rounded half) so
+#     the radius stays exactly half at every scale; an odd box would round-off into a squircle.
+#   CONSOLE_H -- the Wrap/Copy/Clear head buttons. 24 is also the WCAG 2.5.8 target floor, so this may
+#     grow and must never shrink.
+BADGE_HALF = 11
+CONSOLE_H = 24
+
+
+def scale_px(px: int, scale: int = 100) -> int:
+    """A pinned geometry value at ``scale``. Half-up and floored at the 100% value: a text-size dial may
+    only ever GROW a box (shrinking one would clip at the setting that is provably fine today)."""
+    return max(px, int(px * scale / 100 + 0.5))
+
+
+def badge_box(scale: int = 100) -> int:
+    """The "?" badge's pinned circle at ``scale`` -- always even, so ``badge_box // 2`` is exactly half."""
+    return max(2 * BADGE_HALF, 2 * int(BADGE_HALF * scale / 100 + 0.5))
+
+
+def qss(palette: dict, density: str = "comfortable", scale: int = 100) -> str:
     """Render the workspace stylesheet for ``palette`` (an :mod:`..editor.theme` LIGHT/DARK dict).
 
     Derives the semantic tokens (elevation ladder, focus, tinted selection, ...) and merges the theme-
@@ -624,9 +718,23 @@ def qss(palette: dict, density: str = "comfortable") -> str:
     """
     dens = _DENSITY.get(density, _DENSITY["comfortable"])
     grid = {k: f"{v}px" for k, v in (_GRID_COMPACT if density == "compact" else _GRID).items()}
+    # CALIBRE: the type table at `scale` percent. At 100 this is provably inert -- int(px * 100/100 + 0.5)
+    # == px for every int -- so the default path renders byte-identical to a sheet with no scale at all,
+    # and that is fenced rather than asserted. Scaling here (not per-rule) is what makes it impossible to
+    # scale HALF the ramp: P3 put all eight sizes in one table precisely so this loop could reach them.
+    typ = {k: f"{type_px(k, scale)}px" for k in _TYPE}
+    # the two boxes drawn around text (see BADGE_HALF / CONSOLE_H). The badge's box is QSS rather than a
+    # setFixedSize so that ONE re-render resizes it: a Python pin would have to be hunted down and re-set
+    # on every live scale change, and any badge built before the change would keep the stale circle.
+    _bb = badge_box(scale)
+    typ["badge_box"] = f"{_bb - 2}px"                # QSS min/max-width sizes the CONTENTS box; the 1px
+    typ["badge_radius"] = f"{_bb // 2}px"            # border on each side makes the widget _bb again
+    typ["console_h"] = f"{scale_px(CONSOLE_H, scale)}px"
     pal = derive(palette)
     art = {                                          # per-tint indicator art (see the module docstring)
         "check_img": _asset("check", _CHECK_SVG.format(color=pal["accent_fg"])),
         "check_img_off": _asset("check", _CHECK_SVG.format(color=pal["muted"])),
     }
-    return _QSS.substitute({**_SCALES, **grid, **dens, **art, **pal})
+    # `typ` after `_SCALES`: _SCALES carries the type table at 100% for callers that never scale, and the
+    # scaled values must win. Order is the whole mechanism here, so do not "tidy" these into one dict.
+    return _QSS.substitute({**_SCALES, **grid, **typ, **dens, **art, **pal})

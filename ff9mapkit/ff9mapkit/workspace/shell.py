@@ -471,12 +471,13 @@ class Workspace(QMainWindow):
         self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
         self._density = prefs.density()            # UI density (comfortable default / compact); live-toggleable
+        self._text_scale = prefs.text_scale()      # CALIBRE: the text-size dial, an int percent (100 default)
         from . import forms_qt as _fq             # Guided/Full beginner mode read by build_form
         _fq.set_guided(prefs.guided())
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
-        self.setStyleSheet(qss(pal, self._density))
+        self.setStyleSheet(qss(pal, self._density, self._text_scale))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
@@ -544,7 +545,7 @@ class Workspace(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
-        self.setStyleSheet(qss(pal, self._density))
+        self.setStyleSheet(qss(pal, self._density, self._text_scale))
         self._retint_tree_icons()                             # tree type icons (+ the unsaved dot) re-render for pal
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
@@ -566,7 +567,7 @@ class Workspace(QMainWindow):
         """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
         no palette change. Used by Preferences' live preview and the Ctrl-K toggle."""
         self._density = density if density in prefs.DENSITIES else "comfortable"
-        self.setStyleSheet(qss(self.pal, self._density))
+        self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
         if getattr(self, "_hero", None) is not None:
             self._hero.set_density(self._density)             # the band's metrics are PYTHON -- QSS re-render
                                                               # alone would leave it at the old height
@@ -576,6 +577,25 @@ class Workspace(QMainWindow):
         self._apply_density("compact" if self._density == "comfortable" else "comfortable")
         prefs.set_density(self._density)
         self.statusBar().showMessage(f"Density: {self._density}", 3000)
+
+    def _apply_text_scale(self, pct):
+        """Switch the TEXT SIZE live -- re-render the QSS with the type table at `pct` percent.
+
+        The whole feature is one re-render because QUARTO P3 put all eight sizes in one table and CALIBRE
+        put the two boxes-drawn-around-text (the "?" badge's circle, the console head's buttons) into the
+        sheet beside them. A pin left in Python would freeze while its text grew, and any widget built
+        before the change would keep the stale box.
+
+        WHY AN IN-APP DIAL AND NOT THE OS: the app cannot follow Windows' text slider -- Qt cannot see it
+        (see prefs.TEXT_SCALES). Display -> Scale already works and is a different setting.
+        """
+        self._text_scale = pct if pct in prefs.TEXT_SCALES else 100
+        self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
+        if getattr(self, "_hero", None) is not None:
+            # the band paints with QPainter at hard pixel sizes -- no QSS reaches it, so at any scale but
+            # 100% the front door stays put while the app around it grows. Making the hero measure its own
+            # type is PLINTH, unbuilt; until then the dial deliberately does not touch it.
+            self._hero.set_density(self._density)
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -809,6 +829,16 @@ class Workspace(QMainWindow):
         dens_combo.setCurrentIndex(dix if dix >= 0 else 0)
         dens_combo.currentIndexChanged.connect(lambda i: self._apply_density(dens_combo.itemData(i)))
         form.addRow("Density", dens_combo)
+        # CALIBRE. Sits under Density because they are the same KIND of control -- how the app is set, not
+        # what it is. Labelled "Text size" and not "Zoom": it scales TYPE (and the two boxes drawn around
+        # type), never the whole UI, which is what Windows' Display -> Scale already does correctly.
+        scale_combo = QComboBox()
+        for pct in prefs.TEXT_SCALES:
+            scale_combo.addItem(f"{pct}%" + ("  — default" if pct == 100 else ""), pct)
+        six = scale_combo.findData(self._text_scale)
+        scale_combo.setCurrentIndex(six if six >= 0 else 0)
+        scale_combo.currentIndexChanged.connect(lambda i: self._apply_text_scale(scale_combo.itemData(i)))
+        form.addRow("Text size", scale_combo)
         mode_combo = QComboBox()
         for val, label in ((True, "Guided — tuck expert fields into an Advanced drawer (default)"),
                            (False, "Full — show every field inline")):
@@ -852,6 +882,7 @@ class Workspace(QMainWindow):
         lay.addWidget(bb)
         original = self.pal
         original_density = self._density
+        original_scale = self._text_scale
         original_guided = prefs.guided()
         original_motion = prefs.motion()
         state = {"ok": False}
@@ -860,6 +891,7 @@ class Workspace(QMainWindow):
             state["ok"] = True
             prefs.set_theme(combo.currentData())
             prefs.set_density(dens_combo.currentData())
+            prefs.set_text_scale(scale_combo.currentData())
             prefs.set_guided(bool(mode_combo.currentData()))
             prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
@@ -870,6 +902,9 @@ class Workspace(QMainWindow):
         def _finish(_r):
             if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density + mode preview
                 self._density = original_density
+                self._text_scale = original_scale         # assign, don't _apply_: retheme() below re-renders
+                                                          # the sheet FROM this field, so applying here would
+                                                          # just build the same stylesheet twice
                 self._apply_guided(original_guided)
                 anim.configure(original_motion)           # revert the live motion preview too
                 self.retheme(original)                    # re-applies qss() with the restored density
@@ -1400,7 +1435,11 @@ class Workspace(QMainWindow):
         out_clear = QPushButton("Clear")
         out_clear.clicked.connect(lambda: self.output.clear())
         for b in (self._out_wrap, out_copy, out_clear):
-            b.setFixedHeight(24)
+            # The height pin is QSS now (style.py's #consoleHeadBtn, keyed to style.CONSOLE_H) rather than
+            # a setFixedHeight(24) here. A Python pin is invisible to the text-size dial: audited, these
+            # labels outgrow a frozen 24 at 125%, and setFixedHeight clips rather than grows. In QSS one
+            # re-render moves the box with the text.
+            b.setObjectName("consoleHeadBtn")
             out_head.addWidget(b)
         ov.addLayout(out_head)
         self.output = QPlainTextEdit()
