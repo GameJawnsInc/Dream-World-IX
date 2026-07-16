@@ -432,7 +432,10 @@ def test_every_hint_is_built_by_the_factory_not_by_hand(app):
     import ast
     import pathlib
     ws = pathlib.Path(widgets.__file__).parent
-    ALLOWED = {("forms_qt.py", 100), ("forms_qt.py", 101)}      # the fixed-height note; see above
+    # Keyed on the VARIABLE, not the line: this exemption first shipped as {("forms_qt.py", 100), (...101)}
+    # and went red the moment an unrelated edit two functions above shifted the file down. A fence that
+    # breaks when nothing it guards has changed trains people to re-number it without reading it.
+    ALLOWED = {("forms_qt.py", "note")}                          # the fixed-height wrap-preview note
     offenders = []
     for py in sorted(ws.glob("*.py")):
         if py.name == "widgets.py":
@@ -444,7 +447,8 @@ def test_every_hint_is_built_by_the_factory_not_by_hand(app):
                 continue
             a1 = node.args[1]
             if isinstance(a1, ast.Constant) and a1.value == "caption":
-                if (py.name, node.lineno) in ALLOWED:
+                var = getattr(node.func.value, "id", None) if hasattr(node.func, "value") else None
+                if (py.name, var) in ALLOWED:
                     continue
                 offenders.append(f"{py.name}:{node.lineno}")
     assert not offenders, (
