@@ -499,6 +499,29 @@ isDebug** that would skip the authored Leave and dump a guest into the main menu
 
 **Rungs 0, 1, 2.5, 2, 3 ★ solo proven (wire v8 CUT + laptop package `FF9Coop-laptop-update-20260716`
 carrying the two-machine checklist).**
+
+### B3.3b — THE SILENT-CHAIN FIX (2026-07-16, same day; retest pending)
+The FIRST two-machine run declined the diorama with ZERO diagnostic output: guest followHost=1,
+relay, follow-warped to 250, ghost + spectate panel fine — no diorama, and NO log line explains why
+(the absence of Boot's REFUSED line is what triangulated it to `_storyMirroring == false`, a
+diagnosis that took the better part of an hour and a source dive to reach). Two lessons, one round:
+- **EVERY GATE THAT CAN DECLINE MUST SAY SO** (the `BootBlockedReason` principle, applied to the
+  whole chain): `ApplyStoryImpl` now logs each field-load outcome (ARMED once / transport
+  not-created / not-connected / no-host-snapshot / apply-FAILED — real guests only, one line per
+  load); `DioramaTick` logs ONE line per peer-battle nonce naming a durable block (FollowHost=0 /
+  Diorama=0 / party-mirror-not-armed note; client-only — on a HOST whose guest fights,
+  "FollowHost=0" would be true but describe nothing wrong); the `mapName` catch skip-nonces + logs.
+- **THE DIORAMA'S SESSION PREDICATE IS PEER-ALIVENESS, NOT THE STORY MIRROR.** `_storyMirroring`
+  arms only at a field-load boundary that sees a host snapshot — a session where that hasn't
+  happened yet silently disqualified the diorama, even though its save-safety never depended on
+  the mirror (the rung-2.5 bracket + `Booted` save block are self-contained, and fresh battle
+  frames are the strongest peer-alive signal there is). New `NetSyncClient.IsLiveFollowedSession`
+  (enabled + FollowHost + role=client + connected + position-lane `Valid` — every conjunct
+  defaults false, vanilla stays fail-closed) joins `MayBoot`; the watcher drops its mirror gate.
+  An un-armed party mirror degrades to the-guest's-own-party, logged.
+Root cause of the mirror not arming: **still unknown** — that is exactly what the new telemetry
+answers on the next run, whichever way it goes. No wire change (still v8; mixed same-version DLLs
+pair fine, both machines updated anyway — `CCD07F16C06CC0D2`).
 **Next:** B3.4 (type-1 → HP/death/trance on the diorama's actors) · B3.2b (the party v9 extension:
 basis/status/trance/SA — ride it with B3.5's action lane, one bump) · the swirl/BGM pairing · the
 scene-data hash divergence assert. Emit the whole B3 arc as **s40** when it settles (s39 is taken).
