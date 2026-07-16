@@ -268,7 +268,13 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   from the static `BattleParameterList`. The real build is `btl_init.OrganizePlayerData` (`:369-488`).
   `serial_no` itself is DERIVED (NCalc over equip[0]) and force-recomputed after every battle/equip/load
   — redundant on the wire given equip[5].
-- **B3.3 — enemies. ★ BUILT 2026-07-16 (wire v8), solo bench pending.** Enemies come FREE through the
+- **B3.3 — enemies. ★ SOLO PROVEN 2026-07-16 (wire v8).** All five solo boxes passed first try:
+  `btlFields=ok` in the containment selftest; the wire bench booted a visibly PRE-EMPTIVE diorama
+  (`parsed map=0 pat=0 start=FIRST rand=1 nonce=77 -> boot`) while the plain Boot's normal layout
+  stood as the A/B; Leave clean; and a real selftest encounter put the ENCODER's boot block on the
+  spectate panel (`scene 67 pat 1 NORM rand` — note `rand` lit on a random encounter, the flag's own
+  proof). Both codec halves and the boot path are now in-game proven; only the watcher's live
+  behaviors (auto-boot/leave, nonce, skip) remain two-machine. Enemies come FREE through the
   stock spawn — B3.1/B3.2 already proved the `(battleMapIndex, PatNum)` boot path with locally-chosen
   scenes, so this rung's real content was THE WIRE: the type-1 header block (above), the guest-side
   watcher (`NetSyncClient.DioramaTick`, the battle-lane analogue of FollowHostTick: boot on a live
@@ -491,7 +497,8 @@ isDebug** that would skip the authored Leave and dump a guest into the main menu
 - Custom-FBX prefabs carrying a serialized HonoBehavior — the residual unknown in the teardown census.
   The diorama controls that input anyway.
 
-**Rungs 0, 1, 2.5, 2 ★ in-game proven; B3.3 built (wire v8 CUT), solo bench pending.**
+**Rungs 0, 1, 2.5, 2, 3 ★ solo proven (wire v8 CUT + laptop package `FF9Coop-laptop-update-20260716`
+carrying the two-machine checklist).**
 **Next:** B3.4 (type-1 → HP/death/trance on the diorama's actors) · B3.2b (the party v9 extension:
 basis/status/trance/SA — ride it with B3.5's action lane, one bump) · the swirl/BGM pairing · the
 scene-data hash divergence assert. Emit the whole B3 arc as **s40** when it settles (s39 is taken).
