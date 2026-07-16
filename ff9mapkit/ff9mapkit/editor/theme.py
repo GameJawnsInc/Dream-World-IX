@@ -29,8 +29,8 @@ LIGHT = {
     "muted": "#626974",         # secondary text (hints) -- retuned to WCAG AA 4.5:1 on bg + surface
     "accent": "#2f6feb",        # primary buttons, tree selection
     "accent_fg": "#ffffff",     # text on accent
-    "accent_hover": "#256ae0",
-    "accent_pressed": "#1f5fcc",
+    "accent_hover": "#2c68dd",
+    "accent_pressed": "#275dc5",
     "help": "#7c3aed",          # help / info affordance (violet -- distinct from accent/success/warn)
     "help_hover": "#6d28d9",
     "border": "#d2d6dc",
@@ -63,8 +63,8 @@ DARK = {
     # white, so the hue is untouched and only the ink flips: 3.20 -> 5.39. Same strategy dracula/gruvbox/
     # mist already use. #181b20 is this palette's OWN log_bg -- in-family, not an imported black.
     "accent_fg": "#181b20",
-    "accent_hover": "#3d7df0",
-    "accent_pressed": "#356fda",
+    "accent_hover": "#5593ff",
+    "accent_pressed": "#4580e8",
     "help": "#9d7bff",          # help / info affordance (violet -- distinct from accent/success/warn)
     "help_hover": "#8b66f5",
     "border": "#3a404a",
@@ -97,8 +97,8 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     # its white-on-frost convention. Visually still nord10; measured 4.03 -> 4.64.
     "accent": "#56779e",        # nord10, deepened to carry a button label
     "accent_fg": "#ffffff",     # white over the frost blue
-    "accent_hover": "#6a8cb6",
-    "accent_pressed": "#547299",
+    "accent_hover": "#537399",
+    "accent_pressed": "#4a6688",
     "help": "#bc99b5",          # nord15, lifted to AA 4.5 as TEXT (4.04) -- it labels the Info Hub button
     "help_hover": "#c29bbb",
     "border": "#434c5e",        # nord2
@@ -121,8 +121,8 @@ DRACULA = {                     # https://draculatheme.com
     "muted": "#acb1cd",         # comment #6272a4, lifted to AA 4.5 on EVERY ground incl. surface_3 (3.86)
     "accent": "#bd93f9",        # purple
     "accent_fg": "#282a36",
-    "accent_hover": "#caa6fb",
-    "accent_pressed": "#a87ee8",
+    "accent_hover": "#c9a6fa",
+    "accent_pressed": "#ac86e3",
     "help": "#ff79c6",          # pink
     "help_hover": "#ff92d0",
     "border": "#44475a",        # current line
@@ -153,8 +153,8 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     # base03-deep ink (this palette's own log_bg), not white: white on solarized blue is 3.68, sub-AA for a
     # button label. accent lum 0.235 clears the 0.220 crossover, so the ink flips and the blue stays exact.
     "accent_fg": "#00212b",     # 3.68 -> 4.56
-    "accent_hover": "#3597db",
-    "accent_pressed": "#1f78ba",
+    "accent_hover": "#4b9fda",
+    "accent_pressed": "#3191d4",
     "help": "#9296d3",          # violet, lifted to AA 4.5 as TEXT (2.97 -> 4.57). `help` has exactly ONE
                                 # use -- the Info Hub button's label AND its border -- so there is no
                                 # shape-role to protect and the lift happens in place.
@@ -190,8 +190,8 @@ SOLARIZED_LIGHT = {
     # solarized-DARK is unavailable here. The blue deepens instead; 3.68 -> 4.62.
     "accent": "#217ab9",        # solarized blue, deepened to carry a button label
     "accent_fg": "#ffffff",     # white over the blue accent
-    "accent_hover": "#1f7ec0",
-    "accent_pressed": "#1a6ca8",
+    "accent_hover": "#2076b3",
+    "accent_pressed": "#1d6aa1",
     "help": "#5d61a9",          # violet, deepened to AA 4.5 as TEXT on the cream page (3.57 -> 4.57)
     "help_hover": "#595fb8",
     "border": "#ddd6bf",
@@ -219,8 +219,8 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
     "muted": "#bdb2a2",         # gray, lifted to AA 4.5 on surface_2 AND surface_3 (the rail): 3.88 -> 4.66
     "accent": "#fe8019",        # bright orange
     "accent_fg": "#282828",
-    "accent_hover": "#ff8f33",
-    "accent_pressed": "#e36f12",
+    "accent_hover": "#fe8e32",
+    "accent_pressed": "#e57316",
     "help": "#d3869b",          # bright purple -- already AA 4.5 as text (4.78)
     "help_hover": "#dd9aab",
     "border": "#504945",        # bg2
@@ -268,8 +268,8 @@ MIST = {                        # "Mist (FF9)" -- the Mist is the game's atmosph
     "accent": "#5fc9d8",        # THE MIST. derive() aliases info=accent and grows focus FROM it, so this
                                 # hue is spent three times -- which is exactly why the gold is not here.
     "accent_fg": "#08171b",     # dark ink on a light accent (the dracula/gruvbox strategy); 9.43:1
-    "accent_hover": "#7ad7e4",
-    "accent_pressed": "#46b0c0",
+    "accent_hover": "#7ad2df",
+    "accent_pressed": "#51abb8",
     "help": "#9d8bd8",          # violet -- far from every other semantic hue
     "help_hover": "#b3a4e4",
     "border": "#2b3d5e",        # stays NEUTRAL. Gold here would be the costume, on all 27 cards, forever.
@@ -502,6 +502,16 @@ def _fg_token(fill: str, pal: dict) -> str:
             break
         out = _mix(out, target, 0.04)
     return out
+
+
+# THE ACCENT LADDER'S FEEDBACK FLOORS -- the app's OWN shipped minimums, measured across all 8 palettes
+# BEFORE the ladder was narrowed: hover/accent 1.0560 (solarized-light), press/accent 1.0670 (nord),
+# press/hover 1.1821 (light). They are here so a future edit to any accent_hover/accent_pressed can never
+# be quieter than the quietest step that already shipped. Fenced by
+# test_the_narrowed_accent_ladder_still_gives_feedback. The values themselves are AUTHORED in the palettes
+# above -- see the accent_hover comments there for why they are what they are, and
+# studies/gui-aesthetics/evidence/solve_accent_ladder.py for the search that produced them.
+_ACCENT_FEEDBACK = (1.0560, 1.0670, 1.1821)
 
 
 def derive(pal: dict) -> dict:

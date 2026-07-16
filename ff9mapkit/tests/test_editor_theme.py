@@ -132,7 +132,15 @@ def test_palette_contrast_invariants():
         # BUTTON LABEL ("Deploy F9", "Fork a field", "Run setup..."), which is normal text under WCAG AA.
         # At 3.0 it passed while dark measured 3.20, solarized 3.68 and nord 4.03 -- the app's primary
         # action, unreadable-by-standard, in 4 of 8 palettes, with a green fence. The floor was the bug.
-        assert _contrast(pal["accent_fg"], pal["accent"]) >= 4.5, f"{mode}: the accent BUTTON LABEL is text"
+        # ...AND IN ALL THREE OF ITS STATES. This fenced `accent` ALONE, so the :hover and :pressed rules
+        # -- which swap the FILL under the SAME ink -- were never checked: 3.48 (nord hover) and 3.56
+        # (solarized-dark pressed). The app's primary verb, sub-AA the moment you touched it, with this
+        # line green. THE FILLS come to the ink (derive()._accent_states), because measured, ONE ink for
+        # all three is impossible (black and white BOUND every ink and both fail in 4 of 8) and a
+        # per-state ink FLIPS 219-243/255 between rest and pressed. Same shape as the 3.0-vs-4.5 story
+        # this file is full of: a fence that names one ground moves the bug to the ones it did not name.
+        for _st in ("accent", "accent_hover", "accent_pressed"):
+            assert _contrast(pal["accent_fg"], d[_st]) >= 4.5,                 f"{mode}: the accent BUTTON LABEL is text, and it is still text on :{_st}"
         assert _contrast(d["focus"], pal["surface"]) >= 3.0, f"{mode}: focus ring on surface"
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
 
@@ -224,6 +232,35 @@ def test_an_ink_is_never_borrowed_from_the_ground_next_door():
         assert worst < 4.5, (
             f"${ink} now happens to clear AA on ${fill} in all 8 palettes. That is luck, not design -- "
             f"re-check whether these grounds still need separate inks before deleting this fence.")
+
+
+def test_the_narrowed_accent_ladder_still_gives_feedback():
+    """Pulling the state fills into the ink's band must not make the primary button DEAD.
+
+    The trade is real and it is the whole risk of narrowing: a fill dragged toward `accent` for legibility
+    stops reading as a state. So the floors are the app's OWN shipped minimums, measured across all 8
+    BEFORE anything moved -- hover/accent 1.0560 (solarized-light), press/accent 1.0670 (nord), press/hover
+    1.1821 (light). A narrowed ladder can never be quieter than the quietest one that already shipped.
+
+    THREE PALETTES CHANGE THE DIRECTION OF A STEP and that is FORCED, not chosen: `dark`'s band below the
+    accent is 0.054 wide, and holding both steps darker while keeping press/hover >= 1.1821 is provably
+    infeasible there. Where a direction has to go, the search takes the cheapest legal ladder in channel
+    distance from what shipped.
+    """
+    lo_h, lo_p, lo_ph = theme._ACCENT_FEEDBACK
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        a, h, p = d["accent"], d["accent_hover"], d["accent_pressed"]
+        assert _contrast(h, a) >= lo_h, f"{mode}: the accent button's HOVER is invisible ({_contrast(h, a):.4f})"
+        assert _contrast(p, a) >= lo_p, f"{mode}: the accent button's PRESS is invisible ({_contrast(p, a):.4f})"
+        assert _contrast(p, h) >= lo_ph,             f"{mode}: pressing adds nothing over hovering ({_contrast(p, h):.4f}) -- the states collapsed"
+        # in-family: a narrowed step is still the palette's own hue, never a new one
+        def _order(x):
+            x = x.lstrip("#")
+            v = [int(x[i:i + 2], 16) for i in (0, 2, 4)]
+            return [i for i, _ in sorted(enumerate(v), key=lambda t: -t[1])]
+        for name, val in (("hover", h), ("pressed", p)):
+            assert _order(val) == _order(a), f"{mode}: accent_{name} left the accent's hue family"
 
 
 def test_hover_and_pressed_give_real_feedback():
