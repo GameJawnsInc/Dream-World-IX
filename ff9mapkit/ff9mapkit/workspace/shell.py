@@ -835,8 +835,18 @@ class Workspace(QMainWindow):
         # what it is. Labelled "Text size" and not "Zoom": it scales TYPE (and the two boxes drawn around
         # type), never the whole UI, which is what Windows' Display -> Scale already does correctly.
         scale_combo = QComboBox()
+        # HEED: when Windows' own text slider is set and the user has not overridden it, that rung is the
+        # DEFAULT -- so say so here rather than in the code only. An app that quietly scales when nothing
+        # else on the desktop does reads as broken rather than considerate, and this line is the whole
+        # difference: it turns an unexplained size into a setting the user recognises as their own.
+        os_pct = prefs.os_text_scale()
         for pct in prefs.TEXT_SCALES:
-            scale_combo.addItem(f"{pct}%" + ("  — default" if pct == 100 else ""), pct)
+            tag = ""
+            if pct == os_pct and os_pct != 100:
+                tag = "  — following Windows text size"
+            elif pct == 100 and os_pct == 100:
+                tag = "  — default"
+            scale_combo.addItem(f"{pct}%{tag}", pct)
         six = scale_combo.findData(self._text_scale)
         scale_combo.setCurrentIndex(six if six >= 0 else 0)
         scale_combo.currentIndexChanged.connect(lambda i: self._apply_text_scale(scale_combo.itemData(i)))
