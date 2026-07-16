@@ -109,7 +109,7 @@ class ModelsDoc(QWidget):
         rv.setContentsMargins(10, 0, 0, 0)
         self.d_title = QLabel("Pick a model")
         self.d_title.setTextFormat(Qt.TextFormat.PlainText)
-        self.d_title.setProperty("role", "h2")
+        self.d_title.setProperty("role", "head")
         rv.addWidget(self.d_title)
         self.d_sub = QLabel("")
         self.d_sub.setProperty("role", "muted")

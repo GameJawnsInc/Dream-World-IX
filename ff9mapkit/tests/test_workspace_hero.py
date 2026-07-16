@@ -514,7 +514,7 @@ def test_the_front_door_is_on_the_ramp_not_on_private_numbers(app):
     # ...and the wordmark is NOT a rung: it is a brand constant, the one piece of type here chosen as a
     # drawing rather than as a tier. It scales; it must never join the ramp.
     assert word == hero_mod._WORD_PX
-    assert word not in (type_px(k, 100) for k in ("type_caption", "type_body", "type_h2", "type_h3"))
+    assert word not in (type_px(k, 100) for k in ("type_caption", "type_body", "type_head"))
 
 
 def test_the_band_grows_with_the_text_size_dial(app):
@@ -591,3 +591,44 @@ def test_the_signets_no_overflow_promise_is_structural_not_lucky(app):
         f"largest scale ({adv:.0f} <= {narrow}), so min() is never exercised. Re-pick the extreme."
     )
     assert min(adv, narrow) == narrow, "the arm must clamp to the column when the wordmark outruns it"
+
+
+def test_the_lede_rule_lands_under_its_title_not_through_it(app):
+    """QUARTO P2 struck a gold line through the lede's own title, and NOTHING caught it but the render.
+
+    LedeCard's rule was pinned at `_UP = 26` -> y=36.5, chosen by eye against a 15px h3 title whose box
+    bottomed at 33.9: a 2.6px clearance nobody had written down. P2 merged h2/h3 into an 18px head rung,
+    the title's box grew to 37.9, and the rule crossed the words -- reading as an underline rather than as
+    a bug. No test measures a QPainter stroke against a sibling QLabel's font, so no test could fail.
+
+    THE MARK NOW DERIVES ITS RISE FROM THE RUNG THE TITLE WEARS, so this is checkable: at every setting of
+    the text-size dial, the rule must sit at or below the title's box.
+    """
+    from PySide6.QtGui import QFont, QFontMetricsF
+
+    from ff9mapkit import prefs
+    pal = theme.derive(dict(theme.DARK))
+    for pct in prefs.TEXT_SCALES:
+        card = hero_mod.LedeCard(pal, scale=pct)
+        f = QFont("Segoe UI")
+        f.setPixelSize(type_px("type_head", pct))
+        f.setWeight(QFont.Weight.DemiBold)
+        title_bottom = hero_mod.LedeCard._TOP + QFontMetricsF(f).height()
+        rule_y = hero_mod.LedeCard._INSET + card._up() + 0.5
+        assert rule_y >= title_bottom, (
+            f"{pct}%: the lede's gold rule sits at y={rule_y:.1f} but its title's box bottoms at "
+            f"y={title_bottom:.1f} -- the mark is striking through the words"
+        )
+        card.deleteLater()
+
+
+def test_the_lede_mark_holds_no_pinned_rise(app):
+    """The rise is DERIVED, and a constant is what broke it. Fenced at the source: a `_UP = <n>` class
+    attribute would pass every ratio check while silently going stale the next time the head rung moves --
+    which is exactly the failure this replaces, one round after the number was written.
+    """
+    assert not hasattr(hero_mod.LedeCard, "_UP"), (
+        "LedeCard re-pinned its arm's rise. It must derive from the head rung (see LedeCard._up) or it "
+        "goes stale the next time the ramp moves -- which is how it came to underline its own title."
+    )
+    assert callable(getattr(hero_mod.LedeCard, "_up", None)), "the derived rise is gone"
