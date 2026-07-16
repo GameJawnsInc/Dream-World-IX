@@ -737,8 +737,37 @@ Each of these was proposed with confidence and refuted by measurement. Do not re
 **1. Do we ship Phase 3 (kill all 27 QGroupBoxes)?**
 This is the big one and it is deliberately gated. Phase 1 gives you the same tab with zero borders removed. **Recommendation: screenshot Phase 1 first, then decide.** If it reads well, skip Phase 3 or defer it — a 27-site refactor across 7 files in a 16,925-line codebase is a long-lived branch, and any partial landing is *worse than today's consistent dull*. If it still reads badly, the box is proven to be the problem and the risk is earned.
 
-**2. What is "under the lamp" on Build & Deploy?**
-The vision says one lifted surface per screen. Phase 1 ships **none** — the crumb-row Deploy is the only accent and the page is flat type. That may be exactly right (a form's focal point is its verb), but it's a different design from "one lifted surface" and you should own the difference consciously. **Recommendation: ship it flat. If the page feels rudderless in the screenshot, the honest lift is the `role="card"` + a 4px accent left-stripe (measured 2.44–4.73 against `surface_2` in all 7 — the one delineation that survives light themes), applied to *one* element per screen and nothing else.**
+**2. What is "under the lamp" on Build & Deploy?** — ✅ **ANSWERED 2026-07-16 (round 6): FLAT, DELIBERATELY.**
+
+> **The verdict.** Rendered both ways natively at 1600 in MIST (`evidence/shot_lamp.py` → `lamp_a_flat.png`
+> / `lamp_b_stripe.png`) and put to the user. Verdict: **"A — flat, and close the question."** The page is
+> not rudderless — the crown, the lede, the labelled input and the card carry the hierarchy, and *a form's
+> focal point is its verb*. This ratifies **this section's own primary recommendation**; the stripe was
+> always the contingency, and its condition ("if the page feels rudderless") was never met.
+>
+> **This is now a decision, not an omission** — which is the whole point. CRITIC.md's charge was that the
+> vision *"never names the lamp"*. It is named: on a work surface, nothing is lit, and that is the design.
+>
+> **Three findings killed the contingency independently of taste — record them, because the recommendation
+> below is STALE and would otherwise be re-opened from this very page:**
+>
+> 1. **Elevation is unexpressible, so the vision's LITERAL words were never available.** *"One **lifted**
+>    surface"* wants `surface_3` against `surface_2`: measured **1.043 (light) → 1.182 (gruvbox), all 8** —
+>    invisible everywhere. That is *why* round 2 reached for an accent stripe. The lamp could never have
+>    been a lift, and the vision's sentence was unbuildable the day it was written.
+> 2. **The number in the recommendation is stale.** "2.44–4.73 … in all 7" was measured in round 2. Round 3
+>    (SIGNET) **retuned the palettes** and added **MIST** as an 8th — *after*. Re-measured: **2.118 (nord) →
+>    7.095 (mist)**. The floor is below both the quoted range and the 3.0 non-text bar.
+> 3. **The stripe idiom was already taken — one day before this was written.** `QLabel[role="banner"]` is
+>    `border-left: 4px solid $success|$warn|$error`, shipped **2026-07-14** (this recommendation: 07-15). In
+>    this app a 4px left-stripe already means **"a status verdict"**, and the banner lives in the Problems
+>    panel, which shares the screen with the doc whenever the console is open. The stripe would make one
+>    mark mean two things — and be the accent's **third** spend, against **LAW II** (*"never a hue you spend
+>    twice"*).
+>
+> **Do not revive the text below from this page.** It is kept verbatim as the record of what was proposed.
+
+~~The vision says one lifted surface per screen. Phase 1 ships **none** — the crumb-row Deploy is the only accent and the page is flat type. That may be exactly right (a form's focal point is its verb), but it's a different design from "one lifted surface" and you should own the difference consciously. **Recommendation: ship it flat. If the page feels rudderless in the screenshot, the honest lift is the `role="card"` + a 4px accent left-stripe (measured 2.44–4.73 against `surface_2` in all 7 — the one delineation that survives light themes), applied to *one* element per screen and nothing else.**~~
 
 **3. How far does the FF9 identity go?**
 MIST (navy page, gold accent — theme.py's 8th palette) is ~25 lines, clears every fence with margin, and is a genuinely good idea. It is also completely orthogonal to the complaint. **Recommendation: ship it after Phase 4, as a *choice*, never as the default, and never billed as the fix.** The gold *rule* (`$trim` on a real edge) is a separate proposal that must be designed for LIGHT/NORD/DRACULA too — it is a new visual element in all 8, not a no-op.

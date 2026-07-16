@@ -559,3 +559,15 @@ def test_read_deployed_blocks_semantics(tmp_path):
     out = IN.read_deployed_blocks("modx", near=(96.0, -96.0), reach=40.0, game=tmp_path)
     assert set(out) == {(1, 1)}
     assert out[(1, 1)].vcount == _mains_grid().vcount
+
+
+def test_wall_context_law_mint_guard():
+    """THE WALL-CONTEXT LAW at the mint chokepoint: a minted island's rim is a SEA cliff
+    by construction, and a family whose wall band is measured interior-only (canyon)
+    refuses in build_landmass before any geometry work. Measured-coastal flags pinned."""
+    from ff9mapkit.world import island as I
+    with pytest.raises(ValueError, match="WALL-CONTEXT"):
+        I.build_landmass(center=(288.0, -1243.0), ground="canyon")
+    assert {n for n, g in G.GROUNDS.items() if g.get("wall_coastal") is True} == \
+        {"grass", "desert", "snow"}
+    assert G.GROUNDS["canyon"]["wall_coastal"] is False

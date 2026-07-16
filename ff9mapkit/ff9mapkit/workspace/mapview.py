@@ -31,6 +31,10 @@ class CampaignMap(QGraphicsView):
 
     def __init__(self, palette, *, on_open=None, thumbs=None):
         super().__init__()
+        # A RAW palette, deliberately. This module reads only raw tokens (see `_draw_empty`), so a derive()
+        # here would have zero consumers -- the `info` mistake, which this file's sibling comments spend
+        # real words warning about. And raw + DIRECT INDEXING is the property worth having: a derived key
+        # read from here now raises LOUDLY, instead of a `.get` quietly serving a fallback forever.
         self.pal = palette
         self.on_open = on_open
         self.thumbs = thumbs
@@ -98,7 +102,18 @@ class CampaignMap(QGraphicsView):
         vh = max(self.viewport().height(), 320)
         sc.setSceneRect(0, 0, vw, vh)
         cx, cy = vw / 2, vh / 2
-        subtle = pal.get("text_subtle", pal["muted"])
+        # `muted`, NOT `text_subtle`, AND THE PREVIOUS ROUND ALREADY DECIDED THIS. KEYLINE moved the
+        # TREE's icons OFF text_subtle ONTO muted and wrote the reason into its fence: text_subtle "is
+        # fenced for TEXT against the elevation ramp and was never fenced as ink for a DRAWING: 3.06
+        # (light) / 3.12 (solarized-light) -- a hair over the 3.0 non-text floor... muted is the same
+        # tier's honest value." This glyph is the same icons.pixmap() family on the same $surface ground.
+        #
+        # This line read `pal.get("text_subtle", pal["muted"])`, which fell back 100% of the time in every
+        # palette -- so it SAID text_subtle and DREW muted. Round 6 "fixed" the lie by making text_subtle
+        # real, which dropped this glyph 5.08-6.99 -> 3.06-4.14: a 40% contrast cut onto the exact tier,
+        # at the exact numbers, the round before had just moved the tree AWAY from. The `.get` was a lie
+        # that told the truth; only the lie needed removing.
+        subtle = pal["muted"]
 
         def _centered(text, size, color, dy, bold=False):
             weight = QFont.Weight.Bold if bold else QFont.Weight.Normal

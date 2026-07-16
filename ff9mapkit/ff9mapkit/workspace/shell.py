@@ -22,7 +22,8 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap, QShortcut,
+    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap,
+    QShortcut, QTextCharFormat, QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -43,28 +44,30 @@ from ..editor import feedback as fb
 from ..editor import forms
 from ..editor import jobs
 from ..editor.model import FieldDoc, protected_reason
-from ..editor.theme import THEME_CHOICES, pick_palette
+from ..editor.theme import THEME_CHOICES, derive, pick_palette
 from .battledoc import BattleDoc
 from .builddoc import BuildDoc
 from .coopdoc import CoopDoc
 from .forms_qt import build_form, pick_catalog, read
-from .hero import HeroBand
+from .hero import HeroBand, LedeCard
 from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
-from .style import qss, space
-from . import thumbs as _thumbs
+from .style import qss, space, type_px
+from . import thumbs as _thumbs, widgets
 from . import anim
 from . import concepts
 from . import icons
 from .modelsdoc import ModelsDoc
 from .thumbs import ModelThumbService, ThumbService
-from .widgets import PlaceholderListWidget, install_wheel_guard, nameplate, repolish, section
+from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
+                      prose as widgets_prose, repolish, section)
 
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 _LAYOUT_VERSION = 2                                # bump when saveState()'s object graph changes (2 = no docks)
 _DEFAULT_CONSOLE_SPLIT = [560, 220]                # [documents, console] px when nothing is persisted
+_DEFAULT_CENTRAL_SPLIT = [300, 640, 240]           # [tree, documents, inspector] px when nothing is persisted
 
 # The detached PowerShell helper for the one-click "Upgrade & restart" (see Workspace._run_upgrade). It
 # waits for the app to exit so uv isn't fighting a locked venv, upgrades, then relaunches the GUI. All
@@ -332,22 +335,51 @@ class BreadcrumbBar(QWidget):
         self._lay = QHBoxLayout(self)
         self._lay.setContentsMargins(12, 6, 12, 6)
         self._lay.setSpacing(6)
-        self.setStyleSheet(f"background:{pal['surface']};border-bottom:1px solid {pal['border']};")
+        # NO stylesheet. A SELECTOR-LESS widget sheet ("background:...;border-bottom:...") does not
+        # apply to this widget -- it applies to this widget AND CASCADES TO EVERY CHILD, so each
+        # crumb label, the chevron and the type icon wore their own stray underline six pixels above
+        # the real rule. Rendered proof: the selector-less form paints border ink on TWO rows (the
+        # bar's own edge AND the labels'); scoped to an id, only one. The clickable ancestors escaped
+        # it only because they set `border:none` themselves -- so the app underlined the one crumb you
+        # cannot click and left the ones you can flat.
+        # Deleting it needs no replacement: this is a QWidget SUBCLASS without WA_StyledBackground, so
+        # it does not paint the universal QWidget{background-color:$bg} rule either -- #crumbRow shows
+        # through, and the bar becomes theme-live for free (the hand re-tint below is gone too).
         self._chip = QLabel("")                    # a PERSISTENT left-anchored doc-mode chip (never cleared by set)
         self._chip.setVisible(False)
         self._lay.addWidget(self._chip)
         self.set([])
 
-    def set_chip(self, text, color=None):
+    def set_chip(self, text, fill="", ink=""):
         """The always-visible 'what am I editing' chip (JOURNEY / CAMPAIGN / FIELD / BATTLE / SAVE / BUILD).
-        Empty text hides it. Persists across :meth:`set` so it stays truthful on every tab."""
+        Empty text hides it. Persists across :meth:`set` so it stays truthful on every tab.
+
+        FILL AND INK TRAVEL TOGETHER, because they were never two decisions. This line took a `color` and
+        hardcoded `#ffffff` against it -- the only hardcoded white in the package -- and the caller was
+        free to hand it any fill at all. Measured across the 8 palettes: the accent chip fails AA in 5 and
+        the BATTLE chip (a `$warn` fill) fails in 7, bottoming out at **1.12:1** on dracula -- white on
+        pale yellow, at 12px/600, on screen, on every tab. Not latent: rendered and counted, 168 white
+        pixels of it.
+
+        The palette carried the answer the whole time. `accent_fg` is hand-authored per palette and
+        `theme.py` explains at length why white on an accent is wrong; the Tk editor spends it in six
+        places. This chip -- the app's most-visible piece of coloured text -- did not.
+
+        BOTH ARE REQUIRED, and they used to default INDEPENDENTLY (`fill or accent` / `ink or accent_fg`).
+        Censused, neither default was reachable -- the one real caller passes both -- so they were the
+        same "unexploded" shape this round removed from `PlaceholderListWidget`, left standing in the very
+        method the fix is about. Worse, independent defaults made this docstring's own promise a wish: a
+        caller passing only `fill` got `accent_fg` on a foreign ground -- `set_chip("BATTLE", pal["warn"])`
+        measures **1.56** on nord (paired: 8.97). That is exactly the accent_fg-on-$help hazard
+        `test_an_ink_is_never_borrowed_from_the_ground_next_door` exists to fence. Required, so the promise
+        is kept by the signature rather than by hope.
+        """
         if not text:
             self._chip.setVisible(False)
             return
-        col = color or self.pal["accent"]
         self._chip.setText(text)
         self._chip.setStyleSheet(
-            f"background:{col};color:#ffffff;border-radius:3px;padding:1px 7px;font-weight:600;")
+            f"background:{fill};color:{ink};border-radius:3px;padding:1px 7px;font-weight:600;")
         self._chip.setVisible(True)
 
     def repaint_pal(self, pal):
@@ -355,7 +387,7 @@ class BreadcrumbBar(QWidget):
         not QSS-driven) plus the trail labels (rebuilt from the new palette). The persistent chip is
         re-driven by the caller (it knows the current mode -> the right palette key)."""
         self.pal = pal
-        self.setStyleSheet(f"background:{pal['surface']};border-bottom:1px solid {pal['border']};")
+        # NO stylesheet -- see __init__. The bar is transparent; #crumbRow paints it, live.
         self.set(self._crumbs)                      # rebuild the trail in the new palette
 
     def set(self, crumbs):
@@ -460,12 +492,14 @@ class Workspace(QMainWindow):
         self.setAcceptDrops(True)                  # drop a project/save/.glb anywhere on the window to open it
         self.resize(1280, 820)
         self._density = prefs.density()            # UI density (comfortable default / compact); live-toggleable
+        self._text_scale = prefs.text_scale()      # CALIBRE: the text-size dial, an int percent (100 default)
         from . import forms_qt as _fq             # Guided/Full beginner mode read by build_form
         _fq.set_guided(prefs.guided())
+        _fq.set_text_scale(self._text_scale)   # the Info Hub's rich text is HTML: no QSS role reaches it
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
-        self.setStyleSheet(qss(pal, self._density))
+        self.setStyleSheet(qss(pal, self._density, self._text_scale))
         install_wheel_guard()                                 # combos/spin boxes don't eat wheel-scroll in the panels
         self.thumbs = ThumbService(self)                      # field background thumbnails (async, disk-cached)
         self.model_thumbs = ModelThumbService(self)           # 3D-model previews (async, disk-cached)
@@ -533,7 +567,7 @@ class Workspace(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             _apply_app_theme(app, pal)                        # keep the app-wide palette in step with the QSS
-        self.setStyleSheet(qss(pal, self._density))
+        self.setStyleSheet(qss(pal, self._density, self._text_scale))
         self._retint_tree_icons()                             # tree type icons (+ the unsaved dot) re-render for pal
         if getattr(self, "problems", None) is not None:
             self.problems.placeholder_color = pal["muted"]    # the empty-state hint follows the theme
@@ -555,16 +589,43 @@ class Workspace(QMainWindow):
         """Switch UI density LIVE (comfortable/compact) -- just re-render the QSS with the new padding profile;
         no palette change. Used by Preferences' live preview and the Ctrl-K toggle."""
         self._density = density if density in prefs.DENSITIES else "comfortable"
-        self.setStyleSheet(qss(self.pal, self._density))
+        self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
         if getattr(self, "_hero", None) is not None:
-            self._hero.set_density(self._density)             # the band's metrics are PYTHON -- QSS re-render
-                                                              # alone would leave it at the old height
+            self._hero.set_density(self._density, self._text_scale)   # the band's metrics are PYTHON -- a QSS
+                                                                      # re-render alone leaves its old height
 
     def _toggle_density(self):
         """Flip Comfortable <-> Compact and persist it (the Ctrl-K quick command)."""
         self._apply_density("compact" if self._density == "comfortable" else "comfortable")
         prefs.set_density(self._density)
         self.statusBar().showMessage(f"Density: {self._density}", 3000)
+
+    def _apply_text_scale(self, pct):
+        """Switch the TEXT SIZE live -- re-render the QSS with the type table at `pct` percent.
+
+        The whole feature is one re-render because QUARTO P3 put all eight sizes in one table and CALIBRE
+        put the two boxes-drawn-around-text (the "?" badge's circle, the console head's buttons) into the
+        sheet beside them. A pin left in Python would freeze while its text grew, and any widget built
+        before the change would keep the stale box.
+
+        WHY AN IN-APP DIAL AND NOT THE OS: the app cannot follow Windows' text slider -- Qt cannot see it
+        (see prefs.TEXT_SCALES). Display -> Scale already works and is a different setting.
+        """
+        self._text_scale = pct if pct in prefs.TEXT_SCALES else 100
+        self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
+        # The Info Hub / concept cards are HTML in a QTextEdit -- a widget stylesheet OUT-RANKS the sheet
+        # above and survives its re-render, so they have to be told. Same owner + lifecycle as set_guided.
+        # Imported HERE, not at module scope: `_fq` in __init__ is a LOCAL, and reaching for it from this
+        # method is a NameError that 3621 passing tests did not see, because nothing drove the live dial.
+        from . import forms_qt as _fq
+        _fq.set_text_scale(self._text_scale)
+        if getattr(self, "_hero", None) is not None:
+            # PLINTH: the band paints with QPainter, so no QSS reaches it -- it has to be TOLD. This call
+            # already existed and was inert (it re-applied the density and dropped the scale on the floor),
+            # which is why the front door used to sit at 156px while every tab around it grew.
+            self._hero.set_density(self._density, self._text_scale)
+        if getattr(self, "_lede", None) is not None:
+            self._lede.set_scale(self._text_scale)     # the card's mark is PAINTED -- see LedeCard._up
 
     def _set_theme(self, mode):
         """Apply a theme LIVE and persist it (the Ctrl-K quick command).
@@ -798,6 +859,26 @@ class Workspace(QMainWindow):
         dens_combo.setCurrentIndex(dix if dix >= 0 else 0)
         dens_combo.currentIndexChanged.connect(lambda i: self._apply_density(dens_combo.itemData(i)))
         form.addRow("Density", dens_combo)
+        # CALIBRE. Sits under Density because they are the same KIND of control -- how the app is set, not
+        # what it is. Labelled "Text size" and not "Zoom": it scales TYPE (and the two boxes drawn around
+        # type), never the whole UI, which is what Windows' Display -> Scale already does correctly.
+        scale_combo = QComboBox()
+        # HEED: when Windows' own text slider is set and the user has not overridden it, that rung is the
+        # DEFAULT -- so say so here rather than in the code only. An app that quietly scales when nothing
+        # else on the desktop does reads as broken rather than considerate, and this line is the whole
+        # difference: it turns an unexplained size into a setting the user recognises as their own.
+        os_pct = prefs.os_text_scale()
+        for pct in prefs.TEXT_SCALES:
+            tag = ""
+            if pct == os_pct and os_pct != 100:
+                tag = "  — following Windows text size"
+            elif pct == 100 and os_pct == 100:
+                tag = "  — default"
+            scale_combo.addItem(f"{pct}%{tag}", pct)
+        six = scale_combo.findData(self._text_scale)
+        scale_combo.setCurrentIndex(six if six >= 0 else 0)
+        scale_combo.currentIndexChanged.connect(lambda i: self._apply_text_scale(scale_combo.itemData(i)))
+        form.addRow("Text size", scale_combo)
         mode_combo = QComboBox()
         for val, label in ((True, "Guided — tuck expert fields into an Advanced drawer (default)"),
                            (False, "Full — show every field inline")):
@@ -841,6 +922,7 @@ class Workspace(QMainWindow):
         lay.addWidget(bb)
         original = self.pal
         original_density = self._density
+        original_scale = self._text_scale
         original_guided = prefs.guided()
         original_motion = prefs.motion()
         state = {"ok": False}
@@ -849,6 +931,7 @@ class Workspace(QMainWindow):
             state["ok"] = True
             prefs.set_theme(combo.currentData())
             prefs.set_density(dens_combo.currentData())
+            prefs.set_text_scale(scale_combo.currentData())
             prefs.set_guided(bool(mode_combo.currentData()))
             prefs.set_motion(motion_combo.currentData())
             prefs.set_restore_session(restore.isChecked())
@@ -859,6 +942,9 @@ class Workspace(QMainWindow):
         def _finish(_r):
             if not state["ok"]:                           # Cancel/Esc -> revert the live theme + density + mode preview
                 self._density = original_density
+                self._text_scale = original_scale         # assign, don't _apply_: retheme() below re-renders
+                                                          # the sheet FROM this field, so applying here would
+                                                          # just build the same stylesheet twice
                 self._apply_guided(original_guided)
                 anim.configure(original_motion)           # revert the live motion preview too
                 self.retheme(original)                    # re-applies qss() with the restored density
@@ -875,15 +961,13 @@ class Workspace(QMainWindow):
         dlg.setMinimumWidth(430)
         lay = QVBoxLayout(dlg)
         title = QLabel(concept.title)
-        title.setProperty("role", "h2")
+        title.setProperty("role", "head")
         lay.addWidget(title)
         body = QLabel(concept.plain)
         body.setWordWrap(True)
         lay.addWidget(body)
         if concept.engine_term:
-            aside = QLabel(f"Under the hood: {concept.engine_term}")
-            aside.setWordWrap(True)
-            aside.setProperty("role", "caption")
+            aside = widgets.caption(f"Under the hood: {concept.engine_term}")
             aside.setContentsMargins(0, 4, 0, 0)
             lay.addWidget(aside)
         lay.addStretch(1)
@@ -1102,9 +1186,13 @@ class Workspace(QMainWindow):
         v.addWidget(crumb_row)
 
         # Phase 7: the cohesion SPINE -- a modest 'what do I do next' strip below the breadcrumb, driven by the
-        # shell state (empty / unsaved / ready / just-deployed). Answers the third question ("what's my next
-        # step") the breadcrumb ("where am I") + Ctrl-K ("what is X") don't. Auto-hides when it has nothing to
-        # say. Rebuilt (state-cached, so it's free per keystroke) via _refresh_spine.
+        # shell state. Answers the third question ("what's my next step") the breadcrumb ("where am I") +
+        # Ctrl-K ("what is X") don't. Auto-hides when it has nothing to say. Rebuilt (state-cached, so it's
+        # free per keystroke) via _refresh_spine.
+        # It drove FOUR states and now drives TWO: it is hidden at cold start and when merely ready, because
+        # those were restating Home's lede and the visible Deploy button respectively -- 43px on every tab
+        # for a sentence the screen already carried. The full argument is in _next_actions. A strip that is
+        # usually silent is what makes it worth reading when it speaks.
         spine = QWidget()
         spine.setObjectName("spineRow")
         spine.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1174,6 +1262,11 @@ class Workspace(QMainWindow):
         self._welcome()
         # the Editor tab: a scrollable host we refill with the selected node's form (Phase 4)
         self.doc_scroll = QScrollArea()
+        # NoFrame like the other 7: Qt draws its own frame here otherwise, in a colour taken from the
+        # STYLE palette rather than ours -- it is in no palette, never re-tints on a theme switch, and
+        # measured #eaebee/1.011 in light and ~1.24 in the darks. Quiet, but un-chosen. 7 of 10 already
+        # set this; these were the stragglers.
+        self.doc_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.doc_scroll.setWidgetResizable(True)
         self.doc_host = QWidget()
         self.doc_host_lay = QVBoxLayout(self.doc_host)
@@ -1269,7 +1362,7 @@ class Workspace(QMainWindow):
         iv.setContentsMargins(10, 10, 10, 10)
         self.insp_title = QLabel("Inspector")
         self.insp_title.setTextFormat(Qt.TextFormat.PlainText)   # a user-typed entity name is never markup
-        self.insp_title.setProperty("role", "h3")
+        self.insp_title.setProperty("role", "head")
         self.insp_body = QLabel("Select something on the left.")
         self.insp_body.setMinimumWidth(0)          # don't let a long line dictate the panel/splitter width
         self.insp_body.setWordWrap(True)
@@ -1292,12 +1385,38 @@ class Workspace(QMainWindow):
         insp_scroll.setWidget(insp)
         split.addWidget(insp_scroll)
 
-        split.setSizes([300, 640, 240])
+        split.setSizes(list(_DEFAULT_CENTRAL_SPLIT))
         split.setStretchFactor(1, 1)
+        # NO FLOOR ON THE DOCUMENT PANE, AND THE ATTEMPT IS WORTH RECORDING.
+        # The real defect: a layout saved at 1920 ([300, 1198, 420]) replayed at 1280 leaves the document
+        # 558 -- under Import's 603 -- so it horizontal-scrolls. setStretchFactor(1, 1) makes the doc
+        # absorb all growth and therefore all shrink, so the whole deficit lands there. (The DEFAULT is
+        # clean: [300, 640, 240] -> [300, 738, 240] at 1280, every tab clear.)
+        #
+        # `mid_col.setMinimumWidth(700)` shipped here for one commit and was REVERTED, because a widget
+        # minimum cannot express this and the numbers say so in both directions:
+        #   * IT RAISES THE APP'S HARD FLOOR. A pane minimum propagates to the top level: the window's own
+        #     minimum went 686 -> 844, so `resize(720)` returns 844 and A 720px WINDOW BECOMES UNREACHABLE.
+        #     720 is in scope -- test_toolbar_overflows_gracefully_at_narrow_width asks for exactly that,
+        #     and it kept passing while silently measuring 844.
+        #   * AND AT 150% IT LOWERS THE FLOOR. 700 is a 100%-scale constant; mid_col's own layout minimum
+        #     is 542 / 575 / 685 / 796 across the dial. At 150% the "floor" sits 96px BELOW the real
+        #     minimum -- worse than absent, at the setting a low-vision user turned it to.
+        # Those are not tuning errors. ANY explicit minimum above mid_col's own 542 raises the window
+        # floor, so "fix the narrow-persisted case" and "keep 720 reachable" cannot both hold this way.
+        #
+        # WHAT THE FIX WOULD HAVE TO BE: clamp the RESTORED SIZES at restore time (or on resize) against
+        # what the window can actually afford -- not pin the widget. That re-proportions a layout the user
+        # dragged, so it wants its own design and its own eye. Until then the narrow-persisted case still
+        # scrollbars: it is the user's own saved layout, it is one horizontal scrollbar, and it is cheaper
+        # than making the app refuse to be 720px wide.
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
         self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
-        self._refresh_spine()                      # show the cohesion spine's cold-start (EMPTY) guidance
+        self._refresh_spine()                      # settle the spine's initial state (it starts HIDDEN: at
+        #                                            cold start Home's lede owns the "what next" -- see
+        #                                            _next_actions. The call still matters: it seeds
+        #                                            _spine_key so the first real state change repaints.)
 
     def _panel_header(self, text):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
@@ -1384,11 +1503,19 @@ class Workspace(QMainWindow):
         out_clear = QPushButton("Clear")
         out_clear.clicked.connect(lambda: self.output.clear())
         for b in (self._out_wrap, out_copy, out_clear):
-            b.setFixedHeight(24)
+            # The height pin is QSS now (style.py's #consoleHeadBtn, keyed to style.CONSOLE_H) rather than
+            # a setFixedHeight(24) here. A Python pin is invisible to the text-size dial: audited, these
+            # labels outgrow a frozen 24 at 125%, and setFixedHeight clips rather than grows. In QSS one
+            # re-render moves the box with the text.
+            b.setObjectName("consoleHeadBtn")
             out_head.addWidget(b)
         ov.addLayout(out_head)
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
+        # The log accumulates across jobs now (run_job no longer clears), so it needs a ceiling. 5000
+        # blocks is a deep build's whole output several times over, and it is the cheap price of the
+        # header meaning anything.
+        self.output.setMaximumBlockCount(5000)
         self.output.setAccessibleName("Output console")
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)   # console default; Wrap toggles
         self.output.setPlaceholderText("Build, deploy, lint and import output streams here.")
@@ -1476,7 +1603,9 @@ class Workspace(QMainWindow):
         body.setMaximumWidth(860)                  # don't stretch across a wide monitor
         # The hero reads the body's REAL geometry, so the wordmark, the gold elbow and every card below
         # sit on ONE axis at any window width. A parallel formula disagrees with the layout by +30px.
-        self._hero = HeroBand(self.pal, column_source=body)
+        # scale= at CONSTRUCTION, not only via set_density: Home is built once, and a session that LAUNCHES
+        # at 125% would otherwise paint its first front door at 100% and only correct if the dial was touched.
+        self._hero = HeroBand(self.pal, column_source=body, scale=self._text_scale)
         pv.addWidget(self._hero)
         self._icon_retint.append(lambda: self._hero.set_palette_(self.pal))   # retheme() iterates this
         row = QWidget()
@@ -1501,6 +1630,9 @@ class Workspace(QMainWindow):
         # re-tints. (self._home_setup below STAYS a real QLabel -- it has a linkActivated connection.)
         # First-run affordance: when the install isn't configured (or templates aren't extracted), say so
         # HERE — the alternative is a fresh user meeting greyed-out buttons with no explanation.
+        # THE LEDE -- the ONE next thing, named, with the signet's own mark on it. First in the column so
+        # it sits directly under the wordmark, on the axis the hero already reads off `body`.
+        v.addWidget(self._build_lede())
         self._home_setup = QLabel("")
         self._home_setup.setWordWrap(True)
         self._home_setup.setTextFormat(Qt.TextFormat.RichText)
@@ -1535,12 +1667,10 @@ class Workspace(QMainWindow):
         v.addWidget(self._start_box)
         # 'Try it now' reassurance -- closes the first-10-minutes arc (fork → deploy → play) for a nervous
         # newcomer: trying a fork in-game is a safe, reversible sandbox.
-        self._start_footer = QLabel("Once you've forked a field, press <b>F9</b> to try it in your game — it "
-                                    "deploys to a safe test slot and backs up first, so you can explore "
-                                    "without risk.")
-        self._start_footer.setWordWrap(True)
+        self._start_footer = widgets.caption("Once you've forked a field, press <b>F9</b> to try it in your game — it "
+                                             "deploys to a safe test slot and backs up first, so you can explore "
+                                             "without risk.")
         self._start_footer.setTextFormat(Qt.TextFormat.RichText)
-        self._start_footer.setProperty("role", "caption")
         self._start_footer.setContentsMargins(0, 2, 0, 0)
         v.addWidget(self._start_footer)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
@@ -1663,7 +1793,11 @@ class Workspace(QMainWindow):
         # already says "do this". $text at 600 clears 4.94:1 everywhere. The done state keeps its green
         # tick (shape + colour, per the status-by-icon-shape law).
         g.setProperty("role", "ok" if done else "strong")     # themed via QSS (no stale colour on retheme)
-        g.setStyleSheet("font-size:15px;font-weight:600;")    # size/weight cascade on top of the role colour
+        # The size is INLINE because `role` is single-valued and already spent on the colour above -- but it
+        # is no longer a private number. It was a hard 15px: a stray one pixel over the body, which is not a
+        # tier (QUARTO P2 killed the same 1px step between h2 and h3), and an inline font-size cannot hear
+        # the text-size dial, so this marker would have frozen while its own row grew around it.
+        g.setStyleSheet(f"font-size:{type_px('type_body', self._text_scale)}px;font-weight:600;")
         g.setFixedWidth(22)
         g.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         h.addWidget(g)
@@ -1713,6 +1847,68 @@ class Workspace(QMainWindow):
         for i, (title, desc, done, label, cb) in enumerate(steps):
             self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
 
+    def _build_lede(self):
+        """Home's LEDE: one card, one gold corner, one accent verb naming the next thing.
+
+        `_home_row`'s docstring has promised this since Phase 4 -- "the ONE primary action on the page
+        (Journey ▸ Open, the recommended front door) renders in the accent colour" -- and all ten call
+        sites pass ``False``, so `if primary:` is live code nothing reaches. SIGNET then built a title
+        page and handed straight off to an index: ten identical cards, none of which answers the question
+        Home exists to ask. This is the answer, and it is the ONLY accent on the page.
+        """
+        card = LedeCard(self.pal, scale=self._text_scale)
+        h = QHBoxLayout(card)
+        h.setContentsMargins(LedeCard._INSET + 22, 14, 16, 14)   # clear of the mark's arm
+        h.setSpacing(12)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self._lede_title = QLabel("")
+        self._lede_title.setProperty("role", "head")
+        self._lede_note = widgets_prose("")
+        col.addWidget(self._lede_title)
+        col.addWidget(self._lede_note)
+        h.addLayout(col, 1)
+        self._lede_btn = QPushButton("")
+        self._lede_btn.setObjectName("accent")           # the page's ONE accent -- Law II
+        self._lede_btn.setMinimumHeight(28)
+        # Connected ONCE to a dispatcher; _refresh_lede re-points `_lede_cb` instead of reconnecting.
+        # Disconnect-and-reconnect looks equivalent and is not: PySide6 WARNS rather than raising on an
+        # empty disconnect ("Failed to disconnect (None) from signal clicked()"), so a try/except around
+        # it catches nothing and the console grows a warning on every Home show.
+        self._lede_cb = None
+        self._lede_btn.clicked.connect(lambda: self._lede_cb and self._lede_cb())
+        h.addWidget(self._lede_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._lede = card
+        self._icon_retint.append(lambda: setattr(self._lede, "pal", self.pal) or self._lede.update())
+        return card
+
+    def _lede_state(self):
+        """(title, note, button, callback) -- the next action for THIS user's state.
+
+        Zero new state: `_current_target()` and `_getstarted_steps()` already know everything. The
+        checklist's own primary rule is reused verbatim -- the first step whose ``done`` is falsy, which
+        includes the always-available fork step (``done=None``).
+        """
+        name, level = self._current_target()
+        if name is not None:
+            return (f"Continue {name}",
+                    f"You have a {level.lower()} open — build it and walk it in-game.",
+                    "Build & Deploy", lambda: self.tabs.setCurrentWidget(self.build_deploy))
+        steps = self._getstarted_steps()
+        i = next((k for k, s in enumerate(steps) if not s[2]), len(steps) - 1)
+        title, desc, _done, label, cb = steps[i]
+        return (title, desc, label, cb)
+
+    def _refresh_lede(self):
+        if not hasattr(self, "_lede"):
+            return
+        title, note, label, cb = self._lede_state()
+        self._lede_title.setText(title)
+        self._lede_note.setText(note)
+        self._lede_btn.setText(label)
+        self._lede_cb = cb                               # the dispatcher is already connected -- see _build_lede
+        self._lede_btn.setAccessibleName(f"{label} — {title}")
+
     def _current_target(self):
         """(name, level-label) of what's currently open — for the Home 'Currently editing' line. (None, None)
         when the Workspace is empty."""
@@ -1746,6 +1942,7 @@ class Workspace(QMainWindow):
                 self._home_setup.setText(
                     f'<span style="color:{self.pal["warn"]};">⚠ {_esc(" · ".join(issues))}</span> — '
                     f'<a href="setup">open Setup &amp; health</a> to fix it.')
+        self._refresh_lede()                           # the ONE next action, for this user's state
         self._refresh_getstarted()                     # the provenance-clean first-steps (may hide _home_setup)
         self._refresh_recent()
 
@@ -1789,6 +1986,36 @@ class Workspace(QMainWindow):
                          f'&nbsp; <span style="color:{self.pal["muted"]};">{e["kind"]} · '
                          f'{_esc(_snip(e["path"], 64))}</span>')
             lab.setTextFormat(Qt.TextFormat.RichText)
+            # A RECENT ROW MUST NOT DICTATE HOME'S WIDTH, AND THIS ONE DID. Un-wrapped, a QLabel's
+            # minimumSizeHint IS its fully-rendered line -- so HOME'S MINIMUM WIDTH DEPENDED ON WHAT THE
+            # USER HAD OPENED. Measured natively with a real history: Home needed 903 and horizontal-
+            # scrolled at 1280 AND 1440. No test could have seen it -- the trigger lives in the user's
+            # prefs, not in the repo, and a journey/campaign's display name is its parent FOLDER's name,
+            # i.e. as long as whatever the user called their directory.
+            #
+            # ONE LINE, AND IT IS MOST OF THE FIX: wrapped, the row's minimum becomes its longest
+            # UNBREAKABLE RUN rather than its whole rendered line, so Home falls back to its own 525 for
+            # every real history and the row gives instead of the page.
+            #
+            # NOT "never scrolls at any width", which is what this comment first claimed and is false. The
+            # minimum is a different FUNCTION of the name, not independent of it: measured natively, one
+            # fresh process per case -- 5ch -> 525 · a 53ch HYPHENATED name -> 525 (it breaks) · 55ch
+            # CamelCase -> 539 · a 90ch SINGLE TOKEN -> 732, which still scrolls at 1280. Qt cannot break
+            # a run with no break opportunity, so a pathological folder name still pushes. That is a far
+            # smaller and much rarer surface than "every history over ~40 chars", and the tooltip carries
+            # the full path -- but it is not zero, and saying zero is how the next reader stops looking.
+            #
+            # TWO FIXES DIED HERE AND BOTH LOOKED RIGHT:
+            #   * setMinimumWidth(0) + SizePolicy.Ignored -- shrinks the row by CLIPPING rich text, i.e.
+            #     trades a scrollbar for the silent-clip trap widgets.py exists to document.
+            #   * _snip(display, 40) -- cap the name the way the path above is capped. Measured, it took
+            #     903 -> 840: still over the 724 viewport, still scrolling at 1280, and it "fixed" 1440
+            #     only by luck. Tuning it to fit would be curve-fitting a constant to one font at one
+            #     scale, and the text dial would re-break it at 125%. And once wrap is in, the cap changes
+            #     NOTHING: same 525, same row heights to the pixel (38/19/38). A constant that buys
+            #     nothing is worse than no constant -- the next reader assumes it is load-bearing.
+            # The tooltip carries the full path regardless.
+            lab.setWordWrap(True)
             lab.setToolTip(e["path"])
             lab.linkActivated.connect(lambda _h, k=e["kind"], p=e["path"]: self._open_recent(k, p))
             rl.addWidget(lab, 1)
@@ -3499,23 +3726,85 @@ class Workspace(QMainWindow):
             p.end()
         return QIcon(pm)
 
+    def _derived(self, key):
+        """A DERIVED palette token (`focus`, `text_subtle`, `selection_bg`, ...), from the shell.
+
+        `self.pal` is the RAW palette -- `main()` does `Workspace(pick_palette(...))` and every test does
+        the same, so a derived key is simply NOT in it. That is why the old icon code read
+        `self.pal.get("text_subtle", self.pal["text"])`: a defensive get whose fallback silently fired
+        every single time, in every palette, because the key never existed. The subtle tint it documents
+        has never once been drawn.
+
+        Derived on demand (the idiom already used at the log's error_text), cached per palette object so a
+        tree of hundreds of rows derives once and a theme switch re-derives once. `derive` is idempotent,
+        so handing it an already-derived palette is harmless.
+        """
+        if getattr(self, "_dpal_src", None) is not self.pal:
+            self._dpal = derive(dict(self.pal))
+            self._dpal_src = self.pal
+        return self._dpal[key]
+
     def _type_icon(self, kind, *, unsaved=False, tint=None):
         """The tree-row icon for a node ``kind`` (Phase 8): its SVG type glyph tinted by ``tint`` (a field's
-        _health colour), else accent for the spine kinds, else subtle body text. Unmapped kinds keep the
-        reserved transparent slot. ``unsaved`` composites the amber corner dot (the old dot-in-the-slot)."""
+        _health colour), else accent for the spine kinds, else `muted`. Unmapped kinds keep the reserved
+        transparent slot. ``unsaved`` composites the amber corner dot.
+
+        KEYLINE, and both halves were invisible to `audit_contrast` BY CONSTRUCTION -- that tool reads ink
+        via `w.palette().color(w.foregroundRole())`, a QLabel API, so it is structurally blind to a QPixmap.
+        An icon tier can fail in every palette and no audit will ever say so. These are fenced as tests.
+
+        THE LEAF TIER NEVER EXISTED. This read `self.pal.get("text_subtle", self.pal["text"])` -- and
+        `text_subtle` is a DERIVED key while `self.pal` is the RAW palette (`main()` does
+        `Workspace(pick_palette(...))`). So the fallback fired EVERY time, in EVERY palette, since the
+        icons shipped: every leaf icon has been drawn in full `text` ink, and the subtle tier this
+        docstring used to describe has never once reached a pixel. A defensive `.get` whose default is the
+        real behaviour is not a default, it is the code.
+
+        That also retires the analysis that sent us here: round 4 measured text_subtle at "2.96 in
+        solarized-light -- FAILS" and proposed muted. It was measuring a colour the app does not draw.
+
+        `muted` is the intent, finally delivered AND legible: 5.08-6.99 on the tree ground, and it clears
+        the selected row everywhere. (text_subtle itself would have been 3.06-3.12 -- a hair over the 3.0
+        non-text floor, and under it the moment the row is selected, failing 6 of 8. It is fenced for TEXT
+        against the elevation ramp; nothing ever fenced it as ink for a drawing.) The leaves get quieter
+        than they have ever actually been -- which is what "subtle body text" always meant to say.
+
+        THE SELECTED-MODE PIXMAP IS EXPLICIT, so Qt never guesses. `QIcon(pm)` hands Qt ONE pixmap and lets
+        `QCommonStyle::generatedIconPixmap` invent the selected state -- and its invention is "tint 30%
+        toward Highlight", which is guaranteed to erase an icon whose colour IS near the highlight.
+        (Round 4 measured accent-on-accent at 1.00-1.01 in all 8 -- byte-identically zero differing pixels
+        in two palettes -- when the selection was a solid accent FILL. REGISTER P1's tint has since fixed
+        six of those for free; accent now reads 1.57-4.64 and fails only nord + solarized-dark. So the
+        headline is no longer true, and the fix is still right: an app should not depend on a style hook's
+        guess to keep its icons visible.)
+        On a selected row the text is `$text`, so the icon is `$text` -- it matches the label it sits
+        beside, and reads 4.69-11.52 across all 8. `.pixmap()` still returns the Normal mode, so
+        `is_dot()`'s round-trip test keeps working.
+        """
         name = _KIND_ICON.get(kind)
         if not name:
             return self._blank_icon
         if tint:
             color = tint
         elif kind in _ACCENT_KINDS:
-            color = self.pal["accent"]
+            # `focus`, not `accent`. The token is literally "the accent, brightened toward white just
+            # enough to clear the WCAG 3:1 non-text floor ON THE SURFACE" -- which is exactly what a mark
+            # on the tree needs, and the raw accent is NOT it: nord's reads 2.47 there, under the floor.
+            # Only the palettes that fail move (nord 2.47 -> 3.08); the other seven return unchanged.
+            # NOT a new `accent_mark` token, though the name would read better here: it would be
+            # _focus_token(accent, surface) -- identical to this BY CONSTRUCTION, i.e. a second name for
+            # one value, which is the defect QUARTO P2 just deleted from the head rung.
+            color = self._derived("focus")
         else:
-            color = self.pal.get("text_subtle", self.pal["text"])
+            color = self.pal["muted"]
         pm = icons.pixmap(name, color, 16)
+        sel = icons.pixmap(name, self.pal["text"], 16)
         if unsaved:
             pm = icons.with_corner_dot(pm, self.pal["warn"])
-        return QIcon(pm)
+            sel = icons.with_corner_dot(sel, self.pal["warn"])
+        ic = QIcon(pm)
+        ic.addPixmap(sel, QIcon.Mode.Selected)
+        return ic
 
     def _type_icon_for(self, item, *, unsaved=False):
         """Build :meth:`_type_icon` for a tree ITEM, reading its kind + stored tint from the item data."""
@@ -3694,7 +3983,13 @@ class Workspace(QMainWindow):
             self.crumb.set_chip("")
             return
         label, ckey = spec
-        self.crumb.set_chip(label, self.pal.get(ckey, self.pal["accent"]))
+        # ONE key resolves BOTH hexes. `_derived` (not `self.pal`) because `self.pal` is RAW and `warn_fg`
+        # is computed -- while `accent_fg` is authored and raw. derive() returns both kinds, so this call
+        # site never has to know which is which, and adding a third chip colour cannot reintroduce the bug.
+        # The old `self.pal.get(ckey, self.pal["accent"])` is gone: `ckey` comes from the literal above and
+        # is only ever "accent" or "warn", so that default was unreachable -- a defensive get guarding a
+        # case that cannot happen reads as caution and is really just noise.
+        self.crumb.set_chip(label, self.pal[ckey], self._derived(f"{ckey}_fg"))
 
     def _journey_crumbs(self, item):
         """The full hub▸journey▸campaign/field trail to a selected JOURNEY-mode tree node (each crumb keyed by
@@ -6186,10 +6481,8 @@ class Workspace(QMainWindow):
         self._set_editor_tab("Cutscene")
         _raw_cs = doc.data.get("cutscene")
         if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
-            note = QLabel(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
+            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
                           f"This form edits scene #1 — edit the others in the TOML.")
-            note.setWordWrap(True)
-            note.setProperty("role", "caption")
             self.doc_host_lay.addWidget(note)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
@@ -6216,9 +6509,7 @@ class Workspace(QMainWindow):
         value_text.setFixedHeight(64)
         value_text.setToolTip("Line break: press Enter, or type \\n.   New window: type [PAGE].")
         value_text.setVisible(False)
-        hint = QLabel("")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("")
         actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
         actor_line.setPlaceholderText("blank = sole cast member / narration voice")
         actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "
@@ -6541,7 +6832,13 @@ class Workspace(QMainWindow):
         """A small muted overline that labels an Inspector section (Identity / Contents / Connections).
         Inline HTML because the panel is ONE rich-text QLabel -- it reads ``self.pal`` so it re-tints on the
         next selection after a retheme, exactly like :meth:`_muted` / :meth:`_link`."""
-        return (f'<div style="color:{self.pal["muted"]};font-weight:600;font-size:10px;'
+        # 10px was the SMALLEST TEXT IN THE APP -- two pixels under the Windows default, and a full rung
+        # under role="overline" (12px), which is the same thing this is: an uppercase tag over a section.
+        # It never joined the ramp because it is HTML inside a rich-text QLabel, where no QSS role reaches
+        # it -- the tier was invisible to every fence and every sweep. Substituting the rung fixes both the
+        # floor and the dial: an inline size cannot hear CALIBRE either.
+        return (f'<div style="color:{self.pal["muted"]};font-weight:600;'
+                f'font-size:{type_px("type_caption", self._text_scale)}px;'
                 f'margin-top:12px;margin-bottom:1px;">{_esc(text).upper()}</div>')
 
     def _render_sections(self, groups, about=None):
@@ -6643,6 +6940,36 @@ class Workspace(QMainWindow):
         for i in range(self.tree.topLevelItemCount()):
             walk(self.tree.topLevelItem(i))
 
+    def _repair_central_split(self, sizes):
+        """A SQUEEZE IS NOT A PREFERENCE. Return the saved sizes, or the default when they are the fossil
+        of a too-narrow window rather than anything the user chose.
+
+        THE BUG THIS EXISTS FOR (measured, real platform -- offscreen lies about all of these widths):
+        the document column has a hard minimum (542px at 100%, 796 at 150%), so when the window is narrower
+        than the layout needs, the ONLY panes that can give are the outer two, and they clamp to their own
+        minimums (78 / 66). `_save_layout` then persists that as if it were a choice. On the next launch
+        `setStretchFactor(1, 1)` hands the ENTIRE surplus to the middle pane -- so [90, 542, 66] saved at
+        700px reopens at 1280 as [90, 1122, 66], and the panels never come back AT ANY WINDOW WIDTH. One
+        narrow session, ever, was permanent. (The user's own prefs read [76, 1138, 64]; reproduced exactly.)
+
+        Note this is NOT reproducible inside one session -- a live splitter still holds its original
+        setSizes() request and re-derives from it on every resize, which is why an in-session probe
+        "falsified" the ratchet. It takes a restart to lose that memory.
+
+        WHY *AT THE MINIMUM* IS THE RIGHT TELL, and where it deliberately stops: a pane pinned to within a
+        pixel or two of its minimumSizeHint is what a clamp leaves behind -- there is no width there to
+        have chosen. A pane at EXACTLY 0 is the opposite: childrenCollapsible is on, so 0 means the user
+        dragged it shut on purpose. Hence `0 < size <= floor + 2` -- collapsed stays collapsed, forced
+        gets healed."""
+        sp = self._central_split
+        if len(sizes) != sp.count():                       # arity is fenced in prefs.layout(), belt-and-braces
+            return list(_DEFAULT_CENTRAL_SPLIT)
+        for i in (0, 2):                                   # the outer panes; the middle is the one that pushes
+            floor = sp.widget(i).minimumSizeHint().width()
+            if 0 < sizes[i] <= floor + 2:
+                return list(_DEFAULT_CENTRAL_SPLIT)
+        return list(sizes)
+
     def _restore_layout(self):
         """Apply the persisted window geometry / toolbar state / splitter sizes + console collapse
         (best-effort; a stale or corrupt value falls back to the built-in defaults)."""
@@ -6656,7 +6983,7 @@ class Workspace(QMainWindow):
                 # is REFUSED by Qt rather than half-applied.
                 self.restoreState(QByteArray.fromBase64(lay["state"].encode("ascii")), _LAYOUT_VERSION)
             if lay.get("central_split"):
-                self._central_split.setSizes(lay["central_split"])
+                self._central_split.setSizes(self._repair_central_split(lay["central_split"]))
             csplit = lay.get("console_split")
             if csplit:
                 self._console_sizes = list(csplit)
@@ -6716,22 +7043,33 @@ class Workspace(QMainWindow):
 
     def _next_actions(self):
         """``(guidance, [(label, callback, is_primary)])`` for the cohesion spine -- the single 'what do I do
-        next' for the current shell state. The deploy itself stays the ONE crumb-row Deploy button (F9); the
-        spine points at it rather than duplicating it, and carries buttons only for non-crumb actions (fork /
-        open / save). Empty actions + empty guidance -> the strip hides."""
-        if self._current_target()[0] is None:          # EMPTY -- nothing open
-            return ("New here? Fork a real field from your own game to get started.",
-                    [("Fork a field", lambda: self.tabs.setCurrentWidget(self.import_field), True),
-                     ("Open a project…", self.on_open_campaign, False)])
+        next' for the current shell state. Empty actions + empty guidance -> the strip hides.
+
+        THE SPINE ONLY SPEAKS WHEN IT HAS SOMETHING THE SCREEN DOES NOT ALREADY SAY. It costs 43px of
+        height on every tab, permanently, and two of its four states were spending that on a restatement:
+
+        * EMPTY said "New here? Fork a real field from your own game to get started." + [Fork a field] --
+          while Home's LEDE, 100px below it on the same screen, said "Fork your first field from the game"
+          + [Go to Import]. Same message, same destination, stacked. Measured live, not inferred.
+        * READY said "press Deploy (F9, top-right)" -- pointing at a button that is, in fact, visible in
+          the top right. The spine's own charter was to point at that button "rather than duplicating it",
+          and a full-width strip describing an on-screen control is duplication with extra steps.
+
+        What survives is what is genuinely absent from the screen: UNSAVED (Save all -- reachable from any
+        tab, and Home's lede never shows it) and JUST-DEPLOYED (press F6 -> Reload field -- the only thing
+        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app).
+        """
+        if self._current_target()[0] is None:           # EMPTY -- Home's lede already says exactly this
+            return ("", [])
         if self._dirty_members():                       # UNSAVED edits
             return ("You have unsaved edits — save them, then press Deploy (F9, top-right) to try it.",
                     [("Save all", self._save_all, True)])
         t = self._deploy_target()
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
-        if self._deployed_target == t:                  # JUST DEPLOYED this target
+        if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
             return ("Deployed to your test slot — in your game, press F6 → Reload field (or Warp to it).", [])
-        return ("Ready — press Deploy (F9, top-right) to build it into a safe test slot and play it.", [])
+        return ("", [])                                 # READY -- the Deploy button is already right there
 
     def _refresh_spine(self):
         """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
@@ -7391,7 +7729,18 @@ class Workspace(QMainWindow):
 
     def _show_problems(self, verdict, problems):
         glyph = {fb.OK: "✓", fb.WARN: "⚠", fb.ERROR: "✕", fb.RUNNING: "…"}.get(verdict.level, "")
-        tail = f"   —   {verdict.next_action}" if verdict.next_action else ""
+        # The banner shows the verdict's own next_action when it has one. When it does NOT, fall back to
+        # the humanised first error -- feedback.py carries hand-written plain-language rules producing a
+        # (friendly, next_step) pair, and every one of them was reachable ONLY by hovering a Problems row.
+        # Nobody hovers a log row to find out what to do. This is the cheapest legibility win in the app:
+        # the advice already exists, written, and was posted somewhere nobody looks.
+        nxt = verdict.next_action
+        if not nxt:
+            first_err = next((p for p in problems if p.severity == fb.ERROR), None)
+            help_ = fb.humanize(first_err.message) if first_err else None
+            if help_:
+                nxt = help_[1]
+        tail = f"   —   {nxt}" if nxt else ""
         self.banner.setText(f"  {glyph}  {verdict.headline}{tail}")
         self.banner.setProperty("state",             # the QLabel[role=banner][state] stripe colour
                                 {fb.OK: "ok", fb.WARN: "warn", fb.ERROR: "error", fb.RUNNING: "running"}
@@ -7431,9 +7780,12 @@ class Workspace(QMainWindow):
         if getattr(self, "proc", None) and self.proc.state() != QProcess.ProcessState.NotRunning:
             return False
         self._job = (subject, ok_headline, ok_next, fail_hint, on_finished)
-        self.output.clear()
-        self.output.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {subject}\n"
-                                    f"$ {' '.join(str(a) for a in argv[1:])}")
+        # No clear(). The header is a SEPARATOR, and a separator with nothing above it separates nothing --
+        # wiping the console on every job meant the log only ever held one job and the timestamp was
+        # decoration. It accumulates now, capped by setMaximumBlockCount (see _build_console), and the
+        # Clear button still exists for when you actually want it.
+        self._log(f"[{time.strftime('%H:%M:%S')}] {subject}", "head")
+        self._log(f"$ {' '.join(str(a) for a in argv[1:])}", "echo")
         self._show_problems(fb.Verdict(fb.RUNNING, f"{subject}…"), [])
         self._raise_console()
         self._set_busy(True)                            # loading state: 'Working…' until _proc_done clears it
@@ -7454,10 +7806,57 @@ class Workspace(QMainWindow):
         self.run_job([sys.executable, "-m", "ff9mapkit", "lint-campaign", str(self.campaign_path)],
                      cwd=KIT, subject="Lint (CLI)", ok_headline="Lint (CLI) — done")
 
+    # The Python traceback's first line is FIXED by the interpreter, so this is an exact anchor rather
+    # than a guess. Deliberately NOT extended to sniffing "error"/"warning" anywhere in a line: a build
+    # log is full of paths and prose containing both, and a register that cries wolf is worse than none.
+    _TRACE_ANCHOR = "Traceback (most recent call last):"
+
+    def _log(self, text, kind="body"):
+        """Append to the console in one of four REGISTERS, keyed on PROVENANCE.
+
+        A build log is a flat grey wall in which a traceback and forty lines of `wrote ...` are the
+        identical ink. These four tiers are not sniffed -- three of them are things the GUI writes ITSELF
+        and therefore knows with certainty (the job header, the command echo, the process's own stdout),
+        and the fourth keys on the interpreter's fixed traceback anchor.
+
+        THE REGISTER IS WEIGHT, NOT A THIRD GREY, and that is forced rather than chosen: `text`, `log_fg`
+        and `muted` were each authored per-palette from their own scheme's canon with no relationship to
+        one another, so they are not a ladder. Measured: dracula's `text` and `log_fg` are BYTE-IDENTICAL
+        (#f8f8f2), and both Solarizeds have the order INVERTED (muted is brighter than log_fg). A tonal
+        register would silently collapse in three of eight palettes. Weight costs zero contrast headroom,
+        which is exactly why it survives in the palettes that have none.
+
+        600, not 550. The cut list is PER-FAMILY and the console is not the app's face: on Cascadia Code
+        550 is a real SemiBold, but on CONSOLAS -- the clean-Windows fallback, which ships Regular+Bold
+        only -- 550 renders byte-identical to 400 and 600 is the first weight that reaches Bold. A weight
+        that works in one family is a no-op in another.
+
+        QTextCursor + setCharFormat, NEVER appendHtml: appendHtml switches the document to rich text, and
+        every subsequent line of raw stdout containing a `<` would be eaten as markup.
+        """
+        fmt = QTextCharFormat()
+        pal = self.pal
+        if kind == "head":
+            fmt.setForeground(QColor(pal["text"]))
+            fmt.setFontWeight(600)
+        elif kind == "echo":
+            fmt.setForeground(QColor(pal["log_fg"]))
+            fmt.setFontWeight(600)
+        elif kind == "trace":
+            fmt.setForeground(QColor(derive(dict(pal))["error_text"]))
+        else:
+            fmt.setForeground(QColor(pal["log_fg"]))
+        cur = self.output.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        cur.setCharFormat(fmt)
+        cur.insertText(("" if self.output.document().isEmpty() else "\n") + text)
+        self.output.setTextCursor(cur)
+        self.output.ensureCursorVisible()
+
     def _drain_proc(self):
         text = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace").rstrip()
         if text:
-            self.output.appendPlainText(text)
+            self._log(text, "trace" if self._TRACE_ANCHOR in text else "body")
 
     def _proc_done(self, code, _status):
         self._set_busy(False)                           # clear the 'Working…' loading state
@@ -7480,6 +7879,26 @@ def _smoke(win):
     check the tree, the breadcrumb, lazy object load, and the Problems panel -- the Qt analogue of the
     tkinter campaign-editor smoke. Runs under QT_QPA_PLATFORM=offscreen."""
     import tempfile
+    # THE SMOKE CONTROLS ITS OWN STATE -- and it already half-did. `main()` builds this run's palette as
+    # `pick_palette("dark" if smoke else prefs.theme())`, and the recent-store is stubbed below so a run
+    # never WRITES the developer's prefs. Beginner-mode was the gap: the shell seeds it from prefs, and
+    # nothing pinned it here.
+    #
+    # So on a machine whose owner has turned Guided off (`"guided": false`) this run tested a different
+    # product and failed on their preference. THREE asserts down-file depend on Guided: the mode check, the
+    # toggle round-trip, and the Battle "Advanced drawer" -- which only EXISTS in Guided, so it reported
+    # "no Battle Advanced drawer" as a defect when the drawer was correctly absent.
+    #
+    #   A TEST THAT READS THE DEVELOPER'S PREFS IS A REPORT ON THE DEVELOPER.
+    #
+    # That is the poison test_the_sheet_never_reads_the_developers_own_accessibility_slider fences for the
+    # type dial -- here in the one surface that had no fence, and it is why this smoke was RED on the
+    # user's own machine while its commits reported it green.
+    # No restore: `main()` does `_smoke(win); return` and the process exits, so a "then put it back" line
+    # would be decoration -- and a claim in a comment that the code does not keep is the exact defect this
+    # round has been paying for.
+    from . import forms_qt as _fq_smoke
+    _fq_smoke.set_guided(True)
     # The smoke opens real projects, which records MRU entries -- stub the prefs recent-store IN MEMORY so
     # a smoke run never writes temp paths into the developer's real prefs.json.
     _rec = []
@@ -7528,20 +7947,32 @@ def _smoke(win):
     assert any(lbl.startswith("Reopen ") for lbl, _k, _cb in win._command_index()), "no Reopen palette row"
     # DENSITY toggle: Comfortable is the default; the Ctrl-K command flips it live (re-renders the QSS with the
     # tighter padding profile) and the stylesheet visibly changes -- no palette/theme change.
-    assert win._density == "comfortable" and any("density" in lbl.lower() for lbl, _k, _cb in win._command_index())
-    _qss_comfy = win.styleSheet()
+    # ROUND-TRIP FROM WHATEVER THIS MACHINE IS SET TO. This asserted `_density == "comfortable"` -- the
+    # factory default -- but density is a PREF, so on a Compact user's machine the smoke failed on their
+    # setting. The promise is not "you are in Comfortable"; it is "the toggle flips the profile and
+    # re-renders the sheet, and flipping back restores it exactly". That is true from either end.
+    _d0, _qss0 = win._density, win.styleSheet()
+    assert any("density" in lbl.lower() for lbl, _k, _cb in win._command_index())
     win._toggle_density()
-    assert win._density == "compact" and win.styleSheet() != _qss_comfy, "Compact re-renders the QSS"
+    assert win._density != _d0 and win.styleSheet() != _qss0, "toggling density re-renders the QSS"
     win._toggle_density()
-    assert win._density == "comfortable" and win.styleSheet() == _qss_comfy, "toggling back restores Comfortable"
+    assert win._density == _d0 and win.styleSheet() == _qss0, "toggling density back restores the sheet"
     # Phase 7: the Guided/Full beginner mode -- the Ctrl-K toggle flips forms_qt's global mode (Guided tucks
     # expert form fields into an Advanced drawer; Full shows all inline). Default Guided; nothing removed.
     from . import forms_qt as _fqm
-    assert _fqm._GUIDED is True and any("beginner mode" in lbl.lower() for lbl, _k, _cb in win._command_index())
+    # THE TOGGLE IS THE MECHANISM; THE DEFAULT IS THE USER'S. This asserted `_GUIDED is True` -- the
+    # factory default -- but the shell seeds the mode from PREFS at startup, so on any machine whose owner
+    # has turned Guided off (`"guided": false`) the smoke failed on their own preference. It is the poison
+    # test_the_sheet_never_reads_the_developers_own_accessibility_slider fences for the type dial, in the
+    # one check that had no fence: A TEST THAT READS THE DEVELOPER'S PREFS IS A REPORT ON THE DEVELOPER.
+    # Round-trip from whatever mode this machine is in: the toggle must FLIP and RESTORE. That is the
+    # behaviour the feature promises, and it is true for both starting states.
+    _g0 = _fqm._GUIDED
+    assert any("beginner mode" in lbl.lower() for lbl, _k, _cb in win._command_index())
     win._toggle_guided()
-    assert _fqm._GUIDED is False, "toggle flips to Full"
+    assert _fqm._GUIDED is (not _g0), "the beginner-mode toggle does not flip"
     win._toggle_guided()
-    assert _fqm._GUIDED is True, "toggle flips back to Guided"
+    assert _fqm._GUIDED is _g0, "the beginner-mode toggle does not flip back"
     # CONCEPT CARDS (Phase 5): Ctrl-K carries a 'What is X?' row per domain term (fuzzy-searchable, so typing
     # 'walkmesh' surfaces its card), and _show_concept resolves a free-text term to a card without raising.
     _concept_rows = [lbl for lbl, k, _cb in win._command_index() if k == "learn"]
@@ -8151,10 +8582,17 @@ def _smoke(win):
     assert prev_box and prev_box[0].toPlainText() == _dlg.wrap_preview(longnpc["dialogue"], 12), \
         (prev_box and prev_box[0].toPlainText())
     assert "\n" in prev_box[0].toPlainText(), "a long line pre-breaks in the preview"
-    # the overflow note is FIXED-height (always in the layout, not visibility-toggled) so flipping
-    # warn<->fits can't reflow/clip the preview box (the reported resize bug)
-    note = [lb for lb in prev_box[0].parent().findChildren(QLabel) if lb.maximumHeight() == 16]
-    assert note and note[0].minimumHeight() == 16, "the wrap-preview note is fixed-height (no reflow)"
+    # The overflow note is FIXED-height (always in the layout, not visibility-toggled) so flipping
+    # warn<->fits can't reflow/clip the preview box (the reported resize bug).
+    #
+    # ASSERT THE LAW, NOT THE NUMBER. This read `maximumHeight() == 16` -- and QUARTO P1 re-pinned the note
+    # to 18 to fit the 12px caption rung, so the filter matched NOTHING, `note` was [], and the smoke has
+    # been RED since that round while its commit reported it green. The law here was never "16": the
+    # comment above says it in words -- the note must not REFLOW. min == max is that law, and it survives
+    # the next re-pin, which is the whole reason the number was the wrong thing to assert.
+    note = [lb for lb in prev_box[0].parent().findChildren(QLabel)
+            if lb.minimumHeight() == lb.maximumHeight() > 0]
+    assert note, "the wrap-preview note is fixed-height (no reflow)"
     # MULTI-LINE dialogue: the EDITABLE dialogue widget is a QPlainTextEdit that holds real newlines, and
     # an interior \n survives build_entity (only edges are stripped) -> FF9's native in-window line break
     edit_box = [pte for pte in pw.findChildren(_PTE) if not pte.isReadOnly()]
@@ -9070,11 +9508,18 @@ def _smoke(win):
     assert win.crumb._chip.isHidden(), "Close clears the doc-mode chip"
     # do-now #4: the 'Start here' Home resets its status after Close + names every entry point as a real button
     assert "Nothing open" in win._hero._status, "Home resets its status after Close"
-    # Phase 7: the cohesion SPINE answers 'what do I do next' per state. EMPTY -> a fork/open nudge; a clean
-    # open project -> a deploy nudge; unsaved edits -> a save nudge. (Deploy stays the ONE crumb button; the
-    # spine points at it rather than duplicating it.)
+    # The cohesion SPINE answers 'what do I do next' -- but ONLY when the screen does not already say it.
+    # EMPTY is SILENT: Home's own lede, 100px below on the same screen, already says "fork your first field
+    # from the game" and points at the same destination, so the spine was spending 43px on a restatement.
+    # UNSAVED and JUST-DEPLOYED still speak (see _next_actions' docstring for the full receipt).
+    #
+    # THIS ASSERT WAS STALE AND SO WAS ITS COMMENT. Both described the OLD spine ("EMPTY -> a fork/open
+    # nudge") -- the exact behaviour the round that changed it deliberately removed. So the smoke was RED
+    # from that commit onward while the commit reported it green: a test asserting a design decision that
+    # had been reversed, with a comment above it still teaching the reversed design to the next reader.
     _g_empty, _a_empty = win._next_actions()
-    assert "Fork a real field" in _g_empty and any(lbl == "Fork a field" for lbl, _c, _p in _a_empty), _g_empty
+    assert (_g_empty, _a_empty) == ("", []), \
+        f"the spine must stay SILENT on EMPTY -- Home's lede already says it: {(_g_empty, _a_empty)}"
     _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
     assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
     # Phase 4: the provenance-clean 'Get started' checklist shows on the empty Home -- 3 live steps ending on
@@ -9304,7 +9749,7 @@ def _smoke(win):
           f"per-tab (content/battle/save/build) + distinct hub/journey SVG type icons + type tooltips + Close-to-empty + "
           f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing' + "
           f"provenance-clean Get-started checklist -> fork your own field) + "
-          f"loose-field→parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
+          f"loose-field->parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "
           f"({'add/show_line/anchor/menu_row/revert' if (_fix.exists() and add_ok) else 'fixture-skipped'}) "
@@ -9330,8 +9775,12 @@ def main(argv=None):
     if smoke:
         _smoke(win)
         return
-    win.show()
+    # BEFORE show(), not after. Motion is opt-in and every helper is a synchronous no-op-to-end-state while
+    # it is off -- so anything that animates ON FIRST PAINT (the hero's signet drawing itself) would have
+    # silently snapped to its end state for every user, forever, and looked exactly like a bug that wasn't
+    # there. The --smoke path returns above and never reaches this, so it still gets instant end-states.
     anim.configure(prefs.motion())                 # motion is opt-in: OFF everywhere until this production line
+    win.show()
     win.startup_update_flow()                      # first-run opt-in + quiet once-a-day PyPI check (not under --smoke)
     if prefs.restore_session():                    # opt-in: pick up exactly where the last session left off
         try:

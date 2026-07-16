@@ -29,8 +29,8 @@ LIGHT = {
     "muted": "#626974",         # secondary text (hints) -- retuned to WCAG AA 4.5:1 on bg + surface
     "accent": "#2f6feb",        # primary buttons, tree selection
     "accent_fg": "#ffffff",     # text on accent
-    "accent_hover": "#256ae0",
-    "accent_pressed": "#1f5fcc",
+    "accent_hover": "#2c68dd",
+    "accent_pressed": "#275dc5",
     "help": "#7c3aed",          # help / info affordance (violet -- distinct from accent/success/warn)
     "help_hover": "#6d28d9",
     "border": "#d2d6dc",
@@ -38,7 +38,12 @@ LIGHT = {
     "hover": "#dfe2e7",         # neutral button hover
     "pressed": "#d4d8de",
     "scroll": "#bcc1c9",        # scrollbar thumb
-    "log_bg": "#e1e3e7",
+    # RAISED from #e1e3e7 -- this palette's own `field` hex, already in this dict two lines up and
+    # described there as "just-off-white". The old well was a grey smudge sunk UNDER the page, and it left
+    # no headroom for the log's registers: the console is a document, not a hole full of dust. It rises to
+    # `field` rather than #ffffff because #ffffff IS this palette's surface_3 -- a well may not collide
+    # with the top of the elevation ramp. Every register clears AA on it (worst 5.29, the trace tint).
+    "log_bg": "#fbfcfd",
     "log_fg": "#374151",
     "error": "#c0392b",
     "warn": "#9a6b00",
@@ -58,8 +63,8 @@ DARK = {
     # white, so the hue is untouched and only the ink flips: 3.20 -> 5.39. Same strategy dracula/gruvbox/
     # mist already use. #181b20 is this palette's OWN log_bg -- in-family, not an imported black.
     "accent_fg": "#181b20",
-    "accent_hover": "#3d7df0",
-    "accent_pressed": "#356fda",
+    "accent_hover": "#5593ff",
+    "accent_pressed": "#4580e8",
     "help": "#9d7bff",          # help / info affordance (violet -- distinct from accent/success/warn)
     "help_hover": "#8b66f5",
     "border": "#3a404a",
@@ -92,8 +97,8 @@ NORD = {                        # https://www.nordtheme.com  (Polar Night + Fros
     # its white-on-frost convention. Visually still nord10; measured 4.03 -> 4.64.
     "accent": "#56779e",        # nord10, deepened to carry a button label
     "accent_fg": "#ffffff",     # white over the frost blue
-    "accent_hover": "#6a8cb6",
-    "accent_pressed": "#547299",
+    "accent_hover": "#537399",
+    "accent_pressed": "#4a6688",
     "help": "#bc99b5",          # nord15, lifted to AA 4.5 as TEXT (4.04) -- it labels the Info Hub button
     "help_hover": "#c29bbb",
     "border": "#434c5e",        # nord2
@@ -116,8 +121,8 @@ DRACULA = {                     # https://draculatheme.com
     "muted": "#acb1cd",         # comment #6272a4, lifted to AA 4.5 on EVERY ground incl. surface_3 (3.86)
     "accent": "#bd93f9",        # purple
     "accent_fg": "#282a36",
-    "accent_hover": "#caa6fb",
-    "accent_pressed": "#a87ee8",
+    "accent_hover": "#c9a6fa",
+    "accent_pressed": "#ac86e3",
     "help": "#ff79c6",          # pink
     "help_hover": "#ff92d0",
     "border": "#44475a",        # current line
@@ -148,8 +153,8 @@ SOLARIZED_DARK = {              # https://ethanschoonover.com/solarized
     # base03-deep ink (this palette's own log_bg), not white: white on solarized blue is 3.68, sub-AA for a
     # button label. accent lum 0.235 clears the 0.220 crossover, so the ink flips and the blue stays exact.
     "accent_fg": "#00212b",     # 3.68 -> 4.56
-    "accent_hover": "#3597db",
-    "accent_pressed": "#1f78ba",
+    "accent_hover": "#4b9fda",
+    "accent_pressed": "#3191d4",
     "help": "#9296d3",          # violet, lifted to AA 4.5 as TEXT (2.97 -> 4.57). `help` has exactly ONE
                                 # use -- the Info Hub button's label AND its border -- so there is no
                                 # shape-role to protect and the lift happens in place.
@@ -173,14 +178,20 @@ SOLARIZED_LIGHT = {
     "surface_btn": "#e8e1cd",
     "field": "#f7f1de",
     "text": "#4a6067",          # base01 deepened to WCAG AA 4.5:1 body text on the cream bg
-    "muted": "#546a72",         # deepened for hint legibility -- AA 4.5 on EVERY ground, still lighter than text
+    # Deepened AGAIN (#546a72 -> #4f646b): the old value said "AA 4.5 on EVERY ground" and was 4.37 on
+    # surface_btn -- a ground the fence had never checked, and the one an UNSELECTED TAB LABEL lands on.
+    # So the app shipped sub-AA text on the tab strip in this palette. Same shape as the hero's overline:
+    # a fence that covers most grounds just moves the bug to the one it missed.
+    # The window here is one step wide: at t=0.10 muted goes DARKER than text (#4a6067) and the hierarchy
+    # inverts. #4f646b clears all six grounds (surface_btn 4.78) and stays lighter than text.
+    "muted": "#4f646b",
     # Solarized blue #268bd2 deepened 12%: at lum 0.235 white ink gives only 3.68, and this is a LIGHT
     # theme -- every one of its own neutrals is far too light to serve as dark ink, so the flip that fixes
     # solarized-DARK is unavailable here. The blue deepens instead; 3.68 -> 4.62.
     "accent": "#217ab9",        # solarized blue, deepened to carry a button label
     "accent_fg": "#ffffff",     # white over the blue accent
-    "accent_hover": "#1f7ec0",
-    "accent_pressed": "#1a6ca8",
+    "accent_hover": "#2076b3",
+    "accent_pressed": "#1d6aa1",
     "help": "#5d61a9",          # violet, deepened to AA 4.5 as TEXT on the cream page (3.57 -> 4.57)
     "help_hover": "#595fb8",
     "border": "#ddd6bf",
@@ -188,7 +199,12 @@ SOLARIZED_LIGHT = {
     "hover": "#ded7c0",         # was #e6dfc9 -- present but ~invisible (btn->hover measured 1.0203)
     "pressed": "#d3cbb0",       # deepened so pressed still reads above the new hover
     "scroll": "#c9c2aa",
-    "log_bg": "#e4ddc8",
+    # base3, RAISED from #e4ddc8: the console's own body text measured 3.97 on the old well -- sub-AA, on
+    # the surface you stare at during every build, and never fenced because log_bg was not a ground any
+    # text test knew about. It survives BECAUSE it rises: dropping the well to bg (#eee8d5) scores 4.39
+    # and still fails. #ffffff is unavailable -- it IS this palette's surface_3, and a well may not
+    # collide with the top of the elevation ramp. base3 clears at 4.99.
+    "log_bg": "#fdf6e3",
     "log_fg": "#586e75",
     "error": "#dc322f",         # red
     "warn": "#a47c00",          # yellow, deepened to clear 3:1 (WCAG 1.4.11) on the cream page + surface
@@ -203,8 +219,8 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
     "muted": "#bdb2a2",         # gray, lifted to AA 4.5 on surface_2 AND surface_3 (the rail): 3.88 -> 4.66
     "accent": "#fe8019",        # bright orange
     "accent_fg": "#282828",
-    "accent_hover": "#ff8f33",
-    "accent_pressed": "#e36f12",
+    "accent_hover": "#fe8e32",
+    "accent_pressed": "#e57316",
     "help": "#d3869b",          # bright purple -- already AA 4.5 as text (4.78)
     "help_hover": "#dd9aab",
     "border": "#504945",        # bg2
@@ -252,8 +268,8 @@ MIST = {                        # "Mist (FF9)" -- the Mist is the game's atmosph
     "accent": "#5fc9d8",        # THE MIST. derive() aliases info=accent and grows focus FROM it, so this
                                 # hue is spent three times -- which is exactly why the gold is not here.
     "accent_fg": "#08171b",     # dark ink on a light accent (the dracula/gruvbox strategy); 9.43:1
-    "accent_hover": "#7ad7e4",
-    "accent_pressed": "#46b0c0",
+    "accent_hover": "#7ad2df",
+    "accent_pressed": "#51abb8",
     "help": "#9d8bd8",          # violet -- far from every other semantic hue
     "help_hover": "#b3a4e4",
     "border": "#2b3d5e",        # stays NEUTRAL. Gold here would be the costume, on all 27 cards, forever.
@@ -328,9 +344,10 @@ def pick_palette(mode: str = "auto") -> dict:
 # guaranteed to meet the WCAG 3:1 non-text floor, and an info status hue. All outputs are #rrggbb (no
 # rgba) so the hex/parity guarantees still hold; QSS composites solid fills over the surface anyway, so a
 # pre-blended hex is both simpler and more correct than a translucent overlay. tk-free + headless.
-_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "text_subtle", "focus", "info",
-                 "success_text", "warn_text", "error_text",
-                 "border_lit", "border_shade", "accent_lit", "accent_shade")
+_DERIVED_KEYS = ("surface_2", "surface_3", "selection_bg", "selection_rail", "text_subtle", "focus",
+                 "info", "success_text", "warn_text", "error_text",
+                 "border_lit", "border_shade", "accent_lit", "accent_shade",
+                 "warn_fg", "help_fg", "pressed_fg")
 
 # INTAGLIO's one lever: how far each edge is mixed from $border toward white / black. THE taste call of
 # the whole direction, isolated to one number on purpose -- and settled by RENDERING it at 6x, because no
@@ -369,6 +386,33 @@ def _contrast(a: str, b: str) -> float:
     la, lb = _rel_lum(a), _rel_lum(b)
     hi, lo = max(la, lb), min(la, lb)
     return (hi + 0.05) / (lo + 0.05)
+
+
+def _selection_token(surface: str, accent: str, hover: str) -> str:
+    """The selected row's fill: the surface tinted with the accent until it cannot be confused with HOVER.
+
+    THE GROUND IS THE POINT. A selected row is not confused with the page -- it is confused with the row
+    under your cursor, so the thing to solve against is `hover`, not `surface`. Tinting against the
+    surface (a fixed 16%) left nord's selection 11/255 from its own hover, because nord's accent is
+    nearly the same HUE as its surface and a 16% mix of a thing into a near-copy of itself barely moves.
+
+    AND CONTRAST IS THE WRONG INSTRUMENT HERE, which is why this measures a raw channel distance instead.
+    By contrast ratio, hover BEATS the old selection in four palettes -- yet rendered at 4x, gruvbox's
+    selection wins decisively. Contrast is luminance-only and blind to the axis a tint actually uses:
+    hover is a pure lightness step (dHue <=2.5deg, dSat ~0), a selection is a hue/chroma event (dSat up
+    to +0.42). A ratio cannot see that; a channel distance can.
+
+    The 20 floor is CALIBRATED against those two renders, not chosen: gruvbox reads decisively and sits
+    at 26; nord reads marginally and sits at 11. Everything the metric calls fine, the eye called fine.
+    Three palettes already clear it and are returned untouched (dark 21, solarized-light 21, gruvbox 26).
+    """
+    t, sel = 0.16, _mix(surface, accent, 0.16)
+    while t < 0.60 and max(abs(a - b) for a, b in zip(
+            [int(sel[i:i + 2], 16) for i in (1, 3, 5)],
+            [int(hover[i:i + 2], 16) for i in (1, 3, 5)])) < 20:
+        t += 0.02
+        sel = _mix(surface, accent, t)
+    return sel
 
 
 def _focus_token(accent: str, surface: str) -> str:
@@ -412,6 +456,64 @@ def _text_token(hue: str, surfaces: tuple, dark: bool) -> str:
     return out
 
 
+def _fg_token(fill: str, pal: dict) -> str:
+    """The ink that rides ON a saturated FILL (a chip, a round button) -- AA 4.5:1 as normal text.
+
+    WHY THIS IS DERIVED WHILE `accent_fg` IS AUTHORED. Both answer "what ink goes on this fill", so the
+    obvious move is one rule for both. Measured, that is wrong: a single argmax rule reproduces only 5 of
+    the 8 hand-authored `accent_fg` values, and where it misses it picks MORE contrast than the author
+    chose (dracula 6.55 vs 5.90, gruvbox 6.49 vs 5.84, mist 9.75 vs 9.43) -- because `#282a36` and
+    `#282828` are those projects' signature backgrounds, not compromises. That is taste, and a formula
+    must not overwrite it. `warn` and `help` are the opposite case: NOBODY EVER CHOSE, so there is no
+    taste to overwrite -- only a hole that ships white-on-yellow at 1.12:1. Derive those; spend the
+    authored token on `accent`. (`studies/gui-aesthetics/evidence/probe_fg_rule.py`)
+
+    THE DIRECTION IS PER-FILL, NEVER PER MODE, and three palettes prove it: `nord` is DARK and its accent
+    takes WHITE ink; `light` (#9a6b00) and `solarized-light` (#a47c00) want OPPOSITE inks on the SAME
+    `warn` semantic -- light fails on black at 4.48, solarized-light fails on white at 3.85. So `target`
+    is whichever extreme the fill can actually carry, chosen per fill.
+
+    THE START MUST LIE ON THE TARGET'S SIDE. This is the whole subtlety and v1 shipped without it:
+    starting at `log_bg` unconditionally and walking, as :func:`_text_token` does, ASSERTED ITSELF SUB-AA
+    on solarized-light -- 3.56 in, **3.42 out**, having dipped to **1.02** on the way. Walking that
+    palette's CREAM log ink toward black must cross its mid GOLD fill, so contrast collapses to invisible
+    and only then climbs.
+
+        A WALK TOWARD AN EXTREME IS MONOTONIC ONLY IF YOU START ON THAT EXTREME'S SIDE OF THE GROUND.
+
+    `_text_token`/`_focus_token` are safe from this by accident of their inputs, not by construction --
+    they pick the direction from the MODE and every ground they touch (bg/surface/surface_2) is on the
+    mode's side. A saturated fill has arbitrary luminance and that guarantee evaporates.
+
+    `log_bg` and `text` are the palette's two authored extremes and always sit opposite each other, so at
+    least one lies on any achievable side. In 15 of 16 real cases the chosen one already clears AA and is
+    used VERBATIM -- the walk is dead code for every palette except solarized-light's `warn`, whose fill
+    (luminance 0.223, landing on the 0.220 crossover this file's `dark` accent_fg comment names) is
+    carried by NONE of that palette's 35 hexes: best is #ffffff at 3.85. There the walk starts at `text`
+    (#4a6067, darker than the fill, so monotonic) and lands #151b1d at 4.53 -- still in-family, never an
+    imported black. Fenced by test_editor_theme::test_a_filled_ground_carries_its_ink.
+    """
+    target = max(("#ffffff", "#000000"), key=lambda c: _contrast(c, fill))
+    up = _rel_lum(target) > _rel_lum(fill)              # the only direction that can reach AA
+    side = [c for c in (pal["log_bg"], pal["text"]) if (_rel_lum(c) > _rel_lum(fill)) == up]
+    out = max(side, key=lambda c: _contrast(c, fill)) if side else target
+    for _ in range(40):
+        if _contrast(out, fill) >= 4.5:
+            break
+        out = _mix(out, target, 0.04)
+    return out
+
+
+# THE ACCENT LADDER'S FEEDBACK FLOORS -- the app's OWN shipped minimums, measured across all 8 palettes
+# BEFORE the ladder was narrowed: hover/accent 1.0560 (solarized-light), press/accent 1.0670 (nord),
+# press/hover 1.1821 (light). They are here so a future edit to any accent_hover/accent_pressed can never
+# be quieter than the quietest step that already shipped. Fenced by
+# test_the_narrowed_accent_ladder_still_gives_feedback. The values themselves are AUTHORED in the palettes
+# above -- see the accent_hover comments there for why they are what they are, and
+# studies/gui-aesthetics/evidence/solve_accent_ladder.py for the search that produced them.
+_ACCENT_FEEDBACK = (1.0560, 1.0670, 1.1821)
+
+
 def derive(pal: dict) -> dict:
     """Return ``pal`` extended with the derived semantic tokens (idempotent -- an already-derived palette
     passes through, so a consumer can call it defensively on either a base or a derived dict)."""
@@ -423,7 +525,14 @@ def derive(pal: dict) -> dict:
     # box-shadow, so depth is tint-on-tint (Material-3 style); Phase 3 adds real shadows to floating layers.
     out["surface_2"] = _mix(pal["surface"], "#ffffff", 0.05 if dark else 0.55)
     out["surface_3"] = _mix(pal["surface"], "#ffffff", 0.10 if dark else 1.00)
-    out["selection_bg"] = _mix(pal["surface"], pal["accent"], 0.16)   # tinted, replaces full-accent select
+    # Tinted, and it finally RENDERS -- this token has existed since Phase 1 with zero rules. Solved
+    # against HOVER rather than the surface, because those are the two states that get confused.
+    out["selection_bg"] = _selection_token(pal["surface"], pal["accent"], pal["hover"])
+    # The selected row's RAIL. _focus_token pointed at the ground the rail actually sits on -- the tinted
+    # selection fill, not the plain surface -- because a 3:1 mark must clear the thing it is drawn ON.
+    # Zero new math: nord lands 3.19 and solarized-dark 3.13 (both under 3.0 as the raw accent), and the
+    # other six already clear and return the accent unchanged.
+    out["selection_rail"] = _focus_token(pal["accent"], out["selection_bg"])
     out["text_subtle"] = _mix(pal["muted"], pal["bg"], 0.28)          # a third, dimmer text tier
     out["focus"] = _focus_token(pal["accent"], pal["surface"])        # meets WCAG 3:1 on the surface
     out["info"] = pal["accent"]                                       # info status hue (aliases accent for now)
@@ -434,6 +543,40 @@ def derive(pal: dict) -> dict:
     _grounds = (pal["bg"], pal["surface"], out["surface_2"])   # every ground a status line lands on
     for _k in ("success", "warn", "error"):
         out[f"{_k}_text"] = _text_token(pal[_k], _grounds, dark)
+    # The ink ON a saturated FILL -- the mirror of the *_text rung above. `*_text` is a hue moved until it
+    # reads AS text ON a surface; `*_fg` is the ink that reads ON the hue when the hue is the ground.
+    #
+    # ONLY THE TWO FILLS THAT ACTUALLY CARRY TEXT. Censused by reading every `background:{...}` in an
+    # inline setStyleSheet across `workspace/`: the breadcrumb chip (`$accent`, or `$warn` for BATTLE) and
+    # the round help button (`$help`). `$success`/`$error` are NEVER fills -- they are borders and text
+    # only -- so they get no `_fg` here. This file already carries the cost of the other habit: `info` was
+    # derived "for now", has ZERO consumers to this day, and a design argument in MIST's own comment rests
+    # on it. A token with no call site is not future-proofing, it is a wish with a keyword.
+    #
+    # `accent_fg` is DELIBERATELY ABSENT -- it is hand-authored per palette and _fg_token would overwrite
+    # 3 of the 8 with more contrast than their authors wanted. See :func:`_fg_token`.
+    for _k in ("warn", "help"):
+        out[f"{_k}_fg"] = _fg_token(pal[_k], pal)
+    # `pressed` IS A FILL TOO, and it is the one nobody noticed because it is TRANSIENT. Every button in
+    # the app renders its label on it while held: measured, `text` on `pressed` is 4.09 in solarized-light
+    # and 4.47 in solarized-dark -- sub-AA, in the generic rule, for every button in those two palettes.
+    #
+    # THE GROUND CANNOT MOVE, AND THAT IS WHY THIS IS AN INK. `pressed` is a rung of a TONAL LADDER
+    # (surface_btn -> hover -> pressed) fenced at contrast(pressed, hover) >= 1.03. In BOTH failing
+    # palettes the ladder's direction is the OPPOSITE of legibility's: solarized-light's press walks DARKER
+    # (toward its dark text) and solarized-dark's walks LIGHTER (toward its light text). Retuning the fill
+    # to clear 4.5 costs solarized-light 5 steps and lands contrast(pressed, hover) at 1.0192 -- UNDER the
+    # fence. You would fix the label by making the press invisible.
+    #
+    # So the fill keeps its job and the ink gets its own rung -- the same trade `_text_token` documents
+    # above ("the canonical hue KEEPS its job and text gets its own derived rung"), and `focus` before it.
+    # NEARLY FREE: `_fg_token` returns `text` UNCHANGED in 6 of 8, so six palettes RENDER IDENTICALLY and
+    # only the two that were broken move (solarized-dark 4.47 -> 4.57, solarized-light 4.09 -> 4.61).
+    # RENDER-identical, not byte-identical: the generic :pressed rule had no `color` at all (the label
+    # inherited `text` from the QWidget base), so naming the token changes the SHEET in all 8 while
+    # changing the PIXELS in two. Worth the distinction -- "byte-identical" is a claim a fence can check,
+    # and it would fail.
+    out["pressed_fg"] = _fg_token(pal["pressed"], pal)
     # INTAGLIO -- one light, from above. The app's whole elevation ladder claims a light source ("higher =
     # lighter") and never draws the light, so an object's fill cannot say it is an object: LIGHT's
     # surface_btn IS surface (contrast 1.0000, the same hex); solarized-dark's field IS surface; mist's
@@ -456,7 +599,6 @@ def derive(pal: dict) -> dict:
 
 
 # Motion tokens (Phase 1 constants; QSS cannot animate, so these feed QPropertyAnimation in Phase 10).
-MOTION = {"fast_ms": 140, "medium_ms": 220, "easing": (0.2, 0.0, 0.0, 1.0)}
 
 
 def apply_theme(root, mode: str = "auto") -> dict:

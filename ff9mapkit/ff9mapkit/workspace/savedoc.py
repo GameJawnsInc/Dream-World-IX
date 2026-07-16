@@ -18,13 +18,14 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+    QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .. import flags as _flags
 from .. import save as _save
 from .. import save_items as _si
+from . import widgets
 from .widgets import PlaceholderListWidget, section
 
 
@@ -122,8 +123,7 @@ class StoryStateDoc(QWidget):
             le = QLineEdit()
             setattr(self, attr, le)
             row.addWidget(le, 1)
-            h = QLabel(hint)
-            h.setProperty("role", "caption")
+            h = widgets.caption(hint)
             row.addWidget(h)
             lay.addLayout(row)
         # Overworld position: an actor picker (player / chocobo) + an X,Z field. The per-actor array in
@@ -136,8 +136,7 @@ class StoryStateDoc(QWidget):
         wrow.addWidget(self.world_actor_combo)
         self.worldpos_var = QLineEdit()
         wrow.addWidget(self.worldpos_var, 1)
-        wh = QLabel("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
-        wh.setProperty("role", "caption")
+        wh = widgets.caption("X,Z (e.g. 272,-1142); OVERWORLD saves only, pick a walkable spot")
         wrow.addWidget(wh)
         lay.addLayout(wrow)
         btns = QHBoxLayout()
@@ -518,6 +517,11 @@ class ItemEquipDoc(QWidget):
 
         lay.addStretch(1)
         scroll = QScrollArea()
+        # NoFrame like the other 7: Qt draws its own frame here otherwise, in a colour taken from the
+        # STYLE palette rather than ours -- it is in no palette, never re-tints on a theme switch, and
+        # measured #eaebee/1.011 in light and ~1.24 in the darks. Quiet, but un-chosen. 7 of 10 already
+        # set this; these were the stragglers.
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidgetResizable(True)
         scroll.setWidget(page)
         ov.addWidget(scroll, 1)                            # the middle (sections) takes the stretch + scrolls

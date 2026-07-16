@@ -559,10 +559,8 @@ class BattleDoc(QWidget):
         v.setSpacing(4)
         sites = self._donor_patch_sites(kind)
         if sites is None:
-            note = QLabel("No forked scene to read — a same-length patch only applies to a MINTED fork (re-fork "
-                          "WITH a Fork scene). You can still type an offset by hand, but it won't take effect here.")
-            note.setWordWrap(True)
-            note.setProperty("role", "caption")
+            note = widgets.caption("No forked scene to read — a same-length patch only applies to a MINTED fork (re-fork "
+                                   "WITH a Fork scene). You can still type an offset by hand, but it won't take effect here.")
             note.setProperty("state", "warn")
             v.addWidget(note)
             return box
@@ -633,9 +631,7 @@ class BattleDoc(QWidget):
             v.addWidget(a_lbl)
         other = [f"entry {e} fn {t} ({n} atk)" for (e, _ty, t, _r, n) in ai_funcs if n != 1]
         if other:
-            o_lbl = QLabel(f"other AI funcs: {html.escape(' · '.join(other))}")
-            o_lbl.setWordWrap(True)
-            o_lbl.setProperty("role", "caption")
+            o_lbl = widgets.caption(f"other AI funcs: {html.escape(' · '.join(other))}")
             v.addWidget(o_lbl)
         return box
 

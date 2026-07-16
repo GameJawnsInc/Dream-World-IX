@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication, QWidget                      # noqa:
 
 from ff9mapkit.editor import theme                                       # noqa: E402
 from ff9mapkit.workspace import hero as hero_mod                         # noqa: E402
-from ff9mapkit.workspace.style import qss                                # noqa: E402
+from ff9mapkit.workspace.style import qss, type_px                                # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -341,3 +341,294 @@ def test_the_hero_never_dims_its_text(app):
             f"the hero must not ink in ${dim}: the mist lifts its ground past surface_3, "
             f"off the ramp every text tier is fenced against"
         )
+
+
+def test_gold_is_never_a_left_stripe(app):
+    """A PERMANENT LAW, minted by measurement: gold and $warn are the same colour.
+
+    Measured across all 8: ΔHue 0.3-3.3° in SEVEN of them (only dracula's yellow-green warn is far, at
+    22.7°), and indistinguishable in luminance too in SIX (CR 1.073-1.312). And $warn's only shape in
+    this app IS a left stripe -- `QLabel[role="banner"][state="warn"] { border-left: 4px solid $warn }` --
+    while the warn banner shares a splitter with Home.
+
+    So a gold `border-left` would ship "your build has warnings" as "your next action", in the same hue,
+    on the same screen. The lede is a turned CORNER instead: a shape the status grammar has never used,
+    and one the app already owns.
+
+    The corner is also why this survives the identity contract. "One corner, once, or it's a costume"
+    forbids a REPEATED ornament -- and a stripe would be a second, different gold object. The lede is the
+    SAME mark from the SAME function at half the ink.
+    """
+    import inspect
+    from ff9mapkit.workspace import style as style_mod
+
+    # 1. no rule may put gold on a border-left
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        gold = (hero_mod.GOLD_DARK if pal.get("dark") else hero_mod.GOLD_LIGHT).lower()
+        css = style_mod.qss(pal).lower()
+        for ln in css.splitlines():
+            if "border-left" in ln:
+                assert gold not in ln, f"{mode}: gold spent as a left stripe -- that is $warn's shape"
+
+    # 2. the lede must paint the elbow, not a stripe. Read the CODE, not the prose: LedeCard's docstring
+    #    states this very law, so a naive substring check reads the law and calls it a violation.
+    src = inspect.getsource(hero_mod.LedeCard)
+    code = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#") and '"""' not in ln)
+    code = code.split("def ", 1)[-1] if "def " in code else code      # drop the class docstring body
+    assert "signet_elbow" in code, "the lede must draw the shared mark"
+    for banned in ("border-left", "fillRect", "drawRect"):
+        assert banned not in code, f"the lede must be a corner, not a {banned}"
+
+
+def test_the_lede_cites_the_hero_rather_than_repeating_it(app):
+    """One mark, one function, two call sites -- that IS the argument, so fence the shape of it.
+
+    If the lede ever grows its own path-drawing code, the claim "this is the same mark, not a second
+    ornament" stops being true the moment the two drift -- and nothing else in the codebase would notice.
+    """
+    import inspect
+
+    hero_src = inspect.getsource(hero_mod.HeroBand.paintEvent)
+    lede_src = inspect.getsource(hero_mod.LedeCard.paintEvent)
+    assert "signet_elbow(" in hero_src and "signet_elbow(" in lede_src
+    # the lede is subordinate BY CONSTRUCTION: a shorter arm at the same dissolve
+    assert hero_mod.LedeCard._ARM < 220, "the lede's arm must stay well under the hero's ~220px of ink"
+    # the filigree + bead stay the hero's alone -- they are what make it the signature
+    assert "drawPath(ip)" in hero_src, "the hero's inner filigree moved"
+    assert "ip" not in lede_src and "_BEAD" not in lede_src, "the lede must not wear the signature's detail"
+
+
+def test_the_signet_rests_at_one_and_motion_never_moves_the_resting_frame(app):
+    """Motion that changes the RESTING frame is not motion -- it is a redesign wearing a stopwatch.
+
+    A freshly-built band rests at 1.0, and at 1.0 signet_elbow uses a SOLID pen rather than a dash whose
+    gaps happen to fall outside the path. That distinction is the whole reason the resting frame is
+    provably untouched (0 differing px vs the pre-DRAWN render in all 3 palettes checked) instead of
+    merely probably untouched.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        b = hero_mod.HeroBand(d)
+        assert b._draw == 1.0, f"{mode}: a fresh band must rest at the end state"
+        b.deleteLater()
+
+
+def test_the_signet_reveal_is_monotonic_and_draws_in_order(app):
+    """The mark only ever GROWS, and it grows in the right direction.
+
+    Measured by frame-diff against t=0 (a colour heuristic gets this wrong -- a first attempt counted
+    1287 "gold" pixels at t=0, when nothing was drawn at all):
+
+        t=0.15   52 px   x 413-464  y 106      the arm's FAR END, on the baseline
+        t=0.70  244 px   x 221-464  y 106      running left
+        t=0.85  391 px   x 189-464  y  25-106  TURNED and RISEN
+
+    That order is not designed -- the path was already in it. It starts where the gradient is faintest
+    (alpha 70), so the mark appears out of open air and gains opacity as it resolves into the corner.
+    """
+    from PySide6.QtGui import QImage
+
+    d = theme.derive(dict(theme.MIST))
+
+    def frame(t):
+        b = hero_mod.HeroBand(d)
+        b.resize(1280, 156)
+        b._draw = t
+        img = b.grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
+        b.deleteLater()
+        return img
+
+    base = frame(0.0)
+
+    def ink(t):
+        img = frame(t)
+        n, xs = 0, []
+        for y in range(0, 156, 2):                      # every other row: this is a shape test, not a count
+            for x in range(0, 1280, 2):
+                if QImage.pixelColor(img, x, y) != QImage.pixelColor(base, x, y):
+                    n += 1
+                    xs.append(x)
+        return n, (min(xs) if xs else None)
+
+    seen = [(t, *ink(t)) for t in (0.0, 0.3, 0.6, 0.9, 1.0)]
+    assert seen[0][1] == 0, "t=0 must draw nothing at all"
+    counts = [n for _t, n, _x in seen]
+    assert counts == sorted(counts), f"the reveal jumps backwards: {counts}"
+    lefts = [x for _t, _n, x in seen if x is not None]
+    assert lefts == sorted(lefts, reverse=True), f"the mark must grow LEFTWARD from the arm's end: {lefts}"
+
+
+def test_motion_off_means_the_signet_is_simply_there(app):
+    """The reduced-motion gate is not decoration: with motion off the band must show its END state on the
+    first paint, synchronously -- never a blank corner waiting for an animation that will never run.
+
+    This is the same contract every anim.py helper keeps, and it is why anim.configure() had to be hoisted
+    ABOVE win.show(): motion is OFF until that call, so a first-paint animation configured afterwards
+    would have snapped to the end for every user, forever, and looked exactly like a bug that was not there.
+    """
+    from ff9mapkit.workspace import anim
+
+    assert not anim.enabled(), "the suite must run with motion off"
+    d = theme.derive(dict(theme.DARK))
+    b = hero_mod.HeroBand(d)
+    b.resize(1280, 156)
+    b.show()
+    app.processEvents()
+    assert b._draw == 1.0, "motion off -> the mark is simply there, on the first paint"
+    b.hide()
+    b.deleteLater()
+
+
+# --- PLINTH: the front door measures itself ---------------------------------------------------
+
+def test_the_shipped_band_is_returned_identically_at_100_percent(app):
+    """THE GATE, and it is the whole reason band_metrics SCALES the design instead of deriving it.
+
+    106.5 and 94.5 are half-pixel rule positions somebody chose BY EYE against a 40px serif. A formula
+    that recomputes them from QFontMetricsF would replace a composition with an average and call it a
+    refactor -- and it would be impossible to tell that regression from an improvement, because both
+    arrive as "the numbers changed slightly".
+
+    So 100% is IDENTITY, and asserted as such: not "close to", not "within a pixel". If a future round
+    wants the band derived from metrics, it must delete this test on purpose and render the delta.
+    """
+    for density in ("comfortable", "compact"):
+        assert hero_mod.band_metrics(density, 100) == hero_mod._METRICS[density], (
+            f"{density}: band_metrics no longer reproduces the shipped design at 100%"
+        )
+
+
+def test_the_front_door_is_on_the_ramp_not_on_private_numbers(app):
+    """PLINTH's other half. The band kept private 11px / 13px faces, so when QUARTO P1 raised the caption
+    floor to 12, the hero became the ONLY surface in the app still shipping 11px text -- the front door
+    wearing exactly the small type the user asked us to fix everywhere else.
+
+    Fenced as the RELATIONSHIP (it IS the rung), not as the numbers 12 and 14: pinning the values would
+    pass happily while the rest of the ramp moved away underneath them, which is the bug this closes.
+    """
+    overline, word, status = hero_mod.band_type(100)
+    assert overline == type_px("type_caption", 100), "the hero's overline drifted off the caption rung"
+    assert status == type_px("type_body", 100), "the hero's status line drifted off the body rung"
+    # ...and the wordmark is NOT a rung: it is a brand constant, the one piece of type here chosen as a
+    # drawing rather than as a tier. It scales; it must never join the ramp.
+    assert word == hero_mod._WORD_PX
+    assert word not in (type_px(k, 100) for k in ("type_caption", "type_body", "type_head"))
+
+
+def test_the_band_grows_with_the_text_size_dial(app):
+    """The defect CALIBRE created: the band paints via QPainter, so no stylesheet reaches it. At 150%
+    every tab grew and the front door sat at exactly 156px -- the app's identity surface was the one
+    thing that ignored its own accessibility feature.
+
+    Asserts MONOTONIC growth across the real dial, on every axis at once -- height, both faces, and the
+    baselines. A partial scale is the worst outcome available: a 60px wordmark on a 156px band overflows
+    its own composition, and that is what a half-wired version would ship.
+    """
+    from ff9mapkit import prefs
+    prev = None
+    for pct in prefs.TEXT_SCALES:
+        m = hero_mod.band_metrics("comfortable", pct)
+        overline, word, status = hero_mod.band_type(pct)
+        cur = (m[0], m[2], m[4], overline, word, status)          # band_h, word_y, status_y, faces
+        if prev is not None:
+            assert all(c >= p for c, p in zip(cur, prev)), f"{pct}%: the band did not grow: {prev} -> {cur}"
+            assert cur != prev, f"{pct}%: the band did not move at all"
+        prev = cur
+    biggest = hero_mod.band_metrics("comfortable", max(prefs.TEXT_SCALES))[0]
+    assert biggest > hero_mod._METRICS["comfortable"][0] * 1.4, "150% barely moved the band"
+
+
+def test_the_hero_holds_no_private_type_sizes(app):
+    """The whole class of bug PLINTH closes, fenced at the source rather than per-number.
+
+    Every hard setPixelSize() in this module was a number that could not hear the ramp OR the dial -- and
+    they were the ONLY such sites in the package. They are now routed through band_type(), so the fence is
+    "the paint code asks for a size, it never states one".
+
+    Reads CODE, not prose (ast.unparse strips the docstrings that discuss these numbers -- this module's
+    comments are full of "11px" and would pass a naive grep vacuously).
+    """
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(hero_mod))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if getattr(fn, "attr", None) != "setPixelSize":
+            continue
+        arg = node.args[0] if node.args else None
+        assert not isinstance(arg, ast.Constant), (
+            f"hero.py:{node.lineno} calls setPixelSize({ast.unparse(arg)}) with a literal -- a private "
+            f"type size that hears neither the ramp nor the text-size dial. Route it through band_type()."
+        )
+
+
+def test_the_signets_no_overflow_promise_is_structural_not_lucky(app):
+    """signet_elbow's docstring promises the mark "can never overflow the column". That was TRUE BY TASTE:
+    "bound to adv" binds the arm to the WORDMARK, and nothing bound the wordmark to the column. At 100% it
+    never mattered (a 40px "Dream World IX" is ~300px against a 604-860px column) -- but PLINTH makes the
+    arm grow with the dial while the column does not, so a scaled band in a narrow window would run the
+    mark straight out of its own composition.
+
+    An invariant that a new feature can falsify was never an invariant. Asserted at the extreme: the
+    widest dial setting against the narrowest column the axis fallback allows.
+    """
+    from PySide6.QtGui import QFont, QFontMetricsF
+
+    from ff9mapkit import prefs
+    worst = max(prefs.TEXT_SCALES)
+    wf = QFont(hero_mod.wordmark_face())
+    wf.setPixelSize(hero_mod.band_type(worst)[1])
+    wf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, hero_mod._WORD_TRACK * worst / 100.0)
+    adv = QFontMetricsF(wf).horizontalAdvance("Dream World IX")
+
+    narrow = 240                                  # the axis fallback's own floor: max(240, width - 60)
+    assert adv > narrow, (
+        "this fence has stopped testing anything: the wordmark now fits the narrowest column even at the "
+        f"largest scale ({adv:.0f} <= {narrow}), so min() is never exercised. Re-pick the extreme."
+    )
+    assert min(adv, narrow) == narrow, "the arm must clamp to the column when the wordmark outruns it"
+
+
+def test_the_lede_rule_lands_under_its_title_not_through_it(app):
+    """QUARTO P2 struck a gold line through the lede's own title, and NOTHING caught it but the render.
+
+    LedeCard's rule was pinned at `_UP = 26` -> y=36.5, chosen by eye against a 15px h3 title whose box
+    bottomed at 33.9: a 2.6px clearance nobody had written down. P2 merged h2/h3 into an 18px head rung,
+    the title's box grew to 37.9, and the rule crossed the words -- reading as an underline rather than as
+    a bug. No test measures a QPainter stroke against a sibling QLabel's font, so no test could fail.
+
+    THE MARK NOW DERIVES ITS RISE FROM THE RUNG THE TITLE WEARS, so this is checkable: at every setting of
+    the text-size dial, the rule must sit at or below the title's box.
+    """
+    from PySide6.QtGui import QFont, QFontMetricsF
+
+    from ff9mapkit import prefs
+    pal = theme.derive(dict(theme.DARK))
+    for pct in prefs.TEXT_SCALES:
+        card = hero_mod.LedeCard(pal, scale=pct)
+        f = QFont("Segoe UI")
+        f.setPixelSize(type_px("type_head", pct))
+        f.setWeight(QFont.Weight.DemiBold)
+        title_bottom = hero_mod.LedeCard._TOP + QFontMetricsF(f).height()
+        rule_y = hero_mod.LedeCard._INSET + card._up() + 0.5
+        assert rule_y >= title_bottom, (
+            f"{pct}%: the lede's gold rule sits at y={rule_y:.1f} but its title's box bottoms at "
+            f"y={title_bottom:.1f} -- the mark is striking through the words"
+        )
+        card.deleteLater()
+
+
+def test_the_lede_mark_holds_no_pinned_rise(app):
+    """The rise is DERIVED, and a constant is what broke it. Fenced at the source: a `_UP = <n>` class
+    attribute would pass every ratio check while silently going stale the next time the head rung moves --
+    which is exactly the failure this replaces, one round after the number was written.
+    """
+    assert not hasattr(hero_mod.LedeCard, "_UP"), (
+        "LedeCard re-pinned its arm's rise. It must derive from the head rung (see LedeCard._up) or it "
+        "goes stale the next time the ramp moves -- which is how it came to underline its own title."
+    )
+    assert callable(getattr(hero_mod.LedeCard, "_up", None)), "the derived rise is gone"

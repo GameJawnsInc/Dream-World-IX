@@ -86,6 +86,85 @@ def set_guided(on: bool) -> None:
     put("guided", bool(on))
 
 
+# CALIBRE -- the text-size dial, as INTEGER PERCENTS (never floats: this round-trips through JSON, and a
+# 1.1 that reads back as 1.1000000000000001 would make the byte-identity gate at 100% flap).
+#
+# Why an in-app dial rather than following Windows: THE APP CANNOT FOLLOW WINDOWS. The Accessibility ->
+# Text size slider writes HKCU\Software\Microsoft\Accessibility\TextScaleFactor and does NOT touch
+# NONCLIENTMETRICS.lfMessageFont, which is where Qt reads its font -- verified by setting the key to 150,
+# broadcasting WM_SETTINGCHANGE, and watching lfMessageFont stay at -12 Segoe UI. The string
+# TextScaleFactor appears in ZERO of the 338 DLLs Qt ships. No Qt app on the desktop tracks that slider.
+# (Display -> Scale is a different setting and the app already honours it correctly: QSS px are LOGICAL
+# px, multiplied by devicePixelRatio. That part was never broken.)
+# So: the only text-only lever that can exist on Windows is one we ship. This is it.
+#
+# THE PRICE, MEASURED AND NOT HIDDEN (evidence/probe_toolbar_budget.py, at a REAL asserted 1280px window):
+# the toolbar is tight, and bigger text pushes items into Qt's extension chevron, where they are reachable
+# but INVISIBLE -- 15/15 at 100%, 14/15 at 110%, 13/15 at 125%, 11/15 at 150%. At 1600px and above,
+# every scale is 15/15. That is a real cost and it is judged worth paying: a user who turns text up has
+# said they want bigger text more than they want a dense toolbar, the items stay reachable via the
+# chevron AND via Ctrl-K, and the a11y suite already fences graceful toolbar overflow as the app's
+# accepted behaviour at narrow widths. It is NOT silent -- it is written here.
+# Everything else is clean: audited natively at all four scales, nothing else in the app clips
+# (evidence/audit_text_scale.py). The hero band moves too -- it paints with QPainter at sizes no
+# stylesheet reaches, so it has to be TOLD; that is PLINTH, and it shipped.
+TEXT_SCALES = (100, 110, 125, 150)
+
+
+def os_text_scale() -> int:
+    """Windows' Accessibility -> Text size, snapped to a rung we ship. 100 if unset or unreadable.
+
+    HEED. Qt cannot see this slider (see the note above: it never reaches lfMessageFont, and the string
+    appears in zero of Qt's DLLs) -- but PYTHON can, because it is just a registry value. So the app reads
+    what Qt refuses to, and uses it to SEED the dial's default: someone who has already told Windows they
+    want 150% text gets it on first launch, with no preference to discover.
+
+    Pure + defensive, and modelled on a sibling that already ships: ``theme.detect_os_dark`` is the same
+    shape -- an HKCU read wrapped in a bare except that degrades to the safe default. This is not a new
+    pattern in this codebase, which is most of why it is defensible.
+
+    SNAPPED TO NEAREST, and clamped by our own top rung. Microsoft documents the range as [100, 225]; we
+    ship (100, 110, 125, 150). Windows' common stops (100/125/150) land exactly; 175/200/225 all clamp to
+    150, which is the honest answer -- we cannot offer more than we ship, and the in-app dial is still
+    there to be turned. NEAREST rather than snap-down because this is an ACCESSIBILITY seed: under-serving
+    someone who asked for bigger text is the wrong direction to err, and it is a default, not a mandate.
+    """
+    try:
+        import winreg
+
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Accessibility")
+        try:
+            value, _ = winreg.QueryValueEx(key, "TextScaleFactor")
+        finally:
+            winreg.CloseKey(key)
+        pct = int(value)
+    except Exception:       # noqa: BLE001  (non-Windows / no winreg / key absent / junk value) -> inert
+        return 100
+    pct = max(100, min(225, pct))                     # the documented range; junk outside it is not obeyed
+    return min(TEXT_SCALES, key=lambda s: (abs(s - pct), s))
+
+
+def text_scale() -> int:
+    """The text-size percent -- one of :data:`TEXT_SCALES`.
+
+    AN EXPLICIT CHOICE ALWAYS WINS, and that ordering is the whole feature. A saved value means the user
+    has been to Preferences and said what they want; Windows does not get to override that, ever. Only
+    when nothing is saved does HEED seed the default from the OS slider (:func:`os_text_scale`) -- so the
+    seed is a better FIRST GUESS, never a correction of a decision already made.
+
+    Type-disciplined: a corrupt or hand-edited value degrades to the seed rather than to a bare 100, for
+    the same reason -- a broken file should not silently cost a low-vision user their text size.
+    """
+    saved = load().get("text_scale")
+    if saved in TEXT_SCALES:
+        return saved
+    return os_text_scale()
+
+
+def set_text_scale(pct: int) -> None:
+    put("text_scale", pct if pct in TEXT_SCALES else 100)
+
+
 MOTIONS = ("auto", "on", "off")                           # UI motion: follow the OS / always / never
 
 
@@ -155,9 +234,16 @@ def layout() -> dict:
     for k in ("geometry", "state"):
         if isinstance(val.get(k), str) and val[k]:
             out[k] = val[k]
-    for k in ("central_split", "console_split"):
+    # ARITY IS PART OF "CORRUPT", and this docstring promised to drop corrupt values while never checking
+    # it. `{"console_split": [1]}` is a list, non-empty, all ints, all >= 0 -- so it passed, was STORED,
+    # and detonated later at an unguarded `(self._console_sizes or _DEFAULT_CONSOLE_SPLIT)[1]` with an
+    # IndexError. `_restore_layout`'s `except Exception: pass  # never let a bad layout block launch` had
+    # already swallowed the first raise AFTER storing the poison, so the crash surfaced far from its cause.
+    # The SAVE path arity-checks (`if len(sizes) == 2`); only the restore path did not.
+    for k, arity in (("central_split", 3), ("console_split", 2)):
         sizes = val.get(k)
-        if isinstance(sizes, list) and sizes and all(isinstance(x, int) and x >= 0 for x in sizes):
+        if (isinstance(sizes, list) and len(sizes) == arity
+                and all(isinstance(x, int) and x >= 0 for x in sizes)):
             out[k] = sizes
     if val.get("console_collapsed") is True:
         out["console_collapsed"] = True

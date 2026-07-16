@@ -17,12 +17,13 @@ rule binds to the wordmark's exact advance -- and so the status line re-tints on
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtCore import Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt
 from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, QLinearGradient,
                            QPainter, QPainterPath, QPen, QRadialGradient)
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QFrame, QWidget
 
 from ..editor import theme
+from . import anim, style
 
 # --- the brand constants (NOT palette tokens; identical in every theme) --------------------
 # Verified legible on all 8 palettes: gold/bg 4.12 (solarized-light) .. 9.02 (mist).
@@ -41,7 +42,7 @@ _WORD_WEIGHT = QFont.Weight.Normal
 _WORD_PX = 40
 _WORD_TRACK = 0.5
 
-_METRICS = {           # (band_h, overline_y, word_y, rule_y, status_y, arm_up)
+_METRICS = {           # (band_h, overline_y, word_y, rule_y, status_y, arm_up)  -- AT 100%
     "comfortable": (156, 36, 92, 106.5, 132, 78),
     "compact":     (136, 30, 80,  94.5, 118, 70),
 }
@@ -49,6 +50,54 @@ _ARM_INDENT = 18       # the arm sits in the GUTTER: at 0 it impales the "D" and
 _ELBOW_R = 6
 _BEAD = 3.5
 _MIST_ALPHA = 40
+
+
+def band_metrics(density: str = "comfortable", scale: int = 100):
+    """The band's geometry at CALIBRE's ``scale`` (a percent; 100 = the shipped design).
+
+    PLINTH. The band paints with QPainter, so no stylesheet reaches it -- which meant the text-size dial
+    grew every tab while the front door sat at exactly 156px, the one surface in the app that ignored the
+    accessibility feature. (`shell._apply_text_scale` was already CALLING the hero on every scale change;
+    the scale simply never arrived. The wiring was there and inert.)
+
+    THE 100% TUPLES ARE NOT DERIVED -- THEY ARE THE DESIGN, and this scales them rather than recomputing
+    them. 106.5 and 94.5 are half-pixel rule positions somebody chose by eye against a 40px serif; a
+    formula that re-derives them from font metrics replaces a composition with an average and calls it a
+    refactor. So ``scale=100`` returns the shipped tuple IDENTICALLY, by construction rather than by
+    arithmetic luck, and every other scale is that same composition, larger. The whole band moves as one
+    thing: the mist bloom is keyed to `h`, the rule to the wordmark's baseline, the bead to the rule.
+    """
+    m = _METRICS.get(density, _METRICS["comfortable"])
+    if scale == 100:
+        return m                                   # the gate: identity, not a round-trip through floats
+    k = scale / 100.0
+    return (int(m[0] * k + 0.5),) + tuple(v * k for v in m[1:])
+
+
+def band_type(scale: int = 100):
+    """``(overline_px, word_px, status_px)`` -- the band's three faces at ``scale``.
+
+    The overline and the status JOIN THE RAMP (they are `type_caption` / `type_body`, the same rungs the
+    rest of the app spends) rather than keeping private 11 and 13. That is the other half of PLINTH: after
+    QUARTO P1 raised the caption floor to 12, the hero was the ONLY surface left shipping 11px text -- the
+    front door still wearing exactly the small type the user asked us to fix everywhere else.
+
+    The WORDMARK is not a rung and never joins one: 40px Sitka Banner is a brand constant, the one piece
+    of type here chosen as a drawing rather than as a tier. It scales; it does not tier.
+    """
+    return (style.type_px("type_caption", scale),
+            int(_WORD_PX * scale / 100 + 0.5),
+            style.type_px("type_body", scale))
+
+# The signet signs itself, once, on the front door's first paint.
+#
+# THIS EXCEEDS anim.py's stated <=200ms bound ON PURPOSE, and the module's contract is amended rather
+# than quietly broken. That bound governs STATE TRANSITIONS -- a drawer opening, a panel settling --
+# where anything slower is latency wearing a costume. This is not a transition: it is a signature being
+# written, once per session, on the one surface built to be looked at, and 200ms would make it a blink
+# rather than a gesture. It is still bounded, still one-shot, still never looping, and still behind the
+# same reduced-motion gate as everything else -- motion off, and the mark is simply there.
+_SIGN_MS = 520
 
 
 def wordmark_face() -> str:
@@ -59,22 +108,190 @@ def wordmark_face() -> str:
     return _FACE
 
 
+def signet_elbow(p, x, y, arm, up, gold, *, a_from=255, a_to=70, r=_ELBOW_R, t=1.0):
+    """THE MARK: an arm that runs in, turns a corner, and rises -- dissolving as it goes.
+
+    "An FF9 window has four corners. We draw one." This is that one corner, and it is a FUNCTION rather
+    than a block of paint code because it has two call sites and the pair is the whole argument: the hero
+    draws it at the wordmark, the lede draws the SAME mark at its title, 200px down the same axis, at
+    roughly half the ink. Two calls to one function is not a repeated ornament -- it is one mark, cited
+    twice on one page, which is what "one corner, once" was written to protect.
+
+    ``a_to`` is the dissolve: the frame does not stop, it fades out. Lowering ``a_from`` is how a caller
+    asks for the mark more quietly -- the lede's subordination is a parameter, not a different drawing.
+
+    Draws only the OUTER elbow. The doubled inner filigree and the bead stay the hero's alone: they are
+    what make it the signature rather than a corner, and the lede is not the signature.
+
+    ``t`` REVEALS the mark, 0 to 1 -- the signet signing itself. Nothing here was designed for that and it
+    works anyway: the path is ALREADY in draw-on order. Verified by sampling it -- it starts at (arm's far
+    end), which is where the gradient is at its FAINTEST (alpha 70), runs left into the corner GAINING
+    opacity, turns, and rises. So the mark appears out of open air and resolves into the corner. The
+    caller paints the bead after, so the bead lands last.
+
+    At t >= 1 the pen is SOLID, not a dash whose gaps happen to fall outside the path -- so the resting
+    frame is byte-identical to a build without any of this. Proven, not assumed.
+    """
+    path = QPainterPath()
+    path.moveTo(x + arm, y)
+    path.lineTo(x + r, y)
+    path.arcTo(QRectF(x, y - 2 * r, 2 * r, 2 * r), -90, -90)
+    path.lineTo(x, y - up)
+    grad = QLinearGradient(x, 0, x + arm, 0)
+    g0 = QColor(gold); g0.setAlpha(a_from)
+    g1 = QColor(gold); g1.setAlpha(a_to)
+    grad.setColorAt(0.0, g0); grad.setColorAt(1.0, g1)   # the frame doesn't stop, it dissolves
+    pen = QPen(QBrush(grad), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap)
+    if t < 1.0:
+        if t <= 0.0:
+            return
+        # A dash pattern of [total, total] with the offset walked from `total` down to 0 reveals exactly
+        # [0, total*t]: the offset is the STARTING POINT WITHIN the pattern, so an offset of total*(1-t)
+        # begins total*(1-t) into the dash and leaves total*t of it to run before the gap swallows the
+        # rest. Units are pen widths, and the pen is 1.0, so the pattern is in px.
+        total = path.length()
+        if total <= 0:
+            return
+        pen.setDashPattern([total, total])
+        pen.setDashOffset(total * (1.0 - t))
+    p.setPen(pen)
+    p.drawPath(path)
+
+
+class LedeCard(QFrame):
+    """Home's ONE card with the mark on it: the next thing to do, named.
+
+    ``shell.py`` has always promised this in a docstring -- "the ONE primary action on the page (Journey
+    ▸ Open, the recommended front door) renders in the accent colour" -- and all ten call sites pass
+    ``False``. The branch that would paint it is live code nothing reaches. SIGNET built a title page and
+    handed off to an index: ten identical cards, none of which is the answer to the question Home exists
+    to ask.
+
+    THE CONTRACT, and why this is not a second ornament. "One corner, once, or it's a costume" forbids a
+    REPEATED ornament. This is the same mark, from the same function (:func:`signet_elbow`), at roughly
+    half the ink, once per page, and only when there is a next action to name. The hero's docstring says
+    "An FF9 window has four corners. We draw one" -- this draws that same one, 200px down the same axis.
+
+    WHY GOLD AND NOT ACCENT -- measured, and it picks the colour AND the shape:
+      - gold on surface_2 = 4.710 (sol-light) .. 6.964 (mist): the only delineation clearing the 3.0
+        non-text floor in ALL 8, because it is the one candidate not sampled from the surface ramp.
+      - accent on surface_2 = 2.118 (nord, FAILS) .. 7.095. It cannot carry a mark in nord at all.
+      - and gold survives LIGHT (4.837) exactly where every elevation idea has died: a constant does not
+        care that light's ramp is compressed.
+
+    THE KILL SHOT, which is why this is a CORNER and never a left stripe: gold and $warn are the same
+    colour -- ΔHue 0.3-3.3° in 7 of 8, and indistinguishable in luminance too in 6 of 8 (CR 1.073-1.312).
+    $warn's only shape in this app IS a left stripe, and the warn banner shares a splitter with Home. A
+    gold left stripe would ship "your build has warnings" as "your next action". A turned corner is a
+    shape the status grammar has never used, and it is already ours.
+    LAW: gold may never be spent as a border-left-only stripe. Fenced in test_workspace_hero.
+
+    Zero new tokens: this sets ``role="card"`` and paints. Qt type selectors match SUBCLASSES (only
+    `.QWidget` is exact-class), so `QFrame[role="card"]`'s fill and border land here byte-exact, and
+    ``super().paintEvent`` must run FIRST so the mark goes on top of them.
+    """
+
+    _ARM = 170          # ~0.49x the hero's ink at the same dissolve -- subordinate BY CONSTRUCTION
+    _INSET = 10
+    _TOP = 14           # the card layout's top margin (shell._build_lede) -- where the title's box starts
+
+    def __init__(self, pal, parent=None, scale=100):
+        super().__init__(parent)
+        self.pal = pal
+        self._scale = scale
+        self.setProperty("role", "card")
+
+    def set_scale(self, scale):
+        self._scale = scale
+        self.update()
+
+    def _up(self):
+        """The arm's rise -- and therefore where its rule LANDS. Derived, because a number here breaks.
+
+        This was `_UP = 26`, chosen by eye against a 15px title, which put the rule at y=36.5 with 2.6px of
+        clearance under the title's box. QUARTO P2 merged h2/h3 into an 18px head rung, the title's box
+        grew to y=37.9 -- and the rule went straight THROUGH the words. Nothing caught it: no test measures
+        a QPainter stroke against a sibling QLabel, and a 1.4px overlap reads as an underline rather than
+        as a bug. The render caught it.
+
+        The rule's job is to sit UNDER the title, exactly as the hero's rule sits under the wordmark. So it
+        is computed from the rung the title actually wears, plus the layout's own top margin: change the
+        head rung, or turn the text-size dial, and the mark follows instead of striking through.
+        """
+        f = QFont("Segoe UI")
+        f.setPixelSize(style.type_px("type_head", self._scale))
+        f.setWeight(QFont.Weight.DemiBold)
+        clear = self._TOP + QFontMetricsF(f).height() + 2      # +2: a rule ON the descenders is not a rule
+        return max(26, int(clear - self._INSET + 0.5))          # never tighter than the shipped 26
+
+    def paintEvent(self, ev):                          # noqa: N802 (Qt override)
+        super().paintEvent(ev)                         # the QSS card fill + border, then the mark on top
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        gold = QColor(GOLD_DARK if self.pal.get("dark") else GOLD_LIGHT)
+        k = self._scale / 100.0
+        up = self._up()
+        x = self._INSET + 0.5
+        y = self._INSET + up + 0.5
+        signet_elbow(p, x, y, self._ARM * k, up, gold, r=_ELBOW_R * k)
+        p.end()
+
+
 class HeroBand(QWidget):
     """Full-bleed front-door band. ``column_source`` is Home's ``body`` widget -- the hero reads its
     REAL geometry so the wordmark, the gold elbow and every card below sit on ONE axis."""
 
-    def __init__(self, pal, parent=None, column_source=None):
+    def __init__(self, pal, parent=None, column_source=None, scale=100):
         super().__init__(parent)
         self.pal = pal
         self._column_source = column_source
         self._status = None
+        self._draw = 1.0                 # the signet's reveal; 1.0 = at rest. See showEvent.
+        self._signed = False             # once per session, on the front door's first paint
+        self._density = "comfortable"
+        self._scale = scale              # CALIBRE's percent -- see set_density / band_metrics
         self.setAutoFillBackground(False)
-        self.set_density("comfortable")
+        self.set_density(self._density)
+
+    # --- the signet signing itself -------------------------------------------------------
+    def _get_draw(self):
+        return self._draw
+
+    def _set_draw(self, v):
+        self._draw = float(v)
+        self.update()
+
+    # A real Qt property, because QPropertyAnimation can only drive one of those.
+    draw = Property(float, _get_draw, _set_draw)
+
+    def showEvent(self, ev):             # noqa: N802 (Qt override)
+        super().showEvent(ev)
+        if self._signed or not anim.enabled():
+            self._draw = 1.0             # motion off -> the end state, synchronously, like every helper
+            return
+        self._signed = True              # once. Re-showing Home does not re-sign it.
+        self._draw = 0.0
+        a = QPropertyAnimation(self, b"draw", self)
+        a.setDuration(_SIGN_MS)
+        a.setStartValue(0.0)
+        a.setEndValue(1.0)
+        a.setEasingCurve(QEasingCurve.Type.OutCubic)
+        a.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     # --- API -----------------------------------------------------------------------------
-    def set_density(self, density):
-        self._m = _METRICS.get(density, _METRICS["comfortable"])
-        self.setFixedHeight(self._m[0])
+    def set_density(self, density, scale=None):
+        """Re-lay the band. ``scale`` is CALIBRE's percent; omit it to keep the current one.
+
+        Both knobs land here because both move the same six numbers, and the band's metrics are PYTHON --
+        a QSS re-render alone leaves it at the old height. `setFixedHeight` is the whole reason this must
+        be called rather than inferred: the band cannot grow itself.
+        """
+        if scale is not None:
+            self._scale = scale
+        self._density = density if density in _METRICS else "comfortable"
+        self._m = band_metrics(self._density, self._scale)
+        self._type = band_type(self._scale)
+        self.setFixedHeight(int(self._m[0]))
         self.updateGeometry()
         self.update()
 
@@ -108,6 +325,12 @@ class HeroBand(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         w, h = self.width(), self.height()
         _bh, overline_y, word_y, rule_y, status_y, arm_up = self._m
+        overline_px, word_px, status_px = self._type
+        # PLINTH's one multiplier. The six METRICS and the three faces are already scaled (band_metrics /
+        # band_type); `k` is for the mark's own geometry -- the arm's gutter, the elbow radius, the
+        # filigree's offsets, the bead. Those are drawing, not type, so they scale here rather than
+        # through the ramp. At 100% k is exactly 1.0 and every product below is its shipped literal.
+        k = self._scale / 100.0
         pal = self.pal
         d = theme.derive(dict(pal))
         gold = QColor(GOLD_DARK if pal.get("dark") else GOLD_LIGHT)
@@ -154,57 +377,65 @@ class HeroBand(QWidget):
         # a QLabel API, and this band has no QLabels. The fence lives in test_workspace_hero.py and works by
         # rendering the band twice -- once with drawText suppressed -- because the ground is a gradient and
         # cannot be sampled by mode or modelled by hand (both were tried; both lied).
-        f = QFont("Segoe UI"); f.setPixelSize(11); f.setWeight(QFont.Weight.DemiBold)
-        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0)
+        f = QFont("Segoe UI"); f.setPixelSize(overline_px); f.setWeight(QFont.Weight.DemiBold)
+        f.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0 * k)
         p.setFont(f); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, overline_y), "FF9 FIELD TOOLKIT \u00b7 1.0.0b15")
 
         # 6. wordmark -- pal["text"], NEVER gold. A gold "Dream World IX" is a fan-logo; it is the
         #    most predictable move available and why every FF9 fan project looks the same.
-        wf = QFont(wordmark_face()); wf.setPixelSize(_WORD_PX); wf.setWeight(_WORD_WEIGHT)
-        wf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, _WORD_TRACK)
+        wf = QFont(wordmark_face()); wf.setPixelSize(word_px); wf.setWeight(_WORD_WEIGHT)
+        wf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, _WORD_TRACK * k)
         p.setFont(wf); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, word_y), "Dream World IX")
         adv = QFontMetricsF(wf).horizontalAdvance("Dream World IX")
 
         # 7. THE SIGNET -- typographically bound to `adv`, so it can never overflow the column.
-        ax = x0 - _ARM_INDENT + 0.5
+        #    `_draw` is 1.0 at rest and everything below is the resting frame, byte-for-byte. It is only
+        #    below 1 while the mark is signing itself on the front door's first paint.
+        #
+        #    THAT INVARIANT WAS TRUE BY TASTE AND IS NOW TRUE BY CONSTRUCTION. "Bound to adv" only bounds
+        #    the arm to the WORDMARK; nothing bounded the wordmark to the column. At 100% that never
+        #    mattered -- a 40px "Dream World IX" is ~300px against a 604-860px column -- but the arm grows
+        #    with the type while the column does not, so a scaled band in a narrow window would run the
+        #    mark straight out of its own composition. min() makes the docstring's promise structural:
+        #    the arm ends at the wordmark's right edge, or at the column's, whichever comes first.
+        ax = x0 - _ARM_INDENT * k + 0.5
         by, top = rule_y, rule_y - arm_up
-        path = QPainterPath()
-        path.moveTo(ax + adv + _ARM_INDENT, by)
-        path.lineTo(ax + _ELBOW_R, by)
-        path.arcTo(QRectF(ax, by - 2 * _ELBOW_R, 2 * _ELBOW_R, 2 * _ELBOW_R), -90, -90)
-        path.lineTo(ax, top)
-        grad = QLinearGradient(ax, 0, ax + adv + _ARM_INDENT, 0)
-        g0 = QColor(gold); g0.setAlpha(255)
-        g1 = QColor(gold); g1.setAlpha(70)
-        grad.setColorAt(0.0, g0); grad.setColorAt(1.0, g1)   # the frame doesn't stop, it dissolves
-        p.setPen(QPen(QBrush(grad), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        p.drawPath(path)
+        t = self._draw
+        signet_elbow(p, ax, by, min(adv, col) + _ARM_INDENT * k, arm_up, gold, t=t, r=_ELBOW_R * k)
 
-        # the doubled inner rule -- the GRAMMAR of brass filigree (parallel strokes at a fixed
-        # offset), abstracted from any specific FF9 flourish. Verified crisp at dpr 1.0/1.25/1.5.
-        ip = QPainterPath()
-        ix, iy = ax + 3, by - 3
-        ip.moveTo(ix + 34, iy); ip.lineTo(ix + 3, iy)
-        ip.arcTo(QRectF(ix, iy - 6, 6, 6), -90, -90)
-        ip.lineTo(ix, iy - 14)
-        gi = QColor(gold); gi.setAlpha(115)
-        p.setPen(QPen(gi, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        p.drawPath(ip)
+        # THE FINISH lands last: the filigree and the bead are what make this the signature rather than a
+        # corner, so they arrive after the stroke has reached the top -- fading in over the final quarter
+        # rather than popping, which reads as the hand lifting rather than as a frame dropping in.
+        # `finish` is exactly 1.0 at rest, so both alphas below are their shipped values.
+        finish = 1.0 if t >= 1.0 else max(0.0, (t - 0.75) / 0.25)
+        if finish > 0.0:
+            # the doubled inner rule -- the GRAMMAR of brass filigree (parallel strokes at a fixed
+            # offset), abstracted from any specific FF9 flourish. Verified crisp at dpr 1.0/1.25/1.5.
+            ip = QPainterPath()
+            ix, iy = ax + 3 * k, by - 3 * k
+            ip.moveTo(ix + 34 * k, iy); ip.lineTo(ix + 3 * k, iy)
+            ip.arcTo(QRectF(ix, iy - 6 * k, 6 * k, 6 * k), -90, -90)
+            ip.lineTo(ix, iy - 14 * k)
+            gi = QColor(gold); gi.setAlpha(round(115 * finish))
+            p.setPen(QPen(gi, 1.0 * k, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            p.drawPath(ip)
 
-        # the bead -- FF9's corner detail, cited ONCE, at one 7px object.
-        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(gold))
-        dia = QPainterPath()
-        dia.moveTo(ax, top - _BEAD); dia.lineTo(ax + _BEAD, top)
-        dia.lineTo(ax, top + _BEAD); dia.lineTo(ax - _BEAD, top)
-        dia.closeSubpath(); p.drawPath(dia)
+            # the bead -- FF9's corner detail, cited ONCE, at one 7px object.
+            bead = _BEAD * k
+            gb = QColor(gold); gb.setAlpha(round(255 * finish))
+            p.setPen(Qt.PenStyle.NoPen); p.setBrush(gb)
+            dia = QPainterPath()
+            dia.moveTo(ax, top - bead); dia.lineTo(ax + bead, top)
+            dia.lineTo(ax, top + bead); dia.lineTo(ax - bead, top)
+            dia.closeSubpath(); p.drawPath(dia)
 
         # 8. status -- painted, so it re-tints live (the QLabel version goes stale on retheme)
         # $text, per the one-ink law at the overline. This shipped in $muted and was sub-AA in 3 of 8
         # (light 3.63, solarized-light 3.98, dracula 4.35) -- found while fixing the overline, same cause:
         # the mist lifts the ground past the top of the ramp that muted is fenced against.
-        sf = QFont("Segoe UI"); sf.setPixelSize(13)
+        sf = QFont("Segoe UI"); sf.setPixelSize(status_px)
         p.setFont(sf); p.setPen(QColor(pal["text"]))
         p.drawText(QPointF(x0, status_y),
                    self._status or "Nothing open yet \u2014 pick a starting point below.")

@@ -2534,6 +2534,21 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             for n in sh_notes:
                 print(n)
             tweaks = list(tweaks) + sh
+        # THE GROUND-FAMILY RETILE (the translation law over the whole carried block):
+        # built from the donor's own bytes, every class byte-measured, strict gate
+        if getattr(args, "ground", None):
+            if args.in_place:
+                raise ConfigError("--ground rides the transplant path, not --in-place "
+                                  "(retiling a REAL cell in place is unstudied)")
+            gt = TR.GroundRetile.for_donor((dx, dy), args.ground.strip().lower(),
+                                           size=(snx, sny), strips=strips,
+                                           extra=args.extra,
+                                           disc=args.disc, game=args.game)
+            print(f"ground retile {gt.src} -> {gt.dst}: sand anchors "
+                  f"{[f'{s:.4f}->{d:.4f}' for (s, d) in gt.sand_anchors] or 'none'}; "
+                  f"recover cells {sorted(gt.recover_cells) or 'none'} "
+                  f"(budget {gt.recover_budget} tris)")
+            tweaks = list(tweaks) + [gt]
         if args.in_place:
             if (bx, by) != (dx, dy):
                 raise ConfigError("--in-place morphs the donor's own REAL cell: --cell "
@@ -2546,7 +2561,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         else:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
-                      game=args.game, census_samples=args.samples, dry_run=args.dry_run)
+                      game=args.game, census_samples=args.samples,
+                      allow_mod_overwrite=args.allow_mod_overwrite, dry_run=args.dry_run)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
             else:
@@ -5595,6 +5611,24 @@ def build_parser() -> argparse.ArgumentParser:
                           "wedge (beyond-the-shore zip tiles are translate-CLONES of the nearest real tile, "
                           "never raw extrapolation). Same laws + gates as the headland; a too-deep bay that "
                           "reaches a land component is refused offline.")
+    wtp.add_argument("--allow-mod-overwrite", action="store_true",
+                     help="waive THE MOD-OVERWRITE GATE: by default a target data cell that "
+                          "already holds override files in the mod folder REFUSES unless its "
+                          "Donor.txt names this deploy's own sidecar donor (a re-deploy of the "
+                          "same transplant). The stock real-target gate cannot see mod content "
+                          "-- this one keeps a prior islet/transplant from being silently "
+                          "replaced (the dunes-islet incident, 2026-07-15).")
+    wtp.add_argument("--ground", default=None, metavar="FAMILY",
+                     help="RETILE the carried block to another ground family by the byte-measured "
+                          "TRANSLATION LAWS (grassland.GROUNDS + coastmorph.SAND_BANDS): ground "
+                          "mains and the rock wall band shift by the family deltas, the sand band "
+                          "re-pins onto the target's own pins (topo 31->32), beach1 foam relabels "
+                          "(30->34, the texture is universal); geometry/heights/water stay "
+                          "byte-verbatim. A donor texture class with no measured translation "
+                          "REFUSES offline (path strips re-uv as target mains under a prescan "
+                          "budget). Beach donors need a target with a measured sand family "
+                          "(currently: desert). Composes with --size (the prescan mirrors the "
+                          "region gather).")
     wtp.add_argument("--strips-rebuild", action="store_true",
                      help="the STRIP-BAND identity rebuild (the sea5-emission proof): drop every "
                           "DECODABLE sea1 + sea5 Wang strip cell of the donor and re-derive its tiles "

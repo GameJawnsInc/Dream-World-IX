@@ -32,7 +32,7 @@ from __future__ import annotations
 import collections
 import math
 
-from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN
+from .extract import BlockMesh, CH_POS, CH_NRM, CH_UV, CH_TAN, decode_id, encode_id
 from .terrain import GRID_X, GRID_Y
 
 #: The block sub-mesh parts a coastal transplant carries, in the engine's registration order
@@ -234,6 +234,280 @@ class TileRetexture:
     def gate(self) -> dict:
         return {"gate": f"retile[{self.part}]", "applied": self.applied,
                 "expected": self.expected, "ok": self.applied == self.expected}
+
+
+class GroundRetile:
+    """Tweak class -- THE GROUND-FAMILY RETILE (the translation law over a whole carried
+    block; built for the (7,17)->desert beach island, 2026-07-15).
+
+    Rewrites the carried donor's texture classes from one ground family to another.
+    Geometry, heights and normals stay VERBATIM -- only uvs and the ``tangent.x``
+    topograph change, each class by its own byte-measured translation law (nothing is
+    synthesized; ``studies/overworld-topography/island717_retile_census.py``):
+
+    * ground MAINS (uv in the family mains rect, any grass-family gameplay topo) ->
+      the ``grassland.GROUNDS`` mains delta, topo -> the family topo  [in-game proven:
+      the full desert bench]
+    * the coastal ROCK band (uv in the wall strip, any topo) -> the ``GROUNDS`` wall
+      delta, topo unchanged  [in-game proven: the desert bench walls]
+    * the SAND band (the source family's sand topo) -> ``coastmorph.SAND_BANDS``:
+      u + the family du, v remapped over the donor's own OBSERVED pins onto the
+      target's pins (classified verts land EXACTLY on the target pin; conforming
+      verts lerp within their tier)  [offline-proven on all 15 real desert blocks]
+    * beach1 FOAM -> topo relabel only (30 <-> 34; the foam texture is universal
+      per the beach translation law)
+    * water topos and the sea parts -> byte-verbatim.
+    * PATH-STRIP RECOVER (budgeted): a walkable tri in NO measured class (the (7,17)
+      2-cell dirt path down to the beach) re-uvs as position-evaluated TARGET mains
+      (the mint's ``assign_mains`` policy) -- stock desert has no path analogue, its
+      sand back-welds DIRECTLY onto desert mains (86/111 census welds). Budgeted by
+      the factory's prescan; anything beyond refuses.
+
+    Every other tri REFUSES via the gate (part/topo/uv-bbox in the report): a donor
+    class the translation census has not measured must be studied, not guessed.
+    Build instances with :meth:`for_donor` (byte-reads the donor)."""
+
+    #: the grass gameplay-variant topographs (the families census: same look, gameplay ids)
+    GRASS_TOPOS = frozenset({0, 1, 2, 3, 10, 11, 12, 13, 42})
+    _WATER = frozenset({53, 54, 55, 56, 57})
+    _EPS = 0.006                                             # uv region-membership slack
+
+    def __init__(self, *, dst: str, src: str = "grass", sand_anchors=(),
+                 recover_cells=None, recover_budget: int = 0, expected=None):
+        from . import grassland as G
+        from . import island as I                            # lazy on the module (import cycle)
+        from . import coastmorph as CM
+        from . import islandbeach as IB
+        if dst not in G.GROUNDS:
+            raise ValueError(f"unknown ground family {dst!r} (families: {sorted(G.GROUNDS)})")
+        self.part = "terrain"                                # emission host (nothing emitted)
+        self.src, self.dst = src, dst
+        gs, gd = G.GROUNDS[src], G.GROUNDS[dst]
+        self.mains_d = (gd["mains_du"] - gs["mains_du"], gd["mains_dv"] - gs["mains_dv"])
+        self.wall_d = (gd["wall_du"] - gs["wall_du"], gd["wall_dv"] - gs["wall_dv"])
+        self.dst_topo = gd["topo"]
+        m = G.FAM_REGION["main"]
+        self.mains_rect = (m[0] + gs["mains_du"], m[1] + gs["mains_dv"],
+                           m[2] + gs["mains_du"], m[3] + gs["mains_dv"])
+        self.wall_rect = (min(I.ROCK_U) + gs["wall_du"], min(I.ROCK_V) + gs["wall_dv"],
+                          max(I.ROCK_U) + gs["wall_du"], max(I.ROCK_V) + gs["wall_dv"])
+        self.sand_src = CM.SAND_BANDS.get(src)
+        self.sand_dst = CM.SAND_BANDS.get(dst)
+        self.sand_du = (self.sand_dst["du"] - self.sand_src["du"]) \
+            if (self.sand_src and self.sand_dst) else None
+        self.sand_eps = self.sand_src["eps_v"] if self.sand_src else 0.0
+        self.sand_anchors = tuple(sorted(sand_anchors))
+        self.foam_src = IB.FOAM_TOPO.get(src)
+        self.foam_dst = IB.FOAM_TOPO.get(dst)
+        self.recover_cells = dict(recover_cells or {})
+        self.recover_budget = int(recover_budget)
+        self.expected = dict(expected or {})
+        self.n = collections.Counter()
+        self.unclassified: list = []
+
+    # -- helpers ---------------------------------------------------------------------
+    def _retag(self, tan, topo):
+        d = decode_id(int(round(tan[0])))
+        return (float(encode_id(d["event"], d["area"], topo, d["flags"])),) + tuple(tan[1:])
+
+    def _in(self, uv, rect):
+        return (rect[0] - self._EPS <= uv[0] <= rect[2] + self._EPS
+                and rect[1] - self._EPS <= uv[1] <= rect[3] + self._EPS)
+
+    def _sand_v(self, v):
+        """The donor-pins -> target-pins monotone remap: exact on pins, per-tier lerp
+        between them, unit-slope beyond the ends."""
+        A = self.sand_anchors
+        for (s, d) in A:
+            if abs(v - s) <= self.sand_eps:
+                return d
+        if v <= A[0][0]:
+            return A[0][1] + (v - A[0][0])
+        if v >= A[-1][0]:
+            return A[-1][1] + (v - A[-1][0])
+        for k in range(len(A) - 1):
+            (s0, d0), (s1, d1) = A[k], A[k + 1]
+            if s0 <= v <= s1:
+                return d0 + (v - s0) * (d1 - d0) / (s1 - s0)
+        return v                                             # unreachable (A is sorted)
+
+    def _refuse(self, part, topo, poly, cell):
+        us = [v[2][0] for v in poly]
+        vs = [v[2][1] for v in poly]
+        self.unclassified.append(dict(part=part, topo=topo, cell=cell,
+                                      uv=[round(min(us), 4), round(min(vs), 4),
+                                          round(max(us), 4), round(max(vs), 4)]))
+
+    # -- the tweak protocol ----------------------------------------------------------
+    def apply(self, part, poly):
+        if part == "beach1":
+            if self.foam_src is not None and \
+                    decode_id(int(round(poly[0][3][0])))["topograph"] == self.foam_src:
+                if self.foam_dst is None:                    # gated in for_donor; belt here
+                    self._refuse(part, self.foam_src, poly, None)
+                    return poly
+                self.n["foam"] += 1
+                return [(p, nr, uvv, self._retag(tan, self.foam_dst))
+                        for (p, nr, uvv, tan) in poly]
+            return poly
+        if part != "terrain":
+            return poly
+        topo = decode_id(int(round(poly[0][3][0])))["topograph"]
+        if topo in self._WATER:
+            return poly
+        if self.sand_src is not None and topo == self.sand_src["topo"]:
+            if not self.sand_anchors or self.sand_du is None:
+                self._refuse(part, topo, poly, None)         # sand with no readable pins
+                return poly
+            self.n["sand"] += 1
+            return [(p, nr, (uvv[0] + self.sand_du, self._sand_v(uvv[1])),
+                     self._retag(tan, self.sand_dst["topo"]))
+                    for (p, nr, uvv, tan) in poly]
+        if all(self._in(uvv, self.wall_rect) for (_, _, uvv, _) in poly):
+            self.n["wall"] += 1
+            return [(p, nr, (uvv[0] + self.wall_d[0], uvv[1] + self.wall_d[1]), tan)
+                    for (p, nr, uvv, tan) in poly]
+        cx = sum(v[0][0] for v in poly) / len(poly)
+        cz = sum(v[0][2] for v in poly) / len(poly)
+        cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
+        if topo in self.GRASS_TOPOS:
+            if all(self._in(uvv, self.mains_rect) for (_, _, uvv, _) in poly):
+                self.n["mains"] += 1
+                return [(p, nr, (uvv[0] + self.mains_d[0], uvv[1] + self.mains_d[1]),
+                         self._retag(tan, self.dst_topo))
+                        for (p, nr, uvv, tan) in poly]
+            qo = self.recover_cells.get(cell)
+            if qo is not None:
+                from . import grassland as G
+                (quad, ori) = qo
+                self.n["recovered"] += 1
+                return [(p, nr, tuple(G.ground_uv(p[0], p[2], cell, quad, ori, self.dst)),
+                         self._retag(tan, self.dst_topo))
+                        for (p, nr, uvv, tan) in poly]
+        self._refuse(part, topo, poly, cell)
+        return poly
+
+    def emit(self) -> list:
+        return []
+
+    def gate(self) -> dict:
+        det = "; ".join(f"{u['part']}:t{u['topo']}@{u['cell']} uv{u['uv']}"
+                        for u in self.unclassified[:4])
+        ok = (not self.unclassified
+              and self.n["recovered"] <= self.recover_budget
+              and all(self.n[k] == v for k, v in self.expected.items()))
+        return {"gate": f"retile[{self.src}->{self.dst}]",
+                **{k: self.n[k] for k in ("mains", "wall", "sand", "foam", "recovered")},
+                "budget": self.recover_budget,
+                "unclassified": det if det else 0, "ok": ok}
+
+    @classmethod
+    def for_donor(cls, donor, dst, *, size=(1, 1), src=None, strips="auto",
+                  extra: float = 8.0, disc: int = 1, lod: str = "0_1", game=None):
+        """Build the retile from the donor's own bytes: auto-detect the source family
+        (the sand topo is PURE per block -- the census law), byte-read the donor's sand
+        pins as the v-remap anchors, prescan the exact content :func:`transplant` /
+        :func:`transplant_region` will gather (every donor rect cell whole + the
+        REGION's outer-border ``extra`` edge bands per ``strips``, same clip planes)
+        to pre-assign the recover cells and freeze the per-class EXPECTED counts.
+        ``strips`` must MATCH the transplant call's -- the expected counts are exact."""
+        from . import coastmorph as CM
+        from . import grassland as G
+        (dbx, dby) = donor
+        (nx, ny) = (int(size[0]), int(size[1]))
+        polys = {"terrain": [], "beach1": []}
+        for p in polys:
+            for j in range(ny):
+                for i in range(nx):
+                    polys[p] += [list(t) for t in world_tris(dbx + i, dby + j, p,
+                                                             disc=disc, lod=lod, game=game)]
+        all_specs = {
+            "E": [((dbx + nx, dby + j), 0, 64.0 * (dbx + nx) + extra, True) for j in range(ny)],
+            "W": [((dbx - 1, dby + j), 0, 64.0 * dbx - extra, False) for j in range(ny)],
+            "N": [((dbx + i, dby - 1), 2, -64.0 * dby + extra, True) for i in range(nx)],
+            "S": [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)]}
+        if strips in ("auto", "all"):
+            gathered = set(all_specs)
+        elif strips in ("none", None):
+            gathered = set()
+        else:
+            gathered = {str(d).upper() for d in strips}
+            if not gathered <= set(all_specs):
+                raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of "
+                                 f"E/W/N/S -- got {strips!r}")
+        strip_specs = [spec for d in sorted(gathered) for spec in all_specs[d]]
+        for ((nx2, ny2), axis, plane, below) in strip_specs:
+            if not (0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y):
+                continue
+            for p in polys:
+                for tri in world_tris(nx2, ny2, p, disc=disc, lod=lod, game=game):
+                    cp = clip_poly(list(tri), axis, plane, below)
+                    if len(cp) >= 3:
+                        polys[p].append(cp)
+        sand_fam = CM._sand_band_family(polys["terrain"], what=f"donor {donor}")
+        if src is None:
+            src = sand_fam["name"] if sand_fam else "grass"
+        if src == dst:
+            raise ValueError(f"--ground {dst}: donor ({dbx},{dby}) is already {src} -- "
+                             f"nothing to retile")
+        if sand_fam and dst not in CM.SAND_BANDS:
+            raise ValueError(f"donor ({dbx},{dby}) carries a sand band and {dst!r} has no "
+                             f"measured sand family (SAND_BANDS: {sorted(CM.SAND_BANDS)}) "
+                             f"-- only those targets can retile a beach donor")
+        from . import islandbeach as IB
+        if polys["beach1"] and dst not in IB.FOAM_TOPO:
+            raise ValueError(f"donor ({dbx},{dby}) carries a beach1 foam part and {dst!r} "
+                             f"has no measured foam topo (FOAM_TOPO: {sorted(IB.FOAM_TOPO)})")
+        anchors = []
+        if sand_fam:
+            sfam, dfam = CM.SAND_BANDS[src], CM.SAND_BANDS[dst]
+            pin_of = {"run_land": "v_land", "run_seam": "v_seam",
+                      "cap_land": "v_cap_land", "cap_seam": "v_cap_seam"}
+            obs: dict = {}
+            for t3 in polys["terrain"]:
+                if decode_id(int(round(t3[0][3][0])))["topograph"] != sfam["topo"]:
+                    continue
+                for (_, _, uvv, _) in t3:
+                    c = CM._sand_vclass(uvv[1], sfam)
+                    if c:
+                        obs.setdefault(c, set()).add(round(uvv[1], 5))
+            anchors = sorted((v, dfam[pin_of[c]][0]) for c, vals in obs.items() for v in vals)
+            for k in range(len(anchors) - 1):
+                if anchors[k + 1][1] < anchors[k][1]:
+                    raise ValueError(f"donor sand pin remap is not monotone -- off-language "
+                                     f"pins: {anchors}")
+        # prescan: classify exactly what transplant() will pass through apply()
+        pre = cls(dst=dst, src=src, sand_anchors=anchors)
+        for p, pl in polys.items():
+            for poly in pl:
+                pre.apply(p, poly)
+        # THE WALL-CONTEXT LAW (family_wall_envelope.py, 2026-07-15): wall bands are
+        # CONTEXT-keyed, not just atlas-keyed. A donor whose walls reach the waterline
+        # (sea cliffs) can only retile to a family whose band is MEASURED coastal
+        # (grass/desert/snow); canyon's red band is interior-only in stock (0/748
+        # coastal faces -- the Forgotten's sea cliffs are topo-49 murals).
+        coastal_walls = sum(
+            1 for t3 in polys["terrain"]
+            if all(pre._in(v[2], pre.wall_rect) for v in t3)
+            and min(v[0][1] for v in t3) < 0.05)
+        if coastal_walls and G.GROUNDS[dst].get("wall_coastal") is not True:
+            why = ("is INTERIOR-ONLY in stock (0 coastal faces map-wide)"
+                   if G.GROUNDS[dst].get("wall_coastal") is False
+                   else "has no MEASURED coastal usage")
+            raise ValueError(f"--ground {dst}: THE WALL-CONTEXT LAW -- donor "
+                             f"({dbx},{dby}) has {coastal_walls} sea-cliff wall tris, "
+                             f"and the {dst} wall band {why}; a {dst} sea cliff is "
+                             f"off-language. Coastal-wall targets: "
+                             f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
+        rec = sorted({u["cell"] for u in pre.unclassified
+                      if u["part"] == "terrain" and u["topo"] in cls.GRASS_TOPOS})
+        cq, co = G.assign_mains(set(rec), seed=0xF93)
+        budget = sum(1 for u in pre.unclassified if u["cell"] in set(rec))
+        expected = {k: pre.n[k] for k in ("mains", "wall", "sand", "foam")}
+        expected["recovered"] = budget
+        return cls(dst=dst, src=src, sand_anchors=anchors,
+                   recover_cells={c: (cq[c], co[c]) for c in rec},
+                   recover_budget=budget, expected=expected)
 
 
 class PatchRecover:
@@ -1784,6 +2058,41 @@ class SeaBump:
                 "ok": self.applied == self.expected and self.folds == 0}
 
 
+def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
+                        allow=False):
+    """THE MOD-OVERWRITE GATE (2026-07-15, the dunes-islet incident): the real-target
+    gate reads STOCK data only, so a target cell already holding a PRIOR MOD DEPLOY (a
+    minted islet, an older transplant) sailed straight through and was silently
+    overwritten. Every DATA cell is checked for existing override files in the deploy
+    tree; existing files REFUSE unless the cell's ``Donor.txt`` names this deploy's OWN
+    sidecar donor (= a re-deploy/iteration of the same transplant -- the proven loop).
+    ``cell_donors`` maps world cell ``(bx, by)`` -> the sidecar donor to be written.
+    ``allow`` (the --allow-mod-overwrite flag) waives the gate deliberately."""
+    from .. import config
+    hits = []
+    redeploys = 0
+    try:
+        root = config.find_game_path(game) / mod_folder
+    except Exception:
+        root = None                              # no install resolvable: nothing to hit
+    if root is not None:
+        for (cx, cy), (sdx, sdy) in sorted(cell_donors.items()):
+            rdir = root / f"FF9_Data/WorldMap/Disc{disc}/{lod}/r{cy}"
+            prefix = f"Block[{cx}][{cy}] "
+            existing = sorted(p.name for p in rdir.iterdir()
+                              if p.name.startswith(prefix)) if rdir.is_dir() else []
+            if not existing:
+                continue
+            dt = rdir / f"{prefix}Donor.txt"
+            if dt.is_file() and dt.read_text(encoding="utf-8").strip() == f"{sdx},{sdy}":
+                redeploys += 1                   # the same transplant, iterated in place
+            else:
+                have = dt.read_text(encoding="utf-8").strip() if dt.is_file() else "?"
+                hits.append(f"({cx},{cy}) {len(existing)} files donor={have}")
+    return {"gate": "mod-overwrite", "cells": len(cell_donors), "redeploys": redeploys,
+            "existing": "; ".join(hits) if hits else 0, "ok": allow or not hits}
+
+
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
     ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
@@ -1817,7 +2126,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
-               dry_run: bool = False) -> dict:
+               allow_mod_overwrite: bool = False, dry_run: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -2109,6 +2418,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     gates.append({"gate": "census", "miss": len(cen["miss"]), "inherited": inherited,
                   "introduced": len(introduced), "samples": census_samples * census_samples,
                   "ok": not introduced})
+    gates.append(_mod_overwrite_gate(mod_folder, {(bx, by): (dbx, dby)}, disc=disc,
+                                     lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     summary = {"op": "transplant", "donor": [dbx, dby], "cell": [bx, by], "rot": rot,
@@ -2221,7 +2532,8 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
                       census_samples: int = 24, allow_real_target: bool = False,
-                      allow_object_misalign: bool = False, dry_run: bool = False) -> dict:
+                      allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
+                      dry_run: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
     ``cell``, as ONE rigid assembly -- rotated by ``rot`` about the REGION centre (a 90/270
@@ -2662,6 +2974,10 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                     bholes.append((px, pz))
     gates.append({"gate": "border-census", "holes": len(bholes), "probed": bprobed,
                   "ok": not bholes})
+    gates.append(_mod_overwrite_gate(
+        mod_folder,
+        {(bx + i, by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
+        disc=disc, lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
     # FRAME BORDER PROFILES (the cross-donor FUSE law's input, 2026-07-09): per frame edge,

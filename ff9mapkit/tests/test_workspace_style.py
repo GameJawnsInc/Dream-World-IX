@@ -1,8 +1,11 @@
 """The PySide6-FREE half of the workspace: the QSS builder. No Qt, no display (like the editor's
-headless tests). The Qt shell itself is exercised by `py apps/ff9_workspace.pyw --smoke` (offscreen)."""
+headless tests). The Qt shell itself is exercised by the --smoke run, which test_workspace_smoke.py now
+DRIVES -- for a whole round this line said "is exercised by" and nothing ran it, so the smoke sat red
+while five commits reported it green."""
 
 from __future__ import annotations
 
+from ff9mapkit import prefs
 from ff9mapkit.editor import theme
 from ff9mapkit.workspace import style
 
@@ -195,7 +198,12 @@ def test_mono_register_sets_family_only():
     # Inspect the TEMPLATE, not the rendered css: $type_mono IS "12px", so the output is byte-identical
     # whether the console hardcodes 12px or spends the token. Only the source can tell them apart.
     tmpl = style._QSS.template
-    console = tmpl.split("QPlainTextEdit")[1].split("}")[0]
+    # SPLIT ON THE RULE, NOT ON THE FIRST MATCH OF ITS NAME. This read `tmpl.split("QPlainTextEdit")[1]`,
+    # which takes whatever follows the FIRST occurrence -- so the moment a `QPlainTextEdit:focus` rule was
+    # added ABOVE the rest rule, this fence started inspecting that instead and failed on a file it does
+    # not govern. A positional slice is a line number wearing a string: it breaks when something it does
+    # not guard moves. Key it on the declaration itself.
+    console = tmpl.split("QPlainTextEdit, QTextEdit {")[1].split("}")[0]
     assert "$type_mono" in console, "the console should spend the $type_mono token, not hardcode a size"
 
 
@@ -451,7 +459,7 @@ def test_the_type_ramp_assert_actually_measures_the_type_ramp():
     import re
     css = style.qss(theme.DARK)
     assert re.search(r'role="name"[^}]*font-size:\s*26px', css), "the nameplate rung is gone or resized"
-    assert re.search(r'role="h2"[^}]*font-size:\s*16px', css), "the h2 rung is gone or resized"
+    assert re.search(r'role="head"[^}]*font-size:\s*18px', css), "the head rung is gone or resized"
 
 
 def test_only_the_nameplate_wears_the_serif():
@@ -498,3 +506,586 @@ def test_the_nameplate_outranks_the_body_it_crowns():
     glyph = int(re.search(r'role="empty_glyph"[^}]*font-size:\s*(\d+)px', css).group(1))
     rungs = [r for r in rungs if r != glyph]
     assert 26 > max(rungs), f"the nameplate must be the largest type rung; found {max(rungs)}px"
+
+
+def test_the_log_register_uses_a_weight_the_mono_face_actually_has():
+    """600, not 550 -- THE CUT LIST IS PER-FAMILY, and the console is not the app's face.
+
+    NAMEPLATE's fence encodes SEGOE UI's cuts, where 550 is the first weight reaching Semibold. The
+    console renders in the mono chain, and measured natively:
+
+        Cascadia Code (dev boxes; ships with VS / Windows Terminal)
+            550 -> a real SemiBold cut
+        Consolas      (the CLEAN-Windows fallback; ships Regular + Bold only)
+            550 -> renders BYTE-IDENTICAL to 400 -- a total no-op
+            600 -> Bold
+
+    So a weight that is a real register in one family is invisible in another, and the head/echo tiers
+    would silently flatten on exactly the machines that do not have a developer's fonts installed. 600 is
+    the first weight that lands heavier in BOTH.
+
+    Asserted as data, not by render: the suite runs offscreen, where the font DB is stubbed.
+    """
+    from ff9mapkit.workspace import shell as shell_mod
+
+    code = _code_only(shell_mod.Workspace._log)     # docstrings stripped: this one NAMES both weights
+    assert "setFontWeight(600)" in code, "the log's head/echo register must be 600 -- 550 is a no-op on Consolas"
+    assert "setFontWeight(550)" not in code, "550 renders as Regular on Consolas, the clean-Windows fallback"
+
+
+def _code_only(obj) -> str:
+    """The SOURCE of `obj` with comments AND docstrings removed.
+
+    A source-grepping fence must read CODE, not prose -- and this study has now tripped on that three
+    times, because the prose next to a rule is exactly where the rule gets NAMED. A docstring saying
+    "never appendHtml" makes a naive `"appendHtml" not in src` fail on the very file that obeys it.
+    ast.unparse drops every docstring and comment, so what is left is what actually executes.
+    """
+    import ast
+    import inspect
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(obj)))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
+
+
+def test_the_log_never_switches_the_document_to_rich_text():
+    """appendHtml is banned in the console: it flips the QTextDocument to rich text, and from then on any
+    line of raw stdout containing a `<` is eaten as markup. A build log is full of them (generics, shell
+    redirects, XML). QTextCursor + setCharFormat + insertText keeps the document plain.
+    """
+    from ff9mapkit.workspace import shell as shell_mod
+
+    assert "appendHtml" not in _code_only(shell_mod.Workspace), \
+        "appendHtml switches the console to rich text and mangles stdout"
+
+
+def test_the_hint_tier_is_never_smaller_than_the_os_thinks_text_is():
+    """QUARTO P1's floor, fenced as the RULE and not as the number 12.
+
+    The Windows system font is Segoe UI 9pt, which RESOLVES to 12px. The tier whose entire job is to teach
+    a newcomer what a control does was set to 11 -- one pixel BELOW what the OS itself calls text. That is
+    the defect the user reported ("the info/hint text in particular is pretty small") and it is the only
+    part of their report that was purely a size problem: contrast passes AA in all 8 palettes (4.59 worst)
+    and the shipped option captions average ~61 chars, inside the 45-75 band.
+
+    Fenced against 12 as a CONSTANT, deliberately, rather than against QFontInfo(app.font()) at runtime:
+    a fence that reads the developer's own machine would pass or fail depending on their Windows font
+    settings, and would go green on a box where the OS default happens to be small. 12 is Segoe UI 9pt at
+    96 DPI -- the Windows default since Vista. If a future round proves a different floor, move it here
+    WITH its receipt; do not let it drift down silently.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    for role in ("caption", "chip"):
+        m = re.search(r'QLabel\[role="%s"\][^{]*\{([^}]*)\}' % role, css)
+        assert m, f'the {role} rule is gone'
+        size = re.search(r"font-size:\s*(\d+)px", m.group(1))
+        assert size, f"the {role} rule stopped declaring a size -- it now inherits the BODY, which is bigger"
+        assert int(size.group(1)) >= 12, (
+            f'role="{role}" is {size.group(1)}px -- below the 12px Windows default. The tier that '
+            f"explains the app must not be smaller than what the OS calls text."
+        )
+
+
+def test_a_card_title_outranks_the_hint_text_inside_the_card():
+    """RUBRIC, fenced on the RELATIONSHIP -- the thing that was actually broken.
+
+    Both rules pointed at the same rung and the same colour, so a card's title was exactly the size and
+    the grey of its own footnotes; only a weight step (+4.5% of advance in Segoe) and a pixel of tracking
+    told them apart. Pinning cardtitle == 14px would not have caught that -- the bug was never the value,
+    it was that two DIFFERENT jobs resolved to ONE token. So assert the rank, in both axes.
+
+    This also fences the trap QUARTO P1 set: raising the body/caption rungs while the title stayed pinned
+    to $type_caption would have made the card title the SMALLEST text on its own card.
+    """
+    import re
+    css = style.qss(theme.DARK)
+
+    def rule(sel):
+        m = re.search(r"QLabel\[role=\"%s\"\][^{]*\{([^}]*)\}" % sel, css)
+        assert m, f"the {sel} rule is gone"
+        return m.group(1)
+
+    title, hint = rule("cardtitle"), rule("caption")
+    t_px = int(re.search(r"font-size:\s*(\d+)px", title).group(1))
+    h_px = int(re.search(r"font-size:\s*(\d+)px", hint).group(1))
+    assert t_px > h_px, f"a card's title ({t_px}px) must be LARGER than the hint inside it ({h_px}px)"
+
+    # ...and a colour step, not a weight's worth of grey. $muted resolves to the same hex in both if the
+    # title is still on the caption's colour, which is exactly the old bug.
+    t_col = re.search(r"color:\s*(#[0-9a-fA-F]+)", title).group(1).lower()
+    h_col = re.search(r"color:\s*(#[0-9a-fA-F]+)", hint).group(1).lower()
+    assert t_col != h_col, (
+        f"a card's title and its hint are both {t_col} -- the title needs a colour step, not just a size one"
+    )
+    assert t_col == theme.derive(dict(theme.DARK))["text"].lower(), "the card title should be full $text"
+
+
+def test_the_body_rung_is_a_token_so_the_card_title_cannot_drift_off_it():
+    """role="cardtitle" IS the body rung -- a relationship, not a coincidence of two 14s.
+
+    Typed as a literal in both places they drift the moment either moves, and nothing would notice: the
+    rank fence above would still pass with the title at 14 and the body at 18. The token is what makes
+    "the title is set at reading size" true by construction. (Collapsing the REMAINING literals -- 26px
+    name, 15px h3, 34px glyph, 11px badge -- onto one table is QUARTO P3, and CALIBRE is load-bearing on
+    it: _SCALES owns 3 of 8 sizes, so scaling it alone would invert the ramp.)
+    """
+    import re
+    # NB: assert against the LIVE dict, not the source text. _code_only() runs ast.unparse, which
+    # normalizes quotes to single -- so a '"type_body"' probe can never match and would fail for a reason
+    # that has nothing to do with the rule. (It did. A fence must read code, not prose -- and not the
+    # formatter's opinion of the code either.)
+    assert "type_body" in style._SCALES, "the body rung stopped being a token"
+    # the sheet must SPEND it in both places rather than repeat the number
+    body_rule = re.search(r"QWidget \{[^}]*\}", style._QSS.template).group(0)
+    assert "$type_body" in body_rule, "the QWidget base re-hard-coded its font-size"
+    card_rule = re.search(r'QLabel\[role="cardtitle"\][^{]*\{([^}]*)\}', style._QSS.template).group(1)
+    assert "$type_body" in card_rule, "the card title must BE the body rung, not merely equal it today"
+
+
+# --- QUARTO P3: the type table -------------------------------------------------------------------
+
+def test_the_sheet_hard_codes_no_type_size():
+    """QUARTO P3: every size the stylesheet sets comes from _TYPE. No exceptions, no strays.
+
+    Before P3 the ramp was split -- 3 tokens and 5 anonymous px typed into the sheet -- which is why the
+    app shipped EIGHT distinct sizes while its docs described six, and why the "?" badge sat at 11px, a
+    pixel under the OS floor, for a whole round after QUARTO P1 raised the caption rung. Nothing
+    connected them, so nothing noticed.
+
+    This is also CALIBRE's foundation and the reason P3 precedes it: a scale that reaches only _SCALES
+    would raise the hint while the body stayed frozen -- the annotation outgrowing what it annotates.
+    """
+    import re
+    strays = re.findall(r"font-size:\s*(\d+)px", style._QSS.template)
+    assert not strays, (
+        f"{len(strays)} hard-coded font-size(s) in the sheet: {strays}px. Every type size belongs in "
+        f"_TYPE -- a size the table cannot see is a size no scale can reach and no fence can check."
+    )
+
+
+def test_no_text_rung_sits_below_the_os_floor():
+    """The floor applies to the TABLE, not just to the two rules I happened to fence in QUARTO P1.
+
+    Segoe UI 9pt -- the Windows default -- resolves to exactly 12px. Nothing the user READS may sit under
+    it. type_glyph is exempt by name and says why at its site: it is an icon that happens to be drawn by
+    the font, never read as text.
+
+    Fenced against 12 as a CONSTANT rather than QFontInfo(app.font()) at runtime: a fence that reads the
+    developer's own machine passes or fails on their Windows font settings, and would go green on a box
+    where the OS default happens to be small.
+    """
+    ICON_NOT_TEXT = {"type_glyph"}
+    for name, px in style._TYPE.items():
+        if name in ICON_NOT_TEXT:
+            continue
+        assert px >= 12, (
+            f"{name} is {px}px -- below the 12px Windows default. Text the user reads must not be "
+            f"smaller than what the OS itself calls text."
+        )
+
+
+def test_the_badge_stays_a_circle_at_every_text_scale():
+    """The badge's TWO ELEVENS were never the same eleven, and this is what keeps them apart.
+
+    border-radius was 11px because it is HALF of forms_qt's 22x22 box -- the definition of a circle. The
+    font-size was 11px for entirely unrelated reasons. Welding them is the obvious refactor and it is
+    wrong in both directions: scale the glyph alone and the "?" is silently clipped (measured natively:
+    the glyph fits a frozen 22px box at 11/12 and OVERFLOWS at 13 -- and setFixedSize clips, never grows);
+    scale the box alone and the circle becomes a rounded square.
+
+    So the box is computed, and the two invariants that make it a circle are asserted at EVERY shipped
+    scale rather than pinned as a literal (the old fence asserted "border-radius: 11px" in the template
+    and broke the moment the value became correct -- it had encoded the mechanism, not the rule):
+      * the radius is exactly half the box  ->  requires the box to be EVEN, which badge_box guarantees
+      * the box never shrinks below today's 22, whatever the dial says
+    """
+    for pct in prefs.TEXT_SCALES:
+        box = style.badge_box(pct)
+        assert box % 2 == 0, f"{pct}%: badge box {box} is odd -- its radius cannot be exactly half"
+        assert box >= 2 * style.BADGE_HALF, f"{pct}%: badge box {box} shrank below the shipped 22"
+        assert box >= style.type_px("type_badge", pct) + 4, (
+            f"{pct}%: badge box {box} is too tight for a {style.type_px('type_badge', pct)}px glyph"
+        )
+    # and the sheet must SPEND the tokens rather than re-hard-code a number beside them
+    import re
+    m = re.search(r"QToolButton#conceptBadge\s*\{([^}]*)\}", style._QSS.template)
+    assert m, "the concept badge rule is gone"
+    body = m.group(1)
+    assert "$badge_radius" in body and "$badge_box" in body, (
+        "the badge's box and radius must both come from style.badge_box -- a literal beside a token is "
+        "how the circle silently becomes a squircle at the next scale"
+    )
+    # the rendered radius really is half the rendered widget box, at every scale
+    for pct in prefs.TEXT_SCALES:
+        css = style.qss(theme.DARK, "comfortable", pct)
+        rule = re.search(r"QToolButton#conceptBadge\s*\{([^}]*)\}", css).group(1)
+        radius = int(re.search(r"border-radius:\s*(\d+)px", rule).group(1))
+        content = int(re.search(r"min-width:\s*(\d+)px", rule).group(1))
+        assert radius * 2 == content + 2, (
+            f"{pct}%: radius {radius} is not half the {content + 2}px widget box (QSS min-width sizes the "
+            f"CONTENTS; the 1px border on each side makes the widget 2px wider)"
+        )
+
+
+def test_a_box_drawn_around_text_never_shrinks_below_its_shipped_size():
+    """CALIBRE may only ever GROW a pin. 24 is also the WCAG 2.5.8 target floor.
+
+    scale_px floors at the 100% value on purpose: a dial that shrank a box would clip at a setting that
+    is provably fine today, and the whole point of the floor is that 100% is the one setting nobody has
+    to re-audit.
+    """
+    for pct in prefs.TEXT_SCALES:
+        assert style.scale_px(style.CONSOLE_H, pct) >= style.CONSOLE_H, f"{pct}% shrank the console pin"
+    assert style.scale_px(style.CONSOLE_H, 100) == style.CONSOLE_H, "100% must be inert"
+    # it must actually clear the text it wraps: audited, the label outgrows a frozen 24 at 125%
+    assert style.scale_px(style.CONSOLE_H, 125) >= 26, "the console head clips its own label at 125%"
+
+
+def test_the_text_scale_is_provably_inert_at_100_percent():
+    """CALIBRE's central promise: turning the dial to its default changes NOTHING.
+
+    Not "we believe it is inert" -- the default path and the explicit-100 path must render the same
+    string, for every palette and both densities. int(px * 100/100 + 0.5) == px for every int, so this
+    holds by construction; the fence exists so a future refactor of type_px cannot quietly break the one
+    setting nobody re-audits.
+    """
+    for mode, pal in theme.THEMES.items():
+        for dens in ("comfortable", "compact"):
+            assert style.qss(pal, dens) == style.qss(pal, dens, 100), (mode, dens)
+            assert "$" not in style.qss(pal, dens, 100), (mode, dens)
+
+
+def test_every_shipped_text_scale_substitutes_cleanly():
+    """A scale that leaves a placeholder is a black screen, not a big font."""
+    for pct in prefs.TEXT_SCALES:
+        for mode, pal in theme.THEMES.items():
+            assert "$" not in style.qss(pal, "comfortable", pct), (mode, pct)
+    assert "$" not in style.qss(theme.DARK, "comfortable", 137)   # an unknown scale must not raise either
+
+
+def test_the_type_ramp_never_inverts_at_any_scale():
+    """THE REASON QUARTO P3 EXISTS, fenced.
+
+    Before the table, _SCALES owned 3 of the 8 sizes. A scale reaching only those would have raised the
+    hint while the body stayed frozen -- the annotation outgrowing the thing it annotates. That is not
+    hypothetical: it is exactly what CALIBRE would have shipped on the old code, and it is why P3 came
+    first.
+
+    Half-up rounding is what keeps this true. Python's banker's round() breaks ties toward even, and the
+    table hits exact .5 ties (h3=15 at 110% is 16.5; body=14 at 125% is 17.5) -- so round() would shrink
+    one rung and grow the next from the same tie, collapsing steps that must stay ordered.
+    """
+    for pct in list(prefs.TEXT_SCALES) + [105, 115, 137, 200]:
+        body = style.type_px("type_body", pct)
+        hint = style.type_px("type_caption", pct)
+        name = style.type_px("type_name", pct)
+        assert hint < body, f"{pct}%: the hint ({hint}) reached the body ({body}) -- the ramp inverted"
+        assert body <= name, f"{pct}%: the body ({body}) outgrew the nameplate ({name})"
+        assert style.type_px("type_head", pct) >= body, f"{pct}%: the head fell below the body"
+
+
+def test_the_scale_is_monotonic_in_every_rung():
+    """Turning the dial UP may never make any rung smaller. Half-up guarantees it; round() would not."""
+    for k in style._TYPE:
+        seen = [style.type_px(k, p) for p in sorted(prefs.TEXT_SCALES)]
+        assert seen == sorted(seen), f"{k} is not monotonic across the dial: {seen}"
+
+
+def test_the_space_around_the_text_grows_with_the_text():
+    """BREATHE. `qss()` merges {**_SCALES, **grid, **typ, **dens, ...} and for one round only `typ` was
+    passed through `type_px(k, scale)` -- so the dial grew every letter and left every gap.
+
+    MEASURED on a real section() card before this fence existed (natively, evidence/probe_breathe.py):
+
+        scale   body   card h    ink    air   air %
+         100%     14      180     80    100   55.7%
+         150%     21      216    120     96   44.6%     <- the ink grows 50%, the air SHRINKS
+
+    A 21px line in padding sized for a 14px line is not the same design at another size; it is a worse
+    design. And nobody chose it: `prefs.text_scale()` SEEDS from the Windows slider, so a user who has told
+    Windows they want 150% text gets a more cramped app on first launch without ever finding Preferences --
+    the dial degrading exactly the person it exists to help.
+
+    Asserts the MECHANISM (declarations move, monotonically), not a pixel count: the rendered widths are
+    font-derived and this suite is offscreen, where they are fiction.
+    """
+    import re
+    pal = theme.DARK
+    base = re.findall(r"(?:padding|spacing)\s*:\s*[^;]+;", style.qss(pal, "comfortable", 100))
+    for pct in sorted(prefs.TEXT_SCALES):
+        if pct == 100:
+            continue
+        now = re.findall(r"(?:padding|spacing)\s*:\s*[^;]+;", style.qss(pal, "comfortable", pct))
+        moved = sum(1 for a, b in zip(base, now) if a != b)
+        assert moved, (
+            f"at {pct}% not one padding/spacing declaration differs from 100% -- the text scaled and the "
+            f"space did not, so the app gets tighter the more a low-vision user asks for help"
+        )
+
+
+def test_the_dial_may_only_ever_grow_a_gap():
+    """The mirror of test_the_scale_is_monotonic_in_every_rung, for space. `scale_px` is floored at the
+    100% value on purpose ("a text-size dial may only ever GROW a box -- shrinking one would clip at the
+    setting that is provably fine today"), and _pad_px inherits that by construction. This is what stops a
+    rounding change from quietly tightening the app at some intermediate rung."""
+    for key in style._GRID:
+        seen = [style.space(key, "comfortable", p) for p in sorted(prefs.TEXT_SCALES)]
+        assert seen == sorted(seen), f"{key} is not monotonic across the dial: {seen}"
+        assert seen[0] == style._GRID[key], f"{key} at 100% must be the shipped grid value"
+        # AND IT MUST ACTUALLY GROW. The two asserts above are BOTH satisfied by a CONSTANT sequence, so
+        # this fence passed with BREATHE's grid half fully reverted -- `space()` returning a flat
+        # [8, 8, 8, 8] is monotonic AND correctly anchored. It was green for the exact defect it is named
+        # after. A fence for a law of the form "X must change" cannot be built only from invariants that a
+        # no-op satisfies; it needs one assertion that a no-op FAILS.
+        assert seen[-1] > seen[0], (
+            f"{key} is {seen} across the dial -- the gap never grows, so the space is not on the dial at "
+            f"all and the app gets tighter the more a low-vision user asks for help"
+        )
+
+
+def test_the_toolbar_is_exempt_from_the_dial():
+    """THE ONE PLACE PADDING MUST NOT GROW -- and it is a count, not an opinion.
+
+    Every toolbar action plus the search pill and the gear must FIT at 1280; what does not fit vanishes
+    into Qt's hidden extension chevron, which is how Ctrl-K and Preferences went invisible once already.
+    style.py's budget comment records that a 14px body cost exactly one button and `tb_space` 6->4 bought
+    it back -- "the budget is spent".
+
+    Counted natively at 1280 from the TYPE scale alone, BEFORE spacing joined the dial:
+        100% -> 15/15    110% -> 14/15    125% -> 13/15    150% -> 11/15
+    So the budget is not "spent if we grow this"; it is ALREADY overdrawn by the text. Growing toolbar
+    padding on top buys nothing: it is space around an ICON, not around prose.
+
+    ALL THREE METRICS, AND THE THIRD IS THE ONE THE COUNT FOUND. Exempting `tb_pad`/`tb_space` and
+    stopping there made the budget WORSE than before BREATHE -- because the generic `QToolButton,
+    QPushButton` rule hands every toolbar button `$btn_pad`, which SHOULD scale (it is padding around
+    prose on a card) and must not up here. One token, two jobs:
+        tb_pad/tb_space exempt only:   110% 13/15   125% 11/15   150% 10/15   <- worse than doing nothing
+        + a `QToolBar QToolButton` rule: 110% 14/15   125% 13/15   150% 11/15   <- back to the baseline
+    So BREATHE costs the toolbar exactly zero items. That is the claim this fence keeps true.
+
+    (Overflowed items stay REACHABLE -- test_toolbar_overflows_gracefully_at_narrow_width fences that.
+    The cost is discoverability, which is what style.py's budget comment is about.)
+    """
+    import re
+    pal = theme.DARK
+    for pct in sorted(prefs.TEXT_SCALES):
+        css = style.qss(pal, "comfortable", pct)
+        m = re.search(r"QToolBar \{[^}]*?padding:\s*([^;]+);[^}]*?spacing:\s*([^;]+);", css, re.S)
+        assert m, "the QToolBar rule changed shape -- this fence can no longer see the metrics it guards"
+        assert (m.group(1).strip(), m.group(2).strip()) == ("5px 8px", "4px"), (
+            f"at {pct}% the toolbar's own metrics moved to {m.groups()} -- keep them in style._NO_SCALE."
+        )
+        b = re.search(r"QToolBar QToolButton, QToolBar QPushButton \{ padding:\s*([^;]+);", css)
+        assert b, ("the toolbar's own button padding rule is gone -- without it every toolbar button "
+                   "takes $btn_pad and the dial eats ~150px of toolbar at 150%")
+        assert b.group(1).strip() == "6px 10px", (
+            f"at {pct}% the toolbar's BUTTON padding moved to {b.group(1)!r}. That is the one the count "
+            f"caught: it costs 2-3 more items and buys nothing -- an icon does not need a wider gutter "
+            f"because the body text grew."
+        )
+
+
+def test_the_ramp_has_no_dead_rungs():
+    """QUARTO P2's fence, and the one that makes the whole ramp a SCALE rather than six accreted numbers.
+
+    The shipped ramp was 26/16/15/13/12/11 -- six rungs and TWO real steps. Its ratios were 1.625 / 1.067 /
+    1.154 / 1.083 / 1.091: three of five under 1.15, which Segoe cannot draw as a hierarchy. The worst was
+    h2 vs h3 at 1.067 -- a 6.7% CAP-HEIGHT step (10.50 vs 11.20, measured natively) between two roles that
+    turned out to be doing the same job at four top-level sites.
+
+    1.15 IS A CHOSEN FENCE, NOT A MEASURED CONSTANT -- it is the rough floor below which a size step stops
+    reading as a tier and starts reading as a rounding error. It is here to be argued with, deliberately:
+    a future round may move it, but it may not drift under it by accident, which is how 15 and 16 came to
+    coexist for three rounds.
+
+    The reading ramp is caption -> body -> head -> name. type_mono is EXCLUDED (a register, not a rung: it
+    is the body size in another face, and equal by design). type_glyph and type_badge are excluded and the
+    table says why at their own entries -- a decorative icon and a glyph pinned inside a 22px circle.
+    """
+    rungs = ["type_caption", "type_body", "type_head", "type_name"]
+    sizes = [style._TYPE[r] for r in rungs]
+    assert sizes == sorted(sizes), f"the ramp is not monotonic: {dict(zip(rungs, sizes))}"
+    for lo_name, hi_name in zip(rungs, rungs[1:]):
+        lo, hi = style._TYPE[lo_name], style._TYPE[hi_name]
+        step = hi / lo
+        assert step >= 1.15, (
+            f"{lo_name}({lo}) -> {hi_name}({hi}) is a {step:.3f} step -- under 1.15 it is not a tier the "
+            f"font can draw, it is a rounding error with a name."
+        )
+    # ...and the register really is the body in another face, not a rung pretending to be one
+    assert style._TYPE["type_mono"] <= style._TYPE["type_body"]
+
+
+def test_the_head_is_one_rung_not_two():
+    """h2 and h3 are MERGED, not aliased. An alias keeps two names for one thing and invites the split to
+    grow back -- which is exactly how a "sub-h2 section title" came to describe a nesting that never
+    existed at any of its four call sites.
+    """
+    import re
+    css = style.qss(theme.DARK)
+    assert "type_h2" not in style._TYPE and "type_h3" not in style._TYPE, "the old head tokens survive"
+    for dead in ('role="h2"', 'role="h3"'):
+        assert not re.search(re.escape(dead) + r"\]\s*[,{]", css), f"{dead} still has a rule in the sheet"
+    head = re.search(r'QLabel\[role="head"\]\s*\{([^}]*)\}', css)
+    assert head, "the head rule is gone"
+    assert f"font-size: {style._TYPE['type_head']}px" in head.group(1)
+
+
+def test_no_widget_carries_a_private_font_size_the_dial_cannot_reach():
+    """The strays. QUARTO P3 put every size in one table; this stops new ones appearing beside it.
+
+    Two shipped and both were invisible to the ramp:
+      * a 15px step-number glyph, set by an INLINE widget stylesheet (one pixel over the body -- the same
+        non-tier P2 just deleted between h2 and h3);
+      * a 10px Inspector section header, set in INLINE HTML inside a rich-text QLabel -- the smallest text
+        in the app, two pixels under the Windows default, and a full rung under role="overline", which is
+        the same thing it is. No QSS role reaches HTML, so no fence or sweep could see it.
+    Both now substitute a rung at the live scale, which fixes the ramp AND the dial in one move: an inline
+    size cannot hear CALIBRE, so those two would have frozen while everything around them grew.
+
+    THIS FENCE CAUGHT ITSELF FIRST, which is the point of writing it down. Its first cut walked every
+    ast.Constant -- and a DOCSTRING is an ast.Constant, so it flagged `widgets.Prose._resolve_cap`'s own
+    prose ("The stylesheet sets `font-size: 21px`, so this is 21") as a violation. A fence must read code,
+    not prose, and a docstring is prose that happens to be stored as a string. Docstrings are stripped.
+
+    THE EXEMPTION IS RETIRED. This carried `DOC_BODIES = {"forms_qt.py"}` for one round -- its rich-text
+    document bodies (the Info Hub catalog, an entry's detail, the concept card) are HTML handed to a
+    QTextEdit, where no QSS role reaches, so they had a private ramp of 13/14/15px: the Info Hub rendered
+    at the OLD body rung and could not hear the dial. They now substitute the ramp at the live scale via
+    forms_qt._px, on the module-global the shell owns (the _GUIDED pattern), so the exemption has nothing
+    left to cover and is gone. NO FILE IS EXEMPT.
+    """
+    import ast
+    import pathlib
+    import re
+    ws = pathlib.Path(style.__file__).parent
+    bad = []
+    for py in sorted(ws.glob("*.py")):
+        if py.name in ("style.py", "hero.py"):
+            continue                     # style.py IS the table; hero.py is fenced by test_workspace_hero
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        docs = set()
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                d = n.body[0] if n.body else None
+                if isinstance(d, ast.Expr) and isinstance(d.value, ast.Constant):
+                    docs.add(id(d.value))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if id(node) in docs:
+                continue                 # a docstring is prose, not code
+            for m in re.finditer(r"font-size:\s*(\d+)px", node.value):
+                bad.append(f"{py.name}:{node.lineno} font-size:{m.group(1)}px")
+    assert not bad, (
+        "these hard-code a font size in a literal, so they sit outside the ramp AND cannot hear the "
+        f"text-size dial -- substitute type_px(rung, scale): {bad}"
+    )
+
+
+def test_no_widget_paints_a_colour_the_palette_never_chose():
+    """The sibling of the font-size fence above, for the axis that actually shipped a 1.12:1 defect.
+
+    THE PATTERN THE COLOUR SURVEY FOUND, four times over: a correct token exists and the call site ignores
+    it. `accent_fg` exists -> the chip hardcoded `#ffffff`. `error_text` exists -> sites write the raw hue.
+    `text_subtle` exists -> a `.get` fell past it in every palette. Every one of those lives in an INLINE
+    `setStyleSheet` or a QPainter call. The QSS template is clean, because `$token` substitution makes the
+    palette the only way to name a colour. Python has no such gate -- so this is it.
+
+    A hex literal in this package is one of exactly two things: an identity colour deliberately held
+    OUTSIDE the palette (the signet gold, and only hero.py owns that), or a bug. There is no third kind.
+    A palette-blind hex cannot follow a theme switch and was never measured against any of the 8 grounds.
+
+    PROSE COMES IN THREE FORMS HERE AND TWO OF THEM ARE STRINGS. A fence must read code, not writing
+    about code -- and this package stores its writing in three different ways:
+      1. a Python DOCSTRING is an ast.Constant, so it reaches this loop. The font-size fence beside this
+         one flagged its OWN prose on its first cut. Stripped by id().
+      2. a CSS COMMENT inside the QSS template is not a comment to anything but a CSS parser -- to Python
+         it is just more of the string. This fence's first cut flagged style.py's own measurement notes
+         ("dark's #4c8dff has B=255...", "resolves to text (#e6e8eb in dark) instead of muted (#a4acb5)").
+         This is the same surface as THE COMMENT-PLACEHOLDER LAW, which this study minted the hard way:
+         `string.Template` has no concept of a CSS comment either, so a `$name` inside `/* */` still
+         substitutes and still KeyErrors. Stripped by regex -- NOT by exempting style.py, which is exactly
+         where a hardcoded hex in a real rule would matter most.
+      3. a Python COMMENT is not an ast node at all, so it never arrives.
+
+    WHAT IT ALREADY CAUGHT, before it was even written: `PlaceholderListWidget(placeholder, color)` had
+    `color="#808080"` as a DEFAULT. All 3 call sites pass `pal["muted"]`, so it never fired -- dead, and
+    loaded: any 4th call site would have picked up a palette-blind grey, and the widget paints via
+    QPainter where no QSS rule and no other fence can reach. The default is gone; the parameter is
+    required.
+    """
+    import ast
+    import pathlib
+    import re
+    ws = pathlib.Path(style.__file__).parent
+    bad = []
+    for py in sorted(ws.glob("*.py")):
+        if py.name == "hero.py":
+            continue        # THE ONE EXEMPTION, and it is the whole point of the arc's identity rule:
+                            # the signet gold (#d9b45c/#8a6a1f) is deliberately NOT a palette token, so it
+                            # can never be spent twice or leak into a work surface. hero.py owns exactly 2
+                            # hexes and test_workspace_hero fences their contrast and their scarcity.
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        docs = set()
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                d = n.body[0] if n.body else None
+                if isinstance(d, ast.Expr) and isinstance(d.value, ast.Constant):
+                    docs.add(id(d.value))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if id(node) in docs:
+                continue                 # form 1: a docstring is prose, not code
+            src = re.sub(r"/\*.*?\*/", "", node.value, flags=re.S)   # form 2: a CSS comment is prose too
+            # 3, 4, 6 AND 8 DIGITS -- Qt accepts them all, and this fence's first cut only saw 6. That blind
+            # spot was hiding a real one: modelsdoc's `pal.get('border', '#444')`, which is BOTH of this
+            # round's traps at once (a default that can never fire, holding a palette-blind hex) and which
+            # also evaded the SPEND census because that grepped `background:{...}` while this hex rode on
+            # `border`. Widening the pattern took the AST walk from 0 violations to exactly 1 -- the
+            # difference between a fence that passes and a fence that works.
+            for m in re.finditer(r"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b", src):
+                bad.append(f"{py.name}:{node.lineno} {m.group(0)}")
+    assert not bad, (
+        "these paint a hex the palette never chose, so they cannot follow a theme switch and were never "
+        f"measured against any of the 8 grounds -- name a token instead: {bad}"
+    )
+
+
+def test_the_sheet_never_reads_the_developers_own_accessibility_slider():
+    """HEED's one way to poison the suite, fenced.
+
+    Round 5's audit named this exactly: "a registry-seeded default makes those tests pass or fail
+    depending on the developer's own accessibility slider". Every px fence in this file asserts a rendered
+    number, so if `qss()` ever reached for `prefs.text_scale()` instead of taking a parameter, this whole
+    file would become a report on whoever ran it.
+
+    The seam is already right and this keeps it right: `scale` is an EXPLICIT parameter defaulting to 100,
+    injected only by the app at startup. The sheet is a pure function of (palette, density, scale).
+    """
+    import ast
+    import inspect
+    src = inspect.getsource(style)
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            assert not (node.value.id == "prefs" and "text_scale" in node.attr), (
+                "style.py reached for prefs.text_scale() -- the sheet must take `scale` as a parameter, or "
+                "every px assertion in this file starts depending on the developer's Windows settings"
+            )
+    assert "prefs" not in {n.name.split(".")[0] for n in ast.walk(tree)
+                           if isinstance(n, ast.alias)}, "style.py imported prefs"
+    # the default is the inert setting, and it is a real default rather than a sentinel
+    import inspect as _i
+    sig = _i.signature(style.qss)
+    assert sig.parameters["scale"].default == 100
+    assert style.qss(theme.DARK) == style.qss(theme.DARK, "comfortable", 100)

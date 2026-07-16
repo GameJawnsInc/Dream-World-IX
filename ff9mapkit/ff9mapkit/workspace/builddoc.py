@@ -64,9 +64,9 @@ class BuildDoc(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
-        v = QVBoxLayout(inner)
-        widgets.page_margins(v)                         # the page rung (was a hand-typed 16)
-        v.setSpacing(widgets.SECTION_GAP)               # the rhythm between the raised panels (was 12)
+        v = widgets.page_column(inner)                  # the centred 860 reading column + the page rung +
+        #                                                 the card rhythm. Was a bare QVBoxLayout, so these
+        #                                                 cards stretched to the window (1102px at 1920).
         # THE CROWN, and the answer to the study's OQ#2 ("what is under the lamp on Build & Deploy?").
         # Nothing was: this screen opened straight into "Project file:" with no title at all, six cards
         # deep, and its card titles are 11px overlines -- SMALLER than the 13px body they label. The
@@ -204,11 +204,13 @@ class BuildDoc(QWidget):
         self.rb_camp_build = QRadioButton("Build only — compile every member to the campaign's dist/")
         self.cg.addButton(self.rb_camp_deploy)
         self.cg.addButton(self.rb_camp_build)
-        self.wire_newgame = QCheckBox("Wire New Game entry (experimental — off = reach the chain via a gateway, "
-                                      "or F6 → Warp on a dev build)")
+        # THE THIRD LAW: a check/radio label is a NAME (widgets.option). This was a sentence, and a
+        # QCheckBox does not word-wrap -- its minimumSizeHint IS the whole string, so it pins its card open.
+        self.wire_newgame = QCheckBox("Wire New Game entry (experimental)")
         cv.addWidget(self.rb_camp_deploy)
         cv.addWidget(self.rb_camp_build)
-        cv.addWidget(self.wire_newgame)
+        widgets.option(self.wire_newgame,
+                       "Off = reach the chain via a gateway, or F6 → Warp on a dev build.", cv)
         self.campaign_box = box
         return box
 
@@ -225,11 +227,14 @@ class BuildDoc(QWidget):
             rb.toggled.connect(self._update_journey_hint)
             jv.addWidget(rb)
         # Single mod folder: merge the whole journey into ONE FolderNames entry (one-shot deploy only)
-        self.cb_single_folder = QCheckBox("Single mod folder — merge the whole journey into ONE FolderNames "
-                                          "entry (instead of one folder per campaign)")
+        # THE THIRD LAW: a check/radio label is a NAME (widgets.option) -- this was a sentence, and a
+        # QCheckBox does not word-wrap, so its minimumSizeHint pinned the card open at the full string.
+        self.cb_single_folder = QCheckBox("Single mod folder")
         self.cb_single_folder.setToolTip("Cleaner one-folder install. Trade-off: re-deploying re-merges the "
                                          "whole journey — you lose cheap per-campaign re-deploy.")
-        jv.addWidget(self.cb_single_folder)
+        widgets.option(self.cb_single_folder,
+                       "Merge the whole journey into ONE FolderNames entry, instead of one folder "
+                       "per campaign.", jv)
         # New-Game landing: meaningful only for the one-shot deploy (single-owner) -> disabled otherwise
         self.ng_group = widgets.section("New Game landing (one-shot deploy — single-owner)")
         ngv = self.ng_group.content_layout
@@ -244,9 +249,7 @@ class BuildDoc(QWidget):
             ngv.addWidget(rb)
         self.ng_group.setEnabled(False)
         jv.addWidget(self.ng_group)
-        self.journey_hint = QLabel("")
-        self.journey_hint.setWordWrap(True)
-        self.journey_hint.setProperty("role", "caption")
+        self.journey_hint = widgets.caption("")
         jv.addWidget(self.journey_hint)
         self.journey_box = box
         return box
@@ -270,12 +273,10 @@ class BuildDoc(QWidget):
         row.addWidget(self.rev_ng)
         row.addStretch(1)
         gv.addLayout(row)
-        hint = QLabel("Single-owner: CREATES the field-70 override from stock (opening FMV preserved) and "
-                      "replaces the current New-Game landing (skips any World Hub) — works even on a clean "
-                      "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
-                      "to test.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")            # de-emphasise the jargon paragraph (smaller, quieter)
+        hint = widgets.caption("Single-owner: CREATES the field-70 override from stock (opening FMV preserved) and "   # de-emphasise the jargon paragraph (smaller, quieter)
+                               "replaces the current New-Game landing (skips any World Hub) — works even on a clean "
+                               "install or a fresh region fork. The field must already be DEPLOYED/registered. Relaunch "
+                               "to test.")
         gv.addWidget(hint)
         self.newgame_box = box
         return box
@@ -292,10 +293,8 @@ class BuildDoc(QWidget):
         self.trigger.setProperty("mono", True)   # a field id is a machine token
         self.trigger.setFixedWidth(90)
         tf.addWidget(self.trigger)
-        self.trigger_hint = QLabel("repoint a deployed field's encounter at the minted scene (only for a "
-                                   "from-scratch new scene, not a reskin/fork).")
-        self.trigger_hint.setWordWrap(True)
-        self.trigger_hint.setProperty("role", "caption")
+        self.trigger_hint = widgets.caption("repoint a deployed field's encounter at the minted scene (only for a "
+                                            "from-scratch new scene, not a reskin/fork).")
         tf.addWidget(self.trigger_hint, 1)
         bv.addLayout(tf)
         self.battle_box = box
@@ -551,11 +550,9 @@ class BuildDoc(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Package mod for sharing")
         v = QVBoxLayout(dlg)
-        hint = QLabel("Zips a BUILT mod folder (DictionaryPatch.txt + StreamingAssets/…) so unzipping next "
-                      "to FF9_Launcher.exe installs it. Build/Deploy first — pack takes the OUTPUT folder. "
-                      "For a single-folder journey, pack the deployed <game>/<merged folder>.")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("Zips a BUILT mod folder (DictionaryPatch.txt + StreamingAssets/…) so unzipping next "
+                               "to FF9_Launcher.exe installs it. Build/Deploy first — pack takes the OUTPUT folder. "
+                               "For a single-folder journey, pack the deployed <game>/<merged folder>.")
         v.addWidget(hint)
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Mod folder:"))

@@ -106,13 +106,20 @@ def test_palette_contrast_invariants():
         # four palettes shipped sub-AA on it for real: muted measured 3.87 nord / 3.91 dracula / 3.91
         # solarized-dark / 4.07 gruvbox-dark, and solarized-dark's BODY text 4.22. Every hint inside a
         # groupbox lands here, so it is not a hypothetical surface.
-        # EVERY ground a text tier can land on, not just the page. Each rung of the elevation ladder is a
-        # real surface under real text -- surface_2 is the card fill, surface_3 is the RAIL SEGMENT -- and
-        # the fence stopped one rung short: muted on surface_3 measured 3.86 (dracula) / 4.13 (dark) while
-        # this test was green. A fence that covers 3 of 4 grounds just moves the bug to the 4th.
-        for _g in ("surface_2", "surface_3"):
+        # EVERY ground a text tier can land on -- and "every" has had to be widened THREE times now, each
+        # time by a real sub-AA defect found in shipped pixels:
+        #   surface_2 (the card fill)   -- 4 palettes shipped sub-AA muted on it
+        #   surface_3 (the rail segment) -- dracula 3.86 / dark 4.13, while this test was green
+        #   surface_btn (a BUTTON, and an UNSELECTED TAB LABEL) -- solarized-light shipped muted at 4.37
+        # Each widening was written next to the sentence "a fence that covers 3 of 4 grounds just moves
+        # the bug to the 4th", and then the bug moved to the ground the list still missed. So the list is
+        # now every FILL the sheet paints text on, and adding a fill to the palette means adding it here.
+        for _g in ("surface_2", "surface_3", "surface_btn", "field"):
             assert _contrast(pal["text"], d[_g]) >= 4.5, f"{mode}: body text on {_g}"
             assert _contrast(pal["muted"], d[_g]) >= 4.5, f"{mode}: hint text on {_g}"
+        # The console is its OWN pair and was fenced against nothing: solarized-light shipped log_fg at
+        # 3.97 on log_bg -- the body text of the surface you watch during every build.
+        assert _contrast(pal["log_fg"], pal["log_bg"]) >= 4.5, f"{mode}: console body text on its own well"
         # `help` is TEXT: it labels the Info Hub button (its one and only use, as the label AND the
         # border). It was fenced against NOTHING and measured 2.97 on solarized-dark.
         assert _contrast(pal["help"], pal["bg"]) >= 4.5, f"{mode}: help text on bg"
@@ -125,7 +132,15 @@ def test_palette_contrast_invariants():
         # BUTTON LABEL ("Deploy F9", "Fork a field", "Run setup..."), which is normal text under WCAG AA.
         # At 3.0 it passed while dark measured 3.20, solarized 3.68 and nord 4.03 -- the app's primary
         # action, unreadable-by-standard, in 4 of 8 palettes, with a green fence. The floor was the bug.
-        assert _contrast(pal["accent_fg"], pal["accent"]) >= 4.5, f"{mode}: the accent BUTTON LABEL is text"
+        # ...AND IN ALL THREE OF ITS STATES. This fenced `accent` ALONE, so the :hover and :pressed rules
+        # -- which swap the FILL under the SAME ink -- were never checked: 3.48 (nord hover) and 3.56
+        # (solarized-dark pressed). The app's primary verb, sub-AA the moment you touched it, with this
+        # line green. THE FILLS come to the ink (derive()._accent_states), because measured, ONE ink for
+        # all three is impossible (black and white BOUND every ink and both fail in 4 of 8) and a
+        # per-state ink FLIPS 219-243/255 between rest and pressed. Same shape as the 3.0-vs-4.5 story
+        # this file is full of: a fence that names one ground moves the bug to the ones it did not name.
+        for _st in ("accent", "accent_hover", "accent_pressed"):
+            assert _contrast(pal["accent_fg"], d[_st]) >= 4.5,                 f"{mode}: the accent BUTTON LABEL is text, and it is still text on :{_st}"
         assert _contrast(d["focus"], pal["surface"]) >= 3.0, f"{mode}: focus ring on surface"
         assert (_luminance(pal["bg"]) < 0.5) is pal["dark"], f"{mode}: dark flag disagrees with bg luminance"
 
@@ -159,6 +174,93 @@ def test_status_hues_are_legible_as_text_via_the_derived_rung():
                 v = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
                 return [i for i, _ in sorted(enumerate(v), key=lambda x: -x[1])]
             assert _order(t) == _order(pal[hue]), f"{mode}: {hue}_text drifted out of the hue's family"
+
+
+def test_a_filled_ground_carries_its_ink():
+    """The MIRROR of the `*_text` rung above. `*_text` is a hue moved until it reads AS text ON a surface;
+    `*_fg` is the ink that reads ON the hue, when the hue is the ground.
+
+    WHAT SHIPPED WITHOUT THIS FENCE. The breadcrumb chip took a fill from its caller and hardcoded
+    `color:#ffffff` -- so the accent chip was sub-AA in 5 of 8 palettes and the BATTLE chip (a `$warn`
+    fill) in 7 of 8, bottoming out at **1.12:1** on dracula: white on pale yellow, 12px/600, on screen, on
+    every tab. Nothing could catch it, because the ink was a literal and the fill was an argument -- there
+    were never two tokens to compare.
+
+    THE BAR IS 4.5. A chip is 12px/600 and the help glyph 14px/bold; weight does not buy the large-text
+    bar (18.66px bold does). Both are normal text.
+
+    `accent_fg` IS AUTHORED, NOT DERIVED, and this fence covers it anyway -- that is the point. It is
+    hand-picked per palette and a formula reproduces only 5 of its 8 values, choosing MORE contrast than
+    the author wanted in the other 3 (dracula's `#282a36` and gruvbox's `#282828` are those projects'
+    signature backgrounds, not compromises). So the ink's ORIGIN differs per ground -- authored where
+    someone chose, derived where nobody did -- and the CONTRACT does not: whatever ink rides a fill, it
+    clears AA on it. See `_fg_token` and studies/gui-aesthetics/evidence/probe_fg_rule.py.
+    """
+    # (fill, ink) -- every FILL in the app that carries text, censused by reading each `background:{...}`
+    # in an inline setStyleSheet under workspace/. `$success`/`$error` are never fills, so they are absent:
+    # a token with no call site is the `info` mistake (derived "for now", zero consumers to this day).
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        for fill, ink in (("accent", "accent_fg"),      # the chip (7 of 8 modes) + QPushButton#accent
+                          ("warn", "warn_fg"),          # the BATTLE chip -- the 1.12:1 site
+                          ("help", "help_fg"),          # the round "?" concept button
+                          # `pressed` is a fill too -- the one nobody saw, because it is TRANSIENT: every
+                          # button in the app renders its label on it WHILE HELD. `text` measured 4.09 on
+                          # solarized-light and 4.47 on solarized-dark, in the GENERIC rule, so it was
+                          # every button in those two palettes. The ground could not move: `pressed` is a
+                          # tonal-ladder rung fenced at contrast(pressed, hover) >= 1.03, and in BOTH
+                          # failing palettes the ladder walks the OPPOSITE way to legibility -- clearing
+                          # 4.5 by retuning the fill drops solarized-light's press feedback to 1.0192,
+                          # i.e. fixes the label by making the press invisible. So the ink moved instead.
+                          ("pressed", "pressed_fg")):
+            assert _contrast(d[ink], d[fill]) >= 4.5, \
+                f"{mode}: ${ink} is sub-AA on its own ${fill} fill"
+
+
+def test_an_ink_is_never_borrowed_from_the_ground_next_door():
+    """Each fill gets ITS OWN ink. The round help button wore `accent_fg` on a `$help` fill -- two hexes
+    nothing had ever asserted were compatible, because `accent_fg` is fenced against `$accent` alone. It
+    measured 2.51:1 on nord.
+
+    This asserts the ACTUAL defect (a mismatch is sub-AA somewhere) rather than the mechanism, so it stays
+    true if the tokens are ever re-homed. It is the reason the pairing above is a table and not a habit:
+    a token that happens to work on the ground next door is a coincidence, and a coincidence is not fenced.
+    """
+    borrowed = [("help", "accent_fg"), ("warn", "accent_fg"), ("accent", "warn_fg")]
+    for fill, ink in borrowed:
+        worst = min(_contrast(theme.derive(p)[ink], theme.derive(p)[fill]) for p in theme.THEMES.values())
+        assert worst < 4.5, (
+            f"${ink} now happens to clear AA on ${fill} in all 8 palettes. That is luck, not design -- "
+            f"re-check whether these grounds still need separate inks before deleting this fence.")
+
+
+def test_the_narrowed_accent_ladder_still_gives_feedback():
+    """Pulling the state fills into the ink's band must not make the primary button DEAD.
+
+    The trade is real and it is the whole risk of narrowing: a fill dragged toward `accent` for legibility
+    stops reading as a state. So the floors are the app's OWN shipped minimums, measured across all 8
+    BEFORE anything moved -- hover/accent 1.0560 (solarized-light), press/accent 1.0670 (nord), press/hover
+    1.1821 (light). A narrowed ladder can never be quieter than the quietest one that already shipped.
+
+    THREE PALETTES CHANGE THE DIRECTION OF A STEP and that is FORCED, not chosen: `dark`'s band below the
+    accent is 0.054 wide, and holding both steps darker while keeping press/hover >= 1.1821 is provably
+    infeasible there. Where a direction has to go, the search takes the cheapest legal ladder in channel
+    distance from what shipped.
+    """
+    lo_h, lo_p, lo_ph = theme._ACCENT_FEEDBACK
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(pal)
+        a, h, p = d["accent"], d["accent_hover"], d["accent_pressed"]
+        assert _contrast(h, a) >= lo_h, f"{mode}: the accent button's HOVER is invisible ({_contrast(h, a):.4f})"
+        assert _contrast(p, a) >= lo_p, f"{mode}: the accent button's PRESS is invisible ({_contrast(p, a):.4f})"
+        assert _contrast(p, h) >= lo_ph,             f"{mode}: pressing adds nothing over hovering ({_contrast(p, h):.4f}) -- the states collapsed"
+        # in-family: a narrowed step is still the palette's own hue, never a new one
+        def _order(x):
+            x = x.lstrip("#")
+            v = [int(x[i:i + 2], 16) for i in (0, 2, 4)]
+            return [i for i, _ in sorted(enumerate(v), key=lambda t: -t[1])]
+        for name, val in (("hover", h), ("pressed", p)):
+            assert _order(val) == _order(a), f"{mode}: accent_{name} left the accent's hue family"
 
 
 def test_hover_and_pressed_give_real_feedback():
@@ -351,3 +453,93 @@ def test_a_restated_border_shorthand_never_flattens_a_lit_object():
                 f"{sel} restates `border:` (which resets per-side colour) without restating any edge "
                 f"-- it renders flat"
             )
+
+
+def test_the_selection_rail_clears_the_fill_it_sits_on():
+    """A 3:1 mark must clear the thing it is drawn ON -- and the rail sits on the TINTED fill, not the
+    plain surface.
+
+    `selection_rail` is `_focus_token` pointed at `selection_bg` rather than `surface`. Zero new math;
+    the ground is the fix. Measured: as the raw accent the rail would be 2.13 in nord and 2.87 in
+    solarized-dark -- both under the 3.0 non-text floor. Lifted, they land 3.19 and 3.13, and the other
+    six clear already and return the accent unchanged.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        got = _contrast(d["selection_rail"], d["selection_bg"])
+        assert got >= 3.0, f"{mode}: the selected row's rail is {got:.2f} on its own fill -- invisible"
+
+
+def test_selected_text_is_legible_on_the_tinted_fill():
+    """The row's LABEL now sits on `selection_bg` instead of the accent, so it is $text -- and $text must
+    clear AA on a ground that only started rendering with this change.
+
+    `selection_bg` shipped as a derived token with ZERO rules since Phase 1. This is the first time any
+    pixel has been painted with it, which means it is a NEW GROUND -- exactly the class of thing this
+    study keeps discovering after the fact (the hero's bloom, surface_btn, log_bg). Fence it on arrival.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        got = _contrast(d["text"], d["selection_bg"])
+        assert got >= 4.5, f"{mode}: a selected row's label is {got:.2f} on the tinted fill"
+
+
+def test_the_selection_cannot_be_confused_with_hover():
+    """A selected row is never confused with the PAGE. It is confused with the row under your cursor.
+
+    So `selection_bg` solves against `hover`, not `surface` -- and it measures a raw channel distance,
+    not a contrast ratio, because a ratio is the wrong instrument for this and the render proved it:
+    by contrast, hover BEATS the old fixed-16% selection in four palettes, yet rendered at 4x gruvbox's
+    selection wins decisively. Contrast is luminance-only; hover is a pure lightness step (dHue <=2.5deg,
+    dSat ~0) while a selection is a hue/chroma event (dSat up to +0.42). The ratio cannot see the axis
+    doing the work.
+
+    The floor is CALIBRATED to those renders: gruvbox reads decisively at 26, nord read marginally at 11.
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        got = max(abs(a - b) for a, b in zip(_chan(d["selection_bg"]), _chan(d["hover"])))
+        assert got >= 20, (
+            f"{mode}: the selected row is only {got}/255 from its own HOVER -- the cursor and the "
+            f"selection look the same. Contrast will not catch this; it is blind to chroma."
+        )
+
+
+def test_every_log_register_is_legible_on_the_well():
+    """The console's four registers all land on `log_bg` -- a ground that was fenced against NOTHING
+    until solarized-light shipped its own body text at 3.97 there.
+
+    `text` (the job header), `log_fg` (the command echo and the body) and `error_text` (a traceback) are
+    each authored or derived against OTHER grounds entirely, so none of them was ever checked here.
+    Worst across all 8 and all three inks: 4.99 (solarized-light).
+    """
+    for mode, pal in theme.THEMES.items():
+        d = theme.derive(dict(pal))
+        for ink in ("text", "log_fg", "error_text"):
+            got = _contrast(d[ink], d["log_bg"])
+            assert got >= 4.5, f"{mode}: the log's {ink} register is {got:.2f} on the well"
+
+
+def test_the_log_registers_cannot_be_a_tonal_ladder():
+    """WHY the log's register is WEIGHT and not a third grey -- fenced, because the reason is invisible.
+
+    `text`, `log_fg` and `muted` were each authored per-palette from their own scheme's canon with no
+    relationship to one another. They are not a ladder, and this asserts the specific counter-examples so
+    that nobody "simplifies" the weight register into a tonal one:
+
+      dracula          -- text and log_fg are BYTE-IDENTICAL (#f8f8f2): a tonal head tier is invisible
+      solarized-*      -- the order INVERTS (muted is brighter than log_fg)
+
+    Weight costs zero contrast headroom, which is why it survives in the palettes that have none.
+    """
+    d = theme.derive(dict(theme.DRACULA))
+    assert d["text"] == d["log_fg"], (
+        "dracula's text and log_fg used to be identical -- if that changed, re-check whether the log's "
+        "register could now be tonal. It is currently weight BECAUSE of this."
+    )
+    for mode in ("solarized-dark", "solarized-light"):
+        d = theme.derive(dict(theme.THEMES[mode]))
+        ordered = (_luminance(d["text"]) > _luminance(d["log_fg"]) > _luminance(d["muted"])
+                   if d["dark"] else
+                   _luminance(d["text"]) < _luminance(d["log_fg"]) < _luminance(d["muted"]))
+        assert not ordered, f"{mode}: the tiers now form a ladder -- the weight register may be revisitable"

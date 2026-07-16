@@ -171,23 +171,54 @@ def build_beach(outline, radii, center, arc, *, ground, land_height, rim,
     terrain_items = []                                   # (corners5, idall, fam_name)
     berm_cells = set()
 
-    # --- the berm (rim -> L), the island's own ground family ---
-    for k in range(ncol):
+    # --- the berm (rim -> L), the island's own ground family. Subdivided RADIALLY
+    # to ~2.2u rows: a single 4.6u quad wears ONE cell's mains map, overruns the
+    # quadrant rect and SMEARS at the bleed clamp (the in-game "stretched" berm,
+    # round 1) -- lattice-scale tris keep every map near its home cell.
+    def _lerp3(a, b, t):
+        return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]),
+                a[2] + t * (b[2] - a[2]))
+
+    nrows = max(1, int(math.ceil(max(
+        math.hypot(rim[i][0] - L[k][0], rim[i][1] - L[k][2])
+        for k, i in enumerate(idxs)) / 2.2)))            # ONE count: shared radial
+    def _berm_tri(tri):
+        if _area2(tri) < 1e-9:
+            return
+        tri = up(*tri)
+        for p in tri:
+            berm_cells.add(_cell_of(p[0], p[2]))
+        berm_cells.add(_cell_of(sum(p[0] for p in tri) / 3.0,
+                                sum(p[2] for p in tri) / 3.0))
+        terrain_items.append((tri, "berm"))
+
+    for k in range(ncol):                                # edges weld exactly
         i, j = idxs[k], idxs[k + 1]
         b0 = (rim[i][0], land_height, rim[i][1])
         b1 = (rim[j][0], land_height, rim[j][1])
-        quad = [(b0, b1, L[k]), (L[k], b1, L[k + 1])]
-        if L[k] == L[k + 1]:                             # a pinch-side degenerate
-            quad = [(b0, b1, L[k])]
-        for tri in quad:
-            if _area2(tri) < 1e-9:
-                continue
-            tri = up(*tri)
-            for p in tri:
-                berm_cells.add(_cell_of(p[0], p[2]))
-            berm_cells.add(_cell_of(sum(p[0] for p in tri) / 3.0,
-                                    sum(p[2] for p in tri) / 3.0))
-            terrain_items.append((tri, "berm"))
+        la, lb = L[k], L[k + 1]
+        if la is S[k] or lb is S[k + 1]:
+            # a PINCH column: fan from the pinch over the INNER (shared) edge's row
+            # points -- the OUTER lateral edge stays one segment and welds the
+            # transition wall quad exactly
+            if la is S[k]:                               # left pinch
+                pts = [_lerp3(b1, lb, r / nrows) for r in range(nrows + 1)]
+                _berm_tri((b0, pts[0], la))
+                for r in range(nrows):
+                    _berm_tri((la, pts[r], pts[r + 1]))
+            else:                                        # right pinch
+                pts = [_lerp3(b0, la, r / nrows) for r in range(nrows + 1)]
+                _berm_tri((pts[0], b1, lb))
+                for r in range(nrows):
+                    _berm_tri((lb, pts[r], pts[r + 1]))
+            continue
+        prev_a, prev_b = b0, b1
+        for r in range(1, nrows + 1):
+            t = r / nrows
+            cur_a, cur_b = _lerp3(b0, la, t), _lerp3(b1, lb, t)
+            for tri in ((prev_a, prev_b, cur_a), (cur_a, prev_b, cur_b)):
+                _berm_tri(tri)
+            prev_a, prev_b = cur_a, cur_b
 
     # --- the sand band (L -> S): run columns + conforming pinch triangles ---
     sand_tris = []                                       # (corners5, ...) via uv assign
@@ -424,7 +455,7 @@ def build_beach(outline, radii, center, arc, *, ground, land_height, rim,
     solid = foam + sea1_tris + sea5_tris
     sand_cover = [[((c5[0], c5[1], c5[2]), None, None, None) for c5 in corners]
                   for corners, fn in terrain_items]
-    wash_keep = wash
+    wash_keep = list(wash)
     cut = set()
     for _ in range(6):
         allc = solid + sand_cover + wash_keep
@@ -435,7 +466,32 @@ def build_beach(outline, radii, center, arc, *, ground, land_height, rim,
         if len(kept) == len(wash_keep):
             break
         wash_keep = kept
-    wash = wash_keep
+    # RAISE, DON'T DROP (round-1 playtest: the dropped taper tris left a hard
+    # straight cut in the light band at each beach side): wash tris over KEPT
+    # plane cells stay, lifted 0.02u above the sea4 plane (in-family -- stock
+    # wash spans y 0..0.195; per-tri vert entries, so no cracks) -- the wash
+    # tapers to the pinch as a FADE over deep water, the flanking arrangement.
+    kept_keys = {id(t3) for t3 in wash_keep}
+    raised = []
+    for t3 in wash:
+        if id(t3) in kept_keys:
+            raised.append(t3)
+        else:
+            raised.append([((v[0][0], max(v[0][1], SEA_Y + 0.1), v[0][2]),
+                            v[1], v[2], v[3]) for v in t3])
+    wash = raised
+    # the taper FOAM's W edge approaches y=0 asymptotically over the kept plane --
+    # the round-3 shimmer sliver; lift its low verts clear (per-tri entries, opaque
+    # ribbon: the 0.05 step is sub-visible)
+    lifted = []
+    for t3 in foam:
+        c = _cell_of(sum(v[0][0] for v in t3) / 3.0, sum(v[0][2] for v in t3) / 3.0)
+        if c in cut:
+            lifted.append(t3)
+        else:
+            lifted.append([((v[0][0], max(v[0][1], SEA_Y + 0.05), v[0][2]),
+                            v[1], v[2], v[3]) for v in t3])
+    foam = lifted
 
     # water tris must stay single-block too (lattice cells align; the zip could cross)
     wblks = {(math.floor(v[0][0] / BLOCK), math.floor(-v[0][2] / BLOCK))

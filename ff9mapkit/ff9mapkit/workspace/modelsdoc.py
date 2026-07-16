@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QGuiApplication, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
                                QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
@@ -109,7 +109,7 @@ class ModelsDoc(QWidget):
         rv.setContentsMargins(10, 0, 0, 0)
         self.d_title = QLabel("Pick a model")
         self.d_title.setTextFormat(Qt.TextFormat.PlainText)
-        self.d_title.setProperty("role", "h2")
+        self.d_title.setProperty("role", "head")
         rv.addWidget(self.d_title)
         self.d_sub = QLabel("")
         self.d_sub.setProperty("role", "muted")
@@ -120,16 +120,18 @@ class ModelsDoc(QWidget):
         self.d_img = QLabel()
         self.d_img.setFixedSize(_DETAIL_IMG, _DETAIL_IMG)
         self.d_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # BOTH of this round's traps in one expression, and it survived the SPEND census because that
+        # census grepped `background:{...}` -- this rule's background is `transparent` and the hex rode on
+        # `border`. `'border'` is in all 8 palettes, so the `.get` default could never fire (dead), and
+        # `#444` is a palette-blind grey that no theme switch can reach (loaded). Index it.
         self.d_img.setStyleSheet("background:transparent;"          # was pal.get('panel', ...) -- 'panel' is not a token
-                                 f"border:1px solid {self.pal.get('border', '#444')};border-radius:6px;")
+                                 f"border:1px solid {self.pal['border']};border-radius:6px;")
         img_row.addWidget(self.d_img)
         facts_col = QVBoxLayout()
         self.d_facts = QLabel("")
         self.d_facts.setWordWrap(True)
         facts_col.addWidget(self.d_facts)
-        self.d_notes = QLabel("")
-        self.d_notes.setWordWrap(True)
-        self.d_notes.setProperty("role", "caption")     # appearance caveats -> a small cautionary note
+        self.d_notes = widgets.caption("")   # appearance caveats -> a small cautionary note
         self.d_notes.setProperty("state", "warn")
         facts_col.addWidget(self.d_notes)
         self.d_anims = QLabel("")
@@ -155,6 +157,11 @@ class ModelsDoc(QWidget):
         rv.addStretch(1)
 
         right = QScrollArea()
+        # NoFrame like the other 7: Qt draws its own frame here otherwise, in a colour taken from the
+        # STYLE palette rather than ours -- it is in no palette, never re-tints on a theme switch, and
+        # measured #eaebee/1.011 in light and ~1.24 in the darks. Quiet, but un-chosen. 7 of 10 already
+        # set this; these were the stragglers.
+        right.setFrameShape(QFrame.Shape.NoFrame)
         right.setWidgetResizable(True)
         # vertical-only: wrappable labels + shrinkable line edits must re-flow, never clip sideways
         right.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

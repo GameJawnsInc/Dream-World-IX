@@ -7,7 +7,7 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QFont, QFontInfo, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
     QListWidget, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
@@ -32,6 +32,74 @@ SECTION_GAP = 14
 # column, no splitter). NOT to the splitter browsers (Models / Battle), where the panes are the page and
 # edge-to-edge is the convention -- an outer margin there just eats pane width.
 PAGE_PAD = style.space("space_6")
+
+
+# THE PAGE COLUMN. Home has always had one -- `body.setMaximumWidth(860)`, centred -- and the form docs
+# never did, so their cards stretched to the window: measured 640 / 1102 / 1136 at a 1920 window.
+#
+# That was invisible until COLUMN gave the hints a real measure. A correct 380px hint inside an 1102px
+# card reads at 3:1 -- a narrow ribbon stranded in a wide pane -- and the instinct is to widen the hint.
+# That instinct is wrong and the arithmetic says so: 480px reads 94 characters to the line, back over the
+# 75 ceiling. THE HINT WAS NEVER TOO NARROW; THE PAGE WAS TOO WIDE. A reading column is the fix, and the
+# app already had one and only spent it on one screen.
+#
+# 860, the same number Home uses, for the reason a shared number is better than a defensible one: the two
+# surfaces are the same kind of thing (a scrolling column of cards you read), and a page that is 860 here
+# and 900 there has no column at all -- it has two opinions.
+PAGE_W = 860
+
+
+def page_column(host):
+    """Home's centred reading column, for a form doc. Returns the layout to build the page INTO.
+
+    Replaces the bare `QVBoxLayout(inner)` the three form docs each built. The sandwich is
+    ``host -> centring row -> capped column -> your layout``, and the host still fills the scroll area
+    (``setWidgetResizable(True)`` requires that) while the column inside it does not.
+
+    THE STRETCH IS 20, NOT 4, AND HOME'S COMMENT IS THE RECEIPT -- this is a copied solution, not a
+    copied number. At 4:1:1 the column takes 4/6 of the width, which targets 435px at the 1280 default;
+    Home's was rescued only by its own 512px minimumSizeHint, which is itself propped up by
+    un-word-wrapped labels. So the moment a round wrapped those labels the column would silently collapse
+    to ~398. Factor 20 pins it to the cap as early as geometry allows: 604 at 1280, 860 from 1600.
+
+    (That trap is now LIVE for these docs and was not before: COLUMN just wrapped every hint on them.)
+    """
+    row = QHBoxLayout(host)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(0)
+    row.addStretch(1)
+    col = QWidget()
+    col.setStyleSheet("background: transparent;")   # the universal QWidget{background-color:$bg} rule would
+    #                                                 otherwise paint the page colour over the scroll's ground
+    col.setMaximumWidth(PAGE_W)
+    row.addWidget(col, 20)
+    row.addStretch(1)
+    v = QVBoxLayout(col)
+    page_margins(v)
+    v.setSpacing(SECTION_GAP)
+    return v
+
+
+def notice(text="", *, kind="", parent=None):
+    """A REPORT: something the app is telling you went wrong, or nearly did.
+
+    DICTION's other half. A notice is not a hint and the difference is not importance, it is POSTURE: a
+    hint is READ (prose you consult), a notice is GLANCED (you are interrupted by it). They had been the
+    same tier -- `role="caption"` with a `state` -- which put every error at the caption rung, in grey's
+    little sibling, breaking a law the sheet had written down four lines above the offending rule.
+
+    Body rung, state-coloured, and NEVER smaller than the field it is about. `kind` is "" / "warn" /
+    "error". Deliberately NOT capped to a measure: a notice is one line you glance at, and a wrapped
+    column would make it prose.
+    """
+    lab = QLabel(text, parent)
+    lab.setProperty("role", "notice")
+    if kind:
+        lab.setProperty("state", kind)
+    lab.setWordWrap(True)
+    if text:
+        lab.setAccessibleName(text)
+    return lab
 
 
 def page_margins(lay) -> None:
@@ -76,9 +144,16 @@ class PlaceholderListWidget(QListWidget):
     """A QListWidget that paints a muted hint while it is empty (the QLineEdit-placeholder idiom, which
     plain list views lack) -- so an empty Problems panel says what will appear there instead of sitting as
     a silent grey box. Set ``placeholder`` / ``placeholder_color`` (a '#rrggbb' string) any time; the
-    shell's retheme updates the colour."""
+    shell's retheme updates the colour.
 
-    def __init__(self, placeholder="", color="#808080", parent=None):
+    ``color`` IS REQUIRED, and used to default to ``"#808080"``. All three real call sites pass
+    ``pal["muted"]``, so that default never fired -- it was dead, and loaded: a palette-blind grey that any
+    fourth call site would have picked up silently, landing sub-AA on most of the 8 grounds. The sibling
+    law is that a defensive default whose value IS the shipped behaviour is not a default but the code; a
+    default that can never fire is the same coin's other face -- it reads as a convenience and is really an
+    unexploded one. This widget paints with QPainter, where no QSS rule and no fence can reach it."""
+
+    def __init__(self, placeholder, color, parent=None):
         super().__init__(parent)
         self.placeholder = placeholder
         self.placeholder_color = color
@@ -109,9 +184,30 @@ def role_label(text="", role="body", *, parent=None):
     return lab
 
 
-def caption(text="", *, parent=None):
-    """A small muted caption label (the 11px type role)."""
-    return role_label(text, "caption", parent=parent)
+def caption(text="", *, parent=None, width=None):
+    """THE HINT. The app's explaining tier -- and now the only way to build one.
+
+    COLUMN. This returned a bare `role_label`: no wrap, no cap, no measure. 37 sites built their hints by
+    hand instead (`QLabel(...)`, `setWordWrap(True)`, `setProperty("role", "caption")`), and a wrapped
+    QLabel with no maximumWidth takes whatever the pane hands it. Measured live on the real labels, the
+    Import hints ran **103 ch/line at a 1280 window, 198 at 1920, 314 at 2560** -- growing 1:1 with the
+    monitor, against a 45-75 band. The tier whose whole job is to explain the app to a newcomer was the
+    least readable text in it, and the wider your screen the worse it got.
+
+    Returns a :class:`Prose`, so a hint now gets all three things the hand-rolled version could not:
+      * a real measure (CAPTION_W, resolved against the CAPTION rung -- see GAUGE),
+      * the silent-clip fix (a raw setMaximumWidth on a wrapped QLabel CLIPS -- see Prose),
+      * and the text-size dial (the cap scales with the font; the column holds its character count).
+
+    NOT for a fixed-height note. `Prose` wraps, and wrapping inside a `setFixedHeight` clips -- silently.
+    The two such sites (forms_qt's overflow note and preview footer) keep bare labels ON PURPOSE and say
+    so at their own call sites.
+    """
+    p = Prose(text, CAPTION_W if width is None else width, parent, base="caption")
+    p.setProperty("role", "caption")
+    if text:
+        p.setAccessibleName(text)
+    return p
 
 
 class NameLabel(QLabel):
@@ -200,18 +296,76 @@ def card(*, parent=None):
     return frame
 
 
-# Max measure for a wrapped sentence, px. It caps a real problem: a full-window paragraph on a 1180px pane
-# runs ~200 chars/line and reads as unformatted output rather than as text somebody wrote.
+# THE MEASURE. A px cap is NOT a measure -- it is a measure only for ONE font size, which is why there are
+# two of these and why there had to be. Measured on a NATIVE font DB (offscreen stubs it and inflates
+# advances 2-3x -- that artifact is how an earlier round invented a horizontal-scroll emergency):
 #
-# HONEST RECEIPT (an earlier comment here claimed "~75-85 chars" -- that was simply wrong, and measured):
-# real prose averages 5.691 px/char at 13px Segoe UI on a NATIVE font DB, so 620px is ~109 chars/line --
-# ABOVE the classic 45-75ch band (which would be 256-427px). 620 is a deliberate compromise for a dense
-# settings pane rather than a typographic ideal, and it is the value that was reviewed and approved on the
-# Co-op tab. Narrowing it toward ~440 (~77ch) is an open design call, not a bug fix -- it re-wraps every
-# adopted caption, so it wants a look before it lands.
-# NB: measure this on the NATIVE platform only. QT_QPA_PLATFORM=offscreen stubs the font DB and inflates
-# advances 2-3x, which is how the dossier invented a horizontal-scroll emergency that never existed.
-PROSE_W = 620
+#     13px Segoe UI, real prose:  ~5.59-5.72 px/char
+#     11px Segoe UI, real prose:  ~4.73-4.84 px/char
+#
+# So ONE 620px cap is ~109 chars at 13px and ~130 at 11px: the same number is WORSE on the smaller face,
+# which is the whole receipt for splitting the token. The classic readable band is 45-75ch.
+#
+# 420, not 430: at the worst measured rate (5.72) a 430 cap lands 75.2ch and fails its own fence by a
+# fifth of a character. 420 gives 73.4-75.1. Fenced by test_prose_w_is_a_real_measure.
+PROSE_W = 420          # ...OF BODY-RUNG TEXT. See _BASE below -- that clause is the whole of GAUGE.
+
+# The 11px caption face, and DELIBERATELY still 620 -- an unchanged number, not an oversight.
+#
+# It is the value reviewed and approved on Build & Deploy and Co-op, and at 11px the real captions are
+# ~107-112 chars, so the cap does not even bind: they render as single lines and lowering it would re-wrap
+# every one of them. That is a design call needing an eye, not a bug fix -- so this phase SPLITS the token
+# (the 13px face gets its real measure) and moves the 11px face zero pixels. The receipt above is recorded
+# so a future round can act on it deliberately rather than discover it again.
+# 380, and 620 was never a measure -- COLUMN retires it. Measured on all 23 REAL caption strings, on the
+# labels the app actually builds, at the real 12px rung (rate band 5.113-5.661 px/char):
+#
+#     620px -> 121 ch/line   62% OVER the 75 ceiling, EVEN WHERE IT BINDS
+#     420px ->  82 ch        still over
+#     380px ->  74.3 ch      the widest cap that holds <=75 on EVERY real caption
+#
+# The ceiling is set by the NARROWEST rate (fewest px per char = most characters on the line), so 5.113
+# is what 380 is chosen against -- not the median, which would let the tightest strings run over.
+# 380 @ 12px holds 74.3ch; PROSE_W 420 @ 14px holds 71.9. The same posture, one rung down.
+#
+# THE 620 HAD TWO DEFENCES AND BOTH WERE FALSE. It was called "the reviewed-and-approved value" -- the
+# approval was real, but it was given to PROSE_W at 13px; LEDE cut prose to 420 and moved the 620 onto
+# the caption rung, where the same number is strictly worse, and the fence kept citing the approval for a
+# tier it was never granted to. And it was called inert ("the cap does not bind") -- true only because
+# `option()` is 3 of 37 caption sites and its strings are short. The instant a real hint is capped by it,
+# 620 renders 121 characters to the line.
+CAPTION_W = 380
+
+# GAUGE. Both numbers above are the APPROVED design and NEITHER moves here -- what changes is that they
+# stop being "420px" and become "420px OF 14px TEXT". A px cap is a measure for exactly ONE font size;
+# this module has said so, at length, since the tokens split, and then defined two px constants anyway.
+# CALIBRE's dial made the comment's own point: at 150% the letters grew and the column did not.
+#
+# THE FIX IS TO SCALE, NOT TO RE-DERIVE -- and that is not a shortcut, it is exact. Segoe's advance is
+# LINEAR in pixel size (measured 12..28px: max error 0.065%, evidence/probe_measure_rate.py), so
+#
+#       chars = (cap * k) / (rate * k) = cap / rate
+#
+# the measure in CHARACTERS is INVARIANT under scaling. Widen the column exactly as fast as the letters
+# grow and the line still holds the same number of them. Re-deriving a cap from a "characters" target
+# would instead need a calibrated rate, and every honest candidate misses 420: averageCharWidth reads
+# 5.953 at 13px, ABOVE every real string in this app (5.42-5.89), because it averages a glyph set nobody
+# types. Scaling needs no rate at all.
+#
+# THE MEASURE WAS NEVER THE DEFECT THE ROUND EXPECTED, and the numbers are worth keeping because two
+# instruments lied about them first:
+#   * A synthetic rate (the bare alphabet) said 61.9ch -- "comfortably fine". It has ONE space in 27
+#     where English has ~1 in 6, and the space is the narrowest glyph in the face, so it overstates
+#     px/char and understates the measure by ~9%.
+#   * Round 5's audit said 77.5ch -- "already out of band". True at the time, at the 13px body.
+#   Measured on the REAL strings at the REAL rung: 420px is 67.6-71.9ch. QUARTO P1 FIXED IT BY ACCIDENT:
+#   raising the body 13 -> 14 NARROWS the measure in characters, because every character got wider.
+#   And at 150% it reads 45.0ch -- exactly ON the 45 floor, passing with zero headroom, by luck.
+#
+# So GAUGE ships for the reason that survived: nothing could TELL. The old fence divided a constant by a
+# constant (WORST_13PX = 5.72, a rate from a font size the app no longer sets) and could not see the app
+# at all. The measure held at every dial setting by accident, and nobody would have known when it stopped.
+_BASE = {"prose": "type_body", "caption": "type_caption"}
 
 
 class Prose(QLabel):
@@ -226,11 +380,55 @@ class Prose(QLabel):
     natural single-line width) and throws the measure away entirely.
     """
 
-    def __init__(self, text="", width=PROSE_W, parent=None):
+    def __init__(self, text="", width=PROSE_W, parent=None, base="prose"):
         super().__init__(text, parent)
+        self._base_cap = width
+        self._base_px = style.type_px(_BASE[base], 100)   # the rung `width` was chosen against
         self._cap = width
         self.setWordWrap(True)
         self.setMaximumWidth(width)
+        self._resolve_cap()
+
+    def _resolve_cap(self):
+        """Re-resolve the px cap against the font this label is ACTUALLY wearing.
+
+        The label does not need to be told the text-size scale, and deliberately is not: it reads its own
+        polished font, so it is right no matter WHO changed the type -- the dial, a density switch, a
+        stylesheet a future round has not written yet. A cap threaded from the shell would be a second
+        source of truth for the same fact, and the two would drift the first time one of them was missed.
+
+        BOTH sources, in this order, and each covers the other's blind spot:
+
+        * ``QFont.pixelSize()`` is the EXPLICIT size. The stylesheet sets `font-size: 21px`, so this is 21
+          -- exact, and available even where the font DB is stubbed.
+        * ``QFontInfo.pixelSize()`` RESOLVES a font that carries a point size instead (the Windows system
+          font is Segoe UI 9pt and reports QFont.pixelSize() == -1). Multiply a cap by -1 and every Prose
+          in the app collapses to a negative width.
+
+        Neither alone is enough, and the discovery cost a wrong fence: under QT_QPA_PLATFORM=offscreen --
+        which is how the whole suite runs -- QFontInfo returns -1 even for a font with an explicit
+        pixelSize, because offscreen stubs the font engine QFontInfo asks. A QFontInfo-only version
+        therefore fell back to k=1.0 for every test, held the cap at 420 forever, and the fence written to
+        catch exactly that failure reported it as a pass. The harness lies about fonts; it lies here too.
+        """
+        px = self.font().pixelSize()                      # explicit (QSS px) -- survives the stub
+        if px <= 0:
+            px = QFontInfo(self.font()).pixelSize()        # resolved (a point-size font, e.g. Segoe 9pt)
+        k = px / self._base_px if px > 0 and self._base_px > 0 else 1.0
+        cap = int(self._base_cap * k + 0.5)               # k == 1.0 at 100% -> the approved px, exactly
+        if cap == self._cap:
+            return
+        self._cap = cap
+        self.setMaximumWidth(cap)
+        self.updateGeometry()
+
+    def changeEvent(self, ev):                     # noqa: N802 (Qt override)
+        # FontChange is the signal the stylesheet cannot send: QSS re-renders the sheet, Qt re-polishes
+        # the label, and THIS fires. Without it the cap would be correct only for whatever scale happened
+        # to be set when the widget was constructed -- and these are built once, at startup.
+        if ev.type() == QEvent.Type.FontChange:
+            self._resolve_cap()
+        super().changeEvent(ev)
 
     def heightForWidth(self, w):                   # noqa: N802 (Qt override)
         return super().heightForWidth(min(w, self._cap))
@@ -254,7 +452,7 @@ OPT_INDENT = 30    # the radio/checkbox TEXT column, so a caption lines up under
                    # OUTSIDE its width and the control carries its own padding.
 
 
-def option(rb, description, lay, *, width=PROSE_W):
+def option(rb, description, lay, *, width=CAPTION_W):
     """A choice is a NAME; its consequence is a caption BENEATH it, on the label's own column.
 
     The third law: never put prose inside a widget. `QRadioButton("Test slot 4003 -- quick + reversible;
@@ -270,7 +468,10 @@ def option(rb, description, lay, *, width=PROSE_W):
     """
     lay.addWidget(rb)
     if description:
-        cap = Prose(description, width)
+        # base="caption": CAPTION_W was chosen against the 12px caption rung, not the 14px body. Passing
+        # the wrong base here would not be a rounding error -- it would scale this cap by 14/12 at every
+        # setting, silently, including at 100%.
+        cap = Prose(description, width, base="caption")
         cap.setProperty("role", "caption")
         cap.setContentsMargins(OPT_INDENT, 0, 0, 6)
         lay.addWidget(cap)
@@ -363,8 +564,17 @@ def section(title, *, parent=None):
     v = QVBoxLayout(box)
     v.setContentsMargins(16, 12, 16, 16)             # the padding the fieldset never had
     v.setSpacing(10)                                 # title -> its rows
-    lab = role_label(title.upper(), "overline")
-    lab.setAccessibleName(title)                     # announce the real title, not the shouty form
+    # RUBRIC: the body rung, 600, $text -- a real size step AND a colour step over the hint text inside the
+    # card. Was role="overline" (the caption rung, $muted), which made a card's title exactly the size and
+    # colour of its own footnotes. See style.py's cardtitle rule for the full receipt.
+    #
+    # The .upper() goes with it, and the two are coupled rather than a separate taste call: uppercase +
+    # letter-spacing is an EYEBROW convention, and it works because it is small. At the body rung it reads
+    # as a shout. Measured, dropping it also makes the six longest real titles 12.7-16.2% NARROWER, so the
+    # size bump costs no width -- it pays for itself. setAccessibleName stays: it is now redundant with the
+    # visible text, which is the point -- a screen reader and the screen finally say the same thing.
+    lab = role_label(title, "cardtitle")
+    lab.setAccessibleName(title)
     v.addWidget(lab)
     # The content host is a LAYOUT, never a wrapper QWidget. The stylesheet opens with a universal
     # `QWidget { background-color: $bg; }`, so a bare QWidget in here paints the PAGE colour on top of the

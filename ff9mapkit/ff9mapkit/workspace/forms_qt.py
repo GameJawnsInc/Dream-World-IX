@@ -24,11 +24,12 @@ from PySide6.QtWidgets import (
     QWhatsThis, QWidget,
 )
 
-from . import concepts, widgets
+from . import concepts, style, widgets
 from .. import dialogue as _dlg
 from .. import infohub
 from ..content.text import DEFAULT_WRAP_WIDTH
 from ..editor import forms
+from ..editor.theme import derive
 
 # A form field whose value is a story-flag / scenario reference gets a "?" concept badge derived from its
 # KIND (so every flag/scenario field is covered without tagging each Field); an explicit Field.concept wins.
@@ -45,6 +46,33 @@ def set_guided(on):
     """Set the global Guided beginner mode read by :func:`build_form`."""
     global _GUIDED
     _GUIDED = bool(on)
+
+
+# THE RICH-TEXT RAMP. This module's document bodies -- the Info Hub catalog card, an entry's detail, the
+# concept card -- are HTML handed to a QTextEdit, and no QSS role reaches inside a text document. So they
+# had their own private type ramp, hard-typed: a 13px body (the body rung's OLD value, stale since QUARTO
+# P1 moved it to 14) with 14/15px headings that sat BELOW the app's 18px head. Two ramps, one app, and the
+# smaller one was the only place a newcomer reads at length.
+#
+# It is also the last surface deaf to CALIBRE: a widget stylesheet OUT-RANKS the application sheet and
+# survives its re-render, so the dial moved every tab and left the Info Hub at 13px.
+#
+# A GLOBAL, because this module already made that call for exactly this reason -- see _GUIDED above:
+# "not threaded through the many call sites; the shell sets it at startup + on toggle". Same shape, same
+# owner, same lifecycle. Threading a scale through build_form / CatalogPicker / every concept card would
+# be a second mechanism for one fact.
+_TEXT_SCALE = 100
+
+
+def set_text_scale(pct):
+    """Set the global text-size percent read by this module's rich-text bodies (the shell owns it)."""
+    global _TEXT_SCALE
+    _TEXT_SCALE = int(pct)
+
+
+def _px(rung):
+    """A type rung as a px int, at the live scale -- for HTML, which cannot reference a QSS token."""
+    return style.type_px(rung, _TEXT_SCALE)
 
 
 def _is_advanced(f):
@@ -65,7 +93,11 @@ def _concept_badge(term, palette):
     btn.setText("?")
     btn.setObjectName("conceptBadge")
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedSize(22, 22)          # a bigger hit target (WCAG 2.5.8); it's inline next to the field label
+    # The 22x22 box (a bigger hit target, WCAG 2.5.8) is now QSS -- style.py's conceptBadge rule pins it
+    # via min/max-width+height, keyed to style.badge_box(scale). It used to be setFixedSize(22, 22) here,
+    # which CALIBRE could not reach: a Python pin freezes the circle while the "?" inside it grows with
+    # the text (audited: the glyph overflows a frozen 22px box at 150%), and any badge built before a live
+    # scale change would keep the stale size. In QSS, one re-render moves the box and the glyph together.
     btn.setToolTip(f"What's a {c.title.lower()}?")
     btn.setAccessibleName(f"What is {c.title}")
     btn.clicked.connect(lambda: QWhatsThis.showText(QCursor.pos(), card_html, btn))
@@ -95,7 +127,14 @@ def _wrap_preview_panel(line_edit, get_text, wrap_width):
     # fixed-height box on the way back. A constant-height panel can't reflow.
     note = QLabel("")
     note.setProperty("role", "caption")            # muted by default; state='warn' colours the overflow line
-    note.setFixedHeight(16)
+    # 18, not 16: QUARTO P1 moved the caption rung 11 -> 12 and this pin was the wall it hit. A 12px Segoe
+    # line box is 15.94px against the old 16 -- it "fits" with 0.06px to spare, i.e. one hinting or DPI
+    # nudge from clipping its own descenders, silently, in the panel that reports overflow. (At 11px it had
+    # 1.39px; at 13px it clips outright by 1.27.) The height is FIXED on purpose -- see above, a
+    # constant-height panel cannot reflow and clip the box behind it -- so the number has to be raised by
+    # hand rather than released. 18 restores ~2px of headroom at the new rung. If the body/caption rungs
+    # ever move again this is a real blocker, not a warning: it is checked by test_workspace_forms.
+    note.setFixedHeight(18)
     pv.addWidget(note)
 
     def refresh(*_):
@@ -143,7 +182,11 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
     lay.setHorizontalSpacing(14)
     lay.setVerticalSpacing(12)                         # 4pt-grid rhythm: field -> field
     getters = {}
-    hints = {}                                         # field key -> its hint QLabel (help text / live error)
+    hints = {}                                         # field key -> its HINT (the help; constant, teaches)
+    notes = {}                                         # field key -> its NOTICE (the live error; reports)
+    #                                                    Two dicts because they are two jobs -- see DICTION
+    #                                                    at the call site below. One label used to be both,
+    #                                                    and the error ate the help.
     editable = []                                      # (key, widget) for wiring change -> validate + on_change
     # Guided mode: expert fields go into an 'Advanced options' drawer (a second form layout) instead of inline.
     adv_lay = None
@@ -222,12 +265,20 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             v.addLayout(row)
         else:
             v.addWidget(widget)
-        hint = QLabel(f.help or "")                    # always present (hidden if no help) so a live error
-        hint.setWordWrap(True)                          # has somewhere to show
-        hint.setProperty("role", "caption")             # muted 11px; state='error' turns it red in validate()
+        # DICTION: TWO labels, because they are two different things and one of them was eating the other.
+        # The HINT teaches ("a unique number for your field (use >= 4000)") and is always on screen. The
+        # NOTICE reports ("expected a whole number, got 'abc'") and only appears when it has something to
+        # say. They used to be ONE label: validate() overwrote the help with the error and only restored it
+        # once the value parsed -- so the sentence telling you what a valid value LOOKS like vanished at
+        # exactly the moment you were failing to type one. Proven live, not inferred.
+        hint = widgets.caption(f.help or "")
         v.addWidget(hint)                               # PARENT it BEFORE setVisible: setVisible(True) on a
         hint.setVisible(bool(f.help))                   # parentless widget flashes a top-level window (Windows)
         hints[f.key] = hint
+        note = widgets.notice("")                       # the body rung -- an error is never smaller than
+        v.addWidget(note)                               # the field it is about (see style.py's notice rule)
+        note.setVisible(False)
+        notes[f.key] = note
         editable.append((f.key, widget))
         if f.key in DIALOGUE_KEYS and hasattr(widget, "textChanged"):
             v.addWidget(_wrap_preview_panel(widget, getters[f.key], wrap_width))
@@ -252,26 +303,30 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
         lay.addRow(adv_box)                                   # the Advanced drawer spans, below the plain fields
 
     def validate():
-        """Live per-field check: a value that fails its parser turns the hint red with the error; an OK
-        field shows its normal help. Returns the count of invalid fields."""
+        """Live per-field check: a value that fails its parser raises a NOTICE under the field; the help
+        stays put either way. Returns the count of invalid fields.
+
+        THE HINT IS NEVER TOUCHED HERE, and that is the fix. This used to `h.setText(f"⚠ {e}")` -- one
+        label doing two jobs, so the error DESTROYED the teaching and only gave it back once the value
+        parsed. The help said "use >= 4000"; type "abc" and it vanished, which is the only moment it was
+        load-bearing. Now the help is a constant and the notice is the variable.
+        """
         bad = 0
         for f in spec:
             if f.kind == forms.BOOL:
                 continue
-            h = hints[f.key]
+            n = notes[f.key]
             try:
                 forms._parse_field(f.kind, getters[f.key]())
             except ValueError as e:
-                h.setText(f"⚠  {e}")
-                h.setProperty("state", "error")         # -> the red caption[state=error] rule
-                widgets.repolish(h)
-                h.setVisible(True)
+                n.setText(f"⚠  {e}")
+                n.setProperty("state", "error")         # -> the notice[state=error] rule, at the body rung
+                widgets.repolish(n)
+                n.setVisible(True)
                 bad += 1
                 continue
-            h.setText(f.help or "")
-            h.setProperty("state", "")                  # back to the muted caption default
-            widgets.repolish(h)
-            h.setVisible(bool(f.help))
+            n.setText("")
+            n.setVisible(False)                         # a notice with nothing to report says nothing
         return bad
 
     def on_field_change():
@@ -458,11 +513,11 @@ def _hub_help_html() -> str:
                    for k in order if k in _HUB_HELP)
     return (
         "<div style=\"font-family:'Segoe UI';\">"
-        '<div style="font-size:15px;"><b>Info Hub — the catalog</b></div>'
+        f'<div style="font-size:{_px("type_head")}px;"><b>Info Hub — the catalog</b></div>'
         "<p>Everything you can place in a field or reference by <b>name</b>, grouped into sections. Pick a "
         "section on the left, search within it, and select an entry to see its details on the right.</p>"
-        '<p style="font-size:14px;"><b>Sections</b></p>' + rows +
-        '<p style="font-size:14px;"><b>Using an entry</b></p>'
+        f'<p style="font-size:{_px("type_body")}px;"><b>Sections</b></p>' + rows +
+        f'<p style="font-size:{_px("type_body")}px;"><b>Using an entry</b></p>'
         "<p><b>Copy name</b> — paste into a form's catalog field (an NPC's <code>archetype</code>, a prop's "
         "<code>prop</code>, …).</p>"
         "<p><b>Copy snippet</b> — paste a ready-to-edit <code>field.toml</code> block straight into a field.</p>"
@@ -482,6 +537,13 @@ class CatalogLibrary(QDialog):
         self.setWindowTitle("Info Hub — catalog library")
         self.resize(900, 580)
         self.plan = plan
+        # DERIVE AT THE DOOR. The shell hands us its RAW palette (`CatalogLibrary(self, self.plan,
+        # self.pal, ...)`), so a derived key -- `help_fg`, below -- is simply not in it and would raise.
+        # derive() is idempotent and documented safe on a base OR an already-derived dict, so one call
+        # here makes every token reachable and nothing downstream has to know which kind it holds. This is
+        # the alternative to the `pal.get("derived_key", pal["raw_key"])` idiom, whose fallback fires 100%
+        # of the time and quietly renders the wrong tier forever.
+        palette = derive(dict(palette))
         self.pal = palette
         self.sps_context = sps_context                     # {label: sps_dir} of the open project's carried effects
         self._entries = []
@@ -522,7 +584,7 @@ class CatalogLibrary(QDialog):
         # the app's global QSS renders QTextEdit as a monospace CONSOLE; the detail pane is PROSE -> give it a
         # readable proportional font on the normal surface (the snippet <pre> stays monospace by its tag).
         self.detail.setStyleSheet(
-            f"QTextEdit {{ font-family:'Segoe UI'; font-size:13px; background:{palette['surface']}; "
+            f"QTextEdit {{ font-family:'Segoe UI'; font-size:{_px('type_body')}px; background:{palette['surface']}; "
             f"color:{palette['text']}; border:1px solid {palette['border']}; border-radius:8px; padding:8px; }}")
         rv.addWidget(self.detail, 1)
         bar = QHBoxLayout()
@@ -540,10 +602,18 @@ class CatalogLibrary(QDialog):
         self.blender_btn.setEnabled(False)
         helpb = QPushButton("?")
         helpb.setToolTip("What's in the Info Hub? (glossary + how to use it)")
-        helpb.setFixedSize(30, 30)                         # a circular violet badge -- pops out from the
-        helpb.setStyleSheet(                               # neutral Copy/Close buttons (a distinct 'info' hue)
-            f"QPushButton {{ background:{palette['help']}; color:{palette['accent_fg']}; border:0; "
-            f"border-radius:15px; font-weight:bold; font-size:15px; }}"
+        # A circular violet badge -- it pops out from the neutral Copy/Close buttons (a distinct 'info' hue).
+        # The box and its radius are a GEOMETRIC pair (radius = half the box = a circle, not a squircle) and
+        # they stay pinned here; only the GLYPH joins the ramp. Its 15px was a private number one rung under
+        # the app's head, and deaf to the dial like everything else in this module's widget stylesheets.
+        helpb.setFixedSize(30, 30)
+        # `help_fg`, not `accent_fg`. This wore the ACCENT's ink on the HELP fill -- two hexes nothing had
+        # ever asserted were compatible, because `accent_fg` is fenced against `$accent` alone
+        # (test_editor_theme::test_the_accent_button_label_is_text). Measured on nord it lands 2.51:1, a
+        # sub-AA glyph. A token borrowed from the ground next door is not a token, it is a coincidence.
+        helpb.setStyleSheet(
+            f"QPushButton {{ background:{palette['help']}; color:{palette['help_fg']}; border:0; "
+            f"border-radius:15px; font-weight:bold; font-size:{_px('type_body')}px; }}"
             f"QPushButton:hover {{ background:{palette['help_hover']}; }}")
         helpb.clicked.connect(self._show_help)
         close = QPushButton("Close")
@@ -664,7 +734,7 @@ class CatalogLibrary(QDialog):
 
     def _render(self, d) -> str:
         muted = self.pal["muted"]
-        h = [f'<div style="font-size:15px;"><b>{_esc(d.name)}</b> '
+        h = [f'<div style="font-size:{_px("type_head")}px;"><b>{_esc(d.name)}</b> '
              f'<span style="color:{muted};">[{_esc(d.kind)}]</span></div>']
         if getattr(d, "preview_png", None):
             # the preview LEADS -- a model page's animation list can run hundreds of entries, and an
@@ -723,7 +793,7 @@ class CatalogLibrary(QDialog):
         body = QTextEdit()
         body.setReadOnly(True)
         body.setStyleSheet(
-            f"QTextEdit {{ font-family:'Segoe UI'; font-size:13px; background:{self.pal['surface']}; "
+            f"QTextEdit {{ font-family:'Segoe UI'; font-size:{_px('type_body')}px; background:{self.pal['surface']}; "
             f"color:{self.pal['text']}; border:1px solid {self.pal['border']}; border-radius:8px; padding:10px; }}")
         body.setHtml(_hub_help_html())
         v.addWidget(body, 1)
