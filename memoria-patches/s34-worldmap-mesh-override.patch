@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
-index 75cf50e5..4a5064ae 100644
+index 75cf50e5..251ecafb 100644
 --- a/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 +++ b/Assembly-CSharp/Global/WM/WMWorld/WMWorld.cs
 @@ -494,7 +494,17 @@ public class WMWorld : Singleton<WMWorld>
@@ -72,7 +72,7 @@ index 75cf50e5..4a5064ae 100644
          if (prefab.ObjectForm2)
              RegisterBlockComponent(block, prefab.ObjectForm2, false, true);
          if (prefab.TerrainForm2)
-@@ -733,6 +780,19 @@ public class WMWorld : Singleton<WMWorld>
+@@ -733,6 +780,34 @@ public class WMWorld : Singleton<WMWorld>
          copy.localPosition = Vector3.zero;
          copy.localScale = new Vector3(1f, 1f, 1f);
          Mesh mesh = copy.GetComponent<MeshFilter>().sharedMesh;
@@ -88,11 +88,26 @@ index 75cf50e5..4a5064ae 100644
 +            MeshFilter mf = copy.GetComponent<MeshFilter>();
 +            if (mf != (UnityEngine.Object)null)
 +                mf.sharedMesh = ff9Override;
++            // DWIX (custom smooth ocean): if a loose custom texture exists for this cell+part (e.g. a continuous
++            // water gradient), render this sub-mesh with a CLONED material using that texture instead of the shared
++            // stock material -- a custom ocean becomes a seamless gradient, no discrete tile shades. Cell-scoped.
++            Texture2D custTex = Memoria.World.WorldMeshOverride.TryLoadTexture(
++                this.currentDisc, block.InitialX, block.InitialY, transform.name);
++            if (custTex != (UnityEngine.Object)null)
++            {
++                MeshRenderer mr = copy.GetComponent<MeshRenderer>();
++                if (mr != (UnityEngine.Object)null && mr.sharedMaterial != (UnityEngine.Object)null)
++                {
++                    Material m = new Material(mr.sharedMaterial);   // keep the sea shader; swap the texture
++                    m.mainTexture = custTex;
++                    mr.material = m;
++                }
++            }
 +        }
          if (form1)
          {
              block.AddWalkMeshForm1(mesh);
-@@ -745,6 +805,32 @@ public class WMWorld : Singleton<WMWorld>
+@@ -745,6 +820,32 @@ public class WMWorld : Singleton<WMWorld>
          }
      }
  
@@ -125,7 +140,7 @@ index 75cf50e5..4a5064ae 100644
      private IEnumerator LoadBlockAsync(Int32 disc, WMBlock block)
      {
          this.loadingInBackground = true;
-@@ -1060,6 +1146,19 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1060,6 +1161,19 @@ public class WMWorld : Singleton<WMWorld>
          String arg = String.Format("Block[{0}][{1}]f", 12, 0);
          String name = String.Format("WorldMap/Prefabs/WorldDisc{0}/r{1}/{2}", 1, 0, arg);
          this.SeaBlockPrefab = AssetManager.Load<GameObject>(name, false);
@@ -145,7 +160,7 @@ index 75cf50e5..4a5064ae 100644
          this.DetectUnseenBlocks();
          for (Int32 y = 0; y < 20; y++)
          {
-@@ -1135,7 +1234,14 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1135,7 +1249,14 @@ public class WMWorld : Singleton<WMWorld>
                  {
                      if (wmblock.IsSea)
                      {
@@ -161,7 +176,7 @@ index 75cf50e5..4a5064ae 100644
                          wmblock.IsReady = true;
                      }
                      else if (this.BackgroundLoadingCount < FF9StateSystem.World.MaximumLoadAsynce)
-@@ -1945,6 +2051,21 @@ public class WMWorld : Singleton<WMWorld>
+@@ -1945,6 +2066,21 @@ public class WMWorld : Singleton<WMWorld>
  
      public GameObject SeaBlockPrefab;
  
@@ -185,10 +200,10 @@ index 75cf50e5..4a5064ae 100644
      private GlobalFog _globalFog;
 diff --git a/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
 new file mode 100644
-index 00000000..5a7bbc22
+index 00000000..004e7080
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/World/WorldMeshOverride.cs
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,223 @@
 +using System;
 +using System.IO;
 +using UnityEngine;
@@ -305,6 +320,41 @@ index 00000000..5a7bbc22
 +                catch (Exception ex)
 +                {
 +                    Log.Error("[WorldMeshOverride] failed Donor.txt " + full + ": " + ex.Message);
++                    return null;
++                }
++            }
++            return null;
++        }
++
++        // DWIX (custom smooth ocean): load a loose custom TEXTURE (PNG) for a block sub-mesh, e.g. a continuous
++        // shallow->deep water GRADIENT for the reclaimed cell's Sea mesh. RegisterBlockComponent uses it to build a
++        // per-cell cloned material -> a custom ocean can be a seamless gradient instead of the stock discrete tiles.
++        // Same folder search + key as TryLoad, but a ".png" decoded via Texture2D.LoadImage. Absent -> null (stock).
++        public static Texture2D TryLoadTexture(Int32 disc, Int32 x, Int32 y, String part)
++        {
++            if (AssetManager.FolderHighToLow == null)
++                return null;
++            String rel = AssetManagerUtil.GetResourcesAssetsPath(true) + "/"
++                + String.Format("WorldMap/Disc{0}/0_1/r{1}/Block[{2}][{3}] {4}", disc, y, x, y, part) + ".png";
++            foreach (AssetManager.AssetFolder folder in AssetManager.FolderHighToLow)
++            {
++                if (folder == null || String.IsNullOrEmpty(folder.FolderPath))
++                    continue;
++                String full = folder.FolderPath + rel;
++                if (!File.Exists(full))
++                    continue;
++                try
++                {
++                    Texture2D tex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
++                    tex.LoadImage(File.ReadAllBytes(full));   // Unity decodes the PNG + resizes
++                    tex.wrapMode = TextureWrapMode.Repeat;
++                    tex.name = "[ff9tex] " + part;
++                    Log.Message("[WorldMeshOverride] loaded texture '" + part + "' from " + full);
++                    return tex;
++                }
++                catch (Exception ex)
++                {
++                    Log.Error("[WorldMeshOverride] failed texture " + full + ": " + ex.Message);
 +                    return null;
 +                }
 +            }
