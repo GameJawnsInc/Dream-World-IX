@@ -54,7 +54,7 @@ from .importdoc import ImportDoc
 from .mapview import CampaignMap
 from .savedoc import ItemEquipDoc, StoryStateDoc
 from .style import qss, space
-from . import thumbs as _thumbs
+from . import thumbs as _thumbs, widgets
 from . import anim
 from . import concepts
 from . import icons
@@ -927,9 +927,7 @@ class Workspace(QMainWindow):
         body.setWordWrap(True)
         lay.addWidget(body)
         if concept.engine_term:
-            aside = QLabel(f"Under the hood: {concept.engine_term}")
-            aside.setWordWrap(True)
-            aside.setProperty("role", "caption")
+            aside = widgets.caption(f"Under the hood: {concept.engine_term}")
             aside.setContentsMargins(0, 4, 0, 0)
             lay.addWidget(aside)
         lay.addStretch(1)
@@ -1606,12 +1604,10 @@ class Workspace(QMainWindow):
         v.addWidget(self._start_box)
         # 'Try it now' reassurance -- closes the first-10-minutes arc (fork → deploy → play) for a nervous
         # newcomer: trying a fork in-game is a safe, reversible sandbox.
-        self._start_footer = QLabel("Once you've forked a field, press <b>F9</b> to try it in your game — it "
-                                    "deploys to a safe test slot and backs up first, so you can explore "
-                                    "without risk.")
-        self._start_footer.setWordWrap(True)
+        self._start_footer = widgets.caption("Once you've forked a field, press <b>F9</b> to try it in your game — it "
+                                             "deploys to a safe test slot and backs up first, so you can explore "
+                                             "without risk.")
         self._start_footer.setTextFormat(Qt.TextFormat.RichText)
-        self._start_footer.setProperty("role", "caption")
         self._start_footer.setContentsMargins(0, 2, 0, 0)
         v.addWidget(self._start_footer)
         # Recent projects -- rebuilt on every Home show (see _refresh_home_status); hidden while empty.
@@ -6320,10 +6316,8 @@ class Workspace(QMainWindow):
         self._set_editor_tab("Cutscene")
         _raw_cs = doc.data.get("cutscene")
         if isinstance(_raw_cs, list) and len(_raw_cs) > 1:   # the [[cutscene]] dispatch: the form edits block 0
-            note = QLabel(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
+            note = widgets.caption(f"⚠ This field has {len(_raw_cs)} [[cutscene]] scenes (the story dispatch). "
                           f"This form edits scene #1 — edit the others in the TOML.")
-            note.setWordWrap(True)
-            note.setProperty("role", "caption")
             self.doc_host_lay.addWidget(note)
         form, getters = build_form(forms.CUTSCENE_SPEC, forms.entity_to_values(forms.CUTSCENE_SPEC, cs()),
                                    self.pal, pick=self._pick, wrap_width=self._wrap_width(member),
@@ -6350,9 +6344,7 @@ class Workspace(QMainWindow):
         value_text.setFixedHeight(64)
         value_text.setToolTip("Line break: press Enter, or type \\n.   New window: type [PAGE].")
         value_text.setVisible(False)
-        hint = QLabel("")
-        hint.setWordWrap(True)
-        hint.setProperty("role", "caption")
+        hint = widgets.caption("")
         actor_line = QLineEdit()                   # the per-step actor tag (a cast member drives this step)
         actor_line.setPlaceholderText("blank = sole cast member / narration voice")
         actor_line.setToolTip("Which cast member (an `actors` name or \"player\") this step drives / speaks "

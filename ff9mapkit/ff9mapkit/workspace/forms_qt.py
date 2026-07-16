@@ -233,9 +233,7 @@ def build_form(spec, values: dict, palette: dict, pick=None, wrap_width=DEFAULT_
             v.addLayout(row)
         else:
             v.addWidget(widget)
-        hint = QLabel(f.help or "")                    # always present (hidden if no help) so a live error
-        hint.setWordWrap(True)                          # has somewhere to show
-        hint.setProperty("role", "caption")             # muted 11px; state='error' turns it red in validate()
+        hint = widgets.caption(f.help or "")                    # always present (hidden if no help) so a live error   # muted 11px; state='error' turns it red in validate()
         v.addWidget(hint)                               # PARENT it BEFORE setVisible: setVisible(True) on a
         hint.setVisible(bool(f.help))                   # parentless widget flashes a top-level window (Windows)
         hints[f.key] = hint

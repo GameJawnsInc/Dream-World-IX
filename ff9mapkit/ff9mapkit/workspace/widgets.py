@@ -109,9 +109,30 @@ def role_label(text="", role="body", *, parent=None):
     return lab
 
 
-def caption(text="", *, parent=None):
-    """A small muted caption label (the 11px type role)."""
-    return role_label(text, "caption", parent=parent)
+def caption(text="", *, parent=None, width=None):
+    """THE HINT. The app's explaining tier -- and now the only way to build one.
+
+    COLUMN. This returned a bare `role_label`: no wrap, no cap, no measure. 37 sites built their hints by
+    hand instead (`QLabel(...)`, `setWordWrap(True)`, `setProperty("role", "caption")`), and a wrapped
+    QLabel with no maximumWidth takes whatever the pane hands it. Measured live on the real labels, the
+    Import hints ran **103 ch/line at a 1280 window, 198 at 1920, 314 at 2560** -- growing 1:1 with the
+    monitor, against a 45-75 band. The tier whose whole job is to explain the app to a newcomer was the
+    least readable text in it, and the wider your screen the worse it got.
+
+    Returns a :class:`Prose`, so a hint now gets all three things the hand-rolled version could not:
+      * a real measure (CAPTION_W, resolved against the CAPTION rung -- see GAUGE),
+      * the silent-clip fix (a raw setMaximumWidth on a wrapped QLabel CLIPS -- see Prose),
+      * and the text-size dial (the cap scales with the font; the column holds its character count).
+
+    NOT for a fixed-height note. `Prose` wraps, and wrapping inside a `setFixedHeight` clips -- silently.
+    The two such sites (forms_qt's overflow note and preview footer) keep bare labels ON PURPOSE and say
+    so at their own call sites.
+    """
+    p = Prose(text, CAPTION_W if width is None else width, parent, base="caption")
+    p.setProperty("role", "caption")
+    if text:
+        p.setAccessibleName(text)
+    return p
 
 
 class NameLabel(QLabel):
@@ -221,7 +242,24 @@ PROSE_W = 420          # ...OF BODY-RUNG TEXT. See _BASE below -- that clause is
 # every one of them. That is a design call needing an eye, not a bug fix -- so this phase SPLITS the token
 # (the 13px face gets its real measure) and moves the 11px face zero pixels. The receipt above is recorded
 # so a future round can act on it deliberately rather than discover it again.
-CAPTION_W = 620
+# 380, and 620 was never a measure -- COLUMN retires it. Measured on all 23 REAL caption strings, on the
+# labels the app actually builds, at the real 12px rung (rate band 5.113-5.661 px/char):
+#
+#     620px -> 121 ch/line   62% OVER the 75 ceiling, EVEN WHERE IT BINDS
+#     420px ->  82 ch        still over
+#     380px ->  74.3 ch      the widest cap that holds <=75 on EVERY real caption
+#
+# The ceiling is set by the NARROWEST rate (fewest px per char = most characters on the line), so 5.113
+# is what 380 is chosen against -- not the median, which would let the tightest strings run over.
+# 380 @ 12px holds 74.3ch; PROSE_W 420 @ 14px holds 71.9. The same posture, one rung down.
+#
+# THE 620 HAD TWO DEFENCES AND BOTH WERE FALSE. It was called "the reviewed-and-approved value" -- the
+# approval was real, but it was given to PROSE_W at 13px; LEDE cut prose to 420 and moved the 620 onto
+# the caption rung, where the same number is strictly worse, and the fence kept citing the approval for a
+# tier it was never granted to. And it was called inert ("the cap does not bind") -- true only because
+# `option()` is 3 of 37 caption sites and its strings are short. The instant a real hint is capped by it,
+# 620 renders 121 characters to the line.
+CAPTION_W = 380
 
 # GAUGE. Both numbers above are the APPROVED design and NEITHER moves here -- what changes is that they
 # stop being "420px" and become "420px OF 14px TEXT". A px cap is a measure for exactly ONE font size;
