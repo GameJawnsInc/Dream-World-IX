@@ -53,11 +53,29 @@ the original field's tuned behavior. This is the set that makes a forked field p
 |---|---|
 | `s22-debug-menu-f6.patch` | The F6 in-game debug menu (Warp / Move / Cheats / Flags / Time, in field + battle) **plus a `World` tab on the overworld**: live pos/cell/block/topograph/disc/vehicle readout, vehicle-mode swap (`gEventGlobal[190]` + `w_movementChange`), disc 1↔4 switch, a Disable-control toggle, and a working **teleport** (the fix defeats Memoria's `SmoothFrameUpdater_World` reverter via `Skip`, see `../ff9mapkit/docs/OVERWORLD_ENGINE.md`). The Flags tab has a **Batch** box: many bit/byte/word writes in one click (`1520 !1423 b191=5 w0=7200`), all-or-nothing validated, with the live text + named one-click presets persisted via PlayerPrefs — multi-flag warp-in recipes (e.g. the Chocobo Hot & Cold one) stop being seven manual round-trips. The Go tab also has a **Reload + anims** button beside Reload field: it clears the static `AnimationClipReader.LoadedClips` cache before reloading so a re-deployed loose `.anim` (the model animation-edit loop) shows without a full relaunch — Reload field alone keeps the cached clip. A tester convenience; the beta bundle includes it, but it is not part of the fork-fidelity set or the upstream-candidate set. |
 
-## ⚠ STACK HEALTH — the stable drift is recaptured; s37 + the in-flight set are still open (2026-07-15)
+## ✅ STACK HEALTH — the stack replays END TO END again (2026-07-16)
 
-Emitting `s38` forced a full replay of the stack from `BASE_COMMIT` for the first time in a while (round 1,
-below). A follow-up recapture (round 2) then closed every *stable* gap it found, corrected three of its
-diagnoses, and scoped what is left.
+**`base + s22..s39` applies at ZERO fuzz, ZERO rejects, ZERO `.orig`** under the documented
+`patch -p1 -F0 -s -f --binary`. The whole stack reaches the end — the first time it has.
+
+**THE MODEL IS DECIDED: `s12`/`s18`/`s21` are DEAD — never applied.** (User call, 2026-07-16.) They are
+three early drafts of one feature: s18 = "F6 reloads the field" (in `FieldMap.cs`); s21 = the same idea moved
+to `UIKeyTrigger.cs` because the first spot missed keypresses, plus F10 = reset flags; **s22 = the finished
+tabbed F6 menu that replaced both**. `s12` is an unrelated grab-bag (an overlay texture cache that later
+*became* `s35`, a retired New-Game debug shortcut, and the `Attack9999` auto-cheat).
+
+Why the question existed at all: later patches carried instructions to **undo** them (s37 removed s21's F6/F10
+block and s12's `Attack9999`), so the stack added code and then took it back out — **the engine is identical
+either way**, and the only question was whether the recipe takes the detour. Dead wins on evidence: applying
+s12 **collides with s35** (it still contains all 14 of s35's lines byte-for-byte), it would resurrect the
+retired New-Game debug, and nothing in s22 removes s18's F6 hotkey (so the raw hotkey and the menu would both
+grab F6). The fix was to strip the orphaned removals from s37 — done, and that is what closed the stack.
+
+⚠ **Consequence — do not "restore" s12/s18/s21 casually.** They are kept for the build record ONLY. The live
+set no longer contains anything that removes their code, so applying one now injects code nothing takes out.
+
+Two rounds got here (below): round 1 (during `s38`) found the drift; round 2 (2026-07-16) captured every
+*stable* gap, corrected three of round 1's diagnoses, and stripped s37.
 
 **REPAIRED — s22 was contaminated.** Its csproj hunk added `Memoria\Netsync\NetSyncClient.cs` and
 `NetSyncSocket.cs` — s36's lines, in the F6-debug-menu patch (leaked in by an earlier regen emitted
@@ -114,12 +132,21 @@ mid-stack patch cannot reverse against live — later patches sit on top of its 
 mid-stack patch are: forward-applies at its stack position at zero fuzz; its files are `cmp`-identical to
 live after a full replay; and forward+reverse returns the tree to its pre-patch state.
 
+**RESOLVED — `s37` now applies.** It had failed on 3 files because it carried **orphaned removals** of
+s12/s21 code that a clean replay never adds. Stripped (`SettingsState` −6→−1, `UIKeyTrigger` −34→−0, csproj
+−2→−0); everything s37 owns is untouched (all four new-file bodies byte-identical). Proof the removals were
+no-ops: with only its real `SettingsState` hunk applied, the file is **already byte-identical to live**. The
+regen also shed a **phantom near-total rewrite** of the Netsync files (`NetSyncClient` `+1048/−652` on a 1052-line
+file → `+419/−23`): s37 had been diffed against the LF live tree while s36 produces CRLF. Third instance of
+that trap. Round 1 never caught any of this — it only ever verified `s22..s36`.
+
 **OPEN — deliberately deferred, not forgotten:**
 | Item | Why deferred |
 |---|---|
-| `s37` **does not apply** to a clean replay | It carries stale **removals** of superseded s18/s21 content (the `Attack9999` auto-enable, the F6/F10 hotkey block) and of the s22 csproj duplicates repaired in round 1. End state converges; s37 needs regenerating. Round 1 never caught this — it only ever verified s22..s36. |
 | the `s22`→`s34` csproj line move | `Assembly-CSharp.csproj` is being actively written by the in-flight B3 diorama work. s22 still carries s34's `WorldMeshOverride.cs` Compile line — misattributed, load-bearing, flagged (unchanged from round 1). |
-| `s38` + B3 diorama files (`NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs`) | Uncommitted work in progress in the **shared** engine clone (`C:\gd\FFIX\Memoria` is shared, not per-worktree). Capturing a moving tree would bake half-finished work into the stack. |
+| `SetControlToLeader` / `DebugClearControl` live in **s37** | They are *called* by **s22** (F6 menu) and **s39** (self-heal) — dev-tooling and overworld depending on the battle-co-op patch for a symbol. They belong in **s22** (earliest consumer); `claude/great-williams-4052f0` already places them there. Fold when the csproj settles. |
+| B3 diorama files (`NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs`, `NetSyncClient` +4, the csproj `Diorama` line) | Uncommitted work in progress in the **shared** engine clone (`C:\gd\FFIX\Memoria` is shared, not per-worktree). Capturing a moving tree would bake half-finished work into the stack. **The B3 session plans to emit these — note `s39` is now TAKEN by the self-heal, so B3 lands at `s40`.** |
+| the 6 EOL-only `Memoria/Netsync/*.cs` | Live is LF, patch writes CRLF; content identical. Left LF because B3 is mid-edit in that folder. Normalize with the B3 emit. |
 | `Global/Field/Map/Actor/FieldMapActorController.cs` | The known regression — **user decision pending**. Live is **byte-identical to pristine base**: the s24/s29 gates were not partially lost, the file was reverted wholesale, so the **shipped DLL has no fork gates here at all** (Iifa 1751, Dali 404, Prima Vista 205/Steiner off-mesh exemptions). Do not silently re-add or drop. |
 
 **The exact residue** (measured: `base + s22..s39`, forcing s37+s38 on and discarding their 3 known-bad
