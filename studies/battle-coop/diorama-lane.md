@@ -304,7 +304,7 @@ battle suppressed" (corruption).
 - **Boot's catch called `Leave()`** → now DISCARDS the bracket (nothing has scribbled yet; applying it
   would write stale state for no reason).
 
-## B3.2 — THE MIRRORED PARTY (design settled 2026-07-15; adversarially verified)
+## B3.2 — THE MIRRORED PARTY ★ BUILT 2026-07-15 (design adversarially verified; bench pending)
 
 ### THE SCRATCH-PARTY IS DEAD — not risky, structurally impossible
 A battle actor's identity is a **`Byte`**, not a pointer: `btl_init.cs:378` stamps
@@ -392,6 +392,25 @@ trap as the old `failsafe=OK`. So the bench needs **TWO** markers:
   (`ParseSections` has one production caller, `HonoluluFieldMain.cs:135`), so an unconditional Clear
   wipes a real host mirror on every diorama exit.
 - **PASS = the impostor's model in slot 0 AND the HUD reads BENCH at level 99.** Both, or it proved half.
+
+### BUILT — what landed
+- **`NetSyncDiorama.MirrorHostParty()`**, hooked at **`InitBattleScene`'s top** (upstream of both
+  consumers). No-op unless `Active && _havePartySnapshot && NetSyncParty.MirrorActive` — with no host
+  data the guest's own party stands, i.e. B3.1 behaviour.
+- **The private-indexer problem, solved transitively:** `FF9Play_New` indexes the **private**
+  `CharacterParameterList[slotId]`, which we cannot guard from outside — but `FF9Play_Init` builds
+  `FF9.player` **from** it (`ff9play.cs:65-73`), so the key sets are identical *by construction* and
+  `ff9.player.ContainsKey(id)` covers it. (`FF9Play_New` also mutates `ff9.player[id]` in place, so the
+  scratch must be installed **first**.)
+- **The bench** — `NetSyncParty.SelfTestMirror` + a `SlotSource` seam; armed in **`Start`**, gated on
+  `IsSelfTestRole`; `Clear()` on Disarm selftest-gated.
+
+### Bench PASS / FAIL — read both markers
+| Result | Meaning |
+|---|---|
+| Impostor's model in slot 0 **and** HUD reads **BENCH** at **lv 99** | **PASS** — seat *and* carry |
+| Your own slot-0 character stands there | **FAIL (seat)** — the apply never ran |
+| The impostor stands there under **its own name/level** | **FAIL (carry)** — the seat landed, the field writes did not |
 
 ### Known fidelity gap (a wire question, not a safety one)
 The wire carries no SA data, so the scratch's `mpCostFactor`/limits/SA re-derive from an empty
