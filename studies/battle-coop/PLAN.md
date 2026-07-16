@@ -393,7 +393,10 @@ don't pair.
    guest's save is provably untouchable.** Ladder: B3.0 containment → B3.1 boot+return → B3.2 mirrored
    party (carry `basis`, NOT `max`) → B3.3 enemies → B3.4 truth → B3.5 action playback → B3.6 UI merge.
    Choke point = `SBattleCalculator.CalcResult:310`.
-   **★ B3.0/B3.1/B3.2/B3.3 ALL SOLO PROVEN (2026-07-15/16); wire v8 CUT.** B3.3 shipped the boot block
+   **★★ THE DIORAMA IS TWO-MACHINE PROVEN 2026-07-16 — host battles PULL THE GUEST IN** (B3.0-B3.3;
+   en route: the B3.3b silent-chain telemetry + gate relaxation, and B3.3c's TICK-BASELINE LAW —
+   TickCount wraps negative at 24.86 d uptime; the 25-day laptop was the whole two-machine failure).
+   Known cosmetic: the F6 opt-out replays the intro once (filed, not chased). B3.3 shipped the boot block
    ON the type-1 header (latest-slot, not the recon's FIFO frame — late-join free, staleness = the
    close signal, a nonce for chained fights) + the guest watcher (`[Netsync] Diorama`, default on) +
    `debugStartType`/`isRandomEncounter` carried and bracketed. En route: the diorama never arms gMode

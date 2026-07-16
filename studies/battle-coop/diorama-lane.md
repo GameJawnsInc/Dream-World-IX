@@ -268,7 +268,14 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   from the static `BattleParameterList`. The real build is `btl_init.OrganizePlayerData` (`:369-488`).
   `serial_no` itself is DERIVED (NCalc over equip[0]) and force-recomputed after every battle/equip/load
   — redundant on the wire given equip[5].
-- **B3.3 — enemies. ★ SOLO PROVEN 2026-07-16 (wire v8).** All five solo boxes passed first try:
+- **B3.3 — enemies. ★★ TWO-MACHINE PROVEN 2026-07-16** (after B3.3b telemetry + B3.3c tick-baseline
+  fix, DLL `128C7B5C60569FC8`): **"the diorama works! host battles pull the guest in now"** — the
+  authoritative-host battle headline: the host enters a fight and the FOLLOWING guest's screen fades
+  into the same battle, live. Known cosmetic bug, FILED not chased (user: meatier features first):
+  the F6 opt-out replays the battle intro once — suspects = a ≥2 s lane blip clearing the skip-nonce
+  (`!live` resets it) or a host-side `InOwnBattle` flap bumping the nonce mid-fight (the watcher
+  would leave-and-reboot itself); the guest log now narrates every boot, so a captured log names it.
+  Solo tier had passed all five boxes first try:
   `btlFields=ok` in the containment selftest; the wire bench booted a visibly PRE-EMPTIVE diorama
   (`parsed map=0 pat=0 start=FIRST rand=1 nonce=77 -> boot`) while the plain Boot's normal layout
   stood as the A/B; Leave clean; and a real selftest encounter put the ENCODER's boot block on the
