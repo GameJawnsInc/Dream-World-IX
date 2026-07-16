@@ -356,11 +356,25 @@ carefully avoided. **Total by construction.**
   existing `party.member` array (`BattleHUD.cs:2641` writes into it). Wire into `ForceDisarm()`, gated on
   `Booted`, never `Active`.
 
-### RUNG 2.5 FIRST — the bracket before the apply
+### RUNG 2.5 — the bracket before the apply ★ BUILT 2026-07-15 (selftest pending)
 The diorama bracket covers gil/battle_no/kill-counters and **nothing about the party**, and
 **`Role=selftest` has NO save guard at all** (`IsMirroringStory` needs a socket, so the autosave block,
 the manual-save block and the ENCOUNT gates never fire) — on the very machine the bench runs on.
 **Extend the bracket — or add an explicit save block on `NetSyncDiorama.Booted` — BEFORE any apply.**
+
+**BUILT (no apply yet — the net exists before anything can fall onto it):**
+- `SnapshotParty()` at Arm / `RestoreParty()` at Disarm — the four `party.member[]` **references**, plus
+  `RememberOriginalPlayer(id)` for the apply to call immediately before `ff9.player[id] = scratch`
+  (**first-write-wins**, so a re-entrant apply can never bury the real object behind a scratch).
+  Restore is idempotent and safe when the apply never ran (the maps are simply empty).
+- **The save block on `Booted`** — `EventEngine`'s autosave ladder + `SaveLoadUI`. **Not redundant:**
+  every other save guard keys on `IsMirroringStory`, which needs a live socket, so `Role=selftest` —
+  the mode the diorama is benched in — has **none of them armed**.
+- **A selftest that can FAIL:** it takes a real PLAYER, records `cur.hp` + the `saExtended` count, runs a
+  full swap-and-restore over it, then asserts **both** `refs=ok` (reference identity restored, i.e. the
+  swap undid) **and** `untouched=ok` (the real object was never written through). Reference identity
+  alone would pass even if we had mutated-and-restored — the probe is what proves the reference bracket
+  is buying what it was chosen for.
 
 ### The solo bench — "the impostor slot", and why the obvious bench is vacuous
 A loopback that mirrors the guest's **own** party makes a correct apply **invisible** — the same vacuous
