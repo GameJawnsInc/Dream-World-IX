@@ -312,7 +312,17 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   `btl_list` or they get no texture animation (`BattleTexAnimWatcher.Update`); spawn after
   `CreateBattleRoot` (`:176`) and always pass `isBattle:true` or `ModelFactory.cs:199` silently
   skips parenting.)*
-- **B3.4 — drive the truth. ★ BUILT 2026-07-16 (DLL `76D672AF81CCF689`), solo bench pending.**
+- **B3.4 — drive the truth. ★ SOLO PROVEN 2026-07-16 (DLL `1DF72621C60C82EA`).** The state bench
+  passed whole: CARNAGE killed every enemy (poses + fades) **with the battle simply standing** — the
+  phase-flipper proof — and the party panel read **HP 123 / MP 45 / half ATB / trance glow** on slot
+  0; RESTORE stood everyone back up through the real revive lane, UI never blinking (ATB 0 after
+  restore is the fabricated frame's own value — a live wire re-drives it in 150 ms). En route the
+  bench FOUND **R7**: `btl_sys.CheckForecastMenuOff` on last-enemy-dead hides the battle HUD ahead
+  of a victory transition the diorama doesn't have, and nothing re-enables it (the enable is a
+  one-shot at the PHASE_NORMAL flip) — gated at the definition, which also fences the AutoSplitter
+  win signal (the audit's R6 note) for free. Spectate-panel regression passed (dead units now show
+  KO instead of vanishing — better). **Two-machine pending**: the host's live fight driving the
+  guest's actors (HP under damage, kills, trance, revives, hidden/submerged enemies).
   Recon = workflow `wf_9eeb1bc2-c3a` (13 agents, 4 CONFIRMED / 2 CORRECTED / 0 REFUTED; **full
   verified record = `b34-recon.md`**). The BUILD verify pass (2 more agents) then killed two of my
   own deviations before the DLL: **(1) the missing-as-dead sweep REFUTED** — it contradicted the
