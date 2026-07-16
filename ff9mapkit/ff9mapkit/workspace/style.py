@@ -133,14 +133,41 @@ _SCALES = {
 }
 
 
-def space(key: str, density: str = "comfortable") -> int:
+def space(key: str, density: str = "comfortable", scale: int = 100) -> int:
     """The 4px grid as an int, for Qt layout calls (``setContentsMargins`` / ``setSpacing``).
 
     QSS gets the same numbers via :data:`_SCALES`; this is the only way a layout can share them, since
     ``QLayout`` is not styleable. Keeps this module Qt-free -- it returns an ``int``, not a QMargins.
+
+    ``scale`` is the text dial, and it belongs here for the same reason it belongs in the sheet: SPACE IS
+    PART OF TYPE. A 21px line in padding sized for a 14px one is not the same design at a different size,
+    it is a worse design. Measured before this existed: at 150% a card's ink grew 50% and its air grew
+    0px, taking it from 56% whitespace to 45%.
     """
     grid = _GRID_COMPACT if density == "compact" else _GRID
-    return grid[key]
+    return scale_px(grid[key], scale)
+
+
+# THE TOOLBAR DOES NOT SCALE, AND THIS IS MEASURED RATHER THAN ARGUED. Its metrics are the one place in
+# the sheet where padding competes with a hard constraint: every action plus the search pill and the gear
+# must FIT at 1280, and what does not fit disappears into Qt's hidden extension chevron -- which is how
+# Ctrl-K and Preferences went invisible once already.
+#
+# Counted natively at 1280 (evidence/probe_breathe.py), from the TYPE scale alone, before spacing joined:
+#     100% -> 15/15      110% -> 14/15      125% -> 13/15      150% -> 11/15
+# The budget is not "spent if we grow this" -- it is ALREADY spent, by the text. Growing tb_pad/tb_space
+# on top would take more items for no legibility gain: toolbar padding is space around an ICON, not
+# around prose, so it buys nothing at the setting a low-vision user actually turned the dial for.
+_NO_SCALE = ("tb_pad", "tb_space", "tb_btn_pad")
+
+
+def _pad_px(value: str, scale: int = 100) -> str:
+    """Scale a CSS padding shorthand -- "6px 10px" -> "9px 15px" at 150%.
+
+    Per-COMPONENT, because a shorthand is 1-4 independent lengths and they scale independently. Uses
+    scale_px, so it inherits the floor-at-100% rule: the dial may only ever GROW a box.
+    """
+    return " ".join(f"{scale_px(int(p.removesuffix('px')), scale)}px" for p in value.split())
 
 # UI density -- two profiles for the control paddings/spacings that set how tight the app reads. Comfortable
 # (the default) matches the proven layout, with one deliberate "more whitespace" nudge: roomier tree/list
@@ -150,11 +177,13 @@ def space(key: str, density: str = "comfortable") -> int:
 _DENSITY = {
     "comfortable": {
         "tb_pad": "5px 8px", "tb_space": "4px", "btn_pad": "6px 10px",   # 6 -> 4: QUARTO P1's body bump
+        "tb_btn_pad": "6px 10px",                        # == btn_pad at 100%, but exempt from the dial
         "input_pad": "6px 9px", "combo_pad": "4px 8px", "row_pad": "6px 8px",
         "tab_pad": "7px 16px", "menu_pad": "6px 22px",
     },
     "compact": {
         "tb_pad": "3px 6px", "tb_space": "4px", "btn_pad": "4px 8px",
+        "tb_btn_pad": "4px 8px",
         "input_pad": "4px 7px", "combo_pad": "3px 7px", "row_pad": "3px 4px",
         "tab_pad": "5px 12px", "menu_pad": "5px 16px",
     },
@@ -175,6 +204,19 @@ _QSS = Template(
        4px, so this is a rung the app owns, not a new number. If a future round grows the body again:
        15px loses two items and tightening does NOT recover them -- the budget is spent. */
     QToolBar { background: $surface; border: 0; border-bottom: 1px solid $border; padding: $tb_pad; spacing: $tb_space; }
+    /* A TOOLBAR BUTTON IS NOT A CARD BUTTON, and one token was doing both jobs. btn_pad (no dollar --
+       THE COMMENT-PLACEHOLDER LAW, and writing THIS comment tripped its fence for the 7th time) is
+       padding around PROSE on a card, where it must grow with the dial, AND padding around an ICON up
+       here, where it must not. Exempting tb_pad/tb_space alone did not hold: the generic rule above hands
+       every toolbar button btn_pad, so at 150% each grew 6px 10px -> 9px 15px -- +10px across x15 items,
+       ~150px of toolbar. COUNTED, which is the only reason this rule exists: exempting the toolbar's own
+       two metrics and stopping there made the budget WORSE than before BREATHE:
+           tb_pad/tb_space exempt only:   110% 13/15   125% 11/15   150% 10/15
+           ...plus this rule:             110% 14/15   125% 13/15   150% 11/15  (= the type-only baseline)
+       Descendant selector = specificity (0,0,0,2), which out-ranks the generic (0,0,0,1) and loses to
+       #gear / #search (0,1,0,1) -- both of which already pin their own literal padding, so they are
+       untouched either way. */
+    QToolBar QToolButton, QToolBar QPushButton { padding: $tb_btn_pad; }
     QToolBar::separator { background: $border; width: 1px; margin: 5px 4px; }
     /* INTAGLIO -- one light, from above. A RAISED object catches the light on its top edge and shades its
        foot. The fill cannot say "this is a button" (LIGHT's surface_btn IS surface, contrast 1.0000), so
@@ -799,8 +841,18 @@ def qss(palette: dict, density: str = "comfortable", scale: int = 100) -> str:
     ``space("space_2", density)`` must be the same number, or one name quietly means two things -- 8px in
     the sheet and 6px in a layout -- which is the exact class of drift this grid exists to end.
     """
-    dens = _DENSITY.get(density, _DENSITY["comfortable"])
-    grid = {k: f"{v}px" for k, v in (_GRID_COMPACT if density == "compact" else _GRID).items()}
+    # BREATHE -- the space scales with the text, because SPACE IS PART OF TYPE. These two dicts used to be
+    # the only ones `scale` could not reach: `typ` went through type_px and `grid`/`dens` did not, so the
+    # dial grew every letter and left every gap. Measured on a real section() card: at 150% the ink grew
+    # 50% and the air grew 0px (56% whitespace -> 45%); btn_pad against its own label halved. And nobody
+    # opted in to that -- prefs.text_scale() SEEDS from the Windows slider, so a user who told Windows they
+    # want 150% text gets a MORE cramped app on first launch, without ever finding Preferences.
+    #
+    # `_NO_SCALE` exempts the toolbar; see its comment for the count that decided it.
+    dens = {k: (v if k in _NO_SCALE else _pad_px(v, scale))
+            for k, v in _DENSITY.get(density, _DENSITY["comfortable"]).items()}
+    grid = {k: f"{space(k, density, scale)}px"
+            for k in (_GRID_COMPACT if density == "compact" else _GRID)}
     # CALIBRE: the type table at `scale` percent. At 100 this is provably inert -- int(px * 100/100 + 0.5)
     # == px for every int -- so the default path renders byte-identical to a sheet with no scale at all,
     # and that is fenced rather than asserted. Scaling here (not per-rule) is what makes it impossible to

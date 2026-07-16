@@ -791,6 +791,92 @@ def test_the_scale_is_monotonic_in_every_rung():
         assert seen == sorted(seen), f"{k} is not monotonic across the dial: {seen}"
 
 
+def test_the_space_around_the_text_grows_with_the_text():
+    """BREATHE. `qss()` merges {**_SCALES, **grid, **typ, **dens, ...} and for one round only `typ` was
+    passed through `type_px(k, scale)` -- so the dial grew every letter and left every gap.
+
+    MEASURED on a real section() card before this fence existed (natively, evidence/probe_breathe.py):
+
+        scale   body   card h    ink    air   air %
+         100%     14      180     80    100   55.7%
+         150%     21      216    120     96   44.6%     <- the ink grows 50%, the air SHRINKS
+
+    A 21px line in padding sized for a 14px line is not the same design at another size; it is a worse
+    design. And nobody chose it: `prefs.text_scale()` SEEDS from the Windows slider, so a user who has told
+    Windows they want 150% text gets a more cramped app on first launch without ever finding Preferences --
+    the dial degrading exactly the person it exists to help.
+
+    Asserts the MECHANISM (declarations move, monotonically), not a pixel count: the rendered widths are
+    font-derived and this suite is offscreen, where they are fiction.
+    """
+    import re
+    pal = theme.DARK
+    base = re.findall(r"(?:padding|spacing)\s*:\s*[^;]+;", style.qss(pal, "comfortable", 100))
+    for pct in sorted(prefs.TEXT_SCALES):
+        if pct == 100:
+            continue
+        now = re.findall(r"(?:padding|spacing)\s*:\s*[^;]+;", style.qss(pal, "comfortable", pct))
+        moved = sum(1 for a, b in zip(base, now) if a != b)
+        assert moved, (
+            f"at {pct}% not one padding/spacing declaration differs from 100% -- the text scaled and the "
+            f"space did not, so the app gets tighter the more a low-vision user asks for help"
+        )
+
+
+def test_the_dial_may_only_ever_grow_a_gap():
+    """The mirror of test_the_scale_is_monotonic_in_every_rung, for space. `scale_px` is floored at the
+    100% value on purpose ("a text-size dial may only ever GROW a box -- shrinking one would clip at the
+    setting that is provably fine today"), and _pad_px inherits that by construction. This is what stops a
+    rounding change from quietly tightening the app at some intermediate rung."""
+    for key in style._GRID:
+        seen = [style.space(key, "comfortable", p) for p in sorted(prefs.TEXT_SCALES)]
+        assert seen == sorted(seen), f"{key} is not monotonic across the dial: {seen}"
+        assert seen[0] == style._GRID[key], f"{key} at 100% must be the shipped grid value"
+
+
+def test_the_toolbar_is_exempt_from_the_dial():
+    """THE ONE PLACE PADDING MUST NOT GROW -- and it is a count, not an opinion.
+
+    Every toolbar action plus the search pill and the gear must FIT at 1280; what does not fit vanishes
+    into Qt's hidden extension chevron, which is how Ctrl-K and Preferences went invisible once already.
+    style.py's budget comment records that a 14px body cost exactly one button and `tb_space` 6->4 bought
+    it back -- "the budget is spent".
+
+    Counted natively at 1280 from the TYPE scale alone, BEFORE spacing joined the dial:
+        100% -> 15/15    110% -> 14/15    125% -> 13/15    150% -> 11/15
+    So the budget is not "spent if we grow this"; it is ALREADY overdrawn by the text. Growing toolbar
+    padding on top buys nothing: it is space around an ICON, not around prose.
+
+    ALL THREE METRICS, AND THE THIRD IS THE ONE THE COUNT FOUND. Exempting `tb_pad`/`tb_space` and
+    stopping there made the budget WORSE than before BREATHE -- because the generic `QToolButton,
+    QPushButton` rule hands every toolbar button `$btn_pad`, which SHOULD scale (it is padding around
+    prose on a card) and must not up here. One token, two jobs:
+        tb_pad/tb_space exempt only:   110% 13/15   125% 11/15   150% 10/15   <- worse than doing nothing
+        + a `QToolBar QToolButton` rule: 110% 14/15   125% 13/15   150% 11/15   <- back to the baseline
+    So BREATHE costs the toolbar exactly zero items. That is the claim this fence keeps true.
+
+    (Overflowed items stay REACHABLE -- test_toolbar_overflows_gracefully_at_narrow_width fences that.
+    The cost is discoverability, which is what style.py's budget comment is about.)
+    """
+    import re
+    pal = theme.DARK
+    for pct in sorted(prefs.TEXT_SCALES):
+        css = style.qss(pal, "comfortable", pct)
+        m = re.search(r"QToolBar \{[^}]*?padding:\s*([^;]+);[^}]*?spacing:\s*([^;]+);", css, re.S)
+        assert m, "the QToolBar rule changed shape -- this fence can no longer see the metrics it guards"
+        assert (m.group(1).strip(), m.group(2).strip()) == ("5px 8px", "4px"), (
+            f"at {pct}% the toolbar's own metrics moved to {m.groups()} -- keep them in style._NO_SCALE."
+        )
+        b = re.search(r"QToolBar QToolButton, QToolBar QPushButton \{ padding:\s*([^;]+);", css)
+        assert b, ("the toolbar's own button padding rule is gone -- without it every toolbar button "
+                   "takes $btn_pad and the dial eats ~150px of toolbar at 150%")
+        assert b.group(1).strip() == "6px 10px", (
+            f"at {pct}% the toolbar's BUTTON padding moved to {b.group(1)!r}. That is the one the count "
+            f"caught: it costs 2-3 more items and buys nothing -- an icon does not need a wider gutter "
+            f"because the body text grew."
+        )
+
+
 def test_the_ramp_has_no_dead_rungs():
     """QUARTO P2's fence, and the one that makes the whole ramp a SCALE rather than six accreted numbers.
 
