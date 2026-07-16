@@ -729,7 +729,17 @@ refused = the donor's own cell; row-18 cols 14-16 are real stock coast —
 the gates did the map-reading.) **★ IN-GAME PROVEN 2026-07-15 round 1
 ("good")** — kept; the icy wall band is real-wall proven; three families
 (grass verbatim / desert / snow) on the same donor, three first-deploy
-passes. Canyon remains the one untested island-class family.
+passes. **→ THE CANYON ISLAND B ★ DEPLOYED same day** (the last island-class
+family): same donor, `--ground canyon --strips none` + **ROT 180** — the
+retile is rotation-invariant (donor-frame apply), and the flip solved the
+target hunt: rect (22,17)+2×2 is all stock-ocean but its west column holds
+the desert island B — rot 180 lands the data in the EAST column
+(23,17)+(23,18), zero writes west, and the flipped silhouette won't read
+as a copy of its desert twin diagonally below. Island ≈ (1502,−1154), NE
+of desert island B; first REAL walls through the red-rock band
+(du −0.69509, dv −0.49722); every gate green; disc-4 mirrored; playtest
+pending. (Rows 16-17 mid-map probed all real stock — the south ocean band
+is the bench row for a reason.)
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
