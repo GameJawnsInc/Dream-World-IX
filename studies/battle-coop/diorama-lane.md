@@ -146,16 +146,32 @@ A render-only guest wants control disabled.
 
 ## THE WIRE (v8) — corrected
 
-### 1. The battle-OPEN frame (one-shot, FIFO lane — must not be collapsed)
-`[battleMapIndex u16][PatNum u8][StartType u8][isRandomEncounter u8][songId u16][MonsterCount u8][typeNo u8 × N]`
+### 1. The battle-OPEN frame → **SHIPPED as the type-1 HEADER BLOCK (B3.3), not a FIFO lane**
+The recon-era "one-shot FIFO frame" design was superseded at build time: the type-1 battle frame
+already streams at 150 ms with latest-slot semantics and already carries `mapNo` — and **real battles
+stamp `battleMapIndex = btlMapNo` (`ff9.cs:9252`), so the debug boot and real battles share ONE id
+space**; no mapping table exists or is needed. v8 inserts 4 bytes after `guestSlots`:
+`[patNum u8][startType u8][flags u8 (bit0 = isRandomEncounter)][nonce u8]`
+- **Latest-slot beats FIFO here**: a late-joining guest still gets the current battle, the lane going
+  stale IS the battle-over signal (no close frame to lose — the PEER-ALIVE LAW's shape), and the
+  NONCE (bumped per own-battle rising edge) distinguishes back-to-back battles even on the same
+  map+pattern.
+- **THE STACKED-STALENESS LAW** (verify-pass find): the transport serves the last frame for its own
+  ~2 s window after the sender stops; re-stamping the consumer's freshness tick on those REPEATS
+  stacked two windows (~4 s decay). The tick now refreshes only when the frame's **seq advances** —
+  staleness tracks when the HOST last sent, not when the transport last served.
+- `songId` deferred with the swirl/BGM pairing; `MonsterCount + typeNo × N` (the divergence assert
+  for modded hosts) deferred with it — **so is per-pattern-index validation on the guest** (an
+  out-of-range PatNum from a modded host throws inside `HonoluluBattleMain.Start`'s swallow; the
+  failure is CONTAINED — the diorama is armed, F6 Leave works — but ugly. The scene-data hash in the
+  version handshake is the real fix for the whole class.)
 
 **The enemy set is 100% scene-file data**, selected by the pair `(battleMapIndex, PatNum)` — NOT by
 `patternIndex` alone, and NOT randomized at spawn. The roster is immutable at runtime (all three
 exclusivity greps reproduce one write site each, inside `BTL_SCENE.ReadBattleScene`), and
 BattlePatch.txt cannot touch it by two independent mechanisms. **So typeNos are not needed for
 correctness** — send `battleMapIndex` + the host's **resolved PatNum** (read back after
-`HonoluluBattleMain.cs:185`; never mirror the RNG). Carry MonsterCount + typeNos as a **divergence
-assert** (`dbfile0000.raw16` is mod-overridable), and fold a scene-data hash into the version handshake.
+`HonoluluBattleMain.cs:185`; never mirror the RNG).
 
 **StartType is NOT free** — `btl_sys.StartType` is a THIRD RNG (two `random8()` rolls vs
 backAttackChance=24 / preemptiveChance=16, further modified by party SAs). It flips enemy rotation
@@ -252,12 +268,37 @@ HP/MP/ATB/status/death; the diorama reconciles toward the frame after every play
   from the static `BattleParameterList`. The real build is `btl_init.OrganizePlayerData` (`:369-488`).
   `serial_no` itself is DERIVED (NCalc over equip[0]) and force-recomputed after every battle/equip/load
   — redundant on the wire given equip[5].
-- **B3.3 — enemies.** The open-frame's `(battleMapIndex, PatNum)` through the stock spawn.
-  **`btl_sys.AddCharacter` NREs on an EMPTY list** (`btl_sys.cs:293` dereferences `btlData.next.bi.line_no`;
-  the head's `.next` is nulled at InitBattleSystem) — the first actor must be inserted manually.
-  Actors must be linked into `btl_list` or they get **no texture animation** (`BattleTexAnimWatcher.Update`
-  walks that list to create the render textures). Spawn after `CreateBattleRoot` (`:176`) and always
-  pass `isBattle:true` or the parenting at `ModelFactory.cs:199` silently skips.
+- **B3.3 — enemies. ★ BUILT 2026-07-16 (wire v8), solo bench pending.** Enemies come FREE through the
+  stock spawn — B3.1/B3.2 already proved the `(battleMapIndex, PatNum)` boot path with locally-chosen
+  scenes, so this rung's real content was THE WIRE: the type-1 header block (above), the guest-side
+  watcher (`NetSyncClient.DioramaTick`, the battle-lane analogue of FollowHostTick: boot on a live
+  boot block while free-standing on a field + `_storyMirroring`; LEAVE on lane staleness; nonce change
+  = come home then re-boot; a deliberate F6 leave sets a per-battle SKIP nonce so the watcher never
+  yanks the user back into a fight they walked out of; `[Netsync] Diorama` default 1 opts out), and
+  `Boot` growing `debugStartType` + `isRandomEncounter` stamps (both BRACKETED, with
+  `battleMapIndex`/`patternIndex`, in Snapshot/Restore + the selftest's new btlFields lane).
+  **Verify-pass finds folded in:** the CONTAINMENT-LAW enforcement gap (Boot rendered even when
+  `Snapshot()` failed, and a failed snapshot makes every Restore a NO-OP — the un-gateable
+  `++battle_no` would leak; Boot now REFUSES on `!_haveSnapshot`); the stacked-staleness law (wire
+  section); the un-installable-scene log spam (the watcher skip-nonces that battle with ONE line);
+  and **a recon correction: the diorama never arms `gMode`** (isDebug skips `StartEvents`, the only
+  gMode 2/4 writer) — so `InOwnBattle` is ALREADY false inside it, the guest was never going to
+  stream the projection back, and the `&& !Booted` qualifier on Pump's `inBattle` is defense in
+  depth, not a fix. A welcome corollary: the B1 assist digit menus + spectate panel STAY USABLE over
+  the diorama (`live && !inBattle` holds) — most of B3.6 arrives early.
+  **The solo bench** = F6 → "Wire bench": a fabricated v8 frame through the REAL `ParseView` →
+  `BootFromWire` → the `debugStartType` stamp → the engine. Marker = `StartType = FIRST_ATTACK` —
+  NON-ZERO (`BACK_ATTACK == 0`: a zeroed byte can't fake it) and NON-DEFAULT (Init and the plain F6
+  Boot both stamp NORMAL == 2). PASS = the enemies stand ROTATED 180° (the pre-emptive layout) + the
+  bench log line. (The panel does NOT render inside a bench diorama — no sampling at gMode 1; the
+  encode side is instead proven by any real selftest ENCOUNTER, whose panel header now shows
+  `[scene/pat/start/rand]`.) Two-machine items (auto-boot/leave, nonce re-boot, skip-nonce) pending.
+  *(Recon contingency notes, kept for B3.4+: `btl_sys.AddCharacter` NREs on an EMPTY list
+  (`btl_sys.cs:293`; the head's `.next` is nulled at InitBattleSystem) — a manually-inserted first
+  actor is required if actors are ever spawned outside the stock path; actors must link into
+  `btl_list` or they get no texture animation (`BattleTexAnimWatcher.Update`); spawn after
+  `CreateBattleRoot` (`:176`) and always pass `isBattle:true` or `ModelFactory.cs:199` silently
+  skips parenting.)*
 - **B3.4 — drive the truth.** Type-1 → HP/MP/ATB bars, death poses, trance glows. ~150 ms reconcile.
 - **B3.5 — action playback.** The CalcResult lane → btlseq choreography + the host's numbers.
   Watch `btlseq.cs:498-502` — actors SNAP to `original_pos` at sequence end under isDebug (the most
@@ -450,4 +491,7 @@ isDebug** that would skip the authored Leave and dump a guest into the main menu
 - Custom-FBX prefabs carrying a serialized HonoBehavior — the residual unknown in the teardown census.
   The diorama controls that input anyway.
 
-**Not started:** every rung. **Wire v8:** not cut.
+**Rungs 0, 1, 2.5, 2 ★ in-game proven; B3.3 built (wire v8 CUT), solo bench pending.**
+**Next:** B3.4 (type-1 → HP/death/trance on the diorama's actors) · B3.2b (the party v9 extension:
+basis/status/trance/SA — ride it with B3.5's action lane, one bump) · the swirl/BGM pairing · the
+scene-data hash divergence assert. Emit the whole B3 arc as **s40** when it settles (s39 is taken).
