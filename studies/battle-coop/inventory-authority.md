@@ -255,8 +255,45 @@ session-scoped and discarded. Pushing the mirror into it changes what the guest 
 
 ## Status
 
-- **2026-07-15:** census + verify complete. Verdict recorded. **Nothing built.** The ENCOUNT hole is
-  wired into B3.0 (task #12). Roads (A)/(B) await a call.
+- **2026-07-15:** census + verify complete. Verdict recorded.
+- **2026-07-15 — ROAD A RUNG 1 ★ BUILT + TWO-MACHINE PROVEN** (`s38-netsync-spectator-field.patch`).
+  User chose **"A first, then B"**. Three gates, all on `IsMirroringStory`: the **Steam achievement
+  funnel** (`ProcessAchievementReport` — the ONE write the exit ramp cannot retract), **ENCOUNT
+  `0x2A` + ENCOUNT2 `0x8C`** (a mirrored script was booting a local battle the host wasn't in), and
+  **the menu** (all four `UIKeyTrigger` reads incl. the Alt-hotkey bypasses). Proofs: menus refuse
+  both lanes · Evil Forest Plant Brain + plant-spider skipped on the guest while the host fought ·
+  zero regressions in coop gates, battle B0/B1, cutscenes, the exit ramp.
+  - **My "the bag is inert post-A" claim was REFUTED by the census** — six live readers survived, and
+    the achievement lane escapes the ramp entirely. Road A was re-specified from an *input* framing to:
+    **no interaction authority, no local state authority, no local escape.**
+  - **The strand risk did not bite** — the guest's movement isn't blocked when the host's battle
+    starts, so there is nothing to re-enable. ⚠ **B3 will REPLACE this gate, not keep it**: under the
+    diorama ENCOUNT must *boot the diorama* instead of skipping, and the 30 strand sites go live again
+    the moment the guest enters and returns from a battle scene.
+  - **New rule minted:** *a wire bump forces a peer update; a behavior gate silently does not.* s38
+    changes no wire (still v7), so a stale peer still pairs — but **the gates are guest-side**, so both
+    machines need the DLL for symmetric protection.
+
+### Rung 2 — NOT shipped (the known residue)
+- **The verbatim-fork chest still opens.** A real chest is proximity-dispatched with its confirm read
+  *inside* the script (`B_KEYON`), so the engine-level confirm gate never sees it. Post-A the item lands
+  in a bag nothing reads and the ramp discards → **theater, not corruption.** Closing it needs a pad
+  mask, which risks wedging any script that polls a button (the kit's own `--action-prompt` entrance is
+  that idiom) — census the donors first.
+- Also open: SYSVAR 6 (the guest's own gil, readable by any mirrored script — needs a wire section),
+  the `0xD3` varfuncs (kit content only), the `.eb` MENU opcode (a mirrored script can still open a
+  shop/save UI on the guest), and **F6/F7/Booster** (ours, user-facing, ships in the bundle — a
+  decision, not a bug; post-A a self-gift is inert, so it is no longer urgent).
+
+### Cutscene sync — RESEARCH NOTE, not scheduled (user-observed 2026-07-15)
+The guest must advance its own dialogue in step with the host or get left behind. **This is not a Road A
+regression** — dialogue/`B_KEYON` is deliberately untouched, and it self-heals at field boundaries when
+follow-warp yanks the guest. The real shape is deeper than "sync the confirms": **the guest's cutscenes
+fire from the GUEST's own position**, not the host's. Both machines run the same script off mirrored
+flags, but the *trigger* is local — so they are not two clients showing one cutscene, they are two
+independent scripts that happen to agree. Force-feeding the host's confirms would advance whatever the
+guest's script is sitting on, which is not guaranteed to be the same thing. That is the full
+**"play the game without a player"** arc → its own recon pass, after B3.
 
 ## Method note (durable)
 
