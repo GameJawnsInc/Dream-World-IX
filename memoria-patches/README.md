@@ -122,9 +122,47 @@ live after a full replay; and forward+reverse returns the tree to its pre-patch 
 | `s38` + B3 diorama files (`NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs`) | Uncommitted work in progress in the **shared** engine clone (`C:\gd\FFIX\Memoria` is shared, not per-worktree). Capturing a moving tree would bake half-finished work into the stack. |
 | `Global/Field/Map/Actor/FieldMapActorController.cs` | The known regression — **user decision pending**. Live is **byte-identical to pristine base**: the s24/s29 gates were not partially lost, the file was reverted wholesale, so the **shipped DLL has no fork gates here at all** (Iifa 1751, Dali 404, Prima Vista 205/Steiner off-mesh exemptions). Do not silently re-add or drop. |
 
-Consequence: a from-patches rebuild still would not reproduce the shipped DLL — the gap is now **only** the
-deferred set above, and every remaining diff is attributed (zero unexplained residue).
-→ `project-ff9-memoria-conflict-forensics`.
+**The exact residue** (measured: `base + s22..s39`, forcing s37+s38 on and discarding their 3 known-bad
+hunks — every entry is attributed, nothing unexplained):
+
+| Residue | Nature |
+|---|---|
+| `UIKeyTrigger.cs` (+6), `Assembly-CSharp.csproj` (+5) | s37's 3 failed hunks — fixed by the s37 regen |
+| `NetSyncBattle/Party/Relay/Socket/State/Visitor.cs` | **EOL-only** (live LF vs patch CRLF) — content identical |
+| `NetSyncClient.cs` (+4), `NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs` | in-flight B3 diorama |
+| `FieldMapActorController.cs` | user decision (above) |
+
+Two things this measurement settled: `SettingsState.cs` **converges** (s37's stale removals are no-ops — the
+content isn't there to remove, so the end state matches live), and `EventEngine.cs` is **fully s37-owned**
+(byte-identical once s37 applies) — verified, not assumed from the filename.
+
+⚠ **A misattribution the s37 regen must fix.** `EventEngine.SetControlToLeader` / `DebugClearControl` are
+**defined in s37** but *called* by **s22** (the F6 menu's control-restore) and **s39** (the self-heal). So the
+dev-tooling and overworld patches depend on the *battle-co-op* patch for a symbol definition — the same leak
+class as s22 carrying s34's csproj line. They belong in s22 (the earliest consumer). Until then, note that
+`base + s22..s36 + s39` **does not compile on its own**; the definitions arrive with s37.
+
+Consequence: a from-patches rebuild still would not reproduce the shipped DLL — but the gap is now **only**
+the deferred set above. → `project-ff9-memoria-conflict-forensics`.
+
+⚠⚠ **PRIOR ART — an unmerged branch solved this with an INCOMPATIBLE stack model. Reconcile before merging
+either.** `claude/great-williams-4052f0` (commits `48e27cd`, `708b6ff`, `1bdb4b9`, `d0d8e46`, `856f4ea`;
+recorded in `project-ff9-memoria-conflict-forensics`) ran its own drift census and captured the SAME two
+features — but under the **older stack model where `s12`/`s18`/`s21` are LIVE**, not superseded:
+
+| | `great-williams` (unmerged) | this branch (the s38-era model) |
+|---|---|---|
+| replay baseline | `s12..s37` — s12/s18/s21 **applied** | `s22..s39` — s12/s18/s21 **superseded, not applied** |
+| the self-heal | folded into **s22** (+ `EventEngine`/`FieldMap`) | its own **s39** |
+| the texture override | folded into **s34** | folded into **s34** (same call) |
+| s18's `FieldMap.cs` hotkey block | s22 carries a **removal** of it | never applied, so nothing to remove |
+| live-tree EOL | **accept LF**, keep gates EOL-agnostic | **repair to CRLF**, gate byte-exact (`cmp`) |
+
+The two models cannot both be right. Evidence favors the s22+ model: `s22..s36` provably replays clean from
+base with s12/s18/s21 absent, and `great-williams`' s22 carries a *removal of s18 content* — the exact
+"stale removal" contamination that makes s37 fail today. But `great-williams` has one thing this branch
+lacks: it puts `SetControlToLeader`/`DebugClearControl` in **s22**, which is the correct home (see the
+misattribution note above). **Do not merge either branch without deciding the model first.**
 
 ## Superseded / historical — kept for the build record, do NOT apply
 
