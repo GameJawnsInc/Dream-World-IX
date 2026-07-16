@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
-index c0c537ca..df1f1c2a 100644
+index c0c537ca..538d9432 100644
 --- a/Assembly-CSharp/Assembly-CSharp.csproj
 +++ b/Assembly-CSharp/Assembly-CSharp.csproj
 @@ -1071,6 +1071,7 @@
@@ -10,7 +10,7 @@ index c0c537ca..df1f1c2a 100644
      <Compile Include="Global\UI\UILabel.cs" />
      <Compile Include="Global\UI\UILocalize.cs" />
      <Compile Include="Global\UI\UIManager.cs" />
-@@ -1374,8 +1375,9 @@
+@@ -1374,6 +1375,7 @@
      <Compile Include="Memoria\Test\Values\Unity\Vector3Message.cs" />
      <Compile Include="Memoria\Test\Values\Unity\Vector4Message.cs" />
      <Compile Include="Memoria\World\WorldConfiguration.cs" />
@@ -18,14 +18,12 @@ index c0c537ca..df1f1c2a 100644
      <Compile Include="Memoria\World\WorldEffect.cs" />
      <Compile Include="Memoria\World\WorldPlace.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
-     <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
-     <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
-index 00000000..2b2011b2
+index 00000000..754f7864
 --- /dev/null
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-@@ -0,0 +1,2403 @@
+@@ -0,0 +1,2453 @@
 +using System;
 +using System.Collections.Generic;
 +using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the warp fade-to-black)
@@ -524,6 +522,20 @@ index 00000000..2b2011b2
 +    {
 +        if (InBattle)
 +        {
++            // [ff9mapkit netsync diorama] the diorama has no stock way out: with isDebug on, IsOver (the
++            // ATTR.EXITBATTLE bit) is never set, so the battle never ends -- which is load-bearing, since
++            // that is exactly what keeps the reward layer unreachable. The exit is authored instead.
++            if (Memoria.Netsync.NetSyncDiorama.Booted)
++            {
++                Section("Battle diorama");
++                GUILayout.Label("render-only: writes to your own party, gil and counters are suppressed.", _hint);
++                if (GUILayout.Button("Leave diorama", _primary))
++                {
++                    SetOpen(false);
++                    Memoria.Netsync.NetSyncDiorama.Leave();
++                }
++                return;
++            }
 +            GUILayout.Label("Cheats, Flags and Time work in battle. Warp and teleport need a field or the overworld.", _hint);
 +            return;
 +        }
@@ -577,6 +589,8 @@ index 00000000..2b2011b2
 +        GUILayout.EndHorizontal();
 +        GUILayout.Label("right-click the field to copy that point's (x, z).", _hint);
 +
++        DrawDiorama();
++
 +        Section("Field");
 +        if (GUILayout.Button("Reload field", _button))
 +            Reload(false);
@@ -623,6 +637,43 @@ index 00000000..2b2011b2
 +            GUILayout.Label(filt.Length > 0 ? "no fields match \"" + _fieldFilter + "\"" : "no registered custom fields.", _hint);
 +        else if (matched > shown)
 +            GUILayout.Label("showing " + shown + " of " + matched + " — type in the filter to narrow.", _hint);
++    }
++
++    // [ff9mapkit netsync diorama] B3.1 -- the solo bench for the battle diorama.
++    // The diorama boots the stock BattleMapDebug scene so a FOLLOWING co-op guest can WATCH the host's
++    // fight. It refuses to boot outside a mirrored session, by design: its whole suppression set hangs
++    // off NetSyncClient.IsMirroringStory, so booting solo would render UNCONTAINED and the scene would
++    // write your own party (isDebug gates the sim's input half only -- SavePlayerData runs regardless,
++    // and re-fires every frame because IsOver is itself isDebug-gated). To bench it solo, run
++    // Role=selftest + FollowHost=1: a real mirrored session that exercises the real predicate.
++    private String _dioramaScene = "0";
++    private String _dioramaPattern = "0";
++
++    private void DrawDiorama()
++    {
++        Section("Battle diorama (B3, experimental)");
++        Boolean mirroring = Memoria.Netsync.NetSyncClient.IsMirroringStory;
++        if (!mirroring)
++        {
++            GUILayout.Label("needs a mirrored co-op session — set [Netsync] Role=selftest + FollowHost=1, "
++                            + "or join a host. Booting uncontained would write your own party.", _hint);
++            return;
++        }
++        GUILayout.BeginHorizontal();
++        GUILayout.Label("scene", _label, GUILayout.Width(40f));
++        _dioramaScene = GUILayout.TextField(_dioramaScene, 4, _field, GUILayout.Width(52f));
++        GUILayout.Label("pattern", _label, GUILayout.Width(52f));
++        _dioramaPattern = GUILayout.TextField(_dioramaPattern, 2, _field, GUILayout.Width(34f));
++        if (GUILayout.Button("Boot", _primary, GUILayout.Width(52f)))
++        {
++            Int32.TryParse(_dioramaScene, out Int32 sc);
++            Int32.TryParse(_dioramaPattern, out Int32 pat);
++            SetOpen(false);
++            Memoria.Netsync.NetSyncDiorama.Boot(sc, pat);
++        }
++        GUILayout.EndHorizontal();
++        GUILayout.Label("boots the host's battle scene as a render-only diorama; every write to your own "
++                        + "state is suppressed. Re-open F6 in the diorama to leave.", _hint);
 +    }
 +
 +    private void DrawCheats()
@@ -1945,10 +1996,7 @@ index 00000000..2b2011b2
 +            Int32 idx, val;
 +            if (!Int32.TryParse(idxPart, out idx) || idx < 0)
 +            {
-+                // [ff9mapkit] name the grammar on a non-numeric index -- the observed failure is a user
-+                // typing the op NAME ("word:1060=0" -> 'w' consumed, "ord:1060" unparsable). Real case
-+                // 2026-07-11: zeroing the [deathrules] outpost var needed `w1060=0`.
-+                err = "'" + raw + "': bad index -- grammar: <n>/!<n> bit, b<i>=<v> byte, w<i>=<v> word";
++                err = "'" + raw + "': bad index";
 +                return false;
 +            }
 +            if (valPart == null)
