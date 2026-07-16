@@ -402,14 +402,15 @@ class GroundRetile:
                 "unclassified": det if det else 0, "ok": ok}
 
     @classmethod
-    def for_donor(cls, donor, dst, *, size=(1, 1), src=None, extra: float = 8.0,
-                  disc: int = 1, lod: str = "0_1", game=None):
+    def for_donor(cls, donor, dst, *, size=(1, 1), src=None, strips="auto",
+                  extra: float = 8.0, disc: int = 1, lod: str = "0_1", game=None):
         """Build the retile from the donor's own bytes: auto-detect the source family
         (the sand topo is PURE per block -- the census law), byte-read the donor's sand
         pins as the v-remap anchors, prescan the exact content :func:`transplant` /
         :func:`transplant_region` will gather (every donor rect cell whole + the
-        REGION's outer-border ``extra`` edge bands, same clip planes) to pre-assign
-        the recover cells and freeze the per-class EXPECTED counts."""
+        REGION's outer-border ``extra`` edge bands per ``strips``, same clip planes)
+        to pre-assign the recover cells and freeze the per-class EXPECTED counts.
+        ``strips`` must MATCH the transplant call's -- the expected counts are exact."""
         from . import coastmorph as CM
         from . import grassland as G
         (dbx, dby) = donor
@@ -420,12 +421,21 @@ class GroundRetile:
                 for i in range(nx):
                     polys[p] += [list(t) for t in world_tris(dbx + i, dby + j, p,
                                                              disc=disc, lod=lod, game=game)]
-        strip_specs = [spec for specs in (
-            [((dbx + nx, dby + j), 0, 64.0 * (dbx + nx) + extra, True) for j in range(ny)],
-            [((dbx - 1, dby + j), 0, 64.0 * dbx - extra, False) for j in range(ny)],
-            [((dbx + i, dby - 1), 2, -64.0 * dby + extra, True) for i in range(nx)],
-            [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)],
-        ) for spec in specs]
+        all_specs = {
+            "E": [((dbx + nx, dby + j), 0, 64.0 * (dbx + nx) + extra, True) for j in range(ny)],
+            "W": [((dbx - 1, dby + j), 0, 64.0 * dbx - extra, False) for j in range(ny)],
+            "N": [((dbx + i, dby - 1), 2, -64.0 * dby + extra, True) for i in range(nx)],
+            "S": [((dbx + i, dby + ny), 2, -64.0 * (dby + ny) - extra, False) for i in range(nx)]}
+        if strips in ("auto", "all"):
+            gathered = set(all_specs)
+        elif strips in ("none", None):
+            gathered = set()
+        else:
+            gathered = {str(d).upper() for d in strips}
+            if not gathered <= set(all_specs):
+                raise ValueError(f"strips must be 'auto', 'all', 'none' or a set of "
+                                 f"E/W/N/S -- got {strips!r}")
+        strip_specs = [spec for d in sorted(gathered) for spec in all_specs[d]]
         for ((nx2, ny2), axis, plane, below) in strip_specs:
             if not (0 <= nx2 < GRID_X and 0 <= ny2 < GRID_Y):
                 continue

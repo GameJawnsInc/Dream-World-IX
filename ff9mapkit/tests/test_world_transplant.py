@@ -1893,3 +1893,20 @@ def test_ground_retile_for_donor_region_10_17_desert():
     assert s["clean"] is True, s["gates"]
     rg = [g for g in s["gates"] if g["gate"].startswith("retile[")][0]
     assert rg["ok"] and rg["unclassified"] == 0
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_ground_retile_for_donor_strips_none_snow():
+    """--strips none prescan parity (the snow island-B config): with auto strips the W
+    coverage band drags in the (9,17) beach fragments and snow lawfully REFUSES (no
+    measured sand family); with strips none the prescan gathers only the donor's own
+    cells (desert-build proof: strip content all clipped at the frame anyway) and the
+    deployed (17,18) region dry-run passes every gate."""
+    with pytest.raises(ValueError, match="no measured sand family"):
+        TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2))
+    gt = TR.GroundRetile.for_donor((10, 17), "snow", size=(2, 2), strips="none")
+    assert gt.expected == {"mains": 25, "wall": 38, "sand": 0, "foam": 0, "recovered": 0}
+    assert gt.sand_anchors == ()
+    s = TR.transplant_region("UNUSED", cell=(17, 18), donor=(10, 17), size=(2, 2),
+                             strips="none", tweaks=[gt], dry_run=True)
+    assert s["clean"] is True, s["gates"]

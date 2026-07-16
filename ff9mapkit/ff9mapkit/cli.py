@@ -2541,7 +2541,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 raise ConfigError("--ground rides the transplant path, not --in-place "
                                   "(retiling a REAL cell in place is unstudied)")
             gt = TR.GroundRetile.for_donor((dx, dy), args.ground.strip().lower(),
-                                           size=(snx, sny), extra=args.extra,
+                                           size=(snx, sny), strips=strips,
+                                           extra=args.extra,
                                            disc=args.disc, game=args.game)
             print(f"ground retile {gt.src} -> {gt.dst}: sand anchors "
                   f"{[f'{s:.4f}->{d:.4f}' for (s, d) in gt.sand_anchors] or 'none'}; "

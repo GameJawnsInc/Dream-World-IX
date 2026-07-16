@@ -713,6 +713,20 @@ east of the horseshoe massif bench (an offshore desert isle); island ≈
 **★ IN-GAME PROVEN 2026-07-15 round 1: "the desert island B looks verbatim,
 keep it"** — kept deployed; two donors, two first-deploy passes, zero fix
 rounds. The retile arc is CLOSED as a proven verb (single + multi-block).
+**→ THE SNOW ISLAND B ★ BUILT + DEPLOYED same day** (user-called): same
+(10,17)+2×2 donor, `--ground snow` (topo 0→27, mains dv −0.33691, walls →
+the measured ICY band — the first REAL wall set through the icy delta).
+The build minted the STRIPS-PARITY rung: with auto strips the W coverage
+band drags in (9,17)'s beach fragments and snow lawfully REFUSES (no
+measured sand family) — but the desert build's carried counts prove strip
+content ALL clips at the frame (shipped bytes = the donor's own tris
+exactly), so `--strips none` is byte-equivalent and lawful; `for_donor`
+grew `strips=` (the prescan must MATCH the transplant call — expected
+counts are exact). Deployed at (17,18)+2×2 — data (17,18)+(17,19), island
+≈ (1122,−1214), just west of the horseshoe bench; every gate green incl.
+census/border with no strips; disc-4 mirrored; playtest pending. (Target
+hunt: (10,18) refused = the donor's own cell; row-18 cols 14-16 are real
+stock coast — the gates did the map-reading.)
 
 **Verdict (round 1): the crag cannot be a single-block `world-mountain --donor`** —
 donor-side the blob build generalizes cleanly per A2; target-side needed a multi-block
