@@ -149,28 +149,31 @@ that trap. Round 1 never caught any of this — it only ever verified `s22..s36`
 | the 6 EOL-only `Memoria/Netsync/*.cs` | Live is LF, patch writes CRLF; content identical. Left LF because B3 is mid-edit in that folder. Normalize with the B3 emit. |
 | `Global/Field/Map/Actor/FieldMapActorController.cs` | The known regression — **user decision pending**. Live is **byte-identical to pristine base**: the s24/s29 gates were not partially lost, the file was reverted wholesale, so the **shipped DLL has no fork gates here at all** (Iifa 1751, Dali 404, Prima Vista 205/Steiner off-mesh exemptions). Do not silently re-add or drop. |
 
-**The exact residue** (measured: `base + s22..s39`, forcing s37+s38 on and discarding their 3 known-bad
-hunks — every entry is attributed, nothing unexplained):
+**The exact residue** (measured on a full clean replay `base + s22..s39` — every entry attributed, nothing
+unexplained):
 
 | Residue | Nature |
 |---|---|
-| `UIKeyTrigger.cs` (+6), `Assembly-CSharp.csproj` (+5) | s37's 3 failed hunks — fixed by the s37 regen |
 | `NetSyncBattle/Party/Relay/Socket/State/Visitor.cs` | **EOL-only** (live LF vs patch CRLF) — content identical |
-| `NetSyncClient.cs` (+4), `NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs` | in-flight B3 diorama |
+| the csproj `Diorama` line, `NetSyncClient.cs` (+4), `NetSyncDiorama.cs`, `btl_sys`/`btl_scrp`/`btl_stat`, `BattleActionCode.cs` | in-flight B3 diorama |
 | `FieldMapActorController.cs` | user decision (above) |
+
+**Everything else — every file the live set owns — is byte-identical to live.**
 
 Two things this measurement settled: `SettingsState.cs` **converges** (s37's stale removals are no-ops — the
 content isn't there to remove, so the end state matches live), and `EventEngine.cs` is **fully s37-owned**
 (byte-identical once s37 applies) — verified, not assumed from the filename.
 
-⚠ **A misattribution the s37 regen must fix.** `EventEngine.SetControlToLeader` / `DebugClearControl` are
-**defined in s37** but *called* by **s22** (the F6 menu's control-restore) and **s39** (the self-heal). So the
-dev-tooling and overworld patches depend on the *battle-co-op* patch for a symbol definition — the same leak
-class as s22 carrying s34's csproj line. They belong in s22 (the earliest consumer). Until then, note that
-`base + s22..s36 + s39` **does not compile on its own**; the definitions arrive with s37.
+⚠ **A misattribution still standing.** `EventEngine.SetControlToLeader` / `DebugClearControl` are **defined in
+s37** but *called* by **s22** (the F6 menu's control-restore) and **s39** (the self-heal) — dev-tooling and
+overworld depending on the *battle-co-op* patch for a symbol definition, the same leak class as s22 carrying
+s34's csproj line. They belong in **s22** (the earliest consumer); `great-williams` already places them there.
+Harmless for a full replay (the set applies wholesale) — it only means a **partial** stack without s37 won't
+compile. Fold when the csproj settles.
 
-Consequence: a from-patches rebuild still would not reproduce the shipped DLL — but the gap is now **only**
-the deferred set above. → `project-ff9-memoria-conflict-forensics`.
+Consequence: **a from-patches rebuild now reproduces the live tree** for everything the live set owns. The only
+gaps left are the in-flight B3 work, the EOL-only class, and the `FieldMapActorController` decision.
+→ `project-ff9-memoria-conflict-forensics`.
 
 ⚠⚠ **PRIOR ART — an unmerged branch solved this with an INCOMPATIBLE stack model. Reconcile before merging
 either.** `claude/great-williams-4052f0` (commits `48e27cd`, `708b6ff`, `1bdb4b9`, `d0d8e46`, `856f4ea`;
@@ -185,11 +188,17 @@ features — but under the **older stack model where `s12`/`s18`/`s21` are LIVE*
 | s18's `FieldMap.cs` hotkey block | s22 carries a **removal** of it | never applied, so nothing to remove |
 | live-tree EOL | **accept LF**, keep gates EOL-agnostic | **repair to CRLF**, gate byte-exact (`cmp`) |
 
-The two models cannot both be right. Evidence favors the s22+ model: `s22..s36` provably replays clean from
-base with s12/s18/s21 absent, and `great-williams`' s22 carries a *removal of s18 content* — the exact
-"stale removal" contamination that makes s37 fail today. But `great-williams` has one thing this branch
-lacks: it puts `SetControlToLeader`/`DebugClearControl` in **s22**, which is the correct home (see the
-misattribution note above). **Do not merge either branch without deciding the model first.**
+**RESOLVED 2026-07-16 — the s22+ model won (user call); `great-williams` is SUPERSEDED.** Measured, not
+argued: replaying `great-williams`' own `s12..s37` from pristine base gets to **s35 and then fails s36+s37 on
+the csproj** — its s22 still adds the duplicate `NetSyncClient`/`NetSyncSocket` lines (the contamination the
+s38 round repaired), which breaks s36's anchor. Its "applies cleanly" note was verified with `git apply`, not
+the stack's documented `patch --binary`, and does not reproduce. Meanwhile the s22+ model now replays
+`s22..s39` end to end.
+
+⚠ **Do not merge `great-williams`.** It predates `s38` and does not contain it, and its s22 would REINTRODUCE
+the csproj duplicates. **Port, don't merge** — the one thing it gets right is putting
+`SetControlToLeader`/`DebugClearControl` in **s22** (see the misattribution note above). Its self-heal and
+texture captures are already carried here (s39 / s34).
 
 ## Superseded / historical — kept for the build record, do NOT apply
 
