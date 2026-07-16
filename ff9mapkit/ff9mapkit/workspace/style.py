@@ -595,6 +595,11 @@ _QSS = Template(
        the chrome that is a MATERIAL boundary rather than a grouping rule, which is why it takes
        border_lit while every other band keeps the flat border. */
     QWidget#consoleHead { background: $surface; border-top: 1px solid $border_lit; }
+    /* the console head's Wrap / Copy / Clear. Pinned height so the head stays a thin strip -- but the pin
+       is a box around text, so it scales (style.CONSOLE_H). It was a bare setFixedHeight(24) in shell.py,
+       which CALIBRE could not reach: audited, the label's line box outgrows a frozen 24 at 125%. 24 is
+       also the WCAG 2.5.8 target floor, so scale_px only ever grows it. */
+    QPushButton#consoleHeadBtn { min-height: $console_h; max-height: $console_h; }
     QToolButton#consoleToggle       { background: transparent; border: 0; padding: 5px 6px; color: $muted; font-weight: 600; }
     QToolButton#consoleToggle:hover { color: $text; }
     /* the cohesion SPINE (Phase 7): a slim 'what do I do next' guidance strip below the breadcrumb.
@@ -638,9 +643,16 @@ _QSS = Template(
        (19x23), and setFixedSize CLIPS rather than grows -- so the circle is untouched.
        THIS IS THE WHOLE ARGUMENT FOR THE TABLE. The rung was invisible while it was an anonymous 11 in a
        rule 500 lines from the ramp; the moment every size sat in one dict, a value below the floor was
-       impossible not to see. Fenced by test_no_text_rung_sits_below_the_os_floor. */
+       impossible not to see. Fenced by test_no_text_rung_sits_below_the_os_floor.
+       THE BOX IS QSS NOW, not forms_qt's setFixedSize -- so one sheet re-render resizes it and the glyph,
+       together, and CALIBRE cannot leave a big "?" in a small circle. That is also why the radius is a
+       token: it must stay exactly half the box at every scale (style.badge_box keeps the box even so it
+       can). Audited: the glyph overflows a frozen 22px box at 150%. */
     QToolButton#conceptBadge {
-        background: transparent; color: $muted; border: 1px solid $border; border-radius: 11px;
+        background: transparent; color: $muted; border: 1px solid $border;
+        border-radius: $badge_radius;
+        min-width: $badge_box; max-width: $badge_box;
+        min-height: $badge_box; max-height: $badge_box;
         padding: 0; font-weight: 700; font-size: $type_badge;
     }
     QToolButton#conceptBadge:hover { color: $accent; border-color: $accent; }
@@ -649,7 +661,49 @@ _QSS = Template(
 )
 
 
-def qss(palette: dict, density: str = "comfortable") -> str:
+def type_px(name: str, scale: int = 100) -> int:
+    """One rung of the type table at ``scale`` percent -- THE single definition of that arithmetic.
+
+    A function, not an inline expression, because three places need the identical answer: the sheet (via
+    :func:`qss`), any Python that pins geometry around text (``setFixedHeight`` on a caption), and the
+    fences. Two of those computing it slightly differently is how a glyph ends up 1px taller than the box
+    someone sized for it.
+
+    HALF-UP, NOT ``round()``. Python's ``round`` is BANKER'S rounding: it breaks ties toward even, so
+    ``round(16.5) == 16`` while ``round(17.5) == 18``. The table hits exact .5 ties constantly -- h3 (15)
+    at 110% is exactly 16.5, and body (14) at 125% is exactly 17.5 -- so banker's would shrink one rung
+    and grow the next from the same tie, silently collapsing steps. ``int(x + 0.5)`` is half-up and
+    monotonic, which is the only property a type ramp actually needs from its rounding.
+    """
+    return int(_TYPE[name] * scale / 100 + 0.5)
+
+
+# CALIBRE's geometry half. A box drawn AROUND text must grow WITH the text, or the box wins and the text
+# is cut -- setFixedSize clips, it never grows. Audited natively (evidence/audit_text_scale.py): the whole
+# app has exactly TWO such boxes, not the ~75 setFixed* sites a static count suggests. The other ~73 pin
+# panel geometry that owes the font nothing.
+#
+#   BADGE_HALF -- the "?" concept badge. Its box is 2x this and its border-radius IS this, which is what
+#     makes it a circle rather than a rounded square. Kept EVEN by construction (2 * a rounded half) so
+#     the radius stays exactly half at every scale; an odd box would round-off into a squircle.
+#   CONSOLE_H -- the Wrap/Copy/Clear head buttons. 24 is also the WCAG 2.5.8 target floor, so this may
+#     grow and must never shrink.
+BADGE_HALF = 11
+CONSOLE_H = 24
+
+
+def scale_px(px: int, scale: int = 100) -> int:
+    """A pinned geometry value at ``scale``. Half-up and floored at the 100% value: a text-size dial may
+    only ever GROW a box (shrinking one would clip at the setting that is provably fine today)."""
+    return max(px, int(px * scale / 100 + 0.5))
+
+
+def badge_box(scale: int = 100) -> int:
+    """The "?" badge's pinned circle at ``scale`` -- always even, so ``badge_box // 2`` is exactly half."""
+    return max(2 * BADGE_HALF, 2 * int(BADGE_HALF * scale / 100 + 0.5))
+
+
+def qss(palette: dict, density: str = "comfortable", scale: int = 100) -> str:
     """Render the workspace stylesheet for ``palette`` (an :mod:`..editor.theme` LIGHT/DARK dict).
 
     Derives the semantic tokens (elevation ladder, focus, tinted selection, ...) and merges the theme-
@@ -664,9 +718,23 @@ def qss(palette: dict, density: str = "comfortable") -> str:
     """
     dens = _DENSITY.get(density, _DENSITY["comfortable"])
     grid = {k: f"{v}px" for k, v in (_GRID_COMPACT if density == "compact" else _GRID).items()}
+    # CALIBRE: the type table at `scale` percent. At 100 this is provably inert -- int(px * 100/100 + 0.5)
+    # == px for every int -- so the default path renders byte-identical to a sheet with no scale at all,
+    # and that is fenced rather than asserted. Scaling here (not per-rule) is what makes it impossible to
+    # scale HALF the ramp: P3 put all eight sizes in one table precisely so this loop could reach them.
+    typ = {k: f"{type_px(k, scale)}px" for k in _TYPE}
+    # the two boxes drawn around text (see BADGE_HALF / CONSOLE_H). The badge's box is QSS rather than a
+    # setFixedSize so that ONE re-render resizes it: a Python pin would have to be hunted down and re-set
+    # on every live scale change, and any badge built before the change would keep the stale circle.
+    _bb = badge_box(scale)
+    typ["badge_box"] = f"{_bb - 2}px"                # QSS min/max-width sizes the CONTENTS box; the 1px
+    typ["badge_radius"] = f"{_bb // 2}px"            # border on each side makes the widget _bb again
+    typ["console_h"] = f"{scale_px(CONSOLE_H, scale)}px"
     pal = derive(palette)
     art = {                                          # per-tint indicator art (see the module docstring)
         "check_img": _asset("check", _CHECK_SVG.format(color=pal["accent_fg"])),
         "check_img_off": _asset("check", _CHECK_SVG.format(color=pal["muted"])),
     }
-    return _QSS.substitute({**_SCALES, **grid, **dens, **art, **pal})
+    # `typ` after `_SCALES`: _SCALES carries the type table at 100% for callers that never scale, and the
+    # scaled values must win. Order is the whole mechanism here, so do not "tidy" these into one dict.
+    return _QSS.substitute({**_SCALES, **grid, **typ, **dens, **art, **pal})
