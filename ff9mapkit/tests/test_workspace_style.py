@@ -854,22 +854,20 @@ def test_no_widget_carries_a_private_font_size_the_dial_cannot_reach():
     prose ("The stylesheet sets `font-size: 21px`, so this is 21") as a violation. A fence must read code,
     not prose, and a docstring is prose that happens to be stored as a string. Docstrings are stripped.
 
-    KNOWN EXEMPTION, and it is a real limit rather than a dodge: forms_qt's rich-text DOCUMENT bodies (the
-    Info Hub catalog card, the concept card, the wrap preview). Those are QTextEdit documents, not chrome
-    -- HTML the app authors and hands to a text engine, where no QSS role reaches. They ship 13/14/15px,
-    which means the Info Hub renders at the OLD body size and cannot hear the dial either. That is real
-    and it is NOT this round: forms_qt has no access to the scale, so fixing it means threading one
-    through or reading prefs at build time, and it wants its own decision. Named here so it is a deferred
-    defect rather than a silent one.
+    THE EXEMPTION IS RETIRED. This carried `DOC_BODIES = {"forms_qt.py"}` for one round -- its rich-text
+    document bodies (the Info Hub catalog, an entry's detail, the concept card) are HTML handed to a
+    QTextEdit, where no QSS role reaches, so they had a private ramp of 13/14/15px: the Info Hub rendered
+    at the OLD body rung and could not hear the dial. They now substitute the ramp at the live scale via
+    forms_qt._px, on the module-global the shell owns (the _GUIDED pattern), so the exemption has nothing
+    left to cover and is gone. NO FILE IS EXEMPT.
     """
     import ast
     import pathlib
     import re
     ws = pathlib.Path(style.__file__).parent
-    DOC_BODIES = {"forms_qt.py"}          # see the exemption above -- rich text, not chrome
     bad = []
     for py in sorted(ws.glob("*.py")):
-        if py.name in ("style.py", "hero.py") or py.name in DOC_BODIES:
+        if py.name in ("style.py", "hero.py"):
             continue                     # style.py IS the table; hero.py is fenced by test_workspace_hero
         tree = ast.parse(py.read_text(encoding="utf-8"))
         docs = set()

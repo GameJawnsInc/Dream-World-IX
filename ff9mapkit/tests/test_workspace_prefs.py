@@ -335,3 +335,38 @@ def test_restore_honors_a_saved_collapse(app, monkeypatch):
     w._restore_layout()
     assert not w._console_open
     w.close()
+
+
+def test_the_text_size_dial_drives_every_surface_it_owns(app):
+    """THE LIVE PATH, which nothing tested -- and it shipped a NameError past 3621 green tests.
+
+    `_apply_text_scale` reached for `_fq`, which is a LOCAL in `__init__`. Compiles clean, imports clean,
+    every test passes; the first turn of the dial raises. Nothing drove it because CALIBRE's fences all
+    assert `qss(pal, density, scale)` -- a pure function -- and the SHELL's job is the other half: telling
+    the three surfaces a stylesheet cannot reach.
+
+    So this drives the real method and asserts each surface actually moved:
+      * the QSS (every tab),
+      * the hero band (QPainter -- PLINTH),
+      * forms_qt's rich-text ramp (HTML in a QTextEdit -- no QSS role reaches inside a text document).
+    """
+    import re
+
+    from ff9mapkit import prefs
+    from ff9mapkit.workspace import forms_qt
+
+    win = _win(app)
+    seen = []
+    for pct in prefs.TEXT_SCALES:
+        win._apply_text_scale(pct)
+        body = int(re.search(r"QWidget \{[^}]*font-size: (\d+)px", win.styleSheet()).group(1))
+        band = win._hero.height()
+        hub = forms_qt._px("type_body")
+        seen.append((body, band, hub))
+        assert forms_qt._TEXT_SCALE == pct, f"{pct}%: the rich-text ramp was not told"
+    win._apply_text_scale(100)
+
+    for i in range(1, len(seen)):
+        assert all(c >= p for c, p in zip(seen[i], seen[i - 1])), f"a surface did not follow the dial: {seen}"
+    assert seen[-1] != seen[0], "nothing moved at all"
+    assert len({s[2] for s in seen}) > 1, "the Info Hub's ramp is frozen -- it was 13px at every scale"

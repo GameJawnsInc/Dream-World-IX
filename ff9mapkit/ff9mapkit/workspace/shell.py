@@ -474,6 +474,7 @@ class Workspace(QMainWindow):
         self._text_scale = prefs.text_scale()      # CALIBRE: the text-size dial, an int percent (100 default)
         from . import forms_qt as _fq             # Guided/Full beginner mode read by build_form
         _fq.set_guided(prefs.guided())
+        _fq.set_text_scale(self._text_scale)   # the Info Hub's rich text is HTML: no QSS role reaches it
         app = QApplication.instance()
         if app is not None:                        # direct construction (smoke/tests) gets the same base
             _apply_app_theme(app, pal)             # style as main() -- Fusion + the theme QPalette
@@ -591,6 +592,12 @@ class Workspace(QMainWindow):
         """
         self._text_scale = pct if pct in prefs.TEXT_SCALES else 100
         self.setStyleSheet(qss(self.pal, self._density, self._text_scale))
+        # The Info Hub / concept cards are HTML in a QTextEdit -- a widget stylesheet OUT-RANKS the sheet
+        # above and survives its re-render, so they have to be told. Same owner + lifecycle as set_guided.
+        # Imported HERE, not at module scope: `_fq` in __init__ is a LOCAL, and reaching for it from this
+        # method is a NameError that 3621 passing tests did not see, because nothing drove the live dial.
+        from . import forms_qt as _fq
+        _fq.set_text_scale(self._text_scale)
         if getattr(self, "_hero", None) is not None:
             # PLINTH: the band paints with QPainter, so no QSS reaches it -- it has to be TOLD. This call
             # already existed and was inert (it re-applied the density and dropped the scale on the floor),

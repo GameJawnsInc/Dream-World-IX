@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWhatsThis, QWidget,
 )
 
-from . import concepts, widgets
+from . import concepts, style, widgets
 from .. import dialogue as _dlg
 from .. import infohub
 from ..content.text import DEFAULT_WRAP_WIDTH
@@ -45,6 +45,33 @@ def set_guided(on):
     """Set the global Guided beginner mode read by :func:`build_form`."""
     global _GUIDED
     _GUIDED = bool(on)
+
+
+# THE RICH-TEXT RAMP. This module's document bodies -- the Info Hub catalog card, an entry's detail, the
+# concept card -- are HTML handed to a QTextEdit, and no QSS role reaches inside a text document. So they
+# had their own private type ramp, hard-typed: a 13px body (the body rung's OLD value, stale since QUARTO
+# P1 moved it to 14) with 14/15px headings that sat BELOW the app's 18px head. Two ramps, one app, and the
+# smaller one was the only place a newcomer reads at length.
+#
+# It is also the last surface deaf to CALIBRE: a widget stylesheet OUT-RANKS the application sheet and
+# survives its re-render, so the dial moved every tab and left the Info Hub at 13px.
+#
+# A GLOBAL, because this module already made that call for exactly this reason -- see _GUIDED above:
+# "not threaded through the many call sites; the shell sets it at startup + on toggle". Same shape, same
+# owner, same lifecycle. Threading a scale through build_form / CatalogPicker / every concept card would
+# be a second mechanism for one fact.
+_TEXT_SCALE = 100
+
+
+def set_text_scale(pct):
+    """Set the global text-size percent read by this module's rich-text bodies (the shell owns it)."""
+    global _TEXT_SCALE
+    _TEXT_SCALE = int(pct)
+
+
+def _px(rung):
+    """A type rung as a px int, at the live scale -- for HTML, which cannot reference a QSS token."""
+    return style.type_px(rung, _TEXT_SCALE)
 
 
 def _is_advanced(f):
@@ -485,11 +512,11 @@ def _hub_help_html() -> str:
                    for k in order if k in _HUB_HELP)
     return (
         "<div style=\"font-family:'Segoe UI';\">"
-        '<div style="font-size:15px;"><b>Info Hub — the catalog</b></div>'
+        f'<div style="font-size:{_px("type_head")}px;"><b>Info Hub — the catalog</b></div>'
         "<p>Everything you can place in a field or reference by <b>name</b>, grouped into sections. Pick a "
         "section on the left, search within it, and select an entry to see its details on the right.</p>"
-        '<p style="font-size:14px;"><b>Sections</b></p>' + rows +
-        '<p style="font-size:14px;"><b>Using an entry</b></p>'
+        f'<p style="font-size:{_px("type_body")}px;"><b>Sections</b></p>' + rows +
+        f'<p style="font-size:{_px("type_body")}px;"><b>Using an entry</b></p>'
         "<p><b>Copy name</b> — paste into a form's catalog field (an NPC's <code>archetype</code>, a prop's "
         "<code>prop</code>, …).</p>"
         "<p><b>Copy snippet</b> — paste a ready-to-edit <code>field.toml</code> block straight into a field.</p>"
@@ -549,7 +576,7 @@ class CatalogLibrary(QDialog):
         # the app's global QSS renders QTextEdit as a monospace CONSOLE; the detail pane is PROSE -> give it a
         # readable proportional font on the normal surface (the snippet <pre> stays monospace by its tag).
         self.detail.setStyleSheet(
-            f"QTextEdit {{ font-family:'Segoe UI'; font-size:13px; background:{palette['surface']}; "
+            f"QTextEdit {{ font-family:'Segoe UI'; font-size:{_px('type_body')}px; background:{palette['surface']}; "
             f"color:{palette['text']}; border:1px solid {palette['border']}; border-radius:8px; padding:8px; }}")
         rv.addWidget(self.detail, 1)
         bar = QHBoxLayout()
@@ -567,10 +594,14 @@ class CatalogLibrary(QDialog):
         self.blender_btn.setEnabled(False)
         helpb = QPushButton("?")
         helpb.setToolTip("What's in the Info Hub? (glossary + how to use it)")
-        helpb.setFixedSize(30, 30)                         # a circular violet badge -- pops out from the
-        helpb.setStyleSheet(                               # neutral Copy/Close buttons (a distinct 'info' hue)
+        # A circular violet badge -- it pops out from the neutral Copy/Close buttons (a distinct 'info' hue).
+        # The box and its radius are a GEOMETRIC pair (radius = half the box = a circle, not a squircle) and
+        # they stay pinned here; only the GLYPH joins the ramp. Its 15px was a private number one rung under
+        # the app's head, and deaf to the dial like everything else in this module's widget stylesheets.
+        helpb.setFixedSize(30, 30)
+        helpb.setStyleSheet(
             f"QPushButton {{ background:{palette['help']}; color:{palette['accent_fg']}; border:0; "
-            f"border-radius:15px; font-weight:bold; font-size:15px; }}"
+            f"border-radius:15px; font-weight:bold; font-size:{_px('type_body')}px; }}"
             f"QPushButton:hover {{ background:{palette['help_hover']}; }}")
         helpb.clicked.connect(self._show_help)
         close = QPushButton("Close")
@@ -691,7 +722,7 @@ class CatalogLibrary(QDialog):
 
     def _render(self, d) -> str:
         muted = self.pal["muted"]
-        h = [f'<div style="font-size:15px;"><b>{_esc(d.name)}</b> '
+        h = [f'<div style="font-size:{_px("type_head")}px;"><b>{_esc(d.name)}</b> '
              f'<span style="color:{muted};">[{_esc(d.kind)}]</span></div>']
         if getattr(d, "preview_png", None):
             # the preview LEADS -- a model page's animation list can run hundreds of entries, and an
@@ -750,7 +781,7 @@ class CatalogLibrary(QDialog):
         body = QTextEdit()
         body.setReadOnly(True)
         body.setStyleSheet(
-            f"QTextEdit {{ font-family:'Segoe UI'; font-size:13px; background:{self.pal['surface']}; "
+            f"QTextEdit {{ font-family:'Segoe UI'; font-size:{_px('type_body')}px; background:{self.pal['surface']}; "
             f"color:{self.pal['text']}; border:1px solid {self.pal['border']}; border-radius:8px; padding:10px; }}")
         body.setHtml(_hub_help_html())
         v.addWidget(body, 1)

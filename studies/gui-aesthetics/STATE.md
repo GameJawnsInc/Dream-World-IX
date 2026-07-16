@@ -923,3 +923,44 @@ side panels take **56%** and the document gets **44%**.
 not a card defect. At 1600+ every doc is clear. Left alone deliberately — those splitter sizes are
 persisted, so they are partly the user's own, and re-balancing the default wants its own eye.
 
+---
+
+## Round 5, part 12 — the Info Hub joins the ramp. No file is exempt.
+
+**SHIPPED.** 3622 tests. The last surface with a private ramp, and the last one deaf to the dial.
+
+| surface | 100% | 110% | 125% | 150% |
+|---|---|---|---|---|
+| app body | 14 | 15 | 18 | 21 |
+| **hub body** | 14 | 15 | 18 | 21 | ← was **13 at every scale** |
+| **hub head** | 18 | 20 | 23 | 27 | ← was **15 at every scale**, a rung UNDER the app's head |
+| hero band | 156 | 172 | 195 | 234 |
+
+The Info Hub is HTML in a QTextEdit — **no QSS role reaches inside a text document** — so it hard-typed
+its own ramp: a 13px body (stale since QUARTO P1) with headings *below* the app's head. Two ramps in one
+app, and the smaller one was the only place a newcomer reads at length.
+
+**A global**, because this module already made that exact call for this exact reason: `_GUIDED` sits twenty
+lines up — *"not threaded through the many call sites; the shell sets it at startup + on toggle."*
+
+**The fence's exemption is RETIRED, not re-scoped.** `DOC_BODIES = {"forms_qt.py"}` shipped last round with
+a paragraph explaining why it was a real limit. It isn't one any more.
+
+### A NameError that 3621 green tests did not see
+
+`_apply_text_scale` reached for `_fq` — a **local** in `__init__`. Compiles clean, imports clean, every test
+passes, and **the first turn of the dial raises.** My probe caught it; the suite could not, because
+**nothing drove the live dial.** Every CALIBRE fence asserts `qss(pal, density, scale)` — a *pure function*
+— and the shell's job is the other half: telling the three surfaces a stylesheet cannot reach (the QSS, the
+QPainter band, the rich text). That gap is now a test, **and I proved it catches the bug rather than passing
+beside it**: re-broke the line, watched it go red with the same NameError, restored, watched it pass.
+
+### Two more of my own, from this same commit
+
+- **The catalog card is built from PLAIN strings**, so my first substitution would have rendered a literal
+  `{_px("type_head")}px` into the HTML — compiles, tests green, Info Hub shows raw braces. Caught by
+  asserting the *rendered output carries a number*, not by reading the diff.
+- **COLUMN's caption fence keyed its exemption on LINE NUMBERS** and went red when an unrelated edit shifted
+  the file. *A fence that breaks when nothing it guards has changed trains people to re-number it without
+  reading it.* Keyed on the variable now.
+
