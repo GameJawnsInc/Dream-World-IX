@@ -566,6 +566,39 @@ now refuses on this gate alone. (The re-minted islet's coast wears the borrowed 
 wall — dunes touches topo-58 ZERO times in stock; the user re-affirmed 2026-07-15:
 **kept as-is as a REFERENCE EXHIBIT, not a verbatim claim** — same status as the scrub
 and brush islets.)
+
+**THE MIXED-BIOME LANDMASS (rung 1 ★ BUILT + DEPLOYED 2026-07-15, playtest pending)**
+— user-called. The composition grammar first (`biome_adjacency_census.py` +
+`biome_seam_anatomy.py`): **the adjacency graph is SPARSE and DESERT-HUBBED** —
+grass|desert 193 edges (flat direct welds), scrub|desert 958 (the dominant seam;
+scrub barely touches grass, 58), desert|brush 532, desert|dunes 190 (patches 8–53u,
+EXCLUSIVELY inside desert); snow and canyon touch NO walkable family. Boundary
+anatomy: grass|desert and desert|dunes are NEVER plain-mains on both sides — each
+pair has a dedicated one-tile ECOTONE STRIP COLUMN (width 0.0605, ~4 v-rows), and
+**THE ECOTONE-STRIP TRANSLATION FINDING**: the columns are the grass B-strips
+(STRIP_U/STRIPS_V) translated — dunes ecotone ≈ B + (−0.13478, −0.06738), the
+grass|desert column at u[0.918,0.9785] ≈ B + (+0.5244, −0.047) (5dp fits = an
+earmarked decode; desert|scrub needs NO strip — scrub mains ARE the transition,
+355/958 plain|plain attested, and scrub-mains overlap onto the desert-topo side
+122/199). **Rung 1 = the verbatim BIOME-PATCH WINDOW CARRY**
+(`dunes_patch_carry.py`): a lattice CELL-SET window (straddle fixpoint over the
+surface layer — topo-59 base and 62 are neither carried nor foreign — + THE
+DESERT-RING CLOSURE absorbing pockets until the ring closes in desert + THE
+DONOR-CONTEXT RING GATE: every ring edge's donor OUTSIDE must be desert-family, so
+the deployed outside (mint desert mains) reproduces the donor context modulo the
+free within-family texel swap). Built for DUNES first and **FALSIFIED BY CENSUS:
+THE NO-ENCLOSED-DUNES LAW — no dunes ensemble in stock closes in desert alone**
+(cliff-free or cliffs-carried, cap 2000 cells: every closure chains into
+brush/grass first) — a dunes patch has NO verbatim window; it waits on the ecotone
+vocabulary decode (or rides a future mixed-donor mountain-class carry). **SCRUB
+CONVERGES: 16 desert-ringed windows** (9–15 cells, the Outer-Continent belt near
+(988,−312)). DEPLOYED: a fresh desert islet at block (8,19) centre **(544,−1248)**
+(r26 seed 2, the exhibit row) with a 19-cell verbatim scrub ensemble carried into
+its flat interior (38 tris: 24 scrub + 14 desert ring, real relief y 3.04–3.85
+conformed to H=3.2 by ring plane-fit + ring-exact IDW; area/event id bits rewritten
+to the islet's, topo+texels donor-verbatim; gates: boundary-invariance ok, weld 0,
+full census 0 MISS). The REAL ensemble for A/B: block (13,3) centre (1210,−386).
+Disc-4 mirrored.
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
