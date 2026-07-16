@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication, QWidget                      # noqa:
 
 from ff9mapkit.editor import theme                                       # noqa: E402
 from ff9mapkit.workspace import hero as hero_mod                         # noqa: E402
-from ff9mapkit.workspace.style import qss                                # noqa: E402
+from ff9mapkit.workspace.style import qss, type_px                                # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -479,3 +479,115 @@ def test_motion_off_means_the_signet_is_simply_there(app):
     assert b._draw == 1.0, "motion off -> the mark is simply there, on the first paint"
     b.hide()
     b.deleteLater()
+
+
+# --- PLINTH: the front door measures itself ---------------------------------------------------
+
+def test_the_shipped_band_is_returned_identically_at_100_percent(app):
+    """THE GATE, and it is the whole reason band_metrics SCALES the design instead of deriving it.
+
+    106.5 and 94.5 are half-pixel rule positions somebody chose BY EYE against a 40px serif. A formula
+    that recomputes them from QFontMetricsF would replace a composition with an average and call it a
+    refactor -- and it would be impossible to tell that regression from an improvement, because both
+    arrive as "the numbers changed slightly".
+
+    So 100% is IDENTITY, and asserted as such: not "close to", not "within a pixel". If a future round
+    wants the band derived from metrics, it must delete this test on purpose and render the delta.
+    """
+    for density in ("comfortable", "compact"):
+        assert hero_mod.band_metrics(density, 100) == hero_mod._METRICS[density], (
+            f"{density}: band_metrics no longer reproduces the shipped design at 100%"
+        )
+
+
+def test_the_front_door_is_on_the_ramp_not_on_private_numbers(app):
+    """PLINTH's other half. The band kept private 11px / 13px faces, so when QUARTO P1 raised the caption
+    floor to 12, the hero became the ONLY surface in the app still shipping 11px text -- the front door
+    wearing exactly the small type the user asked us to fix everywhere else.
+
+    Fenced as the RELATIONSHIP (it IS the rung), not as the numbers 12 and 14: pinning the values would
+    pass happily while the rest of the ramp moved away underneath them, which is the bug this closes.
+    """
+    overline, word, status = hero_mod.band_type(100)
+    assert overline == type_px("type_caption", 100), "the hero's overline drifted off the caption rung"
+    assert status == type_px("type_body", 100), "the hero's status line drifted off the body rung"
+    # ...and the wordmark is NOT a rung: it is a brand constant, the one piece of type here chosen as a
+    # drawing rather than as a tier. It scales; it must never join the ramp.
+    assert word == hero_mod._WORD_PX
+    assert word not in (type_px(k, 100) for k in ("type_caption", "type_body", "type_h2", "type_h3"))
+
+
+def test_the_band_grows_with_the_text_size_dial(app):
+    """The defect CALIBRE created: the band paints via QPainter, so no stylesheet reaches it. At 150%
+    every tab grew and the front door sat at exactly 156px -- the app's identity surface was the one
+    thing that ignored its own accessibility feature.
+
+    Asserts MONOTONIC growth across the real dial, on every axis at once -- height, both faces, and the
+    baselines. A partial scale is the worst outcome available: a 60px wordmark on a 156px band overflows
+    its own composition, and that is what a half-wired version would ship.
+    """
+    from ff9mapkit import prefs
+    prev = None
+    for pct in prefs.TEXT_SCALES:
+        m = hero_mod.band_metrics("comfortable", pct)
+        overline, word, status = hero_mod.band_type(pct)
+        cur = (m[0], m[2], m[4], overline, word, status)          # band_h, word_y, status_y, faces
+        if prev is not None:
+            assert all(c >= p for c, p in zip(cur, prev)), f"{pct}%: the band did not grow: {prev} -> {cur}"
+            assert cur != prev, f"{pct}%: the band did not move at all"
+        prev = cur
+    biggest = hero_mod.band_metrics("comfortable", max(prefs.TEXT_SCALES))[0]
+    assert biggest > hero_mod._METRICS["comfortable"][0] * 1.4, "150% barely moved the band"
+
+
+def test_the_hero_holds_no_private_type_sizes(app):
+    """The whole class of bug PLINTH closes, fenced at the source rather than per-number.
+
+    Every hard setPixelSize() in this module was a number that could not hear the ramp OR the dial -- and
+    they were the ONLY such sites in the package. They are now routed through band_type(), so the fence is
+    "the paint code asks for a size, it never states one".
+
+    Reads CODE, not prose (ast.unparse strips the docstrings that discuss these numbers -- this module's
+    comments are full of "11px" and would pass a naive grep vacuously).
+    """
+    import ast
+    import inspect
+    tree = ast.parse(inspect.getsource(hero_mod))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if getattr(fn, "attr", None) != "setPixelSize":
+            continue
+        arg = node.args[0] if node.args else None
+        assert not isinstance(arg, ast.Constant), (
+            f"hero.py:{node.lineno} calls setPixelSize({ast.unparse(arg)}) with a literal -- a private "
+            f"type size that hears neither the ramp nor the text-size dial. Route it through band_type()."
+        )
+
+
+def test_the_signets_no_overflow_promise_is_structural_not_lucky(app):
+    """signet_elbow's docstring promises the mark "can never overflow the column". That was TRUE BY TASTE:
+    "bound to adv" binds the arm to the WORDMARK, and nothing bound the wordmark to the column. At 100% it
+    never mattered (a 40px "Dream World IX" is ~300px against a 604-860px column) -- but PLINTH makes the
+    arm grow with the dial while the column does not, so a scaled band in a narrow window would run the
+    mark straight out of its own composition.
+
+    An invariant that a new feature can falsify was never an invariant. Asserted at the extreme: the
+    widest dial setting against the narrowest column the axis fallback allows.
+    """
+    from PySide6.QtGui import QFont, QFontMetricsF
+
+    from ff9mapkit import prefs
+    worst = max(prefs.TEXT_SCALES)
+    wf = QFont(hero_mod.wordmark_face())
+    wf.setPixelSize(hero_mod.band_type(worst)[1])
+    wf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, hero_mod._WORD_TRACK * worst / 100.0)
+    adv = QFontMetricsF(wf).horizontalAdvance("Dream World IX")
+
+    narrow = 240                                  # the axis fallback's own floor: max(240, width - 60)
+    assert adv > narrow, (
+        "this fence has stopped testing anything: the wordmark now fits the narrowest column even at the "
+        f"largest scale ({adv:.0f} <= {narrow}), so min() is never exercised. Re-pick the extreme."
+    )
+    assert min(adv, narrow) == narrow, "the arm must clamp to the column when the wordmark outruns it"

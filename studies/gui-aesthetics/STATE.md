@@ -503,3 +503,46 @@ grows around it.
 
 **Live-confirmed this round:** the user has now seen QUARTO P1 + RUBRIC in the running app — *"fonts look
 much better"*. That is the first live judgement since Mist. CALIBRE + P3 are **not** yet playtested.
+
+---
+
+## Round 5, part 3 — PLINTH: the front door measures itself
+
+**SHIPPED.** The band tracks the text-size dial, and its two private faces joined the ramp. 3596 tests.
+
+- **The wiring already existed and was inert.** `shell._apply_text_scale` was ALREADY calling
+  `self._hero.set_density(...)` on every scale change — and `set_density` read only `_METRICS[density]`,
+  so the scale was dropped on the floor. The call site even carried a comment saying PLINTH was unbuilt
+  and "the dial deliberately does not touch it". One argument closed it.
+- **The 100% tuples are the DESIGN, not a derivation.** `band_metrics(d, 100)` returns the shipped tuple
+  **identically** (asserted `==`, not "within a pixel"). 106.5 and 94.5 are half-pixel rule positions
+  chosen by eye against a 40px serif; re-deriving them from `QFontMetricsF` would swap a composition for
+  an average — and the regression would be indistinguishable from an improvement, since both arrive as
+  "the numbers changed slightly". So this SCALES the design. Every other scale is that same composition,
+  larger: band 156 → 172 → 195 → 234, wordmark 40 → 44 → 50 → 60, verified through the real dial.
+- **The ramp-join** (the other half): the band kept private 11px/13px faces, so after QUARTO P1 raised the
+  caption floor to 12, **the hero was the only surface in the app still shipping 11px text** — the front
+  door wearing exactly the small type the user asked us to fix everywhere else. Now `type_caption` /
+  `type_body`. Rendered as an isolated delta with the geometry frozen (`plinth_ramp_*.png`) and it reads
+  as **almost nothing**, which is the correct outcome. The WORDMARK deliberately does not join: 40px
+  Sitka Banner is a brand constant, type chosen as a drawing rather than as a tier. It scales; it never
+  tiers, and a fence asserts it is not equal to any rung.
+- **THE INVARIANT THAT WAS TRUE BY TASTE.** `signet_elbow`'s docstring promised the mark "can never
+  overflow the column". "Bound to `adv`" binds the arm to the **wordmark**; nothing bound the wordmark to
+  the **column**. At 100% it never mattered (~300px against a 604–860px column) — but PLINTH grows the arm
+  with the dial while the column does not, so a scaled band in a narrow window would run the mark out of
+  its own composition. Now `min(adv, col)`: structural, not lucky. **An invariant a new feature can
+  falsify was never an invariant** — and this one had shipped, documented, for three rounds.
+- **Fenced at the source, not per-number:** `test_the_hero_holds_no_private_type_sizes` walks the AST and
+  refuses any `setPixelSize(<literal>)` in the module. Reads code, not prose — this module's comments are
+  full of "11px" and would pass a naive grep vacuously. The ramp fences assert the RELATIONSHIP (`==
+  type_px("type_caption")`), never the values 12/14, because pinning values passes happily while the ramp
+  moves away underneath them, which is the exact bug being closed.
+- The overflow fence carries a **self-invalidation guard**: it asserts the wordmark at max scale really
+  does outrun the narrowest column, so it fails loudly if it ever stops testing anything rather than
+  passing vacuously.
+
+**Still open:** GAUGE is now the last live CALIBRE defect — `PROSE_W` is a fixed 420px, so the measure
+decays as the type grows: 61.9ch at 100%, 48.1 at 125%, **41.3 at 150% — below the 45 floor.** The measure
+fails at exactly the setting a low-vision user turned on to be helped, and no fence notices.
+
