@@ -53,9 +53,9 @@ class ImportDoc(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         inner = QWidget()
-        root = QVBoxLayout(inner)
-        widgets.page_margins(root)                      # the page rung (was a hand-typed 16)
-        root.setSpacing(widgets.SECTION_GAP)            # the rhythm between the raised panels (was 12)
+        root = widgets.page_column(inner)               # the centred 860 reading column + the page rung +
+        #                                                 the card rhythm. Was a bare QVBoxLayout, so these
+        #                                                 cards stretched to the window (1136px at 1920).
         # The crown. The intro was already here and already correct -- it just had nothing above it, so
         # the screen's most prominent object was whatever card happened to be first.
         crown, _ = widgets.nameplate(

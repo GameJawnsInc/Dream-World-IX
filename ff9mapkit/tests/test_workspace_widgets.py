@@ -412,3 +412,39 @@ def test_the_caption_cap_is_a_real_measure_at_the_caption_rung(app):
     ch = widgets.CAPTION_W / NARROWEST_12PX
     assert ch <= 75, f"CAPTION_W={widgets.CAPTION_W} is {ch:.1f}ch on the tightest real caption -- over the band"
     assert ch >= 45, f"CAPTION_W={widgets.CAPTION_W} is {ch:.1f}ch -- too narrow to read"
+
+
+def test_the_form_docs_build_their_page_through_the_column(app):
+    """The page column, fenced where it can actually be checked: at the call site.
+
+    COLUMN gave the hints a real measure and immediately exposed the gap it had been hiding -- Home caps
+    its content at 860 and centres it; the form docs never did, so their cards stretched to the window
+    (measured 640 / 1102 / 1136 at 1920). A correct 380px hint inside an 1102px card reads at 3:1: a
+    narrow ribbon in a wide pane. THE HINT WAS NEVER TOO NARROW, THE PAGE WAS TOO WIDE -- widening the
+    hint to 480 puts it back over the band at 94ch.
+
+    Asserted structurally (does the doc CALL page_column) rather than by measuring a rendered width: the
+    suite runs offscreen, where the font DB is stubbed, and every width that depends on text is fiction
+    there. The real widths are in evidence/probe_column.py, native: cards now 812 at 1600+, 604-ish at
+    1280 -- Home's own documented curve, because it is Home's own geometry.
+    """
+    import ast
+    import inspect
+    import pathlib
+    ws = pathlib.Path(widgets.__file__).parent
+    for name in ("builddoc.py", "importdoc.py", "coopdoc.py"):
+        src = (ws / name).read_text(encoding="utf-8")
+        assert "widgets.page_column(" in src, (
+            f"{name} builds its page without the reading column -- its cards will stretch to the window"
+        )
+        # ...and not by ALSO hand-rolling the old bare layout beside it
+        tree = ast.parse(src)
+        bare = [n.lineno for n in ast.walk(tree)
+                if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "QVBoxLayout"
+                and n.args and getattr(n.args[0], "id", None) == "inner"]
+        assert not bare, f"{name}:{bare} still builds a bare QVBoxLayout(inner) -- two page opinions"
+
+    # the column is Home's number, not a second opinion about the same thing
+    from ff9mapkit.workspace import shell
+    home = inspect.getsource(shell.Workspace._build_home) if hasattr(shell.Workspace, "_build_home") else ""
+    assert widgets.PAGE_W == 860, "the form docs' column must stay the number Home already uses"

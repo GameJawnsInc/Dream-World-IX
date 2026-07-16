@@ -34,6 +34,52 @@ SECTION_GAP = 14
 PAGE_PAD = style.space("space_6")
 
 
+# THE PAGE COLUMN. Home has always had one -- `body.setMaximumWidth(860)`, centred -- and the form docs
+# never did, so their cards stretched to the window: measured 640 / 1102 / 1136 at a 1920 window.
+#
+# That was invisible until COLUMN gave the hints a real measure. A correct 380px hint inside an 1102px
+# card reads at 3:1 -- a narrow ribbon stranded in a wide pane -- and the instinct is to widen the hint.
+# That instinct is wrong and the arithmetic says so: 480px reads 94 characters to the line, back over the
+# 75 ceiling. THE HINT WAS NEVER TOO NARROW; THE PAGE WAS TOO WIDE. A reading column is the fix, and the
+# app already had one and only spent it on one screen.
+#
+# 860, the same number Home uses, for the reason a shared number is better than a defensible one: the two
+# surfaces are the same kind of thing (a scrolling column of cards you read), and a page that is 860 here
+# and 900 there has no column at all -- it has two opinions.
+PAGE_W = 860
+
+
+def page_column(host):
+    """Home's centred reading column, for a form doc. Returns the layout to build the page INTO.
+
+    Replaces the bare `QVBoxLayout(inner)` the three form docs each built. The sandwich is
+    ``host -> centring row -> capped column -> your layout``, and the host still fills the scroll area
+    (``setWidgetResizable(True)`` requires that) while the column inside it does not.
+
+    THE STRETCH IS 20, NOT 4, AND HOME'S COMMENT IS THE RECEIPT -- this is a copied solution, not a
+    copied number. At 4:1:1 the column takes 4/6 of the width, which targets 435px at the 1280 default;
+    Home's was rescued only by its own 512px minimumSizeHint, which is itself propped up by
+    un-word-wrapped labels. So the moment a round wrapped those labels the column would silently collapse
+    to ~398. Factor 20 pins it to the cap as early as geometry allows: 604 at 1280, 860 from 1600.
+
+    (That trap is now LIVE for these docs and was not before: COLUMN just wrapped every hint on them.)
+    """
+    row = QHBoxLayout(host)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(0)
+    row.addStretch(1)
+    col = QWidget()
+    col.setStyleSheet("background: transparent;")   # the universal QWidget{background-color:$bg} rule would
+    #                                                 otherwise paint the page colour over the scroll's ground
+    col.setMaximumWidth(PAGE_W)
+    row.addWidget(col, 20)
+    row.addStretch(1)
+    v = QVBoxLayout(col)
+    page_margins(v)
+    v.setSpacing(SECTION_GAP)
+    return v
+
+
 def page_margins(lay) -> None:
     """Apply the page rung to a form doc's page-level layout.
 
