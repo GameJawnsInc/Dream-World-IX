@@ -676,7 +676,17 @@ _QSS = Template(
         border-radius: $radius_md; padding: 6px 10px; font-weight: 600;
     }
     QToolButton#hub:hover { background: $hover; color: $help_hover; border-color: $help_hover; }
-    QToolButton#hub:pressed { background: $pressed; color: $help_hover; border-color: $help_hover; }
+    /* PRESSED FILLS, because no ink clears AA on the `pressed` GROUND. This shipped as
+       `background: pressed; color: help_hover` and measured 2.23:1 on solarized-dark -- sub-AA in 7 of 8,
+       on a button with a real text label. `help` is lifted per palette to clear 4.5 AS TEXT; `help_hover`
+       never was, so I propagated an unfenced pair rather than minting one. (Its `:hover` sibling above has
+       the same flaw, pre-dating this: dark 3.12, solarized-dark 2.82.)
+       Measured, NOTHING is legible on `pressed`: text 6/8, accent_fg 1/8, help_fg 0/8, muted 1/8 -- because
+       `pressed` is a ground derive() has never solved anything against (_grounds is bg/surface/surface_2).
+       So the press spends the pair the palette ALREADY fences: help_fg on help, worst 5.19, guarded by
+       test_a_filled_ground_carries_its_ink. The affordance fills instead of tinting -- a stronger press
+       than a background swap, and the only one that is legible in all 8. */
+    QToolButton#hub:pressed { background: $help; color: $help_fg; border-color: $help; }
     QToolButton#hub:focus { border: 1px solid $accent; }
     /* NO border-bottom. THE LAW: a border belongs to the band whose existence it is CONDITIONAL ON.
        The band under this one is the spine, and the spine HIDES (shell.py: setVisible(bool(guidance or
@@ -730,8 +740,17 @@ _QSS = Template(
         border-radius: $radius_md; padding: 5px 14px; font-weight: 600;
     }
     QToolButton#railSeg:hover   { color: $text; background: $hover; }
-    QToolButton#railSeg:pressed { color: $text; background: $pressed; }
     QToolButton#railSeg:checked { color: $text; background: $surface_3; border: 1px solid $border; }
+    /* AFTER :checked, AND THAT ORDER IS THE WHOLE RULE. Both selectors are (0,1,1,1) -- an id, a
+       pseudo-class, a type -- so they TIE, and on a tie the LATER rule wins the property. Written before
+       :checked (as it first was), the ACTIVE segment -- the one you are on, the one most likely to be
+       clicked -- rendered 0 changed pixels on press, while its inactive siblings changed 2968. The exact
+       defect this round exists to kill, reintroduced inside the fix for it, one tie down.
+       Proven by reordering the rendered string alone: 0 -> 2368.
+       The press fence missed it because it called setCheckable(True) and never setChecked(True); it does
+       both now. (#disclosureToggle survived the same shape only by luck -- its :checked sets `color`, not
+       `background`, so there was nothing to lose.) */
+    QToolButton#railSeg:pressed { color: $text; background: $pressed; }
     QToolButton#railSeg:focus   { border: 1px solid $focus; }
 
     /* progressive-disclosure toggle (widgets.disclosure): a flat, left-aligned 'advanced' section header */
@@ -780,7 +799,11 @@ _QSS = Template(
         padding: 0; font-weight: 700; font-size: $type_badge;
     }
     QToolButton#conceptBadge:hover { color: $accent; border-color: $accent; }
-    QToolButton#conceptBadge:pressed { color: $accent; border-color: $accent; background: $pressed; }
+    /* Same fix, same reason: this shipped as `color: accent; background: pressed` and measured 1.59:1 on
+       nord -- pressing the badge erased its own glyph AND its ring into the fill, in 7 of 8 palettes. The
+       glyph is 12px/700 and weight does NOT buy the large-text bar (that needs 18.66px bold), so the bar
+       is 4.5. accent_fg on accent is worst 4.56 and already fenced. */
+    QToolButton#conceptBadge:pressed { color: $accent_fg; border-color: $accent; background: $accent; }
     QToolButton#conceptBadge:focus { border: 1px solid $focus; }
     """
 )

@@ -106,6 +106,14 @@ def test_the_smoke_survives_a_hostile_prefs_file(tmp_path):
     (cfg / "prefs.json").write_text(json.dumps({
         "guided": False, "density": "compact", "text_scale": 150,
         "theme": "light", "motion": "off", "restore_session": True, "recent": [],
+        # `layout` WAS THE ONE KEY THIS FENCE SKIPPED -- and it is the exact key THE DOC PANE proved was
+        # the defect ("the defect is entirely the PERSISTED layout"). A fence whose thesis is "every value
+        # deliberately non-default" that omits the one key a sibling commit is about is not covering the
+        # product, it is covering the keys that came to mind. A wide layout replayed narrow is the real
+        # case; the 1-element console_split is the CORRUPT case, which used to reach an unguarded index
+        # and raise IndexError (prefs.layout() checked type and sign but never arity).
+        "layout": {"central_split": [300, 1198, 420], "console_split": [1],
+                   "console_collapsed": True},
     }), encoding="utf-8")
     env = dict(os.environ)
     env["LOCALAPPDATA"] = str(tmp_path)

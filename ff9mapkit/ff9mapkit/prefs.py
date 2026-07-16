@@ -234,9 +234,16 @@ def layout() -> dict:
     for k in ("geometry", "state"):
         if isinstance(val.get(k), str) and val[k]:
             out[k] = val[k]
-    for k in ("central_split", "console_split"):
+    # ARITY IS PART OF "CORRUPT", and this docstring promised to drop corrupt values while never checking
+    # it. `{"console_split": [1]}` is a list, non-empty, all ints, all >= 0 -- so it passed, was STORED,
+    # and detonated later at an unguarded `(self._console_sizes or _DEFAULT_CONSOLE_SPLIT)[1]` with an
+    # IndexError. `_restore_layout`'s `except Exception: pass  # never let a bad layout block launch` had
+    # already swallowed the first raise AFTER storing the poison, so the crash surfaced far from its cause.
+    # The SAVE path arity-checks (`if len(sizes) == 2`); only the restore path did not.
+    for k, arity in (("central_split", 3), ("console_split", 2)):
         sizes = val.get(k)
-        if isinstance(sizes, list) and sizes and all(isinstance(x, int) and x >= 0 for x in sizes):
+        if (isinstance(sizes, list) and len(sizes) == arity
+                and all(isinstance(x, int) and x >= 0 for x in sizes)):
             out[k] = sizes
     if val.get("console_collapsed") is True:
         out["console_collapsed"] = True

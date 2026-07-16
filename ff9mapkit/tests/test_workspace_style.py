@@ -834,6 +834,15 @@ def test_the_dial_may_only_ever_grow_a_gap():
         seen = [style.space(key, "comfortable", p) for p in sorted(prefs.TEXT_SCALES)]
         assert seen == sorted(seen), f"{key} is not monotonic across the dial: {seen}"
         assert seen[0] == style._GRID[key], f"{key} at 100% must be the shipped grid value"
+        # AND IT MUST ACTUALLY GROW. The two asserts above are BOTH satisfied by a CONSTANT sequence, so
+        # this fence passed with BREATHE's grid half fully reverted -- `space()` returning a flat
+        # [8, 8, 8, 8] is monotonic AND correctly anchored. It was green for the exact defect it is named
+        # after. A fence for a law of the form "X must change" cannot be built only from invariants that a
+        # no-op satisfies; it needs one assertion that a no-op FAILS.
+        assert seen[-1] > seen[0], (
+            f"{key} is {seen} across the dial -- the gap never grows, so the space is not on the dial at "
+            f"all and the app gets tighter the more a low-vision user asks for help"
+        )
 
 
 def test_the_toolbar_is_exempt_from_the_dial():
@@ -1033,7 +1042,13 @@ def test_no_widget_paints_a_colour_the_palette_never_chose():
             if id(node) in docs:
                 continue                 # form 1: a docstring is prose, not code
             src = re.sub(r"/\*.*?\*/", "", node.value, flags=re.S)   # form 2: a CSS comment is prose too
-            for m in re.finditer(r"#[0-9a-fA-F]{6}\b", src):
+            # 3, 4, 6 AND 8 DIGITS -- Qt accepts them all, and this fence's first cut only saw 6. That blind
+            # spot was hiding a real one: modelsdoc's `pal.get('border', '#444')`, which is BOTH of this
+            # round's traps at once (a default that can never fire, holding a palette-blind hex) and which
+            # also evaded the SPEND census because that grepped `background:{...}` while this hex rode on
+            # `border`. Widening the pattern took the AST walk from 0 violations to exactly 1 -- the
+            # difference between a fence that passes and a fence that works.
+            for m in re.finditer(r"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b", src):
                 bad.append(f"{py.name}:{node.lineno} {m.group(0)}")
     assert not bad, (
         "these paint a hex the palette never chose, so they cannot follow a theme switch and were never "

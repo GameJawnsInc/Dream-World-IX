@@ -120,8 +120,12 @@ class ModelsDoc(QWidget):
         self.d_img = QLabel()
         self.d_img.setFixedSize(_DETAIL_IMG, _DETAIL_IMG)
         self.d_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # BOTH of this round's traps in one expression, and it survived the SPEND census because that
+        # census grepped `background:{...}` -- this rule's background is `transparent` and the hex rode on
+        # `border`. `'border'` is in all 8 palettes, so the `.get` default could never fire (dead), and
+        # `#444` is a palette-blind grey that no theme switch can reach (loaded). Index it.
         self.d_img.setStyleSheet("background:transparent;"          # was pal.get('panel', ...) -- 'panel' is not a token
-                                 f"border:1px solid {self.pal.get('border', '#444')};border-radius:6px;")
+                                 f"border:1px solid {self.pal['border']};border-radius:6px;")
         img_row.addWidget(self.d_img)
         facts_col = QVBoxLayout()
         self.d_facts = QLabel("")

@@ -1143,8 +1143,11 @@ argument.
 
 ## The remainder, named rather than silent
 
-- **BREATHE's layout half.** Only 7 of 29 spacing declarations can move: `$space_N` appears **once** in the
-  542-line sheet, and the grid has 3 call sites against 148 layout calls. Card margins and `SECTION_GAP` are
+- **BREATHE's layout half.** Only **7 of 30** spacing declarations can move: `$space_N` appears **once** in
+  the 542-line sheet, and the grid has 3 call sites against 148 layout calls. (The commit said "7 of 29".
+  It went stale *inside the commit that added the 30th rule* — BREATHE's own `QToolBar QToolButton`
+  exemption. The numerator and the 100%-identity both reproduce exactly; only the denominator moved, and
+  it moved by the same hand that quoted it.) Card margins and `SECTION_GAP` are
   **layout** calls set at build time — they neither scale nor could update live without a rebuild path, the
   same gap `page_margins` already documents for density. That is why the card lands at 48.9% air instead of
   its 55.7%.

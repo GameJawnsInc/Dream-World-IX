@@ -365,7 +365,13 @@ def themed(app):
         w = (QPushButton if oid == "search" else QToolButton)()
         w.setText("Sample")
         w.setObjectName(oid)
+        # CHECKABLE **AND CHECKED**. Checkable-but-unchecked was the hole: `#railSeg:pressed` and
+        # `#railSeg:checked` are both (0,1,1,1), so they TIE and source order decides -- and the ACTIVE
+        # segment rendered 0px on press while this fence, testing only the UNCHECKED one, stayed green.
+        # A state fence that never enters the state is testing the other state.
         w.setCheckable(oid in ("railSeg", "disclosureToggle"))
+        if w.isCheckable():
+            w.setChecked(True)
         lay.addWidget(w)
         made[oid] = w
     host.resize(360, 60 * len(made))
@@ -456,28 +462,33 @@ def test_an_id_scoped_button_shows_where_the_keyboard_is(themed, oid):
 # studies/gui-aesthetics/evidence/probe_doc_pane.py, which refuses to run offscreen.
 
 
-def test_the_document_pane_keeps_a_floor(win):
-    """The document must not be squeezed under the widest doc's need when a WIDE SAVED LAYOUT is replayed
-    on a NARROW window.
+def test_no_splitter_pane_pins_a_minimum_width(win):
+    """A PANE MINIMUM PROPAGATES TO THE WINDOW, so pinning one takes the app's narrow widths away.
 
-    The default is fine and this does not touch it: [300, 640, 240] resolves to [300, 738, 240] at 1280
-    and every tab clears (Import 603, Co-op 570, Home 525 -- all native). The defect is the PERSISTED
-    layout: [300, 1198, 420], saved at 1920, replayed at 1280 leaves the doc 558. `setStretchFactor(1, 1)`
-    makes the doc absorb all growth and therefore all shrink, so the entire deficit lands on it. Every
-    scrollbar threshold was exactly fresh+180 -- and 180 = 420-240, the inspector's saved excess.
+    `mid_col.setMinimumWidth(700)` shipped for one commit to stop a wide SAVED layout squeezing the
+    document when replayed narrow. Measured natively, it did two things its own comment denied:
+      * the window's hard floor went 686 -> 844, so `resize(720)` returned 844 and a 720px window became
+        UNREACHABLE -- while test_toolbar_overflows_gracefully_at_narrow_width kept asking for 720, getting
+        844, and passing;
+      * 700 was a 100%-scale constant against a layout minimum of 542/575/685/796 across the text dial, so
+        at 150% the "floor" sat 96px BELOW the real minimum -- worse than absent.
+    Any explicit minimum above the pane's own 542 raises the window floor, so this approach cannot work.
+    Clamp the restored SIZES instead.
 
-    A MINIMUM RATHER THAN A RE-BALANCE, because those sizes are the user's own drag. It bites only when
-    the window cannot honour them (1280 -> [229, 700, 349], no scrollbars) and returns their layout
-    untouched at 1440+.
-
-    WHY >= 700 AND NOT "the widest doc's need": that need is text-derived, and this suite cannot measure
-    text. 700 was chosen natively against Import's 603.
+    STRUCTURAL, NOT A WIDTH, AND THAT IS FORCED: this module is offscreen, where the stub font DB inflates
+    text ~2.6x and the window's floor reads ~1296 no matter what is pinned. The first version of this fence
+    asserted `win.resize(720); win.width() <= 720` and went red on the harness rather than on the code --
+    the offscreen lie, caught for the third time in one round. "Nothing pins a minimum" is the same law and
+    is font-independent. The real widths live in studies/gui-aesthetics/evidence/probe_doc_pane.py, which
+    refuses to run offscreen.
     """
-    mid = win._central_split.widget(1)
-    assert mid.minimumWidth() >= 700, (
-        "the document pane has no floor -- a layout saved at 1920 and replayed at 1280 will squeeze it "
-        "under Import's need and force a horizontal scrollbar"
-    )
+    for i in range(win._central_split.count()):
+        pane = win._central_split.widget(i)
+        assert pane.minimumWidth() == 0, (
+            f"splitter pane {i} ({type(pane).__name__}) pins minimumWidth={pane.minimumWidth()}. That "
+            f"propagates to the WINDOW's minimum and takes narrow widths away from the app (720px is in "
+            f"scope for WCAG 1.4.4/1.4.10). Clamp the restored sizes, do not pin the widget."
+        )
 
 
 def test_a_recent_row_never_dictates_home_width(win, app, tmp_path):

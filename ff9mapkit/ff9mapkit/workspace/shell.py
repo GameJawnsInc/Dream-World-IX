@@ -349,7 +349,7 @@ class BreadcrumbBar(QWidget):
         self._lay.addWidget(self._chip)
         self.set([])
 
-    def set_chip(self, text, fill=None, ink=None):
+    def set_chip(self, text, fill="", ink=""):
         """The always-visible 'what am I editing' chip (JOURNEY / CAMPAIGN / FIELD / BATTLE / SAVE / BUILD).
         Empty text hides it. Persists across :meth:`set` so it stays truthful on every tab.
 
@@ -362,14 +362,20 @@ class BreadcrumbBar(QWidget):
 
         The palette carried the answer the whole time. `accent_fg` is hand-authored per palette and
         `theme.py` explains at length why white on an accent is wrong; the Tk editor spends it in six
-        places. This chip -- the app's most-visible piece of coloured text -- did not. Now the caller
-        resolves both hexes from ONE key, so a fill can never again arrive without its ink.
+        places. This chip -- the app's most-visible piece of coloured text -- did not.
+
+        BOTH ARE REQUIRED, and they used to default INDEPENDENTLY (`fill or accent` / `ink or accent_fg`).
+        Censused, neither default was reachable -- the one real caller passes both -- so they were the
+        same "unexploded" shape this round removed from `PlaceholderListWidget`, left standing in the very
+        method the fix is about. Worse, independent defaults made this docstring's own promise a wish: a
+        caller passing only `fill` got `accent_fg` on a foreign ground -- `set_chip("BATTLE", pal["warn"])`
+        measures **1.56** on nord (paired: 8.97). That is exactly the accent_fg-on-$help hazard
+        `test_an_ink_is_never_borrowed_from_the_ground_next_door` exists to fence. Required, so the promise
+        is kept by the signature rather than by hope.
         """
         if not text:
             self._chip.setVisible(False)
             return
-        fill = fill or self.pal["accent"]
-        ink = ink or self.pal["accent_fg"]      # a RAW key: authored per palette, present without derive()
         self._chip.setText(text)
         self._chip.setStyleSheet(
             f"background:{fill};color:{ink};border-radius:3px;padding:1px 7px;font-weight:600;")
@@ -1380,30 +1386,29 @@ class Workspace(QMainWindow):
 
         split.setSizes([300, 640, 240])
         split.setStretchFactor(1, 1)
-        # THE DOCUMENT KEEPS A FLOOR -- AND WHAT IT DEFENDS AGAINST IS THE PERSISTED LAYOUT, NOT THIS
-        # DEFAULT. Measured natively: the default above is CLEAN. At a 1280 window it resolves to
-        # [300, 738, 240] and every tab clears (Import needs 603, Co-op 570, Home 525). The defect appears
-        # only once `layout.central_split` is restored: a layout saved at 1920 -- [300, 1198, 420] -- and
-        # replayed at 1280 leaves the document 558, under both. `setStretchFactor(1, 1)` is what makes the
-        # doc absorb all of the window's growth, and therefore all of its shrink, so the whole deficit
-        # lands here. Isolated arithmetically: every scrollbar threshold is exactly fresh+180, and
-        # 180 = 420-240 -- the inspector's saved excess over its default. (An earlier commit of mine said
-        # the DEFAULT allocated the doc only 44% and wanted re-balancing. That was measured off the
-        # persisted layout and was simply wrong about the default.)
+        # NO FLOOR ON THE DOCUMENT PANE, AND THE ATTEMPT IS WORTH RECORDING.
+        # The real defect: a layout saved at 1920 ([300, 1198, 420]) replayed at 1280 leaves the document
+        # 558 -- under Import's 603 -- so it horizontal-scrolls. setStretchFactor(1, 1) makes the doc
+        # absorb all growth and therefore all shrink, so the whole deficit lands there. (The DEFAULT is
+        # clean: [300, 640, 240] -> [300, 738, 240] at 1280, every tab clear.)
         #
-        # A MINIMUM, NOT A RE-BALANCE, because those sizes are the USER'S -- they dragged them. Restoring
-        # ratios instead would silently shrink a deliberate 420px inspector to 280; clamping the restored
-        # inspector discards the drag outright. A minimum bites ONLY when the window is too narrow to
-        # honour the saved layout, and never at the widths it works at: 1280 -> [229, 700, 349], no
-        # scrollbars, both sides giving proportionally; 1440 and up hand back [300, 718, 420] untouched.
-        # No persistence-format change, nothing to migrate.
+        # `mid_col.setMinimumWidth(700)` shipped here for one commit and was REVERTED, because a widget
+        # minimum cannot express this and the numbers say so in both directions:
+        #   * IT RAISES THE APP'S HARD FLOOR. A pane minimum propagates to the top level: the window's own
+        #     minimum went 686 -> 844, so `resize(720)` returns 844 and A 720px WINDOW BECOMES UNREACHABLE.
+        #     720 is in scope -- test_toolbar_overflows_gracefully_at_narrow_width asks for exactly that,
+        #     and it kept passing while silently measuring 844.
+        #   * AND AT 150% IT LOWERS THE FLOOR. 700 is a 100%-scale constant; mid_col's own layout minimum
+        #     is 542 / 575 / 685 / 796 across the dial. At 150% the "floor" sits 96px BELOW the real
+        #     minimum -- worse than absent, at the setting a low-vision user turned it to.
+        # Those are not tuning errors. ANY explicit minimum above mid_col's own 542 raises the window
+        # floor, so "fix the narrow-persisted case" and "keep 720 reachable" cannot both hold this way.
         #
-        # 700 CLEARS THE WIDEST REAL NEED (Import, 603) WITH ROOM, and the panes can pay it: neither side
-        # sets a minimumWidth, so the tree (minimumSizeHint 74) and inspector (64) can both give. NB this
-        # is a REAL raise only because mid_col's own minimum is 542 -- see probe_doc_pane.py, and note
-        # that setMinimumWidth OVERRIDES the layout-derived minimum in both directions, so a number BELOW
-        # 542 would quietly LOWER the floor rather than raise it.
-        mid_col.setMinimumWidth(700)
+        # WHAT THE FIX WOULD HAVE TO BE: clamp the RESTORED SIZES at restore time (or on resize) against
+        # what the window can actually afford -- not pin the widget. That re-proportions a layout the user
+        # dragged, so it wants its own design and its own eye. Until then the narrow-persisted case still
+        # scrollbars: it is the user's own saved layout, it is one horizontal scrollbar, and it is cheaper
+        # than making the app refuse to be 720px wide.
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
         self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
@@ -1987,8 +1992,17 @@ class Workspace(QMainWindow):
             # prefs, not in the repo, and a journey/campaign's display name is its parent FOLDER's name,
             # i.e. as long as whatever the user called their directory.
             #
-            # ONE LINE, AND IT IS THE WHOLE FIX: wrapped, the row's minimum is its longest WORD, so Home
-            # falls back to its own 525 and never scrolls at any width. The row gives, instead of the page.
+            # ONE LINE, AND IT IS MOST OF THE FIX: wrapped, the row's minimum becomes its longest
+            # UNBREAKABLE RUN rather than its whole rendered line, so Home falls back to its own 525 for
+            # every real history and the row gives instead of the page.
+            #
+            # NOT "never scrolls at any width", which is what this comment first claimed and is false. The
+            # minimum is a different FUNCTION of the name, not independent of it: measured natively, one
+            # fresh process per case -- 5ch -> 525 · a 53ch HYPHENATED name -> 525 (it breaks) · 55ch
+            # CamelCase -> 539 · a 90ch SINGLE TOKEN -> 732, which still scrolls at 1280. Qt cannot break
+            # a run with no break opportunity, so a pathological folder name still pushes. That is a far
+            # smaller and much rarer surface than "every history over ~40 chars", and the tooltip carries
+            # the full path -- but it is not zero, and saying zero is how the next reader stops looking.
             #
             # TWO FIXES DIED HERE AND BOTH LOOKED RIGHT:
             #   * setMinimumWidth(0) + SizePolicy.Ignored -- shrinks the row by CLIPPING rich text, i.e.
