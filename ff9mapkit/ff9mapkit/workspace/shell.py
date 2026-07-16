@@ -1148,9 +1148,13 @@ class Workspace(QMainWindow):
         v.addWidget(crumb_row)
 
         # Phase 7: the cohesion SPINE -- a modest 'what do I do next' strip below the breadcrumb, driven by the
-        # shell state (empty / unsaved / ready / just-deployed). Answers the third question ("what's my next
-        # step") the breadcrumb ("where am I") + Ctrl-K ("what is X") don't. Auto-hides when it has nothing to
-        # say. Rebuilt (state-cached, so it's free per keystroke) via _refresh_spine.
+        # shell state. Answers the third question ("what's my next step") the breadcrumb ("where am I") +
+        # Ctrl-K ("what is X") don't. Auto-hides when it has nothing to say. Rebuilt (state-cached, so it's
+        # free per keystroke) via _refresh_spine.
+        # It drove FOUR states and now drives TWO: it is hidden at cold start and when merely ready, because
+        # those were restating Home's lede and the visible Deploy button respectively -- 43px on every tab
+        # for a sentence the screen already carried. The full argument is in _next_actions. A strip that is
+        # usually silent is what makes it worth reading when it speaks.
         spine = QWidget()
         spine.setObjectName("spineRow")
         spine.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -1348,7 +1352,10 @@ class Workspace(QMainWindow):
         self._central_split = split                # persisted across sessions (see _restore_layout)
         self.setCentralWidget(central)
         self._activate_group(0, switch=False)      # start on the Home workspace (Home is the current tab)
-        self._refresh_spine()                      # show the cohesion spine's cold-start (EMPTY) guidance
+        self._refresh_spine()                      # settle the spine's initial state (it starts HIDDEN: at
+        #                                            cold start Home's lede owns the "what next" -- see
+        #                                            _next_actions. The call still matters: it seeds
+        #                                            _spine_key so the first real state change repaints.)
 
     def _panel_header(self, text):
         """A small bold caption for a console panel (replaces the old tab labels, since both panels now show
@@ -6841,22 +6848,33 @@ class Workspace(QMainWindow):
 
     def _next_actions(self):
         """``(guidance, [(label, callback, is_primary)])`` for the cohesion spine -- the single 'what do I do
-        next' for the current shell state. The deploy itself stays the ONE crumb-row Deploy button (F9); the
-        spine points at it rather than duplicating it, and carries buttons only for non-crumb actions (fork /
-        open / save). Empty actions + empty guidance -> the strip hides."""
-        if self._current_target()[0] is None:          # EMPTY -- nothing open
-            return ("New here? Fork a real field from your own game to get started.",
-                    [("Fork a field", lambda: self.tabs.setCurrentWidget(self.import_field), True),
-                     ("Open a project…", self.on_open_campaign, False)])
+        next' for the current shell state. Empty actions + empty guidance -> the strip hides.
+
+        THE SPINE ONLY SPEAKS WHEN IT HAS SOMETHING THE SCREEN DOES NOT ALREADY SAY. It costs 43px of
+        height on every tab, permanently, and two of its four states were spending that on a restatement:
+
+        * EMPTY said "New here? Fork a real field from your own game to get started." + [Fork a field] --
+          while Home's LEDE, 100px below it on the same screen, said "Fork your first field from the game"
+          + [Go to Import]. Same message, same destination, stacked. Measured live, not inferred.
+        * READY said "press Deploy (F9, top-right)" -- pointing at a button that is, in fact, visible in
+          the top right. The spine's own charter was to point at that button "rather than duplicating it",
+          and a full-width strip describing an on-screen control is duplication with extra steps.
+
+        What survives is what is genuinely absent from the screen: UNSAVED (Save all -- reachable from any
+        tab, and Home's lede never shows it) and JUST-DEPLOYED (press F6 -> Reload field -- the only thing
+        the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app).
+        """
+        if self._current_target()[0] is None:           # EMPTY -- Home's lede already says exactly this
+            return ("", [])
         if self._dirty_members():                       # UNSAVED edits
             return ("You have unsaved edits — save them, then press Deploy (F9, top-right) to try it.",
                     [("Save all", self._save_all, True)])
         t = self._deploy_target()
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
-        if self._deployed_target == t:                  # JUST DEPLOYED this target
+        if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
             return ("Deployed to your test slot — in your game, press F6 → Reload field (or Warp to it).", [])
-        return ("Ready — press Deploy (F9, top-right) to build it into a safe test slot and play it.", [])
+        return ("", [])                                 # READY -- the Deploy button is already right there
 
     def _refresh_spine(self):
         """Rebuild the cohesion spine from the live state. State-cached: a no-op when the state key is
