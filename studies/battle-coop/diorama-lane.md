@@ -304,7 +304,7 @@ battle suppressed" (corruption).
 - **Boot's catch called `Leave()`** → now DISCARDS the bracket (nothing has scribbled yet; applying it
   would write stale state for no reason).
 
-## B3.2 — THE MIRRORED PARTY ★ BUILT 2026-07-15 (design adversarially verified; bench pending)
+## B3.2 — THE MIRRORED PARTY ★★ IN-GAME PROVEN 2026-07-16 (both markers)
 
 ### THE SCRATCH-PARTY IS DEAD — not risky, structurally impossible
 A battle actor's identity is a **`Byte`**, not a pointer: `btl_init.cs:378` stamps
@@ -405,12 +405,23 @@ trap as the old `failsafe=OK`. So the bench needs **TWO** markers:
 - **The bench** — `NetSyncParty.SelfTestMirror` + a `SlotSource` seam; armed in **`Start`**, gated on
   `IsSelfTestRole`; `Clear()` on Disarm selftest-gated.
 
-### Bench PASS / FAIL — read both markers
-| Result | Meaning |
-|---|---|
-| Impostor's model in slot 0 **and** HUD reads **BENCH** at **lv 99** | **PASS** — seat *and* carry |
-| Your own slot-0 character stands there | **FAIL (seat)** — the apply never ran |
-| The impostor stands there under **its own name/level** | **FAIL (carry)** — the seat landed, the field writes did not |
+### ★★ THE PROOF (2026-07-16, solo bench)
+Party was Blank / Zidane / Steiner / Vivi. Boot →
+```
+[NetSync] diorama party BENCH: armed (slot 0: Blank -> Dagger, name BENCH, lv99)
+[NetSync] diorama seated the host's party: 4 slot(s)
+```
+- **SEAT ✓** — slot 0 rendered **Garnet's model**, not Blank's. The dict swap reached the model spawn,
+  the actor tag (`bi.slot_no`), and the HUD's dict-keyed name lookup.
+- **CARRY ✓** — the HUD read **BENCH**: a string invented on a scratch source, through the real encoder
+  → the real parser → the apply. A no-op apply would still have shown the impostor, but under *Blank's*
+  name — which is exactly why Marker B exists. (Level is unobservable in the battle HUD but rides the
+  identical path.)
+- **RESTORE ✓** — Blank back in slot 0 on leave; the reference bracket undid a live 4-slot swap on the
+  guest's real party.
+
+**This is the mechanism B3 exists for:** the host's characters can stand in the guest's diorama, and the
+guest's own party survives untouched.
 
 ### Known fidelity gap (a wire question, not a safety one)
 The wire carries no SA data, so the scratch's `mpCostFactor`/limits/SA re-derive from an empty
