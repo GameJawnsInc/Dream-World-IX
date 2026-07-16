@@ -830,3 +830,60 @@ so the suite never touches the real store. **No damage — but the check was rig
 construct a real `Workspace` and call `close()` are one careless `set_*` away from editing the developer's
 own settings.**
 
+---
+
+## Round 5, part 10 — KEYLINE: the dot, and a tier that had never been drawn
+
+**SHIPPED.** 3620 tests. Round 4 spun these out as standalone bug fixes; both were real, and neither was
+what its analysis said.
+
+### The dot ate the glyph it annotated
+
+`r = w * 0.30` + an `int()`-truncated halo spanned **11.6px of a 16px icon — 72% of its width** — punched
+out of the bottom-right corner, on the row you are editing. `field` became an amber blob with a fragment
+of a frame; `hub` lost two of four squares; `chocobo`'s feather was bisected. Now `k=0.19 / pad=1.0 /
+QRectF`: **6.1px dot, 50% of width**, every glyph identifiable.
+
+The `int()` was the bug's other half — it truncates origin *and* extent, and at k=0.19 the 1px pad **is**
+the whole margin, so the radius fix alone would not survive it.
+
+**ONLY THE RENDER COULD SEE IT.** The punch-out CLEARS and the dot then FILLS, so every destroyed pixel
+returns at **alpha 255**. My "is this pixel still ink?" probe counted the amber dot as surviving glyph and
+reported **98.4% kept** — I nearly dismissed round 4's claim as false on the strength of it. *Ask what
+COLOUR survived, or look at it at 10×.*
+
+### THE LEAF TIER HAS NEVER BEEN DRAWN — the round's best find
+
+`_type_icon` read `self.pal.get("text_subtle", self.pal["text"])`. **`text_subtle` is DERIVED; `self.pal`
+is RAW** (`main()` does `Workspace(pick_palette(...))`). The fallback fired **every time, in every palette,
+since the icons shipped** — every leaf icon has been full `text` ink, and the "subtle body text" its own
+docstring described has never reached a pixel.
+
+> **A defensive `.get` whose default is the real behaviour is not a default — it is the code.**
+
+That retires the analysis that sent us here: round 4's "text_subtle is 2.96 in solarized-light — FAILS"
+was **measuring a colour the app does not draw**. `muted` is right anyway: the intent finally delivered
+*and* legible (5.08–6.99; text_subtle would have failed 6/8 selected).
+
+### My own fence found a defect nobody had looked for
+
+**nord's SPINE icons are 2.47 on the tree ground** — under the 3.0 floor. Fixed with `focus`, which *is*
+"the accent brightened until it clears 3:1 on the surface": only nord moves (2.47 → 3.08); the other seven
+return unchanged. **Not** a new `accent_mark` token — it would be `_focus_token(accent, surface)`,
+identical by construction, i.e. the two-names-one-job defect QUARTO P2 deleted two commits earlier.
+
+### And round 4's headline is no longer true
+
+It measured accent-on-accent at **1.00–1.01 in all 8** (byte-identically zero differing pixels in two
+palettes) when the selection was a solid accent FILL. **REGISTER P1's tint has since fixed six for free** —
+accent now reads 1.57–4.64, failing only nord + solarized-dark. The explicit `QIcon.Mode.Selected` pixmap
+ships anyway: an app must not depend on `QCommonStyle::generatedIconPixmap`'s guess ("tint 30% toward
+Highlight") to keep its icons visible.
+
+**A KeyError caught by the suite, and it was mine:** `self.pal["focus"]` on a raw palette — precisely what
+the old defensive `.get` was hiding. Added `_derived(key)`: derive on demand, cached per palette object.
+
+**Fenced as tests, not as an audit entry, and that is structural:** `audit_contrast` reads ink via
+`w.palette().color(w.foregroundRole())` — a QLabel API. It is **blind to a QPixmap**. An icon tier can fail
+in every palette and no audit will ever say so. The fences check **(tint, ground, STATE)**.
+

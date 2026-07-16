@@ -3645,23 +3645,85 @@ class Workspace(QMainWindow):
             p.end()
         return QIcon(pm)
 
+    def _derived(self, key):
+        """A DERIVED palette token (`focus`, `text_subtle`, `selection_bg`, ...), from the shell.
+
+        `self.pal` is the RAW palette -- `main()` does `Workspace(pick_palette(...))` and every test does
+        the same, so a derived key is simply NOT in it. That is why the old icon code read
+        `self.pal.get("text_subtle", self.pal["text"])`: a defensive get whose fallback silently fired
+        every single time, in every palette, because the key never existed. The subtle tint it documents
+        has never once been drawn.
+
+        Derived on demand (the idiom already used at the log's error_text), cached per palette object so a
+        tree of hundreds of rows derives once and a theme switch re-derives once. `derive` is idempotent,
+        so handing it an already-derived palette is harmless.
+        """
+        if getattr(self, "_dpal_src", None) is not self.pal:
+            self._dpal = derive(dict(self.pal))
+            self._dpal_src = self.pal
+        return self._dpal[key]
+
     def _type_icon(self, kind, *, unsaved=False, tint=None):
         """The tree-row icon for a node ``kind`` (Phase 8): its SVG type glyph tinted by ``tint`` (a field's
-        _health colour), else accent for the spine kinds, else subtle body text. Unmapped kinds keep the
-        reserved transparent slot. ``unsaved`` composites the amber corner dot (the old dot-in-the-slot)."""
+        _health colour), else accent for the spine kinds, else `muted`. Unmapped kinds keep the reserved
+        transparent slot. ``unsaved`` composites the amber corner dot.
+
+        KEYLINE, and both halves were invisible to `audit_contrast` BY CONSTRUCTION -- that tool reads ink
+        via `w.palette().color(w.foregroundRole())`, a QLabel API, so it is structurally blind to a QPixmap.
+        An icon tier can fail in every palette and no audit will ever say so. These are fenced as tests.
+
+        THE LEAF TIER NEVER EXISTED. This read `self.pal.get("text_subtle", self.pal["text"])` -- and
+        `text_subtle` is a DERIVED key while `self.pal` is the RAW palette (`main()` does
+        `Workspace(pick_palette(...))`). So the fallback fired EVERY time, in EVERY palette, since the
+        icons shipped: every leaf icon has been drawn in full `text` ink, and the subtle tier this
+        docstring used to describe has never once reached a pixel. A defensive `.get` whose default is the
+        real behaviour is not a default, it is the code.
+
+        That also retires the analysis that sent us here: round 4 measured text_subtle at "2.96 in
+        solarized-light -- FAILS" and proposed muted. It was measuring a colour the app does not draw.
+
+        `muted` is the intent, finally delivered AND legible: 5.08-6.99 on the tree ground, and it clears
+        the selected row everywhere. (text_subtle itself would have been 3.06-3.12 -- a hair over the 3.0
+        non-text floor, and under it the moment the row is selected, failing 6 of 8. It is fenced for TEXT
+        against the elevation ramp; nothing ever fenced it as ink for a drawing.) The leaves get quieter
+        than they have ever actually been -- which is what "subtle body text" always meant to say.
+
+        THE SELECTED-MODE PIXMAP IS EXPLICIT, so Qt never guesses. `QIcon(pm)` hands Qt ONE pixmap and lets
+        `QCommonStyle::generatedIconPixmap` invent the selected state -- and its invention is "tint 30%
+        toward Highlight", which is guaranteed to erase an icon whose colour IS near the highlight.
+        (Round 4 measured accent-on-accent at 1.00-1.01 in all 8 -- byte-identically zero differing pixels
+        in two palettes -- when the selection was a solid accent FILL. REGISTER P1's tint has since fixed
+        six of those for free; accent now reads 1.57-4.64 and fails only nord + solarized-dark. So the
+        headline is no longer true, and the fix is still right: an app should not depend on a style hook's
+        guess to keep its icons visible.)
+        On a selected row the text is `$text`, so the icon is `$text` -- it matches the label it sits
+        beside, and reads 4.69-11.52 across all 8. `.pixmap()` still returns the Normal mode, so
+        `is_dot()`'s round-trip test keeps working.
+        """
         name = _KIND_ICON.get(kind)
         if not name:
             return self._blank_icon
         if tint:
             color = tint
         elif kind in _ACCENT_KINDS:
-            color = self.pal["accent"]
+            # `focus`, not `accent`. The token is literally "the accent, brightened toward white just
+            # enough to clear the WCAG 3:1 non-text floor ON THE SURFACE" -- which is exactly what a mark
+            # on the tree needs, and the raw accent is NOT it: nord's reads 2.47 there, under the floor.
+            # Only the palettes that fail move (nord 2.47 -> 3.08); the other seven return unchanged.
+            # NOT a new `accent_mark` token, though the name would read better here: it would be
+            # _focus_token(accent, surface) -- identical to this BY CONSTRUCTION, i.e. a second name for
+            # one value, which is the defect QUARTO P2 just deleted from the head rung.
+            color = self._derived("focus")
         else:
-            color = self.pal.get("text_subtle", self.pal["text"])
+            color = self.pal["muted"]
         pm = icons.pixmap(name, color, 16)
+        sel = icons.pixmap(name, self.pal["text"], 16)
         if unsaved:
             pm = icons.with_corner_dot(pm, self.pal["warn"])
-        return QIcon(pm)
+            sel = icons.with_corner_dot(sel, self.pal["warn"])
+        ic = QIcon(pm)
+        ic.addPixmap(sel, QIcon.Mode.Selected)
+        return ic
 
     def _type_icon_for(self, item, *, unsaved=False):
         """Build :meth:`_type_icon` for a tree ITEM, reading its kind + stored tint from the item data."""

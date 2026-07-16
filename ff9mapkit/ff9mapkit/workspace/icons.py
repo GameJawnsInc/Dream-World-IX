@@ -27,7 +27,7 @@ one, like any Qt pixmap work, but importing/enumerating the set does not).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication
@@ -161,10 +161,34 @@ def icon(name: str, color: str, size: int = 16) -> QIcon:
     return QIcon(pixmap(name, color, size))
 
 
+_DOT_K = 0.19          # the dot's radius as a fraction of the icon's logical width
+_DOT_PAD = 1.0         # the transparent halo around it, so it reads ON the glyph rather than IN it
+
+
 def with_corner_dot(base: QPixmap, dot_color: str) -> QPixmap:
     """Return a copy of ``base`` with a small filled status dot in the bottom-right corner
-    (a faint transparent halo keeps it legible over the glyph). Used to fold the tree's
-    unsaved-changes indicator onto a type icon without stealing the icon slot."""
+    (a transparent halo keeps it legible over the glyph). Used to fold the tree's unsaved-changes
+    indicator onto a type icon without stealing the icon slot.
+
+    KEYLINE. This was `r = w * 0.30` with an `int()`-truncated 1px halo, and it did not annotate the glyph
+    -- it ATE it. At w=16 the dot plus its halo spanned 11.6px of a 16px icon: **72% of the icon's width**,
+    punched out of the bottom-right corner. `field` became an amber blob with a fragment of a frame
+    attached; `hub` lost two of its four squares; `chocobo`'s feather was bisected. On the row you are
+    editing -- the indicator destroyed the identity of the thing it was reporting on.
+
+    0.19 puts the dot at 6.1px across at w=16 and keeps the glyph readable underneath it.
+
+    THE `int()` IS NOT A ROUNDING DETAIL, IT IS THE BUG'S OTHER HALF. `int(cx - r - 1)` truncates toward
+    zero on the origin and `int((r + 1) * 2)` truncates the extent, so the halo lost up to a pixel on each
+    side and landed asymmetrically -- and at 0.19 the pad is the whole margin, so truncation would eat it
+    outright. QRectF keeps the sub-pixel geometry the antialiaser needs, and is what makes the halo a
+    clean 1px ring at w=16 AND w=24 at any dpr rather than a ragged edge that happens to look fine at one.
+
+    ONLY THE RENDER CAUGHT THIS, and it is worth knowing why the obvious measurement cannot: the punch-out
+    CLEARS and the dot then FILLS, so every destroyed pixel comes back with alpha 255. An "is this pixel
+    still ink?" test therefore counts the amber dot as surviving glyph and reports 98% kept. Ask what
+    COLOUR survived, or look at it at 10x. (evidence/keyline_dot_before.png / _after.png.)
+    """
     pm = QPixmap(base.size())
     pm.setDevicePixelRatio(base.devicePixelRatio())
     pm.fill(Qt.GlobalColor.transparent)
@@ -172,16 +196,16 @@ def with_corner_dot(base: QPixmap, dot_color: str) -> QPixmap:
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     p.drawPixmap(0, 0, base)
     w = base.width() / base.devicePixelRatio()
-    r = w * 0.30
+    r = w * _DOT_K
     cx = cy = w - r
     p.setPen(Qt.PenStyle.NoPen)
-    halo = QColor(0, 0, 0, 0)  # transparent punch-out ring so the dot reads on any glyph
-    p.setBrush(halo)
+    p.setBrush(QColor(0, 0, 0, 0))     # transparent punch-out ring so the dot reads on any glyph
     p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-    p.drawEllipse(int(cx - r - 1), int(cy - r - 1), int((r + 1) * 2), int((r + 1) * 2))
+    p.drawEllipse(QRectF(cx - r - _DOT_PAD, cy - r - _DOT_PAD,
+                         (r + _DOT_PAD) * 2, (r + _DOT_PAD) * 2))
     p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
     p.setBrush(QColor(dot_color))
-    p.drawEllipse(int(cx - r), int(cy - r), int(r * 2), int(r * 2))
+    p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
     p.end()
     return pm
 
