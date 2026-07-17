@@ -467,10 +467,14 @@ def test_motion_off_means_the_signet_is_simply_there(app):
     This is the same contract every anim.py helper keeps, and it is why anim.configure() had to be hoisted
     ABOVE win.show(): motion is OFF until that call, so a first-paint animation configured afterwards
     would have snapped to the end for every user, forever, and looked exactly like a bug that was not there.
+
+    Motion off is PINNED here, not asserted: other modules legitimately flip the process-global switch
+    (the Preferences dialog resolves "auto" against the dev machine's OS setting), and this test's contract
+    is "with motion off the mark is there" -- not "no earlier test touched motion".
     """
     from ff9mapkit.workspace import anim
 
-    assert not anim.enabled(), "the suite must run with motion off"
+    anim.set_enabled(False)
     d = theme.derive(dict(theme.DARK))
     b = hero_mod.HeroBand(d)
     b.resize(1280, 156)

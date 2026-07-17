@@ -24,6 +24,18 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _no_motion_leak():
+    # This module drives the Preferences dialog and shell.main(), and BOTH resolve the motion pref:
+    # the dialog's cancel path runs anim.configure(prefs.motion()), and the default "auto" follows the
+    # DEV MACHINE's OS animation setting -- so on most machines a rejected dialog flips the process-global
+    # motion switch ON and leaks it into whichever module runs next (test_workspace_hero caught it).
+    # Same guard as test_workspace_anim: the suite baseline is motion OFF.
+    from ff9mapkit.workspace import anim
+    yield
+    anim.set_enabled(False)
+
+
 def _win(app):
     return shell.Workspace(pick_palette("dark"))
 
