@@ -91,6 +91,22 @@ def test_validate_flags_bad_ladder(tmp_path):
     assert any("ladder" in x.lower() and "to" in x.lower() for x in build.validate(proj))
 
 
+def test_validate_refuses_retired_arc_keys(tmp_path):
+    """[[ladder]] arc_from/arc_to (the undocumented one-way hop-arc surface) was RETIRED 2026-07-17:
+    validate refuses with an actionable steer instead of silently falling through to the 'to' branch."""
+    p = tmp_path / "arc.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "A"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n\n'
+        '[[ladder]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\n'
+        'arc_from = [0, 0]\narc_to = [100, 200, 400]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    msgs = [x for x in build.validate(proj) if "arc_from" in x]
+    assert msgs and "retired" in msgs[0] and "navigable" in msgs[0]   # actionable: names both replacements
+
+
 # --- FAITHFUL mode: grafting / importing a real ladder's verbatim climb -----------------------
 def test_inject_ladder_grafts_faithful_climb_verbatim():
     out, _ = ladder.inject_ladder(CLEAN, [(10, -10), (50, -10), (50, -50), (10, -50)],

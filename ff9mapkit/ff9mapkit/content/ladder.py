@@ -97,17 +97,21 @@ def climb_body(dest, *, animation: int | None = None, anim_hold: int = 40) -> by
 
 
 def climb_arc_body(arc_from, arc_to, *, rungs: int = 4, steps: int = 6) -> bytes:
-    """DEPRECATED -- superseded by :func:`navigable_climb_body`. This auto-plays a fixed rung-hop
-    sequence end-to-end, which is NOT how FF9 ladders work (real ladders are navigable: you hold the
-    d-pad to climb up/down rung-by-rung). Kept only for back-compat; use the navigable climb instead.
-
-    An ANIMATED generic climb: interpolated `SetupJump`/`Jump` rung-hops from ``arc_from`` to
+    """The ANIMATED forced hop-arc: interpolated `SetupJump`/`Jump` rung-hops from ``arc_from`` to
     ``arc_to``, each ``(x, z)`` or ``(x, z, height)`` (height defaults 0 = on the floor). Runs in the
     player's context (RunScriptSync), so each rung moves the PLAYER; the engine projects every world
-    rung through the camera, so the climb traces the painted/borrowed ladder for free -- the faithful
-    jump-arc behavior, auto-generated from two endpoints (no hand-authored coords). Direction-agnostic:
-    pass (bottom, top) to ascend or (top, bottom) to descend. `rungs` = hops, `steps` = frames/hop.
-    Ends with `SetPathing(1)` to re-enable walkmesh collision at the destination."""
+    rung through the camera, so the climb traces the painted/borrowed ladder for free -- auto-generated
+    from two endpoints (no hand-authored coords). Direction-agnostic: pass (bottom, top) to ascend or
+    (top, bottom) to descend. `rungs` = hops, `steps` = frames/hop. Ends with `SetPathing(1)` to
+    re-enable walkmesh collision at the destination.
+
+    NOT the faithful FF9 ladder model -- real ladders are navigable state machines (hold the d-pad,
+    rung-by-rung): prefer :func:`navigable_climb_body` for anything ladder-shaped. This auto-played,
+    non-interruptible arc survives for what navigable can't do: it is the engine of
+    :func:`inject_bidirectional_ladder`'s heighted case (a forced traversal that needs no Y difference,
+    where navigable REQUIRES one) and the algorithmic seed for a future from-scratch jump generator
+    (``docs/FORK_FIDELITY.md``, the jumps-copy-only note). Its own ``[[ladder]] arc_from/arc_to`` TOML
+    surface was RETIRED 2026-07-17 (never documented in FORMAT.md, zero users found)."""
     fx, fz = int(arc_from[0]), int(arc_from[1])
     fy = int(arc_from[2]) if len(arc_from) > 2 else 0
     tx, tz = int(arc_to[0]), int(arc_to[1])
@@ -452,6 +456,9 @@ def inject_ladder(data, zone, dest=None, *, climb_bytes: bytes | None = None,
         jumps are function-relative so they survive the move. This is what ``import`` emits for a fork.
       * ``dest`` -- ``(x, z[, y])``; ``climb_body`` builds a teleport (+ optional gesture). The simple
         generic climb when you have no real ladder to copy.
+      * ``arc_from``+``arc_to`` -- the animated hop-arc (:func:`climb_arc_body`). INTERNAL: reached via
+        :func:`inject_bidirectional_ladder`'s heighted case; its direct ``[[ladder]]`` TOML surface was
+        retired 2026-07-17.
 
     ``sequences`` (``{original_entry_index: entry_bytes}``, from ``scan_ladders``) are the concurrent
     helper entries the climb launches via STARTSEQ (e.g. the SetPitchAngle forward-lean). Each is

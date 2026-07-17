@@ -234,8 +234,9 @@ field's `.eb`/`.mes` bytes, or by an engine table keyed on the donor's real `fld
       (Gizamaluke vine) and reproduces 706's loop verbatim for 706's endpoints. NOT copy-only.
     - **Jumps + save-Moogle pop-out — copy-only TODAY, but unbuilt-not-impossible.** `inject_jump` wants verbatim
       `jump_bytes` because no from-scratch `navigable_jump_body(from, to)` is wired yet; a jump is a one-shot
-      `SetupJump(x,y,z,steps) + Jump` from two world points, so the generator is tractable (the deprecated
-      `climb_arc_body` already interpolates `SetupJump/Jump` hops from two endpoints).
+      `SetupJump(x,y,z,steps) + Jump` from two world points, so the generator is tractable (the animated-arc
+      `climb_arc_body` -- the bidirectional heighted climb's engine -- already interpolates `SetupJump/Jump`
+      hops from two endpoints).
     - **The single genuine-eyeball residual: the off-floor height** (a jump's apex, a ladder's top, the moogle's
       pop height). The floor walkmesh pins depth *at floor level*, but these mechanics leave the floor plane, so
       that one number is read off the painting + confirmed manually in the in-game playtest loop. An **authoring
