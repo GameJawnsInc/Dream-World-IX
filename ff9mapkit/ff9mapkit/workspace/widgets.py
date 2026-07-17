@@ -34,6 +34,19 @@ SECTION_GAP = 14
 PAGE_PAD = style.space("space_6")
 
 
+# A container that must not paint the page colour over what is behind it. THE EXACT-CLASS SELECTOR IS
+# LOAD-BEARING: a bare `setStyleSheet("background: transparent;")` has an implicit universal selector,
+# and a widget sheet out-ranks the app sheet regardless of specificity -- so it cascades down and beats
+# `QPushButton#accent { background: $accent }`, leaving accent-fg ink on the bare page. Home's
+# get-started CTA shipped that way once (1.00:1 in dracula/gruvbox -- shell.py carries the full
+# history)... and then `page_column` below RECOMMITTED the bare form and silently unfilled EVERY
+# button -- accent, default and quiet -- on all three form docs for two rounds. Nobody saw it because
+# a default button's ink is $text (light on dark, readable on the bare page); the accent tier's dark
+# ink was the tell, found by the round-9 co-op snaps. `.QWidget` matches a plain QWidget and NOT its
+# subclasses, so a container goes transparent while every real control keeps its styling.
+TRANSPARENT = ".QWidget { background: transparent; }"
+
+
 # THE PAGE COLUMN. Home has always had one -- `body.setMaximumWidth(860)`, centred -- and the form docs
 # never did, so their cards stretched to the window: measured 640 / 1102 / 1136 at a 1920 window.
 #
@@ -69,8 +82,9 @@ def page_column(host):
     row.setSpacing(0)
     row.addStretch(1)
     col = QWidget()
-    col.setStyleSheet("background: transparent;")   # the universal QWidget{background-color:$bg} rule would
+    col.setStyleSheet(TRANSPARENT)                  # the universal QWidget{background-color:$bg} rule would
     #                                                 otherwise paint the page colour over the scroll's ground
+    #                                                 (EXACT-CLASS, never the bare form -- see TRANSPARENT above)
     col.setMaximumWidth(PAGE_W)
     row.addWidget(col, 20)
     row.addStretch(1)
@@ -548,7 +562,33 @@ def option(rb, description, lay, *, width=CAPTION_W):
     return rb
 
 
-def kv(key, lay, *, key_width, mono=False, placeholder="…"):
+class _KvKey(QLabel):
+    """The key column of a definition list, sized from its OWN polished font.
+
+    kv() first took a px ``key_width`` the CALLER measured at construction -- i.e. in whatever font the
+    widget wore BEFORE the QSS landed, and never again. At a 150% text dial the keys rendered wider than
+    their frozen column and Qt clipped them mid-word ("gameC:", "enginnetsync" -- the round-9 snaps).
+    Same law as GAUGE/fit_dialog: a width computed from a font must be recomputed when the font changes,
+    and the only widget that reliably hears that is the one wearing it (FontChange).
+    """
+
+    _PAD = 14
+
+    def __init__(self, text, widest):
+        super().__init__(text)
+        self._widest = widest
+        self._fit()
+
+    def _fit(self):
+        self.setFixedWidth(round(self.fontMetrics().horizontalAdvance(self._widest)) + self._PAD)
+
+    def changeEvent(self, ev):                         # noqa: N802 (Qt override)
+        super().changeEvent(ev)
+        if ev.type() == QEvent.Type.FontChange:
+            self._fit()
+
+
+def kv(key, lay, *, widest, mono=False, placeholder="…"):
     """One row of a definition list: a MUTED key in a fixed column, the value beside it.
 
     `game: C:\\Program Files (x86)\\...` as a single 13px label makes the key and the answer the same
@@ -556,8 +596,8 @@ def kv(key, lay, *, key_width, mono=False, placeholder="…"):
     puts the labels in one muted column and the answers in another at full weight -- the key names the
     question, the value IS the information.
 
-    ``key_width`` is a MEASURED column (see the caller): a fixed px width aligns every value to the same
-    left edge, which is the whole point of a definition list. Pass the widest key's advance + padding.
+    ``widest`` is the longest key STRING in the list (not a px width -- see :class:`_KvKey`): every row
+    passes the same string, so every value lands on one left edge at any text scale.
 
     ``mono`` is for values that are machine tokens (a path, an id) -- NOT for prose. Mono on a sentence
     reads as a bug.
@@ -567,8 +607,10 @@ def kv(key, lay, *, key_width, mono=False, placeholder="…"):
     """
     row = QHBoxLayout()
     row.setSpacing(0)
-    k = role_label(key, "muted")
-    k.setFixedWidth(key_width)
+    k = _KvKey(key, widest)
+    k.setProperty("role", "muted")
+    if key:
+        k.setAccessibleName(key)
     k.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     val = QLabel(placeholder)
     val.setWordWrap(True)

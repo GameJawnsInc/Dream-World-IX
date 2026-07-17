@@ -124,8 +124,12 @@ class ModelsDoc(QWidget):
         # census grepped `background:{...}` -- this rule's background is `transparent` and the hex rode on
         # `border`. `'border'` is in all 8 palettes, so the `.get` default could never fire (dead), and
         # `#444` is a palette-blind grey that no theme switch can reach (loaded). Index it.
-        self.d_img.setStyleSheet("background:transparent;"          # was pal.get('panel', ...) -- 'panel' is not a token
-                                 f"border:1px solid {self.pal['border']};border-radius:6px;")
+        # SELECTOR FORM, never a bare property list: a bare sheet out-ranks the app sheet for this
+        # widget's own state rules too (the round-9 census fence covers every widget now, not just
+        # containers). The id scopes it to exactly this label.
+        self.d_img.setObjectName("modelDetailImg")
+        self.d_img.setStyleSheet("QLabel#modelDetailImg { background: transparent; "  # was pal.get('panel', ...)
+                                 f"border: 1px solid {self.pal['border']}; border-radius: 6px; }}")
         img_row.addWidget(self.d_img)
         facts_col = QVBoxLayout()
         self.d_facts = QLabel("")

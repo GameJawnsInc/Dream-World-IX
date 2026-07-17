@@ -181,6 +181,91 @@ def _example_recent() -> list:
     return rows
 
 
+# ---------------------------------------------------------------------------------------- co-op states
+def _fake_install(state: str) -> Path:
+    """A minimal fake FF9 install expressing one co-op machine state. CoopDoc detects the engine by
+    scanning Assembly-CSharp.dll for marker strings and reads [Netsync] from Memoria.ini -- both are
+    just bytes on disk, so a scratch tree pins every state on any machine, game or no game.
+
+    A STABLE path, not mkdtemp: the game path is painted VERBATIM into the status row (mono, full
+    weight), so a random suffix made every snap differ in its most prominent line and broke
+    pixel-diffing across runs. One fixed dir per state, rewritten each run."""
+    game = Path(tempfile.gettempdir()) / "ff9_gui_snap" / f"game_{state}"
+    managed = game / "x64" / "FF9_Data" / "Managed"
+    managed.mkdir(parents=True, exist_ok=True)
+    marker = {"stock": b"", "s36": b"NetSyncClient", "s37": b"NetSyncClient NetSyncBattle",
+              "ready": b"NetSyncClient NetSyncBattle NetSyncDiorama",
+              "live": b"NetSyncClient NetSyncBattle NetSyncDiorama"}
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZfake" + marker[state])   # KeyError on an unknown
+    #                                              state -- fabricating a fake machine silently is worse
+    ini = ("[Netsync]\nEnabled = 1\nRole = host\nSessionCode = ff9-a1b2c3d4\n"
+           "RelayUrl = wss://relay.example/ws\nGuestSlots = 3\nGuestWaitMs = 30000\n"
+           "GhostAs = vivi\nFollowHost = 1\n") if state == "live" else "[Netsync]\nEnabled = 0\n"
+    (game / "Memoria.ini").write_text(ini, encoding="utf-8")
+    return game
+
+
+class _pin_coop_state:
+    """Point CoopDoc at a fake install: nogame | stock | s36 | s37 | ready | live."""
+
+    def __init__(self, state: str):
+        self.state = state
+
+    def __enter__(self):
+        from ff9mapkit import config as _cfg, coop as _coop
+        self._cfg, self._coop = _cfg, _coop
+        self._orig = (_cfg.find_game_path, _coop.find_registered_field)
+        if self.state == "nogame":
+            _cfg.find_game_path = lambda *_a, **_k: None
+        else:
+            game = _fake_install(self.state)
+            _cfg.find_game_path = lambda *_a, **_k: game
+            if self.state in ("ready", "live"):    # the co-op room is registered on this "machine"
+                _coop.find_registered_field = lambda *_a, **_k: "FF9CustomMap"
+        return self
+
+    def __exit__(self, *exc):
+        self._cfg.find_game_path, self._coop.find_registered_field = self._orig
+        return False
+
+
+COOP_STATES = ("nogame", "stock", "s36", "s37", "ready", "live")
+
+
+def snap_coop(ctx: _Ctx, state: str) -> None:
+    if state not in COOP_STATES:
+        raise ValueError(f"unknown coop state {state!r} (know: {', '.join(COOP_STATES)})")
+    with _pin_setup_state(game=(state != "nogame"), templates=True), _pin_coop_state(state):
+        win = _make_win(ctx)
+        doc = getattr(win, "coop", None) or getattr(win, "coop_doc")
+        doc.refresh_status()                       # re-read through the pinned fake install
+        if state == "live":
+            # The live HALF of the page: a real bound socket + an alive dummy thread stand in for the
+            # bridge, so the RUNNING row (the page's longest single-line label) and the enabled Stop
+            # button render. Render-only; torn down before close.
+            import socket
+            import threading
+            srv = socket.socket()
+            srv.bind(("127.0.0.1", 0))
+            gate = threading.Event()
+            th = threading.Thread(target=gate.wait, daemon=True)
+            th.start()
+            doc._server, doc._thread = srv, th
+            doc._append_log(f"bridge listening on ws://127.0.0.1:{srv.getsockname()[1]}")
+            doc._refresh_bridge_row()
+        win.tabs.setCurrentWidget(doc)
+        _grab(ctx, f"coop-{state}", win)
+        # ...and the WHOLE page (the scroll's inner widget renders at full content height), so the
+        # below-the-fold half -- play style, verbs, bridge, log, the hint -- is in the record too.
+        from PySide6.QtWidgets import QScrollArea
+        inner = doc.findChild(QScrollArea).widget()
+        _grab(ctx, f"coop-{state}-full", inner)
+        if state == "live":
+            gate.set()
+            doc._stop_server()
+        _close(win)
+
+
 # ------------------------------------------------------------------------------------------- surfaces
 def snap_home(ctx: _Ctx, state: str) -> None:
     pins = {"fresh":   dict(game=False, templates=False),
@@ -203,12 +288,17 @@ def snap_home(ctx: _Ctx, state: str) -> None:
 
 
 def snap_tab(ctx: _Ctx, tab: str) -> None:
-    attr = {"build": "build_deploy", "import": "import_field", "coop": "coop",
+    if tab == "coop":
+        # tab:coop unpinned rendered THIS machine's real [Netsync] state -- including the developer's
+        # real SessionCode painted into the code field and saved into the PNG record. The coop:<state>
+        # surfaces own this tab with every input pinned.
+        print("  tab:coop is pinned-only -- use coop:<state> (see --list)")
+        return
+    attr = {"build": "build_deploy", "import": "import_field",
             "models": "models_doc", "battle": "battle", "story": "story_state",
             "items": "item_equip"}[tab]
     win = _make_win(ctx)
-    target = getattr(win, attr, None) or getattr(win, "coop_doc", None)
-    win.tabs.setCurrentWidget(target)
+    win.tabs.setCurrentWidget(getattr(win, attr))
     _grab(ctx, f"tab-{tab}", win)
     _close(win)
 
@@ -303,7 +393,7 @@ DIALOGS = ("new-field", "new-campaign", "new-journey", "fork-regions", "setup", 
 
 def all_surfaces() -> list[str]:
     return ([f"home:{s}" for s in HOME_STATES] + [f"tab:{t}" for t in TABS]
-            + [f"dlg:{d}" for d in DIALOGS])
+            + [f"dlg:{d}" for d in DIALOGS] + [f"coop:{s}" for s in COOP_STATES])
 
 
 def main() -> None:
@@ -333,6 +423,8 @@ def main() -> None:
                 snap_tab(ctx, rest)
             elif kind == "dlg":
                 snap_dialog(ctx, rest)
+            elif kind == "coop":
+                snap_coop(ctx, rest)
             else:
                 print(f"  unknown surface {s!r} (try --list)")
         except Exception as e:                                        # noqa: BLE001 -- one bad surface

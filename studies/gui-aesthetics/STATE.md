@@ -1,5 +1,71 @@
 # GUI aesthetics — state + next steps
 
+> ## ROUND 9 — THE CO-OP TAB, and the trap that unfilled every button  ·  branch `claude/gui-coop-tab-round9`
+>
+> The first round driven end-to-end by the snap loop: `gui_snap` grew pinned **co-op machine states**
+> (`coop:nogame|stock|s36|s37|ready|live` — a scratch fake install writes the engine marker bytes +
+> Memoria.ini, so every state renders on ANY machine) and a **full-page grab** (the scroll's inner
+> widget at content height, so below-the-fold is in the record).
+>
+> **★ THE HEADLINE FIND WAS NOT CO-OP-LOCAL. The first full-page grab showed the page's one accent
+> verb — "Start co-op" — rendering as an EMPTY BOX.** Probed, not eyeballed: `page_column` shipped the
+> BARE `setStyleSheet("background: transparent;")` — the study's own trap #4, whose fix (`.QWidget`
+> exact-class) sits eleven lines above a comment in shell.py explaining exactly why — and a bare
+> property list cascades to every descendant and beats the app sheet. **Every button on all three form
+> docs (build / import / co-op) had NO fill since round 5 part 6.** Nobody saw it because a default
+> button's ink is `$text` — light, readable on the bare page; the accent tier's authored DARK ink
+> (`accent_fg #08171b` on mist) was the tell, and only on the one doc whose accent button lives in the
+> page body rather than the crumb row. Fix: ONE constant, `widgets.TRANSPARENT`, and shell aliases it
+> (the second hand-typed copy of a rule is exactly where the bare form came back). Fenced twice, both
+> verified RED on the bare form: a PIXEL fence (an accent button inside a page_column must render
+> `$accent` — colour-only, offscreen-safe) and a census (no property-only `background` sheet on any
+> container with child widgets, on the real shell).
+>
+> Co-op tab proper (all from the snaps, `tools/scroll_out/gui_snaps/coop-*`):
+> - **The status warning now carries its own door**: "run Setup & health… first" / "install the custom
+>   engine first" get an `Open Setup & health…` button beside Refresh, shown exactly while the game is
+>   missing or the engine lacks netsync, gone on a healthy machine (truth-table fenced, pinned via a
+>   tmp fake install — never this machine).
+> - **The ghost combo hard-clipped its own selection** ("Their own model (classic gl") —
+>   `minimumContentsLength(18)` makes the closed box's sizeHint 18 chars and the trailing stretch hands
+>   it nothing more; Qt clips with no ellipsis. Items shortened to fit + length 31 + a pure-arithmetic
+>   fence (every item ≤ the length — platform-proof, no text-derived widths).
+> - **The bottom hint wrapped at ~135 ch/line** (the COLUMN defect, on the one doc COLUMN missed) →
+>   `widgets.caption`.
+> - Verified across mist/light and 100/150%: the accent fill is back in both palettes, disabled Start
+>   shows its label, the s37 state greys only the diorama row.
+>
+> Also from the 150% record shot: the Status KEY COLUMN clipped ("gameC:", "enginnetsync") — `kv()`
+> took a px width the CALLER measured at construction, in the pre-QSS font, never again. `kv` now takes
+> the widest key STRING and the key label re-measures itself on FontChange (the GAUGE pattern); the
+> fence's first lever (setFont) was DEAD — QSS re-resolves fonts over programmatic setFont — so the
+> fence drives the real dial.
+>
+> **⚠ THE ADVERSARIAL REVIEW WAS RIGHT A THIRD TIME (25 agents, 18 confirmed / 2 refuted), and again
+> the worst finding was mine writing to the developer's machine:** the round's own module-scoped test
+> fixture ESCAPED conftest's function-scoped prefs isolation on both ends (pytest builds wider scopes
+> first, finalizes them last) — its teardown `close()` ran `_save_layout` after the isolation unwound
+> and **overwrote the developer's real prefs layout with a never-shown offscreen window's squeeze
+> fossil `[70, 494, 68]` on every suite run** — round 7's disease, re-shipped by the file whose header
+> states the law (proven end-to-end by the verifier with a decoy LOCALAPPDATA). The fixture now pins
+> `prefs._path` + `find_game_path` for its whole life. The review's other keepers, all folded in: the
+> ghost combo's pre-existing `setMaximumWidth(340)` VOIDED the new 31-char floor at 125/150% (measured
+> natively: hint 436 vs cap 340 = a 37px mid-word clip with the new fence green — the px cap is gone
+> and the fence grew a no-cap half); the s36 engine got the amber "needs the newer s37 engine" warning
+> with the door HIDDEN (warn keyed `not has_s37`, door keyed `not has_netsync` — same predicate now,
+> s36 leg fenced); the door never re-measured after the modal Setup dialog returned (the goes-away law
+> on my own new affordance — `_open_setup_and_recheck`); `_pad`'s frozen pre-QSS floor (FontChange
+> filter); the census fence's leaf exemption was a HALF-FENCE (a bare sheet poisons the leaf's own
+> state rules — exemption dropped, modelsdoc's image well moved to selector form); the door test pinned
+> `find_game_path` to return None, **a value the production function cannot return** (it raises
+> ConfigError — the fence now raises); and gui_snap: `tab:coop` unpinned had photographed the
+> developer's REAL SessionCode into the PNG record (now pinned-only), an unknown state FABRICATED an
+> s40 machine (KeyError now), the live surface couldn't render the running-bridge row (a real bound
+> socket + dummy thread now stand in), and mkdtemp's random path broke pixel-diffing in the status
+> row's most prominent line (stable per-state path).
+>
+> Suite: **3045 passed** (5 fences + the census tightened). The pattern across three rounds is now
+> unmistakable: **the review's best find is always me touching the developer's machine from a test.**
 **Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–7 MERGED to master + PLAYTESTED** · **3657 tests**.
 
 > ## ROUND 8 — TAILOR + THE GOES-AWAY LAW  ·  branch `claude/gui-beautification-usability-5a20fd`
