@@ -23,6 +23,17 @@ def test_bit_addressing_and_regions():
     assert not flags.is_safe_custom(16320)                    # choice scratch floor is out of band
 
 
+def test_named_word_at():
+    """A bit landing inside a NAMED_WORDS byte range resolves to that word -- BIT_REGIONS/STORY_REGIONS
+    don't cover these (they're a separate axis), so this is the only way to catch a raw edit into one."""
+    assert flags.named_word_at(128).name == "TranceGaugeFlag"        # byte 16, bit 128-135
+    assert flags.named_word_at(135).name == "TranceGaugeFlag"        # top of the same byte
+    assert flags.named_word_at(0).name == "ScenarioCounter"          # byte 0 (width 2 -> bits 0-15)
+    assert flags.named_word_at(15).name == "ScenarioCounter"
+    assert flags.named_word_at(32) is None                           # byte 4 -- the gap before TranceGaugeFlag
+    assert flags.named_word_at(2600) is None                         # far outside any named word
+
+
 def test_chest_band_is_disjoint_from_engine_treasure_hunter_scoring():
     """The chest registry band (8376-8511, bytes 1047-1063) is a SEPARATE region from the engine's
     Treasure-Hunter scoring bytes (182-186 + 896-975). The kit must not conflate them: the chest band
@@ -116,6 +127,22 @@ def test_collect_flag_defs_rejects_bad_defs():
         flags.collect_flag_defs({"flag": [{"name": "x", "index": 8000}]})   # below the safe floor
     with pytest.raises(ValueError, match="duplicate"):
         flags.collect_flag_defs({"flag": [{"name": "x", "index": 8520}, {"name": "X", "index": 8521}]})
+
+
+def test_collect_flag_defs_rejects_duplicate_index():
+    """Two different names claiming the same index would silently alias two story flags onto one
+    gEventGlobal bit -- refused just like a duplicate name."""
+    with pytest.raises(ValueError, match="both use index"):
+        flags.collect_flag_defs({"flag": [{"name": "quest_a_done", "index": 8600},
+                                          {"name": "quest_b_done", "index": 8600}]})
+
+
+def test_collect_flag_defs_index_collision_check_can_be_disabled():
+    """`project_flag_names` opts out (it must survive + display an already-authored ambiguous table, not
+    refuse to load it) -- with the check off, both names resolve, same index, no error."""
+    nm = flags.collect_flag_defs({"flag": [{"name": "a", "index": 8530}, {"name": "b", "index": 8530}]},
+                                 check_index_collisions=False)
+    assert nm == {"a": 8530, "b": 8530}
 
 
 def test_resolve_passthrough_and_names():

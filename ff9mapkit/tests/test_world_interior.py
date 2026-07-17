@@ -561,6 +561,19 @@ def test_read_deployed_blocks_semantics(tmp_path):
     assert out[(1, 1)].vcount == _mains_grid().vcount
 
 
+def test_deploy_changed_cleans_up_its_scratch_dir(tmp_path):
+    """The byte-compare scratch dir (one .ff9mesh per changed block, written purely to
+    diff against the deployed file) must not survive the call."""
+    import tempfile
+    from pathlib import Path
+    before = set(Path(tempfile.gettempdir()).glob("ff9_interior_*"))
+    out = IN.deploy_changed({(2, 1): _mains_grid()}, mod_folder="modx",
+                            game=tmp_path, log=lambda *a: None)
+    assert out
+    after = set(Path(tempfile.gettempdir()).glob("ff9_interior_*"))
+    assert after == before
+
+
 def test_wall_context_law_mint_guard():
     """THE WALL-CONTEXT LAW at the mint chokepoint: a minted island's rim is a SEA cliff
     by construction, and a family whose wall band is measured interior-only (canyon)

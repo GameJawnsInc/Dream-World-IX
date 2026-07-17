@@ -534,6 +534,51 @@ def test_lint_entry_int_not_a_member_is_an_error(tmp_path):
     assert any("entry id 99999 is not a member" in e for e in errors)
 
 
+def test_lint_entry_campaign_typo_is_a_clean_error(tmp_path):
+    # a typo'd entry.campaign (not one of the journey's own `campaigns`) must lint as a normal error, not
+    # crash lint_manifest with a raw KeyError.
+    _make_campaign(tmp_path, "evil_forest", members=["EVF_START"], id_base=6000)
+    _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT"], id_base=6100)
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["evil_forest", "ice_cavern"]
+entry = { campaign = "evli_forest", field = "EVF_START" }
+""")
+    errors, _ = journey.lint_manifest(journey.load_journeys(p))
+    assert any("entry campaign 'evli_forest' is not in this journey's campaigns" in e for e in errors)
+
+
+def test_resolve_journey_entry_campaign_typo_raises_journey_error(tmp_path):
+    _make_campaign(tmp_path, "evil_forest", members=["EVF_START"], id_base=6000)
+    _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT"], id_base=6100)
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["evil_forest", "ice_cavern"]
+entry = { campaign = "evli_forest", field = "EVF_START" }
+""")
+    m = journey.load_journeys(p)
+    plans = journey.load_campaign_plans(m)
+    with pytest.raises(journey.JourneyError, match="entry campaign 'evli_forest'"):
+        journey.resolve_journey(m.journeys[0], plans)
+
+
+def test_render_journey_plan_tolerates_entry_campaign_typo(tmp_path):
+    # render_journey_plan documents itself as "tolerant of an un-resolvable manifest (prints what it can)" --
+    # a typo'd entry.campaign must not crash it either.
+    _make_campaign(tmp_path, "evil_forest", members=["EVF_START"], id_base=6000)
+    _make_campaign(tmp_path, "ice_cavern", members=["IC_ENT"], id_base=6100)
+    p = _write_manifest(tmp_path, """
+[[journey]]
+id = "arc"
+campaigns = ["evil_forest", "ice_cavern"]
+entry = { campaign = "evli_forest", field = "EVF_START" }
+""")
+    text = journey.render_journey_plan(journey.load_journeys(p))
+    assert "cannot resolve" in text and "evli_forest" in text
+
+
 def test_lint_link_to_nonmember(tmp_path):
     _two_campaigns(tmp_path)
     p = _write_manifest(tmp_path, """

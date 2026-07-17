@@ -642,7 +642,9 @@ class EditorApp:
         steps = self._steps()
         sel = w["listbox"].curselection()
         if sel and forms.step_key(steps[sel[0]]) == forms.step_key(step):
-            steps[sel[0]] = step                          # update the selected same-type step
+            merged = dict(steps[sel[0]])
+            merged.update(step)                           # overwrite only the action key; keep actor/with_prev
+            steps[sel[0]] = merged
         else:
             steps.append(step)
         self._reload_steps()

@@ -103,6 +103,12 @@ def test_preview_field_toml_places_selection(tmp_path):
     assert infohub.preview_field_toml([item], art) is None              # items aren't field objects
 
 
+def test_preview_field_toml_single_entry_is_centered(tmp_path):
+    # a lone selection must land in front of the spawn (x=0), not the arena's left edge.
+    npc = infohub.preview_field_toml([infohub.find("black_mage")], tmp_path / "art")
+    assert "pos = [0, " in npc
+
+
 def test_browse_limit_none_is_uncapped():
     assert len(infohub.browse("", limit=None)) > 1000        # all ~2000+ entries, no 500-row cap
     assert len(infohub.browse("", limit=10)) == 10           # an explicit cap still applies

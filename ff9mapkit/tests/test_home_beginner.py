@@ -142,3 +142,48 @@ def test_fit_dialog_gives_overflow_back_from_the_list(app):
     assert lst.minimumHeight() < pre_cap, "the give-back branch never ran -- the fence is vacuous again"
     assert lst.minimumHeight() >= 4 * lst.sizeHintForRow(0), "the give-back floor: 4 visible rows"
     assert dlg.height() <= max_h, "the dialog itself must FIT the screen"
+
+
+def test_fit_dialog_splits_overflow_across_multiple_lists(app):
+    """Two overflowing lists SPLIT the give-back (`over / len(fitted)`); charging each list the WHOLE
+    deficit would starve every list beyond the first for no reason -- the more lists a dialog grows,
+    the worse a non-split give-back gets.
+
+    `over` is measured independently on a PROBE dialog carried only as far as fit_dialog's own pre-cap
+    step (the per-list sizing loop, lines 122-136) -- the ground truth the give-back divides, uncoupled
+    from whatever the fix under test actually does with it."""
+    def _build(n_lists, rows_per_list):
+        dlg = QDialog()
+        lay = QVBoxLayout(dlg)
+        lists = []
+        for i in range(n_lists):
+            lst = QListWidget()
+            for r in range(rows_per_list):
+                lst.addItem(f"row {i}-{r}")
+            lay.addWidget(lst)
+            lists.append(lst)
+        return dlg, lists
+
+    scr = QApplication.primaryScreen()
+    max_h = int(scr.availableGeometry().height() * 0.85)
+    pre_cap = int(max_h * 0.7)
+
+    probe, probe_lists = _build(2, 1000)
+    for lst in probe_lists:
+        lst.ensurePolished()
+        frame = 2 * lst.frameWidth()
+        row_h = lst.sizeHintForRow(0)
+        lst.setMinimumHeight(min(1000 * row_h + frame + 4, pre_cap))
+    over = probe.sizeHint().height() - max_h
+    assert over > 0, "the scenario must actually overflow, or this fence proves nothing"
+
+    dlg, (a, b) = _build(2, 1000)
+    widgets.fit_dialog(dlg, ch=64, list_rows=1000)
+    row_h, frame = a.sizeHintForRow(0), 2 * a.frameWidth()
+    floor = 4 * row_h + frame + 4
+    want = max(floor, pre_cap - round(over / 2))
+    assert a.minimumHeight() == want, (a.minimumHeight(), want)
+    assert b.minimumHeight() == want, "symmetric overflow must shrink both lists identically"
+    bug_would_give = max(floor, pre_cap - over)         # charging the FULL `over` to each list
+    assert a.minimumHeight() > bug_would_give, \
+        "shrank as if paying the whole overflow alone -- the split regressed"

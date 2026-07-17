@@ -40,6 +40,33 @@ def test_cli_registers_newgame():
     assert ns.func.__name__ == "_cmd_newgame" and ns.field_id == 6000 and ns.mod_folder == "FF9CustomMap"
 
 
+def test_global_game_and_modfolder_survive_subcommand_redeclare():
+    """A subcommand redeclaring --game/--mod-folder (needed so `ff9mapkit newgame 6000 --mod-folder X` still
+    works) must NOT silently reset a value the user gave BEFORE the subcommand name back to the subcommand's
+    own default -- argparse copies the sub-namespace's declared defaults over the parent's on every parse."""
+    from ff9mapkit import cli
+    p = cli.build_parser()
+    ns = p.parse_args(["--game", "C:/MyCustomFF9Install", "model-export", "GEO_MAIN_F0_VIV"])
+    assert ns.game == "C:/MyCustomFF9Install"
+    ns2 = p.parse_args(["--mod-folder", "FF9CustomMap-bb", "newgame", "6000"])
+    assert ns2.mod_folder == "FF9CustomMap-bb"
+    # the sub-level flag, given explicitly, still wins over the global one
+    ns3 = p.parse_args(["newgame", "6000", "--mod-folder", "FF9CustomMap-ih"])
+    assert ns3.mod_folder == "FF9CustomMap-ih"
+    # neither given anywhere -> each level's own documented default holds
+    ns4 = p.parse_args(["model-export", "GEO_MAIN_F0_VIV"])
+    assert ns4.game is None
+    ns5 = p.parse_args(["newgame", "6000"])
+    assert ns5.mod_folder == "FF9CustomMap"
+    # the world verbs whose --mod-folder is optional inherit the global value the same way
+    ns6 = p.parse_args(["--mod-folder", "FF9CustomMap-world", "world-coast", "--cells", "1,1", "--donor", "18,15"])
+    assert ns6.mod_folder == "FF9CustomMap-world"
+    ns7 = p.parse_args(["--mod-folder", "FF9CustomMap-world", "world-encounters", "--config", "x.toml"])
+    assert ns7.mod_folder == "FF9CustomMap-world"
+    ns8 = p.parse_args(["--mod-folder", "FF9CustomMap-world", "world-morphs"])
+    assert ns8.mod_folder == "FF9CustomMap-world"
+
+
 def _install_game():
     try:
         from ff9mapkit.config import find_game_path

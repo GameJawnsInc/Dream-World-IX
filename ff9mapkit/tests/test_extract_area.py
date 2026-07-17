@@ -64,3 +64,35 @@ def test_load_env_lru_bounds_memory_and_keeps_the_hot_bundle(monkeypatch, tmp_pa
     extract._load_env(hot)
     assert len(fake.loaded) == n                          # still a cache hit, not a reload
     extract._STREAM_ENV_CACHE.clear()
+
+
+# --- _load_mod_bundle: the mod-folder p0data cache -- mirrors _load_env above but for mod bundles
+#     touched during native-fork/art-export flows (a many-field batch must not grow this unboundedly). ----
+def test_load_mod_bundle_memoizes_a_bundle(monkeypatch, tmp_path):
+    extract._MOD_ENV_CACHE.clear()
+    fake = _FakeUnityPy()
+    monkeypatch.setattr(extract, "_unitypy", lambda: fake)
+    p = tmp_path / "p0data7.bin"
+    e1 = extract._load_mod_bundle(p)
+    e2 = extract._load_mod_bundle(p)
+    assert e1 is e2                                       # one parse, reused -> no cold re-read
+    assert fake.loaded == [str(p)]                        # loaded exactly once
+    extract._MOD_ENV_CACHE.clear()
+
+
+def test_load_mod_bundle_lru_bounds_memory_and_keeps_the_hot_bundle(monkeypatch, tmp_path):
+    extract._MOD_ENV_CACHE.clear()
+    fake = _FakeUnityPy()
+    monkeypatch.setattr(extract, "_unitypy", lambda: fake)
+    cap = extract._MOD_ENV_CACHE_MAX
+    hot = tmp_path / "p0data7.bin"                        # a bundle re-touched across a multi-member campaign
+    extract._load_mod_bundle(hot)
+    for i in range(cap + 3):                              # churn more mod bundles than the cap (a ~674-field batch)
+        extract._load_mod_bundle(hot)                     # re-touch hot first -> recency protects it
+        extract._load_mod_bundle(tmp_path / f"p0data{i}.bin")
+    assert len(extract._MOD_ENV_CACHE) <= cap             # bounded (can't grow unbounded over a long run)
+    assert fake.loaded.count(str(hot)) == 1                # hot never re-loaded (LRU kept it resident)
+    n = len(fake.loaded)
+    extract._load_mod_bundle(hot)
+    assert len(fake.loaded) == n                          # still a cache hit, not a reload
+    extract._MOD_ENV_CACHE.clear()

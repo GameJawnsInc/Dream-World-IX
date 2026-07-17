@@ -401,18 +401,33 @@ def auto_seam_links(campaigns, plain, *, exclude_members=frozenset()) -> list:
     return out
 
 
+def _entry_campaign_plan(journey: "Journey", plans: dict) -> "_campaign.CampaignPlan":
+    """The loaded :class:`~ff9mapkit.campaign.CampaignPlan` for a multi-campaign journey's ``entry.campaign``,
+    or a clean :class:`JourneyError` (not a raw KeyError) if it's not one of this journey's own ``campaigns``
+    (e.g. a typo'd folder name) or its plan didn't load. The ONE place every ``plans[journey.entry.campaign]``
+    lookup routes through, so a typo reports as a lint/JourneyError everywhere instead of crashing whichever
+    caller reaches it first (:func:`resolve_journey`, :func:`_lint_journey`, :func:`render_journey_plan`)."""
+    folder = journey.entry.campaign
+    if folder not in journey.campaigns or folder not in plans:
+        raise JourneyError(f"journey {journey.id!r}: entry campaign {folder!r} is not in this journey's "
+                           f"campaigns {journey.campaigns}")
+    return plans[folder][0]
+
+
 def resolve_journey(journey: Journey, plans: dict) -> ResolvedJourney:
     """Resolve a journey into the global namespace using the pre-loaded campaign plans (see
     :func:`load_campaign_plans`): the entry field id, per-campaign member id lists, assigned flag windows, and
     the cross-campaign links. Links are the explicit ``[[journey.link]]`` OVERRIDES + every other cross-campaign
     warp AUTO-DERIVED from the real ``.eb`` seams (:func:`auto_seam_links`) -- so a journey deploys leak-proof
-    with no link rows. PURE over the manifest + plans (no game install)."""
+    with no link rows. PURE over the manifest + plans (no game install). Raises :class:`JourneyError` (not a
+    raw KeyError) if ``journey.entry.campaign`` isn't one of ``journey.campaigns`` -- callers that haven't
+    already lint-checked the manifest (e.g. :func:`render_journey_plan`) should expect this."""
     if journey.is_bare:
         return ResolvedJourney(journey=journey, entry_id=int(journey.entry.field),
                                campaign_ids={}, flag_windows={}, flag_high=FIRST_SAFE_FLAG, links=[],
                                text_block_windows={})
 
-    entry_plan, _ = plans[journey.entry.campaign]
+    entry_plan = _entry_campaign_plan(journey, plans)
     entry_id = _member_id(entry_plan, journey.entry.field, what=f"journey {journey.id!r} entry")
     campaign_ids = {f: [m.new_id for m in plans[f][0].members] for f in journey.campaigns}
     flag_windows, flag_high = _flag_windows(journey, plans)
@@ -703,18 +718,20 @@ def _lint_journey(j: Journey, plans: dict, errors: list, warnings: list) -> None
         for folder in j.campaigns:
             if folder not in plans:               # already errored in load_campaign_plans, but be defensive
                 return
-        entry_plan = plans[j.entry.campaign][0]
-        if j.entry.campaign not in j.campaigns:
-            errors.append(f"journey {j.id!r}: entry campaign {j.entry.campaign!r} is not in this journey's "
-                          f"campaigns {j.campaigns}")
-        elif isinstance(j.entry.field, str) and j.entry.field not in {m.name for m in entry_plan.members}:
-            errors.append(f"journey {j.id!r}: entry field {j.entry.field!r} is not a member of campaign "
-                          f"{j.entry.campaign!r}")
-        elif isinstance(j.entry.field, int) and j.entry.field not in {m.new_id for m in entry_plan.members}:
-            # a raw int entry that resolves to no member is a hard error (same as a bad NAME): it would flow into
-            # plan.entry_field_id and `deploy_journey --newgame entry` would wire an unreachable New-Game target.
-            errors.append(f"journey {j.id!r}: entry id {j.entry.field} is not a member of campaign "
-                          f"{j.entry.campaign!r} -- prefer a member NAME (stable across re-id)")
+        try:
+            entry_plan = _entry_campaign_plan(j, plans)
+        except JourneyError as e:
+            errors.append(str(e))
+        else:
+            if isinstance(j.entry.field, str) and j.entry.field not in {m.name for m in entry_plan.members}:
+                errors.append(f"journey {j.id!r}: entry field {j.entry.field!r} is not a member of campaign "
+                              f"{j.entry.campaign!r}")
+            elif isinstance(j.entry.field, int) and j.entry.field not in {m.new_id for m in entry_plan.members}:
+                # a raw int entry that resolves to no member is a hard error (same as a bad NAME): it would flow
+                # into plan.entry_field_id and `deploy_journey --newgame entry` would wire an unreachable
+                # New-Game target.
+                errors.append(f"journey {j.id!r}: entry id {j.entry.field} is not a member of campaign "
+                              f"{j.entry.campaign!r} -- prefer a member NAME (stable across re-id)")
 
         # flag windows fit below the choice scratch
         _, high = _flag_windows(j, plans)
@@ -1226,7 +1243,11 @@ def render_journey_plan(manifest: JourneyManifest) -> str:
         return "\n".join(out) + f"\n!! cannot resolve campaigns: {e}\n"
     _plain = {f: p for f, (p, _) in plans.items()}   # {folder: CampaignPlan} for campaign_connectivity
     for j in manifest.journeys:
-        rj = resolve_journey(j, plans)
+        try:
+            rj = resolve_journey(j, plans)
+        except JourneyError as e:
+            out.append(f"* {j.name}  [{j.id}]  !! cannot resolve: {e}")
+            continue
         seed = f"  seed scenario={j.hub_scenario}" if j.hub_scenario is not None else ""
         if j.is_bare:
             out.append(f"* {j.name}  [{j.id}]  -> field {rj.entry_id}  (bare single-field){seed}")

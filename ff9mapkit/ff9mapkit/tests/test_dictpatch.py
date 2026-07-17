@@ -35,6 +35,16 @@ def test_owns_registration_exact_id_and_key():
     assert not DP.owns_registration("   ", fid=30057, model_ids=set(), anim_keys=set())
 
 
+def test_owns_registration_id_column_match_is_directive_scoped():
+    # a 3DModel/BattleScene line whose 2nd column COINCIDES with a field id (the custom-field band 4000-9899
+    # overlaps the mint-id band 6000+) must NOT be claimed by the generic FieldScene/LocationName id check --
+    # only model_ids/anim_keys own those directives.
+    assert not DP.owns_registration("3DModel 6300 GEO_NPC_F1_M999", fid=6300, model_ids=set(), anim_keys=set())
+    assert not DP.owns_registration("BattleScene 6300 SOME_BBG", fid=6300, model_ids=set(), anim_keys=set())
+    # still owned when the id IS actually a minted model this deploy registers
+    assert DP.owns_registration("3DModel 6300 GEO_NPC_F1_M999", fid=6300, model_ids={"6300"}, anim_keys=set())
+
+
 def test_revert_preserves_foreign_anim_key_60001():
     """The exact reported scenario: deploy of field 30057 minted GEO 6300 (block NPC_F1_M300) but registered
     NO anim itself. `model-anim-new` later added key 60001 (same block). Re-deploy's revert must keep it."""
@@ -56,6 +66,20 @@ def test_revert_preserves_foreign_anim_key_60001():
     assert "BattleScene 900" in kept                               # co-deployed line survives
     assert "3DModel 6300 GEO_NPC_F1_M300" not in kept              # this deploy's own mint id is dropped
     assert not lost                                                # nothing foreign was dropped
+
+
+def test_revert_preserves_3dmodel_line_with_coinciding_field_id():
+    """A minted GEO id can coincide with a field id (both live in 4000-9899); reverting that field must not
+    drop a foreign 3DModel line just because its id column happens to equal the field id."""
+    fid, model_ids, anim_keys = 6300, set(), set()   # this deploy owns NO model ids of its own
+    current = [
+        "FieldScene 6300 11 10 TEST 1073",
+        "3DModel 6300 GEO_NPC_F1_M999",   # foreign -- coincidentally shares the numeral 6300 with the field id
+    ]
+    backup = ["FieldScene 6300 11 10 TEST 1073"]
+    kept, lost = DP.revert_dictionary_patch(current, backup, fid=fid, model_ids=model_ids, anim_keys=anim_keys)
+    assert "3DModel 6300 GEO_NPC_F1_M999" in kept    # the bug: this used to silently vanish
+    assert not lost
 
 
 def test_revert_drops_own_fresh_lines_but_restores_prior_shared():

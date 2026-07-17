@@ -458,6 +458,15 @@ def _validate_story_writes(d: dict, label: str, names: dict, problems: list, *,
                     problems.append(f"{label} {markers_key}: {e}")
 
 
+def _validate_gate_exclusive(d: dict, label: str, problems: list) -> None:
+    """Reject ``requires_flag`` and ``requires_flag_clear`` set together -- ``_gate_of`` checks
+    ``requires_flag`` first and returns as soon as it matches, so the ``requires_flag_clear`` condition
+    would be silently dropped rather than composed."""
+    if "requires_flag" in d and "requires_flag_clear" in d:
+        problems.append(f"{label} can't have BOTH requires_flag and requires_flag_clear -- "
+                        f"pick one (shown when SET vs when CLEAR).")
+
+
 def _validate_party(pty, problems: list, extra=None) -> None:
     """Validate the ``[party]`` block -- ``add`` / ``remove`` lists of existing-character names (or 0..11
     CharacterOldIndex, or a custom 12..15 / ``[[playable]]`` name via ``extra``). Each name must resolve;
@@ -952,6 +961,7 @@ def validate(project: FieldProject) -> list[str]:
             except ValueError as e:
                 problems.append(f"[[npc]] {n.get('name', '#' + str(i))!r} archetype: {e}")
         label = f"[[npc]] {n.get('name', '#' + str(i))!r}"
+        _validate_gate_exclusive(n, label, problems)
         try:                                              # rotating-cast beat window (min inclusive, max exclusive)
             smin, smax = _scenario_window_of(n)
         except (ValueError, KeyError) as e:
@@ -1025,10 +1035,13 @@ def validate(project: FieldProject) -> list[str]:
                                 "title window the forced-ATE warp-in shows), or drop ate_title.")
             elif not isinstance(gw["ate_title"], str) or not gw["ate_title"].strip():
                 problems.append("[[gateway]] ate_title must be a non-empty string (the ATE title-window text).")
+        if str(gw.get("to")).strip().lower() != "worldmap":   # worldmap already rejects both keys outright above
+            _validate_gate_exclusive(gw, "[[gateway]]", problems)
     for ev in project.raw.get("event", []):
         z = ev.get("zone", [])
         if len(z) not in (4, 5):
             problems.append(f"[[event]] zone must have 4 or 5 points (got {len(z)})")
+        _validate_gate_exclusive(ev, "[[event]]", problems)
         if not any(k in ev for k in ("message", "give_item", "remove_item", "gil", "set_flag")):
             problems.append("[[event]] needs at least one action "
                             "(message / give_item / remove_item / gil / set_flag)")
@@ -1043,6 +1056,7 @@ def validate(project: FieldProject) -> list[str]:
                 problems.append(f"[[event]] {k} only applies with a give_item (it's an item-chest nicety)")
     from .content import chest as _chest
     for k, ch in enumerate(project.raw.get("chest", [])):
+        _validate_gate_exclusive(ch, f"[[chest]] #{k}", problems)
         if len(ch.get("pos", []) or []) < 2:
             problems.append(f"[[chest]] #{k} needs a pos = [x, z] (where the chest sits)")
         if ("item" in ch) == ("gil" in ch):
@@ -1052,6 +1066,18 @@ def validate(project: FieldProject) -> list[str]:
                 _items.resolve(ch["item"][0] if isinstance(ch["item"], list) else ch["item"])
             except (ValueError, IndexError, TypeError) as e:
                 problems.append(f"[[chest]] #{k} item: {e}")
+        if "gil" in ch:
+            try:
+                _gil = int(ch["gil"])
+            except (TypeError, ValueError):
+                problems.append(f"[[chest]] #{k} gil must be an integer")
+            else:
+                if not (0 <= _gil <= 0xFFFF):
+                    problems.append(
+                        f"[[chest]] #{k} gil {_gil} is out of range -- the \"Received X gil!\" popup binds the "
+                        f"amount through SetTextVariable, a 16-bit slot (0..65535); a bigger amount would add "
+                        f"the right total but the popup would show the wrong (wrapped) number. Split it "
+                        f"across multiple chests instead.")
         if "model" in ch:                              # the F0..F3 variant (or a raw TBX id) must be known
             try:
                 _chest.resolve_chest_variant(ch["model"])
@@ -1073,6 +1099,10 @@ def validate(project: FieldProject) -> list[str]:
                 f"[[chest]] #{k} flag {_flag} is outside the safe custom band [{_flags.FIRST_SAFE_FLAG}, "
                 f"{_flags.CHOICE_SCRATCH_FLOOR}) -- pick an index there (or a named [[flag]]) so it can't "
                 f"collide with FF9's real chest bits ([{_flags.CHEST_FLAG_LO}, {_flags.CHEST_FLAG_HI}]) or other state.")
+    for k, p in enumerate(project.raw.get("prop", [])):
+        _validate_gate_exclusive(p, f"[[prop]] {p.get('prop', p.get('name', '#' + str(k)))!r}", problems)
+    for k, co in enumerate(project.raw.get("coop", [])):
+        _validate_gate_exclusive(co, f"[[coop]] gate {co.get('name', '#' + str(k))!r}", problems)
     # [start_inventory] / [[equipment]] -- new-game starting state (mod-global CSV deltas on the entry field)
     si = project.raw.get("start_inventory")
     if si is not None:

@@ -17,6 +17,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from . import fsutil
+
 # The three managed DLLs the Dream World IX engine bundle replaces (a patched Memoria build).
 ENGINE_DLLS = ("Assembly-CSharp.dll", "Memoria.Prime.dll", "UnityEngine.UI.dll")
 
@@ -179,7 +181,8 @@ def install_engine_bundle(game, zip_path, *, stamp: str) -> dict:
                     bdir.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(dst, bdir / dll)
                     report["backed_up"].append(str(bdir / dll))
-                with z.open(member) as src, open(dst, "wb") as out:
-                    shutil.copyfileobj(src, out)
+                with z.open(member) as src:             # a managed DLL is a few MB -- fine to hold whole so the
+                    data = src.read()                   # write-out below can go through the atomic tmp+replace
+                fsutil.atomic_write_bytes(dst, data)     # path (a live DLL must never be observed truncated)
                 report["installed"].append(str(dst))
     return report

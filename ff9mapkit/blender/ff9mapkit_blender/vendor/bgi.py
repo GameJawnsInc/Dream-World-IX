@@ -543,6 +543,7 @@ class BgiWalkmesh:
             return None
 
         n = len(self.tris)
+        pairings = []
         for ia in range(n):
             for ib in range(ia + 1, n):
                 shared = set(self.tris[ia].vtx) & set(self.tris[ib].vtx)
@@ -552,10 +553,32 @@ class BgiWalkmesh:
                 sa, sb = slot_of(self.tris[ia], a, c), slot_of(self.tris[ib], a, c)
                 if sa is None or sb is None:
                     continue
-                self.tris[ia].nbr[sa] = ib
-                self.tris[ib].nbr[sb] = ia
-                self.edges[self.tris[ia].edge[sa]].clone = sb
-                self.edges[self.tris[ib].edge[sb]].clone = sa
+                pairings.append((ia, sa, ib, sb))
+
+        # a manifold edge has exactly one partner per (triangle, slot); 2+ partners means 3+
+        # triangles share that vertex pair (a T-junction or a duplicate/overlapping face) --
+        # linking would silently pick one partner and orphan the rest into non-reciprocal
+        # neighbors (tri A points at B, but B points at C), so refuse instead of guessing.
+        claims: dict = {}
+        for ia, sa, ib, sb in pairings:
+            claims.setdefault((ia, sa), []).append(ib)
+            claims.setdefault((ib, sb), []).append(ia)
+        for (ti, slot), partners in claims.items():
+            if len(partners) > 1:
+                tri_ids = sorted({ti, *partners})
+                i, j = SLOT_PAIRS[slot]
+                a, c = self.tris[ti].vtx[i], self.tris[ti].vtx[j]
+                raise ValueError(
+                    f"walkmesh edge (vertex {a}, vertex {c}) is shared by {len(tri_ids)} "
+                    f"triangles {tri_ids}, not 2 -- a non-manifold edge (e.g. a T-junction or a "
+                    f"duplicate/overlapping face); fix the mesh (Merge by Distance / remove the "
+                    f"duplicate face in Blender) before rebuilding neighbor links.")
+
+        for ia, sa, ib, sb in pairings:
+            self.tris[ia].nbr[sa] = ib
+            self.tris[ib].nbr[sb] = ia
+            self.edges[self.tris[ia].edge[sa]].clone = sb
+            self.edges[self.tris[ib].edge[sb]].clone = sa
 
 
 # ----------------------------------------------------------------------------- builders

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from ff9mapkit import fsutil
 from ff9mapkit.models import deployed
 
 RES = ("StreamingAssets", "Assets", "Resources")
@@ -87,6 +88,22 @@ def test_revert_dangling_directive(tmp_path):
     r = deployed.revert_entry(mod, entry)
     assert r["directive_removed"] and not r["removed"]
     assert "3DModel 8888" not in (mod / "DictionaryPatch.txt").read_text(encoding="utf-8")
+
+
+def test_strip_mint_directive_write_is_crash_safe(tmp_path, monkeypatch):
+    """A crash mid-rewrite must never truncate the shared DictionaryPatch.txt -- every OTHER field's/mint's
+    line already registered in that mod folder has to survive, not just the one entry being stripped."""
+    mod = _fixture_mod(tmp_path)
+    original = (mod / "DictionaryPatch.txt").read_text(encoding="utf-8")
+
+    def _boom(*a, **k):
+        raise OSError("simulated crash between the tmp write and its install")
+
+    monkeypatch.setattr(fsutil.os, "replace", _boom)
+    with pytest.raises(OSError):
+        deployed._strip_mint_directive(mod, 7777)
+    assert (mod / "DictionaryPatch.txt").read_text(encoding="utf-8") == original   # untouched, not truncated
+    assert not (mod / "DictionaryPatch.txt.tmp").exists()                          # the tmp is cleaned up
 
 
 def test_revert_refuses_an_outside_path(tmp_path):

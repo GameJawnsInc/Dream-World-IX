@@ -133,6 +133,16 @@ def test_mint_song_writes_manifest_ogg_and_accumulates(tmp_path, monkeypatch):
     assert {e["id"] for e in S.parse_manifest(mpath.read_text())} == {0, 9, 1000, 1001}   # both preserved
 
 
+def test_mint_song_leaves_manifest_untouched_on_encode_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(S, "read_manifest", lambda kind="music", game=None: S.parse_manifest(_MANIFEST))
+    monkeypatch.setattr(S, "encode_ogg", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("bad input")))
+    mod = tmp_path / "mod"
+    with pytest.raises(RuntimeError):
+        S.mint_song(tmp_path / "in.wav", mod, set_priority=False)
+    mpath = mod / "FF9_Data/EmbeddedAsset/Manifest/Sounds/MusicMetaData.txt"
+    assert not mpath.exists()                                     # the failed encode must not orphan a manifest row
+
+
 # --- [music] file = build hook (content.music.mint_field_theme) ---
 def test_mint_field_theme_mints_when_file_set(tmp_path, monkeypatch):
     from ff9mapkit.content import music as M

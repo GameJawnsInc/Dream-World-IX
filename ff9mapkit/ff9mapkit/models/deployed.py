@@ -21,6 +21,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from .. import fsutil
+
 _RES = ("StreamingAssets", "Assets", "Resources")
 
 
@@ -118,7 +120,7 @@ def _strip_mint_directive(mod_folder, geo_id: int) -> bool:
     keep = [ln for ln in lines if ln.split()[:2] != gone]
     if len(keep) == len(lines):
         return False
-    dp.write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8", newline="\n")
+    fsutil.atomic_write_text(dp, "\n".join(keep) + ("\n" if keep else ""), encoding="utf-8", newline="\n")
     return True
 
 

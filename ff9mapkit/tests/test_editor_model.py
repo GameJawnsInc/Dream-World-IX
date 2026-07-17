@@ -52,6 +52,13 @@ def test_dumps_roundtrips_every_value_type():
     assert tomllib.loads(model.dumps(d)) == d
 
 
+def test_dumps_escapes_other_control_bytes():
+    # a stray control byte (e.g. ESC from a pasted ANSI sequence) must not break the written TOML.
+    d = {"field": {"id": 1, "name": "Z", "area": 11, "title": "esc\x1bhere\x7fdel"}}
+    text = model.dumps(d)
+    assert tomllib.loads(text) == d
+
+
 def test_dumps_output_is_canonically_ordered():
     text = model.dumps({"cutscene": {"steps": [{"say": "x"}]}, "field": {"id": 1, "name": "Z", "area": 11}})
     assert text.index("[field]") < text.index("[cutscene]")     # field before cutscene
@@ -123,10 +130,12 @@ def test_new_doc_and_section_helpers(tmp_path):
     doc.section("music")["song"] = 9
     doc.list_section("npc").append({"name": "A", "preset": "vivi", "pos": [0, 0], "dialogue": "hi"})
     doc.save()
-    rt = tomllib.loads((tmp_path / "x.field.toml").read_text(encoding="utf-8"))
+    p = tmp_path / "x.field.toml"
+    rt = tomllib.loads(p.read_text(encoding="utf-8"))
     assert rt["field"]["id"] == 4005 and rt["field"]["area"] == 12
     assert rt["encounter"]["scene"] == 67 and rt["music"]["song"] == 9
     assert rt["npc"][0]["name"] == "A"
+    assert not p.with_name(p.name + ".tmp").exists()   # save() routes through fsutil.atomic_write_text
 
 
 def test_protected_reason_blocks_bundled_and_installed_paths(tmp_path):

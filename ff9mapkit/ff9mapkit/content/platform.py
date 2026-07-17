@@ -101,12 +101,18 @@ def _carry_land_body(land, *, speed: int, animation: int | None,
     a.raw(_stmt(_scratch_x(), selfx(), bytes([_region.T_ASSIGN])))
     a.raw(_stmt(_scratch_z(), selfz(), bytes([_region.T_ASSIGN])))
     a.raw(_stmt(_scratch_start(), selfy(), bytes([_region.T_ASSIGN])))
+    # a zero-height carry (boarding selfY already == the landing selfY) has no vertical span to
+    # interpolate over -- interp()'s (lsy - csy) divisor would be 0, so skip the loop and snap straight
+    # to the landing (a pure horizontal ride, e.g. land at the same floor height as boarding)
+    a.raw(_stmt(_scratch_start(), _const(lsy), bytes([_region.T_EQ])))
+    a.jmp(_region.JMP_TRUE, "LAND")
     a.label("LOOP")
     a.raw(_stmt(_scratch(), selfy(), _const(speed), bytes([_region.T_MINUS]), bytes([_region.T_ASSIGN])))  # step UP
     a.raw(opcodes.encode(0xA1, interp(_scratch_x(), lx), _arg(_scratch()), interp(_scratch_z(), lz), arg_flags=0b111))
     a.raw(opcodes.wait(1))
     a.raw(_stmt(selfy(), _const(lsy), bytes([_region.T_GT])))      # selfY still above the landing?
     a.jmp(_region.JMP_TRUE, "LOOP")
+    a.label("LAND")
     a.raw(opcodes.encode(0xA1, _arg(_const(lx)), _arg(_const(lsy)), _arg(_const(lz)), arg_flags=0b111))  # exact landing
     if warp_to is not None:
         a.raw(opcodes.fade_filter(6, 24, 0, 255, 255, 255) + opcodes.wait(25)

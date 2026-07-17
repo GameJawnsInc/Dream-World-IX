@@ -266,7 +266,10 @@ def insert_in_function(data, entry_index: int, func_tag: int, rel_off: int, ins:
         for j in eb.instrs(f):                              # the function's own relative jumps
             if j.op in (0x01, 0x02, 0x03) and not j.arg_is_expr[0]:
                 raw = j.imm(0)
-                tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)
+                if j.op == 0x02:                            # JMP_IFNOT: engine reads this UNSIGNED, forward-only
+                    tgt = j.end + raw
+                else:
+                    tgt = j.end + (raw - 0x10000 if raw >= 0x8000 else raw)  # JMP / JMP_IF: signed int16
                 # The insert keeps a relative jump valid only if BOTH its endpoints shift by the same amount, i.e.
                 # the jump and its target are on the same side of abs_ins (a boundary-aware test -- the old
                 # `min<abs_ins<max` was blind to an endpoint landing EXACTLY on abs_ins, silently corrupting a jump

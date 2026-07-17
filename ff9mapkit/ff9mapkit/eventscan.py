@@ -385,9 +385,9 @@ def _climb_sequences(eb, func) -> dict:
     those entries too (not NOP the calls). Returns ``{entry_index: entry_bytes}`` (deduped)."""
     seqs = {}
     for ins in eb.instrs(func):
-        if ins.op == RUN_SHARED_SCRIPT and ins.args:
-            ei = int(ins.args[0])
-            if ei not in seqs:
+        if ins.op == RUN_SHARED_SCRIPT and ins.args and isinstance(ins.args[0], int):
+            ei = ins.args[0]
+            if 0 <= ei < eb.entry_count and ei not in seqs:
                 seqs[ei] = _entry_bytes(eb.data, ei)
     return seqs
 
@@ -806,7 +806,7 @@ def scan_objects(eb_bytes) -> list:
             raw = eb.data[ins.off:ins.off + 8]
             if len(raw) >= 6 and raw[1] == POS_VAR_CLASS and raw[3] == 0x7D:
                 d9[raw[2]] = _s16(raw[4] | (raw[5] << 8))
-        elif ins.op == INIT_OBJECT_OP and ins.args:
+        elif ins.op == INIT_OBJECT_OP and ins.args and isinstance(ins.args[0], int):
             instances.append((int(ins.args[0]), d9.get(0), d9.get(4)))
     slot_count: dict = {}
     for s, _x, _z in instances:

@@ -32,6 +32,7 @@ import struct
 from dataclasses import dataclass
 
 from . import flags as _flags
+from . import fsutil as _fsutil
 
 # --- container layout (SharedDataBytesStorage.MetaData) ---
 BASE_SAVE_BLOCK_OFFSET = 153920     # MetaDataReservedSize(320) + TotalSaveCount(150)*PreviewReservedSize(1024)
@@ -216,8 +217,9 @@ class FF9Save:
         return out
 
     def write(self, path):
-        with open(path, "wb") as fh:
-            fh.write(bytes(self.data))
+        """Write the whole container back to ``path`` ATOMICALLY (a sibling ``.tmp`` + ``os.replace``) --
+        the live save must never be observed half-written."""
+        _fsutil.atomic_write_bytes(path, bytes(self.data))
 
 
 # --- the high-level read (VIEW; used by the GUI inspector + a future CLI flag) ---
@@ -268,8 +270,9 @@ def edit_story_state(geg: bytearray, *, scenario: int | None = None,
                      set_flags=(), clear_flags=()) -> "list[str]":
     """Apply story-state edits to a 2048-byte gEventGlobal IN PLACE; returns a list of human change notes.
     ``scenario`` sets ScenarioCounter (bytes 0-1). ``set_flags`` / ``clear_flags`` are GLOB bit indices.
-    Refuses to touch a reserved region (chest band / worldmap / handshake / scratch) -- those corrupt
-    real state. Flag indices outside [0, 16383] are rejected."""
+    Refuses to touch a reserved region (chest band / worldmap / handshake / scratch) or a named word's
+    byte range (ScenarioCounter, TranceGaugeFlag, ...) -- those corrupt real state. Flag indices outside
+    [0, 16383] are rejected."""
     notes = []
     if scenario is not None:
         if not 0 <= scenario <= 0xFFFF:
@@ -285,6 +288,10 @@ def edit_story_state(geg: bytearray, *, scenario: int | None = None,
             r = _flags.bit_region(bit)
             raise ValueError(f"flag {bit} is in the reserved region '{r.name}' -- refusing to edit it "
                              f"(would corrupt real FF9 state). {r.meaning}")
+        w = _flags.named_word_at(bit)
+        if w is not None:
+            raise ValueError(f"flag {bit} is inside the named word '{w.name}' (byte {w.byte}) -- refusing "
+                             f"to edit it (would corrupt real FF9 state). {w.meaning}")
         byte, mask = bit >> 3, 1 << (bit & 7)
         if on:
             geg[byte] |= mask
@@ -365,6 +372,18 @@ def edit_world_position(geg: bytearray, x: float | None = None, z: float | None 
     return notes
 
 
+def _unique_backup_path(base: str) -> str:
+    """``base`` if nothing is there yet, else the first ``base.N`` (N=1, 2, ...) that isn't -- a
+    timestamp is only 1-second resolution, so two edits inside the same second must never share a
+    backup path (that would silently overwrite an already-pristine backup with a post-edit copy)."""
+    if not os.path.exists(base):
+        return base
+    n = 1
+    while os.path.exists(f"{base}.{n}"):
+        n += 1
+    return f"{base}.{n}"
+
+
 def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags=(), clear_flags=(),
                      world_x: float | None = None, world_z: float | None = None, world_actor="player",
                      do_backup: bool = True, dry_run: bool = False) -> dict:
@@ -391,7 +410,7 @@ def apply_story_edit(path, *, block: int, scenario: int | None = None, set_flags
     sv.set_gEventGlobal(block, bytes(geg))
 
     def _bk(p):
-        b = f"{p}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        b = _unique_backup_path(f"{p}.bak.{time.strftime('%Y%m%d-%H%M%S')}")
         with open(p, "rb") as s, open(b, "wb") as d:
             d.write(s.read())
         return b

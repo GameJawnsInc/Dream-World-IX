@@ -468,7 +468,7 @@ def build_beach(outline, radii, center, arc, *, ground, land_height, rim,
         wash_keep = kept
     # RAISE, DON'T DROP (round-1 playtest: the dropped taper tris left a hard
     # straight cut in the light band at each beach side): wash tris over KEPT
-    # plane cells stay, lifted 0.02u above the sea4 plane (in-family -- stock
+    # plane cells stay, lifted 0.1u above the sea4 plane (in-family -- stock
     # wash spans y 0..0.195; per-tri vert entries, so no cracks) -- the wash
     # tapers to the pinch as a FADE over deep water, the flanking arrangement.
     kept_keys = {id(t3) for t3 in wash_keep}

@@ -302,6 +302,16 @@ def test_derive_native_tile_size_picks_the_largest_that_fits(tmp_path):
     assert extract._derive_native_tile_size(data, 64, 144) == 32
 
 
+def test_atlas_dims_fit_requires_the_tile_margin_not_just_the_origin():
+    from ff9mapkit import extract
+    # 4 sprites, all packed into a SINGLE row (cpr=4 at tile 16 in an 80px-wide atlas: 80 // 20 == 4) ->
+    # every sprite's atlasY sits at the same row-0 offset (2), so an origin-only bound (atlasY <= h)
+    # can't tell a too-short atlas from a tall one -- only atlasY + ts <= h can.
+    data = _make_bgs([[(0, 0), (16, 0), (32, 0), (48, 0)]])
+    assert extract._atlas_dims_fit(data, 80, 18, 16) is True     # 2 + 16 == 18 -> the row's cell just fits
+    assert extract._atlas_dims_fit(data, 80, 17, 16) is False    # one px too short for that same cell
+
+
 # --------------------------------------------------------------------- install-gated full loop
 def _game_ready():
     try:

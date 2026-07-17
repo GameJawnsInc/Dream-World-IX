@@ -2478,21 +2478,22 @@ def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
     import tempfile
     gp = Path(config.find_game_path(game))
     root = gp / mod_folder / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod
-    tmp = Path(tempfile.mkdtemp(prefix="ff9_interior_"))
     ts = time.strftime("%Y%m%d-%H%M%S")
     out = []
-    for blk, bm in sorted(changed.items()):
-        bx, by = blk
-        dep = root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
-        new = M.write_ff9mesh(bm, tmp / f"fin_{bx}_{by}.ff9mesh").read_bytes()
-        if dep.exists() and dep.read_bytes() == new:
-            continue
-        if backup and dep.exists():
-            import shutil
-            shutil.copyfile(dep, dep.with_name(dep.name + f".bak-{ts}"))
-        p = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
-        log(f"deployed -> {p} ({len(bm.tris)} tris)")
-        out.append(p)
+    with tempfile.TemporaryDirectory(prefix="ff9_interior_") as tmpdir:
+        tmp = Path(tmpdir)
+        for blk, bm in sorted(changed.items()):
+            bx, by = blk
+            dep = root / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
+            new = M.write_ff9mesh(bm, tmp / f"fin_{bx}_{by}.ff9mesh").read_bytes()
+            if dep.exists() and dep.read_bytes() == new:
+                continue
+            if backup and dep.exists():
+                import shutil
+                shutil.copyfile(dep, dep.with_name(dep.name + f".bak-{ts}"))
+            p = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
+            log(f"deployed -> {p} ({len(bm.tris)} tris)")
+            out.append(p)
     if not out:
         log("no block's bytes changed -- nothing deployed")
     return out

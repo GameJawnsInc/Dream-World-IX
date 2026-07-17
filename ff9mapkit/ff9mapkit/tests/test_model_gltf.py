@@ -139,6 +139,46 @@ def test_read_clip_shape_contract():
     assert _gltf_io.read_clip(_Bundle(), 8, 999) is None            # missing clip -> None
 
 
+def test_read_clip_builds_the_bundle_index_once_and_reuses_it():
+    """A per-clip loop (a battle animset's ~34 motions) must only pay for ONE full container pass, not one
+    per clip -- the index is built on first use and cached on the bundle instance."""
+    class _FakePtr:
+        type = type("T", (), {"name": "AnimationClip"})()
+        def __init__(self, tt):
+            self._tt = tt
+        def read_typetree(self):
+            return self._tt
+
+    def _tt(name):
+        return {"m_Name": name, "m_SampleRate": 30.0,
+                "m_RotationCurves": [{"path": "bone000", "curve": {"m_Curve": [
+                    {"time": 0.0, "value": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}]}}],
+                "m_PositionCurves": [], "m_ScaleCurves": []}
+
+    class _CountingContainer(dict):
+        scans = 0
+        def items(self):
+            self.scans += 1
+            return dict.items(self)
+
+    container = _CountingContainer({
+        "assets/resources/animations/8/1.anim": _FakePtr(_tt("one")),
+        "assets/resources/animations/8/2.anim": _FakePtr(_tt("two")),
+        "assets/resources/animations/9/1.anim": _FakePtr(_tt("nine-one")),
+    })
+
+    class _Bundle:
+        pass
+    bundle = _Bundle()
+    bundle.container = container
+
+    assert _gltf_io.read_clip(bundle, 8, 1)["name"] == "one"
+    assert _gltf_io.read_clip(bundle, 8, 2)["name"] == "two"
+    assert _gltf_io.read_clip(bundle, 9, 1)["name"] == "nine-one"
+    assert container.scans == 1                       # one pass builds the index; all 3 lookups reused it
+    assert _gltf_io.read_clip(bundle, 8, 999) is None  # a genuine miss still resolves to None
+
+
 # --------------------------------------------------------------------------- return path (glTF -> struct)
 
 def test_inverse_conversions_undo_the_forward():

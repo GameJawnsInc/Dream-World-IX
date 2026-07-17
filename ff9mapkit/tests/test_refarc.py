@@ -39,6 +39,17 @@ def test_arc_id_base_skips_reserved_world_band():
     assert refarc.arc_id_base(15) == 9200                         # the naive-9000 band is bumped past 9000-9199
 
 
+def test_arc_id_base_skips_reserved_band_on_a_non_span_aligned_base():
+    # a non-default/non-span-aligned --id-base can straddle 9000-9012 from EITHER direction without `nb` itself
+    # ever landing >= 9000 -- the band, not just its start, must clear the reserved range.
+    b = refarc.arc_id_base(0, base=8950, span=200)         # [8950, 9150) straddles from BELOW
+    assert not (b <= 9012 and b + 200 > 9000), f"band {b}..{b + 199} hits 9000-9012"
+    b = refarc.arc_id_base(0, base=9005, span=200)         # starts INSIDE the reserved range
+    assert not (b <= 9012 and b + 200 > 9000), f"band {b}..{b + 199} hits 9000-9012"
+    b = refarc.arc_id_base(0, base=8990, span=1000)        # a wide band that fully ENGULFS the reserved range
+    assert not (b <= 9012 and b + 1000 > 9000), f"band {b}..{b + 999} hits 9000-9012"
+
+
 def test_compose_region_fork_single_and_composed():
     # the GUI "Fork FF9 regions" catalog: one region -> its seed + its tag; several -> composed seeds, no prefix
     aset = refarc.load_reference_arcs()

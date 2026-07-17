@@ -5,6 +5,52 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the 2026-07 adversarial-review pass: 47 defects across the whole kit
+- A package-wide adversarial review (24 subsystem reviewers, every finding independently
+  refuted-or-confirmed) confirmed 48 defects; 47 are fixed here (1 was informational).
+  The worst, most severe first: `bgi.rebuild_neighbors` refuses a non-manifold walkmesh edge
+  (3+ triangles on one edge — previously silently mislinked neighbors into a corrupt shipped
+  `.bgi`); `deploy-campaign` restores the pre-install snapshot when the wholesale folder
+  replace fails partway (previously a half-installed live folder with no revert script); a
+  journey whose `entry.campaign` names a non-member campaign is a clean `JourneyError` at all
+  three consumption sites (previously a raw `KeyError` from lint itself); a `[[platform]]`
+  `land=` carry guards the zero-span interpolation at runtime (previously a divide-by-zero
+  fling whenever the boarding floor's height equals the landing height); and
+  `insert_in_function`'s jump-straddle safety check reads `JMP_IFNOT` UNSIGNED like the engine
+  (a `raw>=0x8000` straddle previously slipped through and silently corrupted the `.eb`).
+- Atomicity + backup discipline, kit-wide: the new shared `fsutil.atomic_write_bytes/text`
+  (sibling `.tmp` + `os.replace`) now backs every load-bearing writer — the save container
+  (`FF9Save.write`), `Memoria.ini` (both coop writers, and `ensure_folder_registered` now
+  takes the same timestamped backup `write_netsync` always did), `DictionaryPatch.txt`
+  (model mint/anim/strip), the form editor's `field.toml` save, engine-DLL installs, and the
+  sound manifest (which is also only written AFTER a successful OGG encode). Save backups are
+  collision-proof within the same second everywhere (`save_items`, `save.apply_story_edit`,
+  and the `save-edit --in-place` CLI backup all probe for a free name instead of truncating
+  an existing backup).
+- The rest, briefly: `eventscan` no longer crashes on computed InitObject/STARTSEQ operands
+  (skips what it can't prove, like its sibling guards); the scene.toml merge no longer drops
+  unnamed content items; a malformed `CAMERA` line is a hard parse error, not a silent
+  default camera; a field revert can no longer claim another mod's same-numbered `3DModel`
+  registration; the top-level `--game`/`--mod-folder` survive every subcommand that
+  redeclares them (`argparse.SUPPRESS` sweep — `world-encounters --config` consequently
+  inherits the standard `FF9CustomMap` default rather than demanding its own flag);
+  `world-deploy` refuses `--lift/--spike` composed with a reshape instead of silently
+  dropping the reshape; `[startup] words` accepts its full documented UInt16 range
+  (`region`'s `GLOB_UINT16` consts now pack unsigned); a `[[chest]]` `gil` above 65535 is a
+  build-time refusal (the popup's engine text slot is 2 bytes — an honest error beats a
+  wrapped number); duplicate-INDEX `[[flag]]`s and same-name-different-content custom
+  statuses are build errors; `requires_flag` + `requires_flag_clear` together is rejected on
+  every block type (not just `[[choice]]`/`[[cutscene]]`); the editor preserves cutscene
+  `actor`/`with_prev` on step updates and escapes all control characters in emitted TOML
+  strings; `[journey.tuning]` entries the tuning dialog can't represent are preserved with a
+  visible warning instead of silently deleted; plus HiDPI campaign-map thumbnails, the
+  Workspace logic-map cache made content-aware (stale on the very first edit before), the
+  `blob_cliff_block_mesh` winding fix now applied to the serialized index buffer, `read_clip`
+  through the O(1) anim index, an LRU bound on the mod-bundle cache, deploy tempdir cleanup,
+  IPv6 relay-host bracket handling, weapon-model mints deferred until the whole item pass
+  validates, and `arc_id_base` doing a real interval-overlap check against the reserved
+  9000–9012 world band.
+
 ### Added — `--diorama on|off`: the battle diorama's config surface (s40 engine)
 - The s40 engine's `[Netsync] Diorama` knob (default ON: a following guest's screen boots the
   host's battles live, render-only) joins the established play-style surface: `coop host|join

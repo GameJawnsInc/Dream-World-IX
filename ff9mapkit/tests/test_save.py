@@ -1,6 +1,7 @@
 """Tests for the FF9 save codec (ff9mapkit.save) -- the RECREATE verb. Synthetic saves only (no real
 game data): we build a save block exactly as the engine does and assert the read/edit/round-trip."""
 import base64
+import glob
 import os
 
 import pytest
@@ -77,6 +78,17 @@ def test_edit_story_state_guards():
         S.edit_story_state(g, scenario=70000)
     with pytest.raises(ValueError, match="out of range"):
         S.edit_story_state(g, set_flags=(99999,))
+
+
+def test_edit_story_state_guards_named_words():
+    """A raw bit landing inside a NAMED_WORDS byte range (an engine-read var, not a free story bit) is
+    refused just like a BIT_REGIONS hit -- e.g. bit 128 is byte 16 = TranceGaugeFlag."""
+    g = bytearray(2048)
+    with pytest.raises(ValueError, match="named word"):
+        S.edit_story_state(g, set_flags=(128,))                        # TranceGaugeFlag -> refused
+    with pytest.raises(ValueError, match="named word"):
+        S.edit_story_state(g, clear_flags=(0,))                        # ScenarioCounter's own low byte
+    assert g == bytearray(2048)                                        # neither refused edit touched geg
 
 
 def test_extra_file_path():
@@ -164,6 +176,7 @@ def test_write_roundtrips(tmp_path):
     p = tmp_path / "out.dat"
     sv.write(p)
     assert S.FF9Save.load(p).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])
+    assert not (tmp_path / (p.name + ".tmp")).exists()      # atomic write leaves no sibling .tmp behind
 
 
 def test_apply_story_edit_in_place_backs_up_and_writes(tmp_path):
@@ -183,6 +196,20 @@ def test_apply_story_edit_in_place_backs_up_and_writes(tmp_path):
     with pytest.raises(ValueError, match="reserved"):
         S.apply_story_edit(str(p), block=1, set_flags=(8400,))
     assert S.FF9Save.load(p).gEventGlobal(1)[:2] == unchanged               # nothing written on the refused edit
+
+
+def test_apply_story_edit_backup_never_clobbers_same_second(tmp_path, monkeypatch):
+    """Two `apply_story_edit` calls landing in the same wall-clock second must each get their OWN backup --
+    the second must never truncate the first (which would silently lose the true pristine bytes)."""
+    p = tmp_path / "SavedData_ww.dat"
+    S.FF9Save(_make_save({1: _geg(6000)})).write(p)
+    monkeypatch.setattr("time.strftime", lambda *a, **k: "20260101-000000")   # force a same-second collision
+    S.apply_story_edit(str(p), block=1, scenario=2500)
+    S.apply_story_edit(str(p), block=1, scenario=2600)
+    baks = sorted(glob.glob(str(p) + ".bak.*"))
+    assert len(baks) == 2
+    assert S.FF9Save.load(baks[0]).gEventGlobal(1)[:2] == bytes([6000 & 0xFF, 6000 >> 8])   # the true pristine
+    assert S.FF9Save.load(baks[1]).gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])   # not silently lost
 
 
 def test_apply_story_edit_noop_when_no_change(tmp_path):

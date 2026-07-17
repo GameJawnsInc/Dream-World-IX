@@ -6,6 +6,10 @@ NPC-talk integration (``inject_npc(speak_body=...)``) lives in test_content.py (
 
 from __future__ import annotations
 
+import struct
+
+import pytest
+
 from ff9mapkit.content import choice, event, region
 from ff9mapkit.eb import opcodes
 
@@ -173,6 +177,24 @@ def test_region_or_var_and_var_expr_bytes():
     assert region.GLOB_UINT16 == 0xDC                            # Global + UInt16
 
 
+def test_glob_uint16_const_accepts_full_unsigned_range_byte_identical_below_32768():
+    # GLOB_UINT16 (0xDC) is documented UNSIGNED (region.py's own comment); set_var/or_var/cond_cmp must
+    # accept the full 0..65535 range instead of raising on the top half, while staying byte-identical to
+    # the old signed pack for every value that already fit (< 0x8000 -- the whole previously-working range).
+    for v in (0, 1, 0x7FFF):
+        assert region.set_var(region.GLOB_UINT16, 0, v) == (
+            bytes([0x05]) + region._push_var(region.GLOB_UINT16, 0) + bytes([0x7D]) + region._i16(v)
+            + bytes([0x2C, 0x7F]))
+    for v in (0x8000, 40000, 0xFFFF):                          # the top half -- used to raise struct.error
+        out = region.set_var(region.GLOB_UINT16, 0, v)
+        assert out.endswith(bytes([0x2C, 0x7F]))
+        lo, hi = out[-4], out[-3]                               # the two T_CONST immediate bytes
+        assert lo | (hi << 8) == v
+    # a genuinely-signed class is unaffected -- an out-of-range literal still raises (real validation)
+    with pytest.raises(struct.error):
+        region.set_var(region.GLOB_INT16, 0, 40000)
+
+
 def test_dynamic_mask_setup_builds_then_passes_expression():
     from ff9mapkit.eb import disasm
     opts = [{"text": "Buy"}, {"text": "Use key", "requires_flag": 8001}, {"text": "Leave"}]
@@ -183,6 +205,16 @@ def test_dynamic_mask_setup_builds_then_passes_expression():
                            region.or_var(region.GLOB_UINT16, sc, 1 << 1)) in setup   # row 1 ORs bit on flag set
     ins = [i for i in disasm.iter_code(setup, 0, len(setup)) if i.op == 0x7C]
     assert ins and ins[-1].arg_is_expr[0] is True                    # mask passed as an EXPRESSION, not literal
+
+
+def test_dynamic_mask_setup_option_16_bit_survives_uint16_pack():
+    # regression: option index >= 15 needs bit 15 (1<<15 = 32768) in the GLOB_UINT16 mask word -- a
+    # signed i16 pack of that literal used to raise struct.error (32768 > 32767) and abort the build.
+    opts = [{"text": str(i)} for i in range(15)] + [{"text": "Secret", "requires_flag": 5}]
+    setup = choice.dynamic_mask_setup(opts, default=0)
+    assert region.set_var(region.GLOB_UINT16, region.MASK_SCRATCH_IDX, (1 << 15) - 1) in setup   # rows 0..14
+    assert region.if_block(region.cond_truthy(region.GLOB_BOOL, 5),
+                           region.or_var(region.GLOB_UINT16, region.MASK_SCRATCH_IDX, 1 << 15)) in setup
 
 
 def test_pre_choose_flag_gated_uses_dynamic_mask_and_pchm():

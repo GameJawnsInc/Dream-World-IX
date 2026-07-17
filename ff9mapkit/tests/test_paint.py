@@ -78,6 +78,16 @@ def test_normalize_merges_scene_positions_by_name():
     assert len(gw["zone"]) == 4
 
 
+def test_normalize_keeps_unnamed_scene_only_entries():
+    # an unnamed field.toml prop must not dedup-match an unnamed scene.toml-only prop of the
+    # same type -- both are real, positioned content and must both survive the merge
+    field = {"prop": [{"prop": "chest", "pos": [-820, -1500]}]}
+    scene = {"prop": [{"pos": [50, 60], "prop": "barrel"}]}
+    items = paint.normalize_content(field, scene)
+    subtypes = {i["subtype"] for i in items if i["type"] == "prop"}
+    assert subtypes == {"chest", "barrel"}
+
+
 def test_markers_to_field_cfg_feeds_normalize():
     # the Blender add-on's collected markers -> field_cfg -> normalize, same path as the CLI
     cfg = paint.markers_to_field_cfg(

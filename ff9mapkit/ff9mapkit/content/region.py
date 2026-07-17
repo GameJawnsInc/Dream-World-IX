@@ -117,6 +117,17 @@ def _i16(v: int) -> bytes:
     return struct.pack("<h", int(v))
 
 
+def _const16(var_class, v: int) -> bytes:
+    """Encode a ``T_CONST`` 16-bit immediate compared against / assigned to ``var_class``. Signed for
+    every class except :data:`GLOB_UINT16` (0xDC), whose engine read path is documented UNSIGNED above --
+    pack that one's low 16 bits unsigned so a literal up to 65535 round-trips instead of raising. For a
+    value already in -32768..32767 the two packings are byte-identical, so nothing else changes."""
+    v = int(v)
+    if _cls(var_class) == GLOB_UINT16:
+        return struct.pack("<H", v & 0xFFFF)
+    return _i16(v)
+
+
 def _push_var(var_class, idx: int) -> bytes:
     """Encode a variable reference token. Index <= 0xFF -> ``<cls> <idx>``; a larger index sets the
     long-index bit (0x20) on the class byte and uses a 2-byte little-endian index, exactly as the
@@ -131,7 +142,8 @@ def _push_var(var_class, idx: int) -> bytes:
 # --- expression statements (opcode 0x05 + token stream) ---
 def set_var(var_class, idx: int, value: int) -> bytes:
     """``set VAR = value`` -> ``05 <var> 7D <value:i16> 2C 7F``."""
-    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_ASSIGN, T_END])
+    return (bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _const16(var_class, value)
+            + bytes([T_ASSIGN, T_END]))
 
 
 FIELD_ENTRANCE_IDX = 2     # D8:2 = the arrival-entrance var the next Field()/WorldMap() arrives through
@@ -147,7 +159,8 @@ def set_field_entrance(ent: int) -> bytes:
 def or_var(var_class, idx: int, value: int) -> bytes:
     """``VAR |= value`` -> ``05 <var> 7D <value:i16> 3F 7F`` (B_OR_LET). Used to OR a bit into a mask
     scratch (real-field verified: Dali/Storage builds its moogle-mail availability mask this way)."""
-    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([T_OR_ASSIGN, T_END])
+    return (bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _const16(var_class, value)
+            + bytes([T_OR_ASSIGN, T_END]))
 
 
 def var_expr(var_class, idx: int) -> bytes:
@@ -181,7 +194,8 @@ def cond_cmp(var_class, idx: int, value: int, op: str = "==") -> bytes:
         cmp = CMP_TOKENS[op]
     except KeyError:
         raise ValueError(f"unknown comparison {op!r} -- use one of {sorted(CMP_TOKENS)}")
-    return bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _i16(value) + bytes([cmp, T_END])
+    return (bytes([EXPR_OP]) + _push_var(var_class, idx) + bytes([T_CONST]) + _const16(var_class, value)
+            + bytes([cmp, T_END]))
 
 
 def cond_eq(var_class, idx: int, value: int) -> bytes:

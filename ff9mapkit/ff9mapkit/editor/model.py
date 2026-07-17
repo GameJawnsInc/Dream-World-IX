@@ -19,8 +19,11 @@ the text). The data always round-trips.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
+
+from .. import fsutil
 
 # Dict values emitted INLINE as ``key = {..}`` (small value-tables, not their own [section]).
 _INLINE_TABLE_KEYS = frozenset({"anims", "scene", "scroll", "frame"})
@@ -33,10 +36,15 @@ _ROOT_ORDER = ("field", "camera", "walkmesh", "layers", "player", "npc", "gatewa
 
 
 # --------------------------------------------------------------------------- serializer
+# every other C0 control byte + DEL -- TOML basic strings forbid these unescaped.
+_OTHER_CONTROL_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def _fmt_str(s) -> str:
     """A TOML basic-string literal with the special characters escaped."""
     s = (str(s).replace("\\", "\\\\").replace('"', '\\"')
          .replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r"))
+    s = _OTHER_CONTROL_RE.sub(lambda m: f"\\u{ord(m.group()):04x}", s)
     return f'"{s}"'
 
 
@@ -205,7 +213,7 @@ class FieldDoc:
 
     def save(self) -> None:
         """Write the logic file (``data``) as TOML. The scene file is left untouched."""
-        self.path.write_text(dumps(self.data), encoding="utf-8", newline="\n")
+        fsutil.atomic_write_text(self.path, dumps(self.data), encoding="utf-8", newline="\n")
 
     def to_text(self) -> str:
         """The TOML text that :meth:`save` would write (for previews/diffs)."""

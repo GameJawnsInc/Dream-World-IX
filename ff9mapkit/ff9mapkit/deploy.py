@@ -295,6 +295,21 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     snap.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(live_root, snap)
     out(f"snapshot {live_root} -> {snap}")
+
+    # prepare the revert emitter + write a snapshot-only revert BEFORE the risky wholesale-replace below --
+    # a copytree failure partway (disk full, a locked file, AV) must still leave a usable revert_campaign.py,
+    # not just a naked snapshot dir the user has to restore by hand.
+    warp_revert = None
+    reverts_dir.mkdir(parents=True, exist_ok=True)
+    rev = reverts_dir / "revert_campaign.py"
+    csv_reverts: list = []
+
+    def _write_revert():
+        rev.write_text(render_revert_campaign(live_root, snap, warp_revert, plan.name, stamp, csv_reverts),
+                       encoding="utf-8", newline="\n")
+    _write_revert()
+    report["revert"] = rev
+
     # foreign-registration guard: a WHOLESALE replace drops any 3DModel/3DModelAnimation line the dist doesn't
     # carry -- e.g. a clip `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch. The
     # snapshot restores them on REVERT, but the forward install silently loses them -> WARN loudly (CLAUDE.md
@@ -306,14 +321,25 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
             "author them into the campaign. Reversible via the snapshot. Lost:")
         for _l in _lost:
             out(f"       {_l}")
-    shutil.rmtree(live_root, ignore_errors=True)
-    shutil.copytree(dist_root, live_root)
+    try:
+        shutil.rmtree(live_root, ignore_errors=True)
+        shutil.copytree(dist_root, live_root)
+    except OSError as e:
+        err(f"\nERROR installing dist -> {live_root}: {e}")
+        try:
+            shutil.rmtree(live_root, ignore_errors=True)
+            shutil.copytree(snap, live_root)
+            err(f"Restored the pre-install snapshot from {snap} -- {live_root} is back to its prior state.")
+        except OSError as e2:
+            err(f"Restoring the snapshot ALSO failed ({e2}) -- {live_root} may be left half-installed. "
+                f"Restore by hand: copy {snap} -> {live_root}, or run: py {rev}")
+        _write_revert()
+        return report
     out(f"installed dist -> {live_root}  ({len(plan.members)} fields)")
     report["applied"] = True
 
     # (5) New-Game wiring: retarget the SHARED FF9CustomMap field-70 override -> the entry id (direct
     #     newgame.retarget call -- no subprocess). Reversible separately; revert_campaign wraps it.
-    warp_revert = None
     if not no_warp:
         out(f"wiring New Game: field-70 override -> Field({entry_id})")
         res = newgame.retarget(game, entry_id, backups_dir=backups_dir, reverts_dir=reverts_dir, verbose=verbose)
@@ -324,16 +350,6 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
         else:
             warp_revert = res["revert"]
     report["warp_revert"] = warp_revert
-
-    # prepare the revert emitter up front (the campaign is already installed + wired -> a later partial failure
-    # must still leave a COMPLETE revert for whatever was touched).
-    reverts_dir.mkdir(parents=True, exist_ok=True)
-    rev = reverts_dir / "revert_campaign.py"
-    csv_reverts: list = []
-
-    def _write_revert():
-        rev.write_text(render_revert_campaign(live_root, snap, warp_revert, plan.name, stamp, csv_reverts),
-                       encoding="utf-8", newline="\n")
 
     # (5.5) promote the entry field's start-state CSVs to the HIGHEST folder so they win at New Game.
     if will_promote:

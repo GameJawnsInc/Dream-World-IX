@@ -21,7 +21,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import config
+from . import config, fsutil
 
 # manifest TextAsset name per audio kind (in resources.assets); the ResourceID carries its own subfolder
 # (music -> "Sounds01/BGM_/music###", sfx -> "Sounds02/SE##/name").
@@ -258,15 +258,15 @@ def mint_song(in_path, mod_folder, *, kind: str = "music", new_id=None, resource
     if resource_id is None:
         sub = "Sounds01/BGM_" if kind == "music" else "Sounds02/SE00"
         resource_id = f"{sub}/custom{new_id}"
+    dest = Path(mod_folder) / override_rel_path(resource_id)
+    encode_ogg(in_path, dest, loop_start=loop_start, loop_end=loop_end, quality=quality)   # raises first -- no
+    stale = dest.with_name(dest.stem + ".akb.bytes")                                       # manifest row on failure
+    if stale.exists():
+        stale.unlink()
     entries = base + [{"id": new_id, "resource_id": resource_id, "type": "Music" if kind == "music" else "SoundEffect"}]
     mpath = manifest_override_path(mod_folder, kind)
     mpath.parent.mkdir(parents=True, exist_ok=True)
-    mpath.write_text(serialize_manifest(entries), encoding="utf-8")
-    dest = Path(mod_folder) / override_rel_path(resource_id)
-    encode_ogg(in_path, dest, loop_start=loop_start, loop_end=loop_end, quality=quality)
-    stale = dest.with_name(dest.stem + ".akb.bytes")
-    if stale.exists():
-        stale.unlink()
+    fsutil.atomic_write_text(mpath, serialize_manifest(entries))
     prio = set_priority_to_ogg(game=game) if set_priority else None
     return {"kind": kind, "song_id": new_id, "resource_id": resource_id, "manifest": str(mpath),
             "ogg": str(dest), "path": str(dest), "loop_start": loop_start, "loop_end": loop_end,

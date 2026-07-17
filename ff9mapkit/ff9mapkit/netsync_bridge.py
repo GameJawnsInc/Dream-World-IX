@@ -50,13 +50,19 @@ def default_relay():
 
 
 def parse_ws_url(url):
-    """'ws(s)://host[:port][/ignored]' -> (secure, host, port)."""
+    """'ws(s)://host[:port][/ignored]' -> (secure, host, port). An IPv6 literal host's '[...]'
+    brackets are URL syntax, not part of the address -- stripped here so `host` is a bare literal
+    every socket/ssl call accepts (neither create_connection nor server_hostname take brackets)."""
     url = url.strip()
     secure = False
     if "://" in url:
         scheme, url = url.split("://", 1)
         secure = scheme.lower() == "wss"
     url = url.split("/", 1)[0]
+    if url.startswith("["):
+        host, _, rest = url[1:].partition("]")
+        port = int(rest[1:]) if rest.startswith(":") else (443 if secure else 80)
+        return secure, host, port
     if ":" in url:
         host, port = url.rsplit(":", 1)
         return secure, host, int(port)
@@ -94,7 +100,8 @@ def open_upstream(relay, path, insecure):
         sock = ctx.wrap_socket(sock, server_hostname=host)
     try:
         key = base64.b64encode(os.urandom(16)).decode("ascii")
-        host_hdr = host if port == (443 if secure else 80) else "%s:%d" % (host, port)
+        host_lit = "[%s]" % host if ":" in host else host   # Host: header needs IPv6 back in brackets
+        host_hdr = host_lit if port == (443 if secure else 80) else "%s:%d" % (host_lit, port)
         req = (
             "GET %s HTTP/1.1\r\n"
             "Host: %s\r\n"
@@ -117,7 +124,7 @@ def open_upstream(relay, path, insecure):
         raise
 
 
-def pump(src, dst, done):
+def pump(src, dst):
     """Copy bytes src->dst until either side dies, then tear both down."""
     try:
         while True:
@@ -128,7 +135,6 @@ def pump(src, dst, done):
     except OSError:
         pass
     finally:
-        done.set()
         for s in (src, dst):
             try:
                 s.shutdown(socket.SHUT_RDWR)
@@ -173,10 +179,9 @@ def handle_client(client, addr, relay, insecure):
         client.settimeout(None)
         log("relay connected, pumping")
 
-        done = threading.Event()
-        t = threading.Thread(target=pump, args=(client, upstream, done), daemon=True)
+        t = threading.Thread(target=pump, args=(client, upstream), daemon=True)
         t.start()
-        pump(upstream, client, done)
+        pump(upstream, client)
         t.join(timeout=5)
         log("session %s closed" % path)
     except Exception as err:

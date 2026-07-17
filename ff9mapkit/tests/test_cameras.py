@@ -170,3 +170,11 @@ def test_walkmesh_int16_bound_raises_gracefully():
     B.build_flat([(-800, 0, -800), (800, 0, -800), (0, 0, 800)], [(0, 1, 2)])   # ok
     with pytest.raises(ValueError, match="Int16"):
         B.build_flat([(-50000, 0, 0), (50000, 0, 0), (0, 0, 50000)], [(0, 1, 2)])
+
+
+def test_parse_bgx_cameras_rejects_malformed_line():
+    # a non-numeric token in a CAMERA field must not silently revert that field to the Cam
+    # default (e.g. Position -> [0, 0, 0]) -- it has to surface, naming the bad line
+    text = "CAMERA\nViewDistance: 1024\nPosition: 100, oops, 300\nRange: 384, 448\n"
+    with pytest.raises(ValueError, match="Position"):
+        C.parse_bgx_cameras_text(text)

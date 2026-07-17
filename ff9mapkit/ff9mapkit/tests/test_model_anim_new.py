@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from ff9mapkit import fsutil
 from ff9mapkit.models import anim
 
 BONES = [{"name": "bone000", "parent": None}, {"name": "bone001", "parent": "bone000"},
@@ -174,6 +175,24 @@ def test_deploy_new_anim_resolves_a_minted_model_from_dictionarypatch(tmp_path):
     assert man2["key"] == 60_000                                                # same name -> same key
     with pytest.raises(ValueError, match="deploy its \\[\\[mint\\]\\] first"):
         anim.deploy_new_anim("GEO_NPC_F1_M999", clip, tmp_path, suffix="IDLE")
+
+
+def test_deploy_new_anim_directive_write_is_crash_safe(tmp_path, monkeypatch):
+    """A crash between the DictionaryPatch rewrite and its install must never truncate the shared
+    registry -- other directives already registered in the mod folder have to survive."""
+    from ff9mapkit.models import extract
+    monkeypatch.setattr(extract, "resolve_geo", lambda tok: ("GEO_NPC_F1_BBA", 10, 4))
+    dp = tmp_path / "DictionaryPatch.txt"
+    dp.write_text("3DModelAnimation 60000 ANH_SOMETHING_ELSE\n", encoding="utf-8")
+    clip = anim.new_clip(BONES, anim.synth_spin_curves(frames=2))
+
+    def _boom(*a, **k):
+        raise OSError("simulated crash between the tmp write and its install")
+    monkeypatch.setattr(fsutil.os, "replace", _boom)
+    with pytest.raises(OSError):
+        anim.deploy_new_anim("GEO_NPC_F1_BBA", clip, tmp_path, suffix="SPIN")
+    assert dp.read_text(encoding="utf-8") == "3DModelAnimation 60000 ANH_SOMETHING_ELSE\n"   # untouched
+    assert not (tmp_path / "DictionaryPatch.txt.tmp").exists()
 
 
 def test_npc_anim_setter_rejects_an_oversized_id():

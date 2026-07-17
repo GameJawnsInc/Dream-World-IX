@@ -12,7 +12,7 @@ from __future__ import annotations
 from ff9mapkit import data, eblint
 from ff9mapkit.content import platform as _platform
 from ff9mapkit.eb import EbScript, opcodes
-from ff9mapkit.eb.disasm import iter_code
+from ff9mapkit.eb.disasm import iter_code, jump_target
 from ff9mapkit.content.ladder import find_player_entry
 
 CLEAN = data.blank_field_bytes("us")
@@ -74,6 +74,20 @@ def test_carry_land_rides_to_absolute_point():
     # the exact final snap carries the landing's x (12) and selfY (-(-474)=474) as constants
     import struct
     assert struct.pack("<h", 12) in body and struct.pack("<h", 474) in body
+
+
+def test_carry_land_zero_span_skips_division():
+    """A 2-element `land=(x,z)` defaults ly=0 -> lsy=0; if the boarding selfY is ALSO 0 (a ground-floor
+    boarding spot -- the common case), interp()'s (lsy - csy) divisor would be 0. The ride must guard
+    this at runtime (it can't know the boarding height at build time) instead of dividing blind."""
+    body = _platform.carry_body(land=(12, 432), speed=30)
+    instrs = list(iter_code(bytes(body), 0, len(body)))
+    jmp_true = [i for i in instrs if i.op == 0x03]
+    assert len(jmp_true) == 2                       # the new zero-span guard + the loop's own back-edge
+    a1s = [i for i in instrs if i.op == 0xA1]
+    assert len(a1s) == 2                             # interpolated loop snap + the exact final landing snap
+    guard = jmp_true[0]                              # emitted right after capturing the boarding position
+    assert jump_target(guard) == a1s[-1].off         # skips straight to the exact-landing MoveInstantXZY
 
 
 def test_inject_land_platform_lints_clean():

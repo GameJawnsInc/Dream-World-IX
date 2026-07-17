@@ -85,7 +85,8 @@ def _merge_by_name(field_list, scene_list, key):
         spatial = e.get(key)
         if spatial is None and sc is not None:
             spatial = sc.get(key)
-        seen.add(e.get("name"))
+        if e.get("name") is not None:
+            seen.add(e.get("name"))
         yield e, spatial
     for e in scene_list:
         if e.get("name") not in seen:

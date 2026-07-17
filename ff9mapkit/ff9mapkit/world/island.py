@@ -47,7 +47,7 @@ ROCK_V = (0.923, 0.893)                                  # V: base -> top (the r
 ROCK_DENSITY = 0.0125                                    # texels/u along the shore (measured constant)
 SEA_PLANE_SOURCE = (12, 0)                               # the game's only full-cell deep Sea4 plane
 DEFAULT_DONOR = (0, 0)                                   # Uaho: a Terrain-carrying donor for the s34 divert
-HIDDEN_PARTS = ("Object", "Sea1", "Sea2", "Sea3", "Sea5")
+HIDDEN_PARTS = ("Object", "Sea1", "Sea2", "Sea3", "Sea5", "Beach1")
 #: per-family beach reference blocks (language pins AND the beach block's divert
 #: donor -- both host Terrain+Sea1/2/4/5+Beach1 transforms, verified 2026-07-15)
 BEACH_PINS = {"grass": (7, 17), "desert": (20, 5)}

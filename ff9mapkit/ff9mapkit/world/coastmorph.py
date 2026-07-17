@@ -707,7 +707,6 @@ def beach_bump(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", gam
     # THE BAND GATE: no shore band may compress below ~60% of its verbatim width (the
     # ladder-taper's whole point -- the pinched wash was the in-game seam)
     reg_pk = {n: {_pk(v[0]) for t3 in t for v in t3} for n, t in others.items()}
-    beach_pk = {_pk(v[0]) for t3 in beach for v in t3}
     c1 = [pos_of.get(k) or next(v[0] for t3 in others["sea2"] for v in t3 if _pk(v[0]) == k)
           for k in (reg_pk["sea2"] & reg_pk["sea1"])]
     def _mv(p):

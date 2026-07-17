@@ -8,6 +8,7 @@ the actual FBX write (`export_mint`) needs the install and is covered by the in-
 """
 import pytest
 
+from ff9mapkit import fsutil
 from ff9mapkit.models import mint
 
 
@@ -70,6 +71,29 @@ def test_fbx_form_needs_a_name_and_carries_it():
     assert man["type_int"] == 3 and man["directive"] == "3DModel 6000 GEO_MON_F0_M00"
     assert man["source"] is None and man["fbx"] == "mymodel/6000.fbx"
     assert man["anims"] and man["anims"].get("stand")   # borrowed from anims_from
+
+
+def test_deploy_mint_directive_write_is_crash_safe(tmp_path, monkeypatch):
+    """deploy_mint's DictionaryPatch rewrite must never truncate the shared registry -- a crash between
+    the tmp write and its install has to leave every already-registered line (fields, other mints) intact,
+    not just the one being appended."""
+    monkeypatch.setattr(mint, "export_mint", lambda *a, **k: None)   # the FBX geometry export needs the install
+    mod = tmp_path / "mod"
+    mod.mkdir()
+    (mod / "DictionaryPatch.txt").write_text("FieldScene 4003 21 XXX YYY 1073\n", encoding="utf-8")
+
+    mint.deploy_mint("GEO_NPC_F1_BBA", 6000, mod)
+    text = (mod / "DictionaryPatch.txt").read_text(encoding="utf-8")
+    assert "3DModel 6000 GEO_NPC_F1_M000" in text
+    assert "FieldScene 4003" in text                                  # prior registration untouched
+    assert not (mod / "DictionaryPatch.txt.tmp").exists()
+
+    def _boom(*a, **k):
+        raise OSError("simulated crash between the tmp write and its install")
+    monkeypatch.setattr(fsutil.os, "replace", _boom)
+    with pytest.raises(OSError):
+        mint.deploy_mint("GEO_MON_F0_ZZZ", 6042, mod)
+    assert (mod / "DictionaryPatch.txt").read_text(encoding="utf-8") == text   # unchanged, not truncated
 
 
 def test_dictionary_lines_emits_mint_directives_before_fields_and_dedups():

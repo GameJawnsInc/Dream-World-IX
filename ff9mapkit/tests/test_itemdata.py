@@ -774,8 +774,9 @@ def _fake_wep_model():
 
 
 def test_weapon_model_string_swaps_the_column():
-    ws, dl, _warns = ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_WEP_B1_021"}],
+    ws, dl, _warns, pending = ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_WEP_B1_021"}],
                                               WEAPONS_CSV_M, ITEMS_CSV, None)
+    assert pending == []                                        # a stock name mints nothing to flush
     assert dl == [] and ws[0]["model"] == "GEO_WEP_B1_021"      # a stock name passes through, no mint
     d = ID.build_weapons_delta(ITEMS_CSV, WEAPONS_CSV_M, ws)
     row = [ln for ln in d.splitlines() if ln.startswith("Dagger")][0]
@@ -790,7 +791,7 @@ def test_weapon_model_string_rejects_a_non_weapon():
     with pytest.raises(ValueError, match="unknown weapon model"):
         ID.resolve_weapon_models([{"name": "Dagger", "model": "totally_wrong"}],
                                  WEAPONS_CSV_M, ITEMS_CSV, None)
-    _ws, _dl, warns = ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_WEP_B9_XYZ"}],
+    _ws, _dl, warns, _pending = ID.resolve_weapon_models([{"name": "Dagger", "model": "GEO_WEP_B9_XYZ"}],
                                                WEAPONS_CSV_M, ITEMS_CSV, None)
     assert any("minted name registered elsewhere" in w for w in warns)   # passthrough, warned
 
@@ -799,13 +800,15 @@ def test_weapon_model_mint_table(tmp_path, monkeypatch):
     from PIL import Image
     from ff9mapkit.models import extract as mextract
     monkeypatch.setattr(mextract, "read_model", lambda tok, game=None: _fake_wep_model())
-    ws, dl, warns = ID.resolve_weapon_models(
+    ws, dl, warns, pending = ID.resolve_weapon_models(
         [{"name": "Dagger", "model": {"id": 6500, "hue": 120}}],
         WEAPONS_CSV_M, ITEMS_CSV, _WLayout(tmp_path))
     assert len(dl) == 1 and dl[0].startswith("3DModel 6500 GEO_WEP_")
     assert isinstance(ws[0]["model"], str) and ws[0]["model"].startswith("GEO_WEP_")
     fbx = tmp_path / "BattleMap" / "BattleModel" / "6" / "6500" / "6500.fbx"
     png = tmp_path / "BattleMap" / "BattleModel" / "6" / "6500" / "500_0.png"
+    assert not fbx.is_file() and not png.is_file()      # deferred -- not on disk until flush_weapon_mints
+    ID.flush_weapon_mints(pending)
     assert fbx.is_file() and png.is_file()
     px = Image.open(png).convert("RGBA").getpixel((0, 0))
     assert px[1] > 200 and px[0] < 60, f"the minted weapon texture must be recolored: {px}"
@@ -826,3 +829,17 @@ def test_weapon_model_mint_validation():
         ID.resolve_weapon_models([{"name": "Dagger", "model": {"id": 6500, "hue": 1}},
                                   {"name": "Mage Masher", "model": {"id": 6500, "hue": 2}}],
                                  WEAPONS_CSV_M, ITEMS_CSV, None)
+
+
+@pytest.mark.skipif(not _itemstats.available(), reason="write_item_data reads the install's base CSVs")
+def test_write_item_data_defers_mint_writes_until_the_whole_plan_validates(tmp_path, monkeypatch):
+    # a [[weapon]] mint that resolves fine, followed by an [[armor]] block whose name doesn't -- the
+    # earlier mint's FBX/PNG files must never land on disk once the call raises for the later block.
+    from ff9mapkit.models import extract as mextract
+    monkeypatch.setattr(mextract, "read_model", lambda tok, game=None: _fake_wep_model())
+    layout = ModLayout(tmp_path / "mod")
+    with pytest.raises(ValueError):
+        ID.write_item_data(layout, weapons=[{"name": "Dagger", "model": {"id": 6501, "hue": 30}}],
+                           armors=[{"name": "Totally Not An Item"}])
+    dest = layout.model_dir(6, 6501)
+    assert not dest.exists()

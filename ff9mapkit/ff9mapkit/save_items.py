@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import abilities as _abilities
+from . import fsutil as _fsutil
 from . import items as _items
 from . import keyitems as _keyitems
 from . import save as _save
@@ -393,20 +394,30 @@ def inspect(path) -> list:
 
 # --- write surface: shared machinery for the EXTRA writers (the load-authoritative store) ----------
 
+def _unique_backup_path(base: str) -> str:
+    """``base`` if nothing is there yet, else the first ``base.N`` (N=1, 2, ...) that isn't -- a
+    timestamp is only 1-second resolution, so two edits inside the same second must never share a
+    backup path (that would silently overwrite an already-pristine backup with a post-edit copy)."""
+    if not os.path.exists(base):
+        return base
+    n = 1
+    while os.path.exists(f"{base}.{n}"):
+        n += 1
+    return f"{base}.{n}"
+
+
 def _atomic_write(extra_path, raw: bytes, new_bytes: bytes, *, backup: bool) -> "str | None":
     """Backup-guarded ATOMIC overwrite of a Memoria extra save file. Writes a timestamped ``<path>.bak.<ts>``
-    from the PRISTINE ``raw`` first (never clobbers a prior backup -- matches :func:`save.apply_story_edit`),
-    then writes ``new_bytes`` to a sibling ``.tmp`` and ``os.replace``\\ s it in (so the real save is never
-    observed half-written). Returns the backup path (or None when ``backup`` is False)."""
+    from the PRISTINE ``raw`` first (never clobbers a prior backup -- matches :func:`save.apply_story_edit`;
+    :func:`_unique_backup_path` guards the same-second collision), then writes ``new_bytes`` to a sibling
+    ``.tmp`` and ``os.replace``\\ s it in (so the real save is never observed half-written). Returns the
+    backup path (or None when ``backup`` is False)."""
     backup_path = None
     if backup:
-        backup_path = f"{extra_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        backup_path = _unique_backup_path(f"{extra_path}.bak.{time.strftime('%Y%m%d-%H%M%S')}")
         with open(backup_path, "wb") as fh:
             fh.write(raw)
-    tmp = f"{extra_path}.tmp"
-    with open(tmp, "wb") as fh:
-        fh.write(new_bytes)
-    os.replace(tmp, extra_path)
+    _fsutil.atomic_write_bytes(extra_path, new_bytes)
     return backup_path
 
 

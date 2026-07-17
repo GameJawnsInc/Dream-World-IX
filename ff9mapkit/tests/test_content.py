@@ -1106,6 +1106,19 @@ def test_synth_chest_validation(tmp_path):
     assert any("pos" in s for s in _cp('[[chest]]\nitem = "Potion"\nflag = 8520\n'))                       # no pos
 
 
+def test_synth_chest_gil_over_65535_rejected(tmp_path):
+    # SetTextVariable's "Received X gil!" popup binds through a 16-bit slot -- a bigger amount would add
+    # the right total but show a wrapped number, so build validation refuses it instead of lying.
+    from ff9mapkit import build
+    def _cp(body):
+        p = tmp_path / "z.field.toml"
+        p.write_text(_CHEST_BASE + body, encoding="utf-8")
+        return [s for s in build.validate(build.FieldProject.load(p)) if "[[chest]]" in s]
+    assert any("out of range" in s for s in _cp('[[chest]]\npos = [0, 0]\ngil = 100000\nflag = 8520\n'))
+    assert not _cp('[[chest]]\npos = [0, 0]\ngil = 65535\nflag = 8520\n')             # the max valid amount
+    assert not _cp('[[chest]]\npos = [0, 0]\ngil = 500\nflag = 8520\n')               # an ordinary amount
+
+
 def test_chest_requires_defined_safe_band_flag(tmp_path):
     # the opened-flag is REQUIRED (no positional auto bit) and must be in the safe band (not FF9's real chest
     # bitfield) -- resilient to reordering + a player's save. A named [[flag]] or a safe index both pass.

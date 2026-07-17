@@ -6,6 +6,7 @@ install is present. The actual --apply install + in-game warp are verified by a 
 
 import ast
 import importlib.util
+import shutil
 from pathlib import Path
 
 import pytest
@@ -133,6 +134,61 @@ def test_generated_revert_skips_when_snapshot_missing(tmp_path):
     txt = deploy.render_revert_campaign(live, snap, None, "ICE", "x")
     exec(compile(txt, "<revert>", "exec"), {})
     assert (live / "keep.txt").exists()                             # snapshot missing -> live left untouched, not nuked
+
+
+def test_wholesale_replace_failure_restores_snapshot(tmp_path, monkeypatch):
+    # a mid-copytree failure installing the dist over live_root must NOT leave a half-installed folder with
+    # no revert -- it must restore live_root from the pre-install snapshot and still leave a valid revert script.
+    game = tmp_path / "game"
+    game.mkdir()
+    mod_folder = "FF9CustomMap-test"
+    live_root = game / mod_folder
+    live_root.mkdir()
+    (live_root / "sentinel.txt").write_text("PRIOR", encoding="utf-8")     # pre-existing live content
+
+    # a minimal prebuilt dist (skips build_campaign -- is_dist_dir only needs these two markers)
+    camp_dir = tmp_path / "camp"
+    dist = camp_dir / "dist"
+    dist.mkdir(parents=True)
+    (dist / "DictionaryPatch.txt").write_text("FieldScene 4000 11 10 TEST 1073\n", encoding="utf-8")
+    (dist / "ModDescription.xml").write_text("<Mod/>", encoding="utf-8")
+    field_dir = camp_dir / "F1"
+    field_dir.mkdir()
+    (field_dir / "F1.field.toml").write_text("", encoding="utf-8")         # empty member toml -> lint stays silent
+    (camp_dir / "campaign.toml").write_text(
+        '[campaign]\n'
+        'name = "T"\n'
+        f'mod_folder = "{mod_folder}"\n'
+        'id_base = 4000\n'
+        'flag_base = 8512\n'
+        'flags_per_field = 64\n'
+        'entry_field = "F1"\n'
+        'entry_entrance = 0\n\n'
+        '[[field]]\n'
+        'name = "F1"\n'
+        'source = 100\n'
+        'id = 4000\n'
+        'mode = "borrow"\n'
+        'toml = "F1/F1.field.toml"\n', encoding="utf-8")
+
+    real_copytree = shutil.copytree
+
+    def _boom(src, dst, *a, **k):
+        if Path(src) == dist:                    # only the risky dist->live_root copy fails
+            raise OSError("simulated disk-full mid-copy")
+        return real_copytree(src, dst, *a, **k)
+    monkeypatch.setattr(deploy.shutil, "copytree", _boom)
+
+    report = deploy.deploy_campaign(dist, game=game, mod_folder=mod_folder, apply=True,
+                                    backups_dir=tmp_path / "backups", reverts_dir=tmp_path / "reverts",
+                                    verbose=False)
+
+    assert report["applied"] is False                                     # the install never completed
+    assert (live_root / "sentinel.txt").is_file()                         # restored from the snapshot...
+    assert (live_root / "sentinel.txt").read_text(encoding="utf-8") == "PRIOR"   # ...with the ORIGINAL bytes
+    rev = report["revert"]
+    assert rev is not None and Path(rev).is_file()                        # a revert script still exists
+    ast.parse(Path(rev).read_text(encoding="utf-8"))                      # ...and is valid python
 
 
 def _game_ready():

@@ -89,6 +89,20 @@ def test_build_rejects_floor_ids_length_mismatch():
         raise AssertionError("expected ValueError on floor_ids length mismatch")
 
 
+def test_rebuild_neighbors_rejects_non_manifold_edge():
+    """3 triangles fanned off one shared edge (a T-junction / duplicate-face slip) must not silently
+    mislink -- raise naming the shared vertex pair and every triangle claiming it."""
+    verts = [(0, 0, 0), (100, 0, 0), (50, 0, 100), (50, 0, -100), (150, 0, 0)]
+    faces = [(0, 1, 2), (0, 1, 3), (0, 1, 4)]
+    try:
+        bgi.build(verts, faces)
+    except ValueError as e:
+        msg = str(e)
+        assert "0" in msg and "1" in msg and "3" in msg      # the vertex pair + all 3 triangle ids
+    else:
+        raise AssertionError("expected ValueError on a non-manifold (3-way) shared edge")
+
+
 def test_load_obj_floors_groups_by_object():
     """Each `o`/`g` object in the .obj becomes a floor; a repeated name reuses its floor."""
     obj = (

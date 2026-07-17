@@ -694,3 +694,20 @@ def test_entrance_flatten_pad_capped_to_building(tmp_path):
     assert EN._capped_flatten_radius(2.0, {"obj": str(obj)}, summ2) == 2.0 and not summ2.get("notes")
     summ3 = {}                                                              # no building -> not capped but warns
     assert EN._capped_flatten_radius(14.0, None, summ3) == 14.0 and summ3["notes"]
+
+
+def test_world_deploy_rejects_lift_with_reshape(capsys):
+    """--hill/--crater/--flatten and --lift/--spike are mutually exclusive: --lift/--spike is a flat diagnostic
+    bump, and the elif dispatch picks exactly one branch -- composing them must refuse, not pick a winner."""
+    from ff9mapkit import cli
+    ns = cli.build_parser().parse_args(["world-deploy", "--mod-folder", "FF9CustomMap",
+                                        "--block", "3", "7", "--hill", "24", "--lift", "5"])
+    rc = cli._cmd_world_deploy(ns)
+    assert rc == 2
+    assert "not both" in capsys.readouterr().err
+
+    ns2 = cli.build_parser().parse_args(["world-deploy", "--mod-folder", "FF9CustomMap",
+                                         "--block", "3", "7", "--crater", "8", "--spike", "2"])
+    rc2 = cli._cmd_world_deploy(ns2)
+    assert rc2 == 2
+    assert "not both" in capsys.readouterr().err

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ff9mapkit import config, memoria, provision
+from ff9mapkit import config, fsutil, memoria, provision
 
 
 # ---- config.save_game_path -------------------------------------------------------------------------
@@ -121,6 +121,27 @@ def test_install_engine_bundle_swaps_and_backs_up(tmp_path):
     assert (backup / "x86" / "UnityEngine.UI.dll").read_bytes() == b"OLD"
     assert len(rep["installed"]) == 6 and len(rep["backed_up"]) == 6
     assert (game / "Memoria.ini").read_bytes() == ini_before  # NEVER touches Memoria.ini
+
+
+def test_install_engine_bundle_write_is_atomic(tmp_path, monkeypatch):
+    # a write interrupted mid-copy must never leave a truncated DLL under the live name -- the swap stages
+    # to a sibling .tmp and os.replace()s it in, so a failure there leaves the ORIGINAL bytes in place.
+    game = _make_game(tmp_path, dll_bytes=b"OLD")
+    zp = _make_bundle(tmp_path, dll_bytes=b"NEW-ENGINE")
+    real_replace = fsutil.os.replace
+
+    def _boom(src, dst):
+        if Path(dst).name == "Assembly-CSharp.dll":
+            raise OSError("simulated interrupted write")
+        return real_replace(src, dst)
+    monkeypatch.setattr(fsutil.os, "replace", _boom)
+
+    with pytest.raises(OSError):
+        memoria.install_engine_bundle(game, zp, stamp="20260629-130000")
+
+    for mgd in memoria.managed_dirs(game):
+        assert (mgd / "Assembly-CSharp.dll").read_bytes() == b"OLD"    # never truncated/half-written
+        assert not (mgd / "Assembly-CSharp.dll.tmp").exists()          # the failed .tmp is cleaned up
 
 
 def test_install_engine_refuses_without_memoria(tmp_path):

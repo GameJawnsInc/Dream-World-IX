@@ -2004,7 +2004,11 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
     if args.hill and args.crater:
         print("pick --hill OR --crater, not both", file=sys.stderr)
         return 2
-    reshape = bool(args.hill or args.crater or args.flatten) and not (args.lift or args.spike)
+    if (args.hill or args.crater or args.flatten) and (args.lift or args.spike):
+        print("--lift/--spike are a [diag] flat bump, not a reshape -- pick --hill/--crater/--flatten OR "
+              "--lift/--spike, not both", file=sys.stderr)
+        return 2
+    reshape = bool(args.hill or args.crater or args.flatten)
     hill_amt = args.hill if args.hill else (-args.crater if args.crater else 0.0)
 
     def _explicit():
@@ -3343,9 +3347,6 @@ def _cmd_world_encounters(args: argparse.Namespace) -> int:
             live = [a for a in area if a != WP.SPECIAL_EMPTY]
             print(f"    [{i}] {_FRIENDLY_NAMES[i]}: {live}")
         return 0
-    if not args.mod_folder:
-        print("--config requires --mod-folder (where to deploy the modified discmr.img)", file=sys.stderr)
-        return 2
     import tomllib
     try:
         with open(args.config, "rb") as fh:
@@ -4146,7 +4147,7 @@ def _cmd_save_edit(args: argparse.Namespace) -> int:
     print("  Memoria extra file: " + ("present (governs the loaded state)" if extra_exists else "none (vanilla save)"))
 
     def _backup(path):
-        bak = f"{path}.bak.{time.strftime('%Y%m%d-%H%M%S')}"
+        bak = S._unique_backup_path(f"{path}.bak.{time.strftime('%Y%m%d-%H%M%S')}")
         with open(path, "rb") as s, open(bak, "wb") as d:
             d.write(s.read())
         return bak
@@ -5114,7 +5115,7 @@ def build_parser() -> argparse.ArgumentParser:
     me.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="export the UNEDITED model straight into MODFOLDER at the engine override path "
                          "(the Phase-1 fidelity test) instead of writing to --out")
-    me.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    me.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     me.set_defaults(func=_cmd_model_export)
 
     mm = sub.add_parser("model-mint",
@@ -5129,7 +5130,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="deploy into MODFOLDER: write the FBX AND append the `3DModel` directive to its "
                          "DictionaryPatch.txt (RELAUNCH to register)")
     mm.add_argument("--out", default=".", help="dir to write the Models/<type>/<id>/ tree into (default: .)")
-    mm.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mm.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     mm.set_defaults(func=_cmd_model_mint)
 
     mg = sub.add_parser("model-gltf",
@@ -5148,7 +5149,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="name bones raw boneNNN instead of the default labeled bone012_R_hand form "
                          "(labels are anatomical guesses derived from the rig family's rest pose -- a "
                          "display layer only; either naming round-trips through model-import/-anim-new)")
-    mg.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mg.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     mg.set_defaults(func=_cmd_model_gltf)
 
     mi = sub.add_parser("model-import",
@@ -5168,7 +5169,7 @@ def build_parser() -> argparse.ArgumentParser:
     mi.add_argument("--no-anims", action="store_true",
                     help="import the mesh only -- skip writing back any edited animation clips (by default an "
                          "edited .glb round-trips mesh AND changed clips as loose .anim overrides)")
-    mi.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mi.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     mi.set_defaults(func=_cmd_model_import)
 
     ma = sub.add_parser("model-anim",
@@ -5183,7 +5184,7 @@ def build_parser() -> argparse.ArgumentParser:
     ma.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="write straight into MODFOLDER's StreamingAssets override path instead of --out "
                          "(the loose-override-path proof; F6 -> Reload field to apply)")
-    ma.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    ma.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
 
     man = sub.add_parser("model-anim-new",
@@ -5200,7 +5201,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "a FIELD anim id must fit 16 bits, so keys above 65535 are rejected)")
     man.add_argument("--deploy", metavar="MODFOLDER", required=True,
                      help="mod folder to write Animations/<id>/<key>.anim + the DictionaryPatch line into")
-    man.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    man.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     man.set_defaults(func=_cmd_model_anim_new)
 
     imf = sub.add_parser("image-field",
@@ -5242,7 +5243,7 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("--pitch", type=float, default=12.0, help="look-down angle in degrees (default 12)")
     mp.add_argument("--rest", action="store_true",
                     help="render the raw rest pose instead of frame 0 of the model's stand clip")
-    mp.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mp.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     mp.set_defaults(func=_cmd_model_preview)
 
     mr = sub.add_parser("model-reskin",
@@ -5255,7 +5256,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="edited PNG file(s) to ship -- each must KEEP its {stem}.png name")
     mr.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="mod folder to write the reskin into (the model's own override dir)")
-    mr.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    mr.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     mr.set_defaults(func=_cmd_model_reskin)
 
     mdp = sub.add_parser("model-deployed",
@@ -5282,13 +5283,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="mod folder to write the character's Animations/<mintId>/ animset into (with --edit)")
     pa.add_argument("--name", default=None,
                     help="the [[playable]] name, if the field defines more than one custom_battle_anims character")
-    pa.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    pa.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     pa.set_defaults(func=_cmd_playable_anims)
 
     for _snd, _label in (("music", "music"), ("sfx", "SFX")):
         sl = sub.add_parser(f"{_snd}-list", help=f"list {_label} song-id -> ResourceID (what audio-import replaces)")
         sl.add_argument("--filter", default=None, help="substring or exact-id filter")
-        sl.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+        sl.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
         sl.set_defaults(func=_cmd_sound_list, kind=_snd)
 
     ai = sub.add_parser("audio-import",
@@ -5309,7 +5310,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="don't touch Memoria.ini -- you must set [Audio] PriorityToOGG=1 yourself or the "
                          "bundled track wins")
     ai.add_argument("--deploy", metavar="MODFOLDER", default=None, help="mod folder to write the override into")
-    ai.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    ai.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     ai.set_defaults(func=_cmd_audio_import)
 
     bb = sub.add_parser("battle-build", help="compile a battle.toml into a Memoria mod (custom battle map)")
@@ -5318,7 +5319,7 @@ def build_parser() -> argparse.ArgumentParser:
     bb.add_argument("--mod-name", default="FF9CustomMap", help="mod name / InstallationPath")
     bb.add_argument("--author", default="", help="mod author")
     bb.add_argument("--description", default="", help="mod description")
-    bb.add_argument("--game", default=None,
+    bb.add_argument("--game", default=argparse.SUPPRESS,
                     help="FF9 install dir (only needed for an enemy re-skin `[[scene.enemy]] model =`, which "
                          "reads a donor model from the install; default: $FF9_GAME_PATH / common Steam paths)")
     bb.set_defaults(func=_cmd_battle_build)
@@ -5540,7 +5541,8 @@ def build_parser() -> argparse.ArgumentParser:
     wct = sub.add_parser("world-coast",
                          help="FAITHFUL coast (Path D): place a REAL FF9 coastal block at ocean cells -- copies its "
                               "terrain + animated beach/sea/foam (via a Donor.txt sidecar). --list browses donors.")
-    wct.add_argument("--mod-folder", help="the FolderNames mod folder to deploy into")
+    wct.add_argument("--mod-folder", default=argparse.SUPPRESS,
+                     help="the FolderNames mod folder to deploy into (default FF9CustomMap)")
     wct.add_argument("--cells", help="target ocean cells: 'x,y;x,y' or a range 'x0-x1,y0-y1'")
     wct.add_argument("--donor", help="the REAL coastal donor block 'dx,dy' to copy (e.g. 18,15; see --list)")
     wct.add_argument("--list", action="store_true", help="list real coastal donor blocks (with a beach) and exit")
@@ -5791,8 +5793,8 @@ def build_parser() -> argparse.ArgumentParser:
     wms.add_argument("--verbs", default=None,
                      help="comma list to probe (default all): beach-bump,beach-reshape,"
                           "beach-slide,cliff-bump,cliff-headland,cliff-bay")
-    wms.add_argument("--mod-folder", default=None,
-                     help="printed into the ready-to-run deploy lines (display only)")
+    wms.add_argument("--mod-folder", default=argparse.SUPPRESS,
+                     help="printed into the ready-to-run deploy lines (display only; default FF9CustomMap)")
     wms.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wms.set_defaults(func=_cmd_world_morphs)
 
@@ -6164,7 +6166,8 @@ def build_parser() -> argparse.ArgumentParser:
     wet.add_argument("--all", action="store_true", help="with --list: print every one of the 355 records")
     wet.add_argument("--config", help="a .toml with [[set]] (all|index|area|zone|topograph[+fog] -> scene[]/pattern/"
                                       "pad) and/or [remap] (old_scene_id = new_scene_id) edits; [encounters] or bare doc")
-    wet.add_argument("--mod-folder", help="mod folder to deploy the modified discmr.img into (required with --config)")
+    wet.add_argument("--mod-folder", default=argparse.SUPPRESS,
+                     help="mod folder to deploy the modified discmr.img into (default FF9CustomMap)")
     wet.add_argument("--dry-run", action="store_true", help="with --config: print the edit summary, write nothing")
     wet.set_defaults(func=_cmd_world_encounters)
 
@@ -6215,7 +6218,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="preview the AbilityFeatures.txt a field.toml emits (SA/AA/CMD ability-effect DSL)")
     afp.add_argument("toml", nargs="?", default=None, help="field.toml to preview (omit for the tag/name reference)")
     afp.add_argument("--tags", action="store_true", help="list the SA names + the legal [code=...] tags per kind")
-    afp.add_argument("--game", default=None, help="FF9 install dir (only needed to resolve an >AA ability by NAME)")
+    afp.add_argument("--game", default=argparse.SUPPRESS, help="FF9 install dir (only needed to resolve an >AA ability by NAME)")
     afp.set_defaults(func=_cmd_ability_features)
 
     bp = sub.add_parser("battle-patch",
@@ -6235,7 +6238,7 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--report", nargs="?", const="", default=None, metavar="JSONL",
                     help="summarize a captured telemetry file (default: <game>/ff9mk_battle_telemetry.jsonl)")
     bt.add_argument("--clear", action="store_true", help="delete the captured JSONL (start a fresh session)")
-    bt.add_argument("--game", default=None, help="path to the FF9 install (default: auto-detect)")
+    bt.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     bt.set_defaults(func=_cmd_battle_telemetry)
 
     an = sub.add_parser("animations", help="list a character's cutscene gestures (pick by name)")
@@ -6479,7 +6482,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="reversibly INSTALL a built campaign into the live game + wire New Game (SAFE by "
                               "default: prints the plan; --apply touches the game). The installed-copy deploy.")
     dca.add_argument("target", help="path to campaign.toml (built fresh) OR a prebuilt dist/ directory")
-    dca.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
+    dca.add_argument("--mod-folder", dest="mod_folder", default=argparse.SUPPRESS,
                      help="Memoria mod folder to install into (default FF9CustomMap)")
     dca.add_argument("--entry", default=None, help="New-Game entry: member name, field id, or omit for the manifest entry")
     dca.add_argument("--out-dist", dest="out_dist", default=None, help="where to stage the build (default: target/dist)")
@@ -6527,13 +6530,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="point New Game at a deployed custom field id (creates the field-70 override from "
                              "stock; the opening FMV is preserved). The installed-copy New-Game wiring.")
     ng.add_argument("field_id", type=int, help="the field id New Game should land on (must be deployed/registered)")
-    ng.add_argument("--mod-folder", dest="mod_folder", default="FF9CustomMap",
+    ng.add_argument("--mod-folder", dest="mod_folder", default=argparse.SUPPRESS,
                     help="mod folder to write the override into (default FF9CustomMap)")
     ng.add_argument("--retarget", action="store_true",
                     help="PATCH an existing field-70 override instead of creating one from stock")
     ng.add_argument("--from", dest="frm", type=int, default=None,
                     help="(--retarget) the override's current target id (default: auto-detected)")
-    ng.add_argument("--game", default=None, help="game install path (default: auto-detect)")
+    ng.add_argument("--game", default=argparse.SUPPRESS, help="game install path (default: auto-detect)")
     ng.add_argument("--dry-run", action="store_true", help="report only; write nothing")
     ng.set_defaults(func=_cmd_newgame)
 

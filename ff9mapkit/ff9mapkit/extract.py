@@ -1792,19 +1792,29 @@ def _atlas_png_bytes(tex) -> bytes:
     return buf.getvalue()
 
 
-_MOD_ENV_CACHE: dict = {}
+# Bounded LRU like _STREAM_ENV_CACHE above -- a bulk run (import_all/export_all_art walking ~674 fields
+# against a bg-mod install) can touch many distinct mod-folder bundles; without a cap each stays resident
+# for the rest of the process.
+_MOD_ENV_CACHE: "OrderedDict[str, object]" = OrderedDict()
+_MOD_ENV_CACHE_MAX = 8
 
 
 def _load_mod_bundle(path):
     """Load + cache a mod-folder p0data bundle (read-only, static). A multi-member campaign that needs
     several fields' mod atlases then loads each bundle ONCE instead of re-loading it per member."""
     p = str(path)
-    if p not in _MOD_ENV_CACHE:
-        try:
-            _MOD_ENV_CACHE[p] = _unitypy().load(p)
-        except Exception:                                    # noqa: BLE001 - a non-bundle / unreadable bin
-            _MOD_ENV_CACHE[p] = None
-    return _MOD_ENV_CACHE[p]
+    env = _MOD_ENV_CACHE.get(p)
+    if env is not None:
+        _MOD_ENV_CACHE.move_to_end(p)
+        return env
+    try:
+        env = _unitypy().load(p)
+    except Exception:                                        # noqa: BLE001 - a non-bundle / unreadable bin
+        env = None
+    _MOD_ENV_CACHE[p] = env
+    while len(_MOD_ENV_CACHE) > _MOD_ENV_CACHE_MAX:
+        _MOD_ENV_CACHE.popitem(last=False)
+    return env
 
 
 def _mod_field_atlas(folder: str, game=None):
@@ -1827,6 +1837,17 @@ def _mod_field_atlas(folder: str, game=None):
     return None
 
 
+def _atlas_dims_fit(bgs_bytes: bytes, w: int, h: int, ts: int) -> bool:
+    """True if a ``w``x``h`` atlas can hold every sprite the field's overlays resolve to at TileSize
+    ``ts``. A sprite occupies a ``ts``x``ts`` cell starting at (atlasX, atlasY), so the CELL must fit,
+    not just its origin (mirrors the sibling :func:`_derive_native_tile_size`'s bound check)."""
+    _, ov = bgs.parse_overlays(bgs_bytes)                     # fresh overlays (resolve_sprites appends)
+    bgs.resolve_sprites(bgs_bytes, ov, w, ts)
+    sprites = [s for o in ov for s in o.sprites]
+    return (max((s.atlasX for s in sprites), default=0) + ts <= w
+            and max((s.atlasY for s in sprites), default=0) + ts <= h)
+
+
 def _native_atlas(field: str, game=None, bundle=None):
     """(atlas_png_bytes, source) for a NATIVE fork: the field atlas packed at the ACTIVE TileSize. The base
     bundle atlas fits vanilla (32); when a mod raises TileSize (Moguri = 64) the base atlas no longer fits,
@@ -1841,11 +1862,7 @@ def _native_atlas(field: str, game=None, bundle=None):
 
     def _fits(png: bytes) -> bool:
         w, h = Image.open(io.BytesIO(png)).size
-        _, ov = bgs.parse_overlays(bgs_bytes)                # fresh overlays (resolve_sprites appends)
-        bgs.resolve_sprites(bgs_bytes, ov, w, ts)
-        sprites = [s for o in ov for s in o.sprites]
-        return (max((s.atlasX for s in sprites), default=0) <= w
-                and max((s.atlasY for s in sprites), default=0) <= h)
+        return _atlas_dims_fit(bgs_bytes, w, h, ts)
 
     base = _atlas_png_bytes(env.container[roles["atlas"]].read()) if "atlas" in roles else None
     if base is not None and _fits(base):

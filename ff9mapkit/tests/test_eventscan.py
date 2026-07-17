@@ -458,6 +458,42 @@ def test_seq_closure_field567_flips_the_v02_prop():
     assert [h["entry"] for h in on["GEO_ACC_F0_V02"]["seqs"]]                          # carries its helper
 
 
+# --- guard: a STARTSEQ arg / an InitObject slot can be a computed expression or an out-of-range literal --
+def _mini_main_init(code: bytes) -> bytes:
+    """A self-contained one-entry .eb (mirrors test_eb.py's ``_eb_with_op06``, no game data needed):
+    entry 0, type 0, one func (tag 0 = Main_Init) running ``code``."""
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code
+    slot = struct.pack("<HHBBH", 8, len(entry), 0, 0, 0)
+    return b"EV" + bytes([0x00, 1]) + bytes(0x2C - 4) + bytes(84) + slot + entry
+
+
+def test_climb_sequences_skips_expression_startseq_arg():
+    # a STARTSEQ whose entry-index arg is computed (arg_is_expr[0] True, args[0] a decoded-expr string) --
+    # int(ins.args[0]) must not raise ValueError; the unresolved sequence is simply skipped.
+    code = opcodes.encode(STARTSEQ, b"\x7f", arg_flags=1) + opcodes.RETURN
+    eb = EbScript.from_bytes(_mini_main_init(code))
+    assert eventscan._climb_sequences(eb, eb.entry(0).func_by_tag(0)) == {}
+
+
+def test_climb_sequences_skips_out_of_range_startseq_arg():
+    # a STARTSEQ whose literal entry-index is past the entry table (a computed/corrupted donor) -- must be
+    # skipped, not an IndexError out of _entry_bytes.
+    code = opcodes.encode(STARTSEQ, 250) + opcodes.RETURN
+    eb = EbScript.from_bytes(_mini_main_init(code))
+    assert eventscan._climb_sequences(eb, eb.entry(0).func_by_tag(0)) == {}
+
+
+def test_scan_objects_skips_expression_slot_init_object(monkeypatch):
+    # InitObject (opcode 0x09) is below the argFlag threshold, so the real decoder never actually emits an
+    # expression slot for it -- but scan_objects_verbatim's identical Main_Init walk already guards this
+    # exact shape, so scan_objects must match it rather than assume every InitObject slot is a literal int.
+    from ff9mapkit.eb import disasm as _disasm
+    eb_bytes = _mini_main_init(opcodes.RETURN)
+    expr_ins = _disasm.Instr(8, eventscan.INIT_OBJECT_OP, ["{op78(5,0) op7F}"], [True], 4)
+    monkeypatch.setattr(_disasm, "iter_code", lambda data, start, end: iter([expr_ins]))
+    assert eventscan.scan_objects(eb_bytes) == []
+
+
 # --- scan_player_funcs: the player-function graft scanner (docs/PLAYER_GRAFT.md) -----------
 def _classify_player_body(body, model=98):
     from ff9mapkit.eb import edit

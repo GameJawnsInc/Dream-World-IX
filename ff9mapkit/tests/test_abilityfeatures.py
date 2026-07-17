@@ -60,6 +60,14 @@ def test_aa_id_out_of_range_and_cmd_zero():
         _one({"kind": "CMD", "ability": 0, "features": "[code=Disable] 1 [/code]"})
 
 
+def test_cmd_id_past_engine_span_warns_not_errors():
+    lines, warnings = af.build_lines([{"kind": "CMD", "ability": 999999999,
+                                       "features": "[code=Disable] 1 [/code]"}])
+    assert ">CMD 999999999" in lines[2]                        # still emitted -- opaque body is the author's
+    assert any("past the engine's BattleCommandId span" in w for w in warnings)
+    assert af.build_lines([{"kind": "CMD", "ability": 47, "features": "[code=Disable] 1 [/code]"}])[1] == []
+
+
 def test_cmd_by_name_rejected():
     with pytest.raises(AbilityFeatureError):
         _one({"kind": "CMD", "ability": "Magic Sword", "features": "[code=Disable] 1 [/code]"})

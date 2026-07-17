@@ -215,10 +215,13 @@ class CampaignMap(QGraphicsView):
             png = self.thumbs(n.name) if self.thumbs else None
             pm = QPixmap(png) if png else QPixmap()
             if not pm.isNull():
+                dpr = self.devicePixelRatioF()             # crisp on HiDPI, like icons.pixmap()
                 iw = int(n.w - 12)
-                pm = pm.scaledToWidth(iw, Qt.TransformationMode.SmoothTransformation)
-                if pm.height() > _THUMB_H:                 # center-crop to the band (rooms are portrait-ish)
-                    pm = pm.copy(0, (pm.height() - _THUMB_H) // 2, iw, _THUMB_H)
+                pm = pm.scaledToWidth(round(iw * dpr), Qt.TransformationMode.SmoothTransformation)
+                band_px = round(_THUMB_H * dpr)
+                if pm.height() > band_px:                  # center-crop to the band (rooms are portrait-ish)
+                    pm = pm.copy(0, (pm.height() - band_px) // 2, pm.width(), band_px)
+                pm.setDevicePixelRatio(dpr)
                 img = sc.addPixmap(pm)
                 img.setPos(n.x + 6, n.y + 6)
                 items.append(img)

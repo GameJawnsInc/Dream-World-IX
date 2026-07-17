@@ -160,6 +160,31 @@ def anim_disc_map(bundle) -> dict:
     return disc
 
 
+_CLIP_INDEX_ATTR = "_ff9mapkit_clip_index"
+
+
+def _clip_index(bundle) -> dict:
+    """``{(geo_id, anim_key): pptr}`` for every AnimationClip in ``bundle`` -- the same one-pass traversal as
+    :func:`anim_disc_map`, but keeping the pointer :func:`read_clip` needs instead of just membership. Built
+    once and cached ON the bundle instance (a fresh p0data5 load per caller, never mutated after load) so a
+    per-clip loop over a whole animset doesn't rescan the ~9.3k-entry container for every key."""
+    idx = getattr(bundle, _CLIP_INDEX_ATTR, None)
+    if idx is not None:
+        return idx
+    idx = {}
+    for k, p in bundle.container.items():
+        if p.type.name != "AnimationClip":
+            continue
+        m = _ANIM_PATH_RE.search(k.lower())
+        if m:
+            idx[(int(m.group(1)), int(m.group(2)))] = p
+    try:
+        setattr(bundle, _CLIP_INDEX_ATTR, idx)
+    except AttributeError:
+        pass                              # a read-only bundle stand-in -- rebuild next call, still correct
+    return idx
+
+
 def read_clip(bundle, geo_id: int, anim_key: int) -> "dict | None":
     """Read a legacy AnimationClip (``animations/{geo_id}/{anim_key}.anim`` in p0data5) into RAW Unity curves:
 
@@ -169,12 +194,13 @@ def read_clip(bundle, geo_id: int, anim_key: int) -> "dict | None":
     Rotation is a quaternion curve (Unity ``m_RotationCurves``), position/scale are vec3 curves; each keys by
     the bone's hierarchy PATH ("bone000/bone001/..."). No coordinate conversion here -- the caller flips to
     glTF handedness. Returns None if the clip isn't found. ``bundle`` is a loaded p0data5 (see gltf.py)."""
-    want = f"animations/{geo_id}/{anim_key}.anim"
-    pptr = None
-    for k, p in bundle.container.items():
-        if p.type.name == "AnimationClip" and want in k.lower():
-            pptr = p
-            break
+    pptr = _clip_index(bundle).get((int(geo_id), int(anim_key)))
+    if pptr is None:
+        want = f"animations/{geo_id}/{anim_key}.anim"       # a container path _ANIM_PATH_RE can't anchor
+        for k, p in bundle.container.items():
+            if p.type.name == "AnimationClip" and want in k.lower():
+                pptr = p
+                break
     if pptr is None:
         return None
     tt = pptr.read_typetree()

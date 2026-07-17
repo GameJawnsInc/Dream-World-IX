@@ -65,9 +65,12 @@ def init_region(slot: int, arg: int = 0) -> bytes:  # 0x08
 
 def run_script_sync(level: int, uid: int, tag: int) -> bytes:   # 0x14 (REQEW) argsize [1,1,1]
     """RunScriptSync(level, uid, tag): run function ``tag`` on the object with this UID and WAIT for it
-    to return. The FF9 ladder idiom: a region calls ``RunScriptSync(2, 250, <climb_tag>)`` to run the
-    PLAYER's (UID 250) climb function in the player's own context (so its moves move the player),
-    synchronously. Decoded from Treno/Residence's real ladder."""
+    to return (the engine's REQEW; targets by UID via GetObjUID). The FF9 ladder idiom: a region calls
+    ``RunScriptSync(2, 250, <climb_tag>)`` to run the PLAYER's (UID 250) climb function in the player's
+    own context (so its moves move the player), synchronously. Decoded from Treno/Residence's real
+    ladder. A director also uses this to drive an NPC's choreography function -- which then runs while
+    the NPC is 'running' (so its animations advance, unlike code spliced into the NPC's Init); real
+    cutscenes use ``level`` 2."""
     return encode(0x14, level, uid, tag)
 
 
@@ -375,14 +378,6 @@ def set_random_battle_frequency(freq: int) -> bytes:   # 0x57 [1]
 
 
 # --- field camera (multi-camera) ---
-def run_script_sync(script_level: int, uid: int, func_tag: int) -> bytes:   # 0x14 (REQEW) [1,1,1]
-    """RunScriptSync(level, uid, tag): run object ``uid``'s function ``tag`` and WAIT until it returns
-    (the engine's REQEW). Targets by UID (GetObjUID). A director uses this to drive an NPC's
-    choreography function -- which then runs while the NPC is 'running' (so its animations advance,
-    unlike code spliced into the NPC's Init). ``level`` is the script level (real cutscenes use 2)."""
-    return encode(0x14, script_level, uid, func_tag)
-
-
 def set_field_camera(cam_id: int) -> bytes:            # 0x7E (SETCAM) [1]
     """SetFieldCamera(cam_id): switch the active background camera (engine SetCurrentCameraIndex)."""
     return encode(0x7E, cam_id)

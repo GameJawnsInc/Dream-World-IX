@@ -68,6 +68,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from . import fsutil
 from .config import find_game_path
 
 COOP_FIELD = 30003          # the co-op hangout room's field id
@@ -226,6 +227,15 @@ def update_ini_section(text: str, section: str, updates: dict) -> str:
     return nl.join(out)
 
 
+def _backup_ini(ini: Path) -> Path:
+    """Snapshot ``ini`` to a timestamped sibling before any in-place edit -- the ONE backup
+    mechanism every Memoria.ini writer in this module routes through."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    backup = ini.with_name(f"Memoria.ini.coop-bak-{stamp}")
+    shutil.copyfile(ini, backup)
+    return backup
+
+
 def write_netsync(game: Path, updates: dict, *, out=print) -> Path | None:
     """Apply ``updates`` to ``[Netsync]`` in Memoria.ini, backing the file up first.
     Returns the backup path (None if the ini didn't exist -- refuse in that case)."""
@@ -233,11 +243,9 @@ def write_netsync(game: Path, updates: dict, *, out=print) -> Path | None:
     if not ini.is_file():
         raise FileNotFoundError(f"{ini} not found -- is this really the FF9 install "
                                 "(and is Memoria set up)?")
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    backup = ini.with_name(f"Memoria.ini.coop-bak-{stamp}")
-    shutil.copyfile(ini, backup)
+    backup = _backup_ini(ini)
     text = ini.read_text(encoding="utf-8", errors="replace")
-    ini.write_text(update_ini_section(text, "Netsync", updates), encoding="utf-8")
+    fsutil.atomic_write_text(ini, update_ini_section(text, "Netsync", updates), encoding="utf-8")
     out(f"  Memoria.ini: [Netsync] updated (backup: {backup.name})")
     return backup
 
@@ -280,15 +288,17 @@ def ensure_folder_registered(game: Path, folder: str, *, out=print) -> bool:
     """Add ``folder`` to ``[Mod] FolderNames`` (at the END -- the room's assets are uniquely named, and
     last place keeps its text block from shadowing other folders'). True if the ini was changed.
     Writes FolderNames AND Priorities together (:func:`mod_order_updates` -- the launcher reverts a
-    FolderNames-only edit at the next Play click)."""
+    FolderNames-only edit at the next Play click). Backs the ini up first, same as :func:`write_netsync`
+    -- this is the FIRST ini mutation of a default `coop host`/`coop join` run."""
     ini = _ini_path(game)
     text = ini.read_text(encoding="utf-8", errors="replace")
     names = read_folder_names(text)
     if any(n.lower() == folder.lower() for n in names):
         return False
     updates = mod_order_updates(text, names + [folder])
-    ini.write_text(update_ini_section(text, "Mod", updates), encoding="utf-8")
-    out(f'  Memoria.ini: added "{folder}" to [Mod] FolderNames + Priorities')
+    backup = _backup_ini(ini)
+    fsutil.atomic_write_text(ini, update_ini_section(text, "Mod", updates), encoding="utf-8")
+    out(f'  Memoria.ini: added "{folder}" to [Mod] FolderNames + Priorities (backup: {backup.name})')
     return True
 
 

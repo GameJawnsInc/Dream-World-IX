@@ -616,7 +616,8 @@ def preview_field_toml(entries, art_dir, *, screens: int = 3) -> Optional[str]:
     meta = _arena.build_arena(art_dir, screens=max(screens, n))
     half = meta["quad"][1][0]
     margin = 700
-    xs = [round(-(half - margin) + 2 * (half - margin) * i / max(1, n - 1)) for i in range(n)]
+    xs = [round(-(half - margin) + 2 * (half - margin) * (0.5 if n == 1 else i / (n - 1)))
+          for i in range(n)]
     zs = [z for _, z in meta["quad"]]
     z_lo, z_hi = min(zs), max(zs)
     row_z, spawn_z = (z_lo + z_hi) // 2, z_hi - 150

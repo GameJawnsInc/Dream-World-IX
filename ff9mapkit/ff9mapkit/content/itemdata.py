@@ -317,7 +317,11 @@ def ability_tokens(entries) -> str:
 
 def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *, game=None):
     """Normalize every ``[[weapon]]`` block's ``model`` knob BEFORE the delta builds. Returns
-    ``(weapons', directives, warnings)`` -- blocks come back with ``model`` as a plain GEO name string.
+    ``(weapons', directives, warnings, pending_writes)`` -- blocks come back with ``model`` as a plain
+    GEO name string. ``pending_writes`` is a list of ``(path, payload)`` pairs (payload = FBX text or a
+    PIL Image) for a mint's FBX/PNG files -- NOT yet written to disk; the caller flushes them (see
+    :func:`flush_weapon_mints`) only once the rest of the item-data plan has validated, so a later
+    block's failure can't leave an earlier mint's files orphaned and unregistered.
 
     * a STRING = point the item at a stock ``GEO_WEP_*`` (validated against the GEO table; an unknown
       ``GEO_WEP_``-shaped token passes with a warning -- it may be a mint registered elsewhere).
@@ -332,7 +336,7 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
     """
     specs = [(i, b) for i, b in enumerate(weapons) if isinstance(b, dict) and b.get("model") is not None]
     if not specs:
-        return weapons, [], []
+        return weapons, [], [], []
     from .. import catalog as _catalog
     out = list(weapons)
     directives, warnings = [], []
@@ -371,7 +375,10 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
                              f"one of hue / tint / textures")
         mints.append((i, b))
 
-    # pass 2 -- the mints (install reads + file writes)
+    # pass 2 -- the mints (install reads + in-memory render; the actual FBX/PNG file WRITES are deferred
+    # to `pending` and only flushed by the caller once the whole item-data plan validates -- see the
+    # docstring/`flush_weapon_mints`)
+    pending: list = []
     for i, b in mints:
         m = b["model"]
         sid, hue, tint, textures = m["id"], m.get("hue"), m.get("tint"), m.get("textures") or {}
@@ -400,8 +407,7 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
         mextract.merge_nested_child_meshes(model, warn=warnings.append)
         text, _meta = mfbx.emit_skinned_fbx(model)
         dest = layout.model_dir(6, sid)                # -> BattleMap/BattleModel/6/<id>/
-        dest.mkdir(parents=True, exist_ok=True)
-        (dest / f"{sid}.fbx").write_text(text, encoding="ascii", newline="\n")
+        pending.append((dest / f"{sid}.fbx", text))
         for stem, img in model["textures"].items():
             if stem in textures:
                 out_img = Image.open(textures[stem]).convert("RGBA")
@@ -409,12 +415,27 @@ def resolve_weapon_models(weapons, weapons_text: str, items_text: str, layout, *
                 out_img = mreskin.recolor_image(img, hue=hue, tint=tint)
             else:
                 out_img = img
-            out_img.save(str(dest / f"{stem}.png"))
+            pending.append((dest / f"{stem}.png", out_img))
         directives.append(f"3DModel {sid} {name}")
         out[i] = dict(b, model=name)                   # normalize -> the string path sets the column
         warnings.append(f"[[weapon]] {b.get('name')!r}: minted weapon model {sid} ({name}) from {src} -- "
                         f"RELAUNCH to register the id (weapons load on battle entry)")
-    return out, directives, warnings
+    return out, directives, warnings, pending
+
+
+def flush_weapon_mints(pending) -> None:
+    """Write every ``resolve_weapon_models`` mint's FBX/PNG ``pending`` write to disk. Call this LAST --
+    after the rest of the item-data plan (armor/item/stats/item_effect deltas) has built without raising --
+    so a bad later block can't leave an earlier mint's files on disk, unregistered."""
+    made: set = set()
+    for path, payload in pending:
+        if path.parent not in made:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            made.add(path.parent)
+        if isinstance(payload, str):
+            path.write_text(payload, encoding="ascii", newline="\n")
+        else:
+            payload.save(str(path))
 
 
 # --- delta builders (text) ------------------------------------------------------------------------
@@ -737,10 +758,11 @@ def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), i
     plan = []
     directives: list = []
     wmodel_warns: list = []
+    pending_mints: list = []
     if weapons:
         weapons_text = _read_text(d / "Weapons.csv")
-        weapons, directives, wmodel_warns = resolve_weapon_models(weapons, weapons_text, items_text,
-                                                                  layout, game=game)
+        weapons, directives, wmodel_warns, pending_mints = resolve_weapon_models(
+            weapons, weapons_text, items_text, layout, game=game)
         plan.append((layout.weapons_csv, build_weapons_delta(items_text, weapons_text, weapons)))
     if armors:
         plan.append((layout.armors_csv, build_armors_delta(items_text, _read_text(d / "Armors.csv"), armors)))
@@ -756,4 +778,5 @@ def write_item_data(layout, weapons=(), armors=(), items=(), equip_bonuses=(), i
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding=CSV_ENCODING, newline="\n")
+    flush_weapon_mints(pending_mints)                   # every CSV delta validated -- now safe to mint to disk
     return directives, wmodel_warns

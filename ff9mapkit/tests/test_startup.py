@@ -120,6 +120,14 @@ def test_startup_words_seeds_global_word(tmp_path):
     assert region.set_var(region.GLOB_UINT16, 236, 15) in body
 
 
+def test_startup_words_top_half_builds(tmp_path):
+    # regression: a words value with bit 15 set (e.g. the ATE-availability bitmask needing >= 32768) used
+    # to raise struct.error mid-build even though build.py's own validator (0 <= v <= 0xFFFF) accepted it.
+    toml = BASE + "\n[startup]\nwords = [{byte = 236, value = 40000}]\n"
+    body = _main_init_bytes(_build_eb(tmp_path, toml))
+    assert region.set_var(region.GLOB_UINT16, 236, 40000) in body
+
+
 def test_startup_words_validate(tmp_path):
     assert any("ScenarioCounter" in m for m in
                _problems(tmp_path, BASE + "\n[startup]\nwords = [{byte = 0, value = 1}]\n"))   # byte 0 = scenario

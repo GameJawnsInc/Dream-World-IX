@@ -25,6 +25,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .. import fsutil
 from . import extract, fbx_skin
 
 MINT_BAND_START = 6000                       # first id clear of every real GEO id (real max = 5511)
@@ -177,6 +178,6 @@ def deploy_mint(source_token: str, new_id: int, mod_folder, new_name=None, *, ga
     lines = dp.read_text(encoding="utf-8").splitlines() if dp.exists() else []
     if man["directive"] not in lines:
         lines.append(man["directive"])
-        dp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     man["dictionary_patch"] = str(dp)
     return man

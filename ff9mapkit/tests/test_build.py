@@ -123,6 +123,33 @@ def test_validate_cutscene_director_keys(tmp_path):
     assert any("not both" in p for p in validate(FieldProject.load(both)))
 
 
+def test_validate_rejects_requires_flag_and_clear_together(tmp_path):
+    """requires_flag + requires_flag_clear on the SAME block silently drops the clear condition in
+    _gate_of (it checks requires_flag first and returns) -- validate() must reject the combo on every
+    block type that reads it, the same way it already rejects it on [[choice]] options and [cutscene]."""
+    cam = "\n[camera]\npitch = 48.0\ndistance = 480.0\nfov = 46.0\n"
+    base = '[field]\nid = 30000\nname = "GATE"\narea = 11' + cam
+    both = base + (
+        '\n[[npc]]\nname = "guard"\npos = [0, -300]\nrequires_flag = 8600\nrequires_flag_clear = 8601\n'
+        '\n[[gateway]]\nto = 4000\nzone = [[0,0],[10,0],[10,10],[0,10]]\n'
+        'requires_flag = 8600\nrequires_flag_clear = 8601\n'
+        '\n[[event]]\nzone = [[0,0],[10,0],[10,10],[0,10]]\nmessage = "x"\n'
+        'requires_flag = 8600\nrequires_flag_clear = 8601\n'
+        '\n[[chest]]\npos = [0, -300]\ngil = 100\nflag = 8700\n'
+        'requires_flag = 8600\nrequires_flag_clear = 8601\n'
+        '\n[[prop]]\nprop = "chest"\npos = [0, -300]\nrequires_flag = 8600\nrequires_flag_clear = 8601\n'
+        '\n[[coop]]\nset_flag = 8710\nzone = [[0,0],[10,0],[10,10],[0,10]]\n'
+        'requires_flag = 8600\nrequires_flag_clear = 8601\n'
+    )
+    f = tmp_path / "both.field.toml"
+    f.write_text(both, encoding="utf-8")
+    problems = validate(FieldProject.load(f))
+    for label in ("[[npc]] 'guard'", "[[gateway]]", "[[event]]", "[[chest]] #0",
+                  "[[prop]] 'chest'", "[[coop]] gate '#0'"):
+        assert any(p.startswith(label) and "can't have BOTH requires_flag and requires_flag_clear" in p
+                   for p in problems), f"missing gate-conflict rejection for {label}: {problems}"
+
+
 def test_validate_rejects_dangling_gateway_carry_player_calls(tmp_path):
     """#3 (FORK_FIDELITY.md #2b): a [[gateway_carry]] player-call door's RunScript(player, T) must resolve to a
     grafted [[player_func]] -- a dangling call is a walk-up softlock, so validate() blocks it. With the matching

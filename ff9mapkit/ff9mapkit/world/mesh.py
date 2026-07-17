@@ -630,6 +630,8 @@ def blob_cliff_block_mesh(*, disc: int = 1, x: int = 0, y: int = 0, seg_ang: int
         a, b, c = pos[t[0]], pos[t[1]], pos[t[2]]
         if (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]) < 0:   # Cross(e1,e2).y < 0 -> flip
             t[1], t[2] = t[2], t[1]
+    flat = [i for t in tris for i in t]                     # re-flatten AFTER the flip -- tris is authoritative,
+                                                              # flat_index (what write_ff9mesh serializes) must mirror it
 
     chan = {CH_POS: pos, CH_NRM: nrm, CH_UV: uv, CH_TAN: tan}
     channels = {CH_POS: (0, 3), CH_NRM: (12, 3), CH_UV: (24, 2), CH_TAN: (32, 4)}

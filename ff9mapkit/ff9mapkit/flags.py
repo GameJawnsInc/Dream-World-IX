@@ -318,6 +318,18 @@ def is_reserved(bit: int) -> bool:
     return bool(r and r.reserved)
 
 
+def named_word_at(bit: int):
+    """The :class:`WordVar` whose byte range covers ``bit``'s byte, or None. A raw bit edit landing inside
+    a named word (ScenarioCounter, TranceGaugeFlag, ...) touches a fixed offset the engine C# reads by
+    BYTE, not a free story bit -- ``bit_region``/``is_reserved`` don't cover this (they only walk
+    ``BIT_REGIONS``/``STORY_REGIONS``, never ``NAMED_WORDS``)."""
+    byte = bit >> 3
+    for w in NAMED_WORDS:
+        if w.byte <= byte < w.byte + w.width:
+            return w
+    return None
+
+
 def is_safe_custom(bit: int) -> bool:
     """True if ``bit`` is in the provably-safe custom band [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR) and not
     inside a reserved region."""
@@ -360,11 +372,16 @@ def _norm(s) -> str:
     return "".join(c for c in str(s).lower() if c.isalnum() or c == "_")
 
 
-def collect_flag_defs(raw: dict) -> dict:
+def collect_flag_defs(raw: dict, *, check_index_collisions: bool = True) -> dict:
     """``{normalized_name: index}`` from a project's ``[[flag]]`` table. Each entry needs a ``name`` and an
     ``index``; the index is validated into the safe custom band (clear of real-FF9 usage). Raises
-    ValueError on a missing field, a duplicate name, or an out-of-band index."""
+    ValueError on a missing field, a duplicate name, an out-of-band index, or (when
+    ``check_index_collisions``) two different names claiming the same index -- that would silently alias
+    two story flags onto one gEventGlobal bit. ``check_index_collisions=False`` is for
+    :func:`project_flag_names`, which must survive an already-authored ambiguous table and show it, not
+    refuse to load it."""
     out = {}
+    by_idx = {}                             # idx -> name, for the index-collision check
     for i, fdef in enumerate(raw.get("flag", []) or []):
         if not isinstance(fdef, dict) or "name" not in fdef or "index" not in fdef:
             raise ValueError(f"[[flag]] #{i}: needs both `name` and `index` (e.g. "
@@ -380,6 +397,10 @@ def collect_flag_defs(raw: dict) -> dict:
         if not (FIRST_SAFE_FLAG <= idx < CHOICE_SCRATCH_FLOOR):
             raise ValueError(f"[[flag]] {name!r}: index {idx} is outside the safe custom band "
                              f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}); pick an index there.")
+        if check_index_collisions and idx in by_idx:
+            raise ValueError(f"[[flag]] {name!r} and {by_idx[idx]!r} both use index {idx} -- two "
+                             f"different story flags can't share one gEventGlobal bit.")
+        by_idx[idx] = name
         out[key] = idx
     return out
 
@@ -393,7 +414,8 @@ def project_flag_names(raw: dict) -> dict:
     ``{}`` (no annotation rather than a wrong one). A duplicate index under different names -> an explicit
     ambiguity sentinel (never a silent pick)."""
     try:
-        collect_flag_defs(raw)                 # validate band + duplicate-name exactly as the build does
+        # index collisions are surfaced below as the ambiguity sentinel, not refused here
+        collect_flag_defs(raw, check_index_collisions=False)   # validate band + duplicate-name, as the build does
     except (ValueError, TypeError):
         return {}
     seen: dict = {}                            # idx -> [names], to flag a cross-name index collision

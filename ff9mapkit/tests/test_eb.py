@@ -181,6 +181,24 @@ def test_mid_function_insert_into_jump_table_still_raises():
         edit.insert_in_function(raw, 0, 0, 3, bytes([0x00]))         # rel_off 3 = after Wait(5), before op_06
 
 
+def test_insert_in_function_straddle_check_reads_jmp_ifnot_unsigned():
+    """Engine truth (disasm.jump_target / relative_jumps): JMP_IFNOT (0x02) reads its 2-byte immediate
+    UNSIGNED, forward-only -- so a raw >= 0x8000 is a legitimate far-forward skip, not a backward signed
+    offset. insert_in_function's own inline straddle scan must agree, or a raw >= 0x8000 JMP_IFNOT lets a
+    straddling insert through uncaught (silently corrupting the .eb). Self-contained (mirrors
+    _eb_with_op06) so it runs without install data."""
+    code = bytes([
+        0x02, 0x00, 0x80,   # +0: JMP_IFNOT raw=0x8000 (unsigned) -> real target = end(+3) + 0x8000, far forward
+        0x00,               # +3: NOP filler -- a valid mid-function insert point, after the jump
+        0x04,               # +4: RETURN
+    ])
+    entry = bytes([0x00, 0x01]) + struct.pack("<HH", 0, 4) + code  # type, funcCount=1, (tag0, fpos=4), code
+    slot = struct.pack("<HHBBH", 8, len(entry), 0, 0, 0)           # off=8 (after the 1-slot table), size
+    raw = b"EV" + bytes([0x00, 1]) + bytes(0x2C - 4) + bytes(84) + slot + entry
+    with pytest.raises(ValueError, match="straddles jump"):
+        edit.insert_in_function(raw, 0, 0, 4, bytes([0xAA]))
+
+
 def test_encoders_known_bytes():
     assert opcodes.init_region(4, 0) == bytes([0x08, 4, 0])
     assert opcodes.init_object(2, 0) == bytes([0x09, 2, 0])

@@ -36,7 +36,7 @@ import math
 import re
 from pathlib import Path
 
-from .. import catalog, config
+from .. import catalog, config, fsutil
 from . import extract, _gltf_io
 from .gltf import _icpos, _icquat, _sign_continuous, DEFAULT_SCALE
 
@@ -703,6 +703,6 @@ def deploy_new_anim(model_token: str, clip: dict, mod_folder, *, key: "int | Non
         lines = [ln for ln in lines if not ln.startswith(f"3DModelAnimation {k} ")
                  and not (ln.startswith("3DModelAnimation ") and ln.endswith(f" {anh}"))]
         lines.append(directive)
-        dp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        fsutil.atomic_write_text(dp, "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return {"geo": geo, "geo_id": gid, "key": k, "name": anh, "path": str(dest),
             "directive": directive, "dictionary_patch": str(dp)}

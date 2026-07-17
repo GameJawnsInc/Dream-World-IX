@@ -557,6 +557,8 @@ def parse_all(entries) -> list:
     status_set_ids: dict = {}                                # a status-name-list -> a shared minted StatusSets id (dedup)
     status_alloc = _ad._CUSTOM_STATUS_MIN                    # a minted custom STATUS's BattleStatusId (33-63)
     custom_status_ids: dict = {}                             # a custom-status NAME -> (id, enum) (dedup across specs)
+    custom_status_defs: dict = {}                            # a custom-status NAME -> its defining table (collision check)
+    _STATUS_DEF_KEYS = ("template", "body", "hooks", "icon", "power", "over_model")
     for spec in specs:
         for mc in spec.get("minted_commands", []):
             new_pool = []
@@ -571,12 +573,19 @@ def parse_all(entries) -> list:
                     for cs in ca.get("custom_statuses", []):      # status = [{name, template/body}] -> a minted [StatusScript]
                         ckey = cs["name"].strip().lower()
                         ent = custom_status_ids.get(ckey)
+                        if ent is not None:
+                            prior = custom_status_defs[ckey]
+                            if any(cs.get(k) != prior.get(k) for k in _STATUS_DEF_KEYS):
+                                raise PlayableError(f"[[playable]] custom status {cs['name']!r} is defined twice with "
+                                                    f"different template/body/hooks/power/icon/over_model -- give the "
+                                                    f"redefinition its own name or make both definitions identical")
                         if ent is None:
                             if status_alloc > _ad._CUSTOM_STATUS_MAX:
                                 raise PlayableError(f"[[playable]] too many custom statuses: the band "
                                                     f"{_ad._CUSTOM_STATUS_MIN}-{_ad._CUSTOM_STATUS_MAX} is exhausted")
                             enum = f"CustomStatus{status_alloc - _ad._CUSTOM_STATUS_MIN + 1}"
                             ent = custom_status_ids[ckey] = (status_alloc, enum)
+                            custom_status_defs[ckey] = cs
                             spec.setdefault("minted_status_scripts", []).append(
                                 {"id": status_alloc, "status_enum": enum, "name": cs["name"],
                                  **{k: v for k, v in cs.items() if k in ("template", "body", "hooks", "icon", "power")}})

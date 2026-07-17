@@ -146,6 +146,9 @@ def test_blob_cliff_is_a_smooth_organic_island():
     assert axis_aligned < len(outline) * 0.15                  # almost no axis-aligned edges (not a rectangle)
     # mesh integrity: every tri up-facing (walkable, incl. the submerged floor)
     assert all(_geom_normal_y(bm, t) > 0 for t in bm.tris)
+    # flat_index is what write_ff9mesh() actually serializes -- it must mirror the (possibly winding-flipped) tris,
+    # not the pre-flip emission order, or the shipped index buffer would still be down-facing
+    assert all(_geom_normal_y(bm, bm.flat_index[3 * k:3 * k + 3]) > 0 for k in range(len(bm.tris)))
     # the ISLAND (topo 0 grass + 58 wall) is watertight (coincident XZ share Y); the submerged floor is a separate layer
     island_vis = {i for t in bm.tris if X.decode_id(int(round(bm.tangents[t[0]][0])))["topograph"] in (0, 58) for i in t}
     seen = {}

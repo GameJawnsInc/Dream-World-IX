@@ -349,6 +349,26 @@ def test_custom_ability_status_dedup_shares_one_set():
     assert [ca["status_index"] for ca in PL.action_seeds(specs)] == [sets[0]["id"], sets[0]["id"]]
 
 
+def test_custom_status_dedup_rejects_conflicting_redefinition():
+    # two custom abilities minting a SAME-NAMED custom status with DIFFERENT templates must not silently
+    # reuse the first definition -- the second ability's real behaviour would otherwise vanish
+    with pytest.raises(PL.PlayableError):
+        PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
+            "command1": {"name": "S", "abilities": [
+                {"name": "A", "from": "Bio", "status": [{"name": "Curse", "template": "auto_life"}]},
+                {"name": "B", "from": "Bio", "status": [{"name": "Curse", "template": "auto_attack"}]}]}}}])
+
+
+def test_custom_status_dedup_allows_identical_redefinition():
+    # a byte-identical same-named redefinition still shares ONE minted [StatusScript] (unchanged behaviour)
+    specs = PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
+        "command1": {"name": "S", "abilities": [
+            {"name": "A", "from": "Bio", "status": [{"name": "Curse", "template": "auto_life"}]},
+            {"name": "B", "from": "Bio", "status": [{"name": "Curse", "template": "auto_life"}]}]}}}])
+    scripts = [s for spec in specs for s in spec.get("minted_status_scripts", [])]
+    assert len(scripts) == 1
+
+
 def test_custom_ability_effect_makes_feature():
     specs = PL.parse_all([{"id": 12, "name": "Iviv", "borrow": "vivi", "abilities": {
         "command1": {"name": "S", "abilities": [

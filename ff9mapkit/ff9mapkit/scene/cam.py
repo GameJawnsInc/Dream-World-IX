@@ -284,8 +284,8 @@ def parse_bgx_cameras_text(text):
             elif key == "OrientationMatrix":
                 f = [float(a) for a in args[:9]]
                 cur.r = [[int(round(f[i*3+j]*ROT)) for j in range(3)] for i in range(3)]
-        except (ValueError, IndexError):
-            pass
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"malformed .bgx CAMERA line {s!r} -- {e}") from e
     return cams
 
 def format_bgx_camera(cam):

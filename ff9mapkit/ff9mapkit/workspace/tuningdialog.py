@@ -25,21 +25,32 @@ from .forms_qt import build_form, read
 
 class TuningDialog(QDialog):
     """Edit a journey's ``[journey.tuning]`` player/ability CSV blocks. ``tuning`` is the current ``{block:
-    [rows]}`` (only the KNOWN player-table blocks are editable; unknown/nested ones are preserved by the caller's
-    text writer, untouched here). On accept, :attr:`result_tuning` is the edited dict (blocks with no rows
-    dropped); on cancel it's None."""
+    [rows]}`` (only the KNOWN player-table blocks that are actually a list-of-tables are editable; unknown/nested
+    keys AND any malformed PLAYER_SPECS block -- e.g. a hand-typed bare value -- are preserved verbatim, untouched
+    here, with a warning shown for the latter). On accept, :attr:`result_tuning` is the edited dict (blocks with
+    no rows dropped); on cancel it's None."""
 
     def __init__(self, parent, palette, jid, tuning, *, is_bare=False):
         super().__init__(parent)
         self.pal = palette
         self.jid = jid
         self.setWindowTitle(f"Tuning — {jid}")
-        # a working COPY of just the FORM-editable blocks (the 7 PLAYER_SPECS); deep enough that Cancel discards.
-        self.tuning = {k: [dict(r) for r in (tuning.get(k) or []) if isinstance(r, dict)]
-                       for k in bf.PLAYER_SPECS if tuning.get(k)}
         # the nested blocks this dialog does NOT edit (learn / ability_feature / status_set / magic_sword_set, +
-        # any unknown key) — carried through verbatim so an edit never DESTROYS hand-authored tuning.
+        # any unknown key, + any PLAYER_SPECS block whose shape isn't a plain list-of-tables) — carried through
+        # verbatim so an edit never DESTROYS hand-authored (or hand-broken) tuning.
         self._untouched = {k: v for k, v in (tuning or {}).items() if k not in bf.PLAYER_SPECS}
+        self._malformed = []            # PLAYER_SPECS blocks left in _untouched because they aren't list-of-dicts
+        # a working COPY of just the FORM-editable blocks (the 7 PLAYER_SPECS, well-formed only)
+        self.tuning = {}
+        for k in bf.PLAYER_SPECS:
+            rows = tuning.get(k) if tuning else None
+            if not rows:
+                continue
+            if isinstance(rows, list) and all(isinstance(r, dict) for r in rows):
+                self.tuning[k] = [dict(r) for r in rows]
+            else:
+                self._untouched[k] = rows
+                self._malformed.append(k)
         self._rows: list = []          # [(block, idx)] parallel to the list widget
         self._ctx = None               # {block, idx, spec, getters} for the mounted form
         self.result_tuning = None
@@ -64,6 +75,13 @@ class TuningDialog(QDialog):
             warn.setWordWrap(True)
             warn.setStyleSheet(f"color:{self.pal['warn']};")
             outer.addWidget(warn)
+        if self._malformed:
+            names = ", ".join(bf.PLAYER_LABEL.get(k, k) for k in self._malformed)
+            warn2 = QLabel(f"⚠ [[journey.tuning.<block>]] must be a list of tables — {names} isn't, so it's "
+                           f"left as-is and NOT editable here. Fix its shape by hand, then reopen.")
+            warn2.setWordWrap(True)
+            warn2.setStyleSheet(f"color:{self.pal['warn']};")
+            outer.addWidget(warn2)
 
         split = QSplitter()
         left = QWidget()

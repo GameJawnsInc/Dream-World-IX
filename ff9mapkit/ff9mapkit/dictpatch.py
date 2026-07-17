@@ -55,8 +55,9 @@ def owns_registration(ln, *, fid, model_ids, anim_keys) -> bool:
     p = ln.split()
     if not ln.strip():
         return False
-    if p[1:2] == [str(fid)]:                        # this field's FieldScene / LocationName (id in column 2)
-        return True
+    if p[:1] in (["FieldScene"], ["LocationName"]) and p[1:2] == [str(fid)]:
+        return True                # this field's own line (id in column 2); directive-scoped so a coincidentally
+        #                            same-numbered 3DModel/BattleScene line (custom ids overlap 4000-9899) is never claimed
     if p[:1] == ["3DModel"] and p[1:2] and p[1] in model_ids:
         return True
     if p[:1] == ["3DModelAnimation"] and len(p) >= 2 and p[1] in anim_keys:

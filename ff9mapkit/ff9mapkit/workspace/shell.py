@@ -497,6 +497,7 @@ class Workspace(QMainWindow):
         self._clean = {}                           # member name -> deepcopy(doc.data) at load/last-save (dirty baseline)
         self._touched = set()                      # members with in-progress (typed-but-uncommitted) edits
         self._name_valid = {}                      # (catalog, value) -> bool, memoized (the catalogs are static)
+        self._logic_maps = {}                      # member -> (eb signature, logic_map.LogicMap) -- see _logic_node
         self._scene_names = {}                     # member -> (mtime, npc names, marker names) from the scene.toml
         self._active_save = None                   # the mounted form's Save handler (Ctrl-S target)
         self._save_btn = None                      # the mounted form's Save button (greys when clean)
@@ -2171,6 +2172,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._logic_maps = {}                      # member names recur across projects (same-FBG forks)
         self._fork_queue = []                      # a fresh journey -> no stale fork chain can re-drain
         self._reset_history()
         self.map.clear()                           # the journey overview lives in the doc area, not the Map
@@ -2821,6 +2823,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._logic_maps = {}                      # member names recur across projects (same-FBG forks)
         self._reset_history()
         self.tree.clear()
         self._member_items = {}
@@ -3458,6 +3461,7 @@ class Workspace(QMainWindow):
         self._docs = {name: doc}
         self._clean = {name: copy.deepcopy(doc.data)}
         self._touched = set()                      # fresh open -> nothing in-progress
+        self._logic_maps = {}                      # same-named member as a prior project -> don't reuse its map
         self._reset_history()                      # a different file -> drop the old undo history
         self._seed_undo_base(name)
         self.map.clear()                           # a standalone field has no campaign map
@@ -3567,6 +3571,7 @@ class Workspace(QMainWindow):
         self._docs = {}
         self._clean = {}
         self._touched = set()
+        self._logic_maps = {}                      # member NAMES recur across projects (same-FBG forks)
         self._reset_history()                      # a different campaign -> drop the old undo history
         self.build_deploy.set_target(path)         # pre-aim Build & Deploy at the open campaign
         self.act_check.setEnabled(True)
@@ -3665,7 +3670,7 @@ class Workspace(QMainWindow):
             eb, entries, _lang = self._member_logic_inputs(name)
             lm = LM.build_logic_map(eb, entries=entries)
             self._logic_maps = getattr(self, "_logic_maps", {})
-            self._logic_maps[name] = lm                 # cache for the edit panel's per-routine summary
+            self._logic_maps[name] = (self._eb_sig(eb), lm)   # cache for the edit panel's per-routine summary
         except Exception as e:                          # noqa: BLE001
             grp.addChild(self._mk("note", f"(could not build logic map: {e})"))
             return
@@ -4738,17 +4743,31 @@ class Workspace(QMainWindow):
         self.doc_host_lay.addStretch(1)
 
     # ---- in-place edits of a verbatim fork's .eb (the "Script" subtree -> [[logic_edit]] authoring) ----
+    @staticmethod
+    def _eb_sig(eb):
+        """A cheap content signature (len + hash) for a composed ``.eb`` byte stream -- enough to tell the
+        ``_logic_maps`` cache its member's bytes changed (a same-named member in a different project, or a
+        save elsewhere in this session that altered ``[startup]``/``[party]``/``[[on_entry]]``) without
+        rebuilding the logic map on every lookup just to compare it."""
+        return (len(eb), hash(eb))
+
     def _logic_node(self, member, entry, tag, eb, entries):
         """The logic_map :class:`Node` for (entry, tag) -- reused for the panel's one-line summary + the
-        collapsible 'what this routine does' transcript. Cached from the tree build; rebuilt offline if the
-        tree wasn't expanded first. ``None`` if unavailable (the summary/report is best-effort, never fatal)."""
+        collapsible 'what this routine does' transcript. Cached from the tree build, keyed on member name
+        AND the eb signature above; a mismatch (stale member, or a different project's same-named member)
+        rebuilds instead of returning the old map. ``None`` if unavailable (the summary/report is
+        best-effort, never fatal)."""
         from .. import logic_map as LM
-        lm = getattr(self, "_logic_maps", {}).get(member)
+        sig = self._eb_sig(eb)
+        cached = getattr(self, "_logic_maps", {}).get(member)
+        lm = cached[1] if cached and cached[0] == sig else None
         if lm is None:
             try:
                 lm = LM.build_logic_map(eb, entries=entries)
             except Exception:                              # noqa: BLE001 -- best-effort context, never fatal
                 return None
+            self._logic_maps = getattr(self, "_logic_maps", {})
+            self._logic_maps[member] = (sig, lm)
         return next((x for x in lm.nodes if x.entry == entry and x.tag == tag), None)
 
     def _logic_node_summary(self, member, entry, tag, eb, entries):
@@ -9828,8 +9847,14 @@ def _smoke(win):
         from ff9mapkit import logic_map as _LM2
         assert isinstance(win._logic_node_summary("ALEXFORK", e0, t0, eb_b, ents), str), "node summary builds"
         _lm0 = win._logic_maps.get("ALEXFORK")
-        assert _lm0 and any(_LM2.node_summary(n) for n in _lm0.nodes), "a routine summarizes"
-        assert any(_LM2.node_report(n) for n in _lm0.nodes), "a routine has a friendly transcript"
+        assert _lm0 and any(_LM2.node_summary(n) for n in _lm0[1].nodes), "a routine summarizes"
+        assert any(_LM2.node_report(n) for n in _lm0[1].nodes), "a routine has a friendly transcript"
+        # a cached map whose signature no longer matches the eb just handed in (a same-named member from a
+        # DIFFERENT project, or this member's own composed .eb changing after a save elsewhere) is rebuilt,
+        # not trusted -- planting an impossible signature must not survive the next lookup
+        win._logic_maps["ALEXFORK"] = ((-1, -1), _LM2.LogicMap())
+        assert win._logic_node("ALEXFORK", e0, t0, eb_b, ents) is not None, "a stale-signature entry was rebuilt"
+        assert win._logic_maps["ALEXFORK"][0] == win._eb_sig(eb_b), "the cache now holds THIS eb's signature"
         assert win._collapsible("hdr", ["line one", "line two"]) is not None, "the disclosure widget builds"
         gi = win._build_logic_add("give_item", e0, t0, "prepend", None, [], "Potion", "1", "", "", "", "")
         assert gi == {"kind": "give_item", "entry": e0, "tag": t0, "item": "Potion"}, gi

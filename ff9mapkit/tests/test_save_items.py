@@ -157,6 +157,19 @@ def test_set_gil_zero_boundary(tmp_path):
     assert len(after) == len(before) and SI.inspect(str(path))[0][1].gil == 0
 
 
+def test_atomic_write_backup_never_clobbers_same_second(tmp_path, monkeypatch):
+    """Two writes landing in the same wall-clock second must produce TWO distinct backups -- the second
+    write's backup must never truncate the first (which would silently lose the true pristine bytes)."""
+    monkeypatch.setattr(SI.time, "strftime", lambda *a, **k: "20260101-000000")   # force a same-second collision
+    extra_path = str(tmp_path / "save.dat")
+    b1 = SI._atomic_write(extra_path, raw=b"ORIGINAL", new_bytes=b"EDIT1___", backup=True)
+    b2 = SI._atomic_write(extra_path, raw=b"EDIT1___", new_bytes=b"EDIT2___", backup=True)
+    assert b1 != b2
+    assert open(b1, "rb").read() == b"ORIGINAL"                 # the true pristine bytes still on disk
+    assert open(b2, "rb").read() == b"EDIT1___"
+    assert open(extra_path, "rb").read() == b"EDIT2___"
+
+
 def test_set_gil_no_backup(tmp_path):
     path = _extra_file(tmp_path, common=_common(gil=500))
     rep = SI.set_gil(str(path), 1, dry_run=False, backup=False)

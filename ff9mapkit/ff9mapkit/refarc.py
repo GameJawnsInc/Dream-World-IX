@@ -275,8 +275,10 @@ def arc_id_base(index: int, *, base: int = DEFAULT_ID_BASE, span: int = ARC_ID_S
     band lands on the engine-reserved world-map ids 9000-9012 (the band that would hold them is skipped, shifting
     that arc + every higher one up one span; the journey/campaign lint hard-errors a stray id in that band too)."""
     nb = base + index * span
-    if nb >= _WORLD_RESERVED_BASE:                # this band (and all above) would overlap/follow 9000-9012
-        nb += span                                # reserve the 9000-band; push past it
+    # the BAND [nb, nb+span) reaches into 9000-9012, not just nb itself landing there -- a non-span-aligned base
+    # can straddle the reserved range from below (nb < 9000 < nb+span) without ever starting inside it.
+    if nb + span > _WORLD_RESERVED_BASE:
+        nb += span                                # reserve the 9000-9012 band; push past it
     return nb
 
 

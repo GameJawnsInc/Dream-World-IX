@@ -141,9 +141,10 @@ def fit_dialog(dlg, *, ch=64, list_rows=12, lines=0) -> None:
     # silently caps a window to ~2/3 of the screen and thereby CAUSES the squeeze it should prevent.
     over = dlg.sizeHint().height() - max_h
     if over > 0 and fitted:
+        share = round(over / len(fitted))                   # split the deficit, don't charge it to each list
         for lst, row_h, frame in fitted:
             floor = 4 * row_h + frame + 4                  # never fewer than 4 visible rows
-            lst.setMinimumHeight(max(floor, lst.minimumHeight() - over))
+            lst.setMinimumHeight(max(floor, lst.minimumHeight() - share))
     hint = dlg.sizeHint()
     dlg.resize(min(hint.width(), max_w), min(hint.height(), max_h))
 

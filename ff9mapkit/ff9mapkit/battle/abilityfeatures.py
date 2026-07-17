@@ -25,7 +25,9 @@ _KINDS = ("SA", "AA", "CMD")
 # AA feature ids: 0-191 = the stock active abilities; 192-223 = the MINTED custom-ability band (a `>AA 192` header
 # binds to the custom Actions.csv row by its RAW id -- the engine stores AA features in an uncapped
 # Dictionary<BattleAbilityId,FeatureSet>, keyed directly, so a custom id attaches an [code=...] effect zero-DLL).
-_SA_MAX, _AA_MAX = 63, 223
+# CMD feature ids: BattleCommandId's whole engine span is 0-99 (0-47 player-assignable, 48-99 engine-reserved --
+# see characterdelta.py's _CMD_CUSTOM_BAND census); above 99 there's no slot, so the block just no-ops.
+_SA_MAX, _AA_MAX, _CMD_MAX = 63, 223, 99
 
 # the special-id words -> canonical casing + which kinds they actually ACT for (the engine silently no-ops the
 # rest: for >AA/>CMD only "Global" reaches a branch, the other three fall through both -> a dead block).
@@ -206,6 +208,9 @@ def _emit_block(blk, n, *, game, strict, warnings, seen) -> list:
     id_str, display = _resolve_ability(blk, kind, game=game, strict=strict, ctx=ctx)
     if kind == "AA" and id_str == "0":
         warnings.append(f"{ctx}: >AA id 0 is Void (a no-op active ability) -- this block won't apply")
+    if kind == "CMD" and id_str is not None and int(id_str) > _CMD_MAX:
+        warnings.append(f"{ctx}: CMD id {id_str} is past the engine's BattleCommandId span (0-{_CMD_MAX}) -- "
+                        f"likely a typo; there's no slot for it, so this block won't apply")
     has_body = any(blk.get(k) is not None for k in ("features", "code", "body"))
     body = _features_text(blk, ctx) if has_body else ""
     if body.strip():

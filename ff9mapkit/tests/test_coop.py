@@ -184,6 +184,24 @@ def test_ensure_folder_registered(game):
     assert not coop.ensure_folder_registered(game, "ff9coop", out=lambda *_: None)   # case-insensitive
 
 
+def test_ensure_folder_registered_backs_up(game):
+    # this is the FIRST ini mutation of a default `coop host`/`coop join` run -- must not
+    # be the one write in the module with no recovery point (contrast write_netsync).
+    before = (game / "Memoria.ini").read_text(encoding="utf-8")
+    assert coop.ensure_folder_registered(game, "FF9Coop", out=lambda *_: None)
+    backups = list(game.glob("Memoria.ini.coop-bak-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == before
+    # a no-op call (already registered) makes no backup at all
+    assert not coop.ensure_folder_registered(game, "FF9Coop", out=lambda *_: None)
+    assert len(list(game.glob("Memoria.ini.coop-bak-*"))) == 1
+
+
+def test_ensure_folder_registered_no_tmp_file_left_behind(game):
+    coop.ensure_folder_registered(game, "FF9Coop", out=lambda *_: None)
+    assert not (game / "Memoria.ini.tmp").exists()
+
+
 # ------------------------------------------------- FolderNames <-> Priorities (THE LAUNCHER LAW)
 #
 # Root-caused 2026-07-12: the Memoria Launcher treats [Mod] Priorities as the MASTER mod order --
@@ -254,6 +272,7 @@ def test_write_netsync_backs_up(game):
     text = (game / "Memoria.ini").read_text(encoding="utf-8")
     assert coop.read_ini_key(text, "Netsync", "Enabled") == "1"
     assert coop.read_ini_key(text, "Netsync", "Role") == "client"
+    assert not (game / "Memoria.ini.tmp").exists()   # staged through fsutil.atomic_write_text, not left behind
 
 
 def test_write_netsync_requires_ini(tmp_path):
