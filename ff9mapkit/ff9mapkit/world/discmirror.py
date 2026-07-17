@@ -33,10 +33,10 @@ from . import mesh as M
 _BLOCK_RE = re.compile(r"^Block\[(\d+)\]\[(\d+)\] (.+?)\.(ff9mesh|txt)$")
 
 
-def _real_parts(disc: int, game=None) -> dict:
-    """{(bx, by): {part, ...}} of the REAL map's per-block mesh assets on ``disc``."""
+def _real_parts(disc: int, lod: str = "0_1", *, game=None) -> dict:
+    """{(bx, by): {part, ...}} of the REAL map's per-block mesh assets on ``disc`` at ``lod``."""
     env = X._worldmap_env(disc, game=game)
-    pat = re.compile(rf"worldmap/disc{disc}/0_1/r\d+/block\[(\d+)\]\[(\d+)\] ([a-z0-9]+)(?:\.asset)?$")
+    pat = re.compile(rf"worldmap/disc{disc}/{re.escape(lod.lower())}/r\d+/block\[(\d+)\]\[(\d+)\] ([a-z0-9]+)(?:\.asset)?$")
     parts = defaultdict(set)
     for k in env.container:
         m = pat.search((k or "").lower())
@@ -45,9 +45,9 @@ def _real_parts(disc: int, game=None) -> dict:
     return parts
 
 
-def _parts_identical(blk, part: str, src_disc: int, dst_disc: int, game=None) -> bool:
-    a = X.read_block(blk[0], blk[1], disc=src_disc, part=part, game=game)
-    b = X.read_block(blk[0], blk[1], disc=dst_disc, part=part, game=game)
+def _parts_identical(blk, part: str, src_disc: int, dst_disc: int, lod: str = "0_1", *, game=None) -> bool:
+    a = X.read_block(blk[0], blk[1], disc=src_disc, lod=lod, part=part, game=game)
+    b = X.read_block(blk[0], blk[1], disc=dst_disc, lod=lod, part=part, game=game)
     return (a.vcount == b.vcount and a.verts == b.verts and a.flat_index == b.flat_index
             and a.uvs == b.uvs and a.tangents == b.tangents and a.normals == b.normals)
 
@@ -72,8 +72,8 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
     if not cells:
         raise ValueError(f"no deployed Block overrides under {src_root}")
 
-    real_src = _real_parts(src_disc, game=game)
-    real_dst = _real_parts(dst_disc, game=game)
+    real_src = _real_parts(src_disc, lod, game=game)
+    real_dst = _real_parts(dst_disc, lod, game=game)
 
     out = {"mirrored": [], "pinned": [], "skipped": []}
     for blk in sorted(cells):
@@ -88,7 +88,7 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
                 log(f"  SKIP {blk}: real part sets differ across discs")
                 continue
             diff = [pt for pt in sorted(dst_real)
-                    if not _parts_identical(blk, pt, src_disc, dst_disc, game=game)]
+                    if not _parts_identical(blk, pt, src_disc, dst_disc, lod, game=game)]
             if diff:
                 out["skipped"].append((blk, f"real cell differs across discs in {diff}"))
                 log(f"  SKIP {blk}: real cell differs across discs in {diff}")
@@ -113,7 +113,7 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
                       if n.endswith(".ff9mesh")}
         extras = sorted(real_src.get((dx, dy), set()) - overridden)
         for part in extras:
-            bm = X.read_block(dx, dy, disc=src_disc, part=part, game=game)
+            bm = X.read_block(dx, dy, disc=src_disc, lod=lod, part=part, game=game)
             part_name = bm.name.split("] ", 1)[1]           # exact case, e.g. "RiverJoint"
             pinned = dataclasses.replace(
                 bm, disc=dst_disc, x=blk[0], y=blk[1],

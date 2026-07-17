@@ -70,10 +70,10 @@ class _FakeEnv:
         self.container = list(container)
 
 
-def _cont(disc, x, y, part, *, r=None):
+def _cont(disc, x, y, part, *, r=None, lod="0_1"):
     """One synthetic REAL-map container path, shaped to match ``_real_parts``' own regex."""
     ry = r if r is not None else y
-    return f"assets/resources/worldmap/disc{disc}/0_1/r{ry}/block[{x}][{y}] {part}.asset"
+    return f"assets/resources/worldmap/disc{disc}/{lod}/r{ry}/block[{x}][{y}] {part}.asset"
 
 
 def _patch_real_layer(monkeypatch, *, containers: dict, blocks: dict):
@@ -170,17 +170,19 @@ def test_real_parts_ignores_non_matching_container_entries(monkeypatch):
     assert DM._real_parts(1) == {(1, 1): {"terrain"}, (2, 2): {"object"}}
 
 
-def test_real_parts_ignores_lod_and_always_reads_0_1_pattern(monkeypatch):
-    """SUSPECTED BUG (pinned as current behavior, NOT fixed): ``_real_parts`` takes no ``lod`` parameter -- its
-    container regex is hard-coded to the "0_1" LOD path segment regardless of which LOD ``mirror()`` is asked to
-    mirror. A real container entry that lives under a different LOD (e.g. "2_4") is invisible to it, so
-    ``mirror(lod="2_4")``'s per-cell gate always consults 0_1's real geometry, never the LOD actually being
-    mirrored."""
+def test_real_parts_scopes_to_the_requested_lod(monkeypatch):
+    """``_real_parts(disc, lod)`` interpolates the requested LOD into its container regex (it used to hard-code
+    "0_1", which left ``mirror(lod=...)``'s per-cell safety gate consulting the WRONG lod's real geometry --
+    every real cell looked like open ocean at any non-default lod). Each disc's listing here carries BOTH lods,
+    so the scoping must come from the regex, not the env."""
     containers = {1: [_cont(1, 5, 5, "terrain")],                                     # a real "0_1" entry
-                  4: ["assets/resources/worldmap/disc4/2_4/r5/block[5][5] terrain.asset"]}   # real, but under 2_4
+                  4: [_cont(4, 5, 5, "terrain", lod="2_4"),                           # real, under 2_4
+                      _cont(4, 6, 6, "object")]}                                      # real, under 0_1
     monkeypatch.setattr(X, "_worldmap_env", lambda disc, game=None: _FakeEnv(containers.get(disc, [])))
-    assert DM._real_parts(1) == {(5, 5): {"terrain"}}
-    assert DM._real_parts(4) == {}          # the 2_4 entry is invisible to the (hard-coded 0_1) regex
+    assert DM._real_parts(1) == {(5, 5): {"terrain"}}                # default lod -> only the 0_1 entry
+    assert DM._real_parts(1, "2_4") == {}                            # nothing real at 2_4 on disc 1
+    assert DM._real_parts(4, "2_4") == {(5, 5): {"terrain"}}         # the 2_4 entry, NOT the 0_1 one
+    assert DM._real_parts(4) == {(6, 6): {"object"}}                 # and vice versa
 
 
 # --------------------------------------------------------------------------- _parts_identical (direct)
@@ -426,6 +428,46 @@ def test_mirror_reads_and_writes_the_requested_lod(tmp_path, monkeypatch):
     assert dst.is_file() and dst.read_bytes() == b"LOD-2-4-BYTES"
     # the default-lod tree was never touched
     assert not (tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "0_1").exists()
+
+
+def test_mirror_gate_and_pin_consult_the_requested_lod(tmp_path, monkeypatch):
+    """THE LOD-GATE REGRESSION FENCE: before the fix, ``mirror(lod="2_4")``'s safety gate consulted 0_1's real
+    parts (``_real_parts`` hard-coded the lod), so a real dst cell with DIFFERENT 2_4 geometry looked like open
+    ocean and mirrored unconditionally -- exactly the transplant the gate exists to refuse. Two cells at 2_4:
+    (1,1) real on both discs with differing bytes -> must be SKIPPED; (2,2) open ocean + a Donor.txt -> pinned.
+    The fake ``read_block`` raises on any lod but "2_4", fencing the plumbing through ``_parts_identical`` AND
+    the free-ride pin's donor read (not just the regex)."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    src_root = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc1" / "2_4"
+    dst_root = tmp_path / MOD / "FF9_Data" / "WorldMap" / "Disc4" / "2_4"
+    _write(src_root / "r1" / "Block[1][1] Terrain.ff9mesh", b"LOD-2-4-GATED")
+    _write(src_root / "r2" / "Block[2][2] Terrain.ff9mesh", b"LOD-2-4-PINNED")
+    _write(src_root / "r2" / "Block[2][2] Donor.txt", b"3,3")
+
+    containers = {1: [_cont(1, 1, 1, "terrain", lod="2_4"),
+                      _cont(1, 3, 3, "terrain", lod="2_4"), _cont(1, 3, 3, "object", lod="2_4")],
+                  4: [_cont(4, 1, 1, "terrain", lod="2_4")]}
+    blocks = {
+        (1, 1, 1, "terrain"): _mk_blockmesh("Block[1][1] Terrain", disc=1, x=1, y=1, verts=_TRI_A),
+        (4, 1, 1, "terrain"): _mk_blockmesh("Block[1][1] Terrain", disc=4, x=1, y=1, verts=_TRI_B),
+        (1, 3, 3, "object"): _mk_blockmesh("Block[3][3] Object", disc=1, x=3, y=3, verts=_TRI_A),
+    }
+
+    def strict_read_block(x, y, *, disc=1, lod="0_1", part="terrain", game=None):
+        assert lod == "2_4", f"read_block called with lod={lod!r} during a 2_4 mirror"
+        return blocks[(disc, x, y, part.lower())]
+
+    monkeypatch.setattr(X, "_worldmap_env",
+                         lambda disc, game=None: _FakeEnv(containers.get(disc, [])))
+    monkeypatch.setattr(X, "read_block", strict_read_block)
+
+    result = DM.mirror(MOD, lod="2_4", log=lambda *a, **k: None)
+
+    skipped = dict(result["skipped"])
+    assert (1, 1) in skipped and "differs across discs" in skipped[(1, 1)]
+    assert not (dst_root / "r1" / "Block[1][1] Terrain.ff9mesh").exists()
+    assert {p.name for p in result["pinned"]} == {"Block[2][2] Object.ff9mesh"}
+    assert M.read_ff9mesh(dst_root / "r2" / "Block[2][2] Object.ff9mesh")["vcount"] == 3
 
 
 # --------------------------------------------------------------------------- mirror() -- dry_run
