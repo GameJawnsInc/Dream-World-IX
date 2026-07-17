@@ -59,3 +59,13 @@ def test_ate_achievement_locs_are_within_range():
     # baked from EMinigame.MappingATEID (fldLocNo cases) -- a small fixed set, never the fork default
     assert 40 in IG.ATE_ACHIEVEMENT_LOCS and 943 in IG.ATE_ACHIEVEMENT_LOCS
     assert IG.field_loc_no(None) is None and IG.has_ate_achievement(None) is False
+
+
+# ---- FieldMapActor.cs per-actor tweak lost-on-mint (fork-report v3): camera/geo-attach/shadow axis ------
+def test_actor_tweak_lost_on_mint():
+    # field 1413 (Fossil Roo/Nest) -> a FUNCTIONAL camera-priority tweak (FieldMapActor.cs:135)
+    tweaks = IG.actor_tweaks(1413)
+    assert tweaks != () and tweaks[0].severity == "FUNCTIONAL"
+    assert IG.actor_tweaks(101) == ()
+    assert any(lbl == "actor camera priority" for lbl, _ in IG.lost_on_mint(1413))
+    assert not any(lbl.startswith("actor ") for lbl, _ in IG.lost_on_mint(101))

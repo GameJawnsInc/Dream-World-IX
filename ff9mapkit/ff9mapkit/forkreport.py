@@ -388,7 +388,8 @@ class ForkReport:
     item_var_shop: bool = False                          # a Menu(2, <computed>) -- a story-gated shop (id un-previewable)
     lost_on_mint: list = _dc_field(default_factory=list)  # [(label, detail)] -- USER-VISIBLE engine behaviors
     #   keyed on the real fldMapNo that a fork loses on its custom id (walkmesh hotfix / narrow-map letterbox /
-    #   Chocobo HUD / intro FMV). The "impossible" axis of the taxonomy, per field (idgated.lost_on_mint).
+    #   Chocobo HUD / intro FMV / per-actor tweak). The "impossible" axis of the taxonomy, per field
+    #   (idgated.lost_on_mint).
     area_title: tuple = None                              # (startOvr, endOvr) if the field has an area-title
     #   CARD -- donor identity SHOWN on --verbatim, dropped/auto-hidden on a synth (BG-borrow/native) fork
     notes: list = _dc_field(default_factory=list)
@@ -776,8 +777,8 @@ def analyze_eb(eb_bytes, *, field_id: int = 0, fbg_name: str = "", event_name: s
     if rep.stacked:
         rep.notes.append(f"{len(rep.stacked)} object(s) are multi-instanced -- watch for one-spot stacking")
     # LOST ON A MINT: every user-visible engine behavior keyed on the real fldMapNo a fork loses on its custom
-    # id (walkmesh hotfix / narrow-map letterbox / Chocobo HUD / intro FMV) -- the taxonomy's "impossible" axis,
-    # per field. Pure baked data (no install), so it's fine on the install-free analyze_eb path.
+    # id (walkmesh hotfix / narrow-map letterbox / Chocobo HUD / intro FMV / per-actor tweak) -- the taxonomy's
+    # "impossible" axis, per field. Pure baked data (no install), so it's fine on the install-free analyze_eb path.
     from . import idgated as _idg
     rep.lost_on_mint = _idg.lost_on_mint(field_id)
     return rep

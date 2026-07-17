@@ -871,6 +871,12 @@ def test_verdict_lost_on_mint_steer_skips_auto_reproduced():
     assert "Loses" not in auto                          # the kit reproduces it -> not a fork-in-place steer
 
 
+def test_verdict_lost_on_mint_steer_includes_actor_tweak():
+    # proves the generic steer picks up the idgated.actor_tweaks axis with ZERO forkreport code changes
+    v = FR._verdict_line(FR.ForkReport(field_id=1, lost_on_mint=[("actor camera priority", "... -> fork in-place")]))
+    assert "Loses actor camera priority" in v and "fork IN-PLACE" in v
+
+
 def test_verdict_interactions_count_is_npc_clean_only():
     # numerator = CLEAN NPCs (n_interactive), never the props-inclusive safety['clean']; no "render-only"
     # tail when every talkable NPC grafts clean (the "6 of 4 NPC(s)" / spurious-tail regression).

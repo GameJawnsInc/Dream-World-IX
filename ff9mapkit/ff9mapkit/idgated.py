@@ -17,11 +17,18 @@ silently stops firing. Most are internal (camera/position fixups); the USER-VISI
   (``HonoluluFieldMain.cs:19``) -- i.e. the field's registered MES/text-block id -- so we resolve it from the
   baked :data:`ff9mapkit._fieldtext.EVENT_ID_TO_MES`. A mint runs at a custom id with a different text-block,
   so its ATEs don't map to the trophy. The ATE itself still PLAYS; only the achievement bookkeeping is lost.
+* **Per-actor tweak** -- a hardcoded ``FieldMapActor.cs`` per-actor special-case (a camera-priority override, a
+  ``GeoAttach``/``GeoDetach`` parent-node graft quirk, or a shadow-render offset/depth override), keyed on
+  ``fldMapNo`` plus an actor ``sid``/``uid``/``isPlayer``/``anim``/map-index condition. NONE are reproducible by
+  a fork's own ``.eb`` (no opcode sets ``frontCamera``, a shadow-renderer property, a ``GeoAttach`` offset, or
+  ``HonoBehaviorSystem.ExtraLoopCount``), so this axis is fork-in-place-or-accept too. Baked in
+  :mod:`ff9mapkit.fieldmapactor_tweaks`.
 
 This is pure baked data (no install needed) -- safe to call from the install-free analysis path.
 """
 from __future__ import annotations
 
+from . import fieldmapactor_tweaks as _fma
 from . import walkmesh_hotfixes as _wh
 from ._fieldtext import EVENT_ID_TO_MES as _EVENT_TO_MES
 from ._narrowmap_data import FORK_DEFAULT_WIDTH, WIDTHS as _WIDTHS
@@ -69,6 +76,14 @@ def has_ate_achievement(field) -> bool:
     return loc is not None and loc in ATE_ACHIEVEMENT_LOCS
 
 
+def actor_tweaks(field) -> tuple:
+    """The ``FieldMapActor.cs`` per-actor tweak(s) (:mod:`ff9mapkit.fieldmapactor_tweaks`) keyed on this field's
+    real id -- camera priority / geo-attach / shadow-render -- lost when a fork runs at a custom id. ``()`` for
+    the vast majority of fields."""
+    f = _as_id(field)
+    return _fma.info(f) if f is not None else ()
+
+
 def lost_on_mint(field) -> list:
     """``[(label, detail), ...]`` for every USER-VISIBLE id-gated engine behavior a fork of ``field`` loses on
     its custom id. Empty for most fields. The walkmesh entry notes whether the kit auto-reproduces it; the rest
@@ -98,4 +113,6 @@ def lost_on_mint(field) -> list:
         out.append(("ATE achievement",
                     f"this location (fldLocNo {field_loc_no(f)}) has an ATE-seen trophy (EMinigame.MappingATEID); "
                     f"a mint's different fldLocNo loses the ATE80 bookkeeping (the ATE still plays) -> fork in-place"))
+    for t in _fma.info(f):
+        out.append((f"actor {t.kind.replace('_', ' ')}", f"{t.note} ({t.source}, {t.severity}) -> fork in-place"))
     return out

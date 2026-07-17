@@ -421,7 +421,7 @@ unwrapped by scope; wrap it too if you fork the epilogue. FUNCTIONAL 142 / COSME
 | 1420 | `EventInput.cs:367` | During fast-forward, on the same-frame repeat the operation mask is cleared for all fields EXCEPT field 1420 in event-mode 1, wher |
 | 1413 | `FieldMapActor.cs:135` | HonoLateUpdate: when out of depth range, sets actor.frontCamera = (sid==12) for Zidane (Fossil Roo/Nest) |
 | 1414 | `FieldMapActor.cs:141` | HonoLateUpdate: when out of depth range, sets actor.frontCamera = (sid==16) for Zidane (Fossil Roo/Nest) |
-| 2752,1707 | `FieldMapActor.cs:147` | HonoLateUpdate: out-of-depth-range fallback sets frontCamera=false UNLESS the field is 2752 or 1707 (Invincible/Bridge, Mdn.Sari/S |
+| 2752,1707 | `FieldMapActor.cs:147` | HonoLateUpdate: out-of-depth-range fallback sets frontCamera=false UNLESS the field is 2752 or 1707 (Invincible/Bridge, Mdn.Sari/Secret Room) |
 | 1412,1410 | `FieldMapActor.cs:243` | GeoAttach: special-cases PC curPos when attaching to a parent node within the Fossil Roo zone (1400-1425) |
 | 2954 | `FieldMapActor.cs:261` | GeoAttach: overrides geo attach offset to (30,150,0) (Chocobo's Air Garden, map index 8) |
 | 3002 | `FieldMapActor.cs:297` | GeoDetach: sets HonoBehaviorSystem.ExtraLoopCount = 1 for a specific actor/anim (ending field) |
