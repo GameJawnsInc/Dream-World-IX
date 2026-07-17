@@ -14,6 +14,7 @@ suite (runs under ``pytest -n 6``); nothing here binds to a fixed port or touche
 from __future__ import annotations
 
 import base64
+import errno
 import os
 import socket
 import threading
@@ -483,6 +484,53 @@ def test_thread_spawn_failure_closes_client_and_loop_survives(relay, monkeypatch
                 client.close()
             except OSError:
                 pass
+        bridge.close()
+
+
+def test_transient_accept_error_keeps_the_loop_alive(relay, monkeypatch):
+    bridge = Bridge(relay.url)
+    try:
+        # The accept loop is blocked in its FIRST server.accept() right now. Shadowing the
+        # BOUND method on the instance (bridge.server.accept = ...) raises AttributeError on
+        # this Python -- socket.socket instances treat `accept` as read-only. Patch the CLASS
+        # method instead, discriminating by identity so every OTHER live socket (the relay's,
+        # later game connections) keeps the real accept: only bridge.server's NEXT accept()
+        # raises a transient OSError once, then delegates -- proving the loop logs+continues
+        # rather than returning (which the pre-fix code did for any OSError).
+        real_accept = socket.socket.accept
+        fired = {"n": 0}
+        def flaky_accept(self, *a, **k):
+            if self is bridge.server and fired["n"] == 0:
+                fired["n"] = 1
+                raise OSError(errno.ECONNABORTED, "simulated transient accept abort")
+            return real_accept(self, *a, **k)
+        monkeypatch.setattr(socket.socket, "accept", flaky_accept)
+        # Trip the currently-blocked real accept with a throwaway conn so the loop advances
+        # to the next iteration and picks up flaky_accept (which raises the transient error).
+        throwaway = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        throwaway.settimeout(TIMEOUT)
+        throwaway.connect(("127.0.0.1", bridge.port))
+        # Prove the loop is still alive AFTER the injected transient error: a real handshake
+        # must still complete through the (still-unused) MockRelay.
+        deadline = time.monotonic() + TIMEOUT
+        got_101 = False
+        game = None
+        while time.monotonic() < deadline and not got_101:
+            try:
+                game, _k = _connect_game(bridge.port)
+                resp = NB.read_http_headers(game)
+                got_101 = " 101 " in resp.split("\r\n", 1)[0]
+            except (OSError, ConnectionError):
+                if game is not None:
+                    game.close()
+                    game = None
+                time.sleep(0.1)
+        assert fired["n"] == 1, "flaky_accept never fired -- test did not exercise the transient path"
+        assert got_101, "accept loop died after a transient accept error (no 101 served afterward)"
+        throwaway.close()
+        if game is not None:
+            game.close()
+    finally:
         bridge.close()
 
 

@@ -309,8 +309,14 @@ def run_server(listen_host, listen_port, relay, insecure):
         while True:
             try:
                 client, addr = server.accept()
-            except OSError:
-                return  # server socket closed
+            except OSError as err:
+                if server.fileno() == -1:
+                    return  # the server socket was closed -- the ONLY intended way out
+                # transient (ECONNABORTED, or EMFILE/ENOBUFS under a flood) -- must NOT kill
+                # the loop; brief backoff so a persistent transient error can't busy-spin.
+                log("accept error, continuing: %s" % err)
+                time.sleep(0.05)
+                continue
 
             if not slots.acquire(blocking=False):
                 log("refusing %s: at MAX_CLIENTS (%d)" % (addr[0], MAX_CLIENTS))
