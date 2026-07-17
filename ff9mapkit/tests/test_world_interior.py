@@ -3,8 +3,10 @@
 The full-fidelity acceptance is the zero-byte-diff identity proof against the deployed,
 in-game-proven island E / Uaho bench (``studies/overworld-topography/
 interior_productize_check.py`` + ``mountain_productize_check.py`` -- mint -> module carve
-reproduces the playtested bytes exactly); it needs the install + the deployed blocks, so
-it stays a local study script. These tests cover the hermetic machinery:
+reproduces the playtested bytes exactly). The identity assertions themselves are ported
+here as the game-data-gated tests at the bottom (skipped without the install + the
+deployed FF9CustomMap-world blocks); the studies keep the forensic extras (the mountain's
+fresh-mint dent-tolerance TRACK B). The rest covers the hermetic machinery:
 
   * chain_ring (simple-cycle chaining + degeneracy refusal)
   * chain_rings (multi-cycle chaining + degree-2 refusal) + signed_area orientation
@@ -584,3 +586,120 @@ def test_wall_context_law_mint_guard():
     assert {n for n, g in G.GROUNDS.items() if g.get("wall_coastal") is True} == \
         {"grass", "desert", "snow"}
     assert G.GROUNDS["canyon"]["wall_coastal"] is False
+
+
+# ---- game-data-gated: the zero-byte-diff identity net ----------------------------------------
+#
+# The ★ ZERO-BYTE-DIFF IDENTITY claims (world-forest/world-hill productized 2026-07-13,
+# world-mountain productized 2026-07-15), ported from the study acceptance scripts so they
+# are a standing regression net, not a proven-once-by-hand result. Each needs the FF9
+# install (the mint/carve reads stock blocks via UnityPy) AND the deployed, in-game-proven
+# FF9CustomMap-world overrides this machine playtested -- both gates checked explicitly so
+# a fresh install (game present, nothing deployed) skips instead of failing.
+
+ISLAND_E_BLOCKS = [(4, 17), (5, 17), (4, 18), (5, 18), (6, 18)]
+UAHO_SEED_PT = (160.0, -1246.0)                             # the study's own scan seed
+
+
+def _modw():
+    from ff9mapkit import config
+    return (config.find_game_path(None) / "FF9CustomMap-world" / "FF9_Data" / "WorldMap"
+            / "Disc1" / "0_1")
+
+
+def _game_ready() -> bool:
+    try:
+        import UnityPy  # noqa: F401
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
+
+def _uaho_ready() -> bool:
+    try:
+        if not _game_ready():
+            return False
+        dep = _modw() / "r19" / "Block[2][19] Terrain.ff9mesh"
+        return dep.is_file() and dep.with_name(dep.name + ".pristine-r31s42").is_file()
+    except Exception:
+        return False
+
+
+def _island_e_ready() -> bool:
+    try:
+        if not _game_ready():
+            return False
+        return all((_modw() / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh").is_file()
+                   for bx, by in ISLAND_E_BLOCKS)
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _uaho_ready(),
+                    reason="needs the FF9 install + UnityPy + the deployed Uaho bench "
+                           "(Block[2][19] and its .pristine-r31s42 sibling)")
+def test_carve_mountain_reproduces_deployed_uaho_bench(tmp_path):
+    """THE IDENTITY NET (mountain): the pristine r31-seed-42 bench mint the study actually
+    transformed -> carve_mountain at the study's own scan seed -> byte-identical to the
+    deployed, in-game-approved Block[2][19] ("the cliff is great -- walkable, seams
+    against the grass great", 2026-07-13). The pristine input still carries the pre-fix
+    mint's one-tri hole, so the module's mint-hole patch is exercised too. Ported from
+    mountain_productize_check.py TRACK A."""
+    dep_p = _modw() / "r19" / "Block[2][19] Terrain.ff9mesh"
+    pris = dep_p.with_name(dep_p.name + ".pristine-r31s42")
+    bm = M.blockmesh_from_ff9mesh(pris, disc=1, x=2, y=19, part="terrain")
+    soup = IN.soup_from_blocks({(2, 19): bm})
+    res = IN.carve_mountain(soup, near=UAHO_SEED_PT, log=lambda *a: None)
+    got = M.write_ff9mesh(res["changed"][(2, 19)], tmp_path / "a.ff9mesh").read_bytes()
+    assert got == dep_p.read_bytes(), "carve output differs from the deployed Uaho bench"
+
+
+@pytest.mark.skipif(not _island_e_ready(),
+                    reason="needs the FF9 install + UnityPy + the deployed island E "
+                           "blocks in FF9CustomMap-world")
+def test_interior_pipeline_reproduces_deployed_island_e(tmp_path):
+    """THE IDENTITY NET (forest + hill): clean seed-55 mint -> carve_forest at the center
+    recovered from the deployed canopy -> f32 write/read-back (the deployed
+    representation) -> build_hill -> all 5 deployed island E blocks byte-identical
+    (in-game proven 2026-07-13). Ported from interior_productize_check.py."""
+    from ff9mapkit.world.extract import decode_id
+    from ff9mapkit.world.island import build_landmass
+
+    modw = _modw()
+    # recover the forest center from the deployed canopy bytes (topo 37)
+    xs, zs = [], []
+    for bx, by in ISLAND_E_BLOCKS:
+        p = modw / f"r{by}" / f"Block[{bx}][{by}] Terrain.ff9mesh"
+        bm = M.blockmesh_from_ff9mesh(p, disc=1, x=bx, y=by, part="terrain")
+        ts = bm.chan_arrays[CH_TAN]
+        ps = bm.chan_arrays[CH_POS]
+        for tri in bm.tris:
+            if decode_id(int(round(ts[tri[0]][0])))["topograph"] == 37:
+                for i in tri:
+                    xs.append(ps[i][0] + 64.0 * bx)
+                    zs.append(ps[i][2] - 64.0 * by)
+    assert xs, "no deployed canopy found on island E"
+    center = (round((min(xs) + max(xs)) / 2), round((min(zs) + max(zs)) / 2))
+
+    built = build_landmass(center=(344, -1152), base_radius=46, seed=55, lobes=3,
+                           stamps="auto")
+    res_f = IN.carve_forest(IN.soup_from_blocks(built["blocks"]), center=center,
+                            donor=(15, 15))
+    IN.census_gate(res_f["changed"], probe=(center, 37))
+    paths = {blk: M.write_ff9mesh(bm, tmp_path / f"f_{blk[0]}_{blk[1]}.ff9mesh")
+             for blk, bm in res_f["changed"].items()}
+    blocks2 = {blk: M.blockmesh_from_ff9mesh(p, disc=1, x=blk[0], y=blk[1],
+                                             part="terrain")
+               for blk, p in paths.items()}
+    res_h = IN.build_hill(IN.soup_from_blocks(blocks2), center=(348, -1184))
+    IN.census_gate(res_h["changed"])
+    assert sorted(res_h["changed"]) == [(5, 18)]
+    for blk in ISLAND_E_BLOCKS:
+        if blk in res_h["changed"]:
+            got = M.write_ff9mesh(res_h["changed"][blk],
+                                  tmp_path / f"h_{blk[0]}_{blk[1]}.ff9mesh").read_bytes()
+        else:
+            got = paths[blk].read_bytes()
+        dep = (modw / f"r{blk[1]}" / f"Block[{blk[0]}][{blk[1]}] Terrain.ff9mesh")
+        assert got == dep.read_bytes(), f"block {blk} differs from the deployed island E"
