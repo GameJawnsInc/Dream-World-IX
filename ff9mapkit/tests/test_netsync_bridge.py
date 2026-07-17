@@ -591,3 +591,38 @@ def test_one_quiet_direction_is_not_reaped(relay, monkeypatch):
         assert _recv_exact(game, 1) == b"x"
     finally:
         bridge.close()
+
+
+# --------------------------------------------------------------------------- 11: request-line injection
+
+@pytest.mark.parametrize("bad", [b"\n", b"\r", b"\x00", b"\x85"])
+def test_control_bytes_in_request_line_get_400_and_never_reach_relay(relay, bad):
+    # a bare LF (or a lone CR -- \r\n\r\n is the only header terminator, so a solo \r
+    # survives into the parsed path exactly like \n) embedded in the path token would
+    # otherwise be %-formatted verbatim into the outbound upstream GET (open_upstream),
+    # i.e. header injection, and into log lines. Must be refused with a clean 400
+    # before open_upstream is ever called.
+    bridge = Bridge(relay.url)
+    try:
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        sock.connect(("127.0.0.1", bridge.port))
+        sock.sendall(
+            b"GET /s/AB" + bad + b"C HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            b"Upgrade: websocket\r\n"
+            b"Connection: Upgrade\r\n"
+            b"Sec-WebSocket-Key: " + key.encode("ascii") + b"\r\n"
+            b"Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        data = _recv_until_closed(sock)
+        assert b"400" in data
+        assert b"101" not in data
+
+        # The real proof: open_upstream was never called, so the relay never saw a
+        # connection at all -- same pattern as test 7.
+        assert not relay.ready.wait(timeout=1), "bridge dialed the relay despite control bytes in the request line"
+        assert relay.conn is None
+    finally:
+        bridge.close()

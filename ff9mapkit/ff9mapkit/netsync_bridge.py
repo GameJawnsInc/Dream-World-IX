@@ -33,6 +33,7 @@ import argparse
 import base64
 import hashlib
 import os
+import re
 import socket
 import ssl
 import sys
@@ -60,6 +61,11 @@ MAX_CLIENTS = 32
 # means the game is gone, not quiet.
 HANDSHAKE_TIMEOUT = 20.0
 IDLE_TIMEOUT = 120.0
+
+# Request-line tokens are re-emitted verbatim into the upstream GET (open_upstream)
+# and into log lines -- printable ASCII only, or an embedded bare LF becomes header
+# injection in the outbound request.
+_REQ_TOKEN_RE = re.compile(r"^[!-~]+$")
 
 
 def default_relay():
@@ -218,6 +224,15 @@ def pump(src, dst, activity=None):
                 pass
 
 
+def _refuse(client):
+    """Best-effort 400 before closing -- the game never triggers this; only foreign
+    clients poking the port do."""
+    try:
+        client.sendall(b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
+    except OSError:
+        pass
+
+
 def handle_client(client, addr, relay, insecure):
     upstream = None
     try:
@@ -225,9 +240,13 @@ def handle_client(client, addr, relay, insecure):
         req = read_http_headers(client)
         lines = req.split("\r\n")
         try:
-            method, path, _ = lines[0].split(" ", 2)
+            method, path, version = lines[0].split(" ", 2)
         except ValueError:
             raise ConnectionError("malformed request line: %r" % lines[0])
+        for tok in (method, path, version):
+            if not _REQ_TOKEN_RE.match(tok):
+                _refuse(client)
+                raise ConnectionError("control bytes in request line: %r" % lines[0])
         headers = {}
         for line in lines[1:]:
             if ":" in line:
