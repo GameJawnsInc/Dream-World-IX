@@ -381,9 +381,13 @@ same value).
   As shipped it IS carried verbatim via `--save-moogle` (`graft_savepoint`) — the player-function graft supplies
   the player surgery that was the blocker. Without `--save-moogle` the cluster is excluded by the hidden-flag gate.
 
-**Minor cleanup found en route (not blocking):** `content/prop.py`'s comment "save-moogle (field 300, entry 5)"
-is **stale** — field 300 entry 5 is a type-1 region; the moogle is entry 9 (shown, Mene). Fix to "field 122
-entries 5–10 (hidden-in-cask); field 300 entry 9 (shown, Mene)."
+**Minor cleanup (RESOLVED 2026-07-17, logic-map-verified):** `content/prop.py`'s example label "the save-moogle
+(field 300, entry 5)" mislabeled the entry — and this note's earlier prescription was itself wrong. Ground truth
+(`logic-map 300` + disasm): entry 5 is a **type-2 object** (`GEO_ACC_F0_MGP`, a moogle accessory prop) whose Init
+is exactly the cited prop recipe — the byte citation was right, only the noun was off. The field's type-1 regions
+are entries 1–2; the shown talkable save moogle is **entry 3** (`GEO_NPC_F0_MOG`); entry 9 is the player
+(`GEO_MAIN_F0_ZDN`). The hidden-in-cask cluster is field 122 (map122; real field id 407) entries 5–10. prop.py
+now says so.
 
 ---
 

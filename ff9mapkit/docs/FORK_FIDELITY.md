@@ -405,5 +405,7 @@ under BG-borrow/repurpose. Most are already handled; the gaps are flagged.
 
 ## Docs to refresh (flagged by the audit)
 
-- `docs/OBJECT_CARRY.md` §7 / `content/prop.py` comment — "save-moogle (field 300, entry 5)" is wrong: field
-  300 entry 5 is a type-1 region; shown moogle is entry 9 (Mene). Hidden-in-cask is field 122 entries 5–10.
+- `docs/OBJECT_CARRY.md` §7 / `content/prop.py` "save-moogle (field 300, entry 5)" — **FIXED 2026-07-17**
+  (this flag itself had it backwards): entry 5 is a type-2 moogle accessory prop (`GEO_ACC_F0_MGP`) whose Init
+  IS the cited prop recipe — only the noun was stale; the shown talkable moogle is entry 3 (`GEO_NPC_F0_MOG`);
+  entry 9 is the player (Zidane). Hidden-in-cask is field 122 (map122; real field id 407) entries 5–10.

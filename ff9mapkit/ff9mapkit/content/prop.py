@@ -1,8 +1,9 @@
 """Place a static set-dressing PROP -- the real FF9 prop recipe (no emulation; replicated from bytes).
 
 A prop is the NPC object MINUS the character behaviours: it holds a single static pose and does NOT turn
-to face the player. Verified byte-for-byte against shipping fields -- the save-moogle (field 300, entry 5)
-and the chest (field 115, entry 9) -- whose Init does:
+to face the player. Verified byte-for-byte against shipping fields -- a moogle accessory prop (field 300,
+entry 5, GEO_ACC_F0_MGP; the talkable save moogle itself is entry 3) and the chest (field 115, entry 9) --
+whose Init does:
 
     SetModel + CreateObject + SetStandAnimation(<pose>) + SetObjectFlags(..) + EnableHeadFocus(0)
 
@@ -39,7 +40,7 @@ SCENERY_FLAGS = 7           # the same: visible + fully walk-through (the 3345-u
 
 def prop_init_tail(face: int | None = None) -> bytes:
     """The bytes a prop's Init runs after CreateObject: disable head-tracking (+ an optional instant
-    facing). Mirrors the shipping save-moogle / chest objects minus the model-hiding SetObjectFlags."""
+    facing). Mirrors the shipping moogle-prop / chest objects minus the model-hiding SetObjectFlags."""
     tail = opcodes.encode(ENABLE_HEAD_FOCUS, 0)                 # EnableHeadFocus(0): no turn-to-face
     if face:
         tail += opcodes.encode(TURN_INSTANT, int(face) & 0xFF)  # TurnInstant(face)
