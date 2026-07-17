@@ -15,17 +15,34 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QPushButton, QRadioButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 
+class _PadFilter(QObject):
+    """Re-run _pad's measurement when the button's font actually lands/changes. The floor is computed
+    from fontMetrics at construction -- on a PARENTLESS button that is the pre-QSS default font, and a
+    CALIBRE dial change never re-measured it, so under a starved layout the floor was too small at
+    150% (the same frozen-px class as the kv key column; review finding)."""
+
+    def eventFilter(self, obj, ev):                    # noqa: N802 (Qt override)
+        if ev.type() == QEvent.Type.FontChange and isinstance(obj, QPushButton):
+            obj.setMinimumWidth(obj.fontMetrics().horizontalAdvance(obj.text()) + 34)
+        return False
+
+
+_PAD_FILTER = _PadFilter()
+
+
 def _pad(btn: QPushButton) -> QPushButton:
     """Reserve room for the label + the QSS padding: a starved layout compresses a button to its
-    minimumSizeHint, which under a stylesheet undercounts the padding and clips the text."""
+    minimumSizeHint, which under a stylesheet undercounts the padding and clips the text. The floor
+    re-measures on FontChange (see _PadFilter)."""
     btn.setMinimumWidth(btn.fontMetrics().horizontalAdvance(btn.text()) + 34)
+    btn.installEventFilter(_PAD_FILTER)
     return btn
 
 from . import widgets
@@ -39,12 +56,13 @@ class CoopDoc(QWidget):
 
     _bridge_line = Signal(str)
 
-    def __init__(self, pal, kit_root, *, run, output=None):
+    def __init__(self, pal, kit_root, *, run, output=None, on_setup=None):
         super().__init__()
         self.pal = pal
         self.kit = Path(kit_root)
         self._run = run
         self._output = output
+        self._on_setup = on_setup      # opens the shell's Setup & Health dialog (None = no shell around us)
         self._server = None            # the in-process bridge's listening socket (None = not running)
         self._thread = None
         self._game = None              # resolved install path (None until _refresh_status finds it)
@@ -80,18 +98,25 @@ class CoopDoc(QWidget):
         st = widgets.section("Status")
         sv = st.content_layout
         # A definition list, not four sentences: a muted key column, the answers at full weight on one
-        # aligned left edge. The column is MEASURED off the widest key rather than guessed, so it stays
-        # right if a key is renamed or the font changes. Only `game` is mono -- it is a path; the others
-        # are prose, and mono on a sentence reads as a bug.
-        kw = self.fontMetrics().horizontalAdvance("engine") + 14
-        self.lbl_game = widgets.kv("game", sv, key_width=kw, mono=True)
-        self.lbl_engine = widgets.kv("engine", sv, key_width=kw)
-        self.lbl_room = widgets.kv("room", sv, key_width=kw)
-        self.lbl_config = widgets.kv("config", sv, key_width=kw)
+        # aligned left edge. The column sizes itself off the widest key IN ITS OWN POLISHED FONT (the
+        # first cut measured self.fontMetrics() here, at construction -- the pre-QSS font -- and the
+        # frozen px clipped every key at a 150% dial: "gameC:", "enginnetsync"). Only `game` is mono --
+        # it is a path; the others are prose, and mono on a sentence reads as a bug.
+        self.lbl_game = widgets.kv("game", sv, widest="engine", mono=True)
+        self.lbl_engine = widgets.kv("engine", sv, widest="engine")
+        self.lbl_room = widgets.kv("room", sv, widest="engine")
+        self.lbl_config = widgets.kv("config", sv, widest="engine")
         ref = _pad(QPushButton("Refresh"))
         ref.clicked.connect(self.refresh_status)
+        # The row above can SAY "run Setup & health… first" / "install the custom engine first" -- this
+        # is the door it points at. Shown only while the status actually needs it (game missing, or the
+        # engine has no netsync); a healthy machine never sees it.
+        self.btn_setup = _pad(QPushButton("Open Setup && health…"))
+        self.btn_setup.clicked.connect(self._open_setup_and_recheck)
+        self.btn_setup.setVisible(False)
         row = QHBoxLayout()
         row.addWidget(ref)
+        row.addWidget(self.btn_setup)
         row.addStretch(1)
         sv.addLayout(row)
         v.addWidget(st)
@@ -186,22 +211,30 @@ class CoopDoc(QWidget):
         ghost_lbl.setToolTip("Visitor mode: dress the other player's ghost as a real party member. "
                              "Auto picks whoever they command in battle (needs a battle slot above).")
         self.combo_ghost = QComboBox()
-        self.combo_ghost.addItem("Their own model (classic ghost)", "")
-        self.combo_ghost.addItem("Auto — the party member they command", "auto")
+        # Item labels are capped at minimumContentsLength characters (fenced) -- the CLOSED box renders
+        # the selected item at the box's width and Qt HARD-CLIPS it, no ellipsis: the round-9 snaps
+        # caught "Their own model (classic gl" mid-word. The teaching lives in the tooltip above.
+        self.combo_ghost.addItem("Their own model", "")
+        self.combo_ghost.addItem("Auto — the member they command", "auto")
         for label, data in (("Zidane", "zidane"), ("Vivi", "vivi"), ("Garnet / Dagger", "dagger"),
                             ("Steiner", "steiner"), ("Freya", "freya"), ("Quina", "quina"),
                             ("Eiko", "eiko"), ("Amarant", "amarant")):
             self.combo_ghost.addItem(label, data)
         ghost_lbl.setBuddy(self.combo_ghost)        # see the buddy note in the Session section
         ghost_row.addWidget(ghost_lbl)
-        self.combo_ghost.setMaximumWidth(340)
+        # NO setMaximumWidth. It was 340 -- a px constant that cannot hear the text dial, and at 125/150%
+        # it clamped the box BELOW its own 31-character sizeHint, hard-clipping the selected item again
+        # (measured natively by the review: sizeHint 436 vs cap 340 at 150% = a 37px mid-word cut). The
+        # size policy below already keeps the box at its hint; the row's stretch absorbs the slack.
         # ...and a MINIMUM, which is the half that was missing. A QComboBox's minimumSizeHint is its
-        # LONGEST ITEM ("Auto — the party member they command" = 294px), so setMaximumWidth capped how wide
-        # it may get while the row stayed pinned at label+294. AdjustToMinimumContentsLengthWithIcon (Qt6 dropped
-        # the non-icon variant) makes the item list stop dictating the floor; the popup still shows every
-        # option at full width.
+        # LONGEST ITEM, so setMaximumWidth capped how wide it may get while the row stayed pinned at
+        # label+longest. AdjustToMinimumContentsLengthWithIcon (Qt6 dropped the non-icon variant) makes
+        # the item list stop dictating the floor; the popup still shows every option at full width.
+        # 31, NOT 18: with this policy the box's sizeHint IS minimumContentsLength characters, and the
+        # trailing stretch hands it nothing more -- so any item longer than the length HARD-CLIPS in the
+        # closed box (measured: "…(classic gl"). 31 fits every item above (fenced: items <= this length).
         self.combo_ghost.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.combo_ghost.setMinimumContentsLength(18)
+        self.combo_ghost.setMinimumContentsLength(31)
         ghost_row.addWidget(self.combo_ghost)
         ghost_row.addStretch(1)
         pv.addLayout(ghost_row)
@@ -268,18 +301,31 @@ class CoopDoc(QWidget):
         self.log.setPlaceholderText("bridge log")
         v.addWidget(self.log)
 
-        hint = QLabel("Start co-op, keep this app open, then launch FF9 and stand on the same screen as "
-                      "your friend — ghosts appear anywhere you two share a field (guaranteed meeting "
-                      "spot: F6 → Warp to field → 30003). The in-game overlay shows the code + pairing "
-                      "state, tells you which field your friend is on, and disappears when their ghost "
-                      "is up. A running game picks up session changes within a few seconds — no restart "
-                      "needed.")
-        hint.setWordWrap(True)
+        # A hint gets a hint's treatment (capped measure, the caption tier). As a bare QLabel it wrapped
+        # at the full page column -- ~135 characters a line, the exact COLUMN defect the rest of the app
+        # already fixed (widgets.caption caps at ~74ch).
+        hint = widgets.caption(
+            "Start co-op, keep this app open, then launch FF9 and stand on the same screen as "
+            "your friend — ghosts appear anywhere you two share a field (guaranteed meeting "
+            "spot: F6 → Warp to field → 30003). The in-game overlay shows the code + pairing "
+            "state, tells you which field your friend is on, and disappears when their ghost "
+            "is up. A running game picks up session changes within a few seconds — no restart "
+            "needed.")
         v.addWidget(hint)
         v.addStretch(1)
         scroll.setWidget(inner)
         outer.addWidget(scroll)
         self._render_role()
+
+    def _open_setup_and_recheck(self):
+        """Open Setup & health, then RE-MEASURE. The dialog is modal, so when it returns the user may
+        have just fixed the exact thing the door exists for -- without the recheck the amber row, the
+        door, and the disabled Start all outlive the problem they describe (the GOES-AWAY law; review
+        finding). refresh_status is cheap and idempotent."""
+        if self._on_setup is None:
+            return
+        self._on_setup()
+        self.refresh_status()
 
     def _render_role(self):
         hosting = self.rb_host.isChecked()
@@ -305,6 +351,9 @@ class CoopDoc(QWidget):
             self.lbl_config.setText("—")
             self.btn_start.setEnabled(False)
             self.style_box.setEnabled(False)
+            # ...and the DOOR the warning points at, not just its name (usability: a status that says
+            # "run X first" without a way to run X is a scavenger hunt).
+            self.btn_setup.setVisible(self._on_setup is not None)
             return
         self.btn_start.setEnabled(True)
         self.lbl_game.setText(str(self._game))
@@ -324,6 +373,11 @@ class CoopDoc(QWidget):
                                 if has_netsync else
                                 "netsync MISSING — install the Dream World IX custom engine first")
         widgets.set_state(self.lbl_engine, "" if has_s37 else "warn")
+        # The door keys on the SAME predicate as the amber state one line up (not has_s37). Its first
+        # cut keyed on `not has_netsync`, so an s36 machine got a warning naming the newer engine with
+        # the door to that exact remedy hidden -- the scavenger hunt back for one engine generation
+        # (review finding). Setup & health owns the remedy either way ("Install engine patches…").
+        self.btn_setup.setVisible(self._on_setup is not None and not has_s37)
         self.style_box.setEnabled(has_s37)
         # The diorama checkbox alone keys on s40: greyed on an s37-only engine so Apply/Start
         # never write a key the engine can't read (None -> the flag is simply not passed).

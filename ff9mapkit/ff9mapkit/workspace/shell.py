@@ -475,7 +475,11 @@ class _UpdateSignals(QObject):
 #
 # `.QWidget` matches a plain QWidget and NOT its subclasses (Qt's exact-class selector), so a container
 # goes transparent while every real control inside it keeps its own styling.
-_TRANSPARENT = ".QWidget { background: transparent; }"
+#
+# ONE definition, in widgets.py -- because the second, hand-typed copy of this rule is exactly where the
+# bare form came back (page_column shipped `"background: transparent;"` verbatim in round 5 and unfilled
+# every form-doc button for two rounds; the round-9 co-op snaps caught it).
+_TRANSPARENT = widgets.TRANSPARENT
 
 
 class Workspace(QMainWindow):
@@ -1333,7 +1337,7 @@ class Workspace(QMainWindow):
         self.tabs.addTab(self.import_field, "Import")
         # the multiplayer ghost-sync front door: host/join a session point-and-click (wraps `ff9mapkit coop`;
         # the setup streams through run_job, the ws->wss bridge runs in-process inside this app).
-        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job)
+        self.coop_doc = CoopDoc(self.pal, KIT, run=self.run_job, on_setup=self._open_setup)
         self.tabs.addTab(self.coop_doc, "Co-op")
         # do-now #1: keep the breadcrumb + doc-mode chip truthful on EVERY tab (the indicator used to update
         # ONLY on tree selection, so it lied on the 5 self-contained doc tabs). Wired AFTER all addTab calls
