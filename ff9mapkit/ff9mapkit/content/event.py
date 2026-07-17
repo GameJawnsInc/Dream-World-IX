@@ -146,18 +146,6 @@ def event_range_body(body: bytes, once_flag: int | None, flag_class=EVENT_FLAG_C
     return b"".join(parts)
 
 
-def inject_event(data, *, zone, body: bytes, once_flag: int | None = None,
-                 requires_flag: int | None = None, requires_set: bool = True,
-                 flag_class=EVENT_FLAG_CLASS, slot=None, spawn_wait_n: int = 2,
-                 spawn_wait_occurrence: int = 0, reserve_party_band: bool = False):
-    """Inject ONE walk-in event region (armed at load via InitRegion-over-Wait). Returns
-    ``(new_bytes, slot)``. For several events prefer :func:`inject_events` (one shared arm entry)."""
-    range_body = event_range_body(body, once_flag, flag_class, requires_flag, requires_set)
-    return _region.inject_region(data, zone, range_body, slot=slot, activate=True,
-                                 spawn_wait_n=spawn_wait_n, spawn_wait_occurrence=spawn_wait_occurrence,
-                                 reserve_party_band=reserve_party_band)
-
-
 def inject_events(data, events, *, flag_class=EVENT_FLAG_CLASS, spawn_wait_n: int = 2,
                   spawn_wait_occurrence: int = 0, reserve_party_band: bool = False) -> bytes:
     """Inject many events through a single arming entry. ``events`` is a list of dicts with keys
