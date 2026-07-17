@@ -1607,9 +1607,10 @@ def _walkmesh_hotfix_line(field) -> str:
         return (f"# {h.name}: load-time walkmesh hotfix reproduced by the engine fork-donor remap (s29,\n"
                 f"# EffectiveFieldId, original timing) -- NOT a walkmesh_tri_toggles prepend (which would mis-time\n"
                 f"# prop placement). Nothing to author here. ({h.source})\n")
-    if not (h and h.auto):
+    toggles = _wh.load_time_toggles(h.field_id) if h is not None else []
+    if not toggles:
         return ""
-    arr = ", ".join(f"[{t}, {s}]" for t, s in h.toggles)
+    arr = ", ".join(f"[{t}, {s}]" for t, s in toggles)
     return (f"walkmesh_tri_toggles = [{arr}]   # {h.name}: reproduce its load-time engine walkmesh hotfix\n"
             f"# (engine BGI_triSetActive keyed on real fldMapNo {h.field_id} is lost on a custom id; {h.source})\n")
 

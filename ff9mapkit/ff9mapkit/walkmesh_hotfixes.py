@@ -156,8 +156,3 @@ def load_time_toggles(field_id) -> list:
     engine walkmesh hotfix, or ``[]`` when the field has none / its hotfix isn't statically reproducible."""
     h = info(field_id)
     return [list(t) for t in h.toggles] if (h and h.auto) else []
-
-
-def all_ids() -> list:
-    """Every real field id with a cataloged engine walkmesh hotfix (sorted)."""
-    return sorted(_HOTFIXES)

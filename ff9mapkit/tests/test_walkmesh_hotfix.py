@@ -43,7 +43,7 @@ def test_catalog_unknown_field_is_none():
     assert WH.info(99999) is None
     assert WH.info(None) is None
     assert WH.load_time_toggles(99999) == []
-    assert set(WH.all_ids()) >= {2356, 2161, 2507, 2803, 900, 450, 1421}
+    assert set(WH._HOTFIXES) >= {2356, 2161, 2507, 2803, 900, 450, 1421}
 
 
 # --- injector --------------------------------------------------------------------------------------------
