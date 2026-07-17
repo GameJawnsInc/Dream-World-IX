@@ -415,11 +415,25 @@ def test_flood_beyond_cap_is_refused_not_fatal(relay, monkeypatch):
         holder2.connect(("127.0.0.1", bridge.port))
         time.sleep(0.2)
 
-        # both slots taken -- a 3rd connection must be refused promptly, not queued.
+        # both slots taken -- a 3rd connection must be REFUSED (bridge closes it promptly),
+        # not merely accepted-and-left-idle. _recv_until_closed can't tell those apart: an
+        # accepted-but-idle socket blocks inside read_http_headers and ALSO eventually reads
+        # back b"" once HANDSHAKE_TIMEOUT expires, so a deleted cap would still pass a plain
+        # EOF check. Discriminate on WHEN the close happens: TIMEOUT(5) < HANDSHAKE_TIMEOUT(20),
+        # so a refused socket hits EOF almost at once while an accepted-idle one blocks the
+        # full 5s (recv times out instead of returning).
         third = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         third.settimeout(TIMEOUT)
         third.connect(("127.0.0.1", bridge.port))
-        assert _recv_until_closed(third) == b""
+        third.settimeout(TIMEOUT)     # TIMEOUT(5) < default HANDSHAKE_TIMEOUT(20): an ACCEPTED idle
+                                      # socket blocks the full 5s; a REFUSED one is closed at once.
+        try:
+            refused = (third.recv(100) == b"")        # bridge.close() -> clean FIN -> EOF
+        except (ConnectionResetError, ConnectionAbortedError):
+            refused = True                            # Windows may surface the close as RST
+        except socket.timeout:
+            refused = False                           # still open & idle -> the cap did NOT fire
+        assert refused, "over-cap connection was left open instead of refused -- cap not enforced"
         third.close()
         third = None
 
@@ -588,19 +602,21 @@ def test_idle_session_is_reaped(relay, monkeypatch):
         assert relay.conn is not None
 
         # both sides go silent -- the shared idle clock must end the session on its own.
+        # pump's poll = min(5.0, IDLE_TIMEOUT) = 1.0s here, so a working reaper closes ~1-2s in.
+        # The UPPER bound below is the real proof: a broken reaper (socket never closed) would
+        # instead block until OUR OWN recv gives up -- so its timeout must exceed that bound.
+        game.settimeout(10.0)         # MUST exceed the upper bound below, so a broken reaper
+                                      # (socket stays open) blocks to 10s and FAILS the upper bound.
         start = time.monotonic()
-        game.settimeout(TIMEOUT)
-        reaped = False
         try:
-            reaped = game.recv(4096) == b""
-        except OSError:
-            reaped = True  # e.g. ConnectionResetError on Windows
+            reaped = (game.recv(4096) == b"")
+        except (ConnectionResetError, ConnectionAbortedError):
+            reaped = True
+        except socket.timeout:
+            reaped = False
         elapsed = time.monotonic() - start
-
-        assert reaped
-        # the recv timeout (TIMEOUT=5) just bounds the wait -- 0.8s proves this was the
-        # ~1s reaper firing, not an instant close.
-        assert 0.8 <= elapsed, "closed too fast (%.2fs) to be the idle reaper" % elapsed
+        assert reaped, "idle session was never torn down"
+        assert elapsed < 5.0, "closed only when our own recv gave up, not by the reaper (%.2fs)" % elapsed
 
         relay.conn.settimeout(TIMEOUT)
         try:
@@ -615,7 +631,7 @@ def test_one_quiet_direction_is_not_reaped(relay, monkeypatch):
     # THE false-positive guard: a host alone, waiting for its peer, gets NOTHING back
     # from the relay for up to the ~60s pairing window -- that one quiet direction must
     # never trip the reaper while the other direction is still live.
-    monkeypatch.setattr(NB, "IDLE_TIMEOUT", 1.0)
+    monkeypatch.setattr(NB, "IDLE_TIMEOUT", 2.0)
     bridge = Bridge(relay.url)
     try:
         game, _game_key = _connect_game(bridge.port)
@@ -623,14 +639,16 @@ def test_one_quiet_direction_is_not_reaped(relay, monkeypatch):
         assert relay.ready.wait(timeout=TIMEOUT)
         assert relay.conn is not None
 
-        # the game keeps talking (like the engine's ~30Hz keepalive) while the relay
-        # stays silent, well past the patched 1s IDLE_TIMEOUT.
+        # the game keeps talking (like the engine's ~30Hz keepalive) while the relay stays
+        # silent, for LONGER than the patched 2.0s IDLE_TIMEOUT -- a ~10x margin between the
+        # 0.2s send interval and the 2.0s reap window (vs the old 4x), so a scheduling hiccup
+        # under -n 6 would need to stall >1.8s to false-reap.
         sent = 0
         start = time.monotonic()
-        while time.monotonic() - start < 2.5:
+        while time.monotonic() - start < 2.6:
             game.sendall(b"k")
             sent += 1
-            time.sleep(0.25)
+            time.sleep(0.2)
 
         assert _recv_exact(relay.conn, sent) == b"k" * sent
 
