@@ -2,6 +2,96 @@
 
 **Branch:** `claude/gui-card-readability-eb5d9f` · ✅ **rounds 2–7 MERGED to master + PLAYTESTED** · **3657 tests**.
 
+> ## ROUND 8 — TAILOR + THE GOES-AWAY LAW  ·  branch `claude/gui-beautification-usability-5a20fd`
+>
+> **The ask:** beginner/guided content clearer and GONE once done; popups sized to their content
+> ("New Campaign → Forked Region" the named offender); and a meta-ask — the HARNESS must be able to see
+> the app, so iteration is fast.
+>
+> **THE INSTRUMENT SHIPPED FIRST: `tools/gui_snap.py`** — any surface (Home in pinned fresh / midway /
+> ready / veteran / open states, every tab, every modal) rendered NATIVE + Fusion, prefs pinned via an
+> explicit prefs.json (the empty-tempdir law: `text_scale` is written, never left to fall through to the
+> dev's Windows slider), `WA_DontShowOnScreen` so nothing flashes on the desktop, `QDialog.exec` patched
+> to show + grab + reject so every `on_*` opener runs unmodified. PNGs + size diagnostics (shown /
+> sizeHint / minimumSizeHint). Every claim below was made from its pixels. Two instrument laws en route:
+> - **`processEvents()` does not deliver `DeferredDelete`.** A probe that rebuilds rows (deleteLater +
+>   re-add) then grabs photographs ZOMBIE widgets — live-parented, visible, painting under their
+>   replacements — that the real event loop buries before its next paint. The Home checklist grab showed
+>   a sliver of the OLD step-3 row and 12 extra processEvents rounds changed nothing; the app was fine.
+>   `_settle` now sends `QEvent.DeferredDelete` explicitly each round.
+> - **offscreen's fake screen is ~800px wide with ~2× advances** — a 64ch dialog hits fit_dialog's own
+>   screen clamp there, so a grows-with-the-font fence must use a small `ch` or it measures the clamp
+>   working (correctly) instead of the thing under test.
+>
+> **TAILOR (`widgets.fit_dialog(dlg, ch, list_rows, lines)`)** — *a popup's size is a function of its
+> content, and a px constant is not a function.* Measured before: New Campaign opened **309×282** with
+> its Folder path truncated to "-mestorf-205c97"; the FF9 region catalog **385×409** — 6 of its regions
+> behind TWO scrollbars (a QLineEdit's sizeHint is ~17ch; a QListWidget's is 256×192 regardless of rows;
+> and `resize(W,H)` is deaf to CALIBRE by construction). Width is asked in CHARACTERS of the dialog's own
+> polished font (the QSS base rule puts $type_body on every QWidget, so the metric moves with the dial);
+> lists ask for their longest row + the v-scrollbar (so overflow never grows an h-scrollbar) and
+> `list_rows` rows; `lines` carries height for viewers whose content arrives after open. Two laws inside:
+> - **A SQUEEZED DIALOG DOES NOT SHRINK, IT OVERPAINTS**: a word-wrapped QLabel (height-for-width) paints
+>   its FULL text over its neighbours when under-allocated — measured at 150%, the region catalog's footer
+>   painted straight across the list. Height that cannot fit the screen is given back by the LIST (it
+>   scrolls; prose does not), floor 4 visible rows.
+> - **`adjustSize()` on a window silently caps at ~2/3 of the screen** — i.e. it CAUSES the squeeze it
+>   should prevent. fit_dialog resizes explicitly to min(sizeHint, 0.92/0.85 of the available screen).
+>
+> Spent at **21** call sites (the call-site law): shell's new-field / new-campaign / new-journey /
+> add-field / updates / shared-flags / preferences / concept card / about / `_pick_regions` /
+> add-journey-row / journey-seed; importdoc's region catalog + the field-logic viewer; battledoc's
+> `_choose` + fork-battle; builddoc's Package-mod; tuningdialog; setupdialog; the Ctrl-K palette
+> (frameless — a px constant was its ONLY possible size); forms_qt's CatalogPicker + Info-Hub help.
+> The first cut shipped 14 and called the rest deliberate; **the adversarial review found 7 of those
+> "deliberate" skips were just misses** (incl. `_pick_regions` — the byte-identical TWIN of the measured
+> 385×409 catalog, in the same round's own diff radius). Still deliberately unconverted: conceptmap and
+> CatalogLibrary (900×580 — complex 3-pane, looked right in grabs; px-deaf to the dial, noted as debt).
+>
+> **THE GOES-AWAY LAW (`shell._getstarted_show`, pure, truth-table-fenced)** — *onboarding is for someone
+> who has not yet done the thing; DONE is measured, never assumed.* The old rule (`setup_incomplete or
+> nothing_open`) showed the full newcomer checklist to a VETERAN at every project close — two ticked
+> done-rows above the fold while their own Recent list sat below it. Now: dismissed (the Hide link,
+> persisted) wins over everything; setup incomplete → show; else show only with no open target AND no
+> project history (`prefs.recent()` — raw, an unplugged drive is not a reset). Ctrl-K → "Show the Get
+> started guide" clears dismissal + forces it for the session. Everything beginner-voiced (the "New
+> here?" intro, the provenance note, the steps, the F9 footer) now lives IN the block and hides as one.
+>
+> **THE ONE-ACCENT VIOLATION HAD SHIPPED**: the lede card and the guide's primary step were the SAME row
+> twice — identical title, note, and verb, two accent "Locate game…" buttons 250px apart (\_lede_state
+> reuses the steps; nobody looked at fresh-state Home with both visible). The lede now yields to the
+> guide when nothing is open; for a veteran it leads with **"Pick up <most recent>"** (a new rung between
+> "Continue <open>" and the newcomer steps). Also caught by a grab, invisible to every test: the lede's
+> **"Build & Deploy" rendered as "Build _Deploy"** — Qt ate the & as a mnemonic (the && trap the updates
+> dialog already documented).
+>
+> **Fences:** `tests/test_home_beginner.py` (the full 16-row truth table + the closed-project regression;
+> fit_dialog's formula-equality, no-op guard, grows-with-font, list-content, and give-back fences — all
+> RELATIONSHIP asserts, offscreen-safe) + the smoke now pins ALL THREE inputs (newcomer 3 rows / lede
+> hidden; veteran guide gone / "Pick up" lede; Hide/Show round-trip) instead of reading this machine.
+> Pre-existing, flagged not fixed: `test_motion_off_means_the_signet_is_simply_there` fails when certain
+> workspace modules run before it (order pollution, reproduced on clean HEAD; spawned as its own task).
+>
+> **⚠ THE ADVERSARIAL REVIEW WAS RIGHT AGAIN (40 agents, 35 confirmed — the round-6b pattern exactly):
+> I recommitted the study's own documented disease inside the block that cites it.** The smoke's first
+> GOES-AWAY cut READ `prefs.getstarted_hidden()` live (red smoke on any machine whose owner clicked Hide)
+> and WROTE the developer's real prefs.json through `_hide/_show_getstarted` — with the cleanup INSIDE
+> the `try` and hard-coded to False (**a reset is not a restore**) — one page below the comment narrating
+> why the recent-store is stubbed in-memory "so a smoke run never writes the developer's real prefs.json".
+> The dismissal is now stubbed the same in-memory way, and the hostile-prefs fence gained the
+> `getstarted_hidden` key (its own comment about "covering the keys that came to mind" had just come true
+> again). The review's other keepers: **Close clicked ON Home never refreshed Home** — `setCurrentWidget`
+> on the already-current tab emits no `currentChanged` (verified empirically), so the hero kept saying
+> "Currently editing" and the lede offered "Continue <closed project>"; now `_close_project` refreshes
+> explicitly. The give-back fence was VACUOUS (probe-verified: fit_dialog's own 0.7-screen pre-cap
+> absorbed the 400-row ask offscreen, so deleting the give-back passed every assert — rebuilt with fixed
+> ballast that forces the branch). gui_snap's fork-battle surface was permanently dead behind a
+> `hasattr` guard for a method that never existed, and its docstring's QMessageBox claim was FALSE (the
+> static warning/question exec in C++ and would hang a headless run — now stubbed). The new Hide link was
+> mouse-only (a tab stop is what Tab REACHES) — and the first fix, a keyboard-flagged QLabel, tripped the
+> a11y tab-stop fence itself: under `* { outline: 0 }` a focused label shows NOTHING. Hide is now a
+> QUIET BUTTON (the tier already carries the deliberate focus ring for free) + a Ctrl-K Hide command.
+
 > ## ✅ ROUND 7 — THE SQUEEZE: *a squeeze is not a preference*  ·  PLAYTESTED (*"much better"*)
 >
 > **The report:** *"the default sizes of the left and right panels (the tree and the inspector) are very

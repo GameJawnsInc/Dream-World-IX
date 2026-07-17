@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from ..editor import battle_forms as bf
 from ..editor import forms
+from . import widgets
 from .forms_qt import build_form, read
 
 
@@ -33,7 +34,6 @@ class TuningDialog(QDialog):
         self.pal = palette
         self.jid = jid
         self.setWindowTitle(f"Tuning — {jid}")
-        self.resize(660, 470)
         # a working COPY of just the FORM-editable blocks (the 7 PLAYER_SPECS); deep enough that Cancel discards.
         self.tuning = {k: [dict(r) for r in (tuning.get(k) or []) if isinstance(r, dict)]
                        for k in bf.PLAYER_SPECS if tuning.get(k)}
@@ -47,6 +47,7 @@ class TuningDialog(QDialog):
         self._rebuild()
         if self.rows.count():
             self.rows.setCurrentRow(0)
+        widgets.fit_dialog(self, ch=110, list_rows=10, lines=24)   # rows pane + form pane side by side
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self, is_bare):

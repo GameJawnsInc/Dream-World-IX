@@ -106,6 +106,12 @@ def test_the_smoke_survives_a_hostile_prefs_file(tmp_path):
     (cfg / "prefs.json").write_text(json.dumps({
         "guided": False, "density": "compact", "text_scale": 150,
         "theme": "light", "motion": "off", "restore_session": True, "recent": [],
+        # getstarted_hidden: the round-8 key, added THE SAME DAY it shipped -- because this fence's own
+        # `layout` comment below documents what happens otherwise ("covering the keys that came to
+        # mind"), and the round's adversarial review caught the omission within hours: the smoke's
+        # newcomer asserts read the dismissal live, so a machine whose owner clicked Hide went red.
+        # The dismissal is now stubbed in-memory inside _smoke; this key keeps that pin honest.
+        "getstarted_hidden": True,
         # `layout` WAS THE ONE KEY THIS FENCE SKIPPED -- and it is the exact key THE DOC PANE proved was
         # the defect ("the defect is entirely the PERSISTED layout"). A fence whose thesis is "every value
         # deliberately non-default" that omits the one key a sibling commit is about is not covering the

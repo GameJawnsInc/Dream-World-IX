@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QDialog, QFrame, QLineEdit, QListWidget, QListWidg
 
 from ..editor.theme import derive
 from . import anim
-from .widgets import attach_shadow
+from .widgets import attach_shadow, fit_dialog
 
 
 # Category prefix per command kind (Phase 6: verb-first, category-prefixed rows). The stored label is left
@@ -76,7 +76,8 @@ class CommandPalette(QDialog):
         # real drop shadow (a framed dialog would just get the OS chrome). The outer margin gives the blur room.
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.resize(580, 440)
+        # Frameless means the user CANNOT resize this one -- a px constant here was its only possible
+        # size, deaf to the text dial. Sized after the list is built (end of __init__): fit_dialog.
         self._entries = list(entries)
         self._filtered = list(entries)
         d = derive(palette)
@@ -111,6 +112,10 @@ class CommandPalette(QDialog):
         lay.addWidget(self.lst, 1)
         self._muted = palette["muted"]
         self._fill()
+        # lines= carries the height (a fresh palette lists EVERY command, so list_rows would always win
+        # anyway; lines keeps the overlay's height stable when a filter later narrows the list). The
+        # content list is capped modest: a Spotlight overlay should read as a panel, not a page.
+        fit_dialog(self, ch=84, list_rows=10, lines=18)
         self.q.setFocus()
 
     def showEvent(self, event):                        # noqa: N802 (Qt override)

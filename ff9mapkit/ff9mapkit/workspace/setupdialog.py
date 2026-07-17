@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import health
+from . import widgets
 
 _GLYPH = {"ok": "✓", "warn": "⚠", "bad": "✕"}
 
@@ -39,7 +40,6 @@ class SetupHealthDialog(QDialog):
         self.on_change = on_change
         self.proc = None
         self.setWindowTitle("Setup & Health")
-        self.setMinimumWidth(680)
         v = QVBoxLayout(self)
         intro = QLabel("Everything the kit needs, checked live. Fix the red rows first; amber rows "
                        "limit specific features (the advice says which).")
@@ -85,6 +85,8 @@ class SetupHealthDialog(QDialog):
         close_row.addWidget(close)
         v.addLayout(close_row)
         self.refresh()
+        widgets.fit_dialog(self, ch=114)               # was setMinimumWidth(680): the same width at 100%,
+        #                                                but a width that can hear the text dial
 
     # ---- the report ----
     def refresh(self):

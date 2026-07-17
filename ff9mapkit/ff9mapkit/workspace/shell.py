@@ -22,8 +22,8 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QObject, QProcess, QSize, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QAction, QBrush, QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPalette, QPixmap,
-    QShortcut, QTextCharFormat, QTextCursor,
+    QAction, QBrush, QColor, QDesktopServices, QFontMetricsF, QIcon, QKeySequence, QPainter, QPalette,
+    QPixmap, QShortcut, QTextCharFormat, QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
@@ -262,6 +262,30 @@ def _snip(s, n=44) -> str:
 def _toml_str(s) -> str:
     """Escape a value for a double-quoted TOML string (the New-Journey template's hub name)."""
     return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _getstarted_show(*, setup_incomplete: bool, has_target: bool, has_recent: bool,
+                     dismissed: bool) -> bool:
+    """THE GOES-AWAY LAW: onboarding is for someone who has not yet done the thing, so DONE is measured,
+    never assumed -- and once measured done, the guide leaves on its own.
+
+    Pure so the whole truth table is a fence (test_home_beginner). The old rule was
+    ``setup_incomplete or nothing_open``, which showed the full newcomer checklist to a VETERAN every
+    time they closed a project: 'nothing open right now' is not 'has never opened anything', and prime
+    Home space went to two ticked done-rows while the user's own Recent list sat below the fold.
+
+    * dismissed wins over everything -- Hide is an explicit user choice, and the Home setup banner (a
+      one-liner, not a checklist) still surfaces real setup problems underneath it.
+    * setup incomplete -> show: the app cannot build anything until these steps run.
+    * setup complete -> show only to a user with NO project history and nothing open. Any recent entry
+      (even one whose file is currently unreachable -- an unplugged drive is not a reset) means the
+      first-ten-minutes arc happened; Home's job is now Recent + the spine, not the guide.
+    """
+    if dismissed:
+        return False
+    if setup_incomplete:
+        return True
+    return not has_target and not has_recent
 
 
 def _render_journey_toml(*, hub_name, hub_id, borrow_bg, jid, jname, kind="bare", entry=4100,
@@ -713,7 +737,6 @@ class Workspace(QMainWindow):
         dlg = QDialog(self)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         dlg.setWindowTitle("Dream World IX — updates")
-        dlg.resize(480, 250)
         lay = QVBoxLayout(dlg)
         tag = "" if update_check.is_installed() else "  ·  source checkout"
         lay.addWidget(QLabel(f"<b>ff9mapkit</b>   v{__version__}{tag}"))
@@ -758,6 +781,9 @@ class Workspace(QMainWindow):
         self._upd_dialog = dlg
         dlg.finished.connect(lambda _r: setattr(self, "_upd_dialog", None))
         self._refresh_update_dialog()
+        # lines= because the content ARRIVES LATER: the upgrade-command box is hidden until a check
+        # returns, and a dialog sized to the empty state would jump when it appears.
+        widgets.fit_dialog(dlg, ch=76, lines=11)
         dlg.exec()
 
     def _refresh_update_dialog(self):
@@ -842,7 +868,6 @@ class Workspace(QMainWindow):
         check. The theme persists via :mod:`..prefs`; Cancel/Esc reverts the live preview."""
         dlg = QDialog(self)
         dlg.setWindowTitle("Preferences")
-        dlg.setMinimumWidth(440)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
         combo = QComboBox()
@@ -952,13 +977,13 @@ class Workspace(QMainWindow):
         bb.accepted.connect(_accept)
         bb.rejected.connect(dlg.reject)
         dlg.finished.connect(_finish)
+        widgets.fit_dialog(dlg, ch=74)
         dlg.exec()
 
     def _concept_dialog(self, concept):
         """Build (but do NOT exec) the small themed concept card -- separated so it's grab-testable."""
         dlg = QDialog(self)
         dlg.setWindowTitle(concept.title)
-        dlg.setMinimumWidth(430)
         lay = QVBoxLayout(dlg)
         title = QLabel(concept.title)
         title.setProperty("role", "head")
@@ -975,6 +1000,7 @@ class Workspace(QMainWindow):
         bb.rejected.connect(dlg.accept)                # the Close button (Esc too) just dismisses
         bb.accepted.connect(dlg.accept)
         lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=72)
         return dlg
 
     def _show_concept(self, concept):
@@ -998,7 +1024,6 @@ class Workspace(QMainWindow):
         mode = "installed" if update_check.is_installed() else "source checkout"
         dlg = QDialog(self)
         dlg.setWindowTitle("About Dream World IX")
-        dlg.setMinimumWidth(470)
         lay = QVBoxLayout(dlg)
         head = QHBoxLayout()
         icon = QLabel()
@@ -1033,6 +1058,7 @@ class Workspace(QMainWindow):
         close.clicked.connect(dlg.accept)
         row.addWidget(close)
         lay.addLayout(row)
+        widgets.fit_dialog(dlg, ch=79)
         dlg.exec()
 
     # ---- chrome ----
@@ -1639,19 +1665,42 @@ class Workspace(QMainWindow):
         self._home_setup.setVisible(False)
         self._home_setup.linkActivated.connect(lambda _h: self._open_setup())
         v.addWidget(self._home_setup)
-        intro = QLabel("New here? A <b>field</b> is one explorable screen — the smallest piece, and the easiest "
-                       "place to start. <b>Campaigns</b> chain fields into a story; a <b>journey</b> bundles the "
-                       "whole arc. You can open any level directly — none needs the others.")
-        intro.setWordWrap(True)
-        intro.setTextFormat(Qt.TextFormat.RichText)
-        intro.setProperty("role", "muted")
-        v.addWidget(intro)
         # GET STARTED (Phase 4): a provenance-clean newcomer path. The kit ships ZERO FF9 content, so there's
         # nothing to "open" out of the box -- the first working project is one the user FORKS from their own
         # install. This is a live 3-step checklist (point at the game -> extract templates -> fork a real
         # field), rebuilt each Home show so a step ticks ✓ the moment it's done. Placed first, before Recent.
-        self._start_head = self._home_section("Get started")
+        # ONE BLOCK, ONE FATE: everything beginner-voiced on this page (the "New here?" intro, the
+        # provenance note, the steps, the F9 reassurance) lives in this block and shows/hides as a unit --
+        # per the goes-away law (_getstarted_show) or the Hide link. Beginner guidance scattered outside
+        # the block is how the veteran's Home grew clutter that nothing could retire.
+        head_row = QWidget()
+        head_row.setStyleSheet(_TRANSPARENT)
+        hr = QHBoxLayout(head_row)
+        hr.setContentsMargins(0, 0, 0, 0)
+        hr.setSpacing(8)
+        hr.addWidget(self._home_section("Get started"))
+        hr.addStretch(1)
+        # A quiet BUTTON, not a rich-text link. A link is mouse-only by default (a tab stop is what Tab
+        # REACHES), and giving a QLabel the keyboard flag makes it a tab stop that shows NOTHING when
+        # focused (`* { outline: 0 }` killed the native rect; the a11y tab-stop fence caught exactly
+        # that). The quiet button tier already carries the app's deliberate focus ring for free.
+        hide = QPushButton("Hide")
+        hide.setProperty("role", "quiet")
+        hide.setToolTip("Hide this guide. It also leaves on its own once you're set up and have a "
+                        "project; Ctrl-K → “Show the Get started guide” brings it back any time.")
+        hide.setAccessibleName("Hide the Get started guide")
+        hide.clicked.connect(self._hide_getstarted)
+        hr.addWidget(hide, 0, Qt.AlignmentFlag.AlignBottom)
+        self._start_head = head_row
         v.addWidget(self._start_head)
+        self._start_intro = QLabel("New here? A <b>field</b> is one explorable screen — the smallest piece, "
+                                   "and the easiest place to start. <b>Campaigns</b> chain fields into a story; "
+                                   "a <b>journey</b> bundles the whole arc. You can open any level directly — "
+                                   "none needs the others.")
+        self._start_intro.setWordWrap(True)
+        self._start_intro.setTextFormat(Qt.TextFormat.RichText)
+        self._start_intro.setProperty("role", "muted")
+        v.addWidget(self._start_intro)
         self._start_note = QLabel("Dream World IX includes <b>no</b> FINAL FANTASY IX content. You point it at "
                                   "your own installed copy, and it reads every field, texture, and byte from "
                                   "there — so the base game stays untouched and anything you make is yours.")
@@ -1669,7 +1718,8 @@ class Workspace(QMainWindow):
         # newcomer: trying a fork in-game is a safe, reversible sandbox.
         self._start_footer = widgets.caption("Once you've forked a field, press <b>F9</b> to try it in your game — it "
                                              "deploys to a safe test slot and backs up first, so you can explore "
-                                             "without risk.")
+                                             "without risk. This guide steps aside on its own once you're set up "
+                                             "with a project.")
         self._start_footer.setTextFormat(Qt.TextFormat.RichText)
         self._start_footer.setContentsMargins(0, 2, 0, 0)
         v.addWidget(self._start_footer)
@@ -1828,24 +1878,52 @@ class Workspace(QMainWindow):
         return box
 
     def _refresh_getstarted(self):
-        """Rebuild the Home 'Get started' checklist from the live setup state. Shown for a newcomer / an empty
-        Workspace (a configured user mid-project doesn't need it); the ONE accent is the first not-yet-done
-        step, so it points at the exact next thing to do. Supersedes the terse ``_home_setup`` banner."""
+        """Rebuild the Home 'Get started' guide from the live setup state; the ONE accent is the first
+        not-yet-done step, so it points at the exact next thing to do. Visibility is the goes-away law
+        (:func:`_getstarted_show`): newcomer -> guide; measured-done or dismissed -> gone, as one block.
+        Supersedes the terse ``_home_setup`` banner while shown."""
         if not hasattr(self, "_start_box"):
             return
         self._clear_layout(self._start_lay)
         steps = self._getstarted_steps()
         setup_incomplete = any(s[2] is False for s in steps[:2])     # only the two gating steps count
-        show = setup_incomplete or self._current_target()[0] is None  # newcomer / empty -> guide; else hide
-        for w in (self._start_head, self._start_note, self._start_box, self._start_footer):
+        # _getstarted_forced: Ctrl-K "Show the Get started guide" for a user the law says is PAST it --
+        # session-only on purpose (they asked to see it now, not to be a newcomer again at every launch).
+        show = getattr(self, "_getstarted_forced", False) or _getstarted_show(
+            setup_incomplete=setup_incomplete,
+            has_target=self._current_target()[0] is not None,
+            has_recent=bool(prefs.recent()),
+            dismissed=prefs.getstarted_hidden())
+        for w in (self._start_head, self._start_intro, self._start_note, self._start_box, self._start_footer):
             w.setVisible(show)
         if show and hasattr(self, "_home_setup"):
             self._home_setup.setVisible(False)                        # the checklist covers the setup warning
+        # THE ONE-ACCENT LAW, enforced at the call site: while the guide is up and nothing is open, the
+        # lede IS the guide's primary step (same title, same note, same verb -- _lede_state reuses the
+        # steps), so showing both rendered the identical row twice with TWO accent buttons 250px apart.
+        # One of them has to go, and it is the lede: the guide carries the context (step N of 3, the ✓s).
+        if hasattr(self, "_lede"):
+            self._lede.setVisible(self._current_target()[0] is not None or not show)
         if not show:
             return
         primary_ix = next((i for i, s in enumerate(steps) if not s[2]), len(steps) - 1)
         for i, (title, desc, done, label, cb) in enumerate(steps):
             self._start_lay.addWidget(self._getstarted_row(i + 1, title, desc, done, label, cb, i == primary_ix))
+
+    def _hide_getstarted(self):
+        """The guide's Hide link: a persisted user choice (prefs), reversible via Ctrl-K."""
+        self._getstarted_forced = False
+        prefs.set_getstarted_hidden(True)
+        self._refresh_home_status()
+        self.statusBar().showMessage("Get started hidden — Ctrl-K → “Show the Get started guide” brings it back.")
+
+    def _show_getstarted(self):
+        """Ctrl-K 'Show the Get started guide': clear any dismissal, force it visible for this session
+        (a veteran the goes-away law would hide has still ASKED to see it), and land on Home."""
+        prefs.set_getstarted_hidden(False)
+        self._getstarted_forced = True
+        self.tabs.setCurrentWidget(self._welcome_tab)
+        self._refresh_home_status()
 
     def _build_lede(self):
         """Home's LEDE: one card, one gold corner, one accent verb naming the next thing.
@@ -1885,15 +1963,28 @@ class Workspace(QMainWindow):
     def _lede_state(self):
         """(title, note, button, callback) -- the next action for THIS user's state.
 
-        Zero new state: `_current_target()` and `_getstarted_steps()` already know everything. The
-        checklist's own primary rule is reused verbatim -- the first step whose ``done`` is falsy, which
-        includes the always-available fork step (``done=None``).
+        Zero new state: `_current_target()`, `prefs.recent()` and `_getstarted_steps()` already know
+        everything. Order of authority: an OPEN project ("Continue X") beats project HISTORY ("Pick up
+        X") beats the newcomer steps -- because before the history rung existed, a veteran who closed a
+        project was handed "Fork your first field from the game", the newcomer fallback, on a Home whose
+        guide had (correctly) hidden itself. When the fallback IS a step, the guide usually shows the
+        same row and _refresh_getstarted hides this card (the one-accent law) -- with ONE deliberate
+        corner: the history rung filters to Path.exists() (a lede cannot open a missing file) while the
+        goes-away law counts RAW history (an unplugged drive is not a reset), so a veteran whose entire
+        history is temporarily unreachable sees the step here WITHOUT the guide. One pointer, no
+        duplication -- accepted, not accidental.
         """
         name, level = self._current_target()
         if name is not None:
             return (f"Continue {name}",
                     f"You have a {level.lower()} open — build it and walk it in-game.",
                     "Build & Deploy", lambda: self.tabs.setCurrentWidget(self.build_deploy))
+        rows = [e for e in prefs.recent() if Path(e["path"]).exists()]
+        if rows:
+            e = rows[0]
+            return (f"Pick up {self._recent_display(e)}",
+                    f"Your most recent {e['kind']} — reopen it where you left off.",
+                    "Open", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p))
         steps = self._getstarted_steps()
         i = next((k for k, s in enumerate(steps) if not s[2]), len(steps) - 1)
         title, desc, _done, label, cb = steps[i]
@@ -1905,7 +1996,9 @@ class Workspace(QMainWindow):
         title, note, label, cb = self._lede_state()
         self._lede_title.setText(title)
         self._lede_note.setText(note)
-        self._lede_btn.setText(label)
+        # && -> a literal & (same trap as the updates dialog): the "Build & Deploy" label was rendering
+        # as "Build _Deploy", Qt having eaten the & as a mnemonic. Seen in a harness grab, not by a test.
+        self._lede_btn.setText(label.replace("&", "&&"))
         self._lede_cb = cb                               # the dispatcher is already connected -- see _build_lede
         self._lede_btn.setAccessibleName(f"{label} — {title}")
 
@@ -2406,6 +2499,7 @@ class Workspace(QMainWindow):
         note.setProperty("role", "muted")
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
+        widgets.fit_dialog(dlg, ch=72)                 # the placeholders are the teaching -- show them whole
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._append_journey_row(jid.text().strip(), jname.text().strip(), entry.text().strip(),
@@ -2467,6 +2561,7 @@ class Workspace(QMainWindow):
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
+        widgets.fit_dialog(dlg, ch=72)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._apply_journey_seed(jid, scenario.text().strip(), party.text().strip())
@@ -2597,7 +2692,8 @@ class Workspace(QMainWindow):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         lay.addWidget(bb)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        widgets.fit_dialog(dlg, ch=78, list_rows=14)   # the twin of importdoc's region catalog (measured
+        if dlg.exec() != QDialog.DialogCode.Accepted:  # 385x409 there before TAILOR -- same list, same fix)
             return []
         return [lst.item(i).data(Qt.ItemDataRole.UserRole) for i in range(lst.count())
                 if lst.item(i).checkState() == Qt.CheckState.Checked]
@@ -2738,6 +2834,11 @@ class Workspace(QMainWindow):
         self.act_check.setEnabled(False)
         self.story_state.set_flag_names({})        # no project -> drop the authored-flag labels
         self.tabs.setCurrentWidget(self._welcome_tab)
+        # EXPLICITLY, not via the tab switch: setCurrentWidget on the ALREADY-current tab emits no
+        # currentChanged (Qt early-returns), so Close clicked while ON Home left the hero saying
+        # "Currently editing", the lede offering "Continue <closed project>", and the goes-away law
+        # unevaluated until the user left Home and came back. Found by the round-8 adversarial review.
+        self._refresh_home_status()
         self._refresh_deploy_btn()                 # Build & Deploy stays aimed (existing behavior); the
         self.statusBar().showMessage("Closed — open a journey, campaign, or field to begin.")   # tooltip re-names it
 
@@ -2813,6 +2914,7 @@ class Workspace(QMainWindow):
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
+        widgets.fit_dialog(dlg, ch=84)                 # a Destination PATH must show as a path, not 15 chars
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -2859,6 +2961,7 @@ class Workspace(QMainWindow):
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
+        widgets.fit_dialog(dlg, ch=84)                 # the Folder PATH is the point of this form
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -3040,6 +3143,7 @@ class Workspace(QMainWindow):
         for rb in (bare_rb, multi_rb, hub_rb):
             rb.toggled.connect(_toggle)
         _toggle()
+        widgets.fit_dialog(dlg, ch=96)                 # radios already push ~680 at 100%; this floor is for the dial
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         kind = "bare" if bare_rb.isChecked() else "multi" if multi_rb.isChecked() else "hub"
@@ -3085,7 +3189,6 @@ class Workspace(QMainWindow):
         reserved = set(reserved)
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
-        dlg.resize(460, 360)
         lay = QVBoxLayout(dlg)
         note = QLabel(f"Named story flags shared across fields. The bit is GLOBAL (one gEventGlobal save "
                       f"array) — the name just lets every field gate by it. A new flag auto-picks the next free "
@@ -3136,6 +3239,10 @@ class Workspace(QMainWindow):
         btns.addStretch(1)
         lay.addLayout(btns)
         lay.addWidget(self._ok_cancel(dlg))
+        # ~10 visible rows of the table, measured in ITS font (fit_dialog sizes lists, not tables).
+        tbl.ensurePolished()
+        tbl.setMinimumHeight(round(QFontMetricsF(tbl.font()).height() * 1.9 * 10))
+        widgets.fit_dialog(dlg, ch=76)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         out = []
@@ -3238,6 +3345,7 @@ class Workspace(QMainWindow):
         note.setWordWrap(True)
         form.addRow(note)
         form.addRow(self._ok_cancel(dlg))
+        widgets.fit_dialog(dlg, ch=72)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -4157,6 +4265,8 @@ class Workspace(QMainWindow):
         for e in prefs.recent():                       # 'Reopen X' rows -- the same list as Home's Recent
             cmds.append((f"Reopen {self._recent_display(e)} — {e['kind']} · {_snip(e['path'], 48)}",
                          "recent", lambda k=e["kind"], p=e["path"]: self._open_recent(k, p)))
+        cmds.append(("Show the Get started guide", "learn", self._show_getstarted))
+        cmds.append(("Hide the Get started guide", "learn", self._hide_getstarted))
         cmds.append(("How it all fits (concept map)", "learn", self._show_concept_map))
         for c in concepts.all_concepts():              # 'What is X?' -> a plain-language concept card (Phase 5)
             cmds.append((f"What is {c.title}?", "learn", lambda _c=c: self._show_concept(_c)))
@@ -7914,6 +8024,14 @@ def _smoke(win):
     prefs.add_recent = _stub_add_recent
     prefs.recent = lambda: list(_rec)
     prefs.remove_recent = _stub_remove_recent
+    # The GOES-AWAY block below round-trips Hide/Show -- stub the dismissal the SAME in-memory way, so the
+    # smoke neither READS the developer's real dismissal (a red smoke on any machine whose owner clicked
+    # Hide) nor WRITES one back. The first cut of that block did both -- with its cleanup INSIDE the try
+    # and hard-coded to False (a reset is not a restore) -- i.e. the exact developer's-prefs disease the
+    # comment above narrates, recommitted while citing it. Caught by the round's adversarial review.
+    _gs_hidden = {"v": False}
+    prefs.getstarted_hidden = lambda: _gs_hidden["v"]
+    prefs.set_getstarted_hidden = lambda on: _gs_hidden.__setitem__("v", bool(on))
     d = Path(tempfile.mkdtemp())
     M = C.Member
     members = [M(300, 30100, "IC_ENT", "borrow", 11, "", "IC_ENT/IC_ENT.field.toml", False),
@@ -9544,15 +9662,46 @@ def _smoke(win):
         f"the spine must stay SILENT on EMPTY -- Home's lede already says it: {(_g_empty, _a_empty)}"
     _home_btns = {b.text() for b in win._welcome_tab.findChildren(QPushButton)}
     assert {"Open…", "New…", "Go to Battle", "Go to Import", "Open Save…"} <= _home_btns, _home_btns
-    # Phase 4: the provenance-clean 'Get started' checklist shows on the empty Home -- 3 live steps ending on
-    # 'fork your first field from the game'. The kit ships NO FF9 content, so the newcomer's first working
-    # project is one THEY fork from their own install (no shipped samples). Structural asserts (machine-state
-    # independent): three rows, the provenance note, and the always-present fork-a-field action.
-    assert win._start_lay.count() == 3, win._start_lay.count()
-    _home_labels = " ".join(l.text() for l in win._welcome_tab.findChildren(QLabel))
-    assert "FINAL FANTASY IX content" in _home_labels, "the provenance note is missing"
-    assert "Fork your first field" in _home_labels, "the checklist must end on forking a real field"
-    assert "Go to Import" in {b.text() for b in win._start_box.findChildren(QPushButton)}, "no fork-a-field action"
+    # Phase 4 + the GOES-AWAY LAW. The guide's visibility now depends on machine state (game found?
+    # templates?), history (prefs.recent) AND the dismissal (prefs.getstarted_hidden, stubbed in-memory
+    # at the top of _smoke with the recent-store) -- so the smoke PINS all three rather than reading this
+    # machine (a test that reads the developer's machine is a report on the developer). Newcomer state
+    # -> 3 live steps ending on 'fork your first field' and the lede stays out of the guide's way (the
+    # one-accent law); veteran state -> the guide is GONE and the lede leads with the user's history.
+    from .. import health as _health, provision as _prov
+    _orig_state = (_health.find_game, _prov.templates_present, prefs.recent)
+    try:
+        _health.find_game = lambda: (None, "not located")            # NEWCOMER: nothing set up, no history
+        _prov.templates_present = lambda: False
+        prefs.recent = lambda: []
+        win._refresh_home_status()
+        assert win._start_lay.count() == 3, win._start_lay.count()
+        assert win._start_box.isVisibleTo(win._welcome_tab), "the guide must show for a newcomer"
+        assert not win._lede.isVisibleTo(win._welcome_tab), \
+            "the lede mirrors the guide's primary step -- showing both is the same row twice (one-accent law)"
+        _home_labels = " ".join(l.text() for l in win._welcome_tab.findChildren(QLabel))
+        assert "FINAL FANTASY IX content" in _home_labels, "the provenance note is missing"
+        assert "Fork your first field" in _home_labels, "the checklist must end on forking a real field"
+        assert "Go to Import" in {b.text() for b in win._start_box.findChildren(QPushButton)}, "no fork action"
+        _health.find_game = lambda: (Path("C:/FF9"), None)           # VETERAN: set up + real history
+        _prov.templates_present = lambda: True
+        _hist = Path(tempfile.mkdtemp()) / "old_room.field.toml"     # the lede prunes non-existent paths,
+        _hist.write_text("", encoding="utf-8")                       # so the history entry must be real
+        prefs.recent = lambda: [{"kind": "field", "path": str(_hist)}]
+        win._refresh_home_status()
+        assert not win._start_box.isVisibleTo(win._welcome_tab), "the guide must GO AWAY once done"
+        assert win._lede.isVisibleTo(win._welcome_tab), "the veteran's lede leads with their history"
+        assert win._lede_title.text().startswith("Pick up "), win._lede_title.text()
+        win._show_getstarted()                                       # Ctrl-K forces it back, session-only
+        assert win._start_box.isVisibleTo(win._welcome_tab), "Show the Get started guide must SHOW it"
+        win._hide_getstarted()                                       # the Hide link wins over the force
+        assert not win._start_box.isVisibleTo(win._welcome_tab), "Hide must hide it"
+        assert prefs.getstarted_hidden(), "Hide persists"            # via the in-memory stub, never the disk
+        prefs.set_getstarted_hidden(False)                           # in-memory: reset the stub for what follows
+        win._getstarted_forced = False
+    finally:
+        _health.find_game, _prov.templates_present, prefs.recent = _orig_state
+    win._refresh_home_status()                                       # back to the smoke's stubbed state
 
     # RECONCILE (STEP 2): a reference-arc scaffold's ENTRY_MEMBER + link placeholders fill from the forked
     # campaigns beside it -- camp_a/A2 has a scripted Field() seam to 200 (== camp_b/B1's source) -> PRECISE.
@@ -9770,7 +9919,8 @@ def _smoke(win):
           f"persistent CHIP names the SELECTED node's type (hub/journey/campaign/field) + breadcrumb truthful "
           f"per-tab (content/battle/save/build) + distinct hub/journey SVG type icons + type tooltips + Close-to-empty + "
           f"drilled-in Open-Field escape + 'Start here' HOME (entry points as buttons + 'currently editing' + "
-          f"provenance-clean Get-started checklist -> fork your own field) + "
+          f"provenance-clean Get-started checklist -> fork your own field, goes-away law + Hide/Show + "
+          f"one-accent lede handoff) + "
           f"loose-field->parent-campaign upward jump + battle.toml/Import fork pre-aim+auto-open Build&Deploy + JOURNEY mode "
           f"(open/lint/overview/drill-in/RECONCILE entry+links from forks/ADD region to arc/base-party seed/player tuning + VISIBLE per-journey action row + clickable seed/tuning) + VERBATIM logic-map subtree + in-place edit panel "
           f"({vb_ok or 'fixture-skipped'}) + [[logic_add]] authoring "

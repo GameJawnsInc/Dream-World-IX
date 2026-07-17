@@ -579,6 +579,7 @@ class BuildDoc(QWidget):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         v.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=84)                 # the mod-folder PATH is this form's whole subject
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         root = root_edit.text().strip().strip('"')
