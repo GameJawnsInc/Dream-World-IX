@@ -17,6 +17,8 @@ import base64
 import os
 import socket
 import threading
+import time
+import types
 
 import pytest
 
@@ -391,4 +393,94 @@ def test_non_websocket_request_is_closed_without_101(relay):
         assert not relay.ready.wait(timeout=1), "bridge dialed the relay despite a non-upgrade request"
         assert relay.conn is None
     finally:
+        bridge.close()
+
+
+# --------------------------------------------------------------------------- 9: flood / thread-spawn hardening
+
+def test_flood_beyond_cap_is_refused_not_fatal(relay, monkeypatch):
+    monkeypatch.setattr(NB, "MAX_CLIENTS", 2)
+    bridge = Bridge(relay.url)
+    holder1 = holder2 = third = None
+    try:
+        # 2 bare connections that send nothing -- each holds a slot inside read_http_headers.
+        holder1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        holder1.settimeout(TIMEOUT)
+        holder1.connect(("127.0.0.1", bridge.port))
+        time.sleep(0.2)  # let the accept loop claim the slot
+
+        holder2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        holder2.settimeout(TIMEOUT)
+        holder2.connect(("127.0.0.1", bridge.port))
+        time.sleep(0.2)
+
+        # both slots taken -- a 3rd connection must be refused promptly, not queued.
+        third = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        third.settimeout(TIMEOUT)
+        third.connect(("127.0.0.1", bridge.port))
+        assert _recv_until_closed(third) == b""
+        third.close()
+        third = None
+
+        # freeing both holders releases their slots -- the accept loop must still be alive to reuse them.
+        holder1.close()
+        holder2.close()
+        holder1 = holder2 = None
+
+        game = game_key = resp = None
+        last_err = None
+        deadline = time.monotonic() + TIMEOUT
+        while resp is None and time.monotonic() < deadline:
+            try:
+                game, game_key = _connect_game(bridge.port)
+                resp = NB.read_http_headers(game)
+            except (ConnectionError, OSError) as err:
+                last_err = err
+                time.sleep(0.1)
+        assert resp is not None, "handshake never recovered after slots should have freed: %r" % (last_err,)
+        assert " 101 " in resp.split("\r\n", 1)[0]
+        assert NB.ws_accept(game_key) in resp
+        game.close()
+    finally:
+        for s in (holder1, holder2, third):
+            if s is not None:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+        bridge.close()
+
+
+def test_thread_spawn_failure_closes_client_and_loop_survives(relay, monkeypatch):
+    bridge = Bridge(relay.url)  # constructed with real threading, before the swap below
+    client = None
+    try:
+        class _Boom:
+            def __init__(self, *a, **k):
+                raise RuntimeError("can't start new thread")
+
+        # accept_loop resolves "threading" through NB's module globals at call time, so only
+        # the bridge's own spawns are affected -- this test's fixtures/threads are untouched.
+        monkeypatch.setattr(NB, "threading", types.SimpleNamespace(Thread=_Boom))
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(TIMEOUT)
+        client.connect(("127.0.0.1", bridge.port))
+        assert _recv_until_closed(client) == b""  # closed, not leaked, loop alive
+        client.close()
+        client = None
+
+        monkeypatch.setattr(NB, "threading", threading)  # restore -- the loop must still spawn
+
+        game, game_key = _connect_game(bridge.port)
+        resp = NB.read_http_headers(game)
+        assert " 101 " in resp.split("\r\n", 1)[0]
+        assert NB.ws_accept(game_key) in resp
+        game.close()
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except OSError:
+                pass
         bridge.close()

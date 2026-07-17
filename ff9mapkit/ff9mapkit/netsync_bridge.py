@@ -44,6 +44,11 @@ _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 _OBF_KEY = 0x5A
 _OBF_RELAY = "LSkpYHV1KD82OyN0MDstNCkuNTR0OTU3"
 
+# Concurrency cap. Normal use is ONE local game client; the cap only matters when
+# something floods the port -- past it we refuse instead of spawning unboundedly
+# (CPython eventually fails thread creation, which must never kill the accept loop).
+MAX_CLIENTS = 32
+
 
 def default_relay():
     return bytes(b ^ _OBF_KEY for b in base64.b64decode(_OBF_RELAY)).decode("ascii")
@@ -206,15 +211,41 @@ def run_server(listen_host, listen_port, relay, insecure):
     server.bind((listen_host, listen_port))
     server.listen(4)
 
+    slots = threading.BoundedSemaphore(MAX_CLIENTS)
+
     def accept_loop():
         while True:
             try:
                 client, addr = server.accept()
             except OSError:
                 return  # server socket closed
-            threading.Thread(
-                target=handle_client, args=(client, addr, relay, insecure), daemon=True
-            ).start()
+
+            if not slots.acquire(blocking=False):
+                log("refusing %s: at MAX_CLIENTS (%d)" % (addr[0], MAX_CLIENTS))
+                try:
+                    client.close()
+                except OSError:
+                    pass
+                continue
+
+            def bridged(client=client, addr=addr):
+                try:
+                    handle_client(client, addr, relay, insecure)
+                finally:
+                    slots.release()
+
+            # A spawn failure (e.g. RuntimeError: can't start new thread, under flood)
+            # must never kill this loop -- release the slot, drop the client, keep accepting.
+            try:
+                threading.Thread(target=bridged, daemon=True).start()
+            except Exception as err:
+                slots.release()
+                try:
+                    client.close()
+                except OSError:
+                    pass
+                log("failed to spawn handler for %s: %s" % (addr[0], err))
+                continue
 
     thread = threading.Thread(target=accept_loop, daemon=True)
     thread.start()
