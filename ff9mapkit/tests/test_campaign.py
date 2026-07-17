@@ -619,7 +619,8 @@ def test_campaign_render_roundtrips_shared_flags(tmp_path):
     assert campaign.load_campaign(f).flags == [{"name": "boss_dead", "index": 8700}]
 
 
-# ---- P6: mutation / creation API (new_campaign / add_field / remove / rename / set_entry) -----
+# ---- P6: creation API (new_campaign / add_field / set_shared_flags; the per-item mutation API
+# ----     retired 2026-07-17 with its only caller, the tkinter campaign editor) -----
 def test_new_campaign_empty_round_trips(tmp_path):
     plan = campaign.new_campaign("MYGAME", "FF9CustomMap-bb", tmp_path, id_base=30100)
     assert plan.members == [] and plan.entry_name == ""
@@ -651,7 +652,8 @@ def test_add_blank_fields_and_edges_offline(tmp_path):
     assert plan.entry_name == "HUB"                                    # first add becomes entry
     assert (tmp_path / "HUB" / "hub.field.toml").is_file()             # pack scaffolded a buildable room
     assert (tmp_path / "HUB" / "art" / "back.png").is_file()
-    campaign.add_edge(plan, tmp_path, "HUB", "NORTH", entrance=1)
+    plan.edges.append({"frm": "HUB", "to": "NORTH", "entrance": 1, "story_conditional": False})
+    (tmp_path / "campaign.toml").write_text(campaign.render_campaign_toml(plan), encoding="utf-8")
     # reload + lint the whole thing from disk: structurally valid, both ends real, HUB->NORTH resolves
     loaded = campaign.load_campaign(tmp_path / "campaign.toml")
     assert {m.name for m in loaded.members} == {"HUB", "NORTH"}
@@ -668,64 +670,10 @@ def test_add_field_rejects_duplicate_name(tmp_path):
         campaign.add_field(plan, tmp_path, name="HUB")
 
 
-def test_remove_field_prunes_refs_and_subdir(tmp_path):
-    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
-    campaign.add_field(plan, tmp_path, name="HUB")
-    campaign.add_field(plan, tmp_path, name="NORTH")
-    campaign.add_field(plan, tmp_path, name="ATTIC")
-    campaign.add_edge(plan, tmp_path, "HUB", "NORTH")
-    campaign.add_edge(plan, tmp_path, "NORTH", "ATTIC")
-    campaign.remove_field(plan, tmp_path, "NORTH")
-    assert {m.name for m in plan.members} == {"HUB", "ATTIC"}
-    assert not (tmp_path / "NORTH").exists()                          # subdir gone
-    assert plan.edges == []                                            # both edges referenced NORTH -> pruned
-    assert campaign.load_campaign(tmp_path / "campaign.toml").edges == []
-    # removing the entry re-points it
-    campaign.remove_field(plan, tmp_path, "HUB")
-    assert plan.entry_name == "ATTIC"
-
-
-def test_rename_field_moves_subdir_and_rekeys(tmp_path):
-    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
-    campaign.add_field(plan, tmp_path, name="HUB")
-    campaign.add_field(plan, tmp_path, name="NORTH")
-    campaign.add_edge(plan, tmp_path, "HUB", "NORTH", entrance=2)
-    campaign.set_entry(plan, tmp_path, "HUB")
-    campaign.rename_field(plan, tmp_path, "HUB", "LOBBY")
-    assert {m.name for m in plan.members} == {"LOBBY", "NORTH"}
-    assert (tmp_path / "LOBBY").is_dir() and not (tmp_path / "HUB").exists()
-    assert plan.entry_name == "LOBBY"
-    e = plan.edges[0]
-    assert e["frm"] == "LOBBY" and e["to"] == "NORTH"                  # edge rekeyed
-    loaded = campaign.load_campaign(tmp_path / "campaign.toml")        # the renamed member still resolves
-    m = next(x for x in loaded.members if x.name == "LOBBY")
-    assert (tmp_path / m.toml_rel).is_file()
-    assert campaign.lint_campaign(loaded, tmp_path)[0] == []
-
-
-def test_rename_rejects_collision(tmp_path):
-    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
-    campaign.add_field(plan, tmp_path, name="HUB")
-    campaign.add_field(plan, tmp_path, name="NORTH")
-    with pytest.raises(campaign.CampaignError):
-        campaign.rename_field(plan, tmp_path, "HUB", "NORTH")
-
-
-def test_set_entry_validates(tmp_path):
-    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
-    campaign.add_field(plan, tmp_path, name="HUB")
-    with pytest.raises(campaign.CampaignError):
-        campaign.set_entry(plan, tmp_path, "GHOST")
-    campaign.set_entry(plan, tmp_path, "HUB", entrance=3)
-    assert plan.entry_name == "HUB" and plan.entry_entrance == 3
-
-
-def test_mutation_rejects_path_traversal(tmp_path):
+def test_lint_rejects_path_traversal(tmp_path):
     plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)
     plan.members.append(campaign.Member(0, 30100, "EVIL", "editable", 11, "", "../EVIL/evil.field.toml", False))
-    with pytest.raises(campaign.CampaignError):                      # _safe_member_dir blocks the rmtree
-        campaign.remove_field(plan, tmp_path, "EVIL")
-    assert any("escapes" in e for e in campaign.lint_campaign(plan, tmp_path)[0])   # lint surfaces it too
+    assert any("escapes" in e for e in campaign.lint_campaign(plan, tmp_path)[0])   # _within blocks the read
 
 
 def test_member_name_validation_rejects_separators(tmp_path):
@@ -733,31 +681,7 @@ def test_member_name_validation_rejects_separators(tmp_path):
     for bad in ("../x", "a/b", "a\\b", "  ", "."):
         with pytest.raises(campaign.CampaignError):
             campaign.add_field(plan, tmp_path, name=bad)
-    campaign.add_field(plan, tmp_path, name="OK")
-    with pytest.raises(campaign.CampaignError):
-        campaign.rename_field(plan, tmp_path, "OK", "../escape")
-
-
-def test_add_remove_shared_flag(tmp_path):
-    plan = campaign.new_campaign("MY", "M", tmp_path, id_base=30100)   # flag_base = FIRST_SAFE_FLAG (8512)
-    campaign.add_field(plan, tmp_path, name="HUB")
-    campaign.add_field(plan, tmp_path, name="NORTH")                   # member blocks span [8512, 8639]
-    f = campaign.add_flag(plan, tmp_path, "boss_dead")                 # auto-index just ABOVE the blocks
-    assert f["name"] == "boss_dead" and f["index"] == 8640
-    assert campaign.lint_campaign(plan, tmp_path)[0] == []             # clear of member blocks + chest band
-    loaded = campaign.load_campaign(tmp_path / "campaign.toml")        # round-trips
-    assert loaded.flags == [{"name": "boss_dead", "index": 8640}]
-    campaign.add_flag(plan, tmp_path, "switch", index=9000)           # explicit safe index
-    with pytest.raises(campaign.CampaignError):
-        campaign.add_flag(plan, tmp_path, "boss_dead")                # dup name
-    with pytest.raises(campaign.CampaignError):
-        campaign.add_flag(plan, tmp_path, "again", index=9000)        # dup index
-    with pytest.raises(campaign.CampaignError):
-        campaign.add_flag(plan, tmp_path, "inchest", index=8400)      # below floor / in chest band
-    campaign.remove_flag(plan, tmp_path, "boss_dead")
-    assert {x["name"] for x in plan.flags} == {"switch"}
-    with pytest.raises(campaign.CampaignError):
-        campaign.remove_flag(plan, tmp_path, "nope")
+    campaign.add_field(plan, tmp_path, name="OK")                      # a plain token is accepted
 
 
 def test_campaign_flag_block_overflow_raises(tmp_path):

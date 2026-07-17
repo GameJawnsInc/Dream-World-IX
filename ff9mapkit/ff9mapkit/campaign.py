@@ -1098,11 +1098,6 @@ def _next_member_id(plan: CampaignPlan) -> int:
     return max((m.new_id for m in plan.members), default=plan.id_base - 1) + 1
 
 
-def _subdir_of(member: Member) -> str:
-    """The member's on-disk subdir (the first path component of toml_rel)."""
-    return Path(member.toml_rel).parts[0]
-
-
 def _within(base, path) -> bool:
     """True if ``path`` resolves to ``base`` itself or somewhere inside it -- the guard that keeps a
     crafted/stale ``toml_rel`` (``../..``) from letting a mutation rename/rmtree/read OUTSIDE the campaign."""
@@ -1117,15 +1112,6 @@ def _validate_member_name(name: str) -> str:
     if not name or name != name.strip() or name in (".", "..") or any(c in name for c in "/\\"):
         raise CampaignError(f"invalid member name {name!r} (no path separators / leading-trailing space)")
     return name
-
-
-def _safe_member_dir(manifest_dir, member: Member) -> Path:
-    """A member's subdir, RESOLVED and validated to stay within manifest_dir -- the guard before any
-    destructive rename/rmtree (a crafted toml_rel must never reach outside the campaign folder)."""
-    sub = Path(manifest_dir) / _subdir_of(member)
-    if not _within(manifest_dir, sub):
-        raise CampaignError(f"member {member.name!r}: subdir escapes the campaign folder ({member.toml_rel})")
-    return sub.resolve()
 
 
 def _resolve_source_id(source) -> int:
@@ -1210,132 +1196,8 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
     return member
 
 
-def remove_field(plan: CampaignPlan, manifest_dir, name) -> None:
-    """Drop a member from the campaign: remove its subdir, prune every edge/seam that referenced it, and
-    re-point the entry if it was the removed member. Leaves an id gap (no renumber)."""
-    import shutil
-    manifest_dir = Path(manifest_dir)
-    m = next((x for x in plan.members if x.name == name), None)
-    if m is None:
-        raise CampaignError(f"no member named {name!r}")
-    mdir = _safe_member_dir(manifest_dir, m)             # validate within manifest_dir BEFORE any mutation
-    plan.members.remove(m)
-    plan.edges = [e for e in plan.edges if e.get("frm") != name and e.get("to") != name]
-    plan.seams = [s for s in plan.seams if s.get("frm") != name]
-    for s in plan.seams:
-        if s.get("to_member") == name:
-            s["to_member"] = None
-    if plan.entry_name == name:
-        plan.entry_name = plan.members[0].name if plan.members else ""
-    if mdir.is_dir():
-        shutil.rmtree(mdir, ignore_errors=True)
-    _save_plan(plan, manifest_dir)
-
-
-def rename_field(plan: CampaignPlan, manifest_dir, old, new) -> None:
-    """Rename a member's STRUCTURAL identity: its subdir + toml_rel + campaign.toml name, and rekey every
-    edge/seam/entry that referenced it. Does NOT touch the field's in-game ``[field] name`` (that's the
-    separate display name the Logic Editor owns) or the inner field.toml filename -- a structural rename
-    only. Ids are unchanged, so no member's gateways need rewriting."""
-    manifest_dir = Path(manifest_dir)
-    m = next((x for x in plan.members if x.name == old), None)
-    if m is None:
-        raise CampaignError(f"no member named {old!r}")
-    new = _validate_member_name(new)
-    if old == new:
-        return
-    if any(x.name == new for x in plan.members):
-        raise CampaignError(f"member name {new!r} is already in this campaign")
-    old_dir = _safe_member_dir(manifest_dir, m)          # validated within manifest_dir before the rename
-    new_dir = (manifest_dir / new).resolve()
-    if old_dir.is_dir() and old_dir != new_dir:
-        if new_dir.exists():
-            raise CampaignError(f"cannot rename onto existing path {new_dir}")
-        old_dir.rename(new_dir)
-    m.toml_rel = f"{new}/{Path(m.toml_rel).name}"        # keep the inner filename; swap the subdir
-    m.name = new
-    for e in plan.edges:
-        if e.get("frm") == old:
-            e["frm"] = new
-        if e.get("to") == old:
-            e["to"] = new
-    for s in plan.seams:
-        if s.get("frm") == old:
-            s["frm"] = new
-        if s.get("to_member") == old:
-            s["to_member"] = new
-    if plan.entry_name == old:
-        plan.entry_name = new
-    _save_plan(plan, manifest_dir)
-
-
-def set_entry(plan: CampaignPlan, manifest_dir, name, *, entrance=None) -> None:
-    """Set the campaign's entry member (and optionally its entrance). Validates the member exists."""
-    if name not in {m.name for m in plan.members}:
-        raise CampaignError(f"entry {name!r} is not a campaign member")
-    plan.entry_name = name
-    if entrance is not None:
-        plan.entry_entrance = int(entrance)
-    _save_plan(plan, manifest_dir)
-
-
-def add_edge(plan: CampaignPlan, manifest_dir, frm, to, *, entrance=0, gated=False) -> None:
-    """Record an in-chain connection in the graph (campaign.toml [[edge]]). NOTE: this is the graph-level
-    reflection of connectivity -- the LIVE door is a ``[[gateway]]`` you author in the source member's
-    field.toml (the Logic Editor). Both ends must be members."""
-    names = {m.name for m in plan.members}
-    if frm not in names or to not in names:
-        raise CampaignError(f"edge {frm!r}->{to!r}: both ends must be campaign members")
-    plan.edges.append({"frm": frm, "to": to, "entrance": int(entrance),
-                       "story_conditional": bool(gated)})
-    _save_plan(plan, manifest_dir)
-
-
-def remove_edge(plan: CampaignPlan, manifest_dir, frm, to) -> None:
-    """Remove the graph edge(s) frm->to (campaign.toml [[edge]])."""
-    plan.edges = [e for e in plan.edges if not (e.get("frm") == frm and e.get("to") == to)]
-    _save_plan(plan, manifest_dir)
-
-
-def _shared_flag_floor(plan: CampaignPlan) -> int:
-    """The lowest index a shared [[flag]] may take: just ABOVE every per-member auto-flag block (which span
-    [flag_base, flag_base + members*K)), and never below the census-safe floor."""
-    block_hi = plan.flag_base + len(plan.members) * plan.flags_per_field - 1
-    return max(block_hi + 1, FIRST_SAFE_FLAG)
-
-
-def add_flag(plan: CampaignPlan, manifest_dir, name, index=None) -> dict:
-    """Add a shared NAMED campaign flag (a cross-field story gate) to campaign.toml's [[flag]] table; members
-    then gate by NAME (``requires_flag = "<name>"``). ``index=None`` auto-picks the next free safe index
-    ABOVE the per-member auto-flag blocks (inside [FIRST_SAFE_FLAG, CHOICE_SCRATCH_FLOOR)). Validates name +
-    band; returns the new ``{name, index}``."""
-    name = str(name).strip()
-    if not name:
-        raise CampaignError("a shared flag needs a name")
-    floor = _shared_flag_floor(plan)
-    used = {int(f.get("index", -1)) for f in plan.flags}
-    if index is None:
-        index = max([floor] + [i + 1 for i in used])
-    index = int(index)
-    if not (floor <= index < CHOICE_SCRATCH_FLOOR):
-        raise CampaignError(f"flag index {index} must be in [{floor}, {CHOICE_SCRATCH_FLOOR}) -- above the "
-                            f"per-member auto-flag blocks, below the choice scratch")
-    if index in used:
-        raise CampaignError(f"flag index {index} is already used by another shared flag")
-    plan.flags.append({"name": name, "index": index})
-    try:
-        collect_flag_defs({"flag": plan.flags})      # re-validate (dup name, safe band); rollback on failure
-    except ValueError as e:
-        plan.flags.pop()
-        raise CampaignError(str(e))
-    _save_plan(plan, manifest_dir)
-    return {"name": name, "index": index}
-
-
-def remove_flag(plan: CampaignPlan, manifest_dir, name) -> None:
-    """Remove the shared named flag ``name`` from the campaign's [[flag]] table."""
-    keep = [f for f in plan.flags if f.get("name") != name]
-    if len(keep) == len(plan.flags):
-        raise CampaignError(f"no shared flag named {name!r}")
-    plan.flags = keep
-    _save_plan(plan, manifest_dir)
+# NOTE: the Phase-D per-item mutation API (remove_field / rename_field / set_entry / add_edge /
+# remove_edge / add_flag / remove_flag) lived here until 2026-07-17. Its only caller was the retired
+# tkinter apps/campaign_editor.pyw; the Workspace rebuilt campaign mutation on new_campaign / add_field /
+# set_shared_flags (whole-list replace) and never used it. Recover from git history if a per-item
+# surface is ever wanted again -- and re-fit it to the current editor idioms first.
