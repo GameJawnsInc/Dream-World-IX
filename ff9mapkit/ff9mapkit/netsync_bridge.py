@@ -64,8 +64,10 @@ IDLE_TIMEOUT = 120.0
 
 # Request-line tokens are re-emitted verbatim into the upstream GET (open_upstream)
 # and into log lines -- printable ASCII only, or an embedded bare LF becomes header
-# injection in the outbound request.
-_REQ_TOKEN_RE = re.compile(r"^[!-~]+$")
+# injection in the outbound request. The \A...\Z anchors are load-bearing: $ without
+# re.MULTILINE still matches immediately before a single trailing \n, so a token
+# ENDING in LF would slip past ^[!-~]+$ -- \Z has no such trailing-newline exemption.
+_REQ_TOKEN_RE = re.compile(r"\A[!-~]+\Z")
 
 
 def default_relay():
