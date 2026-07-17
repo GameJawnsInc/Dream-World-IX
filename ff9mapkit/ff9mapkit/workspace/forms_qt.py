@@ -355,7 +355,6 @@ class CatalogPicker(QDialog):
                  sps_context=None):
         super().__init__(parent)
         self.setWindowTitle("Browse the catalog" if browse else "Pick from the catalog")
-        self.resize(560, 460)
         self.kinds = kinds
         self.plan = plan
         self.sps_context = sps_context                 # the open field's carried effects (for the 'sps' kind)
@@ -393,6 +392,9 @@ class CatalogPicker(QDialog):
         bar.addStretch(1)
         lay.addLayout(bar)
         self._refresh()
+        # lines= carries the height when the initial search matched nothing (an empty list has no rows
+        # to measure); list_rows rules when it did.
+        widgets.fit_dialog(self, ch=88, list_rows=12, lines=22)
         self.q.setFocus()
 
     def _refresh(self):
@@ -788,7 +790,6 @@ class CatalogLibrary(QDialog):
         Copy name / Copy snippet are used."""
         dlg = QDialog(self)
         dlg.setWindowTitle("Info Hub — help")
-        dlg.resize(470, 540)
         v = QVBoxLayout(dlg)
         body = QTextEdit()
         body.setReadOnly(True)
@@ -804,4 +805,5 @@ class CatalogLibrary(QDialog):
         ok.clicked.connect(dlg.accept)
         row.addWidget(ok)
         v.addLayout(row)
+        widgets.fit_dialog(dlg, ch=78, lines=26)       # a glossary you READ: page-ish width, real height
         dlg.exec()

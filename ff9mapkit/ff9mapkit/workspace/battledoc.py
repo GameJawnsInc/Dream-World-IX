@@ -944,7 +944,6 @@ class BattleDoc(QWidget):
         """A simple searchable single-pick list dialog over ``rows`` (names); the chosen name, or None."""
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
-        dlg.resize(360, 460)
         lay = QVBoxLayout(dlg)
         q = QLineEdit()
         q.setPlaceholderText("Filter…")
@@ -958,6 +957,7 @@ class BattleDoc(QWidget):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         lay.addWidget(bb)
+        widgets.fit_dialog(dlg, ch=48, list_rows=16)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         it = lst.currentItem()
@@ -997,6 +997,7 @@ class BattleDoc(QWidget):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         form.addRow(bb)
+        widgets.fit_dialog(dlg, ch=84)                 # BBG name + a Write-to PATH: give the path room
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         b, o = bbg.text().strip(), out.text().strip()

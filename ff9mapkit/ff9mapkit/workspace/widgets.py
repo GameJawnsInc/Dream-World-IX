@@ -7,7 +7,7 @@ PySide6-only: the application-wide wheel guard (:class:`WheelGuard`) and the emp
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontInfo, QPainter
+from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
     QListWidget, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
@@ -78,6 +78,74 @@ def page_column(host):
     page_margins(v)
     v.setSpacing(SECTION_GAP)
     return v
+
+
+def fit_dialog(dlg, *, ch=64, list_rows=12, lines=0) -> None:
+    """TAILOR -- size a modal from its CONTENT, in text units, clamped to the screen.
+
+    THE LAW: A POPUP'S SIZE IS A FUNCTION OF ITS CONTENT, AND A PX CONSTANT IS NOT A FUNCTION.
+    Two failure modes shipped side by side, one per direction:
+
+      * no size at all -- Qt sums the children's sizeHints, and a QLineEdit's hint is ~17 characters
+        while a QListWidget's is 256x192 REGARDLESS of its rows. Measured: New Campaign opened 309px
+        wide with its Folder path truncated to "-mestorf-205c97"; the FF9 region catalog showed 6 of
+        its regions behind two scrollbars in a 385x409 box.
+      * resize(W, H) -- right for one font at one scale, and DEAF to the CALIBRE text dial by
+        construction (the same deafness style.py documents for setFixedSize: a px constant cannot
+        hear a font change).
+
+    So the dialog asks for ``ch`` characters of its own POLISHED body font (the QSS base rule puts
+    $type_body on every QWidget, so the metric moves with the dial and the fence can assert the
+    relationship instead of a number); each populated QListWidget asks to show its real content up to
+    ``list_rows`` rows wide enough for its longest row; ``lines`` (optional) asks for that many text
+    lines of height for viewer dialogs whose content arrives after open. Everything is clamped to the
+    available screen, so 150% text means a proportionally wider dialog on a monitor with the room --
+    never a clipped one.
+
+    Call it AFTER the layout is built (it reads the children), on a dialog PARENTED into the
+    Workspace: the base font arrives via the parent chain, and an ORPHAN dialog would measure Qt's
+    default font instead of the app's. Widths set here are MINIMUMS -- content that needs more still
+    gets more, and the user can still resize.
+    """
+    dlg.ensurePolished()
+    fm = QFontMetricsF(dlg.font())
+    screen = dlg.screen() or QApplication.primaryScreen()
+    avail = screen.availableGeometry() if screen is not None else None
+    max_w = int(avail.width() * 0.92) if avail is not None else 4000
+    max_h = int(avail.height() * 0.85) if avail is not None else 3000
+    lay = dlg.layout()
+    m = lay.contentsMargins() if lay is not None else dlg.contentsMargins()
+    want_w = round(fm.averageCharWidth() * ch) + m.left() + m.right()
+    dlg.setMinimumWidth(min(want_w, max_w))
+    if lines:
+        dlg.setMinimumHeight(min(round(fm.height() * lines) + m.top() + m.bottom(), max_h))
+    fitted = []
+    for lst in dlg.findChildren(QListWidget):
+        if not lst.count():
+            continue
+        lst.ensurePolished()
+        frame = 2 * lst.frameWidth()
+        # The v-scrollbar allowance is unconditional: when the list DOES overflow list_rows, the bar
+        # must not steal width from the longest row (that is the h-scrollbar the old box grew).
+        col = lst.sizeHintForColumn(0) + frame + lst.verticalScrollBar().sizeHint().width() + 8
+        lst.setMinimumWidth(min(col, int(max_w * 0.9)))
+        row_h = lst.sizeHintForRow(0)
+        if row_h > 0:
+            rows = min(lst.count(), int(list_rows))
+            lst.setMinimumHeight(min(rows * row_h + frame + 4, int(max_h * 0.7)))
+            fitted.append((lst, row_h, frame))
+    # A SQUEEZED DIALOG DOES NOT SHRINK, IT OVERPAINTS: a word-wrapped QLabel (height-for-width) draws
+    # its FULL text whatever rect the layout squeezed it into -- measured at 150%, the region catalog's
+    # footer painted straight across the list. So the height that does not fit the screen is given back
+    # by the LIST (it scrolls; prose does not), never by squeezing, and never via adjustSize() -- which
+    # silently caps a window to ~2/3 of the screen and thereby CAUSES the squeeze it should prevent.
+    over = dlg.sizeHint().height() - max_h
+    if over > 0 and fitted:
+        for lst, row_h, frame in fitted:
+            floor = 4 * row_h + frame + 4                  # never fewer than 4 visible rows
+            lst.setMinimumHeight(max(floor, lst.minimumHeight() - over))
+    hint = dlg.sizeHint()
+    dlg.resize(min(hint.width(), max_w), min(hint.height(), max_h))
 
 
 def notice(text="", *, kind="", parent=None):

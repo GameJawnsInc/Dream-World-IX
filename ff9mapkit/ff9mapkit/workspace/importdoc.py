@@ -449,6 +449,9 @@ class ImportDoc(QWidget):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         lay.addWidget(bb)
+        # Unsized, this opened 385x409: 6 of the regions visible behind TWO scrollbars. The catalog IS
+        # the content -- show it (every row full-width, up to 14 rows before the list scrolls).
+        widgets.fit_dialog(dlg, ch=78, list_rows=14)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         keys = [lst.item(i).data(Qt.ItemDataRole.UserRole) for i in range(lst.count())
@@ -767,7 +770,6 @@ class ImportDoc(QWidget):
         QApplication.restoreOverrideCursor()
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Field logic — {field} (read-only)")
-        dlg.resize(860, 660)
         dv = QVBoxLayout(dlg)
         hint = widgets.caption("The field's real .eb, decoded: every entry + routine with its dialogue, rewards, "
                                "flags and warps. Fork it --verbatim to carry ALL of this faithfully.")
@@ -783,6 +785,7 @@ class ImportDoc(QWidget):
         row.addStretch(1)
         row.addWidget(close)
         dv.addLayout(row)
+        widgets.fit_dialog(dlg, ch=140, lines=34)      # a logic map you READ: wide page, real height
         dlg.exec()
 
     def _mount_beat_strip(self, dv, rep):

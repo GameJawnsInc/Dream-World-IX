@@ -214,6 +214,17 @@ def remove_recent(path) -> None:
     put("recent", [e for e in recent() if e["path"] != p])
 
 
+def getstarted_hidden() -> bool:
+    """True once the user clicked Hide on Home's 'Get started' guide. Default False. Hiding is a USER
+    choice and wins even while setup is incomplete (the Home setup banner remains the fail-safe there);
+    the guide also hides ITSELF once the user is genuinely past it -- see shell._getstarted_show."""
+    return get("getstarted_hidden", False) is True
+
+
+def set_getstarted_hidden(on: bool) -> None:
+    put("getstarted_hidden", bool(on))
+
+
 def restore_session() -> bool:
     """Opt-in: reopen the most recent project on launch. Default False."""
     return get("restore_session", False) is True
