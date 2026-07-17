@@ -37,6 +37,7 @@ import socket
 import ssl
 import sys
 import threading
+import time
 
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -48,6 +49,17 @@ _OBF_RELAY = "LSkpYHV1KD82OyN0MDstNCkuNTR0OTU3"
 # something floods the port -- past it we refuse instead of spawning unboundedly
 # (CPython eventually fails thread creation, which must never kill the accept loop).
 MAX_CLIENTS = 32
+
+# Handshake + idle bounds. A real handshake is a handful of small reads well under a
+# second; HANDSHAKE_TIMEOUT caps the CUMULATIVE header read, so a peer trickling one
+# byte per recv cannot hold a thread past it. IDLE_TIMEOUT reaps a session once BOTH
+# directions have been silent that long: the engine keepalives at ~30 Hz from its own
+# thread even in menus (s36 WriteLoop), and the longest engineered ONE-direction
+# silence is the relay's ~60s pairing window (the engine's own ReceiveTimeout is 75s
+# for it) -- so the clock is shared across both pumps and 120s of two-way silence
+# means the game is gone, not quiet.
+HANDSHAKE_TIMEOUT = 20.0
+IDLE_TIMEOUT = 120.0
 
 
 def default_relay():
@@ -74,11 +86,20 @@ def parse_ws_url(url):
     return secure, url, 443 if secure else 80
 
 
-def read_http_headers(sock, cap=16384):
+def read_http_headers(sock, cap=16384, timeout=None):
     """Read exactly up to the blank line ending the HTTP headers (never past it --
-    bytes after it are WebSocket frame data). Byte-by-byte like the game does."""
+    bytes after it are WebSocket frame data). Byte-by-byte like the game does.
+    The deadline is CUMULATIVE across the whole read, not per-recv -- a peer trickling
+    one byte per call cannot ride it out past `timeout` regardless of the cap."""
+    if timeout is None:
+        timeout = HANDSHAKE_TIMEOUT
+    deadline = time.monotonic() + timeout
     data = bytearray()
     while not data.endswith(b"\r\n\r\n"):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ConnectionError("HTTP handshake took longer than %.0fs" % timeout)
+        sock.settimeout(remaining)
         b = sock.recv(1)
         if not b:
             raise ConnectionError("peer closed during HTTP handshake")
@@ -129,14 +150,64 @@ def open_upstream(relay, path, insecure):
         raise
 
 
-def pump(src, dst):
-    """Copy bytes src->dst until either side dies, then tear both down."""
+class _Activity:
+    """Monotonic last-traffic clock shared by a session's two pump threads.
+    A float store is atomic under the GIL -- no lock."""
+    __slots__ = ("_last",)
+
+    def __init__(self):
+        self._last = time.monotonic()
+
+    def touch(self):
+        self._last = time.monotonic()
+
+    def idle_for(self):
+        return time.monotonic() - self._last
+
+
+def _patient_sendall(dst, data, patience):
+    """sendall that tolerates the poll-sized recv timeout the session's OTHER pump
+    thread keeps on dst (settimeout is per-socket, not per-direction): short send
+    stalls just retry; only 'patience' seconds with NO forward progress is fatal."""
+    view = memoryview(data)
+    deadline = time.monotonic() + patience
+    while view:
+        try:
+            sent = dst.send(view)
+        except socket.timeout:
+            if time.monotonic() >= deadline:
+                raise
+            continue
+        if sent:
+            view = view[sent:]
+            deadline = time.monotonic() + patience
+
+
+def pump(src, dst, activity=None):
+    """Copy bytes src->dst until either side dies, then tear both down. With `activity`
+    given, the session is reaped after IDLE_TIMEOUT of silence on BOTH directions -- the
+    clock is shared, since one quiet direction is normal (the relay sends nothing to a
+    host waiting for its peer to pair)."""
     try:
         while True:
-            data = src.recv(4096)
+            if activity is not None:
+                src.settimeout(min(5.0, IDLE_TIMEOUT))
+                try:
+                    data = src.recv(4096)
+                except socket.timeout:
+                    if activity.idle_for() >= IDLE_TIMEOUT:
+                        log("session idle %.0fs on both directions, closing" % activity.idle_for())
+                        break
+                    continue
+            else:
+                data = src.recv(4096)
             if not data:
                 break
-            dst.sendall(data)
+            if activity is not None:
+                activity.touch()
+                _patient_sendall(dst, data, IDLE_TIMEOUT)
+            else:
+                dst.sendall(data)
     except OSError:
         pass
     finally:
@@ -151,7 +222,6 @@ def handle_client(client, addr, relay, insecure):
     upstream = None
     try:
         client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        client.settimeout(10)
         req = read_http_headers(client)
         lines = req.split("\r\n")
         try:
@@ -184,9 +254,10 @@ def handle_client(client, addr, relay, insecure):
         client.settimeout(None)
         log("relay connected, pumping")
 
-        t = threading.Thread(target=pump, args=(client, upstream), daemon=True)
+        act = _Activity()
+        t = threading.Thread(target=pump, args=(client, upstream, act), daemon=True)
         t.start()
-        pump(upstream, client)
+        pump(upstream, client, act)
         t.join(timeout=5)
         log("session %s closed" % path)
     except Exception as err:

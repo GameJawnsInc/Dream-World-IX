@@ -484,3 +484,110 @@ def test_thread_spawn_failure_closes_client_and_loop_survives(relay, monkeypatch
             except OSError:
                 pass
         bridge.close()
+
+
+# --------------------------------------------------------------------------- 10: slow-loris + idle reaping
+
+def test_slow_loris_handshake_is_cumulatively_bounded(monkeypatch):
+    monkeypatch.setattr(NB, "HANDSHAKE_TIMEOUT", 1.0)
+    # upstream is never reached -- the cumulative bound is on the GAME's own handshake read.
+    bridge = Bridge("ws://127.0.0.1:%d" % _unused_port())
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(TIMEOUT)
+        sock.connect(("127.0.0.1", bridge.port))
+        sock.settimeout(0.05)
+
+        closed = False
+        start = time.monotonic()
+        while time.monotonic() - start < 5.0:
+            try:
+                sock.sendall(b"x")
+            except OSError:
+                closed = True
+                break
+            try:
+                probe = sock.recv(1)
+            except socket.timeout:
+                time.sleep(0.15)
+                continue
+            except OSError:
+                closed = True
+                break
+            if probe == b"":
+                closed = True
+                break
+            time.sleep(0.15)
+
+        # the trickle (~1 byte/0.15s) arrives far faster than any per-recv timeout could
+        # ever expire on -- only a CUMULATIVE deadline explains the close within 5s.
+        assert closed, "handshake was never cut off by the cumulative deadline"
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+        bridge.close()
+
+
+def test_idle_session_is_reaped(relay, monkeypatch):
+    monkeypatch.setattr(NB, "IDLE_TIMEOUT", 1.0)
+    bridge = Bridge(relay.url)
+    try:
+        game, _game_key = _connect_game(bridge.port)
+        NB.read_http_headers(game)
+        assert relay.ready.wait(timeout=TIMEOUT)
+        assert relay.conn is not None
+
+        # both sides go silent -- the shared idle clock must end the session on its own.
+        start = time.monotonic()
+        game.settimeout(TIMEOUT)
+        reaped = False
+        try:
+            reaped = game.recv(4096) == b""
+        except OSError:
+            reaped = True  # e.g. ConnectionResetError on Windows
+        elapsed = time.monotonic() - start
+
+        assert reaped
+        # the recv timeout (TIMEOUT=5) just bounds the wait -- 0.8s proves this was the
+        # ~1s reaper firing, not an instant close.
+        assert 0.8 <= elapsed, "closed too fast (%.2fs) to be the idle reaper" % elapsed
+
+        relay.conn.settimeout(TIMEOUT)
+        try:
+            assert relay.conn.recv(4096) == b""
+        except OSError:
+            pass
+    finally:
+        bridge.close()
+
+
+def test_one_quiet_direction_is_not_reaped(relay, monkeypatch):
+    # THE false-positive guard: a host alone, waiting for its peer, gets NOTHING back
+    # from the relay for up to the ~60s pairing window -- that one quiet direction must
+    # never trip the reaper while the other direction is still live.
+    monkeypatch.setattr(NB, "IDLE_TIMEOUT", 1.0)
+    bridge = Bridge(relay.url)
+    try:
+        game, _game_key = _connect_game(bridge.port)
+        NB.read_http_headers(game)
+        assert relay.ready.wait(timeout=TIMEOUT)
+        assert relay.conn is not None
+
+        # the game keeps talking (like the engine's ~30Hz keepalive) while the relay
+        # stays silent, well past the patched 1s IDLE_TIMEOUT.
+        sent = 0
+        start = time.monotonic()
+        while time.monotonic() - start < 2.5:
+            game.sendall(b"k")
+            sent += 1
+            time.sleep(0.25)
+
+        assert _recv_exact(relay.conn, sent) == b"k" * sent
+
+        # the session is still alive both ways.
+        relay.conn.sendall(b"x")
+        assert _recv_exact(game, 1) == b"x"
+    finally:
+        bridge.close()
