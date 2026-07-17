@@ -11,6 +11,10 @@ save-persistent story flags. Start with **`STORY_FLAGS.md`**.
 | `flag_census.py` | The scanner: reads every real field's `.eb` from p0data and decodes every save-persistent `gEventGlobal` variable, byte-exact against the engine's token layout. Run from kit root: `cd ff9mapkit && py ../research/flag_census.py`. |
 | `flag_census.json` | Full census output (per-index aggregation, per-field summary, scenario map). **Gitignored — regenerable** (~1 MB). |
 | `make_digest.py` / `make_catalog.py` | Regenerate the digest / catalog from the JSON. |
+| `FLAG_LORE.md` | Per-bit **lore candidate** digest for the ~1900 un-named heap bytes — who writes each bit, the nearest dialogue line (short ≤110-char excerpts of the game's own text; provenance rationale: `ff9mapkit/docs/PROVENANCE.md`), what its gates guard, story beats, confidence tiers a/b/c. A CANDIDATE table for human curation — nothing auto-merges into `flags.py`. Regenerate: `cd ff9mapkit && py ../research/gen_flag_lore.py` (needs `flag_census.json`; also writes `flag_lore.json`, the machine form — **gitignored**). |
+| `gen_flag_lore.py` | The lore generator: deterministic joins over the census + each field's real `.eb`/`.mes` + the Memoria source (tier-a byte greps). |
+| `gen_scenario_table.py` | Generates the ScenarioCounter → story-area progression table from the census, for BOTH `flags.py` (Python) and the F6 debug menu (C#) so the two stay in sync. Run: `py research/gen_scenario_table.py`. |
+| `gen_understand_layer.py` | Mines the census + manifest into the UNDERSTAND layer (field-granular beat dictionary, area-labeled flag clusters, chest-band probe). Outputs **gitignored — regenerable** (`understand_layer.json`, `understand_candidate.md`). Run: `py research/gen_understand_layer.py`. |
 
 ## The one-paragraph model
 
@@ -28,4 +32,5 @@ base is **bit 8512**. Full detail + citations in `STORY_FLAGS.md`.
 cd ff9mapkit && py ../research/flag_census.py   # scan all 676 fields -> research/flag_census.json
 py research/make_digest.py                       # -> CENSUS_DIGEST.md
 py research/make_catalog.py                      # -> flag_catalog.toml
+cd ff9mapkit && py ../research/gen_flag_lore.py  # -> FLAG_LORE.md (+ flag_lore.json, gitignored)
 ```

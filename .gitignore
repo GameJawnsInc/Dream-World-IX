@@ -193,6 +193,9 @@ research/flag_census.json
 # generator + the STORY_FLAGS.md §8 write-up, ignore the derived JSON + the verification-input scratch.
 research/understand_layer.json
 research/understand_candidate.md
+# per-bit lore pass: gen_flag_lore.py's machine-form output (regenerable; carries the same short
+# dialogue excerpts as the tracked FLAG_LORE.md digest -- see ff9mapkit/docs/PROVENANCE.md).
+research/flag_lore.json
 
 _private_memoria_archive/
 tools/prop_poses.json

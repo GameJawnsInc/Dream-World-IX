@@ -94,7 +94,7 @@ Text-block/`.mes` shadowing across stacked folders (wrong text, right flags) →
 - **Vivi hut = retired offline build-oracle** (the byte-exact golden test, `examples/vivi-hut/`); do NOT re-polish it in-game. (4003 = the shared test slot.)
 - **New Game lands via a stock field-70 override (`Field(<id>)`), NOT a DLL edit** — WIPED by every `deploy_campaign` wholesale-replace → RE-RUN `tools/wire_newgame_from_stock.py 6000` after each opening re-deploy. → the `building-ff9-campaigns` skill, [[project-ff9-new-game-entry]].
 - **fork-report's "Lost on mint" carries the FULL id-gate census** (2026-07-17): the FieldMapActor.cs per-actor axis (`fieldmapactor_tweaks.py` — 14 fields, frontCamera/geo-attach/shadow tweaks, source-verified; reporting-only, no `.eb` reach) joined the walkmesh-hotfix + narrow-map tables — FORK_FIDELITY residual #5 is now surfaced-not-reproducible.
-- **Versions:** kit `1.0.0b15`, Blender add-on `0.9.28`. **Provenance gate CLEARED at HEAD** — zero Square-Enix bytes; templates regenerate from the user's own install (`ff9mapkit extract-templates`). → [[project-release-readiness]].
+- **Versions:** kit `1.0.0b15`, Blender add-on `0.9.28`. **Provenance gate CLEARED at HEAD** — zero Square-Enix binary bytes; templates regenerate from the user's own install (`ff9mapkit extract-templates`); the ONE documented game-text exception = `research/FLAG_LORE.md`'s ≤110-char dialogue excerpts (rationale in `ff9mapkit/docs/PROVENANCE.md`). → [[project-release-readiness]].
 
 ---
 
