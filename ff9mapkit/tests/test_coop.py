@@ -194,6 +194,100 @@ def test_update_can_blank_a_value():
     assert coop.read_ini_key(out, "Netsync", "RelayUrl") == ""
 
 
+# -------------------------------------------- ini update: the control-character fence (defense in depth)
+#
+# validate_code() fences the session code at the door; this fences the WRITER, so the injection bug
+# class cannot come back through the next bare string someone wires into an ini key. update_ini_section
+# renders each pair as f"{k} = {v}" and joins with newlines, so an embedded \n is not a funny value --
+# it is extra [Netsync] keys, and Memoria's parser is last-write-wins so the spliced key WINS.
+# REJECT, never strip: a stripped value writes a subtly wrong setting the user never asked for and
+# cannot see, whereas a raise is loud and the caller can say something useful.
+
+def test_update_refuses_a_newline_in_a_replaced_value():
+    # the in-place branch: SessionCode already exists in INI, so its line is REWRITTEN
+    with pytest.raises(ValueError):
+        coop.update_ini_section(INI, "Netsync", {"SessionCode": "ff9-AAAA0000\nGuestSlots = 15"})
+
+
+def test_update_refuses_a_newline_in_an_appended_value():
+    # the append branch builds its line in flush_pending(), a DIFFERENT code path from the rewrite
+    # above (PeerAddress is absent from INI). Both are pinned, so the contract holds wherever the
+    # check happens to live.
+    with pytest.raises(ValueError):
+        coop.update_ini_section(INI, "Netsync", {"PeerAddress": "192.168.1.50\nGuestSlots = 15"})
+
+
+def test_update_refuses_a_carriage_return_in_a_value():
+    # \r alone is what .NET's StreamReader.ReadLine breaks on -- Python's splitlines() hides that
+    for updates in ({"Enabled": "1\rRole = client"},                     # replace
+                    {"PeerAddress": "192.168.1.50\rGuestSlots = 15"}):   # append
+        with pytest.raises(ValueError):
+            coop.update_ini_section(INI, "Netsync", updates)
+
+
+def test_update_refuses_every_control_character_in_a_value():
+    # THE INVARIANT, stated literally: there is no value carrying a control character for which this
+    # function produces output at all -- so no line it emits can ever carry a raw break. The set is
+    # the UNION of what .NET's ReadLine and Python's str.splitlines() call a line break, plus the rest
+    # of C0 and DEL (both parsers trim around '=', so a tab is silently not the value you wrote).
+    for ch in [chr(c) for c in range(0x20)] + ["\x7f", "\x85", chr(0x2028), chr(0x2029)]:
+        for updates in ({"SessionCode": "ff9-ABCD" + ch + "1234"},   # replace an existing key
+                        {"PeerAddress": "192.168.1.50" + ch},        # append inside the section
+                        {"Enabled": ch}):
+            with pytest.raises(ValueError):
+                coop.update_ini_section(INI, "Netsync", updates)
+            with pytest.raises(ValueError):                          # + the append-the-section branch
+                coop.update_ini_section('[Mod]\nFolderNames = "X"\n', "Netsync", updates)
+
+
+def test_update_refuses_a_newline_in_a_key():
+    # the same bug through the other door -- the key half builds the same line
+    with pytest.raises(ValueError):
+        coop.update_ini_section(INI, "Netsync", {"Enabled = 1\nGuestSlots": "15"})
+
+
+def test_update_refuses_a_structurally_broken_key():
+    # '=' lands a DIFFERENT (shorter) key in the file than the caller asked for; a leading ';'/'#'
+    # comments the whole setting out; brackets can open a section header. All silent, which is
+    # exactly what reject-over-strip exists for.
+    for bad_key in ("Enabled=x", "[Netsync]", "Enabled]", ";Enabled", "#Enabled", "", "   ", None):
+        with pytest.raises(ValueError):
+            coop.update_ini_section(INI, "Netsync", {bad_key: "1"})
+
+
+def test_update_refusal_names_the_key_and_escapes_the_payload():
+    with pytest.raises(ValueError) as exc:
+        coop.update_ini_section(INI, "Netsync", {"SessionCode": "ff9-A\nGuestSlots = 15"})
+    msg = str(exc.value)
+    assert "SessionCode" in msg      # which key -- the caller has to be able to say something useful
+    assert "\\n" in msg              # repr()'d, so the escape is what the user reads...
+    assert "\n" not in msg           # ...and the payload cannot fake extra lines in the terminal
+
+
+def test_update_still_round_trips_a_legitimate_update():
+    # the positive control: the fence must be invisible to every real caller. Same assertions as
+    # test_update_existing_keys_in_place, plus the values _setup() actually writes -- and an int,
+    # since a non-str value is rendered with str() and vetted AFTER (callers pass str(int) already).
+    out = coop.update_ini_section(INI, "Netsync", {
+        "Enabled": "1", "SessionCode": "ff9-ABCD1234", "RelayUrl": "ws://127.0.0.1:49201",
+        "PeerAddress": "192.168.1.50", "GhostAs": "auto", "TargetField": 30003})
+    assert coop.read_ini_key(out, "Netsync", "Enabled") == "1"
+    assert coop.read_ini_key(out, "Netsync", "SessionCode") == "ff9-ABCD1234"
+    assert coop.read_ini_key(out, "Netsync", "RelayUrl") == "ws://127.0.0.1:49201"
+    assert coop.read_ini_key(out, "Netsync", "TargetField") == "30003"      # int -> "30003"
+    assert coop.read_ini_key(out, "Netsync", "GhostAs") == "auto"
+    assert coop.read_ini_key(out, "Graphics", "Enabled") == "1"             # other sections untouched
+    assert "; co-op config" in out                                          # comments preserved
+    assert out.count("[Netsync]") == 1
+
+
+def test_update_still_writes_quoted_mod_lists():
+    # the fence is control-characters-only, NOT a charset allowlist: [Mod] values legitimately carry
+    # quotes, commas and spaces, and THE LAUNCHER LAW's round-trip depends on them surviving verbatim
+    out = coop.update_ini_section(INI, "Mod", coop.mod_order_updates(INI, ["FF9CustomMap", "FF9Coop"]))
+    assert coop.read_ini_key(out, "Mod", "FolderNames") == '"FF9CustomMap", "FF9Coop"'
+
+
 # ---------------------------------------------------------------- fake install fixtures
 
 @pytest.fixture
@@ -329,6 +423,16 @@ def test_write_netsync_backs_up(game):
 def test_write_netsync_requires_ini(tmp_path):
     with pytest.raises(FileNotFoundError):
         coop.write_netsync(tmp_path, {"Enabled": "1"}, out=lambda *_: None)
+
+
+def test_write_netsync_refusal_touches_nothing(game):
+    # the fence runs BEFORE the backup, so a rejected write leaves no trace at all -- not the edited
+    # ini, not a stray snapshot, not a staged temp file
+    with pytest.raises(ValueError):
+        coop.write_netsync(game, {"SessionCode": "ff9-A\nGuestSlots = 15"}, out=lambda *_: None)
+    assert (game / "Memoria.ini").read_text(encoding="utf-8") == INI
+    assert not list(game.glob("Memoria.ini.coop-bak-*"))
+    assert not (game / "Memoria.ini.tmp").exists()
 
 
 def test_show_config_reads_playstyle_in_human_terms(game):

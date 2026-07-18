@@ -211,13 +211,60 @@ def read_ini_key(text: str, section: str, key: str) -> str | None:
     return None
 
 
+# Every C0 control + DEL + the three line breaks only Python knows about. THE UNION IS DELIBERATE:
+# .NET's StreamReader.ReadLine (the engine's parser) breaks on \r\n only, while Python's
+# str.splitlines() -- what read_ini_key uses to read the same file back -- ALSO breaks on
+# \x0b \x0c \x1c-\x1e \x85 \u2028 \u2029, so a denylist tuned to either parser alone leaves the other
+# one splittable. Keys refuse the ini's structural characters on top of that.
+_INI_BAD_VALUE = re.compile(r"[\x00-\x1f\x7f\x85\u2028\u2029]")
+_INI_BAD_KEY = re.compile(r"[\x00-\x1f\x7f\x85\u2028\u2029=\[\];#]")
+
+
+def _check_ini_pair(key: str, value) -> str:
+    """Vet one ``key = value`` pair on its way into an ini line; returns the value as text.
+
+    THE FENCE under every ini writer in this module. :func:`update_ini_section` renders each pair as
+    one ``f"{k} = {v}"`` line and joins the lot with newlines, so a control character in either half
+    is not a funny-looking setting -- it is a structural edit to the player's Memoria.ini. Memoria's
+    parser (``IniFile.Init``) is a sequential LINE reader, last-write-wins per (section, key), that
+    re-enters a section on a repeated ``[Netsync]`` header, so an embedded newline SPLICES IN whatever
+    keys follow it and the spliced value WINS. That is how a pasted "session code" could hand its
+    sender your party slots (:func:`validate_code` fences that one at the door); this layer makes the
+    whole bug class unreachable for the NEXT bare string someone wires into an ini key here.
+
+    REJECT, never strip. A silently stripped value writes a subtly WRONG setting the user never asked
+    for and cannot see -- the ini looks fine and the game just behaves oddly. A raise is loud, names
+    the key, and lets the caller say something useful. Nothing in the kit passes a control character
+    today, so refusing costs nothing.
+
+    Keys additionally refuse ``= [ ] ; #`` and emptiness: an ``=`` in a key means the file gets a
+    DIFFERENT (shorter) key than the caller asked for, a leading ``;``/``#`` comments the whole
+    setting out, and brackets can open a section header. Same bug, other door.
+
+    Non-str values are rendered with ``str()`` and vetted AFTER: several callers already pass
+    ``str(int)``, and it is the rendered text that actually lands in the file."""
+    if not isinstance(key, str) or not key.strip() or _INI_BAD_KEY.search(key):
+        raise ValueError(f"unusable ini key {key!r}: a key cannot be blank or carry a control "
+                         "character, '=', ';', '#' or brackets")
+    text = value if isinstance(value, str) else str(value)
+    bad = _INI_BAD_VALUE.search(text)
+    if bad:
+        raise ValueError(f"unusable value for ini key {key!r}: {text!r} contains {bad.group()!r} -- "
+                         "a control character would split or corrupt the line it is written to")
+    return text
+
+
 def update_ini_section(text: str, section: str, updates: dict) -> str:
     """Rewrite ``[section]`` so every key in ``updates`` has the given value: existing key lines are
     replaced in place (comments elsewhere untouched), missing keys are added at the end of the section,
-    and a missing section is appended to the file. Preserves the file's newline style."""
+    and a missing section is appended to the file. Preserves the file's newline style.
+
+    Raises ValueError -- producing NO output at all -- if any key or value carries a control
+    character, so no line this function emits can ever carry a raw break. See :func:`_check_ini_pair`
+    for why a newline here is an ini injection rather than a typo."""
     lines, nl = _split_lines(text)
     out: list[str] = []
-    pending = dict(updates)   # keys not yet written
+    pending = {k: _check_ini_pair(k, v) for k, v in updates.items()}   # keys not yet written
     in_sec = False
     found_sec = False
 
@@ -264,14 +311,17 @@ def _backup_ini(ini: Path) -> Path:
 
 def write_netsync(game: Path, updates: dict, *, out=print) -> Path | None:
     """Apply ``updates`` to ``[Netsync]`` in Memoria.ini, backing the file up first.
-    Returns the backup path (None if the ini didn't exist -- refuse in that case)."""
+    Returns the backup path (None if the ini didn't exist -- refuse in that case). A refused update
+    (a control character in a key or value -- :func:`_check_ini_pair`) raises BEFORE the backup, so
+    a rejected write leaves no trace on disk at all, not even a stray snapshot."""
     ini = _ini_path(game)
     if not ini.is_file():
         raise FileNotFoundError(f"{ini} not found -- is this really the FF9 install "
                                 "(and is Memoria set up)?")
-    backup = _backup_ini(ini)
     text = ini.read_text(encoding="utf-8", errors="replace")
-    fsutil.atomic_write_text(ini, update_ini_section(text, "Netsync", updates), encoding="utf-8")
+    new_text = update_ini_section(text, "Netsync", updates)   # vets every pair before we touch the disk
+    backup = _backup_ini(ini)
+    fsutil.atomic_write_text(ini, new_text, encoding="utf-8")
     out(f"  Memoria.ini: [Netsync] updated (backup: {backup.name})")
     return backup
 

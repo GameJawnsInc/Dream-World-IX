@@ -547,7 +547,10 @@ class CoopDoc(QWidget):
         self.stop_bridge()
         try:
             coop.write_netsync(self._game, {"Enabled": "0"}, out=self._append_log)
-        except (OSError, FileNotFoundError) as e:
+        # ValueError = the writer refusing an unwritable key/value (coop._check_ini_pair). This call
+        # passes a literal so it cannot fire today, but an unhandled raise inside a Qt slot has no
+        # stderr under pythonw -- it would vanish, and the button would just do nothing.
+        except (ValueError, OSError, FileNotFoundError) as e:
             self._append_log(f"could not update Memoria.ini: {e}")
         self.refresh_status()
 
