@@ -194,9 +194,18 @@ _dp_before = live.dictionary_patch.read_text(encoding="utf-8").splitlines()
 # that used to sit here matched on column 2 alone, so deploying a field in the 6000s claimed another session's
 # `3DModel <same number>` (mint GEO ids start at 6000, the custom field band is 4000-9899 -- they OVERLAP),
 # stripped it from the rewrite AND silenced the warning about it. See dictpatch.owned_predicate.
+# `MessageFile <block>` for a CUSTOM (non-real) mesID. WITHOUT this the field's FieldScene line lands but
+# DataPatchers' `!FF9DBAll.MesDB.ContainsKey(mesID)` gate fails and it SKIPS the whole scene -> the field is
+# never registered -> BLACK SCREEN with no in-game error (only "invalid message file ID N" in Memoria.log).
+# Owned by BLOCK, not by FID: they coincide for a derived block but not for an explicit one (field 4005 sits
+# on block 30110), so a redeploy replaces its own line and a foreign folder's survives.
+message_file_lines = info.get("message_file_lines", [])
+message_blocks = {p[1] for p in (ln.split() for ln in message_file_lines) if len(p) >= 2}
 _dp_owned = _dp.owned_predicate(fid=FID, model_ids=mint_ids, anim_keys=mint_anim_keys,
-                                status_icon_ids=status_icon_ids, charname_keys=charname_keys)
+                                status_icon_ids=status_icon_ids, charname_keys=charname_keys,
+                                text_blocks=message_blocks)
 dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
+dp += message_file_lines                       # `MessageFile <block>` -- MUST precede the FieldScene line
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
 dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
@@ -228,6 +237,9 @@ if charname_lines:
     print(f"  + {len(charname_lines)} CharacterDefaultName line(s) ([[playable]]) -> RELAUNCH to apply the name")
 if status_icon_lines:
     print(f"  + {len(status_icon_lines)} custom-status icon line(s) (Buff/DebuffIcon) -> RELAUNCH to apply")
+if message_file_lines:
+    print(f"  + {message_file_lines[0]}  -> RELAUNCH to register the custom text block "
+          f"(DictionaryPatch is read once at launch, not on F6)")
 if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
     print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
 
@@ -476,6 +488,7 @@ _dlog.record(GAME, _dlog.DEPLOYED, FID, MOD_FOLDER, checkout=_REPO, note=f"{name
 
 _mint_ids_repr = repr(sorted(mint_ids))              # this deploy's minted GEO ids (drop their 3DModel lines on revert)
 _mint_anim_keys_repr = repr(sorted(mint_anim_keys))   # this deploy's OWN 3DModelAnimation keys (drop only THESE on revert)
+_mes_blocks_repr = repr(sorted(message_blocks))        # this deploy's OWN registered text block(s)
 revert = f'''#!/usr/bin/env python3
 import sys, shutil
 from pathlib import Path
@@ -493,11 +506,11 @@ STAMP="{STAMP}"; BK=Path(r"{BK}"); _GAME=find_game_path(); live=ModLayout(_GAME/
 # restore this id's prior registration from the pre-deploy backup if it had one. A wholesale snapshot-restore (the
 # old behavior) re-clobbered co-deployed lines; a GEO-BLOCK drop (the older-still behavior) wiped foreign clip lines
 # like key 60001. (The staged Models//Animations/ FBX+clip trees are LEFT on disk -- inert once unregistered.)
-_MINT_IDS=set({_mint_ids_repr}); _MINT_ANIM_KEYS=set({_mint_anim_keys_repr})
+_MINT_IDS=set({_mint_ids_repr}); _MINT_ANIM_KEYS=set({_mint_anim_keys_repr}); _MES_BLOCKS=set({_mes_blocks_repr})
 _dp_before=live.dictionary_patch.read_text(encoding="utf-8").splitlines()
 _dpbak=BK/f"DictionaryPatch.txt.preDEPLOY.{{STAMP}}"
 _bak=_dpbak.read_text(encoding="utf-8").splitlines() if _dpbak.exists() else []
-_dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid="{FID}", model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS)
+_dpkeep,_lost=_dp.revert_dictionary_patch(_dp_before, _bak, fid="{FID}", model_ids=_MINT_IDS, anim_keys=_MINT_ANIM_KEYS, text_blocks=_MES_BLOCKS)
 live.dictionary_patch.write_text("\\n".join(_dpkeep)+"\\n", encoding="utf-8", newline="\\n")
 for _dl in _lost:   # belt-and-suspenders: a foreign line this revert shouldn't have touched
     print(f"  !! WARNING: revert dropped a DictionaryPatch line it does not own: {{_dl}}")

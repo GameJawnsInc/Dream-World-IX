@@ -7174,6 +7174,13 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
 
     return {"root": str(layout.root), "fields": [r.fbg for r in results],
             "dictionary": [r.dict_line for r in results],
+            # `MessageFile <block> MES_DWIX_<block>` for every CUSTOM (non-real) mesID this build registers.
+            # NOT folded into "dictionary" (the one-FieldScene-line-per-field view whose [0] callers summarize).
+            # deploy_field.py MUST append these: an unregistered block fails DataPatchers' MesDB gate, which
+            # SKIPS the whole FieldScene -> the field never registers -> black screen.
+            "message_file_lines": [f"MessageFile {b} MES_DWIX_{b}"
+                                   for b in sorted({r.text_block for r in results
+                                                    if getattr(r, "register_text_block", False)})],
             # extra per-field DictionaryPatch directive lines (currently `LocationName <id> <title>` from
             # [field] location) -- NOT folded into "dictionary" (which is the one-FieldScene-line-per-field view
             # used for field counts / [0] summaries). deploy_field.py / deploy_campaign append these too.

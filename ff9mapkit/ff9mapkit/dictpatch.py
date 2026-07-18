@@ -44,14 +44,21 @@ def mint_anim_keys(mint_lines) -> set:
     return keys
 
 
-def owns_registration(ln, *, fid, model_ids, anim_keys) -> bool:
+def owns_registration(ln, *, fid, model_ids, anim_keys, text_blocks=()) -> bool:
     """True if ``ln`` is a DictionaryPatch line THIS deploy owns and should replace on re-apply / drop on
     revert: this field's own ``<directive> <fid> ...`` (``FieldScene``/``LocationName``), a ``3DModel <id>``
-    whose id it mints (``model_ids``), or a ``3DModelAnimation <key>`` whose key it registers (``anim_keys``).
+    whose id it mints (``model_ids``), a ``3DModelAnimation <key>`` whose key it registers (``anim_keys``),
+    or a ``MessageFile <block>`` whose mesID it registers (``text_blocks``).
 
-    Matching is by EXACT field id / GEO id / anim key -- NEVER by a shared GEO middle-block -- so a foreign
-    ``3DModel``/``3DModelAnimation`` line (one this deploy did not write) always returns False and survives.
-    Blank lines return False (they are neither owned nor meaningful)."""
+    ``MessageFile`` is keyed by the TEXT BLOCK, not the field id, and the two are NOT interchangeable: a
+    DERIVED block equals the field id, but an EXPLICIT one need not (field 4005 sits on block 30110). So the
+    caller passes the blocks it actually registers, exactly as it does for minted GEO ids -- deriving them
+    from ``fid`` here would miss the explicit case AND claim a foreign line whose block happens to equal this
+    field's id.
+
+    Matching is by EXACT field id / GEO id / anim key / block -- NEVER by a shared GEO middle-block -- so a
+    foreign ``3DModel``/``3DModelAnimation``/``MessageFile`` line (one this deploy did not write) always
+    returns False and survives. Blank lines return False (they are neither owned nor meaningful)."""
     p = ln.split()
     if not ln.strip():
         return False
@@ -62,10 +69,12 @@ def owns_registration(ln, *, fid, model_ids, anim_keys) -> bool:
         return True
     if p[:1] == ["3DModelAnimation"] and len(p) >= 2 and p[1] in anim_keys:
         return True
+    if p[:1] == ["MessageFile"] and p[1:2] and p[1] in {str(b) for b in text_blocks}:
+        return True
     return False
 
 
-def owned_predicate(*, fid, model_ids, anim_keys, status_icon_ids=(), charname_keys=()):
+def owned_predicate(*, fid, model_ids, anim_keys, status_icon_ids=(), charname_keys=(), text_blocks=()):
     """The ONE ownership rule a field deploy uses -- returns a ``line -> bool`` predicate covering every
     registration ``tools/deploy_field.py`` strips from the live DictionaryPatch and re-appends fresh:
     :func:`owns_registration`'s field/mint half, plus the two ``[[playable]]`` lines a redeploy re-sets
@@ -85,7 +94,8 @@ def owned_predicate(*, fid, model_ids, anim_keys, status_icon_ids=(), charname_k
     icons, names = set(status_icon_ids), set(charname_keys)
 
     def _owned(ln):
-        if owns_registration(ln, fid=fid, model_ids=model_ids, anim_keys=anim_keys):
+        if owns_registration(ln, fid=fid, model_ids=model_ids, anim_keys=anim_keys,
+                             text_blocks=text_blocks):
             return True
         p = ln.split()
         if len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in icons:
@@ -94,7 +104,7 @@ def owned_predicate(*, fid, model_ids, anim_keys, status_icon_ids=(), charname_k
     return _owned
 
 
-def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim_keys) -> tuple:
+def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim_keys, text_blocks=()) -> tuple:
     """Compute a field deploy's DictionaryPatch revert. From ``current_lines`` (the live file NOW, which may
     carry lines other tools/deploys added since) keep everything EXCEPT the registrations this deploy owns
     (its ``FieldScene``/``LocationName``, its minted ``3DModel`` ids, its ``3DModelAnimation`` keys). Then, so
@@ -107,7 +117,8 @@ def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim
     exact-id/exact-key throughout, so a foreign ``3DModelAnimation`` sharing a minted model's GEO block (e.g. a
     ``model-anim-new`` clip added between deploys) is preserved, not wiped."""
     def _owned(ln):
-        return owns_registration(ln, fid=fid, model_ids=model_ids, anim_keys=anim_keys)
+        return owns_registration(ln, fid=fid, model_ids=model_ids, anim_keys=anim_keys,
+                                 text_blocks=text_blocks)
     kept = [ln for ln in current_lines if ln.strip() and not _owned(ln)]
     seen = set(kept)
     for ln in backup_lines:
@@ -119,6 +130,10 @@ def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim
 
 ID_KEYED_DIRECTIVES = ("FieldScene", "LocationName")
 """DictionaryPatch directives keyed by the FIELD ID in column 2 (``<directive> <fid> ...``)."""
+
+TEXT_BLOCK_DIRECTIVES = ("MessageFile",)
+"""DictionaryPatch directives keyed by a TEXT BLOCK (mesID) in column 2 -- NOT by the field id, which is
+why a deploy passes the blocks it registers rather than letting them be derived from ``fid``."""
 
 MINT_DIRECTIVES = ("3DModel", "3DModelAnimation")
 """DictionaryPatch directives keyed by a minted GEO id / AnimationDB key in column 2."""

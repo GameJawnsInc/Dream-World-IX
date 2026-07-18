@@ -967,7 +967,7 @@ def test_cutscene_field_builds(tmp_path):
                                                       e.func_by_tag(0).abs_end)))
     ops = [i.op for i in iter_code(eb.data, cs.func_by_tag(0).abs_start, cs.func_by_tag(0).abs_end)]
     assert 0x2D in ops and 0x1F in ops and 0x2E in ops    # DisableMove, WindowSync, EnableMove
-    assert "hi" in L.mes_path("us", 1073).read_text(encoding="utf-8")
+    assert "hi" in L.mes_path("us", 4003).read_text(encoding="utf-8")   # _LINT_BASE id -> derived block
 
 
 def test_cast_scene_of_one_runs_through_conductor(tmp_path):
@@ -1003,7 +1003,7 @@ def test_cast_scene_of_one_runs_through_conductor(tmp_path):
     ops = [i.op for i in iter_code(body, 0, len(body))]
     assert 0xBD in ops and 0x2D in ops                     # RunAnimationEx (by uid) + the control lock
     assert 0x1F in ops                                     # the UNTAGGED say stays a narration window
-    assert "welcome" in L.mes_path("us", 1073).read_text(encoding="utf-8")
+    assert "welcome" in L.mes_path("us", 4003).read_text(encoding="utf-8")   # _LINT_BASE id -> derived block
     for lang in LANGS:                                      # every language built
         assert L.eb_path(lang, "EVT_X.eb.bytes").is_file()
 

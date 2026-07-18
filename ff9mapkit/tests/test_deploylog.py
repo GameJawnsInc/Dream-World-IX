@@ -285,7 +285,8 @@ def _render_revert_template():
     src = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "deploy_field.py").read_text(encoding="utf-8")
     body = re.search(r"^revert = f'''(.*?)^'''$", src, re.S | re.M).group(1)
     ns = dict(KIT=r"C:\kit", MOD_FOLDER="FF9CustomMap", STAMP="20260718-013000", BK=r"C:\bk", FID=4003,
-              _mint_ids_repr="[]", _mint_anim_keys_repr="[]", FBG="FBG_N00_TESTROOM", name="TESTROOM",
+              _mint_ids_repr="[]", _mint_anim_keys_repr="[]", _mes_blocks_repr="[]",
+              FBG="FBG_N00_TESTROOM", name="TESTROOM",
               text_block=1073, csv_revert_code="", bp_revert_code="", tp_revert_code="",
               fork_revert_code="", _REPO=r"C:\gd\Dream-World-IX")
     return eval("f'''" + body.replace("'''", r"\'\'\'") + "'''", {"__builtins__": {}}, ns)
