@@ -120,6 +120,26 @@ def compare(a: dict, b: dict) -> str:
     return "\n".join(out)
 
 
+SAVE_NAME = "SavedData_ww.dat"
+
+
+def _resolve_save(path) -> str:
+    """Accept a DIRECTORY (the EncryptedSavedData folder) as well as a file, and fail with a readable
+    message rather than letting a non-save fall through to the Base64 branch and die inside b64decode."""
+    p = str(path)
+    if os.path.isdir(p):
+        cand = os.path.join(p, SAVE_NAME)
+        if os.path.exists(cand):
+            return cand
+        dats = sorted(f for f in os.listdir(p) if f.lower().endswith(".dat"))
+        if not dats:
+            raise SystemExit(f"no .dat save found in directory: {p}")
+        return os.path.join(p, dats[0])
+    if not os.path.exists(p):
+        raise SystemExit(f"no such file: {p}")
+    return p
+
+
 def _raw_blobs(path) -> "list[tuple[str, bytes]]":
     """``[(label, gEventGlobal_bytes)]`` -- the RAW blob per populated slot. Mirrors ``save.inspect``'s
     source resolution, but returns the bytes (``SaveReport`` carries only the decoded story flags, and we
@@ -127,7 +147,7 @@ def _raw_blobs(path) -> "list[tuple[str, bytes]]":
     the AUTHORITATIVE gEventGlobal when present -- the main block is stale in that case."""
     from ff9mapkit import save as _save
     from ff9mapkit import flags as _flags
-    p = str(path)
+    p = _resolve_save(path)
     if p.lower().endswith(".dat"):
         blob = _save.read_extra_gEventGlobal(p)
         if blob is not None:
@@ -137,7 +157,9 @@ def _raw_blobs(path) -> "list[tuple[str, bytes]]":
         for s in sv.populated():
             extra = _save.extra_file_path(p, s.block)
             eblob = _save.read_extra_gEventGlobal(extra) if (extra and os.path.exists(extra)) else None
-            out.append((_save._slot_label(s) + (" - Memoria extra" if eblob is not None else ""),
+            # sanitise: save._slot_label uses a middle dot, which mojibakes on a cp1252 console
+            lbl = _save._slot_label(s).replace("·", "-")
+            out.append((lbl + (" - Memoria extra" if eblob is not None else ""),
                         eblob if eblob is not None else sv.gEventGlobal(s.block)))
         if not out:
             raise ValueError("no populated save slots found in this file")
@@ -164,15 +186,11 @@ def main() -> int:
     from ff9mapkit import save as _save
     path = a.save
     if not path:
-        d = _save.default_save_dir() if hasattr(_save, "default_save_dir") else None
+        d = _save.default_save_dir()
         if not d:
-            print("could not auto-find a save; pass the path explicitly", file=sys.stderr)
+            print("could not auto-find the FF9 save folder; pass the path explicitly", file=sys.stderr)
             return 2
-        cands = [os.path.join(d, f) for f in sorted(os.listdir(d)) if f.lower().endswith(".dat")]
-        if not cands:
-            print(f"no .dat saves under {d}", file=sys.stderr)
-            return 2
-        path = cands[0]
+        path = _resolve_save(d)
         print(f"(auto) {path}\n")
 
     snaps = {}
