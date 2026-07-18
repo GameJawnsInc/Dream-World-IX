@@ -16,7 +16,6 @@
 id = 4003
 name = "ITEMTEST"
 area = 11               # BG-borrow a real field's art (area >= 10); no PNGs needed for this demo
-text_block = 1073
 
 [camera]
 pitch = 45

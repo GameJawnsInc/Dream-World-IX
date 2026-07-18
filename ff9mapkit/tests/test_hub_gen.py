@@ -48,7 +48,9 @@ def _emit_and_load(tmp_path, spec):
 def test_load_journeys_parses_the_example_registry():
     spec = hub.load_journeys(JOURNEYS)
     assert spec.name == "WORLD_HUB" and spec.id == 4500 and spec.area == 21
-    assert spec.borrow_bg == "GRGR_MAP420_GR_CEN_0" and spec.text_block == 8
+    # text_block is now UNSET in the example: it derives from the hub's field id and auto-registers.
+    # It used to be a hardcoded 8 -- which is ICE CAVERN's real block (13 fields, 300-312).
+    assert spec.borrow_bg == "GRGR_MAP420_GR_CEN_0" and spec.text_block is None
     assert spec.player_model == 220 and spec.narrator == "Stiltzkin"
     # The example points at REAL verbatim forks already deployed in stacked folders (not stubs):
     # Dali = the DALI_CAPSTONE chain entry (4100, FF9CustomMap-sf) seeded to its "waking up" beat;
@@ -154,7 +156,8 @@ def test_generated_hub_matches_handauthored_example(tmp_path):
     assert gen["field"]["name"] == ref["field"]["name"]
     assert gen["field"]["borrow_bg"] == ref["field"]["borrow_bg"]
     assert gen["field"]["area"] == ref["field"]["area"]
-    assert gen["field"]["text_block"] == ref["field"]["text_block"]
+    # neither side pins text_block any more -- both derive it from the field id
+    assert "text_block" not in gen["field"] and "text_block" not in ref["field"]
     assert gen["camera"]["borrow"] == ref["camera"]["borrow"]
     assert gen["player"]["model"] == ref["player"]["model"] == 220
     assert gen["player"]["spawn"] == ref["player"]["spawn"]

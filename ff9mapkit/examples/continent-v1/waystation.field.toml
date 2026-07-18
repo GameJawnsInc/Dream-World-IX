@@ -26,11 +26,6 @@ id = 6500
 name = "CONT_WAYST"
 borrow_bg = "DGLO_MAP775_DG_ENT_0"   # Daguerreo/Entrance (field 2800), area >= 10
 area = 55
-text_block = 22                      # !! NOT free: block 22 is LINDBLUM CASTLE (21 real fields, 600-620).
-                                     # This field's text is merged OVER that location's own dialogue.
-                                     # Fix on the next redeploy: drop this key (the block then derives
-                                     # from [field] id and auto-registers). Needs a game RELAUNCH.
-                                     # (8 = the -ow campaign, 945/1073 = -hc)
 hide_area_title = true               # the borrowed room's "Daguerreo" card is not this place
 
 [camera]

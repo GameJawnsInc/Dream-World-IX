@@ -7,7 +7,6 @@
 id = 4003
 name = "TESTROOM"          # -> FBG_N11_TESTROOM + EVT_TESTROOM.eb
 area = 11
-text_block = 1073
 title = "ff9mapkit test room"
 
 [camera]

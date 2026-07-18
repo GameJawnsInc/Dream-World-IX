@@ -5,7 +5,6 @@
 id = 4003
 name = "SCROLLDEMO"
 area = 11
-text_block = 1073
 title = "Scrolling demo"
 
 [camera]

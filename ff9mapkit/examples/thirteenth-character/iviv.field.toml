@@ -19,7 +19,6 @@
 id = 4813
 name = "IVIVROOM"          # -> FBG_N11_IVIVROOM + EVT_IVIVROOM.eb  (deploy_field re-slots this into the test id)
 area = 11
-text_block = 1073
 title = "13th Character"
 
 [camera]
