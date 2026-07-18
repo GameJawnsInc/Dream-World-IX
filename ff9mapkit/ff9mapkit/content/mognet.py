@@ -378,11 +378,22 @@ STATUS_TEMPLATES = (
 )
 
 
+# THE GEOMETRY IS PART OF THE ENTRY. The stock status entries carry their own [STRT] + [TAIL=LOL]
+# (lower-left) -- that placement, not the window slot, is what pins the box bottom-left. Read from the
+# real block (entries 11-14: strt 100,1 / 160,1 / 160,2 / 160,3, tail LOL). Shipping the text with the
+# dialogue defaults ((10,1) / no tail) mis-places it -- the third instance of this exact mistake in the
+# kit's history (the chest box and the ATE title both landed top-right the same way).
+STATUS_STRT = ((100, 1), (160, 1), (160, 2), (160, 3))
+STATUS_TAIL = "LOL"
+
+
 def status_entry_texts(none_text: str = DEFAULT_STATUS_NONE) -> list:
-    """The four status-box entries (0/1/2/3 letters held). Only the no-mail wording is authorable; the
+    """The four status-box entries (0/1/2/3 letters held) as ``(text, strt, tail)`` -- text AND the
+    stock geometry, which the caller must ship together. Only the no-mail wording is authorable; the
     list lines are structural templates whose [WDTH]/[TEXT] slots must match :func:`mail_status_window`'s
     text-var loads."""
-    return [STATUS_TEMPLATES[0].format(none=str(none_text))] + list(STATUS_TEMPLATES[1:])
+    texts = [STATUS_TEMPLATES[0].format(none=str(none_text))] + list(STATUS_TEMPLATES[1:])
+    return [(t, STATUS_STRT[i], STATUS_TAIL) for i, t in enumerate(texts)]
 
 
 def mail_status_window(txids) -> bytes:

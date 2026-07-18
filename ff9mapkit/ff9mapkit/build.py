@@ -5920,10 +5920,12 @@ def collect_text(project: FieldProject):
             for lv, lbody in sorted(mg_letters.items()):
                 mg_pos[k][f"letter{lv}"] = _add_raw(_mognet.letter_entry_text(lbody), "")
             # the mail-STATUS box (the persistent bottom-left "You have a letter from X to Y"): four
-            # entries, 0..3 letters held; structural templates, only the no-mail wording is authorable
-            for si, st in enumerate(_mognet.status_entry_texts(
+            # entries, 0..3 letters held; structural templates, only the no-mail wording is authorable.
+            # The stock [STRT] + [TAIL=LOL] geometry ships WITH each entry -- the tail code is what pins
+            # the box lower-left; the dialogue defaults would center it (the chest-box lesson, again).
+            for si, (st, st_strt, st_tail) in enumerate(_mognet.status_entry_texts(
                     mg.get("status_none", _mognet.DEFAULT_STATUS_NONE))):
-                mg_pos[k][f"status{si}"] = _add_raw(st, "")
+                mg_pos[k][f"status{si}"] = _add_raw(st, st_tail, strt=st_strt)
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)

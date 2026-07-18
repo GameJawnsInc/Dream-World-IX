@@ -679,12 +679,27 @@ def test_letter_validation(tmp_path, fake_roster):
 def test_status_entry_texts_reference_the_loaded_value_slots():
     e = _m.status_entry_texts()
     assert len(e) == 4
-    assert "You have no mail" in e[0] and "[TIME=-1]" in e[0]
-    assert "[TEXT=0,2]" in e[1] and "[TEXT=0,3]" in e[1]     # letter 1 = vars 2/3 (the donor's slots)
-    assert "[TEXT=0,4]" in e[2] and "[TEXT=0,5]" in e[2]
-    assert "[TEXT=0,6]" in e[3] and "[TEXT=0,7]" in e[3]
-    assert e[1].startswith("[WDTH=0,160,6,2,6,3,-1]")        # the stock width table, per line count
-    assert _m.status_entry_texts("Empty bag, kupo")[0].count("Empty bag, kupo") == 1
+    texts = [t for t, _s, _t in e]
+    assert "You have no mail" in texts[0] and "[TIME=-1]" in texts[0]
+    assert "[TEXT=0,2]" in texts[1] and "[TEXT=0,3]" in texts[1]   # letter 1 = vars 2/3 (the donor's slots)
+    assert "[TEXT=0,4]" in texts[2] and "[TEXT=0,5]" in texts[2]
+    assert "[TEXT=0,6]" in texts[3] and "[TEXT=0,7]" in texts[3]
+    assert texts[1].startswith("[WDTH=0,160,6,2,6,3,-1]")          # the stock width table, per line count
+    assert _m.status_entry_texts("Empty bag, kupo")[0][0].count("Empty bag, kupo") == 1
+    # THE GEOMETRY IS PART OF THE ENTRY: the stock [STRT] + the LOL (lower-left) tail ship with each
+    # text -- the dialogue defaults ((10,1), UPR) mis-place the box (chest/ATE-title, third instance).
+    assert [s for _t, s, _tl in e] == [(100, 1), (160, 1), (160, 2), (160, 3)]
+    assert all(tl == "LOL" for _t, _s, tl in e)
+
+
+def test_built_status_entries_carry_the_stock_geometry(tmp_path, fake_roster):
+    """The .mes must ship [STRT=<stock>][TAIL=LOL] on every status entry -- the text alone centers."""
+    _proj, ct, _eb = _built(tmp_path)
+    mes, t = ct[0], ct[-1][0]
+    for si, strt in enumerate(((100, 1), (160, 1), (160, 2), (160, 3))):
+        entry = [ln for ln in mes.split("_[TXID=") if ln.startswith(str(t[f"status{si}"]))][0]
+        assert f"[STRT={strt[0]},{strt[1]}]" in entry, f"status{si} lost its STRT"
+        assert "[TAIL=LOL]" in entry, f"status{si} lost its lower-left tail"
 
 
 def test_status_window_picks_the_entry_by_occupancy():
