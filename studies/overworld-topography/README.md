@@ -611,6 +611,20 @@ FRAME-BOUNDS GATE (a block override's local verts must sit in [0,64]×[−64,0],
 every real block). Re-deployed at local x[6.3,57.7] z[−59.2,−7.0] — the island now
 renders at (544,−1248); disc-4 re-mirrored. **THE LESSON: a differential/self-consistent
 gate cannot catch a frame error — assert the ABSOLUTE block frame.**
+**⚠→✔ THE HARD-EDGE CLIP (round 2, 2026-07-17, "hard edges on the scrub")**: the first
+window scan (seed-grow + desert-ring closure + a donor-context ring gate requiring
+every boundary edge's outside to be PURE desert) selected a compact clean CORE of the
+(13,3) patch — 12 pure-scrub + 7 pure-desert cells, **zero MIXED cells** — clipping the
+donor's own dithered fringe (a MIXED cell = one 4u cell holding both a scrub tri and a
+desert tri, the diagonal sub-cell blend; the donor region has 7). Rewrote the scan
+around CONNECTED COMPONENTS: the whole scrub-cell component + a pure-desert 8-neighbour
+ring, carried verbatim (mixed cells included), refusing any component not fully
+desert-ringed (the full (13,3) patch abuts cliffs on its east — census-true, refused:
+would need the cliff carried too). Only 2 fully-ringed scrub patches exist in the belt;
+the winner carries **3 dither cells over 6 scrub cells** — the softest verbatim scrub
+in FF9 (the map-wide census is mostly hard per-tile edges, 355/958 plain|plain, so a few
+diagonal-blend tiles is as soft as stock scrub gets). Deployed at (544,−1248), A/B the
+real patch at (1158,−388).
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 

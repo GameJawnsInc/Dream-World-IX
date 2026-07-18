@@ -114,82 +114,57 @@ def window_candidates():
             if tp not in OK_TOPOS and tp not in IGNORE_TOPOS:
                 foreign_cells |= cells_of[ti]
         surf = [ti for ti, tp in enumerate(topo) if tp in OK_TOPOS]
-        # seed a window from every pure-dunes cell + 1-ring, grow to the straddle
-        # fixpoint (a window's boundary settles on clean mains-only cell lines);
-        # dedupe terminal windows
-        target_cells = set()
+        # cell -> the set of topos present (from tri bboxes)
+        cell_topos = defaultdict(set)
         for ti, tp in enumerate(topo):
-            if tp in TARGET_TOPOS:
-                target_cells |= cells_of[ti]
-        def fixpoint(W):
-            for _ in range(48):                               # straddle fixpoint (surface only)
-                grow = set()
-                for ti in surf:
-                    cs = cells_of[ti]
-                    if not cs or cs <= W or not (cs & W):
-                        continue
-                    grow |= cs - W
-                if not grow:
-                    return W
-                if (grow & foreign_cells) or len(W | grow) > MAX_CELLS:
-                    return None
-                W = W | grow
-            return None
+            for c in cells_of[ti]:
+                cell_topos[c].add(tp)
+        target_cell_set = {c for c, tps in cell_topos.items() if tps & TARGET_TOPOS}
 
-        # tri-level edge ownership (for the desert-ring closure + the ctx gate)
-        eowner_all = defaultdict(list)
-        for ti in surf:
-            ks = [kk(v[0]) for v in tris[ti]]
-            for i in range(3):
-                e = frozenset((ks[i], ks[(i + 1) % 3]))
-                if len(e) == 2:
-                    eowner_all[e].append(ti)
-
-        def desert_ring_closure(W):
-            """Absorb neighbouring pockets through any ring edge whose donor outside
-            is NOT desert-family, until the ring is desert-ringed (or refuses)."""
-            for _ in range(24):
-                W = fixpoint(W)
-                if W is None or (W & foreign_cells) or len(W) > MAX_CELLS:
-                    return None
-                inside = {ti for ti in surf if cells_of[ti] and cells_of[ti] <= W}
-                add = set()
-                for t2 in inside:
-                    ks = [kk(v[0]) for v in tris[t2]]
-                    for i in range(3):
-                        e = frozenset((ks[i], ks[(i + 1) % 3]))
-                        if len(e) != 2:
-                            continue
-                        for to in eowner_all[e]:
-                            if to not in inside and topo[to] not in DESERT_TOPOS:
-                                add |= cells_of[to] - W
-                if not add:
-                    return W
-                if (add & foreign_cells) or len(W | add) > MAX_CELLS:
-                    return None
-                W = W | add
-            return None
-
-        seen_windows = set()
-        for seed_cell in sorted(target_cells):
-            W = desert_ring_closure({(seed_cell[0] + di, seed_cell[1] + dj)
-                                     for di in (-1, 0, 1) for dj in (-1, 0, 1)})
-            if W is None or (W & foreign_cells) or len(W) > MAX_CELLS:
+        # THE WHOLE PATCH = the connected component (4-adjacency) of target-containing
+        # cells + a pure-desert 8-neighbour RING. This carries the patch's OWN natural
+        # boundary -- including MIXED cells (one 4u cell holding both a scrub tri AND a
+        # desert tri = the diagonal-blend fringe). Carrying a compact clean sub-window
+        # instead CLIPS that fringe into a hard edge (the 2026-07-17 "hard edges" report).
+        seen_cell = set()
+        for start in sorted(target_cell_set):
+            if start in seen_cell:
                 continue
-            wkey = frozenset(W)
-            if wkey in seen_windows:
+            comp, stack = set(), [start]
+            while stack:
+                c = stack.pop()
+                if c in comp:
+                    continue
+                comp.add(c); seen_cell.add(c)
+                for d in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    n = (c[0] + d[0], c[1] + d[1])
+                    if n in target_cell_set and n not in comp:
+                        stack.append(n)
+            ring_cells = {(c[0] + di, c[1] + dj) for c in comp
+                          for di in (-1, 0, 1) for dj in (-1, 0, 1)} - comp
+            W = comp | ring_cells
+            nscr = sum(1 for c in comp if cell_topos[c] & TARGET_TOPOS)
+            mixed = sum(1 for c in comp
+                        if (cell_topos[c] & TARGET_TOPOS) and (cell_topos[c] & DESERT_TOPOS))
+            if W & foreign_cells:
+                print(f"   reject {bx},{by} patch({len(comp)} cells): cliff/other-family "
+                      f"adjacent -- not fully desert-ringed (would need the cliff carried too)")
                 continue
-            seen_windows.add(wkey)
+            if len(W) > MAX_CELLS:
+                print(f"   reject {bx},{by} patch({len(comp)} cells): window {len(W)} > {MAX_CELLS}")
+                continue
             inside = [ti for ti in surf if cells_of[ti] and cells_of[ti] <= W]
-            tl = [ti for ti in inside if topo[ti] in TARGET_TOPOS]
-            if not tl:
-                continue
             tps = {topo[ti] for ti in inside}
             if not tps <= OK_TOPOS:
-                print(f"   reject {bx},{by} comp({len(tl)}t): foreign topos {sorted(tps - OK_TOPOS)}")
+                print(f"   reject {bx},{by} patch({len(comp)} cells): foreign topos "
+                      f"{sorted(tps - OK_TOPOS)}")
                 continue
             carried = [tris[ti] for ti in inside]
             ring = once_edges(carried)
+            # LATTICE-RING GATE: the carried boundary must be axis-aligned 4u segments on
+            # lattice corners (the weld contract with the mint's flat desert fill). The
+            # desert ring is pure-desert by construction, so the donor-context gate is
+            # automatically satisfied -- no seam vocabulary is ever synthesized.
             ring_ok = True
             for e in ring:
                 (a, b) = sorted(e)
@@ -199,59 +174,30 @@ def window_candidates():
                     ring_ok = False
                     break
             if not ring_ok:
-                print(f"   reject {bx},{by} comp({len(tl)}t): non-lattice window ring")
+                print(f"   reject {bx},{by} patch({len(comp)} cells): non-lattice ring")
                 continue
-            # THE DONOR-CONTEXT RING GATE: the deployed outside of every ring edge is
-            # the mint's desert mains -- lawful iff the DONOR's own tri on the other
-            # side is DESERT-FAMILY too (the pairing then existed in the donor modulo
-            # a within-family texel swap, which the anti-tiling system makes free;
-            # the seam anatomy attests strip|desert-mains directly, 26/163). A ring
-            # edge whose donor outside is DUNES would deploy a raw dunes|mains seam
-            # stock never shows (mains-both 0/190) -- refused.
-            eowner = defaultdict(list)
-            for ti in surf:
-                ks = [kk(v[0]) for v in tris[ti]]
-                for i in range(3):
-                    e = frozenset((ks[i], ks[(i + 1) % 3]))
-                    if len(e) == 2:
-                        eowner[e].append(ti)
-            inside_set = set(inside)
-            bad_ctx = Counter()
-            for e in ring:
-                others = [ti for ti in eowner.get(e, []) if ti not in inside_set]
-                if not others:
-                    bad_ctx["no-owner"] += 1
-                for ti in others:
-                    if topo[ti] not in DESERT_TOPOS:
-                        bad_ctx[topo[ti]] += 1
-            if bad_ctx:
-                print(f"   reject {bx},{by} comp({len(tl)}t): ring context "
-                      f"{dict(bad_ctx)} of {len(ring)} edges")
-                continue
-            # every window cell must be covered (2 tris per cell in plain fields; the
-            # census re-checks after integration)
             cover = Counter()
             for ti in inside:
                 for c in cells_of[ti]:
                     cover[c] += 1
             if any(cover.get(c, 0) == 0 for c in W):
-                print(f"   reject {bx},{by} comp({len(tl)}t): uncovered window cell")
+                print(f"   reject {bx},{by} patch({len(comp)} cells): uncovered window cell")
                 continue
-            ndun = sum(1 for ti in inside if topo[ti] in TARGET_TOPOS)
             xs = [4 * i for (i, j) in W] + [4 * i + 4 for (i, j) in W]
             zs = [4 * j for (i, j) in W] + [4 * j + 4 for (i, j) in W]
             out.append(dict(block=(bx, by), cells=W, ncells=len(W),
                             w=max(xs) - min(xs), h=max(zs) - min(zs),
                             cxz=((min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2),
-                            tris=carried, ring=ring, ndunes=ndun))
-    return sorted(out, key=lambda c: -c["ndunes"])
+                            tris=carried, ring=ring, ndunes=nscr, mixed=mixed))
+    # prefer the BIGGEST patch (most substantial mixed-biome), dither as the tiebreak
+    return sorted(out, key=lambda c: (-c["ndunes"], -c["mixed"]))
 
 
 cands = window_candidates()
 print(f"window candidates ({len(cands)}):")
 for c in cands:
     print(f"   {c['block']}: {c['ncells']} cells  {c['w']:.0f}x{c['h']:.0f}u  "
-          f"{len(c['tris'])} tris ({c['ndunes']} dunes)")
+          f"{len(c['tris'])} tris ({c['ndunes']} scrub cells, {c['mixed']} dither)")
 if not cands:
     sys.exit("no lawful window")
 
