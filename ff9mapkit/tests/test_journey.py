@@ -1487,3 +1487,27 @@ def test_journey_cross_tier_flag_collision(tmp_path):
     # shared_flag_reservation: floor is above the campaign window; the campaign's 12000 is reserved (auto-avoid)
     floor, reserved = journey.shared_flag_reservation(journey.load_journeys(jp))
     assert floor > FIRST_SAFE_FLAG and 12000 in reserved
+
+
+def test_text_block_windows_refuse_to_pass_the_int16_ceiling():
+    """A mesID is CONSUMED as Int16 (`fldLocNo = (Int16)eventIDToMESID[fldMapNo]`), so a window laid past
+    32767 wraps NEGATIVE and the field renders no dialogue at all -- silently, with no error anywhere. Refuse
+    at lay-out time rather than ship a journey whose later campaigns are mute."""
+    from ff9mapkit import journey as J
+
+    class _P:                                    # a stand-in plan: only `members` is read
+        def __init__(self, n):
+            self.members = [None] * n
+
+    def windows(sizes):
+        jr = J.Journey.__new__(J.Journey)
+        jr.campaigns = [f"c{i}" for i in range(len(sizes))]
+        return J._text_block_windows(jr, {f"c{i}": (_P(n), None) for i, n in enumerate(sizes)})
+
+    w = windows([3, 4])                          # ordinary journey: end-to-end, disjoint, no overlap
+    assert w["c0"] == J.TEXT_BLOCK_BASE and w["c1"] == J.TEXT_BLOCK_BASE + 3
+
+    # a journey whose members would run the window past the ceiling is a clean JourneyError, not silence
+    over = J.TEXT_BLOCK_CEILING - J.TEXT_BLOCK_BASE + 1
+    with pytest.raises(J.JourneyError, match="Int16"):
+        windows([over])
