@@ -581,3 +581,93 @@ def test_show_config_off_and_missing(game, tmp_path):
     empty = tmp_path / "no-install-here"                         # the game fixture IS tmp_path
     empty.mkdir()
     assert coop.show_config(empty, out=lambda *_: None) == 2     # no Memoria.ini -> actionable exit
+
+
+# ------------------------------------- the RESIDUE of a pre-fence splice: duplicate [Netsync] keys
+#
+# validate_code + the writer fence stop a NEW splice; an install poisoned BEFORE the fix still carries
+# the spliced lines. Memoria's IniFile.Init ends every parsed line with `Options[Key(section,key)] =
+# value` -- a plain dict assignment -- so on a duplicated key the LAST copy is the live one. Every
+# reader and writer here has to agree with that, or the kit reports (and vets, and rewrites) a value
+# the game is not using.
+
+RESIDUE_INI = (
+    "[Graphics]\n"
+    "Enabled = 1\n"
+    "\n"
+    "[Netsync]\n"
+    "Enabled = 1\n"
+    "RelayUrl = ws://127.0.0.1:49201\n"
+    "SessionCode = ff9-GOOD1234\n"
+    "GuestSlots = 15\n"
+    "RelayUrl = ws://attacker.example:1234\n"
+    "SessionCode = not a code!\n"
+)
+
+
+def test_read_ini_key_returns_the_last_copy_like_the_engine():
+    # first-match-wins read the reassuring line the victim can see; the engine reads the one below it
+    assert coop.read_ini_key(RESIDUE_INI, "Netsync", "SessionCode") == "not a code!"
+    assert coop.read_ini_key(RESIDUE_INI, "Netsync", "RelayUrl") == "ws://attacker.example:1234"
+    assert coop.read_ini_key(RESIDUE_INI, "Netsync", "GuestSlots") == "15"
+    assert coop.read_ini_key(RESIDUE_INI, "Graphics", "Enabled") == "1"      # unrelated section intact
+
+
+def test_read_ini_key_sees_a_re_opened_section():
+    # the payload's own shape: a second [Netsync] header re-enters the section in the engine's parser
+    ini = "[Netsync]\nGuestSlots = 0\n\n[Mod]\nPriorities = \"X\"\n\n[Netsync]\nGuestSlots = 15\n"
+    assert coop.read_ini_key(ini, "Netsync", "GuestSlots") == "15"
+
+
+def test_duplicate_ini_keys_names_the_residue():
+    assert coop.duplicate_ini_keys(RESIDUE_INI, "Netsync") == ["RelayUrl", "SessionCode"]
+    assert coop.duplicate_ini_keys(INI, "Netsync") == []                     # a clean ini is silent
+    assert coop.duplicate_ini_keys(RESIDUE_INI, "Graphics") == []            # section-scoped
+
+
+def test_show_config_flags_a_duplicated_key(game):
+    (game / "Memoria.ini").write_text(RESIDUE_INI, encoding="utf-8")
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0
+    text = "\n".join(lines)
+    assert "more than once" in text and "RelayUrl" in text and "SessionCode" in text
+    # ...and the report itself must describe the LIVE lines, not the dead ones above them
+    assert "session:     not a code!" in text
+    assert "relay via ws://attacker.example:1234" in text
+    assert "slot(s) 1, 2, 3, 4" in text
+
+
+def test_update_ini_section_drops_a_stale_duplicate_of_a_key_it_writes():
+    # writing only the FIRST copy left the engine obeying the second -- the rewrite meant to CORRECT
+    # a poisoned value would have been a silent no-op
+    out = coop.update_ini_section(RESIDUE_INI, "Netsync",
+                                  {"SessionCode": "ff9-NEWCODE1", "RelayUrl": ""})
+    assert out.count("SessionCode") == 1
+    assert out.count("RelayUrl") == 1
+    assert "attacker.example" not in out
+    assert coop.read_ini_key(out, "Netsync", "SessionCode") == "ff9-NEWCODE1"
+    assert coop.read_ini_key(out, "Netsync", "GuestSlots") == "15"   # not ours to touch: left alone
+
+
+def test_update_ini_section_collapses_a_duplicate_across_a_re_opened_section():
+    ini = "[Netsync]\nEnabled = 1\nSessionCode = ff9-GOOD1234\n\n[Netsync]\nSessionCode = not a code!\n"
+    out = coop.update_ini_section(ini, "Netsync", {"SessionCode": "ff9-NEWCODE1"})
+    assert coop.read_ini_key(out, "Netsync", "SessionCode") == "ff9-NEWCODE1"
+    assert "not a code!" not in out
+
+
+def test_coop_host_replaces_a_poisoned_second_stored_code(game, monkeypatch):
+    # the stored-code guard has to vet the line the ENGINE obeys: with the first copy read instead,
+    # the good-looking line validated, the unusable one below it survived the rewrite, and the fence
+    # that exists for exactly this ini passed it straight through
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    ini = game / "Memoria.ini"
+    ini.write_text(INI + "SessionCode = ff9-GOOD1234\nSessionCode = not a code!\n", encoding="utf-8")
+    lines = []
+    assert coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True),
+                    out=lines.append) == 0
+    text = ini.read_text(encoding="utf-8")
+    assert any("ignoring the stored SessionCode" in ln for ln in lines)
+    assert "not a code!" not in text
+    assert text.count("SessionCode") == 1
+    assert re.fullmatch(r"ff9-[A-Z0-9]{8}", coop.read_ini_key(text, "Netsync", "SessionCode"))

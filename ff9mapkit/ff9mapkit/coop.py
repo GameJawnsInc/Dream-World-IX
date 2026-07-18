@@ -194,9 +194,22 @@ def _split_lines(text: str):
 
 
 def read_ini_key(text: str, section: str, key: str) -> str | None:
-    """The value of ``key`` inside ``[section]``, or None. Mirrors Memoria's parser: first match wins,
-    ``;``/``#`` start comments, section/key names are case-insensitive."""
+    """The value of ``key`` inside ``[section]``, or None -- the value the ENGINE would use.
+
+    LAST match wins, because Memoria's parser does. ``IniFile.Init`` walks the file line by line and
+    ends each one with ``Options[new Key(section, key)] = value``, a plain dictionary assignment, and
+    it re-enters a section on a repeated ``[Netsync]`` header -- so where a key appears twice the
+    later line is the one the game obeys. Reading the FIRST match (what this did) made every caller
+    describe a file the engine was not playing: `coop show` would print a clean session code and an
+    empty guest-slot mask off a ini whose second, poisoned copy of those keys was live, and the host
+    setup's stored-code check would vet a value the engine had already overridden.
+
+    Deliberately more permissive than the engine on two axes, both toward NOT missing a live line:
+    section/key names match case-insensitively (the engine's ``Key`` struct compares ordinally), and
+    an inline ``;``/``#`` is stripped from the value (the engine keeps it, having already stopped at
+    the ``=``). ``;``/``#`` at the head of a line is a comment in both."""
     in_sec = False
+    found = None
     for line in text.splitlines():
         t = line.strip()
         if t.startswith(";") or t.startswith("#"):
@@ -207,8 +220,33 @@ def read_ini_key(text: str, section: str, key: str) -> str | None:
         if in_sec and "=" in line:
             k, v = line.split("=", 1)
             if k.strip().lower() == key.lower():
-                return v.split(";")[0].split("#")[0].strip()
-    return None
+                found = v.split(";")[0].split("#")[0].strip()
+    return found
+
+
+def duplicate_ini_keys(text: str, section: str) -> list[str]:
+    """The keys that appear more than once inside ``[section]``, in first-seen order.
+
+    A duplicate is not just untidy -- it is the fingerprint of the pre-fence ini splice (a pasted
+    "session code" carrying ``\\nGuestSlots = 15``), or of a hand-edit that pasted a friend's whole
+    ``[Netsync]`` block below the existing one. Either way the engine silently honours the LAST copy
+    while the visible one higher up says something else, so the diagnostics say so out loud."""
+    in_sec, seen, dupes = False, set(), []
+    for line in text.splitlines():
+        t = line.strip()
+        if t.startswith(";") or t.startswith("#"):
+            continue
+        if t.startswith("["):
+            in_sec = t.lower().startswith("[" + section.lower() + "]")
+            continue
+        if in_sec and "=" in line:
+            k = line.split("=", 1)[0].strip()
+            if not k:
+                continue
+            if k.lower() in seen and k not in dupes:
+                dupes.append(k)
+            seen.add(k.lower())
+    return dupes
 
 
 # Every C0 control + DEL + the three line breaks only Python knows about. THE UNION IS DELIBERATE:
@@ -259,18 +297,27 @@ def update_ini_section(text: str, section: str, updates: dict) -> str:
     replaced in place (comments elsewhere untouched), missing keys are added at the end of the section,
     and a missing section is appended to the file. Preserves the file's newline style.
 
+    A key that already appears TWICE in the section is written once (at the first occurrence) and its
+    later copies are DROPPED. Memoria's parser is last-write-wins, so leaving a stale duplicate below
+    would hand the engine the old value and make this whole call a no-op the ini does not show -- and
+    the duplicate that matters in practice is the residue of a poisoned ``SessionCode``/``GuestSlots``
+    splice, which must not survive the rewrite that is meant to correct it. Duplicates of keys this
+    call is not updating are left alone; they are not ours to guess at.
+
     Raises ValueError -- producing NO output at all -- if any key or value carries a control
     character, so no line this function emits can ever carry a raw break. See :func:`_check_ini_pair`
     for why a newline here is an ini injection rather than a typo."""
     lines, nl = _split_lines(text)
     out: list[str] = []
     pending = {k: _check_ini_pair(k, v) for k, v in updates.items()}   # keys not yet written
+    written: set = set()                                              # lowercased keys already emitted
     in_sec = False
     found_sec = False
 
     def flush_pending():
         for k, v in pending.items():
             out.append(f"{k} = {v}")
+            written.add(k.lower())
         pending.clear()
 
     for line in lines:
@@ -287,7 +334,10 @@ def update_ini_section(text: str, section: str, updates: dict) -> str:
             hit = next((uk for uk in pending if uk.lower() == k.lower()), None)
             if hit is not None:
                 out.append(f"{hit} = {pending.pop(hit)}")
+                written.add(hit.lower())
                 continue
+            if k.lower() in written:
+                continue                 # a later copy of a key we just wrote -- the engine would obey IT
         out.append(line)
     if in_sec:
         flush_pending()                  # section ran to EOF
@@ -445,6 +495,13 @@ def show_config(game: Path, *, out=print) -> int:
     key = lambda k, d="": (read_ini_key(text, "Netsync", k) or d).strip()
     enabled = key("Enabled") == "1"
     out(f"FF9 install: {game}")
+    dupes = duplicate_ini_keys(text, "Netsync")
+    if dupes:
+        # Everything below reports the LAST copy (what the engine obeys), so the numbers are right --
+        # but a duplicated key means someone or something appended a second [Netsync] block, and the
+        # earlier lines the user can see are dead. Worth naming before they debug the wrong ones.
+        out(f"  ! [Netsync] lists {', '.join(dupes)} more than once -- the LAST copy is the one the "
+            "game uses; the earlier lines do nothing (re-run  ff9mapkit coop host|join  to tidy it)")
     out(f"  co-op:       {'ON' if enabled else 'off'}")
     if not enabled:
         out("  (start one with  ff9mapkit coop host  /  ff9mapkit coop join <code>)")

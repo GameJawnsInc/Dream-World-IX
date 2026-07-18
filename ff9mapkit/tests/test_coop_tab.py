@@ -210,3 +210,44 @@ def test_the_status_warning_carries_its_own_door(coop, app, monkeypatch, tmp_pat
     coop.refresh_status()
     assert not coop.btn_setup.isVisibleTo(coop), "healthy s40 machine -> the door must GO AWAY"
     assert coop.btn_start.isEnabled()
+
+
+def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypatch, tmp_path):
+    """`coop host` deliberately treats a stored SessionCode it cannot vouch for as ABSENT and mints a
+    fresh one. The tab has to match: refresh_status SEEDS the code field from the ini, and in Host mode
+    that field is read-only -- so a value the user never typed dead-ended Start with no way to clear it.
+    Hosting drops the bad code (the subprocess mints one); JOINING still refuses, because there the code
+    IS the user's paste and silently replacing it would pair them with the wrong session."""
+    from ff9mapkit import config as cfg
+
+    game = tmp_path / "game"
+    game.mkdir()
+    (game / "Memoria.ini").write_text("[Netsync]\nEnabled = 1\nSessionCode = my session\n",
+                                      encoding="utf-8")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    coop.rb_host.setChecked(True)
+    coop.code.clear()
+    coop.refresh_status()
+    assert coop.code.text() == "my session", "precondition: the ini's value is seeded into the field"
+
+    seen = []
+    monkeypatch.setattr(coop, "_run", lambda argv, **kw: seen.append(argv) or True)
+    coop.rb_relay.setChecked(True)                  # the LAN branch bails earlier, on its own message
+    try:
+        coop.start_coop()
+        assert seen, "Host Start bailed on a code that came from the ini, not from the user"
+        assert "my session" not in seen[0], "the unusable stored code was still passed to the CLI"
+        assert coop.lbl_config.property("state") != "warn"
+
+        # ...and the flip side: a guest's own bad paste must still be refused before any subprocess,
+        # because THERE the code is the user's paste -- the ini-splice fence stays hard on that path
+        seen.clear()
+        coop.rb_join.setChecked(True)
+        coop.code.setText("ff9-AAAA0000\nGuestSlots = 15")
+        coop.start_coop()
+        assert not seen, "a poisoned paste must not reach the CLI on the join path"
+        assert coop.lbl_config.property("state") == "warn"
+    finally:
+        coop.rb_host.setChecked(True)
+        coop.code.clear()
+        widgets.set_state(coop.lbl_config, "")

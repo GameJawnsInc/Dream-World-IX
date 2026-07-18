@@ -471,9 +471,17 @@ class CoopDoc(QWidget):
             try:
                 coop.validate_code(code)
             except ValueError as e:
-                widgets.set_state(self.lbl_config, "warn")
-                self.lbl_config.setText(str(e))
-                return
+                if not hosting:
+                    widgets.set_state(self.lbl_config, "warn")
+                    self.lbl_config.setText(str(e))
+                    return
+                # HOSTING: the field is read-only in this mode and refresh_status seeds it from the
+                # stored SessionCode, so an ini the user never typed can otherwise dead-end Start with
+                # no way to clear it. Drop it and let coop.py mint a fresh one -- the same tolerance
+                # `ff9mapkit coop host` already applies to an unusable stored code. done() reads the
+                # new code back into the field.
+                self._append_log(f"{e} -- it came from Memoria.ini, minting a new one")
+                code = ""
         style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host", "diorama"),
                          self._playstyle_state())) if self.style_box.isEnabled() else {}
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
