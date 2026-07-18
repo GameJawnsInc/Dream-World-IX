@@ -178,7 +178,7 @@ def test_every_theme_is_reachable_from_the_command_palette():
     """
     from ff9mapkit.editor.theme import THEMES, THEME_CHOICES
     modes = [m for m, _ in THEME_CHOICES]
-    assert modes[0] == "auto", "the picker must lead with Match system"
+    assert modes[0] == "mist", "the picker must lead with Mist -- it's the default"
     # every registered palette is offered, and nothing is offered that isn't registered
     assert set(modes) - {"auto"} == set(THEMES), "the Ctrl-K theme rows must mirror the registry exactly"
     # a late-binding closure would collapse the rows to one distinct callback target

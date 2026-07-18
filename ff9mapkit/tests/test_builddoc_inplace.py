@@ -91,3 +91,39 @@ def test_inplace_hidden_for_a_fork_of_a_custom_id(app, tmp_path):
                          '[verbatim_eb]\nbin = "x.bin"\ndonor = 5000\n')       # a custom-slot donor
     doc.path.setText(str(p))
     assert doc.inplace_target is None and not doc._inplace_available
+
+
+def test_refresh_picks_up_an_edit_and_save_without_re_browsing(app, tmp_path):
+    # Same bug the shell hits: the Author form edits + saves the SAME path (`self.path` text never
+    # changes, so `_on_path`'s textChanged trigger never fires) -- `refresh()` is the shell's fix,
+    # called on every Build & Deploy tab-show.
+    doc = _doc(app)
+    p = _write(tmp_path, '[field]\nid = 4006\nname = "AC_FTI"\narea = 11\n')
+    doc.path.setText(str(p))
+    assert doc.field_id == 4006 and doc.field_name == "AC_FTI"
+    assert "4006" in doc.status.text()
+    p.write_text('[field]\nid = 7006\nname = "AC_FTI"\narea = 11\n', encoding="utf-8")   # id bumped on disk
+    assert doc.field_id == 4006, "unchanged before refresh -- same path text never re-triggers _on_path"
+    doc.refresh()
+    assert doc.field_id == 7006 and "7006" in doc.status.text(), "refresh() re-reads the same path from disk"
+
+
+def test_refresh_does_not_clobber_a_manual_deploy_target_pick(app, tmp_path):
+    # _sync_inplace used to force-check In-place on EVERY render; refresh() now runs on every tab-show,
+    # so that would have silently reverted a deliberate "Install to game" pick back to In-place each time
+    # the user merely revisited the Build & Deploy tab (the donor doesn't change across the edit).
+    doc = _doc(app)
+    if not doc.has_tools:
+        pytest.skip("no dev deploy tools in this checkout")
+    p = _write(tmp_path, '[field]\nid = 4006\nname = "AC_FTI"\narea = 11\n\n'
+                         '[verbatim_eb]\nbin = "x.bin"\ndonor = 1807\n')
+    doc.path.setText(str(p))
+    assert doc.rb_inplace.isChecked(), "defaults to In-place for a verbatim fork"
+    doc.rb_game.setChecked(True)                       # the user manually picks Install to game
+    assert not doc.rb_inplace.isChecked()
+    p.write_text('[field]\nid = 7006\nname = "AC_FTI"\narea = 11\n\n'
+                '[verbatim_eb]\nbin = "x.bin"\ndonor = 1807\n', encoding="utf-8")   # id edited, same donor
+    doc.refresh()
+    assert doc.field_id == 7006, "the id edit is still picked up"
+    assert doc.rb_game.isChecked() and not doc.rb_inplace.isChecked(), \
+        "a manual pick survives a refresh of the same donor"

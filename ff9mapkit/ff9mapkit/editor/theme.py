@@ -236,8 +236,9 @@ GRUVBOX_DARK = {                # https://github.com/morhetz/gruvbox
 
 # All selectable palettes (keyed by mode string). "auto" is a meta-mode (follow the OS) -- not in here.
 # --- the FF9 climate (SIGNET, studies/gui-aesthetics/IDENTITY.md) ---------------------------
-# The one palette permitted to be Final Fantasy IX. OPT-IN, never the default: `auto` still resolves
-# Dark/Light, and every neutral palette above is byte-identical to before this landed.
+# The one palette permitted to be Final Fantasy IX. It is now the app's DEFAULT (prefs.theme() ships
+# "mist") -- "auto"/Dark/Light and every neutral palette above are still one picker click away and remain
+# byte-identical to before this landed; only the fresh-install SEED moved.
 #
 # WHY THERE IS NO GOLD IN HERE. The obvious FF9 palette is its menu: navy page, gold trim. It is
 # buildable and it is wrong, on three measured grounds:
@@ -294,18 +295,19 @@ THEMES = {
     "mist": MIST,
 }
 
-# (mode, display label) in picker order. "auto" leads (the default); the rest mirror THEMES.
+# (mode, display label) in picker order. "mist" leads (the default -- see prefs.theme()); the rest mirror
+# THEMES, "auto" first among them since match-system is the next most likely pick.
 THEME_CHOICES = [
-    ("auto", "Match system"),
-    ("light", "Light"),
+    ("mist", "Mist (FF9) (default)"),   # ASCII ONLY -- this file has zero non-ASCII bytes and an em-dash
+    ("auto", "Match system"),           # here would make the label the first non-ASCII byte. House style
+    ("light", "Light"),                 # writes "--".
     ("dark", "Dark"),
     ("nord", "Nord"),
     ("dracula", "Dracula"),
     ("solarized-dark", "Solarized Dark"),
     ("solarized-light", "Solarized Light"),
     ("gruvbox-dark", "Gruvbox Dark"),
-    ("mist", "Mist (FF9)"),     # ASCII ONLY -- this file has zero non-ASCII bytes and an em-dash here
-]                               # would make the label the first one. The house style writes "--".
+]
 
 
 def detect_os_dark() -> bool:

@@ -14,7 +14,7 @@ def _isolate(tmp_path, monkeypatch):
 def test_defaults_when_no_file(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     assert prefs.load() == {}
-    assert prefs.theme() == "auto"                    # the built-in default
+    assert prefs.theme() == "mist"                     # the built-in default (the FF9 climate)
     assert prefs.get("nope", "fallback") == "fallback"
 
 
@@ -39,13 +39,13 @@ def test_corrupt_file_degrades_to_defaults(tmp_path, monkeypatch):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("{ this is not json", encoding="utf-8")
     assert prefs.load() == {}                         # no raise
-    assert prefs.theme() == "auto"
+    assert prefs.theme() == "mist"
 
 
 def test_non_string_theme_falls_back(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
     prefs.put("theme", 123)                           # a malformed value must not break theme()
-    assert prefs.theme() == "auto"
+    assert prefs.theme() == "mist"
 
 
 def test_density_defaults_and_round_trips(tmp_path, monkeypatch):
