@@ -1102,3 +1102,30 @@ def test_npc_model_kwargs_explicit_anims_override_archetype():
     # the bare-model path keeps its Info Hub join + explicit-anims precedence
     assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM"})["anims"]["stand"] == 654
     assert _npc_model_kwargs({"model": "GEO_NPC_F0_TMM", "anims": ov})["anims"] == ov
+
+
+# --- build must not silently unregister a shared mod folder's other fields ---------------------------
+def test_build_refuses_to_unregister_a_shared_folders_other_fields(tmp_path):
+    """`build` writes a WHOLE mod, so its DictionaryPatch rewrite owns the output folder. Pointed at a
+    live folder other deploys share, it would unregister every field it does not emit -- their .eb/.mes
+    stay on disk, so nothing looks wrong until the engine black-screens. Observed in-game 2026-07-18."""
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(
+        '[field]\nid = 4005\nname = "MINE"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    out = tmp_path / "mod"
+    build.build_mod([proj], out)                                  # fresh folder: fine
+    assert "FieldScene 4005" in out.joinpath("DictionaryPatch.txt").read_text(encoding="utf-8")
+    build.build_mod([proj], out)                                  # same set again: still fine
+    # now the folder also carries a FOREIGN field (another session's deploy)
+    dp = out / "DictionaryPatch.txt"
+    dp.write_text("MessageFile 30110 MES_DWIX_30110\nFieldScene 30110 11 THEIRS THEIRS 30110\n"
+                  + dp.read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(build.BuildError) as e:
+        build.build_mod([proj], out)
+    assert "30110 (THEIRS)" in str(e.value) and "deploy_field.py" in str(e.value)
+    assert "FieldScene 30110" in dp.read_text(encoding="utf-8")   # and the file is UNTOUCHED

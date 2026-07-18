@@ -7118,6 +7118,27 @@ def _dictionary_lines(results, extra_directives=()) -> list:
     return [f"MessageFile {b} MES_DWIX_{b}" for b in mes_reg] + mint_lines + list(extra_directives) + field_lines
 
 
+def _foreign_registrations(dict_patch, new_lines) -> list:
+    """``FieldScene`` ids an EXISTING DictionaryPatch registers that ``new_lines`` does not -- i.e. the
+    fields a wholesale rewrite of that file would unregister. Empty for a fresh/absent file, and empty
+    when the build is a superset (a re-build of the same set, or of more)."""
+    try:
+        old = dict_patch.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []                                        # absent/unreadable -> nothing to lose
+
+    def ids(lines):
+        out = {}
+        for ln in lines:
+            p = ln.split()
+            if len(p) >= 5 and p[0] == "FieldScene":
+                out[p[1]] = p[3]                         # id -> name
+        return out
+
+    keep = ids(new_lines)
+    return [f"{i} ({n})" for i, n in sorted(ids(old).items()) if i not in keep]
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
               langs=LANGS, entry_project=None) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
@@ -7166,9 +7187,23 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
                                  f"recruit = true on it). Without a definition the game crashes when the field "
                                  f"loads (no PLAYER is allocated for id {m}).")
 
-    layout.dictionary_patch.write_text(
-        "\n".join(_dictionary_lines(results, charname_lines + status_icon_lines)) + "\n",
-        encoding="utf-8", newline="\n")
+    # THE FOREIGN-REGISTRATION GUARD. `build` OWNS its output folder's DictionaryPatch -- it emits a whole
+    # mod, so it writes the file wholesale. Pointed at a LIVE mod folder that other deploys already share,
+    # that silently unregisters every field this build doesn't know about: their .eb/.mes survive on disk,
+    # so nothing looks wrong until the engine black-screens on a field whose FieldScene line vanished.
+    # (Observed 2026-07-18: a GUI build into FF9CustomMap left three fields' assets in place and dropped
+    # two fields' registrations.) `tools/deploy_field.py` is the reversible, merge-preserving path -- this
+    # guard names it rather than silently doing a deploy's job.
+    _new = _dictionary_lines(results, charname_lines + status_icon_lines)
+    _lost = _foreign_registrations(layout.dictionary_patch, _new)
+    if _lost:
+        raise BuildError(
+            f"refusing to overwrite {layout.dictionary_patch}: it registers {len(_lost)} field(s) this "
+            f"build does not emit -- {', '.join(_lost[:4])}{' ...' if len(_lost) > 4 else ''}. A `build` "
+            f"writes a WHOLE mod, so it would unregister them (their files would stay on disk, and the "
+            f"engine would black-screen on them). Build to a fresh --out and copy it in, or use "
+            f"`tools/deploy_field.py <field.toml> --id <n>`, which merges into a shared folder reversibly.")
+    layout.dictionary_patch.write_text("\n".join(_new) + "\n", encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene
     # tuning blocks ([[battle_patch]] / [[battle_enemy]] / [[battle_attack]]). Both are mod-global reflection
