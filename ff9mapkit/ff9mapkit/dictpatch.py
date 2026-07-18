@@ -73,7 +73,7 @@ def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim
     (the pre-deploy snapshot) any OWNED line that pre-existed this deploy and isn't already present -- lines
     this deploy added fresh aren't in the backup, so they stay gone.
 
-    Returns ``(kept_lines, foreign_dropped)`` where ``foreign_dropped`` lists any FOREIGN model/anim line that
+    Returns ``(kept_lines, foreign_dropped)`` where ``foreign_dropped`` lists any FOREIGN model/anim/field line that
     ended up dropped anyway (should always be empty -- it's a belt-and-suspenders warning source). Matching is
     exact-id/exact-key throughout, so a foreign ``3DModelAnimation`` sharing a minted model's GEO block (e.g. a
     ``model-anim-new`` clip added between deploys) is preserved, not wiped."""
@@ -88,25 +88,63 @@ def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim
     return kept, foreign_registrations_dropped(current_lines, kept, owned=_owned)
 
 
+ID_KEYED_DIRECTIVES = ("FieldScene", "LocationName")
+"""DictionaryPatch directives keyed by the FIELD ID in column 2 (``<directive> <fid> ...``)."""
+
+MINT_DIRECTIVES = ("3DModel", "3DModelAnimation")
+"""DictionaryPatch directives keyed by a minted GEO id / AnimationDB key in column 2."""
+
+
+def _registration_identity(parts):
+    """What "did this registration survive?" is judged on, per directive kind -- or None for a line that is
+    not a reported registration at all.
+
+    ``FieldScene``/``LocationName`` judge on ``(directive, id)``, NOT the whole line: what the engine needs is
+    that the id is still registered at all, and a re-deploy legitimately rewrites its own field's line with a
+    new scene name or text-block id. Whole-line matching there would fire on every edit-deploy cycle, and a
+    guard that cries wolf every run is a guard nobody reads.
+
+    ``3DModel``/``3DModelAnimation`` keep WHOLE-LINE identity: a key re-pointed at a different GEO/ANH name is
+    a genuine loss of the old clip -- that is the vanished key 60001 on field 30057 this module was built for."""
+    if len(parts) < 2:
+        return None
+    if parts[0] in ID_KEYED_DIRECTIVES:
+        return (parts[0], parts[1])
+    if parts[0] in MINT_DIRECTIVES:
+        return ("line", " ".join(parts))
+    return None
+
+
 def foreign_registrations_dropped(before_lines, after_lines, owned=None) -> list:
-    """The FOREIGN ``3DModel``/``3DModelAnimation`` registrations present in ``before_lines`` but absent from
-    ``after_lines`` -- a safety net for a revert/re-apply that is about to silently lose a model/anim line it
-    does not own. Returns the dropped lines (verbatim, de-duplicated, in first-seen order) so the caller can
-    WARN loudly. Only model/anim registrations are reported (a dropped FieldScene is the deploy's own
-    business). ``owned`` is an optional ``line -> bool`` predicate: a dropped line the deploy DOES own (e.g.
-    its own fresh mint the revert correctly removes) is excluded, so only genuinely-foreign losses warn."""
+    """The FOREIGN registrations present in ``before_lines`` but absent from ``after_lines`` -- a safety net
+    for a revert / re-apply / wholesale install that is about to silently lose a line it does not own. Returns
+    the dropped lines (verbatim, de-duplicated, in first-seen order) so the caller can WARN loudly.
+
+    Reported kinds: ``3DModel``/``3DModelAnimation`` (the vanished-clip footgun this module was minted for) AND
+    the id-keyed ``FieldScene``/``LocationName``. FieldScene was originally excluded as "the deploy's own
+    business" -- that was right about the deploy's OWN id and wrong about every other session's: with several
+    checkouts deploying into ONE mod folder, a wholesale campaign install drops a co-resident field's
+    FieldScene line, and an unregistered field id makes the engine load a null ``.eb`` -- a BLACK SCREEN in
+    game with no error and no record on disk of why (2026-07-18: field 4003's line vanished and a retired
+    registration was byte-identical to a lost one). The loudest signal we have must cover the worst symptom.
+
+    OWN vs FOREIGN is the whole distinction, and it lives in the caller: ``owned`` is an optional
+    ``line -> bool`` predicate excluding a dropped line the caller DOES own (its own fresh mint a revert
+    correctly removes; its own field's line ``tools/deploy_field.py`` filters out and re-appends). A call site
+    that reports FieldScene MUST pass a predicate mirroring its own filter exactly -- disagree in one direction
+    and the guard goes silent, in the other and it fires on every deploy."""
     def _regs(lines):
         out = []
         for ln in lines:
-            p = ln.split()
-            if p[:1] in (["3DModel"], ["3DModelAnimation"]) and len(p) >= 2:
-                out.append(ln.strip())
+            ident = _registration_identity(ln.split())
+            if ident is not None:
+                out.append((ident, ln.strip()))
         return out
-    after = set(_regs(after_lines))
+    after = {ident for ident, _ in _regs(after_lines)}
     dropped, seen = [], set()
-    for ln in _regs(before_lines):
-        if ln in after or ln in seen or (owned is not None and owned(ln)):
+    for ident, ln in _regs(before_lines):
+        if ident in after or ident in seen or (owned is not None and owned(ln)):
             continue
         dropped.append(ln)
-        seen.add(ln)
+        seen.add(ident)
     return dropped

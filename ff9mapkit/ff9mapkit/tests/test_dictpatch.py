@@ -117,3 +117,59 @@ def test_foreign_registrations_dropped_ignores_reordering_and_dupes():
     before = ["3DModelAnimation 60001 ANH_A", "3DModelAnimation 60001 ANH_A", "3DModel 6300 GEO_A"]
     after = ["3DModel 6300 GEO_A", "3DModelAnimation 60001 ANH_A"]   # same regs, reordered
     assert DP.foreign_registrations_dropped(before, after) == []
+
+
+def test_foreign_fieldscene_drop_is_reported():
+    """The 2026-07-18 gap: a FieldScene line belonging to ANOTHER session's field vanished from the shared
+    DictionaryPatch and nothing warned. An unregistered field id makes the engine load a null .eb -- a black
+    screen with no error -- so the loudest signal we have must cover it."""
+    before = ["FieldScene 4003 11 10 TESTROOM 1073", "FieldScene 30110 11 10 TWINALTAR 1080"]
+    after = ["FieldScene 4003 11 10 TESTROOM 1073"]          # a co-resident field's registration wiped
+    assert DP.foreign_registrations_dropped(before, after) == ["FieldScene 30110 11 10 TWINALTAR 1080"]
+    # LocationName is id-keyed the same way (cosmetic loss -- the location loses its title, no black screen)
+    assert DP.foreign_registrations_dropped(["LocationName 30110 Twin Altar"], []) == ["LocationName 30110 Twin Altar"]
+
+
+def test_deploys_own_fieldscene_rewrite_is_not_reported():
+    """THE ANTI-NOISE TEST -- the one that keeps the guard usable. `tools/deploy_field.py` filters out its own
+    FID's line and re-appends it, so blanket FieldScene reporting would fire on EVERY deploy. Two defences,
+    both pinned here: (1) FieldScene is judged on (directive, id), so re-registering 4003 under a new scene
+    name/text-block id is not a loss; (2) the `owned` predicate mirroring the deploy's filter excludes the id
+    outright, which is what covers a deploy that legitimately STOPS emitting its own LocationName."""
+    fid = 4003
+    before = ["FieldScene 4003 11 10 OLDNAME 1073", "LocationName 4003 Old Title", "BattleScene 900"]
+    owned = lambda ln: ln.split()[1:2] == [str(fid)]   # noqa: E731  -- mirrors deploy_field's `_dp_owned`
+    after = ["BattleScene 900", "FieldScene 4003 11 10 NEWNAME 1099"]   # dropped-and-re-appended, edited
+    # (1) id-keyed: the rewritten FieldScene is NOT a loss -- 4003 is still registered, so no warning either way
+    assert "FieldScene 4003 11 10 OLDNAME 1073" not in DP.foreign_registrations_dropped(before, after)
+    # (2) but this build stopped emitting `[field] location`, so the own LocationName really is gone. WITHOUT
+    #     the predicate that is a false alarm on a routine deploy -- which is why the call site must pass one.
+    assert DP.foreign_registrations_dropped(before, after) == ["LocationName 4003 Old Title"]
+    assert DP.foreign_registrations_dropped(before, after, owned=owned) == []
+    assert DP.foreign_registrations_dropped(before, ["BattleScene 900"], owned=owned) == []
+    # ...but a FOREIGN id lost in the same pass still warns
+    assert DP.foreign_registrations_dropped(before + ["FieldScene 30110 1 1 X 1"], after, owned=owned) \
+        == ["FieldScene 30110 1 1 X 1"]
+
+
+def test_mint_line_rewrite_is_still_whole_line_matched():
+    """The mint directives deliberately did NOT move to key identity: a 3DModelAnimation key re-pointed at a
+    different ANH name is a real loss of the old clip (the vanished key 60001), not a harmless rewrite."""
+    before = ["3DModelAnimation 60001 ANH_NPC_F1_M300_IDLE"]
+    after = ["3DModelAnimation 60001 ANH_NPC_F1_M300_WALK"]
+    assert DP.foreign_registrations_dropped(before, after) == ["3DModelAnimation 60001 ANH_NPC_F1_M300_IDLE"]
+
+
+def test_legacy_two_positional_call_still_works():
+    """~30 revert scripts already on disk `sys.path.insert` into this kit and call the LIBRARY at run time
+    with their OLD signature (`revert_dictionary_patch(cur, bak, fid="4003", ...)`, fid as a STRING). No new
+    required parameter, no changed return shape."""
+    cur = ["FieldScene 4003 11 10 TESTROOM 1073", "3DModelAnimation 60001 ANH_A", "BattleScene 900"]
+    bak = ["3DModelAnimation 60001 ANH_A"]
+    kept, lost = DP.revert_dictionary_patch(cur, bak, fid="4003", model_ids=set(), anim_keys=set())
+    assert kept == ["3DModelAnimation 60001 ANH_A", "BattleScene 900"]   # own id gone, foreign lines intact
+    assert lost == []                                                    # own FieldScene drop is not foreign
+    # the 2-arg positional form legacy callers could also reach: still a plain list of verbatim lines. (It has
+    # no ownership context, so it does flag the revert's own id -- exactly why revert_dictionary_patch passes
+    # its `_owned` in, and why `lost` above is empty.)
+    assert DP.foreign_registrations_dropped(cur, kept) == ["FieldScene 4003 11 10 TESTROOM 1073"]

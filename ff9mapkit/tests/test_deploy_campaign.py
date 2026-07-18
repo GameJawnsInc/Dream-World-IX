@@ -224,3 +224,34 @@ def test_dry_run_smoke(tmp_path):
     campaign.write_campaign(result, camp, id_base=30100, name="ICE2", mod_folder="FF9CustomMap-ow")
     rc = dc.main([str(camp / "campaign.toml")])      # dry-run (no --apply) -> loads, lints, prints, exits
     assert rc == 0
+
+
+def test_foreign_regs_wiped_reports_another_sessions_fieldscene(tmp_path):
+    """A wholesale campaign install rmtree+copytree's the mod folder, so any registration the built dist does
+    not carry is gone. Multiple checkouts deploy into ONE shared folder, so that routinely includes a FIELD
+    line belonging to another session -- and an unregistered field id makes the engine load a null .eb, a
+    black screen with no error (2026-07-18). Pre-fix this guard inspected only 3DModel/3DModelAnimation."""
+    class _Live:                                    # only .dictionary_patch is read; an explicit fixture, no
+        dictionary_patch = tmp_path / "DictionaryPatch.txt"    # fall-through to the developer's real install
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    _Live.dictionary_patch.write_text(
+        "FieldScene 30100 11 10 IC_ENT 1200\n"       # the campaign's own -- carried by the dist
+        "FieldScene 4003 11 10 TESTROOM 1073\n"      # ANOTHER session's field, co-resident in the folder
+        "LocationName 4003 Test Room\n"
+        "3DModelAnimation 60001 ANH_A\n", encoding="utf-8")
+    (dist / "DictionaryPatch.txt").write_text("FieldScene 30100 11 10 IC_ENT 1200\n", encoding="utf-8")
+    assert deploy._foreign_regs_wiped(_Live, dist) == [
+        "FieldScene 4003 11 10 TESTROOM 1073", "LocationName 4003 Test Room", "3DModelAnimation 60001 ANH_A"]
+
+
+def test_foreign_regs_wiped_quiet_when_campaign_rewrites_its_own_field_line(tmp_path):
+    """Anti-noise: re-deploying the campaign with an edited field (new scene name / text-block id) must not
+    warn -- FieldScene is judged on (directive, id), and id 30100 is still registered."""
+    class _Live:
+        dictionary_patch = tmp_path / "DictionaryPatch.txt"
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    _Live.dictionary_patch.write_text("FieldScene 30100 11 10 OLDNAME 1200\n", encoding="utf-8")
+    (dist / "DictionaryPatch.txt").write_text("FieldScene 30100 11 10 NEWNAME 1288\n", encoding="utf-8")
+    assert deploy._foreign_regs_wiped(_Live, dist) == []

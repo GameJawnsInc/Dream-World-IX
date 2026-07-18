@@ -27,9 +27,15 @@ from .config import LANGS, ModLayout, find_game_path
 
 
 def _foreign_regs_wiped(live, dist_root) -> list:
-    """The FOREIGN ``3DModel``/``3DModelAnimation`` DictionaryPatch registrations a wholesale replace of
-    ``live`` (a :class:`ModLayout`) with ``dist_root`` would silently drop -- present in the live folder,
-    absent from the dist. A safety net for the ``model-anim-new``-between-deploys footgun."""
+    """The FOREIGN DictionaryPatch registrations a wholesale replace of ``live`` (a :class:`ModLayout`) with
+    ``dist_root`` would silently drop -- present in the live folder, absent from the dist. A safety net for the
+    ``model-anim-new``-between-deploys footgun and, since 2026-07-18, for a co-resident field's ``FieldScene``
+    line: several checkouts deploy into ONE mod folder, and an id this install de-registers black-screens.
+
+    No ``owned`` predicate: the campaign owns every id in the dist BY CONSTRUCTION, so a registration the dist
+    carries is never "dropped" in the first place (it is present in ``after``), and anything left is foreign by
+    definition. FieldScene is matched on ``(directive, id)``, so a campaign re-deploy that rewrites its own
+    fields' lines reports nothing."""
     live_dp = live.dictionary_patch
     dist_dp = Path(dist_root) / "DictionaryPatch.txt"
     if not live_dp.exists():
@@ -310,15 +316,19 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     _write_revert()
     report["revert"] = rev
 
-    # foreign-registration guard: a WHOLESALE replace drops any 3DModel/3DModelAnimation line the dist doesn't
-    # carry -- e.g. a clip `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch. The
+    # foreign-registration guard: a WHOLESALE replace drops any registration the dist doesn't carry -- a clip
+    # `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch, or (2026-07-18) the
+    # FieldScene line of a field ANOTHER checkout deployed into this same shared folder. The
     # snapshot restores them on REVERT, but the forward install silently loses them -> WARN loudly (CLAUDE.md
     # deploy footgun, 2026-07-08). Only reported; the wholesale replace is the campaign-owns-the-folder model.
     _lost = _foreign_regs_wiped(live, dist_root)
     if _lost:
-        out("  !! WARNING: this wholesale install DROPS DictionaryPatch registration(s) not in the built dist "
-            "(e.g. `model-anim-new` clips added to this folder since the last deploy). RE-ADD them after, or "
-            "author them into the campaign. Reversible via the snapshot. Lost:")
+        out("  !! WARNING: this wholesale install DROPS DictionaryPatch registration(s) not in the built dist. "
+            "A `FieldScene <id>` here belongs to ANOTHER session's field co-resident in this folder -- that id "
+            "is now UNREGISTERED, so the engine loads a null .eb and it BLACK-SCREENS in game with no error "
+            "(re-deploy the owning field). A 3DModel/3DModelAnimation is a lost model/clip (e.g. `model-anim-new` "
+            "added to this folder since the last deploy) -- RE-ADD it, or author it into the campaign. "
+            "Reversible via the snapshot. Lost:")
         for _l in _lost:
             out(f"       {_l}")
     try:

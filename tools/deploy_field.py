@@ -195,23 +195,30 @@ def _stale_icon(ln):                                       # a Buff/DebuffIcon l
     p = ln.split()
     return len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in status_icon_ids
 _dp_before = live.dictionary_patch.read_text(encoding="utf-8").splitlines()
-dp = [ln for ln in _dp_before
-      if ln.strip() and ln.split()[1:2] != [str(FID)]           # drop this field's old FieldScene/LocationName
-      and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # drop THIS deploy's mint ids
-      and not _stale_anim(ln)                                                                  # drop THIS deploy's anim keys
-      and not _stale_icon(ln)                                                                  # drop stale status icons
-      and not (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # drop stale names
-               and (ln.split()[1], ln.split()[2]) in charname_keys)]
+def _dp_owned(ln):
+    """A live DictionaryPatch line THIS deploy owns -- filtered out below and re-appended fresh. It is ALSO
+    the `owned` predicate handed to the foreign-drop guard, deliberately as ONE function: the guard reports
+    dropped FieldScene lines now, so a predicate that disagreed with this filter by a hair would either go
+    silent on a foreign loss or warn on every single run."""
+    return (ln.split()[1:2] == [str(FID)]                       # this field's own FieldScene/LocationName
+            or (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # THIS deploy's mint ids
+            or _stale_anim(ln)                                                                  # THIS deploy's anim keys
+            or _stale_icon(ln)                                                                  # stale status icons
+            or (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # stale names
+                and (ln.split()[1], ln.split()[2]) in charname_keys))
+dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
 dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
-_dropped = _dp.foreign_registrations_dropped(_dp_before, dp)   # a foreign 3DModel/3DModelAnimation line this deploy shouldn't touch
+_dropped = _dp.foreign_registrations_dropped(_dp_before, dp, owned=_dp_owned)   # a line this deploy does NOT own
 if _dropped:
-    print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own -- a foreign "
-          "3DModel/3DModelAnimation line (e.g. a `model-anim-new` clip) was lost. Re-add after deploy:")
+    print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own. A foreign "
+          "`FieldScene <id>` means that field id is NO LONGER REGISTERED -- the engine loads a null .eb and "
+          "the field BLACK-SCREENS in game with no error. A foreign 3DModel/3DModelAnimation (e.g. a "
+          "`model-anim-new` clip) is a lost model/clip. RE-ADD them now, or re-deploy the owning field:")
     for _dl in _dropped:
         print(f"       {_dl}")
 _n_model = sum(1 for ml in mint_lines if ml.startswith("3DModel "))
