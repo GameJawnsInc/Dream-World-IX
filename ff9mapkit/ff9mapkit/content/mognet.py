@@ -1,0 +1,335 @@
+"""Mognet -- author a NEW moogle identity into FF9's real letter network.
+
+FF9's Mognet is driven ENTIRELY by field bytecode + text: no C# letter logic exists (CaptionType.Mognet
+is just a window skin), moogle identity is a plain byte indexing the 41-name roster in text entry 0, and
+nothing anywhere bounds that byte against 41 -- every routing comparison in all 818 fields is equality
+(B_EQ/B_NE, zero range checks). So a custom field's save Moogle can join the network as the 42nd identity
+(id :data:`NEW_MOOGLE_ID`) by speaking the same byte protocol. This module emits that protocol.
+
+THE MAILBOX (gEventGlobal; decoded from fields 300/407/1102 and LIVE-VERIFIED 2026-07-18 against a real
+save -- delivering Kuppo's letter to Kupo zeroed slot 0's quad and ticked the counter 12->13):
+
+    Byte[1024]        init/migration guard. Byte-one once the mailbox has ever been used. If 0 while any
+                      slot is occupied, the next real save moogle ERASES all 12 slot bytes ("Old letter
+                      data. Erasing..."). Every write path here sets it; never write any other value.
+    Byte[1032]        lifetime letters-DELIVERED counter (the ACCEPT path post-increments it; Mognet
+                      Central reads it for "Thanks for delivering [NUMB] letters!").
+    Byte[1033]        Stiltzkin's sub-quest tally. The kit NEVER writes it.
+    Byte[1034+4k]     slot k in {0,1,2}: +0 occupied, +1 variant, +2 FROM moogle id, +3 TO moogle id.
+    bits 8376-8439    GIVE-side variant one-shot locks ("this letter was already handed out"),
+    bits 8440-8503    READ-side locks -- bit(v) = anchor + 8*(v//8) - (v%8), anchors 8383/8447. The
+                      inverse is pinned against live data (reading variants 19/22/33 set exactly bytes
+                      1057 bit4 / 1057 bit1 / 1059 bit6). Inside the reserved 8376-8511 band; the kit's
+                      custom flags start at 8512, so no collision either way.
+
+THE SAFETY DISCIPLINE (the one irreversible risk is a player's real letters; an adversarial review
+marked "cannot corrupt" UNPROVEN precisely because it depended on unwritten code, so the invariants are
+STRUCTURAL here, not documentation):
+
+  * :func:`give_letter_body` prepends ``Byte[1024] = 1`` itself -- the wipe-guard precondition cannot be
+    forgotten by a caller, and the write is idempotent (58 shipping fields only ever write literal 1).
+  * A give NEVER overwrites an occupied slot: the body is a first-EMPTY-slot chain (slot checked empty
+    immediately before its quad is written -- the same invariant as the donor's recount-then-switch,
+    without the transient Map counter a naive port could forget to refresh).
+  * A FULL mailbox refuses with ZERO mailbox writes (the donor's default arm does exactly nothing).
+  * A delivery COMPACTS: higher quads shift down, the vacated tail quad is zeroed -- a hole would
+    desynchronise every real moogle's slot count from the data permanently.
+  * The tests EXECUTE these bodies in a mini-VM over a simulated gEventGlobal and assert the invariants
+    on the resulting bytes -- not on the emitter's structure.
+
+Letter VARIANT ids are the real ceiling (not the moogle id): the one-shot locks are 64-bit tables, so a
+variant must be < 64, and shipped content uses ids up to ~48 -- custom letters take 49..63
+(:data:`SAFE_VARIANTS`). The roster text itself (a 42nd NAME) ships via :func:`roster_extend` over the
+install-derived entry-0 table -- see docs/PROVENANCE.md; the kit does not embed the 41 names.
+
+What this module deliberately does NOT do yet: the Mognet submenu/window assembly (the savepoint's menu
+wiring spends these bodies), read-mail (a received-letters list needs its own design), and inbound mail
+from REAL moogles (their TO-recipient is a per-field immediate constant -- reaching our moogle means
+verbatim-forking a donor field and repointing that constant; a later, opt-in rung).
+"""
+from __future__ import annotations
+
+import re
+
+from ..eb import opcodes
+from . import region as _region
+
+# --- identity ---------------------------------------------------------------------------------------
+ROSTER_SIZE = 41          # the shipping [TBLE=] roster rows (ids 0..40)
+NEW_MOOGLE_ID = 41        # the 42nd row -- the first free identity byte
+
+# --- the mailbox layout (all gEventGlobal byte indices) ---------------------------------------------
+GUARD_IDX = 1024          # wipe-guard; must be 1 before any mailbox byte is touched
+DELIVERED_IDX = 1032      # lifetime delivered counter -- POST-INCREMENT only
+STILTZKIN_IDX = 1033      # Stiltzkin's tally -- named so nothing here writes it by accident
+SLOT0 = 1034
+NSLOTS = 3
+SLOTSZ = 4                # +0 occupied  +1 variant  +2 FROM  +3 TO
+
+# --- the variant one-shot lock tables ---------------------------------------------------------------
+GIVE_LOCK_ANCHOR = 8383   # bits 8376-8439 (bytes 1047-1054)
+READ_LOCK_ANCHOR = 8447   # bits 8440-8503 (bytes 1055-1062)
+VARIANT_LIMIT = 64        # the lock tables are 64 bits -- a variant id must be < 64
+SHIPPED_VARIANT_MAX = 48  # observed high-water across shipping content
+SAFE_VARIANTS = range(SHIPPED_VARIANT_MAX + 1, VARIANT_LIMIT)   # 49..63 -- the custom band
+
+# expression tokens beyond region's set (values from eb/_exprtable.py, donor-byte verified)
+_T_NE = 0x21              # B_NE
+_T_ANDAND = 0x27          # B_ANDAND
+_T_OROR = 0x28            # B_OROR
+_T_POST_PLUS = 0x04       # B_POST_PLUS -- the donor's Byte[1032]++ (field 300 @6387: 05 f4 08 04 04 7f)
+
+
+def slot_addr(k: int, part: int = 0) -> int:
+    """gEventGlobal index of slot ``k``'s byte: part 0 occupied / 1 variant / 2 FROM / 3 TO."""
+    if not 0 <= k < NSLOTS:
+        raise ValueError(f"mailbox slot must be 0..{NSLOTS - 1}, got {k}")
+    return SLOT0 + k * SLOTSZ + part
+
+
+def _lock_bit(anchor: int, variant: int) -> int:
+    if not 0 <= variant < VARIANT_LIMIT:
+        raise ValueError(f"letter variant must be 0..{VARIANT_LIMIT - 1} (the lock tables are 64-bit), "
+                         f"got {variant}")
+    return anchor + 8 * (variant // 8) - (variant % 8)
+
+
+def give_lock_bit(variant: int) -> int:
+    """The GIVE-side one-shot lock bit for ``variant`` -- set when the letter is handed out."""
+    return _lock_bit(GIVE_LOCK_ANCHOR, variant)
+
+
+def read_lock_bit(variant: int) -> int:
+    """The READ-side one-shot lock bit for ``variant`` -- set when the letter is read/completed."""
+    return _lock_bit(READ_LOCK_ANCHOR, variant)
+
+
+def check_variant(variant: int, *, allow_shipped: bool = False) -> int:
+    """Validate a custom letter's variant id: < 64 always; and outside the shipped band unless
+    ``allow_shipped`` (re-using a shipped id would collide with that letter's one-shot locks -- the
+    give-lock says "already handed out", so a player who did that quest never sees ours)."""
+    v = int(variant)
+    _lock_bit(GIVE_LOCK_ANCHOR, v)                     # range check (raises)
+    if v <= SHIPPED_VARIANT_MAX and not allow_shipped:
+        raise ValueError(
+            f"letter variant {v} is in the SHIPPED band (<= {SHIPPED_VARIANT_MAX}) -- its one-shot locks "
+            f"collide with a real letter's. Pick one of {SAFE_VARIANTS.start}..{SAFE_VARIANTS.stop - 1}, "
+            f"or pass allow_shipped=True if you really mean to alias shipped state.")
+    return v
+
+
+def _check_id(name: str, i: int) -> int:
+    i = int(i)
+    if not 0 <= i <= 255:
+        raise ValueError(f"{name} must be a byte (0..255), got {i}")
+    return i
+
+
+# --------------------------------------------------------------------------- expression pieces ---
+def _push_byte(idx: int) -> bytes:
+    return _region._push_var(_region.GLOB_BYTE, idx)
+
+
+def _const(v: int) -> bytes:
+    return bytes([_region.T_CONST]) + int(v).to_bytes(2, "little")
+
+
+def _set_byte(idx: int, value: int) -> bytes:
+    return _region.set_var(_region.GLOB_BYTE, idx, value)
+
+
+def _copy_byte(dst: int, src: int) -> bytes:
+    """``Global.Byte[dst] = Global.Byte[src]`` -- the donor's compaction idiom, byte-for-byte
+    (field 300 @7019: ``05 f4 0a 04 f4 0e 04 2c 7f`` = ``B[1034] <- B[1038]``)."""
+    return (bytes([_region.EXPR_OP]) + _push_byte(dst) + _push_byte(src)
+            + bytes([_region.T_ASSIGN, _region.T_END]))
+
+
+def _post_inc_byte(idx: int) -> bytes:
+    """``Global.Byte[idx]++`` (donor: field 300 @6387 -- the ONLY way shipping code touches 1032)."""
+    return bytes([_region.EXPR_OP]) + _push_byte(idx) + bytes([_T_POST_PLUS, _region.T_END])
+
+
+def _set_lock(bit: int) -> bytes:
+    return _region.set_var(_region.GLOB_BOOL, bit, 1)
+
+
+def slot_empty_cond(k: int) -> bytes:
+    """``if (slot k unoccupied)`` -- ``05 <occ> const(0) EQ 7F``."""
+    return (bytes([_region.EXPR_OP]) + _push_byte(slot_addr(k)) + _const(0)
+            + bytes([_region.T_EQ, _region.T_END]))
+
+
+def slot_addressed_to_cond(k: int, my_id: int) -> bytes:
+    """``if (slot k occupied AND its TO == my_id)`` -- the accept condition, donor-shaped
+    (occupied != 0, then TO == id, then ANDAND)."""
+    return (bytes([_region.EXPR_OP])
+            + _push_byte(slot_addr(k)) + _const(0) + bytes([_T_NE])
+            + _push_byte(slot_addr(k, 3)) + _const(_check_id("my_id", my_id)) + bytes([_region.T_EQ])
+            + bytes([_T_ANDAND, _region.T_END]))
+
+
+def give_available_cond(variant: int) -> bytes:
+    """``if (this letter not yet handed out AND a slot is free)`` -- gates the moogle's OFFER (the menu
+    row / greet line). The lock read makes the offer one-shot save-persistently; the free-slot check
+    mirrors the donor's ``count < 3`` offer gate."""
+    v = check_variant(variant, allow_shipped=True)     # gate rows may reference any variant; writes stay strict
+    return (bytes([_region.EXPR_OP])
+            + _region._push_var(_region.GLOB_BOOL, give_lock_bit(v)) + bytes([_region.T_NOT])
+            + _push_byte(slot_addr(0)) + _const(0) + bytes([_region.T_EQ])
+            + _push_byte(slot_addr(1)) + _const(0) + bytes([_region.T_EQ, _T_OROR])
+            + _push_byte(slot_addr(2)) + _const(0) + bytes([_region.T_EQ, _T_OROR])
+            + bytes([_T_ANDAND, _region.T_END]))
+
+
+def accept_available_cond(my_id: int = NEW_MOOGLE_ID) -> bytes:
+    """``if (any slot holds a letter addressed to my_id)`` -- gates the "give <name> a letter" menu row,
+    the donor's [PCHM] mask condition."""
+    mid = _check_id("my_id", my_id)
+
+    def pair(k):
+        return (_push_byte(slot_addr(k)) + _const(0) + bytes([_T_NE])
+                + _push_byte(slot_addr(k, 3)) + _const(mid) + bytes([_region.T_EQ, _T_ANDAND]))
+
+    return (bytes([_region.EXPR_OP]) + pair(0) + pair(1) + bytes([_T_OROR])
+            + pair(2) + bytes([_T_OROR, _region.T_END]))
+
+
+# --------------------------------------------------------------------------- the write paths ---
+def migration_guard(notice_txid: int | None = None, *, window: int = 0, flags: int = 0) -> bytes:
+    """The donor's mailbox init/migration guard, byte-shaped on field 300 @5638-5796::
+
+        if (Byte[1024] < 1  AND  (slot0 occ != 0 OR slot1 occ != 0 OR slot2 occ != 0)) {
+            [Window(notice)]                  # "Old letter data. Erasing..." in the donor
+            Byte[1034..1045] = 0              # all 12 slot bytes, ascending
+        }
+        Byte[1024] = 1                        # unconditional -- the only write shipping code makes
+
+    Run this at the top of any Mognet interaction (the menu emitter does). If the player reaches OUR
+    moogle first on a fresh save, our copy is the one that must migrate correctly. The condition's RPN
+    is token-identical to the donor's (pinned by test)."""
+    cond = (bytes([_region.EXPR_OP])
+            + _push_byte(GUARD_IDX) + _const(1) + bytes([_region.T_LT])
+            + _push_byte(slot_addr(0)) + _const(0) + bytes([_T_NE])
+            + _push_byte(slot_addr(1)) + _const(0) + bytes([_T_NE, _T_OROR])
+            + _push_byte(slot_addr(2)) + _const(0) + bytes([_T_NE, _T_OROR])
+            + bytes([_T_ANDAND, _region.T_END]))
+    erase = b"".join(_set_byte(SLOT0 + i, 0) for i in range(NSLOTS * SLOTSZ))   # 1034..1045 ascending
+    body = (opcodes.window_sync(window, flags, notice_txid) if notice_txid is not None else b"") + erase
+    return _region.if_block(cond, body) + _set_byte(GUARD_IDX, 1)
+
+
+def _give_arm(k: int, variant: int, from_id: int, to_id: int, give_txid, window, flags) -> bytes:
+    """Write slot ``k``'s quad -- donor order occupied / FROM / TO / variant (field 300 @9981-10013) --
+    then the give-side one-shot lock, then the optional handover line."""
+    return (_set_byte(slot_addr(k), 1)
+            + _set_byte(slot_addr(k, 2), from_id)
+            + _set_byte(slot_addr(k, 3), to_id)
+            + _set_byte(slot_addr(k, 1), variant)
+            + _set_lock(give_lock_bit(variant))
+            + (opcodes.window_sync(window, flags, give_txid) if give_txid is not None else b""))
+
+
+def give_letter_body(variant: int, to_id: int, *, from_id: int = NEW_MOOGLE_ID,
+                     give_txid: int | None = None, full_txid: int | None = None,
+                     window: int = 1, flags: int = 128, allow_shipped_variant: bool = False) -> bytes:
+    """Our moogle hands the player a letter: FROM ``from_id`` (default: the new identity) TO ``to_id``
+    (a real moogle delivers it with no engine change -- outbound is the proven direction).
+
+    Emits::
+
+        Byte[1024] = 1                                   # the wipe-guard invariant, locally guaranteed
+        if slot0 empty:      write quad0 ; lock ; [line]
+        elif slot1 empty:    write quad1 ; lock ; [line]
+        elif slot2 empty:    write quad2 ; lock ; [line]
+        else:                [full line]                 # mailbox full -> NO mailbox write at all
+
+    The first-empty chain checks each slot immediately before writing it, so an occupied slot can never
+    be overwritten -- the invariant behind the donor's recount-then-switch, made unconditional. The
+    caller gates the OFFER on :func:`give_available_cond` (one-shot + free-slot); this body is the
+    structural backstop if it ever runs anyway."""
+    v = check_variant(variant, allow_shipped=allow_shipped_variant)
+    fid, tid = _check_id("from_id", from_id), _check_id("to_id", to_id)
+    full_arm = opcodes.window_sync(window, flags, full_txid) if full_txid is not None else b""
+    chain = full_arm
+    for k in reversed(range(NSLOTS)):                  # innermost else first: 2, then 1, then 0
+        chain = _region.if_else(slot_empty_cond(k), _give_arm(k, v, fid, tid, give_txid, window, flags),
+                                chain)
+    return _set_byte(GUARD_IDX, 1) + chain
+
+
+def _consume_arm(k: int, variants, thanks_txid, window, flags) -> bytes:
+    """Consume slot ``k``: counter, thanks line, read-locks, then the donor's compaction (field 300
+    @6990-7126): shift every higher quad DOWN one (order occupied/FROM/TO/variant per quad), then zero
+    the top quad -- never leave a hole."""
+    out = _post_inc_byte(DELIVERED_IDX)
+    if thanks_txid is not None:
+        # the sender's name in the thanks line: text var 0 <- the slot's FROM byte, so the window can
+        # say [TEXT=0,0] (renders through OUR 42-name roster; donor idiom, field 300 @6019-shape)
+        from_expr = _push_byte(slot_addr(k, 2)) + bytes([_region.T_END])
+        out += opcodes.encode(0x66, 0, from_expr, arg_flags=0b10)     # SetTextVariable(0, {FROM})
+        out += opcodes.window_sync(window, flags, thanks_txid)
+    for v in variants:
+        cond = (bytes([_region.EXPR_OP]) + _push_byte(slot_addr(k, 1)) + _const(v)
+                + bytes([_region.T_EQ, _region.T_END]))
+        out += _region.if_block(cond, _set_lock(read_lock_bit(v)))
+    parts = (0, 2, 3, 1)                               # occupied, FROM, TO, variant -- donor copy order
+    for dst in range(k, NSLOTS - 1):
+        out += b"".join(_copy_byte(slot_addr(dst, p), slot_addr(dst + 1, p)) for p in parts)
+    out += b"".join(_set_byte(slot_addr(NSLOTS - 1, p), 0) for p in parts)
+    return out
+
+
+def accept_letter_body(variants, *, my_id: int = NEW_MOOGLE_ID, thanks_txid: int | None = None,
+                       nothing_txid: int | None = None, window: int = 1, flags: int = 128) -> bytes:
+    """Our moogle takes delivery of a letter addressed TO it (the player picked "give <name> a letter").
+
+    ``variants`` is the set of letter variant ids authored as deliverable to this moogle -- known at
+    build time, so the read-side lock is set per-variant with literal bits (the donor's 64-arm switch
+    collapses to an if per authored variant). For each slot in order: if occupied AND TO == my_id ->
+    consume it (counter++, optional thanks line with the sender's name, read-lock, compaction). If no
+    slot matches, the optional ``nothing_txid`` line shows. Byte[1033] (Stiltzkin) is never touched."""
+    vs = [check_variant(v, allow_shipped=True) for v in variants]
+    nothing = opcodes.window_sync(window, flags, nothing_txid) if nothing_txid is not None else b""
+    chain = nothing
+    for k in reversed(range(NSLOTS)):
+        chain = _region.if_else(slot_addressed_to_cond(k, my_id),
+                                _consume_arm(k, vs, thanks_txid, window, flags), chain)
+    return _set_byte(GUARD_IDX, 1) + chain
+
+
+# --------------------------------------------------------------------------- the roster text ---
+_TBLE_RE = re.compile(r"^(\[TBLE=[^\]]*\])( ?)(.*)$", re.S)
+
+
+def roster_extend(entry0_text: str, new_names) -> str:
+    """Append moogle name(s) to a roster table (a field text-entry-0 ``[TBLE=...]`` body), preserving
+    the original tag and rows byte-for-byte. The tag's numeric parameters are PROVEN inert -- the engine
+    splits the post-tag text on newlines and never reads them (DialogBoxSymbols.ParseTextSplitTags;
+    independently exploited by ``world/navimap.py``) -- so they are deliberately NOT recomputed. Row
+    index = moogle id: the first appended name becomes id ``len(existing)`` (41 on a stock roster =
+    :data:`NEW_MOOGLE_ID`)."""
+    m = _TBLE_RE.match(entry0_text)
+    if not m:
+        raise ValueError("entry-0 text does not start with a [TBLE=...] tag -- not a roster table")
+    tag, sep, body = m.groups()
+    names = body.split("\n")
+    if len(names) < ROSTER_SIZE:
+        raise ValueError(f"roster has {len(names)} rows, expected >= {ROSTER_SIZE} -- wrong text entry?")
+    add = [str(n) for n in (new_names if isinstance(new_names, (list, tuple)) else [new_names])]
+    for n in add:
+        if not n or "\n" in n or "[" in n:
+            raise ValueError(f"bad moogle name {n!r} (empty, newline, or a text tag)")
+    return tag + sep + "\n".join(names + add)
+
+
+def roster_from_install(*, lang: str = "us", field: int = 300, game=None) -> str:
+    """The real roster table text (entry 0 of a save-moogle field's text block), read from the USER'S OWN
+    install -- the kit ships no Square-Enix text (docs/PROVENANCE.md), so the 41 names enter a build only
+    via this extraction, exactly like every other template. Needs the install + UnityPy."""
+    from .. import dialogue as _dialogue
+    from .._fieldtext import EVENT_ID_TO_MES
+    got = _dialogue._load_field_text([0], lang, game=game, zone_id=EVENT_ID_TO_MES[int(field)])
+    if 0 not in got:
+        raise ValueError(f"field {field}'s text block has no entry 0 -- not a save-moogle block?")
+    return got[0].text
