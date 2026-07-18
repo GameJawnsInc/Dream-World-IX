@@ -624,7 +624,22 @@ would need the cliff carried too). Only 2 fully-ringed scrub patches exist in th
 the winner carries **3 dither cells over 6 scrub cells** — the softest verbatim scrub
 in FF9 (the map-wide census is mostly hard per-tile edges, 355/958 plain|plain, so a few
 diagonal-blend tiles is as soft as stock scrub gets). Deployed at (544,−1248), A/B the
-real patch at (1158,−388).
+real patch at (1158,−388). **⚠ ROUND 3 (2026-07-17, the user's side-by-side): the carried
+patch's ends are AMPUTATION STUMPS — "the 2 ends of ours are part of greater shrub on
+the verbatim."** The bug: the isolation claim checked the ring for cliffs/foreign but
+NEVER for MORE SCRUB — the 4-adjacency component was diagonally connected to the greater
+shrub system (byte-confirmed: the carried comp touches 2 more scrub cells diagonally).
+The corrected census (8-ring scrub-free = TRUE isolation): 12 components in the belt →
+**5 truly isolated — and EVERY one leans on rock or brush** (best: 10 cells @ (986,−314)
+with 1 wall cell). The scrub∪brush union test: the brush-only candidate at (1106,−134)
+unions into a 121-cell system with 56 rock cells — brush is the SLOPE family, it chains
+into cliffs by nature. **THE ENSEMBLE LAW (the mixed-biome composition verdict, 3
+censuses deep): FF9's interior families NEVER sit as clean patches in open ground —
+dunes never close in desert (the no-enclosed-dunes law), scrub is either a diagonal
+fragment of a greater system or leans on rock/brush, brush IS the hillside. The faithful
+unit is the whole interlocked ensemble (ground + shrub + slope + rock) — the
+mountain-carry class on a bigger bench, not a flat-islet patch.** Disposition of the
+islet's amputated fragment + the ensemble-carry rung = the user's call.
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 
