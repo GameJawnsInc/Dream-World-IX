@@ -37,7 +37,6 @@ CLEAN = """
 id = 4003
 name = "LINTROOM"
 area = 11
-text_block = 1073
 
 [camera]
 pitch = 45
@@ -295,3 +294,29 @@ def test_npc_grossly_off_is_flagged(tmp_path):
     """An NPC far outside the floor footprint is still flagged as a misplacement."""
     w = _placement_warnings(tmp_path, (9000, 9000))
     assert len(w) == 1 and "far off the walkmesh" in w[0]
+
+
+def test_lint_text_block_flags_a_real_location_offline():
+    """The OFFLINE half of the vanilla-squat guard: needs no game install (a bundled table lookup), so a
+    real-block squat is catchable at `ff9mapkit lint`, not only at deploy time."""
+    import tomllib
+    from ff9mapkit.build import FieldProject, lint_text_block
+
+    def mk(extra=""):
+        p = FieldProject.__new__(FieldProject)
+        p.raw = tomllib.loads('[field]\nid = 30250\nname = "X"\narea = 11\n' + extra)
+        return p
+
+    assert lint_text_block(mk()) == []                       # derived block (= the field id) -> clean
+    assert lint_text_block(mk("text_block = 7001\n")) == []   # a custom block nobody owns -> clean
+
+    hit = lint_text_block(mk("text_block = 22\n"))            # 22 = Lindblum Castle
+    assert hit and "REAL FF9 text block" in hit[0] and "600-620" in hit[0]
+    assert lint_text_block(mk("text_block = 8\n"))            # 8 = Ice Cavern (the old "safe" pick)
+
+    # a FORK on its OWN donor's block is exempt -- required, not merely allowed (voice-acting keys off it)
+    assert lint_text_block(mk("text_block = 22\nsource_field = 600\n")) == []
+    assert lint_text_block(mk("text_block = 8\nsource_field = 302\n")) == []
+    # ...but a fork parked on some OTHER real block is NOT exempt: the exemption is donor-block-scoped,
+    # so a fork left on the retired 1073 default still gets caught.
+    assert lint_text_block(mk("text_block = 1073\nsource_field = 600\n"))

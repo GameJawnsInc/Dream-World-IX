@@ -1013,7 +1013,10 @@ def validate(project: FieldProject) -> list[str]:
             if not (1 <= _fid <= 32767):
                 problems.append(f"[field] id {_fid} out of range 1-32767 (the engine fldMapNo is a signed 16-bit "
                                 "int; a larger id registers unreachable and can break DictionaryPatch parsing -> "
-                                "a New-Game/black-screen). Use the custom band 4000-9899 or dev scratch 30000-32767.")
+                                "a New-Game/black-screen). Use the custom band 4000-9899 or dev scratch "
+                                "30000-32767 -- an id below 4000 also collides with the REAL field bands, and "
+                                "since text_block derives from the id, a low one can land on a real text "
+                                "block (default_text_block refuses rather than squat it).")
         except (TypeError, ValueError):
             problems.append(f"[field] id must be an integer (got {f['id']!r})")
     if "area" in f and int(f["area"]) < 10:
@@ -2652,6 +2655,31 @@ def lint_entry_settle(project: FieldProject) -> list:
     return out
 
 
+def lint_text_block(project: FieldProject) -> list:
+    """OFFLINE finding (list[str]): does this field's ``text_block`` belong to a REAL FF9 location?
+
+    Needs NO game install -- it is a lookup in the bundled ``EVENT_ID_TO_MES`` table -- which is why it belongs
+    in ``lint`` rather than only at deploy time. The base game is part of the engine's cumulative per-txid text
+    merge, so custom text on a real block overwrites that location's own dialogue for the whole playthrough,
+    with no stacked mod folder involved.
+
+    A FORK is exempt: it carries its DONOR's text on the donor's own block, which is required rather than
+    merely permitted (voice-acting clips resolve off the same mesID, and ``UniversalTextId``'s dual-language
+    remap is keyed by a table of real mesIDs). The deploy-time guard in :mod:`deploystack` is the AUTHORITATIVE
+    one -- only it can see the live FolderNames stack and the cross-folder axis; this half needs neither."""
+    tb = project.text_block
+    if not is_real_text_block(tb):
+        return []
+    donor = _verbatim_donor_id(project)
+    if donor is not None and _deploystack.EVENT_ID_TO_MES.get(donor) == tb:
+        return []                                   # a fork on its OWN donor's block -- correct, and required
+    return [f"[field] text_block {tb} is a REAL FF9 text block ({_deploystack.describe_vanilla(tb)}): the base "
+            f"game is part of the engine's cumulative text merge, so this field's dialogue is written OVER that "
+            f"location's own for the whole playthrough. Drop the key to derive it from [field] id "
+            f"({project.id}) and register it automatically, or -- if this IS a fork of one of those fields -- "
+            f"record its donor so the check can tell."]
+
+
 def lint_all(project: FieldProject) -> LintReport:
     """Run EVERY offline validator in one pass and return a :class:`LintReport`: schema (:func:`validate`),
     story/flag logic (:func:`lint_logic` + :func:`lint_flag_bands`), walkmesh geometry + content placement +
@@ -2663,6 +2691,7 @@ def lint_all(project: FieldProject) -> LintReport:
     rep.logic.extend(lint_region_overlaps(project))       # the TreadQuad law: overlapping tread regions starve
     rep.logic.extend(lint_player_arrivals(project))       # verbatim dead-keys + uncovered self-loop entrances
     rep.logic.extend(lint_entry_settle(project))          # settle honesty: verbatim dead-key / bad value / multicam
+    rep.logic.extend(lint_text_block(project))            # a REAL location's block -> its dialogue is overwritten
     _lint_scripts_toolchain(project, rep.errors)          # a scripted ability needs a C# compiler -> fail at lint, not mid-build
     # `lint` runs against arbitrary user TOML + (for forks) game-derived binaries, so resolving the
     # camera/walkmesh can fail in many ways (a missing borrow .bgx -> FileNotFoundError, a malformed quad

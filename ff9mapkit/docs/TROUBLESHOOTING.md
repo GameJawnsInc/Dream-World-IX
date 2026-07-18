@@ -209,7 +209,7 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
    `ff9mapkit deploy-journey <journeys.toml> --apply` (the checkout scripts
    `py tools/deploy_campaign.py` / `py tools/deploy_journey.py` are thin shims over the same
    commands) — then **F6 → Reload field** (or relaunch).
-2. **Clear the collision.** The durable fix is a block that belongs to nobody. Since kit 1.0.0b16 a
+2. **Clear the collision.** The durable fix is a block that belongs to nobody. A
    field with no `text_block` key derives one from its own `[field] id` and auto-registers it, so the
    usual answer is to **delete the key**:
 

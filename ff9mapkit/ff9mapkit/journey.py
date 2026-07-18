@@ -346,6 +346,10 @@ def _flag_windows(journey: Journey, plans: dict) -> "tuple[dict, int]":
 # laid end-to-end from this base (well above real FF9 mesIDs + the kit default 1073); each block is registered
 # via a DictionaryPatch MessageFile line (build_mod). build_campaign(text_block_base=) does the per-campaign remap.
 TEXT_BLOCK_BASE = 20000
+# The engine CONSUMES a mesID as Int16 (`fldLocNo = (Int16)eventIDToMESID[fldMapNo]`), so 32767 is a hard
+# ceiling -- above it the value wraps negative, the .mes path resolves to nothing, and the field renders NO
+# dialogue with no error. `_text_block_windows` refuses to lay windows past it.
+TEXT_BLOCK_CEILING = 32767
 
 def _text_block_windows(journey: Journey, plans: dict) -> dict:
     """``{folder: base_mesID}`` -- each campaign's disjoint custom text-block window base, laid end-to-end from
@@ -357,6 +361,15 @@ def _text_block_windows(journey: Journey, plans: dict) -> dict:
         plan, _ = plans[folder]
         windows[folder] = cur
         cur += max(1, len(plan.members))
+    # A mesID is CONSUMED as Int16 (`HonoluluFieldMain` casts eventIDToMESID[...] before UpdateFieldText), so a
+    # window past 32767 wraps negative and the field loads ZERO dialogue -- silently. It would also have to run
+    # through the 30000+ scratch band that hand-authored blocks use first. Refuse rather than emit either.
+    if cur > TEXT_BLOCK_CEILING:
+        raise JourneyError(
+            f"this journey's text-block windows would run to {cur}, past the Int16 mesID ceiling "
+            f"({TEXT_BLOCK_CEILING}) -- the engine casts the mesID to Int16, so a block above it wraps negative "
+            f"and the field loads NO dialogue. Split the journey, or give its largest campaigns explicit "
+            f"text_blocks. (Windows start at {TEXT_BLOCK_BASE}, one id per member.)")
     return windows
 
 
@@ -1710,11 +1723,12 @@ def render_collision_report(col: JourneyCollisions) -> str:
                      "dialogue rewrites), and no FolderNames order satisfies all of them:")
         for (b, fs) in col.shared_blocks:
             lines.append(f"  - block {b}: {', '.join(fs)}")
-        lines.append("FIX: a shared mesID can't satisfy all campaigns at once -- order Memoria.ini FolderNames "
-                     "so the campaign whose dialogue matters most for each block is HIGHEST (it wins; the others' "
-                     "fields on that block show its text). The full cure -- a disjoint text-block window per "
-                     "campaign -- needs custom mesIDs registered in MesDB (a deferred engine follow-up); see "
-                     "docs/KNOWN_ISSUES.md.")
+        lines.append("FIX: a shared mesID can't satisfy all campaigns at once. The cure SHIPPED (2026-06-20): "
+                     "a full journey re-deploy gives every campaign a disjoint custom text-block window "
+                     "(`MessageFile` registration, no engine rebuild), so re-build + re-deploy the whole journey "
+                     "rather than hand-mixing dists. This warning is the backstop for a stack that predates it. "
+                     "NOT yet coordinated ACROSS journeys: each journey's windows restart at TEXT_BLOCK_BASE, so "
+                     "two multi-campaign journeys deployed into one folder can still meet.")
     return "\n".join(lines)
 
 
