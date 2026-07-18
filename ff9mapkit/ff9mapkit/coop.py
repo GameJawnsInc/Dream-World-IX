@@ -601,7 +601,12 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         out("  then: launch FF9 and stand on the SAME screen as your friend -- ghosts appear anywhere "
             f"you two share a field (guaranteed spot: F6 -> Warp -> {COOP_FIELD})")
     if lan is not None:
+        # Windows' generic "Allow access" prompt ticks Private AND Public by default; clicking
+        # through it on a cafe/hotel/campus network exposes the co-op listener to that whole
+        # network, so name the profile explicitly rather than saying "allow it".
         out("  direct-LAN mode: no bridge needed. Same WiFi; allow FF9 through the firewall on both.")
+        out("  in that Windows prompt untick Public and leave Private ticked -- Public opens the "
+            "co-op listener to every machine on a cafe or campus network.")
         return 0
     out("")
     if getattr(args, "no_bridge", False):
