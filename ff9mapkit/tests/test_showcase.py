@@ -29,4 +29,5 @@ def test_showcase_builds(tmp_path):
     assert (fm / "FBG_N11_SHOWCASE.bgi.bytes").is_file()
     # encounter -> a BattlePatch entry; cutscene/NPC/event dialogue -> a .mes
     assert (tmp_path / "BattlePatch.txt").is_file()
-    assert (tmp_path / "FF9_Data/embeddedasset/text/us/field/1073.mes").is_file()
+    # the block derives from the field id (4800), not the retired shared literal 1073
+    assert (tmp_path / "FF9_Data/embeddedasset/text/us/field/4800.mes").is_file()

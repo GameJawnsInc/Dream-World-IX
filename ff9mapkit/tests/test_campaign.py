@@ -754,11 +754,18 @@ def test_real_build_all(tmp_path):
 
     dist = tmp_path / "dist"
     lines = (dist / "DictionaryPatch.txt").read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) == 2 and len(info["dictionary"]) == 2
-    toks = [ln.split() for ln in lines]                  # FieldScene <id> <area> <mapid> <name> <textid>
-    assert all(t[0] == "FieldScene" for t in toks)
+    # 2 FieldScene + the 2 `MessageFile` lines registering each member's custom block. The registration
+    # is not optional: an unregistered mesID fails DataPatchers' MesDB gate, which SKIPS the FieldScene.
+    assert len(info["dictionary"]) == 2
+    assert [l for l in lines if l.startswith("FieldScene")] == info["dictionary"]
+    assert sorted(l for l in lines if l.startswith("MessageFile")) == [
+        "MessageFile 30100 MES_DWIX_30100", "MessageFile 30101 MES_DWIX_30101"]
+    assert len(lines) == 4
+    toks = [ln.split() for ln in lines if ln.startswith("FieldScene")]   # <id> <area> <mapid> <name> <textid>
     assert sorted(int(t[1]) for t in toks) == [30100, 30101]            # ids = id_base + i
-    assert all(int(t[5]) == 1073 for t in toks)                         # textid = a VALID MesDB base block
+    # textid = each member's OWN id, registered by the MessageFile lines above. These used to be the shared
+    # literal 1073 -- a REAL block (Black Mage Village, fields 3050-3059) whose dialogue they merged over.
+    assert [int(t[5]) for t in toks] == [int(t[1]) for t in toks]
     md = (dist / "ModDescription.xml").read_text(encoding="utf-8")
     assert "<InstallationPath>FF9CustomMap-ow</InstallationPath>" in md  # matches Memoria FolderNames
     # fork-fidelity: ForkDonorPatch.txt maps each custom-id fork -> its donor real field id (so the engine's
