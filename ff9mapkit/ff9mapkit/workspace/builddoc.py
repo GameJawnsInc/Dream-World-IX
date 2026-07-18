@@ -152,6 +152,13 @@ class BuildDoc(QWidget):
             self.rb_game.setToolTip(str(self.game_mod))
         else:
             self.rb_game.setEnabled(False)
+        # Own id, REVERSIBLE -- the combination the other three modes leave out (test slot = reversible but
+        # overrides the id; install = the real id but a wholesale build with no revert script). Its caption
+        # is filled by set_field, which knows the id. dev-repo only: it shells out to tools/deploy_field.py.
+        self.rb_own = QRadioButton("Deploy at its own id")
+        self.rb_own.setEnabled(self.has_tools)
+        self.tg.addButton(self.rb_own)
+        self.rb_own.toggled.connect(self._update_dest)
         of = QHBoxLayout()
         self.rb_other = QRadioButton("Build only — to a folder:")
         self.other = QLineEdit()
@@ -170,6 +177,9 @@ class BuildDoc(QWidget):
         widgets.option(self.rb_test,
                        "Quick and reversible. Your field's own id is overridden — play it with F6 → Warp"
                        + (", or New Game → the hut door." if tid == 4003 else "."), gv)
+        widgets.option(self.rb_own,
+                       "Reversible, at the id your field declares. Other fields in the folder keep their "
+                       "registrations, and this writes an undo you can run from Revert.", gv)
         widgets.option(self.rb_game,
                        "Installs at the field's OWN id, into your shipping mod folder. Overwrites whatever "
                        "is there — no automatic undo.", gv)
@@ -387,8 +397,21 @@ class BuildDoc(QWidget):
                 self.status.setText(f"Field project: {Path(p).name}")
             else:
                 self.status.setText("Pick a field, campaign, journey, or battle file.")
+            self._sync_own_id()
             self._sync_inplace()
             self._update_dest()
+
+    def _sync_own_id(self):
+        """Label the own-id radio with the id the loaded field declares, and keep it selectable only when
+        that id is actually known -- an unreadable/absent id would deploy nowhere meaningful. Never changes
+        the selection: unlike In-place this is not a mode the kit should pick for you (installing at the
+        real id is a deliberate act), so it only falls BACK when it is checked and becomes unusable."""
+        known = self.field_id is not None and self.has_tools
+        self.rb_own.setText(f"Deploy at its own id {self.field_id} — reversible" if known
+                            else "Deploy at its own id" + ("" if self.has_tools else "   (dev repo only)"))
+        self.rb_own.setEnabled(known)
+        if not known and self.rb_own.isChecked():
+            (self.rb_test if self.has_tools else self.rb_game if self.game_mod else self.rb_other).setChecked(True)
 
     def _sync_inplace(self):
         """Show/label the In-place radio for a verbatim fork of a real field, and DEFAULT to it the FIRST time
@@ -443,6 +466,10 @@ class BuildDoc(QWidget):
             msg = f"→ field {tid} in {self.mod_folder} · reversible"
             self.rev.setEnabled(True)              # the test deploy writes a revert script
             self.rev.setToolTip("Undo the last test-slot deploy (restores the slot's previous contents).")
+        elif self.rb_own.isChecked():
+            msg = f"→ field {own} in {self.mod_folder} · reversible"
+            self.rev.setEnabled(True)              # the deploy writes revert_deploy_<own id>.py
+            self.rev.setToolTip(f"Undo the last deploy of field {own} (restores its previous contents).")
         elif self.rb_game.isChecked():
             where = self.game_mod or "(game install not found)"
             msg = f"→ field {own} in {where} · overwrites, no undo"
@@ -716,6 +743,13 @@ class BuildDoc(QWidget):
                              subject=f"Deploy to test field {tid}",
                              ok_headline=f"Deployed to test field {tid} ({self.mod_folder})",
                              ok_next=f"In-game: {reach}.")
+        elif self.rb_own.isChecked():
+            own = self.field_id
+            nm = self.field_name or Path(field).stem
+            self._stream(jobs.deploy_field_own_id_argv(self.repo, field, own, nm), cwd=self.repo,
+                         subject=f"Deploy to field {own}",
+                         ok_headline=f"Deployed field {own} ({self.mod_folder})",
+                         ok_next=f"In-game: F6 → Warp to field {own}. Undo with Revert.")
         elif self.rb_game.isChecked():
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"
@@ -876,8 +910,14 @@ class BuildDoc(QWidget):
         else:
             if not self._require_tools("Revert"):
                 return
-            argv = jobs.revert_battle_argv(self.repo) if self.kind == "battle" else jobs.revert_field_argv(self.repo)
-            what = "battle" if self.kind == "battle" else "test field"
+            if self.kind == "battle":
+                argv, what = jobs.revert_battle_argv(self.repo), "battle"
+            else:
+                # an own-id deploy has its OWN revert script; using the generic "latest" one there could
+                # undo a different id's later deploy instead (jobs.revert_field_argv)
+                fid = self.field_id if self.rb_own.isChecked() else None
+                argv = jobs.revert_field_argv(self.repo, fid)
+                what = f"field {fid}" if fid is not None else "test field"
         if argv is None or not Path(argv[-1]).exists():
             return self._info("Nothing to revert", f"No {what} deploy to undo yet.")
         cwd = self.repo if self.has_tools else self.kit_cwd

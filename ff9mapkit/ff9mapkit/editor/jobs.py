@@ -296,6 +296,20 @@ def deploy_field_argv(repo_root, field):
     return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field)]
 
 
+def deploy_field_own_id_argv(repo_root, field, field_id, name):
+    """Reversibly deploy a field at its OWN id and name: ``deploy_field.py <field> --id <id> --name <name>``.
+
+    The gap this fills: the test slot is reversible but overrides the field's id, and the game install
+    uses the real id but is a wholesale ``build`` with no revert script. This is both -- the field lands
+    where it declares, and the deploy backs up the DictionaryPatch, merges into it (other fields keep
+    their registrations) and writes a per-id ``revert_deploy_<id>.py``.
+
+    ``--name`` is REQUIRED here: without it deploy_field sandboxes the name to ``TEST<id>``, which is
+    right for a throwaway slot and wrong for a field installed under its own identity."""
+    return [sys.executable, _tool(repo_root, "deploy_field.py"), str(field),
+            "--id", str(field_id), "--name", str(name)]
+
+
 def deploy_field_inplace_argv(repo_root, field, target):
     """Reversibly deploy a verbatim fork IN PLACE on its donor id (``target`` from
     :func:`field_inplace_target`): ``deploy_field.py <field> --id <donor> --name <name> --text-block <tb>``.
@@ -436,7 +450,14 @@ def revert_newgame_pkg_argv():
         return None
 
 
-def revert_field_argv(repo_root):
+def revert_field_argv(repo_root, field_id=None):
+    """Undo a field deploy. Without ``field_id`` this is the LATEST deploy (``revert_deploy.py``, whatever
+    id it targeted); with one it is that id's own script (``revert_deploy_<id>.py``), which deploy_field
+    writes per id -- so reverting field 4008 cannot undo someone else's later 4003 deploy instead."""
+    if field_id is not None:
+        per_id = _tool(repo_root, "scroll_out", f"revert_deploy_{int(field_id)}.py")
+        if Path(per_id).is_file():
+            return [sys.executable, per_id]
     return [sys.executable, _tool(repo_root, "scroll_out", "revert_deploy.py")]
 
 
