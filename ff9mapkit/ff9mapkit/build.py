@@ -1335,6 +1335,18 @@ def validate(project: FieldProject) -> list[str]:
         p = sp.get("pos")
         if p is not None and (not isinstance(p, (list, tuple)) or len(p) != 2):
             problems.append(f"[[savepoint]] pos must be [x, z] (the visible moogle's spot), got {p!r}")
+        # An unknown or mistyped key used to be silently ignored -- `moggle = false` or `dialog = false`
+        # would build a save point that behaves nothing like the author asked for, with no diagnostic.
+        _sp_keys = {"zone", "pos", "moogle", "bubble", "dialogue", "latch", "prompt", "confirm",
+                    "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail"}
+        for k in sorted(set(sp) - _sp_keys):
+            problems.append(f"[[savepoint]] unknown key {k!r} -- expected one of {', '.join(sorted(_sp_keys))}")
+        for k in ("moogle", "bubble", "dialogue", "latch"):
+            if k in sp and not isinstance(sp[k], bool):
+                problems.append(f"[[savepoint]] {k} must be true or false, got {sp[k]!r}")
+        for k in ("prompt", "confirm", "save_row", "cancel_row", "yes_row", "no_row", "speaker"):
+            if k in sp and not isinstance(sp[k], str):
+                problems.append(f"[[savepoint]] {k} must be a string, got {sp[k]!r}")
     for i, sh in enumerate(project.raw.get("shop", [])):   # custom shop ([[shop]]: inventory CSV + opener)
         sid = sh.get("id")
         if not isinstance(sid, int) or isinstance(sid, bool):
@@ -4297,6 +4309,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                  choice_txids: dict | None = None, on_entry_txids: dict | None = None,
                  ate_txids: dict | None = None, chest_txids: dict | None = None,
                  gateway_txids: dict | None = None, coop_txids: dict | None = None,
+                 savepoint_txids: dict | None = None,
                  warnings: list | None = None) -> bytes:
     """Build one language's .eb by applying the project's content to the blank field. ``warnings``
     (optional, the ``compose_verbatim_eb`` convention) collects non-fatal build findings -- e.g. a
@@ -4310,6 +4323,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     ate_txids = ate_txids or {}
     chest_txids = chest_txids or {}
     coop_txids = coop_txids or {}
+    savepoint_txids = savepoint_txids or {}
     # a choice attached to an NPC (choice.npc == npc.name) replaces that NPC's talk with a branch.
     choice_by_npc = {ch["npc"]: (c, ch) for c, ch in enumerate(project.raw.get("choice", []))
                      if "npc" in ch}
@@ -4855,13 +4869,26 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
     # whose TALK opens the same menu (FF9's actual idiom: you talk to the moogle to save; requested in-game
     # 2026-07-12 -- an invisible zone reads as "no save point here"). `moogle = false` opts out; `pos`
     # overrides the centre. docs/SAVEPOINT.md.
+    # Since rung 2 the interact runs the FAITHFUL flow -- an option menu, then a Yes/No confirm, then the
+    # GLOB(184)-latched Menu(4,0) -- because every real save point in FF9 asks before it saves (both the
+    # moogle family and the moogle-less Memoria family). `dialogue = false` restores the bare pre-rung-2
+    # jump-straight-to-the-menu body. A save point whose text was skipped (no txids) also falls back.
     savepoints = project.raw.get("savepoint", [])
     if savepoints:
         sps = [{"zone": _gw.quad_zone(sp["zone"]) if len(sp["zone"]) == 4 else sp["zone"],
                 "bubble": sp.get("bubble", True)} for sp in savepoints]
-        eb, _ = _savepoint.inject_savepoints(eb, sps)
+
+        def _dispatch(k, sp):
+            t = (savepoint_txids or {}).get(k)
+            if not sp.get("dialogue", True) or not t:
+                return _savepoint.save_dispatch()
+            return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
+                                                     latch=sp.get("latch", True))
+
+        eb, _ = _savepoint.inject_savepoints(eb, sps, dispatches=[_dispatch(k, sp)
+                                                                 for k, sp in enumerate(savepoints)])
         from . import archetypes as _arch
-        for sp in savepoints:
+        for k, sp in enumerate(savepoints):
             if not sp.get("moogle", True):
                 continue
             zpts = sp["zone"]
@@ -4869,7 +4896,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                     sum(p[1] for p in zpts) // len(zpts)]
             m_model, m_animset, m_anims, _h = _arch.resolve("moogle")
             eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
-                                 anims=dict(m_anims or {}), speak_body=_savepoint.save_dispatch())
+                                 anims=dict(m_anims or {}), speak_body=_dispatch(k, sp))
 
     # shops: a [[shop]] with a `zone` mints a standalone press-region opener (Menu(2, id), the save-point
     # shape). Shops opened from an NPC instead (via opens_shop) carry no zone and are skipped here; the
@@ -5657,8 +5684,29 @@ def collect_text(project: FieldProject):
     for k, co in enumerate(project.raw.get("coop", [])):
         if co.get("text"):
             co_pos[k] = _add(co, co["text"])
+    # [[savepoint]] dialogue: the option menu + the Yes/No confirm every real save point asks before it
+    # saves (docs/SAVEPOINT.md). TWO [CHOO] entries per save point, both 2-row. Added LAST (after coop) so
+    # a field with no [[savepoint]] -- and any field that opts out with `dialogue = false` -- keeps the
+    # previous text layout byte-identical.
+    sp_pos = {}
+    for k, sp in enumerate(project.raw.get("savepoint", [])):
+        if not sp.get("dialogue", True):
+            continue
+        rows = (str(sp.get("save_row", _savepoint.DEFAULT_SAVE_ROW)),
+                str(sp.get("cancel_row", _savepoint.DEFAULT_CANCEL_ROW)))
+        yn = (str(sp.get("yes_row", _savepoint.DEFAULT_YES_ROW)),
+              str(sp.get("no_row", _savepoint.DEFAULT_NO_ROW)))
+        # cancel is row 1 in both menus: B backs out of the option list AND out of the confirm.
+        prompt = _text.with_speaker(sp.get("speaker"), str(sp.get("prompt", _savepoint.DEFAULT_PROMPT)))
+        confirm = _text.with_speaker(sp.get("speaker"), str(sp.get("confirm", _savepoint.DEFAULT_CONFIRM)))
+        if wrap is not None:
+            prompt, confirm = _text.wrap_text(prompt, wrap)[0], _text.wrap_text(confirm, wrap)[0]
+        tag = "[PCHC=2,1]"                       # 2 rows, cancel = row 1 (no hiding) -- see choice.pre_choose
+        sp_pos[k] = (
+            _add_raw(tag + prompt + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(rows), sp.get("tail")),
+            _add_raw(tag + confirm + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(yn), sp.get("tail")))
     if not lines:
-        return "", {}, {}, [], {}, {}, {}, {}, {}, {}
+        return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
     npc_txids = {i: mapping[p] for i, p in npc_pos.items()}
     event_txids = {j: mapping[p] for j, p in ev_pos.items()}
@@ -5674,8 +5722,10 @@ def collect_text(project: FieldProject):
     chest_txids = {k: mapping[p] for k, p in ch_pos.items()}
     gateway_txids = {gi: mapping[p] for gi, p in gw_pos.items()}   # forced-ATE title-window txids (by gw index)
     coop_txids = {k: mapping[p] for k, p in co_pos.items()}        # [[coop]] gate fire messages (by gate index)
+    # {savepoint index: {"prompt": txid, "confirm": txid}} -- the two 2-row [CHOO] menus per save point
+    savepoint_txids = {k: {"prompt": mapping[p], "confirm": mapping[c]} for k, (p, c) in sp_pos.items()}
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
-            chest_txids, gateway_txids, coop_txids)
+            chest_txids, gateway_txids, coop_txids, savepoint_txids)
 
 
 # --------------------------------------------------------------------------- the build
@@ -5943,7 +5993,7 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
 
     _autofill_ladder_landing_y(project, cutscene_wmesh)   # elevated dismount floors get their real Y
     # --- dialogue + per-language script ---
-    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids = collect_text(project)
+    mes_body, txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids, chest_txids, gateway_txids, coop_txids, savepoint_txids = collect_text(project)
     control_value = resolve_control_value(project, camera)
     # faithful text carry: the donor's referenced dialogue, shipped VERBATIM per language and APPENDED after
     # the authored block (its own [TXID=>=1000] re-index keeps it disjoint -- authored text + the hut golden
@@ -6162,7 +6212,8 @@ def build_field(project: FieldProject, layout: ModLayout, *, langs=LANGS) -> Fie
                               cutscene_txids=cutscene_txids, walkmesh=cutscene_wmesh,
                               choice_txids=choice_txids, on_entry_txids=on_entry_txids,
                               ate_txids=ate_txids, chest_txids=chest_txids, gateway_txids=gateway_txids,
-                              coop_txids=coop_txids, warnings=warnings)
+                              coop_txids=coop_txids, savepoint_txids=savepoint_txids,
+                              warnings=warnings)
             base = mes_body or ""
             inplace = base
             suffix = ""

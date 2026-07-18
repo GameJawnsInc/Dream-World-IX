@@ -49,7 +49,7 @@ def _build_zone_choice(tmp_path, build, extra=""):
         '[[choice.options]]\ntext = "Yes"\nset_flag = [8001, 1]\n'
         '[[choice.options]]\ntext = "No"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, _, _, ctx, _, _, _, _gw9, _co10 = build.collect_text(proj)
+    _, _, _, _, ctx, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     return EbScript.from_bytes(eb), eb
 
@@ -123,7 +123,7 @@ def test_zone_choice_pre_choose_disabled_emits_pchm_and_mask(tmp_path):
         '[[choice.options]]\ntext = "B"\ndisabled = true\n'
         '[[choice.options]]\ntext = "C"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _, _, _, _gw9, _co10 = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     assert opcodes.enable_dialog_choices(0b101, 0) in eb        # row 1 masked off, default 0
@@ -144,7 +144,7 @@ def test_zone_choice_flag_gated_builds_dynamic_mask_expression(tmp_path):
         '[[choice.options]]\ntext = "Use key"\nrequires_flag = 8001\n'
         '[[choice.options]]\ntext = "Leave"\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, _, _, ctx, _, _, _, _gw9, _co10 = build.collect_text(proj)
+    mes, _, _, _, ctx, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
     assert "[PCHM=3,2]" in mes
     eb = build.build_script(proj, "us", {}, choice_txids=ctx)
     sc = region.MASK_SCRATCH_IDX
@@ -437,7 +437,7 @@ def test_event_sets_flag_before_message(tmp_path):
         '[[event]]\nname="key"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'message="Found it!"\nset_flag=[8001,1]\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    _, _, et, _, _, _, _, _, _gw9, _co10 = build.collect_text(proj)
+    _, _, et, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, event_txids=et)
     setflag = region.set_var(region.GLOB_BOOL, 8001, 1)
     msg = opcodes.window_sync(1, 128, et[0])
@@ -463,7 +463,7 @@ def test_event_received_window_and_space_check(tmp_path):
         '[[event]]\nname="chest"\nzone=[[10,-10],[50,-10],[50,-50],[10,-50]]\n'
         'give_item=[236,1]\nreceived=true\nrequire_space=true\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _, et, _, _, _, _, _, _gw9, _co10 = build.collect_text(proj)
+    mes, _, et, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
     assert "Received [ITEM=0]!" in mes                              # canonical item-get text
     eb = build.build_script(proj, "us", {}, event_txids=et)
     assert opcodes.set_text_variable(0, 236) in eb                 # SetTextVariable(0, item)
@@ -761,7 +761,7 @@ def test_conductor_two_actor_field_builds_end_to_end(tmp_path):
         ']\n', encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert build.lint_logic(proj) == [] or all("cutscene" not in m for m in build.lint_logic(proj))
-    mes, npc_txids, _ev, cs_txids, _ch, _oe, _ate, _chest, _gw9, _co10 = build.collect_text(proj)
+    mes, npc_txids, _ev, cs_txids, _ch, _oe, _ate, _chest, _gw9, _co10, _sp11 = build.collect_text(proj)
     assert len(cs_txids) == 3                                          # three say steps -> three txids
     eb = build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids)
     s = EbScript.from_bytes(eb)
@@ -814,7 +814,7 @@ def test_conductor_walk_field_builds_end_to_end(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert [m for m in build.lint_logic(proj) if "cutscene" in m] == []
-    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10 = build.collect_text(proj)
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10, _sp11 = build.collect_text(proj)
     s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
     walk_entries = [e.index for e in s.entries if not e.empty and e.func_by_tag(20)]
     assert len(walk_entries) == 2                                  # both NPC entries got a walk tag
@@ -843,7 +843,7 @@ def test_conductor_player_walk_supported(tmp_path):
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert [m for m in build.validate(proj) if "walk" in m] == []  # player-walk is no longer flagged
-    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10 = build.collect_text(proj)
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10, _sp11 = build.collect_text(proj)
     s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
     pe = _player.find_player_entry(s)
     assert s.entry(pe).func_by_tag(20) is not None                # the walk tag landed on the PLAYER entry
@@ -907,7 +907,7 @@ def test_conductor_parallel_walk_field_builds_end_to_end(tmp_path):
     proj = build.FieldProject.load(p)
     assert [m for m in build.lint_logic(proj) if "cutscene" in m] == []
     assert [m for m in build.validate(proj) if "with_prev" in m or "parallel" in m.lower()] == []
-    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10 = build.collect_text(proj)
+    _mes, npc_txids, _e, cs_txids, _c, _o, _a, _ch, _gw, _co10, _sp11 = build.collect_text(proj)
     s = EbScript.from_bytes(build.build_script(proj, "us", npc_txids, cutscene_txids=cs_txids))
     parallel_entries = [e.index for e in s.entries if not e.empty and e.func_by_tag(20) and e.func_by_tag(19)]
     assert len(parallel_entries) == 2                              # both NPC entries got a walk tag AND a join tag
@@ -1032,7 +1032,7 @@ def _build_synth(tmp_path, body):
     p = tmp_path / "z.field.toml"
     p.write_text(_CHEST_BASE + body, encoding="utf-8")
     proj = build.FieldProject.load(p)
-    mes, _n, _e, _c, _ch, _o, _a, chest_txids, _gw9, _co10 = build.collect_text(proj)
+    mes, _n, _e, _c, _ch, _o, _a, chest_txids, _gw9, _co10, _sp11 = build.collect_text(proj)
     eb = build.build_script(proj, "us", {}, chest_txids=chest_txids)
     return mes, chest_txids, eb
 

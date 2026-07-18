@@ -568,7 +568,7 @@ def project_dialogue(project) -> list:
     from the real build output."""
     from . import build as _build
     (mes_body, npc_txids, ev_txids, cs_txids, ch_txids, oe_txids, _ate_txids, _chest_txids, _gw_txids,
-     _coop_txids) = _build.collect_text(project)
+     _coop_txids, _savepoint_txids) = _build.collect_text(project)
     mes = parse_mes(mes_body)
     raw = getattr(project, "raw", {}) or {}
     npcs, events = raw.get("npc", []), raw.get("event", [])

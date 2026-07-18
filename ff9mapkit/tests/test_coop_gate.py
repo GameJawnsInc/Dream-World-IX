@@ -108,7 +108,7 @@ def gate_project(tmp_path):
 
 def test_coop_gate_builds_two_regions(gate_project):
     from ff9mapkit import build as _build
-    (mes_body, _txids, _ev, _cs, _ch, _oe, _ate, _chst, _gw, coop_txids) = _build.collect_text(gate_project)
+    (mes_body, _txids, _ev, _cs, _ch, _oe, _ate, _chst, _gw, coop_txids, _sp11) = _build.collect_text(gate_project)
     assert coop_txids == {0: 500}                       # first authored line -> text.DEFAULT_BASE_TXID
     assert "twin seals" in mes_body
     eb = _build.build_script(gate_project, "us", {}, coop_txids=coop_txids)

@@ -1,8 +1,10 @@
-"""Save-point synthesis (content/savepoint.py) -- a press-to-interact region that opens the SAVE menu.
+"""Save-point synthesis (content/savepoint.py) -- a faithful FF9 save point, authored not grafted.
 
 The functional save is a single opcode, ``Menu(4, 0)`` (0x75) -> ``OpenSaveMenu``, verified byte-exact
-against the real Dali save moogle (field 122 entry 5 tag 3). These pin the synthesis offline; the closing
-proof that the save menu actually opens + writes a slot is the human playtest (docs/SAVEPOINT.md).
+against the real Dali save moogle (field 407 entry 5 tag 3). Around it, a byte census of all 55 real save
+points found a spine both families share: option menu -> Yes/No confirm -> GLOB(184)-latched save. These
+pin that offline; the closing proof that the menu opens + writes a slot is the human playtest
+(docs/SAVEPOINT.md).
 """
 from __future__ import annotations
 
@@ -183,3 +185,120 @@ def test_extract_savepoint_director_keeps_its_bytes_or_none_contract():
     # back-compat: the original entry point still returns bytes-or-None, never the (body, reason) tuple.
     out = eventscan.extract_savepoint_director(CLEAN)
     assert out is None or isinstance(out, (bytes, bytearray))
+
+
+# --- rung 2: the FAITHFUL save flow (option menu -> Yes/No confirm -> latched Menu(4,0)) -------------
+# Every real save point asks before it saves -- both families. Moogle family (field 300 entry 3 tag 3):
+# EnableDialogChoices + WindowAsync(2,8,3) then WindowAsync(2,8,4) then the save. Moogle-less Memoria
+# family (field 2919 entry 7 tag 1): WindowAsync(7,0,454) then 457 then the save. Both bracket the
+# Menu(4,0) with GLOB(184)=1 / Wait(3) ... Wait(3) / GLOB(184)=0.
+def _ops(body):
+    from ff9mapkit.eb import disasm
+    return [disasm.op_name(i.op) for i in disasm.iter_code(body, 0, len(body))]
+
+
+def test_save_act_is_the_real_latched_handshake():
+    ops = _ops(_savepoint.save_act())
+    assert ops == ["op_05", "op_22", "Menu", "op_22", "op_05"]      # set ; Wait ; Menu ; Wait ; clear
+    assert _savepoint.SAVE_LATCH_FLAG == 184 and _savepoint.SAVE_LATCH_WAIT == 3
+
+
+def test_save_act_latch_can_be_dropped():
+    assert _ops(_savepoint.save_act(latch=False)) == ["Menu"]
+
+
+def test_prompted_dispatch_opens_two_menus_then_saves():
+    body = _savepoint.save_dispatch_prompted(500, 501)
+    ops = _ops(body)
+    assert ops[:2] == ["DisableMove", "DisableMenu"]
+    assert ops[-3:] == ["EnableMenu", "EnableMove", "op_04"]
+    assert ops.count("WindowSync") == 2 and ops.count("Menu") == 1
+    # the real save point's small MENU window (slot 2, flags 8), NOT the dialogue window (1, 128)
+    from ff9mapkit.eb import disasm
+    wins = [list(i.args) for i in disasm.iter_code(body, 0, len(body)) if disasm.op_name(i.op) == "WindowSync"]
+    assert wins == [[2, 8, 500], [2, 8, 501]]
+
+
+def test_prompted_dispatch_emits_exactly_one_if_block_per_window():
+    """The nesting hazard (see savepoint._row0_only): choice.branch re-reads sysvar 9 per option, so a
+    second bodied row at either level would test the INNER answer after the nested window overwrote it.
+    Only row 0 carries a body, so exactly two jumps exist -- one per window."""
+    from ff9mapkit.eb import disasm
+    body = _savepoint.save_dispatch_prompted(500, 501)
+    assert sum(1 for i in disasm.iter_code(body, 0, len(body))
+               if disasm.op_name(i.op) == "op_02") == 2
+
+
+def test_build_savepoint_ships_the_menu_text_and_the_prompted_flow(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+        '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, *_rest = build.collect_text(proj)
+    sp_txids = _rest[-1]
+    assert sp_txids == {0: {"prompt": 500, "confirm": 501}}
+    assert mes.count("[CHOO]") == 2                       # the option menu + the Yes/No confirm
+    assert "[PCHC=2,1]" in mes                            # 2 rows, cancel = row 1
+    for row in ("Save", "Cancel", "Yes", "No"):
+        assert row in mes
+    # ...and BOTH interact points (the press-zone and the visible Moogle's talk) run the prompted flow:
+    # WindowSync(2, 8, 500) = `1f 00 02 08 f4 01`, once per entry.
+    eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
+    assert eb.count(bytes.fromhex("1f000208f401")) == 2
+    assert eb.count(bytes.fromhex("1f000208f501")) == 2   # ...and the Yes/No confirm window (txid 501)
+    # without the txids (build_script called bare) it MUST fall back to the plain save, never emit a
+    # window pointing at text the .mes does not carry.
+    assert build.build_script(proj, "us", {}).count(bytes.fromhex("1f000208f401")) == 0
+
+
+def test_savepoint_dialogue_false_falls_back_to_the_bare_save(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+        '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\ndialogue = false\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, *_rest = build.collect_text(proj)
+    assert _rest[-1] == {}                                # no menu text emitted
+    assert "[CHOO]" not in mes
+
+
+def test_savepoint_rejects_unknown_and_mistyped_keys(tmp_path):
+    """A mistyped key used to build silently -- `moggle = false` left the Moogle in place with no
+    diagnostic. Unknown keys and wrong types are lint problems now."""
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+        '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n'
+        'moggle = false\ndialogue = "yes"\nprompt = 7\n',
+        encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("unknown key 'moggle'" in x for x in probs)
+    assert any("dialogue must be true or false" in x for x in probs)
+    assert any("prompt must be a string" in x for x in probs)
+
+
+def test_savepoint_accepts_every_documented_key(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+        '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n'
+        'pos = [0, 0]\nmoogle = true\nbubble = true\ndialogue = true\nlatch = true\n'
+        'prompt = "P"\nconfirm = "C"\nsave_row = "S"\ncancel_row = "X"\n'
+        'yes_row = "Y"\nno_row = "N"\nspeaker = "Mog"\n',
+        encoding="utf-8")
+    assert not [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]

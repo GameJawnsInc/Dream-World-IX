@@ -175,6 +175,11 @@ RETURN = bytes([0x04])          # function return (level-0 return drives ExitBat
 NOP = bytes([0x00])
 ENABLE_MOVE = bytes([0x2E])     # EnableMove (0 args) -- give the player control
 DISABLE_MOVE = bytes([0x2D])    # DisableMove (0 args) -- lock control (cutscenes)
+# The MENU lock -- suppresses the player opening the main menu (Triangle) during a scripted sequence.
+# Distinct from DISABLE_MOVE (which only locks walking); real save points set BOTH while their dialogue
+# is up (field 300 tag 3 at 4136, field 2919 tag 1 at 3473).
+ENABLE_MENU = bytes([0xAA])     # EnableMenu (0 args)
+DISABLE_MENU = bytes([0xAB])    # DisableMenu (0 args)
 DEFINE_PLAYER_CHARACTER = bytes([0x2C])
 
 

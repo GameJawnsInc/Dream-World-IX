@@ -567,9 +567,9 @@ player's own context via `RunScriptSync`. Author from scratch isn't supported �
 ## `[[savepoint]]` (optional, repeatable)
 
 A **synthesized save point** — a **visible save Moogle** (talk to it → the save menu, FF9's actual
-idiom) plus a press-to-interact zone. The interact dispatch either way is `DisableMove; Menu(4, 0);
-EnableMove` (the single `Menu(4, 0)` opcode that opens the save menu). (See
-[`docs/SAVEPOINT.md`](SAVEPOINT.md) for the full recipe.)
+idiom) plus a press-to-interact zone. Both run the same faithful flow: an **option menu**, a **Yes/No
+confirm**, then the `GLOB(184)`-latched `Menu(4, 0)` — the spine every real save point in FF9 uses.
+(See [`docs/SAVEPOINT.md`](SAVEPOINT.md) for the byte census behind it.)
 
 ```toml
 [[savepoint]]
@@ -577,6 +577,13 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 # moogle = true                                          # the visible save Moogle (default true)
 # pos = [0, -700]                                        # the Moogle's spot (default: the zone centre)
 # bubble = true                                          # the floating "!" prompt (default true)
+# dialogue = true                                        # the menu + confirm (default true)
+# prompt  = "What would you like to do?"                 # the option-menu question
+# confirm = "Save your progress?"                        # the Yes/No question
+# save_row = "Save"   ; cancel_row = "Cancel"            # the option-menu rows
+# yes_row  = "Yes"    ; no_row     = "No"                # the confirm rows
+# speaker = "Mog"                                        # prefixes both questions
+# latch = true                                           # the GLOB(184) bracket (leave on)
 ```
 
 | key | meaning |
@@ -585,6 +592,11 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 | `moogle` | a **visible save Moogle** at `pos` whose TALK opens the save menu — default `true` (an invisible zone reads as "no save point here"). `false` = the zone only. |
 | `pos` | `[x, z]` for the Moogle (default: the zone's centre; keep it on the walkmesh). |
 | `bubble` | the floating **"!"** prompt on the zone — default `true`. |
+| `dialogue` | the option menu + Yes/No confirm — default `true`. `false` opens the save menu immediately on touch (no real save point does this; kept as an escape hatch). |
+| `prompt` / `confirm` | the two questions. Defaults are neutral wording, not FF9's own strings (the kit ships no Square-Enix text). |
+| `save_row` / `cancel_row` / `yes_row` / `no_row` | the menu rows. **Cancel is row 1 in both menus** and must stay bodiless — see `SAVEPOINT.md`. |
+| `speaker` | optional name prefixed onto both questions. |
+| `latch` | the `gEventGlobal[184]` bracket around the save — default `true`; every real save point sets it. |
 
 ---
 
