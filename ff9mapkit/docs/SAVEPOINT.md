@@ -116,6 +116,18 @@ recipient is a per-field immediate constant — and is a deferred, opt-in rung; 
 the new name renders blank (their rosters have 41 rows; fails safe to an empty string). Outbound — our
 moogle's letter delivered BY a real moogle — works on stock Memoria unchanged. Read-mail is deferred.
 
+**Letter CONTENT, decoded (field 1865 @6191-6310):** a letter's body is ONE text entry in the
+RECIPIENT's field block, shown frameless (window 3, flags 16) inside a fade bracket
+(`FadeFilter(2,24,·,220,220,250)` in, `(7,16,·,0,0,0)` out), selected by an `op_06` switch on the
+variant with HARDCODED arms — the default skips the window but the fade still runs, which is exactly
+the observed "empty letter flash" when a stock moogle received our variant 56. The entry's shape
+(1865 entry 49): a fixed header template — widths, the moogle portrait built from `[ICON=27/28/29]`,
+the colored `From [TEXT=0,1] to [TEXT=0,0]` line through roster table 0 — then the body. So:
+**letters delivered TO OUR moogle render fully** (`accept = [{ variant, letter = "..." }]` — the
+build ships the entry + `mognet.letter_display` runs the faithful bracket in the accept arm);
+letters delivered to STOCK moogles show the graceful empty flash until their `.eb` is patched (the
+same donor-fork class as inbound; deferred together).
+
 ### Deliberately not synthesized
 
 The moogle's **reveal/hop** and its **book + feather** animation (clips exist and are addressable:

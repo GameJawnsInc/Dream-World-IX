@@ -259,21 +259,25 @@ def give_letter_body(variant: int, to_id: int, *, from_id: int = NEW_MOOGLE_ID,
     return _set_byte(GUARD_IDX, 1) + chain
 
 
-def _consume_arm(k: int, variants, thanks_txid, window, flags) -> bytes:
-    """Consume slot ``k``: counter, thanks line, read-locks, then the donor's compaction (field 300
-    @6990-7126): shift every higher quad DOWN one (order occupied/FROM/TO/variant per quad), then zero
-    the top quad -- never leave a hole."""
+def _consume_arm(k: int, variants, thanks_txid, window, flags, my_id, letter_txids) -> bytes:
+    """Consume slot ``k``: counter, the sender/recipient text vars, thanks line, then per-variant the
+    LETTER display + read-lock, then the donor's compaction (field 300 @6990-7126): shift every higher
+    quad DOWN one (order occupied/FROM/TO/variant per quad), then zero the top quad -- never a hole."""
     out = _post_inc_byte(DELIVERED_IDX)
+    # the stock letter-header convention (field 1865 entry 49, "From [TEXT=0,1] to [TEXT=0,0]"):
+    # text var 1 <- the slot's FROM byte (the sender), text var 0 <- our own id (the recipient). The
+    # thanks line reads the same slots, so they are set whether or not a letter is authored.
+    from_expr = _push_byte(slot_addr(k, 2)) + bytes([_region.T_END])
+    out += opcodes.encode(0x66, 1, from_expr, arg_flags=0b10)         # SetTextVariable(1, {FROM})
+    out += opcodes.set_text_variable(0, my_id)
     if thanks_txid is not None:
-        # the sender's name in the thanks line: text var 0 <- the slot's FROM byte, so the window can
-        # say [TEXT=0,0] (renders through OUR 42-name roster; donor idiom, field 300 @6019-shape)
-        from_expr = _push_byte(slot_addr(k, 2)) + bytes([_region.T_END])
-        out += opcodes.encode(0x66, 0, from_expr, arg_flags=0b10)     # SetTextVariable(0, {FROM})
         out += opcodes.window_sync(window, flags, thanks_txid)
+    letter_txids = letter_txids or {}
     for v in variants:
         cond = (bytes([_region.EXPR_OP]) + _push_byte(slot_addr(k, 1)) + _const(v)
                 + bytes([_region.T_EQ, _region.T_END]))
-        out += _region.if_block(cond, _set_lock(read_lock_bit(v)))
+        arm = (letter_display(letter_txids[v]) if v in letter_txids else b"")
+        out += _region.if_block(cond, arm + _set_lock(read_lock_bit(v)))
     parts = (0, 2, 3, 1)                               # occupied, FROM, TO, variant -- donor copy order
     for dst in range(k, NSLOTS - 1):
         out += b"".join(_copy_byte(slot_addr(dst, p), slot_addr(dst + 1, p)) for p in parts)
@@ -282,20 +286,23 @@ def _consume_arm(k: int, variants, thanks_txid, window, flags) -> bytes:
 
 
 def accept_letter_body(variants, *, my_id: int = NEW_MOOGLE_ID, thanks_txid: int | None = None,
-                       nothing_txid: int | None = None, window: int = 1, flags: int = 128) -> bytes:
+                       nothing_txid: int | None = None, window: int = 1, flags: int = 128,
+                       letter_txids: dict | None = None) -> bytes:
     """Our moogle takes delivery of a letter addressed TO it (the player picked "give <name> a letter").
 
     ``variants`` is the set of letter variant ids authored as deliverable to this moogle -- known at
     build time, so the read-side lock is set per-variant with literal bits (the donor's 64-arm switch
     collapses to an if per authored variant). For each slot in order: if occupied AND TO == my_id ->
-    consume it (counter++, optional thanks line with the sender's name, read-lock, compaction). If no
-    slot matches, the optional ``nothing_txid`` line shows. Byte[1033] (Stiltzkin) is never touched."""
+    consume it (counter++, sender/recipient text vars, optional thanks line, the LETTER display when
+    ``letter_txids`` carries that variant's content, read-lock, compaction). If no slot matches, the
+    optional ``nothing_txid`` line shows. Byte[1033] (Stiltzkin) is never touched."""
     vs = [check_variant(v, allow_shipped=True) for v in variants]
     nothing = opcodes.window_sync(window, flags, nothing_txid) if nothing_txid is not None else b""
     chain = nothing
     for k in reversed(range(NSLOTS)):
         chain = _region.if_else(slot_addressed_to_cond(k, my_id),
-                                _consume_arm(k, vs, thanks_txid, window, flags), chain)
+                                _consume_arm(k, vs, thanks_txid, window, flags, my_id, letter_txids),
+                                chain)
     return _set_byte(GUARD_IDX, 1) + chain
 
 
@@ -304,7 +311,7 @@ def accept_letter_body(variants, *, my_id: int = NEW_MOOGLE_ID, thanks_txid: int
 DEFAULT_MOGNET_ROW = "Mognet"
 DEFAULT_ACCEPT_PROMPT = "That letter is addressed to me, kupo! May I have it?"
 DEFAULT_ACCEPT_YES, DEFAULT_ACCEPT_NO = "Hand it over", "Keep it"
-DEFAULT_THANKS = "A letter from [TEXT=0,0], kupo! Thank you!"   # [TEXT=0,0] = roster[gMesValue[0]] = the sender
+DEFAULT_THANKS = "A letter from [TEXT=0,1], kupo! Thank you!"   # [TEXT=0,1] = roster[sender] -- see LETTER_HEADER
 DEFAULT_GIVE_PROMPT = "Would you deliver my letter to {to}, kupo?"
 DEFAULT_GIVE_YES, DEFAULT_GIVE_NO = "Take the letter", "Not now"
 DEFAULT_GIVE_LINE = "Take good care of it, kupo!"
@@ -349,11 +356,73 @@ def roster_names(entry0_text: str) -> list:
 CHOICE_WINDOW = 2
 CHOICE_FLAGS = 8
 
+# --- the LETTER itself (the full-screen frameless read) -----------------------------------------------
+# Decoded from field 1865 (Alexandria/Steeple, Kupo) @6191-6310: letter content is ONE ordinary text
+# entry in the RECIPIENT's field block, shown in window 3 with flags 16 (the "hide window" bit -- no
+# frame, over the letter art), selected by an op_06 switch on the letter VARIANT with HARDCODED arms
+# (19->46, 22->49, 33->52, 48->63 there) whose default skips the window -- but the fade bracket runs
+# regardless, which is exactly the observed "faded in, no content, faded out" for our variant 56 at a
+# stock recipient. So content at STOCK recipients needs their .eb patched (the inbound-fork class,
+# deferred); content at OUR OWN moogle is fully authorable, and that is what ships here.
+LETTER_WINDOW = 3
+LETTER_FLAGS = 16
+# The stock letter-entry template (field 1865 entry 49): the widths table, the moogle portrait built
+# from icon pieces 27/28/29, then the colored "From <sender> to <recipient>" line -- sender = text var
+# 1, recipient = text var 0, both rendered through roster table 0. Formatting tags, not prose.
+LETTER_HEADER = ("[WDTH=0,55,6,1,6,0,-1][SPED=255][ICON=27][XTAB=0][YADD=16][ICON=28][YADD=8][XTAB=0]"
+                 "[ICON=29][YSUB=8][FEED=4][SPED=3][68C0D8][HSHD]From [TEXT=0,1] to [TEXT=0,0]"
+                 "[C8C8C8][HSHD]")
+
+
+def letter_entry_text(body: str) -> str:
+    """A complete letter text entry: the stock header template + a blank line + the authored body
+    (author-controlled line breaks; the stock letters hand-break every line)."""
+    return LETTER_HEADER + "\n\n" + str(body)
+
+
+def letter_display(letter_txid: int) -> bytes:
+    """The faithful letter presentation, byte-shaped on field 1865 @6191-6310::
+
+        CalculateScreenPosition(250) ; FadeFilter(2, 24, 255, 220,220,250)   # the parchment glow, in
+        Wait(16)
+        WindowAsync(3, 16, letter)                                           # the frameless letter
+        RaiseWindows ; WaitWindow(3)                                         # the player reads + closes
+        CalculateScreenPosition(250) ; FadeFilter(7, 16, 255, 0,0,0)         # restore
+        Wait(16)
+
+    The donor passes the fade intensity through a Map scratch var holding 255; we pass the literal."""
+    return (opcodes.encode(0xA9, 250)                       # CalculateScreenPosition(player)
+            + opcodes.encode(0xEC, 2, 24, 255, 220, 220, 250)
+            + opcodes.wait(16)
+            + opcodes.window_async(LETTER_WINDOW, LETTER_FLAGS, letter_txid)
+            + opcodes.encode(0x8E)                          # RaiseWindows
+            + opcodes.encode(0x54, LETTER_WINDOW)           # WaitWindow
+            + opcodes.encode(0xA9, 250)
+            + opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)
+            + opcodes.wait(16))
+
+
+def normalize_accept(acc) -> tuple:
+    """``accept`` entries are bare variant ints OR ``{variant, letter}`` tables. Returns
+    ``(variants, {variant: letter_body})`` -- the single normalization used by validate, collect_text
+    and the dispatch, so the three can never disagree."""
+    variants, letters = [], {}
+    for it in (acc or []):
+        if isinstance(it, dict):
+            v = int(it["variant"])
+            variants.append(v)
+            if it.get("letter") is not None:
+                letters[v] = str(it["letter"])
+        else:
+            variants.append(int(it))
+    return variants, letters
+
 
 def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), give=None,
                             accept_prompt_txid: int | None = None, thanks_txid: int | None = None,
                             give_prompt_txid: int | None = None, give_txid: int | None = None,
-                            nothing_txid: int | None = None, erase_txid: int | None = None) -> bytes:
+                            nothing_txid: int | None = None, erase_txid: int | None = None,
+                            letter_txids: dict | None = None) -> bytes:
     """The whole Mognet interaction -- the body behind the moogle menu's "Mognet" row. Exactly the three
     cases a real save moogle presents, in the donor's priority order::
 
@@ -384,7 +453,8 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
 
     nothing_arm = opcodes.window_sync(1, 128, nothing_txid) if nothing_txid is not None else b""
     accept_arm = _confirmed(accept_prompt_txid,
-                            accept_letter_body(accept_variants, my_id=my_id, thanks_txid=thanks_txid))
+                            accept_letter_body(accept_variants, my_id=my_id, thanks_txid=thanks_txid,
+                                               letter_txids=letter_txids))
     if give is not None:
         gv, gto = give
         give_arm = _confirmed(give_prompt_txid,

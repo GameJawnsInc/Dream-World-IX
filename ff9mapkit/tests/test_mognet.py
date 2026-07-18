@@ -125,8 +125,9 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None) -> by
             break
         elif i.op in (0x1F, 0x20, 0x66,                # WindowSync / WindowAsync / SetTextVariable
                       0x22,                            # Wait
-                      0x2D, 0x2E, 0xAB, 0xAA):         # Disable/EnableMove, Disable/EnableMenu
-            pass
+                      0x2D, 0x2E, 0xAB, 0xAA,          # Disable/EnableMove, Disable/EnableMenu
+                      0xA9, 0xEC, 0x8E, 0x54, 0x21):   # the letter display: CalcScreenPos / FadeFilter
+            pass                                       #   / RaiseWindows / WaitWindow / CloseWindow
         else:
             raise AssertionError(f"mini-VM: unhandled opcode 0x{i.op:02X} at {i.off}")
         pos = nxt
@@ -584,3 +585,89 @@ def test_mognet_validation_gates(tmp_path, fake_roster):
     assert any("only ONE network moogle" in x for x in probs(bad))
     # the happy path stays clean
     assert not [x for x in probs(base) if "mognet" in x.lower()]
+
+
+# --------------------------------------------------------------------------- the LETTER (rung 6) ---
+def test_letter_display_decodes_to_the_donor_shape():
+    """field 1865 @6191-6310: parchment fade in (2,24 / 220,220,250), the frameless letter
+    (window 3, flags 16), RaiseWindows + WaitWindow, restore fade (7,16)."""
+    body = _m.letter_display(510)
+    ins = list(disasm.iter_code(body, 0, len(body)))
+    ops = [(disasm.op_name(i.op), list(i.args)) for i in ins]
+    assert ("FadeFilter", [2, 24, 255, 220, 220, 250]) in ops
+    assert ("WindowAsync", [3, 16, 510]) in ops
+    assert ("RaiseWindows", []) in ops and ("WaitWindow", [3]) in ops
+    assert ("FadeFilter", [7, 16, 255, 0, 0, 0]) in ops
+    assert [o for o, _ in ops].count("CalculateScreenPosition") == 2
+
+
+def test_letter_entry_text_is_the_stock_template_plus_body():
+    t = _m.letter_entry_text("Dear Kupo,\nHello!  Kupo!")
+    assert t.startswith(_m.LETTER_HEADER + "\n\n")
+    assert "From [TEXT=0,1] to [TEXT=0,0]" in t          # sender/recipient through the roster
+    assert "[ICON=27]" in t and "[ICON=29]" in t          # the moogle portrait pieces
+    assert t.endswith("Hello!  Kupo!")
+
+
+def test_normalize_accept_mixes_ints_and_tables():
+    vs, letters = _m.normalize_accept([55, {"variant": 57, "letter": "Hi, kupo!"}, {"variant": 58}])
+    assert vs == [55, 57, 58] and letters == {57: "Hi, kupo!"}
+    assert _m.normalize_accept(None) == ([], {})
+
+
+def test_accept_with_letter_still_holds_every_invariant():
+    """The letter display is presentation only -- consuming with a letter must leave the mailbox
+    mechanics byte-identical to consuming without one."""
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    _set_slot(G0, 0, 55, 8, 41)
+    _set_slot(G0, 1, 19, 23, 1)
+    plain = run(_m.accept_letter_body([55]), G0)
+    lettered = run(_m.accept_letter_body([55], letter_txids={55: 900}), G0)
+    assert bytes(plain) == bytes(lettered)
+    assert _mailbox(lettered) == [(1, 19, 23, 1), (0, 0, 0, 0), (0, 0, 0, 0)]
+
+
+_LETTER_FIELD = _FIELD.replace(
+    "accept = [55]",
+    'accept = [{ variant = 55, letter = "Dear Mogwai,\\nThe hills are lovely.  Kupo!" }]')
+
+
+def test_build_ships_the_letter_and_the_display(tmp_path, fake_roster):
+    _proj, ct, eb = _built(tmp_path, _LETTER_FIELD)
+    mes, sp_txids = ct[0], ct[-1]
+    t = sp_txids[0]
+    assert "letter55" in t
+    entry = [ln for ln in mes.split("_[TXID=") if ln.startswith(str(t["letter55"]))][0]
+    assert _m.LETTER_HEADER in entry and "The hills are lovely.  Kupo!" in entry
+    # the built moogle still runs every path; the letter ops ride along as no-ops in the VM
+    body = _moogle_talk_body(eb)
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    _set_slot(G0, 0, 55, 8, 41)
+    G = run(body, G0, choices=[1, 0])
+    assert _mailbox(G) == [(0, 0, 0, 0)] * 3 and _bit(G, _m.read_lock_bit(55)) == 1
+    # and the letter window itself is in the emitted bytes: WindowAsync(3, 16, letter_txid) --
+    # once per slot-consume arm (3) at each interact point (zone + moogle talk = 2)
+    pat = bytes([0x20, 0x00, 0x03, 0x10]) + int(t["letter55"]).to_bytes(2, "little")
+    assert eb.count(pat) == 6
+
+
+def test_letter_validation(tmp_path, fake_roster):
+    from ff9mapkit import build
+
+    def probs(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    bad = _FIELD.replace("accept = [55]", 'accept = [{ variant = 55, letter = 7 }]')
+    assert any("letter must be a string" in x for x in probs(bad))
+    bad = _FIELD.replace("accept = [55]", 'accept = [{ letter = "x" }]')
+    assert any("accept entry must be" in x for x in probs(bad))
+    bad = _FIELD.replace("accept = [55]", 'accept = [{ variant = 55, kupo = 1 }]')
+    assert any("accept entry must be" in x for x in probs(bad))
+    # the table form passes clean, and give-vs-accept collision still detects THROUGH the table form
+    assert not [x for x in probs(_LETTER_FIELD) if "mognet" in x.lower()]
+    bad = _FIELD.replace("accept = [55]", 'accept = [{ variant = 56 }]')
+    assert any("both FROM and TO" in x for x in probs(bad))

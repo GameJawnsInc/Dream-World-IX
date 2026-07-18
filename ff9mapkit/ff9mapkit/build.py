@@ -906,14 +906,28 @@ def _validate_savepoint_mognet(project, sp) -> list:
                 out.append("[savepoint.mognet] give.to is this moogle itself -- a moogle cannot mail itself")
     acc = mg.get("accept", [])
     if not isinstance(acc, (list, tuple)):
-        out.append(f"[savepoint.mognet] accept must be a list of letter variants, got {acc!r}")
+        out.append(f"[savepoint.mognet] accept must be a list of letter variants (ints, or "
+                   f"{{ variant, letter }} tables), got {acc!r}")
     else:
-        for v in acc:
+        for it in acc:
+            if isinstance(it, dict):
+                bad = set(it) - {"variant", "letter"}
+                if bad or "variant" not in it:
+                    out.append(f"[savepoint.mognet] accept entry must be {{ variant = <49..63>"
+                               f"[, letter = \"...\"] }}, got {it!r}")
+                    continue
+                if "letter" in it and not isinstance(it["letter"], str):
+                    out.append(f"[savepoint.mognet] accept letter must be a string, got {it['letter']!r}")
+                it = it["variant"]
             try:
-                _mognet.check_variant(v)
+                _mognet.check_variant(it)
             except (ValueError, TypeError) as e:
                 out.append(f"[savepoint.mognet] accept: {e}")
-        if give is not None and isinstance(give, dict) and give.get("variant") in acc:
+        try:
+            acc_variants, _ = _mognet.normalize_accept(acc)
+        except (ValueError, TypeError, KeyError):
+            acc_variants = []
+        if give is not None and isinstance(give, dict) and give.get("variant") in acc_variants:
             out.append(f"[savepoint.mognet] give.variant {give['variant']} is also in accept -- a letter "
                        f"cannot be both FROM and TO this moogle (their one-shot locks would collide)")
     for k in ("mognet_row", "accept_prompt", "accept_yes", "accept_no", "thanks", "give_prompt",
@@ -4961,11 +4975,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 give = None
                 if isinstance(mg.get("give"), dict) and "give_to_id" in t:
                     give = (int(mg["give"]["variant"]), int(t["give_to_id"]))
+                acc_variants, acc_letters = _mognet.normalize_accept(mg.get("accept", []))
                 mog = _mognet.mognet_interaction_body(
-                    accept_variants=[int(v) for v in mg.get("accept", [])], give=give,
+                    accept_variants=acc_variants, give=give,
                     accept_prompt_txid=t["accept_prompt"], thanks_txid=t.get("thanks"),
                     give_prompt_txid=t.get("give_prompt"), give_txid=t.get("give_line"),
-                    nothing_txid=t.get("nothing"), erase_txid=t.get("erase"))
+                    nothing_txid=t.get("nothing"), erase_txid=t.get("erase"),
+                    letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t})
                 return _savepoint.save_dispatch_mognet(t["prompt"], t["confirm"], mog,
                                                        latch=sp.get("latch", True))
             return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
@@ -5841,6 +5857,11 @@ def collect_text(project: FieldProject):
                 mg_pos[k]["give_line"] = _add_raw(_text.with_speaker(
                     self_name, str(mg.get("give_line", _mognet.DEFAULT_GIVE_LINE))), sp.get("tail"))
                 mg_pos[k]["give_to_id"] = give_to_id       # not a text position -- resolved id, passed through
+            # authored LETTER content per accept variant: one frameless-letter entry each (the stock
+            # header template + the body; author-controlled line breaks -> added raw, never wrapped)
+            _, mg_letters = _mognet.normalize_accept(mg.get("accept", []))
+            for lv, lbody in sorted(mg_letters.items()):
+                mg_pos[k][f"letter{lv}"] = _add_raw(_mognet.letter_entry_text(lbody), "")
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
