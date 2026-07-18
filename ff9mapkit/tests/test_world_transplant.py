@@ -1954,12 +1954,29 @@ def test_mod_overwrite_gate_logic(monkeypatch, tmp_path):
     assert g["ok"] and g["existing"] == 0
 
 
+def _live_donor(cell) -> str | None:
+    """The live FF9CustomMap-world cell's Donor.txt content, or None if absent."""
+    from ff9mapkit import config
+    try:
+        root = config.find_game_path(None) / "FF9CustomMap-world"
+    except Exception:
+        return None
+    dt = root / f"FF9_Data/WorldMap/Disc1/0_1/r{cell[1]}" / f"Block[{cell[0]}][{cell[1]}] Donor.txt"
+    return dt.read_text(encoding="utf-8").strip() if dt.is_file() else None
+
+
 @pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
 def test_mod_overwrite_gate_live_folder():
     """Against the live FF9CustomMap-world: re-deploying the proven desert island at
     (4,19) is a SAME-DONOR iteration (Donor.txt = 7,17 -> ok), while targeting the
     Uaho bench cell (2,19) (Donor.txt = 0,0) refuses on exactly this gate -- the
-    configuration that would have saved the dunes islet."""
+    configuration that would have saved the dunes islet.  The gate LOGIC is covered
+    offline by test_mod_overwrite_gate_logic; this one only adds value when the proven
+    deploys are actually present, so a fresh (or wiped) install skips instead of
+    asserting a mod-folder state it never had."""
+    if _live_donor((4, 19)) != "7,17" or _live_donor((2, 19)) != "0,0":
+        pytest.skip("live FF9CustomMap-world doesn't carry the proven (4,19) desert + "
+                    "(2,19) Uaho deploys (fresh or wiped install)")
     s = TR.transplant("FF9CustomMap-world", cell=(4, 19), donor=(7, 17), dry_run=True)
     g = [x for x in s["gates"] if x["gate"] == "mod-overwrite"][0]
     assert g["ok"] and g["redeploys"] == 1

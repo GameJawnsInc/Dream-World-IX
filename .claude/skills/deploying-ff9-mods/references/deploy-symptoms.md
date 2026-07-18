@@ -105,8 +105,21 @@ splices outside the normal build. Deep recipe: read memory `[[project-ff9-encoun
 ## "Nothing changed after deploy" / when to relaunch
 
 F6 -> Reload field re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art from disk (needs the
-bundled custom engine — stock Memoria has no F6). Relaunch only when F6 Reload can't pick a change
-up — verbatim list from TROUBLESHOOTING.md:
+bundled custom engine — stock Memoria has no F6). This is literal: there is NO content cache under it.
+`AssetManager.LoadFromDisc` bottoms out in `File.ReadAllText`/`ReadAllBytes` per field entry, and the
+one apparent text cache — `FieldImporter.cs`'s `(mesID, language)` early-out — is DEAD CODE, because
+`TextBatch` is a **struct** and `LoadingZoneBatch` is a value-returning property, so the
+`UpdateFieldZone` write at `FieldImporter.cs:394` mutates a throwaway copy and `MainBatch.fieldZoneId`
+stays `-1` forever. (Recorded because reading those lines *without* checking the struct/property
+declarations predicts the opposite, and did: 2026-07-18, falsified in-game.)
+
+**The axis is REGISTRATION vs CONTENT, not file type.** A `DictionaryPatch.txt` line — a new id, a
+changed `MessageFile` mesID, a renamed FBG — needs a relaunch (`DataPatchers.Initialize()` runs once at
+process start behind `_isInitialized`). Editing content inside an already-registered block does not.
+ONE real `.mes` staleness exception: a shared file pulled in via `[LOADMES=NAME]` is memoized in
+`FF9TextTool.sharedTexts` for the process, so editing the INCLUDED file needs a relaunch.
+
+Relaunch only when F6 Reload can't pick a change up — verbatim list from TROUBLESHOOTING.md:
 
 > - the **first deploy of a new id** (it has to register its `DictionaryPatch.txt` line),
 > - a **`BattlePatch.txt`** change (battle tuning / per-encounter BGM),

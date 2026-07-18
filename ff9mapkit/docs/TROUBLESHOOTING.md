@@ -232,8 +232,15 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
    folder's copy of the block. When you reorder by hand, edit **both `[Mod] FolderNames` and
    `[Mod] Priorities`** to the same order (see the rule below).
 
-   > **A changed or new `text_block` needs a full RELAUNCH, not F6 → Reload.** `DataPatchers.Initialize`
-   > runs once at process start, so a new `MessageFile` registration is not picked up by a reload.
+   > **Relaunch is needed for a REGISTRATION change, not a CONTENT change.** Adding or re-pointing a
+   > `MessageFile`/`FieldScene` line in `DictionaryPatch.txt` (a new id, a changed mesID, a renamed FBG)
+   > needs a relaunch — `DataPatchers.Initialize()` runs once at process start behind an `_isInitialized`
+   > guard. Editing dialogue *inside* an already-registered block does **not**: F6 → Reload picks it up
+   > (in-game proven 2026-07-18).
+   >
+   > **Exception — `[LOADMES=...]` includes.** A shared `.mes` pulled in by a `[LOADMES=NAME]` tag is
+   > memoized in `FF9TextTool.sharedTexts` for the whole process and never invalidated, so editing the
+   > INCLUDED file needs a relaunch. Editing the including field's own `.mes` does not.
 
 The deploy step guards this: `deploy_field` **and** `deploy_campaign` / `deploy_journey` run the
 text-block **shadow check** and print a `TEXT SHADOWED: …` warning that names the blocking folder
