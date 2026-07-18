@@ -226,7 +226,7 @@ def test_dry_run_smoke(tmp_path):
     assert rc == 0
 
 
-def test_foreign_regs_wiped_reports_another_sessions_fieldscene(tmp_path):
+def test_regs_wiped_reports_another_sessions_fieldscene(tmp_path):
     """A wholesale campaign install rmtree+copytree's the mod folder, so any registration the built dist does
     not carry is gone. Multiple checkouts deploy into ONE shared folder, so that routinely includes a FIELD
     line belonging to another session -- and an unregistered field id makes the engine load a null .eb, a
@@ -241,11 +241,11 @@ def test_foreign_regs_wiped_reports_another_sessions_fieldscene(tmp_path):
         "LocationName 4003 Test Room\n"
         "3DModelAnimation 60001 ANH_A\n", encoding="utf-8")
     (dist / "DictionaryPatch.txt").write_text("FieldScene 30100 11 10 IC_ENT 1200\n", encoding="utf-8")
-    assert deploy._foreign_regs_wiped(_Live, dist) == [
+    assert deploy._regs_wiped(_Live, dist) == [
         "FieldScene 4003 11 10 TESTROOM 1073", "LocationName 4003 Test Room", "3DModelAnimation 60001 ANH_A"]
 
 
-def test_foreign_regs_wiped_quiet_when_campaign_rewrites_its_own_field_line(tmp_path):
+def test_regs_wiped_quiet_when_campaign_rewrites_its_own_field_line(tmp_path):
     """Anti-noise: re-deploying the campaign with an edited field (new scene name / text-block id) must not
     warn -- FieldScene is judged on (directive, id), and id 30100 is still registered."""
     class _Live:
@@ -254,4 +254,39 @@ def test_foreign_regs_wiped_quiet_when_campaign_rewrites_its_own_field_line(tmp_
     dist.mkdir()
     _Live.dictionary_patch.write_text("FieldScene 30100 11 10 OLDNAME 1200\n", encoding="utf-8")
     (dist / "DictionaryPatch.txt").write_text("FieldScene 30100 11 10 NEWNAME 1288\n", encoding="utf-8")
-    assert deploy._foreign_regs_wiped(_Live, dist) == []
+    assert deploy._regs_wiped(_Live, dist) == []
+
+
+def test_regs_wiped_reports_a_member_the_campaign_itself_retired(tmp_path):
+    """A campaign's own RETIRED member is dropped by the wholesale replace exactly like a foreign line, and
+    the guard cannot tell them apart -- that indistinguishability IS incident 2 (a retired registration and a
+    lost one are byte-identical: a line that is not there). The earlier docstring claimed the campaign owns
+    every id in the dist BY CONSTRUCTION so anything left is foreign by definition; that holds for the ids the
+    dist STILL carries, not the ones it USED to. This pins the fact being reported."""
+    class _Live:                                    # only .dictionary_patch is read; an explicit fixture, no
+        dictionary_patch = tmp_path / "DictionaryPatch.txt"    # fall-through to the developer's real install
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    _Live.dictionary_patch.write_text(
+        "FieldScene 30100 11 10 IC_ENT 1200\n"       # still a member
+        "FieldScene 30102 11 10 IC_DROPPED 1202\n"   # a member the author removed from campaign.toml
+        "LocationName 30100 Ice Cavern\n",           # this build stopped emitting [field] location
+        encoding="utf-8")
+    (dist / "DictionaryPatch.txt").write_text("FieldScene 30100 11 10 IC_ENT 1200\n", encoding="utf-8")
+    assert deploy._regs_wiped(_Live, dist) == ["FieldScene 30102 11 10 IC_DROPPED 1202",
+                                               "LocationName 30100 Ice Cavern"]
+
+
+def test_wiped_regs_warning_does_not_assert_another_session_owns_the_line():
+    """THE CRY-WOLF REGRESSION. The predecessor text stated flatly that a dropped `FieldScene` "belongs to
+    ANOTHER session's field co-resident in this folder" and said to "re-deploy the owning field" -- printed at
+    the author who had just removed that member, prescribing the undoing of their own edit, on the routine
+    authoring loop. The guard has no ownership record, so the warning must give both readings and the action
+    for each, never pick one."""
+    w = deploy._wiped_regs_warning(["FieldScene 30102 11 10 IC_DROPPED 1202"])
+    assert "belongs to ANOTHER session" not in w
+    assert "re-deploy the owning field" not in w
+    assert "a member you removed from this campaign" in w      # reading (a): yours, retired -- nothing to do
+    assert "ANOTHER checkout's" in w                            # reading (b): a co-resident session's
+    assert "BLACK-SCREENS" in w                                 # ...and (b) still names the real consequence
+    assert "FieldScene 30102 11 10 IC_DROPPED 1202" in w        # the line itself, verbatim

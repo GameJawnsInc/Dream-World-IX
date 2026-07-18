@@ -65,6 +65,35 @@ def owns_registration(ln, *, fid, model_ids, anim_keys) -> bool:
     return False
 
 
+def owned_predicate(*, fid, model_ids, anim_keys, status_icon_ids=(), charname_keys=()):
+    """The ONE ownership rule a field deploy uses -- returns a ``line -> bool`` predicate covering every
+    registration ``tools/deploy_field.py`` strips from the live DictionaryPatch and re-appends fresh:
+    :func:`owns_registration`'s field/mint half, plus the two ``[[playable]]`` lines a redeploy re-sets
+    (``BuffIcon``/``DebuffIcon <statusId>`` and ``CharacterDefaultName <charId> <LANG>``).
+
+    It has to be ONE function because the deploy hands the very same predicate to
+    :func:`foreign_registrations_dropped` as ``owned=``: the filter decides what gets removed, the predicate
+    decides what removals are worth a warning, and if they disagree by a hair the guard either cries wolf on
+    every run or goes silent on a real loss.
+
+    EVERY CLAUSE IS DIRECTIVE-SCOPED, and that is the point. The script's earlier hand-rolled form claimed any
+    line whose column 2 equalled the field id. Mint GEO ids start at 6000 (``models/mint.MINT_BAND_START``)
+    and the custom field band is 4000-9899, so the two OVERLAP: deploying field 6000 into a shared mod folder
+    claimed another session's ``3DModel 6000 GEO_...``, dropped it from the rewrite, and -- once the predicate
+    became the guard's ``owned=`` -- suppressed the warning about losing it too. A foreign registration wiped
+    in silence is the exact loss class this module exists to report."""
+    icons, names = set(status_icon_ids), set(charname_keys)
+
+    def _owned(ln):
+        if owns_registration(ln, fid=fid, model_ids=model_ids, anim_keys=anim_keys):
+            return True
+        p = ln.split()
+        if len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in icons:
+            return True
+        return len(p) >= 3 and p[0] == "CharacterDefaultName" and (p[1], p[2]) in names
+    return _owned
+
+
 def revert_dictionary_patch(current_lines, backup_lines, *, fid, model_ids, anim_keys) -> tuple:
     """Compute a field deploy's DictionaryPatch revert. From ``current_lines`` (the live file NOW, which may
     carry lines other tools/deploys added since) keep everything EXCEPT the registrations this deploy owns

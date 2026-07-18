@@ -312,3 +312,45 @@ def test_generated_revert_records_a_retirement_for_its_own_id():
     # legacy scripts on disk say nothing -- reconcile() is what covers them.)
     rendered = _render_revert_template()
     assert '_dlog.record(_GAME, _dlog.RETIRED, 4003, "FF9CustomMap"' in rendered
+
+
+def test_battlescene_with_the_same_id_does_not_mask_a_lost_fieldscene(tmp_path):
+    """`dictionary_ids_at` indexes FieldScene AND BattleScene, and reconcile used to ask only "is this number
+    registered anywhere". `deploystack` documents the real collision: `-ate`'s `FieldScene 30011` against
+    `-bb`'s `BattleScene 30011`. With the bare-number test, that battle scene stands in for the field: the
+    field's registration is genuinely gone (null .eb -> black screen) and the guard reports all clear -- on
+    exactly the failure it exists to catch. A row is satisfied only by a FieldScene."""
+    game = tmp_path / "game"
+    for folder in ("FF9CustomMap-ate", "FF9CustomMap-bb"):
+        (game / folder).mkdir(parents=True)
+    (game / "FF9CustomMap-ate" / "DictionaryPatch.txt").write_text("", encoding="utf-8")
+    (game / "FF9CustomMap-bb" / "DictionaryPatch.txt").write_text(
+        "BattleScene 30011 CAMKEYS BBG_B001\n", encoding="utf-8")
+    order = ["FF9CustomMap-ate", "FF9CustomMap-bb"]
+    deploylog.record(game, deploylog.DEPLOYED, 30011, "FF9CustomMap-ate", checkout="wt-ate")
+    report = deploylog.reconcile(game, folder_names=order)
+    assert [e.field_id for e in report.missing] == [30011]
+    assert "30011" in deploylog.reconcile_warning(report)
+    # ...and a real FieldScene registration in either folder still clears it (no new false alarm)
+    (game / "FF9CustomMap-ate" / "DictionaryPatch.txt").write_text(
+        "FieldScene 30011 11 10 ATEROOM 1073\n", encoding="utf-8")
+    assert deploylog.reconcile(game, folder_names=order).missing == []
+
+
+def test_registrations_keeps_both_kinds_of_a_colliding_id(tmp_path):
+    """The mapping reconcile judges on. An id registered under BOTH directives keeps both entries: collapsing
+    to a single last-writer-wins winner would either mask a lost FieldScene (battle scene later in the stack)
+    or invent one (battle scene earlier). Within a kind, the last folder wins, matching the engine."""
+    game = tmp_path / "game"
+    for folder in ("A", "B", "C"):
+        (game / folder).mkdir(parents=True)
+    (game / "A" / "DictionaryPatch.txt").write_text(
+        "FieldScene 4003 11 10 TESTROOM 1073\nFieldScene 30110 11 10 TWINALTAR 1080\n", encoding="utf-8")
+    (game / "B" / "DictionaryPatch.txt").write_text(
+        "BattleScene 30110 CAMKEYS BBG_B001\n", encoding="utf-8")
+    (game / "C" / "DictionaryPatch.txt").write_text(
+        "FieldScene 4003 11 10 OVERRIDE 1073\n", encoding="utf-8")
+    reg, folders = deploylog.registrations(game, folder_names=["A", "B", "C"])
+    assert folders == ["A", "B", "C"]
+    assert reg[4003] == {"FieldScene": "C"}                            # later folder wins within the kind
+    assert reg[30110] == {"FieldScene": "A", "BattleScene": "B"}       # both kinds survive

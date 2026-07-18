@@ -221,21 +221,31 @@ def last_events(game) -> dict:
     return out
 
 
-def registered_ids(game, folder_names: list | None = None) -> tuple:
-    """``(ids, folders)`` -- every field/battle id currently registered by ANY stacked mod folder's
-    ``DictionaryPatch.txt``, plus the ``FolderNames`` stack it read. Reuses
+def registrations(game, folder_names: list | None = None) -> tuple:
+    """``(reg, folders)`` where ``reg`` maps ``id -> {kind: folder}`` for every id currently registered by ANY
+    stacked mod folder's ``DictionaryPatch.txt``, plus the ``FolderNames`` stack it read. Reuses
     :func:`ff9mapkit.deploystack.dictionary_ids_at`, so "registered" means exactly what the id-collision
     guard means by it. ``folders == []`` => the stack could not be read; callers must then report NOTHING
-    (an unreadable ini is not evidence that anything vanished)."""
+    (an unreadable ini is not evidence that anything vanished).
+
+    THE KIND IS CARRIED ON PURPOSE, AND KEYS THE INNER MAP. ``dictionary_ids_at`` indexes ``FieldScene`` AND
+    ``BattleScene``, and the two share one id space across folders -- ``deploystack`` documents ``-ate``'s
+    ``FieldScene 30011`` against ``-bb``'s ``BattleScene 30011`` as a real multi-hour incident. Judging a
+    ledger row on the bare number lets that battle scene stand in for the vanished field: the id looks
+    registered, the field is still gone, and :func:`reconcile` reports all clear on exactly the failure it
+    exists to catch. Nor can the kinds collapse to one winner -- a stack where a LATER folder registers the
+    battle scene would mask a live ``FieldScene`` in an earlier one and invent a loss. Both kinds are kept;
+    within a kind the last folder in the stack wins, matching the engine."""
     game = Path(game)
     order = folder_names
     if order is None:
         ini = game / "Memoria.ini"
         order = parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
-    ids: set = set()
+    reg: dict = {}
     for f in order:
-        ids |= set(dictionary_ids_at(game / f))
-    return ids, list(order)
+        for fid, (kind, _name) in dictionary_ids_at(game / f).items():
+            reg.setdefault(fid, {})[kind] = f
+    return reg, list(order)
 
 
 @dataclass
@@ -263,15 +273,19 @@ def reconcile(game, folder_names: list | None = None) -> ReconcileReport:
     on disk from the old template that will never record anything themselves.
 
     Degrades to an empty report when the ledger is absent or the ``FolderNames`` stack can't be read
-    (no false alarm -- an unreadable ini would otherwise flag EVERY id ever deployed)."""
+    (no false alarm -- an unreadable ini would otherwise flag EVERY id ever deployed).
+
+    A row counts as still registered only when its id is registered as a ``FieldScene``. Everything the ledger
+    records is a FIELD deploy, and a ``BattleScene`` holding the same number is not that field -- it is the
+    cross-folder id collision ``deploystack`` warns about. See :func:`registrations`."""
     last = last_events(game)
     if not last:
         return ReconcileReport([], [], [])
-    ids, folders = registered_ids(game, folder_names)
+    reg, folders = registrations(game, folder_names)
     if not folders:
         return ReconcileReport([], [], [])
     missing = [e for fid, e in sorted(last.items())
-               if e.event == DEPLOYED and fid not in ids]
+               if e.event == DEPLOYED and "FieldScene" not in reg.get(fid, {})]
     retired = [e for fid, e in sorted(last.items()) if e.event == RETIRED]
     return ReconcileReport(missing, retired, folders)
 
@@ -281,9 +295,9 @@ def reconcile_warning(report: ReconcileReport) -> str | None:
     deliberate, so they never make this fire -- ``doctor`` lists them separately."""
     if report.ok:
         return None
-    lines = [f"LOST REGISTRATION: {len(report.missing)} field id(s) the deploy ledger says were deployed are "
-             f"NOT registered by any stacked mod folder ({', '.join(report.folders)}). The engine loads a null "
-             f".eb for such an id -> black screen with no error. Each was last deployed:"]
+    lines = [f"LOST REGISTRATION: {len(report.missing)} field id(s) the deploy ledger says were deployed have "
+             f"no `FieldScene` registration in any stacked mod folder ({', '.join(report.folders)}). The engine "
+             f"loads a null .eb for such an id -> black screen with no error. Each was last deployed:"]
     for e in report.missing:
         note = f"  [{e.note}]" if e.note else ""
         lines.append(f"  - id {e.field_id}  {e.when}  folder '{e.mod_folder}'  from {e.checkout}{note}")

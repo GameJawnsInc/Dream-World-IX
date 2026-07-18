@@ -138,7 +138,7 @@ def test_deploys_own_fieldscene_rewrite_is_not_reported():
     outright, which is what covers a deploy that legitimately STOPS emitting its own LocationName."""
     fid = 4003
     before = ["FieldScene 4003 11 10 OLDNAME 1073", "LocationName 4003 Old Title", "BattleScene 900"]
-    owned = lambda ln: ln.split()[1:2] == [str(fid)]   # noqa: E731  -- mirrors deploy_field's `_dp_owned`
+    owned = DP.owned_predicate(fid=fid, model_ids=set(), anim_keys=set())   # exactly deploy_field's `_dp_owned`
     after = ["BattleScene 900", "FieldScene 4003 11 10 NEWNAME 1099"]   # dropped-and-re-appended, edited
     # (1) id-keyed: the rewritten FieldScene is NOT a loss -- 4003 is still registered, so no warning either way
     assert "FieldScene 4003 11 10 OLDNAME 1073" not in DP.foreign_registrations_dropped(before, after)
@@ -173,3 +173,36 @@ def test_legacy_two_positional_call_still_works():
     # no ownership context, so it does flag the revert's own id -- exactly why revert_dictionary_patch passes
     # its `_owned` in, and why `lost` above is empty.)
     assert DP.foreign_registrations_dropped(cur, kept) == ["FieldScene 4003 11 10 TESTROOM 1073"]
+
+
+def test_owned_predicate_does_not_claim_a_foreign_model_sharing_the_field_id():
+    """The predicate a deploy FILTERS by is also the foreign-drop guard's ``owned=``, so its precision IS the
+    guard's precision. ``tools/deploy_field.py`` hand-rolled it as "column 2 == FID", directive-agnostic --
+    and mint GEO ids start at 6000 while the custom field band is 4000-9899, so they overlap. Deploying field
+    6000 into a shared mod folder therefore claimed another session's ``3DModel 6000``: stripped it from the
+    rewrite AND suppressed the warning about the loss. Directive scoping is what keeps both."""
+    before = ["3DModel 6000 GEO_FOREIGN_NPC", "BattleScene 6000 CAMKEYS BBG_B001",
+              "FieldScene 6000 11 10 OLDNAME 1073", "LocationName 6000 Old Title"]
+    after = ["FieldScene 6000 11 10 NEWNAME 1073", "LocationName 6000 New Title"]
+    too_broad = lambda ln: ln.split()[1:2] == ["6000"]   # noqa: E731  -- the defect this test pins
+    assert DP.foreign_registrations_dropped(before, after, owned=too_broad) == []      # silent loss
+    owned = DP.owned_predicate(fid=6000, model_ids=set(), anim_keys=set())
+    # the deploy's own rewritten field lines stay silent; the model it never wrote is REPORTED
+    assert DP.foreign_registrations_dropped(before, after, owned=owned) == ["3DModel 6000 GEO_FOREIGN_NPC"]
+    # ...and the filter built from the same predicate leaves that foreign line in the file to begin with,
+    # which is the real fix -- the warning is only the backstop.
+    assert [ln for ln in before if not owned(ln)] == ["3DModel 6000 GEO_FOREIGN_NPC",
+                                                     "BattleScene 6000 CAMKEYS BBG_B001"]
+
+
+def test_owned_predicate_covers_the_playable_icon_and_name_registrations():
+    """The two ``[[playable]]`` registrations a redeploy re-sets live in the predicate too (they used to be
+    separate closures in the deploy script). A stale icon/name for a key THIS deploy re-emits is owned; one
+    for any other status id or language is foreign and must survive."""
+    owned = DP.owned_predicate(fid=4003, model_ids=set(), anim_keys=set(),
+                               status_icon_ids={"200"}, charname_keys={("12", "US")})
+    assert owned("BuffIcon 200 icon_a") and owned("DebuffIcon 200 icon_b")
+    assert owned("CharacterDefaultName 12 US Tantalus")
+    assert not owned("BuffIcon 201 icon_c")                     # another custom status
+    assert not owned("CharacterDefaultName 12 JP Tantalus")     # another language row
+    assert not owned("CharacterDefaultName 13 US Other")        # another character

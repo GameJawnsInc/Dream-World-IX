@@ -184,28 +184,18 @@ mint_lines = info.get("mint_lines", [])
 from ff9mapkit import dictpatch as _dp
 mint_ids = _dp.mint_model_ids(mint_lines)
 mint_anim_keys = _dp.mint_anim_keys(mint_lines)
-def _stale_anim(ln):                                       # a 3DModelAnimation line THIS deploy re-registers (own key)
-    p = ln.split()
-    return ln.startswith("3DModelAnimation ") and len(p) >= 2 and p[1] in mint_anim_keys
 charname_lines = info.get("charname_lines", [])   # [[playable]] CharacterDefaultName <id> <SYM> <name> (per-lang)
 charname_keys = {(p[1], p[2]) for p in (ln.split() for ln in charname_lines) if len(p) >= 3}   # (char-id, lang)
 status_icon_lines = info.get("status_icon_lines", [])   # [[playable]] custom-status Buff/DebuffIcon <statusId> <sprite>
 status_icon_ids = {p[1] for p in (ln.split() for ln in status_icon_lines) if len(p) >= 2}       # status ids being re-set
-def _stale_icon(ln):                                       # a Buff/DebuffIcon line for a custom status being redeployed
-    p = ln.split()
-    return len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in status_icon_ids
 _dp_before = live.dictionary_patch.read_text(encoding="utf-8").splitlines()
-def _dp_owned(ln):
-    """A live DictionaryPatch line THIS deploy owns -- filtered out below and re-appended fresh. It is ALSO
-    the `owned` predicate handed to the foreign-drop guard, deliberately as ONE function: the guard reports
-    dropped FieldScene lines now, so a predicate that disagreed with this filter by a hair would either go
-    silent on a foreign loss or warn on every single run."""
-    return (ln.split()[1:2] == [str(FID)]                       # this field's own FieldScene/LocationName
-            or (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # THIS deploy's mint ids
-            or _stale_anim(ln)                                                                  # THIS deploy's anim keys
-            or _stale_icon(ln)                                                                  # stale status icons
-            or (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # stale names
-                and (ln.split()[1], ln.split()[2]) in charname_keys))
+# A live DictionaryPatch line THIS deploy owns -- filtered out below and re-appended fresh, and handed to the
+# foreign-drop guard as its `owned=` predicate. ONE rule, from the library, deliberately: the hand-rolled copy
+# that used to sit here matched on column 2 alone, so deploying a field in the 6000s claimed another session's
+# `3DModel <same number>` (mint GEO ids start at 6000, the custom field band is 4000-9899 -- they OVERLAP),
+# stripped it from the rewrite AND silenced the warning about it. See dictpatch.owned_predicate.
+_dp_owned = _dp.owned_predicate(fid=FID, model_ids=mint_ids, anim_keys=mint_anim_keys,
+                                status_icon_ids=status_icon_ids, charname_keys=charname_keys)
 dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
