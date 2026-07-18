@@ -299,6 +299,49 @@ def accept_letter_body(variants, *, my_id: int = NEW_MOOGLE_ID, thanks_txid: int
     return _set_byte(GUARD_IDX, 1) + chain
 
 
+# Default wording -- original phrasing, not Square-Enix text (docs/PROVENANCE.md; "kupo" is a word,
+# not a quoted line). Every one is overridable per [savepoint.mognet] key of the same lowercase name.
+DEFAULT_MOGNET_ROW = "Mognet"
+DEFAULT_ACCEPT_PROMPT = "That letter is addressed to me, kupo! May I have it?"
+DEFAULT_ACCEPT_YES, DEFAULT_ACCEPT_NO = "Hand it over", "Keep it"
+DEFAULT_THANKS = "A letter from [TEXT=0,0], kupo! Thank you!"   # [TEXT=0,0] = roster[gMesValue[0]] = the sender
+DEFAULT_GIVE_PROMPT = "Would you deliver my letter to {to}, kupo?"
+DEFAULT_GIVE_YES, DEFAULT_GIVE_NO = "Take the letter", "Not now"
+DEFAULT_GIVE_LINE = "Take good care of it, kupo!"
+DEFAULT_NOTHING = "No mail today, kupo..."
+DEFAULT_ERASE = "This old mail ledger is unreadable, kupo. Starting fresh!"
+
+
+def resolve_moogle_id(to, roster_names, *, self_id: int = NEW_MOOGLE_ID, self_name: str | None = None):
+    """Resolve a letter's ``to`` (a roster NAME or a numeric id) to the identity byte. ``roster_names``
+    is the full row list -- the 41 install names plus any custom appendees -- so a custom moogle can
+    address real and custom recipients alike. Self-mail is refused either way (a letter FROM us TO us
+    would satisfy our own accept condition the moment it was given)."""
+    if isinstance(to, bool):
+        raise ValueError(f"mognet give.to must be a moogle name or id, got {to!r}")
+    if isinstance(to, int):
+        tid = _check_id("give.to", to)
+        if tid == self_id:
+            raise ValueError(f"mognet give.to = {tid} is this moogle itself -- a moogle cannot mail itself")
+        return tid
+    name = str(to)
+    if self_name is not None and name == self_name:
+        raise ValueError(f"mognet give.to = {name!r} is this moogle itself -- a moogle cannot mail itself")
+    try:
+        return list(roster_names).index(name)
+    except ValueError:
+        known = ", ".join(list(roster_names)[:8]) + ", ..."
+        raise ValueError(f"mognet give.to = {name!r} is not a moogle on the roster ({known})") from None
+
+
+def roster_names(entry0_text: str) -> list:
+    """The row list out of a roster table text (see :func:`roster_extend` for the format)."""
+    m = _TBLE_RE.match(entry0_text)
+    if not m:
+        raise ValueError("not a [TBLE=...] roster table")
+    return m.group(3).split("\n")
+
+
 # The moogle's CHOICE windows: slot 2, flags 8 -- flags bit "4: mognet format" is what paints the
 # MOGNET caption on the frame (EventEngine.DoEventCode.cs:413; field 300 opens every moogle menu as
 # WindowAsync(2, 8, ...)). Statement lines (thanks / handover / nothing) use the plain dialogue window

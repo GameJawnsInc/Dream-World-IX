@@ -443,3 +443,144 @@ def test_menu_save_path_skips_the_guard_and_mailbox_entirely():
     G = run(_moogle(), G0, choices=[0, 0], menus=menus)
     assert menus == [(4, 0)]
     assert bytes(G[_m.GUARD_IDX:1091]) == bytes(G0[_m.GUARD_IDX:1091])
+
+
+# --------------------------------------------------------------------------- rung 5: the build wiring ---
+_FIELD = (
+    '[field]\nid = 4005\nname = "S"\narea = 11\ntext_block = 30110\nregister_text_block = true\n\n'
+    '[camera]\npitch = 45\nfov = 42.2\n\n'
+    '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+    '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n'
+    '[savepoint.mognet]\nname = "Mogwai"\naccept = [55]\ngive = { variant = 56, to = "Kupo" }\n')
+
+
+@pytest.fixture()
+def fake_roster(monkeypatch):
+    """41 fake rows with the two live-verified identities at their real indices, so `to = "Kupo"`
+    resolves to id 1 without the install."""
+    rows = [f"M{i:02}" for i in range(41)]
+    rows[1], rows[23], rows[8] = "Kupo", "Kuppo", "Kumop"
+    monkeypatch.setattr(_m, "roster_from_install", lambda **kw: "[TBLE=41,82,] " + "\n".join(rows))
+
+
+def _built(tmp_path, toml=_FIELD):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    probs = [x for x in build.validate(proj) if "mognet" in x.lower() or "savepoint" in x.lower()]
+    assert not probs, probs
+    ct = build.collect_text(proj)
+    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
+    return proj, ct, eb
+
+
+def test_build_ships_the_roster_and_the_three_row_menu(tmp_path, fake_roster):
+    _proj, ct, _eb = _built(tmp_path)
+    mes, sp_txids = ct[0], ct[-1]
+    assert mes.startswith("_[TXID=0][STRT=10,1][TBLE=")            # the roster IS entry 0
+    roster_line = mes.split("\n\n")[0] if "\n\n" in mes else mes
+    assert mes.count("Mogwai") >= 1
+    names = _m.roster_names(mes.split("[TBLE=", 1)[1].split("[ENDN]")[0].replace("41,82,]", "", 1)
+                            .lstrip() if False else "[TBLE=41,82,] " + mes.split("[TBLE=41,82,] ", 1)[1].split("[ENDN]")[0])
+    assert names[_m.NEW_MOOGLE_ID] == "Mogwai" and names[1] == "Kupo"
+    assert "[PCHC=3,2]" in mes and "Mognet" in mes                 # the 3-row top menu
+    t = sp_txids[0]
+    assert {"prompt", "confirm", "accept_prompt", "thanks", "nothing", "erase",
+            "give_prompt", "give_line", "give_to_id"} <= set(t)
+    assert t["give_to_id"] == 1                                    # "Kupo" resolved against the roster
+
+
+def _moogle_talk_body(eb_bytes):
+    """The BUILT moogle NPC's talk func -- entry with SetModel(220) in tag 0, body of tag 3."""
+    s = EbScript_from(eb_bytes)
+    for e in s.entries:
+        if e is None or e.empty:
+            continue
+        f0 = e.func_by_tag(0)
+        if f0 is None:
+            continue
+        if any(i.op == 0x2F and i.args and i.args[0] == 220
+               for i in disasm.iter_code(eb_bytes, f0.abs_start, f0.abs_end)):
+            f3 = e.func_by_tag(3)
+            if f3 is not None:
+                return eb_bytes[f3.abs_start:f3.abs_end]
+    raise AssertionError("no moogle talk func in the built field")
+
+
+def EbScript_from(b):
+    from ff9mapkit.eb import EbScript
+    return EbScript.from_bytes(b)
+
+
+def test_built_field_moogle_runs_the_whole_network_act(tmp_path, fake_roster):
+    """The crown test: the .eb the BUILD emits, executed. Save works, the letter act works, and the
+    player's held letter survives -- straight from the shipped bytes, not from the emitters."""
+    _proj, _ct, eb = _built(tmp_path)
+    body = _moogle_talk_body(eb)
+    # Save -> Yes: the latched Menu(4,0)
+    menus = []
+    run(body, choices=[0, 0], menus=menus)
+    assert menus == [(4, 0)]
+    # Mognet with the player's real letter (Kuppo->Kupo) held + ours pending delivery TO us:
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    G0[_m.DELIVERED_IDX] = 12
+    _set_slot(G0, 0, 19, 23, 1)                        # the live save's actual letter
+    _set_slot(G0, 1, 55, 8, 41)                        # a letter addressed to Mogwai
+    G = run(body, G0, choices=[1, 0])
+    assert _mailbox(G) == [(1, 19, 23, 1), (0, 0, 0, 0), (0, 0, 0, 0)]   # ours consumed, theirs SURVIVES
+    assert G[_m.DELIVERED_IDX] == 13 and _bit(G, _m.read_lock_bit(55)) == 1
+    # Mognet again, nothing addressed to us now -> the give offer -> accept it
+    G2 = run(body, G, choices=[1, 0])
+    assert _mailbox(G2)[1] == (1, 56, 41, 1)           # FROM Mogwai (41) TO Kupo (1), first free slot
+    assert _bit(G2, _m.give_lock_bit(56)) == 1
+    # Mognet a third time: letter handed out, nothing held -> case (c), a pure no-op
+    G3 = run(body, G2, choices=[1])
+    assert bytes(G3) == bytes(G2)
+
+
+def test_zone_region_carries_the_same_mognet_dispatch(tmp_path, fake_roster):
+    _proj, ct, eb = _built(tmp_path)
+    # both interact points (zone action + moogle talk) open the 3-row prompt: count its WindowSync
+    t = ct[-1][0]
+    pat = bytes([0x1F, 0x00, 0x02, 0x08]) + int(t["prompt"]).to_bytes(2, "little")
+    assert eb.count(pat) == 2
+
+
+def test_mognet_validation_gates(tmp_path, fake_roster):
+    from ff9mapkit import build
+
+    def probs(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    base = _FIELD
+    # no minted text block -> refused (the roster would shadow a shared base block's entry 0)
+    bad = base.replace("text_block = 30110\nregister_text_block = true", "text_block = 1073")
+    assert any("MINTED text block" in x for x in probs(bad))
+    # a base-game mesID, even registered -> refused
+    bad = base.replace("text_block = 30110", "text_block = 8")
+    assert any("BASE-GAME mes block" in x for x in probs(bad))
+    # dialogue = false + mognet -> refused
+    bad = base.replace("[savepoint.mognet]", "dialogue = false\n[savepoint.mognet]")
+    assert any("requires the dialogue flow" in x for x in probs(bad))
+    # a shipped variant -> refused
+    bad = base.replace("variant = 56", "variant = 19")
+    assert any("SHIPPED band" in x for x in probs(bad))
+    # give.to = the moogle itself -> refused
+    bad = base.replace('to = "Kupo"', 'to = "Mogwai"')
+    assert any("cannot mail itself" in x for x in probs(bad))
+    # a variant both given and accepted -> refused
+    bad = base.replace("accept = [55]", "accept = [56]")
+    assert any("both FROM and TO" in x for x in probs(bad))
+    # unknown key -> refused
+    bad = base.replace('name = "Mogwai"', 'name = "Mogwai"\nkupo = 1')
+    assert any("unknown key 'kupo'" in x for x in probs(bad))
+    # a second network moogle -> refused
+    bad = base + ('\n[[savepoint]]\nzone = [[-300,-300],[-200,-300],[-200,-200],[-300,-200]]\n'
+                  '[savepoint.mognet]\nname = "Kupomi"\n')
+    assert any("only ONE network moogle" in x for x in probs(bad))
+    # the happy path stays clean
+    assert not [x for x in probs(base) if "mognet" in x.lower()]

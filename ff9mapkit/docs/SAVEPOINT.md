@@ -91,6 +91,31 @@ so exactly one if-block is emitted per window and no stale read is possible. **A
 Select-party row means switching to the real fields' pattern** — copy `GetChoose()` into a scratch var and
 switch on *that* (`op_05{op7A(9)}` + `op_0B`, as field 2919 does) — **not** adding a second body here.
 
+### The network moogle — `[savepoint.mognet]` (rungs 3-5)
+
+The save Moogle can **join FF9's real Mognet network as a brand-new 42nd identity** (id 41). Verified
+across two adversarial multi-agent passes + a live-save probe (2026-07-18): Mognet is driven entirely by
+field bytecode + text — no C# letter logic, no roster in the engine, and **no bound anywhere on the
+identity byte** (every routing comparison in all 818 fields is equality; `EBin` reads variable indices
+from the instruction pointer, so moogle-indexed storage cannot even exist). The mailbox is
+`gEventGlobal`: guard `Byte[1024]`, delivered-counter `Byte[1032]`, three 4-byte slots at `1034+4k`
+(occupied/variant/FROM/TO), and two 64-bit variant one-shot lock tables (bits 8376-8503,
+`bit(v) = anchor + 8*(v//8) - (v%8)`, anchors 8383/8447 — live-pinned). **The real ceiling is the letter
+VARIANT id (< 64; shipped content reaches 48 → custom letters use 49-63), not the moogle id.**
+
+What ships: `content/mognet.py` emits the protocol (give = first-EMPTY-slot with full-refusal +
+structural `Byte[1024]=1`; accept = counter + thanks + read-lock + the donor's compaction);
+`savepoint.save_dispatch_mognet` is the 3-row menu (Save / Mognet / Cancel, `op_0B` dispatch); the build
+ships the roster (your install's 41 names + the new one) as text entry 0 of the field's **minted** text
+block, and resolves `give.to` names against it. The tests **execute** every path of the built moogle in
+a mini-VM over a simulated `gEventGlobal` — an occupied slot is never overwritten, a full mailbox
+refuses with zero writes, delivery compacts without holes, Save never touches a mognet byte.
+
+Two honest limits: **inbound** (a real moogle addressing OUR moogle) needs a verbatim donor fork — the
+recipient is a per-field immediate constant — and is a deferred, opt-in rung; and on **stock fields**
+the new name renders blank (their rosters have 41 rows; fails safe to an empty string). Outbound — our
+moogle's letter delivered BY a real moogle — works on stock Memoria unchanged. Read-mail is deferred.
+
 ### Deliberately not synthesized
 
 The moogle's **reveal/hop** and its **book + feather** animation (clips exist and are addressable:

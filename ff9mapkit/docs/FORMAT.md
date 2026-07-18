@@ -598,6 +598,38 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 | `speaker` | optional name prefixed onto both questions. |
 | `latch` | the `gEventGlobal[184]` bracket around the save — default `true`; every real save point sets it. |
 
+### `[savepoint.mognet]` — join FF9's real Mognet network as a NEW moogle
+
+Give the save Moogle a **42nd network identity**: a real roster name, and a menu that grows the
+**Mognet** row (Save / Mognet / Cancel). Picking Mognet runs the letter act — the moogle **accepts** a
+held letter addressed to it, **offers** its own letter for delivery to a real moogle (a stock save
+moogle completes the delivery, no engine change), or reports **nothing** — against the game's real
+mailbox in `gEventGlobal`. (Byte protocol + safety invariants: [`docs/SAVEPOINT.md`](SAVEPOINT.md).)
+
+```toml
+[field]
+text_block = 30110               # REQUIRED: a minted block (the roster ships as text entry 0)
+register_text_block = true
+
+[[savepoint]]
+zone = [[-100,-100],[100,-100],[100,100],[-100,100]]
+[savepoint.mognet]
+name = "Mogwai"                  # the new identity -- appended as roster row 41
+accept = [55]                    # letter variants deliverable TO this moogle (49..63)
+give = { variant = 56, to = "Kupo" }   # its own letter: variant 49..63, to = a roster name or id
+```
+
+| key | meaning |
+|---|---|
+| `name` | **required** — the moogle's roster name (identity id 41). One network moogle per field. |
+| `accept` | letter variants (each `49..63`) this moogle takes delivery of. |
+| `give` | `{ variant, to }` — the one letter it hands out (one-shot; a declined offer re-offers). `to` = a real roster name (`"Kupo"`) or id. Building resolves names against **your install's** roster. |
+| `mognet_row` / `accept_prompt` / `accept_yes` / `accept_no` / `thanks` / `give_prompt` (`{to}` = the recipient) / `give_yes` / `give_no` / `give_line` / `nothing` / `erase` | wording overrides; all have neutral defaults. `thanks` may use `[TEXT=0,0]` — the sender's roster name. |
+
+Requires the FF9 install at **build** time (the 41 real names are extracted from your own game files —
+the kit ships none). On stock fields the new name renders blank (their 41-row tables); everything else
+— including a real moogle accepting our letter — works on stock Memoria.
+
 ---
 
 ## `[[chest]]` (optional, repeatable)
