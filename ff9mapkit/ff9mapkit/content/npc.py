@@ -211,7 +211,7 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
                appears_scenario_min: int | None = None, appears_scenario_max: int | None = None,
                intro: bytes | None = None, speak_body: bytes | None = None,
                init_tail: bytes | None = None, bare: bool = False,
-               reserve_party_band: bool = False) -> bytes:
+               reserve_party_band: bool = False, logical_size=None) -> bytes:
     """Inject an NPC at world (x, z). Returns new .eb bytes.
 
     ``reserve_party_band`` (the VERBATIM-fork path): a real field packs its NPC slots and reserves the
@@ -247,12 +247,15 @@ def inject_npc(data, x: int, z: int, *, preset: str | None = None, model=None, a
         animset = animset if animset is not None else pset
         anims = anims or panims
     anims = _complete_anims(model, anims)
-    animset_v, head_focus, logical_size = _npc_object_params(model, animset)
+    animset_v, head_focus, params_size = _npc_object_params(model, animset)
+    # an explicit logical_size overrides the per-model catalog value -- the save-act props ship the
+    # donor's own (1, 1, 1) collision box (an ACC accessory, not a character rig)
+    ls = tuple(logical_size) if logical_size is not None else params_size
 
     # Init (tag 0): the real-NPC object shape, emitted FROM SCRATCH -- no player clone, no control cruft,
     # UNCONDITIONAL (the OBJECT-INIT GATE LAW). Story/beat gating wraps the InitObject call site below.
     body0 = build_npc_init(model=model, animset=animset_v, anims=anims, x=x, z=z,
-                           head_focus=head_focus, logical_size=logical_size,
+                           head_focus=head_focus, logical_size=ls,
                            init_tail=bytes(init_tail or b""))
     # Loop (tag 1): the real 2-op standby. An ACTOR cutscene's `intro` choreography PREPENDS here (NOT the
     # Init): the engine only advances animation frames at loop state 1, so a cutscene baked into the Init

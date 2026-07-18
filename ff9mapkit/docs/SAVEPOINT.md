@@ -153,36 +153,53 @@ dead, and the prompt carries the live remaining count via text var 7 + `[NUMB=7]
 (`EventEngine.DoEventCode` PARTYMENU 0xB2: arg1 = minimum party size, arg2 = a bitmask of locked
 character slots); the donor calls `Party(4, 1)`.
 
-### Deliberately not synthesized
+### Not synthesized
 
-The moogle's **reveal/hop** and its **book + feather** animation (clips exist and are addressable:
-`ANH_NPC_F0_MOG_SAVE_JUMP` 6503, `MOG_SAVE_OPEN` 4645, `ACC_F0_MGR_SAVE_OPEN` 4641, `MGP_SAVE_OPEN` 4651),
-and the **Tent / Select party members** rows of the real option menu. The tent's HP restore is not visible
-in the field script at all — the Memoria branch is only `RunScriptSync(2, 9, 19)` + `RemoveItem(253, 1)` —
-so a Tent row would mean guessing at the heal. Deferred rather than half-built; the verbatim carry below
-is the way to get the full moogle act today.
+The moogle's bespoke pre-interaction **reveals** (the barrel-pop, the flying Treno shuttle, the two
+one-off story cutscenes) — the verbatim carry below is the way to get those. The interact-time ACT
+itself IS synthesized now (next section).
 
 - `ff9mapkit/eb/opcodes.py` — `menu(menu_id, sub_id=0)` (0x75; `menu(4,0)` = save).
 - `ff9mapkit/content/savepoint.py` — `save_dispatch()`, `savepoint_region(zone, *, bubble)`,
-  `inject_savepoint` / `inject_savepoints`.
+  `inject_savepoint` / `inject_savepoints`, and the ACT section (`act_save_body`, `inject_act_cluster`).
 - `build.py` — `[[savepoint]]` validated (zone 4–5 pts) + injected (a 4-pt zone is widened to the
   `quad_zone` doubled-last-vertex convex quad, the `IsInQuad` dead-zone fix).
 
 ## The moogle's ACT — two ways to get it
 
-**Synthesis (the act is still manual).** `[[savepoint]]` places a visible save Moogle and runs the real
-menu→confirm→save flow, but the Moogle does not yet **hop out** or **open its book**. Dress the rest by
-hand — a `[[prop]]`/`[[npc]]` over the zone (the `moogle` archetype, model `GEO_NPC_F0_MOG`; the cask
-`GEO_ACC_F0_CSK`; the `save_point` prop composite = moogle pose 2904 + book `GEO_ACC_F0_MGR` pose 1872).
-The clips are all named and addressable if you author the choreography yourself:
+**Synthesis (SHIPPED, default ON).** `[[savepoint]]`'s moogle now performs the real save choreography.
+The 4-agent byte census (2026-07-18, every one of the 65 `Menu(4,0)` field ids) proved the interact-time
+act is ONE invariant template across all 57 moogle instances, so the kit emits that template: on the
+confirmed Yes — and only then, the donor's decline law — the moogle hops (`SAVE_JUMP` 6503 + the
+universal SFX 1362/2631), the **book** (model 133) and **feather** (model 134) snap to it and open
+(4641 / **4652** — the 4651 the old table listed is wrong, byte-verified in fields 300 AND 810), the
+moogle opens its book (4645) while its save line shows, `Menu(4,0)` runs latched, then everything
+reverses (props vanish, hop back with the direction-asymmetric landing thud 682, the player-watch pose
+releasing through the donor's own `MAP.Bit[322]` handshake). The build injects the whole cluster —
+the two hidden props with appear/hide tags, two grafted player functions, the moogle's load-bearing
+`SetJumpAnimation(6503, 26, 30)` preload — automatically.
+
+```toml
+[[savepoint]]
+zone = [[-100,-100],[100,-100],[100,100],[-100,100]]
+act = true                    # the default; false = the pre-act still moogle
+act_text = "Here we go, kupo!"   # the WindowAsync(1,128,·) line during the act
+act_hop_to = [-347, 7514]     # OPTIONAL landing spot: hop there and back with the donor's
+                              # 15-frame lerp (default: hop in place at the moogle's pos)
+```
+
+The act requires the moogle and dialogue (it plays inside the confirmed-Yes arm); the press REGION
+stays actless by design — a type-1 region has no model, exactly the donor's moogle-less Memoria family.
+
+The census's clip law, for reference (and for hand-authored choreography):
 
 | clip | id | role |
 |---|---|---|
 | `ANH_NPC_F0_MOG_IDLE` | 2904 | rest pose |
-| `ANH_NPC_F0_MOG_SAVE_JUMP` | 6503 | the hop |
+| `ANH_NPC_F0_MOG_SAVE_JUMP` | 6503 | the hop — both directions, both moogle models (220 AND 129) |
 | `ANH_NPC_F0_MOG_SAVE_OPEN` | 4645 | the Moogle opens the book |
-| `ANH_ACC_F0_MGR_SAVE_OPEN` | 4641 | the book opens |
-| `ANH_ACC_F0_MGP_SAVE_OPEN` | 4651 | the feather writes |
+| `ANH_ACC_F0_MGR_SAVE_OPEN` | 4641 | the book opens (book = model 133 in 57/57 fields) |
+| `ANH_ACC_F0_MGP_SAVE_OPEN` | **4652** | the feather writes (feather = model 134 in 55/57) |
 
 **Faithful verbatim carry (SHIPPED — the full cluster, automatic).** `ff9mapkit import <field>
 --save-moogle` carries a real field's save point **verbatim** as a faithful FF9 save point: the hidden

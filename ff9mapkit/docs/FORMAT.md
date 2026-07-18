@@ -584,6 +584,9 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 # yes_row  = "Yes"    ; no_row     = "No"                # the confirm rows
 # speaker = "Mog"                                        # prefixes both questions
 # latch = true                                           # the GLOB(184) bracket (leave on)
+# act = true                                             # the Moogle's save CHOREOGRAPHY (default true)
+# act_text = "Here we go, kupo!"                         # its line while the book is open
+# act_hop_to = [-347, 7514]                              # optional landing spot for the hop
 ```
 
 | key | meaning |
@@ -600,6 +603,9 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 | `tent` | `true` adds the **Tent** row: the confirm with a live remaining count, or "you don't have any tents"; resting restores **half of maximum HP and MP** (rounded up) to every living party member — a KO'd member is not revived — and consumes one Tent. Wording: `tent_row` / `tent_prompt` / `tent_yes` / `tent_no` / `no_tent`. |
 | `shop` | a `[[shop]]` id — adds the **Mogshop** row, opening that shop's inventory (`Menu(2, id)`). The `[[shop]]` must exist in the same field. Label: `shop_row`. |
 | `party` | `true` adds the **Switch party members** row (`Party` + `UpdatePartyUID`). `party_min` = minimum party size (0–4, default 4), `party_locked` = bitmask of character slots the player may not remove (default 1 = slot 0). Label: `party_row`. |
+| `act` | the Moogle's **save choreography** — default `true`. On the confirmed Yes it hops (clip 6503 + the real SFX), the **book + feather** props appear and open, the Moogle opens its book (4645) while `act_text` shows, the save menu runs, then everything reverses (the census-invariant template of all 57 real save moogles — `SAVEPOINT.md`). Needs `moogle` and `dialogue`. `false` = the still moogle. |
+| `act_text` | the Moogle's line during the act (an ordinary dialogue window, async). |
+| `act_hop_to` | `[x, z]` (or `[x, z, y]`) — a landing spot: the Moogle traverses there and back with the donor's 15-frame lerp (for a moogle perched off its save spot). Default: hop in place at `pos`. |
 
 The menu shows only the rows you configure, in FF9's own order — **Save · Tent · Mognet · Mogshop ·
 Switch party members · Cancel** — so a bare `[[savepoint]]` is still Save/Cancel and a fully-dressed one

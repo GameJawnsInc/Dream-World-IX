@@ -26,15 +26,17 @@ navigable cousin of :mod:`content.jump`'s ``action`` region (same Init ``SetRegi
 call. ``build.py`` also places a visible save Moogle at the zone by default, whose TALK runs the same
 dispatch.
 
-Still NOT synthesized (the deliberate gap): the moogle's reveal/hop and book+feather animation, and the
-Tent / Select-party rows of the real option menu. The tent's HP restore is not visible in the field script
-at all (the Memoria branch is only ``RunScriptSync`` + ``RemoveItem(253, 1)``), so shipping a Tent row
-would mean guessing at the heal -- deferred rather than half-built. The verbatim carry
-(``import <field> --save-moogle``) remains the way to get the full moogle act.
+**The ACT (2026-07-18).** The moogle's save choreography is now synthesized too -- see the ACT section
+below. The 4-agent census (all 65 ``Menu(4,0)`` field ids) proved the interact-time act is ONE invariant
+template across all 57 moogle instances: hop clip 6503 -> the book (model 133) + feather (model 134)
+props appear -> the moogle's book-open 4645 -> ``Menu(4,0)`` -> props hide -> hop 6503 back. All real
+variance lives in the pre-interaction REVEAL (tag 1: barrel-pop x6, flying x1, bespoke x2), never in the
+act. The one thing still verbatim-carry-only is those bespoke reveals (``import <field> --save-moogle``).
 """
 from __future__ import annotations
 
 import struct
+from dataclasses import dataclass
 
 from ..eb import EbScript, edit, opcodes
 from . import choice as _choice
@@ -192,6 +194,260 @@ def party_dispatch(*, min_size: int = DEFAULT_PARTY_MIN, locked: int = DEFAULT_P
     return opcodes.encode(0xB2, int(min_size), int(locked)) + opcodes.encode(0xE9)
 
 
+# --- THE MOOGLE'S ACT (the save choreography) --------------------------------------------------------
+# Byte-decoded from field 300 (Ice Cavern/Entrance) entry 3 tag 3 and census-confirmed invariant across
+# ALL 57 moogle save instances (2026-07-18, instruction-aligned scan of every field): once -- and only
+# once -- the player answers YES to the save confirm, the moogle
+#
+#   SetTurnSpeed(32); EnableHeadFocus(0)
+#   RunAnimation(6503)  "SAVE_JUMP" + sfx 1362 ; Wait(24) ; landing sfx 2631
+#   [optional 15-frame hand-lerp to a landing spot -- the donor's MoveInstantXZY-per-frame walk substitute]
+#   RunScriptAsync(4, 250, <pose>)      -- the player turns to watch (a grafted player tag)
+#   SetPathing(1); Wait(1); EnableShadow; WaitAnimation ; TurnTowardObject(250, 32); WaitTurn
+#   WindowAsync(1, 128, <line>)         -- the moogle's save line, non-blocking
+#   RunScriptAsync(4, <book>, 37) ; RunScriptAsync(4, <feather>, 37)   -- the props snap to it + open
+#   RunAnimation(4645) "SAVE_OPEN" ; Wait(68)
+#   GLOB(184)=1 ; Wait(3) ; Menu(4,0) ; Wait(3) ; GLOB(184)=0          -- save_act(), unchanged
+#   RunScriptAsync(4, <book>, 38) ; RunScriptAsync(4, <feather>, 38)   -- instant hide
+#   RunAnimation(6503) + sfx 1362 ; Wait(24) ; landing sfx 682 (the return thud DIFFERS by direction)
+#   [optional lerp back] ; MAP.Bit[322]=1 ; RunScriptAsync(4, 250, <release>)
+#   SetPathing(1); Wait(1); EnableShadow; WaitAnimation; EnableHeadFocus(3)
+#   TurnTowardObject(250, 32); WaitTurn ; while (MAP.Bit[322]) Wait(1)  -- join the async release
+#
+# Declining at EITHER window skips the whole act (the donor jumps straight back to the row menu -- none
+# of the choreography fires), and the script never branches on Menu(4,0)'s own in-menu cancel: once the
+# scripted Yes lands, the physical act always completes. Both facts are donor law, reproduced here.
+#
+# Clip law (census): hop = 6503 ANH_NPC_F0_MOG_SAVE_JUMP and open = 4645 ANH_NPC_F0_MOG_SAVE_OPEN on
+# BOTH moogle models (220 F0 / 129 F1 -- clips bind by name family, so F0 clips are legal on either);
+# the book prop is model 133 GEO_ACC_F0_MGR in 57/57 fields (clip 4641), the feather 134 GEO_ACC_F0_MGP
+# in 55/57 (clip 4652 -- NOT 4651; verified byte-for-byte in fields 300 AND 810). SFX ids are universal.
+ACT_HOP_CLIP = 6503          # ANH_NPC_F0_MOG_SAVE_JUMP -- both directions
+ACT_OPEN_CLIP = 4645         # ANH_NPC_F0_MOG_SAVE_OPEN -- the moogle's own book-open gesture
+ACT_BOOK_MODEL = "GEO_ACC_F0_MGR"     # 133 -- the save book (57/57 census)
+ACT_FEATHER_MODEL = "GEO_ACC_F0_MGP"  # 134 -- the feather/quill (55/57; 679 = the rare F1 variant)
+ACT_BOOK_POSE = 1872         # the props' rest poses (prop_archetypes save_book / feather)
+ACT_FEATHER_POSE = 1874
+ACT_PROP_ANIMSET = 93        # SetModel(133, 93) / SetModel(134, 93) -- the donor's accessory animset
+                             # (133/134 are off the NPC_PARAMS catalog, so it must be passed explicitly)
+ACT_BOOK_OPEN_CLIP = 4641    # ANH_ACC_F0_MGR_SAVE_OPEN -- the book's own open clip
+ACT_FEATHER_OPEN_CLIP = 4652  # ANH_ACC_F0_MGP_SAVE_OPEN -- 4652, not the animdb-adjacent 4651
+ACT_APPEAR_TAG = 37          # the prop appear/hide tags -- donor field 300's numbers (fresh props here,
+ACT_HIDE_TAG = 38            #   so any free tags work; matching the donor keeps disasm side-by-sides easy)
+ACT_REQ_LEVEL = 4            # every donor RunScriptAsync in the act uses level 4 (both census fields)
+ACT_TURN_SPEED = 32          # SetTurnSpeed / TurnTowardObject speed in the act
+ACT_PLAYER_TURN_SPEED = 16   # the player pose funcs' TurnTowardObject speed (donor tags 32/33/34)
+ACT_HOP_AIR_WAIT = 24        # frames between the hop clip start and the landing thud
+ACT_PROP_WAIT = 12           # the props' post-RunAnimation settle before they show
+ACT_OPEN_WAIT = 68           # after RunAnimation(4645), before the save latch -- calibrated to the clip
+ACT_LERP_STEPS = 14          # the donor lerp divisor; the loop writes frames 0..14 inclusive (15 writes)
+ACT_HANDSHAKE_BIT = 322      # MAP.Bit[322] -- the donor's own async-release rendezvous bit, verbatim
+                             # (transient MAP scope; clear of the kit's cutscene 80+ / init 144-159 bands)
+SFX_BANK = 53248             # RunSoundCode3 bank -- every act sfx uses it
+SFX_HOP = 1362               # hop accent (x4 per act in the donor)
+SFX_LAND_OUT = 2631          # landing thud, hop OUT
+SFX_LAND_BACK = 682          # landing thud, hop BACK (deliberately different)
+SFX_POOF = 2979              # the book's appear "poof" (book only, not the feather)
+PLAYER_UID = 250             # GetObjUID(250) = the control character (engine convention)
+DEFAULT_ACT_LINE = "Here we go, kupo!"   # the WindowAsync(1,128,·) line during the act -- kit-authored
+                                          # in FF9 style, never a Square-Enix quote (docs/PROVENANCE.md)
+
+
+def act_sfx(sound_id: int, *, vol: int = 125) -> bytes:
+    """One act sound: ``RunSoundCode3(53248, id, 0, 128, vol)`` (opcode 0xC8, widths [2,2,3,1,1]).
+    Ground truth: ``c8 00 00 d0 52 05 00 00 00 80 7d`` = (53248, 1362, 0, 128, 125), field 300 @4412."""
+    return opcodes.encode(0xC8, SFX_BANK, int(sound_id), 0, 128, int(vol))
+
+
+def _obj_field(uid: int, field: int) -> bytes:
+    """An expression operand reading another object's live var: ``78 <uid> <field> 7F`` (T_OBJVAR;
+    fields 0/1/2 = position, 3 = facing). The donor's book snaps to the moogle with exactly this."""
+    return bytes([_region.T_OBJVAR, uid & 0xFF, field & 0xFF, _region.T_END])
+
+
+def _self_angle_flip() -> bytes:
+    """``self.angle + 128`` -- the donor's landing 180° spin (uid 255 = self, field 3 = facing)."""
+    return (bytes([_region.T_OBJVAR, 0xFF, 3, _region.T_CONST]) + (128).to_bytes(2, "little")
+            + bytes([_region.T_PLUS, _region.T_END]))
+
+
+def _trunc_div(a: int, b: int) -> int:
+    """C-style division (truncate toward zero) -- the engine's expression `/` on the lerp deltas."""
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b >= 0) else -q
+
+
+def _lerp_frames(start, end) -> bytes:
+    """The donor's 14-frame hand-lerp, UNROLLED: 15 ``MoveInstantXZY`` writes (k = 0..14) with a
+    ``Wait(1)`` each, positions ``start + trunc(k*delta/14)`` -- frame-identical to the donor's
+    ``Instance.Byte[8]`` counter loop (field 300 @4453-4525), without its instance-var scratch.
+    ``start``/``end`` are ``(x, z, y)`` world coords."""
+    (x0, z0, y0), (x1, z1, y1) = start, end
+    out = b""
+    for k in range(ACT_LERP_STEPS + 1):
+        out += opcodes.move_instant_xzy(x0 + _trunc_div(k * (x1 - x0), ACT_LERP_STEPS),
+                                        z0 + _trunc_div(k * (z1 - z0), ACT_LERP_STEPS),
+                                        y0 + _trunc_div(k * (y1 - y0), ACT_LERP_STEPS))
+        out += opcodes.wait(1)
+    return out
+
+
+def _while_truthy(var_class, idx: int, body: bytes) -> bytes:
+    """``while (VAR) { body }`` -- check-first: cond, JMP_IFNOT past, body, JMP back. The act's
+    handshake poll (``while (MAP.Bit[322]) Wait(1)``, field 300 @4756) is the only loop in the act."""
+    cond = _region.cond_truthy(var_class, idx)
+    block = cond + bytes([_region.JMP_FALSE]) + struct.pack("<H", len(body) + 3) + bytes(body)
+    return block + bytes([0x01]) + struct.pack("<h", -(len(block) + 3))
+
+
+def act_prop_appear_body(moogle_uid: int, open_clip: int, *, poof: bool = False) -> bytes:
+    """The book/feather APPEAR function (the donor's tag 37, field 300 @10864): snap to the moogle's
+    LIVE position + facing (expression args -- the moogle may have hopped), play the prop's own open
+    clip, then show (flags 7 = visible + walk-through) with the 4-step ``SetObjectSize`` grow-in.
+    ``poof`` adds the book's appear sfx (the donor gives it to the book only)."""
+    out = act_sfx(SFX_POOF) if poof else b""
+    out += opcodes.encode(0xA1, _obj_field(moogle_uid, 0), _obj_field(moogle_uid, 1),
+                          _obj_field(moogle_uid, 2), arg_flags=0b111)      # MoveInstantXZY -> the moogle
+    out += opcodes.encode(0x36, _obj_field(moogle_uid, 3), arg_flags=1)    # TurnInstant -> match facing
+    out += opcodes.run_animation(int(open_clip))
+    out += opcodes.wait(ACT_PROP_WAIT)
+    out += opcodes.encode(0x93, 7)                                          # show + both collision exemptions
+    for k, s in enumerate((16, 32, 48, 64)):
+        if k:
+            out += opcodes.wait(1)
+        out += opcodes.encode(0x9F, 255, s, s, s)                           # SetObjectSize grow-in
+    return out + opcodes.RETURN
+
+
+def act_prop_hide_body() -> bytes:
+    """The prop HIDE function (donor tag 38): an instant vanish -- ``SetObjectFlags(14)`` and out."""
+    return opcodes.encode(0x93, 14) + opcodes.RETURN
+
+
+def player_pose_body(moogle_uid: int) -> bytes:
+    """The player's watch pose (donor obj-250 tag 33, byte-complete): turn toward the moogle, wait."""
+    return (opcodes.turn_toward_object(int(moogle_uid), ACT_PLAYER_TURN_SPEED)
+            + opcodes.wait_turn() + opcodes.RETURN)
+
+
+def player_release_body(moogle_uid: int) -> bytes:
+    """The player's release (donor tag 34): the same turn, then CLEAR the handshake bit -- the join the
+    moogle's close-out polls on (RunScriptAsync doesn't block; the shared MAP bit is the rendezvous)."""
+    return (opcodes.turn_toward_object(int(moogle_uid), ACT_PLAYER_TURN_SPEED) + opcodes.wait_turn()
+            + _region.set_var(_region.MAP_BOOL, ACT_HANDSHAKE_BIT, 0) + opcodes.RETURN)
+
+
+def moogle_act_init_tail() -> bytes:
+    """``SetJumpAnimation(6503, 26, 30)`` for the moogle's Init -- the LOAD-BEARING preload. Present
+    byte-identically in every donor moogle's Init, always paired with the later ``RunAnimation(6503)``
+    calls; a moogle that skips it risks the hop clip not blending. Treat the triple as atomic."""
+    return opcodes.set_jump_animation(ACT_HOP_CLIP, 26, 30)
+
+
+def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag: int,
+                  act_txid: int | None = None, rest=None, hop_to=None, latch: bool = True) -> bytes:
+    """The FULL act around the save -- the donor's confirmed-Yes choreography (see the section comment
+    for the sequence), with :func:`save_act` embedded where the donor's ``Menu(4,0)`` sits.
+
+    ``rest`` is the moogle's authored (x, z[, y]) spot; ``hop_to`` an optional landing spot -- given,
+    the moogle traverses there and back with the donor's 15-frame lerp (both ends compile-time literals,
+    exactly the donor's own CLOSE-OUT shape -- its intro's runtime self-read start exists only because a
+    director may have moved it; ours never moves). Without ``hop_to`` the moogle hops in place: the same
+    clip/sfx/wait skeleton, no traversal frames, and no landing 180° spin (that flourish corrects the
+    donor's fly-away facing; in place it would just pirouette)."""
+    rest3 = None if rest is None else (tuple(int(v) for v in rest) + (0,))[:3]
+    hop3 = None if hop_to is None else (tuple(int(v) for v in hop_to) + (0,))[:3]
+    traverse = hop3 is not None and rest3 is not None
+    out = opcodes.encode(0x99, ACT_TURN_SPEED)                       # SetTurnSpeed(32)
+    out += opcodes.encode(0x47, 0)                                    # EnableHeadFocus(0)
+    out += opcodes.run_animation(ACT_HOP_CLIP)
+    out += act_sfx(SFX_HOP) + opcodes.wait(ACT_HOP_AIR_WAIT) + act_sfx(SFX_LAND_OUT)
+    out += opcodes.encode(0x80)                                       # DisableShadow (airborne)
+    if traverse:
+        out += _lerp_frames(rest3, hop3)
+    out += opcodes.run_script_async(ACT_REQ_LEVEL, PLAYER_UID, int(pose_tag))
+    out += opcodes.set_pathing(1) + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation()
+    if traverse:
+        out += opcodes.encode(0x36, _self_angle_flip(), arg_flags=1)  # the landing 180° spin
+    out += opcodes.turn_toward_object(PLAYER_UID, ACT_TURN_SPEED) + opcodes.wait_turn()
+    if act_txid is not None:
+        out += opcodes.window_async(1, 128, int(act_txid))            # the save line, non-blocking
+    out += opcodes.run_script_async(ACT_REQ_LEVEL, int(book_uid), ACT_APPEAR_TAG)
+    out += opcodes.run_script_async(ACT_REQ_LEVEL, int(feather_uid), ACT_APPEAR_TAG)
+    out += opcodes.run_animation(ACT_OPEN_CLIP)
+    out += opcodes.wait(ACT_OPEN_WAIT)
+    out += save_act(latch=latch)                                      # the unchanged functional core
+    out += opcodes.run_script_async(ACT_REQ_LEVEL, int(book_uid), ACT_HIDE_TAG)
+    out += opcodes.run_script_async(ACT_REQ_LEVEL, int(feather_uid), ACT_HIDE_TAG)
+    out += opcodes.run_animation(ACT_HOP_CLIP)
+    out += act_sfx(SFX_HOP) + opcodes.wait(ACT_HOP_AIR_WAIT) + act_sfx(SFX_LAND_BACK)
+    out += opcodes.encode(0x80)
+    if traverse:
+        out += _lerp_frames(hop3, rest3)
+    out += _region.set_var(_region.MAP_BOOL, ACT_HANDSHAKE_BIT, 1)
+    out += opcodes.run_script_async(ACT_REQ_LEVEL, PLAYER_UID, int(release_tag))
+    out += opcodes.set_pathing(1) + opcodes.wait(1) + opcodes.encode(0x7F) + opcodes.wait_animation()
+    out += opcodes.encode(0x47, 3)                                    # EnableHeadFocus(3) -- donor close
+    if traverse:
+        out += opcodes.encode(0x36, _self_angle_flip(), arg_flags=1)
+    out += opcodes.turn_toward_object(PLAYER_UID, ACT_TURN_SPEED) + opcodes.wait_turn()
+    out += _while_truthy(_region.MAP_BOOL, ACT_HANDSHAKE_BIT, opcodes.wait(1))
+    return out
+
+
+@dataclass
+class ActCluster:
+    """The act's supporting cast, injected by :func:`inject_act_cluster`. ``moogle_slot`` is the entry
+    slot the moogle MUST then be injected at (the cluster's grafts reference it by uid) -- the build
+    passes it as ``inject_npc(slot=...)``, which forces the seat (no prediction drift possible)."""
+    book: int
+    feather: int
+    moogle_slot: int
+    pose_tag: int
+    release_tag: int
+
+
+def inject_act_cluster(data, x: int, z: int):
+    """Inject the act's supporting objects for one save moogle, BEFORE the moogle itself:
+
+    * the book + feather as bare hidden props at the moogle's spot (donor rest state: head-focus off,
+      ``SetObjectFlags(14)``, no shadow, logical size (1,1,1)), each grafted the appear (37) / hide (38)
+      functions the act dispatches;
+    * two fresh player functions (via :class:`content.player.PlayerTagAllocator`, the object band) --
+      the watch pose and the handshake release.
+
+    Returns ``(new_bytes, ActCluster)``. The moogle's slot is resolved here (the next free after both
+    props; ``add_function`` grows no entries, so it holds) because the grafts hard-code its uid."""
+    from .. import catalog as _catalog
+    from . import npc as _npc
+    from .ladder import find_player_entry
+    from .player import PlayerTagAllocator
+    prop_tail = (opcodes.encode(0x47, 0)          # EnableHeadFocus(0) -- the prop recipe
+                 + opcodes.encode(0x93, 14)       # spawn HIDDEN (bits 2+4+8, show clear -- donor rest)
+                 + opcodes.encode(0x80))          # DisableShadow
+    book_slot = EbScript.from_bytes(data).first_free_slot()
+    data = _npc.inject_npc(data, x, z, model=_catalog.resolve_model(ACT_BOOK_MODEL),
+                           animset=ACT_PROP_ANIMSET, anims={k: ACT_BOOK_POSE for k in _npc.ANIM_ORDER},
+                           bare=True, init_tail=prop_tail, slot=book_slot, logical_size=(1, 1, 1))
+    feather_slot = EbScript.from_bytes(data).first_free_slot()
+    data = _npc.inject_npc(data, x, z, model=_catalog.resolve_model(ACT_FEATHER_MODEL),
+                           animset=ACT_PROP_ANIMSET, anims={k: ACT_FEATHER_POSE for k in _npc.ANIM_ORDER},
+                           bare=True, init_tail=prop_tail, slot=feather_slot, logical_size=(1, 1, 1))
+    moogle_slot = EbScript.from_bytes(data).first_free_slot()
+    data = edit.add_function(data, book_slot, ACT_APPEAR_TAG,
+                             act_prop_appear_body(moogle_slot, ACT_BOOK_OPEN_CLIP, poof=True))
+    data = edit.add_function(data, book_slot, ACT_HIDE_TAG, act_prop_hide_body())
+    data = edit.add_function(data, feather_slot, ACT_APPEAR_TAG,
+                             act_prop_appear_body(moogle_slot, ACT_FEATHER_OPEN_CLIP))
+    data = edit.add_function(data, feather_slot, ACT_HIDE_TAG, act_prop_hide_body())
+    eb = EbScript.from_bytes(data)
+    pe = find_player_entry(eb)
+    pose_tag, release_tag = PlayerTagAllocator(eb).take("object", 2)
+    data = edit.add_function(data, pe, pose_tag, player_pose_body(moogle_slot))
+    data = edit.add_function(data, pe, release_tag, player_release_body(moogle_slot))
+    return data, ActCluster(book_slot, feather_slot, moogle_slot, pose_tag, release_tag)
+
+
 # The real save moogle's row ORDER (text entry 3 of a moogle field): Save / Tent / Mognet / Mogshop /
 # Switch party members / Debug / Cancel. A field shows a SUBSET -- stock does it with a runtime
 # availability mask over all seven rows; we emit only the configured rows, which is equivalent for a
@@ -224,10 +480,16 @@ def save_dispatch_menu(prompt_txid: int, rows, bodies) -> bytes:
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
-def save_confirm_body(confirm_txid: int, *, latch: bool = True) -> bytes:
-    """The Save row's body: the Yes/No confirm, then the latched save. Row 1 (No) is bodiless."""
+def save_confirm_body(confirm_txid: int, *, latch: bool = True, save_body: bytes | None = None) -> bytes:
+    """The Save row's body: the Yes/No confirm, then the latched save. Row 1 (No) is bodiless.
+
+    ``save_body`` replaces the bare :func:`save_act` -- the build passes :func:`act_save_body` for the
+    moogle's TALK dispatch (the choreographed save), and nothing for the region's press dispatch (a
+    region entry has no model; the donor's moogle-less family saves with zero clips, and so does ours).
+    Either way the body runs only on the confirmed Yes -- exactly the donor's decline law."""
     return (opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, confirm_txid)
-            + _choice.switch_on_choice([save_act(latch=latch), b""]))
+            + _choice.switch_on_choice([save_body if save_body is not None else save_act(latch=latch),
+                                        b""]))
 
 
 def save_dispatch_mognet(prompt_txid: int, confirm_txid: int, mognet_body: bytes,
@@ -256,7 +518,8 @@ def save_dispatch_mognet(prompt_txid: int, confirm_txid: int, mognet_body: bytes
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
-def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool = True) -> bytes:
+def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool = True,
+                           save_body: bytes | None = None) -> bytes:
     """The FAITHFUL save interaction, rebuilt from the real script::
 
         DisableMove ; DisableMenu
@@ -269,10 +532,13 @@ def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool =
     ``WindowAsync(2,8,3)`` then ``WindowAsync(2,8,4)``; field 2919: txid 454 then 457). The shipped
     pre-rung-2 save point jumped straight to ``Menu(4,0)`` on touch, which no save point in the game does.
 
-    Cancel (row 1) and No (row 1) are deliberately BODILESS -- see :func:`_row0_only` for why that is a
-    correctness requirement, not a shortcut."""
+    ``save_body`` swaps the confirmed-Yes body (the act -- see :func:`save_confirm_body`); it carries no
+    choice reads, so the :func:`_row0_only` nesting stays sound. Cancel (row 1) and No (row 1) are
+    deliberately BODILESS -- see :func:`_row0_only` for why that is a correctness requirement, not a
+    shortcut."""
+    inner = save_body if save_body is not None else save_act(latch=latch)
     return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU
-            + _row0_only(prompt_txid, _row0_only(confirm_txid, save_act(latch=latch)))
+            + _row0_only(prompt_txid, _row0_only(confirm_txid, inner))
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 

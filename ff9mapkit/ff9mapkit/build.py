@@ -1482,16 +1482,31 @@ def validate(project: FieldProject) -> list[str]:
         _sp_keys = {"zone", "pos", "moogle", "bubble", "dialogue", "latch", "prompt", "confirm",
                     "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet",
                     "tent", "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent",
-                    "shop", "shop_row", "party", "party_row", "party_min", "party_locked"}
+                    "shop", "shop_row", "party", "party_row", "party_min", "party_locked",
+                    "act", "act_text", "act_hop_to"}
         for k in sorted(set(sp) - _sp_keys):
             problems.append(f"[[savepoint]] unknown key {k!r} -- expected one of {', '.join(sorted(_sp_keys))}")
-        for k in ("moogle", "bubble", "dialogue", "latch", "tent", "party"):
+        for k in ("moogle", "bubble", "dialogue", "latch", "tent", "party", "act"):
             if k in sp and not isinstance(sp[k], bool):
                 problems.append(f"[[savepoint]] {k} must be true or false, got {sp[k]!r}")
         for k in ("prompt", "confirm", "save_row", "cancel_row", "yes_row", "no_row", "speaker",
-                  "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent", "shop_row", "party_row"):
+                  "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent", "shop_row", "party_row",
+                  "act_text"):
             if k in sp and not isinstance(sp[k], str):
                 problems.append(f"[[savepoint]] {k} must be a string, got {sp[k]!r}")
+        # the act rides the moogle's talk body (choreography needs an actor); an explicit act with no
+        # moogle -- or with dialogue off (the act fires on the confirmed Yes) -- is a contradiction
+        if sp.get("act") and not sp.get("moogle", True):
+            problems.append("[[savepoint]] act = true needs the moogle (the act is its choreography); "
+                            "remove `moogle = false` or the act")
+        if sp.get("act") and not sp.get("dialogue", True):
+            problems.append("[[savepoint]] act = true needs dialogue (the act plays on the confirmed "
+                            "Yes); remove `dialogue = false` or the act")
+        ht = sp.get("act_hop_to")
+        if ht is not None and (not isinstance(ht, (list, tuple)) or len(ht) not in (2, 3)
+                               or not all(isinstance(v, int) and not isinstance(v, bool) for v in ht)):
+            problems.append(f"[[savepoint]] act_hop_to must be [x, z] or [x, z, y] (the hop's landing "
+                            f"spot, world units), got {ht!r}")
         # the extra menu rows (docs/SAVEPOINT.md). A row only appears when its feature is configured,
         # so a mistyped `tent`/`party` would silently drop the row -- hence the type checks above.
         if sp.get("shop") is not None:
@@ -5083,7 +5098,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t},
                 status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None)
 
-        def _dispatch(k, sp):
+        def _dispatch(k, sp, save_body=None):
+            # `save_body` swaps the confirmed-Yes body: the moogle's TALK dispatch passes the ACT
+            # (savepoint.act_save_body -- choreography needs gExec to be the moogle); the press REGION
+            # always passes None (a type-1 region has no model to animate -- the donor's moogle-less
+            # family saves with zero clips, and so does our region path).
             t = (savepoint_txids or {}).get(k)
             if not sp.get("dialogue", True) or not t:
                 return _savepoint.save_dispatch()
@@ -5091,7 +5110,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             rows = _savepoint.menu_rows(sp)
             if len(rows) > 2 or (mg and "accept_prompt" in t):
                 # ANY configured extra row (tent / mognet / shop / party) -> the row-driven menu
-                bodies = {"save": _savepoint.save_confirm_body(t["confirm"], latch=sp.get("latch", True))}
+                bodies = {"save": _savepoint.save_confirm_body(t["confirm"], latch=sp.get("latch", True),
+                                                               save_body=save_body)}
                 if "tent" in rows and "tent_prompt" in t:
                     bodies["tent"] = _savepoint.tent_dispatch(t["tent_prompt"], t["tent_none"])
                 if "shop" in rows:
@@ -5104,7 +5124,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     bodies["mognet"] = _mognet_body(mg, t)
                 return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies)
             return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
-                                                     latch=sp.get("latch", True))
+                                                     latch=sp.get("latch", True), save_body=save_body)
 
         eb, _ = _savepoint.inject_savepoints(eb, sps, dispatches=[_dispatch(k, sp)
                                                                  for k, sp in enumerate(savepoints)])
@@ -5116,8 +5136,28 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             pos = sp.get("pos") or [sum(p[0] for p in zpts) // len(zpts),
                                     sum(p[1] for p in zpts) // len(zpts)]
             m_model, m_animset, m_anims, _h = _arch.resolve("moogle")
+            # THE ACT (default ON, `act = false` opts out): the census-invariant save choreography --
+            # hop 6503, the book+feather props snapping in, the 4645 book-open around Menu(4,0), the hop
+            # back, and the player watching via two grafted player tags. The cluster (props + player
+            # funcs) is injected FIRST; the moogle then seats at the exact slot the cluster's grafts
+            # reference (inject_npc(slot=...) forces it). Needs dialogue (the act fires on the confirmed
+            # Yes -- the donor's decline law) -- content/savepoint.py's ACT section has the full decode.
+            save_body, m_init_tail, m_slot = None, None, None
+            t_act = (savepoint_txids or {}).get(k) or {}
+            if sp.get("act", True) and sp.get("dialogue", True) and t_act:
+                eb, cl = _savepoint.inject_act_cluster(eb, int(pos[0]), int(pos[1]))
+                hop_to = sp.get("act_hop_to")
+                save_body = _savepoint.act_save_body(
+                    book_uid=cl.book, feather_uid=cl.feather,
+                    pose_tag=cl.pose_tag, release_tag=cl.release_tag,
+                    act_txid=t_act.get("act"), rest=(int(pos[0]), int(pos[1])),
+                    hop_to=(tuple(int(v) for v in hop_to) if hop_to else None),
+                    latch=sp.get("latch", True))
+                m_init_tail = _savepoint.moogle_act_init_tail()   # the load-bearing hop-clip preload
+                m_slot = cl.moogle_slot
             eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
-                                 anims=dict(m_anims or {}), speak_body=_dispatch(k, sp))
+                                 anims=dict(m_anims or {}), speak_body=_dispatch(k, sp, save_body=save_body),
+                                 init_tail=m_init_tail, slot=m_slot)
 
     # shops: a [[shop]] with a `zone` mints a standalone press-region opener (Menu(2, id), the save-point
     # shape). Shops opened from an NPC instead (via opens_shop) carry no zone and are skipped here; the
@@ -5911,6 +5951,7 @@ def collect_text(project: FieldProject):
     # previous text layout byte-identical.
     sp_pos = {}
     mg_pos = {}
+    act_pos = {}                                 # the act's WindowAsync(1,128,·) save line, per savepoint
     mognet_roster = None                         # fetched once, only when a network moogle exists
     for k, sp in enumerate(project.raw.get("savepoint", [])):
         if not sp.get("dialogue", True):
@@ -6003,6 +6044,14 @@ def collect_text(project: FieldProject):
             for si, (st, st_strt, st_tail) in enumerate(_mognet.status_entry_texts(
                     mg.get("status_none", _mognet.DEFAULT_STATUS_NONE))):
                 mg_pos[k][f"status{si}"] = _add_raw(st, st_tail, strt=st_strt)
+        # the ACT's save line (WindowAsync(1,128,·) while the book opens): one ordinary dialogue entry,
+        # act-on + moogle-on only. Added at the end of the savepoint's own entries so an act = false
+        # field keeps the previous text layout byte-identical.
+        if sp.get("moogle", True) and sp.get("act", True):
+            al = _text.with_speaker(sp.get("speaker"), str(sp.get("act_text", _savepoint.DEFAULT_ACT_LINE)))
+            if wrap is not None:
+                al = _text.wrap_text(al, wrap)[0]
+            act_pos[k] = _add_raw(al, sp.get("tail"))
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)
@@ -6040,6 +6089,8 @@ def collect_text(project: FieldProject):
     for k, d in mg_pos.items():
         savepoint_txids.setdefault(k, {}).update(
             {key: (v if key == "give_to_id" else mapping[v]) for key, v in d.items()})
+    for k, p in act_pos.items():                          # the act's save-line txid
+        savepoint_txids.setdefault(k, {})["act"] = mapping[p]
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
             chest_txids, gateway_txids, coop_txids, savepoint_txids)
 

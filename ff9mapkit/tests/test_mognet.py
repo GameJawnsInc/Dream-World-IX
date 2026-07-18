@@ -21,9 +21,11 @@ from ff9mapkit.eb import disasm
 
 
 # --------------------------------------------------------------------------- the mini-VM ---
-def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None) -> int:
+def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None) -> int:
     """Evaluate one 0x05 expression's token stream (sans the leading 05) against gEventGlobal ``G``.
-    ``sysread(code)`` services GetSysvar tokens (0x7A) -- the tests script dialog choices through it."""
+    ``sysread(code)`` services GetSysvar tokens (0x7A) -- the tests script dialog choices through it.
+    ``M`` is the transient MAP array (the engine's per-field twin of G) -- the act's handshake bit
+    lives there (MAP.Bit[322], class 0xC5/0xE5)."""
     stack: list = []
 
     def deref(x):
@@ -32,6 +34,8 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None) -> int:
             return v
         if kind == "by":
             return G[v]
+        if kind == "mbi":
+            return (M[v >> 3] >> (v & 7)) & 1          # MAP bit
         return (G[v >> 3] >> (v & 7)) & 1              # "bi"
 
     p = 0
@@ -49,6 +53,10 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None) -> int:
             stack.append(("bi", tokens[p])); p += 1
         elif t == (_region.GLOB_BOOL | 0x20):                          # 0xE4 long index
             stack.append(("bi", int.from_bytes(tokens[p:p + 2], "little"))); p += 2
+        elif t == _region.MAP_BOOL and M is not None:                  # 0xC5 short index (MAP bit)
+            stack.append(("mbi", tokens[p])); p += 1
+        elif t == (_region.MAP_BOOL | 0x20) and M is not None:         # 0xE5 long index (MAP bit)
+            stack.append(("mbi", int.from_bytes(tokens[p:p + 2], "little"))); p += 2
         elif t == _region.T_SYSVAR:                                    # 0x7A GetSysvar(code)
             code = tokens[p]; p += 1
             if sysread is None:
@@ -82,6 +90,11 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None) -> int:
                     G[idx >> 3] |= 1 << (idx & 7)
                 else:
                     G[idx >> 3] &= ~(1 << (idx & 7)) & 0xFF
+            elif kind == "mbi":
+                if val:
+                    M[idx >> 3] |= 1 << (idx & 7)
+                else:
+                    M[idx >> 3] &= ~(1 << (idx & 7)) & 0xFF
             else:
                 raise AssertionError("assignment to a non-lvalue")
             stack.append(("c", val))
@@ -101,14 +114,31 @@ def _expr_operand(raw: bytes, i) -> bytes:
     return raw[i.off + 3:i.off + i.length]
 
 
+# The act's opcode set -- movement / animation / staging ops that never touch gEventGlobal. The VM
+# RECORDS them (into ``events``, as (name, args) in execution order) rather than modelling them; the
+# RunScript trio additionally fires ``on_async`` so a test can apply the callee's CONTRACT (e.g. the
+# release tag clearing the handshake MAP bit) without the VM needing a multi-entry model.
+_ACT_OPS = {0x40: "anim", 0x41: "waitanim", 0x42: "stopanim", 0x36: "turn", 0x51: "turnobj",
+            0x50: "waitturn", 0x99: "turnspeed", 0x47: "headfocus", 0x93: "flags", 0x9F: "size",
+            0x94: "jumpanim", 0xA1: "pos", 0xA8: "pathing", 0x7F: "shadow_on", 0x80: "shadow_off",
+            0xC8: "sfx"}
+_REQ_OPS = {0x10: "req", 0x12: "reqsw", 0x14: "reqew"}
+
+
 def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windows=None,
-        stats=None, items=None, party_menu=None, party=None) -> bytearray:
+        stats=None, items=None, party_menu=None, party=None, events=None, on_async=None,
+        M: bytearray | None = None, max_steps: int = 200_000) -> bytearray:
     """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops.
 
     ``choices`` scripts the player's dialog picks: each read of GetSysvar(9) consumes the next entry
     (the engine's own contract -- every menu re-reads the choice register after its window). ``menus``,
-    if a list, collects every Menu(id, sub) call so a test can assert the save fired (or didn't)."""
+    if a list, collects every Menu(id, sub) call so a test can assert the save fired (or didn't).
+    ``events`` collects the act's choreography ops (see ``_ACT_OPS``); ``on_async(level, uid, tag)``
+    runs on every RunScript dispatch (apply the callee's contract there); ``M`` is the transient MAP
+    array (pass a bytearray to seed/inspect it -- mutated in place). ``max_steps`` guards a loop whose
+    exit contract was never applied (the handshake poll) from spinning the suite forever."""
     G = bytearray(2048) if G is None else bytearray(G)
+    M = bytearray(2048) if M is None else M
     raw = bytes(body)
     queue = list(choices or [])
 
@@ -121,13 +151,18 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
             raise AssertionError("mini-VM: the body read a choice the test did not script")
         return queue.pop(0)
 
-    pos, last = 0, 0
+    pos, last, steps = 0, 0, 0
     while pos < len(raw):
+        steps += 1
+        if steps > max_steps:
+            raise AssertionError(f"mini-VM: over {max_steps} steps -- a loop's exit contract "
+                                 f"(on_async?) was never applied")
         i, nxt = disasm.read_code(raw, pos)
         if i.op == 0x05:
-            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread, party)
-        elif i.op == 0x01:                             # unconditional forward hop
-            nxt += i.args[0]
+            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread, party, M)
+        elif i.op == 0x01:                             # unconditional hop -- SIGNED (a while's back-jump)
+            d = i.args[0]
+            nxt += d - 0x10000 if d >= 0x8000 else d
         elif i.op == 0x02:                             # jump-if-false
             nxt += 0 if last else i.args[0]
         elif i.op == 0x03:                             # jump-if-true
@@ -155,6 +190,14 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
         elif i.op == 0xB2:                             # Party(min_size, locked_mask)
             if party_menu is not None:
                 party_menu.append((i.args[0], i.args[1]))
+        elif i.op in _REQ_OPS:                         # RunScript{Async,,Sync} -- record + apply contract
+            if events is not None:
+                events.append((_REQ_OPS[i.op], tuple(i.args)))
+            if on_async is not None:
+                on_async(i.args[0], i.args[1], i.args[2])
+        elif i.op in _ACT_OPS:                         # choreography -- record only (never touches G)
+            if events is not None:
+                events.append((_ACT_OPS[i.op], tuple(i.args)))
         elif i.op in (0x1F, 0x20, 0x66,                # WindowSync / WindowAsync / SetTextVariable
                       0x22,                            # Wait
                       0x2D, 0x2E, 0xAB, 0xAA,          # Disable/EnableMove, Disable/EnableMenu
@@ -182,6 +225,21 @@ def _set_slot(G, k, variant, from_id, to_id):
 
 def _bit(G, n):
     return (G[n >> 3] >> (n & 7)) & 1
+
+
+def act_async_contract(M):
+    """The act's async-release CONTRACT for the VM: the real release tag (a grafted player function)
+    clears MAP.Bit[322] when it finishes; the VM records RunScript dispatches without executing them,
+    so this hook applies that effect -- any player-targeted dispatch clears the handshake bit (the pose
+    tag never sets it, so over-applying is harmless). Without it the close-out's poll would rightly
+    spin into the step guard -- which is itself the proof the join is real, not decorative."""
+    from ff9mapkit.content import savepoint as _sp
+
+    def hook(level, uid, tag):
+        if uid == _sp.PLAYER_UID:
+            n = _sp.ACT_HANDSHAKE_BIT
+            M[n >> 3] &= ~(1 << (n & 7)) & 0xFF
+    return hook
 
 
 # --------------------------------------------------------------------------- byte pins vs the donor ---
@@ -552,9 +610,11 @@ def test_built_field_moogle_runs_the_whole_network_act(tmp_path, fake_roster):
     player's held letter survives -- straight from the shipped bytes, not from the emitters."""
     _proj, _ct, eb = _built(tmp_path)
     body = _moogle_talk_body(eb)
-    # Save -> Yes: the latched Menu(4,0)
+    # Save -> Yes: the latched Menu(4,0). The built talk body now carries THE ACT around it, whose
+    # close-out joins the async player release -- apply that contract or the poll (correctly) spins.
     menus = []
-    run(body, choices=[0, 0], menus=menus)
+    M = bytearray(2048)
+    run(body, choices=[0, 0], menus=menus, M=M, on_async=act_async_contract(M))
     assert menus == [(4, 0)]
     # Mognet with the player's real letter (Kuppo->Kupo) held + ours pending delivery TO us:
     G0 = bytearray(2048)
@@ -850,9 +910,11 @@ def test_built_six_row_menu_dispatches_every_row(tmp_path, fake_roster):
         assert label in mes
     assert "(Tent(s) Remaining=[NUMB=7])" in mes and "tent_prompt" in t
     body = _moogle_talk_body(eb)
-    # row 0 Save -> Yes
+    # row 0 Save -> Yes (the built talk body carries the act -- apply its async-release contract)
     menus = []
-    run(body, choices=[0, 0], menus=menus); assert menus == [(4, 0)]
+    M = bytearray(2048)
+    run(body, choices=[0, 0], menus=menus, M=M, on_async=act_async_contract(M))
+    assert menus == [(4, 0)]
     # row 1 Tent -> Rest (with tents held)
     stats, items = [], []
     run(body, choices=[1, 0], party=_HAS_TENT, stats=stats, items=items)

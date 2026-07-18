@@ -241,7 +241,8 @@ def test_build_savepoint_ships_the_menu_text_and_the_prompted_flow(tmp_path):
     proj = build.FieldProject.load(p)
     mes, *_rest = build.collect_text(proj)
     sp_txids = _rest[-1]
-    assert sp_txids == {0: {"prompt": 500, "confirm": 501}}
+    # prompt + confirm + the ACT's save line (the act ships by default since the choreography landed)
+    assert sp_txids == {0: {"prompt": 500, "confirm": 501, "act": 502}}
     assert mes.count("[CHOO]") == 2                       # the option menu + the Yes/No confirm
     assert "[PCHC=2,1]" in mes                            # 2 rows, cancel = row 1
     for row in ("Save", "Cancel", "Yes", "No"):
