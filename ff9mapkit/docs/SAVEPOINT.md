@@ -128,6 +128,31 @@ build ships the entry + `mognet.letter_display` runs the faithful bracket in the
 letters delivered to STOCK moogles show the graceful empty flash until their `.eb` is patched (the
 same donor-fork class as inbound; deferred together).
 
+### The other real rows — Tent / Mogshop / Switch party members
+
+The real moogle's menu is seven rows (Save · Tent · Mognet · Mogshop · Switch party members · Debug ·
+Cancel) behind a runtime availability mask; a field shows a subset. `[[savepoint]]` emits the subset you
+configure, in that order (`savepoint.menu_rows` — the `[CHOO]` list and the `op_0B` dispatch both derive
+from it, so they cannot drift), and never emits stock's dev-only `Debug`.
+
+**Tent** (`tent = true`), decoded at field 300 @5016-5608 — and the heal was never missing, just *before*
+the `RemoveItem` rather than after it:
+
+```
+for slot 0..7:  if (CURHP(slot) != 0):            # not KO'd -- and an unheld slot reads 0 too
+                    SetHP(slot, CURHP + (MAXHP+1)/2)
+                    SetMP(slot, CURMP + (MAXMP+1)/2)
+RemoveItem(253, 1)
+```
+
+So a tent restores **half of maximum, rounded up** (SetHP/SetMP clamp at the max), never revives the
+dead, and the prompt carries the live remaining count via text var 7 + `[NUMB=7]`.
+
+**Mogshop** (`shop = <id>`) is `Menu(2, shopId)` — the row just opens an ordinary `[[shop]]`.
+**Switch party members** (`party = true`) is `Party(min_size, locked_mask)` + `UpdatePartyUID()`
+(`EventEngine.DoEventCode` PARTYMENU 0xB2: arg1 = minimum party size, arg2 = a bitmask of locked
+character slots); the donor calls `Party(4, 1)`.
+
 ### Deliberately not synthesized
 
 The moogle's **reveal/hop** and its **book + feather** animation (clips exist and are addressable:

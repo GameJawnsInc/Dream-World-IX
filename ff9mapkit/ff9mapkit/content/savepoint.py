@@ -112,6 +112,124 @@ def save_dispatch() -> bytes:
             + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
+# --- the other real menu rows (Tent / Mogshop / Switch party members) --------------------------------
+TENT_ITEM = 253               # the Tent item id (donor: RemoveItem(253, 1))
+PARTY_SLOTS = 8               # SetHP/SetMP are called per party slot 0..7
+DEFAULT_TENT_ROW = "Tent"
+DEFAULT_SHOP_ROW = "Mogshop"
+DEFAULT_PARTY_ROW = "Switch party members"
+DEFAULT_TENT_PROMPT = "Rest inside a tent, kupo?"
+DEFAULT_TENT_YES, DEFAULT_TENT_NO = "Rest", "Don't rest"
+DEFAULT_NO_TENT = "You don't have any tents, kupo!"
+# Party(min_party_size, locked_mask): arg1 = the minimum party size (members beyond it are locked),
+# arg2 = a BITMASK of character slots the player may not remove (EventEngine.DoEventCode PARTYMENU,
+# 0xB2). The donor save moogle calls Party(4, 1) -- a full party of four with slot 0 locked.
+DEFAULT_PARTY_MIN, DEFAULT_PARTY_LOCKED = 4, 1
+
+
+def _half_heal(fn_cur: int, fn_max: int, slot: int) -> bytes:
+    """``CUR(slot) + (MAX(slot) + 1) / 2`` as an expression operand -- the donor's tent formula,
+    token-for-token (field 300 @5029). A tent restores HALF of maximum, rounded up; ``SetHP``/``SetMP``
+    clamp at the maximum, so a nearly-full character simply tops out."""
+    c = bytes([_region.T_CONST]) + int(slot).to_bytes(2, "little")
+    return (c + bytes([fn_cur]) + c + bytes([fn_max])
+            + bytes([_region.T_CONST]) + (1).to_bytes(2, "little") + bytes([_region.T_PLUS])
+            + bytes([_region.T_CONST]) + (2).to_bytes(2, "little") + bytes([_region.T_DIV])
+            + bytes([_region.T_PLUS, _region.T_END]))
+
+
+def tent_rest_body() -> bytes:
+    """The tent's effect: per party slot 0..7, **if the member is not KO'd**, restore half of maximum
+    HP and MP, then consume one Tent.
+
+    Byte-shaped on field 300 @5016-5608. The per-slot guard is the load-bearing part: ``if (CURHP(slot)
+    != 0)`` -- a tent must NOT revive a dead party member, and a slot the party doesn't hold reads 0 and
+    is skipped by the same test. ``RemoveItem`` runs once, after the heals (the donor's order), so a
+    build that somehow reached here without a tent still cannot go negative -- the caller gates on
+    :func:`has_tent_cond`."""
+    out = b""
+    for k in range(PARTY_SLOTS):
+        alive = (bytes([_region.EXPR_OP]) + bytes([_region.T_CONST]) + k.to_bytes(2, "little")
+                 + bytes([_region.T_CURHP, _region.T_CONST]) + (0).to_bytes(2, "little")
+                 + bytes([_region.T_NE, _region.T_END]))
+        heal = (opcodes.encode(0xF1, k, _half_heal(_region.T_CURHP, _region.T_MAXHP, k), arg_flags=0b10)
+                + opcodes.encode(0xF2, k, _half_heal(_region.T_CURMP, _region.T_MAXMP, k), arg_flags=0b10))
+        out += _region.if_block(alive, heal)
+    return out + opcodes.remove_item(TENT_ITEM, 1)
+
+
+def has_tent_cond() -> bytes:
+    """``if (GetItemCount(Tent) > 0)`` -- gates the tent row's offer (the donor shows a "no tents"
+    line instead; see :func:`tent_dispatch`)."""
+    return (bytes([_region.EXPR_OP, _region.T_CONST]) + TENT_ITEM.to_bytes(2, "little")
+            + bytes([_region.T_ITEMCOUNT, _region.T_CONST]) + (0).to_bytes(2, "little")
+            + bytes([_region.T_NE, _region.T_END]))
+
+
+def tent_dispatch(prompt_txid: int, none_txid: int, *, window: int = CHOICE_WINDOW,
+                  flags: int = CHOICE_FLAGS) -> bytes:
+    """The whole Tent row: no tents -> the "you don't have any" line; otherwise the confirm (its text
+    carries the live ``(Tent(s) Remaining=[NUMB=7])`` count -- the caller loads text var 7 first), and
+    row 0 rests. Declining is a bodiless row."""
+    rest = (opcodes.window_sync(window, flags, prompt_txid)
+            + _choice.switch_on_choice([tent_rest_body(), b""]))
+    # the donor loads the remaining-tent count into text var 7 for the prompt (field 300 @4853)
+    count = opcodes.encode(0x66, 7, bytes([_region.T_CONST]) + TENT_ITEM.to_bytes(2, "little")
+                           + bytes([_region.T_ITEMCOUNT, _region.T_END]), arg_flags=0b10)
+    return _region.if_else(has_tent_cond(), count + rest,
+                           opcodes.window_sync(1, 128, none_txid))
+
+
+def shop_dispatch(shop_id: int) -> bytes:
+    """The Mogshop row: ``Menu(2, <shopId>)`` bracketed by the donor's brief waits (field 300 @10631).
+    The inventory itself is an ordinary ``[[shop]]`` -- this row just opens it."""
+    return (opcodes.wait(3) + opcodes.menu(2, int(shop_id)) + opcodes.wait(3))
+
+
+def party_dispatch(*, min_size: int = DEFAULT_PARTY_MIN, locked: int = DEFAULT_PARTY_LOCKED) -> bytes:
+    """The Switch-party-members row: ``Party(min_size, locked)`` then ``UpdatePartyUID()`` -- the donor's
+    pair (field 300 @10675). ``locked`` is a bitmask of character slots the player may not remove."""
+    return opcodes.encode(0xB2, int(min_size), int(locked)) + opcodes.encode(0xE9)
+
+
+# The real save moogle's row ORDER (text entry 3 of a moogle field): Save / Tent / Mognet / Mogshop /
+# Switch party members / Debug / Cancel. A field shows a SUBSET -- stock does it with a runtime
+# availability mask over all seven rows; we emit only the configured rows, which is equivalent for a
+# static configuration and keeps the [CHOO] list and the dispatch trivially in step. `Debug` is stock's
+# own dev row and is never emitted. Cancel is always last.
+MENU_ROW_ORDER = ("save", "tent", "mognet", "shop", "party")
+
+
+def menu_rows(cfg) -> list:
+    """The row KEYS this save point shows, in the donor's order, always ending in ``"cancel"``.
+    ``cfg`` is the ``[[savepoint]]`` table; a row appears when its feature is configured."""
+    on = {"save": True,
+          "tent": bool(cfg.get("tent")),
+          "mognet": bool(cfg.get("mognet") and str(cfg.get("mognet", {}).get("name", ""))),
+          "shop": cfg.get("shop") is not None,
+          "party": bool(cfg.get("party"))}
+    return [k for k in MENU_ROW_ORDER if on[k]] + ["cancel"]
+
+
+def save_dispatch_menu(prompt_txid: int, rows, bodies) -> bytes:
+    """The moogle's talk body for ANY configured row set: lock control, open the prompt, dispatch with
+    :func:`choice.switch_on_choice` (op_0B -- one sysvar-9 read, so nested confirms are safe), restore.
+
+    ``rows`` are the keys from :func:`menu_rows`; ``bodies`` maps each key to its body (``cancel`` and
+    any missing key emit nothing). The row ORDER here must match the ``[CHOO]`` list the build writes --
+    both derive from :func:`menu_rows`, so they cannot drift."""
+    return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU
+            + opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, prompt_txid)
+            + _choice.switch_on_choice([bytes(bodies.get(r, b"") or b"") for r in rows])
+            + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def save_confirm_body(confirm_txid: int, *, latch: bool = True) -> bytes:
+    """The Save row's body: the Yes/No confirm, then the latched save. Row 1 (No) is bodiless."""
+    return (opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, confirm_txid)
+            + _choice.switch_on_choice([save_act(latch=latch), b""]))
+
+
 def save_dispatch_mognet(prompt_txid: int, confirm_txid: int, mognet_body: bytes,
                          *, latch: bool = True) -> bytes:
     """The network-joined moogle's talk body -- a THREE-row menu: Save / Mognet / Cancel::

@@ -1477,15 +1477,34 @@ def validate(project: FieldProject) -> list[str]:
         # An unknown or mistyped key used to be silently ignored -- `moggle = false` or `dialog = false`
         # would build a save point that behaves nothing like the author asked for, with no diagnostic.
         _sp_keys = {"zone", "pos", "moogle", "bubble", "dialogue", "latch", "prompt", "confirm",
-                    "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet"}
+                    "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet",
+                    "tent", "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent",
+                    "shop", "shop_row", "party", "party_row", "party_min", "party_locked"}
         for k in sorted(set(sp) - _sp_keys):
             problems.append(f"[[savepoint]] unknown key {k!r} -- expected one of {', '.join(sorted(_sp_keys))}")
-        for k in ("moogle", "bubble", "dialogue", "latch"):
+        for k in ("moogle", "bubble", "dialogue", "latch", "tent", "party"):
             if k in sp and not isinstance(sp[k], bool):
                 problems.append(f"[[savepoint]] {k} must be true or false, got {sp[k]!r}")
-        for k in ("prompt", "confirm", "save_row", "cancel_row", "yes_row", "no_row", "speaker"):
+        for k in ("prompt", "confirm", "save_row", "cancel_row", "yes_row", "no_row", "speaker",
+                  "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent", "shop_row", "party_row"):
             if k in sp and not isinstance(sp[k], str):
                 problems.append(f"[[savepoint]] {k} must be a string, got {sp[k]!r}")
+        # the extra menu rows (docs/SAVEPOINT.md). A row only appears when its feature is configured,
+        # so a mistyped `tent`/`party` would silently drop the row -- hence the type checks above.
+        if sp.get("shop") is not None:
+            sid = sp["shop"]
+            if not isinstance(sid, int) or isinstance(sid, bool) or not 0 <= sid <= _shop.MAX_SHOP_ID:
+                problems.append(f"[[savepoint]] shop must be a shop id 0..{_shop.MAX_SHOP_ID} (the Menu "
+                                f"sub-id the Mogshop row opens), got {sid!r}")
+            elif not any(int(x.get("id", -1)) == sid for x in project.raw.get("shop", [])):
+                problems.append(f"[[savepoint]] shop = {sid} has no [[shop]] with that id in this field -- "
+                                f"the Mogshop row would open an inventory the mod never ships")
+        for k in ("party_min", "party_locked"):
+            if k in sp and (not isinstance(sp[k], int) or isinstance(sp[k], bool)):
+                problems.append(f"[[savepoint]] {k} must be an integer, got {sp[k]!r}")
+        if "party_min" in sp and not 0 <= sp.get("party_min", 0) <= 4:
+            problems.append(f"[[savepoint]] party_min must be 0..4 (the minimum party size), "
+                            f"got {sp['party_min']!r}")
         problems.extend(_validate_savepoint_mognet(project, sp))
     for i, sh in enumerate(project.raw.get("shop", [])):   # custom shop ([[shop]]: inventory CSV + opener)
         sid = sh.get("id")
@@ -5018,29 +5037,43 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
         sps = [{"zone": _gw.quad_zone(sp["zone"]) if len(sp["zone"]) == 4 else sp["zone"],
                 "bubble": sp.get("bubble", True)} for sp in savepoints]
 
+        def _mognet_body(mg, t):
+            """The Mognet row's body -- the full letter act (guard + status box + accept/give/nothing,
+            docs/SAVEPOINT.md). give_to_id was resolved against the install roster at text time; its
+            absence means no give was authored."""
+            from .content import mognet as _mognet
+            give = None
+            if isinstance(mg.get("give"), dict) and "give_to_id" in t:
+                give = (int(mg["give"]["variant"]), int(t["give_to_id"]))
+            acc_variants, acc_letters = _mognet.normalize_accept(mg.get("accept", []))
+            return _mognet.mognet_interaction_body(
+                accept_variants=acc_variants, give=give,
+                accept_prompt_txid=t["accept_prompt"], thanks_txid=t.get("thanks"),
+                give_prompt_txid=t.get("give_prompt"), give_txid=t.get("give_line"),
+                nothing_txid=t.get("nothing"), erase_txid=t.get("erase"),
+                letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t},
+                status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None)
+
         def _dispatch(k, sp):
             t = (savepoint_txids or {}).get(k)
             if not sp.get("dialogue", True) or not t:
                 return _savepoint.save_dispatch()
             mg = sp.get("mognet")
-            if mg and "accept_prompt" in t:
-                # the NETWORK moogle: Save / Mognet / Cancel, the Mognet row running the full letter
-                # act (guard + accept/give/nothing -- docs/SAVEPOINT.md). give_to_id was resolved
-                # against the install roster at text time; its absence means no give was authored.
-                from .content import mognet as _mognet
-                give = None
-                if isinstance(mg.get("give"), dict) and "give_to_id" in t:
-                    give = (int(mg["give"]["variant"]), int(t["give_to_id"]))
-                acc_variants, acc_letters = _mognet.normalize_accept(mg.get("accept", []))
-                mog = _mognet.mognet_interaction_body(
-                    accept_variants=acc_variants, give=give,
-                    accept_prompt_txid=t["accept_prompt"], thanks_txid=t.get("thanks"),
-                    give_prompt_txid=t.get("give_prompt"), give_txid=t.get("give_line"),
-                    nothing_txid=t.get("nothing"), erase_txid=t.get("erase"),
-                    letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t},
-                    status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None)
-                return _savepoint.save_dispatch_mognet(t["prompt"], t["confirm"], mog,
-                                                       latch=sp.get("latch", True))
+            rows = _savepoint.menu_rows(sp)
+            if len(rows) > 2 or (mg and "accept_prompt" in t):
+                # ANY configured extra row (tent / mognet / shop / party) -> the row-driven menu
+                bodies = {"save": _savepoint.save_confirm_body(t["confirm"], latch=sp.get("latch", True))}
+                if "tent" in rows and "tent_prompt" in t:
+                    bodies["tent"] = _savepoint.tent_dispatch(t["tent_prompt"], t["tent_none"])
+                if "shop" in rows:
+                    bodies["shop"] = _savepoint.shop_dispatch(int(sp["shop"]))
+                if "party" in rows:
+                    bodies["party"] = _savepoint.party_dispatch(
+                        min_size=int(sp.get("party_min", _savepoint.DEFAULT_PARTY_MIN)),
+                        locked=int(sp.get("party_locked", _savepoint.DEFAULT_PARTY_LOCKED)))
+                if "mognet" in rows and "accept_prompt" in t:
+                    bodies["mognet"] = _mognet_body(mg, t)
+                return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies)
             return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
                                                      latch=sp.get("latch", True))
 
@@ -5861,21 +5894,36 @@ def collect_text(project: FieldProject):
         confirm = _text.with_speaker(sp.get("speaker"), str(sp.get("confirm", _savepoint.DEFAULT_CONFIRM)))
         if wrap is not None:
             prompt, confirm = _text.wrap_text(prompt, wrap)[0], _text.wrap_text(confirm, wrap)[0]
-        if mg and str(mg.get("name", "")):
-            # the network moogle's TOP menu grows the Mognet row: Save / Mognet / Cancel, cancel = row 2
-            from .content import mognet as _mognet
-            rows = (str(sp.get("save_row", _savepoint.DEFAULT_SAVE_ROW)),
-                    str(mg.get("mognet_row", _mognet.DEFAULT_MOGNET_ROW)),
-                    str(sp.get("cancel_row", _savepoint.DEFAULT_CANCEL_ROW)))
-            tag = "[PCHC=3,2]"
-        else:
-            rows = (str(sp.get("save_row", _savepoint.DEFAULT_SAVE_ROW)),
-                    str(sp.get("cancel_row", _savepoint.DEFAULT_CANCEL_ROW)))
-            tag = "[PCHC=2,1]"                   # 2 rows, cancel = row 1 (no hiding) -- see choice.pre_choose
+        # the menu rows this save point shows, in the real moogle's order (savepoint.menu_rows) -- the
+        # [CHOO] list and the dispatch both derive from it, so they cannot drift out of step
+        from .content import mognet as _mognet
+        row_keys = _savepoint.menu_rows(sp)
+        _label = {"save": sp.get("save_row", _savepoint.DEFAULT_SAVE_ROW),
+                  "tent": sp.get("tent_row", _savepoint.DEFAULT_TENT_ROW),
+                  "mognet": (mg or {}).get("mognet_row", _mognet.DEFAULT_MOGNET_ROW),
+                  "shop": sp.get("shop_row", _savepoint.DEFAULT_SHOP_ROW),
+                  "party": sp.get("party_row", _savepoint.DEFAULT_PARTY_ROW),
+                  "cancel": sp.get("cancel_row", _savepoint.DEFAULT_CANCEL_ROW)}
+        rows = tuple(str(_label[k]) for k in row_keys)
+        tag = f"[PCHC={len(rows)},{len(rows) - 1}]"   # cancel is always the last row -- see choice.pre_choose
         sp_pos[k] = (
             _add_raw(tag + prompt + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(rows), sp.get("tail")),
             _add_raw("[PCHC=2,1]" + confirm + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(yn),
                      sp.get("tail")))
+        if sp.get("tent"):
+            tp = _text.with_speaker(sp.get("speaker"), str(sp.get("tent_prompt",
+                                                                 _savepoint.DEFAULT_TENT_PROMPT)))
+            tn = _text.with_speaker(sp.get("speaker"), str(sp.get("no_tent", _savepoint.DEFAULT_NO_TENT)))
+            if wrap is not None:
+                tp, tn = _text.wrap_text(tp, wrap)[0], _text.wrap_text(tn, wrap)[0]
+            tyn = (str(sp.get("tent_yes", _savepoint.DEFAULT_TENT_YES)),
+                   str(sp.get("tent_no", _savepoint.DEFAULT_TENT_NO)))
+            # the donor shows the live remaining count in the prompt: (Tent(s) Remaining=[NUMB=7]),
+            # text var 7 loaded by savepoint.tent_dispatch just before the window
+            sp_pos[k] += (
+                _add_raw("[PCHC=2,1]" + tp + chr(10) + "(Tent(s) Remaining=[NUMB=7])" + _text.CHOICE_OPEN
+                         + (chr(10) + _text.CHOICE_INDENT).join(tyn), sp.get("tail")),
+                _add_raw(tn, sp.get("tail")))
         if mg and str(mg.get("name", "")):
             # the Mognet act's texts + the give-recipient resolution (docs/SAVEPOINT.md). The roster --
             # the 41 real names -- enters ONLY from the user's install (provenance); fetched once.
@@ -5954,7 +6002,12 @@ def collect_text(project: FieldProject):
     # {savepoint index: {"prompt": txid, "confirm": txid}} -- the two [CHOO] menus per save point; a
     # network moogle adds its Mognet-act txids + the resolved give_to_id (NOT a txid -- passed through
     # so the injection needn't re-fetch the roster to re-resolve a recipient name)
-    savepoint_txids = {k: {"prompt": mapping[p], "confirm": mapping[c]} for k, (p, c) in sp_pos.items()}
+    savepoint_txids = {}
+    for k, pos in sp_pos.items():
+        d = {"prompt": mapping[pos[0]], "confirm": mapping[pos[1]]}
+        if len(pos) > 2:                                   # the tent row's confirm + no-tents line
+            d["tent_prompt"], d["tent_none"] = mapping[pos[2]], mapping[pos[3]]
+        savepoint_txids[k] = d
     for k, d in mg_pos.items():
         savepoint_txids.setdefault(k, {}).update(
             {key: (v if key == "give_to_id" else mapping[v]) for key, v in d.items()})

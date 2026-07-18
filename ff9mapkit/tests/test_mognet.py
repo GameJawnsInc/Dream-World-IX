@@ -21,7 +21,7 @@ from ff9mapkit.eb import disasm
 
 
 # --------------------------------------------------------------------------- the mini-VM ---
-def _eval_expr(tokens: bytes, G: bytearray, sysread=None) -> int:
+def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None) -> int:
     """Evaluate one 0x05 expression's token stream (sans the leading 05) against gEventGlobal ``G``.
     ``sysread(code)`` services GetSysvar tokens (0x7A) -- the tests script dialog choices through it."""
     stack: list = []
@@ -54,6 +54,17 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None) -> int:
             if sysread is None:
                 raise AssertionError(f"mini-VM: unscripted GetSysvar({code})")
             stack.append(("c", int(sysread(code))))
+        elif t in (_region.T_CURHP, _region.T_MAXHP, _region.T_CURMP, _region.T_MAXMP):
+            slot = deref(stack.pop())                  # a slot the party doesn't hold reads 0
+            idx = {_region.T_CURHP: 0, _region.T_MAXHP: 1, _region.T_CURMP: 2, _region.T_MAXMP: 3}[t]
+            stack.append(("c", (party or {}).get(slot, (0, 0, 0, 0))[idx]))
+        elif t == _region.T_ITEMCOUNT:
+            item = deref(stack.pop())
+            stack.append(("c", (party or {}).get(("item", item), 0)))
+        elif t in (_region.T_PLUS, _region.T_DIV, _region.T_MULT, _region.T_MINUS):
+            b, a = deref(stack.pop()), deref(stack.pop())
+            stack.append(("c", {_region.T_PLUS: a + b, _region.T_MINUS: a - b,
+                                _region.T_MULT: a * b, _region.T_DIV: a // b if b else 0}[t]))
         elif t == _region.T_NOT:
             stack.append(("c", 0 if deref(stack.pop()) else 1))
         elif t in (_region.T_LT, _region.T_EQ, _m._T_NE, _m._T_ANDAND, _m._T_OROR):
@@ -84,7 +95,14 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None) -> int:
     return deref(stack[-1]) if stack else 0
 
 
-def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windows=None) -> bytearray:
+def _expr_operand(raw: bytes, i) -> bytes:
+    """The expression-operand token stream of an instruction whose arg1 is an expression (SetHP/SetMP:
+    opcode, argflag, slot byte, then the tokens)."""
+    return raw[i.off + 3:i.off + i.length]
+
+
+def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windows=None,
+        stats=None, items=None, party_menu=None, party=None) -> bytearray:
     """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops.
 
     ``choices`` scripts the player's dialog picks: each read of GetSysvar(9) consumes the next entry
@@ -93,6 +111,8 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
     G = bytearray(2048) if G is None else bytearray(G)
     raw = bytes(body)
     queue = list(choices or [])
+
+    party = dict(party or {})                      # {slot: (curhp, maxhp, curmp, maxmp)}; absent = 0s
 
     def sysread(code):
         if code != 9:
@@ -105,7 +125,7 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
     while pos < len(raw):
         i, nxt = disasm.read_code(raw, pos)
         if i.op == 0x05:
-            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread)
+            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread, party)
         elif i.op == 0x01:                             # unconditional forward hop
             nxt += i.args[0]
         elif i.op == 0x02:                             # jump-if-false
@@ -125,11 +145,22 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
             windows.append((i.args[0], i.args[1], i.args[2]))
         elif i.op == 0x04:                             # RETURN -- halt
             break
+        elif i.op in (0xF1, 0xF2):                     # SetHP / SetMP -- record (slot, value)
+            if stats is not None:
+                stats.append((("hp" if i.op == 0xF1 else "mp"), i.args[0],
+                              _eval_expr(_expr_operand(raw, i), G, sysread, party)))
+        elif i.op == 0x49:                             # RemoveItem
+            if items is not None:
+                items.append((i.args[0], i.args[1]))
+        elif i.op == 0xB2:                             # Party(min_size, locked_mask)
+            if party_menu is not None:
+                party_menu.append((i.args[0], i.args[1]))
         elif i.op in (0x1F, 0x20, 0x66,                # WindowSync / WindowAsync / SetTextVariable
                       0x22,                            # Wait
                       0x2D, 0x2E, 0xAB, 0xAA,          # Disable/EnableMove, Disable/EnableMenu
-                      0xA9, 0xEC, 0x8E, 0x54, 0x21):   # the letter display: CalcScreenPos / FadeFilter
-            pass                                       #   / RaiseWindows / WaitWindow / CloseWindow
+                      0xA9, 0xEC, 0x8E, 0x54, 0x21,    # the letter display: CalcScreenPos / FadeFilter
+                      0xE9):                           #   / RaiseWindows / WaitWindow / CloseWindow
+            pass                                       # + UpdatePartyUID
         else:
             raise AssertionError(f"mini-VM: unhandled opcode 0x{i.op:02X} at {i.off}")
         pos = nxt
@@ -746,3 +777,106 @@ def test_built_field_shows_the_status_box(tmp_path, fake_roster):
     run(body, G0, choices=[1, 1], windows=wins)
     assert (5, 8, t["status1"]) in wins
     assert (5, 8, t["status2"]) not in wins
+
+
+# --------------------------------------------------------------------------- the three menu rows ---
+from ff9mapkit.content import savepoint as _spm  # noqa: E402
+
+_ALIVE = {0: (10, 100, 5, 50), 1: (200, 200, 0, 20), 2: (0, 80, 0, 30)}   # hurt / full / KO'd
+_HAS_TENT = dict(_ALIVE); _HAS_TENT[("item", _spm.TENT_ITEM)] = 3
+
+
+def test_tent_heals_half_of_max_and_never_revives():
+    """The donor's formula (field 300 @5029): CUR + (MAX+1)/2 per slot, guarded by CURHP != 0 -- so a
+    KO'd member is skipped entirely and an unheld slot (all zeros) likewise."""
+    stats, items = [], []
+    run(_spm.tent_rest_body(), party=_HAS_TENT, stats=stats, items=items)
+    got = {(kind, slot): val for kind, slot, val in stats}
+    assert got[("hp", 0)] == 10 + (100 + 1) // 2         # hurt -> half of max, rounded up
+    assert got[("mp", 0)] == 5 + (50 + 1) // 2
+    assert got[("hp", 1)] == 200 + (200 + 1) // 2        # already full -> SetHP clamps in-engine
+    assert ("hp", 2) not in got and ("mp", 2) not in got  # KO'd: not revived
+    assert all(slot in (0, 1) for _k, slot, _v in stats)  # unheld slots 3..7 skipped by the same guard
+    assert items == [(_spm.TENT_ITEM, 1)]                 # exactly one tent consumed
+
+
+def test_tent_dispatch_refuses_without_a_tent():
+    stats, items, wins = [], [], []
+    run(_spm.tent_dispatch(600, 601), party=_ALIVE, stats=stats, items=items, windows=wins)
+    assert stats == [] and items == []                    # no heal, no consume
+    assert wins == [(1, 128, 601)]                        # just the "no tents" line
+
+
+def test_tent_dispatch_rests_on_yes_and_not_on_no():
+    for pick, healed in ((0, True), (1, False)):
+        stats, items, wins = [], [], []
+        run(_spm.tent_dispatch(600, 601), party=_HAS_TENT, choices=[pick],
+            stats=stats, items=items, windows=wins)
+        assert wins == [(_spm.CHOICE_WINDOW, _spm.CHOICE_FLAGS, 600)]
+        assert bool(stats) is healed and bool(items) is healed
+
+
+def test_shop_and_party_rows_are_the_donor_pair():
+    menus = []
+    run(_spm.shop_dispatch(7), menus=menus)
+    assert menus == [(2, 7)]                              # Menu(2, shopId)
+    pm = []
+    run(_spm.party_dispatch(), party_menu=pm)
+    assert pm == [(4, 1)]                                 # Party(min=4, locked=slot0) -- field 300 @10675
+    pm = []
+    run(_spm.party_dispatch(min_size=0, locked=0), party_menu=pm)
+    assert pm == [(0, 0)]
+
+
+def test_menu_rows_follow_the_donor_order():
+    assert _spm.menu_rows({}) == ["save", "cancel"]
+    assert _spm.menu_rows({"tent": True, "party": True, "shop": 3}) == \
+        ["save", "tent", "shop", "party", "cancel"]
+    full = {"tent": True, "shop": 3, "party": True, "mognet": {"name": "Mogwai"}}
+    assert _spm.menu_rows(full) == ["save", "tent", "mognet", "shop", "party", "cancel"]
+    assert _spm.menu_rows({"mognet": {}}) == ["save", "cancel"]      # a nameless mognet is not a row
+
+
+_ROWS_FIELD = _FIELD.replace(
+    "[savepoint.mognet]",
+    'tent = true\nparty = true\nshop = 80\n\n[[shop]]\nid = 80\nsells = ["Potion"]\n\n[savepoint.mognet]')
+
+
+def test_built_six_row_menu_dispatches_every_row(tmp_path, fake_roster):
+    _proj, ct, eb = _built(tmp_path, _ROWS_FIELD)
+    mes, t = ct[0], ct[-1][0]
+    assert "[PCHC=6,5]" in mes                            # 6 rows, cancel last
+    for label in ("Save", "Tent", "Mognet", "Mogshop", "Switch party members", "Cancel"):
+        assert label in mes
+    assert "(Tent(s) Remaining=[NUMB=7])" in mes and "tent_prompt" in t
+    body = _moogle_talk_body(eb)
+    # row 0 Save -> Yes
+    menus = []
+    run(body, choices=[0, 0], menus=menus); assert menus == [(4, 0)]
+    # row 1 Tent -> Rest (with tents held)
+    stats, items = [], []
+    run(body, choices=[1, 0], party=_HAS_TENT, stats=stats, items=items)
+    assert items == [(_spm.TENT_ITEM, 1)] and stats
+    # row 3 Mogshop, row 4 party
+    menus, pm = [], []
+    run(body, choices=[3], menus=menus); assert menus == [(2, 80)]
+    run(body, choices=[4], party_menu=pm); assert pm == [(4, 1)]
+    # row 5 Cancel -- nothing at all
+    G = run(body, choices=[5]); assert bytes(G) == bytes(bytearray(2048))
+
+
+def test_row_validation(tmp_path, fake_roster):
+    from ff9mapkit import build
+
+    def probs(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    bad = _ROWS_FIELD.replace("shop = 80", "shop = 81")          # no [[shop]] with that id
+    assert any("has no [[shop]] with that id" in x for x in probs(bad))
+    bad = _ROWS_FIELD.replace("tent = true", 'tent = "yes"')
+    assert any("tent must be true or false" in x for x in probs(bad))
+    bad = _ROWS_FIELD.replace("party = true", "party = true\nparty_min = 9")
+    assert any("party_min must be 0..4" in x for x in probs(bad))
+    assert not [x for x in probs(_ROWS_FIELD) if "savepoint" in x.lower()]

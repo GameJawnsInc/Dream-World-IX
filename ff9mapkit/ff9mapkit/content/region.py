@@ -83,6 +83,14 @@ T_MINUS = 0x15        # B_MINUS '-'
 T_GT = 0x19           # B_GT '>'
 T_LE = 0x1A           # B_LE '<='
 T_GE = 0x1B           # B_GE '>='
+T_NE = 0x21           # B_NE '!=' (the mognet slot checks; the tent's not-KO'd guard)
+# Party-member stat readers -- unary fn tokens: each pops a party-SLOT index (0..7) and pushes that
+# member's stat. A slot the party doesn't hold reads 0, which is why the donor's `CURHP(slot) != 0`
+# guard doubles as both "not KO'd" and "slot occupied" (content.savepoint.tent_rest_body).
+T_CURHP = 0x52        # B_CURHP
+T_MAXHP = 0x53        # B_MAXHP
+T_CURMP = 0x6E        # B_CURMP
+T_MAXMP = 0x6F        # B_MAXMP
 T_ANDAND = 0x27       # B_ANDAND '&&'
 T_OROR = 0x28         # B_OROR '||'
 T_KEY = 0x59          # B_KEY: pop a button-mask const, push (mask & held-inputs ? 1 : 0) -- HELD input

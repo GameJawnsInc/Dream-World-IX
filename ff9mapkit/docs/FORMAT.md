@@ -597,6 +597,13 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 | `save_row` / `cancel_row` / `yes_row` / `no_row` | the menu rows. **Cancel is row 1 in both menus** and must stay bodiless — see `SAVEPOINT.md`. |
 | `speaker` | optional name prefixed onto both questions. |
 | `latch` | the `gEventGlobal[184]` bracket around the save — default `true`; every real save point sets it. |
+| `tent` | `true` adds the **Tent** row: the confirm with a live remaining count, or "you don't have any tents"; resting restores **half of maximum HP and MP** (rounded up) to every living party member — a KO'd member is not revived — and consumes one Tent. Wording: `tent_row` / `tent_prompt` / `tent_yes` / `tent_no` / `no_tent`. |
+| `shop` | a `[[shop]]` id — adds the **Mogshop** row, opening that shop's inventory (`Menu(2, id)`). The `[[shop]]` must exist in the same field. Label: `shop_row`. |
+| `party` | `true` adds the **Switch party members** row (`Party` + `UpdatePartyUID`). `party_min` = minimum party size (0–4, default 4), `party_locked` = bitmask of character slots the player may not remove (default 1 = slot 0). Label: `party_row`. |
+
+The menu shows only the rows you configure, in FF9's own order — **Save · Tent · Mognet · Mogshop ·
+Switch party members · Cancel** — so a bare `[[savepoint]]` is still Save/Cancel and a fully-dressed one
+matches a real save moogle (minus stock's `Debug` row, which is never emitted).
 
 ### `[savepoint.mognet]` — join FF9's real Mognet network as a NEW moogle
 
