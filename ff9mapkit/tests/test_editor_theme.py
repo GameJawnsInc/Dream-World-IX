@@ -38,10 +38,11 @@ def test_colours_are_hex_and_modes_flagged():
 
 
 def test_theme_choices_cover_every_palette():
-    # the picker order must offer "auto" plus exactly the THEMES keys (no orphan choice, none missing).
+    # the picker order must offer "auto" plus exactly the THEMES keys (no orphan choice, none missing);
+    # "mist" leads the list -- it's the default (prefs.theme()).
     choice_modes = [m for m, _label in theme.THEME_CHOICES]
-    assert choice_modes[0] == "auto"
-    assert set(choice_modes[1:]) == set(theme.THEMES)
+    assert choice_modes[0] == "mist"
+    assert set(choice_modes[1:]) | {"mist"} == set(theme.THEMES) | {"auto"}
     assert len({m for m, _ in theme.THEME_CHOICES}) == len(theme.THEME_CHOICES)   # no dup
     assert all(label for _m, label in theme.THEME_CHOICES)                        # every choice is labelled
 

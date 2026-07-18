@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import provision
 
-_DEFAULTS = {"theme": "auto", "recent": [], "density": "comfortable"}
+_DEFAULTS = {"theme": "mist", "recent": [], "density": "comfortable"}
 
 RECENT_KINDS = ("journey", "campaign", "field", "save")   # the openable project kinds an MRU row can hold
 RECENT_LIMIT = 10
@@ -56,9 +56,11 @@ def put(key: str, value) -> None:
 
 
 def theme() -> str:
-    """The saved theme mode (a key in :data:`.editor.theme.THEMES`, or ``"auto"``). Default ``"auto"``."""
-    val = get("theme", "auto")
-    return val if isinstance(val, str) and val else "auto"
+    """The saved theme mode (a key in :data:`.editor.theme.THEMES`, or ``"auto"``). Default ``"mist"`` (the
+    FF9 climate) -- ``"auto"`` (match system) is still one click away in the picker, it is just no longer
+    what a fresh install paints."""
+    val = get("theme", "mist")
+    return val if isinstance(val, str) and val else "mist"
 
 
 def set_theme(mode: str) -> None:
