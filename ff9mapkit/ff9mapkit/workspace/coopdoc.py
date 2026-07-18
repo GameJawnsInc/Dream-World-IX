@@ -464,6 +464,24 @@ class CoopDoc(QWidget):
             widgets.set_state(self.lbl_config, "warn")
             self.lbl_config.setText("direct LAN join needs the host's IP")
             return
+        if code:
+            # Reject a bad paste HERE, before a subprocess spawns: .strip() only trims the ends, and
+            # argv carries an embedded newline through intact (CommandLineToArgvW splits on spaces
+            # and tabs only), so the field is a live carrier for the ini-splice -- see coop.validate_code.
+            try:
+                coop.validate_code(code)
+            except ValueError as e:
+                if not hosting:
+                    widgets.set_state(self.lbl_config, "warn")
+                    self.lbl_config.setText(str(e))
+                    return
+                # HOSTING: the field is read-only in this mode and refresh_status seeds it from the
+                # stored SessionCode, so an ini the user never typed can otherwise dead-end Start with
+                # no way to clear it. Drop it and let coop.py mint a fresh one -- the same tolerance
+                # `ff9mapkit coop host` already applies to an unusable stored code. done() reads the
+                # new code back into the field.
+                self._append_log(f"{e} -- it came from Memoria.ini, minting a new one")
+                code = ""
         style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host", "diorama"),
                          self._playstyle_state())) if self.style_box.isEnabled() else {}
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
@@ -537,7 +555,10 @@ class CoopDoc(QWidget):
         self.stop_bridge()
         try:
             coop.write_netsync(self._game, {"Enabled": "0"}, out=self._append_log)
-        except (OSError, FileNotFoundError) as e:
+        # ValueError = the writer refusing an unwritable key/value (coop._check_ini_pair). This call
+        # passes a literal so it cannot fire today, but an unhandled raise inside a Qt slot has no
+        # stderr under pythonw -- it would vanish, and the button would just do nothing.
+        except (ValueError, OSError, FileNotFoundError) as e:
             self._append_log(f"could not update Memoria.ini: {e}")
         self.refresh_status()
 

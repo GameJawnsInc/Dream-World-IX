@@ -80,6 +80,20 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  dict patch : {layout.dictionary_patch} ({'present' if layout.dictionary_patch.is_file() else 'absent'})")
     from . import provision
     print(f"templates    : {'extracted' if provision.templates_present() else 'NOT extracted -- run: ff9mapkit extract-templates'}")
+    # deploy LEDGER reconciliation: an id the ledger says was deployed but that NO stacked mod folder
+    # registers any more is a registration that VANISHED (a campaign wholesale-replace, a foreign deploy's
+    # drop, a hand edit) -- and the engine black-screens on it with no error. Retirements are deliberate and
+    # listed separately, because the 2026-07-18 hunt burned hours on a field that had simply been retired.
+    from . import deploylog
+    _rep = deploylog.reconcile(game)
+    print(f"deploy ledger: {deploylog.ledger_path(game)} "
+          f"({'present' if deploylog.ledger_path(game).is_file() else 'absent -- written on the next deploy'})")
+    _warn = deploylog.reconcile_warning(_rep)
+    if _warn:
+        print("  !! " + _warn.replace("\n", "\n  "))
+    if _rep.retired:
+        print(f"  retired on purpose (not a problem): "
+              f"{', '.join(f'{e.field_id} @ {e.when}' for e in _rep.retired)}")
     return 0
 
 

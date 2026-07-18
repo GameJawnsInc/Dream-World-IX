@@ -90,4 +90,6 @@ throwaway session code, and checks packets arrive verbatim both ways.
   After a crash it can take up to a minute for the old session to clear.
 - **No relay at all?** The proven direct-LAN mode still works: leave
   `RelayUrl` empty and set `PeerAddress`/`Port` to the host's LAN IP instead
-  (same WiFi, firewall allowed, VPNs off or LAN-sharing enabled).
+  (same WiFi, firewall allowed on the Private profile only — Windows' prompt
+  ticks Public too, which opens the listener to a whole cafe/campus network —
+  VPNs off or LAN-sharing enabled).

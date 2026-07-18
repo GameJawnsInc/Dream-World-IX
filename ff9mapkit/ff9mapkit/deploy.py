@@ -26,10 +26,20 @@ from . import newgame
 from .config import LANGS, ModLayout, find_game_path
 
 
-def _foreign_regs_wiped(live, dist_root) -> list:
-    """The FOREIGN ``3DModel``/``3DModelAnimation`` DictionaryPatch registrations a wholesale replace of
-    ``live`` (a :class:`ModLayout`) with ``dist_root`` would silently drop -- present in the live folder,
-    absent from the dist. A safety net for the ``model-anim-new``-between-deploys footgun."""
+def _regs_wiped(live, dist_root) -> list:
+    """The DictionaryPatch registrations a wholesale replace of ``live`` (a :class:`ModLayout`) with
+    ``dist_root`` would silently drop -- present in the live folder, absent from the dist. A safety net for the
+    ``model-anim-new``-between-deploys footgun and, since 2026-07-18, for a co-resident field's ``FieldScene``
+    line: several checkouts deploy into ONE mod folder, and an id this install de-registers black-screens.
+
+    NOT "foreign", and there is no ``owned`` predicate to make it so. An earlier docstring claimed the campaign
+    owns every id in the dist BY CONSTRUCTION so anything left is foreign by definition -- true of the ids the
+    dist STILL carries, false of the ones it USED to. Drop a member from ``campaign.toml`` (or just delete a
+    member's ``[field] location``) and re-deploy: the live folder carries a registration from the previous
+    install that this dist does not, and the campaign owned it. Nothing on disk records WHO registered a line
+    (that is incident 2 in one sentence), so this function reports the FACT -- these registrations are about to
+    go -- and :func:`_wiped_regs_warning` states both readings instead of asserting one. FieldScene is matched
+    on ``(directive, id)``, so a re-deploy that merely rewrites its own fields' lines still reports nothing."""
     live_dp = live.dictionary_patch
     dist_dp = Path(dist_root) / "DictionaryPatch.txt"
     if not live_dp.exists():
@@ -37,6 +47,28 @@ def _foreign_regs_wiped(live, dist_root) -> list:
     before = live_dp.read_text(encoding="utf-8").splitlines()
     after = dist_dp.read_text(encoding="utf-8").splitlines() if dist_dp.exists() else []
     return DP.foreign_registrations_dropped(before, after)
+
+
+def _wiped_regs_warning(lost: list, dist_word: str = "built dist") -> str:
+    """The warning for a wholesale install's dropped registrations -- shared by the campaign and journey call
+    sites, and a function (not an inline string) so a test can hold it to what it may and may not claim.
+
+    IT MUST NOT NAME AN OWNER. The predecessor asserted that a dropped ``FieldScene`` "belongs to ANOTHER
+    session's field co-resident in this folder" and told the user to re-deploy it. On the routine edit -- drop
+    a member from the campaign, change ``id_base``, install a different campaign into a folder that held one
+    before -- that names the author's own deliberately-retired field and prescribes undoing their intent. The
+    guard cannot tell the two apart, because the ambiguity IS the root cause (2026-07-18: a retired
+    registration and a lost one are byte-identical, a line that is not there). So state the fact, give both
+    readings, and give the action for each."""
+    return (f"WARNING: this wholesale install DROPS DictionaryPatch registration(s) the live folder has and "
+            f"the {dist_word} does not. Nothing on disk records who registered them, so there are two "
+            f"readings and this guard cannot tell them apart: (a) YOURS, retired -- a member you removed from "
+            f"this campaign, a changed `id_base`, or a different campaign installed over this folder; nothing "
+            f"to do. (b) ANOTHER checkout's, deployed into this same shared folder -- re-deploy it from that "
+            f"checkout NOW: an unregistered `FieldScene <id>` makes the engine load a null .eb and the field "
+            f"BLACK-SCREENS in game with no error, and a lost 3DModel/3DModelAnimation (e.g. a "
+            f"`model-anim-new` clip added since the last deploy) is a missing model/clip. Reversible via the "
+            f"snapshot. Dropped:\n" + "\n".join(f"       {ln}" for ln in lost))
 
 
 # Start-state learn lists (a FILE SET) read highest-priority-wins -> promoted alongside the start CSVs.
@@ -314,17 +346,15 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     _write_revert()
     report["revert"] = rev
 
-    # foreign-registration guard: a WHOLESALE replace drops any 3DModel/3DModelAnimation line the dist doesn't
-    # carry -- e.g. a clip `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch. The
-    # snapshot restores them on REVERT, but the forward install silently loses them -> WARN loudly (CLAUDE.md
-    # deploy footgun, 2026-07-08). Only reported; the wholesale replace is the campaign-owns-the-folder model.
-    _lost = _foreign_regs_wiped(live, dist_root)
+    # dropped-registration guard: a WHOLESALE replace drops any registration the dist doesn't carry -- a clip
+    # `ff9mapkit model-anim-new` wrote directly into this folder's DictionaryPatch, the FieldScene line of a
+    # field ANOTHER checkout deployed into this same shared folder (2026-07-18), or a member this campaign
+    # itself retired. The snapshot restores them on REVERT, but the forward install silently loses them -> WARN
+    # (CLAUDE.md deploy footgun, 2026-07-08). Only reported; the wholesale replace is the campaign-owns-the-
+    # folder model. The warning states both readings -- see _wiped_regs_warning on why it must not pick one.
+    _lost = _regs_wiped(live, dist_root)
     if _lost:
-        out("  !! WARNING: this wholesale install DROPS DictionaryPatch registration(s) not in the built dist "
-            "(e.g. `model-anim-new` clips added to this folder since the last deploy). RE-ADD them after, or "
-            "author them into the campaign. Reversible via the snapshot. Lost:")
-        for _l in _lost:
-            out(f"       {_l}")
+        out("  !! " + _wiped_regs_warning(_lost))
     try:
         shutil.rmtree(live_root, ignore_errors=True)
         shutil.copytree(dist_root, live_root)
@@ -855,12 +885,9 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
     rev.write_text(_render_folder_revert(live_root, snap, stamp), encoding="utf-8", newline="\n")
     captured.append(str(rev))
     _flush()
-    _lost = _foreign_regs_wiped(ModLayout(live_root), merged)   # model-anim-new-between-deploys footgun (snapshot reverts it)
+    _lost = _regs_wiped(ModLayout(live_root), merged)   # model-anim-new-between-deploys footgun (snapshot reverts it)
     if _lost:
-        out("  !! WARNING: this wholesale install DROPS DictionaryPatch registration(s) not in the merged dist "
-            "(e.g. `model-anim-new` clips added to this folder since the last deploy). RE-ADD them after. Lost:")
-        for _l in _lost:
-            out(f"       {_l}")
+        out("  !! " + _wiped_regs_warning(_lost, "merged dist"))
     try:
         shutil.rmtree(live_root, ignore_errors=True)
         shutil.copytree(merged, live_root)
