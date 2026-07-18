@@ -27,7 +27,8 @@ borrow_bg = "GRGR_MAP420_GR_CEN_0"   # a real room as the backdrop (swap to ANY 
 area      = 21
 borrow_field = 950                   # the real field this room IS -> `gen-hub --extract-camera` caches its camera
 camera    = "camera_hub.bgx"         # default camera path (overridden by --extract-camera to the cache copy)
-text_block = 8                       # a real MesDB id NOT shadowed by the higher FF9CustomMap folder (1073 IS)
+text_block = 8                       # !! block 8 is ICE CAVERN (13 real fields, 300-312) -- 'unshadowed'
+                                     # only clears the cross-folder axis; the base game is in the merge too.
 prompt    = "Kupo! Which journey will you take?"
 stay_text = "Stay here, kupo..."     # the trailing no-warp (cancel) row
 player_model   = 220                 # walk the hub as the iconic Moogle (220 = GEO_NPC_F0_MOG, the save moogle)

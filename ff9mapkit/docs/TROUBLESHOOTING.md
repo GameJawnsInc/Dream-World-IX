@@ -209,15 +209,31 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
    `ff9mapkit deploy-journey <journeys.toml> --apply` (the checkout scripts
    `py tools/deploy_campaign.py` / `py tools/deploy_journey.py` are thin shims over the same
    commands) — then **F6 → Reload field** (or relaunch).
-2. **Clear the shadow.** Deploy your folder higher in `FolderNames`, remove the higher folder's
-   copy of the block, or pin a unique `[field] text_block` — it must be a **real `MesDB` id** that
-   no higher-priority folder defines (arbitrary ids don't load). When you reorder by hand, edit
-   **both `[Mod] FolderNames` and `[Mod] Priorities`** to the same order (see the rule below):
+2. **Clear the collision.** The durable fix is a block that belongs to nobody. Since kit 1.0.0b16 a
+   field with no `text_block` key derives one from its own `[field] id` and auto-registers it, so the
+   usual answer is to **delete the key**:
 
    ```toml
    [field]
-   text_block = 1234        # a real MesDB id that no stacked folder above you defines
+   id = 30250               # text_block derives to 30250 and is auto-registered
    ```
+
+   > **Do NOT "pin a real `MesDB` id no higher folder defines"** — that was the old advice and it is what
+   > put custom dialogue on Ice Cavern and Lindblum Castle. Every one of the 64 real blocks is owned by a
+   > real location, and the base game is part of the engine's **cumulative** text merge, so writing to a
+   > real block overwrites that location's own dialogue even with no stacked folder involved. "Arbitrary
+   > ids don't load" is also no longer true: `register_text_block` emits a DictionaryPatch `MessageFile`
+   > line that registers any id, no engine rebuild.
+
+   A **fork is the exception** — it keeps its donor's real block, which is required, not merely allowed
+   (voice-acting clips resolve off the same mesID, as does the dual-language remap).
+
+   For the cross-folder half you may also deploy your folder higher in `FolderNames`, or remove the higher
+   folder's copy of the block. When you reorder by hand, edit **both `[Mod] FolderNames` and
+   `[Mod] Priorities`** to the same order (see the rule below).
+
+   > **A changed or new `text_block` needs a full RELAUNCH, not F6 → Reload.** `DataPatchers.Initialize`
+   > runs once at process start, so a new `MessageFile` registration is not picked up by a reload.
 
 The deploy step guards this: `deploy_field` **and** `deploy_campaign` / `deploy_journey` run the
 text-block **shadow check** and print a `TEXT SHADOWED: …` warning that names the blocking folder

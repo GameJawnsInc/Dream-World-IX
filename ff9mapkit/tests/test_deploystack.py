@@ -1,15 +1,27 @@
-"""The text-block SHADOW guard (deploystack) -- catch a cross-worktree .mes collision before a playtest.
+"""The text-block guard (deploystack) -- catch a .mes collision before a playtest, on BOTH axes.
 
-The engine reads a field's dialogue (mesID = text_block) from the FIRST folder in Memoria.ini FolderNames
-that defines field/<mesID>.mes. If a HIGHER-priority folder also defines the block, a lower-priority
-worktree's text is shadowed (it renders the other folder's text). These tests pin the FolderNames parse,
-the shadow detection by stack order, the valid-alternative suggestions, and graceful degradation.
+The engine merges a field's dialogue (mesID = text_block) CUMULATIVELY per txid: every FolderNames folder
+that defines field/<mesID>.mes plus the BASE GAME, applied low-priority-first. So a block collides two ways:
+(1) CROSS-FOLDER -- a higher-priority folder's lines win over a lower worktree's; (2) VANILLA -- because the
+base game is always in the merge, a custom field on a REAL block overwrites that location's shipping
+dialogue, with no stacking required. Guarding (1) by "pick another real block" is what CAUSES (2).
+
+These tests pin the FolderNames parse, both detections, the verbatim-fork exemption, the requirement that
+suggestions be FREE CUSTOM ids (never a real block -- the pre-fix guard suggested Ice Cavern and Lindblum
+Castle), the per-language sweep, and graceful degradation.
 """
 from __future__ import annotations
 
 from ff9mapkit.deploystack import (parse_folder_names, check_text_block_shadow, shadow_warning,
                                    check_text_block_shadows, text_shadow_warning, blocks_at,
-                                   check_csv_shadow, HIGHEST_WINS_CSVS)
+                                   check_csv_shadow, HIGHEST_WINS_CSVS, vanilla_fields_on,
+                                   describe_vanilla, suggest_text_blocks, fork_donor_blocks_at, donor_block_for,
+                                   SCRATCH_TEXT_BLOCK_BASE)
+
+# Real shipping blocks (from the engine's own eventIDToMESID): 1073 = Black Mage Village (fields 3050-3059),
+# 187 = a real Cleyra block, 8 = Ice Cavern, 22 = Lindblum Castle. 200/201 are NOT real blocks -- they stand
+# in for a registered custom id in tests that want to isolate the cross-folder axis.
+VANILLA_BLOCK, OTHER_VANILLA, FREE_BLOCK = 1073, 187, 200
 
 
 INI = '''[Mod]
@@ -44,47 +56,153 @@ def test_parse_folder_names_order_and_skips_comment():
 
 def test_shadow_detected_for_lowest_priority_default_block(tmp_path):
     g = _stack(tmp_path)
-    r = check_text_block_shadow(g, "C", 1073)
+    r = check_text_block_shadow(g, "C", VANILLA_BLOCK)
     assert not r.ok and r.shadowed_by == "A"               # the FIRST higher-priority definer
-    assert 187 in r.suggestions and 200 not in r.suggestions   # 187 free; 200 is defined by higher 'B'
-    assert 1073 not in r.suggestions                       # never suggest the colliding block itself
 
 
-def test_highest_priority_folder_is_never_shadowed(tmp_path):
+def test_suggestions_are_free_custom_ids_never_a_real_block(tmp_path):
+    """THE poisoned-pool regression. The pre-fix guard suggested "a real block no higher folder defines",
+    which on the live stack returned [8, 22, 68, 945, ...] -- Ice Cavern, Lindblum Castle, the overworld
+    dispatchers. Following it MOVED the corruption instead of removing it."""
     g = _stack(tmp_path)
-    assert check_text_block_shadow(g, "A", 1073).ok         # nothing is higher than A
+    r = check_text_block_shadow(g, "C", VANILLA_BLOCK)
+    assert r.suggestions, "a colliding block must come with a concrete alternative"
+    assert all(not vanilla_fields_on(s) for s in r.suggestions)      # never a REAL location's block
+    assert OTHER_VANILLA not in r.suggestions                        # specifically: not the old advice
+    assert all(s >= SCRATCH_TEXT_BLOCK_BASE for s in r.suggestions)  # from the custom band
+    assert VANILLA_BLOCK not in r.suggestions                        # never the colliding block itself
+    # and never a block ANY stacked folder already ships (it would just re-collide)
+    taken = blocks_at(g / "A", "us") | blocks_at(g / "B", "us") | blocks_at(g / "C", "us")
+    assert not (set(r.suggestions) & taken)
 
 
-def test_unique_block_is_not_shadowed(tmp_path):
+def test_highest_priority_folder_still_flagged_for_vanilla_overwrite(tmp_path):
+    """The headline gap: the pre-fix guard called this CLEAR while it silently overwrote Black Mage Village.
+    Nothing is higher than 'A', so the cross-folder axis is genuinely clear -- but the base game is always in
+    the cumulative merge, so the vanilla axis is not."""
     g = _stack(tmp_path)
-    assert check_text_block_shadow(g, "C", 187).ok          # 187 only defined by C itself (+ no higher)
-    assert check_text_block_shadow(g, "B", 200).ok          # 200 not defined by higher 'A'
+    r = check_text_block_shadow(g, "A", VANILLA_BLOCK)
+    assert r.shadowed_by is None                            # nothing is higher than A
+    assert r.squats_vanilla and not r.ok                    # ...but it overwrites fields 3050-3059
+    assert r.vanilla_fields[0] == 3050
+
+
+def test_non_vanilla_block_is_clear_when_unshadowed(tmp_path):
+    g = _stack(tmp_path)
+    assert check_text_block_shadow(g, "B", FREE_BLOCK).ok    # 200: not real, not defined by higher 'A'
+
+
+def test_fork_is_exempt_only_on_its_OWN_donor_block(tmp_path):
+    """A fork re-ships its DONOR's own text on the DONOR's own block -- that overwrite is a no-op, so the
+    vanilla axis must not fire. But the exemption is scoped to THAT block: an earlier version took a bare
+    `verbatim=True` boolean, which waved through a fork sitting on any block at all -- including a fork left
+    on the kit default 1073, which really does overwrite Black Mage Village."""
+    g = _stack(tmp_path)
+    # exempt on its own donor block...
+    assert check_text_block_shadow(g, "C", OTHER_VANILLA, verbatim_blocks={OTHER_VANILLA}).ok
+    # ...NOT exempt on a different real block it merely happens to carry (THE regression)
+    off = check_text_block_shadow(g, "A", VANILLA_BLOCK, verbatim_blocks={OTHER_VANILLA})
+    assert off.squats_vanilla and not off.ok
+    # and the CROSS-FOLDER axis survives the exemption entirely
+    r = check_text_block_shadow(g, "C", VANILLA_BLOCK, verbatim_blocks={VANILLA_BLOCK})
+    assert not r.ok and r.shadowed_by == "A" and not r.squats_vanilla
+
+
+def test_donor_block_for_covers_all_three_fork_forms():
+    """The predicate must see native/BG-borrow forks too, not just verbatim ones -- donor 302 (Ice Cavern)
+    lives on block 8, donor 600 (Lindblum) on block 22. An earlier version tested `"verbatim_eb" in raw`,
+    which false-positived every --native fork on its own legitimate donor block."""
+    assert donor_block_for({"verbatim_eb": {"donor": 302}}) == 8          # verbatim
+    assert donor_block_for({"field": {"source_field": 600}}) == 22        # --native / --editable
+    assert donor_block_for({"field": {"borrow_field": 600}}) == 22        # BG-borrow
+    assert donor_block_for({"field": {"source_field": "600"}}) == 22      # string form
+    assert donor_block_for({"field": {"id": 4003}}) is None              # not a fork
+    assert donor_block_for({}) is None
+    assert donor_block_for({"field": {"source_field": True}}) is None    # bool is not a donor id
+    assert donor_block_for({"field": {"source_field": 99999}}) is None   # unknown donor -> no exemption
+
+
+def test_simultaneous_findings_get_distinct_suggestions(tmp_path):
+    """Two colliding blocks in ONE deploy must not both be told to move to the same id -- that would be a
+    fresh collision caused by this tool's own advice."""
+    g = _stack(tmp_path)
+    reports = check_text_block_shadows(g, "C", {VANILLA_BLOCK, OTHER_VANILLA, 8})
+    firsts = [r.suggestions[0] for r in reports if r.suggestions]
+    assert len(firsts) == len(set(firsts)) and len(firsts) >= 3
+    w = text_shadow_warning(reports, "C")
+    for f in firsts:                                        # every row names its own id in the message
+        assert f"use {f}" in w
 
 
 def test_explicit_folder_names_override(tmp_path):
     g = _stack(tmp_path)
     # pass the order directly (no Memoria.ini read): C first => nothing shadows it
-    assert check_text_block_shadow(g, "C", 1073, folder_names=["C", "A", "B"]).ok
+    assert check_text_block_shadow(g, "C", VANILLA_BLOCK, folder_names=["C", "A", "B"]).shadowed_by is None
 
 
 def test_graceful_without_memoria_ini(tmp_path):
     g = tmp_path / "bare"
     g.mkdir()
-    r = check_text_block_shadow(g, "C", 1073)               # no Memoria.ini -> empty stack
-    assert r.ok and r.suggestions == [] and r.order == []
+    r = check_text_block_shadow(g, "C", FREE_BLOCK)         # no Memoria.ini -> empty stack
+    assert r.ok and r.order == []
+
+
+def test_vanilla_axis_needs_no_stack_at_all(tmp_path):
+    """Unlike the shadow axis, this one does not degrade to silence when Memoria.ini is unreadable -- the base
+    game is in the merge regardless of what any mod folder does."""
+    g = tmp_path / "bare"
+    g.mkdir()
+    r = check_text_block_shadow(g, "C", VANILLA_BLOCK)
+    assert r.order == [] and r.shadowed_by is None and r.squats_vanilla and not r.ok
 
 
 def test_target_not_in_stack_no_false_alarm(tmp_path):
     g = _stack(tmp_path)
-    assert check_text_block_shadow(g, "FF9CustomMap-zz", 1073).ok   # unlisted target -> nothing is "higher"
+    # unlisted target -> nothing is "higher" (the shadow axis stays quiet)
+    assert check_text_block_shadow(g, "FF9CustomMap-zz", FREE_BLOCK).ok
 
 
 def test_shadow_warning_text(tmp_path):
     g = _stack(tmp_path)
-    r = check_text_block_shadow(g, "C", 1073)
-    w = shadow_warning(r)
-    assert w and "TEXT SHADOWED" in w and "'A'" in w and "187" in w
-    assert shadow_warning(check_text_block_shadow(g, "A", 1073)) is None   # clear -> no warning
+    w = shadow_warning(check_text_block_shadow(g, "C", VANILLA_BLOCK))
+    assert w and "TEXT SHADOWED" in w and "'A'" in w
+    assert "register_text_block = true" in w                # the fix hint names the registration
+    assert str(OTHER_VANILLA) not in w                      # and never steers at a real block
+    assert shadow_warning(check_text_block_shadow(g, "B", FREE_BLOCK)) is None   # clear -> no warning
+
+
+def test_vanilla_warning_names_the_real_fields(tmp_path):
+    g = _stack(tmp_path)
+    w = shadow_warning(check_text_block_shadow(g, "A", VANILLA_BLOCK))
+    assert w and "OVERWRITES VANILLA" in w and "3050-3059" in w
+
+
+# ---- the vanilla index + custom-block allocator ------------------------------------------------
+def test_vanilla_fields_on_and_describe():
+    assert vanilla_fields_on(VANILLA_BLOCK)[0] == 3050      # 1073 = MES_MAGE2, Black Mage Village
+    assert len(vanilla_fields_on(8)) == 13                  # block 8 = Ice Cavern, fields 300-312
+    assert vanilla_fields_on(FREE_BLOCK) == ()              # 200 is nobody's
+    assert describe_vanilla(8) == "13 real fields 300-312"
+    assert describe_vanilla(FREE_BLOCK) == ""
+    # the real overworld dispatchers live on block 68 -- a `field_id < 4000` filter would wrongly drop them
+    assert 9000 in vanilla_fields_on(68)
+
+
+def test_suggest_text_blocks_skips_real_and_taken():
+    s = suggest_text_blocks(taken={SCRATCH_TEXT_BLOCK_BASE, SCRATCH_TEXT_BLOCK_BASE + 1}, n=3)
+    assert s == [SCRATCH_TEXT_BLOCK_BASE + 2, SCRATCH_TEXT_BLOCK_BASE + 3, SCRATCH_TEXT_BLOCK_BASE + 4]
+    assert all(not vanilla_fields_on(b) for b in suggest_text_blocks(n=5))
+    assert suggest_text_blocks(n=0) == []
+
+
+def test_fork_donor_blocks_maps_donors_to_their_blocks(tmp_path):
+    d = tmp_path / "dist"
+    d.mkdir()
+    assert fork_donor_blocks_at(d) == set()                 # no ForkDonorPatch -> claim no exemption
+    (d / "ForkDonorPatch.txt").write_text(
+        "# ff9mapkit fork-fidelity: <forkId> <donorRealId>\n8641 600\n9002 3050\n", encoding="utf-8")
+    # donor 600 lives on block 22 (Lindblum), donor 3050 on 1073 (Mage Village)
+    assert fork_donor_blocks_at(d) == {22, VANILLA_BLOCK}
 
 
 # ---- batch text-block shadow (the campaign/journey deploy guard) ------------------------------
@@ -95,26 +213,65 @@ def test_blocks_at_reads_a_root_mes_stems(tmp_path):
     assert blocks_at(g / "nope", "us") == set()             # missing root -> empty, no error
 
 
-def test_check_text_block_shadows_flags_only_the_shadowed(tmp_path):
+def test_check_text_block_shadows_flags_both_axes(tmp_path):
+    """One row PER AXIS: a block that is both shadowed and real reports twice, so the warning can group them.
+    (201 is defined by nobody and is not a real block -> clear on both axes, no row at all.)"""
     g = _stack(tmp_path)
-    # a campaign deploying into 'C' that ships blocks 1073 (shared) + 187 (unique to C): only 1073 is shadowed
-    reports = check_text_block_shadows(g, "C", {1073, 187})
-    assert [r.text_block for r in reports] == [1073] and reports[0].shadowed_by == "A"
-    # blocks 200 (defined by higher 'B') + 187 (free): only 200 shadowed, by 'B'
-    reports2 = check_text_block_shadows(g, "C", {200, 187})
-    assert [(r.text_block, r.shadowed_by) for r in reports2] == [(200, "B")]
+    reports = check_text_block_shadows(g, "C", {VANILLA_BLOCK, 201})
+    assert {r.text_block for r in reports} == {VANILLA_BLOCK}          # 201 never appears
+    assert [(r.shadowed_by, r.squats_vanilla) for r in reports] == [("A", False), (None, True)]
+    # 187 is NOT shadowed (only C defines it) but IS a real block -> reported on the vanilla axis alone
+    r2 = check_text_block_shadows(g, "C", {OTHER_VANILLA})
+    assert [(r.text_block, r.shadowed_by, r.squats_vanilla) for r in r2] == [(OTHER_VANILLA, None, True)]
+    # 200 IS defined by higher-priority 'B' -> shadow axis only (it is not a real block)
+    r3 = check_text_block_shadows(g, "C", {FREE_BLOCK})
+    assert [(r.text_block, r.shadowed_by, r.squats_vanilla) for r in r3] == [(FREE_BLOCK, "B", False)]
+
+
+def test_check_text_block_shadows_verbatim_blocks_exempt(tmp_path):
+    g = _stack(tmp_path)
+    # a campaign of verbatim forks carrying donor blocks 187 + 1073: 187 is fully clear, 1073 still shadowed
+    reports = check_text_block_shadows(g, "C", {VANILLA_BLOCK, OTHER_VANILLA},
+                                       verbatim_blocks={VANILLA_BLOCK, OTHER_VANILLA})
+    assert [(r.text_block, r.shadowed_by, r.squats_vanilla) for r in reports] == [(VANILLA_BLOCK, "A", False)]
 
 
 def test_check_text_block_shadows_clear_when_highest_or_unlisted(tmp_path):
     g = _stack(tmp_path)
-    assert check_text_block_shadows(g, "A", {1073, 200, 187}) == []     # highest -> nothing higher
-    assert check_text_block_shadows(g, "FF9CustomMap-zz", {1073}) == [] # unlisted target -> no false alarm
+    # highest / unlisted -> the SHADOW axis is quiet; use a block nobody ships so the vanilla axis is too
+    assert check_text_block_shadows(g, "A", {201}) == []
+    assert check_text_block_shadows(g, "FF9CustomMap-zz", {201}) == []
+    # ...but 'A' on a REAL block is still reported (nothing higher, yet vanilla is overwritten)
+    assert [r.text_block for r in check_text_block_shadows(g, "A", {VANILLA_BLOCK})] == [VANILLA_BLOCK]
+
+
+def test_check_text_block_shadows_per_language(tmp_path):
+    """lang=None sweeps every language. A novel field's text is identical across langs so the finding is
+    symmetric and must dedup to ONE row; a lang-ASYMMETRIC collision must survive as its own row."""
+    g = _stack(tmp_path)
+    _mk(g, "A", "fr", [FREE_BLOCK])                      # 'A' shadows 200 in FRENCH only
+    # 1073 is shadowed by 'A' in every language it exists in -> ONE shadow row, not seven
+    shadow = [r for r in check_text_block_shadows(g, "C", {VANILLA_BLOCK}, lang=None)
+              if r.shadowed_by is not None]
+    assert [(r.lang, r.shadowed_by) for r in shadow] == [("us", "A")]
+    # the language-independent vanilla row is emitted exactly once alongside it
+    assert len([r for r in check_text_block_shadows(g, "C", {VANILLA_BLOCK}, lang=None)
+                if r.squats_vanilla]) == 1
+    # 200 is shadowed by a DIFFERENT folder per language ('B' ships it in us, 'A' only in fr) -- both
+    # survive, because collapsing them would hide a real finding the us-only check could never see.
+    fr = check_text_block_shadows(g, "C", {FREE_BLOCK}, lang=None)
+    assert [(r.lang, r.shadowed_by) for r in fr] == [("us", "B"), ("fr", "A")]
+    # the pre-fix single-language check sees only the 'us' half
+    assert [(r.lang, r.shadowed_by) for r in
+            check_text_block_shadows(g, "C", {FREE_BLOCK}, lang="us")] == [("us", "B")]
 
 
 def test_text_shadow_warning_text(tmp_path):
     g = _stack(tmp_path)
-    w = text_shadow_warning(check_text_block_shadows(g, "C", {1073}), "C")
-    assert w and "TEXT SHADOWED" in w and "block 1073" in w and "'A'" in w
+    w = text_shadow_warning(check_text_block_shadows(g, "C", {VANILLA_BLOCK}), "C")
+    assert w and "block 1073" in w and "'A'" in w
+    assert "SHADOWED" in w and "OVERWRITES VANILLA" in w and "3050-3059" in w
+    assert "register_text_block = true" in w
     assert text_shadow_warning([], "C") is None                         # clear -> no warning
 
 

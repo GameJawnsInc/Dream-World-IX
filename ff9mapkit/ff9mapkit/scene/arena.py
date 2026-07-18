@@ -47,7 +47,8 @@ def arena_scene_lines(meta: dict, *, spawn_z=None, name="ARENA", art_prefix="art
     if spawn_z is None:
         spawn_z = meta["spawn_z"]
     quad = "[" + ", ".join(f"[{x}, {z}]" for x, z in meta["quad"]) + "]"
-    return ["[field]", "id = 4003", f'name = "{name}"', "area = 11", "text_block = 1073", "",
+    # text_block omitted on purpose: it derives from the field id and auto-registers.
+    return ["[field]", "id = 4003", f'name = "{name}"', "area = 11", "",
             "[camera]", f"pitch = {PITCH}", f"distance = {int(DIST)}", f"fov = {FOV}",
             f"range = [{meta['range_w']}, 448]", "window_width = 384", "[camera.scroll]", "enabled = true", "",
             "[walkmesh]", f"quad = {quad}", 'frame = "world"', "",

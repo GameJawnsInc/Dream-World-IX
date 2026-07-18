@@ -133,11 +133,16 @@ def assign_ids(result, *, id_base: int, name_prefix: str = "", prior=None, reser
     return members_ids, new_id, name_of
 
 
-def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_seams, game):
+def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_seams, game, real_id=None):
     """An editable member whose art was never [Export]'d: still emit camera.bgx + walkmesh.bgi (offline)
     and a logic-only field.toml (retargeted gateways, NO [[layers]]) so the campaign STRUCTURE is complete.
-    The human exports the art in-game later, then re-forks with --editable to add the repaintable layers."""
+    The human exports the art in-game later, then re-forks with --editable to add the repaintable layers.
+
+    ``real_id`` is the DONOR's real field id: the member carries that donor's dialogue, so it must sit on the
+    donor's own text block (mirrors the verbatim path). Without it the member fell back to the shared literal
+    1073 -- Black Mage Village -- and merged the donor's text over that location's."""
     from . import extract
+    from ._fieldtext import EVENT_ID_TO_MES
     meta = extract.extract_field(folder, member_dir, game=game)        # camera.bgx + walkmesh.bgi
     safe_area = extract.safe_custom_area(meta["area"])
     content_blocks, control_dir, summary = extract._content_for_import(
@@ -147,13 +152,18 @@ def _emit_logic_only_member(folder, member_dir, name, field_id, id_remap, live_s
     x, z = meta["player_start"]
     scroll = "[camera.scroll]\nenabled = true\n" if meta["scrolling"] else ""
     control_line = f"control_direction = {control_dir}\n" if control_dir is not None else ""
+    # the donor's own block when known; otherwise omit the key entirely so the build derives it from the
+    # field id and auto-registers (never fall back to a shared real block).
+    _donor_tb = EVENT_ID_TO_MES.get(int(real_id)) if real_id is not None else None
+    _tb_line = (f"text_block = {_donor_tb}   # the donor's own block (carries its dialogue)\n"
+                if _donor_tb is not None else "")
     toml = (
         f"# EDITABLE member (logic + camera + walkmesh) of {meta['field']} (source area {meta['area']}).\n"
         f"# !! NEEDS ART: export this field in-game once (Memoria.ini [Export] Field=1), then re-run\n"
         f"#    `ff9mapkit import {folder} --editable` to add the repaintable layer_*.png. The gateways,\n"
         f"#    walkmesh and camera here are correct + retargeted; only the background art is missing.\n"
         f"# Camera: pitch {cm['pitch_deg']} deg, FOV {cm['fov_deg']} deg.\n\n"
-        f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\ntext_block = 1073\n\n"
+        f"[field]\nid = {field_id}\nname = \"{name}\"\narea = {safe_area}\n{_tb_line}\n"
         f"[camera]\nborrow = \"camera.bgx\"\n{control_line}{scroll}\n"
         f"[walkmesh]\nbgi = \"walkmesh.bgi\"\n\n"
         f"{extract._player_block(meta)}"
@@ -318,7 +328,7 @@ def write_campaign(result, out_dir, *, id_base=6000, flag_base=FIRST_SAFE_FLAG, 
             if mode == "borrow":
                 raise
             # verbatim degrades to a logic-only stub too (loses the verbatim .eb for this one member)
-            _meta, p = _emit_logic_only_member(donor, mdir, mname, new_id[real], new_id, live_seams, game)
+            _meta, p = _emit_logic_only_member(donor, mdir, mname, new_id[real], new_id, live_seams, game, real_id=real)
             needs_export = True
             if verbatim:
                 degraded.append(mname)                       # surfaced loudly in the CLI summary (NOT verbatim)
@@ -1186,7 +1196,7 @@ def add_field(plan: CampaignPlan, manifest_dir, *, name, source=None, game=None)
         except RuntimeError:                             # a field with no usable background atlas (rare)
             if mode == "borrow":
                 raise
-            _meta, p = _emit_logic_only_member(donor, mdir, name, new_id, remap, False, game)
+            _meta, p = _emit_logic_only_member(donor, mdir, name, new_id, remap, False, game, real_id=real_id)
             needs_export = True
         member = Member(real_id, new_id, name, mode, area, folder, f"{name}/{p.name}", needs_export)
     plan.members.append(member)

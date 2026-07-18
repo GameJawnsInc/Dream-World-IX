@@ -272,10 +272,14 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
                 "or pass allow_id_collision to install anyway.")
             return report
 
-    # (1.7) text-block SHADOW check (WARN, don't abort)
+    # (1.7) text-block COLLISION check (WARN, don't abort) -- cross-folder shadow AND vanilla overwrite.
+    # `lang=None` checks every language: _dist_blocks is gathered ACROSS all LANGS, so checking it against the
+    # 'us' subtree alone mismatched in both directions (a fork's per-language bodies are genuinely asymmetric).
+    # Forks are exempt from the vanilla axis on their own donor's block (they re-ship that donor's own text).
     _dist_blocks = set().union(*(DS.blocks_at(dist_root, L) for L in LANGS))
     twarn = DS.text_shadow_warning(
-        DS.check_text_block_shadows(game, mod_folder, _dist_blocks, folder_names=order), mod_folder)
+        DS.check_text_block_shadows(game, mod_folder, _dist_blocks, lang=None, folder_names=order,
+                                    verbatim_blocks=DS.fork_donor_blocks_at(dist_root)), mod_folder)
     if twarn:
         out("\n  !! " + twarn)
 
@@ -532,6 +536,17 @@ def _install_hub(hub_toml, hub_id, hub_folder, game, *, backups_dir, reverts_dir
     tmp = Path(tempfile.mkdtemp(prefix="ff9-hub-"))
     dist = tmp / "mod"
     B.build_mod([B.FieldProject.load(hub_toml)], dist, mod_name=hub_folder)
+    # the hub ships a text block of its own and had NO collision check at all -- and it usually installs to a
+    # HIGH-priority folder, so a squat here shadows every lower folder as well as the vanilla location.
+    try:
+        _tw = DS.text_shadow_warning(
+            DS.check_text_block_shadows(game, hub_folder,
+                                        set().union(*(DS.blocks_at(dist, L) for L in LANGS)),
+                                        lang=None, verbatim_blocks=DS.fork_donor_blocks_at(dist)), hub_folder)
+        if _tw:
+            out("\n  !! " + _tw)
+    except Exception:                                       # noqa: BLE001 -- a guard must never block a deploy
+        pass
     live_root.mkdir(parents=True, exist_ok=True)
     snap = Path(backups_dir) / f"{hub_folder}.pre-hub-{hub_id}.{stamp}"
     snap.parent.mkdir(parents=True, exist_ok=True)
@@ -797,7 +812,13 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
                                  folder_names=order), folder)
     iwarn = DS.id_collision_warning(
         DS.check_id_collisions(game, folder, DS.dictionary_ids_at(merged).keys(), folder_names=order), folder)
-    for w in (nwarn, iwarn):
+    # the TEXT-BLOCK guard this path never ran: unlike _apply_journey (whose per-step deploy_campaign calls
+    # carry it), the single-folder path builds campaigns directly and installs the merged dist itself.
+    twarn = DS.text_shadow_warning(
+        DS.check_text_block_shadows(game, folder, set().union(*(DS.blocks_at(merged, L) for L in LANGS)),
+                                    lang=None, folder_names=order,
+                                    verbatim_blocks=DS.fork_donor_blocks_at(merged)), folder)
+    for w in (nwarn, iwarn, twarn):
         if w:
             out("\n  !! " + w)
     if (nwarn or iwarn) and not allow_collision:

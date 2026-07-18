@@ -11,7 +11,9 @@ id = 4500
 name = "WORLD_HUB"
 borrow_bg = "GRGR_MAP420_GR_CEN_0"   # a real room as the backdrop (area >= 10)
 area = 21
-text_block = 8   # a real MesDB id NOT shadowed by a higher mod folder
+text_block = 8   # !! NOT free: block 8 is ICE CAVERN (13 real fields, 300-312). Being 'unshadowed' only
+                 # clears the cross-folder axis -- the base game is ALSO in the engine's text merge, so
+                 # this writes over Ice Cavern's dialogue. Drop the key to derive it from [field] id.
 
 [camera]
 borrow = "camera_hub.bgx"   # the borrowed room's camera (gitignored; extract from your install)

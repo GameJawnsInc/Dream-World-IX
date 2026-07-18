@@ -212,9 +212,16 @@ def test_validate_warns_narrator_overlaps_player_spawn():
     assert not any("INSIDE the narrator" in w for w in warnings)
 
 
-def test_validate_warns_text_block_1073_and_paging():
-    _, warnings = hub.validate_hub(_spec(text_block=1073))
-    assert any("1073" in w and "SHADOWED" in w for w in warnings)
+def test_validate_warns_text_block_on_a_real_block_and_paging():
+    """A hub on ANY real location's block writes its menu text over that location's dialogue -- the base game
+    is part of the engine's cumulative text merge. The check used to fire only on the literal 1073, so it
+    could never catch the hub's OWN former default of 8 (Ice Cavern, 13 real fields)."""
+    _, warnings = hub.validate_hub(_spec(text_block=1073))       # Black Mage Village
+    assert any("1073" in w and "REAL FF9 block" in w for w in warnings)
+    _, warnings = hub.validate_hub(_spec(text_block=8))          # Ice Cavern -- the old default
+    assert any("300-312" in w for w in warnings)
+    _, warnings = hub.validate_hub(_spec(text_block=None))       # derived from the hub's field id -> clear
+    assert not any("REAL FF9 block" in w for w in warnings)
 
     many = _spec(journeys=[hub.Journey(f"j{i}", f"J{i}", 4501 + i) for i in range(hub.PAGING_SOFT_MAX + 1)])
     _, warnings = hub.validate_hub(many)

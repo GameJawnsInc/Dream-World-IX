@@ -1638,7 +1638,7 @@ def _area_title_hide_lines(meta, *, verbatim=False) -> str:
 
 
 def write_editable_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
-                           text_block: int = 1073, game=None, bundle=None,
+                           text_block: "int | None" = None, game=None, bundle=None,
                            id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
                          graft_savepoint=False):
     """Fork a real field as a fully EDITABLE custom scene (vs BG-borrow): re-export its walkmesh via the
@@ -1649,6 +1649,12 @@ def write_editable_project(field: str, out_dir, *, name: str | None = None, fiel
     assembled OFFLINE from the atlas (`extract_layers` / scene.bgart) -- no in-game `[Export] Field=1`
     needed; raises RuntimeError only if the field has no readable atlas at all (use plain import for a
     BG-borrow fork that reuses the art as-is)."""
+    # A fork carries its DONOR's dialogue, so the caller passes the donor's real block (required, not
+    # tidy: voice-acting clips and UniversalTextId's dual-language remap both key off the same mesID).
+    # None => no donor resolved => the field's OWN id, which build.register_text_block then auto-registers.
+    # Never the old shared literal 1073: that is a REAL block (Black Mage Village) and squatting it
+    # overwrote that location's dialogue, because the base game is in the engine's cumulative text merge.
+    text_block = int(field_id) if text_block is None else int(text_block)
     out = Path(out_dir)
     meta = extract_field(field, out, game=game, bundle=bundle)     # writes camera.bgx + walkmesh.bgi
     name = name or (meta["mapid"].split("_")[0] + "_EDIT")
@@ -1904,7 +1910,7 @@ def apply_player_swap(toml_path, char, *, neutralize=False):
 
 
 def write_native_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
-                         text_block: int = 1073, game=None, bundle=None,
+                         text_block: "int | None" = None, game=None, bundle=None,
                          id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
                          graft_savepoint=False, verbatim=False):
     """Fork a real field as a NATIVE custom scene: ship its OWN ``atlas.png`` + ``.bgs`` (the real
@@ -1916,6 +1922,12 @@ def write_native_project(field: str, out_dir, *, name: str | None = None, field_
     is remapped >= 10 so the ``FBG_N<area>`` lookup doesn't black-screen, which also lets this fork
     area<10 fields that BG-borrow can't. Repaint by editing ``atlas.png`` (or the Memoria PSD pipeline).
     Returns (metadata, field_toml_path). Needs no in-game export (unlike ``--editable``)."""
+    # A fork carries its DONOR's dialogue, so the caller passes the donor's real block (required, not
+    # tidy: voice-acting clips and UniversalTextId's dual-language remap both key off the same mesID).
+    # None => no donor resolved => the field's OWN id, which build.register_text_block then auto-registers.
+    # Never the old shared literal 1073: that is a REAL block (Black Mage Village) and squatting it
+    # overwrote that location's dialogue, because the base game is in the engine's cumulative text merge.
+    text_block = int(field_id) if text_block is None else int(text_block)
     out = Path(out_dir)
     # camera.bgx (content logic) + walkmesh.bgi (real walkmesh)
     meta = extract_field(field, out, game=game, bundle=bundle)
@@ -2232,7 +2244,7 @@ def repack_native_atlas(project_dir, repaint_dir=None, *, backup=True) -> dict:
 
 
 def write_field_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
-                        text_block: int = 1073, game=None, bundle=None, want_atlas=False,
+                        text_block: "int | None" = None, game=None, bundle=None, want_atlas=False,
                         id_remap=None, live_seams=False, graft_player_funcs=False, carry_text=False,
                         graft_savepoint=False):
     """Extract a real field and emit a ready-to-edit BG-borrow field.toml + camera.bgx in out_dir.
@@ -2240,6 +2252,12 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
     `name` is the custom script/field id (must be unique vs real fieldids; defaults to
     '<MAPID-first-token>_FORK', e.g. 'GRGR_FORK'). Returns (metadata, field_toml_path).
     `ff9mapkit build <path>` compiles it; the author fills in NPCs/gateways/dialogue first."""
+    # A fork carries its DONOR's dialogue, so the caller passes the donor's real block (required, not
+    # tidy: voice-acting clips and UniversalTextId's dual-language remap both key off the same mesID).
+    # None => no donor resolved => the field's OWN id, which build.register_text_block then auto-registers.
+    # Never the old shared literal 1073: that is a REAL block (Black Mage Village) and squatting it
+    # overwrote that location's dialogue, because the base game is in the engine's cumulative text merge.
+    text_block = int(field_id) if text_block is None else int(text_block)
     # BG-borrow reuses the REAL field's BG via FBG_N<area>_<mapid>; the engine builds that name with
     # no zero-padding and reads exactly 2 chars for the area, so single-digit areas (0-9) black-screen.
     # Catch it here with a clear pointer to --editable rather than emitting a field.toml that won't build.
@@ -2303,7 +2321,7 @@ def write_field_project(field: str, out_dir, *, name: str | None = None, field_i
 
 
 def write_lightweight_project(field: str, out_dir, *, name: str | None = None, field_id: int = 4003,
-                              text_block: int = 1073, game=None, bundle=None):
+                              text_block: "int | None" = None, game=None, bundle=None):
     """A LIGHTWEIGHT, Blender model-against project for a real field: camera.bgx + walkmesh (.bgi + a
     reshapeable .obj, + links for multi-floor) + a composited ``background.png`` + a compact field.toml --
     and NO per-depth layer split. This is the per-field unit of the whole-game ``import-all`` archive:
@@ -2313,6 +2331,10 @@ def write_lightweight_project(field: str, out_dir, *, name: str | None = None, f
     buildable BG-borrow toml; an area<10 field gets a MODEL-AGAINST stub toml (you promote it with
     ``import <field> --editable``/``--native`` to actually build/ship). To repaint per-depth layers or
     reshape into a custom scene, re-run ``ff9mapkit import <field> --editable`` into the SAME folder."""
+    # Same rule as the other writers: the caller passes the DONOR's real block (this project carries that
+    # donor's dialogue); None => the field's own id, which build.register_text_block then auto-registers.
+    # Never the old shared literal 1073 -- a REAL block (Black Mage Village) whose dialogue it would overwrite.
+    text_block = int(field_id) if text_block is None else int(text_block)
     out = Path(out_dir)
     meta = extract_field(field, out, game=game, bundle=bundle)        # camera.bgx + walkmesh.bgi
     wm = bgi.BgiWalkmesh.from_bytes((out / "walkmesh.bgi").read_bytes())

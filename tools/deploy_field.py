@@ -501,11 +501,21 @@ print("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogu
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"revert: {OUT / ('revert_deploy_%d.py' % FID)}  (or revert_deploy.py for the latest)")
 
-# text-shadow guard: warn if a HIGHER-priority mod folder in Memoria.ini FolderNames also defines this
-# field's .mes block -- the engine would render THAT folder's text, not ours (the shared-1073 collision).
+# text-block guard, BOTH axes: (1) a HIGHER-priority Memoria.ini FolderNames folder also defines this field's
+# .mes block -> the engine renders THAT folder's text, not ours (the shared-1073 collision); (2) the block is a
+# REAL FF9 location's -> we overwrite the shipping game's own dialogue (the base game is in the engine's
+# cumulative text merge, so this needs no stacking at all). A VERBATIM fork re-ships its donor's own text on the
+# donor's own block, so it is exempt from (2) -- the overwrite is a byte-identical no-op.
 try:
-    from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning
-    _warn = shadow_warning(check_text_block_shadow(GAME, MOD_FOLDER, text_block), MOD_FOLDER)
+    from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning, donor_block_for
+    # The exemption is the DONOR'S OWN BLOCK, not "is a fork": a fork left on the kit default really does
+    # overwrite Black Mage Village, and a --native/BG-borrow fork (recorded as source_field/borrow_field,
+    # NOT verbatim_eb) is just as entitled to its donor's block as a verbatim one.
+    _donor_block = donor_block_for(proj.raw)
+    _warn = shadow_warning(
+        check_text_block_shadow(GAME, MOD_FOLDER, text_block,
+                                verbatim_blocks=() if _donor_block is None else {_donor_block}),
+        MOD_FOLDER)
     if _warn:
         print(f"\n  !! {_warn}")
 except Exception:
