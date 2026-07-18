@@ -598,7 +598,19 @@ its flat interior (38 tris: 24 scrub + 14 desert ring, real relief y 3.04–3.85
 conformed to H=3.2 by ring plane-fit + ring-exact IDW; area/event id bits rewritten
 to the islet's, topo+texels donor-verbatim; gates: boundary-invariance ok, weld 0,
 full census 0 MISS). The REAL ensemble for A/B: block (13,3) centre (1210,−386).
-Disc-4 mirrored.
+Disc-4 mirrored. **⚠→✔ THE FRAME BUG (found 2026-07-17, "the coordinates put me in
+the ocean")**: the original deploy shipped in the WRONG FRAME — the carry built its
+soup in WORLD coords (the block offset added on read-back) but handed it to
+`_soup_block_mesh`, which stores its input verbatim as the block LOCAL frame, so the
+override deployed at local (518,−1248) and the engine drew the island 512E/1216-off in
+open ocean (never renderable — which is why the rung was never confirmed in-game).
+The offline gates all PASSED because they were self-consistent in the wrong frame and
+the differential census was masked by the real Sea4 mesh covering the samples. Fixed:
+a `to_local` un-offset before `_soup_block_mesh` on both soups + a permanent
+FRAME-BOUNDS GATE (a block override's local verts must sit in [0,64]×[−64,0], like
+every real block). Re-deployed at local x[6.3,57.7] z[−59.2,−7.0] — the island now
+renders at (544,−1248); disc-4 re-mirrored. **THE LESSON: a differential/self-consistent
+gate cannot catch a frame error — assert the ABSOLUTE block frame.**
 The future consumption of the three non-island families = mixed-biome landmasses
 (scrub as the grass↔dirt seam, brush on carved slopes, dunes as interior plains).
 

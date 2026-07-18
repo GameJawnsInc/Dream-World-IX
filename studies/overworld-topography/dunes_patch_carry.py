@@ -361,12 +361,31 @@ for t in cand["tris"]:
 
 new = keep + carried
 
+
+def to_local(tris):
+    """WORLD -> block-LOCAL: _soup_block_mesh stores its input verbatim as the block's
+    local frame (docstring: 'triangles in the block-LOCAL frame'). isl/new were built in
+    WORLD coords (the block offset added on read), so they MUST be un-offset here -- else
+    the override deploys at local (518,-1248) and the engine draws the island 512E/1216
+    off in open ocean (the 'clobbered' report, 2026-07-17). Inverse of the isl read."""
+    return [[((p[0] - 64.0 * CELL[0], p[1], p[2] + 64.0 * CELL[1]), n, u, t)
+             for (p, n, u, t) in tri] for tri in tris]
+
+
 # ---- 4. gates ----------------------------------------------------------------------------------
 inv = once_edges(isl) == once_edges(new)
 print(f"GATE boundary-invariance: {'ok' if inv else 'FAIL'}")
-nbm = TR._soup_block_mesh(f"Block[{CELL[0]}][{CELL[1]}] Terrain", CELL, new, disc=1, lod="0_1")
+new_l = to_local(new)
+nbm = TR._soup_block_mesh(f"Block[{CELL[0]}][{CELL[1]}] Terrain", CELL, new_l, disc=1, lod="0_1")
 pairs = M.weld_audit([nbm])
 print(f"GATE weld-audit: {len(pairs)} pairs -> {'ok' if not pairs else 'FAIL'}")
+# FRAME GATE: a block override's local verts MUST sit in the block frame (every real
+# block does). Catches a world-vs-local frame error that the differential census masks.
+lx = [p[0] for tri in new_l for (p, *_ ) in tri]
+lz = [p[2] for tri in new_l for (p, *_ ) in tri]
+frame_ok = -0.06 <= min(lx) and max(lx) <= 64.06 and -64.06 <= min(lz) and max(lz) <= 0.06
+print(f"GATE frame-bounds: local x[{min(lx):.1f},{max(lx):.1f}] z[{min(lz):.1f},{max(lz):.1f}]"
+      f" -> {'ok' if frame_ok else 'FAIL (mesh outside the block frame)'}")
 sea = []
 if DEPLOY:
     for part in ("Sea4",):
@@ -376,7 +395,8 @@ if DEPLOY:
                                                        part=part.lower())))
 # DIFFERENTIAL census: the swap must not change the miss set (without the Sea4 mesh a
 # dry-run "misses" every open-water sample -- the plain islet is the honest baseline)
-obm = TR._soup_block_mesh(f"Block[{CELL[0]}][{CELL[1]}] Terrain", CELL, isl, disc=1, lod="0_1")
+obm = TR._soup_block_mesh(f"Block[{CELL[0]}][{CELL[1]}] Terrain", CELL, to_local(isl),
+                          disc=1, lod="0_1")
 cen0 = P.census([("Terrain", obm)] + sea, samples=24)
 cen = P.census([("Terrain", nbm)] + sea, samples=24)
 cen_ok = set(map(tuple, cen["miss"])) == set(map(tuple, cen0["miss"]))
@@ -385,7 +405,7 @@ print(f"GATE census: miss {len(cen['miss'])} vs plain {len(cen0['miss'])} -> "
 tps = Counter(X.decode_id(int(round(t[0][3][0])))["topograph"] for t in carried)
 ys = [v[0][1] for t in carried for v in t]
 print(f"carried topos: {dict(tps)}; y-range [{min(ys):.2f},{max(ys):.2f}] (H={H})")
-if not (inv and not pairs and cen_ok):
+if not (inv and not pairs and cen_ok and frame_ok):
     sys.exit("gates FAILED -- not deploying the patch")
 
 # ---- 5. deploy ---------------------------------------------------------------------------------
