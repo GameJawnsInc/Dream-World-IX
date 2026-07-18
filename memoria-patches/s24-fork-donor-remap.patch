@@ -64,10 +64,10 @@ index 271137b2..a9b494bf 100644
                  // Memoria/To the Origin
                  PersistenSingleton<EventEngine>.Instance.eBin.setVarManually(0x28DD, 10); // VAR_GlobUInt16_40
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index 7f498a9a..0d84d587 100644
+index e1650b4d..f3d39201 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-@@ -637,7 +637,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -676,7 +676,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
                  Boolean noSave = false;
                  noSave |= this._ff9.fldMapNo == 70; // Opening-For FMV
                  noSave |= this._ff9.fldMapNo == 2200 && scCounterSvr == 9450 && mapIndexSvr == 9999; // Palace/Dungeon (first time entrance)
@@ -218,7 +218,7 @@ index b9c3c85a..3edd1a8f 100644
                      Int32 num = 1;
                      if (FF9StateSystem.Common.FF9.id != 0)
 diff --git a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
-index cee10cb8..419abdf9 100644
+index cee10cb8..2c06ed07 100644
 --- a/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
 +++ b/Assembly-CSharp/Memoria/Configuration/DataPatchers.cs
 @@ -27,9 +27,43 @@ namespace Memoria

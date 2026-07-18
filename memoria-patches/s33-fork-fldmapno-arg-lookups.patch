@@ -43,10 +43,10 @@ index adb005bf..80f843b4 100644
              {
                  this.LoadLocalizationInfo(newName, path);
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index a82d190c..c75eeb63 100644
+index d1129706..bba476cc 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-@@ -533,7 +533,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -572,7 +572,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
          this._ff9Sys = PersistenSingleton<FF9StateSystem>.Instance;
          BinaryReader br = new BinaryReader(new MemoryStream(ebFileData));
          this.SetupCodeParam(br);

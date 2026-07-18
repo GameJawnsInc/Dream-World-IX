@@ -49,56 +49,10 @@ index a923a63e..7f57f9ae 100644
              case EBin.op_binary.B_BAFRAME:
                  this.fieldmap.walkMesh.BGI_animGetFrame((UInt32)this.eBin.getv(), ref result);
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index c75eeb63..edc5cafb 100644
+index bba476cc..edc5cafb 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-@@ -445,6 +445,45 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
-         return posObj;
-     }
- 
-+    // [ff9mapkit] Self-heal support: force the control designator onto the party leader (index 1) or the first world
-+    // actor, and return it. Writes _context.controlUID directly -- mirrors the CC opcode (DoEventCode.cs) -- so
-+    // ff9.w_worldSelfHealControl + the F6 "Rebuild player actor" button can re-bind control without _context access.
-+    // No-op-safe: returns null if there is no context or no cid==4 actor. See project-ff9-overworld-actor-brick.
-+    public PosObj SetControlToLeader()
-+    {
-+        if (this._context == null)
-+            return null;
-+        PosObj leader = null;
-+        PosObj firstActor = null;
-+        for (ObjList objList = this._context.activeObj; objList != null; objList = objList.next)
-+        {
-+            Obj obj = objList.obj;
-+            if (obj.cid == 4)
-+            {
-+                if (firstActor == null)
-+                    firstActor = (PosObj)obj;
-+                if (obj.index == 1)          // overworld leader convention (see w_movementChrFixBug ff9.cs:4598)
-+                {
-+                    leader = (PosObj)obj;
-+                    break;
-+                }
-+            }
-+        }
-+        PosObj target = leader != null ? leader : firstActor;
-+        if (target == null)
-+            return null;
-+        this._context.controlUID = target.uid;
-+        return target;
-+    }
-+
-+    // [ff9mapkit] TEST-ONLY: clear the control designator to simulate the 'no controlled actor' black screen, so the
-+    // F6 "Break control (test)" button can validate w_worldSelfHealControl deterministically. Real gameplay never calls this.
-+    public void DebugClearControl()
-+    {
-+        if (this._context != null)
-+            this._context.controlUID = 0;
-+    }
-+
-     private void printEObj()
-     {
-         //if (this._context.activeObj.next == null)
-@@ -645,6 +684,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -684,6 +684,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
                  noSave |= this._ff9.fldMapNo == 3001 && scCounterSvr == 12000 && mapIndexSvr == 0; // Ending/AC ("Kuja...  What you did was wrong...")
                  noSave |= this._ff9.fldMapNo == 2161 && scCounterSvr == 10000 && mapIndexSvr == 32; // L. Castle/Guest Room (Zidane awakes after Mount Gulug)
                  noSave |= this.gMode == 1 && Configuration.SaveFile.AutoSaveOnlyAtMoogle && !EventEngine.IsMoogleField(this._ff9.fldMapNo, scCounterSvr, mapIndexSvr);
@@ -106,7 +60,7 @@ index c75eeb63..edc5cafb 100644
                  if (!noSave)
                  {
                      FF9StateSystem.Settings.UpdateTickTime();
-@@ -831,6 +871,9 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -870,6 +871,9 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
      public Boolean partychk(Int32 x)
      {
          CharacterId charId = this.chr2slot(x);

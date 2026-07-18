@@ -18,6 +18,56 @@ index c0c537ca..538d9432 100644
      <Compile Include="Memoria\World\WorldEffect.cs" />
      <Compile Include="Memoria\World\WorldPlace.cs" />
      <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
+diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+index 7f498a9a..e1650b4d 100644
+--- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
++++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
+@@ -445,6 +445,45 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+         return posObj;
+     }
+ 
++    // [ff9mapkit] Self-heal support: force the control designator onto the party leader (index 1) or the first world
++    // actor, and return it. Writes _context.controlUID directly -- mirrors the CC opcode (DoEventCode.cs) -- so
++    // ff9.w_worldSelfHealControl + the F6 "Rebuild player actor" button can re-bind control without _context access.
++    // No-op-safe: returns null if there is no context or no cid==4 actor. See project-ff9-overworld-actor-brick.
++    public PosObj SetControlToLeader()
++    {
++        if (this._context == null)
++            return null;
++        PosObj leader = null;
++        PosObj firstActor = null;
++        for (ObjList objList = this._context.activeObj; objList != null; objList = objList.next)
++        {
++            Obj obj = objList.obj;
++            if (obj.cid == 4)
++            {
++                if (firstActor == null)
++                    firstActor = (PosObj)obj;
++                if (obj.index == 1)          // overworld leader convention (see w_movementChrFixBug ff9.cs:4598)
++                {
++                    leader = (PosObj)obj;
++                    break;
++                }
++            }
++        }
++        PosObj target = leader != null ? leader : firstActor;
++        if (target == null)
++            return null;
++        this._context.controlUID = target.uid;
++        return target;
++    }
++
++    // [ff9mapkit] TEST-ONLY: clear the control designator to simulate the 'no controlled actor' black screen, so the
++    // F6 "Break control (test)" button can validate w_worldSelfHealControl deterministically. Real gameplay never calls this.
++    public void DebugClearControl()
++    {
++        if (this._context != null)
++            this._context.controlUID = 0;
++    }
++
+     private void printEObj()
+     {
+         //if (this._context.activeObj.next == null)
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 new file mode 100644
 index 00000000..754f7864

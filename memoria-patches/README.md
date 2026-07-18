@@ -151,7 +151,7 @@ that trap. Round 1 never caught any of this — it only ever verified `s22..s36`
 | Item | Why deferred |
 |---|---|
 | the `s22`→`s34` csproj line move | `Assembly-CSharp.csproj` is being actively written by the in-flight B3 diorama work. s22 still carries s34's `WorldMeshOverride.cs` Compile line — misattributed, load-bearing, flagged (unchanged from round 1). |
-| `SetControlToLeader` / `DebugClearControl` live in **s37** | They are *called* by **s22** (F6 menu) and **s39** (self-heal) — dev-tooling and overworld depending on the battle-co-op patch for a symbol. They belong in **s22** (earliest consumer); `claude/great-williams-4052f0` already places them there. Fold when the csproj settles. |
+| ~~`SetControlToLeader` / `DebugClearControl` live in **s37**~~ | **RESOLVED 2026-07-16 — moved to `s22`.** They are *called* by s22 (F6 menu) and s39 (self-heal) but were *defined* in the battle-co-op patch. Folded into s22 (the earliest consumer, where `great-williams` also places them); s24/s29/s33/s37 regenerated to rebase their EventEngine.cs line numbers. `base + s22..s41` still reproduces live byte-for-byte (EventEngine.cs `cmp`-identical); a partial stack stopping before s37 now compiles. |
 | ~~B3 diorama files~~ | **RESOLVED 2026-07-16 — captured as `s40-netsync-diorama.patch`** (23 files incl. the new `NetSyncDiorama.cs` + the csproj line; both gates pass). |
 | ~~the EOL-only `Memoria/Netsync/*.cs`~~ | **RESOLVED 2026-07-16 — all 8 live Netsync files normalized LF→CRLF with the s40 emit** (pure EOL, content byte-identical; the deployed DLL predates the normalization — same IL). |
 | `Global/Field/Map/Actor/FieldMapActorController.cs` | The known regression — **user decision pending**. Live is **byte-identical to pristine base**: the s24/s29 gates were not partially lost, the file was reverted wholesale, so the **shipped DLL has no fork gates here at all** (Iifa 1751, Dali 404, Prima Vista 205/Steiner off-mesh exemptions). Do not silently re-add or drop. |
@@ -171,12 +171,15 @@ Two things this measurement settled: `SettingsState.cs` **converges** (s37's sta
 content isn't there to remove, so the end state matches live), and `EventEngine.cs` is **fully s37-owned**
 (byte-identical once s37 applies) — verified, not assumed from the filename.
 
-⚠ **A misattribution still standing.** `EventEngine.SetControlToLeader` / `DebugClearControl` are **defined in
-s37** but *called* by **s22** (the F6 menu's control-restore) and **s39** (the self-heal) — dev-tooling and
-overworld depending on the *battle-co-op* patch for a symbol definition, the same leak class as s22 carrying
-s34's csproj line. They belong in **s22** (the earliest consumer); `great-williams` already places them there.
-Harmless for a full replay (the set applies wholesale) — it only means a **partial** stack without s37 won't
-compile. Fold when the csproj settles.
+✅ **A misattribution RESOLVED (2026-07-16).** `EventEngine.SetControlToLeader` / `DebugClearControl` were
+**defined in s37** but *called* by **s22** (the F6 menu's control-restore) and **s39** (the self-heal) —
+dev-tooling and overworld depending on the *battle-co-op* patch for a symbol definition, the same leak class as
+s22 carrying s34's csproj line. **Now defined in s22**, the earliest consumer (where `great-williams` also
+placed them). Because the definitions move ~39 lines earlier in `EventEngine.cs`, the four other patches that
+edit that file between s22 and s37 — **s24, s29, s33, s37** — were regenerated to rebase their hunk line
+numbers (change-content byte-identical, only `@@` headers moved; s37 additionally drops the definition hunk).
+A fresh `base + s22..s41` replay stays clean and `EventEngine.cs` is `cmp`-identical to live; a partial stack
+that stops before s37 now compiles.
 
 Consequence: **a from-patches rebuild now reproduces the live tree** for everything the live set owns. The only
 gaps left are the in-flight B3 work, the EOL-only class, and the `FieldMapActorController` decision.

@@ -19,10 +19,10 @@ index 0e166dc0..a8e1e168 100644
              // Epilogue: Stage
              DialogManager.Instance.ForceControlByEvent(false);
 diff --git a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-index 0d84d587..a82d190c 100644
+index f3d39201..d1129706 100644
 --- a/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
 +++ b/Assembly-CSharp/Global/Event/Engine/EventEngine.cs
-@@ -654,7 +654,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -693,7 +693,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
              }
  
              // Hotfix: clear the party right after obtaining the Gulug Stone, even if "AllCharactersAvailable = 2" (field "Palace/Dungeon"); the script normally takes care of adding characters back
@@ -31,7 +31,7 @@ index 0d84d587..a82d190c 100644
              {
                  ff9play.FF9Play_SetParty(0, CharacterId.NONE);
                  ff9play.FF9Play_SetParty(1, CharacterId.NONE);
-@@ -664,7 +664,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -703,7 +703,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
              }
              // Hotfix: force the party to be exactly Oeilvert's team when bringing the Gulug Stone back (field "Palace/Hall")
              // Alt+F2 hack the team on that screen is disabled because that could cause another soft-lock a bit later
@@ -40,7 +40,7 @@ index 0d84d587..a82d190c 100644
              {
                  CharacterId[] variableToCharacter = new CharacterId[]
                  {
-@@ -684,7 +684,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -723,7 +723,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
                  this.SetupPartyUID();
              }
              // Hotfix: make sure there is at least one normal character for the Esto Gaza Priest cutscene (field "Esto Gaza/Altar")
@@ -49,7 +49,7 @@ index 0d84d587..a82d190c 100644
              {
                  Boolean shouldHack = !partychk((Int32)CharacterOldIndex.Garnet) && !partychk((Int32)CharacterOldIndex.Steiner) && !partychk((Int32)CharacterOldIndex.Freya) && !partychk((Int32)CharacterOldIndex.Quina) && !partychk((Int32)CharacterOldIndex.Amarant);
                  if (shouldHack)
-@@ -697,7 +697,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
+@@ -736,7 +736,7 @@ public partial class EventEngine : PersistenSingleton<EventEngine>
                  this.SetupPartyUID();
              }
              // Hotfix: force a normal team for the cutscene at the bottom of Gulug (field "Gulug/Path")
@@ -71,6 +71,19 @@ index 61865c0c..4237db34 100644
          {
              // Burmecia/Palace, after the battle against Beatrix, fix #664
              Actor brahne = (Actor)this.FindObjByUID(11);
+diff --git a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+index 427f0795..30b6708e 100644
+--- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
++++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
+@@ -796,7 +796,7 @@ public partial class FieldMapActorController : HonoBehavior
+ 
+     private void CheckCollFallback()
+     {
+-        if (FF9StateSystem.Common.FF9.fldMapNo == 2207 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 9840)
++        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2207 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 9840) // [ff9mapkit fork-fidelity]
+         {
+             // Palace/Hall, when Zidane is summoned "inside the room past the stairs"
+             return;
 diff --git a/Assembly-CSharp/Global/Field/Map/FieldMap.cs b/Assembly-CSharp/Global/Field/Map/FieldMap.cs
 index e07646fc..e6d17007 100644
 --- a/Assembly-CSharp/Global/Field/Map/FieldMap.cs
@@ -118,19 +131,6 @@ index e07646fc..e6d17007 100644
          {
              Int32 isNeedOffset = PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(7385);
              if (isNeedOffset == 1)
-diff --git a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
-index 427f0795..30b6708e 100644
---- a/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
-+++ b/Assembly-CSharp/Global/Field/Map/Actor/FieldMapActorController.cs
-@@ -796,7 +796,7 @@ public partial class FieldMapActorController : HonoBehavior
- 
-     private void CheckCollFallback()
-     {
--        if (FF9StateSystem.Common.FF9.fldMapNo == 2207 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 9840)
-+        if (Memoria.DataPatchers.EffectiveFieldId(FF9StateSystem.Common.FF9.fldMapNo) == 2207 && PersistenSingleton<EventEngine>.Instance.eBin.getVarManually(EBin.SC_COUNTER_SVR) == 9840) // [ff9mapkit fork-fidelity]
-         {
-             // Palace/Hall, when Zidane is summoned "inside the room past the stairs"
-             return;
 diff --git a/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs b/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
 index 9e6d1d98..db36e09f 100644
 --- a/Assembly-CSharp/Memoria/VoiceActing/VoicePlayer.cs
