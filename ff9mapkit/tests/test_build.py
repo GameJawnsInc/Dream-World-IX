@@ -1129,3 +1129,31 @@ def test_build_refuses_to_unregister_a_shared_folders_other_fields(tmp_path):
         build.build_mod([proj], out)
     assert "30110 (THEIRS)" in str(e.value) and "deploy_field.py" in str(e.value)
     assert "FieldScene 30110" in dp.read_text(encoding="utf-8")   # and the file is UNTOUCHED
+
+
+def test_build_preserve_existing_installs_alongside_other_fields(tmp_path):
+    """The GUI's "Install to game": one field into a SHIPPING folder that holds others. The other
+    fields must stay registered (their MessageFile too), and re-installing must not duplicate."""
+    from ff9mapkit import build
+    p = tmp_path / "f.field.toml"
+    p.write_text(
+        '[field]\nid = 4008\nname = "MINE"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-100,-100],[100,-100],[100,100],[-100,100]]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    out = tmp_path / "mod"
+    build.build_mod([proj], out)
+    dp = out / "DictionaryPatch.txt"
+    dp.write_text("MessageFile 30110 MES_DWIX_30110\nFieldScene 30110 11 THEIRS THEIRS 30110\n"
+                  + dp.read_text(encoding="utf-8"), encoding="utf-8")
+    build.build_mod([proj], out, preserve_existing=True)
+    lines = [l for l in dp.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert "FieldScene 30110 11 THEIRS THEIRS 30110" in lines      # the foreign field survives
+    assert "MessageFile 30110 MES_DWIX_30110" in lines             # ...and its block registration
+    assert sum(1 for l in lines if l.startswith("FieldScene 4008 ")) == 1   # ours, exactly once
+    # a MessageFile still precedes the FieldScene that uses its block
+    assert lines.index("MessageFile 30110 MES_DWIX_30110") < lines.index("FieldScene 30110 11 THEIRS THEIRS 30110")
+    build.build_mod([proj], out, preserve_existing=True)            # idempotent -- no duplicates
+    l2 = [l for l in dp.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert l2 == lines

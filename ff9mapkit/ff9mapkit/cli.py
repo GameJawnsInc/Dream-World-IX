@@ -428,7 +428,8 @@ def _cmd_build(args: argparse.Namespace) -> int:
     out = Path(args.out)
     try:
         info = build_mod(projects, out, mod_name=args.mod_name, author=args.author,
-                         description=args.description)
+                         description=args.description,
+                         preserve_existing=getattr(args, "preserve_existing", False))
     except (BuildError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -4796,6 +4797,10 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--mod-name", default="FF9CustomMap", help="mod name / InstallationPath")
     bd.add_argument("--author", default="", help="mod author")
     bd.add_argument("--description", default="", help="mod description")
+    bd.add_argument("--preserve-existing", action="store_true",
+                    help="keep registrations already in --out that this build does not emit -- for "
+                         "INSTALLING into a shipping mod folder that holds other fields (without it, a "
+                         "build that would unregister them refuses)")
     bd.set_defaults(func=_cmd_build)
 
     ln = sub.add_parser("lint", help="check a field.toml without building -- one pass over every offline "

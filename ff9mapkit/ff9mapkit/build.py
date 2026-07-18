@@ -7139,10 +7139,44 @@ def _foreign_registrations(dict_patch, new_lines) -> list:
     return [f"{i} ({n})" for i, n in sorted(ids(old).items()) if i not in keep]
 
 
+def _merge_foreign_registrations(dict_patch, new_lines) -> list:
+    """``new_lines``, with the existing DictionaryPatch's FOREIGN registrations kept in front -- the
+    lines belonging to fields this build does not emit. Lines this build DOES own (its FieldScene ids,
+    and any MessageFile block it re-registers) are dropped from the kept set so the new ones replace
+    them rather than duplicating. Foreign lines keep their original relative order, so each
+    ``MessageFile`` still precedes the ``FieldScene`` that uses it."""
+    try:
+        old = dict_patch.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return list(new_lines)
+    mine_fields, mine_blocks = set(), set()
+    for ln in new_lines:
+        p = ln.split()
+        if len(p) >= 5 and p[0] == "FieldScene":
+            mine_fields.add(p[1]); mine_blocks.add(p[5] if len(p) > 5 else None)
+        elif len(p) >= 2 and p[0] == "MessageFile":
+            mine_blocks.add(p[1])
+
+    def mine(ln):
+        p = ln.split()
+        if len(p) >= 2 and p[0] in ("FieldScene", "LocationName"):
+            return p[1] in mine_fields
+        if len(p) >= 2 and p[0] == "MessageFile":
+            return p[1] in mine_blocks
+        return False
+
+    keep = [ln for ln in old if ln.strip() and not mine(ln) and ln not in new_lines]
+    return keep + list(new_lines)
+
+
 def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", description="",
-              langs=LANGS, entry_project=None) -> dict:
+              langs=LANGS, entry_project=None, preserve_existing=False) -> dict:
     """Build one or more fields into a mod at ``out_root``; write the registration files. ``entry_project``
-    (a campaign's entry member) makes the mod-global new-game-state lint precise -- see :func:`_emit_start_state`."""
+    (a campaign's entry member) makes the mod-global new-game-state lint precise -- see :func:`_emit_start_state`.
+
+    ``preserve_existing`` keeps registrations already in ``out_root``'s DictionaryPatch that this build
+    does not emit -- for INSTALLING into a shipping mod folder that holds other fields. Without it, a
+    build that would drop foreign registrations refuses (see the rule at the write site)."""
     layout = ModLayout(Path(out_root).resolve())
     # Within-build distinct-identity guard: a field's .eb / FBG scene / mapconfig are keyed by its `name`
     # (EVT_<name>, FBG_N<area>_<name>) and its registration by `id`, both written once per member -- two
@@ -7187,22 +7221,24 @@ def build_mod(projects, out_root, *, mod_name="FF9CustomMap", author="", descrip
                                  f"recruit = true on it). Without a definition the game crashes when the field "
                                  f"loads (no PLAYER is allocated for id {m}).")
 
-    # THE FOREIGN-REGISTRATION GUARD. `build` OWNS its output folder's DictionaryPatch -- it emits a whole
-    # mod, so it writes the file wholesale. Pointed at a LIVE mod folder that other deploys already share,
-    # that silently unregisters every field this build doesn't know about: their .eb/.mes survive on disk,
-    # so nothing looks wrong until the engine black-screens on a field whose FieldScene line vanished.
-    # (Observed 2026-07-18: a GUI build into FF9CustomMap left three fields' assets in place and dropped
-    # two fields' registrations.) `tools/deploy_field.py` is the reversible, merge-preserving path -- this
-    # guard names it rather than silently doing a deploy's job.
+    # THE FOREIGN-REGISTRATION RULE. `build` emits a WHOLE mod, so it writes its output folder's
+    # DictionaryPatch wholesale -- correct for a fresh dist/, destructive for a LIVE folder other fields
+    # already share: it silently unregisters every field this build doesn't emit. Their .eb/.mes survive,
+    # so nothing looks wrong until the engine black-screens on the field whose FieldScene line vanished
+    # (observed 2026-07-18: an "Install to game" left three fields' assets in place and dropped two
+    # fields' registrations). `preserve_existing` KEEPS those foreign lines -- the right behaviour when
+    # installing one field INTO a shipping folder; without it a net loss is refused, not silently done.
     _new = _dictionary_lines(results, charname_lines + status_icon_lines)
     _lost = _foreign_registrations(layout.dictionary_patch, _new)
-    if _lost:
+    if _lost and preserve_existing:
+        _new = _merge_foreign_registrations(layout.dictionary_patch, _new)
+    elif _lost:
         raise BuildError(
             f"refusing to overwrite {layout.dictionary_patch}: it registers {len(_lost)} field(s) this "
             f"build does not emit -- {', '.join(_lost[:4])}{' ...' if len(_lost) > 4 else ''}. A `build` "
             f"writes a WHOLE mod, so it would unregister them (their files would stay on disk, and the "
-            f"engine would black-screen on them). Build to a fresh --out and copy it in, or use "
-            f"`tools/deploy_field.py <field.toml> --id <n>`, which merges into a shared folder reversibly.")
+            f"engine would black-screen on them). Pass --preserve-existing to install alongside them, "
+            f"build to a fresh --out, or use `tools/deploy_field.py <field.toml> --id <n>` (reversible).")
     layout.dictionary_patch.write_text("\n".join(_new) + "\n", encoding="utf-8", newline="\n")
 
     # BattlePatch.txt = the per-encounter BGM block (Battle:/Music:) + the Phase-4 by-name enemy/attack/scene

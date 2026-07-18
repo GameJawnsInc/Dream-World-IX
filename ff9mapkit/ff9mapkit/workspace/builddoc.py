@@ -719,9 +719,14 @@ class BuildDoc(QWidget):
         elif self.rb_game.isChecked():
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"
-                             "Writes the field at its real id (may overwrite a field with the same id)."):
-                self._stream(jobs.build_argv(field, str(self.game_mod)), cwd=self.kit_cwd,
-                             subject="Install to game", ok_headline=f"Built into {self.game_mod}")
+                             "Writes the field at its real id, replacing any field already installed "
+                             "there under that id. Other fields in the folder stay registered."):
+                # preserve_existing: a build writes the folder's WHOLE DictionaryPatch, so without it
+                # every other field in a shipping folder is silently unregistered -- their files stay,
+                # and the engine black-screens on them (observed 2026-07-18).
+                self._stream(jobs.build_argv(field, str(self.game_mod), preserve_existing=True),
+                             cwd=self.kit_cwd, subject="Install to game",
+                             ok_headline=f"Built into {self.game_mod}")
         else:
             out = self.other.text().strip()
             if not out:

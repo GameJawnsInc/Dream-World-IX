@@ -266,10 +266,15 @@ def _tool(repo_root, *parts):
     return str(Path(repo_root, "tools", *parts))
 
 
-def build_argv(field, out, *, mod_name="FF9CustomMap"):
-    """``ff9mapkit build`` a single field.toml into ``out`` (the 'build only' target, no deploy)."""
-    return [sys.executable, "-m", "ff9mapkit", "build", str(field), "--out", str(out),
-            "--mod-name", mod_name]
+def build_argv(field, out, *, mod_name="FF9CustomMap", preserve_existing=False):
+    """``ff9mapkit build`` a single field.toml into ``out`` (the 'build only' target, no deploy).
+
+    ``preserve_existing`` is for INSTALLING into a shipping mod folder that already holds other fields:
+    a build writes the whole DictionaryPatch, so without it the other fields would be unregistered
+    (their files would stay, and the engine would black-screen on them)."""
+    a = [sys.executable, "-m", "ff9mapkit", "build", str(field), "--out", str(out),
+         "--mod-name", mod_name]
+    return a + ["--preserve-existing"] if preserve_existing else a
 
 
 def build_campaign_argv(path):
