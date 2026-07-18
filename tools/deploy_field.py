@@ -209,13 +209,6 @@ dp += message_file_lines                       # `MessageFile <block>` -- MUST p
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
 dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
-# a MINTED text block (register_text_block, e.g. a mognet field's roster block) needs its MessageFile
-# registration or DataPatchers' FieldScene gate (!MesDB.ContainsKey(mesID)) refuses the field. build_mod
-# wrote it into the tmp mod's own DictionaryPatch; carry any line the live patch doesn't have yet, and
-# BEFORE the FieldScene line (registration first -- build._dictionary_patch_lines order).
-_mes_lines = [ln for ln in (tmp / "mod" / "DictionaryPatch.txt").read_text(encoding="utf-8").splitlines()
-              if ln.startswith("MessageFile ") and ln not in dp]
-dp += _mes_lines
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
