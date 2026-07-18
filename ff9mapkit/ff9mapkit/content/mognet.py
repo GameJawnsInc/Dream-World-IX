@@ -356,6 +356,55 @@ def roster_names(entry0_text: str) -> list:
 CHOICE_WINDOW = 2
 CHOICE_FLAGS = 8
 
+# --- the MAIL-STATUS box (the persistent bottom-left "You have a letter from X to Y") -----------------
+# Decoded from field 300 @5929-6153: on opening Mognet the moogle recounts the slots, loads text vars
+# 2..7 with the three slots' FROM/TO bytes, and WindowAsync(5, 8, <entry>)s one of four entries (none /
+# 1 / 2 / 3 letters) -- ASYNC with [TIME=-1], so the box sits under the menus until CloseWindow(5)
+# (field 1865 closes it right before the letter display). The stock block carries two near-identical
+# sets (11-14 / 15-18, toggled by a scratch bit); the [IMME] set is the visible one and the one we ship.
+STATUS_WINDOW = 5           # the same slot every moogle field uses for the status box
+_SENDER = "[68C0D8][HSHD][TEXT=0,{f}][C8C8C8][HSHD]"     # a name, in the mognet blue
+_LINE = "You have a letter from " + _SENDER.format(f="{f}") + " to " + _SENDER.format(f="{t}")
+DEFAULT_STATUS_NONE = "You have no mail"
+# entry shapes: the stock [WDTH] width tables reference exactly the value slots each line renders
+STATUS_TEMPLATES = (
+    "[IMME][FEED=4]{none}[FEED=4][TIME=-1]",
+    "[WDTH=0,160,6,2,6,3,-1][IMME][FEED=4]" + _LINE.format(f=2, t=3) + "[FEED=4][TIME=-1]",
+    ("[WDTH=0,160,6,2,6,3,-1,0,160,6,4,6,5,-1][IMME][FEED=4]" + _LINE.format(f=2, t=3)
+     + "[FEED=4]\n[FEED=4]" + _LINE.format(f=4, t=5) + "[FEED=4][TIME=-1]"),
+    ("[WDTH=0,160,6,2,6,3,-1,0,160,6,4,6,5,-1,0,160,6,6,6,7,-1][IMME][FEED=4]" + _LINE.format(f=2, t=3)
+     + "[FEED=4]\n[FEED=4]" + _LINE.format(f=4, t=5) + "[FEED=4]\n[FEED=4]" + _LINE.format(f=6, t=7)
+     + "[FEED=4][TIME=-1]"),
+)
+
+
+def status_entry_texts(none_text: str = DEFAULT_STATUS_NONE) -> list:
+    """The four status-box entries (0/1/2/3 letters held). Only the no-mail wording is authorable; the
+    list lines are structural templates whose [WDTH]/[TEXT] slots must match :func:`mail_status_window`'s
+    text-var loads."""
+    return [STATUS_TEMPLATES[0].format(none=str(none_text))] + list(STATUS_TEMPLATES[1:])
+
+
+def mail_status_window(txids) -> bytes:
+    """Open the mail-status box: text vars 2..7 <- the slots' FROM/TO bytes, then the right entry by
+    occupancy. ``txids`` = the four entry ids in held-count order 0..3. Compaction keeps slots filled
+    from 0, so the donor's count scratch collapses to a nested check: slot 2 occupied => 3 letters,
+    else slot 1 => 2, else slot 0 => 1, else none."""
+    if len(txids) != 4:
+        raise ValueError(f"mail_status_window needs 4 txids (0..3 letters held), got {len(txids)}")
+    out = b""
+    for var, (k, part) in enumerate(((0, 2), (0, 3), (1, 2), (1, 3), (2, 2), (2, 3)), start=2):
+        expr = _push_byte(slot_addr(k, part)) + bytes([_region.T_END])
+        out += opcodes.encode(0x66, var, expr, arg_flags=0b10)        # SetTextVariable(var, {slot byte})
+    def occ(k):
+        return (bytes([_region.EXPR_OP]) + _push_byte(slot_addr(k)) + _const(0)
+                + bytes([_T_NE, _region.T_END]))
+    show = [opcodes.window_async(STATUS_WINDOW, CHOICE_FLAGS, t) for t in txids]
+    return out + _region.if_else(occ(2), show[3],
+                                 _region.if_else(occ(1), show[2],
+                                                 _region.if_else(occ(0), show[1], show[0])))
+
+
 # --- the LETTER itself (the full-screen frameless read) -----------------------------------------------
 # Decoded from field 1865 (Alexandria/Steeple, Kupo) @6191-6310: letter content is ONE ordinary text
 # entry in the RECIPIENT's field block, shown in window 3 with flags 16 (the "hide window" bit -- no
@@ -391,7 +440,8 @@ def letter_display(letter_txid: int) -> bytes:
         Wait(16)
 
     The donor passes the fade intensity through a Map scratch var holding 255; we pass the literal."""
-    return (opcodes.encode(0xA9, 250)                       # CalculateScreenPosition(player)
+    return (opcodes.encode(0x21, STATUS_WINDOW)             # the status box yields to the letter (1865 @6177)
+            + opcodes.encode(0xA9, 250)                     # CalculateScreenPosition(player)
             + opcodes.encode(0xEC, 2, 24, 255, 220, 220, 250)
             + opcodes.wait(16)
             + opcodes.window_async(LETTER_WINDOW, LETTER_FLAGS, letter_txid)
@@ -422,7 +472,7 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
                             accept_prompt_txid: int | None = None, thanks_txid: int | None = None,
                             give_prompt_txid: int | None = None, give_txid: int | None = None,
                             nothing_txid: int | None = None, erase_txid: int | None = None,
-                            letter_txids: dict | None = None) -> bytes:
+                            letter_txids: dict | None = None, status_txids=None) -> bytes:
     """The whole Mognet interaction -- the body behind the moogle menu's "Mognet" row. Exactly the three
     cases a real save moogle presents, in the donor's priority order::
 
@@ -462,8 +512,12 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
         els = _region.if_else(give_available_cond(gv), give_arm, nothing_arm)
     else:
         els = nothing_arm
-    return (migration_guard(erase_txid)
-            + _region.if_else(accept_available_cond(my_id), accept_arm, els))
+    # the mail-status box opens right after the guard (the donor's order: recount+status @5929-6153,
+    # THEN the row gating) and closes when the act ends; the letter display closes it early itself.
+    status = mail_status_window(status_txids) if status_txids else b""
+    closer = opcodes.encode(0x21, STATUS_WINDOW) if status_txids else b""
+    return (migration_guard(erase_txid) + status
+            + _region.if_else(accept_available_cond(my_id), accept_arm, els) + closer)
 
 
 # --------------------------------------------------------------------------- the roster text ---

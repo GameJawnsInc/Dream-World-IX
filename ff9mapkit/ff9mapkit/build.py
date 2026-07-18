@@ -926,7 +926,8 @@ def _validate_savepoint_mognet(project, sp) -> list:
                    "grows a single 42nd row (multi-moogle identity allocation is a campaign-level "
                    "design, deferred with the inbound-mail rung)")
     _keys = {"name", "give", "accept", "mognet_row", "accept_prompt", "accept_yes", "accept_no",
-             "thanks", "give_prompt", "give_yes", "give_no", "give_line", "nothing", "erase"}
+             "thanks", "give_prompt", "give_yes", "give_no", "give_line", "nothing", "erase",
+             "status_none"}
     for k in sorted(set(mg) - _keys):
         out.append(f"[savepoint.mognet] unknown key {k!r} -- expected one of {', '.join(sorted(_keys))}")
     name = mg.get("name")
@@ -986,7 +987,7 @@ def _validate_savepoint_mognet(project, sp) -> list:
             out.append(f"[savepoint.mognet] give.variant {give['variant']} is also in accept -- a letter "
                        f"cannot be both FROM and TO this moogle (their one-shot locks would collide)")
     for k in ("mognet_row", "accept_prompt", "accept_yes", "accept_no", "thanks", "give_prompt",
-              "give_yes", "give_no", "give_line", "nothing", "erase"):
+              "give_yes", "give_no", "give_line", "nothing", "erase", "status_none"):
         if k in mg and not isinstance(mg[k], str):
             out.append(f"[savepoint.mognet] {k} must be a string, got {mg[k]!r}")
     return out
@@ -5036,7 +5037,8 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     accept_prompt_txid=t["accept_prompt"], thanks_txid=t.get("thanks"),
                     give_prompt_txid=t.get("give_prompt"), give_txid=t.get("give_line"),
                     nothing_txid=t.get("nothing"), erase_txid=t.get("erase"),
-                    letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t})
+                    letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t},
+                    status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None)
                 return _savepoint.save_dispatch_mognet(t["prompt"], t["confirm"], mog,
                                                        latch=sp.get("latch", True))
             return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
@@ -5917,6 +5919,11 @@ def collect_text(project: FieldProject):
             _, mg_letters = _mognet.normalize_accept(mg.get("accept", []))
             for lv, lbody in sorted(mg_letters.items()):
                 mg_pos[k][f"letter{lv}"] = _add_raw(_mognet.letter_entry_text(lbody), "")
+            # the mail-STATUS box (the persistent bottom-left "You have a letter from X to Y"): four
+            # entries, 0..3 letters held; structural templates, only the no-mail wording is authorable
+            for si, st in enumerate(_mognet.status_entry_texts(
+                    mg.get("status_none", _mognet.DEFAULT_STATUS_NONE))):
+                mg_pos[k][f"status{si}"] = _add_raw(st, "")
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)

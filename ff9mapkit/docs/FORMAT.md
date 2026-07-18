@@ -624,7 +624,7 @@ give = { variant = 56, to = "Kupo" }   # its own letter: variant 49..63, to = a 
 | `name` | **required** — the moogle's roster name (identity id 41). One network moogle per field. |
 | `accept` | letters this moogle takes delivery of: bare variant ids (`49..63`) or `{ variant, letter = "..." }` tables. A `letter` body is shown on the REAL full-screen letter (the stock header — moogle portrait + "From <sender> to <recipient>" — is added for you; line breaks are yours). |
 | `give` | `{ variant, to }` — the one letter it hands out (one-shot; a declined offer re-offers). `to` = a real roster name (`"Kupo"`) or id. Building resolves names against **your install's** roster. |
-| `mognet_row` / `accept_prompt` / `accept_yes` / `accept_no` / `thanks` / `give_prompt` (`{to}` = the recipient) / `give_yes` / `give_no` / `give_line` / `nothing` / `erase` | wording overrides; all have neutral defaults. `thanks` may use `[TEXT=0,0]` — the sender's roster name. |
+| `mognet_row` / `accept_prompt` / `accept_yes` / `accept_no` / `thanks` / `give_prompt` (`{to}` = the recipient) / `give_yes` / `give_no` / `give_line` / `nothing` / `erase` | wording overrides; all have neutral defaults. `thanks` may use `[TEXT=0,0]` — the sender's roster name. `status_none` overrides the no-mail line of the persistent mail-STATUS box (the bottom-left "You have a letter from X to Y" every real moogle shows while Mognet is open; the list lines are structural). |
 
 Requires the FF9 install at **build** time (the 41 real names are extracted from your own game files —
 the kit ships none). On stock fields the new name renders blank (their 41-row tables); everything else

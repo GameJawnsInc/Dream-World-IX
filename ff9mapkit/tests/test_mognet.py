@@ -84,7 +84,7 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None) -> int:
     return deref(stack[-1]) if stack else 0
 
 
-def run(body: bytes, G: bytearray | None = None, choices=None, menus=None) -> bytearray:
+def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windows=None) -> bytearray:
     """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops.
 
     ``choices`` scripts the player's dialog picks: each read of GetSysvar(9) consumes the next entry
@@ -121,6 +121,8 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None) -> by
         elif i.op == 0x75:                             # Menu -- record, never "open"
             if menus is not None:
                 menus.append((i.args[0], i.args[1]))
+        elif i.op in (0x1F, 0x20) and windows is not None:   # Window{Sync,Async} -- record (win, flags, txid)
+            windows.append((i.args[0], i.args[1], i.args[2]))
         elif i.op == 0x04:                             # RETURN -- halt
             break
         elif i.op in (0x1F, 0x20, 0x66,                # WindowSync / WindowAsync / SetTextVariable
@@ -671,3 +673,61 @@ def test_letter_validation(tmp_path, fake_roster):
     assert not [x for x in probs(_LETTER_FIELD) if "mognet" in x.lower()]
     bad = _FIELD.replace("accept = [55]", 'accept = [{ variant = 56 }]')
     assert any("both FROM and TO" in x for x in probs(bad))
+
+
+# --------------------------------------------------------------------------- the mail-STATUS box ---
+def test_status_entry_texts_reference_the_loaded_value_slots():
+    e = _m.status_entry_texts()
+    assert len(e) == 4
+    assert "You have no mail" in e[0] and "[TIME=-1]" in e[0]
+    assert "[TEXT=0,2]" in e[1] and "[TEXT=0,3]" in e[1]     # letter 1 = vars 2/3 (the donor's slots)
+    assert "[TEXT=0,4]" in e[2] and "[TEXT=0,5]" in e[2]
+    assert "[TEXT=0,6]" in e[3] and "[TEXT=0,7]" in e[3]
+    assert e[1].startswith("[WDTH=0,160,6,2,6,3,-1]")        # the stock width table, per line count
+    assert _m.status_entry_texts("Empty bag, kupo")[0].count("Empty bag, kupo") == 1
+
+
+def test_status_window_picks_the_entry_by_occupancy():
+    """The nested pick rides the compaction invariant: slots fill from 0."""
+    for occupied, want in ((0, 100), (1, 101), (2, 102), (3, 103)):
+        G0 = bytearray(2048)
+        for k in range(occupied):
+            _set_slot(G0, k, 60 + k, 2, 3)
+        wins = []
+        run(_m.mail_status_window([100, 101, 102, 103]), G0, windows=wins)
+        assert wins == [(5, 8, want)], f"{occupied} letters -> {wins}"
+
+
+def test_interaction_opens_status_then_closes_it():
+    mog = _m.mognet_interaction_body(accept_variants=[55], nothing_txid=524,
+                                     status_txids=[100, 101, 102, 103])
+    ins = list(disasm.iter_code(mog, 0, len(mog)))
+    closes = [i for i in ins if i.op == 0x21 and i.args == [5]]
+    assert len(closes) >= 1 and closes[-1].off > max(i.off for i in ins if i.op == 0x20)
+    # executed: empty mailbox -> the "no mail" status entry + the nothing line, nothing else
+    wins = []
+    G = run(mog, choices=[], windows=wins)
+    assert (5, 8, 100) in wins and (1, 128, 524) in wins
+    ref = bytearray(2048); ref[_m.GUARD_IDX] = 1
+    assert bytes(G) == bytes(ref)
+
+
+def test_letter_display_yields_the_status_box_first():
+    ins = list(disasm.iter_code(_m.letter_display(900), 0, len(_m.letter_display(900))))
+    assert ins[0].op == 0x21 and ins[0].args == [5]          # CloseWindow(5) leads (1865 @6177)
+
+
+def test_built_field_shows_the_status_box(tmp_path, fake_roster):
+    _proj, ct, eb = _built(tmp_path)
+    t = ct[-1][0]
+    assert {"status0", "status1", "status2", "status3"} <= set(t)
+    body = _moogle_talk_body(eb)
+    # one held letter addressed elsewhere: the 1-letter status entry shows under the menus. This field
+    # authors a give and the mailbox has room, so the offer opens -- decline it (second choice).
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    _set_slot(G0, 0, 19, 23, 1)
+    wins = []
+    run(body, G0, choices=[1, 1], windows=wins)
+    assert (5, 8, t["status1"]) in wins
+    assert (5, 8, t["status2"]) not in wins
