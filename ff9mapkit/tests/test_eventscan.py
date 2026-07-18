@@ -595,3 +595,35 @@ def test_field_by_id_is_complete_and_disambiguates_shared_folders():
     assert extract.event_name_for("52") == "EVT_ALEX1_TS_MEET_0"
     assert extract.event_name_for("3008") == "EVT_ENDING_TH_0"
     assert extract.event_name_for("52") != extract.event_name_for("3008")     # each ships its own .eb
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_save_moogle_cluster_finds_the_model_129_moogles():
+    """Gizamaluke's Grotto (field 706) builds its save Moogle on model 129 (GEO_NPC_F1_MOG), not 220.
+    Seeding the cluster on 220 alone returned EMPTY here -- so `import --save-moogle` reported "no save
+    point" and dropped it in silence. Census 2026-07-18: 7 of FF9's 55 save fields are model-129."""
+    from ff9mapkit import extract, eventscan
+    from ff9mapkit.eb import EbScript
+    d = extract.extract_event_script("706")
+    raw = d if isinstance(d, (bytes, bytearray)) else d[0]
+    eb = EbScript.from_bytes(raw)
+    f0 = eb.entry(0).func_by_tag(0)
+    slots = [int(i.imm(0)) for i in eb.instrs(f0) if i.op == 0x09]
+    assert eventscan._savepoint_cluster(eb, slots), "the model-129 save Moogle must be detected"
+
+
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy")
+def test_director_refusal_explains_itself_on_a_real_donor():
+    """Field 300 (Ice Cavern -- the canonical save moogle) HAS a save point but its entry-0 tag-1 makes
+    direct entry references, so the director is refused. That refusal must be explained, not silent:
+    only 14 of the 55 save fields qualify, and a bare None reads as "this field has no save point"."""
+    from ff9mapkit import extract, eventscan
+    d = extract.extract_event_script("300")
+    raw = d if isinstance(d, (bytes, bytearray)) else d[0]
+    body, why = eventscan.savepoint_director_report(raw)
+    assert body is None and why and "references other entries" in why
+    # ...while field 407 (Dali/Storage Area), the reference donor, still carries cleanly.
+    d4 = extract.extract_event_script("407")
+    raw4 = d4 if isinstance(d4, (bytes, bytearray)) else d4[0]
+    body4, why4 = eventscan.savepoint_director_report(raw4)
+    assert why4 is None and body4 and len(body4) == 222

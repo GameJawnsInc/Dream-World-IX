@@ -28,6 +28,7 @@ from pathlib import Path
 from . import config
 from . import eventscan
 from ._fieldtable import FBG_TO_EVT, FIELD_BY_ID
+from ._modeldb import MODELS
 from .scene import bgart, bgs, bgi, cam
 
 
@@ -732,17 +733,28 @@ def _imported_content_toml(eb_bytes, *, out_dir=None, name="field", id_remap=Non
         # the build + the author see it as ONE faithful save point (the hidden Moogle + book/feather/tent are in
         # the [[object]] blocks above; its pose surgery in the [[player_func]] blocks). It's the user-facing
         # handle -- and the forward-compatible slot for a future AUTHORED save Moogle (jump arc + distance).
-        if graft_savepoint and any(o.get("model") == "GEO_NPC_F0_MOG" for o in objs):
+        # any save-Moogle model, not just GEO_NPC_F0_MOG -- 7 real save points are built on GEO_NPC_F1_MOG
+        # (eventscan.SAVE_MOOGLE_MODELS); name-matching F0 alone dropped them silently.
+        _save_mog_names = {MODELS.get(m) for m in eventscan.SAVE_MOOGLE_MODELS}
+        if graft_savepoint and any(o.get("model") in _save_mog_names for o in objs):
             src = f'from = "{field_id}"\n' if field_id is not None else ""
             # the save-sequence DIRECTOR (donor entry-0 tag-1) puppeteers the Moogle via shared MAP vars; carry
             # it too -- the object carry misses it (it's main-loop logic, not an object) so without it the Moogle
             # has no driver. Emitted as a gitignored sidecar the build grafts into the fork's empty entry-0 tag-1.
             director_ref = ""
-            director = eventscan.extract_savepoint_director(eb_bytes)
+            director, why = eventscan.savepoint_director_report(eb_bytes)
             if director and out_dir is not None:
                 dfn = f"{name}.savemoogle_director.bin"
                 (Path(out_dir) / dfn).write_bytes(director)
                 director_ref = f'director = "{dfn}"\n'
+            elif why:
+                # NEVER drop the driver in silence -- the fork would spawn a Moogle stuck in its rest pose
+                # and the author would have no idea why. Warn on stderr AND leave the reason in the TOML.
+                print(f"WARNING: --save-moogle carried the Moogle cluster but NOT its director:\n"
+                      f"         {why}.\n"
+                      f"         The Moogle will spawn but never run the save flourish. The functional\n"
+                      f"         save still works via [[savepoint]] (docs/SAVEPOINT.md).", file=sys.stderr)
+                director_ref = f"# NO director carried: {why}.\n# -> the Moogle spawns but stays in its rest pose.\n"
             parts.append("# --- SAVE MOOGLE: a faithful FF9 save point, carried VERBATIM from the donor field --\n"
                          "# the hidden Moogle pops out of its barrel + the full save flourish, exactly as the\n"
                          "# original (cluster = the [[object]]+[[player_func]] blocks above; `director` = the donor's\n"

@@ -847,7 +847,17 @@ def scan_objects(eb_bytes) -> list:
     return out
 
 
-SAVE_MOOGLE_MODEL = 220   # GEO_NPC_F0_MOG -- the save Moogle (the save-point cluster's seed)
+SAVE_MOOGLE_MODEL = 220   # GEO_NPC_F0_MOG -- the canonical save Moogle (kept: the historical name)
+# Every model a real save Moogle is built on -- the seed set for the save-point cluster. CENSUS-DERIVED
+# (2026-07-18): of FF9's 55 fields whose entry owns a true `Menu(4, 0)`, 41 use 220 (GEO_NPC_F0_MOG), 7 use
+# 129 (GEO_NPC_F1_MOG), and 7 (Memoria / Crystal World) have NO model at all -- their save is a moogle-less
+# proximity point. Seeding on 220 alone silently lost the save point on all 7 model-129 fields (Gizamaluke's
+# Grotto, Mountain Path, Red Rose, S. Gate/Rest Stop, Oeilvert, Esto Gaza, Pandemonium/Maze): the cluster
+# came back empty, so `extract_savepoint_director` returned None and the fork dropped the moogle with no
+# warning. NOT derived by matching the GEO_NPC_F*_MOG name pattern on purpose -- the other four variants
+# (196/212/198/199) exist in the game but NEVER own a save entry, and some appear as ordinary moogle NPCs in
+# save fields, so a name-pattern seed would false-positive on decorative moogles. docs/SAVEPOINT.md.
+SAVE_MOOGLE_MODELS = frozenset({220, 129})
 
 
 def _savepoint_cluster(eb, init_slots) -> frozenset:
@@ -870,7 +880,7 @@ def _savepoint_cluster(eb, init_slots) -> frozenset:
         return rd if (rd["model"] is not None and rd["flags"] is not None
                       and not (rd["flags"] & SHOW_MODEL_BIT)) else None
 
-    seeds = [s for s in init_slots if (hidden_init(s) or {}).get("model") == SAVE_MOOGLE_MODEL]
+    seeds = [s for s in init_slots if (hidden_init(s) or {}).get("model") in SAVE_MOOGLE_MODELS]
     cluster = set(seeds)
     frontier = list(seeds)
     while frontier:
@@ -899,25 +909,44 @@ def extract_savepoint_director(eb_bytes):
     The director drives the Moogle through shared MAP vars ONLY (zero RunScript/Init* entry refs), so it
     grafts verbatim with no remap -- the Moogle (carried) + cask (carried) + director write/read the same
     transient MAP vars, reconstituting the exact source-field state machine."""
+    return savepoint_director_report(eb_bytes)[0]
+
+
+def savepoint_director_report(eb_bytes):
+    """:func:`extract_savepoint_director` plus the REASON it refused: ``(body_or_None, reason)``, where
+    ``reason`` is ``None`` on success or a short human-readable string.
+
+    Why this exists: the bare ``None`` was indistinguishable between "this field has no save point" and
+    "this field HAS one but I won't carry its director" -- so `import --save-moogle` dropped the moogle's
+    driver in silence and the fork spawned a puppet with no puppeteer. A census of the 55 save fields
+    (2026-07-18) found the director is accepted on only **14** of them; the canonical Ice Cavern moogle
+    (field 300) is among the 41 refused. Callers should surface ``reason`` rather than fail quietly."""
     eb = EbScript.from_bytes(eb_bytes) if isinstance(eb_bytes, (bytes, bytearray)) else eb_bytes
     e0 = eb.entry(0) if eb.entry_count > 0 else None
     f0 = e0.func_by_tag(0) if (e0 and not e0.empty) else None
     if f0 is None:
-        return None
+        return None, "the field has no entry-0 tag-0 (Main_Init) to read InitObject targets from"
     init_slots = [int(i.imm(0)) for i in eb.instrs(f0) if i.op == 0x09]   # InitObject targets in Main_Init
     if not _savepoint_cluster(eb, init_slots):           # no save Moogle in this field -> no director
-        return None
+        return None, ("no hidden save-Moogle cluster is InitObject'd from Main_Init (either the field has no "
+                      "save point, or its Moogle is spawned some other way -- e.g. field 1213, whose real "
+                      "model-220 Moogle is not InitObject'd from entry-0 tag-0)")
     director = e0.func_by_tag(1)
     if director is None:
-        return None
+        return None, "the field has a save Moogle but no entry-0 tag-1 (no main loop to carry as its director)"
     ins = list(eb.instrs(director))
     if not ins:
-        return None
+        return None, "the field's entry-0 tag-1 director is empty"
     # safety: a clean director references NO entries (drives the Moogle via shared vars). If it RunScripts /
     # Inits an entry, grafting it verbatim would dangle -> refuse (this field's main loop does more than drive
     # the Moogle; a future refinement would slice out just the Moogle-state portion).
     if any(i.op in (0x10, 0x12, 0x14, 0x43, 0x07, 0x08, 0x09) for i in ins):
-        return None
+        return None, ("this field's entry-0 tag-1 does more than drive the Moogle -- it references other "
+                      "entries directly (RunScript/Init*), so grafting it verbatim would dangle. Carrying "
+                      "the Moogle without it gives a puppet with no puppeteer (it will sit in its rest pose "
+                      "and never run the save flourish). Pick a donor whose director is a clean shared-var "
+                      "driver -- only 14 of FF9's 55 save fields qualify; field 407 (Dali/Storage Area) is "
+                      "the reference one")
     body = bytearray(eb.data[ins[0].off:ins[-1].end])
     base = ins[0].off
     for i in ins:
@@ -925,7 +954,7 @@ def extract_savepoint_director(eb_bytes):
             for k in range(i.off, i.end):                # restores it elsewhere (not carried), so in a fork it
                 body[k - base] = 0x00                    # would persist (white pillarbox bars). NOP it in place
         # (keep the byte length so the director's relative jumps stay valid). In-game proven: the bars vanish.
-    return bytes(body)
+    return bytes(body), None
 
 
 def spawn_settle_mismatch(eb, idx):
@@ -1111,7 +1140,7 @@ def scan_objects_verbatim(eb_bytes, *, fork_player_tags=FORK_PLAYER_TAGS, graft_
         mism = spawn_settle_mismatch(eb, slot)
         if mism:
             iy, sy, pos, sz = mism
-            if graft_savepoint and slot in savepoint_cluster and rd["model"] == SAVE_MOOGLE_MODEL:
+            if graft_savepoint and slot in savepoint_cluster and rd["model"] in SAVE_MOOGLE_MODELS:
                 b = bytearray(spec["entry_bytes"])              # AUTO-FIX the save Moogle: spawn at the in-barrel Y
                 b[pos:pos + sz] = (int(sy) & ((1 << (8 * sz)) - 1)).to_bytes(sz, "little")
                 spec["entry_bytes"] = bytes(b)

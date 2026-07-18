@@ -155,3 +155,31 @@ def test_validate_scalar_zone_no_crash(tmp_path):
         encoding="utf-8")
     probs = build.validate(build.FieldProject.load(p))
     assert any("[[savepoint]] zone must have 4 or 5 points" in x for x in probs)
+
+
+# --- rung 1: the save-Moogle model set + the director's refusal REASON -------------------------------
+# Census 2026-07-18 over FF9's 55 fields owning a true instruction-aligned Menu(4,0): 41 are built on
+# model 220 (GEO_NPC_F0_MOG), 7 on model 129 (GEO_NPC_F1_MOG), 7 (Memoria/Crystal World) have NO model.
+# Seeding the cluster on 220 alone silently lost the save point on every model-129 field.
+def test_save_moogle_model_set_covers_both_real_variants():
+    assert eventscan.SAVE_MOOGLE_MODELS == frozenset({220, 129})
+    assert eventscan.SAVE_MOOGLE_MODEL == 220          # the historical scalar name still resolves
+
+
+def test_save_moogle_model_set_excludes_non_save_moogle_variants():
+    # 196/212/198/199 are real GEO_NPC_F*_MOG models but NEVER own a save entry -- seeding on the name
+    # pattern would false-positive on decorative moogles standing in a save field.
+    assert not ({196, 212, 198, 199} & eventscan.SAVE_MOOGLE_MODELS)
+
+
+def test_director_report_gives_a_reason_instead_of_a_bare_none():
+    # A field with no save Moogle at all: the report must explain, not just return None.
+    body, why = eventscan.savepoint_director_report(CLEAN)
+    assert body is None
+    assert why and isinstance(why, str)
+
+
+def test_extract_savepoint_director_keeps_its_bytes_or_none_contract():
+    # back-compat: the original entry point still returns bytes-or-None, never the (body, reason) tuple.
+    out = eventscan.extract_savepoint_director(CLEAN)
+    assert out is None or isinstance(out, (bytes, bytearray))
