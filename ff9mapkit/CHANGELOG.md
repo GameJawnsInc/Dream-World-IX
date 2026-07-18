@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — THE VANILLA SQUAT: custom dialogue was overwriting real locations' text
+- A field's dialogue is keyed by mesID in one flat global namespace shared with the BASE GAME, and
+  `FF9TextTool` merges every source per-txid with the base game applied first — so custom text on a REAL
+  block overwrote that location's own dialogue, needing no stacked mod folder at all. The kit default
+  **1073 is Black Mage Village**; the World Hub's 8 is Ice Cavern; 22 is Lindblum Castle. The old cure for
+  the cross-folder shadow ("pick a real MesDB id no higher folder defines") is what caused it: all 64 real
+  blocks are owned. `text_block` now defaults to the field's **own id** and emits its own
+  `MessageFile` registration; forks keep their donor's block (voice-acting and the dual-language remap key
+  off it). Identity, not an offset band — mesID *consumption* is Int16, so `40000+id` wraps and loads zero
+  text.
+- The collision guard now reports that axis too (it called all three live corruptions CLEAR), and suggests
+  free custom ids instead of real in-use blocks. Per-language sweep; fork exemption scoped to the donor's
+  own block; wired into the journey single-folder and hub installs, which had no text check at all.
+- `deploy_field` carries the `MessageFile` line into the live `DictionaryPatch.txt`, before the `FieldScene`
+  line — it rebuilds that file from parts rather than copying the dist's, so the registration was dropped
+  and the field black-screened (`DataPatchers` skips a scene whose mesID fails the `MesDB` gate).
+- `ff9mapkit import` passes the donor's block through; it previously emitted 1073 for every fork.
+
 ### Fixed — the 2026-07 adversarial-review pass: 47 defects across the whole kit
 - A package-wide adversarial review (24 subsystem reviewers, every finding independently
   refuted-or-confirmed) confirmed 48 defects; 47 are fixed here (1 was informational).
