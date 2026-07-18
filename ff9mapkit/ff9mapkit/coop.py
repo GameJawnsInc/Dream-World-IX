@@ -60,6 +60,7 @@ at the next screen change); on older builds, relaunch FF9 after this runs.
 
 from __future__ import annotations
 
+import re
 import secrets
 import shutil
 import subprocess
@@ -77,6 +78,7 @@ COOP_MOD = "FF9Coop"        # dedicated mod folder (never touched by campaign re
 COOP_NAME = "COOP"          # field/script name inside the built mod
 BRIDGE_PORT = 49201         # local ws:// port FF9 connects to
 _CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+_CODE_RE = re.compile(r"(?i:ff9-)?[A-Za-z0-9]{1,32}")   # everything validate_code() accepts
 
 # The playable names the engine's visitor mode can dress a ghost as (NetSyncVisitor.NameToRig,
 # s37) -- the 8 mains with proven field rigs; dagger/salamander are aliases. Anyone else
@@ -152,6 +154,30 @@ def generate_code() -> str:
     """A random namespaced session code, e.g. ``ff9-K3QZ81MB``. The ``ff9-`` prefix keeps FF9 sessions
     out of other games' code namespace on the shared relay; pairing is case-insensitive."""
     return "ff9-" + "".join(secrets.choice(_CODE_ALPHABET) for _ in range(8))
+
+
+def validate_code(code: str) -> str:
+    """Check a session code the user typed or pasted and return it UNCHANGED. Accepts an optional
+    case-insensitive ``ff9-`` prefix + 1-32 ASCII letters/digits -- everything :func:`generate_code`
+    (and the engine's own ``GenerateSessionCode``, s36) can mint, plus any plausible hand-set code.
+    Raises ValueError otherwise. An empty code is NOT a code: callers mean "none given" by that and
+    must not hand it here (`coop host` mints one, `coop join` refuses with its own message).
+
+    This is a security fence, not a spelling check. The code lands in Memoria.ini as one
+    ``SessionCode = <code>`` line, and the engine's parser (``IniFile.Init``) is a sequential LINE
+    reader that is last-write-wins per (section, key) and re-enters a section on a second
+    ``[Netsync]`` header -- so a newline inside a "code" is not a typo, it is extra ini keys. A
+    poisoned invite (``ff9-AAAA0000\\nGuestSlots = 15\\n...``) pasted into `coop join` would hand the
+    sender your party slots or re-point ``RelayUrl`` at their server. The alphabet also excludes
+    ``=`` ``;`` ``#`` ``[`` ``]`` and whitespace, so no accepted value can grow a second key, a
+    comment, or a section header on the line it is written to.
+
+    Nothing is normalized -- pairing compares the LITERAL stored string on both sides of the relay,
+    so upper-casing or inserting the prefix here could break pairing with a peer on an older build."""
+    if not isinstance(code, str) or not _CODE_RE.fullmatch(code):
+        raise ValueError(f"bad session code {code!r}: give the host's code exactly as they sent it "
+                         "-- letters and digits only, e.g. ff9-XXXXXXXX")
+    return code
 
 
 # ---------------------------------------------------------------- Memoria.ini
@@ -433,7 +459,9 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     game = find_game_path(args.game)
     out(f"FF9 install: {game}")
 
-    # validate the play-style flags FIRST -- a typo must not cost the minute-long room build
+    # validate the play-style flags and the pasted code FIRST -- a typo must not cost the
+    # minute-long room build, and a code carrying a newline must never reach write_netsync
+    # (it would splice extra [Netsync] keys into the ini -- see validate_code)
     follow = getattr(args, "follow_host", None)
     diorama = getattr(args, "diorama", None)
     try:
@@ -442,6 +470,8 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
                                   getattr(args, "ghost_as", None),
                                   None if follow is None else follow == "on",
                                   None if diorama is None else diorama == "on")
+        if code:                      # empty/None = none given (host mints, LAN join needs none)
+            validate_code(code)
     except ValueError as e:
         out(f"  {e}")
         return 2
@@ -455,6 +485,15 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     ini_text = _ini_path(game).read_text(encoding="utf-8", errors="replace")
     if role == "host" and not code:
         code = None if getattr(args, "new_code", False) else read_ini_key(ini_text, "Netsync", "SessionCode")
+        if code:
+            # A stored code we can't vouch for (hand-edited, or left behind by a poisoned ini) is
+            # treated as ABSENT -- minting a fresh one keeps the host's setup working instead of
+            # dying on a line they didn't write, and stops a bad value being re-written verbatim.
+            try:
+                validate_code(code)
+            except ValueError:
+                out(f"  ignoring the stored SessionCode {code!r} -- not a usable code, minting a new one")
+                code = None
         code = code or generate_code()
 
     updates = {

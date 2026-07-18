@@ -464,6 +464,16 @@ class CoopDoc(QWidget):
             widgets.set_state(self.lbl_config, "warn")
             self.lbl_config.setText("direct LAN join needs the host's IP")
             return
+        if code:
+            # Reject a bad paste HERE, before a subprocess spawns: .strip() only trims the ends, and
+            # argv carries an embedded newline through intact (CommandLineToArgvW splits on spaces
+            # and tabs only), so the field is a live carrier for the ini-splice -- see coop.validate_code.
+            try:
+                coop.validate_code(code)
+            except ValueError as e:
+                widgets.set_state(self.lbl_config, "warn")
+                self.lbl_config.setText(str(e))
+                return
         style = dict(zip(("guest_slots", "guest_wait", "ghost_as", "follow_host", "diorama"),
                          self._playstyle_state())) if self.style_box.isEnabled() else {}
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
