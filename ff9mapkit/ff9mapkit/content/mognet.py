@@ -52,6 +52,7 @@ from __future__ import annotations
 import re
 
 from ..eb import opcodes
+from . import choice as _choice
 from . import region as _region
 
 # --- identity ---------------------------------------------------------------------------------------
@@ -296,6 +297,60 @@ def accept_letter_body(variants, *, my_id: int = NEW_MOOGLE_ID, thanks_txid: int
         chain = _region.if_else(slot_addressed_to_cond(k, my_id),
                                 _consume_arm(k, vs, thanks_txid, window, flags), chain)
     return _set_byte(GUARD_IDX, 1) + chain
+
+
+# The moogle's CHOICE windows: slot 2, flags 8 -- flags bit "4: mognet format" is what paints the
+# MOGNET caption on the frame (EventEngine.DoEventCode.cs:413; field 300 opens every moogle menu as
+# WindowAsync(2, 8, ...)). Statement lines (thanks / handover / nothing) use the plain dialogue window
+# (1, 128), which the give/accept bodies already default to.
+CHOICE_WINDOW = 2
+CHOICE_FLAGS = 8
+
+
+def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), give=None,
+                            accept_prompt_txid: int | None = None, thanks_txid: int | None = None,
+                            give_prompt_txid: int | None = None, give_txid: int | None = None,
+                            nothing_txid: int | None = None, erase_txid: int | None = None) -> bytes:
+    """The whole Mognet interaction -- the body behind the moogle menu's "Mognet" row. Exactly the three
+    cases a real save moogle presents, in the donor's priority order::
+
+        migration guard                       # the wipe-guard runs before ANY mailbox read
+        if a held letter is addressed to me:  # (a) ACCEPT -- confirm, then take delivery
+            [confirm window] -> row 0 -> accept_letter_body   (thanks line, compaction, counter)
+        elif my letter is unhanded + a slot free:             # (b) GIVE -- offer, then hand it over
+            [offer window]   -> row 0 -> give_letter_body     (first-empty slot, one-shot lock)
+        else:                                                 # (c) nothing to give or receive
+            [nothing line]
+
+    ``give`` is ``(variant, to_id)`` or None (a moogle that only receives). ``accept_variants`` is the
+    build-time set of letter variants deliverable TO this moogle (their read-locks are set literal).
+    Both confirms dispatch via :func:`choice.switch_on_choice` (one sysvar-9 read); declining either is
+    a bodiless row -- no state is touched. A ``None`` prompt txid skips that confirm (auto-run; the
+    build always passes real txids).
+
+    Deliberate deviation from the donor, documented: the real moogle hosts these under a "What do you
+    want to do, kupo?" submenu whose third row is Read-mail. Read-mail is deferred (it needs a
+    received-letters design), and a submenu with one live row is ceremony -- so v1 dispatches the three
+    cases directly off the "Mognet" pick. The window skin is still the donor's (slot 2 / flags 8 = the
+    MOGNET caption)."""
+    def _confirmed(prompt_txid, body):
+        if prompt_txid is None:
+            return body
+        return (opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, prompt_txid)
+                + _choice.switch_on_choice([body, b""]))
+
+    nothing_arm = opcodes.window_sync(1, 128, nothing_txid) if nothing_txid is not None else b""
+    accept_arm = _confirmed(accept_prompt_txid,
+                            accept_letter_body(accept_variants, my_id=my_id, thanks_txid=thanks_txid))
+    if give is not None:
+        gv, gto = give
+        give_arm = _confirmed(give_prompt_txid,
+                              give_letter_body(gv, gto, from_id=my_id, give_txid=give_txid))
+        els = _region.if_else(give_available_cond(gv), give_arm, nothing_arm)
+    else:
+        els = nothing_arm
+    return (migration_guard(erase_txid)
+            + _region.if_else(accept_available_cond(my_id), accept_arm, els))
 
 
 # --------------------------------------------------------------------------- the roster text ---

@@ -112,6 +112,32 @@ def save_dispatch() -> bytes:
             + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
 
+def save_dispatch_mognet(prompt_txid: int, confirm_txid: int, mognet_body: bytes,
+                         *, latch: bool = True) -> bytes:
+    """The network-joined moogle's talk body -- a THREE-row menu: Save / Mognet / Cancel::
+
+        DisableMove ; DisableMenu
+        Window(2, 8, prompt)                     "Can I help you, kupo?"-shaped, [PCHC=3,2] in text
+          row 0 Save   -> Window(2, 8, confirm) -> row 0 -> the latched save_act
+          row 1 Mognet -> ``mognet_body``        (mognet.mognet_interaction_body -- guard + a/b/c)
+          row 2 Cancel -> nothing
+        EnableMenu ; EnableMove ; RETURN
+
+    Dispatch is :func:`choice.switch_on_choice` (op_0B, ONE sysvar-9 read) -- the multi-body menu that
+    :func:`_row0_only` structurally cannot host. The Save arm re-reads the choice AFTER opening the
+    confirm window, which is safe: the hazard was ever only an outer chained-if re-reading a stale
+    sysvar; a fresh read inside an already-dispatched arm is exactly how field 2919 does it.
+
+    The 2-row :func:`save_dispatch_prompted` stays byte-frozen for [[savepoint]]s without a network
+    moogle -- this function is a new path, taken only when the build wires a ``mognet_body``."""
+    save_arm = (opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, confirm_txid)
+                + _choice.switch_on_choice([save_act(latch=latch), b""]))
+    return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU
+            + opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, prompt_txid)
+            + _choice.switch_on_choice([save_arm, bytes(mognet_body), b""])
+            + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
 def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool = True) -> bytes:
     """The FAITHFUL save interaction, rebuilt from the real script::
 

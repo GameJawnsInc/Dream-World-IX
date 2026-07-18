@@ -21,8 +21,9 @@ from ff9mapkit.eb import disasm
 
 
 # --------------------------------------------------------------------------- the mini-VM ---
-def _eval_expr(tokens: bytes, G: bytearray) -> int:
-    """Evaluate one 0x05 expression's token stream (sans the leading 05) against gEventGlobal ``G``."""
+def _eval_expr(tokens: bytes, G: bytearray, sysread=None) -> int:
+    """Evaluate one 0x05 expression's token stream (sans the leading 05) against gEventGlobal ``G``.
+    ``sysread(code)`` services GetSysvar tokens (0x7A) -- the tests script dialog choices through it."""
     stack: list = []
 
     def deref(x):
@@ -48,6 +49,11 @@ def _eval_expr(tokens: bytes, G: bytearray) -> int:
             stack.append(("bi", tokens[p])); p += 1
         elif t == (_region.GLOB_BOOL | 0x20):                          # 0xE4 long index
             stack.append(("bi", int.from_bytes(tokens[p:p + 2], "little"))); p += 2
+        elif t == _region.T_SYSVAR:                                    # 0x7A GetSysvar(code)
+            code = tokens[p]; p += 1
+            if sysread is None:
+                raise AssertionError(f"mini-VM: unscripted GetSysvar({code})")
+            stack.append(("c", int(sysread(code))))
         elif t == _region.T_NOT:
             stack.append(("c", 0 if deref(stack.pop()) else 1))
         elif t in (_region.T_LT, _region.T_EQ, _m._T_NE, _m._T_ANDAND, _m._T_OROR):
@@ -78,26 +84,53 @@ def _eval_expr(tokens: bytes, G: bytearray) -> int:
     return deref(stack[-1]) if stack else 0
 
 
-def run(body: bytes, G: bytearray | None = None) -> bytearray:
-    """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops."""
+def run(body: bytes, G: bytearray | None = None, choices=None, menus=None) -> bytearray:
+    """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops.
+
+    ``choices`` scripts the player's dialog picks: each read of GetSysvar(9) consumes the next entry
+    (the engine's own contract -- every menu re-reads the choice register after its window). ``menus``,
+    if a list, collects every Menu(id, sub) call so a test can assert the save fired (or didn't)."""
     G = bytearray(2048) if G is None else bytearray(G)
     raw = bytes(body)
+    queue = list(choices or [])
+
+    def sysread(code):
+        if code != 9:
+            raise AssertionError(f"mini-VM: unexpected GetSysvar({code})")
+        if not queue:
+            raise AssertionError("mini-VM: the body read a choice the test did not script")
+        return queue.pop(0)
+
     pos, last = 0, 0
     while pos < len(raw):
         i, nxt = disasm.read_code(raw, pos)
         if i.op == 0x05:
-            last = _eval_expr(raw[i.off + 1:i.off + i.length], G)
+            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread)
         elif i.op == 0x01:                             # unconditional forward hop
             nxt += i.args[0]
         elif i.op == 0x02:                             # jump-if-false
             nxt += 0 if last else i.args[0]
         elif i.op == 0x03:                             # jump-if-true
             nxt += i.args[0] if last else 0
-        elif i.op in (0x1F, 0x20, 0x66):               # WindowSync / WindowAsync / SetTextVariable
+        elif i.op == 0x0B:                             # the op_0B switch -- dispatch on the last expr
+            info = disasm.decode_switch(i)
+            edge = next((e for e in info.edges if e.value == last),
+                        next(e for e in info.edges if e.is_default))
+            pos = edge.target
+            continue
+        elif i.op == 0x75:                             # Menu -- record, never "open"
+            if menus is not None:
+                menus.append((i.args[0], i.args[1]))
+        elif i.op == 0x04:                             # RETURN -- halt
+            break
+        elif i.op in (0x1F, 0x20, 0x66,                # WindowSync / WindowAsync / SetTextVariable
+                      0x22,                            # Wait
+                      0x2D, 0x2E, 0xAB, 0xAA):         # Disable/EnableMove, Disable/EnableMenu
             pass
         else:
             raise AssertionError(f"mini-VM: unhandled opcode 0x{i.op:02X} at {i.off}")
         pos = nxt
+    assert not queue, f"mini-VM: {len(queue)} scripted choice(s) were never consumed"
     return G
 
 
@@ -296,3 +329,117 @@ def test_roster_from_install_matches_the_live_identities():
     assert names[8] == "Kumop" and names[23] == "Kuppo" and names[1] == "Kupo"
     out = _m.roster_extend(text, "Mogwai")
     assert _m._TBLE_RE.match(out).group(3).split("\n")[_m.NEW_MOOGLE_ID] == "Mogwai"
+
+
+# --------------------------------------------------------------------------- the full moogle, executed ---
+from ff9mapkit.content import savepoint as _sp  # noqa: E402  (the rung-4 menu assembly)
+
+
+def _moogle(give=None, accepts=(55,)):
+    """The composed network moogle exactly as the build will wire it: the 3-row top menu around the
+    mognet a/b/c interaction."""
+    mog = _m.mognet_interaction_body(accept_variants=accepts, give=give,
+                                     accept_prompt_txid=520, thanks_txid=521,
+                                     give_prompt_txid=522, give_txid=523,
+                                     nothing_txid=524, erase_txid=525)
+    return _sp.save_dispatch_mognet(510, 511, mog)
+
+
+def test_menu_save_yes_fires_the_latched_save():
+    menus = []
+    G = run(_moogle(), choices=[0, 0], menus=menus)
+    assert menus == [(4, 0)]
+    assert G[184 >> 3] & (1 << (184 & 7)) == 0         # the GLOB(184) latch set then cleared
+
+
+def test_menu_save_no_does_nothing():
+    menus = []
+    G = run(_moogle(), choices=[0, 1], menus=menus)
+    assert menus == [] and bytes(G) == bytes(bytearray(2048))
+
+
+def test_menu_cancel_does_nothing():
+    menus = []
+    G = run(_moogle(), choices=[2], menus=menus)
+    assert menus == [] and bytes(G) == bytes(bytearray(2048))
+
+
+def test_menu_mognet_accept_path():
+    """(a) the player brought a letter addressed to us: Mognet -> confirm Yes -> delivery."""
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    G0[_m.DELIVERED_IDX] = 12
+    _set_slot(G0, 0, 55, 8, 41)
+    menus = []
+    G = run(_moogle(), G0, choices=[1, 0], menus=menus)
+    assert menus == []                                 # mognet never opens the save menu
+    assert _mailbox(G) == [(0, 0, 0, 0)] * 3
+    assert G[_m.DELIVERED_IDX] == 13 and _bit(G, _m.read_lock_bit(55)) == 1
+
+
+def test_menu_mognet_accept_declined_is_a_no_op():
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    _set_slot(G0, 0, 55, 8, 41)
+    G = run(_moogle(), G0, choices=[1, 1])
+    assert bytes(G) == bytes(G0)
+
+
+def test_menu_mognet_give_path():
+    """(b) our moogle's letter is unhanded and a slot is free: Mognet -> offer Yes -> handed over."""
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    G = run(_moogle(give=(56, 1)), G0, choices=[1, 0])
+    assert _mailbox(G)[0] == (1, 56, 41, 1)            # FROM us TO Kupo
+    assert _bit(G, _m.give_lock_bit(56)) == 1
+
+
+def test_menu_mognet_give_declined_keeps_the_offer():
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    G = run(_moogle(give=(56, 1)), G0, choices=[1, 1])
+    assert bytes(G) == bytes(G0)                       # nothing written, the one-shot NOT burnt
+
+
+def test_menu_mognet_give_already_handed_is_case_c():
+    """The one-shot: once given, the offer never re-fires -- the nothing line shows instead."""
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    G0[_m.give_lock_bit(56) >> 3] |= 1 << (_m.give_lock_bit(56) & 7)
+    G = run(_moogle(give=(56, 1)), G0, choices=[1])    # no confirm opens -- straight to the nothing line
+    assert bytes(G) == bytes(G0)
+
+
+def test_menu_mognet_nothing_pending_is_case_c():
+    G = run(_moogle(), choices=[1])
+    ref = bytearray(2048)
+    ref[_m.GUARD_IDX] = 1                              # only the migration guard's init write
+    assert bytes(G) == bytes(ref)
+
+
+def test_menu_mognet_accept_takes_priority_over_give():
+    """Both pending: delivering the player's letter beats re-offering ours (donor order)."""
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    _set_slot(G0, 0, 55, 8, 41)
+    G = run(_moogle(give=(56, 1)), G0, choices=[1, 0])
+    assert _mailbox(G) == [(0, 0, 0, 0)] * 3           # the accept consumed; the give did NOT fire
+    assert _bit(G, _m.give_lock_bit(56)) == 0
+
+
+def test_menu_mognet_runs_the_migration_guard():
+    """Old un-migrated data + our moogle first: the erase fires HERE, exactly as at a real moogle."""
+    G0 = bytearray(2048)                               # guard 0
+    _set_slot(G0, 0, 19, 23, 1)
+    G = run(_moogle(), G0, choices=[1])
+    assert _mailbox(G) == [(0, 0, 0, 0)] * 3 and G[_m.GUARD_IDX] == 1
+
+
+def test_menu_save_path_skips_the_guard_and_mailbox_entirely():
+    """Picking Save must not touch a single mognet byte -- even with old data present."""
+    G0 = bytearray(2048)
+    _set_slot(G0, 0, 19, 23, 1)                        # guard 0 + occupied: the erase WOULD fire in mognet
+    menus = []
+    G = run(_moogle(), G0, choices=[0, 0], menus=menus)
+    assert menus == [(4, 0)]
+    assert bytes(G[_m.GUARD_IDX:1091]) == bytes(G0[_m.GUARD_IDX:1091])
