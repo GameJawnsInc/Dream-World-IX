@@ -154,7 +154,7 @@ class EditorApp:
             "A FEW FIELDS\n"
             "  - Field ID: any unique number >= 4000.\n"
             "  - Area: must be >= 10 (lower areas don't render).\n"
-            "  - Text block: leave at 1073 unless you know otherwise.\n"
+            "  - Text block: leave EMPTY -- it derives from the field id and registers itself.\n"
             "  - NPC preset: vivi or zidane is the easy path (a custom model also needs anims set "
             "in the .toml).")
 

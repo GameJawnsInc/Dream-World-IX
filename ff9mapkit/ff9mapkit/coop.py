@@ -60,6 +60,7 @@ at the next screen change); on older builds, relaunch FF9 after this runs.
 
 from __future__ import annotations
 
+import re
 import secrets
 import shutil
 import subprocess
@@ -77,6 +78,7 @@ COOP_MOD = "FF9Coop"        # dedicated mod folder (never touched by campaign re
 COOP_NAME = "COOP"          # field/script name inside the built mod
 BRIDGE_PORT = 49201         # local ws:// port FF9 connects to
 _CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+_CODE_RE = re.compile(r"(?i:ff9-)?[A-Za-z0-9]{1,32}")   # everything validate_code() accepts
 
 # The playable names the engine's visitor mode can dress a ghost as (NetSyncVisitor.NameToRig,
 # s37) -- the 8 mains with proven field rigs; dagger/salamander are aliases. Anyone else
@@ -154,6 +156,30 @@ def generate_code() -> str:
     return "ff9-" + "".join(secrets.choice(_CODE_ALPHABET) for _ in range(8))
 
 
+def validate_code(code: str) -> str:
+    """Check a session code the user typed or pasted and return it UNCHANGED. Accepts an optional
+    case-insensitive ``ff9-`` prefix + 1-32 ASCII letters/digits -- everything :func:`generate_code`
+    (and the engine's own ``GenerateSessionCode``, s36) can mint, plus any plausible hand-set code.
+    Raises ValueError otherwise. An empty code is NOT a code: callers mean "none given" by that and
+    must not hand it here (`coop host` mints one, `coop join` refuses with its own message).
+
+    This is a security fence, not a spelling check. The code lands in Memoria.ini as one
+    ``SessionCode = <code>`` line, and the engine's parser (``IniFile.Init``) is a sequential LINE
+    reader that is last-write-wins per (section, key) and re-enters a section on a second
+    ``[Netsync]`` header -- so a newline inside a "code" is not a typo, it is extra ini keys. A
+    poisoned invite (``ff9-AAAA0000\\nGuestSlots = 15\\n...``) pasted into `coop join` would hand the
+    sender your party slots or re-point ``RelayUrl`` at their server. The alphabet also excludes
+    ``=`` ``;`` ``#`` ``[`` ``]`` and whitespace, so no accepted value can grow a second key, a
+    comment, or a section header on the line it is written to.
+
+    Nothing is normalized -- pairing compares the LITERAL stored string on both sides of the relay,
+    so upper-casing or inserting the prefix here could break pairing with a peer on an older build."""
+    if not isinstance(code, str) or not _CODE_RE.fullmatch(code):
+        raise ValueError(f"bad session code {code!r}: give the host's code exactly as they sent it "
+                         "-- letters and digits only, e.g. ff9-XXXXXXXX")
+    return code
+
+
 # ---------------------------------------------------------------- Memoria.ini
 
 
@@ -168,9 +194,22 @@ def _split_lines(text: str):
 
 
 def read_ini_key(text: str, section: str, key: str) -> str | None:
-    """The value of ``key`` inside ``[section]``, or None. Mirrors Memoria's parser: first match wins,
-    ``;``/``#`` start comments, section/key names are case-insensitive."""
+    """The value of ``key`` inside ``[section]``, or None -- the value the ENGINE would use.
+
+    LAST match wins, because Memoria's parser does. ``IniFile.Init`` walks the file line by line and
+    ends each one with ``Options[new Key(section, key)] = value``, a plain dictionary assignment, and
+    it re-enters a section on a repeated ``[Netsync]`` header -- so where a key appears twice the
+    later line is the one the game obeys. Reading the FIRST match (what this did) made every caller
+    describe a file the engine was not playing: `coop show` would print a clean session code and an
+    empty guest-slot mask off a ini whose second, poisoned copy of those keys was live, and the host
+    setup's stored-code check would vet a value the engine had already overridden.
+
+    Deliberately more permissive than the engine on two axes, both toward NOT missing a live line:
+    section/key names match case-insensitively (the engine's ``Key`` struct compares ordinally), and
+    an inline ``;``/``#`` is stripped from the value (the engine keeps it, having already stopped at
+    the ``=``). ``;``/``#`` at the head of a line is a comment in both."""
     in_sec = False
+    found = None
     for line in text.splitlines():
         t = line.strip()
         if t.startswith(";") or t.startswith("#"):
@@ -181,23 +220,104 @@ def read_ini_key(text: str, section: str, key: str) -> str | None:
         if in_sec and "=" in line:
             k, v = line.split("=", 1)
             if k.strip().lower() == key.lower():
-                return v.split(";")[0].split("#")[0].strip()
-    return None
+                found = v.split(";")[0].split("#")[0].strip()
+    return found
+
+
+def duplicate_ini_keys(text: str, section: str) -> list[str]:
+    """The keys that appear more than once inside ``[section]``, in first-seen order.
+
+    A duplicate is not just untidy -- it is the fingerprint of the pre-fence ini splice (a pasted
+    "session code" carrying ``\\nGuestSlots = 15``), or of a hand-edit that pasted a friend's whole
+    ``[Netsync]`` block below the existing one. Either way the engine silently honours the LAST copy
+    while the visible one higher up says something else, so the diagnostics say so out loud."""
+    in_sec, seen, dupes = False, set(), []
+    for line in text.splitlines():
+        t = line.strip()
+        if t.startswith(";") or t.startswith("#"):
+            continue
+        if t.startswith("["):
+            in_sec = t.lower().startswith("[" + section.lower() + "]")
+            continue
+        if in_sec and "=" in line:
+            k = line.split("=", 1)[0].strip()
+            if not k:
+                continue
+            if k.lower() in seen and k not in dupes:
+                dupes.append(k)
+            seen.add(k.lower())
+    return dupes
+
+
+# Every C0 control + DEL + the three line breaks only Python knows about. THE UNION IS DELIBERATE:
+# .NET's StreamReader.ReadLine (the engine's parser) breaks on \r\n only, while Python's
+# str.splitlines() -- what read_ini_key uses to read the same file back -- ALSO breaks on
+# \x0b \x0c \x1c-\x1e \x85 \u2028 \u2029, so a denylist tuned to either parser alone leaves the other
+# one splittable. Keys refuse the ini's structural characters on top of that.
+_INI_BAD_VALUE = re.compile(r"[\x00-\x1f\x7f\x85\u2028\u2029]")
+_INI_BAD_KEY = re.compile(r"[\x00-\x1f\x7f\x85\u2028\u2029=\[\];#]")
+
+
+def _check_ini_pair(key: str, value) -> str:
+    """Vet one ``key = value`` pair on its way into an ini line; returns the value as text.
+
+    THE FENCE under every ini writer in this module. :func:`update_ini_section` renders each pair as
+    one ``f"{k} = {v}"`` line and joins the lot with newlines, so a control character in either half
+    is not a funny-looking setting -- it is a structural edit to the player's Memoria.ini. Memoria's
+    parser (``IniFile.Init``) is a sequential LINE reader, last-write-wins per (section, key), that
+    re-enters a section on a repeated ``[Netsync]`` header, so an embedded newline SPLICES IN whatever
+    keys follow it and the spliced value WINS. That is how a pasted "session code" could hand its
+    sender your party slots (:func:`validate_code` fences that one at the door); this layer makes the
+    whole bug class unreachable for the NEXT bare string someone wires into an ini key here.
+
+    REJECT, never strip. A silently stripped value writes a subtly WRONG setting the user never asked
+    for and cannot see -- the ini looks fine and the game just behaves oddly. A raise is loud, names
+    the key, and lets the caller say something useful. Nothing in the kit passes a control character
+    today, so refusing costs nothing.
+
+    Keys additionally refuse ``= [ ] ; #`` and emptiness: an ``=`` in a key means the file gets a
+    DIFFERENT (shorter) key than the caller asked for, a leading ``;``/``#`` comments the whole
+    setting out, and brackets can open a section header. Same bug, other door.
+
+    Non-str values are rendered with ``str()`` and vetted AFTER: several callers already pass
+    ``str(int)``, and it is the rendered text that actually lands in the file."""
+    if not isinstance(key, str) or not key.strip() or _INI_BAD_KEY.search(key):
+        raise ValueError(f"unusable ini key {key!r}: a key cannot be blank or carry a control "
+                         "character, '=', ';', '#' or brackets")
+    text = value if isinstance(value, str) else str(value)
+    bad = _INI_BAD_VALUE.search(text)
+    if bad:
+        raise ValueError(f"unusable value for ini key {key!r}: {text!r} contains {bad.group()!r} -- "
+                         "a control character would split or corrupt the line it is written to")
+    return text
 
 
 def update_ini_section(text: str, section: str, updates: dict) -> str:
     """Rewrite ``[section]`` so every key in ``updates`` has the given value: existing key lines are
     replaced in place (comments elsewhere untouched), missing keys are added at the end of the section,
-    and a missing section is appended to the file. Preserves the file's newline style."""
+    and a missing section is appended to the file. Preserves the file's newline style.
+
+    A key that already appears TWICE in the section is written once (at the first occurrence) and its
+    later copies are DROPPED. Memoria's parser is last-write-wins, so leaving a stale duplicate below
+    would hand the engine the old value and make this whole call a no-op the ini does not show -- and
+    the duplicate that matters in practice is the residue of a poisoned ``SessionCode``/``GuestSlots``
+    splice, which must not survive the rewrite that is meant to correct it. Duplicates of keys this
+    call is not updating are left alone; they are not ours to guess at.
+
+    Raises ValueError -- producing NO output at all -- if any key or value carries a control
+    character, so no line this function emits can ever carry a raw break. See :func:`_check_ini_pair`
+    for why a newline here is an ini injection rather than a typo."""
     lines, nl = _split_lines(text)
     out: list[str] = []
-    pending = dict(updates)   # keys not yet written
+    pending = {k: _check_ini_pair(k, v) for k, v in updates.items()}   # keys not yet written
+    written: set = set()                                              # lowercased keys already emitted
     in_sec = False
     found_sec = False
 
     def flush_pending():
         for k, v in pending.items():
             out.append(f"{k} = {v}")
+            written.add(k.lower())
         pending.clear()
 
     for line in lines:
@@ -214,7 +334,10 @@ def update_ini_section(text: str, section: str, updates: dict) -> str:
             hit = next((uk for uk in pending if uk.lower() == k.lower()), None)
             if hit is not None:
                 out.append(f"{hit} = {pending.pop(hit)}")
+                written.add(hit.lower())
                 continue
+            if k.lower() in written:
+                continue                 # a later copy of a key we just wrote -- the engine would obey IT
         out.append(line)
     if in_sec:
         flush_pending()                  # section ran to EOF
@@ -238,14 +361,17 @@ def _backup_ini(ini: Path) -> Path:
 
 def write_netsync(game: Path, updates: dict, *, out=print) -> Path | None:
     """Apply ``updates`` to ``[Netsync]`` in Memoria.ini, backing the file up first.
-    Returns the backup path (None if the ini didn't exist -- refuse in that case)."""
+    Returns the backup path (None if the ini didn't exist -- refuse in that case). A refused update
+    (a control character in a key or value -- :func:`_check_ini_pair`) raises BEFORE the backup, so
+    a rejected write leaves no trace on disk at all, not even a stray snapshot."""
     ini = _ini_path(game)
     if not ini.is_file():
         raise FileNotFoundError(f"{ini} not found -- is this really the FF9 install "
                                 "(and is Memoria set up)?")
-    backup = _backup_ini(ini)
     text = ini.read_text(encoding="utf-8", errors="replace")
-    fsutil.atomic_write_text(ini, update_ini_section(text, "Netsync", updates), encoding="utf-8")
+    new_text = update_ini_section(text, "Netsync", updates)   # vets every pair before we touch the disk
+    backup = _backup_ini(ini)
+    fsutil.atomic_write_text(ini, new_text, encoding="utf-8")
     out(f"  Memoria.ini: [Netsync] updated (backup: {backup.name})")
     return backup
 
@@ -369,6 +495,13 @@ def show_config(game: Path, *, out=print) -> int:
     key = lambda k, d="": (read_ini_key(text, "Netsync", k) or d).strip()
     enabled = key("Enabled") == "1"
     out(f"FF9 install: {game}")
+    dupes = duplicate_ini_keys(text, "Netsync")
+    if dupes:
+        # Everything below reports the LAST copy (what the engine obeys), so the numbers are right --
+        # but a duplicated key means someone or something appended a second [Netsync] block, and the
+        # earlier lines the user can see are dead. Worth naming before they debug the wrong ones.
+        out(f"  ! [Netsync] lists {', '.join(dupes)} more than once -- the LAST copy is the one the "
+            "game uses; the earlier lines do nothing (re-run  ff9mapkit coop host|join  to tidy it)")
     out(f"  co-op:       {'ON' if enabled else 'off'}")
     if not enabled:
         out("  (start one with  ff9mapkit coop host  /  ff9mapkit coop join <code>)")
@@ -433,7 +566,9 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     game = find_game_path(args.game)
     out(f"FF9 install: {game}")
 
-    # validate the play-style flags FIRST -- a typo must not cost the minute-long room build
+    # validate the play-style flags and the pasted code FIRST -- a typo must not cost the
+    # minute-long room build, and a code carrying a newline must never reach write_netsync
+    # (it would splice extra [Netsync] keys into the ini -- see validate_code)
     follow = getattr(args, "follow_host", None)
     diorama = getattr(args, "diorama", None)
     try:
@@ -442,6 +577,8 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
                                   getattr(args, "ghost_as", None),
                                   None if follow is None else follow == "on",
                                   None if diorama is None else diorama == "on")
+        if code:                      # empty/None = none given (host mints, LAN join needs none)
+            validate_code(code)
     except ValueError as e:
         out(f"  {e}")
         return 2
@@ -455,6 +592,15 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     ini_text = _ini_path(game).read_text(encoding="utf-8", errors="replace")
     if role == "host" and not code:
         code = None if getattr(args, "new_code", False) else read_ini_key(ini_text, "Netsync", "SessionCode")
+        if code:
+            # A stored code we can't vouch for (hand-edited, or left behind by a poisoned ini) is
+            # treated as ABSENT -- minting a fresh one keeps the host's setup working instead of
+            # dying on a line they didn't write, and stops a bad value being re-written verbatim.
+            try:
+                validate_code(code)
+            except ValueError:
+                out(f"  ignoring the stored SessionCode {code!r} -- not a usable code, minting a new one")
+                code = None
         code = code or generate_code()
 
     updates = {
@@ -512,7 +658,12 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         out("  then: launch FF9 and stand on the SAME screen as your friend -- ghosts appear anywhere "
             f"you two share a field (guaranteed spot: F6 -> Warp -> {COOP_FIELD})")
     if lan is not None:
+        # Windows' generic "Allow access" prompt ticks Private AND Public by default; clicking
+        # through it on a cafe/hotel/campus network exposes the co-op listener to that whole
+        # network, so name the profile explicitly rather than saying "allow it".
         out("  direct-LAN mode: no bridge needed. Same WiFi; allow FF9 through the firewall on both.")
+        out("  in that Windows prompt untick Public and leave Private ticked -- Public opens the "
+            "co-op listener to every machine on a cafe or campus network.")
         return 0
     out("")
     if getattr(args, "no_bridge", False):

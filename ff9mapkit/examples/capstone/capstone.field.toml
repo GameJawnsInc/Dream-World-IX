@@ -29,7 +29,6 @@
 id = 4003
 name = "CAPSTONE"          # -> FBG_N11_CAPSTONE + EVT_CAPSTONE.eb
 area = 11
-text_block = 1073
 title = "ff9mapkit starting-state capstone"
 
 # Camera + walkmesh + art reuse the proven SHOWCASE room geometry (offline-buildable placeholder art).

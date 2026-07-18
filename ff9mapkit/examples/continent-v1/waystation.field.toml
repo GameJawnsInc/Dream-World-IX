@@ -26,8 +26,6 @@ id = 6500
 name = "CONT_WAYST"
 borrow_bg = "DGLO_MAP775_DG_ENT_0"   # Daguerreo/Entrance (field 2800), area >= 10
 area = 55
-text_block = 22                      # a free MesDB id, unshadowed in the current stack
-                                     # (8 = the -ow campaign, 945/1073 = -hc)
 hide_area_title = true               # the borrowed room's "Daguerreo" card is not this place
 
 [camera]

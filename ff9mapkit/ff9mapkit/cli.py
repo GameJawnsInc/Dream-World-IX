@@ -80,6 +80,20 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  dict patch : {layout.dictionary_patch} ({'present' if layout.dictionary_patch.is_file() else 'absent'})")
     from . import provision
     print(f"templates    : {'extracted' if provision.templates_present() else 'NOT extracted -- run: ff9mapkit extract-templates'}")
+    # deploy LEDGER reconciliation: an id the ledger says was deployed but that NO stacked mod folder
+    # registers any more is a registration that VANISHED (a campaign wholesale-replace, a foreign deploy's
+    # drop, a hand edit) -- and the engine black-screens on it with no error. Retirements are deliberate and
+    # listed separately, because the 2026-07-18 hunt burned hours on a field that had simply been retired.
+    from . import deploylog
+    _rep = deploylog.reconcile(game)
+    print(f"deploy ledger: {deploylog.ledger_path(game)} "
+          f"({'present' if deploylog.ledger_path(game).is_file() else 'absent -- written on the next deploy'})")
+    _warn = deploylog.reconcile_warning(_rep)
+    if _warn:
+        print("  !! " + _warn.replace("\n", "\n  "))
+    if _rep.retired:
+        print(f"  retired on purpose (not a problem): "
+              f"{', '.join(f'{e.field_id} @ {e.when}' for e in _rep.retired)}")
     return 0
 
 
@@ -911,17 +925,29 @@ def _cmd_import(args: argparse.Namespace) -> int:
                     auto_native_area = _area
             except (RuntimeError, FileNotFoundError, ValueError):
                 pass               # can't resolve area offline -> let the normal dispatch surface any error
+        # A fork CARRIES its donor's dialogue, so it must sit on the DONOR's own text block -- exactly what
+        # campaign.py's chain-fork path already does. Without this every `ff9mapkit import` emitted the shared
+        # literal 1073 (Black Mage Village) and wrote the donor's text over that location's. Keeping the
+        # donor's block is required, not merely tidy: voice-acting clips resolve off the same mesID and
+        # UniversalTextId's dual-language remap is keyed by a table of real mesIDs.
+        _tb = None
+        try:
+            from ._fieldtext import EVENT_ID_TO_MES as _E2M
+            from .dialogue import _resolve_field_id as _rfi      # the SAME resolver extract records the donor with
+            _tb = _E2M.get(int(_rfi(args.field)))
+        except (RuntimeError, FileNotFoundError, ValueError, TypeError):
+            pass                   # donor id unresolvable offline -> the build derives from the field id
         if args.native:
             meta, toml = extract.write_native_project(
-                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
+                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game, text_block=_tb,
                 graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm, verbatim=args.verbatim)
         elif args.editable:
             meta, toml = extract.write_editable_project(
-                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game,
+                args.field, Path(args.out), name=args.name, field_id=args.id, game=args.game, text_block=_tb,
                 graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm)
         else:
             meta, toml = extract.write_field_project(
-                args.field, Path(args.out), name=args.name, field_id=args.id,
+                args.field, Path(args.out), name=args.name, field_id=args.id, text_block=_tb,
                 game=args.game, want_atlas=args.atlas, graft_player_funcs=gpf, carry_text=ct, graft_savepoint=sm)
         args._swapped_to = None
         args._swap_gestures = 0

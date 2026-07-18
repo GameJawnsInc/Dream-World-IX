@@ -552,7 +552,8 @@ def build_image_field(image_path, floor_px, out_dir, *, foreground=None, name="P
 
     # 3) emit the field.toml (camera + obj-walkmesh + layers + player)
     lines = [f"# EXPERIMENTAL image->field (auto-generated from {Path(image_path).name})",
-             "[field]", f"id = {field_id}", f'name = "{name}"', f"area = {area}", "text_block = 1073", "",
+             # text_block omitted on purpose: it derives from the field id and auto-registers.
+             "[field]", f"id = {field_id}", f'name = "{name}"', f"area = {area}", "",
              "[camera]", f"pitch = {pitch:g}", f"distance = {int(distance)}", f"fov = {fov:g}",
              f"range = [{CANVAS_W}, {CANVAS_H}]", "",
              "[walkmesh]", 'obj = "walkmesh.obj"', 'frame = "world"', ""]

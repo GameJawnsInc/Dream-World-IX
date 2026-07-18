@@ -184,24 +184,19 @@ mint_lines = info.get("mint_lines", [])
 from ff9mapkit import dictpatch as _dp
 mint_ids = _dp.mint_model_ids(mint_lines)
 mint_anim_keys = _dp.mint_anim_keys(mint_lines)
-def _stale_anim(ln):                                       # a 3DModelAnimation line THIS deploy re-registers (own key)
-    p = ln.split()
-    return ln.startswith("3DModelAnimation ") and len(p) >= 2 and p[1] in mint_anim_keys
 charname_lines = info.get("charname_lines", [])   # [[playable]] CharacterDefaultName <id> <SYM> <name> (per-lang)
 charname_keys = {(p[1], p[2]) for p in (ln.split() for ln in charname_lines) if len(p) >= 3}   # (char-id, lang)
 status_icon_lines = info.get("status_icon_lines", [])   # [[playable]] custom-status Buff/DebuffIcon <statusId> <sprite>
 status_icon_ids = {p[1] for p in (ln.split() for ln in status_icon_lines) if len(p) >= 2}       # status ids being re-set
-def _stale_icon(ln):                                       # a Buff/DebuffIcon line for a custom status being redeployed
-    p = ln.split()
-    return len(p) >= 2 and p[0] in ("BuffIcon", "DebuffIcon") and p[1] in status_icon_ids
 _dp_before = live.dictionary_patch.read_text(encoding="utf-8").splitlines()
-dp = [ln for ln in _dp_before
-      if ln.strip() and ln.split()[1:2] != [str(FID)]           # drop this field's old FieldScene/LocationName
-      and not (ln.startswith("3DModel ") and ln.split()[1:2] and ln.split()[1] in mint_ids)   # drop THIS deploy's mint ids
-      and not _stale_anim(ln)                                                                  # drop THIS deploy's anim keys
-      and not _stale_icon(ln)                                                                  # drop stale status icons
-      and not (ln.startswith("CharacterDefaultName ") and len(ln.split()) >= 3                 # drop stale names
-               and (ln.split()[1], ln.split()[2]) in charname_keys)]
+# A live DictionaryPatch line THIS deploy owns -- filtered out below and re-appended fresh, and handed to the
+# foreign-drop guard as its `owned=` predicate. ONE rule, from the library, deliberately: the hand-rolled copy
+# that used to sit here matched on column 2 alone, so deploying a field in the 6000s claimed another session's
+# `3DModel <same number>` (mint GEO ids start at 6000, the custom field band is 4000-9899 -- they OVERLAP),
+# stripped it from the rewrite AND silenced the warning about it. See dictpatch.owned_predicate.
+_dp_owned = _dp.owned_predicate(fid=FID, model_ids=mint_ids, anim_keys=mint_anim_keys,
+                                status_icon_ids=status_icon_ids, charname_keys=charname_keys)
+dp = [ln for ln in _dp_before if ln.strip() and not _dp_owned(ln)]
 dp += mint_lines                               # `3DModel <id> <name>` -- register minted ids (read at launch)
 dp += charname_lines                           # `CharacterDefaultName <id> <SYM> <name>` -- 13th+ char name (launch)
 dp += status_icon_lines                        # `BuffIcon/DebuffIcon <statusId> <sprite>` -- custom-status HUD icon (launch)
@@ -215,10 +210,12 @@ dp += _mes_lines
 dp.append(info["dictionary"][0])
 dp += info.get("location_lines", [])           # [field] location -> LocationName <id> <title> (id-keyed, removed above with the FieldScene line)
 live.dictionary_patch.write_text("\n".join(dp) + "\n", encoding="utf-8", newline="\n")
-_dropped = _dp.foreign_registrations_dropped(_dp_before, dp)   # a foreign 3DModel/3DModelAnimation line this deploy shouldn't touch
+_dropped = _dp.foreign_registrations_dropped(_dp_before, dp, owned=_dp_owned)   # a line this deploy does NOT own
 if _dropped:
-    print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own -- a foreign "
-          "3DModel/3DModelAnimation line (e.g. a `model-anim-new` clip) was lost. Re-add after deploy:")
+    print("  !! WARNING: this deploy dropped DictionaryPatch registration(s) it does not own. A foreign "
+          "`FieldScene <id>` means that field id is NO LONGER REGISTERED -- the engine loads a null .eb and "
+          "the field BLACK-SCREENS in game with no error. A foreign 3DModel/3DModelAnimation (e.g. a "
+          "`model-anim-new` clip) is a lost model/clip. RE-ADD them now, or re-deploy the owning field:")
     for _dl in _dropped:
         print(f"       {_dl}")
 _n_model = sum(1 for ml in mint_lines if ml.startswith("3DModel "))
@@ -469,6 +466,14 @@ if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
         print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
+# deploy LEDGER (diagnostics only, never load-bearing -- record() swallows filesystem failures). Written
+# beside Memoria.ini, OUTSIDE every mod folder, so a deploy_campaign rmtree can't erase the history. What
+# it buys: `ff9mapkit doctor` reconciles this against the live DictionaryPatches, so a registration that
+# later VANISHES names the checkout + time that put it there -- the thing the 2026-07-18 field-4003 hunt
+# had no way to learn (a retired line and a lost line are the same absent line).
+from ff9mapkit import deploylog as _dlog
+_dlog.record(GAME, _dlog.DEPLOYED, FID, MOD_FOLDER, checkout=_REPO, note=f"{name} <- {TOML.name}")
+
 _mint_ids_repr = repr(sorted(mint_ids))              # this deploy's minted GEO ids (drop their 3DModel lines on revert)
 _mint_anim_keys_repr = repr(sorted(mint_anim_keys))   # this deploy's OWN 3DModelAnimation keys (drop only THESE on revert)
 revert = f'''#!/usr/bin/env python3
@@ -477,7 +482,10 @@ from pathlib import Path
 sys.path.insert(0, r"{KIT}")
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit import dictpatch as _dp
-STAMP="{STAMP}"; BK=Path(r"{BK}"); live=ModLayout(find_game_path()/"{MOD_FOLDER}")
+from ff9mapkit import deploylog as _dlog   # NEEDED by the ledger call at the bottom -- a missing import here
+#                                            NameErrors every generated revert, and a deploy RUNS the revert
+#                                            as its prelude, so that would break deploying outright.
+STAMP="{STAMP}"; BK=Path(r"{BK}"); _GAME=find_game_path(); live=ModLayout(_GAME/"{MOD_FOLDER}")
 # surgical DictionaryPatch revert: drop THIS id's line + THIS deploy's OWN mint registrations (3DModel <mintId> by
 # exact id and 3DModelAnimation <key> by exact key) from the CURRENT live file -- preserving any FOREIGN line another
 # tool added into the SAME mod folder since this deploy (deploy_battle's "BattleScene <sceneid>", or a
@@ -501,6 +509,11 @@ for L in LANGS:
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
     if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
+# Ledger: this id is now deliberately UNregistered, so `doctor` won't cry "lost registration" over it. Note a
+# deploy runs the prior revert as its PRELUDE, so most 'retired' rows are immediately followed by a 'deployed'
+# row -- last-event-wins makes that read correctly. This call only helps NEWLY generated reverts; the ~30 older
+# scripts on disk emit nothing, which is exactly why deploylog.reconcile() (not this line) is the mechanism.
+_dlog.record(_GAME, _dlog.RETIRED, {FID}, "{MOD_FOLDER}", checkout=r"{_REPO}", note="revert_deploy_{FID}.py")
 print("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogue + start-state CSVs + BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed. (staged Models//Animations/ trees left inert on disk)")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
@@ -508,11 +521,21 @@ print("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogu
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"revert: {OUT / ('revert_deploy_%d.py' % FID)}  (or revert_deploy.py for the latest)")
 
-# text-shadow guard: warn if a HIGHER-priority mod folder in Memoria.ini FolderNames also defines this
-# field's .mes block -- the engine would render THAT folder's text, not ours (the shared-1073 collision).
+# text-block guard, BOTH axes: (1) a HIGHER-priority Memoria.ini FolderNames folder also defines this field's
+# .mes block -> the engine renders THAT folder's text, not ours (the shared-1073 collision); (2) the block is a
+# REAL FF9 location's -> we overwrite the shipping game's own dialogue (the base game is in the engine's
+# cumulative text merge, so this needs no stacking at all). A VERBATIM fork re-ships its donor's own text on the
+# donor's own block, so it is exempt from (2) -- the overwrite is a byte-identical no-op.
 try:
-    from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning
-    _warn = shadow_warning(check_text_block_shadow(GAME, MOD_FOLDER, text_block), MOD_FOLDER)
+    from ff9mapkit.deploystack import check_text_block_shadow, shadow_warning, donor_block_for
+    # The exemption is the DONOR'S OWN BLOCK, not "is a fork": a fork left on the kit default really does
+    # overwrite Black Mage Village, and a --native/BG-borrow fork (recorded as source_field/borrow_field,
+    # NOT verbatim_eb) is just as entitled to its donor's block as a verbatim one.
+    _donor_block = donor_block_for(proj.raw)
+    _warn = shadow_warning(
+        check_text_block_shadow(GAME, MOD_FOLDER, text_block,
+                                verbatim_blocks=() if _donor_block is None else {_donor_block}),
+        MOD_FOLDER)
     if _warn:
         print(f"\n  !! {_warn}")
 except Exception:

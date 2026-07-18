@@ -22,7 +22,7 @@ whose options ``warp`` to each journey's entry, plus a trailing no-warp "stay" r
     area      = 21                   # >= 10 (the BG-borrow loader reads 2 digits; single digits black-screen)
     borrow_bg = "GRGR_MAP420_GR_CEN_0"   # BG-borrow a real room for the backdrop (the MVP art path)
     camera    = "camera_hub.bgx"     # that room's camera (you extract it from your own install; gitignored)
-    text_block = 8                   # a real MesDB id NOT shadowed by a higher folder (1073 IS -> wrong menu)
+    # text_block omitted: derives from `id` above and auto-registers (a real block would overwrite that location)
     prompt    = "Kupo! Which journey will you take?"
     stay_text = "Stay here, kupo..." # the trailing no-warp (cancel) row label
     player_model   = 220             # the Moogle PC (220 = GEO_NPC_F0_MOG, the iconic save moogle)
@@ -54,6 +54,8 @@ from __future__ import annotations
 
 import os
 import re
+
+from . import deploystack as _deploystack
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,8 +74,10 @@ DEFAULT_CAMERA = "camera_hub.bgx"
 # settles UNSEEN (else warping into the hub visibly eases the camera to rest -- the borrowed room's camera
 # vs the warp-in delta). ~1.5s @ 30fps; engine-independent. Tune/disable (0) via [hub] entry_settle.
 DEFAULT_ENTRY_SETTLE = 45
-DEFAULT_TEXT_BLOCK = 1073
-SHADOWED_TEXT_BLOCK = 1073       # the block the higher-priority FF9CustomMap folder defines (shadows yours)
+# None => derive from the hub's field id and auto-register (build.default_text_block). A literal default
+# cannot be safe here: every real mesID is owned by a real location, so the previous pick of 8 put the hub's
+# menu text on top of ICE CAVERN's dialogue (13 real fields, 300-312), and 1073 sat on Black Mage Village.
+DEFAULT_TEXT_BLOCK = None
 PAGING_SOFT_MAX = 8              # journeys + the stay row beyond ~this need menu scrolling -- verify in-game
 SCENARIO_MAX = 32767
 
@@ -116,7 +120,7 @@ class HubSpec:
     borrow_field: "int | None" = None       # the real field id whose camera `gen-hub --extract-camera` pulls
     camera: str = DEFAULT_CAMERA
     entry_settle: "int | str" = DEFAULT_ENTRY_SETTLE   # frames held black on entry (or "auto" = computed)
-    text_block: int = DEFAULT_TEXT_BLOCK
+    text_block: "int | None" = DEFAULT_TEXT_BLOCK   # None => derived from `id`, auto-registered
     prompt: str = DEFAULT_PROMPT
     stay_text: str = DEFAULT_STAY
     player_model: "int | str" = MOOGLE_MODEL
@@ -164,7 +168,7 @@ def hubspec_from_table(h: dict, journeys: "list[Journey]") -> HubSpec:
                       0 if h.get("entry_settle") is False else
                       "auto" if _es.is_auto(h.get("entry_settle")) else
                       int(h.get("entry_settle", DEFAULT_ENTRY_SETTLE))),
-        text_block=int(h.get("text_block", DEFAULT_TEXT_BLOCK)),
+        text_block=(int(h["text_block"]) if h.get("text_block") is not None else None),
         prompt=str(h.get("prompt", DEFAULT_PROMPT)),
         stay_text=str(h.get("stay_text", DEFAULT_STAY)),
         player_model=h.get("player_model", MOOGLE_MODEL),
@@ -267,10 +271,12 @@ def validate_hub(spec: HubSpec) -> "tuple[list, list]":
                         f"INSIDE the narrator. Set distinct player_spawn / narrator_pos a few units apart on "
                         f"the walkmesh (e.g. player [404,127], narrator [480,127] for a Gargan Roo backdrop).")
 
-    if spec.text_block == SHADOWED_TEXT_BLOCK:
-        warnings.append(f"[hub] text_block {SHADOWED_TEXT_BLOCK} is SHADOWED by the FF9CustomMap folder in a "
-                        f"stacked setup -- the menu shows that folder's text, not yours. Pick a distinct real "
-                        f"MesDB id; deploy_field's shadow check suggests free ones.")
+    if spec.text_block is not None and _deploystack.vanilla_fields_on(spec.text_block):
+        warnings.append(f"[hub] text_block {spec.text_block} is a REAL FF9 block "
+                        f"({_deploystack.describe_vanilla(spec.text_block)}) -- the base game is part of the "
+                        f"engine's cumulative text merge, so the hub menu's text is written OVER that "
+                        f"location's own dialogue, and a higher-priority stacked folder defining the same "
+                        f"block also shadows it. Drop the key to derive it from the hub's field id.")
     rows = len(spec.journeys) + 1     # + the trailing stay row
     if rows > PAGING_SOFT_MAX:
         warnings.append(f"{rows} menu rows (journeys + stay) -- FF9 choice menus show ~4 at a time and "
@@ -386,7 +392,7 @@ def render_hub_field_toml(spec: HubSpec, *, source: "str | None" = None) -> str:
         f'name = "{_q(spec.name)}"',
         f'borrow_bg = "{_q(spec.borrow_bg)}"   # a real room as the backdrop (area >= 10)',
         f"area = {spec.area}",
-        f"text_block = {spec.text_block}   # a real MesDB id NOT shadowed by a higher mod folder",
+        *([f"text_block = {spec.text_block}"] if spec.text_block is not None else []),
         *_area_title_lines(spec),
         "",
         "[camera]",

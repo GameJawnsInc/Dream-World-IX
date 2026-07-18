@@ -14,13 +14,18 @@ import pytest
 from ff9mapkit.build import FieldProject, LintReport, lint_all, lint_flag_bands, shared_text_block_hint_for
 
 
-def test_shared_text_block_hint_flags_dialogue_edit_on_default_block():
-    """The text-shadow pre-flight: a dialogue rewrite on the shared default block 1073 is shadow-prone."""
+def test_shared_text_block_hint_flags_dialogue_edit_on_a_real_block():
+    """The text pre-flight: a dialogue rewrite on a REAL location's block is merged OVER that location's own
+    dialogue (the base game is in the engine's cumulative merge) and is additionally shadow-prone."""
     txt = [{"kind": "text", "entry": 0, "tag": 1, "txid": 34, "old": "Sure is dark...", "text": "Sure is spooky..."}]
-    assert shared_text_block_hint_for(txt, 1073)                     # text edit on the shared default -> hint
-    assert "text-block shadow" in shared_text_block_hint_for(txt, 1073)
-    assert shared_text_block_hint_for(txt, 7001) is None             # a unique block -> no shadow risk -> clear
-    assert shared_text_block_hint_for(txt, None)                     # missing block defaults to 1073 -> hint
+    assert shared_text_block_hint_for(txt, 1073)                     # 1073 = Black Mage Village -> hint
+    assert "REAL FF9 block" in shared_text_block_hint_for(txt, 1073)
+    assert "3050-3059" in shared_text_block_hint_for(txt, 1073)      # names the location it would overwrite
+    assert shared_text_block_hint_for(txt, 8)                        # 8 = Ice Cavern (the old "safe" pick)
+    assert shared_text_block_hint_for(txt, 7001) is None             # a custom block -> owned by nobody -> clear
+    # None means "no block resolved yet"; the derived default is the field's own id, which is never a real
+    # block for a custom field, so there is nothing to warn about (the caller resolves it before asking).
+    assert shared_text_block_hint_for(txt, None) is None
     assert shared_text_block_hint_for([{"kind": "field", "to": 5}], 1073) is None   # non-text edit -> clear
     assert shared_text_block_hint_for([], 1073) is None              # no edits -> clear
     assert shared_text_block_hint_for(None, 1073) is None            # robust to None

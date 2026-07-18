@@ -6,7 +6,6 @@ id = 4501
 name = "JOURNEY_BMV"
 borrow_bg = "BMVL_MAP530_BV_FR1_0"   # Black Mage Village -- a distinct backdrop so the warp is obvious
 area = 30
-text_block = 22                      # unshadowed (not 1073)
 
 [camera]
 borrow = "camera_j1.bgx"

@@ -55,6 +55,7 @@ from .content import startup as _startup
 from .content import text as _text
 from . import abilities as _abilities
 from . import animations as _animations
+from . import deploystack as _deploystack     # the REAL-mesID table (vanilla_fields_on); imports no build code
 from . import archetypes as _archetypes
 from . import prop_archetypes as _prop_archetypes
 from ._held_poses import HELD_POSES                  # (carrier_model, prop_model) -> (bone, held_pose)
@@ -219,15 +220,28 @@ class FieldProject:
 
     @property
     def text_block(self) -> int:
-        return int(self.field.get("text_block", 1073))
+        """The field's mesID -- the ``field/<text_block>.mes`` key. Defaults to :func:`default_text_block`
+        (the field's OWN id), NOT the old shared literal 1073. An explicit ``text_block`` always wins, which is
+        what keeps a fork on its donor's real block."""
+        tb = self.field.get("text_block")
+        return int(tb) if tb is not None else default_text_block(self.id)
 
     @property
     def register_text_block(self) -> bool:
         """True when this field's ``text_block`` is a CUSTOM mesID the build must register in MesDB (via a
         DictionaryPatch ``MessageFile`` line) so DataPatchers' FieldScene gate (``!MesDB.ContainsKey(mesID)``)
-        passes. Set by the journey cross-campaign text-block remap (:func:`campaign._remap_text_blocks`); off by
-        default -- the kit default 1073 is a real base block already in MesDB."""
-        return bool(self.field.get("register_text_block", False))
+        passes. An UNREGISTERED custom id makes DataPatchers skip the whole FieldScene ("invalid message file
+        ID N") -> the field never registers -> black screen, which is what sank the 2026-06-09 attempt at
+        per-field ids (docs/CAMPAIGN_IMPORT.md).
+
+        Auto-true whenever the block is NOT a real shipping mesID, so the value and its registration can never
+        drift apart -- that decoupling is the failure mode, not a convenience. An explicit
+        ``register_text_block`` still wins; the journey remap (:func:`campaign._remap_text_blocks`) sets it
+        explicitly, and a fork on its donor's real block correctly resolves False (already in MesDB)."""
+        explicit = self.field.get("register_text_block")
+        if explicit is not None:
+            return bool(explicit)
+        return not is_real_text_block(self.text_block)
 
     @property
     def fbg(self) -> str:
@@ -719,27 +733,68 @@ def _validate_sps_blocks(project: FieldProject, problems: list) -> None:
                                 f"copy_from = {{ sps = N }} -- it carries: {carried or 'none'}.")
 
 
-_SHARED_DEFAULT_TEXT_BLOCK = 1073   # campaign members + worktree test slots all default here -> shadow-prone
+_SHARED_DEFAULT_TEXT_BLOCK = 1073   # the RETIRED default: a real block (MES_MAGE2 = Black Mage Village)
+
+
+def is_real_text_block(text_block) -> bool:
+    """Is ``text_block`` a mesID that a REAL FF9 field already uses? Such a block is already in ``MesDB`` (so it
+    needs no ``MessageFile`` registration) -- and writing custom text to it OVERWRITES that location's shipping
+    dialogue, because the base game is part of the engine's cumulative per-txid text merge."""
+    try:
+        return bool(_deploystack.vanilla_fields_on(int(text_block)))
+    except (TypeError, ValueError):
+        return False
+
+
+def default_text_block(field_id) -> int:
+    """The default mesID for a field that does not name one: **its own field id**.
+
+    Why identity rather than a shared constant or an offset band:
+    - A shared constant cannot work. Every field on it collides -- with each other across stacked mod folders,
+      and with the REAL location that owns it. The kit's old default 1073 is Black Mage Village; ``hub.py``'s
+      8 is Ice Cavern. There is no "free" real block: all 64 are owned.
+    - An OFFSET band (e.g. ``40000 + id``) is actively dangerous. Registration is Int32, but CONSUMPTION is
+      Int16: ``HonoluluFieldMain`` does ``fldLocNo = (Int16)eventIDToMESID[fldMapNo]`` and passes THAT to
+      ``UpdateFieldText``. 40003 truncates to -25533, the path resolves to nothing, and the field loads ZERO
+      dialogue -- silent total text loss. Since field ids are themselves Int16-capped at 32767, any positive
+      offset overflows for high ids, so 0 is the only safe one.
+    - Identity is Int16-safe by construction, is never a real block for any id in the kit's custom bands (the
+      maximum real mesID is 1073, custom ids start at 4000), and inherits cross-folder uniqueness from field-id
+      uniqueness, which ``.ff9deploy.toml``'s bands + ``deploystack.check_id_collisions`` already enforce.
+      ``examples/stolen-ember`` independently arrived at exactly this by hand (30100/30101/30102).
+
+    A FORK is unaffected: it names its donor's real block explicitly and that always wins. Keeping it is
+    required, not merely allowed -- voice-acting clips resolve off the same mesID and ``UniversalTextId``'s
+    dual-language remap is keyed by a table of real mesIDs."""
+    fid = int(field_id)
+    if _deploystack.vanilla_fields_on(fid):
+        # Only reachable for a field id inside the REAL band (<=1073) that also happens to be a real mesID.
+        # Custom ids (>=4000) can never land here. Refuse rather than silently squat a real location.
+        raise BuildError(
+            f"[field] id = {fid} is also a REAL FF9 text block "
+            f"({_deploystack.describe_vanilla(fid)}), so the derived default text_block would overwrite that "
+            f"location's dialogue. Custom fields belong in the 4000+ bands; set an explicit [field] "
+            f"text_block with register_text_block = true if you really mean this id.")
+    return fid
 
 
 def shared_text_block_hint_for(edits, text_block) -> "str | None":
     """A non-blocking pre-flight hint (str|None): a dialogue rewrite (a ``[[logic_edit]]`` with ``kind="text"``)
-    shipped on the shared default ``text_block`` 1073 is liable to be SHADOWED in a stacked/journey deploy -- a
-    higher-priority ``Memoria.ini`` ``FolderNames`` folder that also defines 1073 wins, so the engine shows the
-    OLD line, not the edit (the "saved but old text in-game" surprise). STATIC + offline; the AUTHORITATIVE
-    check is at deploy time (``deploy_field`` / ``deploy_campaign`` run ``deploystack.check_text_block_shadow``
-    against the LIVE stack -- which is the only place the target mod folder is known). ``None`` when N/A."""
+    shipped on a REAL location's text block will be merged OVER that location's own dialogue (the base game is
+    part of the engine's cumulative text merge), and is additionally liable to be SHADOWED in a stacked deploy
+    by a higher-priority ``Memoria.ini`` ``FolderNames`` folder that defines the same block. STATIC + offline;
+    the AUTHORITATIVE check is at deploy time (``deploy_field`` / ``deploy_campaign`` run
+    ``deploystack.check_text_block_shadow`` against the LIVE stack -- the only place the target mod folder is
+    known). ``None`` when N/A. NOTE this cannot see whether the field is a FORK legitimately carrying its
+    donor's block, so the deploy-time check (which can) is the one that decides."""
     has_text = any(isinstance(e, dict) and e.get("kind") == "text" for e in (edits or []))
-    try:
-        tb = int(text_block) if text_block is not None else _SHARED_DEFAULT_TEXT_BLOCK
-    except (TypeError, ValueError):
-        tb = _SHARED_DEFAULT_TEXT_BLOCK
-    if not has_text or tb != _SHARED_DEFAULT_TEXT_BLOCK:
+    if not has_text or text_block is None or not is_real_text_block(text_block):
         return None
-    return ("dialogue is rewritten on the shared default text_block 1073 -- in a stacked/journey deploy a "
-            "higher-priority Memoria.ini FolderNames folder that also defines 1073 SHADOWS it (the engine shows "
-            "the OLD line, not your edit). The deploy step checks this against the live stack; to be safe, pin a "
-            "unique [field] text_block. (docs/KNOWN_ISSUES.md: text-block shadow.)")
+    return (f"dialogue is rewritten on text_block {int(text_block)}, a REAL FF9 block "
+            f"({_deploystack.describe_vanilla(text_block)}) -- unless this field is a FORK of one of those, "
+            f"the edit is merged OVER that location's own dialogue, and a higher-priority Memoria.ini "
+            f"FolderNames folder defining the same block also SHADOWS it. Give the field its own block "
+            f"(text_block = <field id>, register_text_block = true).")
 
 
 def shared_text_block_hint(project: FieldProject) -> "str | None":

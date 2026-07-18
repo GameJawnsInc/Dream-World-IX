@@ -38,6 +38,57 @@ def test_generate_code_random():
     assert len({coop.generate_code() for _ in range(20)}) > 1
 
 
+# ---------------------------------------------------------------- code validation (ini injection)
+#
+# The session code is written as a whole ini line ("SessionCode = <code>"), and Memoria's parser is a
+# sequential LINE reader, last-write-wins per (section, key), that re-enters a section on a repeated
+# header. So an embedded newline in a pasted "invite" becomes REAL extra [Netsync] keys -- the sender
+# can grant themselves every party slot (GuestSlots) or re-point RelayUrl at their own relay.
+POISONED_CODE = "ff9-AAAA0000\nGuestSlots = 15\nRelayUrl = ws://attacker.example:1234\n;"
+
+
+def test_validate_code_accepts_generated_codes():
+    for _ in range(50):
+        code = coop.generate_code()
+        assert coop.validate_code(code) == code     # returns it UNCHANGED -- pairing is literal
+
+
+def test_validate_code_accepts_hand_set_forms():
+    # case-insensitive prefix (the docs promise case-insensitive pairing), prefix optional, and the
+    # length is a band not exactly 8 -- `coop host <code>` is documented as an override
+    for good in ("ff9-ABCD1234", "FF9-abcd1234", "Ff9-AbCd1234", "ABCD1234", "abcd1234",
+                 "ff9-A", "x", "ff9-" + "A" * 32):
+        assert coop.validate_code(good) == good     # no upper-casing, no prefix insertion
+
+
+def test_validate_code_rejects_newlines():
+    for bad in (POISONED_CODE, "ff9-ABCD1234\n", "ff9-ABCD1234\r\nEnabled = 1",
+                "ff9-ABCD\rGuestSlots = 15", "ff9-AB\x0bCD", "ff9-AB\x85CD"):
+        with pytest.raises(ValueError):
+            coop.validate_code(bad)
+
+
+def test_validate_code_rejects_ini_metacharacters():
+    # nothing that could open a second key, a comment, or a section header on the written line
+    for bad in ("ff9-ABCD=1234", "ff9-ABCD;x", "ff9-ABCD#x", "ff9-[Netsync]", "ff9-ABCD]",
+                "ff9-ABCD 1234", "ff9-ABCD\t1234", "ff9 ABCD", 'ff9-"ABCD"', "ff9-ABCD\x00"):
+        with pytest.raises(ValueError):
+            coop.validate_code(bad)
+
+
+def test_validate_code_rejects_empty_and_overlong():
+    # empty means "no code given" -- a CALLER concept (host mints one, join refuses with its own
+    # message), never a valid code, so the validator refuses it and call sites guard with `if code`
+    for bad in ("", "ff9-", "ff9-" + "A" * 33, None, 12345678):
+        with pytest.raises(ValueError):
+            coop.validate_code(bad)
+
+
+def test_validate_code_message_names_the_shape():
+    with pytest.raises(ValueError, match="ff9-XXXXXXXX"):
+        coop.validate_code("ff9-ABCD=1234")
+
+
 # ---------------------------------------------------------------- play style (s37)
 
 def test_parse_guest_slots():
@@ -141,6 +192,100 @@ def test_update_can_blank_a_value():
     ini = "[Netsync]\nRelayUrl = ws://127.0.0.1:49201\n"
     out = coop.update_ini_section(ini, "Netsync", {"RelayUrl": ""})
     assert coop.read_ini_key(out, "Netsync", "RelayUrl") == ""
+
+
+# -------------------------------------------- ini update: the control-character fence (defense in depth)
+#
+# validate_code() fences the session code at the door; this fences the WRITER, so the injection bug
+# class cannot come back through the next bare string someone wires into an ini key. update_ini_section
+# renders each pair as f"{k} = {v}" and joins with newlines, so an embedded \n is not a funny value --
+# it is extra [Netsync] keys, and Memoria's parser is last-write-wins so the spliced key WINS.
+# REJECT, never strip: a stripped value writes a subtly wrong setting the user never asked for and
+# cannot see, whereas a raise is loud and the caller can say something useful.
+
+def test_update_refuses_a_newline_in_a_replaced_value():
+    # the in-place branch: SessionCode already exists in INI, so its line is REWRITTEN
+    with pytest.raises(ValueError):
+        coop.update_ini_section(INI, "Netsync", {"SessionCode": "ff9-AAAA0000\nGuestSlots = 15"})
+
+
+def test_update_refuses_a_newline_in_an_appended_value():
+    # the append branch builds its line in flush_pending(), a DIFFERENT code path from the rewrite
+    # above (PeerAddress is absent from INI). Both are pinned, so the contract holds wherever the
+    # check happens to live.
+    with pytest.raises(ValueError):
+        coop.update_ini_section(INI, "Netsync", {"PeerAddress": "192.168.1.50\nGuestSlots = 15"})
+
+
+def test_update_refuses_a_carriage_return_in_a_value():
+    # \r alone is what .NET's StreamReader.ReadLine breaks on -- Python's splitlines() hides that
+    for updates in ({"Enabled": "1\rRole = client"},                     # replace
+                    {"PeerAddress": "192.168.1.50\rGuestSlots = 15"}):   # append
+        with pytest.raises(ValueError):
+            coop.update_ini_section(INI, "Netsync", updates)
+
+
+def test_update_refuses_every_control_character_in_a_value():
+    # THE INVARIANT, stated literally: there is no value carrying a control character for which this
+    # function produces output at all -- so no line it emits can ever carry a raw break. The set is
+    # the UNION of what .NET's ReadLine and Python's str.splitlines() call a line break, plus the rest
+    # of C0 and DEL (both parsers trim around '=', so a tab is silently not the value you wrote).
+    for ch in [chr(c) for c in range(0x20)] + ["\x7f", "\x85", chr(0x2028), chr(0x2029)]:
+        for updates in ({"SessionCode": "ff9-ABCD" + ch + "1234"},   # replace an existing key
+                        {"PeerAddress": "192.168.1.50" + ch},        # append inside the section
+                        {"Enabled": ch}):
+            with pytest.raises(ValueError):
+                coop.update_ini_section(INI, "Netsync", updates)
+            with pytest.raises(ValueError):                          # + the append-the-section branch
+                coop.update_ini_section('[Mod]\nFolderNames = "X"\n', "Netsync", updates)
+
+
+def test_update_refuses_a_newline_in_a_key():
+    # the same bug through the other door -- the key half builds the same line
+    with pytest.raises(ValueError):
+        coop.update_ini_section(INI, "Netsync", {"Enabled = 1\nGuestSlots": "15"})
+
+
+def test_update_refuses_a_structurally_broken_key():
+    # '=' lands a DIFFERENT (shorter) key in the file than the caller asked for; a leading ';'/'#'
+    # comments the whole setting out; brackets can open a section header. All silent, which is
+    # exactly what reject-over-strip exists for.
+    for bad_key in ("Enabled=x", "[Netsync]", "Enabled]", ";Enabled", "#Enabled", "", "   ", None):
+        with pytest.raises(ValueError):
+            coop.update_ini_section(INI, "Netsync", {bad_key: "1"})
+
+
+def test_update_refusal_names_the_key_and_escapes_the_payload():
+    with pytest.raises(ValueError) as exc:
+        coop.update_ini_section(INI, "Netsync", {"SessionCode": "ff9-A\nGuestSlots = 15"})
+    msg = str(exc.value)
+    assert "SessionCode" in msg      # which key -- the caller has to be able to say something useful
+    assert "\\n" in msg              # repr()'d, so the escape is what the user reads...
+    assert "\n" not in msg           # ...and the payload cannot fake extra lines in the terminal
+
+
+def test_update_still_round_trips_a_legitimate_update():
+    # the positive control: the fence must be invisible to every real caller. Same assertions as
+    # test_update_existing_keys_in_place, plus the values _setup() actually writes -- and an int,
+    # since a non-str value is rendered with str() and vetted AFTER (callers pass str(int) already).
+    out = coop.update_ini_section(INI, "Netsync", {
+        "Enabled": "1", "SessionCode": "ff9-ABCD1234", "RelayUrl": "ws://127.0.0.1:49201",
+        "PeerAddress": "192.168.1.50", "GhostAs": "auto", "TargetField": 30003})
+    assert coop.read_ini_key(out, "Netsync", "Enabled") == "1"
+    assert coop.read_ini_key(out, "Netsync", "SessionCode") == "ff9-ABCD1234"
+    assert coop.read_ini_key(out, "Netsync", "RelayUrl") == "ws://127.0.0.1:49201"
+    assert coop.read_ini_key(out, "Netsync", "TargetField") == "30003"      # int -> "30003"
+    assert coop.read_ini_key(out, "Netsync", "GhostAs") == "auto"
+    assert coop.read_ini_key(out, "Graphics", "Enabled") == "1"             # other sections untouched
+    assert "; co-op config" in out                                          # comments preserved
+    assert out.count("[Netsync]") == 1
+
+
+def test_update_still_writes_quoted_mod_lists():
+    # the fence is control-characters-only, NOT a charset allowlist: [Mod] values legitimately carry
+    # quotes, commas and spaces, and THE LAUNCHER LAW's round-trip depends on them surviving verbatim
+    out = coop.update_ini_section(INI, "Mod", coop.mod_order_updates(INI, ["FF9CustomMap", "FF9Coop"]))
+    assert coop.read_ini_key(out, "Mod", "FolderNames") == '"FF9CustomMap", "FF9Coop"'
 
 
 # ---------------------------------------------------------------- fake install fixtures
@@ -280,6 +425,16 @@ def test_write_netsync_requires_ini(tmp_path):
         coop.write_netsync(tmp_path, {"Enabled": "1"}, out=lambda *_: None)
 
 
+def test_write_netsync_refusal_touches_nothing(game):
+    # the fence runs BEFORE the backup, so a rejected write leaves no trace at all -- not the edited
+    # ini, not a stray snapshot, not a staged temp file
+    with pytest.raises(ValueError):
+        coop.write_netsync(game, {"SessionCode": "ff9-A\nGuestSlots = 15"}, out=lambda *_: None)
+    assert (game / "Memoria.ini").read_text(encoding="utf-8") == INI
+    assert not list(game.glob("Memoria.ini.coop-bak-*"))
+    assert not (game / "Memoria.ini.tmp").exists()
+
+
 def test_show_config_reads_playstyle_in_human_terms(game):
     coop.write_netsync(game, {"Enabled": "1", "Role": "host", "SessionCode": "ff9-TESTCODE",
                               "RelayUrl": "ws://127.0.0.1:49201", "TargetField": "0",
@@ -364,6 +519,61 @@ def test_coop_join_does_not_force_follow_host(game):
     assert coop.read_ini_key(text, "Netsync", "PeerAddress") == "192.168.1.50"
 
 
+# ------------------------------------------------- the ini-injection fence, end to end
+#
+# THE test of the fix: the documented `ff9mapkit coop join "<code your friend sent>"` must refuse a
+# poisoned invite, and it must refuse it BEFORE ensure_room() and BEFORE write_netsync() -- so the
+# ini is not merely correct afterwards, it is untouched (no backup, no atomic rewrite).
+
+def test_coop_join_refuses_a_poisoned_code_and_leaves_the_ini_untouched(game):
+    lines = []
+    rc = coop.run(_cli_args(action="join", game=str(game), code=POISONED_CODE,
+                            lan="192.168.1.50", no_room=True), out=lines.append)
+    assert rc == 2
+    assert any("bad session code" in ln for ln in lines)
+    text = (game / "Memoria.ini").read_text(encoding="utf-8")
+    assert text == INI                                   # byte-identical: we bailed before any write
+    assert "GuestSlots" not in text                      # the injected key never landed
+    assert "attacker.example" not in text                # the relay was never re-pointed
+    assert text.count("[Netsync]") == 1                  # no re-opened section (engine = last-wins)
+    assert not list(game.glob("Memoria.ini.coop-bak-*"))  # not even the backup ran
+
+
+def test_coop_host_refuses_a_poisoned_override_code(game, monkeypatch):
+    # the host's optional override rides the same code argument -- same fence, same exit
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    lines = []
+    rc = coop.run(_cli_args(action="host", game=str(game), code=POISONED_CODE, lan="",
+                            no_room=True), out=lines.append)
+    assert rc == 2
+    assert (game / "Memoria.ini").read_text(encoding="utf-8") == INI
+
+
+def test_coop_host_replaces_an_unusable_stored_code(game, monkeypatch):
+    # `coop host` re-reads SessionCode to keep a session's code stable across re-runs. A stored value
+    # that no longer validates (hand-edited, or the residue of a poisoned ini) is treated as ABSENT --
+    # mint a fresh one rather than crash the setup or re-write someone else's value verbatim.
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    ini = (game / "Memoria.ini")
+    ini.write_text(INI.replace("SessionCode =\n", "SessionCode = not a code!\n"), encoding="utf-8")
+    lines = []
+    rc = coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True), out=lines.append)
+    assert rc == 0
+    minted = coop.read_ini_key(ini.read_text(encoding="utf-8"), "Netsync", "SessionCode")
+    assert re.fullmatch(r"ff9-[A-Z0-9]{8}", minted)
+    assert any("ignoring the stored SessionCode" in ln for ln in lines)
+
+
+def test_coop_host_keeps_a_valid_stored_code(game, monkeypatch):
+    # the flip side: a good stored code still survives a re-run (the fence must not churn codes)
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    ini = (game / "Memoria.ini")
+    ini.write_text(INI.replace("SessionCode =\n", "SessionCode = ff9-KEEPME12\n"), encoding="utf-8")
+    assert coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True),
+                    out=lambda *_: None) == 0
+    assert coop.read_ini_key(ini.read_text(encoding="utf-8"), "Netsync", "SessionCode") == "ff9-KEEPME12"
+
+
 def test_show_config_off_and_missing(game, tmp_path):
     lines = []
     assert coop.show_config(game, out=lines.append) == 0        # fixture ini has Enabled = 0
@@ -371,3 +581,93 @@ def test_show_config_off_and_missing(game, tmp_path):
     empty = tmp_path / "no-install-here"                         # the game fixture IS tmp_path
     empty.mkdir()
     assert coop.show_config(empty, out=lambda *_: None) == 2     # no Memoria.ini -> actionable exit
+
+
+# ------------------------------------- the RESIDUE of a pre-fence splice: duplicate [Netsync] keys
+#
+# validate_code + the writer fence stop a NEW splice; an install poisoned BEFORE the fix still carries
+# the spliced lines. Memoria's IniFile.Init ends every parsed line with `Options[Key(section,key)] =
+# value` -- a plain dict assignment -- so on a duplicated key the LAST copy is the live one. Every
+# reader and writer here has to agree with that, or the kit reports (and vets, and rewrites) a value
+# the game is not using.
+
+RESIDUE_INI = (
+    "[Graphics]\n"
+    "Enabled = 1\n"
+    "\n"
+    "[Netsync]\n"
+    "Enabled = 1\n"
+    "RelayUrl = ws://127.0.0.1:49201\n"
+    "SessionCode = ff9-GOOD1234\n"
+    "GuestSlots = 15\n"
+    "RelayUrl = ws://attacker.example:1234\n"
+    "SessionCode = not a code!\n"
+)
+
+
+def test_read_ini_key_returns_the_last_copy_like_the_engine():
+    # first-match-wins read the reassuring line the victim can see; the engine reads the one below it
+    assert coop.read_ini_key(RESIDUE_INI, "Netsync", "SessionCode") == "not a code!"
+    assert coop.read_ini_key(RESIDUE_INI, "Netsync", "RelayUrl") == "ws://attacker.example:1234"
+    assert coop.read_ini_key(RESIDUE_INI, "Netsync", "GuestSlots") == "15"
+    assert coop.read_ini_key(RESIDUE_INI, "Graphics", "Enabled") == "1"      # unrelated section intact
+
+
+def test_read_ini_key_sees_a_re_opened_section():
+    # the payload's own shape: a second [Netsync] header re-enters the section in the engine's parser
+    ini = "[Netsync]\nGuestSlots = 0\n\n[Mod]\nPriorities = \"X\"\n\n[Netsync]\nGuestSlots = 15\n"
+    assert coop.read_ini_key(ini, "Netsync", "GuestSlots") == "15"
+
+
+def test_duplicate_ini_keys_names_the_residue():
+    assert coop.duplicate_ini_keys(RESIDUE_INI, "Netsync") == ["RelayUrl", "SessionCode"]
+    assert coop.duplicate_ini_keys(INI, "Netsync") == []                     # a clean ini is silent
+    assert coop.duplicate_ini_keys(RESIDUE_INI, "Graphics") == []            # section-scoped
+
+
+def test_show_config_flags_a_duplicated_key(game):
+    (game / "Memoria.ini").write_text(RESIDUE_INI, encoding="utf-8")
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0
+    text = "\n".join(lines)
+    assert "more than once" in text and "RelayUrl" in text and "SessionCode" in text
+    # ...and the report itself must describe the LIVE lines, not the dead ones above them
+    assert "session:     not a code!" in text
+    assert "relay via ws://attacker.example:1234" in text
+    assert "slot(s) 1, 2, 3, 4" in text
+
+
+def test_update_ini_section_drops_a_stale_duplicate_of_a_key_it_writes():
+    # writing only the FIRST copy left the engine obeying the second -- the rewrite meant to CORRECT
+    # a poisoned value would have been a silent no-op
+    out = coop.update_ini_section(RESIDUE_INI, "Netsync",
+                                  {"SessionCode": "ff9-NEWCODE1", "RelayUrl": ""})
+    assert out.count("SessionCode") == 1
+    assert out.count("RelayUrl") == 1
+    assert "attacker.example" not in out
+    assert coop.read_ini_key(out, "Netsync", "SessionCode") == "ff9-NEWCODE1"
+    assert coop.read_ini_key(out, "Netsync", "GuestSlots") == "15"   # not ours to touch: left alone
+
+
+def test_update_ini_section_collapses_a_duplicate_across_a_re_opened_section():
+    ini = "[Netsync]\nEnabled = 1\nSessionCode = ff9-GOOD1234\n\n[Netsync]\nSessionCode = not a code!\n"
+    out = coop.update_ini_section(ini, "Netsync", {"SessionCode": "ff9-NEWCODE1"})
+    assert coop.read_ini_key(out, "Netsync", "SessionCode") == "ff9-NEWCODE1"
+    assert "not a code!" not in out
+
+
+def test_coop_host_replaces_a_poisoned_second_stored_code(game, monkeypatch):
+    # the stored-code guard has to vet the line the ENGINE obeys: with the first copy read instead,
+    # the good-looking line validated, the unusable one below it survived the rewrite, and the fence
+    # that exists for exactly this ini passed it straight through
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    ini = game / "Memoria.ini"
+    ini.write_text(INI + "SessionCode = ff9-GOOD1234\nSessionCode = not a code!\n", encoding="utf-8")
+    lines = []
+    assert coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True),
+                    out=lines.append) == 0
+    text = ini.read_text(encoding="utf-8")
+    assert any("ignoring the stored SessionCode" in ln for ln in lines)
+    assert "not a code!" not in text
+    assert text.count("SessionCode") == 1
+    assert re.fullmatch(r"ff9-[A-Z0-9]{8}", coop.read_ini_key(text, "Netsync", "SessionCode"))

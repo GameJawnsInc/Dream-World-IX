@@ -5104,7 +5104,10 @@ class Workspace(QMainWindow):
         notes = []
         try:                                                   # best-effort text-shadow pre-flight (never blocks)
             from .. import build as _build
-            tb = (doc.data.get("field") or {}).get("text_block")
+            _fld = doc.data.get("field") or {}
+            tb = _fld.get("text_block")
+            if tb is None and _fld.get("id") is not None:       # resolve the derived default (= the field id)
+                tb = _build.default_text_block(_fld["id"])
             hint = _build.shared_text_block_hint_for(cand, tb)
             if hint:
                 notes = [fb.Problem(fb.WARN, hint)]

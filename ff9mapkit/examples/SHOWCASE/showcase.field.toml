@@ -12,7 +12,6 @@
 id = 4800
 name = "SHOWCASE"          # -> FBG_N11_SHOWCASE + EVT_SHOWCASE.eb
 area = 11
-text_block = 1073
 title = "ff9mapkit showcase"
 
 [camera]

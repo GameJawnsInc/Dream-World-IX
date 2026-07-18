@@ -59,7 +59,7 @@ FIELD_SPEC = [
     Field("id", "Field ID", INT, "a unique number for your field (use >= 4000)"),
     Field("name", "Name", STR, "short tag, e.g. MY_ROOM (letters, digits, underscore)"),
     Field("area", "Area", INT, "must be >= 10 (lower areas don't render in-game)"),
-    Field("text_block", "Text block", OPTINT, "leave at 1073 unless you know you need another", concept="mes",
+    Field("text_block", "Text block", OPTINT, "leave EMPTY to derive it from the field id (auto-registered); set it only to share dialogue or to carry a fork donor's block", concept="mes",
           advanced=True),
     Field("title", "Title", STR, "a human label for your own notes (optional)"),
     Field("location", "Location", STR, 'the in-game menu place-name (the "LOCATION" card), e.g. "Mog\'s Hut"; '

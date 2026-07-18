@@ -128,7 +128,8 @@ _CARDS = [
     Concept("mes", "Text block (.mes)",
             "A field's block of dialogue lines. Each line has an id the script points at. The toolkit writes it "
             "and the game merges it over the base text.",
-            "the mesID picks which text block — keep the default (1073) unless you need another.",
+            "the mesID picks which text block — leave it empty to derive it from the field id (and register "
+            "it automatically). A REAL block would overwrite that location's own dialogue.",
             (".mes", "mesid", "text block", "textid", "message file")),
     Concept("fbg", "FBG name",
             "The internal name of a real field's background scene, like alxt_map016 or grgr. You can look a "

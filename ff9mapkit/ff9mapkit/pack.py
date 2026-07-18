@@ -84,7 +84,8 @@ _FIELD_TOML_TEMPLATE = '''\
 id = {field_id}          # custom field id (>= 4000; claim a block for your mod, see docs)
 name = "{name}"          # -> FBG_N{area}_{name} (background) + EVT_{name}.eb (script)
 area = {area}            # must be >= 10
-text_block = 1073
+# text_block (the field's dialogue mesID) defaults to the field's own id and is auto-registered.
+# Only set it to share dialogue with another field, or to carry a donor's block on a fork.
 title = "{title}"
 
 [camera]

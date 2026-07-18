@@ -16,7 +16,6 @@
 id = 4004
 name = "GLADE"
 area = 11
-text_block = 1073
 title = "Boletta's Glade"
 
 [camera]

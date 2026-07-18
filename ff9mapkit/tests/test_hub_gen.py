@@ -48,7 +48,9 @@ def _emit_and_load(tmp_path, spec):
 def test_load_journeys_parses_the_example_registry():
     spec = hub.load_journeys(JOURNEYS)
     assert spec.name == "WORLD_HUB" and spec.id == 4500 and spec.area == 21
-    assert spec.borrow_bg == "GRGR_MAP420_GR_CEN_0" and spec.text_block == 8
+    # text_block is now UNSET in the example: it derives from the hub's field id and auto-registers.
+    # It used to be a hardcoded 8 -- which is ICE CAVERN's real block (13 fields, 300-312).
+    assert spec.borrow_bg == "GRGR_MAP420_GR_CEN_0" and spec.text_block is None
     assert spec.player_model == 220 and spec.narrator == "Stiltzkin"
     # The example points at REAL verbatim forks already deployed in stacked folders (not stubs):
     # Dali = the DALI_CAPSTONE chain entry (4100, FF9CustomMap-sf) seeded to its "waking up" beat;
@@ -154,7 +156,8 @@ def test_generated_hub_matches_handauthored_example(tmp_path):
     assert gen["field"]["name"] == ref["field"]["name"]
     assert gen["field"]["borrow_bg"] == ref["field"]["borrow_bg"]
     assert gen["field"]["area"] == ref["field"]["area"]
-    assert gen["field"]["text_block"] == ref["field"]["text_block"]
+    # neither side pins text_block any more -- both derive it from the field id
+    assert "text_block" not in gen["field"] and "text_block" not in ref["field"]
     assert gen["camera"]["borrow"] == ref["camera"]["borrow"]
     assert gen["player"]["model"] == ref["player"]["model"] == 220
     assert gen["player"]["spawn"] == ref["player"]["spawn"]
@@ -212,9 +215,16 @@ def test_validate_warns_narrator_overlaps_player_spawn():
     assert not any("INSIDE the narrator" in w for w in warnings)
 
 
-def test_validate_warns_text_block_1073_and_paging():
-    _, warnings = hub.validate_hub(_spec(text_block=1073))
-    assert any("1073" in w and "SHADOWED" in w for w in warnings)
+def test_validate_warns_text_block_on_a_real_block_and_paging():
+    """A hub on ANY real location's block writes its menu text over that location's dialogue -- the base game
+    is part of the engine's cumulative text merge. The check used to fire only on the literal 1073, so it
+    could never catch the hub's OWN former default of 8 (Ice Cavern, 13 real fields)."""
+    _, warnings = hub.validate_hub(_spec(text_block=1073))       # Black Mage Village
+    assert any("1073" in w and "REAL FF9 block" in w for w in warnings)
+    _, warnings = hub.validate_hub(_spec(text_block=8))          # Ice Cavern -- the old default
+    assert any("300-312" in w for w in warnings)
+    _, warnings = hub.validate_hub(_spec(text_block=None))       # derived from the hub's field id -> clear
+    assert not any("REAL FF9 block" in w for w in warnings)
 
     many = _spec(journeys=[hub.Journey(f"j{i}", f"J{i}", 4501 + i) for i in range(hub.PAGING_SOFT_MAX + 1)])
     _, warnings = hub.validate_hub(many)

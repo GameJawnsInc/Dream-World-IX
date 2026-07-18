@@ -204,11 +204,14 @@ class FieldDoc:
         return cls(path, data, sp, scene_data)
 
     @classmethod
-    def new(cls, path, field_id=4003, name="MY_ROOM", area=11, text_block=1073) -> "FieldDoc":
-        """A fresh in-memory doc (not yet written) with a minimal [field] + a borrow camera stub."""
-        data = {"field": {"id": int(field_id), "name": str(name), "area": int(area),
-                          "text_block": int(text_block)},
+    def new(cls, path, field_id=4003, name="MY_ROOM", area=11, text_block=None) -> "FieldDoc":
+        """A fresh in-memory doc (not yet written) with a minimal [field] + a borrow camera stub.
+        ``text_block=None`` (the default) writes NO key, so the build derives it from the field id and
+        auto-registers it -- pinning a literal here is how a new field ends up squatting a real location."""
+        data = {"field": {"id": int(field_id), "name": str(name), "area": int(area)},
                 "camera": {"borrow": "camera.bgx"}}
+        if text_block is not None:
+            data["field"]["text_block"] = int(text_block)
         return cls(Path(path), data)
 
     def save(self) -> None:
