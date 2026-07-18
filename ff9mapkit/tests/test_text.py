@@ -119,3 +119,37 @@ def test_dialogue_wrap_can_be_disabled(tmp_path):
     body, _, _, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(proj)
     assert "\n" not in body.split("[ENDN]")[0]              # not wrapped (one giant line)
     assert any("wrap is off" in m for m in lint_logic(proj))
+
+
+# --- fixed low txids (the save-Moogle menus reference text ids 0/3/4/8/11-18) ------------------------
+def test_build_mes_fixed_emits_explicit_ids():
+    from ff9mapkit.content import text as _t
+    body = _t.build_mes_fixed([(3, "menu"), (0, "roster"), (18, "mail")])
+    assert "[TXID=0]" in body and "[TXID=3]" in body and "[TXID=18]" in body
+    # ...in ascending id order, whatever order they were supplied in
+    assert body.index("[TXID=0]") < body.index("[TXID=3]") < body.index("[TXID=18]")
+    assert "roster" in body and "menu" in body and "mail" in body
+
+
+def test_build_mes_fixed_keys_tails_and_strts_by_txid():
+    from ff9mapkit.content import text as _t
+    body = _t.build_mes_fixed([(0, "a"), (7, "b")], tails={7: ""}, strts={7: (20, 3)})
+    assert "[STRT=20,3]" in body
+    line7 = [ln for ln in body.split("\n") if "[TXID=7]" in ln][0]
+    assert "[TAIL=" not in line7                      # "" = explicit NO tail
+    line0 = [ln for ln in body.split("\n") if "[TXID=0]" in ln][0]
+    assert f"[TAIL={_t.DEFAULT_TAIL}]" in line0       # unspecified -> the default
+
+
+def test_build_mes_fixed_empty_is_empty():
+    from ff9mapkit.content import text as _t
+    assert _t.build_mes_fixed([]) == ""
+
+
+def test_build_mes_fixed_does_not_disturb_sequential_build_mes():
+    """The two must be able to coexist in one block: fixed low ids + the authored 500+ run."""
+    from ff9mapkit.content import text as _t
+    seq, mapping = _t.build_mes(["x", "y"])
+    fixed = _t.build_mes_fixed([(0, "roster"), (3, "menu")])
+    assert min(mapping.values()) >= _t.DEFAULT_BASE_TXID
+    assert "[TXID=0]" not in seq and "[TXID=500]" not in fixed

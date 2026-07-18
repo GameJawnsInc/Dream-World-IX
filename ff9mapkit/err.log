@@ -1,0 +1,213 @@
+WARNING: 'fbg_n11_ldbm_map171_lb_stn_0' is SHARED by 3 fields (the same room at different story beats):
+           563  EVT_LIND1_TN_LB_STN_0
+          1310  EVT_LIND2_TN_LB_STN_0
+          2110  EVT_LIND3_TN_LB_STN_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 563`
+WARNING: 'fbg_n11_ldbm_map172_lb_atl_0' is SHARED by 3 fields (the same room at different story beats):
+           564  EVT_LIND1_TN_LB_ATL_0
+          1311  EVT_LIND2_TN_LB_ATL_0
+          2111  EVT_LIND3_TN_LB_ATL_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 564`
+WARNING: 'fbg_n11_ldbm_map173_lb_ttl_0' is SHARED by 3 fields (the same room at different story beats):
+           565  EVT_LIND1_TN_LB_TTL_0
+          1312  EVT_LIND2_TN_LB_TTL_0
+          2112  EVT_LIND3_TN_LB_TTL_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 565`
+WARNING: 'fbg_n11_ldbm_map183_lb_lft_0' is SHARED by 4 fields (the same room at different story beats):
+           620  EVT_LIND1_CS_LB_LFT_0
+          1370  EVT_LIND2_CS_LB_LFT_0
+          2171  EVT_LIND3_CS_LB_LFT_0
+          3006  EVT_ENDING_LB_1   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 620`
+WARNING: 'fbg_n11_ldbm_map184_lb_lpf_0' is SHARED by 3 fields (the same room at different story beats):
+           601  EVT_LIND1_CS_LB_LPF_0
+          1351  EVT_LIND2_CS_LB_LPF_0
+          2151  EVT_LIND3_CS_LB_LPF_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 601`
+WARNING: 'fbg_n11_ldbm_map185_lb_hfc_0' is SHARED by 3 fields (the same room at different story beats):
+           619  EVT_LIND1_CS_LB_HFC_0
+          1369  EVT_LIND2_CS_LB_HFC_0
+          2170  EVT_LIND3_CS_LB_HFC_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 619`
+WARNING: 'fbg_n11_ldbm_map186_lb_cfr_0' is SHARED by 4 fields (the same room at different story beats):
+           600  EVT_LIND1_CS_LB_CFR_0
+          1350  EVT_LIND2_CS_LB_CFR_0
+          1356  EVT_LIND2_CS_LB_TSP_0
+          2150  EVT_LIND3_CS_LB_CFR_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 600`
+WARNING: 'fbg_n11_ldbm_map188_lb_uhw_0' is SHARED by 3 fields (the same room at different story beats):
+           617  EVT_LIND1_CS_LB_UHW_0
+          1367  EVT_LIND2_CS_LB_UHW_0
+          2168  EVT_LIND3_CS_LB_UHW_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 617`
+WARNING: 'fbg_n11_ldbm_map189_lb_lpr_0' is SHARED by 3 fields (the same room at different story beats):
+           616  EVT_LIND1_CS_LB_LPR_0
+          1366  EVT_LIND2_CS_LB_LPR_0
+          2167  EVT_LIND3_CS_LB_LPR_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 616`
+WARNING: 'fbg_n11_ldbm_map190_lb_obs_0' is SHARED by 3 fields (the same room at different story beats):
+           615  EVT_LIND1_CS_LB_OBS_0
+          1365  EVT_LIND2_CS_LB_OBS_0
+          2166  EVT_LIND3_CS_LB_OBS_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 615`
+WARNING: 'fbg_n11_ldbm_map192_lb_hal_0' is SHARED by 3 fields (the same room at different story beats):
+           613  EVT_LIND1_CS_LB_HAL_0
+          1363  EVT_LIND2_CS_LB_HAL_0
+          2163  EVT_LIND3_CS_LB_HAL_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 613`
+WARNING: 'fbg_n11_ldbm_map193_lb_mhw_0' is SHARED by 3 fields (the same room at different story beats):
+           612  EVT_LIND1_CS_LB_MHW_0
+          1362  EVT_LIND2_CS_LB_MHW_0
+          2162  EVT_LIND3_CS_LB_MHW_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 612`
+WARNING: 'fbg_n11_ldbm_map194_lb_grm_0' is SHARED by 3 fields (the same room at different story beats):
+           611  EVT_LIND1_CS_LB_GRM_0
+          1361  EVT_LIND2_CS_LB_GRM_0
+          2161  EVT_LIND3_CS_LB_GRM_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 611`
+WARNING: 'fbg_n11_ldbm_map195_lb_ctm_0' is SHARED by 3 fields (the same room at different story beats):
+           610  EVT_LIND1_CS_LB_CTM_0
+          1360  EVT_LIND2_CS_LB_CTM_0
+          2160  EVT_LIND3_CS_LB_CTM_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 610`
+WARNING: 'fbg_n11_ldbm_map196_lb_brg_0' is SHARED by 3 fields (the same room at different story beats):
+           609  EVT_LIND1_CS_LB_BRG_0
+          1359  EVT_LIND2_CS_LB_BRG_0
+          2159  EVT_LIND3_CS_LB_BRG_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 609`
+WARNING: 'fbg_n11_ldbm_map197_lb_shb_0' is SHARED by 3 fields (the same room at different story beats):
+           608  EVT_LIND1_CS_LB_SHB_0
+          1358  EVT_LIND2_CS_LB_SHB_0
+          2158  EVT_LIND3_CS_LB_SHB_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 608`
+WARNING: 'fbg_n11_ldbm_map198_lb_exb_0' is SHARED by 3 fields (the same room at different story beats):
+           602  EVT_LIND1_CS_LB_EXB_0
+          1352  EVT_LIND2_CS_LB_EXB_0
+          2152  EVT_LIND3_CS_LB_EXB_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 602`
+WARNING: 'fbg_n11_ldbm_map199_lb_llp_0' is SHARED by 3 fields (the same room at different story beats):
+           603  EVT_LIND1_CS_LB_LLP_0
+          1353  EVT_LIND2_CS_LB_LLP_0
+          2153  EVT_LIND3_CS_LB_LLP_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 603`
+WARNING: 'fbg_n13_brmc_map266_bu_squ_0' is SHARED by 2 fields (the same room at different story beats):
+           763  EVT_BURMECIA_SQUARE_0
+          3004  EVT_ENDING_BU_1   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 763`
+WARNING: 'fbg_n13_brmc_map278_bu_int_1' is SHARED by 2 fields (the same room at different story beats):
+           768  EVT_BURMECIA_PALACE_2
+           769  EVT_BURMECIA_PALACE_3   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 768`
+WARNING: 'fbg_n19_clir_map385_cy_twn_b' is SHARED by 2 fields (the same room at different story beats):
+          1056  EVT_CLEYRA2_INN
+          1106  EVT_CLEYRA3_INN   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1056`
+WARNING: 'fbg_n20_trno_map409_tr_kha_0' is SHARED by 2 fields (the same room at different story beats):
+           909  EVT_TRENO1_TR_KHA_0
+          1909  EVT_TRENO2_TR_KHA_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 909`
+WARNING: 'fbg_n20_trno_map410_tr_qhm_0' is SHARED by 2 fields (the same room at different story beats):
+           911  EVT_TRENO1_TR_QHM_0
+          1911  EVT_TRENO2_TR_QHM_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 911`
+WARNING: 'fbg_n20_trno_map411_tr_khm_0' is SHARED by 4 fields (the same room at different story beats):
+           910  EVT_TRENO1_TR_KHM_0
+          1910  EVT_TRENO2_TR_KHM_0
+          1916  EVT_TRENO2_TR_KHM_1
+          1917  EVT_TRENO2_TR_KHM_2   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 910`
+WARNING: 'fbg_n20_trno_map412_tr_bhe_0' is SHARED by 2 fields (the same room at different story beats):
+           901  EVT_TRENO1_TR_BHE_0
+          1901  EVT_TRENO2_TR_BHE_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 901`
+WARNING: 'fbg_n20_trno_map413_tr_bhm_0' is SHARED by 2 fields (the same room at different story beats):
+           902  EVT_TRENO1_TR_BHM_0
+          1902  EVT_TRENO2_TR_BHM_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 902`
+WARNING: 'fbg_n20_trno_map414_tr_tms_0' is SHARED by 2 fields (the same room at different story beats):
+           913  EVT_TRENO1_TR_TMS_0
+          1913  EVT_TRENO2_TR_TMS_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 913`
+WARNING: 'fbg_n20_trno_map415_tr_tot_0' is SHARED by 2 fields (the same room at different story beats):
+           914  EVT_TRENO1_TR_TOT_0
+          1914  EVT_TRENO2_TR_TOT_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 914`
+WARNING: 'fbg_n20_trno_map417_tr_bar_0' is SHARED by 2 fields (the same room at different story beats):
+           900  EVT_TRENO1_TR_BAR_0
+          1900  EVT_TRENO2_TR_BAR_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 900`
+WARNING: 'fbg_n21_grgr_map423_gr_gba_0' is SHARED by 2 fields (the same room at different story beats):
+           952  EVT_GARGAN_GR_GBA_0
+           957  EVT_GARGAN_GR_CON_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 952`
+WARNING: 'fbg_n21_grgr_map426_gr_ggt_0' is SHARED by 2 fields (the same room at different story beats):
+           954  EVT_GARGAN_GR_GGT_0
+           955  EVT_GARGAN_GR_GGT_1   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 954`
+WARNING: 'fbg_n30_bmvl_map532_bv_ent_0' is SHARED by 2 fields (the same room at different story beats):
+          1450  EVT_MAGE_BV_ENT_0
+          3050  EVT_MAGE2_BV_ENT_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1450`
+WARNING: 'fbg_n30_bmvl_map533_bv_abr_0' is SHARED by 2 fields (the same room at different story beats):
+          1451  EVT_MAGE_BV_ABR_0
+          3051  EVT_MAGE2_BV_ABR_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1451`
+WARNING: 'fbg_n30_bmvl_map535_bv_csk_0' is SHARED by 2 fields (the same room at different story beats):
+          1458  EVT_MAGE_BV_CSK_0
+          3057  EVT_MAGE2_BV_CSK_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1458`
+WARNING: 'fbg_n30_bmvl_map536_bv_ort_0' is SHARED by 2 fields (the same room at different story beats):
+          1457  EVT_MAGE_BV_ORT_0
+          3056  EVT_MAGE2_BV_ORT_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1457`
+WARNING: 'fbg_n30_bmvl_map538_bv_wpn_0' is SHARED by 2 fields (the same room at different story beats):
+          1456  EVT_MAGE_BV_WPN_0
+          3055  EVT_MAGE2_BV_WPN_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1456`
+WARNING: 'fbg_n30_bmvl_map539_bv_inn_0' is SHARED by 2 fields (the same room at different story beats):
+          1454  EVT_MAGE_BV_INN_0
+          3053  EVT_MAGE2_BV_INN_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1454`
+WARNING: 'fbg_n30_bmvl_map540_bv_itm_0' is SHARED by 2 fields (the same room at different story beats):
+          1460  EVT_MAGE_BV_ITM_0
+          3059  EVT_MAGE2_BV_ITM_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1460`
+WARNING: 'fbg_n30_bmvl_map541_bv_its_0' is SHARED by 2 fields (the same room at different story beats):
+          1455  EVT_MAGE_BV_ITS_0
+          3054  EVT_MAGE2_BV_ITS_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1455`
+WARNING: 'fbg_n30_bmvl_map542_bv_csi_0' is SHARED by 2 fields (the same room at different story beats):
+          1459  EVT_MAGE_BV_CSI_0
+          3058  EVT_MAGE2_BV_CSI_0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1459`
+WARNING: 'fbg_n42_pdmn_map736_pd_rtb_0' is SHARED by 2 fields (the same room at different story beats):
+          2716  EVT_PANDEMO_PD_RTB_0
+          2720  EVT_PANDEMO_PD_RTB_1   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 2716`
+WARNING: 'fbg_n02_alxc_map858_ac_qrm_0' is SHARED by 4 fields (the same room at different story beats):
+          1206  EVT_ALEX2_AC_QUEEN
+          1223  EVT_ALEX2_AC_QUEEN_2
+          1225  EVT_ALEX2_AC_QUEEN_3
+          1801  EVT_ALEX3_AC_QUEEN   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1206`
+WARNING: 'fbg_n02_alxc_map860_ac_ryh_0' is SHARED by 2 fields (the same room at different story beats):
+          1224  EVT_ALEX2_AC_R_HALL
+          1821  EVT_ALEX3_AC_R_HALL   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1224`
+WARNING: 'fbg_n02_alxc_map861_ac_dgr_0' is SHARED by 3 fields (the same room at different story beats):
+          1207  EVT_ALEX2_AC_PRINCESS
+          1802  EVT_ALEX3_AC_PRINCESS
+          3002  EVT_ENDING_AC_2   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1207`
+WARNING: 'fbg_n02_alxc_map874_ac_atp_0' is SHARED by 2 fields (the same room at different story beats):
+          1817  EVT_ALEX3_AC_PORT_A
+          2400  EVT_ALEX5_AC_PORT_A   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1817`
+WARNING: 'fbg_n02_alxc_map875_ac_btp_0' is SHARED by 2 fields (the same room at different story beats):
+          1818  EVT_ALEX3_AC_PORT_B
+          2401  EVT_ALEX5_AC_PORT_B   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1818`
+WARNING: 'fbg_n02_alxc_map877_ac_pot_1' is SHARED by 2 fields (the same room at different story beats):
+          1819  EVT_ALEX3_AC_PORT_C0
+          2402  EVT_ALEX5_AC_PORT_C0   <- a name import silently resolves HERE
+         to fork a specific story beat, re-run with its numeric field id, e.g. `ff9mapkit import 1819`

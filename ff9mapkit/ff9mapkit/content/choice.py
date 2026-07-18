@@ -161,3 +161,69 @@ def speak_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int =
     is the standard field dialogue flag (same as plain NPC dialogue). ``setup`` = optional pre-choose
     opcode (see :func:`pre_choose`)."""
     return region_body(prompt_txid, option_bodies, window=window, flags=flags, setup=setup) + opcodes.RETURN
+
+
+# --------------------------------------------------------------- the SWITCH dispatch (op_0B) ---
+SWITCH_OP = 0x0B          # JMP_SWITCH (contiguous). Layout, from eb.disasm.decode_switch (validated
+                          # 100% boundary-aligned across all 5563 switches in the 676 shipping fields):
+                          #   0B <n:u8> <base<<8 :u16> <default_reloff:u16> <case_reloff:u16> * n
+                          # anchor = the instruction's offset + 1; target = anchor + reloff.
+
+
+def switch_on_choice(option_bodies) -> bytes:
+    """Dispatch on the player's dialog choice with ONE read, via ``op_05{GetSysvar(9)}`` + ``op_0B``.
+
+    **Why this exists, and when you MUST use it instead of :func:`branch`.** ``branch`` emits an
+    independent ``if(GetChoose()==i)`` block per option, and every block RE-READS sysvar 9 at the moment
+    it runs. That is correct for a flat menu whose arms don't open dialogs -- but the moment one arm
+    opens a SECOND choice window, that window overwrites sysvar 9, and every later ``if`` then tests the
+    INNER answer. Concretely: pick row 0, then answer "No" (row 1) in the nested confirm, and the outer
+    row-1 arm fires too.
+
+    ``op_0B`` reads the selector ONCE (the preceding ``op_05`` pushes ``GetChoose()`` onto the calc
+    stack) and jumps to exactly one arm, so nested windows are harmless. This is what FF9 itself does --
+    field 300 @4278-4282 and field 2919 both push ``{op7A(9) op7F}`` and switch. Use it for any menu
+    where more than one row has a body, or any row opens another window.
+
+    ``option_bodies`` is one body per row, in row order; an empty/None body means "do nothing" (it gets
+    an arm that jumps straight to the end, NOT a fall-through into the next row's body). Execution
+    resumes after the whole block for every arm, including the default (an out-of-range pick)."""
+    n = len(option_bodies)
+    if n == 0:
+        return b""
+    bodies = [bytes(b or b"") for b in option_bodies]
+    # Push the selector ONCE, immediately before the switch: op_05 {GetSysvar(9) END}. Byte-exact against
+    # field 300 @4278 (`05 7a 09 7f`) followed by the 0x0B at @4282. Without this the switch dispatches on
+    # whatever is already on the calc stack. The switch's case offsets are self-relative (anchor = its own
+    # offset + 1), so prepending this does not disturb them.
+    push = bytes([_region.EXPR_OP, _region.T_SYSVAR, _region.SYSVAR_CHOICE, _region.T_END])
+    # Each arm ends with an unconditional hop to the common exit, so arms never fall into each other.
+    # Lay the arms out first to learn their sizes, then back-fill the jumps.
+    hop = 3                                             # JMP_UNCOND + i16
+    sizes = [len(b) + hop for b in bodies]
+    head = 2 + 2 * (2 + n)                              # op + count + base + default + n case offsets
+    starts, p = [], head
+    for s in sizes:
+        starts.append(p)
+        p += s
+    end = p                                             # the common exit, just past the last arm
+    anchor = 1                                          # decode_switch: anchor = instr.off + 1
+    out = bytearray([SWITCH_OP, n])
+    out += (0).to_bytes(2, "little")                    # base = 0 (rows are 0..n-1)
+    out += (end - anchor).to_bytes(2, "little")         # default (out-of-range pick) -> the exit
+    for st in starts:
+        out += (st - anchor).to_bytes(2, "little")
+    for i, b in enumerate(bodies):
+        out += b
+        skip = end - (starts[i] + len(b) + hop)         # bytes to skip to reach the exit
+        out += bytes([_region.JMP_UNCOND]) + skip.to_bytes(2, "little")
+    return push + bytes(out)
+
+
+def switch_body(prompt_txid: int, option_bodies, *, window: int = 1, flags: int = 128,
+                setup: bytes = b"") -> bytes:
+    """:func:`region_body`'s switch-dispatched twin: lock control, (optional pre-choose ``setup``), open
+    the prompt window, then :func:`switch_on_choice`, then restore control. **No RETURN** -- the caller
+    adds it. Use this instead of :func:`region_body` for a multi-body or nested menu."""
+    return (opcodes.DISABLE_MOVE + setup + opcodes.window_sync(window, flags, prompt_txid)
+            + switch_on_choice(option_bodies) + opcodes.ENABLE_MOVE)

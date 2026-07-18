@@ -86,6 +86,33 @@ def build_mes(lines, *, start_txid: int = DEFAULT_BASE_TXID, tails=None, strts=N
     return "\n".join(entries) + "\n", mapping
 
 
+def build_mes_fixed(fixed, *, tails=None, strts=None) -> str:
+    """Build ``.mes`` entries at EXPLICIT txids, from ``[(txid, text), ...]``.
+
+    :func:`build_mes` assigns ``start_txid + i`` -- fine for authored dialogue, which lives at 500+ to
+    stay clear of a base block. But FF9's own save-Moogle windows reference **low, fixed** ids: the
+    moogle-name roster is text entry **0**, the option menu **3**, the save confirm **4**, the Mognet
+    submenu **8**, the mail list **11-18**. Reproducing that menu means emitting those exact ids, which
+    sequential assignment cannot express.
+
+    **Only legal in a field's OWN minted text block** (``[field] text_block = <fresh id>`` +
+    ``register_text_block = true``). A fresh mesID has no base ``.mes`` at all -- ``FF9TextTool.
+    GetFieldTextFileName`` is just ``mesID.ToString()`` and ``FieldImporter.LoadInternal`` clears the
+    table and reads only that one file -- so txid 0 is as safe as txid 500 there. Writing low ids into a
+    SHARED base block (1073, 8, 22, ...) would shadow the base game's text for every field that uses it.
+    :func:`build.validate` enforces the minted-block rule; do not bypass it.
+
+    ``tails``/``strts`` are keyed by TXID here (not by position), since there is no positional index.
+    """
+    tails, strts = tails or {}, strts or {}
+    out = []
+    for txid, text in sorted(fixed, key=lambda kv: kv[0]):
+        _t = tails.get(txid)
+        out.append(mes_entry(text, int(txid), strt=(strts.get(txid) or (10, 1)),
+                             tail=(DEFAULT_TAIL if _t is None else _t)))
+    return ("\n".join(out) + "\n") if out else ""
+
+
 # --------------------------------------------------------------------------- proportional auto-wrap
 # FF9 field dialogue does NOT auto-wrap: the window grows to fit the widest line, so an un-broken long
 # line runs off the screen. The original game hand-breaks every line; we reproduce that at build time.
