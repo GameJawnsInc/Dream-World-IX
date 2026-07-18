@@ -469,6 +469,14 @@ if _built_tp or f"ff9mapkit field {FID}" in _live_tp_text:
         print(f"  + TextPatch.txt (item name/desc, merged under field-{FID} markers; RELAUNCH to apply)")
 print(f"deployed {name} -> field {FID} (reachable via the New-Game auto-warp)")
 
+# deploy LEDGER (diagnostics only, never load-bearing -- record() swallows filesystem failures). Written
+# beside Memoria.ini, OUTSIDE every mod folder, so a deploy_campaign rmtree can't erase the history. What
+# it buys: `ff9mapkit doctor` reconciles this against the live DictionaryPatches, so a registration that
+# later VANISHES names the checkout + time that put it there -- the thing the 2026-07-18 field-4003 hunt
+# had no way to learn (a retired line and a lost line are the same absent line).
+from ff9mapkit import deploylog as _dlog
+_dlog.record(GAME, _dlog.DEPLOYED, FID, MOD_FOLDER, checkout=_REPO, note=f"{name} <- {TOML.name}")
+
 _mint_ids_repr = repr(sorted(mint_ids))              # this deploy's minted GEO ids (drop their 3DModel lines on revert)
 _mint_anim_keys_repr = repr(sorted(mint_anim_keys))   # this deploy's OWN 3DModelAnimation keys (drop only THESE on revert)
 revert = f'''#!/usr/bin/env python3
@@ -477,7 +485,10 @@ from pathlib import Path
 sys.path.insert(0, r"{KIT}")
 from ff9mapkit.config import find_game_path, ModLayout, LANGS
 from ff9mapkit import dictpatch as _dp
-STAMP="{STAMP}"; BK=Path(r"{BK}"); live=ModLayout(find_game_path()/"{MOD_FOLDER}")
+from ff9mapkit import deploylog as _dlog   # NEEDED by the ledger call at the bottom -- a missing import here
+#                                            NameErrors every generated revert, and a deploy RUNS the revert
+#                                            as its prelude, so that would break deploying outright.
+STAMP="{STAMP}"; BK=Path(r"{BK}"); _GAME=find_game_path(); live=ModLayout(_GAME/"{MOD_FOLDER}")
 # surgical DictionaryPatch revert: drop THIS id's line + THIS deploy's OWN mint registrations (3DModel <mintId> by
 # exact id and 3DModelAnimation <key> by exact key) from the CURRENT live file -- preserving any FOREIGN line another
 # tool added into the SAME mod folder since this deploy (deploy_battle's "BattleScene <sceneid>", or a
@@ -501,6 +512,11 @@ for L in LANGS:
     if p.exists(): p.unlink()
     mb=BK/f"{{L}}-{text_block}.mes.preDEPLOY.{{STAMP}}"
     if mb.exists(): shutil.copyfile(mb, live.mes_path(L,{text_block})){csv_revert_code}{bp_revert_code}{tp_revert_code}{fork_revert_code}
+# Ledger: this id is now deliberately UNregistered, so `doctor` won't cry "lost registration" over it. Note a
+# deploy runs the prior revert as its PRELUDE, so most 'retired' rows are immediately followed by a 'deployed'
+# row -- last-event-wins makes that read correctly. This call only helps NEWLY generated reverts; the ~30 older
+# scripts on disk emit nothing, which is exactly why deploylog.reconcile() (not this line) is the mechanism.
+_dlog.record(_GAME, _dlog.RETIRED, {FID}, "{MOD_FOLDER}", checkout=r"{_REPO}", note="revert_deploy_{FID}.py")
 print("reverted: DictionaryPatch (incl. mint 3DModel/3DModelAnimation) + dialogue + start-state CSVs + BattlePatch + TextPatch + ForkDonorPatch restored; {name} removed. (staged Models//Animations/ trees left inert on disk)")
 '''
 (OUT / f"revert_deploy_{FID}.py").write_text(revert, encoding="utf-8", newline="\n")    # per-id revert
