@@ -496,7 +496,7 @@ and `_apply_density` (`shell.py:535`) gets one line: `self._hero.set_density(sel
 Deliberately untouched:
 
 - **Every work surface stays neutral by default.** No theming of dialogs, the console, the tree, the inspector, the toolbar, the crumb row, the tab strip. Nothing in this spec touches a pixel outside Home's hero band and the palette registry.
-- **`mist` ships OPT-IN and is NEVER the default.** `pick_palette("auto")` still resolves `DARK if detect_os_dark() else LIGHT` (`theme.py:246`). `mist` is reachable only by an explicit choice in Preferences (`shell.py:753-759`). No migration, no first-run prompt, no nag.
+- **`mist` ships OPT-IN and is NEVER the default.** *(SUPERSEDED 2026-07-18: `prefs.theme()` now defaults to `"mist"` -- a fresh install paints it. `pick_palette("auto")` itself is unchanged, still `DARK if detect_os_dark() else LIGHT`; "auto"/Dark/Light/etc. remain one Preferences click away. This paragraph is kept as the round-3 record, not current behavior.)*
 - **No icon pass, no dialog pass, no console pass.** `icons.py`'s family is untouched.
 - **No new fence, no new test on the neutral palettes.** The other 7 are byte-identical after this change.
 - **The gold does not appear anywhere you work.** One band, one screen, one corner. The hero also carries **no accent at all** — gold is the hero's only chroma, Mist is the app's only chroma, **they never meet.**

@@ -49,6 +49,7 @@ class BuildDoc(QWidget):
         self.field_name = None
         self.inplace_target = None                      # {donor,name,text_block,is_forest} for a verbatim fork of a real field
         self._inplace_available = False                 # in-place radio is live (a fork of a real field + dev tools)
+        self._inplace_autoselected_for = None            # donor id we last auto-checked In-place FOR (see _sync_inplace)
         self.mod_folder, self.worktree_id = jobs.detect_deploy_target(self.repo)
         self.game_mod = jobs.detect_game_mod()
         self._build_ui()
@@ -312,6 +313,14 @@ class BuildDoc(QWidget):
         Deploy is pre-aimed at what you're working on)."""
         self.path.setText(str(path))
 
+    def refresh(self):
+        """Re-read the current target file from disk (field id/name, campaign plan, journey manifest, ...).
+        ``self.path`` only re-detects on a TEXT change, so an edit-and-Save on the SAME path (e.g. bumping a
+        field's own id in the Author form) left this tab showing stale bytes until the file was re-Browse'd.
+        The shell calls this when the Build & Deploy tab becomes current -- same fix as story_state's
+        `_refresh_flag_names` on tab-show, so the view is current no matter the open/edit order."""
+        self._on_path()
+
     def _on_path(self, _text=None):
         path = self.path.text().strip().strip('"')
         kind, payload = ("field", None)
@@ -382,14 +391,21 @@ class BuildDoc(QWidget):
             self._update_dest()
 
     def _sync_inplace(self):
-        """Show/label the In-place radio for a verbatim fork of a real field, and DEFAULT to it (the usual
-        intent for such a fork -- and mandatory for a Chocobo forest, whose HUD is hardcoded on the donor id).
-        Needs the dev test-slot tooling; on an installed copy it stays hidden (no reversible test folder)."""
+        """Show/label the In-place radio for a verbatim fork of a real field, and DEFAULT to it the FIRST time
+        a given donor is seen (the usual intent for such a fork -- and mandatory for a Chocobo forest, whose
+        HUD is hardcoded on the donor id). Needs the dev test-slot tooling; on an installed copy it stays
+        hidden (no reversible test folder).
+
+        Only auto-CHECKS on a new donor (``_inplace_autoselected_for`` tracks the last one) -- this also runs
+        from :meth:`refresh` on every Build & Deploy tab-show (so an id/name edit+Save is reflected live), and
+        without the guard that re-render would silently stomp a deliberate "Install to game" pick back to
+        In-place on every revisit, since the donor (and so `show`) doesn't change across such an edit."""
         t = self.inplace_target
         show = bool(t) and self.has_tools
         self._inplace_available = show                  # the logic gate (isVisible() is unreliable off-screen / off-tab)
         self.rb_inplace.setVisible(show)
         if not show:
+            self._inplace_autoselected_for = None
             if self.rb_inplace.isChecked():            # a prior fork's default -> fall back to a live option
                 (self.rb_test if self.has_tools else self.rb_game if self.game_mod else self.rb_other).setChecked(True)
             return
@@ -400,7 +416,9 @@ class BuildDoc(QWidget):
             f"Deploys under the donor's own id {t['donor']} (text block {t['text_block']}) into "
             f"{self.mod_folder}, so the engine loads this in place of the real field. Reach it the normal "
             f"way, or F6 → Warp {t['donor']}. Reversible.")
-        self.rb_inplace.setChecked(True)               # the preferred route for a fork of a real field
+        if self._inplace_autoselected_for != t["donor"]:      # the preferred route for a fork of a real field --
+            self.rb_inplace.setChecked(True)                  # but only ONCE per donor, not on every re-render
+            self._inplace_autoselected_for = t["donor"]
 
     def _update_dest(self, *_):
         if self.kind != "field":

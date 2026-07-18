@@ -4143,8 +4143,9 @@ class Workspace(QMainWindow):
             if w is self.story_state:                  # re-read the open project's [[flag]] names on each view
                 self._refresh_flag_names()             # so the annotation is current no matter the open/edit order
         elif w is self.build_deploy:
-            self.crumb.set([bc.Crumb("build", w.crumb_label())])
-            self._set_chip("build")
+            w.refresh()                                 # re-read the target file on each view (parity with
+            self.crumb.set([bc.Crumb("build", w.crumb_label())])   # story_state's _refresh_flag_names) --
+            self._set_chip("build")                     # a field-id edit+Save must show up without re-Browse
         elif w is self.models_doc:
             self.crumb.set([bc.Crumb("model", w.crumb_label())])
             self._set_chip("model")
