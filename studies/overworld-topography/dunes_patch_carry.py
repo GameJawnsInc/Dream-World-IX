@@ -293,17 +293,54 @@ def conform_y(px, pz, py):
 
 ev_ar = X.decode_id(int(round(drop[0][0][3][0])))
 rkeys = set(ring_verts)
+
+# THE DECAL SWAP: a carried DESERT-topo tri may wear (a) desert mains, (b) scrub-mains
+# texels -- the attested transition overlap itself (122/199 seam tiles), or (c) some
+# OTHER painted variant (a cracked-earth decal etc.). Class (c) is general desert
+# vocabulary that hides in the donor's variant noise but reads as an ANOMALY on the
+# mint's uniform mains carpet ("cracked earth patch", 2026-07-17) -- re-uv it to the
+# islet's own position-evaluated mains (a within-family texel swap, the anti-tiling
+# freedom). Scrub-topo tris and classes (a)/(b) stay byte-verbatim.
+m2 = G.FAM_REGION["main"]
+gsc = G.GROUNDS["scrub"]
+SRECT = (m2[0] + gsc["mains_du"], m2[1] + gsc["mains_dv"],
+         m2[2] + gsc["mains_du"], m2[3] + gsc["mains_dv"])
+
+
+def _in_r(uv, r, eps=0.006):
+    return r[0] - eps <= uv[0] <= r[2] + eps and r[1] - eps <= uv[1] <= r[3] + eps
+
+
+decal_cells = sorted({(math.floor(sum(v[0][0] for v in t) / 3 / 4.0),
+                       math.floor(sum(v[0][2] for v in t) / 3 / 4.0))
+                      for t in cand["tris"]
+                      if X.decode_id(int(round(t[0][3][0])))["topograph"] in (17, 16, 19, 20)
+                      and not all(_in_r(v[2], DRECT) or _in_r(v[2], SRECT) for v in t)})
+dq, do = G.assign_mains(set(decal_cells), seed=0xF95)
+n_decal = 0
 carried = []
 for t in cand["tris"]:
+    tp = X.decode_id(int(round(t[0][3][0])))["topograph"]
+    cell0 = (math.floor(sum(v[0][0] for v in t) / 3 / 4.0),
+             math.floor(sum(v[0][2] for v in t) / 3 / 4.0))
+    swap = (tp in (17, 16, 19, 20) and cell0 in dq
+            and not all(_in_r(v[2], DRECT) or _in_r(v[2], SRECT) for v in t))
+    if swap:
+        n_decal += 1
     nt = []
     for (p, nr, uv, tan) in t:
         py = conform_y(p[0], p[2], p[1])
         onb = (round(p[0], 3), round(p[2], 3)) in rkeys
         d = X.decode_id(int(round(tan[0])))
         idall = X.encode_id(ev_ar["event"], ev_ar["area"], d["topograph"], d["flags"])
-        nt.append(((p[0] + dx, H if onb else py, p[2] + dz),
-                   nr, uv, (float(idall),) + tuple(tan[1:])))
+        wx, wz = p[0] + dx, p[2] + dz
+        tcell = (cell0[0] + int(dx // 4), cell0[1] + int(dz // 4))
+        uv2 = tuple(G.ground_uv(wx, wz, tcell, dq[cell0], do[cell0], "desert")) if swap else uv
+        nt.append(((wx, H if onb else py, wz),
+                   nr, uv2, (float(idall),) + tuple(tan[1:])))
     carried.append(nt)
+print(f"decal swap: {n_decal} desert-variant tris re-uv'd to islet mains "
+      f"(cells {decal_cells or 'none'})")
 
 new = keep + carried
 
