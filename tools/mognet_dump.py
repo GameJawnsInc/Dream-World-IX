@@ -7,14 +7,26 @@ byte-by-byte from the real save-moogle template (fields 300 / 407 / 1102):
                           If it is 0 AND any slot is occupied, the next real save moogle shows
                           "Old letter data. Erasing..." and ZEROES all 12 mailbox bytes.
     Byte[1032]            lifetime "letters delivered" counter (post-increment only; read by
-                          Mognet Central for "Thanks for delivering N letters!").
+                          Mognet Central for "Thanks for delivering [NUMB] letters!").
+                          ** LIVE-VERIFIED 2026-07-18: ticked 12 -> 13 on delivering a letter. **
     Byte[1033]            Stiltzkin's 6-letter sub-quest tally.
     Byte[1034 + 4k]       slot k occupied (0 = empty)          k = 0,1,2
               +1          letter variant id
               +2          FROM moogle id   (index into the 41-name roster)
               +3          TO   moogle id
-    Byte[1064-1073]       dialog-menu OPTION CODE table (indexed by the player's choice, NOT by
-    Byte[1079-1088]       moogle id) + its paired display-number twin. Dumped for completeness.
+                          ** LIVE-VERIFIED: delivering slot 0's letter zeroed its whole quad. **
+    Byte[1047-1054]       GIVE-side variant one-shot locks: bit set = that letter variant has
+                          already been handed out somewhere. bit(v) = 8383 + 8*(v//8) - (v%8).
+    Byte[1055-1062]       READ-side variant locks, same shape anchored at 8447: bit set = that
+                          letter has been read. ** LIVE-VERIFIED: reading variants 19/22/33 set
+                          exactly bits 8460/8457/8478 (bytes 1057 bit4, 1057 bit1, 1059 bit6). **
+                          Together = the game's own 8376-8503 band inside the reserved 8376-8511
+                          block (the kit's custom flags start at 8512 -- no collision either way).
+    Byte[1064-1073]       the READ-MAIL menu payload, one entry per menu row: the row's letter
+    Byte[1079-1088]       VARIANT id (1064+) and its SENDER moogle id (1079+, rendered through the
+                          roster). Indexed by menu row, never by moogle id. ** LIVE-VERIFIED: after
+                          a read-mail session these held [19,22,33] / [23,35,38] = the exact three
+                          letters read (from Kuppo, Mogrika, Stiltzkin). **
 
 Usage:
     py tools/mognet_dump.py                      # auto-find the Steam save, dump every populated slot
@@ -38,7 +50,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 GUARD, DELIVERED, STILTZKIN = 1024, 1032, 1033
 SLOT0, NSLOTS, SLOTSZ = 1034, 3, 4
-OPTION_CODES, OPTION_NUMS = range(1064, 1074), range(1079, 1089)
+GIVE_LOCKS, READ_LOCKS = 1047, 1055          # 8 bytes each: variant one-shot locks (bit math below)
+MENU_VARIANTS, MENU_SENDERS = range(1064, 1074), range(1079, 1089)
+
+
+def _locked_variants(raw_1024_1090, base_byte: int) -> list:
+    """Decode a lock table into the sorted list of locked variant ids. The engine's bit(v) formula is
+    ``anchor + 8*(v//8) - (v%8)`` (anchor 8383 give / 8447 read), which inside byte ``base+k`` puts
+    variant ``k*8 + (7 - bitpos)`` at bit position ``bitpos``. Inverse checked against live data:
+    reading variants 19/22/33 set bytes 1057 bit4 / 1057 bit1 / 1059 bit6."""
+    out = []
+    for k in range(8):
+        byte = raw_1024_1090[base_byte - 1024 + k]
+        for p in range(8):
+            if byte & (1 << p):
+                out.append(k * 8 + (7 - p))
+    return sorted(out)
 
 # The 41-name roster, read from text entry 0 of a real field's text block. Index = moogle id.
 ROSTER = ["Ruby", "Kupo", "Mosh", "Mosco", "Monty", "Mogpi", "Mois", "Gumo", "Kumop", "Moodon",
@@ -61,14 +88,19 @@ def snapshot(blob: bytes) -> dict:
         base = SLOT0 + k * SLOTSZ
         slots.append({"slot": k, "occupied": b[base], "variant": b[base + 1],
                       "from": b[base + 2], "to": b[base + 3]})
+    raw = b[1024:1091]
     return {
         "guard_1024": b[GUARD],
         "delivered_1032": b[DELIVERED],
         "stiltzkin_1033": b[STILTZKIN],
         "slots": slots,
+        "give_locks": _locked_variants(raw, GIVE_LOCKS),   # variant ids already handed out
+        "read_locks": _locked_variants(raw, READ_LOCKS),   # variant ids already read
+        # legacy key names kept so old --json snapshots stay comparable; the MEANING is corrected:
+        # 1064+ = the read-mail menu's variant per row, 1079+ = its sender moogle id per row.
         "option_codes_1064_1073": b[1064:1074],
         "option_nums_1079_1088": b[1079:1089],
-        "raw_1024_1090": b[1024:1091],
+        "raw_1024_1090": raw,
     }
 
 
@@ -90,8 +122,15 @@ def render(label: str, s: dict) -> str:
         else:
             out.append(f"    slot {x['slot']} @{base}: variant {x['variant']:3}  "
                        f"FROM {moogle(x['from'])}  ->  TO {moogle(x['to'])}")
-    out.append(f"  option codes [1064-1073] = {s['option_codes_1064_1073']}")
-    out.append(f"  option nums  [1079-1088] = {s['option_nums_1079_1088']}")
+    out.append(f"  give-locks [1047-1054]   = variants {s.get('give_locks', '?')} already handed out")
+    out.append(f"  read-locks [1055-1062]   = variants {s.get('read_locks', '?')} already read")
+    rows = [(v, m) for v, m in zip(s["option_codes_1064_1073"], s["option_nums_1079_1088"]) if v or m]
+    if rows:
+        out.append("  last read-mail menu (variant <- sender), per row:")
+        for v, m in rows:
+            out.append(f"    variant {v:3}  from {moogle(m)}")
+    else:
+        out.append("  last read-mail menu: empty")
     return "\n".join(out)
 
 
@@ -107,10 +146,14 @@ def compare(a: dict, b: dict) -> str:
             same = False
             out.append(f"  slot {i}: occ {x['occupied']}->{y['occupied']}  var {x['variant']}->{y['variant']}"
                        f"  from {x['from']}->{y['from']}  to {x['to']}->{y['to']}")
-    for key in ("option_codes_1064_1073", "option_nums_1079_1088"):
-        if a[key] != b[key]:
+    for key, label in (("give_locks", "give-locks (variants handed out)"),
+                       ("read_locks", "read-locks (variants read)"),
+                       ("option_codes_1064_1073", "read-menu variants [1064-1073]"),
+                       ("option_nums_1079_1088", "read-menu senders  [1079-1088]")):
+        va, vb = a.get(key), b.get(key)                # .get: older --json snapshots lack the lock keys
+        if va != vb and not (va is None or vb is None):
             same = False
-            out.append(f"  {key}: {a[key]} -> {b[key]}")
+            out.append(f"  {label}: {va} -> {vb}")
     ra, rb = a["raw_1024_1090"], b["raw_1024_1090"]
     changed = [1024 + i for i, (x, y) in enumerate(zip(ra, rb)) if x != y]
     if changed:
