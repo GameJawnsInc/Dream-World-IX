@@ -38,6 +38,15 @@ Compare two snapshots (before/after talking to a moogle):
     ... play ...
     py tools/mognet_dump.py save.dat --json after.json
     py tools/mognet_dump.py --compare before.json after.json
+
+WRITE probes (close the game first; a timestamped backup of the extra file is always taken):
+    py tools/mognet_dump.py --inject --into "slot 1 - save 3"      # a letter TO the 42nd moogle
+        [--variant 55] [--from-id 1] [--to-id 41]                  #   (defaults: Kupo -> Mogwai)
+    py tools/mognet_dump.py --fill --into "slot 1 - save 3"        # occupy ALL 3 slots with junk
+                                                                   #   (the full-mailbox refusal probe)
+Writes go to the slot's MEMORIA EXTRA file -- the plaintext sidecar the game treats as the
+AUTHORITATIVE gEventGlobal on load (the encrypted main block is stale when it exists). A slot without
+an extra file is refused: load + re-save it in-game once to create one.
 """
 from __future__ import annotations
 
@@ -210,12 +219,91 @@ def _raw_blobs(path) -> "list[tuple[str, bytes]]":
     return [("gEventGlobal", _flags.gEventGlobal_from_save(p))]
 
 
+def inject_letter(blob: bytes, variant: int, from_id: int, to_id: int) -> bytes:
+    """Pure transform: the letter into the FIRST EMPTY slot + the wipe-guard, mirroring the give
+    write-set (occupied / FROM / TO / variant + Byte[1024]=1; the give-lock belongs to the SENDER's
+    field and is deliberately not touched). Raises if the mailbox is full."""
+    G = bytearray(blob)
+    for k in range(NSLOTS):
+        base = SLOT0 + k * SLOTSZ
+        if G[base] == 0:
+            G[base], G[base + 1], G[base + 2], G[base + 3] = 1, variant, from_id, to_id
+            G[GUARD] = 1
+            return bytes(G)
+    raise SystemExit("mailbox full (3/3) -- deliver or --fill was already run; nothing injected")
+
+
+def fill_mailbox(blob: bytes) -> bytes:
+    """Pure transform: occupy ALL three slots with recognizable junk (variants 60/61/62) -- the
+    full-mailbox refusal probe (test B). The guard is set so no real moogle erases it as old data."""
+    G = bytearray(blob)
+    for k in range(NSLOTS):
+        base = SLOT0 + k * SLOTSZ
+        G[base], G[base + 1], G[base + 2], G[base + 3] = 1, 60 + k, 2 * k + 2, 2 * k + 3
+    G[GUARD] = 1
+    return bytes(G)
+
+
+def _write_probe(path, into_label: str, transform) -> int:
+    """Locate the slot by its dump label, back up its Memoria extra file, transform, write, show."""
+    import shutil
+    import time
+    from ff9mapkit import save as _save
+    p = _resolve_save(path) if path else _resolve_save(_save.default_save_dir() or "")
+    sv = _save.FF9Save.load(p)
+    want = into_label.lower().replace(" - memoria extra", "").strip()
+    for s in sv.populated():
+        if _save._slot_label(s).replace("·", "-").lower().strip() != want:
+            continue
+        extra = _save.extra_file_path(p, s.block)
+        blob = _save.read_extra_gEventGlobal(extra) if (extra and os.path.exists(extra)) else None
+        if blob is None:
+            print(f"'{into_label}' has NO Memoria extra file -- the game would ignore a main-block "
+                  f"write. Load + re-save that slot in-game once, then retry.", file=sys.stderr)
+            return 2
+        bak = f"{extra}.mogbak.{time.strftime('%Y%m%d-%H%M%S')}"
+        shutil.copyfile(extra, bak)
+        new = transform(blob)
+        if not _save.patch_extra_gEventGlobal(extra, new):
+            print("extra file lost its gEventGlobal field?! nothing written", file=sys.stderr)
+            return 2
+        print(f"backup: {bak}\n  (restore: copy it back over {os.path.basename(extra)})\n")
+        print(render("BEFORE", snapshot(blob)))
+        print()
+        print(render("AFTER", snapshot(new)))
+        return 0
+    labels = [_save._slot_label(s).replace("·", "-") for s in sv.populated()]
+    print(f"no populated slot matches {into_label!r}. Slots: {labels}", file=sys.stderr)
+    return 2
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="dump FF9's Mognet mailbox from a save")
     ap.add_argument("save", nargs="?", help="save path (default: auto-find the Steam save)")
     ap.add_argument("--json", help="write the snapshot(s) here for a later --compare")
     ap.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"), help="diff two --json snapshots")
+    ap.add_argument("--inject", action="store_true", help="write a letter TO the 42nd moogle into --into")
+    ap.add_argument("--fill", action="store_true", help="occupy all 3 slots with junk (refusal probe)")
+    ap.add_argument("--into", metavar="LABEL", help='the dump label to write, e.g. "slot 1 - save 3"')
+    ap.add_argument("--variant", type=int, default=55, help="letter variant for --inject (default 55)")
+    ap.add_argument("--from-id", type=int, default=1, help="sender moogle id (default 1 = Kupo)")
+    ap.add_argument("--to-id", type=int, default=41, help="recipient id (default 41 = the 42nd moogle)")
     a = ap.parse_args()
+
+    if a.inject or a.fill:
+        if a.inject and a.fill:
+            print("--inject and --fill are mutually exclusive", file=sys.stderr)
+            return 2
+        if not a.into:
+            print("--into LABEL is required for a write (run a plain dump to see the labels)",
+                  file=sys.stderr)
+            return 2
+        for name, v in (("variant", a.variant), ("from-id", a.from_id), ("to-id", a.to_id)):
+            if not 0 <= v <= (63 if name == "variant" else 255):
+                print(f"--{name} {v} out of range", file=sys.stderr)
+                return 2
+        tf = (lambda b: inject_letter(b, a.variant, a.from_id, a.to_id)) if a.inject else fill_mailbox
+        return _write_probe(a.save, a.into, tf)
 
     if a.compare:
         before, after = (json.load(open(p, encoding="utf8")) for p in a.compare)
