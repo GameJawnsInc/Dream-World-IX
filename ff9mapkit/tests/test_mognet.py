@@ -36,6 +36,8 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None, in
             return v
         if kind == "by":
             return G[v]
+        if kind == "w":
+            return G[v] | (G[v + 1] << 8)              # GLOB_UINT16 -- LE word, engine-unsigned
         if kind == "mbi":
             return (M[v >> 3] >> (v & 7)) & 1          # MAP bit
         return (G[v >> 3] >> (v & 7)) & 1              # "bi"
@@ -55,6 +57,10 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None, in
             stack.append(("bi", tokens[p])); p += 1
         elif t == (_region.GLOB_BOOL | 0x20):                          # 0xE4 long index
             stack.append(("bi", int.from_bytes(tokens[p:p + 2], "little"))); p += 2
+        elif t == _region.GLOB_UINT16:                                 # 0xDC short index (LE word)
+            stack.append(("w", tokens[p])); p += 1
+        elif t == (_region.GLOB_UINT16 | 0x20):                        # 0xFC long index
+            stack.append(("w", int.from_bytes(tokens[p:p + 2], "little"))); p += 2
         elif t == _region.MAP_BOOL and M is not None:                  # 0xC5 short index (MAP bit)
             stack.append(("mbi", tokens[p])); p += 1
         elif t == (_region.MAP_BOOL | 0x20) and M is not None:         # 0xE5 long index (MAP bit)
@@ -80,16 +86,25 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None, in
                                 _region.T_MULT: a * b, _region.T_DIV: a // b if b else 0}[t]))
         elif t == _region.T_NOT:
             stack.append(("c", 0 if deref(stack.pop()) else 1))
-        elif t in (_region.T_LT, _region.T_EQ, _m._T_NE, _m._T_ANDAND, _m._T_OROR):
+        elif t in (_region.T_LT, _region.T_GE, _region.T_EQ, _m._T_NE, _m._T_ANDAND, _m._T_OROR):
             b, a = deref(stack.pop()), deref(stack.pop())
-            r = {_region.T_LT: a < b, _region.T_EQ: a == b, _m._T_NE: a != b,
+            r = {_region.T_LT: a < b, _region.T_GE: a >= b, _region.T_EQ: a == b, _m._T_NE: a != b,
                  _m._T_ANDAND: bool(a) and bool(b), _m._T_OROR: bool(a) or bool(b)}[t]
             stack.append(("c", 1 if r else 0))
+        elif t == _region.T_OR_ASSIGN:                 # |= -- the mask-scratch build idiom (or_var)
+            val = deref(stack.pop())
+            kind, idx = stack.pop()
+            assert kind == "w", "mini-VM: |= modelled for the GLOB_UINT16 mask scratch only"
+            cur = (G[idx] | (G[idx + 1] << 8)) | val
+            G[idx], G[idx + 1] = cur & 0xFF, (cur >> 8) & 0xFF
+            stack.append(("c", cur))
         elif t == _region.T_ASSIGN:
             val = deref(stack.pop())
             kind, idx = stack.pop()
             if kind == "by":
                 G[idx] = val & 0xFF
+            elif kind == "w":
+                G[idx], G[idx + 1] = val & 0xFF, (val >> 8) & 0xFF
             elif kind == "bi":
                 if val:
                     G[idx >> 3] |= 1 << (idx & 7)
@@ -132,7 +147,7 @@ _REQ_OPS = {0x10: "req", 0x12: "reqsw", 0x14: "reqew"}
 
 def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windows=None,
         stats=None, items=None, party_menu=None, party=None, events=None, on_async=None,
-        M: bytearray | None = None, in_party=(), max_steps: int = 200_000) -> bytearray:
+        M: bytearray | None = None, in_party=(), masks=None, max_steps: int = 200_000) -> bytearray:
     """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops.
 
     ``choices`` scripts the player's dialog picks: each read of GetSysvar(9) consumes the next entry
@@ -194,6 +209,11 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
         elif i.op == 0x49:                             # RemoveItem
             if items is not None:
                 items.append((i.args[0], i.args[1]))
+        elif i.op == 0x7C:                             # EnableDialogChoices(mask, default) -- record the
+            if masks is not None:                      #   mask the engine would receive (expr or literal)
+                mv = (_eval_expr(raw[i.off + 2:i.off + i.length - 1], G, sysread, party, M, in_party)
+                      if i.arg_is_expr[0] else i.args[0])
+                masks.append(mv)
         elif i.op == 0xB2:                             # Party(min_size, locked_mask)
             if party_menu is not None:
                 # min_size is an EXPRESSION on the default path (the softlock clamp) -- evaluate it,
@@ -975,3 +995,218 @@ def test_row_validation(tmp_path, fake_roster):
     bad = _ROWS_FIELD.replace("party = true", "party = true\nparty_min = 9")
     assert any("party_min must be 0..4" in x for x in probs(bad))
     assert not [x for x in probs(_ROWS_FIELD) if "savepoint" in x.lower()]
+
+
+# --------------------------------------------------------------------------- READ-MAIL ---
+# The moogle re-reads its OWN received letters -- stock's third mechanic, decoded 2026-07-19 (donors
+# 115/300/418/1102 + a 58-field census): rows gated on read_lock_bit, the payload rebuild into
+# Byte[1064+k]/[1079+k], the masked "which letter" window, and the PURE re-display. Arrival (accept or
+# a story-gated auto-arrival), not reading, sets the lock.
+
+def test_read_row_population_is_the_donor_shape():
+    """The per-row payload rebuild, byte- and behavior-pinned: mask seeds with the CANCEL bit, each row
+    writes variant -> mask -> sender in the donor's order, gated on that variant's READ lock."""
+    rows = [(55, 8), (57, 23)]
+    body = _m.read_row_population(rows)
+    # byte pin: row 0's write triplet, in the donor's exact order (field 115 @1246-1248 shape)
+    triplet = (_m._set_byte(_m.PAYLOAD_VARIANT_BASE, 55)
+               + _region.or_var(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX, 1)
+               + _m._set_byte(_m.PAYLOAD_SENDER_BASE, 8))
+    assert triplet in body
+    # behavior: only the LOCKED row populates; the mask always carries the cancel bit (1 << 2 here)
+    G0 = bytearray(2048)
+    G0[_m.read_lock_bit(57) >> 3] |= 1 << (_m.read_lock_bit(57) & 7)
+    G = run(body, G0)
+    assert G[_m.PAYLOAD_VARIANT_BASE] == 0 and G[_m.PAYLOAD_SENDER_BASE] == 0      # row 0 unknown
+    assert G[_m.PAYLOAD_VARIANT_BASE + 1] == 57 and G[_m.PAYLOAD_SENDER_BASE + 1] == 23
+    assert G[_region.MASK_SCRATCH_IDX] | (G[_region.MASK_SCRATCH_IDX + 1] << 8) == 4 | 2
+    # the payload lands inside the band flags.py reserves for exactly this
+    from ff9mapkit import flags as _flags
+    for k in range(len(rows)):
+        assert _flags.READMAIL_PAYLOAD_LO <= (_m.PAYLOAD_VARIANT_BASE + k) * 8 <= _flags.READMAIL_PAYLOAD_HI
+        assert _flags.READMAIL_PAYLOAD_LO <= (_m.PAYLOAD_SENDER_BASE + k) * 8 <= _flags.READMAIL_PAYLOAD_HI
+    with pytest.raises(ValueError, match="at most"):
+        _m.read_row_population([(49 + i, 0) for i in range(11)])
+
+
+def test_read_available_cond_is_an_or_over_the_locks():
+    cond = _m.read_available_cond([55, 57])
+    assert _eval_expr(cond[1:], bytearray(2048)) == 0
+    G = bytearray(2048)
+    G[_m.read_lock_bit(57) >> 3] |= 1 << (_m.read_lock_bit(57) & 7)
+    assert _eval_expr(cond[1:], G) == 1
+    with pytest.raises(ValueError, match="at least one"):
+        _m.read_available_cond([])
+
+
+def test_read_mail_body_is_a_pure_read():
+    """Selecting a known letter re-displays it and touches NOTHING: no lock write, no mailbox write,
+    no counter -- the donor's re-read law (the letter never leaves the list). The sender text var is
+    re-seeded FROM THE PAYLOAD BYTE, the donor's own read-back idiom."""
+    rows = [(55, 8), (57, 23)]
+    body = _m.read_mail_body(rows, 90, {55: 91, 57: 92})
+    G0 = bytearray(2048)
+    G0[_m.GUARD_IDX] = 1
+    G0[_m.DELIVERED_IDX] = 12
+    _set_slot(G0, 0, 19, 23, 1)                                    # a held letter must survive a read
+    for v in (55, 57):
+        G0[_m.read_lock_bit(v) >> 3] |= 1 << (_m.read_lock_bit(v) & 7)
+    wins, masks = [], []
+    G = run(body, G0, choices=[1], windows=wins, masks=masks)
+    assert masks == [4 | 1 | 2]                                    # both rows + cancel
+    assert (2, 8, 90) in wins and (3, 16, 92) in wins              # the list, then row 1's letter
+    assert (3, 16, 91) not in wins
+    # pure: everything outside the payload/scratch bytes is untouched
+    diff = {i for i in range(2048) if G[i] != G0[i]}
+    allowed = ({_m.PAYLOAD_VARIANT_BASE + k for k in range(2)}
+               | {_m.PAYLOAD_SENDER_BASE + k for k in range(2)}
+               | {_region.MASK_SCRATCH_IDX, _region.MASK_SCRATCH_IDX + 1})
+    assert diff <= allowed, sorted(diff - allowed)
+    assert G[_m.DELIVERED_IDX] == 12 and _mailbox(G)[0] == (1, 19, 23, 1)
+    # re-reading is idempotent: a second identical run changes nothing further
+    G2 = run(body, bytearray(G), choices=[1], windows=[], masks=[])
+    assert bytes(G2) == bytes(G)
+    # cancel is bodiless
+    wins2 = []
+    run(body, G0, choices=[2], windows=wins2)
+    assert not any(w[0] == 3 for w in wins2)
+
+
+def test_arrival_fires_once_gated_and_sets_the_lock():
+    """A `received` letter auto-arrives when its story condition holds: announce + letter + READ lock
+    (arrival sets the lock, the donor law) -- and never again (the lock is the once-guard)."""
+    entries = [(57, 23, 8720, None)]                               # requires_flag 8720
+    body = _m.arrival_body(entries, arrive_txid=80, letter_txids={57: 81})
+    # gate closed -> nothing at all
+    wins = []
+    G = run(body, windows=wins)
+    assert wins == [] and _bit(G, _m.read_lock_bit(57)) == 0
+    # gate open -> the full arrival, lock set
+    G0 = bytearray(2048)
+    G0[8720 >> 3] |= 1 << (8720 & 7)
+    wins = []
+    G = run(body, G0, windows=wins)
+    assert (1, 128, 80) in wins and (3, 16, 81) in wins
+    assert _bit(G, _m.read_lock_bit(57)) == 1
+    # second visit: arrived already -> silent
+    wins = []
+    G2 = run(body, G, windows=wins)
+    assert wins == [] and bytes(G2) == bytes(G)
+
+
+def test_arrival_scenario_gate():
+    entries = [(58, 1, None, 2500)]                                # requires_scenario 2500
+    body = _m.arrival_body(entries, letter_txids={58: 81})
+    G0 = bytearray(2048)
+    G0[0:2] = (2400).to_bytes(2, "little")
+    G = run(body, G0, windows=[])
+    assert _bit(G, _m.read_lock_bit(58)) == 0                      # before the beat
+    G0[0:2] = (2500).to_bytes(2, "little")
+    wins = []
+    G = run(body, G0, windows=wins)
+    assert _bit(G, _m.read_lock_bit(58)) == 1 and (3, 16, 81) in wins
+
+
+# --------------------------------------------------- READ-MAIL: the built field, end to end ---
+_RM_FIELD = (
+    '[field]\nid = 4005\nname = "S"\narea = 11\ntext_block = 30110\nregister_text_block = true\n\n'
+    '[camera]\npitch = 45\nfov = 42.2\n\n'
+    '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+    '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\n'
+    '[savepoint.mognet]\nname = "Mogwai"\n'
+    'accept = [{ variant = 55, letter = "So good to hear from you, kupo!", from = "Kumop", '
+    'title = "A Warm Hello" }]\n'
+    'give = { variant = 56, to = "Kupo" }\n'
+    'received = [{ variant = 57, from = "Kuppo", title = "News From The Mines", '
+    'letter = "The mines are quiet again, kupo.", requires_flag = 8720 }]\n')
+
+
+def test_built_read_mail_text_ships_the_two_menus(tmp_path, fake_roster):
+    _proj, ct, _eb = _built(tmp_path, _RM_FIELD)
+    mes, t = ct[0], ct[-1][0]
+    assert {"menu_prompt", "read_prompt", "arrive", "letter55", "letter57",
+            "read_rows_meta", "received_meta"} <= set(t)
+    assert "[PCHM=3,2]" in mes and "Give Mogwai a letter" in mes and "Read mail" in mes
+    assert "[PCHM=3,2]" in mes and "A Warm Hello" in mes and "News From The Mines" in mes
+    assert t["read_rows_meta"] == [(55, 8), (57, 23)]              # Kumop=8, Kuppo=23, authored order
+    assert t["received_meta"] == [(57, 23, 8720, None)]
+
+
+def test_built_read_mail_full_lifecycle(tmp_path, fake_roster):
+    """The crown test's read-mail sibling, straight from the shipped bytes: the arrival fires once on
+    its story flag, the accept feeds the same list, reads are pure and repeatable, and the give offer
+    is STILL reachable in the same talk (cancel out of the submenu -> the offer -- the flow bug the
+    naive accept>read priority chain would have had)."""
+    _proj, ct, eb = _built(tmp_path, _RM_FIELD)
+    t = ct[-1][0]
+    body = _moogle_talk_body(eb)
+    # ---- visit 1: nothing known, flag clear -> the v1 give-offer path (decline it) ----
+    wins = []
+    G = run(body, choices=[1, 1], windows=wins)                    # Mognet -> give offer -> "Not now"
+    assert (2, 8, t["give_prompt"]) in wins and not any(w[0] == 3 for w in wins)
+    # ---- visit 2: the story flag is set -> the ARRIVAL, then the submenu exists; cancel out ->
+    #      the give offer fires in the SAME talk (decline) ----
+    G[8720 >> 3] |= 1 << (8720 & 7)
+    wins, masks = [], []
+    G = run(body, G, choices=[1, 2, 1], windows=wins, masks=masks)
+    assert (1, 128, t["arrive"]) in wins and (3, 16, t["letter57"]) in wins
+    assert _bit(G, _m.read_lock_bit(57)) == 1
+    assert masks[0] == 4 | 2                                       # submenu: read known, no delivery
+    assert (2, 8, t["menu_prompt"]) in wins and (2, 8, t["give_prompt"]) in wins
+    # ---- visit 3: re-read via the submenu; pure + repeatable ----
+    wins, masks = [], []
+    G3 = run(body, bytearray(G), choices=[1, 1, 1, 1], windows=wins, masks=masks)
+    # Mognet -> Read mail -> row 1 (News From The Mines) -> then the give offer, declined
+    assert masks == [4 | 2, 4 | 2]                                 # submenu, then the which-letter list
+    assert (2, 8, t["read_prompt"]) in wins and (3, 16, t["letter57"]) in wins
+    assert (1, 128, t["arrive"]) not in wins                       # the arrival never re-fires
+    G4 = run(body, bytearray(G3), choices=[1, 1, 1, 1], windows=[], masks=[])
+    assert bytes(G4) == bytes(G3)                                  # byte-stable across repeat reads
+    # ---- visit 4: a delivery TO Mogwai pending -> submenu row 0 = the accept; then read lists BOTH ----
+    _set_slot(G4, 0, 55, 8, 41)
+    G4[_m.GUARD_IDX] = 1
+    wins, masks = [], []
+    G5 = run(body, bytearray(G4), choices=[1, 0, 0, 1], windows=wins, masks=masks)
+    # Mognet -> submenu accept -> confirm Yes -> (letter displays) -> give offer declined
+    assert masks[0] == 4 | 1 | 2                                   # delivery pending + letters known
+    assert (3, 16, t["letter55"]) in wins and _bit(G5, _m.read_lock_bit(55)) == 1
+    assert _mailbox(G5)[0] == (0, 0, 0, 0) and G5[_m.DELIVERED_IDX] == 1
+    wins, masks = [], []
+    run(body, bytearray(G5), choices=[1, 1, 0, 1], windows=wins, masks=masks)
+    assert masks == [4 | 2, 4 | 1 | 2]                             # read list now carries BOTH rows
+    assert (3, 16, t["letter55"]) in wins                          # row 0 re-displays the accept letter
+    # ---- and the mailbox-status + save rows never regressed: Save -> Yes still fires Menu(4,0) ----
+    menus = []
+    M = bytearray(2048)
+    run(body, choices=[0, 0], menus=menus, M=M, on_async=act_async_contract(M))
+    assert menus == [(4, 0)]
+
+
+def test_read_mail_validation_gates(tmp_path, fake_roster):
+    from ff9mapkit import build
+
+    def probs(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    # from without title (and vice versa) on an accept entry -> half a row, refused
+    bad = _RM_FIELD.replace(', title = "A Warm Hello"', "")
+    assert any("come together" in x for x in probs(bad))
+    # a titled accept row without a letter body -> nothing to re-display, refused
+    bad = _RM_FIELD.replace('letter = "So good to hear from you, kupo!", ', "")
+    assert any("needs the `letter` body" in x for x in probs(bad))
+    # a received entry missing a required key -> refused
+    bad = _RM_FIELD.replace('letter = "The mines are quiet again, kupo.", ', "")
+    assert any("received entry must be" in x for x in probs(bad))
+    # the same variant authored twice (accept + received) -> the locks are save-global, refused
+    bad = _RM_FIELD.replace("variant = 57", "variant = 55")
+    assert any("authored twice" in x for x in probs(bad))
+    # give colliding with received -> refused
+    bad = _RM_FIELD.replace("variant = 57", "variant = 56")
+    assert any("also in received" in x for x in probs(bad))
+    # a shipped variant in received -> refused
+    bad = _RM_FIELD.replace("variant = 57", "variant = 19")
+    assert any("SHIPPED band" in x for x in probs(bad))
+    # the clean field validates clean
+    assert not [x for x in probs(_RM_FIELD) if "mognet" in x.lower()]

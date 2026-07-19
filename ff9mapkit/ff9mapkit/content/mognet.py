@@ -45,10 +45,22 @@ variant must be < 64, and shipped content uses ids up to ~48 -- custom letters t
 (:data:`SAFE_VARIANTS`). The roster text itself (a 42nd NAME) ships via :func:`roster_extend` over the
 install-derived entry-0 table -- see docs/PROVENANCE.md; the kit does not embed the 41 names.
 
-What this module deliberately does NOT do yet: the Mognet submenu/window assembly (the savepoint's menu
-wiring spends these bodies), read-mail (a received-letters list needs its own design), and inbound mail
-from REAL moogles (their TO-recipient is a per-field immediate constant -- reaching our moogle means
-verbatim-forking a donor field and repointing that constant; a later, opt-in rung).
+READ-MAIL (decoded 2026-07-19, donors 115/300/418/1102 + a 58-field census, one invariant template):
+the moogle re-reads its OWN received letters. Stock's machine, which this module now speaks verbatim:
+each field hardcodes up to 10 rows, row k gated on ``read_lock_bit(variant_k)`` (the bit the ARRIVAL
+paths set -- accept-delivery or a scenario auto-arrival; the accept path here has set it since rung 4);
+an open rebuilds the payload (``Byte[1064+k]`` = variant, mask ``|= 1<<k``, ``Byte[1079+k]`` = sender,
+in that donor order), masks a "which letter" choice window with it, and a pick re-displays that
+variant's letter through the SAME :func:`letter_display` bracket. A read is PURE: no lock write, no
+mailbox write -- a known letter is re-readable forever. The whole 3-row "What do you want to do"
+submenu (Give <name> a letter / Read mail / Cancel) only appears when a delivery is pending OR a
+letter is known -- the donor gates it on a computed bits word, and so do we.
+
+What this module deliberately does NOT do yet: inbound mail from REAL moogles (their TO-recipient is a
+per-field immediate constant -- reaching our moogle means verbatim-forking a donor field and repointing
+that constant) and surfacing OUR letters in a REAL moogle's read-mail list (their row tables are
+hand-authored per field; our delivered variant sets its lock bit harmlessly but no stock row reads it).
+Both are the donor-fork class, a later opt-in rung.
 """
 from __future__ import annotations
 
@@ -315,9 +327,24 @@ def accept_letter_body(variants, *, my_id: int = NEW_MOOGLE_ID, thanks_txid: int
     return _set_byte(GUARD_IDX, 1) + chain
 
 
+# --- the READ-MAIL payload (the stock scratch band our rows write, byte-faithfully) -----------------
+# Byte[1064+k] = row k's VARIANT, Byte[1079+k] = row k's SENDER roster id, k = 0..9 -- rebuilt on every
+# Mognet open from the read-locks (donor idiom: `if (lock) { 1064+k = v; mask |= 1<<k; 1079+k = s }`,
+# field 115 @test2_37:1246-1265 / field 1102 @test2_300:681-690). Bits 8512-8711 are reserved for
+# exactly this (flags.READMAIL_PAYLOAD_LO/HI) -- our writes land where stock's do.
+PAYLOAD_VARIANT_BASE = 1064
+PAYLOAD_SENDER_BASE = 1079
+PAYLOAD_ROWS = 10         # the engine-side row budget (10 slots + the mask's cancel bit)
+
 # Default wording -- original phrasing, not Square-Enix text (docs/PROVENANCE.md; "kupo" is a word,
 # not a quoted line). Every one is overridable per [savepoint.mognet] key of the same lowercase name.
 DEFAULT_MOGNET_ROW = "Mognet"
+DEFAULT_MENU_PROMPT = "What can I do for you, kupo?"
+DEFAULT_ACCEPT_ROW = "Give {name} a letter"     # submenu row 0 = the ACCEPT (hand a carried letter over)
+DEFAULT_READ_ROW = "Read mail"                  # submenu row 1
+DEFAULT_MENU_CANCEL = "Cancel"                  # submenu row 2 (B backs out here too)
+DEFAULT_READ_PROMPT = "Which letter, kupo?"
+DEFAULT_ARRIVE = "A letter came for me, kupo!"
 DEFAULT_ACCEPT_PROMPT = "That letter is addressed to me, kupo! May I have it?"
 DEFAULT_ACCEPT_YES, DEFAULT_ACCEPT_NO = "Hand it over", "Keep it"
 DEFAULT_THANKS = "A letter from [TEXT=0,1], kupo! Thank you!"   # [TEXT=0,1] = roster[sender] -- see LETTER_HEADER
@@ -472,10 +499,108 @@ def letter_display(letter_txid: int) -> bytes:
             + opcodes.wait(16))
 
 
+# --------------------------------------------------------------------------- READ-MAIL ---
+def read_available_cond(variants) -> bytes:
+    """``if (any of these letters is known)`` -- an OR over the READ-lock bits, the same bits the
+    row-population tests. Gates the whole Read-mail lane (and its submenu row's mask bit)."""
+    vs = [check_variant(v, allow_shipped=True) for v in variants]
+    if not vs:
+        raise ValueError("read_available_cond needs at least one variant")
+    t = _region._push_var(_region.GLOB_BOOL, read_lock_bit(vs[0]))
+    for v in vs[1:]:
+        t += _region._push_var(_region.GLOB_BOOL, read_lock_bit(v)) + bytes([_T_OROR])
+    return bytes([_region.EXPR_OP]) + t + bytes([_region.T_END])
+
+
+def read_row_population(rows) -> bytes:
+    """The donor's per-row payload rebuild, byte-shaped (field 115 @1246-1265): the mask scratch seeds
+    with the CANCEL row's bit (index ``len(rows)``, always available), then per row k, gated on that
+    variant's READ lock: ``Byte[1064+k] = variant ; mask |= 1<<k ; Byte[1079+k] = sender`` -- variant
+    first, sender last, exactly the donor's write order. ``rows`` = ``[(variant, sender_id), ...]`` in
+    menu order (row index IS list position -- static, like every stock field's)."""
+    if len(rows) > PAYLOAD_ROWS:
+        raise ValueError(f"read-mail supports at most {PAYLOAD_ROWS} rows, got {len(rows)}")
+    out = _region.set_var(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX, 1 << len(rows))
+    for k, (v, sender) in enumerate(rows):
+        vv = check_variant(v, allow_shipped=True)
+        body = (_set_byte(PAYLOAD_VARIANT_BASE + k, vv)
+                + _region.or_var(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX, 1 << k)
+                + _set_byte(PAYLOAD_SENDER_BASE + k, _check_id("sender", sender)))
+        out += _region.if_block(_region.cond_truthy(_region.GLOB_BOOL, read_lock_bit(vv)), body)
+    return out
+
+
+def read_mail_body(rows, prompt_txid: int, letter_txids, *, window: int = CHOICE_WINDOW,
+                   flags: int = CHOICE_FLAGS) -> bytes:
+    """The Read-mail pick: rebuild the payload + mask, open the masked "which letter" window (its text
+    carries ``[PCHM=n+1,n]`` so hidden rows vanish from navigation, like stock), then dispatch the row.
+    A row's arm re-seeds text var 1 FROM THE PAYLOAD BYTE (the donor reads ``Byte[1079+k]`` back rather
+    than re-hardcoding the sender -- ``switch 10`` @test2_37:1298-1343) and re-displays the letter via
+    :func:`letter_display`. NO lock write, NO mailbox write -- the read is pure, so the letter stays in
+    the list forever (the donor's own re-read law). Cancel is the last arm, bodiless."""
+    rows = list(rows)
+    arms = []
+    for k, (v, sender) in enumerate(rows):
+        sender_expr = _push_byte(PAYLOAD_SENDER_BASE + k) + bytes([_region.T_END])
+        arm = opcodes.encode(0x66, 1, sender_expr, arg_flags=0b10)    # SetTextVariable(1, {Byte[1079+k]})
+        arm += letter_display(letter_txids[int(v)])
+        arms.append(arm)
+    arms.append(b"")                                                   # cancel
+    mask_expr = _region.var_expr(_region.GLOB_UINT16, _region.MASK_SCRATCH_IDX)
+    return (read_row_population(rows)
+            + opcodes.enable_dialog_choices_var(mask_expr, 0)
+            + opcodes.window_sync(window, flags, prompt_txid)
+            + _choice.switch_on_choice(arms))
+
+
+def _arrival_cond(variant: int, requires_flag=None, requires_scenario=None) -> bytes:
+    """``if ([scenario >= N] [&& flag] && !read_lock(variant))`` -- the stock auto-arrival gate shape
+    (a story condition crossed AND the letter not yet arrived; donor: the scenario-threshold checks
+    feeding the arrival counter, field 115 @1444-1479)."""
+    t, have = b"", False
+    if requires_scenario is not None:
+        t += (_region._push_var(_region.GLOB_UINT16, 0) + bytes([_region.T_CONST])
+              + _region._const16(_region.GLOB_UINT16, int(requires_scenario)) + bytes([_region.T_GE]))
+        have = True
+    if requires_flag is not None:
+        t += _region._push_var(_region.GLOB_BOOL, int(requires_flag))
+        if have:
+            t += bytes([_T_ANDAND])
+        have = True
+    t += _region._push_var(_region.GLOB_BOOL, read_lock_bit(variant)) + bytes([_region.T_NOT])
+    if have:
+        t += bytes([_T_ANDAND])
+    return bytes([_region.EXPR_OP]) + t + bytes([_region.T_END])
+
+
+def arrival_body(entries, *, arrive_txid: int | None = None, letter_txids=None,
+                 window: int = 1, flags: int = 128) -> bytes:
+    """Scenario/flag-gated AUTO-ARRIVALS: letters that reach our moogle by network, offscreen -- the
+    stock second arrival source (the first is the player's own delivery, the accept path). Per entry,
+    when its condition holds and the letter hasn't arrived yet: announce line, sender into text var 1,
+    the letter display, then the READ lock -- arrival, not reading, is what sets the lock (the donor
+    law), which is exactly what makes the letter appear in the read-mail list afterwards. One-shot by
+    construction (the lock is the once-guard). ``entries`` = ``[(variant, sender_id, requires_flag,
+    requires_scenario), ...]``."""
+    letter_txids = letter_txids or {}
+    out = b""
+    for (v, sender, rf, rs) in entries:
+        vv = check_variant(v, allow_shipped=True)
+        body = opcodes.set_text_variable(1, _check_id("sender", sender))
+        if arrive_txid is not None:
+            body += opcodes.window_sync(window, flags, arrive_txid)
+        if int(vv) in letter_txids:
+            body += letter_display(letter_txids[int(vv)])
+        body += _set_lock(read_lock_bit(vv))
+        out += _region.if_block(_arrival_cond(vv, rf, rs), body)
+    return out
+
+
 def normalize_accept(acc) -> tuple:
-    """``accept`` entries are bare variant ints OR ``{variant, letter}`` tables. Returns
-    ``(variants, {variant: letter_body})`` -- the single normalization used by validate, collect_text
-    and the dispatch, so the three can never disagree."""
+    """``accept`` entries are bare variant ints OR ``{variant, letter, [from], [title]}`` tables.
+    Returns ``(variants, {variant: letter_body})`` -- the single normalization used by validate,
+    collect_text and the dispatch, so the three can never disagree. (``from``/``title`` make an accept
+    letter ALSO re-readable via Read mail -- collect_text resolves them into the row list.)"""
     variants, letters = [], {}
     for it in (acc or []):
         if isinstance(it, dict):
@@ -488,13 +613,38 @@ def normalize_accept(acc) -> tuple:
     return variants, letters
 
 
+def normalize_received(rec) -> list:
+    """``received`` entries -- letters that auto-ARRIVE at this moogle when a story condition holds
+    (``requires_flag`` / ``requires_scenario``; neither = arrives on the first Mognet open). Each is a
+    dict ``{variant, from, title, letter, [requires_flag], [requires_scenario]}`` -- ``from``/``title``/
+    ``letter`` are REQUIRED (an arrival without content or a row without a title cannot render).
+    Returns the entries with ``variant`` and the gate values normalized to ints; ``from`` stays raw
+    (a roster name or id, resolved against the install roster at text time)."""
+    out = []
+    for it in (rec or []):
+        if not isinstance(it, dict):
+            raise ValueError(f"[savepoint.mognet] received entries must be tables, got {it!r}")
+        e = dict(it)
+        e["variant"] = int(e["variant"])
+        if e.get("requires_flag") is not None:
+            e["requires_flag"] = int(e["requires_flag"])
+        if e.get("requires_scenario") is not None:
+            e["requires_scenario"] = int(e["requires_scenario"])
+        out.append(e)
+    return out
+
+
 def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), give=None,
                             accept_prompt_txid: int | None = None, thanks_txid: int | None = None,
                             give_prompt_txid: int | None = None, give_txid: int | None = None,
                             nothing_txid: int | None = None, erase_txid: int | None = None,
-                            letter_txids: dict | None = None, status_txids=None) -> bytes:
-    """The whole Mognet interaction -- the body behind the moogle menu's "Mognet" row. Exactly the three
-    cases a real save moogle presents, in the donor's priority order::
+                            letter_txids: dict | None = None, status_txids=None,
+                            read_rows=(), received=(), menu_prompt_txid: int | None = None,
+                            read_prompt_txid: int | None = None,
+                            arrive_txid: int | None = None) -> bytes:
+    """The whole Mognet interaction -- the body behind the moogle menu's "Mognet" row.
+
+    WITHOUT read-mail rows (``read_rows`` empty) this is byte-identical to the proven v1 chain::
 
         migration guard                       # the wipe-guard runs before ANY mailbox read
         if a held letter is addressed to me:  # (a) ACCEPT -- confirm, then take delivery
@@ -504,17 +654,25 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
         else:                                                 # (c) nothing to give or receive
             [nothing line]
 
-    ``give`` is ``(variant, to_id)`` or None (a moogle that only receives). ``accept_variants`` is the
-    build-time set of letter variants deliverable TO this moogle (their read-locks are set literal).
-    Both confirms dispatch via :func:`choice.switch_on_choice` (one sysvar-9 read); declining either is
-    a bodiless row -- no state is touched. A ``None`` prompt txid skips that confirm (auto-run; the
-    build always passes real txids).
+    WITH read-mail rows the donor's real shape takes over: auto-ARRIVALS fire first (``received``
+    entries whose story condition newly holds -- announce + letter + READ lock, the one-shot), then a
+    computed availability word gates the 3-row "What can I do for you" submenu exactly like the donor's
+    ``if (VAR_GlobInt16_39)`` (bit 0 = a delivery pending, bit 1 = any letter known, bit 2 = Cancel,
+    always on -- so the gate is ``mask != cancel-only``)::
 
-    Deliberate deviation from the donor, documented: the real moogle hosts these under a "What do you
-    want to do, kupo?" submenu whose third row is Read-mail. Read-mail is deferred (it needs a
-    received-letters design), and a submenu with one live row is ceremony -- so v1 dispatches the three
-    cases directly off the "Mognet" pick. The window skin is still the donor's (slot 2 / flags 8 = the
-    MOGNET caption)."""
+        arrivals
+        mask = 4 | (accept pending ? 1) | (any letter known ? 2)
+        if (mask != 4):
+            [3-row submenu, masked]  row 0 -> the accept confirm+body (as v1)
+                                     row 1 -> read_mail_body (payload rebuild + which-letter + display)
+                                     row 2 -> Cancel (bodiless)
+            if my give is offerable: [the give offer]         # still reachable in the same talk
+        else:  (b)/(c) exactly as v1
+
+    ``give`` is ``(variant, to_id)`` or None. ``accept_variants`` = variants deliverable TO this
+    moogle; ``read_rows`` = ``[(variant, sender_id), ...]`` in menu order (the titled letters);
+    ``received`` = ``[(variant, sender_id, requires_flag, requires_scenario), ...]`` auto-arrivals.
+    Confirms dispatch via :func:`choice.switch_on_choice` (one sysvar-9 read; nesting-safe)."""
     def _confirmed(prompt_txid, body):
         if prompt_txid is None:
             return body
@@ -531,16 +689,40 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
                               give_letter_body(gv, gto, from_id=my_id, give_txid=give_txid))
         els = _region.if_else(give_available_cond(gv), give_arm, nothing_arm)
     else:
+        give_arm = b""
         els = nothing_arm
     # the mail-status box opens right after the guard (the donor's order: recount+status @5929-6153,
     # THEN the row gating) and closes when the act ends; the letter display closes it early itself.
     status = mail_status_window(status_txids) if status_txids else b""
     closer = opcodes.encode(0x21, STATUS_WINDOW) if status_txids else b""
+    rows = list(read_rows)
+    if rows and menu_prompt_txid is not None and read_prompt_txid is not None:
+        arrivals = arrival_body(received, arrive_txid=arrive_txid, letter_txids=letter_txids)
+        # the availability word, donor-shaped: base = the Cancel bit, then each live lane ORs its row in
+        mask = _region.MASK_SCRATCH_IDX
+        avail = (_region.set_var(_region.GLOB_UINT16, mask, 4)
+                 + _region.if_block(accept_available_cond(my_id),
+                                    _region.or_var(_region.GLOB_UINT16, mask, 1))
+                 + _region.if_block(read_available_cond([v for v, _ in rows]),
+                                    _region.or_var(_region.GLOB_UINT16, mask, 2)))
+        gate = (bytes([_region.EXPR_OP]) + _region._push_var(_region.GLOB_UINT16, mask)
+                + bytes([_region.T_CONST]) + _region._const16(_region.GLOB_UINT16, 4)
+                + bytes([_T_NE, _region.T_END]))
+        submenu = (opcodes.enable_dialog_choices_var(_region.var_expr(_region.GLOB_UINT16, mask), 0)
+                   + opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, menu_prompt_txid)
+                   + _choice.switch_on_choice(
+                       [accept_arm,
+                        read_mail_body(rows, read_prompt_txid, letter_txids or {}),
+                        b""])
+                   + (_region.if_block(give_available_cond(give[0]), give_arm) if give is not None else b""))
+        dispatch = arrivals + avail + _region.if_else(gate, submenu, els)
+    else:
+        dispatch = _region.if_else(accept_available_cond(my_id), accept_arm, els)
     # our own identity into text var 0 FIRST -- every window below speaks as `[TEXT=0,0]` (the stock
     # idiom, see VAR_SPEAKER). Nothing downstream clobbers var 0: the status box uses 2..7 and the
     # accept arm re-seeds this same value alongside var 1 (the sender).
     return (opcodes.set_text_variable(0, int(my_id)) + migration_guard(erase_txid) + status
-            + _region.if_else(accept_available_cond(my_id), accept_arm, els) + closer)
+            + dispatch + closer)
 
 
 # --------------------------------------------------------------------------- the roster text ---

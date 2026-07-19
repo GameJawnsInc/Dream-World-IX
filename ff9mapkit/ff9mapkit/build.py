@@ -925,9 +925,10 @@ def _validate_savepoint_mognet(project, sp) -> list:
         out.append("[savepoint.mognet] only ONE network moogle per field is supported -- the roster "
                    "grows a single 42nd row (multi-moogle identity allocation is a campaign-level "
                    "design, deferred with the inbound-mail rung)")
-    _keys = {"name", "give", "accept", "mognet_row", "accept_prompt", "accept_yes", "accept_no",
-             "thanks", "give_prompt", "give_yes", "give_no", "give_line", "nothing", "erase",
-             "status_none"}
+    _keys = {"name", "give", "accept", "received", "mognet_row", "accept_prompt", "accept_yes",
+             "accept_no", "thanks", "give_prompt", "give_yes", "give_no", "give_line", "nothing",
+             "erase", "status_none", "menu_prompt", "accept_row", "read_row", "cancel_row",
+             "read_prompt", "arrive_line"}
     for k in sorted(set(mg) - _keys):
         out.append(f"[savepoint.mognet] unknown key {k!r} -- expected one of {', '.join(sorted(_keys))}")
     name = mg.get("name")
@@ -967,13 +968,22 @@ def _validate_savepoint_mognet(project, sp) -> list:
     else:
         for it in acc:
             if isinstance(it, dict):
-                bad = set(it) - {"variant", "letter"}
+                bad = set(it) - {"variant", "letter", "from", "title"}
                 if bad or "variant" not in it:
                     out.append(f"[savepoint.mognet] accept entry must be {{ variant = <49..63>"
-                               f"[, letter = \"...\"] }}, got {it!r}")
+                               f"[, letter = \"...\"][, from = <sender>, title = \"...\"] }}, got {it!r}")
                     continue
                 if "letter" in it and not isinstance(it["letter"], str):
                     out.append(f"[savepoint.mognet] accept letter must be a string, got {it['letter']!r}")
+                # from + title (BOTH) turn an accept letter into a Read-mail row; one without the
+                # other is a half-authored row -- refuse rather than silently not list it
+                if ("from" in it) != ("title" in it):
+                    out.append(f"[savepoint.mognet] accept variant {it.get('variant')}: `from` and "
+                               f"`title` come together (both make the letter re-readable via Read "
+                               f"mail); got only one of them")
+                elif "title" in it and "letter" not in it:
+                    out.append(f"[savepoint.mognet] accept variant {it.get('variant')}: a Read-mail row "
+                               f"(`from`/`title`) needs the `letter` body to re-display")
                 it = it["variant"]
             try:
                 _mognet.check_variant(it)
@@ -986,8 +996,53 @@ def _validate_savepoint_mognet(project, sp) -> list:
         if give is not None and isinstance(give, dict) and give.get("variant") in acc_variants:
             out.append(f"[savepoint.mognet] give.variant {give['variant']} is also in accept -- a letter "
                        f"cannot be both FROM and TO this moogle (their one-shot locks would collide)")
+    # `received` -- auto-arriving letters (the Read-mail list's second source). Every entry needs the
+    # full render kit (variant/from/title/letter); the gates are optional ints.
+    rec = mg.get("received", [])
+    if not isinstance(rec, (list, tuple)):
+        out.append(f"[savepoint.mognet] received must be a list of tables, got {rec!r}")
+        rec = []
+    rec_variants = []
+    for it in rec:
+        if not isinstance(it, dict) or set(it) - {"variant", "from", "title", "letter",
+                                                  "requires_flag", "requires_scenario"} \
+                or not {"variant", "from", "title", "letter"} <= set(it):
+            out.append(f"[savepoint.mognet] received entry must be {{ variant = <49..63>, from = "
+                       f"<sender>, title = \"...\", letter = \"...\"[, requires_flag = N]"
+                       f"[, requires_scenario = N] }}, got {it!r}")
+            continue
+        try:
+            rec_variants.append(_mognet.check_variant(it["variant"]))
+        except (ValueError, TypeError) as e:
+            out.append(f"[savepoint.mognet] received: {e}")
+        for gk in ("requires_flag", "requires_scenario"):
+            v = it.get(gk)
+            if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
+                out.append(f"[savepoint.mognet] received variant {it.get('variant')}: {gk} must be an "
+                           f"int, got {v!r}")
+        if not isinstance(it.get("title"), str) or not isinstance(it.get("letter"), str):
+            out.append(f"[savepoint.mognet] received variant {it.get('variant')}: title and letter "
+                       f"must be strings")
+    # one variant = one letter, forever (the stock census law: variants 3-48 each belong to exactly one
+    # recipient) -- so no variant may be authored twice across accept/received, nor shared with give
+    # (the give-in-accept case is already reported above; give-vs-received is new here).
+    try:
+        acc_vs, _ = _mognet.normalize_accept(acc if isinstance(acc, (list, tuple)) else [])
+    except (ValueError, TypeError, KeyError):
+        acc_vs = []
+    seen = {}
+    for src, v in [("accept", v) for v in acc_vs] + [("received", v) for v in rec_variants]:
+        if v in seen:
+            out.append(f"[savepoint.mognet] variant {v} is authored twice ({seen[v]} + {src}) -- one "
+                       f"variant is one letter forever (its one-shot locks are save-global)")
+        else:
+            seen[v] = src
+    if isinstance(give, dict) and give.get("variant") in rec_variants:
+        out.append(f"[savepoint.mognet] give.variant {give['variant']} is also in received -- a letter "
+                   f"cannot be both FROM and TO this moogle (their one-shot locks would collide)")
     for k in ("mognet_row", "accept_prompt", "accept_yes", "accept_no", "thanks", "give_prompt",
-              "give_yes", "give_no", "give_line", "nothing", "erase", "status_none"):
+              "give_yes", "give_no", "give_line", "nothing", "erase", "status_none", "menu_prompt",
+              "accept_row", "read_row", "cancel_row", "read_prompt", "arrive_line"):
         if k in mg and not isinstance(mg[k], str):
             out.append(f"[savepoint.mognet] {k} must be a string, got {mg[k]!r}")
     return out
@@ -5090,21 +5145,28 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 "bubble": sp.get("bubble", True)} for sp in savepoints]
 
         def _mognet_body(mg, t):
-            """The Mognet row's body -- the full letter act (guard + status box + accept/give/nothing,
-            docs/SAVEPOINT.md). give_to_id was resolved against the install roster at text time; its
-            absence means no give was authored."""
+            """The Mognet row's body -- the full letter act (guard + status box + arrivals +
+            accept/read-mail/give/nothing, docs/SAVEPOINT.md). give_to_id and the read-mail row/arrival
+            metadata were resolved against the install roster at text time; their absence means the
+            corresponding lane was not authored."""
             from .content import mognet as _mognet
             give = None
             if isinstance(mg.get("give"), dict) and "give_to_id" in t:
                 give = (int(mg["give"]["variant"]), int(t["give_to_id"]))
             acc_variants, acc_letters = _mognet.normalize_accept(mg.get("accept", []))
+            rows = [tuple(r) for r in (t.get("read_rows_meta") or [])]
+            received = [tuple(r) for r in (t.get("received_meta") or [])]
+            lv = set(acc_letters) | {r[0] for r in received}
             return _mognet.mognet_interaction_body(
                 accept_variants=acc_variants, give=give,
                 accept_prompt_txid=t["accept_prompt"], thanks_txid=t.get("thanks"),
                 give_prompt_txid=t.get("give_prompt"), give_txid=t.get("give_line"),
                 nothing_txid=t.get("nothing"), erase_txid=t.get("erase"),
-                letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t},
-                status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None)
+                letter_txids={v: t[f"letter{v}"] for v in lv if f"letter{v}" in t},
+                status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None,
+                read_rows=rows, received=received,
+                menu_prompt_txid=t.get("menu_prompt"), read_prompt_txid=t.get("read_prompt"),
+                arrive_txid=t.get("arrive"))
 
         def _speaks_as_roster(sp):
             """True when this save point's windows speak as a Mognet ROSTER identity (`[TEXT=0,0]`),
@@ -6096,6 +6158,48 @@ def collect_text(project: FieldProject):
             _, mg_letters = _mognet.normalize_accept(mg.get("accept", []))
             for lv, lbody in sorted(mg_letters.items()):
                 mg_pos[k][f"letter{lv}"] = _add_raw(_mognet.letter_entry_text(lbody), "")
+            # READ-MAIL: titled accept letters + `received` auto-arrivals form the menu rows, in
+            # authored order (row index is static, like every stock field's). Senders resolve through
+            # the install roster + our own name; the row/arrival metadata rides savepoint_txids as
+            # pass-through values (like give_to_id), so the injection needn't re-fetch the roster.
+            _full = list(mognet_roster) + [self_name]
+            _rows_meta, _titles = [], []
+            for it in (mg.get("accept") or []):
+                if isinstance(it, dict) and it.get("title") and it.get("from") is not None:
+                    _sid = _mognet.resolve_moogle_id(it["from"], _full, self_name=self_name)
+                    _rows_meta.append((int(it["variant"]), _sid))
+                    _titles.append(str(it["title"]))
+            _rec_meta = []
+            for _re in _mognet.normalize_received(mg.get("received", [])):
+                _sid = _mognet.resolve_moogle_id(_re["from"], _full, self_name=self_name)
+                _rows_meta.append((int(_re["variant"]), _sid))
+                _titles.append(str(_re["title"]))
+                _rec_meta.append((int(_re["variant"]), _sid, _re.get("requires_flag"),
+                                  _re.get("requires_scenario")))
+                mg_pos[k][f"letter{_re['variant']}"] = _add_raw(
+                    _mognet.letter_entry_text(_re["letter"]), "")
+            if _rows_meta:
+                _crow = str(mg.get("cancel_row", _mognet.DEFAULT_MENU_CANCEL))
+                # the 3-row "What can I do for you" submenu -- [PCHM] applies the runtime mask, so
+                # an unavailable lane's row vanishes from navigation (stock's SetupChooseMask law)
+                _arow = str(mg.get("accept_row", _mognet.DEFAULT_ACCEPT_ROW)).replace("{name}", self_name)
+                _rrow = str(mg.get("read_row", _mognet.DEFAULT_READ_ROW))
+                _mprompt = _menu(mg.get("menu_prompt", _mognet.DEFAULT_MENU_PROMPT))
+                mg_pos[k]["menu_prompt"] = _add_raw(
+                    _pin_sub + "[PCHM=3,2]" + _mprompt + _text.CHOICE_OPEN
+                    + ("\n" + _text.CHOICE_INDENT).join((_arow, _rrow, _crow)), _tail_sub)
+                # the "which letter" list: the titles + Cancel, masked by the payload rebuild
+                _rprompt = _menu(mg.get("read_prompt", _mognet.DEFAULT_READ_PROMPT))
+                _n = len(_rows_meta)
+                mg_pos[k]["read_prompt"] = _add_raw(
+                    _pin_sub + f"[PCHM={_n + 1},{_n}]" + _rprompt + _text.CHOICE_OPEN
+                    + ("\n" + _text.CHOICE_INDENT).join(_titles + [_crow]), _tail_sub)
+                if _rec_meta:
+                    mg_pos[k]["arrive"] = _add_raw(
+                        _pin_sub + _menu(mg.get("arrive_line", _mognet.DEFAULT_ARRIVE), feeds=False),
+                        _tail_sub)
+                mg_pos[k]["read_rows_meta"] = _rows_meta       # pass-through, not text positions
+                mg_pos[k]["received_meta"] = _rec_meta
             # the mail-STATUS box (the persistent bottom-left "You have a letter from X to Y"): four
             # entries, 0..3 letters held; structural templates, only the no-mail wording is authorable.
             # The stock [STRT] + [TAIL=LOL] geometry ships WITH each entry -- the tail code is what pins
@@ -6147,9 +6251,10 @@ def collect_text(project: FieldProject):
         if len(pos) > 2:                                   # the tent row's confirm + no-tents line
             d["tent_prompt"], d["tent_none"] = mapping[pos[2]], mapping[pos[3]]
         savepoint_txids[k] = d
+    _passthrough = {"give_to_id", "read_rows_meta", "received_meta"}   # resolved values, not text positions
     for k, d in mg_pos.items():
         savepoint_txids.setdefault(k, {}).update(
-            {key: (v if key == "give_to_id" else mapping[v]) for key, v in d.items()})
+            {key: (v if key in _passthrough else mapping[v]) for key, v in d.items()})
     for k, p in act_pos.items():                          # the act's save-line txid
         savepoint_txids.setdefault(k, {})["act"] = mapping[p]
     return (body, npc_txids, event_txids, cutscene_txids, choice_txids, on_entry_txids, ate_txids,
