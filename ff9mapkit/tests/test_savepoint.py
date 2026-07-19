@@ -377,44 +377,98 @@ def test_reveal_landing_dressing_byte_exact():
     assert body.count(opcodes.wait_turn()) == 2, "the donors' second WaitTurn must not be optimised away"
 
 
+# --- tent_rest_body: the donor's fade-to-white REST PRESENTATION (fix 1) -------------------------------
+def test_tent_rest_body_wraps_the_heals_in_the_donor_fade_bracket():
+    """The heals themselves are byte-identical to the donor already (test_tent_heals_half_of_max_and_
+    never_revives / test_tent_dispatch_rests_on_yes_and_not_on_no, tests/test_mognet.py, which execute
+    them through the mini-VM); this pins the PRESENTATION bracket around them -- the fix for the
+    2026-07-19 playtest report "tent is a no-op, it takes a tent but doesn't do anything." Reconstructed
+    independently from the primitive opcode encoders (so this does not just echo tent_rest_body's own
+    logic back at itself), and RemoveItem must land strictly AFTER the fade-back -- the donor's own order
+    (field 300 @4925-5608), not before the heals."""
+    body = _savepoint.tent_rest_body()
+    lead = (_savepoint.act_sfx(_savepoint.TENT_SFX_REST)
+           + opcodes.encode(0xA9, _savepoint.PLAYER_UID)             # CalculateScreenPosition(player)
+           + opcodes.encode(0xEC, 6, 24, 255, 255, 255, 255)         # fade OUT to white
+           + opcodes.wait(16)
+           + _savepoint.act_sfx(_savepoint.TENT_SFX_SLEEP)
+           + opcodes.wait(8)
+           + opcodes.encode(0xD5))                                    # HideAllObjects
+    tail = (opcodes.encode(0xA9, _savepoint.PLAYER_UID)
+           + opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)                # fade back IN
+           + opcodes.wait(20)
+           + opcodes.remove_item(_savepoint.TENT_ITEM, 1))
+    assert body.startswith(lead)
+    assert body.endswith(tail)
+    assert lead.hex() == "c80000d05305000000807da900faec000618ffffffff220010c80000d0ce04000000807d220008d5"
+    assert tail.hex() == "a900faec000710ff0000002200144900fd0001"
+    assert _savepoint.TENT_SFX_REST == 1363 and _savepoint.TENT_SFX_SLEEP == 1230
+    # RemoveItem strictly AFTER the fade-back, not interleaved with or ahead of the heals
+    fade_back = opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)
+    remove = opcodes.remove_item(_savepoint.TENT_ITEM, 1)
+    assert body.rindex(remove) > body.rindex(fade_back)
+    assert body.count(remove) == 1                     # exactly one Tent consumed, not per-slot
+
+
 # --- reveal_state_loop: THE VERTICAL HOP, no authored landing coordinate -----------------------------
 def test_reveal_state_loop_pop_lands_at_container_xz_raised_by_height():
     """No authored landing coordinate exists any more -- the pop is a VERTICAL hop, so the landing is
     computed as the container's own x/z with y raised by ``height``. Anchored on field 407's own donor
     cask (kit x=-250, z=-571, y=+2, height=360): the emitted SetupJump raw args match the donor's own
     bytes exactly (the coordinate-convention note above REVEAL_STATE_IN -- y is up-positive here and
-    negated on encode, so kit y=362 encodes as the donor's raw -362 = 65174)."""
+    negated on encode, so kit y=362 encodes as the donor's raw -362 = 65174).
+
+    The stow arm now ALSO ballistic-jumps (a real ``SetupJump``/``Jump``, not the old teleport -- see
+    :func:`test_reveal_state_loop_hide_returns_to_containers_own_y`), so the loop carries TWO SetupJump
+    calls; the pop's is always the FIRST one emitted (the POP_REQ arm is written before the HIDE_REQ arm,
+    see :func:`test_reveal_state_loop_structure_two_arms_and_loops_back`)."""
     body = _savepoint.reveal_state_loop(container_pos=(-250, -571, 2), height=360, steps=10)
     from ff9mapkit.eb import disasm
     jumps = [list(i.args) for i in disasm.iter_code(body, 0, len(body))
              if disasm.op_name(i.op) == "SetupJump"]
-    assert jumps == [[65286, 65174, 64965, 10]]      # donor field 407's own raw SetupJump args
+    assert len(jumps) == 2
+    assert jumps[0] == [65286, 65174, 64965, 10]      # donor field 407's own raw SetupJump args (pop)
 
 
 def test_reveal_state_loop_hide_returns_to_containers_own_y():
-    """Stowing (HIDE_REQ) snaps the moogle back to the CONTAINER'S OWN spot -- y UN-raised -- the donor's
-    own case-102 MoveInstantXZY, byte-for-byte (same donor cask as the pop test above)."""
+    """Stowing (HIDE_REQ) is now a REAL ballistic jump back down -- the donor's own case-102
+    ``SetupJump(-250, -2, -571, 10) ; Jump()`` (field 407 tag 3 @8674), not the old ``MoveInstantXZY``
+    teleport (a moogle that just blinked out of existence). The stow's SetupJump target is the
+    CONTAINER'S OWN raw y -- unraised, unlike the pop's -- and its raw args are byte-for-byte the same
+    three numbers the old teleport carried, with the jump's ``steps`` appended as a 4th arg."""
     body = _savepoint.reveal_state_loop(container_pos=(-250, -571, 2), height=360, steps=10)
     from ff9mapkit.eb import disasm
-    moves = [list(i.args) for i in disasm.iter_code(body, 0, len(body))
-             if disasm.op_name(i.op) == "MoveInstantXZY"]
-    assert moves == [[65286, 65534, 64965]]          # donor field 407's own raw MoveInstantXZY args
+    ops = [i for i in disasm.iter_code(body, 0, len(body))]
+    names = [disasm.op_name(i.op) for i in ops]
+    assert "MoveInstantXZY" not in names                                   # the old teleport is GONE
+    jumps = [list(i.args) for i in ops if disasm.op_name(i.op) == "SetupJump"]
+    assert jumps[-1] == [65286, 65534, 64965, 10]     # donor field 407's own raw SetupJump args (stow)
+    # the stow's own SetupJump is immediately followed by Jump() -- a real ballistic hop, not just a
+    # SetupJump call sitting there unused
+    last_setup = max(k for k, n in enumerate(names) if n == "SetupJump")
+    assert names[last_setup + 1] == "Jump"
 
 
 def test_reveal_state_loop_structure_two_arms_and_loops_back():
     """The moogle's WHOLE tag-1 (installed via ``replace_function_body``, not a one-shot ``intro``
-    splice): two state-gated arms (POP_REQ -> pop, HIDE_REQ -> hide), the hide arm's landing snap
-    (MoveInstantXZY) coming before its final hide, then a backward jump -- the donor's own permanent-loop
-    shape, so the moogle can pop out AND go back in, unlike the old one-shot intro."""
+    splice): two state-gated arms (POP_REQ -> pop, HIDE_REQ -> hide), the hide arm's own ballistic jump
+    back down (a real ``SetupJump``/``Jump`` pair, not the old ``MoveInstantXZY`` teleport) landing before
+    its final hide, then a backward jump -- the donor's own permanent-loop shape, so the moogle can pop
+    out AND go back in, unlike the old one-shot intro."""
     body = _savepoint.reveal_state_loop(container_pos=(0, 0, 0))
     from ff9mapkit.eb import disasm
     ops = [disasm.op_name(i.op) for i in disasm.iter_code(body, 0, len(body))]
     assert ops[-1] == "op_01"                                 # jump back to the top, forever
     assert ops.count("op_02") == 2                             # exactly two gated arms
     assert ops.count("SetObjectFlags") == 2                    # SHOW (pop) + HIDE (hide)
+    assert "MoveInstantXZY" not in ops                         # the old teleport is GONE (a real jump now)
+    # both arms now carry the airborne spine (SetJumpAnimation ... Jump), one each -- pop's first, then
+    # the stow's own, both landing before the container-hide flags write
+    assert ops.count("SetJumpAnimation") == 2 and ops.count("Jump") == 2
     show_idx, hide_idx = [k for k, o in enumerate(ops) if o == "SetObjectFlags"]
-    assert show_idx < ops.index("SetJumpAnimation") < ops.index("Jump") < hide_idx
-    assert ops.index("MoveInstantXZY") < hide_idx              # snap back to the container BEFORE hiding
+    jump_idxs = [k for k, o in enumerate(ops) if o == "Jump"]
+    assert show_idx < ops.index("SetJumpAnimation") < jump_idxs[0] < hide_idx   # the pop's own hop
+    assert jump_idxs[1] < hide_idx              # the stow's own ballistic jump lands BEFORE the hide
 
 
 def test_reveal_init_tail_byte_exact():
@@ -520,13 +574,41 @@ def test_validate_reveal_style_unknown_value(tmp_path):
 def test_validate_barrel_pop_needs_no_landing_coordinate(tmp_path):
     """The redesign made the landing purely DERIVED (the container's own x/z, raised by reveal_height) --
     unlike the old hand-placed reveal_jump_to, a bare reveal_style = "barrel_pop" with no other reveal_*
-    keys at all must validate clean. (The old requirement -- 'reveal_jump_to ... hand-placed' -- is gone;
-    there is no longer any authored landing coordinate to require.)"""
+    key at all must validate clean. (The old requirement -- 'reveal_jump_to ... hand-placed' -- is gone;
+    there is no longer any authored landing coordinate for the POP to require.)
+
+    ``act = false`` here isolates that claim from the SEPARATE, unrelated requirement fix 4 added --
+    ``act_hop_to`` is not a ``reveal_*`` key; it is the ACT's own floor-visit spot, required only when
+    the act is on (see ``test_validate_barrel_pop_with_act_needs_act_hop_to``)."""
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nact = false\n'), encoding="utf-8")
     probs = [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
     assert not probs
+
+
+def test_validate_barrel_pop_with_act_needs_act_hop_to(tmp_path):
+    """``reveal_style = "barrel_pop"`` with the act ON (the default) DOES need a hand-placed coordinate --
+    just not the pop's own. The donor performs the save on the FLOOR: it leaps off the cask to a ground
+    spot, opens the book there, and leaps back up. Without ``act_hop_to`` the act would play on top of
+    the container, and the act's own ``SetPathing(1)`` would drop the moogle off its perch mid-flourish
+    (playtest-driven fix). Neither an explicit ``act = false`` nor ``dialogue = false`` needs it -- the
+    act never fires without dialogue, and doesn't exist without itself."""
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")   # act defaults True
+    probs = [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
+    assert any("needs act_hop_to" in x for x in probs)
+    # giving it clears the problem
+    p2 = tmp_path / "s2.field.toml"
+    p2.write_text(_field_toml('reveal_style = "barrel_pop"\nact_hop_to = [5, 5]\n'), encoding="utf-8")
+    probs2 = [x for x in build.validate(build.FieldProject.load(p2)) if "savepoint" in x.lower()]
+    assert not probs2
+    # act = false sidesteps the requirement entirely -- no act, no floor visit, nothing to place
+    p3 = tmp_path / "s3.field.toml"
+    p3.write_text(_field_toml('reveal_style = "barrel_pop"\nact = false\n'), encoding="utf-8")
+    probs3 = [x for x in build.validate(build.FieldProject.load(p3)) if "savepoint" in x.lower()]
+    assert not probs3
 
 
 def test_validate_reveal_keys_are_noops_error_outside_barrel_pop(tmp_path):
@@ -573,9 +655,12 @@ def test_validate_reveal_steps_sfx_container_types(tmp_path):
 
 
 def test_validate_reveal_sfx_false_is_valid(tmp_path):
+    # act = false sidesteps the unrelated act_hop_to requirement (fix 4) so this stays focused on
+    # reveal_sfx = false specifically -- see test_validate_barrel_pop_with_act_needs_act_hop_to.
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_sfx = false\n'), encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_sfx = false\nact = false\n'),
+                encoding="utf-8")
     probs = [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
     assert not probs
 
@@ -621,7 +706,13 @@ def test_act_and_barrel_pop_compose_without_act_no_second_tail(tmp_path):
     p = tmp_path / "s.field.toml"
     p.write_text(_field_toml('reveal_style = "barrel_pop"\nact = false\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
-    eb = build.build_script(proj, "us", {})
+    # a bare `build_script(proj, "us", {})` (no savepoint_txids) makes the moogle's talk fall back to the
+    # plain save_dispatch(), which reveal_menu_cycle's new tail check (fix 2) then rejects -- go through
+    # collect_text for real dialogue txids, matching how the production build pipeline always calls this
+    # (see test_act_and_barrel_pop_compose_init_tails_in_donor_order, this test's sibling, right above).
+    mes, *_rest = build.collect_text(proj)
+    sp_txids = _rest[-1]
+    eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     s = EbScript.from_bytes(eb)
     assert s.to_bytes() == eb
     # the hidden flag write exists (the reveal), but nowhere is it immediately followed by the act preload
@@ -638,13 +729,49 @@ def test_act_and_barrel_pop_compose_without_act_no_second_tail(tmp_path):
                 assert not (nxt is not None and nxt.op == 0x94 and list(nxt.args) == [6503, 26, 30])
 
 
+# --- reveal_menu_cycle: refuses to wrap a body without the expected tail (fix 2) ----------------------
+def test_reveal_menu_cycle_wraps_a_well_formed_body():
+    """The normal case: a body ending in the standard dispatch tail wraps cleanly into the loop-then-stow
+    cycle, with that exact tail re-emitted once at the real end (not duplicated, not dropped)."""
+    tail = opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN
+    body = opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + tail
+    out = _savepoint.reveal_menu_cycle(body, index=0)
+    assert out.endswith(tail)
+    assert out.count(tail) == 1                       # not appended past itself, not dropped
+
+
+def test_reveal_menu_cycle_raises_on_body_without_expected_tail():
+    """The dead-code bug this fix closed: the first version appended the reopen-loop AFTER the body's own
+    ``ENABLE_MENU + ENABLE_MOVE + RETURN``, which is unreachable code -- cancel never stowed the moogle
+    and the menu never reopened (playtest, 2026-07-19). Rather than silently repeat that mistake on any
+    body that doesn't end in the expected tail, the function now refuses outright."""
+    import pytest
+    # missing the tail entirely
+    with pytest.raises(ValueError, match="does not end in the expected"):
+        _savepoint.reveal_menu_cycle(b"\x00\x00\x00", index=0)
+    # the bare no-text fallback (savepoint.save_dispatch()) is exactly this shape: it ends in
+    # EnableMove + RETURN, but never opens/closes the MENU (DisableMenu/EnableMenu) -- one opcode short
+    # of the tail reveal_menu_cycle requires.
+    with pytest.raises(ValueError, match="does not end in the expected"):
+        _savepoint.reveal_menu_cycle(_savepoint.save_dispatch(), index=0)
+    # a truncated tail (RETURN dropped) must also refuse, not silently wrap
+    short_tail = opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE
+    with pytest.raises(ValueError, match="does not end in the expected"):
+        _savepoint.reveal_menu_cycle(opcodes.DISABLE_MOVE + short_tail, index=0)
+
+
 # --- one-shot: the cask cannot re-fire (structural: the guard body IS the first 3 instructions) -------
 def test_cask_one_shot_guard_present_in_built_field(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
     p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
-    eb = build.build_script(proj, "us", {})
+    # go through collect_text for real savepoint_txids -- a bare `build_script(proj, "us", {})` falls
+    # back to the plain save_dispatch() (no text collected), which reveal_menu_cycle's new tail check
+    # (fix 2) then rejects; the production pipeline always resolves txids first.
+    mes, *_rest = build.collect_text(proj)
+    sp_txids = _rest[-1]
+    eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     s = EbScript.from_bytes(eb)
     cask_entries = [e.index for e in s.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}]
     assert cask_entries
@@ -691,13 +818,18 @@ def test_two_barrel_pop_savepoints_do_not_share_vars(tmp_path):
         '[walkmesh]\nquad = [[-600,-600],[600,-600],[600,600],[-600,600]]\n\n'
         '[player]\nspawn = [0, 0]\n\n'
         '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\npos = [0, 0]\n'
-        'reveal_style = "barrel_pop"\nreveal_from = [5, -5, 10]\n\n'
+        'reveal_style = "barrel_pop"\nreveal_from = [5, -5, 10]\nact_hop_to = [50, -50]\n\n'
         '[[savepoint]]\nzone = [[300,-100],[500,-100],[500,100],[300,100]]\npos = [400, 0]\n'
-        'reveal_style = "barrel_pop"\n',
+        'reveal_style = "barrel_pop"\nact_hop_to = [450, -50]\n',
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert not [x for x in build.validate(proj) if "savepoint" in x.lower()]
-    eb = build.build_script(proj, "us", {})                 # 3-element reveal_from must NOT crash
+    # go through collect_text for real savepoint_txids -- a bare `build_script(proj, "us", {})` falls
+    # back to the plain save_dispatch() (no text collected), which reveal_menu_cycle's new tail check
+    # (fix 2) then rejects; the production pipeline always resolves txids first.
+    mes, *_rest = build.collect_text(proj)
+    sp_txids = _rest[-1]
+    eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)   # 3-element reveal_from must NOT crash
     assert _savepoint.cask_trigger_body(0) in eb            # each cask carries its OWN rendezvous pair
     assert _savepoint.cask_trigger_body(1) in eb
 
@@ -725,8 +857,17 @@ def test_barrel_pop_gates_the_press_zone_but_instant_does_not(tmp_path):
     from ff9mapkit import build
     gate = _savepoint.gate_until_revealed(b"", 0)
     p = tmp_path / "bp.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
-    assert gate in build.build_script(build.FieldProject.load(p), "us", {})
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nact_hop_to = [5, 5]\n'), encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "savepoint" in x.lower()]
+    # go through collect_text for real savepoint_txids -- a bare `build_script(proj, "us", {})` falls
+    # back to the plain save_dispatch() (no text collected), which reveal_menu_cycle's new tail check
+    # (fix 2) then rejects; the production pipeline always resolves txids first.
+    mes, *_rest = build.collect_text(proj)
+    sp_txids = _rest[-1]
+    assert gate in build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
+    # the "instant" (non-barrel_pop) sibling never touches reveal_menu_cycle at all, so it still builds
+    # fine bare (no text collected) -- unchanged from before the fixes.
     q = tmp_path / "inst.field.toml"
     q.write_text(_field_toml(""), encoding="utf-8")
     eb_i = build.build_script(build.FieldProject.load(q), "us", {})

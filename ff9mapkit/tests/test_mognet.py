@@ -234,7 +234,8 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
                       0x22,                            # Wait
                       0x2D, 0x2E, 0xAB, 0xAA,          # Disable/EnableMove, Disable/EnableMenu
                       0xA9, 0xEC, 0x8E, 0x54, 0x21,    # the letter display: CalcScreenPos / FadeFilter
-                      0xE9):                           #   / RaiseWindows / WaitWindow / CloseWindow
+                      0xE9,                            #   / RaiseWindows / WaitWindow / CloseWindow
+                      0xD5):                           # HideAllObjects -- the tent's rest bracket
             pass                                       # + UpdatePartyUID
         else:
             raise AssertionError(f"mini-VM: unhandled opcode 0x{i.op:02X} at {i.off}")

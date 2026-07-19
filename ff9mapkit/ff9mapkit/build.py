@@ -1630,6 +1630,24 @@ def validate(project: FieldProject) -> list[str]:
             if not sp.get("moogle", True):
                 problems.append('[[savepoint]] reveal_style = "barrel_pop" needs the moogle (it IS the '
                                 "barrel moogle); remove `moogle = false` or the reveal_style")
+            if not sp.get("dialogue", True):
+                # `dialogue = false` drops the dispatch to the bare save_dispatch() shape, which has no
+                # menu to cycle -- and the reveal's whole point IS the menu cycle (pop -> menu -> save or
+                # cancel -> stow). Left unchecked this passed validate() and then crashed the build in
+                # reveal_menu_cycle's tail guard.
+                problems.append('[[savepoint]] reveal_style = "barrel_pop" needs the dialogue flow: the '
+                                "reveal is the menu cycle (pop, menu, then save-and-reopen or "
+                                "cancel-and-stow). Remove `dialogue = false` or the reveal_style")
+            if sp.get("act", True) and sp.get("dialogue", True) and "act_hop_to" not in sp:
+                # THIS is where a hand-placed coordinate genuinely belongs (unlike the pop, which is
+                # vertical and derived). The donor performs the save on the FLOOR: it leaps off the cask
+                # to a ground spot, opens the book there, and leaps back up. Without a spot the act would
+                # play on top of the container -- and the act's own SetPathing(1) then drops the moogle
+                # off its perch mid-flourish. Refuse rather than ship that.
+                problems.append('[[savepoint]] reveal_style = "barrel_pop" with the act needs act_hop_to '
+                                "-- the ground spot the moogle leaps to for the save (it performs the "
+                                "flourish on the floor, then hops back onto the container). Give [x, z] "
+                                "clear of the container; the height is taken from reveal_from")
             v = sp.get("reveal_from")
             if v is not None and (not isinstance(v, (list, tuple)) or len(v) not in (2, 3)
                                   or not all(isinstance(x, int) and not isinstance(x, bool) for x in v)):
@@ -5364,6 +5382,14 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                              reveal_cpos[2] + int(sp.get("reveal_height",
                                                          _savepoint.REVEAL_CONTAINER_HEIGHT)))
                             if reveal_cpos is not None else (int(pos[0]), int(pos[1])))
+                if reveal_cpos is not None and hop_to is not None:
+                    # A barrel moogle performs the save on the GROUND, not on its perch: the donor leaps
+                    # from the cask top out to a floor spot, does the book there, and leaps back up
+                    # (field 407 tag 3 -- the outbound lerp ends at rawY -2 = ground, the return lerp at
+                    # rawY -362 = the cask top). So an `act_hop_to` given as [x, z] takes the CONTAINER's
+                    # own ground height, not the perch height and not 0.
+                    _h = tuple(int(v) for v in hop_to)
+                    hop_to = _h if len(_h) >= 3 else (_h[0], _h[1], reveal_cpos[2])
                 save_body = _savepoint.act_save_body(
                     book_uid=cl.book, feather_uid=cl.feather,
                     pose_tag=cl.pose_tag, release_tag=cl.release_tag,

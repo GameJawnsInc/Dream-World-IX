@@ -177,7 +177,29 @@ def tent_rest_body() -> bytes:
         heal = (opcodes.encode(0xF1, k, _half_heal(_region.T_CURHP, _region.T_MAXHP, k), arg_flags=0b10)
                 + opcodes.encode(0xF2, k, _half_heal(_region.T_CURMP, _region.T_MAXMP, k), arg_flags=0b10))
         out += _region.if_block(alive, heal)
-    return out + opcodes.remove_item(TENT_ITEM, 1)
+    # ⚠ THE REST PRESENTATION IS NOT OPTIONAL. The heals above are byte-identical to the donor's, but a
+    # tent that silently edits HP reads in-game as "it took my tent and did nothing" -- which is exactly
+    # what the first shipped version did (playtest, 2026-07-19). The donor wraps the heals in a
+    # fade-to-WHITE rest bracket (field 300 @4925-5608) and that bracket IS the feedback:
+    #   sfx 1363 ; CalculateScreenPosition(player) ; FadeFilter(6,24, 255,255,255)   -- out to white
+    #   Wait(16) ; sfx 1230 (the rest chime) ; Wait(8) ; HideAllObjects
+    #   <the heals>
+    #   CalculateScreenPosition(player) ; FadeFilter(7,16, 0,0,0) ; Wait(20)          -- back in
+    #   RemoveItem(Tent)                                                              -- AFTER the fade
+    # The donor passes the fade intensity through a Map scratch holding 255; we pass the literal, the
+    # same simplification content.mognet.letter_display already makes for the letter bracket.
+    return (act_sfx(TENT_SFX_REST)
+            + opcodes.encode(0xA9, PLAYER_UID)                       # CalculateScreenPosition(player)
+            + opcodes.encode(0xEC, 6, 24, 255, 255, 255, 255)        # fade OUT to white
+            + opcodes.wait(16)
+            + act_sfx(TENT_SFX_SLEEP)
+            + opcodes.wait(8)
+            + opcodes.encode(0xD5)                                   # HideAllObjects (field 300 @5010)
+            + out
+            + opcodes.encode(0xA9, PLAYER_UID)
+            + opcodes.encode(0xEC, 7, 16, 255, 0, 0, 0)              # fade back IN
+            + opcodes.wait(20)
+            + opcodes.remove_item(TENT_ITEM, 1))
 
 
 def has_tent_cond() -> bytes:
@@ -740,6 +762,8 @@ REVEAL_TURN_SPEED = 48         # TurnTowardObject speed in the post-land dressin
 #   351   | -- none --    | --             |  6              | (4, 16)                | no
 #   407   | 1362 (vol 99) | --             | 10              | (4, 16)                | yes
 #   853   | -- none --    | --             | 10              | (4, 16)                | yes
+TENT_SFX_REST = 1363           # the tent's opening chime -- field 300 @4925
+TENT_SFX_SLEEP = 1230          # the rest chime under the white fade -- field 300 @4988
 REVEAL_SFX_VOL = 99            # the reveal chime's own volume -- field 407 @1830 (the ACT uses 125)
 REVEAL_SFX_253 = 1363          # documented, never defaulted: HALF the donor set emits no reveal sfx at all
 REVEAL_SFX_407 = 1362          # (the ACT's own SFX_HOP shares this id; the reveal is a separate mechanic)
@@ -881,10 +905,15 @@ def reveal_state_loop(*, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
                                steps=steps, sfx=sfx, blend=blend)
            + reveal_landing_dressing(player_uid)
            + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_OUT))
-    hide = (opcodes.run_animation(REVEAL_HOP_CLIP)
-            + opcodes.wait(ACT_HOP_AIR_WAIT)
-            + opcodes.move_instant_xzy(cx, cz, cy)          # case 102: back to the container's own spot
-            + opcodes.encode(0x4B, *REVEAL_IN_LOGICAL_SIZE)  # ...and its collision shrunk away
+    # The stow is a REAL ballistic jump back down, not a teleport: the donor does
+    # `SetupJump(-250, -2, -571, 10) ; Jump()` (field 407 tag 3 @8674) -- the moogle visibly hops back
+    # into the cask. A MoveInstantXZY here made it blink out of existence instead.
+    hide = (opcodes.set_jump_animation(REVEAL_HOP_CLIP, int(blend[0]), int(blend[1]))
+            + (act_sfx(int(sfx), vol=REVEAL_SFX_VOL) if sfx else b"")
+            + opcodes.run_jump_animation() + opcodes.wait_animation()
+            + opcodes.setup_jump(cx, cz, cy, int(steps)) + opcodes.jump()
+            + opcodes.run_land_animation() + opcodes.wait_animation()
+            + opcodes.encode(0x4B, *REVEAL_IN_LOGICAL_SIZE)  # collision shrunk away (case 102's own)
             + opcodes.encode(0x93, REVEAL_HIDE_FLAGS)
             + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_IN))
     body = (_if_state(state_idx, REVEAL_STATE_POP_REQ, pop)
@@ -973,12 +1002,24 @@ def reveal_menu_cycle(menu_body: bytes, *, index: int = 0) -> bytes:
     which is why the menu reappears and why cancelling stows him). A synthesized field has no director, so
     the moogle's own talk handler owns the cycle -- same result, one less moving part. Cancel staying
     bodiless is a correctness requirement, not a shortcut (:func:`_row0_only`)."""
-    _state_idx, reopen_bit = reveal_vars(index)
+    state_idx, reopen_bit = reveal_vars(index)
+    # ⚠ THE MENU BODY ENDS IN A RETURN. Every dispatch in this module closes with
+    # `ENABLE_MENU + ENABLE_MOVE + RETURN`, so anything appended AFTER it is unreachable -- the first
+    # version of this wrapper put the whole cycle there and it was dead code: cancel never stowed the
+    # moogle and the menu never reopened (playtest, 2026-07-19). Strip that tail, wrap what remains, and
+    # re-emit the tail at the real end.
+    tail = opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN
+    body = bytes(menu_body)
+    if not body.endswith(tail):
+        raise ValueError("reveal_menu_cycle: the menu body does not end in the expected "
+                         "ENABLE_MENU/ENABLE_MOVE/RETURN tail -- refusing to wrap it, because appending "
+                         "past a RETURN silently produces dead code")
+    body = body[:-len(tail)]
     clear = _region.set_var(_region.MAP_BOOL, reopen_bit, 0)
-    loop = clear + bytes(menu_body)
+    loop = clear + body
     back = bytes([0x01]) + struct.pack("<h", -(len(loop) + 3 + 3))       # to loop top, past this jump
     cycle = loop + _region.if_block(_region.cond_truthy(_region.MAP_BOOL, reopen_bit), back)
-    return cycle + _region.set_var(_region.GLOB_UINT8, reveal_vars(index)[0], REVEAL_STATE_HIDE_REQ)
+    return cycle + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_HIDE_REQ) + tail
 
 
 def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None, index: int = 0,
