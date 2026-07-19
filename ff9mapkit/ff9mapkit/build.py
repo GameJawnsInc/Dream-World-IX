@@ -6044,14 +6044,16 @@ def collect_text(project: FieldProject):
             for si, (st, st_strt, st_tail) in enumerate(_mognet.status_entry_texts(
                     mg.get("status_none", _mognet.DEFAULT_STATUS_NONE))):
                 mg_pos[k][f"status{si}"] = _add_raw(st, st_tail, strt=st_strt)
-        # the ACT's save line (WindowAsync(1,128,·) while the book opens): one ordinary dialogue entry,
-        # act-on + moogle-on only. Added at the end of the savepoint's own entries so an act = false
-        # field keeps the previous text layout byte-identical.
+        # the ACT's save line (WindowAsync(1,128,·) while the book opens): stock's own entry (field 300
+        # txid 7) is `[IMME]Let's save, kupo![TIME=20]` -- NO speaker, NO quotes, immediate display,
+        # auto-dismiss after 20 -- so ours mirrors that shape exactly (the speaker key deliberately
+        # does not apply here). Act-on + moogle-on only; added at the end of the savepoint's own
+        # entries so an act = false field keeps the previous text layout byte-identical.
         if sp.get("moogle", True) and sp.get("act", True):
-            al = _text.with_speaker(sp.get("speaker"), str(sp.get("act_text", _savepoint.DEFAULT_ACT_LINE)))
+            al = str(sp.get("act_text", _savepoint.DEFAULT_ACT_LINE))
             if wrap is not None:
                 al = _text.wrap_text(al, wrap)[0]
-            act_pos[k] = _add_raw(al, sp.get("tail"))
+            act_pos[k] = _add_raw("[IMME]" + al + "[TIME=20]", sp.get("tail"))
     if not lines:
         return "", {}, {}, [], {}, {}, {}, {}, {}, {}, {}
     body, mapping = _text.build_mes(lines, start_txid=_text.DEFAULT_BASE_TXID, tails=tails, strts=strts)

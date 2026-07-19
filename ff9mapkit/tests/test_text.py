@@ -1,8 +1,11 @@
-"""Dialogue text: speaker-name prefix + per-line window TAIL. Pure (no game install needed).
+"""Dialogue text: the faithful speaker convention + per-line window TAIL. Pure (no install needed).
 
-FF9 has no name-box; a speaker name is just prefixed onto the line (optionally via a renameable
-name tag like [VIVI]), and the dialogue window's TAIL pointer says who's talking. These check the
-text layer + the collect_text integration (speaker prefix, per-line tail, txid mapping).
+FF9 has no name-box; attribution is authored INTO the text, and the real form (census 2026-07-18,
+12,711 stock entries: 9,009 use it, ZERO use a colon) is the name on its OWN line followed by the
+dialogue in literal curly quotes -- ``Name\\n“line”`` -- with a fully-parenthesized line rendering
+as the silent-thought sibling ``Name\\n(line)`` and unattributed text carrying no name and no
+quotes. The dialogue window's TAIL pointer still says who's talking. These check the text layer +
+the collect_text integration (speaker form, per-line tail, txid mapping).
 """
 from __future__ import annotations
 
@@ -10,10 +13,26 @@ from ff9mapkit import build
 from ff9mapkit.content import text
 
 
-def test_with_speaker_prefixes_or_passes_through():
-    assert text.with_speaker("Vivi", "Hello.") == "Vivi: Hello."
-    assert text.with_speaker(None, "Hello.") == "Hello."          # no speaker -> unchanged
-    assert text.with_speaker("[VIVI]", "Hi.") == "[VIVI]: Hi."    # name tag passes through verbatim
+def test_with_speaker_is_the_stock_name_line_plus_quotes():
+    assert text.with_speaker("Vivi", "Hello.") == "Vivi\n“Hello.”"
+    assert text.with_speaker(None, "Hello.") == "Hello."           # no speaker -> unchanged, unquoted
+    assert text.with_speaker("[VIVI]", "Hi.") == "[VIVI]\n“Hi.”"   # name tag slots in identically
+    assert text.with_speaker("[TEXT=0,0]", "Kupo!") == "[TEXT=0,0]\n“Kupo!”"   # variable speaker
+
+
+def test_with_speaker_thought_form_and_wrap_composition():
+    # a fully-parenthesized line = the stock silent-thought convention: parens, NO quotes
+    assert text.with_speaker("[ZDNE]", "(Hmm...)") == "[ZDNE]\n(Hmm...)"
+    # a paren that doesn't span the whole line is ordinary speech
+    assert text.with_speaker("Vivi", "(sigh) Fine.") == "Vivi\n“(sigh) Fine.”"
+    # wrap keeps ONE quote pair spanning all wrapped lines: open glued to the first word, close to
+    # the last, interior lines bare -- the stock multi-line shape
+    wrapped, overflow = text.wrap_text(text.with_speaker(
+        "Vivi", "We can send and receive letters to and from moogles in other locations!"), 28.0)
+    lines = wrapped.split("\n")
+    assert lines[0] == "Vivi" and not overflow
+    assert lines[1].startswith("“") and lines[-1].endswith("”")
+    assert all("“" not in ln and "”" not in ln for ln in lines[2:-1])
 
 
 def test_mes_entry_tail():
@@ -38,8 +57,8 @@ def test_collect_text_applies_speaker_and_tail():
     raw = {"npc": [{"name": "V", "dialogue": "Hello.", "speaker": "Vivi", "tail": "UPL"},
                    {"name": "W", "dialogue": "Yo."}]}             # second: defaults
     body, npc_txids, _, _, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(_Stub(raw))
-    assert "[TAIL=UPL]Vivi: Hello.[ENDN]" in body
-    assert "[TAIL=UPR]Yo.[ENDN]" in body
+    assert "[TAIL=UPL]Vivi\n“Hello.”[ENDN]" in body
+    assert "[TAIL=UPR]Yo.[ENDN]" in body                          # no speaker: no name line, no quotes
     assert npc_txids == {0: 500, 1: 501}
 
 
@@ -49,8 +68,8 @@ def test_collect_text_speaker_on_event_and_cutscene():
         "cutscene": {"steps": [{"say": "I'm here.", "speaker": "[ZDNE]", "tail": "LOR"}]},
     }
     body, _, ev_txids, cs_txids, _, _, _, _, _gw9, _co10, _sp11 = build.collect_text(_Stub(raw))
-    assert "Sign: It reads...[ENDN]" in body
-    assert "[TAIL=LOR][ZDNE]: I'm here.[ENDN]" in body
+    assert "Sign\n“It reads...”[ENDN]" in body
+    assert "[TAIL=LOR][ZDNE]\n“I'm here.”[ENDN]" in body
     assert ev_txids and cs_txids                                  # both got txids
 
 

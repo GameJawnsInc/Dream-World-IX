@@ -25,7 +25,7 @@ optional `[dialogue] wrap` width knob):
 | `[cutscene]` | each `{ say = "..." }` step |
 | `[[on_entry]]` | `message = "..."` (a field-load beat's narration, shown at entry; + `speaker` / `tail`) |
 
-At build time the kit collects all of it, applies the speaker prefix + auto-wrap, and writes one
+At build time the kit collects all of it, applies the faithful speaker form (name line + curly-quoted dialogue — FF9's own convention, never `Name:`) + auto-wrap, and writes one
 `<text-block>.mes` (default block `1073`) plus the `WindowSync` opcodes that show each line. **That whole
 path is unchanged** — this pillar only *reads* and *previews*.
 

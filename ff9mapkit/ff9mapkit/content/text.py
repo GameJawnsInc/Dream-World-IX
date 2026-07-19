@@ -30,10 +30,22 @@ TAIL_CODES = {"UPR", "UPL", "LOR", "LOL", "UPC", "LOC",
               "UPRF", "UPLF", "LORF", "LOLF", "DEFT"}
 DEFAULT_TAIL = "UPR"
 
-# How a `speaker` name is prefixed onto a line. FF9 has no name-box, so a name is just part of the
-# text; ": " is the common readable form. Use a name-variable tag in the speaker for a renameable
-# party member, e.g. speaker = "[VIVI]" -> renders the player's chosen name for Vivi.
-SPEAKER_SEP = ": "
+# THE SPEAKER CONVENTION (census 2026-07-18: 12,711 stock entries across 33 field blocks). FF9 has no
+# name-box; attribution is authored INTO the text, and the real game's form is NOT "Name: line" -- it is
+#
+#     Name\n“line”        (the name on its own line, then the dialogue in literal curly quotes)
+#
+# 9,009/12,711 sampled entries (70.9%) use exactly this; ZERO stock entries use a colon join. The
+# quotes are ordinary UTF-8 glyphs (U+201C/U+201D -- the engine has no speaker/quote concept at all;
+# FFIXTextTagCode/Dialog render them like any letter), opening once on the first dialogue line and
+# closing once on the last (wrapped interior lines carry neither). The name may be a literal string
+# ("Dali Villager", "Black Waltz No. 1"), a renameable-character tag ([ZDNE]/[VIVI]/... -> the player's
+# chosen name), or a variable ([TEXT=0,0] -- the save moogles' own roster identity). Unattributed text
+# (28.9% -- system windows, signs, narration) has NO name line and NO quotes. The one stock sibling
+# convention: a SILENT THOUGHT is Name\n(line) -- parentheses, no quotes ([ZDNE]\n(Hmm?  She sure is
+# dressed funny...)); with_speaker auto-detects a fully-parenthesized line and emits that form.
+QUOTE_OPEN = "“"      # “ -- a literal glyph in the entry bytes, not a tag
+QUOTE_CLOSE = "”"     # ”
 
 # Dialogue CHOICE text (one entry holds the prompt + the selectable rows). After the prompt, [CHOO]
 # starts the option list and each subsequent newline is one selectable row; [MOVE=18,0] indents each
@@ -49,9 +61,24 @@ CHOICE_IMME = "[IMME]"
 
 
 def with_speaker(speaker, text: str) -> str:
-    """Prefix ``speaker`` onto a dialogue line (``"Vivi: ...">``), or return ``text`` unchanged when no
-    speaker. ``speaker`` may be a plain name or an FF9 name tag like ``[ZDNE]`` / ``[VIVI]``."""
-    return f"{speaker}{SPEAKER_SEP}{text}" if speaker else text
+    """Attribute a dialogue line the way the real game does (see the SPEAKER CONVENTION note above)::
+
+        with_speaker("Vivi", "Hello.")   -> "Vivi\\n“Hello.”"      the spoken form
+        with_speaker("Vivi", "(Hmm...)") -> "Vivi\\n(Hmm...)"      a fully-parenthesized line = a
+                                                                    silent thought -- parens, no quotes
+        with_speaker(None, anything)     -> unchanged               narration/system: no name, no quotes
+
+    ``speaker`` may be a literal name, a renameable-character tag (``[ZDNE]``/``[VIVI]``/...), or a
+    variable like ``[TEXT=0,0]``. Auto-wrap composes cleanly: the ``\\n`` makes the name its own
+    segment, and the quotes glue to the first/last words so a wrapped body keeps ONE quote pair
+    spanning all its lines -- exactly the stock shape. (An audible hushed aside -- stock's rare
+    ``“(Kupo!)”`` -- is unattributed in the wild; author it as literal text with your own quotes.)"""
+    if not speaker:
+        return text
+    t = str(text)
+    if t.startswith("(") and t.endswith(")"):
+        return f"{speaker}\n{t}"                        # the silent-thought convention
+    return f"{speaker}\n{QUOTE_OPEN}{t}{QUOTE_CLOSE}"
 
 
 def mes_entry(text: str, txid: int, *, strt: tuple = (10, 1), tail: str = DEFAULT_TAIL) -> str:
@@ -138,6 +165,8 @@ _GLYPH_W = {
     "!": 0.45, "i": 0.45, "j": 0.45, "l": 0.45, "I": 0.5,
     "(": 0.5, ")": 0.5, "[": 0.5, "]": 0.5, "/": 0.5, "\\": 0.5,
     "f": 0.55, "t": 0.55, '"': 0.6, "-": 0.6, "r": 0.6,
+    # the curly quote/apostrophe glyphs the speaker convention now emits (match their straight kin)
+    "“": 0.6, "”": 0.6, "‘": 0.3, "’": 0.3,
     "s": 0.75, "J": 0.75, "?": 0.9,
     "m": 1.45, "w": 1.4, "M": 1.6, "W": 1.6, "@": 1.6, "&": 1.25,
 }

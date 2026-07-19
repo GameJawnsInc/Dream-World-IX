@@ -274,7 +274,7 @@ automatically, so a forked field keeps its per-door arrivals out of the box.
 | `pos` | `[x, z]`. |
 | `dialogue` | a line shown when talked to (assigned a non-colliding high text id automatically). |
 | `text_id` | use an explicit text id instead of `dialogue`. |
-| `speaker` | optional name shown before the line → `"Vivi: …"`. See *Speaker names & the tail* below. |
+| `speaker` | optional attribution, rendered FF9's own way — the name on its own line, then the dialogue in curly quotes. See *Speaker names & the tail* below. |
 | `tail` | the dialogue window's pointer corner (`UPR` default). See below. |
 | `requires_flag` | GlobBool index (or a `[[flag]]` name) — the NPC only **appears** when that story flag is SET (its Init returns early otherwise: no model, not interactable). For story-gated characters. |
 | `requires_flag_clear` | …only appears when the flag is CLEAR (the inverse — e.g. an NPC that leaves once an event fires). |
@@ -284,13 +284,26 @@ automatically, so a forked field keeps its per-door arrivals out of the box.
 ### Speaker names & the dialogue tail
 
 FF9 has **no speaker name-box**. Who's talking is shown by the dialogue window's **tail** (the little
-pointer), and a name — when shown at all — is just part of the text. Two optional keys (on `[[npc]]`,
-`[[event]]`, and cutscene `say` steps) make that ergonomic:
+pointer), and attribution — when shown at all — is authored into the text. The kit renders `speaker`
+**exactly the way the real game does** (byte-censused across 12,711 stock entries, 2026-07-18): the
+name on its **own line**, then the dialogue wrapped in **curly quotes** on the next —
 
-- **`speaker`** — prefixes the name onto the line: `speaker = "Vivi"` → `"Vivi: <your line>"`. Use one
-  of FF9's **renameable name tags** for a party member so it tracks the player's chosen name:
-  `speaker = "[VIVI]"` (also `[ZDNE]` Zidane, `[DGGR]` Dagger, `[STNR]` Steiner, `[FRYA]`, `[QUIN]`,
-  `[EIKO]`, `[AMRT]`, `[PTY1]`–`[PTY4]`). You can also just type the name into `dialogue` yourself.
+```
+Vivi
+“I missed you, Zidane.”
+```
+
+— never `"Vivi: …"` (no stock entry uses a colon join). Two optional keys (on `[[npc]]`, `[[event]]`,
+`[[savepoint]]`, `[[choice]]`, and cutscene `say` steps) make that ergonomic:
+
+- **`speaker`** — the attribution. Use one of FF9's **renameable name tags** for a party member so it
+  tracks the player's chosen name: `speaker = "[VIVI]"` (also `[ZDNE]` Zidane, `[DGGR]` Dagger,
+  `[STNR]` Steiner, `[FRYA]`, `[QUIN]`, `[EIKO]`, `[AMRT]`, `[PTY1]`–`[PTY4]`). A dialogue line that
+  is **entirely parenthesized** renders as FF9's *silent-thought* form — name line + `(the thought)`,
+  no quotes (`dialogue = "(Hmm... She sure is dressed funny.)"`). **No speaker = no name line and no
+  quotes** — the stock convention for narration, signs and system windows. You can also just type the
+  name and quotes into `dialogue` yourself for full control (e.g. the rare unattributed hushed aside
+  `“(Kupo!)”`).
 - **`tail`** — which corner the window's pointer comes from: `UPR` (default) `UPL` `LOR` `LOL` upper/
   lower-right/left, `UPC` `LOC` upper/lower-center, the `…F` force variants, or `DEFT` (engine
   default/auto). Handy when the default points the wrong way for an NPC's on-screen position.
@@ -299,10 +312,14 @@ pointer), and a name — when shown at all — is just part of the text. Two opt
 [[npc]]
 name = "Vivi"
 preset = "vivi"
-dialogue = "I missed you, [ZDNE]."   # renders "Vivi: I missed you, Zidane."
+dialogue = "I missed you, [ZDNE]."   # renders as the name line + “I missed you, Zidane.”
 speaker = "[VIVI]"                    # renameable name; or just "Vivi"
 tail = "UPL"                          # pointer from the upper-left
 ```
+
+Multi-line dialogue keeps **one** quote pair — the auto-wrap opens `“` on the first dialogue line and
+closes `”` on the last, exactly as stock does. (Avoid `[PAGE]` inside a *spoken* line with a speaker:
+stock never quotes across a page break — give each conversation line its own entry/`say` step.)
 
 ### Rotating casts (story-event fields)
 
@@ -582,7 +599,7 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 # confirm = "Save your progress?"                        # the Yes/No question
 # save_row = "Save"   ; cancel_row = "Cancel"            # the option-menu rows
 # yes_row  = "Yes"    ; no_row     = "No"                # the confirm rows
-# speaker = "Mog"                                        # prefixes both questions
+# speaker = "Mog"                                        # attribution on the questions (name line + curly quotes)
 # latch = true                                           # the GLOB(184) bracket (leave on)
 # act = true                                             # the Moogle's save CHOREOGRAPHY (default true)
 # act_text = "Here we go, kupo!"                         # its line while the book is open
@@ -598,13 +615,13 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 | `dialogue` | the option menu + Yes/No confirm — default `true`. `false` opens the save menu immediately on touch (no real save point does this; kept as an escape hatch). |
 | `prompt` / `confirm` | the two questions. Defaults are neutral wording, not FF9's own strings (the kit ships no Square-Enix text). |
 | `save_row` / `cancel_row` / `yes_row` / `no_row` | the menu rows. **Cancel is row 1 in both menus** and must stay bodiless — see `SAVEPOINT.md`. |
-| `speaker` | optional name prefixed onto both questions. |
+| `speaker` | optional attribution on the menu questions — rendered FF9's way (name line + curly-quoted line; see *Speaker names & the tail*). The act line deliberately ignores it (stock's is unattributed). |
 | `latch` | the `gEventGlobal[184]` bracket around the save — default `true`; every real save point sets it. |
 | `tent` | `true` adds the **Tent** row: the confirm with a live remaining count, or "you don't have any tents"; resting restores **half of maximum HP and MP** (rounded up) to every living party member — a KO'd member is not revived — and consumes one Tent. Wording: `tent_row` / `tent_prompt` / `tent_yes` / `tent_no` / `no_tent`. |
 | `shop` | a `[[shop]]` id — adds the **Mogshop** row, opening that shop's inventory (`Menu(2, id)`). The `[[shop]]` must exist in the same field. Label: `shop_row`. |
 | `party` | `true` adds the **Switch party members** row (`Party` + `UpdatePartyUID`). `party_min` = minimum party size (0–4, default 4), `party_locked` = bitmask of character slots the player may not remove (default 1 = slot 0). Label: `party_row`. |
 | `act` | the Moogle's **save choreography** — default `true`. On the confirmed Yes it hops (clip 6503 + the real SFX), the **book + feather** props appear and open, the Moogle opens its book (4645) while `act_text` shows, the save menu runs, then everything reverses (the census-invariant template of all 57 real save moogles — `SAVEPOINT.md`). Needs `moogle` and `dialogue`. `false` = the still moogle. |
-| `act_text` | the Moogle's line during the act (an ordinary dialogue window, async). |
+| `act_text` | the line during the act — shipped stock-shaped: `[IMME]` + your text + `[TIME=20]` (immediate, auto-dismiss), NO speaker and NO quotes, mirroring the real field-300 entry byte-for-byte. |
 | `act_hop_to` | `[x, z]` (or `[x, z, y]`) — a landing spot: the Moogle traverses there and back with the donor's 15-frame lerp (for a moogle perched off its save spot). Default: hop in place at `pos`. |
 
 The menu shows only the rows you configure, in FF9's own order — **Save · Tent · Mognet · Mogshop ·
@@ -711,7 +728,7 @@ once = false
 |---|---|
 | `zone` | 4 convex `(x,z)` corners of the trigger region (place where the player walks). |
 | `message` | text shown in a dialogue window when triggered (added to the field's `.mes`). |
-| `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
+| `speaker` / `tail` | optional — same as `[[npc]]` (the faithful name-line + quotes form + the window pointer); see *Speaker names & the tail*. Usually omit `speaker` for an unsigned popup. |
 | `give_item` | `[item, count]` — `item` is an **id or a name** (`"Potion"`, also weapons/armor like `"Excalibur"`); `AddItem`. List names + stats with `ff9mapkit items`. |
 | `remove_item` | `[item, count]` — **take** items from the bag (id or name); `RemoveItem`. The symmetric counterpart of `give_item` — pair the two for a **trade**, or use alone for a quest-item consume. |
 | `received` | *(give_item only)* `true` = show the canonical FF9 **item-get window** ("Received \<item\>!", window type 7) instead of a plain message — `SetTextVariable(0, item)` + `[ITEM=0]`. |
@@ -1294,7 +1311,7 @@ text = "Leave it."                     # non-destructive: press again to retry (
 | `once` | *(zone + `trigger="walk"` only)* `true` (default) = once ever (persistent flag); `false` = once per field visit. A `walk` menu must be flag-gated to avoid re-popping every frame, so a `walk` decline still consumes that arming — prefer `action` for a re-usable lever. |
 | `flag` | *(zone + `walk` only)* explicit gate-flag index (default auto from `8200`, GLOB). |
 | `prompt` | the question text (added to the field's `.mes`, above the option rows). |
-| `speaker` / `tail` | optional — same as `[[npc]]` (a name prefix + window pointer). |
+| `speaker` / `tail` | optional — same as `[[npc]]` (the faithful name-line + quotes form + window pointer). |
 | `instant` | *(optional, bool)* `true` → FF9's `[IMME]` tag: the menu **pops fully drawn** with no character-by-character type-on (snappy menus; the World-Hub journey selector uses it). |
 | `options` | a list (`[[choice.options]]`) of **≥ 2** rows the player picks from. |
 | `default` | *(optional)* option index highlighted when the menu opens (0 = top row; default 0). |
