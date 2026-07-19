@@ -1,0 +1,236 @@
+# Overworld adversarial audit + exploratory roadmap — 2026-07-18
+
+> **What this is.** Two multi-agent workflow runs (137 Sonnet agents, ~14M subagent tokens) executed 2026-07-18:
+> **Phase 1** adversarially audited the entire overworld knowledge base — 260 falsifiable claims extracted from
+> five doc layers (the coast-mosaic memory law index, the interior-topography memory + study README, the misc
+> overworld memories, the docs/skill layer, and the code's own self-claims), clustered into 14 subsystems, attacked
+> by one auditor per cluster, every alleged defect re-derived by two independent skeptics (many re-ran the study
+> scripts against the live install). **Phase 2** swept six lenses for next work (pendings ledger, unexplored stock
+> data, verb-fidelity gaps, audit repairs, engine candidates, player value), merged 113 raw candidates to 28,
+> scored each with four judges (feasibility / player-value / fidelity / leverage-risk), and tiered them.
+>
+> Status ledger: `[ ]` open · `[x]` done (update in place as items land).
+
+---
+
+## Phase 1 — audit scoreboard
+
+**260 claims: ~205 held outright · 20 defects confirmed 2-2 · 19 split 1-1 · 13 allegations rejected · 3 unverifiable offline.**
+The mechanisms, gates, and constants overwhelmingly survived; the recurring defect class is **measured numbers and
+status framings that don't reproduce from the scripts that supposedly produced them**. The study-arc corollary of
+the GUI study's docstring law: **a number without a rerunnable script is a wish.**
+
+| Cluster | claims | held |
+|---|---|---|
+| Coast Ladder & Open-Water Mechanics | 24 | 21 |
+| Beach Shape, Foam & Beach-Mint | 23 | 17 |
+| Ground Families & UV-Translation Laws | 19 | 9 |
+| Coastal Cliff-Wall Texture Constants | 9 | 6 |
+| Interior Massif & Mountain-Wall Organization/Carry | 29 | 22 |
+| Interior Topography Census, Terrace & Canopy | 18 | 13 |
+| Transplant Growth-Cuts, Weld/Hairline & Donor-Carry Gates | 28 | 25 |
+| Fuse Law, Multi-Cell Census & Continent Composition | 9 | 9 |
+| Disc-Mirror/Two-Tree & Cross-Cutting Status/Dead-Ends | 18 | 18 |
+| Overworld Entrances, Nameplate & Navimap | 11 | 8 |
+| Ground-Query, Movement-Legality & Walk-Trap Engine | 24 | 19 |
+| World Dispatchers, Encounter Tables & Minimap Arming | 14 | 11 |
+| Vehicles, Boats, Chocobo & F6 Vehicle/Actor-State | 21 | 20 |
+| Terrain-Authoring Reshape Law & Engine Guards | 13 | 7 |
+
+**What survived (worth stating):** the whole fuse/continent cluster, the whole disc-mirror/two-tree cluster, 25/28
+transplant gates, 20/21 vehicle claims, the full per-family UV-translation offset table (reconfirmed to 5dp by
+independent probes), the beach translation law, the ground-query registration-order core, walk-legality, the
+ensemble/free-ride mechanism, the MOD-OVERWRITE gate, and every recorded dead-end.
+
+---
+
+## Phase 1 — confirmed defects (20, all 2-2 verified)
+
+### A. The one code bug — FIXED
+- [x] **`pack_cell_tag` masked z to 7 bits; the engine masks to 6.** `entrance.py` packed `(cell_z&0x7F)<<8` but
+  ff9.cs `WorldEvent` builds `z<<8 & 0x3F00` — entrances at `cell_z ≥ 64` (southern half of the map) could never
+  fire. **Fixed on master `2b73900`** (2026-07-18, same day, own task session).
+
+### B. Numbers that don't reproduce (the "748/0" class)
+- [ ] **Canyon "748 wall tris map-wide, 0 coastal"** — `family_wall_envelope.py`'s tally only sums the **top-8
+  specimen blocks per family** despite the census loop scanning all 260. Literal re-run: 231/0. Two independently
+  written true full-map sweeps both converge on **~655 tris, ~1–3 borderline-coastal** (negative-y, likely interior
+  gorge). Git archaeology: the 748/0 figure was *never* reproducible from this code+data. Frozen into the
+  coast-mosaic memory, CLAUDE.md Frontier, this study's README (~L836), and the `grassland.py:101` comment.
+  **The WALL-CONTEXT LAW's direction survives** (canyon drastically less coastal than grass/desert/snow ~97–99.7%),
+  and both refusal gates are correctly wired (`island.py:249`, `transplant.py:493`).
+- [ ] **Snow "733/733 coastal"** — literal re-run: 272/8; true full-map: **1019/1016 (99.7%, not literally all)**.
+  Max face height 5.73u does reproduce exactly.
+- [ ] **EXACT-PIN "60/63"** — exists only as a prose comment (`uaho_probe_panel.py:174`) citing itself; no committed
+  script computes it (the script's `n_snap` counts a different, later operation).
+- [ ] **NO-FREE-MESA "74–95% high rim"** — no committed script computes it; the nearby ~74% in `crag_anatomy.py:20`
+  measures a different quantity (course-weld fraction). The qualitative law itself is well corroborated.
+- [ ] **BAND-SWEEP "exactly 4.0 tiles / v 2.5–3.3 rows"** — no committed script computes the continuous spans;
+  `uaho_flow_anatomy.py` prints discrete touched-tile sets (columns do cluster ~4; rows read as 3–4 discrete bins).
+- [ ] **Rock-tile base band "564/585 (rows 7–10 × cols 6–9)"** — 564 actually equals rows 9+10 summed across ALL
+  columns; the stated rectangle sums to 556/585. Headline counts (8945 groups / 13929 pairs / 86 tiles / crest
+  950/1006) all reproduce exactly.
+- [ ] **Wall foot-weld "~100% (15/15, 13/13, 19/19, 27/27)"** — those four are real but are the strongest cases;
+  block (21,14) is **0/5** and (13,5) is 9/11. Course_vert_share=0.0 and crest 0/57 reproduce exactly. *(split 1-1
+  on "acknowledged", confirmed as cherry-pick)*
+- [ ] **GORE-PANEL "residual p90 ≤ ~25px"** — re-run: 9 patches (vs "~8", fine), cut meridians 120°/270° match, but
+  measured patch 3 has **u-residual p90 = 40px** — a real counterexample among the law's own specimens.
+
+### C. Superseded laws still live in the canonical layer
+- [ ] **RING LADDER "exact fixed order"** — the kit's own later map-wide census admits the lawful **{sea1,sea5}**
+  adjacency (sea3 skipped): `coastmorph.py:2820` `_LAWFUL_ADJ`, memory L2796. The LAW INDEX entry (L19) and
+  `coast-laws.md:24` still state unqualified exact order. *(the index entries confirmed; the memory-body variant split)*
+- [ ] **MOAT LAW v2 labeled "final form"** — the "final form" label belongs to the **VERGE RULE** (2u topo-49
+  relabel), not the superseded ~4u clearance; and `references/terrain-entrance.md:78` still prescribes "clip the sea
+  mesh at the coast outline," which the FULL-CELL SEA REVELATION replaced.
+- [ ] **SHAPE-CLASS gate docstring** (`coastmorph.py:1259`) still carries the "+46% nose" framing that the 32-run
+  re-census diagnosed as a pocket misread (the memory's LAW INDEX itself is correct). *(split at index level,
+  confirmed at docstring level)*
+- [ ] **ONE GLOBAL WINDING FLIP is a dead law** — lived only in the abandoned `bay_warp` warp experiment; shipped
+  `transplant.py` performs only det=+1 rigid rotations that can never flip winding. The LAW INDEX presents it as a
+  durable principle for carried geometry generally.
+- [ ] **STRICT SHORE donor table stale vs its own tool** — under today's `cut_census`, donors (8,16) and (7,15)
+  return **zero** ok cut lines, and (16,17)'s in-game-proven line 1056 now trips `conforming-on-line` (a risk added
+  seven commits after the table was minted). *(split 1-1: the build it blessed remains proven; the table is stale)*
+
+### D. The engine is sharper than the docs
+- [ ] **GHOST-4078 is not "invisible to every query"** — live engine paths set `WMPhysics.IgnoreExceptions=true`,
+  re-enabling 4078/4088/2040 as hits: the **per-frame ground snap for every non-controlled actor** (ff9.cs:5116),
+  the overworld-entry fix-up `w_movementChrFixBug` (ff9.cs:4666, every entry), and
+  `w_movementChrVerifyValidCastPosition`. Matters for followers/co-op ghosts on custom ground.
+- [ ] **Mesh scan order has real exceptions** — block 219 (Water Shrine) early-returns after Object/Terrain/Sea3/4/5
+  (WMWorld.cs:569); volcano blocks insert VolcanoCrater/VolcanoLava **before** Beach1 (WMWorld.cs:606). The
+  placement simulator's "universal" order is right everywhere else.
+- [ ] **F6 vehicle allow-list: 9009 is NOT crash-safe in shipped code** — `VehicleAllowByWorld` is exactly
+  {9002, 9010, 9011}; 9009 defaults FootOnly; forcing needs the separate default-OFF `_vehicleForceAll` "may CRASH"
+  toggle. The vehicles memory claims otherwise (a 2026-07-08 in-game note says forcing 9009 didn't crash — reconcile
+  docs vs dict, see roadmap).
+- [ ] **Navi-map markers: `ff9.navipos` locIds 49–53/59–63 are all-zero in BOTH map dimensions** — the bit math
+  (base 736, bytes 92/94/96/98) and the 63→49 Chocobo's-Paradise alias verified exactly, but a revealed custom bit
+  in that range has no coordinates to draw at. **Re-scopes any custom-marker plan.**
+- [ ] **Special/friendly pack empty slot is `0xFFFF`, not the documented 0** — OVERWORLD_ENGINE.md:949 says "0 =
+  empty"; the kit's own `SPECIAL_EMPTY = 0xFFFF` (`worldpack.py:39`) and the real disc bytes (65535 everywhere) agree
+  against the doc.
+- [ ] **Stale `ff9.cs:7141` citation for `w_nwpHit`** — s39's insertions moved it to ~7221; the stale line is baked
+  into `terrain.py`'s module docstring, the terrain memory, and OVERWORLD_ENGINE.md:462.
+- [ ] **Disc-4 selection isn't "purely" SC≥11090** — `WorldConfiguration.GetDisc()` first checks the config-driven
+  `_customDiscModifier.HasCondition` override, then falls back. *(split 1-1 — arguably a Memoria-config nuance)*
+- [ ] **Navi arming nuance** — 9002 truly never arms; 9000/9009 arm unconditionally; but **9005 arms conditionally
+  on ScenarioCounter==9605** (the memory does scope 9005 separately; the "every… unconditionally EXCEPT 9002"
+  shorthand is what's wrong). *(split — partial strawman)*
+- [ ] **world-reclaim streaming-site line cite wrong** — `IsSea` gate confirmed at WMWorld.cs:495 and **:1250**
+  (not the documented :1180); mechanism itself fully verified, incl. `[NonSerialized]` and no downstream gate.
+- [ ] **terrain "591-up/0-down" winding figure** is block-(16,14)-specific, presented as general. The other three
+  reshape "mesh bugs" verified solid (incl. live byte-identical boundary test across (2,7)+(2,8)).
+- [ ] **LOAD-BEARING RULE mechanism nuance** — "overlay loses the raycast" is the wrong mechanism: a render-only
+  overlay is simply **never registered** in ActiveWalkMeshes; and overriding the Object part on a block whose stock
+  prefab carries a real ObjectForm1 (town blocks) is a genuine walkability edge the universal framing misses.
+  *(rule-of-thumb stands; split on the restatement, confirmed on the mechanism claim)*
+
+### E. Precision nicks in the cliff/wall constants *(mostly split 1-1 — real data, arguably in-tolerance)*
+- [ ] Desert top-edge V is **not** zero-spread (IQR 0.018–0.029 across topo45/46); grass/highland/topo-27 genuinely
+  are exact. Medians all reproduce (0.8926 / 0.8721 / 0.9443 / ~0.39).
+- [ ] Per-column lip anchor: (7,17) and (16,17) — 2 of 5 specimens — carry a small minority (6.7% / 2.6%) of
+  off-band V values (0.8936/0.9219) on frame-edge verts, some at the waterline.
+- [ ] On-grain gate: code enforces **8.0u** (`island.py:352/594/611`), the law says "~6.6u".
+- [ ] Topo→family partition covers **35 of 37** ids — topo 38 (bare dirt hillsides, 3119 tris / 52 blocks) and
+  topo 51 (stream) are unassigned extras.
+- [ ] LOOK-FAMILY / ISLAND COROLLARY headline numbers reproduce almost exactly (14 components, one continent with
+  high_a 31.6k / esc 211k); the splits are scope-phrasing.
+
+### F. Unverifiable offline (trusted on their playtest record)
+COL-FREEDOM's in-game invisibility; its row-swap converse (the pale off-course square); NO-ENCLOSED-DUNES under the
+census 2000-cell cap.
+
+### G. Rejected allegations (13 — the skeptic system working)
+(7,17)-only-beach ×2, HUG LAW drift ×2, the 44-donor/block-219 claim, `mint_landmass` naming nit, VertexDisplace
+envelope, step-ceiling 2.34375u, topo-13 shelf pinning, GROWTH CEILING skill restatement, mesh-precedence
+restatement, WORLD09 roster claim, terrain-entrance 4-bug restatement — all died as strawmen, misreadings, or
+caveats the source already carries.
+
+---
+
+## Phase 2 — the roadmap (28 candidates, 4-judge scored, synthesis-tiered)
+
+Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fidelity north-star · `leve`=leverage/risk.
+
+### DO-NEXT
+- [ ] **Re-census wall-envelope map-wide, fix canyon/snow figures** (6.75: feas 9 play 1 fide 8 leve 9) — extend
+  `family_wall_envelope.py`'s tally to all 260 blocks, inspect the ~3 flagged canyon-coastal tris, correct every
+  citation. Root-causes 5 confirmed findings at once. Offline, zero risk.
+- [ ] **Doc/citation corrections batch** (5.5: feas 9 leve 9) — the ~18 stale passages from Phase 1 §B–E above.
+  Zero player value; hardens the layer every future session reads.
+- [x] **Fix pack_cell_tag's cell_z 6-bit mask** — landed on master `2b73900`.
+- [ ] **Auto-run world-mirror inside the deploy writers** (6.5: leve 8) — wire `discmirror` as a post-step in the
+  world deploy path (behind `--skip-mirror`), gated on any Sea*/Terrain override. Folds the proven disc-4-vanish fix
+  into the path so it can't be forgotten.
+- [ ] **Grow the massif `--donor` library past 3** (6.75: feas 8 fide 8) — 164/260 blocks carry topo-49 rock; only
+  Uaho/crag/horseshoe are qualified. With synthesis falsified, donors are the only path to mountain variety. Pure
+  offline anatomy census per candidate.
+- [ ] **Decode the remaining discmr.img pack sub-tables** (6.75: fide 9) — `worldpack.py` implements only indices
+  3–4; source-cited but undecoded: 0 EffectAreaBin, 1 ChocoboPal, 2 PaletVolcano, 5 ColorTable (weather),
+  6 AnimationTable (scroll), 7 SpsData, 41 Effect…, and **66 ModelSea** — real stock sea geometry to ground-truth
+  `world-water`'s Wang synthesis.
+
+### SOON
+- [ ] **Resolve ground-family + ecotone decode gaps** (6.0) — topo-16 dirt has no translation formula; canyon's
+  un-chased 3rd v-level; topo 7/62 lumped with 49 unconfirmed; the earmarked 5dp ecotone strip decode. **Gates** the
+  ensemble-carry and mixed-biome items below — sequence first.
+- [ ] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
+  blocks; the realistic beaches-on-our-islands path now the mint ladder is dead. (Canyon expected near-empty per the
+  re-censused wall envelope.)
+- [ ] **Resurrect rolling relief for minted islands** (6.0: play 8, feas 5) — every mint since DEAD-RELIEF is
+  byte-flat; resurrection notes in this README. Re-key `relief_field` to the same world-coord frame as `fill_y`;
+  prove offline before touching shared code (zero-byte-diff acceptances guard it).
+- [ ] **Fix minimap player-icon west-bias + document the w_naviGetPos dual regime** (6.0: play 9, leve 3) — likely a
+  non-centered RectTransform pivot (WorldHUD.cs:651/733); the pre/post-SC-5990 formula switch is undocumented.
+  DLL work — fold into one deliberate engine round.
+- [ ] **Playtest a targeted (non-uniform) encounter re-table** (6.0) — one `[[set]] area=N` edit + one F6 check
+  closes the last gap on the offline-proven world-encounters feature.
+- [ ] **Census and carry a standalone stream/falls part** (5.5) — do any Stream/River/Falls parts sit on lowland
+  unattached to a massif? If yes, a genuinely new `world-river` mint verb becomes possible.
+- [ ] **Decode unstudied mesh parts: Beach2 (4 blocks), Sea6 (4), the sole Sea4f (12,0), block 219** (5.25) — pure
+  read-only UnityPy decode; possible new vocabulary tier.
+- [ ] **Scope a real navimap marker slot** (5.25: play 8, feas 3) — given the all-zero navipos discovery, a custom
+  location can never draw a pause-map dot without an engine table edit; scope minimal-entry vs repurposing dead
+  slot 63 first. DLL round.
+
+### LATER
+- [ ] Reconcile the F6 9009 vehicle allow-list vs the 2026-07-08 in-game note (docs or dict — pick one) (4.5)
+- [ ] Ensemble-carry rung for scrub/brush/dunes (5.0) — **blocked on the ecotone decode**; also resolve the deployed
+  (544,−1248) scrub islet's amputation-stump ends
+- [ ] Gulug volcano parts + lava-hazard study (5.0) — prerequisite for any volcano/hazard terrain
+- [ ] Mint a second island canvas; re-check the scenery-seal + interior rungs' generality (every proven rung landed
+  on the one island-E mint) (5.0)
+- [ ] Misc content-decode batch: chocograph destination table, friendly-monster GLOB 194/198 flip timing, airship
+  encount 22/23, `m_GetIDArea` bit math (5.25)
+- [ ] Small bug-fix batch: the r31 mint 1-tri hole, the confounded Uaho texture probe re-run (mist OFF), self-heal
+  fallback point, the stale STRICT SHORE table, the open-ocean gate gap (5.25) — split, don't bundle
+- [ ] Extend-feature batch: (6,15) mesa carry at scale, cliff+beach single-cell coast-morph gap, snow/canyon
+  ecotones, fuse land-knit seam prototype, s34 sidecar stripping (4.25) — hold for precursors
+- [ ] Playtest-verification + apply-recipes batch (4.5) — **violates one-change-per-test as bundled; split it**:
+  vehicle-legality on minted terrain, beach-carry onto island E/F, buildings/minimap/chocobo recipes on shipped content
+- [ ] Workspace GUI world tab (3.25) — authoring parity with battle/co-op tabs; zero player value
+
+### RESEARCH QUESTIONS
+- [ ] **Decode the vehicle topograph masks** (chocobo tiers / gold / airships / Invincible legality unenumerated;
+  each dispatcher's vehicle switch undecoded) — settle the study before any F6 allow-list widening.
+- [ ] **Can co-op ghosts exist on the overworld at all?** Netsync gates ghosts off at gMode==3 by design; a pure
+  WMWorld.cs actor-registration read settles feasibility before any wire work.
+
+### DROPPED
+- F6 disc-switch navi-arm (DLL rebuild for a debug-only edge case, resting on a split finding)
+- Island-F wall cosmetics (that geometry was reverted — it no longer exists)
+- CSV seam for world encounters (no payoff over the byte-proven override path)
+
+### Sequencing laws (from the synthesis)
+1. The two trust repairs (wall re-census + doc batch) come **before** anything that cites those numbers again.
+2. All DLL-touching items (minimap bias, navimap slot, vehicle masks) = **one deliberate engine round**, not
+   piecemeal rebuilds (auto-deploy, no backup).
+3. The ecotone/ground-family decode **gates** ensemble-carry and mixed-biome extension — don't schedule those first.
+4. Batches that bundle in-game checks must be split per the one-change-per-test law.
+
+---
+
+*Full per-agent evidence: session 2026-07-18 workflow journals (runs `wf_6d85aadf-620` audit, `wf_4eac8404-698`
+roadmap). This file is the durable record.*
