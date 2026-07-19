@@ -5,6 +5,8 @@ while five commits reported it green."""
 
 from __future__ import annotations
 
+import pytest
+
 from ff9mapkit import prefs
 from ff9mapkit.editor import theme
 from ff9mapkit.workspace import style
@@ -511,6 +513,9 @@ def test_the_nameplate_outranks_the_body_it_crowns():
 def test_the_log_register_uses_a_weight_the_mono_face_actually_has():
     """600, not 550 -- THE CUT LIST IS PER-FAMILY, and the console is not the app's face.
 
+    (An exception to this file's PySide6-free charter: importing workspace.shell pulls Qt in at module
+    top, so this fence skips where PySide6 is absent -- the [gui] extra's CI job never installs it.)
+
     NAMEPLATE's fence encodes SEGOE UI's cuts, where 550 is the first weight reaching Semibold. The
     console renders in the mono chain, and measured natively:
 
@@ -526,6 +531,7 @@ def test_the_log_register_uses_a_weight_the_mono_face_actually_has():
 
     Asserted as data, not by render: the suite runs offscreen, where the font DB is stubbed.
     """
+    pytest.importorskip("PySide6")
     from ff9mapkit.workspace import shell as shell_mod
 
     code = _code_only(shell_mod.Workspace._log)     # docstrings stripped: this one NAMES both weights
@@ -559,6 +565,7 @@ def test_the_log_never_switches_the_document_to_rich_text():
     line of raw stdout containing a `<` is eaten as markup. A build log is full of them (generics, shell
     redirects, XML). QTextCursor + setCharFormat + insertText keeps the document plain.
     """
+    pytest.importorskip("PySide6")   # workspace.shell imports Qt at module top
     from ff9mapkit.workspace import shell as shell_mod
 
     assert "appendHtml" not in _code_only(shell_mod.Workspace), \

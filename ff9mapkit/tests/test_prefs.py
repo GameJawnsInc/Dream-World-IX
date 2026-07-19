@@ -3,6 +3,8 @@ is redirected to a tmp path via provision._user_dir so the test never touches th
 
 from __future__ import annotations
 
+import pytest
+
 from ff9mapkit import prefs
 
 
@@ -139,6 +141,7 @@ def test_the_os_slider_snaps_into_the_rungs_we_actually_ship(tmp_path, monkeypat
     exactly, anything above our top must clamp to it, and junk outside the documented range must not be
     obeyed -- a registry value is user-writable and 10000 is not a text size.
     """
+    pytest.importorskip("winreg")   # Windows-only stdlib; the no-winreg fallback is covered above
     _isolate(tmp_path, monkeypatch)
     seen = {}
 

@@ -17,6 +17,16 @@ from ff9mapkit.eb import EbScript, disasm, opcodes
 
 from tests.test_mognet import act_async_contract, run
 
+
+def _game_ready() -> bool:
+    """The roster-speaker tests source the Mognet roster from the user's own install (the proven
+    test_world_reclaim pattern) -- a bare CI box has no game, so they skip there."""
+    try:
+        from ff9mapkit import config
+        return (config.find_game_path(None) / "StreamingAssets").is_dir()
+    except Exception:
+        return False
+
 # --------------------------------------------------------------------------- byte pins vs the donor ---
 
 
@@ -396,6 +406,7 @@ def test_act_validation_gates(tmp_path):
 # --------------------------------------------------------------------------- the roster speaker + menu pos ---
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install (sources the Mognet roster)")
 def test_mognet_moogle_speaks_as_its_roster_identity(tmp_path):
     """A network moogle's windows use [TEXT=0,0] (stock's own idiom) and the dispatch seeds text var 0
     with the moogle's roster id -- so the name comes from the roster row, not a baked literal."""
@@ -421,6 +432,7 @@ def test_mognet_moogle_speaks_as_its_roster_identity(tmp_path):
     assert body.index(seed) < body.index(opcodes.window_sync(2, 8, ct[-1][0]["prompt"]))
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install (sources the Mognet roster)")
 def test_explicit_speaker_overrides_the_roster_identity(tmp_path):
     from ff9mapkit import build
     toml = (_FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nspeaker = "Mogwai"\n')
@@ -482,6 +494,7 @@ def test_menu_pos_validation(tmp_path):
                 if "savepoint" in x.lower()]
 
 
+@pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install (sources the Mognet roster)")
 def test_roster_speaker_and_its_seed_stay_in_lockstep(tmp_path):
     """THE LOCKSTEP: whether the prompt SPEAKS as `[TEXT=0,0]` (collect_text) and whether the dispatch
     SEEDS text var 0 before opening it (build's _speaks_as_roster) are derived independently. If they

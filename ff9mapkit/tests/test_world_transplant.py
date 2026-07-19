@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from ff9mapkit.world import mesh as M, transplant as TR
+from ff9mapkit.world import extract as X, mesh as M, transplant as TR
 
 NRM = (0.0, 1.0, 0.0)
 
@@ -787,6 +787,10 @@ def test_region_prefab_parts_gate_and_fallback(monkeypatch):
               (1, 1, "sea4"): _quad(64.0, 128.0, -128.0, -64.0, idall=232.0),
               (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    # hermetic: the prefab-fallback sweep late-imports extract.list_blocks (a real game read) and
+    # memoizes module-wide -- pin both so the test needs no install and leaks nothing to its siblings
+    monkeypatch.setattr(X, "list_blocks", lambda **k: sorted({(bx, by) for (bx, by, _p) in blocks}))
+    monkeypatch.setattr(TR, "_prefab_fallback_cache", {})
     s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
                              census_samples=8, dry_run=True, land_margin=0.0)
     # fallback: (1,1) = {terrain, sea4} hosts cell (5,2)'s {terrain, sea4}; sea4 carried -> no blanks
@@ -845,6 +849,9 @@ def test_region_object_cell_never_hosts_foreign_target(monkeypatch):
               (1, 1, "object"): _quad(104.0, 112.0, -100.0, -92.0, y=2.0),
               (2, 1, "sea4"): _quad(128.0, 192.0, -128.0, -64.0, idall=232.0)}
     monkeypatch.setattr(TR, "world_tris", _fake_world(blocks))
+    # hermetic + isolated, same as the prefab-parts test above
+    monkeypatch.setattr(X, "list_blocks", lambda **k: sorted({(bx, by) for (bx, by, _p) in blocks}))
+    monkeypatch.setattr(TR, "_prefab_fallback_cache", {})
     s = TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(2, 1), shift=(0.0, 0.0),
                              census_samples=8, dry_run=True)
     # cell (5,2) needs terrain (the straddle): natural (2,1) lacks it; the only superset donor

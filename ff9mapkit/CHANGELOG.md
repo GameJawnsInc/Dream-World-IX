@@ -3,7 +3,7 @@
 All notable changes to `ff9mapkit`. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning is [SemVer](https://semver.org). The Blender add-on has its own version, kept in lockstep.
 
-## [1.0.0b16] - 2026-07-19 — The moogle letter network, experimental co-op, and living overworld terrain
+## [1.0.0b17] - 2026-07-19 — The moogle letter network, experimental co-op, and living overworld terrain
 
 ### Fixed — THE VANILLA SQUAT: custom dialogue was overwriting real locations' text
 - A field's dialogue is keyed by mesID in one flat global namespace shared with the BASE GAME, and
@@ -2786,6 +2786,6 @@ The full custom-field pipeline, proven end to end in real gameplay. See
 ### Notes
 - `0.9.x` unified the CLI and Blender add-on versions; the CLI was previously `0.1.0`.
 
-[1.0.0b16]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v1.0.0b15...v1.0.0b16
+[1.0.0b17]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v1.0.0b15...v1.0.0b17
 [1.0.0b2]: https://github.com/GameJawnsInc/Dream-World-IX/compare/v1.0.0b1...v1.0.0b2
 [1.0.0b1]: https://github.com/GameJawnsInc/Dream-World-IX/releases/tag/v1.0.0b1
