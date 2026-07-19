@@ -194,9 +194,29 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   byte-identical across discs. OVERWORLD_ENGINE.md's pack section corrected accordingly.
 
 ### SOON
-- [ ] **Resolve ground-family + ecotone decode gaps** (6.0) — topo-16 dirt has no translation formula; canyon's
+- [x] **Resolve ground-family + ecotone decode gaps** (6.0) — topo-16 dirt has no translation formula; canyon's
   un-chased 3rd v-level; topo 7/62 lumped with 49 unconfirmed; the earmarked 5dp ecotone strip decode. **Gates** the
-  ensemble-carry and mixed-biome items below — sequence first.
+  ensemble-carry and mixed-biome items below — sequence first. — **★ ROUND 1 DONE 2026-07-19**
+  (`3f99959` study + `b5bb1a7` productization; full record →
+  `studies/overworld-topography/GROUND-FAMILY-DECODE-2026-07-19.md`). 6 decode lanes × 3 adversarial lenses
+  (REPRODUCE/METHOD/OVER-CLAIM) + a completeness critic; 25 agents, 0 errors. Shipped: **the `wall_coastal` gate
+  was failing OPEN** — `island.py` tested `is False`, so the *unset* key on scrub/brush/dunes returned `None` and
+  every unmeasured family was silently ALLOWED to mint an island (its sibling `transplant.py` was already
+  `is not True`); now fail-closed at both chokepoints · scrub=`False` (touches topo-58 exactly ONCE map-wide),
+  dunes=`False` (ZERO topo-58 edges anywhere), brush deliberately UNSET → fail-closes · the new **`STRIPS`
+  table** (grass|desert `du=0.52442,dv=-0.04687`; desert|dunes `du=-0.13476,dv=-0.09863`), which **corrected a
+  shipped earmark whose dv was off by exactly one row pitch** — minted THE UNION METHOD (a single-side fit ties
+  between row alignments because B's row0 is 1 texel shorter than rows 1-3) · `MOUNTAIN_ROCK_TOPOS` {49,7,62}→{49}
+  (7 = flat walkable ground, 62 = steep stream-bank; absent from all 4 qualified donors, A/B-proven no-op:
+  Uaho byte-identical, others identical refusal) · two corrected tallies (desert 12/13→**19/20 map-wide**; the
+  canyon wall figure wrong a SECOND time — **594 of its 655 tris are topo-49 MURAL**, true wall = 60 tris/8 faces).
+  New laws: **A UV-RECT COUNT IS NOT A TOPO COUNT** · **naive global-pooled min/max over specimens is unsafe**
+  (broke in 3 lanes). ⚠ Deferred to round 2 (in flight): brush's `wall_coastal` (its n=1 open-sea face is *weaker*
+  evidence than the scrub face just refused — an inconsistent bar), a canyon 2nd wall constant (43 tris, too thin),
+  **topo-16's write-up** (cross-lane defect — its "unrecorded" zones are byte-identical to this round's own strip
+  catalog), the **"secondary mains rect"** phenomenon, the **strip PLACEMENT policy** (the real remaining
+  dunes-carry blocker — a proven rect is not an authoring recipe), and the **visual modality** (zero offline-eye
+  renders ran).
 - [ ] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
   blocks; the realistic beaches-on-our-islands path now the mint ladder is dead. (Canyon expected near-empty per the
   re-censused wall envelope.)
