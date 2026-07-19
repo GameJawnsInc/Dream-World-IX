@@ -153,7 +153,7 @@ def test_parse_fork_commands_roundtrips_the_emitted_playbook():
     assert [p.key for p in parsed] == [a.key for a in aset.arcs]      # every arc, in file order
     assert [p.seed for p in parsed] == [a.seed for a in aset.arcs]
     ic = next(p for p in parsed if p.key == "ice_cavern")
-    assert ic.command.startswith("import-chain 300 --out ice_cavern") and "--flags-per-field 16" in ic.command
+    assert ic.command.startswith("import-chain 300 --out ice_cavern") and "--flags-per-field 8" in ic.command
     assert refarc.parse_fork_commands('[hub]\nid = 4600\n') == []     # a hand-written file has no playbook
 
 

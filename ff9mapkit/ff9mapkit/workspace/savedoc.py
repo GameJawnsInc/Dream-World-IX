@@ -116,7 +116,7 @@ class StoryStateDoc(QWidget):
         lay.addWidget(self.edit_target)
         for label, attr, hint in (
                 ("Scenario:", "sc_var", 'a value or area name (e.g. "Ice Cavern")'),
-                ("Set flags:", "set_var", "comma-separated bit indices (custom band ≥ 8512)"),
+                ("Set flags:", "set_var", "comma-separated bit indices (custom band ≥ 8712)"),
                 ("Clear flags:", "clear_var", "comma-separated bit indices")):
             row = QHBoxLayout()
             row.addWidget(QLabel(label))

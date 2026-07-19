@@ -77,10 +77,10 @@ def _first_glob(out, tag=0):
 
 # ---- set_flag: idempotent -> ungated prepend ----
 def test_set_flag_prepended_ungated():
-    out = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520, "value": 1}])
+    out = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720, "value": 1}])
     _eb_, ins = _instrs(out)
     assert ins[0].op == 0x05 and not any(i.op == 0x02 for i in ins)     # a set, NO if-guard
-    assert _first_glob(out) == 8520 and _clean(out)
+    assert _first_glob(out) == 8720 and _clean(out)
 
 
 # ---- give_item / give_gil: cumulative -> once-guarded ----
@@ -111,8 +111,8 @@ def test_repeat_true_only_on_talk_tag():
 # ---- guard allocation: disjoint + avoids authored flags ----
 def test_guards_are_disjoint_and_avoid_authored_flags():
     out = LA.apply_logic_adds(_eb((0, RET)), [
-        {"kind": "set_flag", "entry": 0, "tag": 0, "flag": _flags.FIRST_SAFE_FLAG},     # claims 8512
-        {"kind": "give_item", "entry": 0, "tag": 0, "item": 236},                       # guard must skip 8512
+        {"kind": "set_flag", "entry": 0, "tag": 0, "flag": _flags.FIRST_SAFE_FLAG},     # claims 8712
+        {"kind": "give_item", "entry": 0, "tag": 0, "item": 236},                       # guard must skip 8712
         {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 100}])                      # a third, distinct guard
     eb, ins = _instrs(out)
     guards = sorted({_glob_var_token(eb.data, i.off + 1)[0] for i in ins
@@ -125,8 +125,8 @@ def test_guards_are_disjoint_and_avoid_authored_flags():
 
 def test_explicit_guard_used_and_band_checked():
     out = LA.apply_logic_adds(_eb((0, RET)),
-                              [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 8530}])
-    assert _first_glob(out) == 8530
+                              [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 8730}])
+    assert _first_glob(out) == 8730
     with pytest.raises(LA.LogicAddError):                                                # out of the safe band
         LA.apply_logic_adds(_eb((0, RET)), [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 100}])
 
@@ -137,7 +137,7 @@ def test_after_insert_relocates_surrounding_jump():
     jump that spans the insert point relocates and still hits its target."""
     from ff9mapkit.eb import cmdasm, disasm
     body = cmdasm.assemble_block("SetTriangleFlagMask(1)\nJMP(d)\nSetTriangleFlagMask(2)\nd:\nRET()")
-    out = LA.apply_logic_adds(_eb((0, body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+    out = LA.apply_logic_adds(_eb((0, body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720,
                                                "where": "after", "after_op": 0x27, "after_nth": 0}])
     assert _clean(out)
     eb, ins = _instrs(out)
@@ -169,11 +169,11 @@ def test_after_insert_warns_on_unreachable_anchor():
     from ff9mapkit.eb import cmdasm
     jmp_body = cmdasm.assemble_block("SetTriangleFlagMask(1)\nJMP(d)\nd:\nRET()")
     warns = []
-    LA.apply_logic_adds(_eb((0, jmp_body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+    LA.apply_logic_adds(_eb((0, jmp_body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720,
                                              "where": "after", "after_op": 0x01, "after_nth": 0}], warnings=warns)
     assert any("unreachable" in w for w in warns)
     warns2 = []
-    LA.apply_logic_adds(_eb((0, bytes([0x04]))), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+    LA.apply_logic_adds(_eb((0, bytes([0x04]))), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720,
                                                   "where": "after", "after_op": 0x04, "after_nth": 0}], warnings=warns2)
     assert any("unreachable" in w for w in warns2)
 
@@ -181,7 +181,7 @@ def test_after_insert_warns_on_unreachable_anchor():
 def test_after_insert_bad_anchor_refused():
     body = bytes([0x04])                                       # just RET (op 0x04)
     with pytest.raises(LA.LogicAddError):                      # no AddItem (0x48) to anchor on
-        LA.apply_logic_adds(_eb((0, body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+        LA.apply_logic_adds(_eb((0, body)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720,
                                              "where": "after", "after_op": 0x48, "after_nth": 0}])
 
 
@@ -219,9 +219,9 @@ def test_message_on_give_announces_after_give():
 
 def test_set_flag_with_message_is_guarded():
     """A bare set_flag is ungated, but set_flag + message= must guard (else the window spams every frame)."""
-    plain = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520}])
+    plain = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720}])
     assert not any(i.op == 0x02 for i in _instrs(plain)[1])
-    withmsg = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520,
+    withmsg = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720,
                                                   "message": "The path opens."}], message_txids={0: 1001})
     _eb_, ins = _instrs(withmsg)
     assert any(i.op == 0x02 for i in ins) and any(i.op == WINDOW_SYNC for i in ins) and _clean(withmsg)
@@ -231,7 +231,7 @@ def test_plan_messages_indexes_match_apply_order():
     """plan_messages keys by the NORMALIZED add index -- so a txid keyed by it lines up with the add
     apply_logic_adds enumerates (even with a falsy element filtered out)."""
     adds = [None,                                                          # filtered out
-            {"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520},      # no message -> not in the plan
+            {"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720},      # no message -> not in the plan
             {"kind": "show_line", "entry": 0, "tag": 0, "message": "A"},   # normalized idx 1
             {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 5, "message": "B"}]  # normalized idx 2
     plan = LA.plan_messages(adds)
@@ -280,7 +280,7 @@ def test_refusals():
 
 
 def test_auto_guard_avoids_reserved_project_flags():
-    """A once-guard must not alias the field's OWN authored flags ([startup]/[[flag]]/...): with 8512 reserved,
+    """A once-guard must not alias the field's OWN authored flags ([startup]/[[flag]]/...): with 8712 reserved,
     the auto guard skips to the next free safe bit (else the guard pre-fires and the give never happens)."""
     out = LA.apply_logic_adds(_eb((0, RET)), [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236}],
                               reserved_flags={_flags.FIRST_SAFE_FLAG})
@@ -293,29 +293,29 @@ def test_auto_guard_confined_to_campaign_window():
     eb = _eb((0, RET))
     two = [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236},
            {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 100}]
-    out = LA.apply_logic_adds(eb, two, guard_base=8600, guard_window=2)   # exactly two slots: 8600, 8601
+    out = LA.apply_logic_adds(eb, two, guard_base=8800, guard_window=2)   # exactly two slots: 8800, 8801
     eb2, ins = _instrs(out)
     guards = {_glob_var_token(eb2.data, i.off + 1)[0] for i in ins if i.op == 0x05 and _glob_var_token(eb2.data, i.off + 1)}
-    assert guards == {8600, 8601} and _clean(out)
+    assert guards == {8800, 8801} and _clean(out)
     with pytest.raises(LA.LogicAddError):                                 # a third exhausts the window
         LA.apply_logic_adds(eb, two + [{"kind": "give_gil", "entry": 0, "tag": 0, "amount": 5}],
-                            guard_base=8600, guard_window=2)
+                            guard_base=8800, guard_window=2)
 
 
 def test_explicit_guard_collision_refused():
     eb = _eb((0, RET))
     with pytest.raises(LA.LogicAddError):                                 # two adds, same explicit guard
-        LA.apply_logic_adds(eb, [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 8530},
-                                 {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 100, "guard": 8530}])
+        LA.apply_logic_adds(eb, [{"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 8730},
+                                 {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 100, "guard": 8730}])
     with pytest.raises(LA.LogicAddError):                                 # explicit guard == an authored set_flag
-        LA.apply_logic_adds(eb, [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8530},
-                                 {"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 8530}])
+        LA.apply_logic_adds(eb, [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8730},
+                                 {"kind": "give_item", "entry": 0, "tag": 0, "item": 236, "guard": 8730}])
 
 
 def test_malformed_container_or_element_is_clean_error():
     """`[logic_add]` (a single table) / junk -> a clean LogicAddError, not a raw AttributeError at build."""
     eb = _eb((0, RET))
-    for bad in ("foo", [1, 2], {"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8512}):
+    for bad in ("foo", [1, 2], {"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8712}):
         with pytest.raises(LA.LogicAddError):
             LA.apply_logic_adds(eb, bad)
 
@@ -384,7 +384,7 @@ def test_dry_run_logic_adds_returns_clean_strings():
             return self.raw.get("logic_edit", [])
 
     assert build.dry_run_logic_adds(_P({})) is None                       # no adds -> None
-    out = build.dry_run_logic_adds(_P({"logic_add": [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8512}]}))
+    out = build.dry_run_logic_adds(_P({"logic_add": [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8712}]}))
     assert isinstance(out, str) and "VERBATIM" in out                     # adds on a non-verbatim field
 
 
@@ -393,7 +393,7 @@ def test_validate_flags_logic_add_on_synthesized_field():
     from ff9mapkit import build
 
     class _P:
-        raw = {"logic_add": [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8512}]}
+        raw = {"logic_add": [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8712}]}
 
         def logic_adds(self):
             return self.raw.get("logic_add", [])
@@ -423,12 +423,12 @@ def test_add_case_switchex_explicit_value():
     """A 0x06 SWITCHEX add with an explicit (arbitrary) selector value, set_flag effect (ungated)."""
     eb = _eb((0, _sw_body(switchex=True)))                    # 0x06, values 0,5
     out = LA.apply_logic_adds(eb, [{"kind": "add_case", "entry": 0, "tag": 0, "case": 9,
-                                   "effect": "set_flag", "flag": 8520}])
+                                   "effect": "set_flag", "flag": 8720}])
     after = _sw_edges(out)
     assert 9 in after and set(after) == {0, 5, 9, "default"}
     _eb_, ins = _instrs(out)
     assert not any(i.op == 0x02 for i in ins)                 # set_flag is idempotent -> ungated (no if-guard)
-    assert _first_glob(out) == 8520 and eblint.errors(eblint.lint_eb(out)) == []
+    assert _first_glob(out) == 8720 and eblint.errors(eblint.lint_eb(out)) == []
 
 
 def test_add_case_show_line_appends_window():
@@ -448,14 +448,14 @@ def test_add_case_guards():
     sw = _eb((0, _sw_body()))                                  # 0x0B base 0, cases 0,1 (next contiguous = 2)
     sx = _eb((0, _sw_body(switchex=True)))                     # 0x06 values 0,5
     for base, bad in (
-        (sw, {"case": 5, "effect": "set_flag", "flag": 8520}),                 # 0x0B non-contiguous (must be 2)
-        (sx, {"case": 5, "effect": "set_flag", "flag": 8520}),                 # 0x06 duplicate value 5
+        (sw, {"case": 5, "effect": "set_flag", "flag": 8720}),                 # 0x0B non-contiguous (must be 2)
+        (sx, {"case": 5, "effect": "set_flag", "flag": 8720}),                 # 0x06 duplicate value 5
         (sw, {"case": "auto"}),                                                # missing effect
-        (sw, {"case": "auto", "effect": "frob", "flag": 8520}),                # bad effect
-        (sw, {"case": "auto", "effect": "set_flag", "flag": 8520, "case_count": 9}),   # shape drift
+        (sw, {"case": "auto", "effect": "frob", "flag": 8720}),                # bad effect
+        (sw, {"case": "auto", "effect": "set_flag", "flag": 8720, "case_count": 9}),   # shape drift
         (sw, {"case": "auto", "effect": "give_item", "item": 236, "repeat": True}),    # repeat unsupported
-        (sw, {"case": "auto", "effect": "set_flag", "flag": 8520, "then": "elsewhere"}),  # then != merge
-        (sx, {"case": "auto", "effect": "set_flag", "flag": 8520})):           # 0x06 needs explicit value
+        (sw, {"case": "auto", "effect": "set_flag", "flag": 8720, "then": "elsewhere"}),  # then != merge
+        (sx, {"case": "auto", "effect": "set_flag", "flag": 8720})):           # 0x06 needs explicit value
         with pytest.raises(LA.LogicAddError):
             LA.apply_logic_adds(base, [{"kind": "add_case", "entry": 0, "tag": 0, **bad}])
 
@@ -465,7 +465,7 @@ def test_add_case_original_arms_preserved():
     eb = _eb((0, _sw_body()))
     before = _sw_edges(eb)
     out = LA.apply_logic_adds(eb, [{"kind": "add_case", "entry": 0, "tag": 0, "case": "auto",
-                                   "effect": "set_flag", "flag": 8520}])
+                                   "effect": "set_flag", "flag": 8720}])
     after = _sw_edges(out)
     # case 0 and case 1 still target DISTINCT branches (the same two SetTriangleFlagMask arms), default intact
     assert after[0] != after[1] and after[0] != after["default"] and after[1] != after["default"]
@@ -528,7 +528,7 @@ def test_logic_add_on_real_fields():
             continue
         if not data or EbScript.from_bytes(data).entry(0).func_by_tag(0) is None:
             continue
-        for add in ({"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8520},
+        for add in ({"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8720},
                     {"kind": "give_item", "entry": 0, "tag": 0, "item": "Potion"},
                     {"kind": "give_gil", "entry": 0, "tag": 0, "amount": 500}):
             out = LA.apply_logic_adds(data, [add])
@@ -574,7 +574,7 @@ def test_menu_row_eb_adds_arm_and_widens_mask():
     """The .eb legs: a new contiguous dispatch arm (case = ncases) AND the EnableDialogChoices mask gains the
     new row's bit (3 -> 7 for a 2-row menu becoming 3-row), eblint-clean + byte-round-trips."""
     eb = _menu_eb(ncases=2, mask=3)
-    out = LA.apply_logic_adds(eb, [{**_ROW, "effect": "set_flag", "flag": 8520}])
+    out = LA.apply_logic_adds(eb, [{**_ROW, "effect": "set_flag", "flag": 8720}])
     s = EbScript.from_bytes(out)
     f = s.entry(0).func_by_tag(0)
     si = disasm.decode_switch(next(i for i in s.instrs(f) if i.is_switch))
@@ -673,7 +673,7 @@ def test_menu_row_mask_best_effort():
     WARN but still add the dispatch arm (text-gated menus don't consult the mask)."""
     for eb in (_menu_eb(ncases=2, expr_mask=True), _menu_eb(ncases=2, no_mask=True)):
         warns = []
-        out = LA.apply_logic_adds(eb, [{**_ROW, "effect": "set_flag", "flag": 8520}], warnings=warns)
+        out = LA.apply_logic_adds(eb, [{**_ROW, "effect": "set_flag", "flag": 8720}], warnings=warns)
         assert 2 in _sw_edges(out) and _clean(out) and warns
 
 
@@ -704,7 +704,7 @@ def test_menu_row_rejects_shared_switch_with_other_dispatch_add():
     and apply_logic_adds."""
     eb = _menu_eb(ncases=2)
     collisions = [
-        [_ROW, {"kind": "add_case", "entry": 0, "tag": 0, "case": "auto", "effect": "set_flag", "flag": 8521}],
+        [_ROW, {"kind": "add_case", "entry": 0, "tag": 0, "case": "auto", "effect": "set_flag", "flag": 8721}],
         [_ROW, {**_ROW, "nth": 0, "label": "B"}],                              # two menu_rows, nth=None vs 0
     ]
     for adds in collisions:
@@ -713,7 +713,7 @@ def test_menu_row_rejects_shared_switch_with_other_dispatch_add():
         with pytest.raises(LA.LogicAddError):
             LA.apply_logic_adds(eb, adds)
     # but a menu_row + a PREPEND (no switch growth) on the same function is fine (prepend doesn't add a case)
-    ok = LA.apply_logic_adds(eb, [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8522}, _ROW])
+    ok = LA.apply_logic_adds(eb, [{"kind": "set_flag", "entry": 0, "tag": 0, "flag": 8722}, _ROW])
     assert 2 in _sw_edges(ok) and _clean(ok)
 
 

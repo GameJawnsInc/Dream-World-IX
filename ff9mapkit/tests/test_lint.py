@@ -78,11 +78,11 @@ def test_flag_bands_clean_on_kit_working_band(tmp_path):
 
 
 def test_flag_bands_warns_chest_write(tmp_path):
-    """A raw write into the treasure-chest 'opened' bitfield (8376-8511) -- the exact collision the
+    """A raw write into the Mognet lock band (8376-8511) -- the exact collision the
     [[flag]] validator guards, here reached via a literal set_flag -- is flagged and named."""
     w = lint_flag_bands(_load(tmp_path, set_flag=8400, requires_flag=200))
     assert len(w) == 1
-    assert "chest_opened" in w[0] and "8400" in w[0]
+    assert "mognet_give_locks" in w[0] and "8400" in w[0]
 
 
 def test_flag_bands_advises_chest_read(tmp_path):
@@ -193,7 +193,7 @@ def test_lint_all_surfaces_geometry_placement(tmp_path):
 
 def test_lint_all_surfaces_flag_band(tmp_path):
     rep = lint_all(_load(tmp_path, set_flag=8400, requires_flag=200))
-    assert any("chest_opened" in w for w in rep.flags)
+    assert any("mognet_give_locks" in w for w in rep.flags)
     assert not rep.ok
 
 
@@ -219,7 +219,7 @@ def test_flag_bands_tolerates_bare_int_set_flag(tmp_path):
     lint -- the index is still extracted and band-checked."""
     body = CLEAN.format(set_flag=200, requires_flag=200).replace("set_flag = [200, 1]", "set_flag = 8400")
     w = lint_flag_bands(_load(tmp_path, body=body))
-    assert len(w) == 1 and "chest_opened" in w[0]
+    assert len(w) == 1 and "mognet_give_locks" in w[0]
     # an empty list is tolerated too (no index, no crash)
     body2 = CLEAN.format(set_flag=200, requires_flag=200).replace("set_flag = [200, 1]", "set_flag = []")
     assert lint_flag_bands(_load(tmp_path, body=body2)) == []

@@ -165,9 +165,9 @@ def test_detail_field_without_context_is_minimal():
 # ---- F2: campaign shared story flags as a browsable 'flag' kind --------------------------
 def test_browse_flag_kind_via_campaign_context():
     plan = _demo_campaign()
-    plan.flags = [{"name": "boss_dead", "index": 8700}]
+    plan.flags = [{"name": "boss_dead", "index": 8900}]
     hits = infohub.browse("", kinds=["flag"], campaign_context=plan)
-    assert {e.name for e in hits} == {"boss_dead"} and hits[0].ident == 8700
+    assert {e.name for e in hits} == {"boss_dead"} and hits[0].ident == 8900
     d = infohub.detail(hits[0], campaign_context=plan)
     assert d.kind == "flag" and any(lbl == "index" for lbl, _ in d.facts)
     assert infohub.snippet(hits[0]) == 'requires_flag = "boss_dead"'
@@ -182,7 +182,7 @@ def test_storyflag_registry_is_browsable():
     # a scenario milestone is searchable by its beat AND its value; the chest band + safe band are findable
     ice = infohub.browse("ice cavern", kinds=["storyflag"])
     assert any(e.ident == 2500 for e in ice), [e.name for e in ice]
-    assert any(e.name == "chest_opened" for e in infohub.browse("chest", kinds=["storyflag"]))
+    assert any(e.name == "mognet_give_locks" for e in infohub.browse("mognet", kinds=["storyflag"]))
     assert any(e.name == "safe_custom" for e in infohub.browse("safe custom", kinds=["storyflag"]))
     assert any(e.name == "ScenarioCounter" for e in infohub.browse("scenariocounter", kinds=["storyflag"]))
 
@@ -191,11 +191,11 @@ def test_storyflag_detail_and_snippet():
     band = infohub.find("safe_custom", "storyflag")
     d = infohub.detail(band)
     assert d.kind == "storyflag" and any(lbl == "location" for lbl, _ in d.facts)
-    assert "[[flag]]" in infohub.snippet(band) and "8512" in infohub.snippet(band)
+    assert "[[flag]]" in infohub.snippet(band) and "8712" in infohub.snippet(band)
     scen = next(e for e in infohub.browse("ice cavern", kinds=["storyflag"]) if e.ident == 2500)
     assert "save-edit" in infohub.snippet(scen) and "2500" in infohub.snippet(scen)
-    chest = infohub.find("chest_opened", "storyflag")
-    assert any("reserved" in str(v).lower() for _, v in infohub.detail(chest).facts)
+    lock = infohub.find("mognet_give_locks", "storyflag")
+    assert any("reserved" in str(v).lower() for _, v in infohub.detail(lock).facts)
 
 
 def test_storyflag_in_default_browse_but_a_distinct_kind():

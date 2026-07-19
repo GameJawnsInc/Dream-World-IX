@@ -119,7 +119,7 @@ CHEST_SPEC = [
           catalog="item"),
     Field("gil", "Reward gil", OPTINT, "give gil instead of an item (set item OR gil)"),
     Field("flag", "Opened-flag", FLAGREF, "REQUIRED save bit that marks it looted (it stays open across "
-          "saves) -- a [[flag]] name (recommended) or a safe-band index >= 8512. Not auto-allocated, so it's "
+          "saves) -- a [[flag]] name (recommended) or a safe-band index >= 8712. Not auto-allocated, so it's "
           "resilient to reordering + a player's save state", catalog="flag"),
     Field("requires_flag", "Appears when flag set", FLAGREF,
           "story gate: the chest only appears after this flag (name or index) is set", catalog="flag"),
@@ -229,7 +229,7 @@ MARKER_SPEC = [
 FLAG_SPEC = [
     Field("name", "Name", STR, "the story-flag name you reference in events / gateways / choices "
           "(set_flag, show-while-unset, …)"),
-    Field("index", "gEventGlobal bit", INT, "a save-persistent bit in the custom band [8512, 16320); "
+    Field("index", "gEventGlobal bit", INT, "a save-persistent bit in the custom band [8712, 16320); "
           "Story State labels a set bit with this name"),
 ]
 CHOICE_SPEC = [

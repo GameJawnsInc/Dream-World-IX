@@ -13,7 +13,7 @@ def test_humanize_rewrites_common_newcomer_errors():
         "ID COLLISION: id 4003 is already registered by another mod folder -> null .eb": ("id", "4000"),
         "extraction needs UnityPy (reads FF9's p0data assetbundles)": ("UnityPy", "pip install UnityPy"),
         "gil must be in [0, 9,999,999] (the in-game cap); got 99999999": ("Gil", "9,999,999"),
-        "flag 100 is in the reserved region": ("flag", "8512"),
+        "flag 100 is in the reserved region": ("flag", "8712"),
     }
     for raw, (in_friendly, in_step) in cases.items():
         got = fb.humanize(raw)

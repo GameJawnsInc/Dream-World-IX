@@ -197,17 +197,17 @@ def scan_party_ops(eb_bytes) -> dict:
 # Discoverability for seeding a DOWNSTREAM fork's [startup] flags: run this on a PREDECESSOR field to see what
 # story state it produces, then seed the fork you're building. A --verbatim fork RUNS these writes (advances
 # state as the real field does); a synth fork DROPS them. The raw scan (eventscan.scan_flags_set) is NOISY: every
-# field rewrites the byte-23 menu/transition HANDSHAKE (bits 184-191, re-cleared each Main_Init), and a chest
-# field compiles the whole STATIC chest-opened dispatch block (bits 8376-8511) -- neither is story progression,
-# so both are filtered. What remains (once-events, worldmap/first-visit unlocks) is the meaningful state, labeled
+# field rewrites the byte-23 menu/transition HANDSHAKE (bits 184-191, re-cleared each Main_Init), and a moogle
+# field compiles its whole STATIC Mognet lock dispatch (the twin switch-64 tables, bits 8376-8511; long
+# mislabelled "the chest block") -- neither is story progression, so both are filtered. What remains (once-events, worldmap/first-visit unlocks) is the meaningful state, labeled
 # by flags.bit_region. In-game grounded on the Ice Cavern (IC_TER/JMP/BRI write ipsen_ice_cavern_events once-bits).
 _HANDSHAKE_LO, _HANDSHAKE_HI = 184, 191   # byte-23 menu/transition handshake (flags.py field_menu_guard/boot_scratch)
 
 
 def _story_write_noise(bit: int) -> bool:
-    """True for a flag WRITE that isn't story progression: the static chest-opened dispatch block or the
+    """True for a flag WRITE that isn't story progression: the static Mognet lock dispatch tables or the
     transient byte-23 menu/transition handshake -- excluded from the Story-writes axis."""
-    return (_flags.CHEST_FLAG_LO <= bit <= _flags.CHEST_FLAG_HI) or (_HANDSHAKE_LO <= bit <= _HANDSHAKE_HI)
+    return (_flags.MOGNET_LOCK_LO <= bit <= _flags.MOGNET_LOCK_HI) or (_HANDSHAKE_LO <= bit <= _HANDSHAKE_HI)
 
 
 def scan_story_writes(eb_bytes) -> list:

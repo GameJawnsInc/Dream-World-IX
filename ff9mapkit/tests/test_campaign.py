@@ -505,16 +505,16 @@ def test_campaign_toml_roundtrips_verbatim_flag(tmp_path):
 
 
 def test_lint_flag_dangling_and_dupwriter(tmp_path):
-    # B requires flag 8520 that nobody sets -> dangling; A+B both set 8520 -> covered separately
+    # B requires flag 8720 that nobody sets -> dangling; A+B both set 8720 -> covered separately
     dangling = _lint_plan(tmp_path, member_content={
-        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8520\n'})
+        "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8720\n'})
     _, w1 = campaign.lint_campaign(dangling, tmp_path)
-    assert any("8520" in w and "permanently locked" in w for w in w1)
+    assert any("8720" in w and "permanently locked" in w for w in w1)
 
     dup = _lint_plan(tmp_path, member_content={
-        "A": '[[event]]\nname = "x"\nflag = 8520\n', "B": '[[event]]\nname = "y"\nflag = 8520\n'})
+        "A": '[[event]]\nname = "x"\nflag = 8720\n', "B": '[[event]]\nname = "y"\nflag = 8720\n'})
     _, w2 = campaign.lint_campaign(dup, tmp_path)
-    assert any("8520" in w and "multiple members" in w for w in w2)
+    assert any("8720" in w and "multiple members" in w for w in w2)
 
 
 def test_lint_empty_forks_have_no_flag_warnings(tmp_path):
@@ -530,15 +530,15 @@ def test_lint_resolves_named_gates(tmp_path):
     ok = _lint_plan(tmp_path, member_content={
         "A": '[[event]]\nname = "s"\nzone = [[0,0]]\ngil = 1\nflag = "boss_dead"\n',
         "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "boss_dead"\n'})
-    ok.flags = [{"name": "boss_dead", "index": 8700}]              # above the 2 member blocks [8512,8639]
+    ok.flags = [{"name": "boss_dead", "index": 8900}]              # above the 2 member blocks [8712,8839]
     errors, warnings = campaign.lint_campaign(ok, tmp_path)
     assert errors == [] and not any("permanently locked" in w for w in warnings)
     # (b) name defined but nobody SETS it -> dangling warning (name-aware now, not silently skipped)
     dangling = _lint_plan(tmp_path, member_content={
         "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "boss_dead"\n'})
-    dangling.flags = [{"name": "boss_dead", "index": 8700}]
+    dangling.flags = [{"name": "boss_dead", "index": 8900}]
     _, w2 = campaign.lint_campaign(dangling, tmp_path)
-    assert any("8700" in w and "permanently locked" in w for w in w2)
+    assert any("8900" in w and "permanently locked" in w for w in w2)
     # (c) gate on a name defined NOWHERE -> hard error (the build would fail to resolve it too)
     ghost = _lint_plan(tmp_path, member_content={
         "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = "ghost_flag"\n'})
@@ -564,7 +564,7 @@ def test_lint_resolves_journey_global_gate(tmp_path):
 
 
 def test_lint_safe_band_default_is_clean(tmp_path):
-    # the new default flag_base (FIRST_SAFE_FLAG=8512) is clear of all real-FF9 usage -> no band errors
+    # the new default flag_base (FIRST_SAFE_FLAG=8712) is clear of all real-FF9 usage -> no band errors
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
     assert plan.flag_base == campaign.FIRST_SAFE_FLAG
     errors, _ = campaign.lint_campaign(plan, tmp_path)
@@ -577,8 +577,8 @@ def test_lint_chest_band_collision_errors(tmp_path):
     plan = _lint_plan(tmp_path, edges=[{"frm": "A", "to": "B", "entrance": 0}])
     plan.flag_base = 8300
     errors, _ = campaign.lint_campaign(plan, tmp_path)
-    assert any("safe floor" in e for e in errors)                 # A: 8300-8363 < 8512
-    assert any("treasure-chest" in e for e in errors)             # B: 8364-8427 hits 8376-8511
+    assert any("safe floor" in e for e in errors)                 # A: 8300-8363 < 8712
+    assert any("Mognet" in e for e in errors)             # B: 8364-8427 hits 8376-8511
 
 
 def test_lint_explicit_flag_in_chest_band_errors(tmp_path):
@@ -586,13 +586,13 @@ def test_lint_explicit_flag_in_chest_band_errors(tmp_path):
     plan = _lint_plan(tmp_path, member_content={
         "B": '[[gateway]]\nto = 6000\nentrance = 0\nzone = [[0,0]]\nrequires_flag = 8400\n'})
     errors, _ = campaign.lint_campaign(plan, tmp_path)
-    assert any("8400" in e and "treasure-chest" in e for e in errors)
+    assert any("8400" in e and "Mognet band" in e for e in errors)
 
 
 def test_lint_shared_flag_valid(tmp_path):
-    # a shared [[flag]] ABOVE the two member blocks (8512-8639) and inside the band -> clean
+    # a shared [[flag]] ABOVE the two member blocks (8712-8839) and inside the band -> clean
     plan = _lint_plan(tmp_path)
-    plan.flags = [{"name": "boss_dead", "index": 8700}]
+    plan.flags = [{"name": "boss_dead", "index": 8900}]
     errors, _ = campaign.lint_campaign(plan, tmp_path)
     assert not any("flag" in e.lower() for e in errors)
 
@@ -601,22 +601,22 @@ def test_lint_shared_flag_in_chest_band_errors(tmp_path):
     plan = _lint_plan(tmp_path)
     plan.flags = [{"name": "bad", "index": 8400}]            # chest band
     errors, _ = campaign.lint_campaign(plan, tmp_path)
-    assert any("treasure-chest" in e for e in errors)
+    assert any("Mognet" in e for e in errors)
 
 
 def test_lint_shared_flag_collides_member_block_errors(tmp_path):
-    plan = _lint_plan(tmp_path)                              # members A/B -> auto blocks 8512-8639
-    plan.flags = [{"name": "boom", "index": 8520}]          # inside member A's block
+    plan = _lint_plan(tmp_path)                              # members A/B -> auto blocks 8712-8839
+    plan.flags = [{"name": "boom", "index": 8720}]          # inside member A's block
     errors, _ = campaign.lint_campaign(plan, tmp_path)
     assert any("per-member auto-flag blocks" in e for e in errors)
 
 
 def test_campaign_render_roundtrips_shared_flags(tmp_path):
     plan = _lint_plan(tmp_path)
-    plan.flags = [{"name": "boss_dead", "index": 8700}]
+    plan.flags = [{"name": "boss_dead", "index": 8900}]
     f = tmp_path / "campaign.toml"
     f.write_text(campaign.render_campaign_toml(plan), encoding="utf-8")
-    assert campaign.load_campaign(f).flags == [{"name": "boss_dead", "index": 8700}]
+    assert campaign.load_campaign(f).flags == [{"name": "boss_dead", "index": 8900}]
 
 
 # ---- P6: creation API (new_campaign / add_field / set_shared_flags; the per-item mutation API
@@ -631,17 +631,17 @@ def test_new_campaign_empty_round_trips(tmp_path):
 
 def test_set_shared_flags_round_trips_and_validates(tmp_path):
     plan = campaign.new_campaign("ARC", "M", tmp_path, id_base=30100)
-    campaign.set_shared_flags(plan, tmp_path, [{"name": "boss_dead", "index": 8530},
-                                               {"name": "got_key", "index": "8531"}])   # str index coerced
-    assert plan.flags == [{"name": "boss_dead", "index": 8530}, {"name": "got_key", "index": 8531}]
+    campaign.set_shared_flags(plan, tmp_path, [{"name": "boss_dead", "index": 8730},
+                                               {"name": "got_key", "index": "8731"}])   # str index coerced
+    assert plan.flags == [{"name": "boss_dead", "index": 8730}, {"name": "got_key", "index": 8731}]
     assert campaign.load_campaign(tmp_path / "campaign.toml").flags == plan.flags         # persisted to disk
     # validation: out-of-band, duplicate name, duplicate index, missing name all rejected
     with pytest.raises(campaign.CampaignError): campaign.validate_shared_flags([{"name": "x", "index": 100}])
     with pytest.raises(campaign.CampaignError):
-        campaign.validate_shared_flags([{"name": "a", "index": 8530}, {"name": "a", "index": 8531}])
+        campaign.validate_shared_flags([{"name": "a", "index": 8730}, {"name": "a", "index": 8731}])
     with pytest.raises(campaign.CampaignError):
-        campaign.validate_shared_flags([{"name": "a", "index": 8530}, {"name": "b", "index": 8530}])
-    with pytest.raises(campaign.CampaignError): campaign.validate_shared_flags([{"name": "", "index": 8530}])
+        campaign.validate_shared_flags([{"name": "a", "index": 8730}, {"name": "b", "index": 8730}])
+    with pytest.raises(campaign.CampaignError): campaign.validate_shared_flags([{"name": "", "index": 8730}])
 
 
 def test_add_blank_fields_and_edges_offline(tmp_path):

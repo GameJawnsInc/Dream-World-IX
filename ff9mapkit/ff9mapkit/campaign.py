@@ -23,11 +23,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import chain
-# Safe GLOB story-flag allocation band -- single source of truth in ``flags`` (grounded in
-# research/STORY_FLAGS.md §4, a 676-field census): real FF9 uses bit-flags up to 8511 (the treasure-chest
-# bitfield 8376-8511); the choice scratch is at bit 16320+; custom flags live in [8512, 16320). The old
-# flag_base=8300 + 64/field collided with the chest block from member index 1 onward.
-from .flags import (CHEST_FLAG_HI, CHEST_FLAG_LO, CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG,
+# Safe GLOB story-flag allocation band -- single source of truth in ``flags`` (re-censused 2026-07-19
+# with byte-addressed vars included): real FF9 uses the Mognet lock band 8376-8511 AND the read-mail
+# payload bytes 1064-1088 (bits 8512-8711, whole-byte-clobbered by ordinary play); the choice scratch
+# is at bit 16320+; custom flags live in [8712, 16320). History: flag_base=8300 + 64/field collided
+# with the lock band from member index 1 onward; the 8512 default sat on the payload bytes.
+from .flags import (CHOICE_SCRATCH_FLOOR, FIRST_SAFE_FLAG, MOGNET_LOCK_HI, MOGNET_LOCK_LO,
+                    READMAIL_PAYLOAD_HI, READMAIL_PAYLOAD_LO,
                     collect_flag_defs, resolve_project_flags)
 
 _MAP_SEG = re.compile(r"^map\d", re.I)     # the 'map<NNN>' segment of an FBG folder
@@ -443,7 +445,8 @@ def render_campaign_toml(plan: CampaignPlan) -> str:
             L.append("")
     if plan.flags:
         L += ["# Shared NAMED flags -- members gate by NAME (requires_flag = \"<name>\"). Place ABOVE the",
-              "# per-member auto-flag blocks; indices must be in [8512, 16320), clear of real-FF9 usage."]
+              f"# per-member auto-flag blocks; indices must be in [{FIRST_SAFE_FLAG}, "
+              f"{CHOICE_SCRATCH_FLOOR}), clear of real-FF9 usage."]
         for fdef in plan.flags:
             L += ["[[flag]]", f'name = "{fdef.get("name", "")}"', f"index = {int(fdef.get('index', 0))}", ""]
     L += ["[initial_flags]", "# GLOB flags pre-set at campaign entry (empty by default)", ""]
@@ -707,10 +710,11 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
         if lo < FIRST_SAFE_FLAG:
             errors.append(f"member {m.name}: flag block {lo}-{hi} dips below the safe floor "
                           f"{FIRST_SAFE_FLAG} (overlaps real-FF9 flags) -- raise [campaign] flag_base.")
-        if lo <= CHEST_FLAG_HI and hi >= CHEST_FLAG_LO:
-            errors.append(f"member {m.name}: flag block {lo}-{hi} intersects real-FF9's treasure-chest "
-                          f"band {CHEST_FLAG_LO}-{CHEST_FLAG_HI} -> SAVE CORRUPTION -- set [campaign] "
-                          f"flag_base = {FIRST_SAFE_FLAG}.")
+        if lo <= READMAIL_PAYLOAD_HI and hi >= MOGNET_LOCK_LO:
+            errors.append(f"member {m.name}: flag block {lo}-{hi} intersects real-FF9's Mognet band "
+                          f"(locks {MOGNET_LOCK_LO}-{MOGNET_LOCK_HI} / read-mail payload "
+                          f"{READMAIL_PAYLOAD_LO}-{READMAIL_PAYLOAD_HI}) -> SAVE CORRUPTION -- set "
+                          f"[campaign] flag_base = {FIRST_SAFE_FLAG}.")
         if hi >= CHOICE_SCRATCH_FLOOR:
             cap = (CHOICE_SCRATCH_FLOOR - plan.flag_base) // K
             errors.append(f"member {m.name}: flag block {lo}-{hi} reaches the choice-scratch floor "
@@ -788,10 +792,11 @@ def lint_campaign(plan: CampaignPlan, manifest_dir, *, in_journey: bool = False,
             continue
         prod, cons = _member_flags_from_toml(raw)
         for idx in sorted(prod | cons):
-            if CHEST_FLAG_LO <= idx <= CHEST_FLAG_HI:
-                errors.append(f"member {m.name}: explicit flag {idx} is inside real-FF9's treasure-chest "
-                              f"band {CHEST_FLAG_LO}-{CHEST_FLAG_HI} -> SAVE CORRUPTION -- use an index in "
-                              f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}).")
+            if MOGNET_LOCK_LO <= idx <= READMAIL_PAYLOAD_HI:
+                errors.append(f"member {m.name}: explicit flag {idx} is inside real-FF9's Mognet band "
+                              f"(locks {MOGNET_LOCK_LO}-{MOGNET_LOCK_HI} / read-mail payload "
+                              f"{READMAIL_PAYLOAD_LO}-{READMAIL_PAYLOAD_HI}) -> SAVE CORRUPTION -- use "
+                              f"an index in [{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}).")
             elif idx >= FIRST_SAFE_FLAG and idx >= CHOICE_SCRATCH_FLOOR:
                 warnings.append(f"member {m.name}: explicit flag {idx} is at/above the choice-scratch floor "
                                 f"{CHOICE_SCRATCH_FLOOR} (engine-owned) -- pick a lower index.")

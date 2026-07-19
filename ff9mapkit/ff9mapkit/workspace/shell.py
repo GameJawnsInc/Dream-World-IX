@@ -177,7 +177,7 @@ _LIST_DEFAULTS = {
     "gateway": {"name": "door", "to": 100, "entrance": 0},
     "event": {"name": "event", "message": "..."},
     "chest": {"pos": [0, 0], "item": ["Potion", 1]},
-    "flag": {"name": "flag", "index": 8512},          # a save-persistent story flag (name -> gEventGlobal bit)
+    "flag": {"name": "flag", "index": 8712},          # a save-persistent story flag (name -> gEventGlobal bit)
     "marker": {"name": "spot", "pos": [0, 0]},
     "choice": {"npc": "", "prompt": "What'll it be?", "options": [{"text": "Yes"}, {"text": "No"}]},
     "sps": {"id": 5000, "template": "fire", "pos": [0, 0]},   # a from-scratch particle effect (Tier-2 creator)
@@ -8396,11 +8396,11 @@ def _smoke(win):
     win._add_list_item("IC_ENT", "choice")             # a choice routes to the choice sub-editor
     assert win._doc("IC_ENT").data["choice"][-1]["prompt"] == "What'll it be?"
     win._add_list_item("IC_ENT", "flag")               # the [[flag]] section (audit #7 -> story flags are GUI-authorable)
-    assert win._doc("IC_ENT").data["flag"][-1] == {"name": "flag", "index": 8512} and win._save_ctx["section"] == "flag"
+    assert win._doc("IC_ENT").data["flag"][-1] == {"name": "flag", "index": 8712} and win._save_ctx["section"] == "flag"
     # the flag Browse picker surfaces the OPEN FIELD's own [[flag]] (not just a campaign's shared flags)
     assert any(f.get("name") == "flag" for f in win._flag_pick_context().flags), "a field's [[flag]] reaches the flag picker"
-    assert forms.build_entity(forms.FLAG_SPEC, {"name": "got_sword", "index": "8520"}) == {"name": "got_sword", "index": 8520}
-    assert win._node_problems("flag", {"name": "x", "index": 8520}, "IC_ENT") == []   # in-band: clean
+    assert forms.build_entity(forms.FLAG_SPEC, {"name": "got_sword", "index": "8720"}) == {"name": "got_sword", "index": 8720}
+    assert win._node_problems("flag", {"name": "x", "index": 8720}, "IC_ENT") == []   # in-band: clean
     assert win._node_problems("flag", {"name": "x", "index": 100}, "IC_ENT")          # out-of-band: warns
     win._confirm = lambda *a: True
     win._delete_object("IC_ENT", "flag", single=False, idx=len(win._doc("IC_ENT").data["flag"]) - 1, label="Flag")
@@ -8424,8 +8424,8 @@ def _smoke(win):
     # the campaign ROOT offers 'Add field…' + 'Shared flags…'; the Delete key ignores them (not Delete/Remove)
     assert [lb for lb, _ in win._context_actions(win._root_items[0])] == ["Add field…", "Shared flags…"]
     # campaign shared [[flag]] are GUI-editable (campaign.set_shared_flags): the cross-field named-flag tier
-    C.set_shared_flags(win.plan, win.campaign_path.parent, [{"name": "arc_flag", "index": 8530}])
-    assert {"name": "arc_flag", "index": 8530} in win.plan.flags, "campaign shared flag saved"
+    C.set_shared_flags(win.plan, win.campaign_path.parent, [{"name": "arc_flag", "index": 8730}])
+    assert {"name": "arc_flag", "index": 8730} in win.plan.flags, "campaign shared flag saved"
     ent_item = win._object_item("IC_ENT", "npc:0")
     assert ent_item and win._context_actions(ent_item)[0][0] == "Delete NPC"
     cs_item = win._object_item("IC_ENT", "cutscene")                     # the (always-shown) Cutscene node
@@ -8580,16 +8580,16 @@ def _smoke(win):
     assert win._node_problems("npc", {"preset": "vivi", "model": 999999}, "IC_ENT") == [], "model ignored w/ preset"
     assert win._node_problems("event", {"give_item": ["NoSuchItem", 1]}, "IC_ENT"), "an unknown give_item warns"
     assert win._node_problems("event", {"remove_item": ["NoSuchItem", 1]}, "IC_ENT"), "an unknown remove_item warns"
-    from ..flags import CHEST_FLAG_LO as _CFLO
+    from ..flags import MOGNET_LOCK_LO as _CFLO
     assert win._node_problems("event", {"set_flag": [_CFLO, 1]}, "IC_ENT"), "a reserved set_flag bit warns"
-    assert win._node_problems("event", {"set_flag": [8520, 1]}, "IC_ENT") == [], "a safe-band flag is clean"
+    assert win._node_problems("event", {"set_flag": [8720, 1]}, "IC_ENT") == [], "a safe-band flag is clean"
     # [[chest]]: exactly one of item|gil, a known item, a pos, a DEFINED safe-band flag -- mirrors build.validate
-    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8520}, "IC_ENT") == [], "a valid item chest is clean"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8720}, "IC_ENT") == [], "a valid item chest is clean"
     assert win._node_problems("chest", {"pos": [0, 0], "gil": 100, "flag": "loot"}, "IC_ENT") == [], "a named-flag gil chest is clean"
-    assert win._node_problems("chest", {"pos": [0, 0], "item": ["NoSuchItem", 1], "flag": 8520}, "IC_ENT"), "an unknown chest item warns"
-    assert win._node_problems("chest", {"pos": [0, 0], "flag": 8520}, "IC_ENT"), "a chest with no payload warns"
-    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "gil": 5, "flag": 8520}, "IC_ENT"), "item+gil warns"
-    assert win._node_problems("chest", {"item": ["Potion", 1], "flag": 8520}, "IC_ENT"), "a chest with no pos warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["NoSuchItem", 1], "flag": 8720}, "IC_ENT"), "an unknown chest item warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "flag": 8720}, "IC_ENT"), "a chest with no payload warns"
+    assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "gil": 5, "flag": 8720}, "IC_ENT"), "item+gil warns"
+    assert win._node_problems("chest", {"item": ["Potion", 1], "flag": 8720}, "IC_ENT"), "a chest with no pos warns"
     assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1]}, "IC_ENT"), "a chest with no flag warns"
     assert win._node_problems("chest", {"pos": [0, 0], "item": ["Potion", 1], "flag": 8400}, "IC_ENT"), "an out-of-band chest flag warns"
     # the build does int(scene): a non-numeric scene can't build -> warn; a numeric id passes
@@ -8909,7 +8909,7 @@ def _smoke(win):
     import json as _json
     g = bytearray(2048)
     g[0], g[1] = 2500 & 0xFF, 2500 >> 8
-    g[8520 >> 3] |= 1 << (8520 & 7)
+    g[8720 >> 3] |= 1 << (8720 & 7)
     sj = d / "save.json"
     sj.write_text(_json.dumps({"profile": {"gEventGlobal": _b64.b64encode(bytes(g)).decode()}}), encoding="utf-8")
     assert win.story_state.load(str(sj))
@@ -9610,7 +9610,7 @@ def _smoke(win):
     # so jroot/jnode stay valid) to mirror that state and assert campaign-shared + journey-global both show.
     _saved_plan = win.plan
     win.plan = C.load_campaign(jdir / "camp1" / "campaign.toml")
-    win.plan.flags = [{"name": "camp_flag", "index": 8530}]
+    win.plan.flags = [{"name": "camp_flag", "index": 8730}]
     _picker = {f.get("name") for f in win._flag_pick_context().flags}
     assert "camp_flag" in _picker and "met_quina" in _picker, _picker   # campaign-shared AND journey-global both show
     win.plan = _saved_plan
@@ -9915,16 +9915,16 @@ def _smoke(win):
     # named [[flag]] index is an ABSOLUTE bit (no flag-window offset), so the resolver is a pure identity map.
     _fdir = Path(tempfile.mkdtemp())
     _ff = _fdir / "FLAGFIELD.field.toml"
-    _ff.write_text('[field]\nid = 4055\nname = "FLAGFIELD"\narea = 12\n\n[[flag]]\nname = "got_sword"\nindex = 8520\n',
+    _ff.write_text('[field]\nid = 4055\nname = "FLAGFIELD"\narea = 12\n\n[[flag]]\nname = "got_sword"\nindex = 8720\n',
                    encoding="utf-8")
-    assert win.open_field(_ff) and win._project_flag_names() == {8520: "got_sword"}, win._project_flag_names()
+    assert win.open_field(_ff) and win._project_flag_names() == {8720: "got_sword"}, win._project_flag_names()
     from .. import flags as _flags
-    _fb = bytearray(2048); _fb[8520 >> 3] |= 1 << (8520 & 7)
+    _fb = bytearray(2048); _fb[8720 >> 3] |= 1 << (8720 & 7)
     _frep = _flags.decode_gEventGlobal(bytes(_fb))
-    assert "8520=got_sword" in _flags.render_report(_frep, names=win._project_flag_names())
+    assert "8720=got_sword" in _flags.render_report(_frep, names=win._project_flag_names())
     # robustness: just VIEWING Story State re-reads the open project's flags (no open/edit-order dependence)
     win.tabs.setCurrentWidget(win.story_state)
-    assert win.story_state.flag_names == {8520: "got_sword"}, win.story_state.flag_names
+    assert win.story_state.flag_names == {8720: "got_sword"}, win.story_state.flag_names
     win.tabs.setCurrentWidget(win.doc_scroll)
     win._close_project()
     assert win.story_state.flag_names == {}, "Close drops the authored-flag annotation"

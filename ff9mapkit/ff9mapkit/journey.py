@@ -625,7 +625,8 @@ def lint_manifest(manifest: JourneyManifest, *, deep: bool = True) -> "tuple[lis
     # (g2) CROSS-TIER explicit-flag disjointness: every campaign's shared [[flag]] + the journey-global [[flag]]
     #      are ABSOLUTE bits in the one global array, so two declaring the SAME index alias (set one -> the other
     #      reads set). The per-tier lints only check within-tier; this catches campaign-vs-campaign AND
-    #      campaign-vs-journey collisions (e.g. a campaign flag and a journey flag both left at the 8512 default).
+    #      campaign-vs-journey collisions (e.g. a campaign flag and a journey flag both left at the
+    #      FIRST_SAFE_FLAG default).
     owner_of: dict = {}
     def _claim_flag(idx, who):
         if not (isinstance(idx, int) and not isinstance(idx, bool)):

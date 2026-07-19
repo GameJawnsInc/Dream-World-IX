@@ -145,9 +145,9 @@ _REWRITES = (
      "opening), not a normal explorable room.",
      "Pick a regular field that has art (use Find… or 'list-fields' to find one)."),
     ("reserved region",
-     "The story flag (a saved on/off switch) you're setting sits in a range the game reserves for treasure "
-     "chests and its own bookkeeping, so writing there could corrupt the save.",
-     "Use a flag number of 8512 or higher — the safe custom range for your own flags."),
+     "The story flag (a saved on/off switch) you're setting sits in a range the game reserves for its "
+     "moogle-mail system and its own bookkeeping, so writing there could corrupt the save.",
+     "Use a flag number of 8712 or higher — the safe custom range for your own flags."),
     ("field id must be a number",
      "The 'Field id' box needs a plain number — the id to give your new forked field — and what you typed "
      "isn't one.",

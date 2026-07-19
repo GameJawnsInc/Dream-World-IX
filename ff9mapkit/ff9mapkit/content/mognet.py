@@ -20,7 +20,10 @@ save -- delivering Kuppo's letter to Kupo zeroed slot 0's quad and ticked the co
     bits 8440-8503    READ-side locks -- bit(v) = anchor + 8*(v//8) - (v%8), anchors 8383/8447. The
                       inverse is pinned against live data (reading variants 19/22/33 set exactly bytes
                       1057 bit4 / 1057 bit1 / 1059 bit6). Inside the reserved 8376-8511 band; the kit's
-                      custom flags start at 8512, so no collision either way.
+                      custom flags start at 8712 (flags.FIRST_SAFE_FLAG), so no collision either way.
+    Byte[1064+row]    the READ-MAIL menu payload: row VARIANT / row SENDER, rebuilt from the read-locks
+    Byte[1079+row]    on every Mognet open (rows 0..9). SCRATCH semantically, but save-persisted --
+                      which is why bits 8512-8711 are reserved (flags.READMAIL_PAYLOAD_LO/HI).
 
 THE SAFETY DISCIPLINE (the one irreversible risk is a player's real letters; an adversarial review
 marked "cannot corrupt" UNPROVEN precisely because it depended on unwritten code, so the invariants are

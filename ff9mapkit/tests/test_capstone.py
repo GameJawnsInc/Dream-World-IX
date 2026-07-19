@@ -63,7 +63,7 @@ def test_capstone_build_emits_all_four_channels(tmp_path):
 
     # channels 1 + 2 -- the two .eb levers, prepended verbatim into Main_Init
     raw_eb = L.eb_path("us", "EVT_CAPSTONE.eb.bytes").read_bytes()
-    assert _su.startup_body([(8512, 1)], scenario=2600) in raw_eb       # ScenarioCounter + the story bit
+    assert _su.startup_body([(8712, 1)], scenario=2600) in raw_eb       # ScenarioCounter + the story bit
     assert _pty.party_body(adds=[3, 4]) in raw_eb                       # add steiner + freya
     assert raw_eb.count(bytes.fromhex("6d2c7f")) == 2                   # exactly two B_PARTYADD, no more
 

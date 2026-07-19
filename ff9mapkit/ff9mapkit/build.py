@@ -1226,7 +1226,7 @@ def validate(project: FieldProject) -> list[str]:
             except ValueError as e:
                 problems.append(f"[[chest]] #{k} model: {e}")
         # the opened-flag must be a DEFINED story flag in the safe custom band -- NOT a positional auto bit
-        # (which would shift when chests are reordered) and NOT FF9's real chest bitfield [8376, 8511] (which a
+        # (which would shift when chests are reordered) and NOT FF9's Mognet lock band [8376, 8511] (which a
         # player's existing save may already have set). A named [[flag]] is easiest (readable + campaign-unique);
         # a raw safe-band index works too. (`flag` is resolved name->int at load, so by here it's int or absent.)
         _flag = ch.get("flag")
@@ -1240,7 +1240,7 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(
                 f"[[chest]] #{k} flag {_flag} is outside the safe custom band [{_flags.FIRST_SAFE_FLAG}, "
                 f"{_flags.CHOICE_SCRATCH_FLOOR}) -- pick an index there (or a named [[flag]]) so it can't "
-                f"collide with FF9's real chest bits ([{_flags.CHEST_FLAG_LO}, {_flags.CHEST_FLAG_HI}]) or other state.")
+                f"collide with FF9's Mognet locks ([{_flags.MOGNET_LOCK_LO}, {_flags.MOGNET_LOCK_HI}]) or other state.")
     for k, p in enumerate(project.raw.get("prop", [])):
         _validate_gate_exclusive(p, f"[[prop]] {p.get('prop', p.get('name', '#' + str(k)))!r}", problems)
     for k, co in enumerate(project.raw.get("coop", [])):
@@ -2364,9 +2364,10 @@ def lint_logic(project: FieldProject) -> list[str]:
 
 
 def lint_flag_bands(project: FieldProject) -> list[str]:
-    """Warn when a RAW story-flag index lands in a reserved ``gEventGlobal`` region -- the treasure-chest
-    'opened' bitfield (8376-8511), the byte-23 menu handshake, the worldmap-unlock bits, or the choice-mask
-    scratch -- where a WRITE corrupts real save/engine state and a READ is meaningless. Named ``[[flag]]``s
+    """Warn when a RAW story-flag index lands in a reserved ``gEventGlobal`` region -- the Mognet lock
+    band (8376-8511), the read-mail payload bytes (8512-8711), the byte-23 menu handshake, the
+    worldmap-unlock bits, or the choice-mask scratch -- where a WRITE corrupts real save/engine state
+    and a READ is meaningless. Named ``[[flag]]``s
     are already validated into the safe custom band (``flags.resolve_project_flags``); this catches the
     literal indices that bypass that path (``set_flag = [N, 1]`` / a hand-written once ``flag = N`` /
     ``requires_flag = N``). Lint-only -- NOT run during the build, so the golden output is byte- AND
@@ -2398,11 +2399,11 @@ def lint_flag_bands(project: FieldProject) -> list[str]:
             idx = int(idx)
         except (TypeError, ValueError):
             return
-        if _flags.CHEST_FLAG_LO <= idx <= _flags.CHEST_FLAG_HI:
-            out.append(f"{who} gates on flag {idx}, in the treasure-chest 'opened' bitfield (bits "
-                       f"{_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -- those are real chest state set by "
-                       f"a shared dispatch block in ~48 fields, so gating on them couples your logic to FF9's "
-                       f"chest behavior. Gate on a named [[flag]] instead. (advisory)")
+        if _flags.MOGNET_LOCK_LO <= idx <= _flags.MOGNET_LOCK_HI:
+            out.append(f"{who} gates on flag {idx}, in FF9's Mognet lock band (bits "
+                       f"{_flags.MOGNET_LOCK_LO}-{_flags.MOGNET_LOCK_HI}) -- those are the letter one-shot "
+                       f"locks set by every moogle field, so gating on them couples your logic to the "
+                       f"player's Mognet progress. Gate on a named [[flag]] instead. (advisory)")
 
     for k, ev in enumerate(raw.get("event", [])):
         who = f"event {ev.get('name', '#' + str(k))!r}"
@@ -3668,11 +3669,11 @@ def _apply_on_entry(project: FieldProject, eb: bytes, on_entry_txids: dict, auto
                 once_flag = int(h["flag"])
             else:
                 once_flag = auto.on_entry(k)            # single-field 8300+k (campaign: raises -> explicit flag)
-                if once_flag >= _flags.CHEST_FLAG_LO:   # would write into FF9's reserved chest bitfield
+                if once_flag >= _flags.MOGNET_LOCK_LO:  # would write into FF9's Mognet lock band
                     raise BuildError(
                         f"field {project.name}: too many auto-flagged [[on_entry]] hooks -- hook #{k}'s auto "
-                        f"once-flag {once_flag} reaches FF9's reserved chest bitfield "
-                        f"({_flags.CHEST_FLAG_LO}-{_flags.CHEST_FLAG_HI}) -> save corruption. Give the later "
+                        f"once-flag {once_flag} reaches FF9's Mognet lock band "
+                        f"({_flags.MOGNET_LOCK_LO}-{_flags.MOGNET_LOCK_HI}) -> save corruption. Give the later "
                         f"hooks an explicit flag = N (>= {_flags.FIRST_SAFE_FLAG}).")
         txid = on_entry_txids.get(k)
         if drop_messages and txid is not None:

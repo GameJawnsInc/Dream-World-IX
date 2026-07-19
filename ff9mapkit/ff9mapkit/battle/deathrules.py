@@ -90,18 +90,25 @@ _ON_DEFEAT_KEYS = ("warp_to", "hp", "gil_loss", "flag")
 _ANIMATIONS = ("full", "short")
 _FLAG_MAX = 2048 * 8 - 1                          # gEventGlobal is Byte[2048] -> bit indices 0..16383
 # The kit-reserved WIPE-MARKER bit (on_defeat's default `flag`): the DLL sets it at the canceled game
-# over, the field's tag-10 clears it and warps. 8508 sits just below the author band (>= 8512, flags.py
-# FIRST_SAFE_FLAG) and above every kit auto-band (event 8000+ / cutscene 8100 / choice 8200+ /
-# on_entry 8300+ / chest 8376+).
+# over, the field's tag-10 clears it and warps. 8508 sits in the Mognet lock band's margin byte (1063):
+# bits 8504-8509 are stock-clear, stock's own bools 8510/8511 share the byte but everything touches it
+# bit-wise, so they never collide. Above every kit auto-band (event 8000+ / cutscene 8100 / choice
+# 8200+ / on_entry 8300+) and below the author band (>= 8712, flags.py FIRST_SAFE_FLAG).
 WIPE_FLAG_DEFAULT = 8508
 # The OUTPOST var ("the last outpost the player ENTERED"): a kit-reserved save-backed GLOB_UINT16 at
-# gEventGlobal bytes 1060-1061 (bit band 8480-8495 -- between the chest auto-band and the 8508 wipe
-# marker, below the author band 8512+) holding a FIELD ID; 0 = never visited one (gEventGlobal is zero
-# on New Game). Written by `[field] outpost = true` (an unconditional startup-style Main_Init write,
-# every entry -> last-write-wins); read by the wipe-warp prologue via a COMPUTED Field() (the engine's
-# expression-arg lane). Register-on-save/inn policy stays modder-side: put the same word write behind an
-# event instead of tagging the field.
-OUTPOST_BYTE = 1060
+# gEventGlobal bytes 1074-1075 (bits 8592-8607, inside stock read-mail's payload HOLE -- the 2026-07-19
+# census proved bytes 1074-1078 are the only stock-clear bytes between the payload runs 1064-1073 and
+# 1079-1088) holding a FIELD ID; 0 = never visited one (gEventGlobal is zero on New Game). Written by
+# `[field] outpost = true` (an unconditional startup-style Main_Init write, every entry ->
+# last-write-wins); read by the wipe-warp prologue via a COMPUTED Field() (the engine's expression-arg
+# lane). Register-on-save/inn policy stays modder-side: put the same word write behind an event instead
+# of tagging the field.
+#   HISTORY: this word sat at bytes 1060-1061 until 2026-07-19 -- INSIDE the Mognet READ-lock band
+#   (bits 8480-8495 = the locks for letter variants 40-55), where reading a late-game letter mutated
+#   the stored field id (-> a wipe-warp to a garbage field) and entering an outpost rewrote real
+#   letters' lock state. Old saves' 1060-1061 value is simply ignored now (reads at 1074 find 0 =
+#   "never visited", the fail-safe).
+OUTPOST_BYTE = 1074
 _FIELD_ID_MAX = 32767                             # engine fldMapNo is Int16
 
 

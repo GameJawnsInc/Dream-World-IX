@@ -38,7 +38,7 @@ from . import startup as _startup
 
 # Auto once-flag band for a single-field build (a campaign member must pass an explicit `flag = N` --
 # its per-member block is fully reserved for cutscene/events/choices). 8300+ sits clear of the event
-# (8000+), cutscene (8100) and choice (8200+) auto-bands and below the chest region (8376+).
+# (8000+), cutscene (8100) and choice (8200+) auto-bands and below the Mognet lock band (8376+).
 ONENTRY_FLAG_BASE = 8300
 
 

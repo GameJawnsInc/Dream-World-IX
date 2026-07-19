@@ -34,7 +34,7 @@ spawn = [0, -300]
 STARTUP = BASE + """
 [startup]
 scenario = 7200
-flags = [{flag = 8520, value = 1}, {flag = 8521, value = 0}]
+flags = [{flag = 8720, value = 1}, {flag = 8721, value = 0}]
 """
 
 
@@ -55,8 +55,8 @@ def _main_init_bytes(eb: EbScript) -> bytes:
 def test_startup_injects_scenario_and_flags(tmp_path):
     body = _main_init_bytes(_build_eb(tmp_path, STARTUP))
     assert region.set_var(region.GLOB_UINT16, 0, 7200) in body      # ScenarioCounter @ byte 0
-    assert region.set_var(region.GLOB_BOOL, 8520, 1) in body         # a story bit set
-    assert region.set_var(region.GLOB_BOOL, 8521, 0) in body         # a story bit cleared
+    assert region.set_var(region.GLOB_BOOL, 8720, 1) in body         # a story bit set
+    assert region.set_var(region.GLOB_BOOL, 8721, 0) in body         # a story bit cleared
 
 
 def test_startup_runs_first_in_main_init(tmp_path):
@@ -168,10 +168,10 @@ def test_startup_bytes_validate(tmp_path):
 
 
 def test_startup_flag_by_name(tmp_path):
-    toml = (BASE + '\n[[flag]]\nname = "switch_on"\nindex = 8520\n'
+    toml = (BASE + '\n[[flag]]\nname = "switch_on"\nindex = 8720\n'
             '\n[startup]\nflags = [{flag = "switch_on", value = 1}]\n')
     body = _main_init_bytes(_build_eb(tmp_path, toml))
-    assert region.set_var(region.GLOB_BOOL, 8520, 1) in body
+    assert region.set_var(region.GLOB_BOOL, 8720, 1) in body
 
 
 def _problems(tmp_path, toml: str):
@@ -187,7 +187,7 @@ def test_startup_validate_catches_bad_shapes(tmp_path):
     assert any("unknown scenario area" in m for m in
                _problems(tmp_path, BASE + '\n[startup]\nscenario = "Nowheresville"\n'))
     assert any("value must be 0 or 1" in m for m in
-               _problems(tmp_path, BASE + "\n[startup]\nflags = [{flag = 8520, value = 2}]\n"))
+               _problems(tmp_path, BASE + "\n[startup]\nflags = [{flag = 8720, value = 2}]\n"))
     assert any("needs a `flag`" in m for m in
                _problems(tmp_path, BASE + "\n[startup]\nflags = [{value = 1}]\n"))
 
@@ -197,17 +197,17 @@ def test_startup_shared_flag_name_resolves_at_load(tmp_path):
     the campaign name map at load -- same fix as the gateway set_flags read/write-parity regression."""
     p = tmp_path / "f.field.toml"
     p.write_text(BASE + '\n[startup]\nflags = [{flag = "rescued_dagger", value = 1}]\n', encoding="utf-8")
-    proj = FieldProject.load(p, flag_names={"rescued_dagger": 8700})
+    proj = FieldProject.load(p, flag_names={"rescued_dagger": 8900})
     assert validate(proj) == []
-    assert proj.raw["startup"]["flags"][0]["flag"] == 8700
+    assert proj.raw["startup"]["flags"][0]["flag"] == 8900
 
 
 def test_startup_lint_warns_only_on_reserved_band(tmp_path):
-    # a preset into the treasure-chest bitfield (reserved) is flagged -- it corrupts real save state
+    # a preset into the Mognet lock band (reserved) is flagged -- it corrupts real save state
     p = tmp_path / "f.field.toml"
     p.write_text(BASE + "\n[startup]\nflags = [{flag = 8400, value = 1}]\n", encoding="utf-8")
     w = lint_flag_bands(FieldProject.load(p))
-    assert any("8400" in m and "chest_opened" in m and "[startup]" in m for m in w)
+    assert any("8400" in m and "mognet_give_locks" in m and "[startup]" in m for m in w)
     # presetting a REAL story bit (non-reserved) is the whole point -> no warning
     p.write_text(BASE + "\n[startup]\nflags = [{flag = 2600, value = 1}]\n", encoding="utf-8")
     assert lint_flag_bands(FieldProject.load(p)) == []

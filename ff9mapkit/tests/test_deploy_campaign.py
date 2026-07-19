@@ -160,7 +160,7 @@ def test_wholesale_replace_failure_restores_snapshot(tmp_path, monkeypatch):
         'name = "T"\n'
         f'mod_folder = "{mod_folder}"\n'
         'id_base = 4000\n'
-        'flag_base = 8512\n'
+        'flag_base = 8712\n'
         'flags_per_field = 64\n'
         'entry_field = "F1"\n'
         'entry_entrance = 0\n\n'

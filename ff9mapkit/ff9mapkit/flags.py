@@ -7,10 +7,11 @@ Memoria source + a 676-field census (see ``research/STORY_FLAGS.md``). It does t
 
 1. **NAME** -- a registry of FF9's known named vars / reserved regions / scenario milestones, plus
    author-side name resolution so a ``field.toml`` can gate on a *named* flag instead of a raw index
-   (a ``[[flag]]`` table: ``[[flag]] name = "switch_pulled" index = 8520``).
-2. **CREATE-safely** -- the provably-safe allocation band (``FIRST_SAFE_FLAG`` = 8512, the first bit
-   clear of ALL real-FF9 usage; the chest band 8376-8511 + the choice scratch are reserved). These
-   constants are the single source of truth (``campaign.py`` imports them).
+   (a ``[[flag]]`` table: ``[[flag]] name = "switch_pulled" index = 8720``).
+2. **CREATE-safely** -- the provably-safe allocation band (``FIRST_SAFE_FLAG`` = 8712, the first bit
+   clear of ALL real-FF9 usage; the Mognet lock band 8376-8511, the stock read-mail payload bytes
+   8512-8711, and the choice scratch are reserved). These constants are the single source of truth
+   (``campaign.py`` imports them).
 3. **VIEW / UNDERSTAND** -- decode a save's ``gEventGlobal`` blob into a human report (ScenarioCounter
    + nearest story beat, FieldEntrance, treasure-hunter points, opened-chest count, set story bits
    annotated by region).
@@ -28,13 +29,26 @@ import struct
 from dataclasses import dataclass, field
 
 # --- the provably-safe story-flag allocation band (single source of truth; campaign.py imports these) ---
-# Real FF9 uses save-persistent bit-flags up to bit 8511 (the treasure-chest "opened" bitfield, bits
-# 8376-8511). The choice-visibility scratch sits at byte 2040 = bits 16320+, and the netsync co-op
-# cells (engine-written peer presence/position, bytes 2032-2039 = bits 16256-16319) sit just below it.
-# So custom story flags MUST live in [8512, 16256). 8512 (start of byte 1064) is the first bit clear
-# of ALL real-FF9 usage; the top 64 bits of the old band are kit-reserved (a reserved BIT_REGION).
-FIRST_SAFE_FLAG = 8512
-CHEST_FLAG_LO, CHEST_FLAG_HI = 8376, 8511      # real-FF9 treasure-chest "opened" bitfield
+# THE TOP OF REAL FF9 USAGE (re-censused 2026-07-19, byte-addressed vars INCLUDED this time -- the
+# earlier "first clear bit = 8512" claim came from a BOOL-only census and missed stock's byte writes):
+#   bits 8376-8503  = the MOGNET variant one-shot locks (GIVE 8376-8439 / READ 8440-8503) -- long
+#                     mislabelled "the treasure-chest bitfield"; the ~58 writers are the moogle fields'
+#                     twin switch-64 lock tables, decoded to the instruction (content/mognet.py).
+#   bits 8504-8509  = clear (the kit's deathrules wipe marker sits at 8508).
+#   bits 8510-8511  = two real stock bools (byte 1063).
+#   bits 8512-8591  = stock READ-MAIL row VARIANTS (Byte[1064..1073] -- whole-byte writes on every
+#   bits 8632-8711    Mognet open at any moogle with known letters) and row SENDERS (Byte[1079..1088]).
+#                     A custom flag here is CLOBBERED by ordinary play -- never allocate in either run.
+#   bits 8592-8631  = the payload hole (bytes 1074-1078), stock-clear; the kit's outpost word lives
+#                     here (battle/deathrules.py OUTPOST_BYTE = 1074, bits 8592-8607).
+# The choice-visibility scratch sits at byte 2040 = bits 16320+, and the netsync co-op cells
+# (engine-written peer presence/position, bytes 2032-2039 = bits 16256-16319) sit just below it.
+# So custom story flags MUST live in [8712, 16256): 8712 (start of byte 1089) is the first bit clear
+# of ALL real-FF9 usage -- bools AND byte-addressed vars.
+FIRST_SAFE_FLAG = 8712
+MOGNET_LOCK_LO, MOGNET_LOCK_HI = 8376, 8511    # the Mognet lock bands + their margin (real-FF9; reserved)
+CHEST_FLAG_LO, CHEST_FLAG_HI = MOGNET_LOCK_LO, MOGNET_LOCK_HI   # deprecated alias (the old mislabel)
+READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI = 8512, 8711   # stock read-mail scratch bytes 1064-1088 (reserved)
 COOP_CELLS_FLOOR = 16256                       # bytes 2032-2039: the netsync co-op cells (engine-written)
 CHOICE_SCRATCH_FLOOR = 16320                   # byte 2040: engine/kit-owned choice mask scratch
 
@@ -136,14 +150,26 @@ BIT_REGIONS = [
     BitRegion("worldmap_unlocks", 736, 823, "Worldmap/Navi cursor + location-unlock/first-visit bits "
               "(consumed by engine C#; mostly write-only on the field side).", True, "a/b",
               "ff9.cs:2259-2333; census"),
-    BitRegion("chest_opened", CHEST_FLAG_LO, CHEST_FLAG_HI, "Treasure-chest field-script registry: a "
-              "byte-identical 130-entry dispatch block (WindowSync + set/gate a literal chest bit, branch) "
-              "emitted verbatim into ~48 chest-bearing fields (Ice Cavern, Burmecia Vault, Dali Storage, "
-              "Cleyra, Palace, ...) -- so the census sees all 48 as writers of every bit. The STOCK ENGINE "
-              "does NOT read this region: the Treasure-Hunter rank is scored from a SEPARATE region (bytes "
-              "182-186 + 896-975, see TH_POINT_RANGES). Reserved because real field logic gates/sets it; "
-              "NEVER allocate here.", True, "b",
-              "census (byte-identical block in ~48 chest fields; verified from .eb bytes -- engine does NOT score this band)"),
+    BitRegion("mognet_give_locks", 8376, 8439, "The MOGNET give-side variant one-shot locks (anchor "
+              "8383, bit(v) = anchor + 8*(v//8) - (v%8)): set when a moogle hands the player letter "
+              "variant v to carry. The band every moogle field's switch-64 lock table writes -- the "
+              "'treasure-chest registry' this region was long mislabelled as (the byte-identical block "
+              "in ~58 fields is the twin lock tables, not chests). NEVER allocate here.", True, "a",
+              "content/mognet.py decode (fields 115/300/1102, instruction-cited); live-save verified"),
+    BitRegion("mognet_read_locks", 8440, 8503, "The MOGNET read-side variant one-shot locks (anchor "
+              "8447): set on letter ARRIVAL (accept-delivery or scenario auto-arrival); each gates that "
+              "variant's row in the moogle's read-mail list. NEVER allocate here.", True, "a",
+              "content/mognet.py decode; live vectors: variants 19/22/33 -> bytes 1057b4/1057b1/1059b6"),
+    BitRegion("mognet_lock_margin", 8504, 8511, "The lock bands' margin byte (1063): bits 8510-8511 are "
+              "real stock bools; 8508 is the kit's deathrules wipe marker (bit-disjoint). Reserved.",
+              True, "a", "census 2026-07-19 (bool sweep, reference/test2); battle/deathrules.py"),
+    BitRegion("mognet_readmail_payload", READMAIL_PAYLOAD_LO, READMAIL_PAYLOAD_HI, "Stock READ-MAIL menu "
+              "scratch: row VARIANTS Byte[1064-1073] (bits 8512-8591) and row SENDERS Byte[1079-1088] "
+              "(bits 8632-8711), whole-byte-written on every Mognet open at any moogle with known "
+              "letters -- ordinary play clobbers any custom bit here. The stock-clear hole bytes "
+              "1074-1078 (bits 8592-8631) holds the kit's outpost word (deathrules OUTPOST_BYTE 1074). "
+              "NEVER allocate anywhere in this band.", True, "a",
+              "census 2026-07-19 (byte-var sweep: 1064-1073/1079-1088 are the ONLY stock byte vars >= 1046)"),
     BitRegion("netsync_coop_cells", COOP_CELLS_FLOOR, CHOICE_SCRATCH_FLOOR - 1,
               "Netsync co-op cells (bytes 2032-2039): the engine writes the peer's presence + walkmesh "
               "X/Z here every frame while co-op is on; [[coop]] gates read them. Kit-reserved.", True, "a",
@@ -390,9 +416,14 @@ def collect_flag_defs(raw: dict, *, check_index_collisions: bool = True) -> dict
         key = _norm(name)
         if key in out:
             raise ValueError(f"[[flag]] duplicate name {name!r}.")
-        if CHEST_FLAG_LO <= idx <= CHEST_FLAG_HI:
-            raise ValueError(f"[[flag]] {name!r}: index {idx} is inside real-FF9's treasure-chest band "
-                             f"{CHEST_FLAG_LO}-{CHEST_FLAG_HI} -> save corruption; use "
+        if MOGNET_LOCK_LO <= idx <= MOGNET_LOCK_HI:
+            raise ValueError(f"[[flag]] {name!r}: index {idx} is inside real-FF9's Mognet lock band "
+                             f"{MOGNET_LOCK_LO}-{MOGNET_LOCK_HI} (letter one-shot locks) -> save "
+                             f"corruption; use [{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}).")
+        if READMAIL_PAYLOAD_LO <= idx <= READMAIL_PAYLOAD_HI:
+            raise ValueError(f"[[flag]] {name!r}: index {idx} is inside stock Mognet's read-mail "
+                             f"payload bytes ({READMAIL_PAYLOAD_LO}-{READMAIL_PAYLOAD_HI}) -- ordinary "
+                             f"play at any real moogle CLOBBERS these bytes; use "
                              f"[{FIRST_SAFE_FLAG}, {CHOICE_SCRATCH_FLOOR}).")
         if not (FIRST_SAFE_FLAG <= idx < CHOICE_SCRATCH_FLOOR):
             raise ValueError(f"[[flag]] {name!r}: index {idx} is outside the safe custom band "
@@ -563,7 +594,7 @@ class SaveReport:
     eiko_abducted: bool
     field_entrance: int
     treasure_hunter_points: int
-    chests_opened: int               # set bits in the chest band 8376-8511
+    mognet_locks: int                # set bits in the Mognet lock band 8376-8511 (letters given + read)
     set_bits: list = field(default_factory=list)   # all set bit indices (sorted)
     named_words: list = field(default_factory=list)  # [(WordVar, value)] for non-zero named words
 
@@ -591,7 +622,7 @@ def decode_gEventGlobal(blob: bytes) -> SaveReport:
     for lo, hi, weight in TH_POINT_RANGES:
         for b in range(lo, hi + 1):
             th += weight * _count_bits(blob[b])
-    chests = sum(_count_bits(blob[b]) for b in range(CHEST_FLAG_LO >> 3, (CHEST_FLAG_HI >> 3) + 1))
+    chests = sum(_count_bits(blob[b]) for b in range(MOGNET_LOCK_LO >> 3, (MOGNET_LOCK_HI >> 3) + 1))
     set_bits = [byte * 8 + bit for byte in range(2048) for bit in range(8) if blob[byte] >> bit & 1]
     named = [(w, _read_word(blob, w.byte, w.width, w.signed)) for w in NAMED_WORDS
              if _read_word(blob, w.byte, w.width, w.signed) != 0]
@@ -599,7 +630,7 @@ def decode_gEventGlobal(blob: bytes) -> SaveReport:
         scenario_counter=scenario, milestone=nearest_milestone(scenario),
         eiko_abducted=EIKO_ABDUCTED_LO <= scenario <= EIKO_ABDUCTED_HI,
         field_entrance=_read_word(blob, 2, 2, True), treasure_hunter_points=th,
-        chests_opened=chests, set_bits=set_bits, named_words=named)
+        mognet_locks=chests, set_bits=set_bits, named_words=named)
 
 
 def gEventGlobal_from_save(text_or_path) -> bytes:
@@ -677,7 +708,7 @@ def render_report(rep: SaveReport, *, show_bits: bool = False, names: dict | Non
         L.append("                  [IsEikoAbducted window -- Desert Palace]")
     L.append(f"FieldEntrance   : {rep.field_entrance}")
     L.append(f"Treasure-Hunter : {rep.treasure_hunter_points} pts   (chests/icons opened)")
-    L.append(f"Chests opened   : {rep.chests_opened}   (bits {CHEST_FLAG_LO}-{CHEST_FLAG_HI})")
+    L.append(f"Mognet locks    : {rep.mognet_locks}   (letters given + read; bits {MOGNET_LOCK_LO}-{MOGNET_LOCK_HI})")
     if rep.named_words:
         L.append("Named vars set  :")
         for w, v in rep.named_words:
@@ -688,7 +719,7 @@ def render_report(rep: SaveReport, *, show_bits: bool = False, names: dict | Non
     for name, bits in sorted(by_region.items()):
         L.append(f"  [{name}] {len(bits)} bit(s)")
     if custom:
-        L.append(f"  [custom 8512+] {len(custom)} bit(s): {_fmt_bits(custom, names)}")
+        L.append(f"  [custom {FIRST_SAFE_FLAG}+] {len(custom)} bit(s): {_fmt_bits(custom, names)}")
     if show_bits and unmapped:
         L.append(f"  [unmapped] {unmapped}")
     return "\n".join(L)
@@ -703,8 +734,8 @@ class FlagDiff:
     field_entrance_to: int
     th_from: int
     th_to: int
-    chests_from: int
-    chests_to: int
+    mognet_locks_from: int
+    mognet_locks_to: int
     bits_set: list = field(default_factory=list)       # bits TRUE in B but not A (newly set)
     bits_cleared: list = field(default_factory=list)   # bits TRUE in A but not B (cleared)
     words_changed: list = field(default_factory=list)  # [(WordVar, old, new)] (excl. Scenario/FieldEntrance)
@@ -714,7 +745,7 @@ class FlagDiff:
         return not (self.bits_set or self.bits_cleared or self.words_changed
                     or self.scenario_from != self.scenario_to
                     or self.field_entrance_from != self.field_entrance_to
-                    or self.th_from != self.th_to or self.chests_from != self.chests_to)
+                    or self.th_from != self.th_to or self.mognet_locks_from != self.mognet_locks_to)
 
 
 def diff_reports(a: SaveReport, b: SaveReport) -> FlagDiff:
@@ -738,7 +769,7 @@ def diff_reports(a: SaveReport, b: SaveReport) -> FlagDiff:
         scenario_from=a.scenario_counter, scenario_to=b.scenario_counter,
         field_entrance_from=a.field_entrance, field_entrance_to=b.field_entrance,
         th_from=a.treasure_hunter_points, th_to=b.treasure_hunter_points,
-        chests_from=a.chests_opened, chests_to=b.chests_opened,
+        mognet_locks_from=a.mognet_locks, mognet_locks_to=b.mognet_locks,
         bits_set=sorted(sb - sa), bits_cleared=sorted(sa - sb), words_changed=words)
 
 
@@ -755,8 +786,9 @@ def render_diff(diff: FlagDiff, *, show_bits: bool = False, names: dict | None =
         L.append(f"FieldEntrance   : {diff.field_entrance_from}  ->  {diff.field_entrance_to}")
     if diff.th_from != diff.th_to:
         L.append(f"Treasure-Hunter : {diff.th_from}  ->  {diff.th_to} pts  ({diff.th_to - diff.th_from:+d})")
-    if diff.chests_from != diff.chests_to:
-        L.append(f"Chests opened   : {diff.chests_from}  ->  {diff.chests_to}  ({diff.chests_to - diff.chests_from:+d})")
+    if diff.mognet_locks_from != diff.mognet_locks_to:
+        L.append(f"Mognet locks    : {diff.mognet_locks_from}  ->  {diff.mognet_locks_to}  "
+                 f"({diff.mognet_locks_to - diff.mognet_locks_from:+d})")
     if diff.words_changed:
         L.append("Named vars changed :")
         for w, old, new in diff.words_changed:
@@ -769,7 +801,7 @@ def render_diff(diff: FlagDiff, *, show_bits: bool = False, names: dict | None =
         for name, bs in sorted(by_region.items()):
             L.append(f"  [{name}] {len(bs)} bit(s): {bs[:20]}{' ...' if len(bs) > 20 else ''}")
         if custom:
-            L.append(f"  [custom 8512+] {len(custom)} bit(s): {_fmt_bits(custom, names)}")
+            L.append(f"  [custom {FIRST_SAFE_FLAG}+] {len(custom)} bit(s): {_fmt_bits(custom, names)}")
         if unmapped:
             L.append(f"  [unmapped] {len(unmapped)}" + (f": {unmapped}" if show_bits else " bit(s)"))
     if diff.empty:

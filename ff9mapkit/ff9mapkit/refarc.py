@@ -37,8 +37,8 @@ ARC_ID_SPAN = 200
 # march past 8800 (12+ arcs / a large region-catalog set), skip the 200-band that holds 9000-9012.
 _WORLD_RESERVED_BASE = 9000
 
-# The journey assembler lays every campaign's GLOB flag window end-to-end inside ONE safe band (8512..16320 =
-# 7808 bits). At import-chain's defaults (25 members x 64 flags/field) a 12-arc chain needs 19200 bits and
+# The journey assembler lays every campaign's GLOB flag window end-to-end inside ONE safe band (8712..16320 =
+# 7608 bits). At import-chain's defaults (25 members x 64 flags/field) a 12-arc chain needs 19200 bits and
 # OVERFLOWS -> the deploy lint hard-errors. So the fork playbook emits a SMALLER `--flags-per-field` sized so
 # all arcs fit; arcs keep their full member count (the lever is the per-field reservation, not --max-fields).
 SAFE_FLAG_BUDGET = _flags.CHOICE_SCRATCH_FLOOR - _flags.FIRST_SAFE_FLAG     # bits the journey band has for campaigns

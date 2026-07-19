@@ -56,10 +56,10 @@ def _eb_parses(eb: EbScript) -> bool:
 
 def test_on_entry_body_state_only_has_no_movement_gate():
     # a state-only beat: set scenario + a flag, gated once. NO MOVEMENT_GATE (it runs before usercontrol).
-    body = onentry.on_entry_body(scenario=2700, set_flag_pairs=[(8520, 1)], once_flag=8300)
+    body = onentry.on_entry_body(scenario=2700, set_flag_pairs=[(8720, 1)], once_flag=8300)
     assert region.MOVEMENT_GATE not in body
     assert region.set_var(region.GLOB_UINT16, 0, 2700) in body
-    assert region.set_var(region.GLOB_BOOL, 8520, 1) in body
+    assert region.set_var(region.GLOB_BOOL, 8720, 1) in body
     assert region.set_var(region.GLOB_BOOL, 8300, 1) in body          # the once-flag is set
     # once-gate: if (!8300) { 8300 = 1; ... }
     assert region.cond_not(region.GLOB_BOOL, 8300) in body
@@ -76,19 +76,19 @@ def test_on_entry_body_message_uses_control_lock():
 
 
 def test_on_entry_body_gate_precedes_once_block():
-    body = onentry.on_entry_body(set_flag_pairs=[(8520, 1)], once_flag=8300, requires_scenario=2700)
+    body = onentry.on_entry_body(set_flag_pairs=[(8720, 1)], once_flag=8300, requires_scenario=2700)
     gate = onentry.scenario_gate(2700)
     assert gate in body
     assert body.index(gate) < body.index(region.cond_not(region.GLOB_BOOL, 8300))   # gate OUTSIDE once
     # a requires_flag gate is a flag_gate prologue
-    body2 = onentry.on_entry_body(set_flag_pairs=[(8520, 1)], once_flag=8300, requires_flag=8513)
+    body2 = onentry.on_entry_body(set_flag_pairs=[(8720, 1)], once_flag=8300, requires_flag=8513)
     assert region.flag_gate(region.GLOB_BOOL, 8513, require_set=True) in body2
 
 
 def test_on_entry_no_once_flag_omits_once_block():
-    body = onentry.on_entry_body(set_flag_pairs=[(8520, 1)], once_flag=None)
-    assert region.cond_not(region.GLOB_BOOL, 8520) not in body        # no if(!once) wrapper
-    assert region.set_var(region.GLOB_BOOL, 8520, 1) in body
+    body = onentry.on_entry_body(set_flag_pairs=[(8720, 1)], once_flag=None)
+    assert region.cond_not(region.GLOB_BOOL, 8720) not in body        # no if(!once) wrapper
+    assert region.set_var(region.GLOB_BOOL, 8720, 1) in body
 
 
 def test_on_entry_body_gives_items_and_gil_once():
@@ -108,7 +108,7 @@ def test_on_entry_body_gives_items_and_gil_once():
 
 def test_build_on_entry_items(tmp_path):
     from ff9mapkit.content import event
-    toml = BASE + '\n[[on_entry]]\nitems = [["Potion", 5], ["Tent", 1]]\ngil = 200\nflag = 8520\n'
+    toml = BASE + '\n[[on_entry]]\nitems = [["Potion", 5], ["Tent", 1]]\ngil = 200\nflag = 8720\n'
     eb = _build_eb(tmp_path, toml)
     assert event.give_item("Potion", 5) in eb.data and event.give_item("Tent", 1) in eb.data
     assert event.give_gil(200) in eb.data and _eb_parses(eb)
@@ -117,13 +117,13 @@ def test_build_on_entry_items(tmp_path):
 def test_on_entry_items_only_is_valid(tmp_path):
     # an items-only hook is a real action -> NOT "does nothing"
     p = tmp_path / "f.field.toml"
-    p.write_text(BASE + '\n[[on_entry]]\nitems = [["Elixir", 1]]\nflag = 8520\n', encoding="utf-8")
+    p.write_text(BASE + '\n[[on_entry]]\nitems = [["Elixir", 1]]\nflag = 8720\n', encoding="utf-8")
     assert validate(FieldProject.load(p)) == []
 
 
 def test_on_entry_items_bad_name_caught(tmp_path):
     p = tmp_path / "f.field.toml"
-    p.write_text(BASE + '\n[[on_entry]]\nitems = [["Notarealitem", 1]]\nflag = 8520\n', encoding="utf-8")
+    p.write_text(BASE + '\n[[on_entry]]\nitems = [["Notarealitem", 1]]\nflag = 8720\n', encoding="utf-8")
     probs = validate(FieldProject.load(p))
     assert any("items" in x for x in probs)
 
@@ -167,12 +167,12 @@ def test_on_entry_message_text_shares_the_mes_block(tmp_path):
 
 
 def test_on_entry_scenario_and_flags_by_name(tmp_path):
-    toml = (BASE + '\n[[flag]]\nname = "saw_intro"\nindex = 8520\n'
+    toml = (BASE + '\n[[flag]]\nname = "saw_intro"\nindex = 8720\n'
             + '\n[[on_entry]]\nset_scenario = "Dali (underground)"\n'
             + 'set_flags = [{flag = "saw_intro", value = 1}]\nrequires_scenario = "Dali (underground)"\n')
     eb = _build_eb(tmp_path, toml)
     assert region.set_var(region.GLOB_UINT16, 0, 2700) in eb.data      # area name -> scenario
-    assert region.set_var(region.GLOB_BOOL, 8520, 1) in eb.data        # flag name -> index
+    assert region.set_var(region.GLOB_BOOL, 8720, 1) in eb.data        # flag name -> index
 
 
 def test_on_entry_shared_flag_name_resolves_at_load(tmp_path):
@@ -181,10 +181,10 @@ def test_on_entry_shared_flag_name_resolves_at_load(tmp_path):
     p = tmp_path / "f.field.toml"
     p.write_text(BASE + '\n[[on_entry]]\nrequires_flag = "rescued"\nset_flags = [{flag = "rescued", value = 1}]\n',
                  encoding="utf-8")
-    proj = FieldProject.load(p, flag_names={"rescued": 8700})
+    proj = FieldProject.load(p, flag_names={"rescued": 8900})
     assert validate(proj) == []
-    assert proj.raw["on_entry"][0]["requires_flag"] == 8700
-    assert proj.raw["on_entry"][0]["set_flags"][0]["flag"] == 8700
+    assert proj.raw["on_entry"][0]["requires_flag"] == 8900
+    assert proj.raw["on_entry"][0]["set_flags"][0]["flag"] == 8900
 
 
 # --------------------------------------------------------------- validation ---
@@ -202,7 +202,7 @@ def test_on_entry_validate_catches_bad_shapes(tmp_path):
     assert any("[[on_entry]] #0 requires_scenario must be" in m for m in
                _problems(tmp_path, BASE + "\n[[on_entry]]\nmessage = \"x\"\nrequires_scenario = 99999\n"))
     assert any("value must be 0 or 1" in m for m in
-               _problems(tmp_path, BASE + "\n[[on_entry]]\nset_flags = [{flag = 8520, value = 2}]\n"))
+               _problems(tmp_path, BASE + "\n[[on_entry]]\nset_flags = [{flag = 8720, value = 2}]\n"))
 
 
 def test_on_entry_unknown_flag_name_raises_at_load(tmp_path):

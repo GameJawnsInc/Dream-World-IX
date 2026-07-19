@@ -159,9 +159,9 @@ def test_build_owned_dirs():
 # ---- [difficulty] parse ----------------------------------------------------------------------------------
 def test_parse_scales_and_flag_name():
     spec = difficulty.parse_table({"enemy_hp": 1.5, "enemy_attack": 1.25, "flag": "Hard_Mode"},
-                                  name_map={"hard_mode": 8600})   # resolve() is case/spacing-insensitive
+                                  name_map={"hard_mode": 8800})   # resolve() is case/spacing-insensitive
     assert spec.hp == 1.5 and spec.attack == 1.25 and spec.magic == 1.0
-    assert spec.flag == 8600 and spec.flag_label == "Hard_Mode"
+    assert spec.flag == 8800 and spec.flag_label == "Hard_Mode"
 
 
 def test_parse_rejects():
@@ -193,8 +193,8 @@ def test_collect_dedupes_and_conflicts():
 
 # ---- [difficulty] render ----------------------------------------------------------------------------------
 def test_render_gate_math_and_clamps():
-    src = difficulty.render(difficulty.DifficultySpec(hp=1.5, attack=1.25, flag=8600, flag_label="hard_mode"))
-    assert f"g[{8600 >> 3}] & {1 << (8600 & 7)}" in src   # bit 8600 -> byte 1075, mask 1
+    src = difficulty.render(difficulty.DifficultySpec(hp=1.5, attack=1.25, flag=8800, flag_label="hard_mode"))
+    assert f"g[{8800 >> 3}] & {1 << (8800 & 7)}" in src   # bit 8800 -> byte 1075, mask 1
     assert "if (u.IsPlayer)" in src                       # enemies only
     assert "Math.Min(9999999.0" in src                    # HP cap
     assert "(Byte)Math.Min(255.0" in src                  # Byte stat cap
@@ -243,7 +243,7 @@ def test_validate_reports_bad_difficulty(tmp_path):
     p.write_text(BASE + "\n[difficulty]\nenemy_hp = 99.0\n", encoding="utf-8")
     assert any("out of range" in x for x in validate(FieldProject.load(p)))
     p.write_text(BASE + '\n[difficulty]\nenemy_hp = 1.5\nflag = "hard_mode"\n'
-                 '\n[[flag]]\nname = "hard_mode"\nindex = 8600\n', encoding="utf-8")
+                 '\n[[flag]]\nname = "hard_mode"\nindex = 8800\n', encoding="utf-8")
     assert validate(FieldProject.load(p)) == []           # named flag resolves through the [[flag]] registry
 
 
@@ -281,21 +281,21 @@ def test_emit_scripts_difficulty_only(tmp_path, monkeypatch):
 def test_flag_gate_shared_helper():
     """difficulty + rebalance emit an IDENTICAL gEventGlobal-bit gate -- the codegen lives once in overload."""
     assert overload.flag_gate_cs(None) == ""             # None -> always-on, no gate
-    g = overload.flag_gate_cs(8600, label="hard_mode")
-    assert "g[1075] & 1" in g and "(hard_mode)" in g and g.endswith("return;\n")
+    g = overload.flag_gate_cs(8800, label="hard_mode")
+    assert "g[1100] & 1" in g and "(hard_mode)" in g and g.endswith("return;\n")
     # a numeric label (== the index) is not parenthesized twice
-    assert "(8600)" not in overload.flag_gate_cs(8600, label="8600")
+    assert "(8800)" not in overload.flag_gate_cs(8800, label="8800")
     # the two features' rendered gates match byte-for-byte
-    d = difficulty.render(difficulty.DifficultySpec(hp=2.0, flag=8600, flag_label="hard_mode"))
-    r = rebalance.render(rebalance.RebalanceSpec(player=2.0, flag=8600, flag_label="hard_mode"))
+    d = difficulty.render(difficulty.DifficultySpec(hp=2.0, flag=8800, flag_label="hard_mode"))
+    r = rebalance.render(rebalance.RebalanceSpec(player=2.0, flag=8800, flag_label="hard_mode"))
     assert g in d and g in r
 
 
 # ---- [rebalance] parse ------------------------------------------------------------------------------------
 def test_rebalance_parse_and_rejects():
     spec = rebalance.parse_table({"player_damage": 1.5, "enemy_damage": 0.75, "flag": "Hard_Mode"},
-                                 name_map={"hard_mode": 8600})
-    assert spec.player == 1.5 and spec.enemy == 0.75 and spec.flag == 8600
+                                 name_map={"hard_mode": 8800})
+    assert spec.player == 1.5 and spec.enemy == 0.75 and spec.flag == 8800
     with pytest.raises(rebalance.RebalanceError, match="unknown key"):
         rebalance.parse_table({"player_damage": 1.5, "enemy_hp": 2.0})   # a difficulty key here is unknown
     with pytest.raises(rebalance.RebalanceError, match="out of range"):
@@ -367,7 +367,7 @@ def test_validate_reports_bad_rebalance(tmp_path):
     p.write_text(BASE + "\n[rebalance]\nplayer_damage = 99.0\n", encoding="utf-8")
     assert any("out of range" in x for x in validate(FieldProject.load(p)))
     p.write_text(BASE + '\n[rebalance]\nenemy_damage = 0.5\nflag = "hard_mode"\n'
-                 '\n[[flag]]\nname = "hard_mode"\nindex = 8600\n', encoding="utf-8")
+                 '\n[[flag]]\nname = "hard_mode"\nindex = 8800\n', encoding="utf-8")
     assert validate(FieldProject.load(p)) == []
 
 
@@ -430,8 +430,8 @@ def test_deathrules_in_build_owned_dirs():
 # ---- [deathrules] parse -----------------------------------------------------------------------------------
 def test_deathrules_parse_and_rejects():
     spec = deathrules.parse_table({"second_wind": True, "chance": 60, "keep_rebirth_flame": False,
-                                   "flag": "Mercy_Mode"}, name_map={"mercy_mode": 8601})
-    assert spec.second_wind and spec.chance == 60 and not spec.keep_rebirth_flame and spec.flag == 8601
+                                   "flag": "Mercy_Mode"}, name_map={"mercy_mode": 8801})
+    assert spec.second_wind and spec.chance == 60 and not spec.keep_rebirth_flame and spec.flag == 8801
     with pytest.raises(deathrules.DeathRulesError, match="unknown key"):
         deathrules.parse_table({"second_wind": True, "revive": True})
     with pytest.raises(deathrules.DeathRulesError, match="true or false"):
@@ -500,14 +500,14 @@ def test_deathrules_render_second_wind_mechanism():
 def test_deathrules_render_gate_and_eiko_matrix():
     """Flag semantics: bit CLEAR = fully VANILLA, Eiko included -- so the gate is a tested CONDITION
     (flag_expr_cs), never the shared early-return, and Eiko-removal is suspended while the rule sleeps."""
-    expr = overload.flag_expr_cs(8600)
-    assert expr == "(FF9StateSystem.EventState.gEventGlobal[1075] & 1) != 0"
-    gated = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, flag=8600, flag_label="mercy"))
+    expr = overload.flag_expr_cs(8800)
+    assert expr == "(FF9StateSystem.EventState.gEventGlobal[1100] & 1) != 0"
+    gated = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, flag=8800, flag_label="mercy"))
     assert f"Boolean ruleActive = {expr};" in gated
     assert "if (!ruleActive)\n                    return false;" in gated   # asleep -> vanilla defeat
     # keep=false under a gate: vanilla Eiko still fires while the rule sleeps
     gated_no_eiko = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, keep_rebirth_flame=False,
-                                                                flag=8600, flag_label="mercy"))
+                                                                flag=8800, flag_label="mercy"))
     assert "if (!ruleActive && VanillaRebirthFlame(state))" in gated_no_eiko
     # keep=false with NO gate: the removal is unconditional (and commented as intentional)
     no_eiko = deathrules.render(deathrules.DeathRulesSpec(second_wind=True, keep_rebirth_flame=False))
@@ -576,7 +576,7 @@ def test_validate_reports_bad_deathrules(tmp_path):
     p.write_text(BASE + "\n[deathrules]\nsecond_wind = true\nchance = 200\n", encoding="utf-8")
     assert any("out of range" in x for x in validate(FieldProject.load(p)))
     p.write_text(BASE + '\n[deathrules]\nsecond_wind = true\nflag = "mercy_mode"\n'
-                 '\n[[flag]]\nname = "mercy_mode"\nindex = 8601\n', encoding="utf-8")
+                 '\n[[flag]]\nname = "mercy_mode"\nindex = 8801\n', encoding="utf-8")
     assert validate(FieldProject.load(p)) == []            # named flag resolves through the [[flag]] registry
 
 
@@ -701,8 +701,8 @@ def test_field_to_var_encoding_roundtrips():
     from ff9mapkit.content import region
     from ff9mapkit.eb import disasm
     b = region.field_to_var(region.GLOB_UINT16, deathrules.OUTPOST_BYTE)
-    # 1060 > 0xFF -> the long-index var token: class 0xDC|0x20, u16 LE index, then the expr terminator
-    assert b == bytes([0x2B, 0x01, 0xDC | 0x20]) + (1060).to_bytes(2, "little") + bytes([0x7F])
+    # 1074 > 0xFF -> the long-index var token: class 0xDC|0x20, u16 LE index, then the expr terminator
+    assert b == bytes([0x2B, 0x01, 0xDC | 0x20]) + (1074).to_bytes(2, "little") + bytes([0x7F])
     instr, pos = disasm.read_code(b, 0)
     assert pos == len(b) and instr.op == 0x2B
     assert instr.arg_is_expr == [True]                     # the one operand decoded as an expression
@@ -741,8 +741,8 @@ def test_lowhp_parse_fractions_and_rejects():
     assert (lambda s: (s.num, s.den))(lowhp.parse_table({"threshold": "1/3"})) == (1, 3)
     assert (lambda s: (s.num, s.den))(lowhp.parse_table({"threshold": 0.5})) == (1, 2)
     assert (lambda s: (s.num, s.den))(lowhp.parse_table({"threshold": 0.333})) == (1, 3)   # floats snap
-    spec = lowhp.parse_table({"threshold": "2/5", "flag": "Hard_Mode"}, name_map={"hard_mode": 8600})
-    assert (spec.num, spec.den, spec.flag) == (2, 5, 8600)
+    spec = lowhp.parse_table({"threshold": "2/5", "flag": "Hard_Mode"}, name_map={"hard_mode": 8800})
+    assert (spec.num, spec.den, spec.flag) == (2, 5, 8800)
     with pytest.raises(lowhp.LowHPError, match="threshold is required"):
         lowhp.parse_table({})
     with pytest.raises(lowhp.LowHPError, match="vanilla 1/6"):
@@ -801,8 +801,8 @@ def test_lowhp_render_pins_default_and_compare():
 def test_lowhp_render_gate_picks_threshold():
     """Flag semantics: bit CLEAR = the vanilla 1/6 (the same transcribed side effects still run) -- the gate
     only picks the comparison, and its own try/catch degrades to vanilla."""
-    src = lowhp.render(lowhp.LowHPSpec(num=1, den=2, flag=8600, flag_label="hard_mode"))
-    assert f"ruleActive = {overload.flag_expr_cs(8600)};" in src
+    src = lowhp.render(lowhp.LowHPSpec(num=1, den=2, flag=8800, flag_label="hard_mode"))
+    assert f"ruleActive = {overload.flag_expr_cs(8800)};" in src
     assert "(ruleActive ? unit.CurrentHp * 2 <= unit.MaximumHp : unit.CurrentHp * 6 <= unit.MaximumHp)" in src
     assert src.count("{") == src.count("}")
 
@@ -822,7 +822,7 @@ def test_validate_reports_bad_lowhp(tmp_path):
     p.write_text(BASE + '\n[lowhp]\nthreshold = "1/6"\n', encoding="utf-8")
     assert any("vanilla 1/6" in x for x in validate(FieldProject.load(p)))
     p.write_text(BASE + '\n[lowhp]\nthreshold = "1/3"\nflag = "hard_mode"\n'
-                 '\n[[flag]]\nname = "hard_mode"\nindex = 8600\n', encoding="utf-8")
+                 '\n[[flag]]\nname = "hard_mode"\nindex = 8800\n', encoding="utf-8")
     assert validate(FieldProject.load(p)) == []            # named flag resolves through the [[flag]] registry
 
 
@@ -861,15 +861,15 @@ def test_tree_compiles_against_live_engine(tmp_path):
     cs.parent.mkdir(parents=True)
     cs.write_text(telemetry.telemetry_source(), encoding="utf-8", newline="\n")
     difficulty.write_source(layout, difficulty.DifficultySpec(hp=1.5, attack=1.25, magic=1.1,
-                                                              flag=8600, flag_label="hard_mode"))
+                                                              flag=8800, flag_label="hard_mode"))
     rebalance.write_source(layout, rebalance.RebalanceSpec(player=1.5, enemy=0.75,
-                                                           flag=8600, flag_label="hard_mode"))
+                                                           flag=8800, flag_label="hard_mode"))
     # every deathrules construct: gate expr + chance roll + FULL second wind + the gated-Eiko branch
     deathrules.write_source(layout, deathrules.DeathRulesSpec(second_wind=True, chance=60,
                                                               keep_rebirth_flame=False,
-                                                              flag=8601, flag_label="mercy_mode"))
+                                                              flag=8801, flag_label="mercy_mode"))
     # [lowhp] gated + non-unit numerator (UIColor/FF9TextTool/AlterStatus surface + the compare ternary)
-    lowhp.write_source(layout, lowhp.LowHPSpec(num=2, den=5, flag=8602, flag_label="hard_mode"))
+    lowhp.write_source(layout, lowhp.LowHPSpec(num=2, den=5, flag=8802, flag_label="hard_mode"))
     out = overload.compile_tree(layout, "FF9CustomMap")
     assert out is not None and out.is_file() and out.stat().st_size > 0
     # ...and the SHORT-animation + on_defeat surface (BattleUnit ctor, RemoveStatus(BattleUnit,

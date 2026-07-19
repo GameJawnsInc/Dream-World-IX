@@ -840,7 +840,7 @@ def test_render_deploy_playbook(tmp_path):
     p = _escape_ice(tmp_path)
     plan = journey.build_deploy_plan(journey.load_journeys(p))
     book = journey.render_deploy_playbook(journey.load_journeys(p), hub_toml="hub.field.toml")
-    assert "deploy_campaign.py" in book and "--flag-base 8512" in book and "--flag-base 8640" in book
+    assert "deploy_campaign.py" in book and "--flag-base 8712" in book and "--flag-base 8840" in book
     assert "--no-warp" in book and "--mod-folder FF9CustomMap-evf" in book
     assert "deploy_journey.py" in book and "--apply-links" in book      # the link step
     assert "Field(652) -> Field(6100)" in book
@@ -934,12 +934,12 @@ def test_worldmap_warp_body_carries_field_and_entrance():
 def test_seed_to_field_blocks():
     seed = journey.JourneySeed(scenario=2600, party=["Zidane", "Vivi", "Steiner"],
                                raw={"scenario": 2600, "party": ["Zidane", "Vivi", "Steiner"],
-                                    "flags": [{"flag": 8512, "value": 1}],
+                                    "flags": [{"flag": 8712, "value": 1}],
                                     "inventory": [["Potion", 5]],
                                     "equipment": [{"character": "Vivi", "weapon": "Mage Masher"}]})
     b = journey.seed_to_field_blocks(seed)
     assert b["startup"]["scenario"] == 2600
-    assert b["startup"]["flags"] == [{"flag": 8512, "value": 1}]
+    assert b["startup"]["flags"] == [{"flag": 8712, "value": 1}]
     assert b["party"] == {"add": ["Vivi", "Steiner"]}                 # Zidane dropped (New Game seeds slot 0)
     assert b["start_inventory"] == {"items": [["Potion", 5]]}
     assert b["equipment"] == [{"character": "Vivi", "weapon": "Mage Masher"}]

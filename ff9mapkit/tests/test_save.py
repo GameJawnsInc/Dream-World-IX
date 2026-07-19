@@ -42,9 +42,9 @@ def test_block_index_mapping():
 
 
 def test_read_and_enumerate():
-    sv = S.FF9Save(_make_save({1: _geg(7200, (8520,)), 2: _geg(2500)}))
+    sv = S.FF9Save(_make_save({1: _geg(7200, (8720,)), 2: _geg(2500)}))
     assert sv.gEventGlobal(1)[:2] == bytes([7200 & 0xFF, 7200 >> 8])
-    assert (sv.gEventGlobal(1)[1065] >> 0) & 1 == 1                     # flag 8520 set
+    assert (sv.gEventGlobal(1)[1090] >> 0) & 1 == 1                     # flag 8720 set
     pops = {p.block: (p.scenario, p.slot, p.save) for p in sv.populated()}
     assert pops == {1: (7200, 0, 0), 2: (2500, 0, 1)}                   # block 0 (zeros) is not a save
 
@@ -60,10 +60,10 @@ def test_edit_isolates_to_target_block():
     sv = S.FF9Save(_make_save({1: _geg(7200), 2: _geg(2500)}))
     orig = bytes(sv.data)
     geg = bytearray(sv.gEventGlobal(1))
-    notes = S.edit_story_state(geg, scenario=2530, set_flags=(8530,))
+    notes = S.edit_story_state(geg, scenario=2530, set_flags=(8730,))
     sv.set_gEventGlobal(1, bytes(geg))
     assert sv.gEventGlobal(1)[:2] == bytes([2530 & 0xFF, 2530 >> 8])
-    assert (sv.gEventGlobal(1)[8530 >> 3] >> (8530 & 7)) & 1 == 1
+    assert (sv.gEventGlobal(1)[8730 >> 3] >> (8730 & 7)) & 1 == 1
     assert any("2530" in n for n in notes)
     lo = S.BASE_SAVE_BLOCK_OFFSET + S.SAVE_BLOCK_SIZE                   # block 1 span
     hi = lo + S.SAVE_BLOCK_SIZE
@@ -105,9 +105,9 @@ def test_extra_file_read_and_patch(tmp_path):
     p = tmp_path / "s_Memoria_0_2.dat"
     p.write_bytes(b"\x02\x00\x00\x00key\x00" + base64.b64encode(_geg(0)) + b"\x00\x00tail")
     assert S.read_extra_gEventGlobal(str(p))[:2] == b"\x00\x00"                          # SC 0
-    assert S.patch_extra_gEventGlobal(str(p), _geg(2500, (8520,))) is True
+    assert S.patch_extra_gEventGlobal(str(p), _geg(2500, (8720,))) is True
     got = S.read_extra_gEventGlobal(str(p))
-    assert got[0] | got[1] << 8 == 2500 and (got[1065] >> 0) & 1 == 1                    # SC + flag took
+    assert got[0] | got[1] << 8 == 2500 and (got[1090] >> 0) & 1 == 1                    # SC + flag took
     assert S.read_extra_gEventGlobal(str(tmp_path / "missing.dat")) is None              # absent file
     q = tmp_path / "no_geg.dat"
     q.write_bytes(b"no base64 of the right size here")
@@ -184,11 +184,11 @@ def test_apply_story_edit_in_place_backs_up_and_writes(tmp_path):
     p = tmp_path / "SavedData_ww.dat"
     S.FF9Save(_make_save({1: _geg(7200), 2: _geg(2500)})).write(p)
     before_block2 = S.FF9Save.load(p).gEventGlobal(2)[:2]
-    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8520,))
+    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8720,))
     assert res["written"] and any("2500" in n for n in res["notes"]) and len(res["backups"]) == 1
     sv = S.FF9Save.load(p)
     assert sv.gEventGlobal(1)[:2] == bytes([2500 & 0xFF, 2500 >> 8])         # scenario took
-    assert (sv.gEventGlobal(1)[8520 >> 3] >> (8520 & 7)) & 1 == 1            # flag set
+    assert (sv.gEventGlobal(1)[8720 >> 3] >> (8720 & 7)) & 1 == 1            # flag set
     assert sv.gEventGlobal(2)[:2] == before_block2                          # the other slot untouched
     assert os.path.exists(res["backups"][0])                               # the backup was actually written
     # the reserved-region guard fires BEFORE any write (apply shares edit_story_state's core)
@@ -231,20 +231,20 @@ def test_inspect_prefers_memoria_extra(tmp_path):
     # inspect must report the extra's 2500 and tag the slot (else the console shows a value the game ignores)
     p = tmp_path / "SavedData_ww.dat"
     S.FF9Save(_make_save({1: _geg(6000)})).write(p)
-    _write_extra(tmp_path, 1, _geg(2500, (8520,)))                         # block 1 = slot 0 save 0
+    _write_extra(tmp_path, 1, _geg(2500, (8720,)))                         # block 1 = slot 0 save 0
     (label, rep), = S.inspect(str(p))
     assert rep.scenario_counter == 2500 and "Memoria extra" in label
-    assert 8520 in rep.set_bits                                            # the extra's flag, not the main block's
+    assert 8720 in rep.set_bits                                            # the extra's flag, not the main block's
 
 
 def test_apply_story_edit_patches_and_verifies_the_extra(tmp_path):
     p = tmp_path / "SavedData_ww.dat"
     S.FF9Save(_make_save({1: _geg(6000)})).write(p)
     _write_extra(tmp_path, 1, _geg(6000))
-    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8520,))
+    res = S.apply_story_edit(str(p), block=1, scenario=2500, set_flags=(8720,))
     assert res["written"] and res["extra"] is True and res["extra_patched"] is True   # the verify confirms it took
     got = S.read_extra_gEventGlobal(S.extra_file_path(str(p), 1))           # the extra now holds the edit
-    assert got[0] | got[1] << 8 == 2500 and (got[1065] >> 0) & 1 == 1
+    assert got[0] | got[1] << 8 == 2500 and (got[1090] >> 0) & 1 == 1
     assert S.inspect(str(p))[0][1].scenario_counter == 2500                # inspect (extra-preferred) agrees
 
 

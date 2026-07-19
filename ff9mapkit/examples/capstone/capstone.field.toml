@@ -58,10 +58,10 @@ spawn = [0, -837]
 
 # 1) [startup] — assert the story BEAT (ScenarioCounter) + a custom story bit at field load (.eb lever).
 #    On a custom field the beat gates no content, so prove it via F6 -> Flags (ScenarioCounter == 2600,
-#    bit 8512 == 1). The presets prepend to Main_Init and nothing overwrites them (synthesized field).
+#    bit 8712 == 1). The presets prepend to Main_Init and nothing overwrites them (synthesized field).
 [startup]
 scenario = 2600                         # a recognizable beat (Dali); chosen to be obvious in F6 -> Flags
-flags = [{ flag = 8512, value = 1 }]    # a custom-band story bit (safe band >= 8512, clear of real FF9 usage)
+flags = [{ flag = 8712, value = 1 }]    # a custom-band story bit (safe band >= 8712, clear of real FF9 usage)
 
 # 2) [party] — who's in the MENU/BATTLE roster. Zidane is already party slot 0 at New Game, so add only
 #    the OTHERS (re-adding Zidane would duplicate the slot). Final party: Zidane / Steiner / Freya.

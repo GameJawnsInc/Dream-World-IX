@@ -49,7 +49,7 @@ py tools/skip_opening_fmv.py        # idempotent — reports "already clean" if 
 **What to see:** the title screen → (no opening FMV) → field 4003. Party menu = **Zidane / Steiner / Freya**,
 Steiner wearing **Excalibur + Genji Helmet + Genji Armor**; the bag holds the custom items (incl. an
 Excalibur — unmistakably not a real new-game bag); **F6 → Flags** shows ScenarioCounter `2600` and bit
-`8512` set. One New Game proves all four channels.
+`8712` set. One New Game proves all four channels.
 
 The entry mechanism is engine-independent (a stock-Memoria mod field-70 override; the only custom DLL is the
 F6 debug menu) — see memory `project-ff9-new-game-entry`. **Precondition:** this test assumes the field-70
