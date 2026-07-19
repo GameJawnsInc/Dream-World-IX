@@ -125,11 +125,11 @@ def test_parse_ghost_as():
 def test_playstyle_updates_only_what_was_given():
     assert coop.playstyle_updates() == {}                  # nothing given -> nothing clobbered
     assert coop.playstyle_updates(guest_wait=0) == {"GuestWaitMs": "0"}
-    full = coop.playstyle_updates("2", 30, "auto", True, True)
+    full = coop.playstyle_updates("2", 30, "auto", True)
     assert full == {"GuestSlots": "2", "GuestWaitMs": "30000",
-                    "GhostAs": "auto", "FollowHost": "1", "Diorama": "1"}
+                    "GhostAs": "auto", "FollowHost": "1"}
+    assert "Diorama" not in full                           # the knob is GONE (s42) -- never written
     assert coop.playstyle_updates(follow_host=False) == {"FollowHost": "0"}
-    assert coop.playstyle_updates(diorama=False) == {"Diorama": "0"}
     with pytest.raises(ValueError):
         coop.playstyle_updates(guest_wait=-1)
 
@@ -448,31 +448,16 @@ def test_show_config_reads_playstyle_in_human_terms(game):
     assert "30s per guest turn" in text
     assert "auto (the party member they command)" in text
     assert "follow-host: ON" in text
-    assert "diorama:     ON" in text        # key absent -> the engine default (s40: on)
+    assert "diorama" not in text            # the knob is GONE (s42): follow-host implies the diorama
 
 
-def test_show_config_diorama_off(game):
-    coop.write_netsync(game, {"Enabled": "1", "Role": "client",
-                              **coop.playstyle_updates(diorama=False)}, out=lambda *_: None)
-    lines = []
-    assert coop.show_config(game, out=lines.append) == 0
-    assert any("diorama:     off (text spectate panel)" in ln for ln in lines)
-
-
-def test_coop_join_diorama_flag_writes_key(game):
-    rc = coop.run(_cli_args(action="join", game=str(game), code="ff9-ABCD1234",
-                            lan="192.168.1.50", no_room=True, diorama="off"), out=lambda *_: None)
-    assert rc == 0
-    text = (game / "Memoria.ini").read_text(encoding="utf-8")
-    assert coop.read_ini_key(text, "Netsync", "Diorama") == "0"
-
-
-def test_coop_join_diorama_untouched_when_not_given(game):
+def test_coop_join_never_writes_diorama_key(game):
+    # The knob was removed with the s42 engine: no argv accepts it, and setup must never write it.
     rc = coop.run(_cli_args(action="join", game=str(game), code="ff9-ABCD1234",
                             lan="192.168.1.50", no_room=True), out=lambda *_: None)
     assert rc == 0
     text = (game / "Memoria.ini").read_text(encoding="utf-8")
-    assert coop.read_ini_key(text, "Netsync", "Diorama") is None    # engine default rules
+    assert coop.read_ini_key(text, "Netsync", "Diorama") is None
 
 
 # ------------------------------------------------- host/join end-to-end (run -> _setup)

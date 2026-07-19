@@ -23,7 +23,11 @@ is GITIGNORED -- this script is the committable source of truth and regenerates 
 the local install. Run it from anywhere:
 
     py studies/battle-coop/twin-altar/build_twin_altar.py
-    py tools/deploy_field.py studies/battle-coop/twin-altar/out/TWIN_ALTAR.field.toml
+    py tools/deploy_field.py studies/battle-coop/twin-altar/out/TWIN_ALTAR.field.toml --id 30110
+
+NOTE: deploy_field.py WITHOUT --id sandboxes into the shared test slot 4003, ignoring this
+toml's own `id = 30110` -- it does NOT read the id back out of the file. Omitting --id here
+silently overwrites whatever field currently occupies 4003 (learned the hard way 2026-07-19).
 """
 
 from __future__ import annotations
@@ -149,7 +153,8 @@ def main() -> int:
     r = subprocess.run([sys.executable, "-m", "ff9mapkit", "lint", str(dst)], cwd=KIT, env=env)
     if r.returncode != 0:
         return r.returncode
-    print(f"\nnext:  py tools/deploy_field.py {dst.relative_to(REPO)}")
+    print(f"\nnext:  py tools/deploy_field.py {dst.relative_to(REPO)} --id 30110"
+          "  (--id required -- omitting it sandboxes into the shared 4003 slot instead)")
     return 0
 
 

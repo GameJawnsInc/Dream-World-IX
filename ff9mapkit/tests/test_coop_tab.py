@@ -259,10 +259,10 @@ def test_advanced_drawer_comes_back_for_a_non_default_play_style(coop, app):
         assert not loads_open(
             "[Netsync]\nGuestSlots = 0\nGhostAs = off\nFollowHost = 0\nGuestWaitMs = 30000\n"
         ), "explicit-default values must still leave it collapsed"
-        # Wait / diorama are NOT signals (both have non-empty engine defaults) -- a non-default wait alone
+        # Wait is NOT a signal (it has a non-empty engine default) -- a non-default wait alone
         # must not trip the rule.
-        assert not loads_open("[Netsync]\nGuestWaitMs = 5000\nDiorama = 0\n"), (
-            "wait/diorama are not comes-back signals -- they must not open the drawer")
+        assert not loads_open("[Netsync]\nGuestWaitMs = 5000\n"), (
+            "wait is not a comes-back signal -- it must not open the drawer")
         # Each real signal, alone, re-opens it.
         assert loads_open("[Netsync]\nGuestSlots = 1\n"), "a granted battle slot must re-open the drawer"
         assert loads_open("[Netsync]\nGhostAs = vivi\n"), "a visitor outfit must re-open the drawer"

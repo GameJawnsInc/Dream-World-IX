@@ -5094,12 +5094,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "they command in battle), a playable name (vivi, dagger, ...), or 'off' "
                          "(their own model). Only written when given")
     co.add_argument("--follow-host", choices=["on", "off"], default=None,
-                    help="guest side: 'on' auto-warps your game to whatever field the host is on "
-                         "and pauses your own random encounters while paired. Only written when given")
-    co.add_argument("--diorama", choices=["on", "off"], default=None,
-                    help="guest side: 'on' (the engine default) boots the host's battles live on "
-                         "your screen, render-only; 'off' keeps the text spectate panel. "
-                         "Only written when given; needs the s40 engine")
+                    help="guest side: 'on' auto-warps your game to whatever field the host is on, "
+                         "pauses your own random encounters while paired, and boots the host's "
+                         "battles live on your screen (render-only). Only written when given")
     co.add_argument("--no-bridge", action="store_true", help="write the config but don't run the bridge")
     co.add_argument("--no-room", action="store_true", help="skip the co-op room check/build")
     co.add_argument("--rebuild-room", action="store_true", help="rebuild the FF9Coop room even if a room "
