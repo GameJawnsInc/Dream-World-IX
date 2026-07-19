@@ -234,6 +234,25 @@ and hands control back. `content/savepoint.py`'s "THE CASK REVEAL" section has t
 `MAP.Bit[323]`, adjacent to the ACT's own `MAP.Bit[322]`) and the full per-donor variance table (SFX ids,
 the emerge gesture only field 253 plays, the blend-argument split).
 
+> ⚠ **KNOWN OPEN (2026-07-19, playtested at 30210).** Two items ship unresolved:
+>
+> 1. **After a SAVE the moogle lands *in* the barrel instead of *on* it.** Reported twice; two attempted
+>    fixes did not resolve it. Ruled out by inspecting the built field: the act's return lerp is correct
+>    (barrel-top → ground → barrel-top, `act_rest` = container y + `reveal_height`), and the reopen
+>    jump now lands on an instruction boundary (that fix was real, but it fixed the *post-save cancel
+>    softlock*, a different symptom). Remaining suspects, in order: **(a)** `act_save_body`'s
+>    `SetPathing(1)`, which runs *after* the return lerp and may snap the actor onto the walkmesh, off
+>    the perch — the donor calls it too, but its moogle may be re-placed afterwards by its director;
+>    **(b)** the donor's post-save state walk — field 407's entry-0 tag-1 **director** drives state
+>    `1 → 4 → 102` after the save, and case 102 *is* the stow-into-barrel, so the kit may simply be
+>    missing the re-place step; **(c)** the act's `_self_angle_flip` / head-focus close-out.
+>    **Next move:** decode field 407's entry-0 tag-1 director end to end — it is ~44 instructions and is
+>    the one piece of this cycle never fully read. Do not synthesize around it again.
+> 2. **The menu carries no speaker name.** Field 407 seeds `MAP.Byte[37] = 8` (Kumop's roster id) and
+>    renders it through `[TEXT=0,0]`. The kit does exactly this, but only when `[savepoint.mognet]` is
+>    configured (`build._speaks_as_roster` + the `prologue=` hook). Giving any save moogle a roster
+>    identity is the fix.
+
 **The rendezvous is per save point.** Each `barrel_pop` save point gets its own pair —
 `MAP.Byte[32 + k]` / `MAP.Bit[323 + k]`, `k` counting the barrel_pop save points only. A single shared
 pair let every cask on a field drive every moogle: pressing one popped them all and left the other casks
