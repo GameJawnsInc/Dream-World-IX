@@ -1554,6 +1554,15 @@ def validate(project: FieldProject) -> list[str]:
             _lowhp.parse_table(lh, name_map=story_names)
         except _lowhp.LowHPError as e:
             problems.append(str(e))
+    # Each barrel_pop save point needs its OWN transient rendezvous pair (MAP state byte + handshake bit);
+    # the kit reserves a small band, so refuse past it rather than wrap into a neighbouring reserved var.
+    _n_barrel = sum(1 for sp in project.raw.get("savepoint", [])
+                    if sp.get("reveal_style") == "barrel_pop")
+    if _n_barrel > _savepoint.REVEAL_MAX_PER_FIELD:
+        problems.append(f'{_n_barrel} [[savepoint]] blocks set reveal_style = "barrel_pop", but the kit '
+                        f"reserves only {_savepoint.REVEAL_MAX_PER_FIELD} reveal rendezvous var pairs per "
+                        f"field (each cask/moogle pair needs its own transient MAP state byte + handshake "
+                        f"bit, or they cross-talk) -- split them across fields")
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -1563,11 +1572,13 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[savepoint]] pos must be [x, z] (the visible moogle's spot), got {p!r}")
         # An unknown or mistyped key used to be silently ignored -- `moggle = false` or `dialog = false`
         # would build a save point that behaves nothing like the author asked for, with no diagnostic.
+        _reveal_keys = {"reveal_style", "reveal_jump_to", "reveal_from", "reveal_face",
+                       "reveal_steps", "reveal_sfx", "reveal_container"}
         _sp_keys = {"zone", "pos", "moogle", "bubble", "dialogue", "latch", "prompt", "confirm",
                     "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet",
                     "tent", "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent",
                     "shop", "shop_row", "party", "party_row", "party_min", "party_locked",
-                    "act", "act_text", "act_hop_to", "menu_pos"}
+                    "act", "act_text", "act_hop_to", "menu_pos", *_reveal_keys}
         for k in sorted(set(sp) - _sp_keys):
             problems.append(f"[[savepoint]] unknown key {k!r} -- expected one of {', '.join(sorted(_sp_keys))}")
         for k in ("moogle", "bubble", "dialogue", "latch", "tent", "party", "act"):
@@ -1598,6 +1609,47 @@ def validate(project: FieldProject) -> list[str]:
                                or not all(isinstance(v, int) and not isinstance(v, bool) for v in ht)):
             problems.append(f"[[savepoint]] act_hop_to must be [x, z] or [x, z, y] (the hop's landing "
                             f"spot, world units), got {ht!r}")
+        # the moogle's pre-interaction REVEAL (docs/SAVEPOINT.md "The cask reveal"). `reveal_style`
+        # defaults to "instant" (today's behaviour, unchanged); every `reveal_*` key is a no-op -- and
+        # therefore a lint ERROR, not a silent drop -- unless `reveal_style = "barrel_pop"` is also set.
+        rs = sp.get("reveal_style")
+        if rs is not None and rs not in _savepoint.REVEAL_STYLES:
+            problems.append(f"[[savepoint]] reveal_style must be one of {sorted(_savepoint.REVEAL_STYLES)}, "
+                            f"got {rs!r}")
+        elif rs != "barrel_pop":
+            stray = sorted(k for k in (_reveal_keys - {"reveal_style"}) if k in sp)
+            if stray:
+                problems.append(f"[[savepoint]] {', '.join(stray)} set but reveal_style is not "
+                                f'"barrel_pop" (reveal_* keys are no-ops otherwise) -- set '
+                                f'reveal_style = "barrel_pop" or remove them')
+        else:
+            if "reveal_jump_to" not in sp:
+                problems.append('[[savepoint]] reveal_style = "barrel_pop" needs reveal_jump_to -- the '
+                                "jump destination is a perspective-tuned, hand-placed value; no formula "
+                                "derives it (content.jump's law)")
+            if not sp.get("moogle", True):
+                problems.append('[[savepoint]] reveal_style = "barrel_pop" needs the moogle (it IS the '
+                                "barrel moogle); remove `moogle = false` or the reveal_style")
+            for k in ("reveal_jump_to", "reveal_from"):
+                v = sp.get(k)
+                if v is not None and (not isinstance(v, (list, tuple)) or len(v) not in (2, 3)
+                                      or not all(isinstance(x, int) and not isinstance(x, bool) for x in v)):
+                    problems.append(f"[[savepoint]] {k} must be [x, z] or [x, z, y], got {v!r}")
+            rf = sp.get("reveal_face")
+            if rf is not None and (not isinstance(rf, (list, tuple)) or len(rf) != 2
+                                   or not all(isinstance(x, int) and not isinstance(x, bool) for x in rf)):
+                problems.append(f"[[savepoint]] reveal_face must be [x, z], got {rf!r}")
+            if "reveal_steps" in sp and (not isinstance(sp["reveal_steps"], int)
+                                        or isinstance(sp["reveal_steps"], bool)):
+                problems.append(f"[[savepoint]] reveal_steps must be an integer, got {sp['reveal_steps']!r}")
+            if "reveal_sfx" in sp:
+                sfx = sp["reveal_sfx"]
+                if not (sfx is False or (isinstance(sfx, int) and not isinstance(sfx, bool))):
+                    problems.append(f"[[savepoint]] reveal_sfx must be an integer sound id or false, "
+                                    f"got {sfx!r}")
+            if "reveal_container" in sp and not isinstance(sp["reveal_container"], bool):
+                problems.append(f"[[savepoint]] reveal_container must be true or false, "
+                                f"got {sp['reveal_container']!r}")
         # the extra menu rows (docs/SAVEPOINT.md). A row only appears when its feature is configured,
         # so a mistyped `tent`/`party` would silently drop the row -- hence the type checks above.
         if sp.get("shop") is not None:
@@ -5240,7 +5292,24 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                                                      latch=sp.get("latch", True), save_body=save_body,
                                                      prologue=prologue)
 
-        eb, _ = _savepoint.inject_savepoints(eb, sps, dispatches=[_dispatch(k, sp)
+        # Each barrel_pop save point gets its OWN rendezvous var pair, indexed by its position among the
+        # barrel_pop save points only (NOT by k -- an "instant" save point must not burn a slot in the
+        # small reserved band). A single shared pair made multiple casks cross-talk: pressing one popped
+        # every moogle and deadened the rest. content/savepoint.py's REVEAL_MAX_PER_FIELD note has it.
+        _reveal_idx, _n_rev = {}, 0
+        for k, sp in enumerate(savepoints):
+            if sp.get("reveal_style") == "barrel_pop":
+                _reveal_idx[k] = _n_rev
+                _n_rev += 1
+        # The press-ZONE is gated until the moogle has popped -- otherwise the player saves from the zone
+        # with the moogle still in the cask and the reveal gates nothing (the moogle's own TALK path needs
+        # no gate: SetObjectFlags(14) carries the disable-talk bit while it is hidden).
+        def _zone_dispatch(k, sp):
+            body = _dispatch(k, sp)
+            if k in _reveal_idx:
+                body = _savepoint.gate_until_revealed(body, _reveal_idx[k])
+            return body
+        eb, _ = _savepoint.inject_savepoints(eb, sps, dispatches=[_zone_dispatch(k, sp)
                                                                  for k, sp in enumerate(savepoints)])
         from . import archetypes as _arch
         for k, sp in enumerate(savepoints):
@@ -5250,6 +5319,20 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             pos = sp.get("pos") or [sum(p[0] for p in zpts) // len(zpts),
                                     sum(p[1] for p in zpts) // len(zpts)]
             m_model, m_animset, m_anims, _h = _arch.resolve("moogle")
+            # THE CASK REVEAL (`reveal_style = "barrel_pop"`, default "instant" = unchanged): the moogle
+            # spawns hidden in a cask and pops out on a press. Injected FIRST (before the ACT cluster
+            # below), because inject_barrel_pop_reveal's own cask consumes an entry slot -- the ACT
+            # cluster's first_free_slot() prediction for the moogle must see that slot already taken, or
+            # the two collide. content/savepoint.py's "THE CASK REVEAL" section has the full decode.
+            reveal_tail, m_intro = None, None
+            if sp.get("reveal_style") == "barrel_pop":
+                eb, reveal_tail, m_intro = _savepoint.inject_barrel_pop_reveal(
+                    eb, moogle_pos=(int(pos[0]), int(pos[1])), jump_to=sp["reveal_jump_to"],
+                    face_to=sp.get("reveal_face"), steps=sp.get("reveal_steps"),
+                    sfx=sp.get("reveal_sfx"), container=sp.get("reveal_container", True),
+                    container_pos=(tuple(int(v) for v in sp["reveal_from"]) if sp.get("reveal_from")
+                                  else None),
+                    index=_reveal_idx[k])
             # THE ACT (default ON, `act = false` opts out): the census-invariant save choreography --
             # hop 6503, the book+feather props snapping in, the 4645 book-open around Menu(4,0), the hop
             # back, and the player watching via two grafted player tags. The cluster (props + player
@@ -5269,9 +5352,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                     latch=sp.get("latch", True))
                 m_init_tail = _savepoint.moogle_act_init_tail()   # the load-bearing hop-clip preload
                 m_slot = cl.moogle_slot
+            # flag write FIRST, donor order (field115 @3850/3856, field253 @4114/4120) -- the reveal's
+            # own SetObjectFlags(14) hidden-tail composes AHEAD of the act's SetJumpAnimation preload.
+            if reveal_tail is not None:
+                m_init_tail = reveal_tail + (m_init_tail or b"")
             eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
                                  anims=dict(m_anims or {}), speak_body=_dispatch(k, sp, save_body=save_body),
-                                 init_tail=m_init_tail, slot=m_slot)
+                                 init_tail=m_init_tail, slot=m_slot, intro=m_intro)
 
     # shops: a [[shop]] with a `zone` mints a standalone press-region opener (Menu(2, id), the save-point
     # shape). Shops opened from an NPC instead (via opens_shop) carry no zone and are skipped here; the

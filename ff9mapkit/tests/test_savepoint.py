@@ -303,3 +303,382 @@ def test_savepoint_accepts_every_documented_key(tmp_path):
         'yes_row = "Y"\nno_row = "N"\nspeaker = "Mog"\n',
         encoding="utf-8")
     assert not [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
+
+
+# ======================================================================================================
+# THE CASK REVEAL ("barrel_pop") -- content/savepoint.py's newest section, docs/SAVEPOINT.md
+# ======================================================================================================
+
+def _field_toml(extra_savepoint_lines: str = "", *, spawn: bool = True) -> str:
+    spawn_block = "[player]\nspawn = [0, 0]\n\n" if spawn else ""
+    return (
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-400,-400],[400,-400],[400,400],[-400,400]]\n\n'
+        f'{spawn_block}'
+        '[[savepoint]]\nzone = [[10,-10],[50,-10],[50,-50],[10,-50]]\n'
+        f'{extra_savepoint_lines}')
+
+
+# --- byte-run pins: the exact emitted body, not just op presence ------------------------------------
+def test_reveal_spine_body_is_byte_exact():
+    """The invariant spine, independently reconstructed from the primitive opcode encoders (so this
+    test does not just echo reveal_spine_body's own logic back at itself) AND pinned to a literal hex
+    string -- a mutated Wait/reordered step breaks BOTH checks."""
+    body = _savepoint.reveal_spine_body(jump_to=(100, -200), steps=10)
+    expected = (opcodes.set_jump_animation(_savepoint.REVEAL_HOP_CLIP, 4, 16)
+               + opcodes.turn_toward_position(100, -200)
+               + opcodes.wait_turn()
+               + opcodes.run_jump_animation()
+               + opcodes.wait_animation()
+               + opcodes.setup_jump(100, -200, 0, 10)
+               + opcodes.jump()
+               + opcodes.run_land_animation()
+               + opcodes.wait_animation())
+    assert body == expected
+    assert body.hex() == "9400650b04109b00640038ff509c41e2006400000038ff0adc9d41"
+
+
+def test_reveal_spine_body_with_sfx_and_custom_blend():
+    body = _savepoint.reveal_spine_body(jump_to=(0, 0), sfx=1362, blend=(6, 23), steps=15)
+    expected = (opcodes.set_jump_animation(_savepoint.REVEAL_HOP_CLIP, 6, 23)
+               + _savepoint.act_sfx(1362)
+               + opcodes.turn_toward_position(0, 0)
+               + opcodes.wait_turn()
+               + opcodes.run_jump_animation()
+               + opcodes.wait_animation()
+               + opcodes.setup_jump(0, 0, 0, 15)
+               + opcodes.jump()
+               + opcodes.run_land_animation()
+               + opcodes.wait_animation())
+    assert body == expected
+
+
+def test_reveal_spine_body_requires_jump_to():
+    import pytest
+    with pytest.raises(ValueError, match="jump_to"):
+        _savepoint.reveal_spine_body(jump_to=None)
+
+
+def test_reveal_landing_dressing_byte_exact():
+    body = _savepoint.reveal_landing_dressing()
+    # The DOUBLE WaitTurn is the donors' own: 407 @1866/1867 and 853 both emit it twice (2/2 of the
+    # donors that run this dressing). An earlier pass collapsed it to one as a "decode artifact"; the
+    # disassembly says otherwise, and act/reveal timing is load-bearing in this kit.
+    expected = (opcodes.turn_toward_object(_savepoint.PLAYER_UID, _savepoint.REVEAL_TURN_SPEED)
+               + opcodes.wait_turn() + opcodes.wait_turn()
+               + opcodes.encode(0x91, 1) + opcodes.encode(0x4B, 40, 40, 55))
+    assert body == expected
+    assert body.hex() == "5100fa305050" "9100014b00282837"
+    assert body.count(opcodes.wait_turn()) == 2, "the donors' second WaitTurn must not be optimised away"
+
+
+def test_reveal_loop_body_order_and_bytes():
+    """The moogle's own intro: poll (while != POP) -> show -> spine -> dressing -> DONE + clear
+    handshake -- pinned as a byte sequence, not just op names."""
+    body = _savepoint.reveal_loop_body(jump_to=(100, -200))
+    assert body.hex() == ("05d5207d0100217f02060022000101efff"    # while (MAP.Byte[32] != POP) Wait(1)
+                          "9300059400650b04109b00640038ff509c41e2006400000038ff0adc9d41"
+                          "5100fa3050509100014b00282837"           # dressing (donors' DOUBLE WaitTurn)
+                          "05d5207d02002c7f"                       # MAP.Byte[32] = DONE
+                          "05e543017d00002c7f")                    # MAP.Bit[323] = 0
+    # structural check, independent of the hex above: SHOW comes right after the poll, DONE + handshake
+    # clear are the last two statements
+    from ff9mapkit.eb import disasm
+    ops = [disasm.op_name(i.op) for i in disasm.iter_code(body, 0, len(body))]
+    assert ops[-1] == "op_05" and ops[-2] == "op_05"                # the two trailing set_var statements
+    show_idx = next(k for k, o in enumerate(ops) if o == "SetObjectFlags")
+    jump_idx = ops.index("Jump")
+    assert show_idx < ops.index("SetJumpAnimation") < jump_idx      # show precedes the whole spine
+
+
+def test_reveal_init_tail_byte_exact():
+    assert _savepoint.reveal_init_tail().hex() == "93000e"          # SetObjectFlags(14)
+    assert _savepoint.reveal_init_tail() == opcodes.encode(0x93, _savepoint.REVEAL_HIDE_FLAGS)
+
+
+def test_cask_init_byte_shape():
+    body = _savepoint.build_cask_init(5, -5)
+    from ff9mapkit.eb import disasm
+    ops = [(disasm.op_name(i.op), list(i.args) if i.args else i.args)
+           for i in disasm.iter_code(body, 0, len(body))]
+    # the 4 opcodes the task brief cites, in that order, with those exact args
+    named = [o for o in ops if o[0] in ("SetModel", "SetStandAnimation", "SetObjectLogicalSize", "SetObjectFlags")]
+    assert named == [("SetModel", [241, 93]), ("SetStandAnimation", [1904]),
+                     ("SetObjectLogicalSize", [1, 50, 50]), ("SetObjectFlags", [37])]
+    assert ops[-1] == ("op_04", [])                                 # RETURN
+
+
+def test_cask_trigger_body_byte_exact_and_one_shot_guard():
+    body = _savepoint.cask_trigger_body()
+    assert body.hex() == "05d5207d0000217f020100042d05e543017d01002c7f05d5207d01002c7f05e543017f02060022000101f2ff2e04"
+    from ff9mapkit.eb import disasm
+    ops = [disasm.op_name(i.op) for i in disasm.iter_code(body, 0, len(body))]
+    # the one-shot guard is the FIRST thing: if (state != IDLE) return -- structurally, an op_05 cond,
+    # an op_02 (jump-if-false, skipping the return), then op_04 (return) right there
+    assert ops[0] == "op_05" and ops[1] == "op_02" and ops[2] == "op_04"
+    assert ops[3] == "DisableMove" and ops[-2:] == ["EnableMove", "op_04"]
+
+
+# --- the moogle model resolves through the kit's own prop-archetype catalog -------------------------
+def test_cask_model_resolves_via_prop_archetype_catalog():
+    from ff9mapkit import prop_archetypes as _pa
+    assert _pa.resolve("cask") == (241, 1904)
+    assert _pa.resolve("barrel") == _pa.resolve("cask")             # alias
+    assert _pa.resolve("crate") == _pa.resolve("cask")               # alias
+
+
+# --- inject_barrel_pop_reveal + full field build ------------------------------------------------------
+def test_inject_barrel_pop_reveal_round_trips_and_orders_cask_before_prediction():
+    g, tail, intro = _savepoint.inject_barrel_pop_reveal(
+        CLEAN, moogle_pos=(0, 0), jump_to=(30, -30))
+    p = EbScript.from_bytes(g)
+    assert p.to_bytes() == g
+    assert tail == _savepoint.reveal_init_tail()
+    assert intro == _savepoint.reveal_loop_body(jump_to=(30, -30))
+    # a cask entry (a type-2 object, tags {0, 3}, no tag 1) now exists
+    cask_entries = [e.index for e in p.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}]
+    assert cask_entries
+
+
+def test_inject_barrel_pop_reveal_container_false_skips_the_cask():
+    g, _tail, _intro = _savepoint.inject_barrel_pop_reveal(
+        CLEAN, moogle_pos=(0, 0), jump_to=(30, -30), container=False)
+    base_entries = sum(1 for e in EbScript.from_bytes(CLEAN).entries if not e.empty)
+    new_entries = sum(1 for e in EbScript.from_bytes(g).entries if not e.empty)
+    assert new_entries == base_entries                              # nothing was appended
+
+
+# --- the default is UNCHANGED: byte-identical with no reveal_style vs an explicit "instant" ----------
+def test_default_reveal_style_is_byte_identical_to_no_reveal_style_at_all(tmp_path):
+    from ff9mapkit import build
+    p1 = tmp_path / "a.field.toml"
+    p1.write_text(_field_toml(), encoding="utf-8")
+    p2 = tmp_path / "b.field.toml"
+    p2.write_text(_field_toml('reveal_style = "instant"\n'), encoding="utf-8")
+    eb1 = build.build_script(build.FieldProject.load(p1), "us", {})
+    eb2 = build.build_script(build.FieldProject.load(p2), "us", {})
+    assert eb1 == eb2
+    # and neither ships a cask entry (a type-2 object with a SetModel(241, ...) in its Init)
+    s = EbScript.from_bytes(eb1)
+    cask_entries = [e.index for e in s.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}
+                    and any(i.op == 0x2F and list(i.args)[:1] == [241]
+                            for f in e.funcs for i in s.instrs(f))]
+    assert not cask_entries
+
+
+# --- validation: every reveal_* rule --------------------------------------------------------------
+def test_validate_reveal_style_unknown_value(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "flying"\n'), encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("reveal_style must be one of" in x and "'flying'" in x for x in probs)
+
+
+def test_validate_barrel_pop_requires_jump_to(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("reveal_jump_to" in x and "hand-placed" in x for x in probs)
+
+
+def test_validate_reveal_keys_are_noops_error_outside_barrel_pop(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_jump_to = [1, 2]\n'), encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("reveal_jump_to" in x and "no-ops" in x for x in probs)
+
+
+def test_validate_barrel_pop_requires_moogle(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nmoogle = false\n'),
+                encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("needs the moogle" in x for x in probs)
+
+
+def test_validate_reveal_coordinate_keys_must_be_2_or_3_ints(tmp_path):
+    from ff9mapkit import build
+    cases = {
+        "reveal_jump_to": 'reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2, 3, 4]\n',
+        "reveal_from": 'reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nreveal_from = [1]\n',
+        "reveal_face": 'reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nreveal_face = [1, 2, 3]\n',
+    }
+    for key, lines in cases.items():
+        p = tmp_path / "s.field.toml"
+        p.write_text(_field_toml(lines), encoding="utf-8")
+        probs = build.validate(build.FieldProject.load(p))
+        assert any(key in x and "[x, z]" in x for x in probs), (key, probs)
+
+
+def test_validate_reveal_steps_sfx_container_types(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\n'
+                             'reveal_steps = "ten"\nreveal_sfx = "boom"\nreveal_container = "yes"\n'),
+                encoding="utf-8")
+    probs = build.validate(build.FieldProject.load(p))
+    assert any("reveal_steps must be an integer" in x for x in probs)
+    assert any("reveal_sfx must be an integer sound id or false" in x for x in probs)
+    assert any("reveal_container must be true or false" in x for x in probs)
+
+
+def test_validate_reveal_sfx_false_is_valid(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nreveal_sfx = false\n'),
+                encoding="utf-8")
+    probs = [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
+    assert not probs
+
+
+# --- act + barrel_pop composed: BOTH Init tails present, in the donor's order -------------------------
+def test_act_and_barrel_pop_compose_init_tails_in_donor_order(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\nact = true\n'),
+                encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    mes, *_rest = build.collect_text(proj)
+    sp_txids = _rest[-1]
+    eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
+    s = EbScript.from_bytes(eb)
+    assert s.to_bytes() == eb
+    from ff9mapkit.eb import disasm
+    found = False
+    for e in s.entries:
+        if e.empty:
+            continue
+        f0 = e.func_by_tag(0)
+        if f0 is None:
+            continue
+        ops = list(s.instrs(f0))
+        for k, i in enumerate(ops):
+            if i.op == 0x93 and list(i.args) == [_savepoint.REVEAL_HIDE_FLAGS]:
+                nxt = ops[k + 1] if k + 1 < len(ops) else None
+                if nxt is not None and nxt.op == 0x94 and list(nxt.args) == [6503, 26, 30]:
+                    found = True
+    assert found, "expected SetObjectFlags(14) immediately followed by SetJumpAnimation(6503,26,30)"
+
+
+def test_act_and_barrel_pop_compose_without_act_no_second_tail(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\nact = false\n'),
+                encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    eb = build.build_script(proj, "us", {})
+    s = EbScript.from_bytes(eb)
+    assert s.to_bytes() == eb
+    # the hidden flag write exists (the reveal), but nowhere is it immediately followed by the act preload
+    for e in s.entries:
+        if e.empty:
+            continue
+        f0 = e.func_by_tag(0)
+        if f0 is None:
+            continue
+        ops = list(s.instrs(f0))
+        for k, i in enumerate(ops):
+            if i.op == 0x93 and list(i.args) == [_savepoint.REVEAL_HIDE_FLAGS]:
+                nxt = ops[k + 1] if k + 1 < len(ops) else None
+                assert not (nxt is not None and nxt.op == 0x94 and list(nxt.args) == [6503, 26, 30])
+
+
+# --- one-shot: the cask cannot re-fire (structural: the guard body IS the first 3 instructions) -------
+def test_cask_one_shot_guard_present_in_built_field(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\n'), encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    eb = build.build_script(proj, "us", {})
+    s = EbScript.from_bytes(eb)
+    cask_entries = [e.index for e in s.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}]
+    assert cask_entries
+    from ff9mapkit.eb import disasm
+    for idx in cask_entries:
+        f3 = s.entry(idx).func_by_tag(3)
+        ops = list(s.instrs(f3))
+        assert ops[0].op == 0x05 and ops[1].op == 0x02 and ops[2].op == 0x04   # cond ; jmp-false ; RETURN
+        # the guard's condition tests REVEAL_STATE_IDX (MAP.Byte[32]) for inequality against IDLE (0)
+        cond_bytes = eb[ops[0].off:ops[0].end]
+        assert cond_bytes == _savepoint._cond_neq(_region.GLOB_UINT8, _savepoint.REVEAL_STATE_IDX,
+                                                  _savepoint.REVEAL_STATE_IDLE)
+
+
+# --- the review fixes: per-save-point rendezvous vars, and the gated press-zone ----------------------
+# Both were CONFIRMED defects in the first build of this feature (adversarial review, 2026-07-19),
+# reproduced end to end. These pin the fixes.
+
+def test_reveal_vars_are_per_savepoint_not_per_field():
+    """A field may hold several barrel_pop save points. Sharing one MAP state byte + handshake bit made
+    every cask drive every moogle (press one -> all pop, the rest go inert)."""
+    assert _savepoint.reveal_vars(0) == (_savepoint.REVEAL_STATE_IDX, _savepoint.REVEAL_HANDSHAKE_BIT)
+    seen = {_savepoint.reveal_vars(k) for k in range(_savepoint.REVEAL_MAX_PER_FIELD)}
+    assert len(seen) == _savepoint.REVEAL_MAX_PER_FIELD          # every pair distinct
+    # the state BYTES and the handshake BITS index different address spaces, but the reserved bit range
+    # must still land clear of the reserved state bytes when read as bytes (bit b lives in byte b // 8).
+    assert {s for s, _ in seen}.isdisjoint({b // 8 for _, b in seen})
+    # the emitted bodies must actually differ, not just the constants
+    assert _savepoint.cask_trigger_body(0) != _savepoint.cask_trigger_body(1)
+    assert (_savepoint.reveal_loop_body(jump_to=(1, 2), index=0)
+            != _savepoint.reveal_loop_body(jump_to=(1, 2), index=1))
+    # past the reserved band it must RAISE, never wrap into a neighbouring reserved var
+    import pytest
+    with pytest.raises(ValueError):
+        _savepoint.reveal_vars(_savepoint.REVEAL_MAX_PER_FIELD)
+
+
+def test_two_barrel_pop_savepoints_do_not_share_vars(tmp_path):
+    from ff9mapkit import build
+    p = tmp_path / "s.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-600,-600],[600,-600],[600,600],[-600,600]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n'
+        '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\npos = [0, 0]\n'
+        'reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\nreveal_from = [5, -5, 10]\n\n'
+        '[[savepoint]]\nzone = [[300,-100],[500,-100],[500,100],[300,100]]\npos = [400, 0]\n'
+        'reveal_style = "barrel_pop"\nreveal_jump_to = [430, -30]\n',
+        encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    assert not [x for x in build.validate(proj) if "savepoint" in x.lower()]
+    eb = build.build_script(proj, "us", {})                 # 3-element reveal_from must NOT crash
+    assert _savepoint.cask_trigger_body(0) in eb            # each cask carries its OWN rendezvous pair
+    assert _savepoint.cask_trigger_body(1) in eb
+
+
+def test_more_barrel_pops_than_reserved_vars_is_a_build_error(tmp_path):
+    from ff9mapkit import build
+    n = _savepoint.REVEAL_MAX_PER_FIELD + 1
+    blocks = "".join(
+        f'[[savepoint]]\nzone = [[{i*300-50},-50],[{i*300+50},-50],[{i*300+50},50],[{i*300-50},50]]\n'
+        f'pos = [{i*300}, 0]\nreveal_style = "barrel_pop"\nreveal_jump_to = [{i*300+30}, -30]\n\n'
+        for i in range(n))
+    p = tmp_path / "s.field.toml"
+    p.write_text(
+        '[field]\nid = 4003\nname = "S"\narea = 11\ntext_block = 1073\n\n'
+        '[camera]\npitch = 45\nfov = 42.2\n\n'
+        '[walkmesh]\nquad = [[-900,-900],[1900,-900],[1900,900],[-900,900]]\n\n'
+        '[player]\nspawn = [0, 0]\n\n' + blocks, encoding="utf-8")
+    probs = [x for x in build.validate(build.FieldProject.load(p)) if "barrel_pop" in x]
+    assert probs and "cross-talk" in probs[0]
+
+
+def test_barrel_pop_gates_the_press_zone_but_instant_does_not(tmp_path):
+    """Without the gate the player saves from the zone with the moogle still in the cask -- the reveal
+    would gate nothing and the cask would be decoration."""
+    from ff9mapkit import build
+    gate = _savepoint.gate_until_revealed(b"", 0)
+    p = tmp_path / "bp.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\n'), encoding="utf-8")
+    assert gate in build.build_script(build.FieldProject.load(p), "us", {})
+    q = tmp_path / "inst.field.toml"
+    q.write_text(_field_toml(""), encoding="utf-8")
+    eb_i = build.build_script(build.FieldProject.load(q), "us", {})
+    assert gate not in eb_i
+    assert _savepoint.reveal_init_tail() not in eb_i        # the default carries NO reveal bytes at all

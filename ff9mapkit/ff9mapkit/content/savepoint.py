@@ -643,6 +643,316 @@ def inject_savepoints(data, savepoints, *, activate: bool = True, dispatches=Non
     return data, slots
 
 
+# --- THE CASK REVEAL ("barrel_pop") -------------------------------------------------------------------
+# The moogle does not have to be visible from Init. The real barrel-pop moogle (the canonical donor set:
+# fields 253, 351, 407, 853 -- the only 4/58 whose SAVE_JUMP-family reveal uses the distinct AIRBORNE clip
+# 2917, decoded end to end via field 407's cask) spends its Init hidden (``SetObjectFlags(14)``) inside a
+# cask/barrel prop, and pops out the first time the player presses the cask. `reveal_style = "barrel_pop"`
+# synthesizes that: a cask prop (model 241 `GEO_ACC_F0_CSK`, the kit's own "cask"/"barrel"/"crate" prop
+# archetype) whose press handler and the moogle's own tag-1 loop rendezvous over TWO shared transient MAP
+# vars -- the same shared-var choreography the ACT above uses for its own release handshake, just a
+# fresh pair (adjacent to it, not reused):
+#
+#   MAP.Byte[32]  (GLOB_UINT8 0xD5, Map+Byte -- the donor's OWN reveal-state slot, reused verbatim here)
+#       0 = idle (never explicitly written; the engine zeroes MAP on every field load)
+#       1 = POP requested (the cask just pressed)
+#       2 = DONE (the moogle has already popped -- the cask's own one-shot guard)
+#   MAP.Bit[323]  (MAP_BOOL 0xC5, Map+Bit -- adjacent to :data:`ACT_HANDSHAKE_BIT` 322, clear of every
+#       other reserved band in this module) -- the cask-holds/moogle-releases rendezvous bit, the exact
+#       shape :func:`_while_truthy` already implements for the ACT's own release.
+#
+# Protocol (cask press -> reveal, mirroring field 407's real one): the cask's press handler is a ONE-SHOT
+# guard (state != idle -> return, so a second press after the pop is inert), then DisableMove, set the
+# handshake bit + state=POP, and poll the SAME bit while it's held (so the player watches, the donor's own
+# shape) before restoring control. The moogle's own tag-1 loop (spliced via ``inject_npc(intro=...)``,
+# which the *loop-safe, never-RETURN* contract on that parameter matches exactly: this block runs ONCE,
+# top to bottom, then falls through into the ordinary standby loop forever) waits for state==POP, shows
+# itself (``SetObjectFlags(5)``), runs the invariant airborne spine, the post-land dressing, then marks
+# DONE and clears the handshake -- unblocking the cask's poll.
+#
+# ⚠ TALKABILITY WHILE HIDDEN -- deliberately NOT re-gated. ``SetObjectFlags(14)`` (2 exempt-vs-player +
+# 4 exempt-vs-NPC + 8 DISABLE-TALK) already carries the disable-talk bit (see ``content.prop``/
+# ``content.chest``'s own decode of this bitfield, and the chest's own "OPEN = CLOSED + disable-talk(8):
+# solid but NO '!' / inert once looted" precedent) -- so IsActuallyTalkable's per-frame poll is ALREADY
+# suppressed the instant the moogle spawns hidden, with no extra gating needed. ``SetObjectFlags(5)`` (1
+# show + 4 exempt-vs-NPC) on pop OMITS bit 8, so talk becomes live again the moment the moogle is shown.
+# This is the shipping shape, not a kit invention: field 407's own case 2/1 pair (hide=14/show=5, verified
+# against the case-switch @1770/1779) is exactly this -- and 5, not 7 (the SCENERY_FLAGS value used
+# elsewhere for a walk-through prop), is the real moogle's own shown-state value.
+#
+# ⚠ THE SHOW-FOLD SIMPLIFICATION (documented, deliberate). Field 407's own case-101 pop arm does NOT set
+# SetObjectFlags(5) itself -- a SEPARATE case-1 write does that, driven by whatever external director set
+# MAP.Byte[32]=1 before =101. This kit has no such director for a synthesized field (no verbatim carry),
+# so the reveal folds the show into the pop arm itself: SetObjectFlags(5) is the first thing the pop body
+# does. Functionally identical for a fresh field (nothing else can observe the moogle between "cask
+# pressed" and "moogle shown"); NOT a byte-for-byte replay of field 407's own two-state dance.
+REVEAL_STYLES = ("instant", "barrel_pop")     # "instant" = today's behaviour (moogle visible from Init)
+REVEAL_STATE_IDX = 32          # MAP.Byte[32] -- the donor's own reveal-state slot (GLOB_UINT8 = Map+Byte,
+                               # transient per-field; reset to 0 on every load, so "idle" needs no write)
+REVEAL_STATE_IDLE = 0
+REVEAL_STATE_POP = 1
+REVEAL_STATE_DONE = 2
+REVEAL_HANDSHAKE_BIT = 323     # MAP.Bit[323] -- the reveal's own cask<->moogle rendezvous bit, ADJACENT to
+                               # ACT_HANDSHAKE_BIT (322); transient MAP scope, clear of every other band
+                               # this module/kit reserves (cutscene 80+, field-init 144-159, the ACT's 322)
+# ⚠ THE RENDEZVOUS IS PER-SAVE-POINT, NOT PER-FIELD. Both vars above are the k=0 BASE of a small band:
+# save point k uses MAP.Byte[32+k] and MAP.Bit[323+k]. A field may legitimately hold more than one
+# barrel_pop save point, and a single shared pair made them CROSS-TALK -- pressing any one cask popped
+# EVERY barrel_pop moogle on the field at once and left the other casks permanently inert (their one-shot
+# guard reads the same byte). Caught by the adversarial review, reproduced end to end. The bands are sized
+# by :data:`REVEAL_MAX_PER_FIELD` and range-checked at build time, so a field that outgrows them fails
+# loudly instead of silently colliding with the next reserved var.
+#   bytes 32..35 (Map+Byte)  -- clear of the camera's own Map byte 24
+#   bits  323..326 (Map+Bit) -- all inside bit-byte 40, so they never overlap the state BYTES above
+REVEAL_MAX_PER_FIELD = 4
+REVEAL_HOP_CLIP = 2917         # the airborne "pop" clip -- present in all 4/4 census donors (253/351/407/853);
+                               # distinct from the ACT's own hop clip 6503 (a different mechanic: a real
+                               # Jump arc via SetupJump/Jump, not a RunAnimation + hand-lerp)
+REVEAL_BLEND = (4, 16)         # SetJumpAnimation blend args -- shared by 3/4 donors (351/407/853); 253 uses
+                               # (6, 23), documented per-scene variance, never defaulted to
+REVEAL_STEPS_DEFAULT = 10      # SetupJump duration (frames) -- the MODAL donor value (407 AND 853 both use
+                               # 10); 253 uses 15, 351 uses 6 -- per-scene tuning, not a universal law
+REVEAL_TURN_SPEED = 48         # TurnTowardObject speed in the post-land dressing (407: TurnTowardObject(23,48))
+# THE PER-DONOR VARIANCE TABLE. Everything below is per-scene, NOT law -- recorded so a future round can
+# see what the census actually found rather than re-deriving it (and so the kit never quietly promotes one
+# donor's flourish into a universal default, which an earlier synthesis pass did with all three rows).
+#   field | sfx           | emerge gesture | SetupJump steps | SetJumpAnimation blend | post-land dressing
+#   253   | 1363          | 2928           | 15              | (6, 23)                | no
+#   351   | -- none --    | --             |  6              | (4, 16)                | no
+#   407   | 1362 (vol 99) | --             | 10              | (4, 16)                | yes
+#   853   | -- none --    | --             | 10              | (4, 16)                | yes
+REVEAL_SFX_253 = 1363          # documented, never defaulted: HALF the donor set emits no reveal sfx at all
+REVEAL_SFX_407 = 1362          # (the ACT's own SFX_HOP shares this id; the reveal is a separate mechanic)
+REVEAL_EMERGE_CLIP_253 = 2928  # the pre-jump "shake" gesture -- ONE donor of four. No default, no TOML key.
+REVEAL_HIDE_FLAGS = 14         # SetObjectFlags(14) -- hidden; see the module docstring's own census note
+                               # ("spawned hidden (SetObjectFlags(14))", true of every real save moogle)
+REVEAL_SHOW_FLAGS = 5          # SetObjectFlags(5) -- show(1) + exempt-vs-NPC(4); field407's case-1 shown
+                               # state (@1779), NOT 7 (that's SCENERY_FLAGS, a walk-through PROP's value)
+
+CASK_LOGICAL_SIZE = (1, 50, 50)   # the cask's collision box (task brief; unverified against field 407's
+                                  # own bytes beyond the brief's citation -- treated as ground truth here)
+CASK_FLAGS = 37                   # SetObjectFlags(37) = show(1) + exempt-vs-NPC(4) + dont-hide(32): the
+                                  # cask collides with the PLAYER (bit 2 clear -- you can't walk through
+                                  # it) but not other NPCs, and is never auto-hidden
+
+
+def reveal_init_tail() -> bytes:
+    """The moogle's OWN Init tail for ``reveal_style = "barrel_pop"``: ``SetObjectFlags(14)`` (hidden).
+    The DEFAULT (``reveal_style = "instant"``, i.e. unset) adds no init_tail at all -- the moogle stays
+    visible from spawn exactly as before ("the default must not change any existing build's bytes").
+    Composes with the ACT's own :func:`moogle_act_init_tail` -- the donor evidence puts the flag write
+    FIRST (field115 @3850/3856, field253 @4114/4120): ``reveal_init_tail() + moogle_act_init_tail()``,
+    never the reverse."""
+    return opcodes.encode(0x93, REVEAL_HIDE_FLAGS)
+
+
+def reveal_vars(index: int = 0) -> tuple:
+    """``(state_byte_idx, handshake_bit_idx)`` for save point ``index`` -- the per-save-point rendezvous
+    pair (see the band note above :data:`REVEAL_MAX_PER_FIELD`). Raises past the reserved band rather than
+    silently wrapping into whatever var sits beyond it."""
+    k = int(index)
+    if not 0 <= k < REVEAL_MAX_PER_FIELD:
+        raise ValueError(
+            f"barrel_pop save point index {k} is outside the reserved rendezvous band "
+            f"(0..{REVEAL_MAX_PER_FIELD - 1}). Each barrel_pop save point needs its own transient MAP "
+            f"state byte + handshake bit; the kit reserves {REVEAL_MAX_PER_FIELD} per field.")
+    return REVEAL_STATE_IDX + k, REVEAL_HANDSHAKE_BIT + k
+
+
+def _cond_neq(var_class, idx: int, value: int) -> bytes:
+    """``if (VAR != value)`` condition expr -> ``05 <var> 7D <value:i16> 21 7F`` (T_NE 0x21) -- the one
+    comparison :func:`content.region.cond_cmp` doesn't expose (its ``CMP_TOKENS`` has no ``'!='`` entry).
+    Built inline against ``_region``'s own private encoders, the way ``content.mognet``/``content.party``/
+    ``content.coop`` already do."""
+    return (bytes([_region.EXPR_OP]) + _region._push_var(var_class, idx) + bytes([_region.T_CONST])
+            + _region._const16(var_class, value) + bytes([_region.T_NE, _region.T_END]))
+
+
+def _while_not_eq(var_class, idx: int, value: int, body: bytes) -> bytes:
+    """``while (VAR != value) { body }`` -- check-first, mirroring :func:`_while_truthy`'s shape but on
+    inequality: the reveal's own poll idiom ("wait while MAP.Byte[32] != POP", the donor's polling idiom)."""
+    cond = _cond_neq(var_class, idx, value)
+    block = cond + bytes([_region.JMP_FALSE]) + struct.pack("<H", len(body) + 3) + bytes(body)
+    return block + bytes([0x01]) + struct.pack("<h", -(len(block) + 3))
+
+
+def reveal_spine_body(*, jump_to, face_to=None, steps: int = REVEAL_STEPS_DEFAULT,
+                      sfx: int | None = None, blend=REVEAL_BLEND) -> bytes:
+    """The invariant airborne-pop spine, byte-shaped in the census's own execution order (4/4 donors):
+
+        SetJumpAnimation(2917, blendA, blendB)
+        [RunSoundCode3(...) -- only when ``sfx``; 2/4 donors (351, 853) emit none, so the default is None]
+        TurnTowardPosition(face_x, face_z) ; WaitTurn()
+        RunJumpAnimation() ; WaitAnimation()
+        SetupJump(jx, jz, jy, steps) ; Jump()
+        RunLandAnimation() ; WaitAnimation()
+
+    ``jump_to`` = ``(x, z[, y])`` is a REQUIRED, hand-placed, perspective-tuned destination -- no formula
+    derives it (the same law :mod:`content.jump` states for its own arcs). ``face_to`` defaults to
+    ``jump_to`` (253/407/853 turn before jumping; 351 doesn't -- the kit always turns, since it always
+    has a destination to turn toward; a bare hop-in-place with no turn isn't exposed as a TOML option).
+    ``steps`` defaults to the donor MODAL value 10 (see :data:`REVEAL_STEPS_DEFAULT`)."""
+    if jump_to is None:
+        raise ValueError("reveal_spine_body: jump_to is required -- a perspective-tuned, hand-placed "
+                         "destination (no formula derives it; the content.jump law, restated here)")
+    jx, jz, jy = (tuple(int(v) for v in jump_to) + (0, 0))[:3]
+    ft = tuple(int(v) for v in (face_to if face_to is not None else jump_to))
+    fx, fz = (ft + (0,))[:2]
+    out = opcodes.set_jump_animation(REVEAL_HOP_CLIP, int(blend[0]), int(blend[1]))
+    if sfx:
+        out += act_sfx(int(sfx))
+    out += opcodes.turn_toward_position(fx, fz) + opcodes.wait_turn()
+    out += opcodes.run_jump_animation() + opcodes.wait_animation()
+    out += opcodes.setup_jump(jx, jz, jy, int(steps)) + opcodes.jump()
+    out += opcodes.run_land_animation() + opcodes.wait_animation()
+    return out
+
+
+def reveal_landing_dressing(player_uid: int = PLAYER_UID) -> bytes:
+    """The post-land dressing 2/4 donors (407, 853) run after the spine: turn to face the player (speed
+    :data:`REVEAL_TURN_SPEED`, field407's own ``TurnTowardObject(23, 48)``), ``FollowFocus(1)``, and
+    restore the moogle's normal collision box ``SetObjectLogicalSize(40, 40, 55)``. Emitted
+    unconditionally here (253/351 omit it, but a fresh real Jump landing warrants correct camera-follow +
+    collision regardless of which donor happens to skip it in situ).
+
+    ⚠ The DOUBLE ``WaitTurn()`` is deliberate and load-bearing-by-default: BOTH donors that run this
+    dressing emit it twice back to back (407 @1866/1867, 853 -- 2/2, verified by disassembly). An earlier
+    pass collapsed it to one on the theory that it was a decode artifact; it is not -- it is in the bytes
+    of every donor that has this block. This project's own law is that act/reveal timing is load-bearing,
+    so the donor's repeat is reproduced rather than reasoned away."""
+    return (opcodes.turn_toward_object(int(player_uid), REVEAL_TURN_SPEED)
+            + opcodes.wait_turn() + opcodes.wait_turn()     # 2/2 donors: 407 @1866/1867, 853
+            + opcodes.encode(0x91, 1)                       # FollowFocus(1)
+            + opcodes.encode(0x4B, 40, 40, 55))              # SetObjectLogicalSize(40, 40, 55) -- restore
+
+
+def reveal_loop_body(*, jump_to, face_to=None, steps: int = REVEAL_STEPS_DEFAULT, sfx=None,
+                     blend=REVEAL_BLEND, player_uid: int = PLAYER_UID, index: int = 0) -> bytes:
+    """The FULL cask-triggered reveal -- the bytes passed as ``inject_npc(intro=...)`` for the moogle
+    itself (prepended to its tag-1 loop, ahead of :data:`NPC_STANDBY_LOOP`):
+
+        while (MAP.Byte[32] != POP) { Wait(1) }        -- the poll
+        SetObjectFlags(5)                                -- SHOW (was hidden since Init)
+        <reveal_spine_body: the invariant airborne spine, to the authored jump_to>
+        <reveal_landing_dressing>
+        MAP.Byte[32] = DONE ; MAP.Bit[323] = 0           -- release the cask's poll
+
+    This satisfies ``inject_npc``'s ``intro`` contract exactly: it runs once (spawn -> the poll's exit),
+    never RETURNs, and falls through into the ordinary standby loop forever afterward -- so the moogle
+    behaves like any other once it has popped."""
+    state_idx, hs_bit = reveal_vars(index)
+    on_pop = (opcodes.encode(0x93, REVEAL_SHOW_FLAGS)
+             + reveal_spine_body(jump_to=jump_to, face_to=face_to, steps=steps, sfx=sfx, blend=blend)
+             + reveal_landing_dressing(player_uid)
+             + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_DONE)
+             + _region.set_var(_region.MAP_BOOL, hs_bit, 0))
+    return _while_not_eq(_region.GLOB_UINT8, state_idx, REVEAL_STATE_POP, opcodes.wait(1)) + on_pop
+
+
+def gate_until_revealed(body: bytes, index: int = 0) -> bytes:
+    """Wrap a save-point dispatch so it is INERT until this save point's moogle has actually popped:
+    ``if (state != DONE) return;`` ahead of ``body``.
+
+    Why it exists: the ``[[savepoint]]`` press-ZONE opens the save menu on its own, independently of the
+    moogle. With ``reveal_style = "barrel_pop"`` that let the player stand on the zone and save while the
+    moogle was still hidden in the cask -- so the reveal gated nothing and the cask was pure decoration
+    (adversarial review finding, reproduced end to end). The moogle's own TALK path needs no gate: it is
+    unreachable while hidden, because ``SetObjectFlags(14)`` carries the disable-talk bit.
+
+    NOTE the transient scope: MAP vars are wiped on every field load, so re-entering the field re-hides
+    the moogle AND re-closes this gate -- the player must pop the cask again each visit. That matches the
+    donor (its state lives in the same wiped MAP byte) and is the intended per-visit theatre."""
+    return _region.if_block(_cond_neq(_region.GLOB_UINT8, reveal_vars(index)[0], REVEAL_STATE_DONE),
+                            opcodes.RETURN) + bytes(body)
+
+
+def build_cask_init(x: int, z: int, *, face: int = 0) -> bytes:
+    """The cask/barrel's Init (tag 0): ``SetModel(241, 93) -> SetStandAnimation(1904) ->
+    SetObjectLogicalSize(1, 50, 50) -> SetObjectFlags(37)`` (the task brief's opcode order), with the same
+    D9-const + CreateObject + TurnInstant placement boilerplate every from-scratch object Init in this kit
+    uses (:func:`content.npc.build_npc_init`, :func:`content.chest.build_chest_init`). The model + animset
+    + pose resolve through the kit's own prop-archetype catalog (``"cask"`` / its ``"barrel"``/``"crate"``
+    aliases -> ``GEO_ACC_F0_CSK``, model id **241**, pose **1904** -- verified to match the task brief's
+    cited bytes exactly), and the accessory animset **93** is the SAME value the ACT's own book/feather
+    props use (:data:`ACT_PROP_ANIMSET`) -- both are ACC props off the ``NPC_PARAMS`` catalog."""
+    from . import npc as _npc
+    from .. import prop_archetypes as _prop_archetypes
+    model, pose = _prop_archetypes.resolve("cask")            # (241, 1904) -- GEO_ACC_F0_CSK
+    parts = [_npc._d9_const(0, x), _npc._d9_const(4, z), _npc._d9_const(6, face), _npc._d9_const(2, 0),
+            opcodes.set_model(model, ACT_PROP_ANIMSET), _npc._CREATE_OBJECT, _npc._TURN_INSTANT,
+            opcodes.set_stand_animation(pose),
+            opcodes.encode(0x4B, *CASK_LOGICAL_SIZE),
+            opcodes.encode(0x93, CASK_FLAGS),
+            opcodes.RETURN]
+    return b"".join(parts)
+
+
+def cask_trigger_body(index: int = 0) -> bytes:
+    """The cask's press-handler body -- the reveal side of the handshake: a ONE-SHOT guard (``if (state
+    != IDLE) return`` -- already popped, or popping, either way a re-press is inert), lock control, raise
+    the handshake + request POP, poll the SAME bit the moogle's own loop clears (:func:`_while_truthy`,
+    the exact shape the ACT's own release already uses), then hand control back.
+
+    Exported standalone (not only reachable via :func:`build_cask_init`/:func:`inject_cask`) so a
+    ``reveal_container = false`` field can splice this into its own hand-authored trigger scenery instead
+    of the shipped cask -- see ``docs/SAVEPOINT.md``. ``index`` selects this save point's own rendezvous
+    pair (:func:`reveal_vars`) and MUST match the ``index`` its moogle's :func:`reveal_loop_body` was
+    emitted with, or the two halves of the handshake talk past each other."""
+    state_idx, hs_bit = reveal_vars(index)
+    return (_region.if_block(_cond_neq(_region.GLOB_UINT8, state_idx, REVEAL_STATE_IDLE), opcodes.RETURN)
+            + opcodes.DISABLE_MOVE
+            + _region.set_var(_region.MAP_BOOL, hs_bit, 1)
+            + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_POP)
+            + _while_truthy(_region.MAP_BOOL, hs_bit, opcodes.wait(1))
+            + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None, index: int = 0,
+                reserve_party_band: bool = False, spawn_wait_n: int = 2, spawn_wait_occurrence: int = 0):
+    """Inject the barrel_pop container: a type-2 object, Init (tag 0, :func:`build_cask_init`) + a tag-3
+    press handler (:func:`cask_trigger_body`) -- the kit's own "approach + press, one-shot" idiom standing
+    in for the donor's tag-2-range + manual-B_KEYON shape (see :func:`content.chest`'s own fidelity note
+    for why: the auto-dispatched talk tag is functionally identical and needs no hand-rolled key poll).
+    Returns ``(new_bytes, slot)``."""
+    from . import npc as _npc
+    from . import object as _object
+    init = build_cask_init(int(x), int(z), face=int(face))
+    press = cask_trigger_body(index)
+    if len(press) < 9:                       # IsActuallyTalkable polls tag3[ip+7/8]; keep it >= 9 bytes
+        press += b"\x00" * (9 - len(press))
+    table_len = 2 * 4
+    table = struct.pack("<HH", 0, table_len) + struct.pack("<HH", 3, table_len + len(init))
+    entry = bytes([_npc.NPC_ENTRY_TYPE, 2]) + table + init + press
+    out, slot = _object.seat_entry(data, entry, reserve_party_band=reserve_party_band, slot=slot)
+    out = edit.activate(out, opcodes.init_object(slot, 0), spawn_wait_n=spawn_wait_n,
+                        spawn_wait_occurrence=spawn_wait_occurrence)
+    return out, slot
+
+
+def inject_barrel_pop_reveal(data, *, moogle_pos, jump_to, face_to=None, steps=None, sfx=None,
+                             container: bool = True, container_pos=None, player_uid: int = PLAYER_UID,
+                             index: int = 0):
+    """Wire the barrel_pop reveal for ONE save point. When ``container`` (default True), injects the cask
+    at ``container_pos`` (default ``moogle_pos``) FIRST -- so it consumes its entry slot before any later
+    ``first_free_slot()`` prediction (e.g. the ACT's :func:`inject_act_cluster`) runs on this same
+    ``data``, avoiding a slot collision; ``build.py`` relies on this ordering. Returns
+    ``(new_data, moogle_init_tail, moogle_intro)`` -- the two byte blobs to pass straight into
+    ``content.npc.inject_npc(init_tail=..., intro=...)`` for the moogle itself. ``container=False`` skips
+    the cask; the field author then wires their own trigger to :func:`cask_trigger_body` (docs/SAVEPOINT.md)."""
+    out = data
+    if container:
+        # 2- OR 3-element (x, z[, y]) -- the validator accepts both and the error text advertises the
+        # 3-tuple, so a bare `cx, cz = ...` unpack crashed the build on a legal config (review finding).
+        cpos = tuple(int(v) for v in (container_pos if container_pos is not None else moogle_pos))
+        cx, cz = (cpos + (0, 0))[:2]
+        out, _ = inject_cask(out, cx, cz, index=index)
+    tail = reveal_init_tail()
+    intro = reveal_loop_body(jump_to=jump_to, face_to=face_to,
+                             steps=(REVEAL_STEPS_DEFAULT if steps is None else int(steps)),
+                             sfx=(int(sfx) if sfx else None), player_uid=player_uid, index=index)
+    return out, tail, intro
+
+
 def graft_director(data, director_body):
     """Graft the save-sequence DIRECTOR (the donor field's entry-0 tag-1, from
     :func:`eventscan.extract_savepoint_director`) into the fork's EMPTY entry-0 tag-1, so it puppeteers the

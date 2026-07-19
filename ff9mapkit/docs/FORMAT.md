@@ -604,6 +604,8 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 # act = true                                             # the Moogle's save CHOREOGRAPHY (default true)
 # act_text = "Here we go, kupo!"                         # its line while the book is open
 # act_hop_to = [-347, 7514]                              # optional landing spot for the hop
+# reveal_style = "instant"                                # "instant" (default) or "barrel_pop"
+# reveal_jump_to = [-250, -571]                           # REQUIRED for barrel_pop -- hand-placed
 ```
 
 | key | meaning |
@@ -625,6 +627,13 @@ zone = [[-400,-900],[400,-900],[400,-500],[-400,-500]]   # the press area (4 or 
 | `act_text` | the line during the act — shipped stock-shaped: `[IMME]` + your text + `[TIME=20]` (immediate, auto-dismiss), NO speaker and NO quotes, mirroring the real field-300 entry byte-for-byte. |
 | `menu_pos` | where the Moogle's windows sit (`[MPOS=x,y]` = the window's **top-left** corner, y measured down from the top). Defaults to `"stock"` — FF9's own pair, the option list at `(20, 16)` and every sub-window at `(30, 26)` — because that top-left pin is what real moogles use *and* what leaves headroom for the **MOGNET caption** above the frame (an auto-placed menu clips it). Give `[x, y]` to pin them all somewhere else, or `false` for the engine's auto-placement. A pinned window draws **no tail** (the engine never places one on the absolute path), so those entries ship tail-less, exactly like stock's. |
 | `act_hop_to` | `[x, z]` (or `[x, z, y]`) — a landing spot: the Moogle traverses there and back with the donor's 15-frame lerp (for a moogle perched off its save spot). Default: hop in place at `pos`. |
+| `reveal_style` | how the Moogle first appears — `"instant"` (default; visible from spawn, byte-identical to every build before this key existed) or `"barrel_pop"` (spawns hidden inside a cask, pops out on a press — `SAVEPOINT.md`'s "The cask reveal"). Any `reveal_*` key below is a **lint error** unless this is `"barrel_pop"`. |
+| `reveal_jump_to` | **REQUIRED** for `barrel_pop` — `[x, z]` or `[x, z, y]`, the pop's landing spot. Perspective-tuned and hand-placed against the painted background, like every jump destination in this kit (`content.jump`'s law) — no formula derives it. |
+| `reveal_from` | `[x, z]` — where the cask prop sits. Default: the Moogle's `pos`. |
+| `reveal_face` | `[x, z]` — an optional pre-jump turn target. Default: `reveal_jump_to`. |
+| `reveal_steps` | `SetupJump` duration in frames. Default **10** (the donor MODAL value — fields 407 and 853 both use it; field 253 uses 15, field 351 uses 6 — per-scene tuning, not a universal default). |
+| `reveal_sfx` | a `RunSoundCode3` sound id to play just before the jump, or `false`/omitted (the default — **2 of the 4** census donors emit no sound at all; a universal default would invent a law the bytes don't support). |
+| `reveal_container` | `true` (default) ships a cask prop (`GEO_ACC_F0_CSK`) the player presses to trigger the reveal. `false` ships no cask — wire your own trigger scenery to `content.savepoint.cask_trigger_body()` (`SAVEPOINT.md`). |
 
 The menu shows only the rows you configure, in FF9's own order — **Save · Tent · Mognet · Mogshop ·
 Switch party members · Cancel** — so a bare `[[savepoint]]` is still Save/Cancel and a fully-dressed one

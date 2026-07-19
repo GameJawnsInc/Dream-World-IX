@@ -180,15 +180,114 @@ character slots); the donor calls `Party(4, 1)`.
 > own `selected` count on entry — always escapable, and exactly `4` once the party is full. Setting
 > `party_min` explicitly emits that literal instead, softlock and all.
 
+## The cask reveal — `reveal_style = "barrel_pop"`
+
+**Synthesis (SHIPPED, opt-in — default `reveal_style = "instant"`, today's unchanged behaviour: the
+moogle is visible from Init).** The barrel-pop moogle spends its Init hidden inside a cask/barrel prop
+and pops out the first time the player presses it. Byte-decoded end to end from the **canonical
+barrel_pop donor set — fields 253, 351, 407, 853** (the only 4 of the census's ~58 moogle instances whose
+reveal uses the distinct AIRBORNE jump clip **2917**; two other fields, 1421 and 2655, use a different,
+UNDECODED reveal shape built on the ACT's own hop clip 6503 and are explicitly out of scope here).
+
+**Correcting the record.** No save moogle of any style is visible at Init — all of them spawn hidden
+(`SetObjectFlags(14)`) and are shown by an EXTERNAL writer (a director, or — for barrel_pop — the cask's
+own press handshake); this module's own default (`reveal_style = "instant"`) is a **kit
+simplification**, not a replay of any real field's Init. And the real moogle's shown-state value is
+**`SetObjectFlags(5)`** (show + exempt-vs-NPC), not `7` (that's `SCENERY_FLAGS`, the value a walk-through
+*prop* uses elsewhere in this kit — a different object, a different bit combination).
+
+```toml
+[[savepoint]]
+zone = [[-100,-100],[100,-100],[100,100],[-100,100]]
+reveal_style = "barrel_pop"
+reveal_jump_to = [-250, -571, -362]  # REQUIRED: the pop landing spot -- perspective-tuned, hand-placed.
+                                    # [x, z] or [x, z, y]; omitting y lands at y=0, which on a raised
+                                    # perch is a FLAT hop. Field 407's own values are exactly these three
+                                    # (SetupJump(-250, -362, -571, 10) -- note the engine's x,y,z order).
+# reveal_face = [-250, -571]       # optional pre-jump turn target (default: reveal_jump_to)
+# reveal_from = [0, -700]          # the cask's own spot (default: the moogle's pos)
+# reveal_steps = 10                # SetupJump duration -- the donor MODAL value (407/853); 253 uses 15,
+                                    # 351 uses 6 -- per-scene tuning, never a default the kit invents
+# reveal_sfx = false                # a RunSoundCode3 id, or false/omitted (2 of 4 donors emit none)
+# reveal_container = true          # false = no cask prop; wire your own scenery (see below)
+```
+
+The protocol follows field 407's real cask — with two documented departures: its director indirection
+(below) and the show-fold (above), so this is a faithful *reconstruction*, not a byte replay. The
+cask's press handler is a **one-shot** guard — pressing it again after the pop is inert —
+that locks control, raises a shared handshake, and requests the pop; the moogle's own idle loop, which
+has been polling a shared transient byte since spawn, sees the request, shows itself
+(`SetObjectFlags(5)`), runs the invariant airborne spine —
+
+```
+SetJumpAnimation(2917, blendA, blendB)
+[RunSoundCode3(...) -- only 2/4 donors emit this; default none]
+TurnTowardPosition(face) ; WaitTurn()
+RunJumpAnimation() ; WaitAnimation()
+SetupJump(jump_to, steps) ; Jump()
+RunLandAnimation() ; WaitAnimation()
+```
+
+— then the post-land dressing (`TurnTowardObject(player, 48)`, `WaitTurn`, `FollowFocus(1)`, restoring
+`SetObjectLogicalSize(40, 40, 55)`), and finally releases the handshake so the cask's own poll unblocks
+and hands control back. `content/savepoint.py`'s "THE CASK REVEAL" section has the byte-cited constants
+(`REVEAL_STATE_IDX` = `MAP.Byte[32]`, the donor's own reveal-state slot; `REVEAL_HANDSHAKE_BIT` =
+`MAP.Bit[323]`, adjacent to the ACT's own `MAP.Bit[322]`) and the full per-donor variance table (SFX ids,
+the emerge gesture only field 253 plays, the blend-argument split).
+
+**The rendezvous is per save point.** Each `barrel_pop` save point gets its own pair —
+`MAP.Byte[32 + k]` / `MAP.Bit[323 + k]`, `k` counting the barrel_pop save points only. A single shared
+pair let every cask on a field drive every moogle: pressing one popped them all and left the other casks
+inert. The kit reserves **four** pairs per field (`REVEAL_MAX_PER_FIELD`); a fifth is a build error rather
+than a silent wrap into the next reserved var.
+
+**The press-zone is gated until the pop.** A `[[savepoint]]`'s zone opens the save menu on its own, so
+without a gate the player could stand on it and save while the moogle was still inside the cask — the
+reveal would be pure decoration. With `barrel_pop` the zone's dispatch is prefixed with
+`if (state != DONE) return`. The moogle's own **talk** path needs no gate: it is unreachable while hidden
+because `SetObjectFlags(14)` carries the disable-talk bit.
+
+⚠ **Transient by design.** These are `MAP` vars, which the engine wipes on every field load — so leaving
+and re-entering re-hides the moogle and re-closes the zone gate, and the player pops the cask again each
+visit. That matches the donor (its state lives in the same wiped byte). It is per-visit theatre, not
+persistence; if you want a save point that is permanently open after first use, use `reveal_style =
+"instant"` (the default).
+
+**Talkability while hidden — no extra gating needed.** `SetObjectFlags(14)` already carries the
+disable-talk bit (bit 8; see `content.chest`'s own "OPEN = CLOSED + disable-talk(8): solid but NO '!' /
+inert once looted" precedent for the same bitfield), so `IsActuallyTalkable`'s per-frame poll is already
+suppressed from the moment the moogle spawns hidden — pressing where a hidden moogle stands does nothing,
+with zero extra code. `SetObjectFlags(5)` on pop omits that bit, so talk goes live the instant the moogle
+is shown.
+
+**The show-fold simplification (documented, deliberate).** Field 407's own pop arm does *not* set
+`SetObjectFlags(5)` itself — a separate state write does, driven by an external director this kit doesn't
+synthesize for a from-scratch field. The reveal folds the show into the pop body itself (the first thing
+it does): functionally identical for a fresh field, but not a byte-for-byte replay of field 407's own
+two-state dance.
+
+**`reveal_container = false`** ships no cask prop at all. The field author is then responsible for their
+own trigger scenery (a `[[prop]]`, a carried object, whatever fits the room) and wires it to
+`content.savepoint.cask_trigger_body()` — the exported one-shot-guard + handshake body — by hand; the
+moogle's own reveal loop is style-agnostic about *what* sets `MAP.Byte[32] = 1` and `MAP.Bit[323] = 1`,
+only that something does.
+
 ### Not synthesized
 
-The moogle's bespoke pre-interaction **reveals** (the barrel-pop, the flying Treno shuttle, the two
-one-off story cutscenes) — the verbatim carry below is the way to get those. The interact-time ACT
-itself IS synthesized now (next section).
+The two **one-off story cutscene** reveals (fields 115/306) are carry-only (below) — their choreography
+is entangled with field-specific story state, not a reusable template. The **flying Treno shuttle**
+reveal is explicitly **UNVERIFIED** here: its clip ids are known only from an earlier, unchecked research
+note, never independently byte-decoded for this pass — treat it as a research lead, not ground truth.
+Fields **1421 and 2655** use a third, undecoded reveal shape (built on the ACT's own 6503 hop clip rather
+than the barrel-pop's 2917) and are out of scope. The verbatim carry below is the way to get any of these
+faithfully; the interact-time ACT itself IS synthesized (next section) regardless of which reveal a field
+uses.
 
 - `ff9mapkit/eb/opcodes.py` — `menu(menu_id, sub_id=0)` (0x75; `menu(4,0)` = save).
 - `ff9mapkit/content/savepoint.py` — `save_dispatch()`, `savepoint_region(zone, *, bubble)`,
-  `inject_savepoint` / `inject_savepoints`, and the ACT section (`act_save_body`, `inject_act_cluster`).
+  `inject_savepoint` / `inject_savepoints`, the ACT section (`act_save_body`, `inject_act_cluster`), and
+  the CASK REVEAL section (`reveal_loop_body`, `build_cask_init`, `cask_trigger_body`,
+  `inject_barrel_pop_reveal`).
 - `build.py` — `[[savepoint]]` validated (zone 4–5 pts) + injected (a 4-pt zone is widened to the
   `quad_zone` doubled-last-vertex convex quad, the `IsInQuad` dead-zone fix).
 
