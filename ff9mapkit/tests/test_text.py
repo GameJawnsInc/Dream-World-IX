@@ -35,6 +35,33 @@ def test_with_speaker_thought_form_and_wrap_composition():
     assert all("“" not in ln and "”" not in ln for ln in lines[2:-1])
 
 
+def test_menu_style_is_the_stock_moogle_window_shape():
+    """Stock field 300 txid 3's head, reproduced: [WDTH] (variable speaker) + [IMME] + the [FEED]
+    indents (name 2, dialogue 4). txid 6 (the plain no-tents window) keeps [IMME]+[WDTH] but has NO
+    feeds -- those ride the choice windows only."""
+    attributed = text.with_speaker("[TEXT=0,0]", "Can I help you, kupo?")
+    assert text.menu_style(attributed, speaker="[TEXT=0,0]") == (
+        "[WDTH=0,2,6,0,-1][IMME][FEED=2][TEXT=0,0]\n[FEED=4]“Can I help you, kupo?”")
+    assert text.menu_style(attributed, speaker="[TEXT=0,0]", feeds=False) == (
+        "[WDTH=0,2,6,0,-1][IMME][TEXT=0,0]\n“Can I help you, kupo?”")
+    # every wrapped dialogue line gets its own indent (stock's tent prompt feeds both of its lines)
+    styled = text.menu_style("[TEXT=0,0]\n“one”\n“two”", speaker="[TEXT=0,0]")
+    assert styled.count("[FEED=4]") == 2 and styled.count("[FEED=2]") == 1
+    # a LITERAL speaker needs no width hint (the engine measures it) -- and no speaker, no name feed
+    assert text.menu_style(text.with_speaker("Mog", "Hi."), speaker="Mog") == (
+        "[IMME][FEED=2]Mog\n[FEED=4]“Hi.”")
+    assert text.menu_style("Plain.", speaker=None) == "[IMME][FEED=4]Plain."
+
+
+def test_width_hint_and_menu_pos_tags():
+    assert text.width_hint("[TEXT=0,0]") == "[WDTH=0,2,6,0,-1]"
+    assert text.width_hint("[TEXT=0,3]", base=7) == "[WDTH=0,7,6,3,-1]"
+    assert text.width_hint("Mog") == "" and text.width_hint(None) == ""
+    assert text.menu_pos_tag((20, 16)) == "[MPOS=20,16]"      # stock's own main-menu placement
+    assert text.menu_pos_tag(None) == ""
+    assert text.MENU_POS_STOCK == ((20, 16), (30, 26))
+
+
 def test_mes_entry_tail():
     assert "[TAIL=UPL]" in text.mes_entry("hi", 500, tail="UPL")
     assert "[TAIL=UPR]" in text.mes_entry("hi", 500)              # default tail unchanged (UPR)

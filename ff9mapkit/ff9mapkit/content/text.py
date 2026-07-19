@@ -59,6 +59,64 @@ CHOICE_OPEN = "\n[CHOO]" + CHOICE_INDENT
 # [[choice]] sets `instant = true` (the World Hub journey menu turns it on).
 CHOICE_IMME = "[IMME]"
 
+# --- the save-moogle MENU window shape (stock field 300 txids 3/4/5/6, read from the install) --------
+# A save moogle's own windows are not plain dialogue. Stock's menu head is, byte for byte:
+#
+#     [PCHM=7,6][WDTH=0,2,6,0,-1][IMME][FEED=2][TEXT=0,0]\n[FEED=4]“Can I help you, kupo?”\n[CHOO]...
+#
+# Three things beyond the ordinary dialogue shape, all decoded from Memoria:
+#   * [IMME]  -- the window pops instantly (a selector, not speech). EVERY stock moogle window has it.
+#   * [FEED=n] -- DialogBoxSymbols.OnFeed: ``modifiers.extraOffset.x += n * ResourceXMultipier``, i.e. a
+#     HORIZONTAL indent, and it is skipped inside the [CHOO] rows (``if (!modifiers.choice)``). Stock
+#     indents the name line by 2 and every dialogue line by 4. A PLAIN moogle line (txid 6, the
+#     no-tents window) carries [IMME] but NO feed -- feeds ride the CHOICE windows only.
+#   * [WDTH=...] -- OnWidths: repeating ``lineIndex, lineWidth, <sub-params...>, -1`` groups, where each
+#     ``6,<var>`` sub-param adds the RENDERED width of ``[TEXT=0,<var>]`` and the total feeds
+#     ``dialog.WidthHint``. It exists so a window whose speaker is a runtime VARIABLE still reserves the
+#     right frame width -- which is exactly what a moogle's roster-name speaker needs.
+MENU_FEED_NAME = 2         # [FEED=2] on the speaker line
+MENU_FEED_LINE = 4         # [FEED=4] on each dialogue line
+_TEXTVAR_RE = re.compile(r"\[TEXT=0,(\d+)\]")
+# [MPOS=x,y] -- DialogBoxSymbols.OnDialogPosition: `dialog.Position = new Vector2(x, y)`, an ABSOLUTE
+# placement instead of the engine's auto-position-near-the-speaker. Stock pins its moogle menus this
+# way: the main option list at (20, 16) and every sub-window (save/tent confirm) at (30, 26). Left OFF
+# by default -- the kit's auto-positioned menus are in-game proven, and a wrong absolute position is a
+# visible regression -- so `[[savepoint]] menu_pos` opts in (see docs/FORMAT.md).
+MENU_POS_STOCK = ((20, 16), (30, 26))      # (main option list, sub-windows) -- field 300 txids 3 / 4,5
+
+
+def menu_pos_tag(pos) -> str:
+    """``[MPOS=x,y]`` for a ``(x, y)`` pair, or ``""`` for ``None`` (the engine's own placement)."""
+    if not pos:
+        return ""
+    x, y = (int(v) for v in pos)
+    return f"[MPOS={x},{y}]"
+
+
+def width_hint(speaker, base: int = MENU_FEED_NAME) -> str:
+    """The ``[WDTH]`` frame-width hint for a window whose SPEAKER is a runtime variable
+    (``[TEXT=0,n]``) -- ``""`` for a literal name (the engine measures those itself). ``base`` is the
+    line's fixed width; stock uses its own feed indent (2) for the name line."""
+    m = _TEXTVAR_RE.fullmatch(str(speaker or "").strip())
+    return f"[WDTH=0,{int(base)},6,{m.group(1)},-1]" if m else ""
+
+
+def menu_style(text: str, *, speaker=None, feeds: bool = True) -> str:
+    """Dress an already-attributed (and already-wrapped) line as a save moogle's OWN window: the
+    ``[WDTH]`` hint when the speaker is a variable, ``[IMME]``, and -- for a CHOICE window
+    (``feeds=True``) -- stock's per-line ``[FEED]`` indents (the name line 2, every other line 4).
+
+    Runs AFTER :func:`wrap_text` so each wrapped line gets its own indent, exactly as stock's own
+    multi-line moogle windows do (field 300 txid 5 feeds both lines of its tent prompt). Stock's tag
+    order is ``[MPOS][PCHC/PCHM][WDTH][IMME][FEED]``; the caller composes the leading two (see
+    :func:`menu_pos_tag`) and this supplies everything from ``[WDTH]`` on."""
+    lines = str(text).split("\n")
+    if feeds:
+        named = bool(speaker) and len(lines) > 1
+        lines = [f"[FEED={MENU_FEED_NAME if (named and i == 0) else MENU_FEED_LINE}]{ln}"
+                 for i, ln in enumerate(lines)]
+    return width_hint(speaker) + CHOICE_IMME + "\n".join(lines)
+
 
 def with_speaker(speaker, text: str) -> str:
     """Attribute a dialogue line the way the real game does (see the SPEAKER CONVENTION note above)::

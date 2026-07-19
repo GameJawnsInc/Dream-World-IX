@@ -153,6 +153,16 @@ dead, and the prompt carries the live remaining count via text var 7 + `[NUMB=7]
 (`EventEngine.DoEventCode` PARTYMENU 0xB2: arg1 = minimum party size, arg2 = a bitmask of locked
 character slots); the donor calls `Party(4, 1)`.
 
+> ⚠ **The min-size softlock** (in-game 2026-07-18). `PartySettingUI.FF9Party_Check` is the *only* exit
+> from the party screen — `OnKeyCancel` runs it and, when it fails, just buzzes and stays — and it reads
+> `selected >= party_ct`. So a literal `Party(4, …)` with fewer than four characters available is
+> **unescapable**. Stock never hits it (its party row only appears on late-game moogles with a full
+> roster), and the engine clamps this same value elsewhere (`UIKeyTrigger.cs:1002`:
+> `party_ct = Math.Min(4, selectList.Count)`). So the kit's **default** is that clamp, computed at
+> runtime: arg1 is an expression summing `partychk()` over every character, which equals the screen's
+> own `selected` count on entry — always escapable, and exactly `4` once the party is full. Setting
+> `party_min` explicitly emits that literal instead, softlock and all.
+
 ### Not synthesized
 
 The moogle's bespoke pre-interaction **reveals** (the barrel-pop, the flying Treno shuttle, the two

@@ -19,9 +19,11 @@ from ff9mapkit.content import mognet as _m
 from ff9mapkit.content import region as _region
 from ff9mapkit.eb import disasm
 
+_PARTYCHK = 0x6B          # B_PARTYCHK -- see content.savepoint.PARTYCHK (the party-size clamp)
+
 
 # --------------------------------------------------------------------------- the mini-VM ---
-def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None) -> int:
+def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None, in_party=None) -> int:
     """Evaluate one 0x05 expression's token stream (sans the leading 05) against gEventGlobal ``G``.
     ``sysread(code)`` services GetSysvar tokens (0x7A) -- the tests script dialog choices through it.
     ``M`` is the transient MAP array (the engine's per-field twin of G) -- the act's handshake bit
@@ -69,6 +71,9 @@ def _eval_expr(tokens: bytes, G: bytearray, sysread=None, party=None, M=None) ->
         elif t == _region.T_ITEMCOUNT:
             item = deref(stack.pop())
             stack.append(("c", (party or {}).get(("item", item), 0)))
+        elif t == _PARTYCHK:                           # 0x6B B_PARTYCHK: is this character in the party?
+            cid = deref(stack.pop())
+            stack.append(("c", 1 if cid in (in_party or ()) else 0))
         elif t in (_region.T_PLUS, _region.T_DIV, _region.T_MULT, _region.T_MINUS):
             b, a = deref(stack.pop()), deref(stack.pop())
             stack.append(("c", {_region.T_PLUS: a + b, _region.T_MINUS: a - b,
@@ -127,7 +132,7 @@ _REQ_OPS = {0x10: "req", 0x12: "reqsw", 0x14: "reqew"}
 
 def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windows=None,
         stats=None, items=None, party_menu=None, party=None, events=None, on_async=None,
-        M: bytearray | None = None, max_steps: int = 200_000) -> bytearray:
+        M: bytearray | None = None, in_party=(), max_steps: int = 200_000) -> bytearray:
     """Execute an emitted body over a (simulated) 2048-byte gEventGlobal; windows/text ops are no-ops.
 
     ``choices`` scripts the player's dialog picks: each read of GetSysvar(9) consumes the next entry
@@ -135,8 +140,10 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
     if a list, collects every Menu(id, sub) call so a test can assert the save fired (or didn't).
     ``events`` collects the act's choreography ops (see ``_ACT_OPS``); ``on_async(level, uid, tag)``
     runs on every RunScript dispatch (apply the callee's contract there); ``M`` is the transient MAP
-    array (pass a bytearray to seed/inspect it -- mutated in place). ``max_steps`` guards a loop whose
-    exit contract was never applied (the handshake poll) from spinning the suite forever."""
+    array (pass a bytearray to seed/inspect it -- mutated in place); ``in_party`` is the set of
+    CharacterOldIndexes currently in the party, which ``B_PARTYCHK`` reads (the party-row size clamp).
+    ``max_steps`` guards a loop whose exit contract was never applied (the handshake poll) from
+    spinning the suite forever."""
     G = bytearray(2048) if G is None else bytearray(G)
     M = bytearray(2048) if M is None else M
     raw = bytes(body)
@@ -159,7 +166,7 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
                                  f"(on_async?) was never applied")
         i, nxt = disasm.read_code(raw, pos)
         if i.op == 0x05:
-            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread, party, M)
+            last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread, party, M, in_party)
         elif i.op in (0x01, 0x03):                     # JMP / JMP_IF -- SIGNED int16, the engine's own
             d = i.args[0]                              #   read (EBin bra/bne; disasm.jump_target agrees;
             d = d - 0x10000 if d >= 0x8000 else d      #   the donor's handshake poll is an 0x03 back-jump)
@@ -189,7 +196,12 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
                 items.append((i.args[0], i.args[1]))
         elif i.op == 0xB2:                             # Party(min_size, locked_mask)
             if party_menu is not None:
-                party_menu.append((i.args[0], i.args[1]))
+                # min_size is an EXPRESSION on the default path (the softlock clamp) -- evaluate it,
+                # so the recorded value is the size the engine would actually receive. Layout:
+                # op, argflag, <tokens...>, locked(1 byte).
+                mn = (_eval_expr(raw[i.off + 2:i.off + i.length - 1], G, sysread, party, M, in_party)
+                      if i.arg_is_expr[0] else i.args[0])
+                party_menu.append((mn, i.args[1]))
         elif i.op in _REQ_OPS:                         # RunScript{Async,,Sync} -- record + apply contract
             if events is not None:
                 events.append((_REQ_OPS[i.op], tuple(i.args)))
@@ -880,12 +892,31 @@ def test_shop_and_party_rows_are_the_donor_pair():
     menus = []
     run(_spm.shop_dispatch(7), menus=menus)
     assert menus == [(2, 7)]                              # Menu(2, shopId)
+    # an explicit min_size is the donor literal, verbatim -- field 300 @10675 is Party(4, 1)
     pm = []
-    run(_spm.party_dispatch(), party_menu=pm)
-    assert pm == [(4, 1)]                                 # Party(min=4, locked=slot0) -- field 300 @10675
+    run(_spm.party_dispatch(min_size=4), party_menu=pm)
+    assert pm == [(4, 1)]
     pm = []
     run(_spm.party_dispatch(min_size=0, locked=0), party_menu=pm)
     assert pm == [(0, 0)]
+
+
+def test_party_row_min_size_clamps_to_the_live_party():
+    """THE SOFTLOCK FIX (playtest 2026-07-18): the party screen's ONLY exit is
+    `charCnt >= party_ct`, so a literal 4 with fewer than four characters is unescapable. The default
+    now emits the runtime count instead -- equal to charCnt on entry, so the check always passes."""
+    for members in ([0], [0, 1], [0, 1, 2], [0, 1, 2, 3]):
+        pm = []
+        run(_spm.party_dispatch(), party_menu=pm, in_party=set(members))
+        assert pm == [(len(members), 1)], members         # never above the live size -> never locks
+    # a FULL party reproduces the donor's literal exactly
+    pm = []
+    run(_spm.party_dispatch(), party_menu=pm, in_party={0, 2, 5, 7})
+    assert pm == [(4, 1)]
+    # characters outside the party never count (the expression reads party.member[] only)
+    pm = []
+    run(_spm.party_dispatch(), party_menu=pm, in_party={11})
+    assert pm == [(1, 1)]
 
 
 def test_menu_rows_follow_the_donor_order():
@@ -919,10 +950,12 @@ def test_built_six_row_menu_dispatches_every_row(tmp_path, fake_roster):
     stats, items = [], []
     run(body, choices=[1, 0], party=_HAS_TENT, stats=stats, items=items)
     assert items == [(_spm.TENT_ITEM, 1)] and stats
-    # row 3 Mogshop, row 4 party
+    # row 3 Mogshop, row 4 party (the built default clamps the party min to the live party size)
     menus, pm = [], []
     run(body, choices=[3], menus=menus); assert menus == [(2, 80)]
-    run(body, choices=[4], party_menu=pm); assert pm == [(4, 1)]
+    run(body, choices=[4], party_menu=pm, in_party={0, 1, 2, 3}); assert pm == [(4, 1)]
+    pm = []
+    run(body, choices=[4], party_menu=pm, in_party={0, 1}); assert pm == [(2, 1)]
     # row 5 Cancel -- nothing at all
     G = run(body, choices=[5]); assert bytes(G) == bytes(bytearray(2048))
 

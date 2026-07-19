@@ -391,3 +391,76 @@ def test_act_validation_gates(tmp_path):
     ok = _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nact_hop_to = [-347, 7514]\n"
                                            'act_text = "Kupo!"\n')
     assert not [x for x in probs(ok) if "savepoint" in x.lower()]
+
+
+# --------------------------------------------------------------------------- the roster speaker + menu pos ---
+
+
+def test_mognet_moogle_speaks_as_its_roster_identity(tmp_path):
+    """A network moogle's windows use [TEXT=0,0] (stock's own idiom) and the dispatch seeds text var 0
+    with the moogle's roster id -- so the name comes from the roster row, not a baked literal."""
+    from ff9mapkit import build
+    from ff9mapkit.content import mognet as _mg
+    toml = (_FIELD.replace('text_block = 30111', 'text_block = 30111')
+            + '\n[savepoint.mognet]\nname = "Mogwai"\naccept = [55]\n')
+    p = tmp_path / "m.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    ct = build.collect_text(proj)
+    mes = ct[0]
+    # the roster speaker + stock's menu head, byte for byte (field 300 txid 3's own shape)
+    assert ("[WDTH=0,2,6,0,-1][IMME][FEED=2][TEXT=0,0]\n[FEED=4]“What would you like to do?”") in mes
+    assert "Mogwai\n“What would you like to do?”" not in mes      # NOT a baked literal name
+    eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
+    # SetTextVariable(0, 41) leads the talk body (0x66, slot 0, the new-moogle id)
+    seed = opcodes.set_text_variable(0, _mg.NEW_MOOGLE_ID)
+    assert seed in eb
+    m = _entry_with_model(eb, 220)[0]
+    f3 = m.func_by_tag(3)
+    body = eb[f3.abs_start:f3.abs_end]
+    assert body.index(seed) < body.index(opcodes.window_sync(2, 8, ct[-1][0]["prompt"]))
+
+
+def test_explicit_speaker_overrides_the_roster_identity(tmp_path):
+    from ff9mapkit import build
+    toml = (_FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nspeaker = "Mogwai"\n')
+            + '\n[savepoint.mognet]\nname = "Mogwai"\naccept = [55]\n')
+    p = tmp_path / "m2.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    mes = build.collect_text(build.FieldProject.load(p))[0]
+    assert "[IMME][FEED=2]Mogwai\n[FEED=4]“What would you like to do?”" in mes
+    assert "[TEXT=0,0]\n[FEED=4]“What would you like to do?”" not in mes
+    assert "[WDTH=" not in mes.split("[TXID=500]")[1].split("[ENDN]")[0]   # literal name: no hint
+
+
+def test_menu_pos_is_opt_in(tmp_path):
+    from ff9mapkit import build
+    mes = build.collect_text(build.FieldProject.load(_write(tmp_path, "p0", _FIELD)))[0]
+    assert "[MPOS=" not in mes                                    # default: the engine places it
+    mes = build.collect_text(build.FieldProject.load(
+        _write(tmp_path, "p1", _FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nmenu_pos = "stock"\n'))))[0]
+    assert "[MPOS=20,16][PCHC=" in mes                            # stock's main-menu pin, leading the entry
+    assert "[MPOS=30,26][PCHC=2,1]" in mes                        # ...and the sub-window pin
+    mes = build.collect_text(build.FieldProject.load(
+        _write(tmp_path, "p2", _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nmenu_pos = [40, 50]\n"))))[0]
+    assert mes.count("[MPOS=40,50]") >= 2                         # an explicit pair: everywhere
+
+
+def _write(tmp_path, name, toml):
+    p = tmp_path / f"{name}.field.toml"
+    p.write_text(toml, encoding="utf-8")
+    return p
+
+
+def test_menu_pos_validation(tmp_path):
+    from ff9mapkit import build
+
+    def probs(toml):
+        return build.validate(build.FieldProject.load(_write(tmp_path, "v", toml)))
+
+    assert any("menu_pos" in x for x in probs(
+        _FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nmenu_pos = "middle"\n')))
+    assert any("menu_pos" in x for x in probs(
+        _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nmenu_pos = [1, 2, 3]\n")))
+    assert not [x for x in probs(_FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nmenu_pos = "stock"\n'))
+                if "savepoint" in x.lower()]

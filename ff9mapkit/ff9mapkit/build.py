@@ -1483,7 +1483,7 @@ def validate(project: FieldProject) -> list[str]:
                     "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet",
                     "tent", "tent_row", "tent_prompt", "tent_yes", "tent_no", "no_tent",
                     "shop", "shop_row", "party", "party_row", "party_min", "party_locked",
-                    "act", "act_text", "act_hop_to"}
+                    "act", "act_text", "act_hop_to", "menu_pos"}
         for k in sorted(set(sp) - _sp_keys):
             problems.append(f"[[savepoint]] unknown key {k!r} -- expected one of {', '.join(sorted(_sp_keys))}")
         for k in ("moogle", "bubble", "dialogue", "latch", "tent", "party", "act"):
@@ -1502,6 +1502,11 @@ def validate(project: FieldProject) -> list[str]:
         if sp.get("act") and not sp.get("dialogue", True):
             problems.append("[[savepoint]] act = true needs dialogue (the act plays on the confirmed "
                             "Yes); remove `dialogue = false` or the act")
+        mp = sp.get("menu_pos")
+        if mp is not None and not (mp == "stock" or (isinstance(mp, (list, tuple)) and len(mp) == 2
+                                   and all(isinstance(v, int) and not isinstance(v, bool) for v in mp))):
+            problems.append(f'[[savepoint]] menu_pos must be "stock" (FF9\'s own moogle-menu placement) '
+                            f"or [x, y], got {mp!r}")
         ht = sp.get("act_hop_to")
         if ht is not None and (not isinstance(ht, (list, tuple)) or len(ht) not in (2, 3)
                                or not all(isinstance(v, int) and not isinstance(v, bool) for v in ht)):
@@ -5098,6 +5103,13 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 letter_txids={v: t[f"letter{v}"] for v in acc_letters if f"letter{v}" in t},
                 status_txids=[t[f"status{i}"] for i in range(4)] if "status0" in t else None)
 
+        def _speaks_as_roster(sp):
+            """True when this save point's windows speak as a Mognet ROSTER identity (`[TEXT=0,0]`),
+            which is stock's own idiom and needs `SetTextVariable(0, <id>)` before the first window.
+            A network moogle takes it by default; an explicit `speaker` opts back out."""
+            mg = sp.get("mognet")
+            return bool(mg and str(mg.get("name", "")) and not sp.get("speaker"))
+
         def _dispatch(k, sp, save_body=None):
             # `save_body` swaps the confirmed-Yes body: the moogle's TALK dispatch passes the ACT
             # (savepoint.act_save_body -- choreography needs gExec to be the moogle); the press REGION
@@ -5108,6 +5120,11 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 return _savepoint.save_dispatch()
             mg = sp.get("mognet")
             rows = _savepoint.menu_rows(sp)
+            # seed the roster identity into text var 0 when the windows speak as `[TEXT=0,0]`
+            prologue = b""
+            if _speaks_as_roster(sp):
+                from .content import mognet as _mg2
+                prologue = opcodes.set_text_variable(0, _mg2.NEW_MOOGLE_ID)
             if len(rows) > 2 or (mg and "accept_prompt" in t):
                 # ANY configured extra row (tent / mognet / shop / party) -> the row-driven menu
                 bodies = {"save": _savepoint.save_confirm_body(t["confirm"], latch=sp.get("latch", True),
@@ -5117,14 +5134,16 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                 if "shop" in rows:
                     bodies["shop"] = _savepoint.shop_dispatch(int(sp["shop"]))
                 if "party" in rows:
+                    # no `party_min` -> the runtime clamp (never softlocks); explicit -> that literal
                     bodies["party"] = _savepoint.party_dispatch(
-                        min_size=int(sp.get("party_min", _savepoint.DEFAULT_PARTY_MIN)),
+                        min_size=(int(sp["party_min"]) if "party_min" in sp else None),
                         locked=int(sp.get("party_locked", _savepoint.DEFAULT_PARTY_LOCKED)))
                 if "mognet" in rows and "accept_prompt" in t:
                     bodies["mognet"] = _mognet_body(mg, t)
-                return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies)
+                return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies, prologue=prologue)
             return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
-                                                     latch=sp.get("latch", True), save_body=save_body)
+                                                     latch=sp.get("latch", True), save_body=save_body,
+                                                     prologue=prologue)
 
         eb, _ = _savepoint.inject_savepoints(eb, sps, dispatches=[_dispatch(k, sp)
                                                                  for k, sp in enumerate(savepoints)])
@@ -5959,14 +5978,37 @@ def collect_text(project: FieldProject):
         mg = sp.get("mognet")
         yn = (str(sp.get("yes_row", _savepoint.DEFAULT_YES_ROW)),
               str(sp.get("no_row", _savepoint.DEFAULT_NO_ROW)))
+        from .content import mognet as _mognet
+        # WHO SPEAKS. A network moogle speaks as its ROSTER identity ([TEXT=0,0], resolved at runtime
+        # from the text var the dispatch seeds) -- stock's own idiom, and it keeps the name in step
+        # with the roster row. An explicit `speaker` overrides it; a plain save point has no roster
+        # row, so it just uses `speaker` as before.
+        spk = sp.get("speaker") or (_mognet.VAR_SPEAKER if (mg and str(mg.get("name", ""))) else None)
+
+        # [MPOS] placement (opt-in; `menu_pos = "stock"` takes FF9's own pair, or give [x, y]) -- the
+        # main option list and the sub-windows are pinned separately in stock.
+        _mp = sp.get("menu_pos")
+        _mp_main, _mp_sub = ((None, None) if _mp is None
+                             else (_text.MENU_POS_STOCK if _mp == "stock"
+                                   else (tuple(_mp), tuple(_mp))))
+
+        def _menu(text_line, *, feeds=True, speaker=spk):
+            """A save-moogle WINDOW body: attribute, wrap, then dress in stock's menu shape ([WDTH]
+            when the speaker is a variable, [IMME], and the [FEED] indents on a choice window). The
+            [MPOS] pin leads the whole entry (before [PCHC]) -- composed at the call sites, per
+            stock's own tag order."""
+            s = _text.with_speaker(speaker, str(text_line))
+            if wrap is not None:
+                s = _text.wrap_text(s, wrap)[0]
+            return _text.menu_style(s, speaker=speaker, feeds=feeds)
+
+        _pin_main, _pin_sub = _text.menu_pos_tag(_mp_main), _text.menu_pos_tag(_mp_sub)
+
         # cancel is the LAST row in every menu: B backs out of the option list AND out of the confirm.
-        prompt = _text.with_speaker(sp.get("speaker"), str(sp.get("prompt", _savepoint.DEFAULT_PROMPT)))
-        confirm = _text.with_speaker(sp.get("speaker"), str(sp.get("confirm", _savepoint.DEFAULT_CONFIRM)))
-        if wrap is not None:
-            prompt, confirm = _text.wrap_text(prompt, wrap)[0], _text.wrap_text(confirm, wrap)[0]
+        prompt = _menu(sp.get("prompt", _savepoint.DEFAULT_PROMPT))
+        confirm = _menu(sp.get("confirm", _savepoint.DEFAULT_CONFIRM))
         # the menu rows this save point shows, in the real moogle's order (savepoint.menu_rows) -- the
         # [CHOO] list and the dispatch both derive from it, so they cannot drift out of step
-        from .content import mognet as _mognet
         row_keys = _savepoint.menu_rows(sp)
         _label = {"save": sp.get("save_row", _savepoint.DEFAULT_SAVE_ROW),
                   "tent": sp.get("tent_row", _savepoint.DEFAULT_TENT_ROW),
@@ -5977,23 +6019,25 @@ def collect_text(project: FieldProject):
         rows = tuple(str(_label[k]) for k in row_keys)
         tag = f"[PCHC={len(rows)},{len(rows) - 1}]"   # cancel is always the last row -- see choice.pre_choose
         sp_pos[k] = (
-            _add_raw(tag + prompt + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(rows), sp.get("tail")),
-            _add_raw("[PCHC=2,1]" + confirm + _text.CHOICE_OPEN + ("\n" + _text.CHOICE_INDENT).join(yn),
-                     sp.get("tail")))
+            _add_raw(_pin_main + tag + prompt + _text.CHOICE_OPEN
+                     + ("\n" + _text.CHOICE_INDENT).join(rows), sp.get("tail")),
+            _add_raw(_pin_sub + "[PCHC=2,1]" + confirm + _text.CHOICE_OPEN
+                     + ("\n" + _text.CHOICE_INDENT).join(yn), sp.get("tail")))
         if sp.get("tent"):
-            tp = _text.with_speaker(sp.get("speaker"), str(sp.get("tent_prompt",
-                                                                 _savepoint.DEFAULT_TENT_PROMPT)))
-            tn = _text.with_speaker(sp.get("speaker"), str(sp.get("no_tent", _savepoint.DEFAULT_NO_TENT)))
-            if wrap is not None:
-                tp, tn = _text.wrap_text(tp, wrap)[0], _text.wrap_text(tn, wrap)[0]
+            tp = _menu(sp.get("tent_prompt", _savepoint.DEFAULT_TENT_PROMPT))
+            # the no-tents line is a PLAIN window in stock (field 300 txid 6): [IMME] + the [WDTH]
+            # hint, but no [FEED] indents -- those ride the choice windows only
+            tn = _menu(sp.get("no_tent", _savepoint.DEFAULT_NO_TENT), feeds=False)
             tyn = (str(sp.get("tent_yes", _savepoint.DEFAULT_TENT_YES)),
                    str(sp.get("tent_no", _savepoint.DEFAULT_TENT_NO)))
             # the donor shows the live remaining count in the prompt: (Tent(s) Remaining=[NUMB=7]),
-            # text var 7 loaded by savepoint.tent_dispatch just before the window
+            # text var 7 loaded by savepoint.tent_dispatch just before the window. It is a second
+            # dialogue LINE, so it carries the same [FEED] indent stock gives it (field 300 txid 5).
+            _count = f"[FEED={_text.MENU_FEED_LINE}](Tent(s) Remaining=[NUMB=7])"
             sp_pos[k] += (
-                _add_raw("[PCHC=2,1]" + tp + chr(10) + "(Tent(s) Remaining=[NUMB=7])" + _text.CHOICE_OPEN
+                _add_raw(_pin_sub + "[PCHC=2,1]" + tp + chr(10) + _count + _text.CHOICE_OPEN
                          + (chr(10) + _text.CHOICE_INDENT).join(tyn), sp.get("tail")),
-                _add_raw(tn, sp.get("tail")))
+                _add_raw(_pin_sub + tn, sp.get("tail")))
         if mg and str(mg.get("name", "")):
             # the Mognet act's texts + the give-recipient resolution (docs/SAVEPOINT.md). The roster --
             # the 41 real names -- enters ONLY from the user's install (provenance); fetched once.
@@ -6017,20 +6061,24 @@ def collect_text(project: FieldProject):
             gp = str(mg.get("give_prompt", _mognet.DEFAULT_GIVE_PROMPT)).replace("{to}", give_to_name or "")
             gyn = (str(mg.get("give_yes", _mognet.DEFAULT_GIVE_YES)),
                    str(mg.get("give_no", _mognet.DEFAULT_GIVE_NO)))
+            # every one of the moogle's own windows takes the same speaker (`spk` -- its roster
+            # identity by default) and the same stock menu dress; the letter-answer lines are PLAIN
+            # windows (no [FEED]), the two confirms are choice windows.
             mg_pos[k] = {
-                "accept_prompt": _add_raw(c2 + _text.with_speaker(self_name, ap) + _text.CHOICE_OPEN
+                "accept_prompt": _add_raw(_pin_sub + c2 + _menu(ap) + _text.CHOICE_OPEN
                                           + ("\n" + _text.CHOICE_INDENT).join(ayn), sp.get("tail")),
-                "thanks": _add_raw(_text.with_speaker(self_name, str(mg.get("thanks", _mognet.DEFAULT_THANKS))),
+                "thanks": _add_raw(_pin_sub + _menu(mg.get("thanks", _mognet.DEFAULT_THANKS), feeds=False),
                                    sp.get("tail")),
-                "nothing": _add_raw(_text.with_speaker(self_name, str(mg.get("nothing", _mognet.DEFAULT_NOTHING))),
+                "nothing": _add_raw(_pin_sub + _menu(mg.get("nothing", _mognet.DEFAULT_NOTHING), feeds=False),
                                     sp.get("tail")),
                 "erase": _add_raw(str(mg.get("erase", _mognet.DEFAULT_ERASE)), ""),
             }
             if give:
-                mg_pos[k]["give_prompt"] = _add_raw(c2 + _text.with_speaker(self_name, gp) + _text.CHOICE_OPEN
+                mg_pos[k]["give_prompt"] = _add_raw(_pin_sub + c2 + _menu(gp) + _text.CHOICE_OPEN
                                                     + ("\n" + _text.CHOICE_INDENT).join(gyn), sp.get("tail"))
-                mg_pos[k]["give_line"] = _add_raw(_text.with_speaker(
-                    self_name, str(mg.get("give_line", _mognet.DEFAULT_GIVE_LINE))), sp.get("tail"))
+                mg_pos[k]["give_line"] = _add_raw(
+                    _pin_sub + _menu(mg.get("give_line", _mognet.DEFAULT_GIVE_LINE), feeds=False),
+                    sp.get("tail"))
                 mg_pos[k]["give_to_id"] = give_to_id       # not a text position -- resolved id, passed through
             # authored LETTER content per accept variant: one frameless-letter entry each (the stock
             # header template + the body; author-controlled line breaks -> added raw, never wrapped)

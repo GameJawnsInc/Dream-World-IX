@@ -58,6 +58,12 @@ from . import region as _region
 # --- identity ---------------------------------------------------------------------------------------
 ROSTER_SIZE = 41          # the shipping [TBLE=] roster rows (ids 0..40)
 NEW_MOOGLE_ID = 41        # the 42nd row -- the first free identity byte
+# A save moogle does NOT speak under a literal name: stock loads its own roster id into text var 0
+# (`SetTextVariable(0, <my id>)`) and every one of its windows uses `[TEXT=0,0]` as the speaker, which
+# renders that row of the moogle-name table (field 300 txids 3/4/5/6 all do; its Init seeds the id and
+# its loop refreshes the var). So the identity, not a hardcoded string, is what talks -- and the name
+# tracks the roster. `[savepoint.mognet]` uses this by default; an explicit `speaker` overrides it.
+VAR_SPEAKER = "[TEXT=0,0]"
 
 # --- the mailbox layout (all gEventGlobal byte indices) ---------------------------------------------
 GUARD_IDX = 1024          # wipe-guard; must be 1 before any mailbox byte is touched
@@ -527,7 +533,10 @@ def mognet_interaction_body(*, my_id: int = NEW_MOOGLE_ID, accept_variants=(), g
     # THEN the row gating) and closes when the act ends; the letter display closes it early itself.
     status = mail_status_window(status_txids) if status_txids else b""
     closer = opcodes.encode(0x21, STATUS_WINDOW) if status_txids else b""
-    return (migration_guard(erase_txid) + status
+    # our own identity into text var 0 FIRST -- every window below speaks as `[TEXT=0,0]` (the stock
+    # idiom, see VAR_SPEAKER). Nothing downstream clobbers var 0: the status box uses 2..7 and the
+    # accept arm re-seeds this same value alongside var 1 (the sender).
+    return (opcodes.set_text_variable(0, int(my_id)) + migration_guard(erase_txid) + status
             + _region.if_else(accept_available_cond(my_id), accept_arm, els) + closer)
 
 

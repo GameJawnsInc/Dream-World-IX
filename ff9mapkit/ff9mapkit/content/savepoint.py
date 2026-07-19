@@ -123,10 +123,30 @@ DEFAULT_PARTY_ROW = "Switch party members"
 DEFAULT_TENT_PROMPT = "Rest inside a tent, kupo?"
 DEFAULT_TENT_YES, DEFAULT_TENT_NO = "Rest", "Don't rest"
 DEFAULT_NO_TENT = "You don't have any tents, kupo!"
-# Party(min_party_size, locked_mask): arg1 = the minimum party size (members beyond it are locked),
-# arg2 = a BITMASK of character slots the player may not remove (EventEngine.DoEventCode PARTYMENU,
-# 0xB2). The donor save moogle calls Party(4, 1) -- a full party of four with slot 0 locked.
-DEFAULT_PARTY_MIN, DEFAULT_PARTY_LOCKED = 4, 1
+# Party(min_party_size, locked_mask): arg1 = the minimum party size, arg2 = a BITMASK of character
+# slots the player may not remove (EventEngine.DoEventCode PARTYMENU, 0xB2). The donor save moogle
+# calls Party(4, 1) -- a full party of four with slot 0 locked.
+#
+# ⚠ THE MIN-SIZE SOFTLOCK (in-game 2026-07-18, playtest report). `PartySettingUI.FF9Party_Check` is the
+# ONLY exit from the party screen -- `OnKeyCancel` runs it and, when it fails, just buzzes (SFX 102) and
+# stays. It reads `charCnt >= info.party_ct && healthyCnt != 0`, where charCnt counts the OCCUPIED party
+# slots. So a literal `Party(4, ...)` with fewer than four characters available is UNESCAPABLE. Stock
+# never hits it (the row only appears on late-game moogles with a full roster) -- and the engine itself
+# clamps this exact value elsewhere: `UIKeyTrigger.cs:1002` does `party_ct = Math.Min(4, selectList.Count)`.
+#
+# So the kit's DEFAULT is now that clamp, computed at runtime: arg1 is an EXPRESSION counting the party
+# (`getv1()` evaluates it, same as the proven `EnableDialogChoices(VAR|4, 0)` form). The count equals
+# charCnt on entry, so the check passes immediately and can never lock; with a full party it is 4 --
+# byte-for-byte stock behaviour. An explicit `party_min` still emits the literal, unchanged.
+DEFAULT_PARTY_LOCKED = 1
+DEFAULT_PARTY_MIN = 4         # the stock literal -- what `party_min` defaults to when set explicitly
+PARTYCHK = 0x6B               # expression fn (op_binary 107 B_PARTYCHK): partychk(CharacterOldIndex)
+                              # -> 1 when that character occupies a party slot (EventEngine.partychk
+                              # walks party.member[0..3] -- the SAME array FF9Party_Check counts)
+PARTY_CHAR_IDS = tuple(range(12))   # CharacterOldIndex 0..11 (content.party.CHAR_OLD_INDEX). A custom
+                                    # 13th+ character is deliberately NOT counted: undercounting only
+                                    # lowers the threshold (still >= charCnt-safe), overcounting would
+                                    # re-create the softlock.
 
 
 def _half_heal(fn_cur: int, fn_max: int, slot: int) -> bytes:
@@ -188,10 +208,32 @@ def shop_dispatch(shop_id: int) -> bytes:
     return (opcodes.wait(3) + opcodes.menu(2, int(shop_id)) + opcodes.wait(3))
 
 
-def party_dispatch(*, min_size: int = DEFAULT_PARTY_MIN, locked: int = DEFAULT_PARTY_LOCKED) -> bytes:
-    """The Switch-party-members row: ``Party(min_size, locked)`` then ``UpdatePartyUID()`` -- the donor's
-    pair (field 300 @10675). ``locked`` is a bitmask of character slots the player may not remove."""
-    return opcodes.encode(0xB2, int(min_size), int(locked)) + opcodes.encode(0xE9)
+def current_party_size_expr() -> bytes:
+    """A bare RPN blob evaluating to the number of characters CURRENTLY in the party::
+
+        partychk(0) + partychk(1) + ... + partychk(11)
+
+    ``B_PARTYCHK`` reads ``party.member[0..3]``, the very array ``FF9Party_Check`` counts, so this
+    equals that check's ``charCnt`` on entry -- see the softlock note above."""
+    out = b""
+    for k, cid in enumerate(PARTY_CHAR_IDS):
+        out += bytes([_region.T_CONST]) + int(cid).to_bytes(2, "little") + bytes([PARTYCHK])
+        if k:
+            out += bytes([_region.T_PLUS])
+    return out + bytes([_region.T_END])
+
+
+def party_dispatch(*, min_size: int | None = None, locked: int = DEFAULT_PARTY_LOCKED) -> bytes:
+    """The Switch-party-members row: ``Party(min, locked)`` then ``UpdatePartyUID()`` -- the donor's
+    pair (field 300 @10675). ``locked`` is a bitmask of character slots the player may not remove.
+
+    ``min_size=None`` (the default) emits the SOFTLOCK-SAFE runtime clamp -- arg1 as
+    :func:`current_party_size_expr` -- so the screen is always escapable and behaves exactly like the
+    donor's literal 4 once the party is full. An explicit ``min_size`` emits that literal verbatim
+    (the author owns the consequence; see the note above ``DEFAULT_PARTY_LOCKED``)."""
+    call = (opcodes.encode(0xB2, current_party_size_expr(), int(locked), arg_flags=0b01)
+            if min_size is None else opcodes.encode(0xB2, int(min_size), int(locked)))
+    return call + opcodes.encode(0xE9)
 
 
 # --- THE MOOGLE'S ACT (the save choreography) --------------------------------------------------------
@@ -473,14 +515,16 @@ def menu_rows(cfg) -> list:
     return [k for k in MENU_ROW_ORDER if on[k]] + ["cancel"]
 
 
-def save_dispatch_menu(prompt_txid: int, rows, bodies) -> bytes:
+def save_dispatch_menu(prompt_txid: int, rows, bodies, *, prologue: bytes = b"") -> bytes:
     """The moogle's talk body for ANY configured row set: lock control, open the prompt, dispatch with
     :func:`choice.switch_on_choice` (op_0B -- one sysvar-9 read, so nested confirms are safe), restore.
 
     ``rows`` are the keys from :func:`menu_rows`; ``bodies`` maps each key to its body (``cancel`` and
     any missing key emit nothing). The row ORDER here must match the ``[CHOO]`` list the build writes --
-    both derive from :func:`menu_rows`, so they cannot drift."""
-    return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU
+    both derive from :func:`menu_rows`, so they cannot drift. ``prologue`` runs after the control lock
+    and before the first window -- the build passes ``SetTextVariable(0, <moogle id>)`` there so a
+    network moogle's windows can speak as their roster identity (``mognet.VAR_SPEAKER``)."""
+    return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + bytes(prologue)
             + opcodes.window_sync(CHOICE_WINDOW, CHOICE_FLAGS, prompt_txid)
             + _choice.switch_on_choice([bytes(bodies.get(r, b"") or b"") for r in rows])
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
@@ -525,7 +569,7 @@ def save_dispatch_mognet(prompt_txid: int, confirm_txid: int, mognet_body: bytes
 
 
 def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool = True,
-                           save_body: bytes | None = None) -> bytes:
+                           save_body: bytes | None = None, prologue: bytes = b"") -> bytes:
     """The FAITHFUL save interaction, rebuilt from the real script::
 
         DisableMove ; DisableMenu
@@ -543,7 +587,7 @@ def save_dispatch_prompted(prompt_txid: int, confirm_txid: int, *, latch: bool =
     deliberately BODILESS -- see :func:`_row0_only` for why that is a correctness requirement, not a
     shortcut."""
     inner = save_body if save_body is not None else save_act(latch=latch)
-    return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU
+    return (opcodes.DISABLE_MOVE + opcodes.DISABLE_MENU + bytes(prologue)
             + _row0_only(prompt_txid, _row0_only(confirm_txid, inner))
             + opcodes.ENABLE_MENU + opcodes.ENABLE_MOVE + opcodes.RETURN)
 
