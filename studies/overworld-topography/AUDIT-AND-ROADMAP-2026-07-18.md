@@ -241,8 +241,27 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   purity); the real structure is a locally-alternating small-step **dither** (|Δrow|=1 dominant, negative lag-1
   autocorrelation, adjacent-same-row 9.8% vs a 25.2% shuffled baseline) riding a soft family-relative bias — but
   the recipe is speculative: unimplemented, unrendered, untested. Unexplained: grass|desert's row marginals
-  reject uniformity (χ²=11.92), desert|dunes' do not (χ²=1.62). Round 3 (implement + render, scoped to
-  desert|dunes) is IN FLIGHT; it terminates at a playtest the agents cannot run.
+  reject uniformity (χ²=11.92), desert|dunes' do not (χ²=1.62).
+  **★ ROUND 3 RAN IT AND THE EMITTER IS FALSIFIED** (`dunes_strip_emitter.py`; 2 of 3 judges substantive,
+  both FALSIFIED — the third returned a degenerate empty response and was disregarded). A real seeded
+  BFS emitter (per-touch-category empirical PMF × the measured |Δrow| prior) reproduces the aggregate
+  dither (same-row 9.8% vs stock's 9.8%) but **fails the look test**: at tight unshaded zoom stock's
+  boundary is a smooth rounded coastline while the emitter's staircases into boxy notches — and it is
+  **not visually distinguishable from the iid-random control**, with the deliberately-wrong `all-row-0`
+  floor looking *closer* to stock than either. It also misses stock's negative lag-1 autocorrelation
+  (+0.073 vs −0.423) and its χ² (8.28) is often worse than the naive control's (1.49). **THE FORM LESSON
+  a second time in this arc: measurably better ≠ visibly better.**
+  **The round's real prize is the discovery that explains the failure: the 4 strip rows are NOT abstract
+  dither buckets — they are a literal hand-painted 4-step dune COVERAGE-DENSITY gradient** (row0 ≈20%
+  dune blobs on desert red → row3 ≈80%+ dense mottling), seen for the first time in an atlas crop. Per-cell
+  sampling fails *because* adjacent cells must cohere into a spatially smooth density gradient.
+  **NEXT DESIGN (named, not attempted):** sample one CONTINUOUS scalar coverage field along the seam,
+  interpolate spatially, snap each cell to the nearest row — then re-run the same tight-zoom render against
+  the same specimen + controls before touching shipped code.
+  ⚠ **And a stakes-lowering finding:** at wide and medium zoom *all four* variants (incl. both wrong
+  controls) are near-indistinguishable — the strip is a 1-cell trim and the silhouette is set by the mains
+  geometry beneath. Whether a full placement policy is needed for a shippable mint is now itself open.
+  Nothing shipped to `ff9mapkit/` from round 3; the emitter is a documented negative result.
 - [ ] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
   blocks; the realistic beaches-on-our-islands path now the mint ladder is dead. (Canyon expected near-empty per the
   re-censused wall envelope.)

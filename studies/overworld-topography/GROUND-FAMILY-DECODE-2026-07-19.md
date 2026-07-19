@@ -101,6 +101,48 @@ visible blend ribbon* — row placement there is very likely cosmetically free. 
 there. So the remaining work is not "solve placement for both pairs"; it is desert|dunes
 only, and it terminates in a playtest.
 
+## Round 3 — the placement emitter: ★ FALSIFIED (and that is the useful outcome)
+
+`dunes_strip_emitter.py`. Built a real, deterministic, seeded desert|dunes row emitter grounded
+in round 2's measured dither: per-touch-category empirical PMF × the measured |Δrow| transition
+prior, assigned by BFS over lattice neighbours (so it generalises to branching 2D seams, not
+just linear runs). Rendered it against the real stock seam over identical geometry, with two
+controls. **Two of three judges reviewed substantively — both FALSIFIED. (The third returned a
+degenerate empty response and was disregarded, not counted as agreement.)**
+
+**The verdict is visual, and it is the right call.** At tight unshaded zoom, stock's boundary is
+a smooth rounded coastline — one coherent bite out of the dune field. The emitter's, on the same
+geometry, staircases into boxy right-angle notches. Damningly, **it is not visually
+distinguishable from the iid-random control**, and the deliberately-wrong `all-row-0` floor looks
+*closer* to stock than either. Numerically it also misses stock's negative lag-1 autocorrelation
+(+0.073 vs −0.423), and its marginal χ² (mean 8.28) is often *worse* than the naive control's
+(1.49). Measurably better ≠ visibly better — **THE FORM LESSON, a second time in this arc.**
+
+**But the round produced a genuine discovery that explains the failure.** An atlas crop showed
+for the first time that **the 4 strip rows are not abstract dither buckets — they are a literal
+hand-painted 4-step dune COVERAGE-DENSITY gradient** (row0 ≈ 20% dune blobs on desert red →
+row3 ≈ 80%+ dense mottling). That is *why* per-cell sampling fails: adjacent cells must have
+their densities cohere into a spatially smooth gradient, and a per-cell draw — however well
+conditioned on neighbours — sets each cell's density nearly independently, so density jitters
+locally even when the long-run statistics look right.
+
+**The named next design** (not attempted, correctly out of scope): sample one *continuous*
+scalar coverage field along the seam, interpolate it spatially, then snap each cell to its
+nearest row — replacing the per-cell stochastic draw with real spatial continuity. Re-run the
+same tight-zoom render against the same specimen and controls before any shipped-code change.
+
+**A finding that lowers the stakes:** at wide (200×160u) and medium shaded zoom, *all four*
+variants — including both deliberately-wrong controls — are near-indistinguishable. The strip is
+a one-cell trim; the silhouette a player sees is set by the mains geometry underneath. So whether
+a full placement policy is even required for a shippable mint is now an open question in its own
+right.
+
+**Nothing shipped to `ff9mapkit/` from this round.** The emitter is a documented negative result,
+not a recipe. Durable keeps: the row-as-density-gradient discovery, the 190-edge/195-cell/9-block
+desert|dunes census (independently cross-checked against `biome_adjacency_census.py`), the
+family-relative orientation law (row rises toward dunes in all 4 compass directions), and the
+negative result itself.
+
 ## Deferred — and why (do not ship these without another round)
 
 - **brush `wall_coastal`** — the lane recommended `True`; **rejected on review.** Its only
