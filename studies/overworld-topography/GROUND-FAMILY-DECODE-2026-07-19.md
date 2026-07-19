@@ -79,6 +79,28 @@ wrong twice in the same way:
 
 ---
 
+## Round 2 outcomes (same day — 5 lanes × 3 lenses, 20/21 agents)
+
+Round 2 ran exactly the deferred list below. **No shipped-code contradiction was found** —
+round 2 cross-checked shared objects between lanes *before* publishing, which is precisely
+what round 1 failed to do. Status of each deferred item is marked inline below. Scripts:
+`topo16_ecotone_crosscheck.py` · `secondary_mains_rect_decode.py` ·
+`wall_coastal_crossblock.py` · `strip_placement_policy.py` · `offline_eye_disputed_assets.py`.
+
+**The one thing still open is the strip PLACEMENT policy — the arc's actual remaining
+blocker.** Depth-alone determinism is falsified (0.5–3.1% purity, both schemes, both pairs).
+The real structure is a locally-alternating small-step dither (|Δrow|=1 dominant, negative
+lag-1 autocorrelation) riding a soft family-relative bias — but the emission recipe built
+from those statistics is explicitly speculative: never implemented, never rendered, never
+in-game tested.
+
+**The offline eye narrowed the risk usefully**, and this is the round's most actionable
+finding: the **grass|desert** strip reads as an ordinary hard jigsaw boundary with *no
+visible blend ribbon* — row placement there is very likely cosmetically free. The
+**desert|dunes** strip shows a genuine soft halo transition — placement actually matters
+there. So the remaining work is not "solve placement for both pairs"; it is desert|dunes
+only, and it terminates in a playtest.
+
 ## Deferred — and why (do not ship these without another round)
 
 - **brush `wall_coastal`** — the lane recommended `True`; **rejected on review.** Its only
@@ -88,6 +110,12 @@ wrong twice in the same way:
   backwards bar. Left **unset**, which now fail-closes. To clear it: a second independent
   open-sea face (the adjacency test is **within-block only** — a cross-block-aware rerun is
   the obvious next probe) or a visual confirmation of the ~(8,15) candidate.
+  → **★ ROUND 2: SETTLED `False`.** The cross-block-aware scan was built and run map-wide
+  (`wall_coastal_crossblock.py`): it adds **zero** new evidence for brush, scrub *or* dunes,
+  while proving itself non-null on the desert control (+9/1838 tris). So the blind spot was
+  real but empirically empty here. brush and scrub **tie at exactly one open-sea face each**,
+  and under the bar that disqualified canyon both fail. brush is now explicitly `False`; no
+  family carries an unset key any more. Round 1's conservative call was vindicated.
 - **A canyon second wall constant** — the shipped pair describes the floor course, but the
   dominant body level (v=0.39453) is already ~44% inside the existing ±0.006 band, and
   discrete-course-vs-continuous-stretch is unresolved on 43 tris. Too thin to mint.
@@ -98,12 +126,30 @@ wrong twice in the same way:
   three already-decoded desert-family pieces** (mains + 2 strips). Better than reported, but
   the lane's "verbatim layout-stamp carry" recommendation is stale and must be rewritten
   before anyone acts on it. *This is the round's clearest cross-lane defect.*
+  → **★ ROUND 2: CLOSED, and it is a real structural finding.** Independently re-derived from
+  topo-16's *own* bytes (not re-quoted): **100.0% zero-residual** decomposition into
+  `GROUNDS["desert"]` mains (36.5% of tris) + `STRIPS[("grass","desert")]` (50.2%) +
+  `STRIPS[("desert","dunes")]` (13.3%), all byte-identical at 5dp to the shipped constants.
+  **topo-16 owns zero bespoke atlas territory — it is a SEAM-DRESSED ground**, and its strip
+  choice tracks its real neighbour geographically: all 56 desert|dunes-strip tris are confined
+  to exactly the 4 of its 6 blocks that actually contain dunes. Do NOT add it to `GROUNDS` or
+  `STRIPS`. (The 57%→50.2% shift is cell-index share vs tri-count share, not a disagreement.)
 - **The "secondary mains rect"** — the control lane's own harness printed
   `>=1 required control FAILED` (grass wall ≠ (0,0)) while its headline claimed all controls
   passed; desert and brush print nonzero cross-specimen spread. Behind that is a real
   unexplained phenomenon: a minority of desert/canyon/brush specimen blocks lock onto a
   *second* translated region (desert's reads exactly du=0.85058/dv=-0.11425 on 3/8 blocks).
   Given the topo-16 precedent, this may well be another already-catalogued region. Undecoded.
+  → **★ ROUND 2: DECODED — it is genuinely NEW.** A previously uncatalogued second desert
+  ground rect at `du=0.85058, dv=-0.11425`, proven-5dp on a 5-block cluster, matching none of
+  the 21 catalogued regions. It is **not** the generic edge decal, despite near-identical
+  u-origins (0.85058 vs 0.85059) — a >0.2 v-gap separates them, and that coincidence cost a
+  round to rule out. Shipped as data-only `grassland.DESERT_MAINS_SECONDARY`. ⚠ The lane's
+  "geographically isolated" claim was **struck** — two reviewers independently showed block
+  (13,4) fits the PRIMARY exactly while directly bordering the secondary cluster at (12,4),
+  so the two rects interleave and there is no territory to key authoring on.
+  **The lesson worth keeping: this surfaced as an apparent control FAILURE. Read a control
+  failure before you explain it away.**
 - **The 7 mains pairs are confirmed; the shipped WALL pairs are not** — they read 2e-5 to
   6e-4 off under a uniform outer-bounds re-derivation. Below the 5dp bar, so not shipped as
   corrections, but they are no longer "byte-exact" claims.
@@ -129,4 +175,9 @@ placement/emission model, **not more byte-decoding.**
   mistake: selecting geometry by atlas rect and reporting it as a class tally.
 - **Zero offline-eye renders ran this round.** Every prior successful rung in this arc looked
   at the art before committing to a look; three lanes flag this as an open question. Any
-  visual claim here is byte-derived only.
+  visual claim here is byte-derived only. → **★ ROUND 2 ran it** (`offline_eye_disputed_assets.py`,
+  first visual pass in this arc's ground-family work) and it immediately paid: it is what
+  established that grass|desert needs no careful placement while desert|dunes does. ⚠ One
+  material correction from review: the decal's "mainstream, ~47%" framing conflated
+  *block-incidence* (57/120 blocks touch it) with *area share* (~13% of desert's tri area) —
+  roughly 4× smaller than the wording implied. Incidence is not extent.

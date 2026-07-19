@@ -102,16 +102,19 @@ GROUNDS = {
     "brush": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
                      wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall (5dp-exact on
     #                                  6 of 7 adjacent faces -- the borrow claim is byte-verified)
-                     cls="slope"),                                  # wall_coastal DELIBERATELY UNSET --
-    #                                  and unset now REFUSES at both chokepoints (island.py fail-closed
-    #                                  fix, 2026-07-19). The 2026-07-19 measure found 7 adjacent faces
-    #                                  but only ONE open-sea, with the other 5 interior/gorge. That is
-    #                                  weaker coastal evidence than scrub's (whose lone face was 100%
-    #                                  open-sea, zero gorge) -- certifying brush True while refusing
-    #                                  scrub would apply an inconsistent, backwards bar. Needs a second
-    #                                  independent open-sea face (the adjacency test is WITHIN-BLOCK
-    #                                  only -- a cross-block-aware rerun could find one) or a visual
-    #                                  confirmation of the ~(8,15) candidate before it can clear.
+                     cls="slope", wall_coastal=False),              # ★ SETTLED 2026-07-19 round 2
+    #                                  (wall_coastal_crossblock.py). Round 1 left this UNSET (fail-closed)
+    #                                  because its lone open-sea face, against 5 interior/gorge faces, was
+    #                                  WEAKER evidence than the scrub face it had just refused --
+    #                                  certifying it would have applied a backwards bar. The open question
+    #                                  was the shared blind spot: every wall-adjacency figure in this arc
+    #                                  only saw adjacency WITHIN a block's own tri list, never a
+    #                                  world-space-coincident edge ACROSS a block boundary. That scan now
+    #                                  exists and is map-wide: it adds ZERO new evidence for brush, scrub
+    #                                  OR dunes, while proving itself non-null on the desert control
+    #                                  (+9/1838 tris recovered). So brush and scrub TIE at exactly one
+    #                                  open-sea face each, and under the same bar that disqualified canyon
+    #                                  (open-sea faces support; gorge faces do not) both fail. REFUSE.
     "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
                  wall_du=-0.44021, wall_dv=0.05161,                 # icy band, measured
                  cls="island", wall_coastal=True),                  # ★ map-wide 1019 tris/10 faces, ALL
@@ -185,6 +188,27 @@ STRIPS = {
     ("grass", "desert"): dict(du=0.52442, dv=-0.04687, rows=4),
     ("desert", "dunes"): dict(du=-0.13476, dv=-0.09863, rows=4),
 }
+
+#: A SECOND desert ground rect (``secondary_mains_rect_decode.py``, 2026-07-19) -- DATA ONLY,
+#: nothing consumes it yet. A minority of desert specimen blocks fit their mains at
+#: ``du=0.85058, dv=-0.11425`` rather than the primary ``GROUNDS["desert"]`` translation;
+#: proven-5dp on a 5-block cluster (11,4) (11,5) (12,4) (12,5) (12,6). It matched none of the
+#: 21 catalogued atlas regions, and it is NOT the generic desert edge decal it was first
+#: suspected to be (a >0.2 v-gap separates them, despite near-identical u-origins 0.85058 vs
+#: 0.85059 -- that near-collision is a coincidence and cost a round to rule out).
+#:
+#: HOW IT SURFACED, and the lesson: as an apparent DEFECT. The control lane re-deriving the
+#: shipped constants printed nonzero cross-specimen spread for desert (0.19726) and brush, and
+#: its own harness banner read ">=1 required control FAILED" -- while that lane's headline
+#: claimed every control passed. The "failure" was a real second region, not noise. Read a
+#: control failure before you explain it away.
+#:
+#: The aggregate/majority fit that produced GROUNDS["desert"] remains correct -- the primary
+#: rect is what most blocks wear. Do NOT treat this as a family: the two rects INTERLEAVE
+#: geographically (block (13,4) fits the PRIMARY exactly and directly borders the secondary
+#: cluster at (12,4)), so there is no clean territory to key an authoring decision on.
+DESERT_MAINS_SECONDARY = dict(du=0.85058, dv=-0.11425,
+                              blocks=((11, 4), (11, 5), (12, 4), (12, 5), (12, 6)))
 
 
 def ground_uv(x: float, z: float, cell, quad, ori: int, ground: str = "grass"):
