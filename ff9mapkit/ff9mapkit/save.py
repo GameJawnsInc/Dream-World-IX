@@ -127,7 +127,7 @@ class SaveSlot:
     save: int           # -1 for the autosave
     scenario: int
     beat: str
-    chests: int
+    mognet_locks: int      # set bits in the Mognet lock band (bytes 1047-1063; long mislabelled chests)
 
 
 class FF9Save:
@@ -210,9 +210,9 @@ class FF9Save:
                     geg = base64.b64decode(pt[span[0]:span[1]])
                     sc = geg[0] | geg[1] << 8
                     ms = _flags.nearest_milestone(sc)
-                    chests = sum(bin(geg[b]).count("1") for b in range(1047, 1064))
+                    locks = sum(bin(geg[b]).count("1") for b in range(_flags.MOGNET_LOCK_LO >> 3, (_flags.MOGNET_LOCK_HI >> 3) + 1))
                     slot, save = (-1, -1) if n == 0 else ((n - 1) // SAVE_COUNT, (n - 1) % SAVE_COUNT)
-                    out.append(SaveSlot(n, slot, save, sc, ms[1] if ms else "(pre-story)", chests))
+                    out.append(SaveSlot(n, slot, save, sc, ms[1] if ms else "(pre-story)", locks))
             n += 1
         return out
 

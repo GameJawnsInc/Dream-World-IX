@@ -1019,7 +1019,7 @@ def test_read_row_population_is_the_donor_shape():
     G = run(body, G0)
     assert G[_m.PAYLOAD_VARIANT_BASE] == 0 and G[_m.PAYLOAD_SENDER_BASE] == 0      # row 0 unknown
     assert G[_m.PAYLOAD_VARIANT_BASE + 1] == 57 and G[_m.PAYLOAD_SENDER_BASE + 1] == 23
-    assert G[_region.MASK_SCRATCH_IDX] | (G[_region.MASK_SCRATCH_IDX + 1] << 8) == 4 | 2
+    assert G[_region.MASK_SCRATCH_IDX] | (G[_region.MASK_SCRATCH_IDX + 1] << 8) == 0x8000 | 2
     # the payload lands inside the band flags.py reserves for exactly this
     from ff9mapkit import flags as _flags
     for k in range(len(rows)):
@@ -1053,7 +1053,7 @@ def test_read_mail_body_is_a_pure_read():
         G0[_m.read_lock_bit(v) >> 3] |= 1 << (_m.read_lock_bit(v) & 7)
     wins, masks = [], []
     G = run(body, G0, choices=[1], windows=wins, masks=masks)
-    assert masks == [4 | 1 | 2]                                    # both rows + cancel
+    assert masks == [0x8000 | 1 | 2]                               # both rows + Cancel at bit 15
     assert (2, 8, 90) in wins and (3, 16, 92) in wins              # the list, then row 1's letter
     assert (3, 16, 91) not in wins
     # pure: everything outside the payload/scratch bytes is untouched
@@ -1127,7 +1127,7 @@ def test_built_read_mail_text_ships_the_two_menus(tmp_path, fake_roster):
     assert {"menu_prompt", "read_prompt", "arrive", "letter55", "letter57",
             "read_rows_meta", "received_meta"} <= set(t)
     assert "[PCHM=3,2]" in mes and "Give Mogwai a letter" in mes and "Read mail" in mes
-    assert "[PCHM=3,2]" in mes and "A Warm Hello" in mes and "News From The Mines" in mes
+    assert "[PCHM=16,15]" in mes and "A Warm Hello" in mes and "News From The Mines" in mes
     assert t["read_rows_meta"] == [(55, 8), (57, 23)]              # Kumop=8, Kuppo=23, authored order
     assert t["received_meta"] == [(57, 23, 8720, None)]
 
@@ -1157,7 +1157,7 @@ def test_built_read_mail_full_lifecycle(tmp_path, fake_roster):
     wins, masks = [], []
     G3 = run(body, bytearray(G), choices=[1, 1, 1, 1], windows=wins, masks=masks)
     # Mognet -> Read mail -> row 1 (News From The Mines) -> then the give offer, declined
-    assert masks == [4 | 2, 4 | 2]                                 # submenu, then the which-letter list
+    assert masks == [4 | 2, 0x8000 | 2]                            # submenu, then the which-letter list
     assert (2, 8, t["read_prompt"]) in wins and (3, 16, t["letter57"]) in wins
     assert (1, 128, t["arrive"]) not in wins                       # the arrival never re-fires
     G4 = run(body, bytearray(G3), choices=[1, 1, 1, 1], windows=[], masks=[])
@@ -1173,7 +1173,7 @@ def test_built_read_mail_full_lifecycle(tmp_path, fake_roster):
     assert _mailbox(G5)[0] == (0, 0, 0, 0) and G5[_m.DELIVERED_IDX] == 1
     wins, masks = [], []
     run(body, bytearray(G5), choices=[1, 1, 0, 1], windows=wins, masks=masks)
-    assert masks == [4 | 2, 4 | 1 | 2]                             # read list now carries BOTH rows
+    assert masks == [4 | 2, 0x8000 | 1 | 2]                        # read list now carries BOTH rows
     assert (3, 16, t["letter55"]) in wins                          # row 0 re-displays the accept letter
     # ---- and the mailbox-status + save rows never regressed: Save -> Yes still fires Menu(4,0) ----
     menus = []
@@ -1210,3 +1210,133 @@ def test_read_mail_validation_gates(tmp_path, fake_roster):
     assert any("SHIPPED band" in x for x in probs(bad))
     # the clean field validates clean
     assert not [x for x in probs(_RM_FIELD) if "mognet" in x.lower()]
+
+
+# --------------------------------------------- READ-MAIL: the adversarial-review escape probes ---
+def test_read_menu_is_the_stock_fixed_16_row_shape(tmp_path, fake_roster):
+    """The donor's which-letter window is a FIXED 16-line entry (authored titles, then 'Letter NN'
+    dead filler, Cancel at row 15 / mask bit 0x8000) -- 100% uniform across all 58 stock moogle
+    fields. The review caught our first cut sizing it dynamically; this pins the stock shape."""
+    _proj, ct, _eb = _built(tmp_path, _RM_FIELD)
+    seg = ct[0].split("[PCHM=16,15]", 1)[1]
+    assert "A Warm Hello" in seg and "News From The Mines" in seg
+    for i in range(2, 15):                                         # rows 2..14 = dead filler
+        assert f"Letter {i:02d}" in seg
+    G = run(_m.read_row_population([(55, 8), (57, 23)]))           # nothing known yet
+    assert G[_region.MASK_SCRATCH_IDX] | (G[_region.MASK_SCRATCH_IDX + 1] << 8) == 0x8000
+
+
+def test_read_mail_pure_even_with_lock_clear():
+    """The review's escaped mutation: a lock write smuggled into a row's re-display arm passed every
+    test, because the lifecycle only reads rows whose lock is ALREADY set. Force the pick with the
+    lock CLEAR: a pure read must leave it clear."""
+    body = _m.read_mail_body([(55, 8)], 90, {55: 91})
+    G = run(body, choices=[0], windows=[])
+    assert _bit(G, _m.read_lock_bit(55)) == 0
+
+
+def test_arrival_combined_flag_and_scenario_gate():
+    """BOTH gates on one entry -- the RPN path a review probe proved untested (dropping the ANDAND
+    between the scenario compare and the flag escaped the whole suite). Neither gate alone opens it."""
+    entries = [(59, 1, 8720, 2500)]
+    body = _m.arrival_body(entries, letter_txids={59: 81})
+    G0 = bytearray(2048)
+    G0[0:2] = (2500).to_bytes(2, "little")                         # scenario only
+    assert _bit(run(body, G0), _m.read_lock_bit(59)) == 0
+    G1 = bytearray(2048)
+    G1[8720 >> 3] |= 1 << (8720 & 7)                               # flag only
+    assert _bit(run(body, G1), _m.read_lock_bit(59)) == 0
+    G1[0:2] = (2500).to_bytes(2, "little")                         # both -> arrives
+    assert _bit(run(body, G1), _m.read_lock_bit(59)) == 1
+
+
+def test_give_offer_is_one_shot_through_the_submenu(tmp_path, fake_roster):
+    """The review proved give_available_cond was removable from the submenu's trailing offer without
+    a failure. Accept the give once; the offer must never come back."""
+    _proj, ct, eb = _built(tmp_path, _RM_FIELD)
+    t = ct[-1][0]
+    body = _moogle_talk_body(eb)
+    G = bytearray(2048)
+    G[8720 >> 3] |= 1 << (8720 & 7)                                # the arrival -> the submenu exists
+    wins = []
+    G = run(body, G, choices=[1, 2, 0], windows=wins)              # arrival; cancel submenu; TAKE the give
+    assert (2, 8, t["give_prompt"]) in wins
+    assert _bit(G, _m.give_lock_bit(56)) == 1 and _mailbox(G)[0][1] == 56
+    wins = []
+    run(body, bytearray(G), choices=[1, 2], windows=wins)          # reopen; cancel -> NO offer window
+    assert (2, 8, t["give_prompt"]) not in wins
+
+
+def test_built_ungated_and_scenario_arrivals_with_bespoke_announce(tmp_path, fake_roster):
+    """The two arrival lanes the built-field tests missed: an UNGATED letter (arrives on the first
+    Mognet open) and a requires_scenario letter carrying its OWN announce line (stock announces each
+    letter with bespoke text; the shared arrive_line is only the fallback)."""
+    toml = _RM_FIELD.replace(
+        'received = [{ variant = 57, from = "Kuppo", title = "News From The Mines", '
+        'letter = "The mines are quiet again, kupo.", requires_flag = 8720 }]',
+        'received = [{ variant = 57, from = "Kuppo", title = "News From The Mines", '
+        'letter = "The mines are quiet again, kupo." }, '
+        '{ variant = 58, from = "Kupo", title = "Steeple Bells", '
+        'letter = "The bells rang twice today, kupo.", requires_scenario = 2500, '
+        'announce = "A bell-stamped letter, kupo!" }]')
+    _proj, ct, eb = _built(tmp_path, toml)
+    t = ct[-1][0]
+    body = _moogle_talk_body(eb)
+    wins = []
+    G = run(body, choices=[1, 2, 1], windows=wins)                 # first open: 57 arrives, 58 waits
+    assert _bit(G, _m.read_lock_bit(57)) == 1 and _bit(G, _m.read_lock_bit(58)) == 0
+    assert (1, 128, t["arrive"]) in wins and (3, 16, t["letter57"]) in wins
+    G[0:2] = (2500).to_bytes(2, "little")                          # cross the beat
+    wins = []
+    G = run(body, G, choices=[1, 2, 1], windows=wins)
+    assert _bit(G, _m.read_lock_bit(58)) == 1
+    assert (1, 128, t["announce58"]) in wins and (3, 16, t["letter58"]) in wins
+    assert (1, 128, t["arrive"]) not in wins                       # bespoke replaces the shared line
+
+
+def test_read_mail_validation_hardening(tmp_path, fake_roster):
+    from ff9mapkit import build
+
+    def probs(toml):
+        p = tmp_path / "v.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        return build.validate(build.FieldProject.load(p))
+
+    bad = _RM_FIELD.replace("requires_flag = 8720", "requires_flag = true")
+    assert any("requires_flag must be an int" in x for x in probs(bad))
+    bad = _RM_FIELD.replace("requires_flag = 8720", "requires_scenario = -5")
+    assert any("0..32767" in x for x in probs(bad))
+    bad = _RM_FIELD.replace("requires_flag = 8720", "requires_flag = 8400")     # the Mognet lock band
+    assert any("reserved" in x for x in probs(bad))
+    bad = _RM_FIELD.replace('title = "A Warm Hello"', 'title = "  "')
+    assert any("non-blank" in x for x in probs(bad))
+    bad = _RM_FIELD.replace("requires_flag = 8720", 'requires_flag = 8720, announce = ""')
+    assert any("announce must be" in x for x in probs(bad))
+    # the 10-row payload cap: 1 titled accept + 10 received = 11 rows -> refused at validate time
+    rows = ", ".join(f'{{ variant = {v}, from = "Kupo", title = "L{v}", letter = "x, kupo." }}'
+                     for v in (49, 50, 51, 52, 53, 54, 57, 58, 59, 60))   # 10, clear of 55/56
+    bad = _RM_FIELD.replace(
+        'received = [{ variant = 57, from = "Kuppo", title = "News From The Mines", '
+        'letter = "The mines are quiet again, kupo.", requires_flag = 8720 }]',
+        f"received = [{rows}]")
+    assert any("payload budget" in x for x in probs(bad))
+    # error attribution: a bad received.from names ITS OWN key, not give.to
+    from ff9mapkit.content import mognet as _mg
+    with pytest.raises(ValueError, match="received.from"):
+        _mg.resolve_moogle_id("NoSuchMoogle", ["Kupo"], field_label="received.from")
+
+
+def test_stolen_ember_example_lints_clean_in_the_new_band():
+    """The review's CRITICAL find: the shipped flagship campaign still allocated flags at 8600-8625 --
+    inside the newly-reserved read-mail payload band -- and nothing in CI would have caught it. This
+    lints the real example so the next band change fails here instead of on a user's machine."""
+    from pathlib import Path
+    from ff9mapkit import campaign
+    ember = Path(__file__).resolve().parents[2] / "examples" / "stolen-ember"
+    if not (ember / "campaign.toml").is_file():
+        pytest.skip("stolen-ember example not present")
+    plan = campaign.load_campaign(ember / "campaign.toml")
+    assert plan.flag_base >= campaign.FIRST_SAFE_FLAG
+    errors, _warnings = campaign.lint_campaign(plan, ember)
+    band_errors = [e for e in errors if "flag" in e.lower()]
+    assert not band_errors, band_errors

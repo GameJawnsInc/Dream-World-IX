@@ -8,6 +8,7 @@ Combines three tiers:
 This is a SEED for a future kit flag-registry, not a finished dictionary. Reproducible:
   py research/make_catalog.py   (re-derives the empirical clusters from flag_census.json)
 """
+from ff9mapkit.flags import FIRST_SAFE_FLAG
 import json, os
 from collections import defaultdict
 
@@ -92,11 +93,11 @@ w(f'real_bit_flag_max = {r["summary"]["bit_flag_max"]}   # max gEventGlobal BIT 
 w("")
 w("# --- Recommended provably-safe custom-flag allocation bands (all clear of real-FF9 usage) ---")
 w("[safe_bands]")
-w("first_clear_bit = 8512        # byte 1064; first bit clear of ALL real usage (max real bit = 8511)")
-w("campaign_flag_base = 8512     # recommend 8512 (round 8520/8600); was 8300 (collides w/ chest 8376-8511)")
+w(f"first_clear_bit = {FIRST_SAFE_FLAG}        # byte 1064; first bit clear of ALL real usage (max real bit = 8511)")
+w(f"campaign_flag_base = {FIRST_SAFE_FLAG}     # = flags.FIRST_SAFE_FLAG (was 8300: the Mognet lock band; then 8512: the read-mail payload bytes)")
 w("flags_per_field = 64")
 w("choice_scratch_floor = 16320  # byte 2040; reserve at/above this (engine/kit-owned)")
-w("max_safe_fields = 122         # (16320 - 8512) // 64")
+w(f"max_safe_fields = {(16320 - FIRST_SAFE_FLAG) // 64}         # (16320 - FIRST_SAFE_FLAG) // 64")
 w("")
 w("# === (a) Named engine variables ===")
 for name, loc, typ, mean, tier, src in NAMED:

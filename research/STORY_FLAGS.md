@@ -48,7 +48,7 @@ verbs are now implemented; the remaining frontiers are campaign `[initial_flags]
   bitfield at **bits 8376–8511** (130 bits, bytes 1047–1063, written by 48 chest fields). A campaign field
   index ≥1 would alias real chest-opened bits → save corruption. The collision is **currently latent** —
   `flag_base` is reserved in `campaign.toml` but not yet threaded into `build_script` (deferred P5,
-  `GLOBAL_RESOURCES.md:92`). **The first provably-clear base is bit 8512** (the census max real-used bit is
+  `GLOBAL_RESOURCES.md:92`). **[SUPERSEDED 2026-07-19: the first clear bit is 8712 — this census was BOOL-only and missed stock's byte-addressed read-mail payload at Byte[1064-1088] = bits 8512-8711; 8376-8511 is the MOGNET lock band, not chests. flags.py is the source of truth.]** ~~The first provably-clear base is bit 8512~~ (the census max real-used bit is
   8511). Recommend `flag_base=8512` (round: 8520/8600) before the allocator is wired.
   **✅ FIXED 2026-06-10 (this branch) — see §5(1):** default moved to 8512, per-member allocation threaded
   through `build._FlagAlloc`, and `lint_campaign` now errors on any block/flag in the chest band. 547 tests pass.

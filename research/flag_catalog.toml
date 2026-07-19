@@ -12,11 +12,11 @@ real_bit_flag_max = 8511   # max gEventGlobal BIT used by any real field
 
 # --- Recommended provably-safe custom-flag allocation bands (all clear of real-FF9 usage) ---
 [safe_bands]
-first_clear_bit = 8512        # byte 1064; first bit clear of ALL real usage (max real bit = 8511)
-campaign_flag_base = 8512     # recommend 8512 (round 8520/8600); was 8300 (collides w/ chest 8376-8511)
+first_clear_bit = 8712        # byte 1089; first bit clear of ALL real usage incl. BYTE vars (2026-07-19: 8512-8711 = stock read-mail payload; max real bit = 8711)
+campaign_flag_base = 8712     # = flags.FIRST_SAFE_FLAG (was 8300: the Mognet lock band; then 8512: the read-mail payload bytes)
 flags_per_field = 64
 choice_scratch_floor = 16320  # byte 2040; reserve at/above this (engine/kit-owned)
-max_safe_fields = 122         # (16320 - 8512) // 64
+max_safe_fields = 118         # (16320 - 8712) // 64
 
 # === (a) Named engine variables ===
 [[named]]

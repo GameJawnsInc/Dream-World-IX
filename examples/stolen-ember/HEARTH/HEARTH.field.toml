@@ -29,7 +29,7 @@ spawn = [-222, -1260]
 message = "Lindblum. The inn is quiet, and its great hearth stands cold."
 set_scenario = 100
 once = true
-flag = 8602                  # campaign member -> explicit once-flag (band 8512+, hand-allocated)
+flag = 8802                  # campaign member -> explicit once-flag (band 8712+, hand-allocated)
 
 # --- THE DISPATCH: two beat-gated scenes on one field (the story's opening + its epilogue) ---
 [[cutscene]]                 # SCENE 1 (beat 100): the innkeeper's plea -> 200 + chapel_open
@@ -38,7 +38,7 @@ requires_scenario = 100
 set_scenario = 200
 set_flags = [{ flag = "chapel_open", value = 1 }]
 once = true
-flag = 8603
+flag = 8803
 steps = [
   { walk = "@player" },
   { actor = "innkeeper", say = "Cold, isn't it? Our hearth-ember was stolen in the night." },
@@ -52,7 +52,7 @@ requires_scenario = 300
 requires_flag = "ember_taken"
 set_scenario = 400
 once = true
-flag = 8604
+flag = 8804
 steps = [
   { walk = "@player" },
   { actor = "pilgrim", say = "The hearth burns again! The whole inn feels alive." },

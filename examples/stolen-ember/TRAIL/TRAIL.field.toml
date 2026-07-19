@@ -52,7 +52,7 @@ zone = [[1290, 60], [1655, -144], [1533, -368], [1168, -164]]
 message = "The chapel door is sealed shut. Someone in town might know a way in."
 requires_flag_clear = "chapel_open"
 once = true
-flag = 8608                  # campaign member -> explicit once-flag
+flag = 8808                  # campaign member -> explicit once-flag
 
 # random battles imported from the real field (build adds the after-battle reinit);
 # freq eased off the donor's 216 -- this is a story road, not a grind

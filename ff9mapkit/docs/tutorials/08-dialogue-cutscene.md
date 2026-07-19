@@ -25,7 +25,7 @@ text = "Yes."
 reply = "A wise purchase."
 give_item = ["Potion", 1]              # [item name-or-id, count]
 gil = -100
-set_flag = [8520, 1]                   # raise a story flag (author band: 8512+)
+set_flag = [8720, 1]                   # raise a story flag (author band: 8712+)
 [[choice.options]]
 text = "No."                           # put the decline row LAST — cancel/B selects it
 reply = "Another time."
@@ -46,10 +46,10 @@ name = "Collector"
 preset = "steiner"
 pos = [500, -700]
 dialogue = "So you found a Potion..."
-requires_flag = 8520                   # hidden until the flag is set (an index or a [[flag]] name)
+requires_flag = 8720                   # hidden until the flag is set (an index or a [[flag]] name)
 ```
 
-Hand-picked flag indices belong in the safe author band **[8512, 16320)** — indices from 8000 up
+Hand-picked flag indices belong in the safe author band **[8712, 16320)** — indices from 8000 up
 to 8511 are the kit's auto-allocation band (once-guards for cutscenes, choices, chests), and
 base-game state sits below that. `lint` flags collisions. Mechanics (save-persistent GLOB vs.
 per-visit MAP, scopes): [FORMAT.md §Story flags](../FORMAT.md#story-flags--branching).

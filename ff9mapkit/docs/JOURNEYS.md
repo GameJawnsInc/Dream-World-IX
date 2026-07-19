@@ -138,7 +138,7 @@ scope* differs:
 ```toml
 [[flag]]                 # journey-global: cross-campaign story state
 name  = "met_quina"
-index = 12000            # safe band [8512, 16320) AND above every campaign's flag window
+index = 12000            # safe band [8712, 16320) AND above every campaign's flag window
 ```
 
 Each index must be in the safe custom band **and ABOVE every campaign's auto-flag window** (so it can't
@@ -195,7 +195,7 @@ across mod folders):
    30000–32767; Int16 cap 32767). Reuse `campaign.validate_ids` per campaign + a cross-campaign overlap
    check.
 2. **Disjoint flag bands.** Campaigns allocate `flags_per_field` flags from `flag_base` (`FIRST_SAFE_FLAG`,
-   safe band ≥ 8512). The assembler must give each campaign a non-overlapping flag window so two campaigns
+   safe band ≥ 8712). The assembler must give each campaign a non-overlapping flag window so two campaigns
    in one journey don't clobber each other's `gEventGlobal` bits.
 3. **Cross-campaign link resolution.** After id assignment, rewrite each `[[journey.link]].from` seam's
    target to the assembled global field id of `to`. This is the "forest_exit → IC_ENT" warp. (A seam whose

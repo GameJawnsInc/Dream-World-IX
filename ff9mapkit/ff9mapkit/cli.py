@@ -4100,7 +4100,7 @@ def _cmd_save_edit(args: argparse.Namespace) -> int:
         print(f"{len(rows)} populated save(s) in {args.save}:\n")
         for s in rows:
             who = "autosave" if s.block == 0 else f"slot {s.slot} save {s.save}"
-            print(f"  block {s.block:<3} [{who:14}]  ScenarioCounter {s.scenario:<6} {s.beat:<20} chests {s.chests}")
+            print(f"  block {s.block:<3} [{who:14}]  ScenarioCounter {s.scenario:<6} {s.beat:<20} mognet locks {s.mognet_locks}")
         return 0
 
     # pick the target block
@@ -6413,7 +6413,7 @@ def build_parser() -> argparse.ArgumentParser:
     se = sub.add_parser("save-edit",
                         help="set a real FF9 save's story state (ScenarioCounter + flags) -- the 'recreate' verb")
     se.add_argument("save", help="path to SavedData_ww.dat (or a copy of it)")
-    se.add_argument("--list", action="store_true", help="list the populated saves (slot/save, scenario, chests) and exit")
+    se.add_argument("--list", action="store_true", help="list the populated saves (slot/save, scenario, mognet locks) and exit")
     se.add_argument("--slot", type=int, help="save slot 0-9")
     se.add_argument("--save", dest="save_index", type=int, help="save 0-14 within the slot")
     se.add_argument("--block", type=int, help="raw data-block index (alternative to --slot/--save; 0 = autosave)")

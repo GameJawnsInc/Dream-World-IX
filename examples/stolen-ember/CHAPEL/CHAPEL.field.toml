@@ -33,7 +33,7 @@ requires_scenario = 200
 set_scenario = 300
 set_flags = [{ flag = "ember_taken", value = 1 }]
 once = true
-flag = 8616                  # CHAPEL's member flag block starts at 8616
+flag = 8816                  # CHAPEL's member flag block starts at 8816
 steps = [
   { actor = "guardian", walk = "@player" },
   { actor = "guardian", say = "You have come for the Ember. The keeper of the cold hearth sent you." },

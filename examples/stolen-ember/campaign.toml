@@ -29,7 +29,7 @@
 name            = "The Stolen Ember"
 mod_folder      = "FF9CustomMap-story"
 id_base         = 30100
-flag_base       = 8600
+flag_base       = 8800
 flags_per_field = 8
 entry_field     = "HEARTH"
 entry_entrance  = 0
@@ -57,16 +57,16 @@ id = 30102
 mode = "borrow"
 toml = "CHAPEL/CHAPEL.field.toml"
 
-# Campaign-shared story flags (band 8512-16320; shared names sit ABOVE the per-member
-# blocks [8600, 8623]; each member's explicit once-flags draw from its OWN 8-flag block:
-# HEARTH 8600-8607, TRAIL 8608-8615, CHAPEL 8616-8623).
+# Campaign-shared story flags (band 8712-16320; shared names sit ABOVE the per-member
+# blocks [8800, 8823]; each member's explicit once-flags draw from its OWN 8-flag block:
+# HEARTH 8800-8807, TRAIL 8808-8815, CHAPEL 8816-8823).
 [[flag]]
 name  = "chapel_open"    # written by HEARTH scene 1 (the innkeeper unbars the chapel)
-index = 8624   # shared flags sit ABOVE the per-member auto blocks [8600, 8623]
+index = 8824   # shared flags sit ABOVE the per-member auto blocks [8800, 8823]
 
 [[flag]]
 name  = "ember_taken"    # written by CHAPEL's guardian scene; gates HEARTH's epilogue scene
-index = 8625
+index = 8825
 
 # In-chain connectivity (each = a live [[gateway]] in the member toml).
 [[edge]]

@@ -35,13 +35,13 @@ Quoted verbatim from `project-ff9-story-flags`:
 > every field load → never durable. A mod must replicate the prologue and never allocate there. Low bytes 8-24
 > generally = standard per-field init region (avoid).
 
-## The safe band (>= 8512) and the chest band
+## The safe band (>= 8712) and the chest band
 
 Quoted verbatim from `project-ff9-story-flags`:
 
 > Real FF9's treasure-chest "opened" bitfield is **bits 8376-8511** (bytes 1047-1063, 48 chest fields).
-> `campaign.py` default `flag_base` 8300 → **8512** (`FIRST_SAFE_FLAG`; max real-used bit = 8511; safe field cap 122 below the choice-scratch at byte 2040 = bits 16320+).
-> **Safe-band audit (modern saves only, per user):** ≥8512 is CLEAN — modern engine `gEventGlobal` usage tops at byte 975 (TH) + 510-525 (voice) + ≤207 (scenario/words).
+> `campaign.py` default `flag_base` 8300 → 8512 → **8712** (`FIRST_SAFE_FLAG`; the 8512 stop missed stock's BYTE-addressed vars — bits 8512-8711 are read-mail's payload Byte[1064-1073]/[1079-1088], whole-byte-written by ordinary play; true max real-used bit = 8711).
+> **Safe-band audit:** ≥8712 is CLEAN — the ENGINE tops at byte 975 (TH) + 510-525 (voice) + ≤207 (scenario/words), and FIELD SCRIPTS top at byte 1088 (the read-mail sender payload; 2026-07-19 census incl. byte-addressed vars).
 
 Historical per-category bands when no `flag_base` is given: EVENT 8000 / CUTSCENE 8100 / CHOICE 8200 (single-field builds stay byte-identical); campaign members get `flag_base + i*K` packed (cutscene `+0`, events `+1..+31`, choices `+32..+63`).
 
@@ -67,7 +67,7 @@ A `[[flag]]` is just a name→bit alias on the ONE global array. Table quoted ve
 > | campaign-shared | `campaign.toml` `[[flag]]` | every member of a campaign | campaign root → **Shared flags…** |
 > | journey-global | `journeys.toml` top-level `[[flag]]` | every campaign of a journey (whole game) | journey hub root → **Shared flags…** |
 
-> **Correctness rule** (`lint_manifest` enforces): a journey-global flag index must be in the safe band `[FIRST_SAFE_FLAG 8512, CHOICE_SCRATCH_FLOOR)` AND **ABOVE every journey's campaign windows** (`>= flag_high`) so it can't alias a member's auto once-flag.
+> **Correctness rule** (`lint_manifest` enforces): a journey-global flag index must be in the safe band `[FIRST_SAFE_FLAG 8712, CHOICE_SCRATCH_FLOOR)` AND **ABOVE every journey's campaign windows** (`>= flag_high`) so it can't alias a member's auto once-flag.
 
 > **campaign-shared is the workhorse** (a campaign is a self-contained arc; cross-arc progression usually rides the scenario counter); reach for journey-global only for a flag genuinely read across campaigns.
 
