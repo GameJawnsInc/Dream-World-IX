@@ -1503,10 +1503,12 @@ def validate(project: FieldProject) -> list[str]:
             problems.append("[[savepoint]] act = true needs dialogue (the act plays on the confirmed "
                             "Yes); remove `dialogue = false` or the act")
         mp = sp.get("menu_pos")
-        if mp is not None and not (mp == "stock" or (isinstance(mp, (list, tuple)) and len(mp) == 2
-                                   and all(isinstance(v, int) and not isinstance(v, bool) for v in mp))):
-            problems.append(f'[[savepoint]] menu_pos must be "stock" (FF9\'s own moogle-menu placement) '
-                            f"or [x, y], got {mp!r}")
+        if mp is not None and not (mp == "stock" or mp is False or mp in ("none", "off")
+                                   or (isinstance(mp, (list, tuple)) and len(mp) == 2
+                                       and all(isinstance(v, int) and not isinstance(v, bool) for v in mp))):
+            problems.append(f'[[savepoint]] menu_pos must be "stock" (the default -- FF9\'s own '
+                            f"moogle-menu placement), [x, y], or false to let the engine place the "
+                            f"window, got {mp!r}")
         ht = sp.get("act_hop_to")
         if ht is not None and (not isinstance(ht, (list, tuple)) or len(ht) not in (2, 3)
                                or not all(isinstance(v, int) and not isinstance(v, bool) for v in ht)):
@@ -5985,12 +5987,20 @@ def collect_text(project: FieldProject):
         # row, so it just uses `speaker` as before.
         spk = sp.get("speaker") or (_mognet.VAR_SPEAKER if (mg and str(mg.get("name", ""))) else None)
 
-        # [MPOS] placement (opt-in; `menu_pos = "stock"` takes FF9's own pair, or give [x, y]) -- the
-        # main option list and the sub-windows are pinned separately in stock.
-        _mp = sp.get("menu_pos")
-        _mp_main, _mp_sub = ((None, None) if _mp is None
-                             else (_text.MENU_POS_STOCK if _mp == "stock"
-                                   else (tuple(_mp), tuple(_mp))))
+        # [MPOS] placement -- ON by default with FF9's own pair (the option list and the sub-windows
+        # are pinned separately in stock). `menu_pos = false`/"none" restores the engine's
+        # auto-placement; an [x, y] pins every window there. A pinned window draws no tail (the
+        # engine's absolute branch never places one), so those entries ship tail-less like stock's.
+        _mp = sp.get("menu_pos", "stock")
+        if _mp is False or _mp in ("none", "off"):
+            _mp_main = _mp_sub = None
+        elif _mp == "stock":
+            _mp_main, _mp_sub = _text.MENU_POS_STOCK
+        else:
+            _mp_main = _mp_sub = tuple(_mp)
+        # a pinned entry carries no [TAIL]; an unpinned one keeps the author's (or the default)
+        _tail_main = "" if _mp_main else sp.get("tail")
+        _tail_sub = "" if _mp_sub else sp.get("tail")
 
         def _menu(text_line, *, feeds=True, speaker=spk):
             """A save-moogle WINDOW body: attribute, wrap, then dress in stock's menu shape ([WDTH]
@@ -6020,9 +6030,9 @@ def collect_text(project: FieldProject):
         tag = f"[PCHC={len(rows)},{len(rows) - 1}]"   # cancel is always the last row -- see choice.pre_choose
         sp_pos[k] = (
             _add_raw(_pin_main + tag + prompt + _text.CHOICE_OPEN
-                     + ("\n" + _text.CHOICE_INDENT).join(rows), sp.get("tail")),
+                     + ("\n" + _text.CHOICE_INDENT).join(rows), _tail_main),
             _add_raw(_pin_sub + "[PCHC=2,1]" + confirm + _text.CHOICE_OPEN
-                     + ("\n" + _text.CHOICE_INDENT).join(yn), sp.get("tail")))
+                     + ("\n" + _text.CHOICE_INDENT).join(yn), _tail_sub))
         if sp.get("tent"):
             tp = _menu(sp.get("tent_prompt", _savepoint.DEFAULT_TENT_PROMPT))
             # the no-tents line is a PLAIN window in stock (field 300 txid 6): [IMME] + the [WDTH]
@@ -6036,8 +6046,8 @@ def collect_text(project: FieldProject):
             _count = f"[FEED={_text.MENU_FEED_LINE}](Tent(s) Remaining=[NUMB=7])"
             sp_pos[k] += (
                 _add_raw(_pin_sub + "[PCHC=2,1]" + tp + chr(10) + _count + _text.CHOICE_OPEN
-                         + (chr(10) + _text.CHOICE_INDENT).join(tyn), sp.get("tail")),
-                _add_raw(_pin_sub + tn, sp.get("tail")))
+                         + (chr(10) + _text.CHOICE_INDENT).join(tyn), _tail_sub),
+                _add_raw(_pin_sub + tn, _tail_sub))
         if mg and str(mg.get("name", "")):
             # the Mognet act's texts + the give-recipient resolution (docs/SAVEPOINT.md). The roster --
             # the 41 real names -- enters ONLY from the user's install (provenance); fetched once.
@@ -6066,19 +6076,19 @@ def collect_text(project: FieldProject):
             # windows (no [FEED]), the two confirms are choice windows.
             mg_pos[k] = {
                 "accept_prompt": _add_raw(_pin_sub + c2 + _menu(ap) + _text.CHOICE_OPEN
-                                          + ("\n" + _text.CHOICE_INDENT).join(ayn), sp.get("tail")),
+                                          + ("\n" + _text.CHOICE_INDENT).join(ayn), _tail_sub),
                 "thanks": _add_raw(_pin_sub + _menu(mg.get("thanks", _mognet.DEFAULT_THANKS), feeds=False),
-                                   sp.get("tail")),
+                                   _tail_sub),
                 "nothing": _add_raw(_pin_sub + _menu(mg.get("nothing", _mognet.DEFAULT_NOTHING), feeds=False),
-                                    sp.get("tail")),
+                                    _tail_sub),
                 "erase": _add_raw(str(mg.get("erase", _mognet.DEFAULT_ERASE)), ""),
             }
             if give:
                 mg_pos[k]["give_prompt"] = _add_raw(_pin_sub + c2 + _menu(gp) + _text.CHOICE_OPEN
-                                                    + ("\n" + _text.CHOICE_INDENT).join(gyn), sp.get("tail"))
+                                                    + ("\n" + _text.CHOICE_INDENT).join(gyn), _tail_sub)
                 mg_pos[k]["give_line"] = _add_raw(
                     _pin_sub + _menu(mg.get("give_line", _mognet.DEFAULT_GIVE_LINE), feeds=False),
-                    sp.get("tail"))
+                    _tail_sub)
                 mg_pos[k]["give_to_id"] = give_to_id       # not a text position -- resolved id, passed through
             # authored LETTER content per accept variant: one frameless-letter entry each (the stock
             # header template + the body; author-controlled line breaks -> added raw, never wrapped)

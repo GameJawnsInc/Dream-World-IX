@@ -77,11 +77,19 @@ CHOICE_IMME = "[IMME]"
 MENU_FEED_NAME = 2         # [FEED=2] on the speaker line
 MENU_FEED_LINE = 4         # [FEED=4] on each dialogue line
 _TEXTVAR_RE = re.compile(r"\[TEXT=0,(\d+)\]")
-# [MPOS=x,y] -- DialogBoxSymbols.OnDialogPosition: `dialog.Position = new Vector2(x, y)`, an ABSOLUTE
-# placement instead of the engine's auto-position-near-the-speaker. Stock pins its moogle menus this
-# way: the main option list at (20, 16) and every sub-window (save/tent confirm) at (30, 26). Left OFF
-# by default -- the kit's auto-positioned menus are in-game proven, and a wrong absolute position is a
-# visible regression -- so `[[savepoint]] menu_pos` opts in (see docs/FORMAT.md).
+# [MPOS=x,y] -- DialogBoxSymbols.OnDialogPosition: `dialog.Position = new Vector2(x, y)`. Decoded from
+# `Dialog.InitializeDialogTransition` (2026-07-18):
+#   * setting Position **nulls `this.Po`**, so the window leaves auto-position-near-the-speaker mode
+#     and takes the ABSOLUTE branch;
+#   * there, `(x, y)` is the window's **TOP-LEFT corner**, y measured DOWN from the top of the content
+#     area (`posY = UIContentSize.y - posY - size.y/2` re-centres it), scaled by ResourceYMultipier;
+#   * the absolute branch never calls `setTailAutoPosition`, so a pinned window draws NO tail -- which
+#     is why stock's own pinned entries (field 300 txids 3/4/5) carry no `[TAIL]` at all, while its
+#     unpinned plain lines (6/7) do.
+# Stock pins every moogle menu: the option list at (20, 16), the sub-windows at (30, 26). That 16-unit
+# headroom is what the MOGNET caption (drawn ABOVE the frame) needs -- an unpinned menu grew a line
+# with the faithful speaker form and clipped its caption off the top (in-game 2026-07-18), which is
+# exactly the bug the pin prevents. So `[[savepoint]]` pins by DEFAULT; `menu_pos` overrides.
 MENU_POS_STOCK = ((20, 16), (30, 26))      # (main option list, sub-windows) -- field 300 txids 3 / 4,5
 
 

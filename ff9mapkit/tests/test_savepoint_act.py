@@ -433,17 +433,33 @@ def test_explicit_speaker_overrides_the_roster_identity(tmp_path):
     assert "[WDTH=" not in mes.split("[TXID=500]")[1].split("[ENDN]")[0]   # literal name: no hint
 
 
-def test_menu_pos_is_opt_in(tmp_path):
+def test_menu_pos_pins_the_menus_like_stock_by_default(tmp_path):
+    """Stock pins every moogle menu top-left -- the option list at (20,16), sub-windows at (30,26) --
+    and the 16-unit headroom is what the MOGNET caption needs (an unpinned menu grew a line with the
+    faithful speaker form and clipped its caption, in-game 2026-07-18). A pinned window also draws NO
+    tail (Dialog's absolute branch never places one), so those entries ship tail-less like stock's."""
+    mes = build_mes_of(_write(tmp_path, "p0", _FIELD))
+    assert "[MPOS=20,16][PCHC=" in mes                            # the pin LEADS the entry, per stock
+    assert "[MPOS=30,26][PCHC=2,1]" in mes
+    prompt = mes.split("[TXID=500]")[1].split("[ENDN]")[0]
+    assert "[TAIL=" not in prompt                                 # pinned -> tail-less, like stock
+    # ...but the ACT line is unpinned and KEEPS its tail (stock's own txid 7 shape)
+    act = mes.rsplit("_[TXID=", 1)[1]
+    assert "[MPOS=" not in act and "[TAIL=UPR]" in act and "[IMME]" in act
+    # opting out restores the engine's auto-placement AND the tail
+    mes = build_mes_of(_write(tmp_path, "p1",
+                              _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nmenu_pos = false\n")))
+    assert "[MPOS=" not in mes
+    assert "[TAIL=UPR]" in mes.split("[TXID=500]")[1].split("[ENDN]")[0]
+    # an explicit pair pins every window there
+    mes = build_mes_of(_write(tmp_path, "p2",
+                              _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nmenu_pos = [40, 50]\n")))
+    assert mes.count("[MPOS=40,50]") >= 2
+
+
+def build_mes_of(path):
     from ff9mapkit import build
-    mes = build.collect_text(build.FieldProject.load(_write(tmp_path, "p0", _FIELD)))[0]
-    assert "[MPOS=" not in mes                                    # default: the engine places it
-    mes = build.collect_text(build.FieldProject.load(
-        _write(tmp_path, "p1", _FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nmenu_pos = "stock"\n'))))[0]
-    assert "[MPOS=20,16][PCHC=" in mes                            # stock's main-menu pin, leading the entry
-    assert "[MPOS=30,26][PCHC=2,1]" in mes                        # ...and the sub-window pin
-    mes = build.collect_text(build.FieldProject.load(
-        _write(tmp_path, "p2", _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nmenu_pos = [40, 50]\n"))))[0]
-    assert mes.count("[MPOS=40,50]") >= 2                         # an explicit pair: everywhere
+    return build.collect_text(build.FieldProject.load(path))[0]
 
 
 def _write(tmp_path, name, toml):
