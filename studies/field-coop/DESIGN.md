@@ -1,6 +1,8 @@
 # Field co-op polish — design synthesis
 
-**Date 2026-07-19. Research round only — nothing is implemented.** This doc is the decision layer;
+**Date 2026-07-19. Research round only — nothing is implemented. Decisions ratified by the user the
+same day — see the Decisions section; the analysis prose below is kept as-researched.** This doc is
+the decision layer;
 every engine claim's file:line evidence lives in the six recon docs beside it (written the same day by
 parallel source-verified research passes):
 
@@ -35,15 +37,16 @@ These behaviors ARE the follow-mode contract. Dev levers only where a solo bench
 
 ## Decision table
 
-| # | Area | Recommendation | Wire | Size | User decision needed |
-|---|------|----------------|------|------|----------------------|
-| 1 | Chests / talk / script menus | Gate `CheckNPCInput` + `CheckQuadInput`; add the `Menu()`-opcode gate | none | S | accept the verbatim-stock-chest hole? |
-| 2a | Guest gatewaying | Gate the `MAPJUMP` opcode + watchdog fade-in recovery | none | S–M | no |
-| 2b | Early warp | Transition-intent emitted at `SetNextMap`, state-lane section | v11 | M | no |
-| 3 | Camera | Scroll-target substitution → the ghost's position (option A) | none | S–M | invest at all? (user leans yes) |
-| 4 | Teleport-to-host | `SetPosition(rs.Pos)` direct; **F11** + **held L3**; auto-TP off | none | S | mapping taste; auto-TP default |
-| 5 | Dialogue/ATE | L1 co-location pin+teleport → L2 confirm/choice mirror | v11 (L2) | L | pacing tradeoff (below) |
-| 6 | Safety fixes | ATE-achievement gate · F6 snapshot leak · `Menu()` gate | none | S | no |
+| # | Area | Decision (ratified 2026-07-19) | Wire | Size |
+|---|------|--------------------------------|------|------|
+| 1 | Chests / talk / script menus | BUILD: gate `CheckNPCInput` + `CheckQuadInput` + the `Menu()`-opcode gate; verbatim stock-chest hole ACCEPTED (KeyOn-mask documented, not built) | none | S |
+| 2a | Guest gatewaying | BUILD: gate the `MAPJUMP` opcode + watchdog fade-in recovery | none | S–M |
+| 2b | Early warp | BUILD: transition-intent at `SetNextMap`, state-lane section | v11 | M |
+| 3 | Camera | **DEFERRED** — full option analysis shelved in camera.md; revisit after F1–F3 | — | — |
+| 4 | Teleport-to-host | BUILD: manual (**F11** / **held L3**) + **AUTO mode ON**, conservatively tuned — a recovery, not a leash | none | S |
+| 5 | Dialogue/ATE | BUILD to **L2 full lockstep** (L1 co-location → L2 confirm/choice mirror); alternatives stay documented | v11 (L2) | L |
+| 6 | Safety fixes | BUILD: ATE-achievement gate · F6 snapshot leak · `Menu()` gate | none | S |
+| 7 | World map | Stays a **FRONTIER** — out of this arc | — | — |
 
 ## 1. Chests + talk + the menu family (nix guest interaction — yes, and it's cheap)
 
@@ -110,6 +113,11 @@ pos-lane fallback / s42 kick / exit ramp) in gateways.md §4.
 
 ## 3. Camera — follow the host (option A: scroll-target substitution)
 
+> **DECISION 2026-07-19: DEFERRED.** No camera work this arc. The analysis below is the shelf for a
+> future round; the accepted consequence is that multicam fields can show the guest a different
+> camera than the host for now. Auto-teleport was decoupled from this feature (it ships ON in §4
+> regardless).
+
 Cheaper than feared, and more justified than a polish item: on multi-camera fields the active camera
 switches on the *guest's* regions (the ghost has no `Obj`/uid and never enters region scanning), so
 host and guest can legitimately hold **different cameras** today — the guest can be looking at the
@@ -125,8 +133,8 @@ active-camera INDEX on multicam fields still switches on guest position — the 
 camera index on the wire) is the documented escalation if playtests show wrong-camera moments;
 full B/C/D analysis in camera.md §3.
 
-Interaction flag: with the camera on the host, a free-walking guest can walk *itself* offscreen —
-which is why auto-teleport flips on with this feature (below).
+Interaction flag (if this ever ships): with the camera on the host, a free-walking guest can walk
+*itself* offscreen — auto-teleport (§4, already ON) covers that case.
 
 ## 4. Platforms / ladders / same-field separation — teleport-to-host
 
@@ -151,9 +159,14 @@ default controller profile), intercepted in `UIKeyTrigger.Update` via the Swallo
 pattern, guarded on the scope predicate. The Alpha1/help-menu collision is the cautionary precedent —
 both picks were vetted against the full MemoriaKeyBindings + s21/s22 + Alt+F* inventory.
 
-**Auto-teleport:** off by default (a wandering spectator shouldn't be yanked); **flips on when
-camera-follow ships** (a separated guest would be steering an actor it cannot see). Threshold shape:
-ghost > N units for > T seconds.
+**Auto-teleport — ON (decided 2026-07-19), tuned as a recovery, not a leash.** The guest keeps a
+smooth free-walk experience around the host; auto-TP must never interrupt ordinary nearby walking.
+Fire only on REAL separation — all of: same field · ghost present + lane-fresh · the host outside the
+guest's current (clamped) camera window OR beyond a generous distance floor · sustained for a dwell
+(~4–5s starting point) · no dialogue/event open on the guest · a post-fire cooldown (~10s). Suppress
+while the guest is actively steering, unless the gap keeps growing past a hard cap (softlock recovery
+beats input courtesy at the extreme). All thresholds are playtest-tuned, not laws. Manual F11/L3
+stays available regardless.
 
 ## 5. Dialogue / ATE / cutscenes — the mirroring ladder
 
@@ -181,10 +194,11 @@ have no accept input at all; only optional (mode-1) ATEs involve a choice.
 - **L3 — "play the game without a player"** (guest runs no triggers; host drives everything) stays
   the research horizon — a different architecture, explicitly NOT this round.
 
-**The pacing decision (user's call):** L2 as specified = the guest reads at the HOST's pace (true
-lockstep, never desyncs, can't linger on a line). The middle option exists: **choices-only mirroring**
-(force the host's choice, leave confirm pacing local) — guest reads at its own pace, decisions still
-agree; cost = transient pantomime drift mid-scene, converging at scene end.
+**DECIDED (2026-07-19): build to full L2 lockstep.** Rationale: dialogue occurs inside cutscenes, and
+a cutscene must not drift — lockstep is the only rung where the two screens cannot diverge mid-scene.
+The alternatives stay documented as potential future modes: **choices-only mirroring** (force the
+host's choice, leave confirm pacing local — guest reads at its own pace; cost = transient pantomime
+drift converging at scene end) and **L1-only** (co-location without input mirroring).
 
 ## 6. The sweep — safety fixes + scope rulings
 
@@ -212,24 +226,28 @@ cutscene-sync research note from the memory.
 
 ## Build plan
 
-- **Round F1 — one DLL, no wire bump:** teleport-to-host (the recovery primitive ships FIRST — it is
-  what makes suppression softlock-safe) + the §1 interaction/Menu gates + the §2 MAPJUMP gate with its
-  fade-in watchdog + the three §6 safety fixes + (optional, same round) §3 camera substitution.
+- **Round F1 — one DLL, no wire bump:** teleport-to-host, manual + auto (the recovery primitive ships
+  FIRST — it is what makes suppression softlock-safe) + the §1 interaction/Menu gates + the §2 MAPJUMP
+  gate with its fade-in watchdog + the three §6 safety fixes. (Camera: deferred — in no round.)
   Everything guest-side; a stale peer keeps pairing (behavior gates don't force updates — the s38
   asymmetry rule applies: update both machines anyway).
 - **Round F2 — wire v11:** the transition-intent lane + dialogue L1 (co-location) — L1 needs the
   host's in-event broadcast, so it shares the bump.
-- **Round F3:** dialogue L2 (confirm/choice mirror), shaped by the pacing decision.
+- **Round F3:** dialogue L2 (confirm/choice mirror) — full lockstep per the ratified decision.
 - Each gate ships with its selftest bench arm (see The frame) and one-line decline telemetry (the
   B3.3b every-gate-logs law). Sequencing vs the outstanding netsync queue: the s42 fixes are
   deployed-unproven and the B3.6 two-machine boxes are still open — F1 should not land in the same
   DLL as an unproven s42 unless the next two-machine session proves s42 first.
 
-## Open decisions (the user's)
+## Decisions (ratified by the user 2026-07-19)
 
-1. **Camera:** ship option A in F1, or defer camera work entirely? (Recon says A is small and safe;
-   multicam index mirroring stays a documented escalation.)
-2. **Dialogue pacing:** full lockstep (L2), choices-only mirror, or stop at L1 co-location?
-3. **Teleport mapping:** F11 + held-L3 acceptable? Auto-teleport-when-camera-follows acceptable?
-4. **The verbatim stock-chest hole:** accept, or add the KeyOn-mask rung?
-5. **World map:** confirm it stays a frontier (out of this arc's scope).
+1. **Camera: DEFERRED.** No camera work this arc; camera.md's option analysis (A substitution /
+   B state mirror / C hybrid) is the shelf for a future round. Accepted consequence: multicam fields
+   can show the guest a different camera than the host for now.
+2. **Dialogue: build to full L2 lockstep** — dialogue occurs inside cutscenes and those must not
+   desync. Choices-only mirroring and L1-only stay documented as potential future modes.
+3. **Teleport: F11 + held-L3 stands; AUTO-teleport ON,** conservatively tuned (§4) — a recovery, not
+   a leash; the guest's nearby free-walk experience stays smooth.
+4. **The verbatim stock-chest hole: ACCEPTED.** The KeyOn-mask rung stays documented
+   (interactions-census.md §4) as the closure if playtests surface it.
+5. **World map: stays a FRONTIER** — explicitly out of this arc's scope.
