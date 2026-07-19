@@ -324,7 +324,7 @@ First authored overworld connectivity: a plain road cell (35,25, east of Dali) �
 entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingField` redirect of the dispatcher's
 `Field(300)`). Recipe:
 
-1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8)|(cellX<<2)|event`. The F6 **Go** tab (overworld context) shows the live
+1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8 & 0x3F00)|(cellX<<2 & 0xFC)|event` (6-bit z — the kit's `pack_cell_tag` refuses z ≥ 64). The F6 **Go** tab (overworld context) shows the live
    cell (`w_worldPos2Cell` = `(int)(x/32), (int)(z/-32)`, identical to the readout) — use it as the targeting oracle.
    The destination is chosen by cloning a func whose `Byte[39]` routes there (each existing entrance func is `Byte[39]
    == its dispatch case`; e.g. `0x9895` → case 4 → Field 300 = Ice Cavern).

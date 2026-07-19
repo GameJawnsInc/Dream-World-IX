@@ -486,16 +486,19 @@ def test_blendio_quad_triangulates(tmp_path):
 # ---- overworld ENTRANCE authoring (world-entrance) --------------------------------------------
 def test_entrance_pack_unpack_cell_tag():
     from ff9mapkit.world import entrance as EN
-    # the WorldEvent GetIP key: 0x8000 | (cellZ<<8) | (cellX<<2) | event  (verified vs real object-0 tags)
+    # the WorldEvent GetIP key: 0x8000 | (cellZ<<8 & 0x3F00) | (cellX<<2 & 0xFC) | (id&3)  (ff9.cs WorldEvent;
+    # verified vs real object-0 tags). z is a 6-BIT field -- the engine aliases z mod 64, so the kit REFUSES
+    # z >= 64 (a 7-bit-packed tag would set bit 14, which no WorldEvent request carries -> a never-firing trigger).
     assert EN.pack_cell_tag(35, 25, 1) == 0x998D
     assert EN.pack_cell_tag(37, 24, 1) == 0x9895            # WORLD00's real Ice-Cavern func tag
     assert EN.unpack_cell_tag(0x998D) == (35, 25, 1)
     assert EN.unpack_cell_tag(0x9895) == (37, 24, 1)
     assert EN.unpack_cell_tag(0x0004) is None               # top bit unset -> an ordinary object func, not a cell
+    assert EN.unpack_cell_tag(0xD895) is None               # bit 14 set -> WorldEvent's formula never emits this
     # round-trip across the valid ranges
-    for cx, cz, ev in [(0, 0, 1), (63, 127, 3), (35, 25, 2)]:
+    for cx, cz, ev in [(0, 0, 1), (63, 63, 3), (35, 25, 2)]:
         assert EN.unpack_cell_tag(EN.pack_cell_tag(cx, cz, ev)) == (cx, cz, ev)
-    for bad in [(64, 0, 1), (0, 128, 1), (0, 0, 0), (0, 0, 4)]:
+    for bad in [(64, 0, 1), (0, 64, 1), (0, 128, 1), (0, 0, 0), (0, 0, 4)]:
         with pytest.raises(ValueError):
             EN.pack_cell_tag(*bad)
 
