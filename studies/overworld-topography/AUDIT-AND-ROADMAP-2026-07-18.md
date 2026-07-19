@@ -122,10 +122,16 @@ ensemble/free-ride mechanism, the MOD-OVERWRITE gate, and every recorded dead-en
   (not the documented :1180); mechanism itself fully verified, incl. `[NonSerialized]` and no downstream gate.
 - [x] **terrain "591-up/0-down" winding figure** is block-(16,14)-specific, presented as general. The other three
   reshape "mesh bugs" verified solid (incl. live byte-identical boundary test across (2,7)+(2,8)).
-- [ ] **LOAD-BEARING RULE mechanism nuance** — "overlay loses the raycast" is the wrong mechanism: a render-only
+- [x] **LOAD-BEARING RULE mechanism nuance** — "overlay loses the raycast" is the wrong mechanism: a render-only
   overlay is simply **never registered** in ActiveWalkMeshes; and overriding the Object part on a block whose stock
   prefab carries a real ObjectForm1 (town blocks) is a genuine walkability edge the universal framing misses.
-  *(rule-of-thumb stands; split on the restatement, confirmed on the mechanism claim)*
+  *(rule-of-thumb stands; split on the restatement, confirmed on the mechanism claim)* — **FIXED 2026-07-19**,
+  both halves source-verified against the engine (not transcribed): `WMBlock.ActiveWalkMeshes` serves only
+  Form1/Form2 lists, and `RegisterBareObjectOverride` (`WMWorld.cs:831`) calls `AddForm1Transform` but never
+  `AddWalkMeshForm1` (`:846`) ⇒ non-registration, no raycast contest. The town-block edge is real and now
+  documented with its selector: `:556` (`prefab.ObjectForm1` → `RegisterBlockComponent(form1: true)` → the
+  override replaces `mesh` at `:790` and IS registered at `:813`) vs `:563` (bare → render-only). Corrected in
+  the skill reference `terrain-entrance.md` and memory `project-ff9-overworld-terrain-authoring`.
 
 ### E. Precision nicks in the cliff/wall constants *(mostly split 1-1 — real data, arguably in-tolerance)*
 - [x] Desert top-edge V is **not** zero-spread (IQR 0.018–0.029 across topo45/46); grass/highland/topo-27 genuinely
