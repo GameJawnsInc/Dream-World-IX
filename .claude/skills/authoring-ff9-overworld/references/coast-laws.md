@@ -21,7 +21,7 @@
 
 - **THE LAW (why continuous coastline is hard)** — a per-cell tiler/WFC over arbitrary tiles CANNOT make continuous LAND: independently-authored 3D cliffs never meet cleanly; only WATER seams blend freely → "★ RESUME — START FRESH ON COASTLINES".
 - **SHALLOWS ARE SHORE-BOUND, COPY-ONLY (the water-ladder law)** — true shallow (sea2/sea1) is inseparable from a shore, never a gradient in open water; deep+mid open water is synthesizable → "WATER-LADDER COMPONENT STUDY".
-- **THE RING LADDER** — bands ring an island in exact order Sea4→Sea5→Sea3→Sea1→Sea2→beach1→land; ring width tracks bathymetry, not a uniform offset → "COASTLINE COMPONENT SPEC".
+- **THE RING LADDER** — bands ring an island in exact order Sea4→Sea5→Sea3→Sea1→Sea2→beach1→land (the common case; {sea1,sea5} is also a real lawful adjacency — the ladder may skip sea3); ring width tracks bathymetry, not a uniform offset → "COASTLINE COMPONENT SPEC".
 - **CLIFF TEXTURE MAPPING RULE** — cliff rock = a specific atlas strip, V ∝ height, U ∝ shore position; land texture is baked per-mesh UVs → "COASTLINE COMPONENT SPEC".
 - **TILE-SELECTION RULE** — cliff U = along-shore arc-length sawtooth wrapping the rock strip → "COASTLINE COMPONENT SPEC".
 - **THE VERIFY-BEFORE-DEPLOY GATE** — build in memory; gate offline on cracks=0 / down-facing=0 / holes=0 / on-grain before any deploy → "NATIVE-GRASS ISLAND SYNTHESIS".

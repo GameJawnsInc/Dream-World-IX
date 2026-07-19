@@ -3,8 +3,9 @@
 Hard-won in-game lessons this encodes:
   * RESHAPE, don't OVERLAY. Displacing the EXISTING terrain verts keeps a SINGLE walkmesh surface, so the player
     walks on it. Overlaying a NEW mesh on top leaves the stock ground underneath, and the movement ground-raycast
-    (from ``player.y + 2.34`` down, plus a per-frame triangle cache, ``ff9.cs:7141`` / ``WMPhysics.cs``) keeps hitting
-    that stock surface -> the overlay is non-walkable decoration, never ground you climb.
+    (from ``player.y + 2.34`` down, plus a per-frame triangle cache, ``w_nwpHit`` / ``WMPhysics.cs`` -- grep
+    ``w_nwpHit`` for the current line; the patch stack shifts it release to release, e.g. ~ff9.cs:7221 post-s39)
+    keeps hitting that stock surface -> the overlay is non-walkable decoration, never ground you climb.
   * WORLD-SPACE, MULTI-BLOCK. A reshape wider than one 64u block is applied to EVERY block it touches with the SAME
     world center/radius/amount, so shared block-edge verts move identically -> seamless (no cut/crack at the grid).
   * Blocks are LOCAL-frame; ``deform_*`` take ``world_origin`` and read a block's verts (local) + origin to test the

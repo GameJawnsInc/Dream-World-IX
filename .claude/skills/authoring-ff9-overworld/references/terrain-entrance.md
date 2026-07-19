@@ -75,9 +75,13 @@ Memory `project-ff9-overworld-placement-rules` holds the COMPLETE 7-rule spec + 
 
 The synth-terrain placement CHECKLIST (a)-(e) — up-wound tris, 0 MISS anywhere in the cell, no submerged
 up-facing Terrain, no stacked layers, warp target grounds on walkable topo — plus rule (f), verbatim:
-"**NO BLOCKED MESH MAY EXTEND UNDER WALKABLE GROUND**" (the movement-cache shadow; synth water must be CLIPPED
-at the coast outline). Also verbatim: "never explain away a gate finding; MISS must be 0 EVERYWHERE in the
-cell (land AND water)" — a ground-query miss area is also an INVISIBLE VEHICLE WALL + void render.
+"**NO BLOCKED MESH MAY EXTEND UNDER WALKABLE GROUND**" (the movement-cache shadow). **2026-07-18 correction:**
+the old prescription here — "synth water must be CLIPPED at the coast outline" — is dead; the mint's Sea4 is a
+FULL-CELL plane under the whole island (THE FULL-CELL SEA REVELATION), so there is no outline to clip to. The
+working fix is **THE VERGE RULE**: any walkable synth piece within 2u of the outline emits as blocked topo-49
+(the superseded v2 was a ~4u-inland MOAT). Also verbatim: "never explain away a gate finding; MISS must be 0
+EVERYWHERE in the cell (land AND water)" — a ground-query miss area is also an INVISIBLE VEHICLE WALL + void
+render.
 
 ## Entrances — `world-entrance`
 

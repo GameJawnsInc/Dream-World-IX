@@ -94,14 +94,27 @@ GROUNDS = {
                      cls="slope"),                                  # wall_coastal UNMEASURED
     "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
                  wall_du=-0.44021, wall_dv=0.05161,                 # icy band, measured
-                 cls="island", wall_coastal=True),                  # ★ 733/733 faces coastal, to 5.73u
+                 cls="island", wall_coastal=True),                  # ★ map-wide 1019 tris/10 faces, ALL
+    #                                  coastal, to 6.35u (2026-07-18 map-wide re-census; the old "733/733"
+    #                                  matched neither the map-wide nor the specimen-slice reading and is
+    #                                  retired -- the specimen slice reads 272 tris/8 faces, all coastal,
+    #                                  max 5.73u).
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
                    wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
                    cls="island", wall_coastal=False),               # ★ ground verbatim-compared; ⚠ THE
     #                                  WALL-CONTEXT LAW (family_wall_envelope.py): the red band is
-    #                                  INTERIOR-ONLY in stock (748 wall tris map-wide, 0 coastal — the
-    #                                  Forgotten's sea cliffs are topo-49 MURALS): a canyon SEA cliff is
-    #                                  off-language. Canyon = interior ground behind a lawful coast.
+    #                                  map-wide 655 wall tris / 48 faces, with exactly ONE borderline
+    #                                  face (3 tris, block (3,7)) sitting wholly below datum -- an
+    #                                  interior gorge wall, not open sea. Zero open-sea coastal canyon
+    #                                  walls (the Forgotten's sea cliffs are topo-49 MURALS): a canyon SEA
+    #                                  cliff is off-language. Canyon = interior ground behind a lawful
+    #                                  coast. (2026-07-18 map-wide re-census: 655/48, 1 below-datum gorge
+    #                                  face -- the old "748 tris map-wide, 0 coastal" was a top-8-specimen
+    #                                  -slice artifact, never a map-wide count; that slice today reads 231
+    #                                  tris/27 faces, still 0 coastal.) Note: canyon stays cls="island" for
+    #                                  the UV-TRANSLATION grouping only -- wall_coastal=False means a
+    #                                  coastal canyon LANDMASS is refused by the shipped guard
+    #                                  (build_landmass / GroundRetile.for_donor).
     "dunes": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event dunes
                   wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
                   cls="interior"),                                  # wall_coastal UNMEASURED (a borrow)

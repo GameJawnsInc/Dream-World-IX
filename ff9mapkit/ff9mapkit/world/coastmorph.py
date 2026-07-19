@@ -1256,14 +1256,18 @@ def beach_reshape(donor, start, end, depth, *, disc: int = 1, lod: str = "0_1", 
                              f"at ({W[i][0]:.0f},{W[i][2]:.0f}) -- the ribbon must ride "
                              f"the sand edge (within-beach width is near-constant)")
 
-    # THE SHAPE-CLASS GATE (user-called in-game 2026-07-10, byte-confirmed over 37 real
-    # waterline runs): a beach's convexity class is INHERITED from the coastline it aprons
-    # -- headland-nose beaches bow seaward of their cap-to-cap chord (up to +46% of
-    # length), pocket beaches stay landward of it. A morph may DEEPEN the beach's own
-    # curvature (up to the map-wide class envelope, ~35% of length) but must never push
-    # past its own extreme toward the OPPOSITE class: a pocket that crosses its chord
-    # reads as the beach peeling off the coast (the v2 'extruded ends'), because the land
-    # behind it is still concave. Devs are chord-relative, seaward-positive.
+    # THE SHAPE-CLASS GATE (user-called in-game 2026-07-10; the class envelope re-derived
+    # over a corrected 32-run census 2026-07-18): a beach's convexity class is INHERITED
+    # from the coastline it aprons -- headland-nose beaches bow seaward of their cap-to-cap
+    # chord (no more than +19% of length), pocket beaches recede landward of it (up to -46%
+    # of length). A morph may DEEPEN the beach's own curvature but must never push past its
+    # own extreme toward the OPPOSITE class: a pocket that crosses its chord reads as the
+    # beach peeling off the coast (the v2 'extruded ends'), because the land behind it is
+    # still concave. Devs are chord-relative, seaward-positive.
+    # (2026-07-18 correction: the earlier "37-run, nose up to +46%" reading was a POCKET
+    # misread -- the +46% figure belongs to pocket recede, not nose bow; the sea_cap/
+    # land_cap constants below were already asymmetric in the nose/pocket-correct direction
+    # and are unaffected by this prose fix.)
     a_, b_ = W[0], W[-1]
     ex_, ez_ = b_[0] - a_[0], b_[2] - a_[2]
     L_ = math.hypot(ex_, ez_) or 1.0
@@ -4201,8 +4205,11 @@ def bank_lower(donor, center, *, radius=14.0, shore_slope=0.55, cap=2.2,
     # vocabulary): a real wall's V is a CORNER ASSIGNMENT, never a function of y
     # -- every crest vert carries the painted lip row and every base vert the
     # base row, whatever the face's height (byte-checked: crest 0.8926 / base
-    # 0.9229 exact on every face 0.9..5.5u tall across (10,18)/(9,17)/(7,17)/
-    # (16,17)/(3,13); the strip never wraps). A sink therefore keeps every
+    # 0.9229 exact on every INTERIOR wall vert 0.9..5.5u tall across (10,18)/
+    # (9,17)/(3,13); the strip never wraps. (7,17) and (16,17) hold the same
+    # two-value law with a small documented frame-edge/waterline exception --
+    # 7/105 and 4/153 verts respectively carry near-values 0.8936/0.9219 on
+    # those edge verts, 2026-07-18 re-check). A sink therefore keeps every
     # crest v VERBATIM (the lip survives -- no hard/bevel alternation) and
     # re-pins each BASE vert along its own column at the column's original
     # density: v = crest_v + (base_v - crest_v) * h_new/h_old -- the face sheds

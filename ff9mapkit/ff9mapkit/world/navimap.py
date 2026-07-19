@@ -11,6 +11,12 @@ engine change** (see ``ff9mapkit/docs/OVERWORLD_ENGINE.md`` § minimap, and ``[[
 :data:`MARKER_NAMES` is *derived reference data* (the location labels, like the InfoHub catalogs) for by-name
 authoring. Names repeat across slots (``South Gate`` = 6-10, ``Qu's Marsh`` = 21/29/40/45, ``Gizamaluke's
 Grotto`` = 16/20/59), so a NAME resolves to ALL its slots; author by ``locId`` (0-63) for a single dot.
+
+⚠ **NAVIPOS COORDINATE GAP (2026-07-18):** the hardcoded ``ff9.navipos[2, 64]`` table backs locIds 49-53 and
+59-63 with ``(0, 0)`` in BOTH ``w_naviMapno`` dimensions (63 is the engine alias for 49, ``Chocobo's
+Paradise``). Setting a marker's discovery bit in that range (via ``reveal_markers`` or otherwise) is a
+faithful ``opE4`` bit set, but the marker has no coordinates to draw at -- a custom location cannot get a
+pause-map dot in that locId range without an engine table edit.
 """
 from __future__ import annotations
 
