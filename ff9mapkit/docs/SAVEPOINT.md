@@ -1,7 +1,7 @@
 # Save-point synthesis (`[[savepoint]]`)
 
-> **Status: SHIPPED. The rung-2 dialogue flow is OFFLINE-VERIFIED and awaits a playtest** (it changes
-> the bytes every existing `[[savepoint]]` emits). Two paths exist. (1) **Synthesis** — a press-to-interact
+> **Status: SHIPPED + IN-GAME PROVEN** (2026-07-18: the faithful menu flow, the Moogle's ACT, the
+> Mognet identity, the stock dialogue/window shape, and the party-row clamp all playtested). Two paths exist. (1) **Synthesis** — a press-to-interact
 > `[[savepoint]]` region around the functional core (`content/savepoint.py`, `eb/opcodes.py`). (2) The
 > faithful **verbatim carry** of a real field's whole save-Moogle cluster — `import <field> --save-moogle`
 > (`cli.py`), emitting a `[[save_moogle]]` block whose cluster + director are validated in `build.py` and
