@@ -1,0 +1,66 @@
+# BARRELPOP — a custom FF9 field. Compile with:  ff9mapkit build barrelpop.field.toml
+#
+# Human-supplied (Hard Constraint): paint the background layer PNGs and (optionally) model the
+# walkmesh in Blender. `ff9mapkit guide --pitch 48.0 ...` prints where the floor lands on
+# the painted canvas so you can paint to match.
+
+[field]
+id = 30210          # dev scratch band, clear of 30000-30002 (master/-bb/-ih) and the 30110-30200 coop band
+name = "BARRELPOP"          # -> FBG_N11_BARRELPOP (background) + EVT_BARRELPOP.eb (script)
+area = 11            # must be >= 10
+# text_block (the field's dialogue mesID) defaults to the field's own id and is auto-registered.
+# Only set it to share dialogue with another field, or to carry a donor's block on a fork.
+title = "BARRELPOP"
+
+[camera]
+pitch = 48.0          # downward tilt (degrees); real FF9 fields are <= ~48
+distance = 4500
+fov = 42.2
+[camera.frame]
+back = 205               # painted-canvas rows the floor's back/front edges sit on
+front = 432
+
+[walkmesh]
+# The walkmesh is in TRUE world coords = where the painted floor is (frame = "world"): the player
+# renders exactly on it, no fudge (measured in-game, Session 18). `quad` = the floor's 4 corners,
+# matching the placeholder floor below. Swap for an exported Blender mesh with `obj = "walkmesh.obj"`.
+quad = [[-1220, 257], [1220, 257], [1220, -1931], [-1220, -1931]]
+frame = "world"
+
+[[layers]]               # background layers, back-to-front (z = depth; smaller = nearer)
+image = "art/back.png"   # PLACEHOLDER (solid) -- repaint to match your camera
+z = 4000
+[[layers]]
+image = "art/floor.png"  # PLACEHOLDER (checkerboard floor) -- repaint to match your camera
+z = 3000
+
+[player]
+spawn = [0, -837]
+
+# [[npc]]
+# name = "Someone"
+# preset = "vivi"
+# pos = [0, -700]
+# dialogue = "Hello there."
+
+# [[gateway]]
+# to = 100               # warp to this field id
+# entrance = 0
+# zone = [[-1100, -2400], [1100, -2400], [1100, -1750], [-1100, -1750]]
+
+# --- THE CASK REVEAL under test -----------------------------------------------------------------
+# The moogle spawns HIDDEN at `pos` (inside the cask that stands there) and pops out to
+# `reveal_jump_to` the first time the player presses the cask. The press-ZONE below only opens the
+# save menu AFTER the pop (before it, the zone is deliberately inert -- that is the gate under test).
+# The ACT is left ON (the default), so this also exercises reveal+act composition.
+[[savepoint]]
+zone = [[-560,-1180],[-40,-1180],[-40,-660],[-560,-660]]   # the press area around the landing spot
+pos = [-300, -600]                # the moogle's hidden spawn -- inside the cask
+reveal_style = "barrel_pop"
+# reveal_from defaults to `pos` -- the cask stands where the moogle hides, and the pop is a
+# VERTICAL hop onto it, so there is no landing coordinate to author.
+reveal_height = 360
+tent = true
+# the ground spot the moogle leaps to for the save flourish, clear of the cask
+act_hop_to = [-300, -900]
+
