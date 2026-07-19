@@ -1017,8 +1017,22 @@ def reveal_menu_cycle(menu_body: bytes, *, index: int = 0) -> bytes:
     body = body[:-len(tail)]
     clear = _region.set_var(_region.MAP_BOOL, reopen_bit, 0)
     loop = clear + body
-    back = bytes([0x01]) + struct.pack("<h", -(len(loop) + 3 + 3))       # to loop top, past this jump
-    cycle = loop + _region.if_block(_region.cond_truthy(_region.MAP_BOOL, reopen_bit), back)
+    # ⚠ THE DISPLACEMENT COUNTS THE CONDITION TOO. A backward `01 <i16>` is measured from the END of the
+    # jump instruction back to its target, so every byte in between counts: the loop body, the if's
+    # CONDITION, the 3-byte JMP_FALSE, and the 3-byte jump itself. The first cut omitted len(cond) and so
+    # landed 5 bytes past the loop top -- mid-instruction -- which executed garbage after a save (the
+    # moogle stowed itself instead of staying on the cask, and the next Cancel softlocked). Playtest,
+    # 2026-07-19. Same convention as :func:`_while_truthy`, which measures from the start of its block.
+    cond = _region.cond_truthy(_region.MAP_BOOL, reopen_bit)
+    back = bytes([0x01]) + struct.pack("<h", -(len(loop) + len(cond) + 3 + 3))
+    cycle = loop + _region.if_block(cond, back)
+    # structural self-check: decode the jump we just emitted and confirm it targets the loop TOP exactly.
+    # Cheap, and it turns a silent mid-instruction landing into a build-time failure.
+    _jmp_at = len(loop) + len(cond) + 3
+    _target = _jmp_at + 3 + struct.unpack("<h", cycle[_jmp_at + 1:_jmp_at + 3])[0]
+    if _target != 0:
+        raise AssertionError(f"reveal_menu_cycle: the reopen jump targets byte {_target}, not the loop "
+                             f"top (0) -- a mid-instruction landing would execute garbage")
     return cycle + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_HIDE_REQ) + tail
 
 

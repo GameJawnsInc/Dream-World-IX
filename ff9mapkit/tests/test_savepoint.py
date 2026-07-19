@@ -873,3 +873,39 @@ def test_barrel_pop_gates_the_press_zone_but_instant_does_not(tmp_path):
     eb_i = build.build_script(build.FieldProject.load(q), "us", {})
     assert gate not in eb_i
     assert _savepoint.reveal_init_tail() not in eb_i        # the default carries NO reveal bytes at all
+
+
+def test_reveal_menu_cycle_reopen_jump_lands_on_the_loop_top(tmp_path):
+    """The reopen jump must land on an INSTRUCTION BOUNDARY at the loop top.
+
+    Regression: the displacement omitted the if-condition's length, so it landed 5 bytes past the top --
+    mid-instruction. In game that executed garbage after a save (the moogle stowed itself instead of
+    staying on the cask, and the following Cancel softlocked). Playtest 2026-07-19.
+    """
+    from ff9mapkit import build
+    from ff9mapkit.eb import disasm
+    p = tmp_path / "bp.field.toml"
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nact_hop_to = [-300, -900]\n'), encoding="utf-8")
+    proj = build.FieldProject.load(p)
+    _mes, *rest = build.collect_text(proj)
+    eb = build.build_script(proj, "us", {}, savepoint_txids=rest[-1])
+    s = EbScript.from_bytes(eb)
+    # the save moogle is the entry carrying the reveal state loop (tags 0/1/3)
+    moogle = [e for e in s.entries
+              if not e.empty and {f.tag for f in e.funcs} == {0, 1, 3}][-1]
+    ops = list(s.instrs(moogle.func_by_tag(3)))
+    starts = {i.off for i in ops}
+    backward = []
+    for i in ops:
+        if i.name == "op_01" and i.imm(0) is not None:
+            d = i.imm(0) - 65536 if i.imm(0) > 32767 else i.imm(0)
+            if d < 0:
+                backward.append((i, i.off + i.length + d))
+    assert backward, "the barrel_pop talk handler must contain the reopen loop's backward jump"
+    for ins, tgt in backward:
+        assert tgt in starts, (f"backward jump at {ins.off} targets {tgt}, which is NOT an instruction "
+                               f"boundary -- it would execute garbage")
+    # and the reopen jump specifically lands on the `reopen = 0` clear that opens the loop
+    reopen_clear = _region.set_var(_region.MAP_BOOL, _savepoint.reveal_vars(0)[1], 0)
+    assert any(eb[tgt:tgt + len(reopen_clear)] == reopen_clear for _i, tgt in backward), \
+        "no backward jump lands on the loop's `reopen = 0` top"
