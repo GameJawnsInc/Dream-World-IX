@@ -2126,7 +2126,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
-               allow_mod_overwrite: bool = False, dry_run: bool = False) -> dict:
+               allow_mod_overwrite: bool = False, dry_run: bool = False,
+               skip_mirror: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
     LAND within the coverage-feasible window), with optional component ``tweaks``. All sub-mesh
@@ -2153,7 +2154,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     and gates without writing. A donor part whose tris all clip away is BLANKED (a hidden override)
     so the donor prefab's original sub-mesh cannot render unrotated underneath.
 
-    Returns a summary dict (``clean``, ``gates``, ``carried``, ``shift``, ``deployed`` paths)."""
+    Returns a summary dict (``clean``, ``gates``, ``carried``, ``shift``, ``deployed`` paths). A real deploy
+    auto-mirrors the written overrides to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts out)."""
     (bx, by) = cell
     (dbx, dby) = donor
     if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
@@ -2436,11 +2438,14 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     summary["deployed"].append(str(M.deploy_donor_sidecar(dbx, dby, mod_folder=mod_folder,
                                                           disc=disc, x=bx, y=by, lod=lod,
                                                           game=game)))
+    from . import discmirror as DM
+    DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary
 
 
 def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
-                   lod: str = "0_1", game=None, dry_run: bool = False) -> dict:
+                   lod: str = "0_1", game=None, dry_run: bool = False,
+                   skip_mirror: bool = False) -> dict:
     """Apply tweak objects to a REAL world cell IN PLACE -- the coast-morph demonstrator
     path for shores no single-cell transplant can carry (a nose beach's landmass is always
     a coastline fragment; only (7,17)'s pocket is fully in-block). Reads the cell's own
@@ -2449,7 +2454,8 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     (``transform.name``-keyed -- real land cells included; ``world-terrain`` is the
     Terrain-only precedent). No Donor.txt, no placement census, no land-fit: the cell
     keeps its real neighbours, so tweaks must be frame-safe by construction (the
-    coastmorph fields pin block-frame verts). Reversible: delete the deployed files."""
+    coastmorph fields pin block-frame verts). Reversible: delete the deployed files. A real
+    deploy auto-mirrors the written overrides to Disc4 (``skip_mirror=True`` opts out)."""
     from . import mesh as M
     bx, by = cell
     raw, originals = {}, {}
@@ -2525,6 +2531,8 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
         bm = _soup_block_mesh(nm, (bx, by), loc, disc=disc, lod=lod)
         summary["deployed"].append(str(M.deploy_override(
             bm, mod_folder=mod_folder, game=game, lod=lod, part=part_name(p))))
+    from . import discmirror as DM
+    DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary
 
 
@@ -2533,7 +2541,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
                       census_samples: int = 24, allow_real_target: bool = False,
                       allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
-                      dry_run: bool = False) -> dict:
+                      dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
     ``cell``, as ONE rigid assembly -- rotated by ``rot`` about the REGION centre (a 90/270
@@ -2568,7 +2576,11 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     CONTAINING cell's meshes, like the engine's per-block raycast), misses backmapped through
     the inverse transform to the donor's per-cell meshes (no INTRODUCED misses; a backmap into
     a data-less donor cell is introduced -- in situ that point was sailable SeaBlockPrefab
-    ocean, on a deployed cell it would be a void + vehicle wall)."""
+    ocean, on a deployed cell it would be a void + vehicle wall).
+
+    A real deploy auto-mirrors the written overrides to Disc4 (THE DISC-4 GAP; ``skip_mirror=True``
+    opts out -- :func:`~ff9mapkit.world.fuse.fuse_layout` uses this to defer to its own single
+    end-of-layout mirror instead of one per placement)."""
     (bx, by) = cell
     (dbx, dby) = donor
     (nx, ny) = (int(size[0]), int(size[1]))
@@ -3041,4 +3053,6 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
                                                               disc=disc, x=bx + i, y=by + j,
                                                               lod=lod, game=game)))
+    from . import discmirror as DM
+    DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

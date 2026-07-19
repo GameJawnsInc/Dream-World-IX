@@ -593,7 +593,8 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                     building=None, flatten_pad=None, block_footprint: bool = True, fresh: bool = False,
                     trigger_only: bool = False, prompt: bool = False, nameplate: bool = False,
                     nameplate_name: str = None, nameplate_case: int = NAMEPLATE_SURGERY_CASE,
-                    backup_dir=None, dry_run: bool = False, game=None) -> dict:
+                    backup_dir=None, dry_run: bool = False, game=None,
+                    skip_mirror: bool = False) -> dict:
     """Author + deploy a complete overworld entrance at ``cell=(cell_x, cell_z)`` into ``mod_folder``.
 
     Destination: ``field=<id>`` (resolved to a dispatch case) or ``case=<n>`` (raw). ``event`` is the tile trigger
@@ -621,7 +622,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
     world text block 68 (via :func:`ff9mapkit.world.navimap.deploy_marker_renames`, locId = ``case-1``). Because the
     real func-0xB machinery drives the HUD, the location nameplate shows a genuine CUSTOM name (not "?" / a borrowed
     town) once the location is visited -- the handler sets its explored bit on entry, so first approach shows "?"
-    then the name, exactly like a real town (faithful; the bit == navi marker ``locId case-1`` too)."""
+    then the name, exactly like a real town (faithful; the bit == navi marker ``locId case-1`` too).
+
+    A real (non-``trigger_only``) deploy auto-mirrors the written terrain/building overrides to Disc4 (THE
+    DISC-4 GAP; ``skip_mirror=True`` opts out)."""
     from ..eb.model import EbScript
     from ..eb import edit as E
 
@@ -797,9 +801,11 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
     summary["pad_flattened"] = n_flat
     if hull:
         summary["building_hull_pts"] = len(hull)
+    entrance_written = []
     if not dry_run:
-        summary["terrain_override"] = str(M.deploy_override(ter, mod_folder=mod_folder, game=game, lod=lod,
-                                                            part="Terrain"))
+        terrain_dest = M.deploy_override(ter, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
+        summary["terrain_override"] = str(terrain_dest)
+        entrance_written.append(terrain_dest)
     if n_tiles == 0:
         summary["warning"] = (f"no terrain tiles matched at {at} r{trigger_radius} in block[{bx}][{by}] -- the "
                               f"trigger will never fire (widen --trigger-radius or check --trigger-at/--cell)")
@@ -822,5 +828,10 @@ def author_entrance(*, cell, mod_folder: str, field=None, case=None, direct_fiel
                 topograph=building.get("topograph", 59), at=b_at, seat=building.get("seat", True),
                 keep_block=keep, solid_base=building.get("solid_base", False),
                 texture=building.get("texture", False), tile=building.get("tile"),
-                tile_uv=building.get("tile_uv"), stock_bm=stock, terrain_bm=ter, game=game)
+                tile_uv=building.get("tile_uv"), stock_bm=stock, terrain_bm=ter, game=game,
+                skip_mirror=True)
+            entrance_written.extend(summary["building"].get("written") or [])
+    if not dry_run:
+        from . import discmirror as DM
+        DM.auto_mirror(entrance_written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

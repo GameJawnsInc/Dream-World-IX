@@ -174,7 +174,7 @@ def obj_to_blockmesh(obj: dict, *, into_block, disc: int = 1, part: str = "objec
 def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part: str = "object", lod: str = "0_1",
                    topograph: int = _TOPO_IMPASSABLE, at=None, seat: bool = False, keep_block: bool = False,
                    solid_base: bool = False, texture: bool = False, tile=None, tile_uv=None, stock_bm=None,
-                   terrain_bm=None, game=None) -> dict:
+                   terrain_bm=None, game=None, skip_mirror: bool = False) -> dict:
     """Read an edited OBJ, rebuild it as the TARGET block's ``part`` ``.ff9mesh``, and deploy the loose override.
     ``into_block=(x, y)`` picks the block whose local frame + override path the result is written into.
 
@@ -186,7 +186,9 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
     ``terrain_bm`` / ``stock_bm`` let a caller supply the seat-reference terrain and the ``keep_block`` merge base
     explicitly (e.g. an already-deployed override so a placement STACKS on a prior edit / seats on a flattened pad,
     rather than re-reading pristine p0data). Both default to a fresh pristine read of ``into_block``. Returns a
-    summary."""
+    summary. Auto-mirrors the written override to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts out --
+    :func:`~ff9mapkit.world.entrance.author_entrance` passes ``skip_mirror=True`` here and does its own single
+    mirror pass after its terrain + building writes both land)."""
     obj = read_obj(obj_path)
     V = obj["V"]
     if not V:
@@ -240,5 +242,8 @@ def build_from_obj(obj_path, *, into_block, mod_folder: str, disc: int = 1, part
         bm = PAL.apply_palette_uvs(bm, disc=disc, part=part, topograph=topo, variant=variant, game=game)
         textured = 1 if bm is not before else 0
     dest = M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part.capitalize())
+    from . import discmirror as DM
+    DM.auto_mirror([dest], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return {"dest": str(dest), "into_block": list(into_block), "verts": bm.vcount, "tris": len(bm.tris),
-            "kept_stock": merged_with_stock, "replaced_stock_tris": replaced_stock_tris, "textured": bool(textured)}
+            "kept_stock": merged_with_stock, "replaced_stock_tris": replaced_stock_tris, "textured": bool(textured),
+            "written": [str(dest)]}

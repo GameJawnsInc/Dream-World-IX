@@ -2120,6 +2120,9 @@ def _cmd_world_deploy(args: argparse.Namespace) -> int:
                 M.recompute_normals(bm)
             dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
             written.append((x, y, op, dest))
+        if written:
+            from .world import discmirror as DM
+            DM.auto_mirror([w[3] for w in written], mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2202,6 +2205,8 @@ def _cmd_world_retarget(args: argparse.Namespace) -> int:
             return 2
         after = W.block_summary(bm)["place_entrances"]
         dest = M.deploy_override(bm, mod_folder=args.mod_folder, game=args.game, lod=args.lod)
+        from .world import discmirror as DM
+        DM.auto_mirror([dest], mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2270,7 +2275,7 @@ def _cmd_world_mesh_build(args: argparse.Namespace) -> int:
                                   disc=args.disc, part=args.part, lod=args.lod, topograph=args.topograph,
                                   at=(tuple(args.at) if args.at else None), seat=args.seat,
                                   keep_block=args.keep_block, texture=args.texture, tile=tile, tile_uv=tile_uv,
-                                  game=args.game)
+                                  game=args.game, skip_mirror=args.skip_mirror)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2350,7 +2355,7 @@ def _cmd_world_terrain(args: argparse.Namespace) -> int:
     try:
         summary = T.reshape(args.mod_folder, at=at, seg=seg, radius=args.radius, amount=amount,
                             flatten=args.flatten, height=args.height, disc=args.disc, falloff=args.falloff,
-                            game=args.game, dry_run=args.dry_run)
+                            game=args.game, dry_run=args.dry_run, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2401,7 +2406,8 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
             return 2
         summary = T.reclaim(args.mod_folder, cells=cells, disc=args.disc, profile=args.profile,
                             topograph=args.topograph, seg=args.seg, height=args.height, beach=args.beach,
-                            shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run)
+                            shore_topo=args.shore_topo, rim_run=args.rim_run, game=args.game, dry_run=args.dry_run,
+                            skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2449,7 +2455,7 @@ def _cmd_world_coast(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001 -- donor-quality warning is best-effort
             pass
         summary = T.coast(args.mod_folder, cells=cells, donor=(dx, dy), disc=args.disc, game=args.game,
-                          dry_run=args.dry_run)
+                          dry_run=args.dry_run, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2588,12 +2594,13 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 raise ConfigError("--in-place needs at least one morph flag to apply")
             summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
                                         disc=args.disc, game=args.game,
-                                        dry_run=args.dry_run)
+                                        dry_run=args.dry_run, skip_mirror=args.skip_mirror)
         else:
             kw = dict(cell=(bx, by), donor=(dx, dy), rot=args.rot, shift=shift, strips=strips,
                       tweaks=tweaks, extra=args.extra, land_margin=args.land_margin, disc=args.disc,
                       game=args.game, census_samples=args.samples,
-                      allow_mod_overwrite=args.allow_mod_overwrite, dry_run=args.dry_run)
+                      allow_mod_overwrite=args.allow_mod_overwrite, dry_run=args.dry_run,
+                      skip_mirror=args.skip_mirror)
             if (snx, sny) == (1, 1):
                 summary = TR.transplant(args.mod_folder, **kw)      # the byte-proven single-cell path
             else:
@@ -2716,7 +2723,8 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
     try:
         kw = dict(base_radius=args.radius, seed=args.seed, lobes=args.lobes, land_height=args.height,
                   rim_run=args.rim_run, n_patches=args.patches, flat=args.flat, ground=args.ground,
-                  beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run)
+                  beach=beach, disc=args.disc, game=args.game, dry_run=args.dry_run,
+                  skip_mirror=args.skip_mirror)
         if args.center:
             wx, wz = (float(v) for v in args.center.split(","))
             summary = I.landmass(args.mod_folder, center=(wx, wz), **kw)
@@ -2770,7 +2778,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                        probe=(res["center"], 37))
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game)
+                              game=args.game, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2801,7 +2809,7 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         IN.census_gate(res["changed"], disc=args.disc, game=args.game)
         if not args.dry_run:
             IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game)
+                              game=args.game, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2849,10 +2857,15 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
                                 ground=args.ground, disc=args.disc, game=args.game)
         IN.census_gate(res["changed"], disc=args.disc, game=args.game)
         if not args.dry_run:
-            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game)
-            IN.deploy_mountain_parts(res, mod_folder=args.mod_folder, disc=args.disc,
-                                     game=args.game)
+            # both inner writers force-skip their own auto-mirror -- the CLI unions their
+            # written paths and does ONE mirror pass for the whole carve, below.
+            mountain_written = IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                                                 game=args.game, skip_mirror=True)
+            mountain_written = list(mountain_written) + list(
+                IN.deploy_mountain_parts(res, mod_folder=args.mod_folder, disc=args.disc,
+                                         game=args.game, skip_mirror=True))
+            from .world import discmirror as DM
+            DM.auto_mirror(mountain_written, mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -2868,7 +2881,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
           f"{r['peak_y']}, rock rigidity drift {r['rock_rigid'] * 100:.1f}% (<= 3.5), apron "
           f"slope {r['apron_slope']} deg (<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the "
           f"placement probes + census. F6 -> World -> re-enter, then teleport ({tx}, {tz}) and "
-          f"face the massif; walk the whole rim. Run world-mirror after any custom-ocean deploy.")
+          f"face the massif; walk the whole rim.")
     return 0
 
 
@@ -2906,15 +2919,18 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
         if args.verbatim:
             sx, sy = (int(v) for v in args.verbatim.split(","))
             summary = W.deploy_verbatim(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy),
-                                        disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+                                        disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run,
+                                        skip_mirror=args.skip_mirror)
         elif args.reproduce:
             sx, sy = (int(v) for v in args.reproduce.split(","))
             summary = W.reproduce(args.mod_folder, cells=cells, source=(sx, sy), donor=(dx, dy), seed=args.seed,
-                                  disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+                                  disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run,
+                                  skip_mirror=args.skip_mirror)
         else:
             summary = W.water(args.mod_folder, cells=cells, donor=(dx, dy), deep_dir=args.deep, shallows=args.shallows,
                               threshold=args.threshold, span=args.span, noise=args.noise, seed=args.seed,
-                              disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run)
+                              disc=args.disc, height=args.height, game=args.game, dry_run=args.dry_run,
+                              skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3049,7 +3065,7 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
             flatten_pad=args.flatten_pad, block_footprint=not args.hollow_building, fresh=args.fresh,
             trigger_only=args.trigger_only, prompt=args.action_prompt, nameplate=args.nameplate,
             nameplate_name=args.nameplate_name, nameplate_case=args.nameplate_case,
-            dry_run=args.dry_run, game=args.game)
+            dry_run=args.dry_run, game=args.game, skip_mirror=args.skip_mirror)
     except (RuntimeError, FileNotFoundError, ValueError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -3180,7 +3196,8 @@ def _cmd_world_fuse(args: argparse.Namespace) -> int:
                 pl["tweaks_factory"] = _build_tweaks
             placements.append(pl)
         out = FU.fuse_layout(args.mod_folder, placements, disc=args.disc, game=args.game,
-                             allow_overwrite=args.allow_overwrite, dry_run=args.dry_run)
+                             allow_overwrite=args.allow_overwrite, dry_run=args.dry_run,
+                             skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
@@ -5416,6 +5433,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="[diag] raise the centre vertex by N units (tears on the unindexed mesh; a hook test)")
     wd.add_argument("--lift", type=float, default=0.0,
                     help="[diag] raise the WHOLE block(s) by N units -- an unmistakable plateau")
+    wd.add_argument("--skip-mirror", action="store_true",
+                    help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wd.set_defaults(func=_cmd_world_deploy)
 
     wl = sub.add_parser("world-locate",
@@ -5446,6 +5465,8 @@ def build_parser() -> argparse.ArgumentParser:
     wr.add_argument("--radius", type=float, help="region radius in world units around --center")
     wr.add_argument("--only-entrances", action="store_true",
                     help="only retarget tiles that ALREADY carry an entrance (re-point, don't create)")
+    wr.add_argument("--skip-mirror", action="store_true",
+                    help="don't auto-mirror the written override to Disc4 (THE DISC-4 GAP; default: mirror)")
     wr.set_defaults(func=_cmd_world_retarget)
 
     wme = sub.add_parser("world-mesh-export",
@@ -5490,6 +5511,8 @@ def build_parser() -> argparse.ArgumentParser:
     wmb.add_argument("--tile-uv", metavar="Umin,Vmin,Umax,Vmax",
                      help="stamp a CUSTOM UV rect on all new faces -- the region a NEW tile you painted via "
                           "`world-atlas-add-tile` occupies (T3)")
+    wmb.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override to Disc4 (THE DISC-4 GAP; default: mirror)")
     wmb.set_defaults(func=_cmd_world_mesh_build)
 
     wtp = sub.add_parser("world-texture-palette",
@@ -5541,6 +5564,8 @@ def build_parser() -> argparse.ArgumentParser:
     wtr.add_argument("--falloff", default="smooth", help="edge falloff (default smooth)")
     wtr.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wtr.add_argument("--dry-run", action="store_true", help="report the blocks it would reshape, write nothing")
+    wtr.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wtr.set_defaults(func=_cmd_world_terrain)
 
     wrc = sub.add_parser("world-reclaim",
@@ -5567,6 +5592,8 @@ def build_parser() -> argparse.ArgumentParser:
     wrc.add_argument("--seg", type=int, default=10, help="tessellation per 64u block edge (default 10)")
     wrc.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wrc.add_argument("--dry-run", action="store_true", help="report the cells it would reclaim, write nothing")
+    wrc.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wrc.set_defaults(func=_cmd_world_reclaim)
 
     wct = sub.add_parser("world-coast",
@@ -5580,6 +5607,8 @@ def build_parser() -> argparse.ArgumentParser:
     wct.add_argument("--all-coasts", action="store_true", help="with --list: include sea-fringed coasts, not just beaches")
     wct.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wct.add_argument("--dry-run", action="store_true", help="report what it would place, write nothing")
+    wct.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wct.set_defaults(func=_cmd_world_coast)
 
     wtp = sub.add_parser("world-transplant",
@@ -5808,6 +5837,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="placement-census grid resolution (default 24 = 576 ground probes)")
     wtp.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wtp.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wtp.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wtp.set_defaults(func=_cmd_world_transplant)
 
     wms = sub.add_parser("world-morphs",
@@ -5875,6 +5906,8 @@ def build_parser() -> argparse.ArgumentParser:
                           "(7,17), desert (20,5).")
     wis.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wis.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wis.set_defaults(func=_cmd_world_island)
 
     wfo = sub.add_parser("world-forest",
@@ -5895,6 +5928,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="deployed-block load window around the point in units (default 96)")
     wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wfo.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wfo.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wfo.set_defaults(func=_cmd_world_forest)
 
     whl = sub.add_parser("world-hill",
@@ -5913,6 +5948,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="footprint radius in units (default 18; the real language is 20-26u diameter runs)")
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    whl.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     whl.set_defaults(func=_cmd_world_hill)
 
     wmt = sub.add_parser("world-mountain",
@@ -5941,6 +5978,8 @@ def build_parser() -> argparse.ArgumentParser:
                           "it (match the island's world-island --ground)")
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
+    wmt.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wmt.set_defaults(func=_cmd_world_mountain)
 
     wmi = sub.add_parser("world-mirror",
@@ -5987,6 +6026,8 @@ def build_parser() -> argparse.ArgumentParser:
     wwt.add_argument("--seed", type=int, default=0, help="anti-tiling PRNG seed (deterministic; vary for a new shuffle)")
     wwt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wwt.add_argument("--dry-run", action="store_true", help="report the cells it would fill, write nothing")
+    wwt.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wwt.set_defaults(func=_cmd_world_water)
 
     wat = sub.add_parser("world-atlas-add-tile",
@@ -6105,6 +6146,9 @@ def build_parser() -> argparse.ArgumentParser:
                           "on each re-run). Drops other entrances' event tiles in the same block.")
     wen.add_argument("--dry-run", action="store_true",
                      help="compute + print the full plan (dispatchers, case, tiles, building) without writing anything")
+    wen.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written terrain/building override(s) to Disc4 (THE DISC-4 GAP; "
+                          "default: mirror)")
     wen.set_defaults(func=_cmd_world_entrance)
 
     wfu = sub.add_parser("world-fuse",
@@ -6122,6 +6166,8 @@ def build_parser() -> argparse.ArgumentParser:
     wfu.add_argument("--dry-run", action="store_true",
                      help="validate the whole layout (placement gates + rect overlap + fuse borders + "
                           "collisions) and print the verdicts without writing anything")
+    wfu.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the deployed layout's overrides to Disc4 (THE DISC-4 GAP; default: mirror)")
     wfu.set_defaults(func=_cmd_world_fuse)
 
     wev = sub.add_parser("world-environment",

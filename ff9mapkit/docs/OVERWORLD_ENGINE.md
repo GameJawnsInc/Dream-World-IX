@@ -751,8 +751,9 @@ the gap: it copies every Block override + sidecar into the `Disc4` tree, gated p
 destination's real cell must be open ocean, or byte-identical across discs — real cells that differ,
 e.g. (9,17), skip with a warning), and **pins** a sidecar cell's un-overridden donor-prefab
 free-ride parts (falls/rivers/objects) as explicit source-disc-byte overrides — several real donors
-(the Daguerreo blocks) genuinely differ between the trees. **Run it after any custom-ocean world
-deploy**; relaunch to apply.
+(the Daguerreo blocks) genuinely differ between the trees. **This now runs AUTOMATICALLY** after every
+worldmap-override deploy verb, scoped to exactly the cell(s) that verb just wrote (`--skip-mirror` opts
+out); the standalone `world-mirror` command above remains for a manual whole-tree re-sync. Relaunch to apply.
 
 ### Interior topography on a deployed island — `world-forest` + `world-hill` (★ productized 2026-07-13)
 
@@ -800,7 +801,8 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
 
 Acceptance was proven by IDENTITY (`studies/overworld-topography/mountain_productize_check.py`): the pristine bench
 mint → module carve reproduces the deployed, playtested Uaho bench **byte-for-byte**; the go-forward fresh-mint path
-differs only by the mint's own concave-dent fix, far outside the carve. Run `world-mirror` after deploying.
+differs only by the mint's own concave-dent fix, far outside the carve. `world-mirror` now runs automatically
+after deploying (see THE TWO DISC TREES above).
 
 **THE ENSEMBLE CARRY.** A water-bearing massif's extra blob ring is a river/falls MOUTH owned by the UNION of
 the donor's `Object`/`Falls`/`River`/`RiverJoint` parts — Uaho's object-only aperture law is the small-mountain

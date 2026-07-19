@@ -19,6 +19,30 @@ does not exist once the scenario (or the F6 disc switch) crosses the disc-4 thre
   variants, which can differ from the source disc's (the Daguerreo donors do). Every such
   extra part is pinned as an EXPLICIT override carrying the SOURCE disc's bytes, so the
   mirrored cell renders identically on both trees.
+
+:func:`auto_mirror` is the AUTO-RUN post-step every world-deploy writer calls after itself (island/
+transplant/fuse/terrain/interior/water/entrance/mesh-build) so this can no longer be a forgotten manual
+step -- ``skip_mirror=True`` (CLI ``--skip-mirror``) is the escape hatch; :func:`mirror` itself (and the
+standalone ``world-mirror`` verb) is unchanged.
+
+**THE EVIDENCE CONTRACT (2026-07-19 hardening):** :func:`auto_mirror` takes ``written`` -- the actual
+return values of THIS invocation's real deploy calls (:func:`~ff9mapkit.world.mesh.deploy_override` /
+:func:`~ff9mapkit.world.mesh.deploy_donor_sidecar` both return the written ``Path`` -- that is the
+contract every writer relies on). It derives EVERYTHING it needs (the game root, the source disc, the
+lod, the cell set to restrict the mirror to) by parsing those paths -- it never calls
+:func:`ff9mapkit.config.find_game_path` itself and never globs a tree it wasn't literally handed evidence
+of. Two defects this closes:
+
+* **hermeticity (P1):** the old ``auto_mirror(mod_folder, *, disc, game=None, ...)`` re-resolved the REAL
+  game install on its own, so a test that mocks only the deploy calls (not ``config.find_game_path``)
+  could still trigger a genuine mirror pass against the developer's live install. A ``MagicMock`` return
+  value fails ``isinstance(p, (str, Path))`` and is silently dropped -- nothing survives, nothing runs.
+* **blast radius (P2):** :func:`mirror` itself re-syncs the WHOLE source-disc tree by default (the
+  standalone ``world-mirror`` verb's job). Every writer now hands :func:`auto_mirror` only the CELLS it
+  actually just wrote, and :func:`auto_mirror` passes that set through as :func:`mirror`'s ``cells``
+  filter -- so an unrelated write to cell B can never re-mirror (and silently clobber a hand-diverged
+  Disc4 variant of) cell A. The standalone verb still calls :func:`mirror` directly with ``cells=None``
+  (mirror everything) -- that whole-tree behavior is unchanged.
 """
 from __future__ import annotations
 
@@ -31,6 +55,7 @@ from . import extract as X
 from . import mesh as M
 
 _BLOCK_RE = re.compile(r"^Block\[(\d+)\]\[(\d+)\] (.+?)\.(ff9mesh|txt)$")
+_DISC_SEG_RE = re.compile(r"^Disc(\d+)$")
 
 
 def _real_parts(disc: int, lod: str = "0_1", *, game=None) -> dict:
@@ -52,9 +77,120 @@ def _parts_identical(blk, part: str, src_disc: int, dst_disc: int, lod: str = "0
             and a.uvs == b.uvs and a.tangents == b.tangents and a.normals == b.normals)
 
 
+def _cell_of(path: Path):
+    """``(bx, by)`` parsed from a deployed override's OWN filename (``Block[x][y] <Part>.ff9mesh`` or the
+    ``Block[x][y] Donor.txt`` sidecar -- :data:`_BLOCK_RE` matches both extensions). ``None`` if the
+    filename doesn't match (defensive -- every real writer path does)."""
+    m = _BLOCK_RE.match(path.name)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def auto_mirror(written, *, mod_folder: str, skip_mirror: bool = False, dst_disc: int = 4, log=print):
+    """Automatic POST-STEP for every world-deploy writer: pass it ``written`` -- the list/iterable of
+    return values of THIS call's own real :func:`~ff9mapkit.world.mesh.deploy_override` /
+    :func:`~ff9mapkit.world.mesh.deploy_donor_sidecar` calls -- right after a verb finishes writing, to
+    close THE DISC-4 GAP (module docstring) without the operator having to remember a separate
+    ``world-mirror`` run.
+
+    Never touches ``config.find_game_path`` or the filesystem itself except through :func:`mirror` (and
+    even then, only once real evidence of a write survives filtering) -- see the module docstring's
+    EVIDENCE CONTRACT. In order:
+
+    1. ``skip_mirror=True`` (CLI ``--skip-mirror``) opts out explicitly -- logs one line, does nothing.
+    2. Every entry of ``written`` that is not a real, existing ``str``/``Path`` under a ``WorldMap/Disc{n}``
+       tree (``n != dst_disc``) is dropped. A ``MagicMock`` (a hermetic test that mocked the deploy calls
+       out) fails the ``isinstance`` check -- if NOTHING survives (a dry run, a mocked writer, or a writer
+       that deployed straight to ``dst_disc`` already), this is a silent no-op.
+    3. The game root, source disc, lod, and cell set are derived purely by parsing the surviving paths
+       (the ``Disc{n}`` segment + the segment after it + each filename's ``Block[x][y]``) -- grouped per
+       source disc (a single writer call touches one disc in practice; a mixed set is handled by looping).
+    4. :func:`mirror` runs once per source-disc group, scoped to exactly that group's cells via its
+       ``cells=`` filter -- an unrelated write elsewhere in the tree is never touched. A ``ValueError`` out
+       of :func:`mirror` itself (e.g. the derived game root has no real StreamingAssets bundle data to
+       compare cells against -- a hermetic caller exercising just the writer, not a real install) is
+       swallowed per group: this is a best-effort POST-step, not a new hard requirement on every deploy call.
+
+    Returns the last :func:`mirror` summary dict, or ``None`` when it never ran. The standalone
+    ``world-mirror`` verb (a direct :func:`mirror` call, ``cells=None``) is unaffected either way."""
+    if skip_mirror:
+        log(f"disc-{dst_disc} mirror: skipped (--skip-mirror)")
+        return None
+
+    hits = []                                                # (path, disc_idx, src_disc)
+    for p in written:
+        if not isinstance(p, (str, Path)):
+            continue                                         # a MagicMock (mocked deploy call) -- no evidence
+        try:
+            pp = Path(p)
+            exists = pp.exists()
+        except (OSError, TypeError):
+            continue
+        if not exists:
+            continue
+        parts = pp.parts
+        if "WorldMap" not in parts:
+            continue
+        disc_idx = disc_n = None
+        for i, seg in enumerate(parts):
+            m = _DISC_SEG_RE.match(seg)
+            if m:
+                disc_idx, disc_n = i, int(m.group(1))
+                break
+        if disc_n is None or disc_n == dst_disc:
+            continue                                         # not under a Disc{n} segment, or already dst_disc
+        hits.append((pp, disc_idx, disc_n))
+    if not hits:
+        return None                                          # nothing survived -- see EVIDENCE CONTRACT above
+
+    # ---- derive the game root (must agree across every surviving path -- there is only one install) ----
+    game_root = None
+    for pp, _disc_idx, _src_disc in hits:
+        parts = pp.parts
+        if mod_folder not in parts:
+            continue
+        root = Path(*parts[:parts.index(mod_folder)])
+        if game_root is None:
+            game_root = root
+        elif root != game_root:
+            raise ValueError(f"auto_mirror: written paths disagree on the game root ({game_root} vs "
+                             f"{root}) -- refusing to guess which is right")
+    if game_root is None:
+        return None                                          # no surviving path actually carries mod_folder
+
+    # ---- group per source disc: lod (the segment right after Disc{n}) + the cell set actually written ----
+    by_disc = defaultdict(lambda: {"lod": None, "cells": set()})
+    for pp, disc_idx, src_disc in hits:
+        cell = _cell_of(pp)
+        if cell is None:
+            continue
+        grp = by_disc[src_disc]
+        parts = pp.parts
+        if grp["lod"] is None and disc_idx + 1 < len(parts):
+            grp["lod"] = parts[disc_idx + 1]
+        grp["cells"].add(cell)
+
+    out = None
+    for src_disc, grp in sorted(by_disc.items()):
+        if not grp["cells"]:
+            continue
+        try:
+            out = mirror(mod_folder, src_disc=src_disc, dst_disc=dst_disc, lod=grp["lod"] or "0_1",
+                         game=game_root, cells=grp["cells"], log=log)
+        except ValueError as e:               # defensive -- mirror() re-validates the same tree (e.g. the
+            log(f"disc-{dst_disc} mirror: skipped ({e})")  # derived game_root has no real StreamingAssets
+            continue                                       # bundle data -- a best-effort post-step, not a new
+                                                           # hard requirement on every deploy call
+    return out
+
+
 def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = "0_1",
-           game=None, dry_run: bool = False, log=print) -> dict:
-    """Mirror ``mod_folder``'s ``Disc{src}`` WorldMap overrides into ``Disc{dst}``.
+           game=None, dry_run: bool = False, cells: set | None = None, log=print) -> dict:
+    """Mirror ``mod_folder``'s ``Disc{src}`` WorldMap overrides into ``Disc{dst}``. ``cells`` (a
+    ``{(x, y), ...}`` set, default ``None``) restricts the mirror to exactly those cells -- the scoping
+    :func:`auto_mirror` uses so a write to one cell can never re-mirror (and potentially clobber a
+    hand-diverged Disc4 variant of) an unrelated cell elsewhere in the same tree. ``None`` mirrors every
+    deployed cell under the source tree -- the standalone ``world-mirror`` CLI verb's always-runs,
+    whole-tree behavior, unchanged.
     Returns ``{"mirrored": [paths], "pinned": [paths], "skipped": [(cell, why)]}``."""
     from .. import config
     gp = Path(config.find_game_path(game))
@@ -64,20 +200,22 @@ def mirror(mod_folder: str, *, src_disc: int = 1, dst_disc: int = 4, lod: str = 
         raise ValueError(f"no Disc{src_disc} WorldMap overrides in {mod_folder}")
 
     # inventory the deployed cells + their overridden parts
-    cells = defaultdict(dict)                               # (bx,by) -> {filename: Path}
+    by_cell = defaultdict(dict)                               # (bx,by) -> {filename: Path}
     for p in sorted(src_root.rglob("Block[[]*")):
         m = _BLOCK_RE.match(p.name)
         if m:
-            cells[(int(m.group(1)), int(m.group(2)))][p.name] = p
-    if not cells:
+            by_cell[(int(m.group(1)), int(m.group(2)))][p.name] = p
+    if not by_cell:
         raise ValueError(f"no deployed Block overrides under {src_root}")
+    if cells is not None:
+        by_cell = {k: v for k, v in by_cell.items() if k in cells}
 
     real_src = _real_parts(src_disc, lod, game=game)
     real_dst = _real_parts(dst_disc, lod, game=game)
 
     out = {"mirrored": [], "pinned": [], "skipped": []}
-    for blk in sorted(cells):
-        files = cells[blk]
+    for blk in sorted(by_cell):
+        files = by_cell[blk]
         # ---- the per-cell gate ----------------------------------------------------------
         dst_real = real_dst.get(blk, set())
         if dst_real:

@@ -792,14 +792,16 @@ def _real_block_parts(blk, *, disc: int = 1, lod: str = "0_1", game=None) -> dic
 def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24.0, seed=None, lobes: int = 1,
              land_height: float = 3.2, rim_run: float = 1.0, n_patches: int = 2, flat: bool = False,
              ground: str = "grass", beach=None, donor=DEFAULT_DONOR, disc: int = 1, lod: str = "0_1",
-             game=None, dry_run: bool = False) -> dict:
+             game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """Build, GATE, and deploy a synthetic landmass. ``cell=(bx, by)`` centres it on that block;
     ``center=(wx, wz)`` places it anywhere (a multi-block landmass splits per block automatically).
     Raises ``ValueError`` with the report if any gate fails. Deploys per touched block: the ``Terrain``
     override + a hole-patched full-cell deep ``Sea4`` + blanked ``Object``/``Sea1/2/3/5`` + a ``Donor.txt``
-    naming ``donor`` (must carry a Terrain transform for the s34 divert). RELAUNCH / re-enter the world
+    naming ``donor`` (must carry a Terrain transform for the s34 divert), then auto-mirrors the written
+    overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). RELAUNCH / re-enter the world
     for a first-time block."""
     from . import mesh as M
+    from . import discmirror as DM
     if center is None:
         if cell is None:
             raise ValueError("give center=(wx, wz) or cell=(bx, by)")
@@ -827,39 +829,43 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
     summary = {"op": "landmass", "center": list(built["center"]), "seed": built["seed"],
                "radius": base_radius, "blocks": [], "report": report}
     bch = built.get("beach")
+    written = []
     for blk, bm in sorted(built["blocks"].items()):
         bx, by = blk
         entry = {"block": [bx, by], "verts": bm.vcount, "tris": len(bm.tris)}
         is_bch = bch is not None and tuple(bch["block"]) == blk
         if not dry_run:
-            M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain"))
             if is_bch:
                 sea = _cut_plane(plane, bx, by, bch["sea4_cut"])
             else:
                 sea = dataclasses.replace(plane, x=bx, y=by, name=f"Block[{bx}][{by}] Sea4")
-            M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, part="Sea4")
+            written.append(M.deploy_override(sea, mod_folder=mod_folder, game=game, lod=lod, part="Sea4"))
             if is_bch:
                 # the beach block: real ladder parts + the beach-bearing divert donor
                 for part, key in (("Sea1", "sea1"), ("Sea2", "wash"),
                                   ("Sea5", "sea5"), ("Beach1", "foam")):
-                    M.deploy_override(_part_blockmesh(part, blk, bch[key], disc),
-                                      mod_folder=mod_folder, game=game, lod=lod, part=part)
+                    written.append(M.deploy_override(_part_blockmesh(part, blk, bch[key], disc),
+                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
                 for part in ("Object", "Sea3"):
-                    M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
-                                                          disc=disc, x=bx, y=by),
-                                      mod_folder=mod_folder, game=game, lod=lod, part=part)
-                M.deploy_donor_sidecar(bch["pins_from"][0], bch["pins_from"][1],
-                                       mod_folder=mod_folder, disc=disc, x=bx, y=by,
-                                       lod=lod, game=game)
+                    written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
+                                                                         disc=disc, x=bx, y=by),
+                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
+                written.append(M.deploy_donor_sidecar(bch["pins_from"][0], bch["pins_from"][1],
+                                                      mod_folder=mod_folder, disc=disc, x=bx, y=by,
+                                                      lod=lod, game=game))
                 entry["beach"] = {"tris": {k: len(bch[k]) for k in
                                            ("foam", "wash", "sea1", "sea5")},
                                   "sea4_cut": len(bch["sea4_cut"]),
                                   "divert": list(bch["pins_from"])}
             else:
                 for part in HIDDEN_PARTS:
-                    M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}", disc=disc, x=bx, y=by),
-                                      mod_folder=mod_folder, game=game, lod=lod, part=part)
-                M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc, x=bx, y=by,
-                                       lod=lod, game=game)
+                    written.append(M.deploy_override(M.hidden_block_mesh(name=f"Block[{bx}][{by}] {part}",
+                                                                         disc=disc, x=bx, y=by),
+                                                     mod_folder=mod_folder, game=game, lod=lod, part=part))
+                written.append(M.deploy_donor_sidecar(donor[0], donor[1], mod_folder=mod_folder, disc=disc,
+                                                      x=bx, y=by, lod=lod, game=game))
         summary["blocks"].append(entry)
+    if not dry_run and summary["blocks"]:
+        DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

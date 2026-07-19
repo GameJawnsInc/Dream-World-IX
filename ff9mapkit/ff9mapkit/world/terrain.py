@@ -31,11 +31,12 @@ def _block_index_range(minx: float, maxx: float, minz: float, maxz: float):
 
 def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float | None = None,
             flatten: bool = False, height: float | None = None, disc: int = 1, falloff: str = "smooth",
-            game=None, dry_run: bool = False) -> dict:
+            game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """Reshape overworld terrain within ``radius`` world units, across every block it touches. Exactly one SHAPE:
     ``at=(x, z)`` (a radial hill/crater/plateau) or ``seg=((x0,z0),(x1,z1))`` (a ridge/valley). Exactly one OP:
     ``amount`` (signed: ``+`` raise, ``-`` lower) or ``flatten=True`` (level toward ``height``, default the local mean).
-    Returns a summary; deploys a Terrain override per touched land block (unless ``dry_run``). RELAUNCH to apply."""
+    Returns a summary; deploys a Terrain override per touched land block (unless ``dry_run``), then auto-mirrors
+    the written overrides to Disc4 (THE DISC-4 GAP; pass ``skip_mirror=True`` to opt out). RELAUNCH to apply."""
     from . import extract as X, mesh as M
     if (at is None) == (seg is None):
         raise ValueError("give exactly one shape: at=(x,z) OR seg=((x0,z0),(x1,z1))")
@@ -52,6 +53,7 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
     op = "flatten" if flatten else ("raise" if amount >= 0 else "lower") if seg is None else \
         ("ridge+" if amount >= 0 else "ridge-")
     summary = {"op": op, "radius": radius, "dry_run": dry_run, "blocks": [], "skipped_sea": []}
+    written = []
     for bx in range(bx0, bx1 + 1):
         for by in range(by0, by1 + 1):
             if not (0 <= bx < GRID_X and 0 <= by < GRID_Y):
@@ -71,8 +73,11 @@ def reshape(mod_folder: str, *, radius: float, at=None, seg=None, amount: float 
             if not moved:
                 continue
             if not dry_run:
-                M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain")
+                written.append(M.deploy_override(ter, mod_folder=mod_folder, game=game, part="Terrain"))
             summary["blocks"].append({"block": [bx, by], "moved": moved})
+    if not dry_run and summary["blocks"]:
+        from . import discmirror as DM
+        DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary
 
 
@@ -80,14 +85,15 @@ _DIRS = [(-1, 0), (1, 0), (0, 1), (0, -1)]
 
 
 def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", game=None,
-          dry_run: bool = False) -> dict:
+          dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """FAITHFUL coast: reclaim each ``(x, y)`` in ``cells`` as a VERBATIM copy of the real coastal ``donor``=(dx, dy)
     block -- copy the donor's Terrain mesh (real land shape + shore rim + real UVs + walkable topographs) to the cell's
     Terrain override, AND write a ``Donor.txt`` sidecar naming the donor so the engine's per-cell divert loads that
     real coastal block prefab (its animated Beach/Sea/foam sub-meshes render on the cell). Unlike :func:`reclaim` (which
     SYNTHESIZES a stylized grass/sand island), this carries a genuine FF9 coastline -- the north-star "recreate from
     real bytes". A continent is assembled from real coast pieces (:func:`ff9mapkit.world.extract.list_coastal_donors`
-    lists them). Requires the CUSTOM engine (per-cell coastal-donor s34). RELAUNCH to apply."""
+    lists them). Requires the CUSTOM engine (per-cell coastal-donor s34). Auto-mirrors the written overrides to Disc4
+    (``skip_mirror=True`` opts out). RELAUNCH to apply."""
     import dataclasses
     from . import extract as X, mesh as M
     dx, dy = donor
@@ -99,14 +105,19 @@ def coast(mod_folder: str, *, cells, donor, disc: int = 1, lod: str = "0_1", gam
         raise ValueError(f"donor ({dx},{dy}) out of the {GRID_X}x{GRID_Y} overworld grid")
     donor_bm = X.read_block(dx, dy, disc=disc, lod=lod, part="terrain", game=game)   # real coast terrain (raises if not land)
     summary = {"op": "coast", "donor": [dx, dy], "disc": disc, "dry_run": dry_run, "cells": []}
+    written = []
     for (bx, by) in cells:
         # verts are block-LOCAL (localPosition 0), so relocation is just re-tagging x/y/name; deploy_override +
         # RegisterBlockComponent place it by InitialX/InitialY. The donor's beach/sea come from the prefab (via the sidecar).
         bm = dataclasses.replace(donor_bm, x=bx, y=by, name=f"Block[{bx}][{by}] Terrain")
         if not dry_run:
-            M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain")
-            M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=disc, x=bx, y=by, lod=lod, game=game)
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part="Terrain"))
+            written.append(M.deploy_donor_sidecar(dx, dy, mod_folder=mod_folder, disc=disc, x=bx, y=by,
+                                                  lod=lod, game=game))
         summary["cells"].append({"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount})
+    if not dry_run and summary["cells"]:
+        from . import discmirror as DM
+        DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary
 
 
@@ -202,7 +213,7 @@ def _apply_cliff_rock_uvs(bm, *, density: float = 0.0125, outline=None):
 def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", topograph: int = 0,
             height: float | None = None, seg: int = 10, beach: float | None = None, grass_topo: int = 0,
             shore_topo: int | None = None, shore_frac: float | None = None, rim_run: float | None = None,
-            game=None, dry_run: bool = False) -> dict:
+            game=None, dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """RECLAIM ocean cells as walkable LAND -- the Path-D new-continent primitive. Each ``(x, y)`` in ``cells`` (grid
     coords, 0..23 x 0..19) gets a fresh, walkable, textured terrain override so a designated SEA cell renders +
     collides as land. Unlike :func:`reshape` (which displaces a stock terrain mesh and SKIPS sea cells that have none),
@@ -231,7 +242,8 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
     short-circuits before the override can fire, so on stock Memoria this is a no-op. A LONE reclaimed cell is an
     ISLAND (surrounding stock sea non-walkable on foot); build a contiguous BRIDGE of cells from the coast for an
-    on-foot-reachable landmass, or reach a lone cell via F6->World->Teleport. RELAUNCH (or exit+re-enter) to load."""
+    on-foot-reachable landmass, or reach a lone cell via F6->World->Teleport. Auto-mirrors the written overrides to
+    Disc4 (``skip_mirror=True`` opts out). RELAUNCH (or exit+re-enter) to load."""
     from . import mesh as M
     from . import palette as PAL
     from . import extract as X
@@ -260,6 +272,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             land = set()
     summary = {"op": "reclaim", "profile": profile, "disc": disc, "topograph": topograph,
                "dry_run": dry_run, "cells": []}
+    written = []
     for (bx, by) in cells:
         if profile in ("island", "cliff"):
             water = [(dx, dy) for (dx, dy) in _DIRS if (bx + dx, by + dy) not in reclaimed
@@ -283,6 +296,9 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
             bm = PAL.apply_palette_uvs(bm, topograph=topograph, disc=disc, part="terrain", game=game)
             info = {"cell": [bx, by], "tris": len(bm.tris), "verts": bm.vcount}
         if not dry_run:
-            M.deploy_override(bm, mod_folder=mod_folder, game=game, part="Terrain")
+            written.append(M.deploy_override(bm, mod_folder=mod_folder, game=game, part="Terrain"))
         summary["cells"].append(info)
+    if not dry_run and summary["cells"]:
+        from . import discmirror as DM
+        DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

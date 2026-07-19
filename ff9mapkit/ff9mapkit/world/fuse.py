@@ -117,7 +117,8 @@ def _existing_overrides(cells, mod_folder: str, *, disc: int, lod: str, game=Non
 
 
 def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1", game=None,
-                allow_overwrite: bool = False, dry_run: bool = False) -> dict:
+                allow_overwrite: bool = False, dry_run: bool = False,
+                skip_mirror: bool = False) -> dict:
     """Validate + deploy a multi-placement LAYOUT. Each placement is a dict of
     :func:`ff9mapkit.world.transplant.transplant_region` kwargs (``cell``, ``donor``,
     ``size``; optional ``rot``, ``shift``, ``tweaks``, ``strips``, ``land_margin``,
@@ -126,6 +127,9 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
     row: prefab or pure on-lattice open water on BOTH sides); target cells must not
     collide with overrides already on disk (unless ``allow_overwrite`` -- re-deploying
     the same layout is the normal iteration flow). ``dry_run`` stops after validation.
+    A real deploy auto-mirrors the WHOLE layout's written overrides to Disc4 in ONE pass
+    after every placement lands (``skip_mirror=True`` opts out; each per-placement
+    :func:`~ff9mapkit.world.transplant.transplant_region` call defers its own mirror to this).
 
     TWEAKED placements pass ``tweaks_factory`` (a zero-arg callable returning a FRESH
     tweak list), not ``tweaks``: tweak objects are STATEFUL (gate counters, the mint's
@@ -197,6 +201,8 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
         return out
     for pl in placements:
         s = TR.transplant_region(mod_folder, disc=disc, lod=lod, game=game,
-                                 dry_run=False, **_kw(pl))
+                                 dry_run=False, skip_mirror=True, **_kw(pl))
         out["deployed"].extend(s["deployed"])
+    from . import discmirror as DM
+    DM.auto_mirror(out["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
     return out

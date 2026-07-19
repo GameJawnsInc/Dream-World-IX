@@ -2438,12 +2438,16 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None):
 
 
 def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
-                          game=None, log=print) -> list:
+                          game=None, skip_mirror: bool = False, log=print) -> list:
     """Deploy an ENSEMBLE carve's auxiliary part overrides: every span block gets ALL
     of :data:`ENSEMBLE_PARTS` (carried content or a hidden blank -- the donor prefab's
     own parts would otherwise FREE-RIDE verbatim at rot0/shift0), plus a ``Donor.txt``
     naming the part-carrying donor block (the s34 divert binds each override to the
-    prefab's part transform BY NAME, so the donor must carry every deployed part)."""
+    prefab's part transform BY NAME, so the donor must carry every deployed part). Auto-
+    mirrors the written overrides to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts out --
+    the ``world-mountain`` CLI passes ``skip_mirror=True`` to BOTH this and its
+    :func:`deploy_changed` call, then makes the one mirror pass itself over the union
+    of both writers' written paths)."""
     changed_parts = res.get("changed_parts") or {}
     donor_ref = res.get("donor_ref")
     if donor_ref is None:
@@ -2462,18 +2466,24 @@ def deploy_mountain_parts(res, *, mod_folder: str, disc: int = 1, lod: str = "0_
             if len(bmP.tris):
                 log(f"deployed {part} -> {p} ({len(bmP.tris)} tris)")
             out.append(p)
-        M.deploy_donor_sidecar(donor_ref[0], donor_ref[1], mod_folder=mod_folder,
-                               disc=disc, x=bx, y=by, lod=lod, game=game)
+        out.append(M.deploy_donor_sidecar(donor_ref[0], donor_ref[1], mod_folder=mod_folder,
+                                          disc=disc, x=bx, y=by, lod=lod, game=game))
     log(f"Donor.txt -> {donor_ref} on {len(span)} span block(s) "
         f"(+ blanks for uncarried parts)")
+    from . import discmirror as DM
+    DM.auto_mirror(out, mod_folder=mod_folder, skip_mirror=skip_mirror, log=log)
     return out
 
 
 def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
-                   game=None, backup: bool = True, log=print) -> list:
+                   game=None, backup: bool = True, skip_mirror: bool = False, log=print) -> list:
     """Deploy every block whose bytes actually change (byte-compare converge). An
     existing override backs up beside itself as ``<name>.ff9mesh.bak-<ts>`` (a suffixed
-    name never matches the engine's override pattern)."""
+    name never matches the engine's override pattern). When anything actually deployed,
+    auto-mirrors the written overrides to Disc4 (THE DISC-4 GAP; ``skip_mirror=True`` opts
+    out -- the ``world-mountain`` CLI passes ``skip_mirror=True`` to BOTH this and
+    :func:`deploy_mountain_parts`, then makes the one mirror pass itself over the union
+    of both writers' written paths)."""
     from .. import config
     import tempfile
     gp = Path(config.find_game_path(game))
@@ -2496,4 +2506,7 @@ def deploy_changed(changed, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
             out.append(p)
     if not out:
         log("no block's bytes changed -- nothing deployed")
+    else:
+        from . import discmirror as DM
+        DM.auto_mirror(out, mod_folder=mod_folder, skip_mirror=skip_mirror, log=log)
     return out
