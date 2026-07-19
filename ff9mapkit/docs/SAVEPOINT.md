@@ -200,12 +200,11 @@ simplification**, not a replay of any real field's Init. And the real moogle's s
 [[savepoint]]
 zone = [[-100,-100],[100,-100],[100,100],[-100,100]]
 reveal_style = "barrel_pop"
-reveal_jump_to = [-250, -571, -362]  # REQUIRED: the pop landing spot -- perspective-tuned, hand-placed.
-                                    # [x, z] or [x, z, y]; omitting y lands at y=0, which on a raised
-                                    # perch is a FLAT hop. Field 407's own values are exactly these three
-                                    # (SetupJump(-250, -362, -571, 10) -- note the engine's x,y,z order).
-# reveal_face = [-250, -571]       # optional pre-jump turn target (default: reveal_jump_to)
-# reveal_from = [0, -700]          # the cask's own spot (default: the moogle's pos)
+# reveal_from   = [-250, -571]     # the cask's own spot (default: the moogle's `pos`)
+# reveal_height = 360              # how far ABOVE the cask the moogle stands once it pops.
+                                    # There is NO landing coordinate to author: the hop is VERTICAL,
+                                    # so the landing is the cask's own x/z raised by this.
+                                    # 360 = field 407's own lift (cask y -2, moogle-on-top y -362).
 # reveal_steps = 10                # SetupJump duration -- the donor MODAL value (407/853); 253 uses 15,
                                     # 351 uses 6 -- per-scene tuning, never a default the kit invents
 # reveal_sfx = false                # a RunSoundCode3 id, or false/omitted (2 of 4 donors emit none)
@@ -286,7 +285,7 @@ uses.
 - `ff9mapkit/eb/opcodes.py` — `menu(menu_id, sub_id=0)` (0x75; `menu(4,0)` = save).
 - `ff9mapkit/content/savepoint.py` — `save_dispatch()`, `savepoint_region(zone, *, bubble)`,
   `inject_savepoint` / `inject_savepoints`, the ACT section (`act_save_body`, `inject_act_cluster`), and
-  the CASK REVEAL section (`reveal_loop_body`, `build_cask_init`, `cask_trigger_body`,
+  the CASK REVEAL section (`reveal_state_loop`, `build_cask_init`, `cask_trigger_body`,
   `inject_barrel_pop_reveal`).
 - `build.py` — `[[savepoint]]` validated (zone 4–5 pts) + injected (a 4-pt zone is widened to the
   `quad_zone` doubled-last-vertex convex quad, the `IsInQuad` dead-zone fix).

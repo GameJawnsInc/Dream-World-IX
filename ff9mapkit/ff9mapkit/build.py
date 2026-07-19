@@ -1561,8 +1561,8 @@ def validate(project: FieldProject) -> list[str]:
     if _n_barrel > _savepoint.REVEAL_MAX_PER_FIELD:
         problems.append(f'{_n_barrel} [[savepoint]] blocks set reveal_style = "barrel_pop", but the kit '
                         f"reserves only {_savepoint.REVEAL_MAX_PER_FIELD} reveal rendezvous var pairs per "
-                        f"field (each cask/moogle pair needs its own transient MAP state byte + handshake "
-                        f"bit, or they cross-talk) -- split them across fields")
+                        f"field (each cask/moogle pair needs its own transient MAP state byte + reopen "
+                        f"flag, or they cross-talk) -- split them across fields")
     for sp in project.raw.get("savepoint", []):         # synthesized save point (press -> Menu(4,0))
         z = sp.get("zone", [])
         if not isinstance(z, (list, tuple)) or len(z) not in (4, 5):     # a scalar zone would len()-crash the lint
@@ -1572,7 +1572,7 @@ def validate(project: FieldProject) -> list[str]:
             problems.append(f"[[savepoint]] pos must be [x, z] (the visible moogle's spot), got {p!r}")
         # An unknown or mistyped key used to be silently ignored -- `moggle = false` or `dialog = false`
         # would build a save point that behaves nothing like the author asked for, with no diagnostic.
-        _reveal_keys = {"reveal_style", "reveal_jump_to", "reveal_from", "reveal_face",
+        _reveal_keys = {"reveal_style", "reveal_from", "reveal_height",
                        "reveal_steps", "reveal_sfx", "reveal_container"}
         _sp_keys = {"zone", "pos", "moogle", "bubble", "dialogue", "latch", "prompt", "confirm",
                     "save_row", "cancel_row", "yes_row", "no_row", "speaker", "tail", "mognet",
@@ -1623,22 +1623,20 @@ def validate(project: FieldProject) -> list[str]:
                                 f'"barrel_pop" (reveal_* keys are no-ops otherwise) -- set '
                                 f'reveal_style = "barrel_pop" or remove them')
         else:
-            if "reveal_jump_to" not in sp:
-                problems.append('[[savepoint]] reveal_style = "barrel_pop" needs reveal_jump_to -- the '
-                                "jump destination is a perspective-tuned, hand-placed value; no formula "
-                                "derives it (content.jump's law)")
+            # NOTE: there is deliberately NO required landing coordinate. The donor's pop is a VERTICAL
+            # hop onto the container (field 407: cask at x/z, landing the same x/z raised 360), so the
+            # destination is derived, not authored. An earlier pass made a hand-placed `reveal_jump_to`
+            # mandatory, which was both wrong and unauthorable.
             if not sp.get("moogle", True):
                 problems.append('[[savepoint]] reveal_style = "barrel_pop" needs the moogle (it IS the '
                                 "barrel moogle); remove `moogle = false` or the reveal_style")
-            for k in ("reveal_jump_to", "reveal_from"):
-                v = sp.get(k)
-                if v is not None and (not isinstance(v, (list, tuple)) or len(v) not in (2, 3)
-                                      or not all(isinstance(x, int) and not isinstance(x, bool) for x in v)):
-                    problems.append(f"[[savepoint]] {k} must be [x, z] or [x, z, y], got {v!r}")
-            rf = sp.get("reveal_face")
-            if rf is not None and (not isinstance(rf, (list, tuple)) or len(rf) != 2
-                                   or not all(isinstance(x, int) and not isinstance(x, bool) for x in rf)):
-                problems.append(f"[[savepoint]] reveal_face must be [x, z], got {rf!r}")
+            v = sp.get("reveal_from")
+            if v is not None and (not isinstance(v, (list, tuple)) or len(v) not in (2, 3)
+                                  or not all(isinstance(x, int) and not isinstance(x, bool) for x in v)):
+                problems.append(f"[[savepoint]] reveal_from must be [x, z] or [x, z, y] (the container's own spot), got {v!r}")
+            h = sp.get("reveal_height")
+            if h is not None and (not isinstance(h, int) or isinstance(h, bool) or h <= 0):
+                problems.append(f"[[savepoint]] reveal_height must be a positive integer (how far above the container the moogle stands; the donor cask is 360), got {h!r}")
             if "reveal_steps" in sp and (not isinstance(sp["reveal_steps"], int)
                                         or isinstance(sp["reveal_steps"], bool)):
                 problems.append(f"[[savepoint]] reveal_steps must be an integer, got {sp['reveal_steps']!r}")
@@ -5257,7 +5255,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             mg = sp.get("mognet")
             return bool(mg and str(mg.get("name", "")) and not sp.get("speaker"))
 
-        def _dispatch(k, sp, save_body=None):
+        def _dispatch(k, sp, save_body=None, reopen=b""):
             # `save_body` swaps the confirmed-Yes body: the moogle's TALK dispatch passes the ACT
             # (savepoint.act_save_body -- choreography needs gExec to be the moogle); the press REGION
             # always passes None (a type-1 region has no model to animate -- the donor's moogle-less
@@ -5287,9 +5285,15 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
                         locked=int(sp.get("party_locked", _savepoint.DEFAULT_PARTY_LOCKED)))
                 if "mognet" in rows and "accept_prompt" in t:
                     bodies["mognet"] = _mognet_body(mg, t)
+                if reopen:
+                    bodies = {key: (body or b"") + reopen for key, body in bodies.items()}
                 return _savepoint.save_dispatch_menu(t["prompt"], rows, bodies, prologue=prologue)
+            inner = save_body
+            if reopen:
+                inner = (save_body if save_body is not None
+                         else _savepoint.save_act(latch=sp.get("latch", True))) + reopen
             return _savepoint.save_dispatch_prompted(t["prompt"], t["confirm"],
-                                                     latch=sp.get("latch", True), save_body=save_body,
+                                                     latch=sp.get("latch", True), save_body=inner,
                                                      prologue=prologue)
 
         # Each barrel_pop save point gets its OWN rendezvous var pair, indexed by its position among the
@@ -5324,15 +5328,24 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # below), because inject_barrel_pop_reveal's own cask consumes an entry slot -- the ACT
             # cluster's first_free_slot() prediction for the moogle must see that slot already taken, or
             # the two collide. content/savepoint.py's "THE CASK REVEAL" section has the full decode.
-            reveal_tail, m_intro = None, None
+            reveal_tail, reveal_loop, reveal_cpos = None, None, None
             if sp.get("reveal_style") == "barrel_pop":
-                eb, reveal_tail, m_intro = _savepoint.inject_barrel_pop_reveal(
-                    eb, moogle_pos=(int(pos[0]), int(pos[1])), jump_to=sp["reveal_jump_to"],
-                    face_to=sp.get("reveal_face"), steps=sp.get("reveal_steps"),
-                    sfx=sp.get("reveal_sfx"), container=sp.get("reveal_container", True),
-                    container_pos=(tuple(int(v) for v in sp["reveal_from"]) if sp.get("reveal_from")
-                                  else None),
-                    index=_reveal_idx[k])
+                # the container's own spot (default: the moogle's pos), in KIT coords (y up-positive)
+                cfrom = sp.get("reveal_from")
+                reveal_cpos = ((tuple(int(v) for v in cfrom) + (0, 0))[:3] if cfrom
+                               else (int(pos[0]), int(pos[1]), 0))
+                eb, reveal_tail = _savepoint.inject_barrel_pop_reveal(
+                    eb, container_pos=reveal_cpos,
+                    height=int(sp.get("reveal_height", _savepoint.REVEAL_CONTAINER_HEIGHT)),
+                    steps=sp.get("reveal_steps"), sfx=sp.get("reveal_sfx"),
+                    container=sp.get("reveal_container", True), index=_reveal_idx[k])
+                # the moogle's tag 1 becomes the state loop OUTRIGHT (see reveal_state_loop): a one-shot
+                # intro splice could pop him out but never put him back, which is half the real cycle.
+                reveal_loop = _savepoint.reveal_state_loop(
+                    container_pos=reveal_cpos,
+                    height=int(sp.get("reveal_height", _savepoint.REVEAL_CONTAINER_HEIGHT)),
+                    steps=(sp.get("reveal_steps") or _savepoint.REVEAL_STEPS_DEFAULT),
+                    sfx=sp.get("reveal_sfx"), index=_reveal_idx[k])
             # THE ACT (default ON, `act = false` opts out): the census-invariant save choreography --
             # hop 6503, the book+feather props snapping in, the 4645 book-open around Menu(4,0), the hop
             # back, and the player watching via two grafted player tags. The cluster (props + player
@@ -5344,10 +5357,17 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             if sp.get("act", True) and sp.get("dialogue", True) and t_act:
                 eb, cl = _savepoint.inject_act_cluster(eb, int(pos[0]), int(pos[1]))
                 hop_to = sp.get("act_hop_to")
+                # With a barrel_pop reveal the moogle's REST spot is the container's TOP, not the floor --
+                # that is where it stands when the menu is open, and where the act must return it to
+                # (step 6 of the real cycle: "jumps back up on the barrel").
+                act_rest = ((reveal_cpos[0], reveal_cpos[1],
+                             reveal_cpos[2] + int(sp.get("reveal_height",
+                                                         _savepoint.REVEAL_CONTAINER_HEIGHT)))
+                            if reveal_cpos is not None else (int(pos[0]), int(pos[1])))
                 save_body = _savepoint.act_save_body(
                     book_uid=cl.book, feather_uid=cl.feather,
                     pose_tag=cl.pose_tag, release_tag=cl.release_tag,
-                    act_txid=t_act.get("act"), rest=(int(pos[0]), int(pos[1])),
+                    act_txid=t_act.get("act"), rest=act_rest,
                     hop_to=(tuple(int(v) for v in hop_to) if hop_to else None),
                     latch=sp.get("latch", True))
                 m_init_tail = _savepoint.moogle_act_init_tail()   # the load-bearing hop-clip preload
@@ -5356,9 +5376,23 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
             # own SetObjectFlags(14) hidden-tail composes AHEAD of the act's SetJumpAnimation preload.
             if reveal_tail is not None:
                 m_init_tail = reveal_tail + (m_init_tail or b"")
+            talk = _dispatch(k, sp, save_body=save_body,
+                             reopen=(_savepoint.reveal_reopen_mark(_reveal_idx[k])
+                                     if reveal_loop is not None else b""))
+            if reveal_loop is not None:
+                # steps 6-7: an action reopens the menu; Cancel stows the moogle again.
+                talk = _savepoint.reveal_menu_cycle(talk, index=_reveal_idx[k])
+            # resolve the moogle's seat BEFORE injecting: with the act on it is forced to the act
+            # cluster's own prediction; otherwise inject_npc seats at first_free_slot, so read it now
+            # rather than trying to recover it afterwards.
+            m_here = m_slot if m_slot is not None else EbScript.from_bytes(eb).first_free_slot()
             eb = _npc.inject_npc(eb, int(pos[0]), int(pos[1]), model=m_model, animset=m_animset,
-                                 anims=dict(m_anims or {}), speak_body=_dispatch(k, sp, save_body=save_body),
-                                 init_tail=m_init_tail, slot=m_slot, intro=m_intro)
+                                 anims=dict(m_anims or {}), speak_body=talk,
+                                 init_tail=m_init_tail, slot=m_slot)
+            if reveal_loop is not None:
+                # replace tag 1 outright -- the moogle's whole loop IS the state machine (donor shape)
+                from .eb import edit as _rv_edit
+                eb = _rv_edit.replace_function_body(eb, m_here, 1, reveal_loop)
 
     # shops: a [[shop]] with a `zone` mints a standalone press-region opener (Menu(2, id), the save-point
     # shape). Shops opened from an NPC instead (via opens_shop) carry no zone and are skipped here; the

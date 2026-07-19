@@ -689,9 +689,28 @@ def inject_savepoints(data, savepoints, *, activate: bool = True, dispatches=Non
 REVEAL_STYLES = ("instant", "barrel_pop")     # "instant" = today's behaviour (moogle visible from Init)
 REVEAL_STATE_IDX = 32          # MAP.Byte[32] -- the donor's own reveal-state slot (GLOB_UINT8 = Map+Byte,
                                # transient per-field; reset to 0 on every load, so "idle" needs no write)
-REVEAL_STATE_IDLE = 0
-REVEAL_STATE_POP = 1
-REVEAL_STATE_DONE = 2
+# THE CYCLE (field 407, decoded end to end -- the moogle is a PUPPET on two shared MAP bytes, driven by
+# the cask and by the field's entry-0 tag-1 DIRECTOR; playtest-confirmed against the real room):
+#   load          the moogle is hidden INSIDE the cask
+#   press cask    cask tag 30 writes state=101 -> the moogle's case 101 jumps STRAIGHT UP onto the cask
+#                 and turns to the player. NO dialogue opens.
+#   press again   the interact target has SWITCHED: the moogle (now on top) answers, opening its menu
+#   Save          the act -- leap off, book, save screen
+#   after save    the DIRECTOR walks state 1 -> 4 -> 102: back onto the cask, and the menu REOPENS by itself
+#   Cancel        the moogle hops back down INTO the cask (case 102 = MoveInstantXZY to the cask's own
+#                 position + SetObjectLogicalSize(8,8,1), i.e. shrink its collision away)
+# ⚠ THE HOP IS VERTICAL. Field 407's cask sits at (-250, -2, -571) and case 101 jumps to
+# (-250, -362, -571) -- the SAME x/z, only the height differs. So there is NO hand-placed landing
+# coordinate here at all (an earlier pass wrongly made one REQUIRED): the landing is the container's own
+# spot raised by the container's height. `reveal_height` (default 360 = the donor's own delta) is the
+# only tunable, and it is a HEIGHT, not a perspective-tuned position.
+REVEAL_STATE_IN = 0        # hidden inside the container (MAP wipes to 0 on load -- the natural start)
+REVEAL_STATE_POP_REQ = 1   # the container was pressed: pop, please
+REVEAL_STATE_OUT = 2       # standing on top of the container, talkable, menu live
+REVEAL_STATE_HIDE_REQ = 3  # the menu was cancelled: go back in
+REVEAL_CONTAINER_HEIGHT = 360   # field 407: cask y = -2, moogle-on-top y = -362 -> a 360-unit lift
+REVEAL_IN_LOGICAL_SIZE = (8, 8, 1)     # case 102's own shrink -- no collision while stowed
+REVEAL_OUT_LOGICAL_SIZE = (40, 40, 55)  # case 101's restore
 REVEAL_HANDSHAKE_BIT = 323     # MAP.Bit[323] -- the reveal's own cask<->moogle rendezvous bit, ADJACENT to
                                # ACT_HANDSHAKE_BIT (322); transient MAP scope, clear of every other band
                                # this module/kit reserves (cutscene 80+, field-init 144-159, the ACT's 322)
@@ -721,6 +740,7 @@ REVEAL_TURN_SPEED = 48         # TurnTowardObject speed in the post-land dressin
 #   351   | -- none --    | --             |  6              | (4, 16)                | no
 #   407   | 1362 (vol 99) | --             | 10              | (4, 16)                | yes
 #   853   | -- none --    | --             | 10              | (4, 16)                | yes
+REVEAL_SFX_VOL = 99            # the reveal chime's own volume -- field 407 @1830 (the ACT uses 125)
 REVEAL_SFX_253 = 1363          # documented, never defaulted: HALF the donor set emits no reveal sfx at all
 REVEAL_SFX_407 = 1362          # (the ACT's own SFX_HOP shares this id; the reveal is a separate mechanic)
 REVEAL_EMERGE_CLIP_253 = 2928  # the pre-jump "shake" gesture -- ONE donor of four. No default, no TOML key.
@@ -800,7 +820,7 @@ def reveal_spine_body(*, jump_to, face_to=None, steps: int = REVEAL_STEPS_DEFAUL
     fx, fz = (ft + (0,))[:2]
     out = opcodes.set_jump_animation(REVEAL_HOP_CLIP, int(blend[0]), int(blend[1]))
     if sfx:
-        out += act_sfx(int(sfx))
+        out += act_sfx(int(sfx), vol=REVEAL_SFX_VOL)     # 99, not the act's 125 -- field 407 @1830
     out += opcodes.turn_toward_position(fx, fz) + opcodes.wait_turn()
     out += opcodes.run_jump_animation() + opcodes.wait_animation()
     out += opcodes.setup_jump(jx, jz, jy, int(steps)) + opcodes.jump()
@@ -826,27 +846,51 @@ def reveal_landing_dressing(player_uid: int = PLAYER_UID) -> bytes:
             + opcodes.encode(0x4B, 40, 40, 55))              # SetObjectLogicalSize(40, 40, 55) -- restore
 
 
-def reveal_loop_body(*, jump_to, face_to=None, steps: int = REVEAL_STEPS_DEFAULT, sfx=None,
-                     blend=REVEAL_BLEND, player_uid: int = PLAYER_UID, index: int = 0) -> bytes:
-    """The FULL cask-triggered reveal -- the bytes passed as ``inject_npc(intro=...)`` for the moogle
-    itself (prepended to its tag-1 loop, ahead of :data:`NPC_STANDBY_LOOP`):
+def _if_state(state_idx: int, value: int, body: bytes) -> bytes:
+    """``if (state == value) { body }`` -- one arm of the state loop. Note ``if_block`` runs its body when
+    the condition is TRUE, so this takes ``cond_cmp(..., "==")``; the one-shot guards elsewhere in this
+    module use ``_cond_neq`` precisely because they want the inverse (guard-and-return)."""
+    return _region.if_block(_region.cond_cmp(_region.GLOB_UINT8, state_idx, value, "=="), body)
 
-        while (MAP.Byte[32] != POP) { Wait(1) }        -- the poll
-        SetObjectFlags(5)                                -- SHOW (was hidden since Init)
-        <reveal_spine_body: the invariant airborne spine, to the authored jump_to>
-        <reveal_landing_dressing>
-        MAP.Byte[32] = DONE ; MAP.Bit[323] = 0           -- release the cask's poll
 
-    This satisfies ``inject_npc``'s ``intro`` contract exactly: it runs once (spawn -> the poll's exit),
-    never RETURNs, and falls through into the ordinary standby loop forever afterward -- so the moogle
-    behaves like any other once it has popped."""
-    state_idx, hs_bit = reveal_vars(index)
-    on_pop = (opcodes.encode(0x93, REVEAL_SHOW_FLAGS)
-             + reveal_spine_body(jump_to=jump_to, face_to=face_to, steps=steps, sfx=sfx, blend=blend)
-             + reveal_landing_dressing(player_uid)
-             + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_DONE)
-             + _region.set_var(_region.MAP_BOOL, hs_bit, 0))
-    return _while_not_eq(_region.GLOB_UINT8, state_idx, REVEAL_STATE_POP, opcodes.wait(1)) + on_pop
+def reveal_state_loop(*, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
+                      steps: int = REVEAL_STEPS_DEFAULT, sfx=None, blend=REVEAL_BLEND,
+                      player_uid: int = PLAYER_UID, index: int = 0) -> bytes:
+    """The moogle's WHOLE tag-1: a permanent state loop, the donor's own shape (its tag 1 is exactly this
+    -- a read of the shared state byte, an op_06 switch, and a jump back to the top; there is no standby
+    tail). Replaces tag 1 outright via :func:`eb.edit.replace_function_body` -- the earlier
+    ``inject_npc(intro=)`` splice could only run ONCE, so the moogle could pop out but never go back in.
+
+    Two live transitions, matching the decoded cycle::
+
+        POP_REQ  -> show, vertical hop onto the container, turn to the player, restore collision, OUT
+        HIDE_REQ -> hop down, snap into the container, shrink collision away, hide, IN
+
+    ``container_pos`` is ``(x, z[, y])`` -- the container's own spot; the landing is that x/z at
+    ``y - height``. No perspective-tuned coordinate is involved (see the cycle note above)."""
+    state_idx, _hs = reveal_vars(index)
+    cx, cz, cy = (tuple(int(v) for v in container_pos) + (0, 0))[:3]
+    # ⚠ COORDINATE CONVENTION. The kit's opcode emitters take y as world HEIGHT with UP = POSITIVE and
+    # negate it on encode (see opcodes.move_instant_xzy / setup_jump). The donor's RAW bytes therefore
+    # read -362 for a moogle standing 362 above a cask whose own raw y is -2. In THIS function's terms
+    # the cask is at y=+2 and its top is y=+362, so the lift ADDS. Getting this backwards puts the
+    # moogle underground with no build-time signal.
+    top_y = cy + int(height)
+    pop = (opcodes.encode(0x93, REVEAL_SHOW_FLAGS)
+           + reveal_spine_body(jump_to=(cx, cz, top_y), face_to=(cx, cz),
+                               steps=steps, sfx=sfx, blend=blend)
+           + reveal_landing_dressing(player_uid)
+           + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_OUT))
+    hide = (opcodes.run_animation(REVEAL_HOP_CLIP)
+            + opcodes.wait(ACT_HOP_AIR_WAIT)
+            + opcodes.move_instant_xzy(cx, cz, cy)          # case 102: back to the container's own spot
+            + opcodes.encode(0x4B, *REVEAL_IN_LOGICAL_SIZE)  # ...and its collision shrunk away
+            + opcodes.encode(0x93, REVEAL_HIDE_FLAGS)
+            + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_IN))
+    body = (_if_state(state_idx, REVEAL_STATE_POP_REQ, pop)
+            + _if_state(state_idx, REVEAL_STATE_HIDE_REQ, hide)
+            + opcodes.wait(1))
+    return body + bytes([0x01]) + struct.pack("<h", -(len(body) + 3))     # jump back to the top, forever
 
 
 def gate_until_revealed(body: bytes, index: int = 0) -> bytes:
@@ -862,7 +906,7 @@ def gate_until_revealed(body: bytes, index: int = 0) -> bytes:
     NOTE the transient scope: MAP vars are wiped on every field load, so re-entering the field re-hides
     the moogle AND re-closes this gate -- the player must pop the cask again each visit. That matches the
     donor (its state lives in the same wiped MAP byte) and is the intended per-visit theatre."""
-    return _region.if_block(_cond_neq(_region.GLOB_UINT8, reveal_vars(index)[0], REVEAL_STATE_DONE),
+    return _region.if_block(_cond_neq(_region.GLOB_UINT8, reveal_vars(index)[0], REVEAL_STATE_OUT),
                             opcodes.RETURN) + bytes(body)
 
 
@@ -896,15 +940,45 @@ def cask_trigger_body(index: int = 0) -> bytes:
     Exported standalone (not only reachable via :func:`build_cask_init`/:func:`inject_cask`) so a
     ``reveal_container = false`` field can splice this into its own hand-authored trigger scenery instead
     of the shipped cask -- see ``docs/SAVEPOINT.md``. ``index`` selects this save point's own rendezvous
-    pair (:func:`reveal_vars`) and MUST match the ``index`` its moogle's :func:`reveal_loop_body` was
+    pair (:func:`reveal_vars`) and MUST match the ``index`` its moogle's :func:`reveal_state_loop` was
     emitted with, or the two halves of the handshake talk past each other."""
-    state_idx, hs_bit = reveal_vars(index)
-    return (_region.if_block(_cond_neq(_region.GLOB_UINT8, state_idx, REVEAL_STATE_IDLE), opcodes.RETURN)
+    state_idx, _hs = reveal_vars(index)
+    # ONLY while the moogle is stowed. Once it is OUT it stands on top of this container and IT is the
+    # interact target -- the donor has no second "press the barrel" option, and a press that did nothing
+    # (the earlier build's silent guard-return) reads as a dead prop.
+    return (_region.if_block(_cond_neq(_region.GLOB_UINT8, state_idx, REVEAL_STATE_IN), opcodes.RETURN)
             + opcodes.DISABLE_MOVE
-            + _region.set_var(_region.MAP_BOOL, hs_bit, 1)
-            + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_POP)
-            + _while_truthy(_region.MAP_BOOL, hs_bit, opcodes.wait(1))
+            + _region.set_var(_region.GLOB_UINT8, state_idx, REVEAL_STATE_POP_REQ)
+            + _while_not_eq(_region.GLOB_UINT8, state_idx, REVEAL_STATE_OUT, opcodes.wait(1))
             + opcodes.ENABLE_MOVE + opcodes.RETURN)
+
+
+def reveal_reopen_mark(index: int = 0) -> bytes:
+    """``reopen = 1`` -- appended by the build to every non-Cancel menu row. See
+    :func:`reveal_menu_cycle`; the bit is this save point's (formerly handshake) rendezvous bit, now free
+    because the cask polls the state byte directly."""
+    return _region.set_var(_region.MAP_BOOL, reveal_vars(index)[1], 1)
+
+
+def reveal_menu_cycle(menu_body: bytes, *, index: int = 0) -> bytes:
+    """Wrap the moogle's talk menu in the donor's own CYCLE (steps 6-7 of the real room)::
+
+        loop: reopen = 0
+              <menu>                  -- Save / Tent / Mognet / ... / Cancel; each ACTION arm sets reopen
+              if (reopen) goto loop   -- so the menu comes back by itself after a save
+        state = HIDE_REQ              -- Cancel is BODILESS, so falling through IS the cancel signal:
+                                         the moogle hops back down into its container
+
+    In field 407 this is the entry-0 tag-1 DIRECTOR's job (it walks state 1 -> 4 -> 102 after the save,
+    which is why the menu reappears and why cancelling stows him). A synthesized field has no director, so
+    the moogle's own talk handler owns the cycle -- same result, one less moving part. Cancel staying
+    bodiless is a correctness requirement, not a shortcut (:func:`_row0_only`)."""
+    _state_idx, reopen_bit = reveal_vars(index)
+    clear = _region.set_var(_region.MAP_BOOL, reopen_bit, 0)
+    loop = clear + bytes(menu_body)
+    back = bytes([0x01]) + struct.pack("<h", -(len(loop) + 3 + 3))       # to loop top, past this jump
+    cycle = loop + _region.if_block(_region.cond_truthy(_region.MAP_BOOL, reopen_bit), back)
+    return cycle + _region.set_var(_region.GLOB_UINT8, reveal_vars(index)[0], REVEAL_STATE_HIDE_REQ)
 
 
 def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None, index: int = 0,
@@ -929,28 +1003,32 @@ def inject_cask(data, x: int, z: int, *, face: int = 0, slot: int | None = None,
     return out, slot
 
 
-def inject_barrel_pop_reveal(data, *, moogle_pos, jump_to, face_to=None, steps=None, sfx=None,
-                             container: bool = True, container_pos=None, player_uid: int = PLAYER_UID,
-                             index: int = 0):
+def inject_barrel_pop_reveal(data, *, container_pos, height: int = REVEAL_CONTAINER_HEIGHT,
+                             steps=None, sfx=None, container: bool = True,
+                             player_uid: int = PLAYER_UID, index: int = 0):
     """Wire the barrel_pop reveal for ONE save point. When ``container`` (default True), injects the cask
-    at ``container_pos`` (default ``moogle_pos``) FIRST -- so it consumes its entry slot before any later
-    ``first_free_slot()`` prediction (e.g. the ACT's :func:`inject_act_cluster`) runs on this same
-    ``data``, avoiding a slot collision; ``build.py`` relies on this ordering. Returns
-    ``(new_data, moogle_init_tail, moogle_intro)`` -- the two byte blobs to pass straight into
-    ``content.npc.inject_npc(init_tail=..., intro=...)`` for the moogle itself. ``container=False`` skips
-    the cask; the field author then wires their own trigger to :func:`cask_trigger_body` (docs/SAVEPOINT.md)."""
+    at ``container_pos`` FIRST -- so it consumes its entry slot before any later ``first_free_slot()``
+    prediction (e.g. the ACT's :func:`inject_act_cluster`) runs on this same ``data``, avoiding a slot
+    collision; ``build.py`` relies on this ordering.
+
+    Returns ``(new_data, moogle_init_tail)``. The tail spawns the moogle STOWED (hidden + collision shrunk
+    away) and goes to ``content.npc.inject_npc(init_tail=...)``. The moogle's tag-1 state machine is NOT
+    returned here -- the build installs :func:`reveal_state_loop` over tag 1 with
+    ``eb.edit.replace_function_body`` after injection, because the loop must run forever (an
+    ``inject_npc(intro=)`` splice runs once, which could pop the moogle out but never stow it again).
+
+    ``container=False`` skips the cask; the field author then wires their own trigger to
+    :func:`cask_trigger_body` (docs/SAVEPOINT.md)."""
     out = data
+    cx, cz = (tuple(int(v) for v in container_pos) + (0, 0))[:2]
     if container:
-        # 2- OR 3-element (x, z[, y]) -- the validator accepts both and the error text advertises the
-        # 3-tuple, so a bare `cx, cz = ...` unpack crashed the build on a legal config (review finding).
-        cpos = tuple(int(v) for v in (container_pos if container_pos is not None else moogle_pos))
-        cx, cz = (cpos + (0, 0))[:2]
         out, _ = inject_cask(out, cx, cz, index=index)
-    tail = reveal_init_tail()
-    intro = reveal_loop_body(jump_to=jump_to, face_to=face_to,
-                             steps=(REVEAL_STEPS_DEFAULT if steps is None else int(steps)),
-                             sfx=(int(sfx) if sfx else None), player_uid=player_uid, index=index)
-    return out, tail, intro
+    # The moogle spawns STOWED: hidden, at the container's own spot, collision shrunk away -- so it is
+    # neither visible nor walkable-into before the pop. (The earlier build spawned it hidden but at full
+    # size, leaving an invisible obstacle in front of the cask.)
+    tail = (reveal_init_tail()
+            + opcodes.encode(0x4B, *REVEAL_IN_LOGICAL_SIZE))
+    return out, tail
 
 
 def graft_director(data, director_body):

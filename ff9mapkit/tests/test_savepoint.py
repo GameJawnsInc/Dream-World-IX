@@ -341,8 +341,10 @@ def test_reveal_spine_body_is_byte_exact():
 
 def test_reveal_spine_body_with_sfx_and_custom_blend():
     body = _savepoint.reveal_spine_body(jump_to=(0, 0), sfx=1362, blend=(6, 23), steps=15)
+    # the reveal's own sfx volume (99, field 407 @1830) -- NOT the ACT's 125 default; see act_sfx's own
+    # vol kwarg and REVEAL_SFX_VOL's docstring.
     expected = (opcodes.set_jump_animation(_savepoint.REVEAL_HOP_CLIP, 6, 23)
-               + _savepoint.act_sfx(1362)
+               + _savepoint.act_sfx(1362, vol=_savepoint.REVEAL_SFX_VOL)
                + opcodes.turn_toward_position(0, 0)
                + opcodes.wait_turn()
                + opcodes.run_jump_animation()
@@ -352,6 +354,8 @@ def test_reveal_spine_body_with_sfx_and_custom_blend():
                + opcodes.run_land_animation()
                + opcodes.wait_animation())
     assert body == expected
+    assert body.hex() == "9400650b0617c80000d0520500000080639b0000000000509c41e2000000000000000fdc9d41"
+    assert _savepoint.REVEAL_SFX_VOL == 99
 
 
 def test_reveal_spine_body_requires_jump_to():
@@ -373,23 +377,44 @@ def test_reveal_landing_dressing_byte_exact():
     assert body.count(opcodes.wait_turn()) == 2, "the donors' second WaitTurn must not be optimised away"
 
 
-def test_reveal_loop_body_order_and_bytes():
-    """The moogle's own intro: poll (while != POP) -> show -> spine -> dressing -> DONE + clear
-    handshake -- pinned as a byte sequence, not just op names."""
-    body = _savepoint.reveal_loop_body(jump_to=(100, -200))
-    assert body.hex() == ("05d5207d0100217f02060022000101efff"    # while (MAP.Byte[32] != POP) Wait(1)
-                          "9300059400650b04109b00640038ff509c41e2006400000038ff0adc9d41"
-                          "5100fa3050509100014b00282837"           # dressing (donors' DOUBLE WaitTurn)
-                          "05d5207d02002c7f"                       # MAP.Byte[32] = DONE
-                          "05e543017d00002c7f")                    # MAP.Bit[323] = 0
-    # structural check, independent of the hex above: SHOW comes right after the poll, DONE + handshake
-    # clear are the last two statements
+# --- reveal_state_loop: THE VERTICAL HOP, no authored landing coordinate -----------------------------
+def test_reveal_state_loop_pop_lands_at_container_xz_raised_by_height():
+    """No authored landing coordinate exists any more -- the pop is a VERTICAL hop, so the landing is
+    computed as the container's own x/z with y raised by ``height``. Anchored on field 407's own donor
+    cask (kit x=-250, z=-571, y=+2, height=360): the emitted SetupJump raw args match the donor's own
+    bytes exactly (the coordinate-convention note above REVEAL_STATE_IN -- y is up-positive here and
+    negated on encode, so kit y=362 encodes as the donor's raw -362 = 65174)."""
+    body = _savepoint.reveal_state_loop(container_pos=(-250, -571, 2), height=360, steps=10)
+    from ff9mapkit.eb import disasm
+    jumps = [list(i.args) for i in disasm.iter_code(body, 0, len(body))
+             if disasm.op_name(i.op) == "SetupJump"]
+    assert jumps == [[65286, 65174, 64965, 10]]      # donor field 407's own raw SetupJump args
+
+
+def test_reveal_state_loop_hide_returns_to_containers_own_y():
+    """Stowing (HIDE_REQ) snaps the moogle back to the CONTAINER'S OWN spot -- y UN-raised -- the donor's
+    own case-102 MoveInstantXZY, byte-for-byte (same donor cask as the pop test above)."""
+    body = _savepoint.reveal_state_loop(container_pos=(-250, -571, 2), height=360, steps=10)
+    from ff9mapkit.eb import disasm
+    moves = [list(i.args) for i in disasm.iter_code(body, 0, len(body))
+             if disasm.op_name(i.op) == "MoveInstantXZY"]
+    assert moves == [[65286, 65534, 64965]]          # donor field 407's own raw MoveInstantXZY args
+
+
+def test_reveal_state_loop_structure_two_arms_and_loops_back():
+    """The moogle's WHOLE tag-1 (installed via ``replace_function_body``, not a one-shot ``intro``
+    splice): two state-gated arms (POP_REQ -> pop, HIDE_REQ -> hide), the hide arm's landing snap
+    (MoveInstantXZY) coming before its final hide, then a backward jump -- the donor's own permanent-loop
+    shape, so the moogle can pop out AND go back in, unlike the old one-shot intro."""
+    body = _savepoint.reveal_state_loop(container_pos=(0, 0, 0))
     from ff9mapkit.eb import disasm
     ops = [disasm.op_name(i.op) for i in disasm.iter_code(body, 0, len(body))]
-    assert ops[-1] == "op_05" and ops[-2] == "op_05"                # the two trailing set_var statements
-    show_idx = next(k for k, o in enumerate(ops) if o == "SetObjectFlags")
-    jump_idx = ops.index("Jump")
-    assert show_idx < ops.index("SetJumpAnimation") < jump_idx      # show precedes the whole spine
+    assert ops[-1] == "op_01"                                 # jump back to the top, forever
+    assert ops.count("op_02") == 2                             # exactly two gated arms
+    assert ops.count("SetObjectFlags") == 2                    # SHOW (pop) + HIDE (hide)
+    show_idx, hide_idx = [k for k, o in enumerate(ops) if o == "SetObjectFlags"]
+    assert show_idx < ops.index("SetJumpAnimation") < ops.index("Jump") < hide_idx
+    assert ops.index("MoveInstantXZY") < hide_idx              # snap back to the container BEFORE hiding
 
 
 def test_reveal_init_tail_byte_exact():
@@ -410,11 +435,25 @@ def test_cask_init_byte_shape():
 
 
 def test_cask_trigger_body_byte_exact_and_one_shot_guard():
+    """No handshake bit any more -- the guard, the POP_REQ write, and the poll all key off the SAME
+    state byte (:func:`reveal_vars`), independently reconstructed from the primitive encoders below and
+    pinned to a literal hex string."""
     body = _savepoint.cask_trigger_body()
-    assert body.hex() == "05d5207d0000217f020100042d05e543017d01002c7f05d5207d01002c7f05e543017f02060022000101f2ff2e04"
+    from ff9mapkit.content import region as _region2
+    from ff9mapkit.eb import opcodes as _op2
+    state_idx, _hs = _savepoint.reveal_vars(0)
+    expected = (_region2.if_block(_savepoint._cond_neq(_region2.GLOB_UINT8, state_idx,
+                                                        _savepoint.REVEAL_STATE_IN), _op2.RETURN)
+               + _op2.DISABLE_MOVE
+               + _region2.set_var(_region2.GLOB_UINT8, state_idx, _savepoint.REVEAL_STATE_POP_REQ)
+               + _savepoint._while_not_eq(_region2.GLOB_UINT8, state_idx, _savepoint.REVEAL_STATE_OUT,
+                                         _op2.wait(1))
+               + _op2.ENABLE_MOVE + _op2.RETURN)
+    assert body == expected
+    assert body.hex() == "05d5207d0000217f020100042d05d5207d01002c7f05d5207d0200217f02060022000101efff2e04"
     from ff9mapkit.eb import disasm
     ops = [disasm.op_name(i.op) for i in disasm.iter_code(body, 0, len(body))]
-    # the one-shot guard is the FIRST thing: if (state != IDLE) return -- structurally, an op_05 cond,
+    # the one-shot guard is the FIRST thing: if (state != IN) return -- structurally, an op_05 cond,
     # an op_02 (jump-if-false, skipping the return), then op_04 (return) right there
     assert ops[0] == "op_05" and ops[1] == "op_02" and ops[2] == "op_04"
     assert ops[3] == "DisableMove" and ops[-2:] == ["EnableMove", "op_04"]
@@ -430,20 +469,22 @@ def test_cask_model_resolves_via_prop_archetype_catalog():
 
 # --- inject_barrel_pop_reveal + full field build ------------------------------------------------------
 def test_inject_barrel_pop_reveal_round_trips_and_orders_cask_before_prediction():
-    g, tail, intro = _savepoint.inject_barrel_pop_reveal(
-        CLEAN, moogle_pos=(0, 0), jump_to=(30, -30))
+    """``inject_barrel_pop_reveal`` now returns a 2-tuple -- ``(new_data, moogle_init_tail)`` -- the
+    intro splice is gone; the moogle's loop is installed separately via ``reveal_state_loop`` +
+    ``replace_function_body`` (see build.py). The tail STOWS the moogle: hidden AND collision-shrunk."""
+    g, tail = _savepoint.inject_barrel_pop_reveal(CLEAN, container_pos=(0, 0))
     p = EbScript.from_bytes(g)
     assert p.to_bytes() == g
-    assert tail == _savepoint.reveal_init_tail()
-    assert intro == _savepoint.reveal_loop_body(jump_to=(30, -30))
+    assert tail == (_savepoint.reveal_init_tail()
+                    + opcodes.encode(0x4B, *_savepoint.REVEAL_IN_LOGICAL_SIZE))
+    assert tail.hex() == "93000e4b00080801"
     # a cask entry (a type-2 object, tags {0, 3}, no tag 1) now exists
     cask_entries = [e.index for e in p.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}]
     assert cask_entries
 
 
 def test_inject_barrel_pop_reveal_container_false_skips_the_cask():
-    g, _tail, _intro = _savepoint.inject_barrel_pop_reveal(
-        CLEAN, moogle_pos=(0, 0), jump_to=(30, -30), container=False)
+    g, _tail = _savepoint.inject_barrel_pop_reveal(CLEAN, container_pos=(0, 0), container=False)
     base_entries = sum(1 for e in EbScript.from_bytes(CLEAN).entries if not e.empty)
     new_entries = sum(1 for e in EbScript.from_bytes(g).entries if not e.empty)
     assert new_entries == base_entries                              # nothing was appended
@@ -476,49 +517,53 @@ def test_validate_reveal_style_unknown_value(tmp_path):
     assert any("reveal_style must be one of" in x and "'flying'" in x for x in probs)
 
 
-def test_validate_barrel_pop_requires_jump_to(tmp_path):
+def test_validate_barrel_pop_needs_no_landing_coordinate(tmp_path):
+    """The redesign made the landing purely DERIVED (the container's own x/z, raised by reveal_height) --
+    unlike the old hand-placed reveal_jump_to, a bare reveal_style = "barrel_pop" with no other reveal_*
+    keys at all must validate clean. (The old requirement -- 'reveal_jump_to ... hand-placed' -- is gone;
+    there is no longer any authored landing coordinate to require.)"""
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
     p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
-    probs = build.validate(build.FieldProject.load(p))
-    assert any("reveal_jump_to" in x and "hand-placed" in x for x in probs)
+    probs = [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
+    assert not probs
 
 
 def test_validate_reveal_keys_are_noops_error_outside_barrel_pop(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_jump_to = [1, 2]\n'), encoding="utf-8")
+    p.write_text(_field_toml('reveal_from = [1, 2]\n'), encoding="utf-8")
     probs = build.validate(build.FieldProject.load(p))
-    assert any("reveal_jump_to" in x and "no-ops" in x for x in probs)
+    assert any("reveal_from" in x and "no-ops" in x for x in probs)
 
 
 def test_validate_barrel_pop_requires_moogle(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nmoogle = false\n'),
-                encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nmoogle = false\n'), encoding="utf-8")
     probs = build.validate(build.FieldProject.load(p))
     assert any("needs the moogle" in x for x in probs)
 
 
-def test_validate_reveal_coordinate_keys_must_be_2_or_3_ints(tmp_path):
-    from ff9mapkit import build
+def test_validate_reveal_from_must_be_2_or_3_ints(tmp_path):
+    """``reveal_from`` (the container's own spot) is the ONLY surviving reveal_* coordinate key --
+    ``reveal_jump_to``/``reveal_face`` are gone entirely, TOML keys and function parameters alike."""
     cases = {
-        "reveal_jump_to": 'reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2, 3, 4]\n',
-        "reveal_from": 'reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nreveal_from = [1]\n',
-        "reveal_face": 'reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nreveal_face = [1, 2, 3]\n',
+        "too few": 'reveal_style = "barrel_pop"\nreveal_from = [1]\n',
+        "too many": 'reveal_style = "barrel_pop"\nreveal_from = [1, 2, 3, 4]\n',
     }
-    for key, lines in cases.items():
+    from ff9mapkit import build
+    for label, lines in cases.items():
         p = tmp_path / "s.field.toml"
         p.write_text(_field_toml(lines), encoding="utf-8")
         probs = build.validate(build.FieldProject.load(p))
-        assert any(key in x and "[x, z]" in x for x in probs), (key, probs)
+        assert any("reveal_from" in x and "[x, z]" in x for x in probs), (label, probs)
 
 
 def test_validate_reveal_steps_sfx_container_types(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\n'
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'
                              'reveal_steps = "ten"\nreveal_sfx = "boom"\nreveal_container = "yes"\n'),
                 encoding="utf-8")
     probs = build.validate(build.FieldProject.load(p))
@@ -530,25 +575,26 @@ def test_validate_reveal_steps_sfx_container_types(tmp_path):
 def test_validate_reveal_sfx_false_is_valid(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [1, 2]\nreveal_sfx = false\n'),
-                encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_sfx = false\n'), encoding="utf-8")
     probs = [x for x in build.validate(build.FieldProject.load(p)) if "savepoint" in x.lower()]
     assert not probs
 
 
 # --- act + barrel_pop composed: BOTH Init tails present, in the donor's order -------------------------
 def test_act_and_barrel_pop_compose_init_tails_in_donor_order(tmp_path):
+    """The moogle spawns STOWED: hidden AND collision-shrunk (see
+    ``test_inject_barrel_pop_reveal_round_trips_and_orders_cask_before_prediction``), so composed with the
+    ACT the Init tail is now a 3-step chain -- SetObjectFlags(14) -> SetObjectLogicalSize(8,8,1) ->
+    SetJumpAnimation(6503,26,30) -- not the old direct SetObjectFlags(14)->SetJumpAnimation adjacency."""
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\nact = true\n'),
-                encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nact = true\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
     mes, *_rest = build.collect_text(proj)
     sp_txids = _rest[-1]
     eb = build.build_script(proj, "us", {}, savepoint_txids=sp_txids)
     s = EbScript.from_bytes(eb)
     assert s.to_bytes() == eb
-    from ff9mapkit.eb import disasm
     found = False
     for e in s.entries:
         if e.empty:
@@ -559,17 +605,21 @@ def test_act_and_barrel_pop_compose_init_tails_in_donor_order(tmp_path):
         ops = list(s.instrs(f0))
         for k, i in enumerate(ops):
             if i.op == 0x93 and list(i.args) == [_savepoint.REVEAL_HIDE_FLAGS]:
-                nxt = ops[k + 1] if k + 1 < len(ops) else None
-                if nxt is not None and nxt.op == 0x94 and list(nxt.args) == [6503, 26, 30]:
+                nxt1 = ops[k + 1] if k + 1 < len(ops) else None
+                nxt2 = ops[k + 2] if k + 2 < len(ops) else None
+                if (nxt1 is not None and nxt1.op == 0x4B
+                        and list(nxt1.args) == list(_savepoint.REVEAL_IN_LOGICAL_SIZE)
+                        and nxt2 is not None and nxt2.op == 0x94 and list(nxt2.args) == [6503, 26, 30]):
                     found = True
-    assert found, "expected SetObjectFlags(14) immediately followed by SetJumpAnimation(6503,26,30)"
+    assert found, ("expected SetObjectFlags(14) -> SetObjectLogicalSize(8,8,1) -> "
+                   "SetJumpAnimation(6503,26,30) -- stow-collision write between the reveal's hide and "
+                   "the act's hop-clip preload")
 
 
 def test_act_and_barrel_pop_compose_without_act_no_second_tail(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\nact = false\n'),
-                encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\nact = false\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
     eb = build.build_script(proj, "us", {})
     s = EbScript.from_bytes(eb)
@@ -592,21 +642,21 @@ def test_act_and_barrel_pop_compose_without_act_no_second_tail(tmp_path):
 def test_cask_one_shot_guard_present_in_built_field(tmp_path):
     from ff9mapkit import build
     p = tmp_path / "s.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\n'), encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
     proj = build.FieldProject.load(p)
     eb = build.build_script(proj, "us", {})
     s = EbScript.from_bytes(eb)
     cask_entries = [e.index for e in s.entries if not e.empty and {f.tag for f in e.funcs} == {0, 3}]
     assert cask_entries
-    from ff9mapkit.eb import disasm
     for idx in cask_entries:
         f3 = s.entry(idx).func_by_tag(3)
         ops = list(s.instrs(f3))
         assert ops[0].op == 0x05 and ops[1].op == 0x02 and ops[2].op == 0x04   # cond ; jmp-false ; RETURN
-        # the guard's condition tests REVEAL_STATE_IDX (MAP.Byte[32]) for inequality against IDLE (0)
+        # the guard's condition tests REVEAL_STATE_IDX (MAP.Byte[32]) for inequality against IN (0) --
+        # only while stowed; once OUT the moogle itself is the interact target
         cond_bytes = eb[ops[0].off:ops[0].end]
         assert cond_bytes == _savepoint._cond_neq(_region.GLOB_UINT8, _savepoint.REVEAL_STATE_IDX,
-                                                  _savepoint.REVEAL_STATE_IDLE)
+                                                  _savepoint.REVEAL_STATE_IN)
 
 
 # --- the review fixes: per-save-point rendezvous vars, and the gated press-zone ----------------------
@@ -624,8 +674,8 @@ def test_reveal_vars_are_per_savepoint_not_per_field():
     assert {s for s, _ in seen}.isdisjoint({b // 8 for _, b in seen})
     # the emitted bodies must actually differ, not just the constants
     assert _savepoint.cask_trigger_body(0) != _savepoint.cask_trigger_body(1)
-    assert (_savepoint.reveal_loop_body(jump_to=(1, 2), index=0)
-            != _savepoint.reveal_loop_body(jump_to=(1, 2), index=1))
+    assert (_savepoint.reveal_state_loop(container_pos=(1, 2), index=0)
+            != _savepoint.reveal_state_loop(container_pos=(1, 2), index=1))
     # past the reserved band it must RAISE, never wrap into a neighbouring reserved var
     import pytest
     with pytest.raises(ValueError):
@@ -641,9 +691,9 @@ def test_two_barrel_pop_savepoints_do_not_share_vars(tmp_path):
         '[walkmesh]\nquad = [[-600,-600],[600,-600],[600,600],[-600,600]]\n\n'
         '[player]\nspawn = [0, 0]\n\n'
         '[[savepoint]]\nzone = [[-100,-100],[100,-100],[100,100],[-100,100]]\npos = [0, 0]\n'
-        'reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\nreveal_from = [5, -5, 10]\n\n'
+        'reveal_style = "barrel_pop"\nreveal_from = [5, -5, 10]\n\n'
         '[[savepoint]]\nzone = [[300,-100],[500,-100],[500,100],[300,100]]\npos = [400, 0]\n'
-        'reveal_style = "barrel_pop"\nreveal_jump_to = [430, -30]\n',
+        'reveal_style = "barrel_pop"\n',
         encoding="utf-8")
     proj = build.FieldProject.load(p)
     assert not [x for x in build.validate(proj) if "savepoint" in x.lower()]
@@ -657,7 +707,7 @@ def test_more_barrel_pops_than_reserved_vars_is_a_build_error(tmp_path):
     n = _savepoint.REVEAL_MAX_PER_FIELD + 1
     blocks = "".join(
         f'[[savepoint]]\nzone = [[{i*300-50},-50],[{i*300+50},-50],[{i*300+50},50],[{i*300-50},50]]\n'
-        f'pos = [{i*300}, 0]\nreveal_style = "barrel_pop"\nreveal_jump_to = [{i*300+30}, -30]\n\n'
+        f'pos = [{i*300}, 0]\nreveal_style = "barrel_pop"\n\n'
         for i in range(n))
     p = tmp_path / "s.field.toml"
     p.write_text(
@@ -675,7 +725,7 @@ def test_barrel_pop_gates_the_press_zone_but_instant_does_not(tmp_path):
     from ff9mapkit import build
     gate = _savepoint.gate_until_revealed(b"", 0)
     p = tmp_path / "bp.field.toml"
-    p.write_text(_field_toml('reveal_style = "barrel_pop"\nreveal_jump_to = [30, -30]\n'), encoding="utf-8")
+    p.write_text(_field_toml('reveal_style = "barrel_pop"\n'), encoding="utf-8")
     assert gate in build.build_script(build.FieldProject.load(p), "us", {})
     q = tmp_path / "inst.field.toml"
     q.write_text(_field_toml(""), encoding="utf-8")
