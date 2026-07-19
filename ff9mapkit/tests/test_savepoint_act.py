@@ -43,6 +43,28 @@ def test_obj_field_expression_matches_the_donor_snap():
     assert ins == bytes.fromhex("a1077803007f7803017f7803027f")
 
 
+def test_act_timing_bytes_are_the_donor_values():
+    """The Wait counts are LOAD-BEARING (the donor calibrated them to real clip/SFX durations -- act
+    decode item 9.4: 'copied verbatim alongside the opcodes'). Pin the emitted BYTE RUNS, so a mutated
+    constant fails here, not in a playtest (the review's mutation probe sailed through the old suite):
+    hop + chime + Wait(24) + landing thud, the pre-open Wait(12) + chime, and open + Wait(68) into the
+    latch. Also the exact SetTurnSpeed(32) opener and the player funcs' TurnTowardObject speed 16."""
+    body = _act_body()
+    hop_out = (opcodes.run_animation(6503) + _sp.act_sfx(1362)
+               + opcodes.wait(24) + _sp.act_sfx(2631))
+    hop_back = (opcodes.run_animation(6503) + _sp.act_sfx(1362)
+                + opcodes.wait(24) + _sp.act_sfx(682))
+    pre_open = (opcodes.wait(12) + _sp.act_sfx(1362)
+                + opcodes.run_script_async(4, 4, _sp.ACT_APPEAR_TAG))
+    open_hold = opcodes.run_animation(4645) + opcodes.wait(68)
+    for run_bytes in (hop_out, hop_back, pre_open, open_hold):
+        assert run_bytes in body, run_bytes.hex()
+    assert body.startswith(opcodes.encode(0x99, 32))            # SetTurnSpeed(32)
+    assert (_sp.ACT_HOP_AIR_WAIT, _sp.ACT_PROP_WAIT, _sp.ACT_OPEN_WAIT) == (24, 12, 68)
+    assert opcodes.wait(12) + opcodes.encode(0x93, 7) in _sp.act_prop_appear_body(3, 4641)
+    assert _sp.player_pose_body(3).startswith(opcodes.turn_toward_object(3, 16))
+
+
 # --------------------------------------------------------------------------- the act body, executed ---
 
 
@@ -62,14 +84,16 @@ def _run_act(body, **kw):
 
 
 def test_act_event_order_is_the_donor_sequence():
-    """Execute the act and assert the donor's order: hop -> props appear -> open -> save -> props hide
-    -> hop back -> release -- with the landing thuds direction-asymmetric (2631 out, 682 back)."""
+    """Execute the act and assert the donor's order: hop -> the pre-open beat -> props appear -> open
+    -> save -> props hide -> hop back -> release -- the landing thuds direction-asymmetric (2631 out,
+    682 back) and the accent chime x3 (hop out / pre-open / hop back; the review caught the pre-open
+    beat dropped -- field 300 @4559-4572)."""
     G, events, menus, windows, M = _run_act(_act_body())
     assert menus == [(4, 0)]
     anims = [e for e in events if e[0] == "anim"]
     assert [a[1][0] for a in anims] == [_sp.ACT_HOP_CLIP, _sp.ACT_OPEN_CLIP, _sp.ACT_HOP_CLIP]
     sfx = [e[1][1] for e in events if e[0] == "sfx"]
-    assert sfx == [_sp.SFX_HOP, _sp.SFX_LAND_OUT, _sp.SFX_HOP, _sp.SFX_LAND_BACK]
+    assert sfx == [_sp.SFX_HOP, _sp.SFX_LAND_OUT, _sp.SFX_HOP, _sp.SFX_HOP, _sp.SFX_LAND_BACK]
     reqs = [e for e in events if e[0] == "req"]
     assert [tuple(r[1]) for r in reqs] == [
         (4, 250, 64),                       # the player pose
@@ -265,8 +289,12 @@ def test_build_injects_the_act_cluster(tmp_path):
         tags = {f.tag for f in e.funcs}
         assert {0, _sp.ACT_APPEAR_TAG, _sp.ACT_HIDE_TAG} <= tags
         fa = e.func_by_tag(_sp.ACT_APPEAR_TAG)
-        ops = [i.op for i in disasm.iter_code(eb, fa.abs_start, fa.abs_end)]
-        assert 0x40 in ops and 0x9F in ops                       # the open clip + the grow-in
+        instrs = list(disasm.iter_code(eb, fa.abs_start, fa.abs_end))
+        ops = [i.op for i in instrs]
+        # the RIGHT open clip on the RIGHT prop -- the census's 4641-book / 4652-feather law (a clip
+        # swap between the two injections sailed through the old op-presence-only assertion)
+        assert any(i.op == 0x40 and i.args and i.args[0] == open_clip for i in instrs), open_clip
+        assert 0x9F in ops                                       # the grow-in
         f0 = e.func_by_tag(0)
         init_ops = [i.op for i in disasm.iter_code(eb, f0.abs_start, f0.abs_end)]
         assert 0x93 in init_ops and 0x80 in init_ops             # spawns hidden, shadow off

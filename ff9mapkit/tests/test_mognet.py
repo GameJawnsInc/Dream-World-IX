@@ -121,7 +121,7 @@ def _expr_operand(raw: bytes, i) -> bytes:
 _ACT_OPS = {0x40: "anim", 0x41: "waitanim", 0x42: "stopanim", 0x36: "turn", 0x51: "turnobj",
             0x50: "waitturn", 0x99: "turnspeed", 0x47: "headfocus", 0x93: "flags", 0x9F: "size",
             0x94: "jumpanim", 0xA1: "pos", 0xA8: "pathing", 0x7F: "shadow_on", 0x80: "shadow_off",
-            0xC8: "sfx"}
+            0xC8: "sfx", 0x22: "wait"}    # Wait recorded too -- the donor calls its counts load-bearing
 _REQ_OPS = {0x10: "req", 0x12: "reqsw", 0x14: "reqew"}
 
 
@@ -160,13 +160,13 @@ def run(body: bytes, G: bytearray | None = None, choices=None, menus=None, windo
         i, nxt = disasm.read_code(raw, pos)
         if i.op == 0x05:
             last = _eval_expr(raw[i.off + 1:i.off + i.length], G, sysread, party, M)
-        elif i.op == 0x01:                             # unconditional hop -- SIGNED (a while's back-jump)
-            d = i.args[0]
-            nxt += d - 0x10000 if d >= 0x8000 else d
-        elif i.op == 0x02:                             # jump-if-false
+        elif i.op in (0x01, 0x03):                     # JMP / JMP_IF -- SIGNED int16, the engine's own
+            d = i.args[0]                              #   read (EBin bra/bne; disasm.jump_target agrees;
+            d = d - 0x10000 if d >= 0x8000 else d      #   the donor's handshake poll is an 0x03 back-jump)
+            if i.op == 0x01 or last:
+                nxt += d
+        elif i.op == 0x02:                             # JMP_IFNOT -- the engine reads this one UNSIGNED
             nxt += 0 if last else i.args[0]
-        elif i.op == 0x03:                             # jump-if-true
-            nxt += i.args[0] if last else 0
         elif i.op == 0x0B:                             # the op_0B switch -- dispatch on the last expr
             info = disasm.decode_switch(i)
             edge = next((e for e in info.edges if e.value == last),

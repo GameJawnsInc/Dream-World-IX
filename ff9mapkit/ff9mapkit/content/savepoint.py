@@ -205,6 +205,7 @@ def party_dispatch(*, min_size: int = DEFAULT_PARTY_MIN, locked: int = DEFAULT_P
 #   RunScriptAsync(4, 250, <pose>)      -- the player turns to watch (a grafted player tag)
 #   SetPathing(1); Wait(1); EnableShadow; WaitAnimation ; TurnTowardObject(250, 32); WaitTurn
 #   WindowAsync(1, 128, <line>)         -- the moogle's save line, non-blocking
+#   Wait(12) ; sfx 1362                 -- the pre-open accent beat (field 300 @4559-4572; also in 810)
 #   RunScriptAsync(4, <book>, 37) ; RunScriptAsync(4, <feather>, 37)   -- the props snap to it + open
 #   RunAnimation(4645) "SAVE_OPEN" ; Wait(68)
 #   GLOB(184)=1 ; Wait(3) ; Menu(4,0) ; Wait(3) ; GLOB(184)=0          -- save_act(), unchanged
@@ -244,7 +245,8 @@ ACT_LERP_STEPS = 14          # the donor lerp divisor; the loop writes frames 0.
 ACT_HANDSHAKE_BIT = 322      # MAP.Bit[322] -- the donor's own async-release rendezvous bit, verbatim
                              # (transient MAP scope; clear of the kit's cutscene 80+ / init 144-159 bands)
 SFX_BANK = 53248             # RunSoundCode3 bank -- every act sfx uses it
-SFX_HOP = 1362               # hop accent (x4 per act in the donor)
+SFX_HOP = 1362               # the act's accent chime: x3 in the act itself (hop out / pre-open / hop
+                             # back); the donor's 4th instance accompanies its menu redisplay, not the act
 SFX_LAND_OUT = 2631          # landing thud, hop OUT
 SFX_LAND_BACK = 682          # landing thud, hop BACK (deliberately different)
 SFX_POOF = 2979              # the book's appear "poof" (book only, not the feather)
@@ -372,6 +374,10 @@ def act_save_body(*, book_uid: int, feather_uid: int, pose_tag: int, release_tag
     out += opcodes.turn_toward_object(PLAYER_UID, ACT_TURN_SPEED) + opcodes.wait_turn()
     if act_txid is not None:
         out += opcodes.window_async(1, 128, int(act_txid))            # the save line, non-blocking
+    # the pre-open accent beat -- Wait(12) + the chime, byte-present in every donor between the save
+    # line and the prop dispatch (field 300 @4559-4572, field 810 @561-575); the adversarial review
+    # caught it dropped. Unconditional: the beat belongs to the props' entrance, not the window.
+    out += opcodes.wait(ACT_PROP_WAIT) + act_sfx(SFX_HOP)
     out += opcodes.run_script_async(ACT_REQ_LEVEL, int(book_uid), ACT_APPEAR_TAG)
     out += opcodes.run_script_async(ACT_REQ_LEVEL, int(feather_uid), ACT_APPEAR_TAG)
     out += opcodes.run_animation(ACT_OPEN_CLIP)
