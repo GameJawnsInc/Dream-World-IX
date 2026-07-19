@@ -217,6 +217,32 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   catalog), the **"secondary mains rect"** phenomenon, the **strip PLACEMENT policy** (the real remaining
   dunes-carry blocker — a proven rect is not an authoring recipe), and the **visual modality** (zero offline-eye
   renders ran).
+  **★ ROUND 2 DONE same day** (`314f13a`; 5 lanes × 3 lenses, 20/21 agents — **no shipped-code contradiction**,
+  round 2 cross-checked shared objects between lanes *before* publishing, exactly what round 1 failed to do):
+  **brush SETTLED `False`** — the cross-block-aware adjacency scan (the blind spot every wall figure in this arc
+  shared: within-block edges only) was built and run map-wide, adds **zero** new evidence for brush/scrub/dunes
+  while proving itself non-null on the desert control (+9/1838 tris); brush and scrub **tie at one open-sea face
+  each** and both fail the canyon bar. No family carries an unset `wall_coastal` any more · **topo-16 CLOSED as a
+  SEAM-DRESSED ground** — 100.0% zero-residual decomposition into desert mains (36.5%) + both shipped STRIPS
+  entries (50.2%+13.3%), independently re-derived and byte-identical at 5dp; its strip choice tracks its real
+  neighbour (all 56 desert|dunes-strip tris sit in exactly the 4 of 6 blocks containing dunes); belongs in
+  NEITHER table · **a genuinely NEW second desert ground rect** `du=0.85058 dv=-0.11425` (5-block cluster,
+  proven-5dp, matching none of 21 catalogued regions; **not** the edge decal despite u-origins 0.85058 vs
+  0.85059 — a >0.2 v-gap, a coincidence that cost a round) shipped data-only as
+  `grassland.DESERT_MAINS_SECONDARY`, its "geographically isolated" framing STRUCK (block (13,4) is
+  PRIMARY-exact and borders the secondary cluster — the rects interleave). **It surfaced as an apparent CONTROL
+  FAILURE: read a control failure before you explain it away** · **the OFFLINE EYE ran for the first time in
+  this arc's ground-family work** and immediately paid — grass|desert reads as an ordinary hard jigsaw boundary
+  with NO visible blend ribbon (placement likely cosmetically free) while **desert|dunes shows a genuine soft
+  halo (placement matters)**, which narrows all remaining work to desert|dunes; correction from review: the
+  decal's "~47% mainstream" conflated block-INCIDENCE with AREA share (~13% of desert tris) — incidence ≠ extent.
+- [ ] **The ecotone strip PLACEMENT policy (desert|dunes)** — **THE ARC'S ACTUAL REMAINING BLOCKER on the dunes
+  patch carry**, and all that stands between it and a mint. Depth-alone determinism is FALSIFIED (0.5–3.1%
+  purity); the real structure is a locally-alternating small-step **dither** (|Δrow|=1 dominant, negative lag-1
+  autocorrelation, adjacent-same-row 9.8% vs a 25.2% shuffled baseline) riding a soft family-relative bias — but
+  the recipe is speculative: unimplemented, unrendered, untested. Unexplained: grass|desert's row marginals
+  reject uniformity (χ²=11.92), desert|dunes' do not (χ²=1.62). Round 3 (implement + render, scoped to
+  desert|dunes) is IN FLIGHT; it terminates at a playtest the agents cannot run.
 - [ ] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
   blocks; the realistic beaches-on-our-islands path now the mint ladder is dead. (Canyon expected near-empty per the
   re-censused wall envelope.)
