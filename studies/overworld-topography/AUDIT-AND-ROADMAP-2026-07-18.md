@@ -122,10 +122,16 @@ ensemble/free-ride mechanism, the MOD-OVERWRITE gate, and every recorded dead-en
   (not the documented :1180); mechanism itself fully verified, incl. `[NonSerialized]` and no downstream gate.
 - [x] **terrain "591-up/0-down" winding figure** is block-(16,14)-specific, presented as general. The other three
   reshape "mesh bugs" verified solid (incl. live byte-identical boundary test across (2,7)+(2,8)).
-- [ ] **LOAD-BEARING RULE mechanism nuance** — "overlay loses the raycast" is the wrong mechanism: a render-only
+- [x] **LOAD-BEARING RULE mechanism nuance** — "overlay loses the raycast" is the wrong mechanism: a render-only
   overlay is simply **never registered** in ActiveWalkMeshes; and overriding the Object part on a block whose stock
   prefab carries a real ObjectForm1 (town blocks) is a genuine walkability edge the universal framing misses.
-  *(rule-of-thumb stands; split on the restatement, confirmed on the mechanism claim)*
+  *(rule-of-thumb stands; split on the restatement, confirmed on the mechanism claim)* — **FIXED 2026-07-19**,
+  both halves source-verified against the engine (not transcribed): `WMBlock.ActiveWalkMeshes` serves only
+  Form1/Form2 lists, and `RegisterBareObjectOverride` (`WMWorld.cs:831`) calls `AddForm1Transform` but never
+  `AddWalkMeshForm1` (`:846`) ⇒ non-registration, no raycast contest. The town-block edge is real and now
+  documented with its selector: `:556` (`prefab.ObjectForm1` → `RegisterBlockComponent(form1: true)` → the
+  override replaces `mesh` at `:790` and IS registered at `:813`) vs `:563` (bare → render-only). Corrected in
+  the skill reference `terrain-entrance.md` and memory `project-ff9-overworld-terrain-authoring`.
 
 ### E. Precision nicks in the cliff/wall constants *(mostly split 1-1 — real data, arguably in-tolerance)*
 - [x] Desert top-edge V is **not** zero-spread (IQR 0.018–0.029 across topo45/46); grass/highland/topo-27 genuinely
@@ -188,9 +194,92 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   byte-identical across discs. OVERWORLD_ENGINE.md's pack section corrected accordingly.
 
 ### SOON
-- [ ] **Resolve ground-family + ecotone decode gaps** (6.0) — topo-16 dirt has no translation formula; canyon's
+- [x] **Resolve ground-family + ecotone decode gaps** (6.0) — topo-16 dirt has no translation formula; canyon's
   un-chased 3rd v-level; topo 7/62 lumped with 49 unconfirmed; the earmarked 5dp ecotone strip decode. **Gates** the
-  ensemble-carry and mixed-biome items below — sequence first.
+  ensemble-carry and mixed-biome items below — sequence first. — **★ ROUND 1 DONE 2026-07-19**
+  (`3f99959` study + `b5bb1a7` productization; full record →
+  `studies/overworld-topography/GROUND-FAMILY-DECODE-2026-07-19.md`). 6 decode lanes × 3 adversarial lenses
+  (REPRODUCE/METHOD/OVER-CLAIM) + a completeness critic; 25 agents, 0 errors. Shipped: **the `wall_coastal` gate
+  was failing OPEN** — `island.py` tested `is False`, so the *unset* key on scrub/brush/dunes returned `None` and
+  every unmeasured family was silently ALLOWED to mint an island (its sibling `transplant.py` was already
+  `is not True`); now fail-closed at both chokepoints · scrub=`False` (touches topo-58 exactly ONCE map-wide),
+  dunes=`False` (ZERO topo-58 edges anywhere), brush deliberately UNSET → fail-closes · the new **`STRIPS`
+  table** (grass|desert `du=0.52442,dv=-0.04687`; desert|dunes `du=-0.13476,dv=-0.09863`), which **corrected a
+  shipped earmark whose dv was off by exactly one row pitch** — minted THE UNION METHOD (a single-side fit ties
+  between row alignments because B's row0 is 1 texel shorter than rows 1-3) · `MOUNTAIN_ROCK_TOPOS` {49,7,62}→{49}
+  (7 = flat walkable ground, 62 = steep stream-bank; absent from all 4 qualified donors, A/B-proven no-op:
+  Uaho byte-identical, others identical refusal) · two corrected tallies (desert 12/13→**19/20 map-wide**; the
+  canyon wall figure wrong a SECOND time — **594 of its 655 tris are topo-49 MURAL**, true wall = 60 tris/8 faces).
+  New laws: **A UV-RECT COUNT IS NOT A TOPO COUNT** · **naive global-pooled min/max over specimens is unsafe**
+  (broke in 3 lanes). ⚠ Deferred to round 2 (in flight): brush's `wall_coastal` (its n=1 open-sea face is *weaker*
+  evidence than the scrub face just refused — an inconsistent bar), a canyon 2nd wall constant (43 tris, too thin),
+  **topo-16's write-up** (cross-lane defect — its "unrecorded" zones are byte-identical to this round's own strip
+  catalog), the **"secondary mains rect"** phenomenon, the **strip PLACEMENT policy** (the real remaining
+  dunes-carry blocker — a proven rect is not an authoring recipe), and the **visual modality** (zero offline-eye
+  renders ran).
+  **★ ROUND 2 DONE same day** (`314f13a`; 5 lanes × 3 lenses, 20/21 agents — **no shipped-code contradiction**,
+  round 2 cross-checked shared objects between lanes *before* publishing, exactly what round 1 failed to do):
+  **brush SETTLED `False`** — the cross-block-aware adjacency scan (the blind spot every wall figure in this arc
+  shared: within-block edges only) was built and run map-wide, adds **zero** new evidence for brush/scrub/dunes
+  while proving itself non-null on the desert control (+9/1838 tris); brush and scrub **tie at one open-sea face
+  each** and both fail the canyon bar. No family carries an unset `wall_coastal` any more · **topo-16 CLOSED as a
+  SEAM-DRESSED ground** — 100.0% zero-residual decomposition into desert mains (36.5%) + both shipped STRIPS
+  entries (50.2%+13.3%), independently re-derived and byte-identical at 5dp; its strip choice tracks its real
+  neighbour (all 56 desert|dunes-strip tris sit in exactly the 4 of 6 blocks containing dunes); belongs in
+  NEITHER table · **a genuinely NEW second desert ground rect** `du=0.85058 dv=-0.11425` (5-block cluster,
+  proven-5dp, matching none of 21 catalogued regions; **not** the edge decal despite u-origins 0.85058 vs
+  0.85059 — a >0.2 v-gap, a coincidence that cost a round) shipped data-only as
+  `grassland.DESERT_MAINS_SECONDARY`, its "geographically isolated" framing STRUCK (block (13,4) is
+  PRIMARY-exact and borders the secondary cluster — the rects interleave). **It surfaced as an apparent CONTROL
+  FAILURE: read a control failure before you explain it away** · **the OFFLINE EYE ran for the first time in
+  this arc's ground-family work** and immediately paid — grass|desert reads as an ordinary hard jigsaw boundary
+  with NO visible blend ribbon (placement likely cosmetically free) while **desert|dunes shows a genuine soft
+  halo (placement matters)**, which narrows all remaining work to desert|dunes; correction from review: the
+  decal's "~47% mainstream" conflated block-INCIDENCE with AREA share (~13% of desert tris) — incidence ≠ extent.
+- [ ] **The ecotone strip PLACEMENT policy (desert|dunes)** — **THE ARC'S ACTUAL REMAINING BLOCKER on the dunes
+  patch carry**, and all that stands between it and a mint. Depth-alone determinism is FALSIFIED (0.5–3.1%
+  purity); the real structure is a locally-alternating small-step **dither** (|Δrow|=1 dominant, negative lag-1
+  autocorrelation, adjacent-same-row 9.8% vs a 25.2% shuffled baseline) riding a soft family-relative bias — but
+  the recipe is speculative: unimplemented, unrendered, untested. Unexplained: grass|desert's row marginals
+  reject uniformity (χ²=11.92), desert|dunes' do not (χ²=1.62).
+  **★ ROUND 3 RAN IT — result INCONCLUSIVE** (`dunes_strip_emitter.py`). A real seeded BFS emitter
+  (per-touch-category empirical PMF × the measured |Δrow| prior) reproduces the aggregate dither
+  (same-row 9.8% vs stock's 9.8%). It was initially judged FALSIFIED on a tight unshaded render —
+  **that verdict is RETRACTED**. ⚠ **THE INSTRUMENT WAS NEVER CALIBRATED** (`render_calibration.py`,
+  prompted by the user spotting hard edges in the render's own STOCK panel): rendering 100% unmodified
+  stock at the same settings shows *pure stock desert* as a blatant repeating square grid (2.3×
+  edge-enrichment on the 4u lattice — FF9 ground IS a 4u mosaic, so 32× unshaded exposes the lattice
+  everywhere), and the missing **STOCK-vs-STOCK** control shows four *unmodified* desert|dunes windows
+  spanning smooth-organic (18,3) to distinctly boxy (13,12). **Stock varies against itself as much as
+  synth differed from the single stock window it was compared to — the test had no resolving power.**
+  Builder + 2 judges + orchestrator all read "stock curves, synth staircases" into a panel where stock
+  does no such thing. **NEW LAW: CALIBRATE THE INSTRUMENT BEFORE YOU JUDGE WITH IT** — render known-good
+  stock through the same pipeline and establish how much stock varies against ITSELF before calling a
+  synthesis different. (Same class as the GUI study's "an empty tempdir is not a clean room".)
+  **★ THE CALIBRATED RE-RUN** (`dunes_strip_emitter_v2.py`) puts a real NULL in the sheet — TRANSPLANTS
+  that lay one cluster's GENUINE stock rows over the render window (31 samples), scored by mean
+  |Δ luminance| between adjacent strip cells: STOCK 5.01, **null band 3.83–5.85**, SYNTH 5.33,
+  **emitter 20/20 seeds INSIDE (4.62–5.62)**, iid-random 4.49 inside, and **all-row-0 = 0.00 the ONLY
+  one OUTSIDE**. So the emitter is inside stock's own range (the FALSIFIED verdict is contradicted, not
+  just unsupported), and **round 3's eye had the controls BACKWARDS** — it called all-row-0 "closest to
+  stock" when that is the single detectably-wrong assignment. **ROOT CAUSE of the whole episode: the 4
+  strip rows differ in mean brightness by only ~5.9/255 ≈ 2.3%** — nearly the same tile, so no
+  assignment can look very different, which is why every variant matched at normal zoom.
+  ⇒ **the dunes-carry blocker shrinks from "a placement policy must be solved" to "it must merely be
+  NON-DEGENERATE"** (the emitter qualifies; only all-one-row is out of family). ⚠ Limits: the metric
+  cannot separate the emitter from iid-random ("not worse than stock" ✔, "better than random" ✘), and
+  the emitter's lag-1 miss (+0.073 vs −0.423) is a real structural difference it does not capture.
+  **The round's real prize is the discovery that explains the failure: the 4 strip rows are NOT abstract
+  dither buckets — they are a literal hand-painted 4-step dune COVERAGE-DENSITY gradient** (row0 ≈20%
+  dune blobs on desert red → row3 ≈80%+ dense mottling), seen for the first time in an atlas crop. Per-cell
+  sampling fails *because* adjacent cells must cohere into a spatially smooth density gradient.
+  **NEXT DESIGN (named, not attempted):** sample one CONTINUOUS scalar coverage field along the seam,
+  interpolate spatially, snap each cell to the nearest row — then re-run the same tight-zoom render against
+  the same specimen + controls before touching shipped code.
+  ⚠ **And a stakes-lowering finding:** at wide and medium zoom *all four* variants (incl. both wrong
+  controls) are near-indistinguishable — the strip is a 1-cell trim and the silhouette is set by the mains
+  geometry beneath. Whether a full placement policy is needed for a shippable mint is now itself open.
+  Nothing shipped to `ff9mapkit/` from round 3; the emitter is a documented negative result.
 - [ ] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
   blocks; the realistic beaches-on-our-islands path now the mint ladder is dead. (Canyon expected near-empty per the
   re-censused wall envelope.)

@@ -19,8 +19,20 @@
 ## Walkable terrain — `world-terrain`
 
 - Verbatim (memory `project-ff9-overworld-terrain-authoring`): "**THE LOAD-BEARING RULE: RESHAPE the stock
-  terrain verts; do NOT OVERLAY a new mesh.**" Reshape = walkable ground; overlay = non-walkable decoration
-  (the stock surface underneath keeps winning the ground-raycast).
+  terrain verts; do NOT OVERLAY a new mesh.**" Reshape = walkable ground; overlay = non-walkable decoration.
+- **The mechanism is NON-REGISTRATION, not raycast precedence** (source-verified 2026-07-19, `WMWorld.cs`) — an
+  overlay does not "lose" the ground-raycast to the stock surface; it never enters the raycast at all.
+  `WMBlock.ActiveWalkMeshes` returns only `Form1WalkMeshes`/`Form2WalkMeshes`, and the render-only override path
+  `RegisterBareObjectOverride` (:831) calls `AddForm1Transform` **but deliberately never `AddWalkMeshForm1`**
+  (:846) — so the mesh is renders-and-visibility only, and there is no contest to lose.
+- ⚠ **The rule is not universal — an Object override on a TOWN block IS walkability-affecting.** The two paths
+  are selected by whether the stock prefab carries a real `ObjectForm1`: bare block (`!ObjectForm1 &&
+  TerrainForm1`, :563) → the render-only path above; block WITH a stock `ObjectForm1` (:556) →
+  `RegisterBlockComponent(..., form1: true, ...)`, where a loose `.ff9mesh` override **replaces** `mesh` (:790)
+  and **is** fed to `AddWalkMeshForm1` (:813). On those blocks an override becomes real collision — and a whole
+  3D building mesh as a collider turns its back-face-culled walls + below-ground base into INVISIBLE collision,
+  which is exactly why the bare path refuses it. Collision for authored buildings comes from the
+  `world-entrance` TERRAIN footprint (topograph 59 under the hull) instead.
 - The 4 mesh bugs baked into `world-terrain` (each hit + fixed in-game): (1) LOCAL frame — block verts are
   block-local; (2) Winding — tris must be UP-facing by the GEOMETRIC winding normal; (3) Index buffer — emit
   fresh verts per triangle (shared verts per cell desync `flat_index`); (4) Multi-block seam — apply the same
