@@ -647,16 +647,21 @@ register_text_block = true
 zone = [[-100,-100],[100,-100],[100,100],[-100,100]]
 [savepoint.mognet]
 name = "Mogwai"                  # the new identity -- appended as roster row 41
-accept = [55]                    # letter variants deliverable TO this moogle (49..63)
+accept = [{ variant = 55, letter = "So good to hear from you, kupo!",
+            from = "Kumop", title = "A Warm Hello" }]   # deliverable TO this moogle; from+title -> re-readable
 give = { variant = 56, to = "Kupo" }   # its own letter: variant 49..63, to = a roster name or id
+received = [{ variant = 57, from = "Kuppo", title = "News From The Mines",
+              letter = "The mines are quiet again, kupo.", requires_flag = 8720 }]  # story auto-arrival
 ```
 
 | key | meaning |
 |---|---|
 | `name` | **required** — the moogle's roster name (identity id 41). One network moogle per field. |
-| `accept` | letters this moogle takes delivery of: bare variant ids (`49..63`) or `{ variant, letter = "..." }` tables. A `letter` body is shown on the REAL full-screen letter (the stock header — moogle portrait + "From <sender> to <recipient>" — is added for you; line breaks are yours). |
+| `accept` | letters this moogle takes delivery of: bare variant ids (`49..63`) or `{ variant, letter = "..." }` tables. A `letter` body is shown on the REAL full-screen letter (the stock header — moogle portrait + "From <sender> to <recipient>" — is added for you; line breaks are yours). Add **`from` + `title`** (both) and the delivered letter also joins the **Read mail** list, re-readable forever. |
+| `received` | **auto-arriving** letters — the moogle's own pen-pal mail, no player delivery involved. Each entry needs `variant` (`49..63`), `from` (a roster name/id), `title` (its Read-mail row), `letter` (the body); optional `requires_flag` / `requires_scenario` gate the arrival (neither = arrives on the first Mognet open). Arrival announces, shows the letter once, and latches — after that it lives in Read mail. |
 | `give` | `{ variant, to }` — the one letter it hands out (one-shot; a declined offer re-offers). `to` = a real roster name (`"Kupo"`) or id. Building resolves names against **your install's** roster. |
 | `mognet_row` / `accept_prompt` / `accept_yes` / `accept_no` / `thanks` / `give_prompt` (`{to}` = the recipient) / `give_yes` / `give_no` / `give_line` / `nothing` / `erase` | wording overrides; all have neutral defaults. `thanks` may use `[TEXT=0,0]` — the sender's roster name. `status_none` overrides the no-mail line of the persistent mail-STATUS box (the bottom-left "You have a letter from X to Y" every real moogle shows while Mognet is open; the list lines are structural). |
+| `menu_prompt` / `accept_row` (`{name}` = this moogle) / `read_row` / `cancel_row` / `read_prompt` / `arrive_line` | wording for the 3-row Mognet submenu (**Give \<name\> a letter / Read mail / Cancel** — shown only when a delivery is pending or a letter is known, rows masked like stock), the "which letter" list, and the arrival announcement. |
 
 Requires the FF9 install at **build** time (the 41 real names are extracted from your own game files —
 the kit ships none). On stock fields the new name renders blank (their 41-row tables); everything else
@@ -680,11 +685,11 @@ flag = "chest_potion"     # REQUIRED: the opened-flag (a [[flag]] name, recommen
 [[chest]]                 # a gil chest
 pos = [120, 80]
 gil = 250
-flag = 8521               # ...or a raw safe-band index (>= 8512)
+flag = 8721               # ...or a raw safe-band index (>= 8712)
 
 [[flag]]                  # define the named opened-flag
 name  = "chest_potion"
-index = 8520
+index = 8720
 ```
 
 | key | meaning |
@@ -693,7 +698,7 @@ index = 8520
 | `model` | OPTIONAL chest **variant** — `"F0"` (default), `"F1"`, `"F2"`, `"F3"` (or a raw id `75`/`91`/`701`/`702`). Each carries its own lid animation + open/closed poses (decoded from the real game). FF9 ships these as per-zone duplicate IDs, so there are really only **two distinct looks**: extracting the models confirms **F1 ≡ F3** (byte-identical mesh + textures) and **F0 ≡ F2** (same mesh; F2 only differs by an *unused magenta dummy* texture, so it renders the same as F0). Use `F0` and `F1` for the two real looks; `F2`/`F3` exist for fidelity to the game's IDs. |
 | `item` | `[item, count]` — the reward; `item` is an **id or a name** (`"Potion"`, also gear). Set **`item` OR `gil`**, not both. |
 | `gil` | gil reward instead of an item. |
-| `flag` | **REQUIRED** — the save-persistent **opened-flag** bit (the chest re-poses OPEN once looted, forever). A **`[[flag]]` name** (recommended) or a **safe-band index `≥ 8512`**. It's *not* auto-allocated: a positional auto bit would shift if you reorder chests, and FF9's real chest bitfield (`8376–8511`) may already be set in a player's save — a defined safe-band flag is resilient to both. A named `[[flag]]` is also campaign-unique by name. |
+| `flag` | **REQUIRED** — the save-persistent **opened-flag** bit (the chest re-poses OPEN once looted, forever). A **`[[flag]]` name** (recommended) or a **safe-band index `≥ 8712`**. It's *not* auto-allocated: a positional auto bit would shift if you reorder chests, and FF9's Mognet lock band (`8376–8511`, the letter one-shot locks) may already be set in a player's save — a defined safe-band flag is resilient to both. A named `[[flag]]` is also campaign-unique by name. |
 | `requires_flag` / `requires_flag_clear` | OPTIONAL story gate (a `[[flag]]` name or index) — the chest only **appears** while that flag is SET / CLEAR (a quest-reward chest that materializes after a beat). Distinct from `flag` (the opened bit). Same gating as `[[npc]]`/`[[event]]`. |
 | `face` | OPTIONAL facing `0–255` (`0`=south, `64`=west, `128`=north, `192`=east) — rotate the chest model. |
 | `message` | OPTIONAL — replace *"Received \<item\>!"* with your own text (you own the `[WDTH]`/window codes). |
@@ -757,8 +762,8 @@ looted chest stays looted, a one-time scene stays played. (The kit uses the pers
 not the transient per-field *Map* bool.) That's how the world gains state: hit a switch (event
 `set_flag`) → a guard appears (`[[npc]] requires_flag`) and a door unlocks (`[[gateway]]
 requires_flag`). The kit's auto `once` flags occupy a high band (from **8000**). **Pick your explicit
-flag indices in the provably-safe band [8512, 16320)** — real FF9 uses bit-flags up to **8511** (the
-treasure-chest "opened" bitfield is bits **8376–8511**), so an index there silently corrupts the
+flag indices in the provably-safe band [8712, 16320)** — real FF9 uses the Mognet lock band (bits **8376–8511**) and the
+read-mail payload bytes (bits **8512–8711**, whole-byte-written by ordinary play at any moogle), so an index there silently corrupts the
 player's save. The lint enforces this. For unbounded mod state beyond simple flags, Memoria also
 provides save-backed vector/dictionary stores (a future kit feature).
 
@@ -768,7 +773,7 @@ and gate by it — readable, and the kit checks both sides resolve to the same b
 ```toml
 [[flag]]
 name  = "lever_pulled"
-index = 8520            # must be in [8512, 16320), clear of real-FF9 usage
+index = 8720            # must be in [8712, 16320), clear of real-FF9 usage
 
 [[gateway]]
 to = 4002
@@ -812,9 +817,9 @@ words = [
 - **`scenario`** — an int (`0`–`32767`; every real beat is ≤ 12000) or an area name resolved against the
   registry (`ff9mapkit flags` lists them). Writes the save-backed ScenarioCounter (`gEventGlobal` byte 0).
 - **`flags`** — a list of `{ flag = <index|name>, value = 0|1 }`. Unlike authored `set_flag` (which must use
-  the safe `[8512, 16320)` band), a `[startup]` preset is **meant** to assert REAL FF9 story bits (below
-  8512) — that's the point — so the safe-band rule does **not** apply. The lint still flags a preset into a
-  genuinely *reserved* region (the chest bitfield, the byte-23 menu handshake, worldmap-unlock bits, the
+  the safe `[8712, 16320)` band), a `[startup]` preset is **meant** to assert REAL FF9 story bits (below
+  8712) — that's the point — so the safe-band rule does **not** apply. The lint still flags a preset into a
+  genuinely *reserved* region (the Mognet lock band + payload, the byte-23 menu handshake, worldmap-unlock bits, the
   choice scratch), which would corrupt engine/save state rather than assert a beat.
 - **`words`** — a list of `{ byte = N, value = V }` save-backed **16-bit WORD** writes into `gEventGlobal`
   (`byte` = `0`–`2046`, `value` = `0`–`65535`). Use it to seed a multi-bit avail-WORD — e.g. the ATE-availability
@@ -854,7 +859,7 @@ once = true                                 # default: fire once ever (a save-pe
 - The gates (`requires_scenario` / `requires_flag`) sit *outside* the once-check, so a hook whose condition
   isn't met yet returns without spending its once-flag — it can still fire on a **later** entry once the beat
   is reached.
-- `set_scenario` / `set_flags` follow the same band rules as `[startup]` (assert REAL story bits below 8512;
+- `set_scenario` / `set_flags` follow the same band rules as `[startup]` (assert REAL story bits below the safe band;
   the lint flags a write into a genuinely *reserved* region). `message` shares the field's `.mes` block.
 - A campaign member's per-member flag block is fully reserved, so a `once` hook there needs an explicit
   `flag = N` (the build raises a clear error otherwise).

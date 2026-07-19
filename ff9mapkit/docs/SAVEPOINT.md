@@ -114,7 +114,24 @@ refuses with zero writes, delivery compacts without holes, Save never touches a 
 Two honest limits: **inbound** (a real moogle addressing OUR moogle) needs a verbatim donor fork — the
 recipient is a per-field immediate constant — and is a deferred, opt-in rung; and on **stock fields**
 the new name renders blank (their rosters have 41 rows; fails safe to an empty string). Outbound — our
-moogle's letter delivered BY a real moogle — works on stock Memoria unchanged. Read-mail is deferred.
+moogle's letter delivered BY a real moogle — works on stock Memoria unchanged.
+
+**READ-MAIL (decoded 2026-07-19; donors 115/300/418/1102 + a 58-field census — one invariant
+template).** The moogle re-reads its OWN received letters, stock's third mechanic, now synthesized in
+full. How stock does it, and therefore how we do: each field hardcodes up to 10 rows, row *k* gated on
+`read_lock_bit(variant_k)` — the bit the ARRIVAL paths set; every Mognet open rebuilds the payload
+(`Byte[1064+k]` = variant, mask `|= 1<<k`, `Byte[1079+k]` = sender — the write order is the donor's)
+and masks a "which letter" window with it; a pick re-seeds text var 1 *from the payload byte* and
+re-displays the letter through the same `letter_display` bracket. A read is **pure** — no lock write,
+no mailbox write — so a known letter is re-readable forever. The whole 3-row submenu (**Give \<name\>
+a letter / Read mail / Cancel**) appears only when a delivery is pending OR a letter is known, gated
+on a computed availability word exactly like the donor's; masked rows vanish from navigation
+(`Dialog.SetupChooseMask`). Arrivals come from **two sources**, both stock's: the player's own
+delivery (the accept path — sets the lock since rung 4), and **story-gated auto-arrivals**
+(`received = [...]` — announce + letter + lock when `requires_flag`/`requires_scenario` first holds;
+the lock is the once-guard). One consequence worth naming: this decode found stock read-mail's payload
+bytes sitting exactly on the kit's old `FIRST_SAFE_FLAG = 8512` — the safe flag band moved to
+**8712** (see `flags.py`).
 
 **Letter CONTENT, decoded (field 1865 @6191-6310):** a letter's body is ONE text entry in the
 RECIPIENT's field block, shown frameless (window 3, flags 16) inside a fade bracket

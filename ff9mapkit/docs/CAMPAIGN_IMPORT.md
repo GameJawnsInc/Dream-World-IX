@@ -203,8 +203,8 @@ The kit defines a top-level `campaign.toml` that the chain importer emits and th
 name        = "ICE_CAVERN"      # mod-folder + ModDescription name
 mod_folder  = "FF9CustomMap-ice"  # the pinned mod folder (Memoria.ini FolderNames)
 id_base     = 4100              # member i -> id_base + i (must be >= 4000; whole block distinct globally)
-flag_base   = 8512             # campaign flag band START (= campaign.FIRST_SAFE_FLAG; first bit clear of ALL
-                               #   real-FF9 usage. WAS 8300 -> collided with real chest flags 8376-8511.)
+flag_base   = 8712             # campaign flag band START (= campaign.FIRST_SAFE_FLAG; first bit clear of ALL
+                               #   real-FF9 usage. WAS 8300 (hit the Mognet lock band 8376-8511), then 8512 (hit the read-mail payload bytes).)
 flags_per_field = 64           # K-wide GLOB block per field; field i -> [flag_base + i*K, +K). Max 122 fields
                                #   (the choice scratch sits at bit 16320); lint_campaign asserts the bounds.
 entry_field = "IC_ENTRANCE"    # which member New Game lands in (party-set route in §5)
@@ -245,7 +245,7 @@ name = "ice_path_unlocked"
 name        = "ICE_CAVERN"
 mod_folder  = "FF9CustomMap-ice"
 id_base     = 4100
-flag_base   = 8512
+flag_base   = 8712
 flags_per_field = 64
 entry_field = "IC_ENTRANCE"
 entry_entrance = 0
@@ -310,7 +310,7 @@ entry_entrance = 0
 ### 4.2 Campaign-wide partitioning **[new_work]**
 
 - **Ids:** member `i` gets `id_base + i` (4100, 4101, …). `build_mod` does NO allocation — each id is read verbatim from `[field] id` (`build.FieldProject` → `build.build_field`). The campaign loader either (a) verifies author-typed ids are all ≥4000 and **globally** distinct, or (b) auto-assigns from `id_base` and rewrites every cross-field reference in lockstep (§2.5). The uniqueness assertion must be **global, not just within-campaign**, because EventDB/SceneData are merged across stacked mod folders at launch — see [`GLOBAL_RESOURCES.md` §B](GLOBAL_RESOURCES.md) for the id-namespace rule and the [section-C bands](GLOBAL_RESOURCES.md) (field ids 4000–9899 content / 30000–32767 scratch). The contiguous-block ceiling (4100..4140 all register) is **unverified — needs an in-game test** (§7).
-- **Flags:** parameterize the allocators by a **per-field `flag_base`** so field B never overlaps field A. Field `i` owns `[flag_base + i*K, flag_base + (i+1)*K)`, and within its block the three categories sub-partition (cutscene `base+0`, events `base+1..+31`, choices `base+32..+63`). **[LANDED 2026-06-10]** `build._FlagAlloc` threads an optional per-member `flag_base` through `build_script`/`lint_logic` (default `None` = the historical 8000/8100/8200 constants, so single-field builds stay **byte-identical**); `campaign.build_campaign` assigns each member `flag_base + i*K`. The default `flag_base` is now **8512** (`campaign.FIRST_SAFE_FLAG`) — the old **8300** collided with real-FF9's treasure-chest bitfield at bits **8376–8511** (a verified latent save-corrupter; see `research/STORY_FLAGS.md` §4). `lint_campaign` now errors if any member block, or any explicit flag, lands in the chest band or past the choice scratch (bit 16320).
+- **Flags:** parameterize the allocators by a **per-field `flag_base`** so field B never overlaps field A. Field `i` owns `[flag_base + i*K, flag_base + (i+1)*K)`, and within its block the three categories sub-partition (cutscene `base+0`, events `base+1..+31`, choices `base+32..+63`). **[LANDED 2026-06-10]** `build._FlagAlloc` threads an optional per-member `flag_base` through `build_script`/`lint_logic` (default `None` = the historical 8000/8100/8200 constants, so single-field builds stay **byte-identical**); `campaign.build_campaign` assigns each member `flag_base + i*K`. The default `flag_base` is now **8712** (`campaign.FIRST_SAFE_FLAG`) — the old **8300** collided with real-FF9's Mognet lock band at bits **8376–8511** (long mislabelled the treasure-chest bitfield), and the interim **8512** sat on stock read-mail's payload bytes (bits **8512–8711**, whole-byte-written by ordinary play). `lint_campaign` now errors if any member block, or any explicit flag, lands in the Mognet band or past the choice scratch (bit 16320).
 - **Cross-field named flags:** authors write `requires_flag`/`set_flag` **by name**, resolved through a campaign registry table to a concrete index. This is the *only* safe cross-field gate (a name maps to one index regardless of which field sets vs reads it). Hook `build._gate_of` and `event.py:48` (int-only today). Shared/cross-field flags live in a **separate band above the per-field blocks** (recommended over exporting from a field block) so a field's local once-flags never alias a shared flag.
 
 ### 4.3 Cross-field lint

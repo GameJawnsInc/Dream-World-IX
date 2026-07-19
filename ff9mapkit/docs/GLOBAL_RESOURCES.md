@@ -75,7 +75,7 @@ Process-global `static` dicts, rebuilt from every mod folder's DictionaryPatch a
 | Event once-flags | 8000+ (single-field) | `content/event.py:27` | single-field default; campaign → per-member block via `build._FlagAlloc` | GLOB / save |
 | Cutscene once-flags | 8100 (single-field) | `content/cutscene.py:37` | single-field default; campaign → member `base+0` | GLOB / save |
 | Choice gate flags | 8200+ (single-field) | `content/choice.py:35` | single-field default; campaign → member `base+32..` | GLOB / save |
-| Campaign flags | **8512+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded (**was 8300 → chest collision, FIXED**) | GLOB / save |
+| Campaign flags | **8712+** (`FIRST_SAFE_FLAG`), 64/field | `campaign.py` | per-member `flag_base+i*K`, lint-bounded (**was 8300 → lock-band collision, then 8512 → sat on stock read-mail's payload bytes 1064–1088; both FIXED**) | GLOB / save |
 | Choice mask scratch | byte 2040 (bits 16320+) | `content/region.py:57` | campaign-global | GLOB / save |
 | Field ids | 10–3100 real (locked) · 4000–9899 content · 30000–32767 scratch | `pack.py` | per-mod hash block; `id_base+i` in campaign | static reg |
 | Battle scenes | 1–177 real · 200+ mint | `battle/build.py:41` (`_REAL_BBG_MAX`) | manual | static reg |
@@ -96,16 +96,19 @@ Long-index form: `class|0x20` (e.g. `0xE4`) + 2-byte LE — why the 8000 band wo
 `build_script`'s once-flag counter **reset to 0 per build**, flag = `BASE + counter` computed *per-field*.
 So field B's first chest and field A's first chest BOTH picked 8000 → looting A marked B looted
 campaign-wide. Harmless for one field; a **latent save-corrupter for N fields**. **Plus** `campaign.py`'s
-reserved `flag_base=8300` + 64/member **collided with real-FF9's treasure-chest bitfield at bits 8376–8511**
-(census-verified; `research/STORY_FLAGS.md` §4) → corrupting real chest-opened state.
+reserved `flag_base=8300` + 64/member **collided with real-FF9's usage at bits 8376–8511** — long called
+"the treasure-chest bitfield", actually the **Mognet GIVE/READ lock band** (the moogle fields' twin
+switch-64 lock tables; re-attributed 2026-07-19 by the read-mail decode) → corrupting real letter state.
 
 **Fix (landed):** `build._FlagAlloc` parameterizes the three allocators by an optional per-member
 `flag_base` threaded through `build_script` + `lint_logic` (default `None` = the historical 8000/8100/8200
 constants, so single-field builds stay **byte-identical**; campaign members get `flag_base + i*K`, packed
-cutscene `+0` / events `+1..+31` / choices `+32..+63`). The default `flag_base` moved **8300 → 8512**
-(`campaign.FIRST_SAFE_FLAG`, the first bit clear of ALL real usage; max real-used bit = 8511).
-`lint_campaign` now errors on any member block / explicit flag inside the chest band 8376–8511 or at/above
-the choice scratch (bit 16320). (CAMPAIGN_IMPORT.md §4.1; tests in `test_campaign.py` / `test_build.py`.)
+cutscene `+0` / events `+1..+31` / choices `+32..+63`). The default `flag_base` moved **8300 → 8512**,
+then **8512 → 8712** (2026-07-19: the first census was BOOL-only and missed stock's byte-addressed vars —
+bits 8512–8711 are the read-mail payload Byte[1064–1073]/[1079–1088], whole-byte-written by ordinary play;
+`FIRST_SAFE_FLAG` = 8712 = byte 1089 is the true first-clear bit). `lint_campaign` errors on any member
+block / explicit flag inside the Mognet band 8376–8711 or at/above the choice scratch (bit 16320).
+(CAMPAIGN_IMPORT.md §4.1; tests in `test_campaign.py` / `test_build.py` / `test_flags.py`.)
 
 ---
 
