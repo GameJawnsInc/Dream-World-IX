@@ -255,9 +255,20 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   Builder + 2 judges + orchestrator all read "stock curves, synth staircases" into a panel where stock
   does no such thing. **NEW LAW: CALIBRATE THE INSTRUMENT BEFORE YOU JUDGE WITH IT** — render known-good
   stock through the same pipeline and establish how much stock varies against ITSELF before calling a
-  synthesis different. (Same class as the GUI study's "an empty tempdir is not a clean room".) The one
-  *genuine measured* shortfall, independent of any render: the emitter misses stock's negative lag-1
-  autocorrelation (+0.073 vs −0.423).
+  synthesis different. (Same class as the GUI study's "an empty tempdir is not a clean room".)
+  **★ THE CALIBRATED RE-RUN** (`dunes_strip_emitter_v2.py`) puts a real NULL in the sheet — TRANSPLANTS
+  that lay one cluster's GENUINE stock rows over the render window (31 samples), scored by mean
+  |Δ luminance| between adjacent strip cells: STOCK 5.01, **null band 3.83–5.85**, SYNTH 5.33,
+  **emitter 20/20 seeds INSIDE (4.62–5.62)**, iid-random 4.49 inside, and **all-row-0 = 0.00 the ONLY
+  one OUTSIDE**. So the emitter is inside stock's own range (the FALSIFIED verdict is contradicted, not
+  just unsupported), and **round 3's eye had the controls BACKWARDS** — it called all-row-0 "closest to
+  stock" when that is the single detectably-wrong assignment. **ROOT CAUSE of the whole episode: the 4
+  strip rows differ in mean brightness by only ~5.9/255 ≈ 2.3%** — nearly the same tile, so no
+  assignment can look very different, which is why every variant matched at normal zoom.
+  ⇒ **the dunes-carry blocker shrinks from "a placement policy must be solved" to "it must merely be
+  NON-DEGENERATE"** (the emitter qualifies; only all-one-row is out of family). ⚠ Limits: the metric
+  cannot separate the emitter from iid-random ("not worse than stock" ✔, "better than random" ✘), and
+  the emitter's lag-1 miss (+0.073 vs −0.423) is a real structural difference it does not capture.
   **The round's real prize is the discovery that explains the failure: the 4 strip rows are NOT abstract
   dither buckets — they are a literal hand-painted 4-step dune COVERAGE-DENSITY gradient** (row0 ≈20%
   dune blobs on desert red → row3 ≈80%+ dense mottling), seen for the first time in an atlas crop. Per-cell

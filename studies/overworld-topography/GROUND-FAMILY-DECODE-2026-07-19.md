@@ -123,6 +123,43 @@ only, and it terminates in a playtest.
 >
 > **Correct status: INCONCLUSIVE, not falsified and not validated.** The render cannot tell.
 >
+> ### The re-run WITH the controls in the sheet (`dunes_strip_emitter_v2.py`)
+>
+> The comparison was then re-run properly, with a real NULL: instead of "does synth look like
+> this one stock window", ask **"is synth distinguishable from a REAL FF9 row sequence borrowed
+> from elsewhere on the map?"** The 195 strip cells sit in two clusters; a TRANSPLANT lays one
+> cluster's genuine stock rows over the render window's cells (31 samples at varying offsets).
+> Metric, since the eye is now known-unreliable here: mean |Δ mean-luminance| between
+> lattice-adjacent strip cells (each row is a painted density tile with its own brightness).
+>
+> | assignment | jumpiness | |
+> |---|---|---|
+> | STOCK (this window's real rows) | 5.01 | reference |
+> | **TRANSPLANT null** (31 real FF9 sequences) | **3.83 – 5.85** | the band |
+> | SYNTH (emitter seed 0) | 5.33 | **inside** |
+> | emitter, all 20 seeds | 4.62 – 5.62 | **20/20 inside** |
+> | CONTROL iid-random | 4.49 | inside |
+> | CONTROL all-row-0 | 0.00 | **the ONLY one outside** |
+>
+> * **The emitter sits inside stock's own range on every seed** — the original FALSIFIED verdict
+>   is not merely unsupported, it is contradicted. Visually, the transplant panels show the same
+>   blocky right-angled patchwork the synth panel was faulted for.
+> * **Round 3's eye ranked the controls backwards.** It judged `all-row-0` "closest to stock";
+>   that is the one assignment measurably out of family, outside the band by being perfectly
+>   uniform. The uncalibrated eye picked the only detectably-wrong option as the best match.
+> * **THE ROOT CAUSE OF THE WHOLE EPISODE: the 4 strip rows differ in mean brightness by only
+>   ~5.9/255 ≈ 2.3%.** They are nearly the same tile. No row assignment can produce much visible
+>   difference — which is why wide and medium zoom showed every variant identical, and why the
+>   tight zoom became a Rorschach test.
+> * **Effect on the dunes carry:** the blocker was "a placement policy must exist before a mint."
+>   The calibrated answer is that it must merely be **non-degenerate** — the emitter qualifies,
+>   and so does almost anything that is not all-one-row. A materially smaller obstacle than
+>   "unsolved".
+> * ⚠ Honest limits: this metric scores per-cell brightness jumps, so it does NOT separate the
+>   emitter from iid-random — "not worse than stock" is established, "better than random" is not.
+>   And the emitter's lag-1 autocorrelation miss (+0.073 vs −0.423) is a real structural
+>   difference from stock that this metric does not capture.
+>
 > What still stands, independent of the render: the **coverage-density gradient discovery**
 > (from the atlas crop, not the seam render), the 190-edge/195-cell/9-block census, the
 > orientation law, and one *genuine measured* shortfall — the emitter does not reproduce stock's
