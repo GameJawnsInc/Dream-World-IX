@@ -2692,6 +2692,23 @@ class Workspace(QMainWindow):
                 it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             lst.addItem(it)
         lay.addWidget(lst)
+
+        def _set_all(checked):
+            state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+            for i in range(lst.count()):
+                it = lst.item(i)
+                if it.flags() & Qt.ItemFlag.ItemIsEnabled:   # leave already-in-arc rows alone
+                    it.setCheckState(state)
+        selrow = QHBoxLayout()
+        sel_all = QPushButton("Select all")
+        sel_all.clicked.connect(lambda: _set_all(True))
+        sel_none = QPushButton("Select none")
+        sel_none.clicked.connect(lambda: _set_all(False))
+        selrow.addWidget(sel_all)
+        selrow.addWidget(sel_none)
+        selrow.addStretch(1)
+        lay.addLayout(selrow)
+
         bb = QDialogButtonBox()
         bb.addButton("Add selected", QDialogButtonBox.ButtonRole.AcceptRole)
         bb.addButton(QDialogButtonBox.StandardButton.Cancel)

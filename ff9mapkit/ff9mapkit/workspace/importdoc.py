@@ -533,6 +533,11 @@ class ImportDoc(QWidget):
                               "(camera + walkmesh + background.png) by default, or full repaintable scenes. The "
                               "browsable reference you copy field folders out of.")
         v.addWidget(lbl)
+        link_hint = widgets.caption("Want a connected, playable slice instead of loose reference folders? Use "
+                                    "“Fork a region” above (or New Journey → Multi-campaign arc → Pick FF9 "
+                                    "regions…) — it forks real fields AND rewires gateways/entries into one "
+                                    "deployable campaign. This archive is unforked/uncoupled, for browsing only.")
+        v.addWidget(link_hint)
         row = QHBoxLayout()
         row.addWidget(QLabel("Archive root:"))
         self.arc_out = QLineEdit()

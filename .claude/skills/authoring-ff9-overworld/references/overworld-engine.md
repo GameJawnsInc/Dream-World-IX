@@ -17,8 +17,9 @@
 
 - The overworld is 13 event-script dispatchers `EVT_WORLD_WORLD00..12` = `EventDB[9000..9012]`; exactly one
   is loaded as the per-frame brain, keyed by `ff.wldMapNo`. ONE shared set for ALL discs (disc 4 = distinct
-  ART, same `.eb` family; disc 4 IS `ScenarioCounter >= 11090`, re-derived every world load — there is no
-  independent disc flag).
+  ART, same `.eb` family; disc 4 is `ScenarioCounter >= 11090`, re-derived every world load — 2026-07-18
+  correction: `GetDisc()` checks `_customDiscModifier.HasCondition` (the Memoria config Disc4 override) FIRST,
+  falling back to the SC>=11090 test — so it is not purely SC-derived with no other flag).
 - Roles: free-roam area-switch states 9000/02/03/05/07/08/09/10/11 (vehicle switch -> AREA switch ->
   `Field()` + an entry-0 entrance-func table); cutscene states 9001/04/06/12 (no AREA switch). Foot-only
   free-roam = 9002/9010/9011. **9009 = every band's default arm** (all-vehicle, all-field superset — its

@@ -835,17 +835,26 @@ mid-map probed all real stock — the south ocean band is the bench row for
 a reason.) **Playtest round 1: "I don't recall any real canyon tiles with
 cliffs this high" → THE WALL-CONTEXT LAW (`family_wall_envelope.py`)**:
 a family's wall band is context-keyed, not just atlas-keyed. Map-wide:
-canyon's red band = 748 wall tris, **0 coastal** — every face is an
-INTERIOR tier edge; where Forgotten canyon ground meets the sea the
-cliffs are topo-49 MURALS (unmintable, the baked-terrain law); grey-band
-walls under canyon ground: zero instances. Literal height is in-envelope
-(real red faces reach 4.48u vs the donor's 3.91) — the violation is a red
-wall rising from open water, which stock never shows. **Canyon therefore
-has NO lawful coastal wall dress → a canyon ISLAND is off-language**
-(canyon stays lawful as interior/highland ground behind another coast;
-the sampler canyon islet shares the violation). **Snow re-verified the
-opposite way: 733/733 icy-band wall tris map-wide are COASTAL, faces to
-5.73u — the snow island B is squarely in-language.** **Disposition (user:
+canyon's red band = 655 wall tris in 48 faces; exactly 1 borderline face
+(3 tris, block (3,7), y −4.8..−3.2) sits BELOW datum — an INTERIOR gorge
+wall, not open sea. Zero open-sea coastal canyon walls anywhere on the
+map; where Forgotten canyon ground meets the sea the cliffs are topo-49
+MURALS (unmintable, the baked-terrain law); grey-band walls under canyon
+ground: zero instances. Literal height is in-envelope (real red faces
+reach 4.48u vs the donor's 3.91) — the violation is a red wall rising
+from open water, which stock never shows. **Canyon therefore has NO
+lawful coastal wall dress → a canyon ISLAND is off-language** (canyon
+stays lawful as interior/highland ground behind another coast; the
+sampler canyon islet shares the violation). *(2026-07-18 map-wide
+re-census, `family_wall_envelope.py`: 655 tris/48 faces, 1 below-datum
+gorge face — the earlier "748 tris, 0 coastal" reading was a top-8-
+specimen-slice artifact, never a map-wide tally; that same slice today
+reads 231 tris/27 faces, still 0 coastal.)* **Snow re-verified the
+opposite way: 1019 icy-band wall tris across 10 faces map-wide, EVERY
+face COASTAL, faces to 6.35u (an 8-face specimen slice reads 272 tris,
+all coastal, max 5.73u) — the snow island B is squarely in-language.**
+*(2026-07-18 correction: the old "733/733" figure matches neither the
+map-wide nor specimen count and is retired.)* **Disposition (user:
 "remove both and add the guard"): the canyon island B ((23,17)+(23,18))
 and the sampler canyon islet ((15,19)) are REMOVED from both disc trees
 (backup `backups/canyon-removals.20260715/`), and THE GUARD is shipped at
@@ -934,8 +943,12 @@ crag with one steep walkable topo-13 face, not a flat shelf (user: ugly; the PLA
 is the keeper). The crag was removed and island F restored pristine. The carry MECHANISM
 worked (it rendered as real FF9 rock, being real bytes); the object was wrong — and the
 follow-up census minted **THE NO-FREE-MESA LAW**: no free-standing flat-topped mesa exists
-on disc 1 (every raised complex is a peak or a block-frame-cut escarpment fragment with a
-74–95% high rim; (6,15)'s true shelf is a RIVERBANK terrace against the river at 15.2).
+on disc 1 (every raised complex is a peak or a block-frame-cut escarpment fragment, rock-
+ringed on the order of ~96% by rim per the in-game (17,15) crag verdict; (6,15)'s true shelf
+is a RIVERBANK terrace against the river at 15.2). *(2026-07-18 correction: the "74–95% high
+rim" figure once cited here has no committed measurement script — `crag_anatomy.py`'s ~74%
+measures course-weld, a different quantity; the qualitative law stands, the stat is softened
+to the ~96% in-game-verdict reading pending a dedicated rim-fraction script.)*
 Flat terraces exist only as EDGES of larger highland ⇒ the two-level build above — the
 shape FF9 actually uses.
 

@@ -66,7 +66,9 @@ decodes the entrance dispatch.
   `[190]`, so the `.eb` stays on its safe foot arm). Both are unproven follow-ups.
 - **Chocobo:** summonable on track topographs 3/18/21/22/28 (`w_frameChocoboCheck`) + Gysahl (event layer);
   `ff9.w_moveChocoboPtr` / `w_movePlanePtr`, availability via `originalActor.isEnableRenderer`.
-- **Discs:** `WorldConfiguration.GetDisc()` = `ff9.w_frameScenePtr >= 11090 ? 4 : 1`; stored in `ff9.w_frameDisc`
+- **Discs:** `WorldConfiguration.GetDisc()` FIRST checks `_customDiscModifier.HasCondition` (the Memoria config
+  Disc4 override), THEN falls back to `ff9.w_frameScenePtr >= 11090 ? 4 : 1` (re-derived every world load;
+  2026-07-18 correction — "purely SC>=11090, no other flag" was overstated); stored in `ff9.w_frameDisc`
   (== `gEventGlobal[0]`). Only **WorldDisc1** and **WorldDisc4** prefabs exist (discs 2–3 reuse disc-1 content).
   `WMWorld.SetDisc(1|4)` → `SceneDirector.Replace("WorldMapDebug", FadeOutToBlack_FadeIn)`. Switch via
   `ff9.w_frameSetParameter(501, 11090)` (→disc4) / `(502, 0)` (→disc1) — the stock `WMBeeMenu` pattern. It's a
@@ -324,7 +326,7 @@ First authored overworld connectivity: a plain road cell (35,25, east of Dali) �
 entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingField` redirect of the dispatcher's
 `Field(300)`). Recipe:
 
-1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8)|(cellX<<2)|event`. The F6 **Go** tab (overworld context) shows the live
+1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8 & 0x3F00)|(cellX<<2 & 0xFC)|event` (6-bit z — the kit's `pack_cell_tag` refuses z ≥ 64). The F6 **Go** tab (overworld context) shows the live
    cell (`w_worldPos2Cell` = `(int)(x/32), (int)(z/-32)`, identical to the readout) — use it as the targeting oracle.
    The destination is chosen by cloning a func whose `Byte[39]` routes there (each existing entrance func is `Byte[39]
    == its dispatch case`; e.g. `0x9895` → case 4 → Field 300 = Ice Cavern).
@@ -459,7 +461,8 @@ the follow-up (needs a spatial re-derive or a Blender face-attribute sidecar).
 --flatten)` authors walkable terrain — a hill/crater/plateau or a ridge/valley (`world/terrain.py` → `deform_radial` /
 `deform_ridge` / `flatten_region`). **The load-bearing lesson: RESHAPE the stock terrain verts; do NOT overlay a new
 mesh.** Why (ground-follow RE): the player's Y is a **down-raycast from `player.y + rayStartOffsetY` (2.34375)** for
-`rayDistance` (2.8) (`ff9.cs:7141` `w_nwpHit`), and the walkmesh only accepts **up-facing** triangles (`Dot(up, normal)
+`rayDistance` (2.8) (`ff9.cs` `w_nwpHit`, ~7221 post-s39 — 2026-07-18: the patch stack shifts lines, prefer
+`grep w_nwpHit` over a hard line number), and the walkmesh only accepts **up-facing** triangles (`Dot(up, normal)
 > 0.1`, `WMPhysics.cs:22`), and a per-frame **triangle cache** re-hits the player's current tri first (`WMBlock.cs:145`).
 Net effect: a mesh *overlaid on top of* intact ground is **non-walkable** — the stock surface underneath keeps winning
 the raycast (so an overlay is decoration/props, not ground you climb). Displacing the existing verts leaves a **single
@@ -475,7 +478,8 @@ hill across blocks (16,14)+(16,15).
 ## New continent — RECLAIM ocean cells as walkable land (`world-reclaim`, Path D · s34 extension · ★ in-game proven 2026-07-02)
 
 The overworld is a **fixed 24×20 = 480-block grid where every ocean cell already exists as a real `WMBlock`** — it
-just short-circuits to one shared `SeaBlockPrefab` (`WMWorld.cs:495` initial load + `:1180` streaming reload). So "new
+just short-circuits to one shared `SeaBlockPrefab` (`WMWorld.cs:495` initial load + `:1250` streaming reload in the
+current patched tree — 2026-07-18 correction: pre-s34 this sat ~1137; the once-cited `:1180` was never right). So "new
 continent" is **make designated ocean cells load land**, not mint a new world. `ff9mapkit world-reclaim --mod-folder
 <mod> --cells "x,y;x,y"` (or a range `x0-x1,y0-y1`) synthesizes a fresh flat, textured, **walkable** terrain override
 per sea cell (`world/terrain.py` `reclaim` → `mesh.flat_block_mesh` + `palette.apply_palette_uvs` → a loose
@@ -723,7 +727,12 @@ scale); the mint uses the locked grass-form window, itself a common real form.
 
 **Family CLASSES (`GROUNDS[..]["cls"]` — the ground-sampler playtest, 2026-07-15).** A translation
 makes the tiles paint right, but only **island-class** families (grass, desert, snow, canyon) are
-whole-landmass fills whose coast reads native. The others are stock vocabularies with a narrower role,
+whole-landmass fills whose coast reads native — **caveat (2026-07-18 map-wide re-census):** canyon is
+cls-island for TRANSLATION only; its wall is `wall_coastal=False` (0 open-sea canyon walls map-wide,
+1 borderline face wholly below datum = an interior gorge, per `family_wall_envelope.py`), so a coastal
+canyon ISLAND is refused by the shipped guard (`build_landmass` island.py:249, `GroundRetile.for_donor`
+transplant.py:493) — a canyon fill is island-class in the atlas only, not at the coast. The others are
+stock vocabularies with a narrower role,
 and a filled island of them reads off-language (the CLI notes this and mints anyway): **scrub** is a
 *transition* set — stock lays it only as narrow seam strips between solid grass and dirt fields, with
 free grass-style placement (the macro-tile parity hypothesis measured false, ~chance), so a scrub
@@ -946,7 +955,9 @@ overworld encounter rate per zone. Danger-level = *just this denominator*.
 
 Pack sub-table 4 = **9** records of `{ UInt16 area[12] }` (24 B each, 216 B; `ff9.cs:11321`,
 `WMBinarayReaderExtension.cs:144`). A non-zero `area[j] = N` is a **1-based index** into the 355-table
-(`w_frameBattleScenePtr[N-1]`); `0` = empty slot. At world init a bitmask from **event-globals 194 & 198** selects
+(`w_frameBattleScenePtr[N-1]`); unused slots are **`0xFFFF`** (65535, `worldpack.SPECIAL_EMPTY`) in both real
+disc trees — 2026-07-18 correction: NOT `0` (the earlier "`0` = empty slot" was wrong). At world init a bitmask
+from **event-globals 194 & 198** selects
 which of the 9 records are active (`ff9.cs:8892`); each active record's target rows get `scene[3]` overwritten with
 their own `scene[2]` (`ff9.cs:8900`), and every active `scene[3]` is added to `w_friendlyBattles` (`ff9.cs:8706`).
 When `SettingsState.IsFriendlyBattleOnly`, `SelectScene()` filters encounters to that set. **The 9 records are the

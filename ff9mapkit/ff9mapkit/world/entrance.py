@@ -2,7 +2,7 @@
 (model -> place -> seat -> trigger) into a single call.
 
 An overworld entrance is NOT just an event tile: walking onto a tile whose IDALL event bits are set fires
-``ff9.WorldEvent(cellX, cellZ, id)``, which packs a **cell tag** ``0x8000 | (cellZ<<8) | (cellX<<2) | (id&3)`` and
+``ff9.WorldEvent(cellX, cellZ, id)``, which packs a **cell tag** ``0x8000 | (cellZ<<8 & 0x3F00) | (cellX<<2 & 0xFC) | (id&3)`` and
 ``GetIP``-matches it against **object-0** (entry 0)'s function tags in the loaded world dispatcher ``.eb``. The
 matched function sets ``Map.Byte[39] = <case>`` and ``RunScriptAsync(6, 1, 11)`` -> the shared entry-1/tag-1
 dispatcher, whose base-2 AREA switch reads that case and emits ``Field(dest)`` (with the proper vehicle / scenario
@@ -45,22 +45,26 @@ CELL_SIZE = 32                   # a world CELL is 32u (two cells per 64u block 
 
 def pack_cell_tag(cell_x: int, cell_z: int, event: int = 1) -> int:
     """The object-0 function tag that ``ff9.WorldEvent`` GetIP-matches for a walk onto cell ``(cell_x, cell_z)``
-    whose event bits == ``event``: ``0x8000 | (cell_z<<8) | (cell_x<<2) | (event&3)``."""
+    whose event bits == ``event``: ``0x8000 | (cell_z<<8 & 0x3F00) | (cell_x<<2 & 0xFC) | (event&3)``.
+
+    ``cell_z`` is a 6-bit field like ``cell_x`` (the engine masks with 0x3F00, aliasing z modulo 64) -- a tag
+    packed with z >= 64 could never match a WorldEvent request, so out-of-range z raises rather than aliases.
+    (The 24x20-block map only reaches cell_z 39 anyway.)"""
     if not 0 <= cell_x <= 0x3F:
         raise ValueError(f"cell_x {cell_x} out of range 0..63 (6 bits)")
-    if not 0 <= cell_z <= 0x7F:
-        raise ValueError(f"cell_z {cell_z} out of range 0..127 (7 bits)")
+    if not 0 <= cell_z <= 0x3F:
+        raise ValueError(f"cell_z {cell_z} out of range 0..63 (6 bits -- the engine masks z with 0x3F00)")
     if not 1 <= event <= 3:
         raise ValueError(f"event {event} out of range 1..3 (0 = not an entrance tile)")
-    return 0x8000 | ((cell_z & 0x7F) << 8) | ((cell_x & 0x3F) << 2) | (event & 3)
+    return 0x8000 | ((cell_z & 0x3F) << 8) | ((cell_x & 0x3F) << 2) | (event & 3)
 
 
 def unpack_cell_tag(tag: int):
     """``(cell_x, cell_z, event)`` for an object-0 entrance tag, or ``None`` if ``tag`` is not a cell tag
-    (top bit unset -- an ordinary object function)."""
-    if not tag & 0x8000:
+    (top bit unset -- an ordinary object function; or bit 14 set, which WorldEvent's formula never emits)."""
+    if not tag & 0x8000 or tag & 0x4000:
         return None
-    return ((tag >> 2) & 0x3F, (tag >> 8) & 0x7F, tag & 3)
+    return ((tag >> 2) & 0x3F, (tag >> 8) & 0x3F, tag & 3)
 
 
 def cell_to_block(cell_x: int, cell_z: int) -> tuple:
