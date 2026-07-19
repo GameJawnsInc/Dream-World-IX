@@ -242,15 +242,22 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   autocorrelation, adjacent-same-row 9.8% vs a 25.2% shuffled baseline) riding a soft family-relative bias — but
   the recipe is speculative: unimplemented, unrendered, untested. Unexplained: grass|desert's row marginals
   reject uniformity (χ²=11.92), desert|dunes' do not (χ²=1.62).
-  **★ ROUND 3 RAN IT AND THE EMITTER IS FALSIFIED** (`dunes_strip_emitter.py`; 2 of 3 judges substantive,
-  both FALSIFIED — the third returned a degenerate empty response and was disregarded). A real seeded
-  BFS emitter (per-touch-category empirical PMF × the measured |Δrow| prior) reproduces the aggregate
-  dither (same-row 9.8% vs stock's 9.8%) but **fails the look test**: at tight unshaded zoom stock's
-  boundary is a smooth rounded coastline while the emitter's staircases into boxy notches — and it is
-  **not visually distinguishable from the iid-random control**, with the deliberately-wrong `all-row-0`
-  floor looking *closer* to stock than either. It also misses stock's negative lag-1 autocorrelation
-  (+0.073 vs −0.423) and its χ² (8.28) is often worse than the naive control's (1.49). **THE FORM LESSON
-  a second time in this arc: measurably better ≠ visibly better.**
+  **★ ROUND 3 RAN IT — result INCONCLUSIVE** (`dunes_strip_emitter.py`). A real seeded BFS emitter
+  (per-touch-category empirical PMF × the measured |Δrow| prior) reproduces the aggregate dither
+  (same-row 9.8% vs stock's 9.8%). It was initially judged FALSIFIED on a tight unshaded render —
+  **that verdict is RETRACTED**. ⚠ **THE INSTRUMENT WAS NEVER CALIBRATED** (`render_calibration.py`,
+  prompted by the user spotting hard edges in the render's own STOCK panel): rendering 100% unmodified
+  stock at the same settings shows *pure stock desert* as a blatant repeating square grid (2.3×
+  edge-enrichment on the 4u lattice — FF9 ground IS a 4u mosaic, so 32× unshaded exposes the lattice
+  everywhere), and the missing **STOCK-vs-STOCK** control shows four *unmodified* desert|dunes windows
+  spanning smooth-organic (18,3) to distinctly boxy (13,12). **Stock varies against itself as much as
+  synth differed from the single stock window it was compared to — the test had no resolving power.**
+  Builder + 2 judges + orchestrator all read "stock curves, synth staircases" into a panel where stock
+  does no such thing. **NEW LAW: CALIBRATE THE INSTRUMENT BEFORE YOU JUDGE WITH IT** — render known-good
+  stock through the same pipeline and establish how much stock varies against ITSELF before calling a
+  synthesis different. (Same class as the GUI study's "an empty tempdir is not a clean room".) The one
+  *genuine measured* shortfall, independent of any render: the emitter misses stock's negative lag-1
+  autocorrelation (+0.073 vs −0.423).
   **The round's real prize is the discovery that explains the failure: the 4 strip rows are NOT abstract
   dither buckets — they are a literal hand-painted 4-step dune COVERAGE-DENSITY gradient** (row0 ≈20%
   dune blobs on desert red → row3 ≈80%+ dense mottling), seen for the first time in an atlas crop. Per-cell

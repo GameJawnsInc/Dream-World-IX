@@ -101,7 +101,43 @@ visible blend ribbon* — row placement there is very likely cosmetically free. 
 there. So the remaining work is not "solve placement for both pairs"; it is desert|dunes
 only, and it terminates in a playtest.
 
-## Round 3 — the placement emitter: ★ FALSIFIED (and that is the useful outcome)
+> ## ⚠ CORRECTION (2026-07-19, after the round-3 section below was written and committed)
+>
+> **Round 3's FALSIFIED verdict is RETRACTED — it is not supported by its own evidence.** The
+> user looked at the decisive render and observed that the *STOCK* panel also shows hard edges
+> and bad connections. That is correct, and it was checked (`render_calibration.py`):
+>
+> * **The instrument was never calibrated.** Rendering 100% unmodified stock through the same
+>   pipeline at the same settings (24×24u, unshaded, sc=32) shows *pure stock desert interior*
+>   as a blatant repeating grid of squares — 2.3× edge-enrichment on the 4u lattice. FF9's
+>   overworld ground **is** a 4u tile mosaic; at 32× with no shading the lattice is exposed
+>   everywhere. Hard tile edges therefore cannot, by themselves, indict a synthesis.
+> * **The missing control was STOCK vs STOCK.** Four *unmodified* desert|dunes seam windows
+>   rendered side by side span the whole range from smooth-organic (block (18,3)) to distinctly
+>   boxy and rectilinear (block (13,12)'s dune blobs). **Stock varies against itself as much as
+>   the synth differed from the one stock window it was compared to.** Comparing a single stock
+>   window to a single synth window had no resolving power.
+> * Three agents (builder + two judges) and the orchestrator all read "stock curves, synth
+>   staircases" into a panel where stock does no such thing. The description was motivated, and
+>   the judges anchored on it rather than testing whether the view itself was trustworthy.
+>
+> **Correct status: INCONCLUSIVE, not falsified and not validated.** The render cannot tell.
+>
+> What still stands, independent of the render: the **coverage-density gradient discovery**
+> (from the atlas crop, not the seam render), the 190-edge/195-cell/9-block census, the
+> orientation law, and one *genuine measured* shortfall — the emitter does not reproduce stock's
+> negative lag-1 autocorrelation (+0.073 vs −0.423), which is a real defect established by
+> numbers rather than by looking. Also unaffected: at wide and medium zoom all variants are
+> indistinguishable, so the practical stakes remain low.
+>
+> **THE LAW THIS MINTS — CALIBRATE THE INSTRUMENT BEFORE YOU JUDGE WITH IT.** Render known-good
+> stock through the same pipeline first, and establish how much stock varies *against itself*,
+> before declaring a synthesis different from it. This arc has now made the same class of
+> mistake in the GUI study (*"an empty tempdir is not a clean room"*, *"a probe that cannot
+> reproduce the lifecycle cannot falsify a lifecycle bug"*) and here. **An uncalibrated eye is
+> not evidence.**
+
+## Round 3 — the placement emitter: ~~★ FALSIFIED~~ INCONCLUSIVE (see the correction above)
 
 `dunes_strip_emitter.py`. Built a real, deterministic, seeded desert|dunes row emitter grounded
 in round 2's measured dither: per-touch-category empirical PMF × the measured |Δrow| transition
