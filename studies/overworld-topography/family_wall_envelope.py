@@ -15,6 +15,14 @@ in the family's wall band ->
   * coastal vs interior (any vert at/below y~0.05 = reaches the waterline)
 Compare against the (10,17) island-B donor's wall faces (what the retile stretched).
 
+2026-07-18 map-wide extension: the per-family tally below first slices to top-8
+SPECIMEN blocks (>=30 family-topo tris) -- the historically-cited canyon "748 tris
+map-wide, 0 coastal" figure came from a run of that slice and was never a map-wide
+count. Each family now ALSO gets a true MAP-WIDE tally over every census block
+(canonical figures: see the MAP-WIDE lines of the output); when a family's coastal
+faces are few they are itemized with y-range/extent so gorge-vs-open-sea reads
+straight off the output.
+
 Run from the repo root:  py studies/overworld-topography/family_wall_envelope.py
 """
 import math
@@ -66,7 +74,7 @@ def pct(vals, q):
     return s[min(len(s) - 1, int(q * len(s)))]
 
 
-def wall_stats(name, wall_tris):
+def wall_stats(name, wall_tris, list_coastal_max=0):
     """Per-tri spans + welded-component faces + v-structure."""
     if not wall_tris:
         print(f"   {name}: NO wall tris found")
@@ -101,15 +109,28 @@ def wall_stats(name, wall_tris):
             if b - a > 0.008:                                # > band jitter = a new course row
                 merged += 1
         face_vlevels.append(merged)
-    coastal = sum(1 for tl in comps.values()
-                  if min(p[1] for ti in tl for p in wall_tris[ti]["w"]) < 0.05)
+    coastal_faces = [tl for tl in comps.values()
+                     if min(p[1] for ti in tl for p in wall_tris[ti]["w"]) < 0.05]
+    coastal = len(coastal_faces)
+    tris_coastal = sum(len(tl) for tl in coastal_faces)
     print(f"   {name}: {len(wall_tris)} wall tris in {len(comps)} faces; "
           f"tri y-span p50 {pct(spans,.5):.2f} p90 {pct(spans,.9):.2f} max {max(spans):.2f}; "
           f"FACE height p50 {pct(face_h,.5):.2f} p90 {pct(face_h,.9):.2f} "
           f"max {max(face_h):.2f}; v-rows/face {Counter(face_vlevels).most_common(4)}; "
-          f"coastal faces {coastal}/{len(comps)}")
+          f"coastal faces {coastal}/{len(comps)} "
+          f"(tris in coastal faces {tris_coastal}/{len(wall_tris)})")
+    if list_coastal_max and 0 < coastal <= list_coastal_max:
+        for tl in coastal_faces:
+            pts = [p for ti in tl for p in wall_tris[ti]["w"]]
+            ys = sorted(p[1] for p in pts)
+            xs = [p[0] for p in pts]
+            zs = [p[2] for p in pts]
+            print(f"      coastal face: {len(tl)} tris, y[{ys[0]:.2f},{ys[-1]:.2f}], "
+                  f"x[{min(xs):.1f},{max(xs):.1f}] z[{min(zs):.1f},{max(zs):.1f}] "
+                  f"~block ({int(min(xs) // 64)},{int(-max(zs) // 64)})")
     return dict(n=len(wall_tris), faces=len(comps), span_p90=pct(spans, .9),
-                face_max=max(face_h), face_p90=pct(face_h, .9))
+                face_max=max(face_h), face_p90=pct(face_h, .9),
+                coastal_faces=coastal, tris_coastal=tris_coastal)
 
 
 # map census: specimen blocks per family (most family-ground tris)
@@ -131,7 +152,13 @@ for fam, topos in FAMS.items():
         for t in census[blk]:
             if all(in_band(uv, b) for uv in t["uv"]):
                 wall.append(t)
-    wall_stats(fam, wall)
+    wall_stats(f"{fam} (top-8 specimen slice)", wall)
+    # TRUE MAP-WIDE tally (2026-07-18): every census block, same band test. This is
+    # the canonical per-family figure -- the specimen slice above under-counts (the
+    # once-cited canyon "748/0 map-wide" was a specimen-slice run, never map-wide).
+    allwall = [t for tl in census.values() for t in tl
+               if all(in_band(uv, b) for uv in t["uv"])]
+    wall_stats(f"{fam} MAP-WIDE", allwall, list_coastal_max=8)
     # where else does family ground meet a DROP without this band? (tall edges dressed
     # by ANOTHER language -- e.g. the coursed mesa tiles)
     steep = [t for blk in spec for t in census[blk]
