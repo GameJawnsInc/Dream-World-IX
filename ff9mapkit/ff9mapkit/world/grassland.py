@@ -85,13 +85,33 @@ GROUNDS = {
                   cls="island", wall_coastal=True),
     "desert": dict(topo=17, mains_du=0.65332, mains_dv=-0.09863,
                    wall_du=-0.27127, wall_dv=-0.02066, cls="island",
-                   wall_coastal=True),                              # 12/13 faces coastal, to 5.03u
+                   wall_coastal=True),                              # map-wide 19/20 faces coastal, to
+    #                                  6.57u (2026-07-19 map-wide re-measure; the old "12/13 to 5.03u"
+    #                                  was a specimen-slice reading, retired -- same defect class as the
+    #                                  canyon/snow figures corrected 2026-07-18).
     "scrub": dict(topo=4, mains_du=0.25977, mains_dv=-0.06738,      # grass<->dirt ecotone
-                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
-                  cls="transition"),                                # wall_coastal UNMEASURED (a borrow)
+                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall -- and the
+    #                                  BORROW IS BYTE-TRUE where it occurs (5dp-exact, zero delta).
+                  cls="transition", wall_coastal=False),            # ★ MEASURED 2026-07-19
+    #                                  (wall_coastal_unmeasured.py): scrub touches topo-58 exactly ONCE
+    #                                  map-wide -- 1 welded face / 3 tris at ~(17,1), out of 41
+    #                                  scrub-bearing blocks and 1877 scrub ground tris. That single face
+    #                                  IS open-sea with no gorge counterexample, but n=1 cannot certify a
+    #                                  systematic coastal usage. REFUSE (revises the older "scrub never
+    #                                  touches topo-58" framing: it touches once, too thin to build on).
     "brush": dict(topo=38, mains_du=0.45703, mains_dv=-0.20215,  # bare-brush hillside
-                     wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall
-                     cls="slope"),                                  # wall_coastal UNMEASURED
+                     wall_du=-0.27127, wall_dv=-0.02066,            # its REAL stock wall (5dp-exact on
+    #                                  6 of 7 adjacent faces -- the borrow claim is byte-verified)
+                     cls="slope"),                                  # wall_coastal DELIBERATELY UNSET --
+    #                                  and unset now REFUSES at both chokepoints (island.py fail-closed
+    #                                  fix, 2026-07-19). The 2026-07-19 measure found 7 adjacent faces
+    #                                  but only ONE open-sea, with the other 5 interior/gorge. That is
+    #                                  weaker coastal evidence than scrub's (whose lone face was 100%
+    #                                  open-sea, zero gorge) -- certifying brush True while refusing
+    #                                  scrub would apply an inconsistent, backwards bar. Needs a second
+    #                                  independent open-sea face (the adjacency test is WITHIN-BLOCK
+    #                                  only -- a cross-block-aware rerun could find one) or a visual
+    #                                  confirmation of the ~(8,15) candidate before it can clear.
     "snow": dict(topo=27, mains_du=0.0, mains_dv=-0.33691,          # Lost-Continent field
                  wall_du=-0.44021, wall_dv=0.05161,                 # icy band, measured
                  cls="island", wall_coastal=True),                  # ★ map-wide 1019 tris/10 faces, ALL
@@ -102,22 +122,68 @@ GROUNDS = {
     "canyon": dict(topo=45, mains_du=0.7793, mains_dv=-0.31641,     # Forgotten red tiers
                    wall_du=-0.69509, wall_dv=-0.49722,              # red-rock band, measured
                    cls="island", wall_coastal=False),               # ★ ground verbatim-compared; ⚠ THE
-    #                                  WALL-CONTEXT LAW (family_wall_envelope.py): the red band is
-    #                                  map-wide 655 wall tris / 48 faces, with exactly ONE borderline
-    #                                  face (3 tris, block (3,7)) sitting wholly below datum -- an
-    #                                  interior gorge wall, not open sea. Zero open-sea coastal canyon
-    #                                  walls (the Forgotten's sea cliffs are topo-49 MURALS): a canyon SEA
-    #                                  cliff is off-language. Canyon = interior ground behind a lawful
-    #                                  coast. (2026-07-18 map-wide re-census: 655/48, 1 below-datum gorge
-    #                                  face -- the old "748 tris map-wide, 0 coastal" was a top-8-specimen
-    #                                  -slice artifact, never a map-wide count; that slice today reads 231
-    #                                  tris/27 faces, still 0 coastal.) Note: canyon stays cls="island" for
+    #                                  WALL-CONTEXT LAW: ZERO open-sea coastal canyon walls (the
+    #                                  Forgotten's sea cliffs are topo-49 MURALS), so a canyon SEA cliff
+    #                                  is off-language. Canyon = interior ground behind a lawful coast.
+    #                                  ⚠ THE TALLY HAS BEEN WRONG TWICE -- the DIRECTION never moved.
+    #                                  "748 tris map-wide, 0 coastal" was a top-8-specimen-slice
+    #                                  artifact presented as map-wide (caught 2026-07-18). Its
+    #                                  replacement "655 tris / 48 faces" is ALSO wrong (caught
+    #                                  2026-07-19, canyon_wall_courses.py): it counted the red-band UV
+    #                                  RECT topo-agnostically, and 594 of those 655 tris are topo-49
+    #                                  MURAL + 1 is topo-59. The true red WALL population is 60 tris /
+    #                                  8 faces (topo-58 strict), or 43 tris / 7 faces by ground
+    #                                  adjacency -- still zero open-sea, so the refusal stands.
+    #                                  LAW: cite a wall figure ONLY from a topo-58-FILTERED count; a
+    #                                  UV-rect count is a mural count.
+    #                                  Note: canyon stays cls="island" for
     #                                  the UV-TRANSLATION grouping only -- wall_coastal=False means a
     #                                  coastal canyon LANDMASS is refused by the shipped guard
     #                                  (build_landmass / GroundRetile.for_donor).
     "dunes": dict(topo=41, mains_du=0.38964, mains_dv=-0.13477,     # pale sandy event dunes
-                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall
-                  cls="interior"),                                  # wall_coastal UNMEASURED (a borrow)
+                  wall_du=-0.27127, wall_dv=-0.02066,               # borrowed desert wall -- a TRUE
+    #                                  borrow: there is nothing to measure it against (below)
+                  cls="interior", wall_coastal=False),              # ★ MEASURED 2026-07-19
+    #                                  (wall_coastal_unmeasured.py): an exhaustive map-wide scan of all
+    #                                  9 dunes-bearing blocks finds ZERO topo-58 tris sharing an edge
+    #                                  with any dunes tri anywhere. The wall band is unmeasurable from
+    #                                  direct evidence -- "borrow" is the honest word. REFUSE.
+}
+
+
+#: THE ECOTONE-STRIP TABLE (``ecotone_strip_decode.py``, 2026-07-19) -- DATA ONLY, not yet an
+#: authoring surface. A family boundary is never plain|plain: some pairs wear a dedicated
+#: one-tile strip COLUMN, and where they do, that column is the grass B-strip
+#: (``FAM_REGION["B"]``) TRANSLATED -- the same law the mains obey. Both entries below are
+#: proven-5dp map-wide (zero outer-bound spread, exact 0.03125 row pitch, all 4 rows).
+#:
+#: ⚠ WHAT THIS IS NOT: a placement policy. These are the rects; NOBODY has measured which of
+#: the 4 rows goes in which cell (the mains 2x2's avoid-repeat neighbour policy has no strip
+#: analogue yet). An emitter needs that before it can stamp a seam -- so this table unblocks
+#: the *vocabulary* half of the dunes-patch carry, not the carry itself.
+#:
+#: THE UNION METHOD (why the old earmark was wrong): an outer-bounds fit on ONE side of the
+#: boundary can TIE between row-alignment hypotheses, because B's row0 is exactly 1 texel
+#: (1/1024) shorter than rows 1-3, so different k-consecutive-row windows span numerically
+#: identical v-extents. UNIONING both sides recovers all 4 rows and forces the alignment
+#: unique. That is what caught the desert|dunes earmark's dv being off by EXACTLY one row
+#: pitch (-0.06738 -> the proven -0.09863).
+#:
+#: Only these two pairs are translated B-columns. The other three real adjacencies are
+#: structurally different art and must NOT be forced through this path:
+#:   desert|scrub -- no strip at all; the blend is literal texture substitution (59% of the
+#:                   desert-side boundary tris simply wear SCRUB's own mains).
+#:   desert|brush -- desert side plain (98% own-mains); brush wears its own edge column at
+#:                   u[0.72070,0.78125] v[0.53516,0.59668], but REFUTED as a lattice
+#:                   translation (515/517 cells fail the per-cell exact-linear UV test) --
+#:                   it is scattered independently-UV'd triangles, needing its own decode.
+#:   grass|scrub  -- a THIRD, previously-uncatalogued shared atlas asset at
+#:                   u[0.34082,0.40332] v[0.83594,0.86621], width 0.0625 (matching neither
+#:                   B's 0.06055 nor the mains quadrant); both sides land on the identical
+#:                   rect. Not visually inspected -- do not carry it blind.
+STRIPS = {
+    ("grass", "desert"): dict(du=0.52442, dv=-0.04687, rows=4),
+    ("desert", "dunes"): dict(du=-0.13476, dv=-0.09863, rows=4),
 }
 
 

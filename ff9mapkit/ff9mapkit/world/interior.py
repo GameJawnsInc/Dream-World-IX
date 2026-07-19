@@ -69,7 +69,16 @@ RIM_CLEAR = 6.0
 
 # ---- the proven mountain constants (massif_carry.py, the Uaho carry) ----------------------
 MOUNTAIN_DONOR = (0, 0)          # Uaho island -- the only donor with a full anatomy study
-MOUNTAIN_ROCK_TOPOS = frozenset({49, 7, 62})   # massif rock (NOT the coastal-lip topo 58)
+#: Massif rock (NOT the coastal-lip topo 58). Narrowed from {49, 7, 62} on 2026-07-19
+#: (``mural_partition_settle.py``): 7 and 62 were only ever LUMPED IN with 49 by assumption,
+#: and the bytes refute it -- topo 7 is FLAT WALKABLE ground (snow-adjacent, 430 tris over 11
+#: blocks at bx 4-9) and topo 62 is a STEEP STREAM-BANK paired with topo-51 (480 tris over 10
+#: blocks at bx 16-20). Neither is rock, and neither appears even once in ANY of the four
+#: qualified --donor rects (Uaho (0,0) / crag (10,5-6) / horseshoe (5-6,15-16) / comp20
+#: (12,16-17) -- all verified 0), so this narrowing is a proven no-op on every shipped donor.
+#: It is not merely inert though: leaving them in meant a FUTURE donor near those regions
+#: would silently pull walkable ground and stream-bank into its "rock" component.
+MOUNTAIN_ROCK_TOPOS = frozenset({49})
 # Uaho's alcove floor: ((x0, x1), (z0, z1), y_min) in the donor block's world frame -- the
 # notch's flat cave-floor pocket is mountain-attached terrain; without it the blob rim
 # oscillates 1.5<->6.3 inside the notch and no smooth apron can meet it. Donor-specific

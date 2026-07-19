@@ -244,14 +244,24 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     gspec = G.GROUNDS[ground]
     # THE WALL-CONTEXT LAW (family_wall_envelope.py, 2026-07-15): a mint's rim walls are
     # SEA cliffs by construction, and a family whose wall band is measured INTERIOR-ONLY
-    # (canyon: 748 red-band wall tris map-wide, 0 coastal -- the Forgotten's sea cliffs
-    # are topo-49 murals) can never dress them in-language.
-    if gspec.get("wall_coastal") is False:
+    # (canyon: red-band wall tris map-wide, 0 open-sea coastal -- the Forgotten's sea
+    # cliffs are topo-49 murals) can never dress them in-language.
+    #
+    # THE GATE FAILS CLOSED (fixed 2026-07-19). This test was `is False`, which let an
+    # UNSET key through: scrub/brush/dunes omit wall_coastal entirely, so .get() returned
+    # None, `None is False` is False, and the gate silently ALLOWED an island mint for
+    # every unmeasured family -- the exact case it exists to catch. An unmeasured family
+    # is not a permitted one. Sibling gate transplant.py GroundRetile.for_donor was always
+    # `is not True` (fail-closed); the two chokepoints now agree.
+    if gspec.get("wall_coastal") is not True:
+        why = ("is INTERIOR-ONLY in stock (0 open-sea coastal faces map-wide)"
+               if gspec.get("wall_coastal") is False
+               else "has NO MEASURED open-sea coastal usage")
         raise ValueError(f"--ground {ground}: THE WALL-CONTEXT LAW -- the {ground} wall "
-                         f"band is INTERIOR-ONLY in stock (0 coastal faces map-wide); a "
-                         f"minted island's rim is a sea cliff, so a {ground} island is "
-                         f"off-language. Use {ground} as interior ground behind a lawful "
-                         f"coast instead.")
+                         f"band {why}; a minted island's rim is a sea cliff, so a "
+                         f"{ground} island is off-language. Use {ground} as interior "
+                         f"ground behind a lawful coast instead. Coastal-wall grounds: "
+                         f"{sorted(n for n, g in G.GROUNDS.items() if g.get('wall_coastal'))}")
 
     cx, cz = center
     if seed is None:
