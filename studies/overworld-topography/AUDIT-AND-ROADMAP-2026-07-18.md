@@ -167,12 +167,14 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   mocked hermetic test is inert by construction — the first draft could mirror the LIVE install from a unit test)
   and `mirror(cells=)` scopes the auto path to the cells written this call (no more whole-tree clobber of
   hand-authored disc-4 divergence). 23 regression tests incl. the reviewers' own reproductions; suite 3717 green.
-  Live check rides the next real world deploy (one behavioral change, per the one-change-per-test law).
+  **Live check ★ DONE 2026-07-19**: the comp20 bench+carve deploy was the maiden run — 36 files cell-scoped to
+  Disc4, inner-writer skip + one CLI pass exactly as designed, playtest clean.
 - [x] **Grow the massif `--donor` library past 3** (6.75: feas 8 fide 8) — **census DONE 2026-07-19** (`ef31e18`,
   `donor_qualify_scan.py`): 87 rock components map-wide; sanity anchors reproduce all 3 known donors exactly;
   **7 new structurally-qualified candidates**; **comp20 (12,16)-(12,17) passed EVERY offline gate incl. a full dry
-  carve** (bench r48/seed42, cleaner than the original Uaho numbers) → the nominated 4th donor, **in-game carry
-  pending playtest**. New laws: THE CONTINENTAL ROCK NETWORK (comp0 = 56% of all map rock, 66 blocks, disqualified
+  carve** (bench r48/seed42, cleaner than the original Uaho numbers) → **★ IN-GAME PROVEN 2026-07-19 ("looks
+  good", first-deploy pass): the 4th qualified `--donor`** — bench at (448,−1216) blocks (6-7,18-19), massif at
+  (450,−1216) rot 180°, teleport (412.5,−1215.5), kept deployed. New laws: THE CONTINENTAL ROCK NETWORK (comp0 = 56% of all map rock, 66 blocks, disqualified
   by 36 nested rings incl. an unowned aperture) · THE DRY-CARVE ZIP GATE is a third independent filter (comp10
   passes structure+footing, fails the zip annulus). comp9 (multi-block span) + comp10 (zip notch) = rescue
   follow-ups.
