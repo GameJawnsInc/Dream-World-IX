@@ -898,9 +898,21 @@ container**:
    (`ff9.cs:4267`) reads `count = ReadInt32(@0)`, then returns `ReadInt32(@ 4 + no*4)` = the absolute byte offset of
    sub-table `no`. `w_framePackGetPtr_*(data, no)` seeks there and deserializes.
 
-Sub-table indices (`kWorldPack*`, `ff9.cs:9591+`): **3 = EncountTable**, **4 = EncountSpecial**, 0 EffectAreaBin,
-1 ChocoboPal, 2 PaletVolcano, 5 ColorTable(weather), 6 AnimationTable(texture scroll), 7 SpsData, 41 EffectBin,
-53-65 the named world SPS effects, **66 = ModelSea** (the `sNWBBlockHeader` sea geometry).
+Sub-table indices (`kWorldPack*`, `ff9.cs:9591+`; liveness per the 2026-07-19 full-pack decode,
+`studies/overworld-topography/discmr_subtables.py`): **3 = EncountTable**, **4 = EncountSpecial**,
+**41–52 = twelve LIVE per-`WorldEffect` effect-area tables** (one each for FireShrine/SandPit/SandStorm/
+AlexandriaWaterfall/Memoria/Windmill/WaterShrine/WindShrine + 4 Unknowns — variable-length, sentinel-terminated
+(`no == -1`) lists of 64-byte `s_effectData` ambient-SPS spawn records, `ff9.cs:8782+`), **6 = AnimationTable**
+(live for exactly 2 fields: `texturePixelAnime[0]/[1].speed` = the beach1/beach2 foam-scroll cadence; the rest
+parses and is never read). Dead or dark: 0 EffectAreaBin / 1 ChocoboPal / 2 PaletVolcano / 7 SpsData have no
+reader at all; 5 ColorTable(weather) is commented-out dead code superseded by `Data/World/WeatherColors.csv`;
+8–40 (minus 37) are 32 unlabeled sub-tables with no format oracle; 53–65 ("the named world SPS effects") are NOT
+pack-extracted — they are Unity scene-asset name lookups that merely share the `kWorldPack*` naming; **66 =
+ModelSea** (`sNWBBlockHeader`) is loaded (`ff9.cs:8778`) but its only consumer (`w_nwpInitialize`/`w_nwpMakePages`)
+is empty commented-out code with zero call sites — the rendered sea is `SeaBlockPrefab`, so ModelSea cannot
+ground-truth `world-water` (the real-block byte survey remains the ground truth). Every LIVE table is
+byte-identical disc1 vs disc4; only dead tables 2 and 5 differ. Codec caveat: `offs[count]` is an over-read into
+sub-table 0's payload — generic readers must clip to indices `0..count-1`.
 
 **Load path is mod-overridable.** `FF9Pc_SeekReadB` reads via **`AssetManager.LoadBytes(fileName)`** (`ff9.cs:2476`)
 — the same FolderNames-stacked path every other mod asset uses. So a mod folder that ships a replacement

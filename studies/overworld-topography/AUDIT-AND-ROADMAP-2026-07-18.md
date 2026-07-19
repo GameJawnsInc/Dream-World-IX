@@ -161,16 +161,29 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
 - [x] **Doc/citation corrections batch** (5.5: feas 9 leve 9) — the ~18 stale passages from Phase 1 §B–E above.
   Zero player value; hardens the layer every future session reads.
 - [x] **Fix pack_cell_tag's cell_z 6-bit mask** — landed on master `2b73900`.
-- [ ] **Auto-run world-mirror inside the deploy writers** (6.5: leve 8) — wire `discmirror` as a post-step in the
-  world deploy path (behind `--skip-mirror`), gated on any Sea*/Terrain override. Folds the proven disc-4-vanish fix
-  into the path so it can't be forgotten.
-- [ ] **Grow the massif `--donor` library past 3** (6.75: feas 8 fide 8) — 164/260 blocks carry topo-49 rock; only
-  Uaho/crag/horseshoe are qualified. With synthesis falsified, donors are the only path to mountain variety. Pure
-  offline anatomy census per candidate.
-- [ ] **Decode the remaining discmr.img pack sub-tables** (6.75: fide 9) — `worldpack.py` implements only indices
-  3–4; source-cited but undecoded: 0 EffectAreaBin, 1 ChocoboPal, 2 PaletVolcano, 5 ColorTable (weather),
-  6 AnimationTable (scroll), 7 SpsData, 41 Effect…, and **66 ModelSea** — real stock sea geometry to ground-truth
-  `world-water`'s Wang synthesis.
+- [x] **Auto-run world-mirror inside the deploy writers** (6.5: leve 8) — **DONE 2026-07-19** (`b7d2435`): all 14
+  worldmap-writing verbs tail-call `discmirror.auto_mirror`; `--skip-mirror` opts out; standalone verb unchanged.
+  Two adversarial review rounds hardened the design: auto_mirror consumes the actual written `Path` returns (a
+  mocked hermetic test is inert by construction — the first draft could mirror the LIVE install from a unit test)
+  and `mirror(cells=)` scopes the auto path to the cells written this call (no more whole-tree clobber of
+  hand-authored disc-4 divergence). 23 regression tests incl. the reviewers' own reproductions; suite 3717 green.
+  Live check rides the next real world deploy (one behavioral change, per the one-change-per-test law).
+- [x] **Grow the massif `--donor` library past 3** (6.75: feas 8 fide 8) — **census DONE 2026-07-19** (`ef31e18`,
+  `donor_qualify_scan.py`): 87 rock components map-wide; sanity anchors reproduce all 3 known donors exactly;
+  **7 new structurally-qualified candidates**; **comp20 (12,16)-(12,17) passed EVERY offline gate incl. a full dry
+  carve** (bench r48/seed42, cleaner than the original Uaho numbers) → the nominated 4th donor, **in-game carry
+  pending playtest**. New laws: THE CONTINENTAL ROCK NETWORK (comp0 = 56% of all map rock, 66 blocks, disqualified
+  by 36 nested rings incl. an unowned aperture) · THE DRY-CARVE ZIP GATE is a third independent filter (comp10
+  passes structure+footing, fails the zip annulus). comp9 (multi-block span) + comp10 (zip notch) = rescue
+  follow-ups.
+- [x] **Decode the remaining discmr.img pack sub-tables** (6.75: fide 9) — **DONE 2026-07-19** (`3e4f797`,
+  `discmr_subtables.py`, all 67 tables): **the ModelSea question is CLOSED negative** — table 66 loads but its only
+  consumer is empty commented-out code with zero call sites (the rendered sea = `SeaBlockPrefab`), so `world-water`
+  keeps its real-block byte survey as ground truth. The real find: **41–52 = twelve LIVE per-WorldEffect
+  ambient-SPS effect-area tables** (64B sentinel-terminated records — a future authoring surface, needs full-pack
+  repack for count changes); ColorTable(5) dead + superseded by `WeatherColors.csv`; AnimationTable(6) live for
+  exactly the 2 beach foam-scroll speed fields; 32 dark unlabeled tables (8–40 minus 37); every live table
+  byte-identical across discs. OVERWORLD_ENGINE.md's pack section corrected accordingly.
 
 ### SOON
 - [ ] **Resolve ground-family + ecotone decode gaps** (6.0) — topo-16 dirt has no translation formula; canyon's
