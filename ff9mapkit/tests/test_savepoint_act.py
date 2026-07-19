@@ -464,3 +464,45 @@ def test_menu_pos_validation(tmp_path):
         _FIELD.replace("[[savepoint]]\n", "[[savepoint]]\nmenu_pos = [1, 2, 3]\n")))
     assert not [x for x in probs(_FIELD.replace("[[savepoint]]\n", '[[savepoint]]\nmenu_pos = "stock"\n'))
                 if "savepoint" in x.lower()]
+
+
+def test_roster_speaker_and_its_seed_stay_in_lockstep(tmp_path):
+    """THE LOCKSTEP: whether the prompt SPEAKS as `[TEXT=0,0]` (collect_text) and whether the dispatch
+    SEEDS text var 0 before opening it (build's _speaks_as_roster) are derived independently. If they
+    drift, the window renders the moogle's name from whatever var 0 last held -- a silent wrong-name
+    bug. Fence the dangerous direction across every configuration.
+
+    One-directional by design: var 0 has a SECOND consumer -- the letter header's `to [TEXT=0,0]`
+    recipient slot -- so `mognet_interaction_body` seeds it whatever the speaker is. A seed therefore
+    does NOT imply a roster speaker; a roster speaker DOES imply a seed before the prompt."""
+    from ff9mapkit import build
+    from ff9mapkit.content import mognet as _mg
+    nl = chr(10)
+    mognet_block = nl + '[savepoint.mognet]' + nl + 'name = "Mogwai"' + nl + "accept = [55]" + nl
+    _spk = "[[savepoint]]" + nl + 'speaker = "Mog"' + nl
+    cases = {
+        "mognet, no speaker": _FIELD + mognet_block,                       # -> roster identity
+        "mognet + speaker": (_FIELD.replace("[[savepoint]]" + nl, _spk)
+                             + mognet_block),                              # -> the literal
+        "no mognet": _FIELD,                                               # -> no speaker at all
+        "no mognet + speaker": _FIELD.replace("[[savepoint]]" + nl, _spk),
+    }
+    seed = opcodes.set_text_variable(0, _mg.NEW_MOOGLE_ID)
+    saw_roster = False
+    for label, toml in cases.items():
+        p = tmp_path / "lock.field.toml"
+        p.write_text(toml, encoding="utf-8")
+        proj = build.FieldProject.load(p)
+        ct = build.collect_text(proj)
+        eb = build.build_script(proj, "us", {}, savepoint_txids=ct[-1])
+        prompt_txid = ct[-1][0]["prompt"]
+        prompt_entry = ct[0].split(f"[TXID={prompt_txid}]")[1].split("[ENDN]")[0]
+        if _mg.VAR_SPEAKER not in prompt_entry:
+            continue                                   # a literal name needs no seed to render
+        saw_roster = True
+        m = _entry_with_model(eb, 220)[0]
+        f3 = m.func_by_tag(3)
+        body = eb[f3.abs_start:f3.abs_end]
+        window = opcodes.window_sync(2, 8, prompt_txid)
+        assert seed in body and body.index(seed) < body.index(window), label
+    assert saw_roster, "no case exercised the roster speaker -- the fence proved nothing"
