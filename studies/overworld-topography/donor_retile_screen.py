@@ -32,6 +32,25 @@ Method:
      ``strips="none"`` are tried per window x family (the (10,17) STRIPS-PARITY precedent: auto
      drags in a neighbour's beach fragments and refuses for a no-sand-family target; none is
      byte-equivalent when the strip content wholly clips away).
+  4a. TWO DISTINCT reasons a window can refuse BOTH families -- not one. (a) for_donor's own
+     dst-must-be-in-``SAND_BANDS`` gate: for the windows that carry topo 31 (grass sand) or 32
+     (desert sand) or a non-empty ``beach1`` foam part, ``coastmorph._sand_band_family`` --
+     called AFTER the strip-gathering loop has already merged neighbour-strip content into
+     ``polys`` when ``strips="auto"`` (``transplant.py for_donor``: the strip gather/merge is
+     ~L424-446, ``sand_fam = CM._sand_band_family(...)`` is ~L447 -- classification happens
+     LAST, not first) -- returns a truthy family, and for_donor raises immediately ("no
+     measured sand family") for ``dst="snow"`` (``SAND_BANDS`` measures only {grass, desert}).
+     This is the "REFUSED [for_donor]" verdict, and it is family-DEPENDENT (desert can clear
+     this gate, snow structurally cannot). (b) the 5 windows at (6,3)/(7,2)/(7,3)/(8,2)/(8,3)
+     carry ONLY topo 33 (frozen-shore) -- zero topo-31/32, empty ``beach1`` -- and
+     ``coastmorph.SAND_BANDS`` does not recognise topo 33 AT ALL, so ``_sand_band_family``
+     returns ``None`` (falsy) for them and for_donor does NOT raise on sand-family grounds for
+     EITHER target. Refusal instead surfaces later, identically for desert and snow, as
+     "REFUSED [unclassified-content]" at ``gate()`` (the topo-33 tris carry no classification
+     rule at all -- a family-independent hole). That is its OWN unmeasured-topo gap, parallel
+     to the known topo-16 dirt gap -- it is NOT an instance of "snow can never qualify vs any
+     beach-bearing block because sand_fam is always truthy" (sand_fam is FALSY for exactly
+     these 5 windows). See ``out["topo33_gap"]`` below for the derived block list.
   5. canyon is refused unconditionally by the WALL-CONTEXT LAW's ``wall_coastal`` chokepoint
      (``GROUNDS["canyon"]["wall_coastal"] is False`` -- an INTERIOR-only band, 0 open-sea faces
      map-wide) -- per the task, canyon is NOT screened window-by-window; only its candidate-window
@@ -379,6 +398,30 @@ out["canyon_tally_only"] = dict(
          "(interior-only band, 0 open-sea coastal faces map-wide, family_wall_envelope.py), "
          "so for_donor's THE WALL-CONTEXT LAW chokepoint refuses EVERY donor whose rect carries "
          "a coastal (waterline) wall course, unconditionally, before any per-window content check.")
+
+# ==== record-honesty note: the topo-33-only population is its OWN, family-agnostic gap =============
+# (must_fix #1/#2 correction, derived from the SAME beach_blocks/block_topos data stage 1 already
+# built -- not hardcoded). coastmorph.SAND_BANDS has no topo-33 entry, so a window whose ONLY beach
+# signal is topo 33 (frozen-shore) never reaches for_donor's dst-in-SAND_BANDS raise for EITHER
+# family (sand_fam is falsy for it); both desert and snow instead refuse identically, later, via
+# gate()'s unclassified-content check. This is distinct from the 35/40 windows that DO carry topo
+# 31/32 or a beach1 part, where snow's refusal genuinely is the family-dependent for_donor gate.
+topo33_only_blocks = sorted(
+    b for b in beach_blocks
+    if 33 in block_topos[b] and not (block_topos[b] & {31, 32})
+    and not TR.world_tris(b[0], b[1], "beach1", disc=1))
+out["topo33_gap"] = dict(
+    blocks=[list(b) for b in topo33_only_blocks],
+    note="topo 33 (frozen-shore) is absent from coastmorph.SAND_BANDS (measures only "
+         "{grass:31, desert:32}) -- these blocks' sand_fam is FALSY, so for_donor never raises "
+         "on sand-family grounds for either target; refusal surfaces later, identically for "
+         "desert and snow, as 'unclassified-content' at gate() (the topo-33 tris carry no "
+         "classification rule at all, family-independent). A distinct unmeasured-topo gap, "
+         "parallel to the known topo-16 dirt gap -- NOT the general 'sand_fam is always truthy' "
+         "claim (that gate is real and family-dependent, but only for the OTHER windows that "
+         "actually carry topo 31/32 or a beach1 part).")
+log(f"  topo33-only gap: {len(topo33_only_blocks)} window(s) refuse BOTH families via "
+    f"unclassified-content, not the sand-family for_donor gate: {topo33_only_blocks}")
 
 # ==== ranked verdict table ===========================================================================
 print("\n== RANKED VERDICT TABLE ==")

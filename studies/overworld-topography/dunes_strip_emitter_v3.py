@@ -42,13 +42,27 @@ DESIGN:
      plus the flat ROW-COLOR overlay twin.
   6. Prints an honest per-variant decision table against the stated success criteria.
 
+ADVERSARIAL REVIEW FINDINGS (recorded here, not smoothed over -- a future reader needs both):
+  (a) Calibration discarded the diffusion mechanism entirely: the winning grid search picked
+      iters=0 for BOTH quantizers (bestA iters=0, bestB iters=0) -- the STEP-1 diffusion this
+      design is NAMED for was never actually exercised by the config that shipped. The tested
+      iid-Gaussian + non-negative-diffusion field family is STRUCTURALLY incapable of producing
+      anti-correlation; v3-A's negative lag-1 is largely inherited touch-category alternation
+      diluted by iid noise, not a diffusion effect -- same-row rate floors near ~25% for v3-A/
+      v3-B/iid-random alike, nowhere near stock's 9.8%. This REFUTES the named continuous-field
+      fix as a mechanism, even where the aggregate lag-1 number looks superficially better.
+  (b) The chosen v3-A config's lag-1 flips SIGN between calibration and validation on the exact
+      same config (sigma0=1.3, alpha=0.0, iters=0): +0.0196 at the 6-seed calibration grid vs
+      -0.0677 at the 20-seed validation run. The "v3-A lag1 PASS" verdict in the decision table
+      is a resampling artifact, not a stable result.
+
 Run from the repo root:  py studies/overworld-topography/dunes_strip_emitter_v3.py
 Artifacts -> out/dunes_strip_emitter_v3.json, out/dunes_strip_emitter_v3_*.png
 """
 import json
 import statistics
 import sys
-from collections import deque
+from collections import Counter, deque
 from pathlib import Path
 
 import numpy as np
@@ -192,7 +206,8 @@ def score_variant(assigned):
     lag1 = r["autocorr"][1]
     if lag1 is None:
         lag1 = 0.0
-    # lag1 weighted heaviest -- it is the primary criterion under test; chi2/same-rate secondary
+    # WEIGHTS (record-honest): same-rate 40.0 > lag1 15.0 > chi2-marginal 0.2 -- despite lag1
+    # being the criterion under test, the code weights same-row-rate heaviest, not lag1.
     return (abs(r["chi2"] - chi2_real) * 0.2
             + abs(r["same_rate"] - REAL_SAME_RATE) * 40.0
             + abs(lag1 - REAL_LAG1) * 15.0), r["chi2"], r["same_rate"], lag1
@@ -317,6 +332,15 @@ def full_report(label, assign_fn_or_dict, n_seeds=20):
     same_rates = [r["same_rate"] for r in reports]
     chi2s = [r["chi2"] for r in reports]
     in_band = sum(1 for j in jvals if lo <= j <= hi)
+    # additive aggregation of stats measure_assignment already computes per seed but this
+    # function previously discarded: lag-2/3 autocorrelation, the |drow| histogram, run-length.
+    lag2s = [r["autocorr"][2] for r in reports if r["autocorr"][2] is not None]
+    lag3s = [r["autocorr"][3] for r in reports if r["autocorr"][3] is not None]
+    run_means = [r["run_mean"] for r in reports if r["run_mean"] is not None]
+    run_medians = [r["run_median"] for r in reports if r["run_median"] is not None]
+    dr_hist_agg = Counter()
+    for r in reports:
+        dr_hist_agg.update(r["dr_hist"])
     return dict(
         label=label, n=len(assigns),
         in_band=in_band, in_band_total=len(assigns),
@@ -324,8 +348,16 @@ def full_report(label, assign_fn_or_dict, n_seeds=20):
         jumpiness_mean=round(float(np.mean(jvals)), 3),
         lag1_mean=round(float(np.mean(lag1s)), 4) if lag1s else None,
         lag1_std=round(float(np.std(lag1s)), 4) if lag1s else None,
+        lag2_mean=round(float(np.mean(lag2s)), 4) if lag2s else None,
+        lag2_std=round(float(np.std(lag2s)), 4) if lag2s else None,
+        lag3_mean=round(float(np.mean(lag3s)), 4) if lag3s else None,
+        lag3_std=round(float(np.std(lag3s)), 4) if lag3s else None,
         same_rate_mean=round(float(np.mean(same_rates)), 4),
         chi2_mean=round(float(np.mean(chi2s)), 3),
+        run_mean_mean=round(float(np.mean(run_means)), 4) if run_means else None,
+        run_mean_std=round(float(np.std(run_means)), 4) if run_means else None,
+        run_median_mean=round(float(np.mean(run_medians)), 4) if run_medians else None,
+        dr_hist_agg=dict(sorted(dr_hist_agg.items())),
         seed0_assignment=assigns[0],
     )
 
@@ -365,6 +397,11 @@ for label, r in REPORTS.items():
     print(f"[{label:26s}] jumpiness={r['jumpiness_mean']:6.2f} range={r['jumpiness_range']}  "
           f"in-band={crit_band:16s}  lag1={lag1_str}{closer:26s}  same-rate={same_str:6s}  "
           f"chi2={r['chi2_mean']:6.2f} ({marg_ok})  -> {', '.join(verdict) if verdict else '(reference / n=1)'}")
+    lag2_str = "n/a" if r["lag2_mean"] is None else f"{r['lag2_mean']:+.4f}"
+    lag3_str = "n/a" if r["lag3_mean"] is None else f"{r['lag3_mean']:+.4f}"
+    run_str = "n/a" if r["run_mean_mean"] is None else f"{r['run_mean_mean']:.3f}"
+    print(f"    {'':26s}   lag2={lag2_str}  lag3={lag3_str}  run_mean(mean of per-seed)={run_str}  "
+          f"|drow| hist(aggregated over seeds)={r['dr_hist_agg']}")
 print("=" * 100)
 
 # ============================================================================================
@@ -425,6 +462,17 @@ print(f"   v3-A (snap)   lag1={a_lag1}   {'CONFIRMS the failure mode (positive/n
 print(f"   v3-B (dither) lag1={b_lag1}   {'CONFIRMS the fix (negative, closer to real)' if b_pass_lag1 else 'does NOT confirm the fix'}")
 print("=" * 100)
 
+print("\n" + "=" * 100)
+print("ADVERSARIAL REVIEW FINDINGS (record-honest, not smoothed over):")
+print(f"  (a) calibration discarded the diffusion mechanism entirely -- chosen iters: A={bestA['iters']} "
+      f"B={bestB['iters']} (both 0, alpha={bestA['alpha']}/{bestB['alpha']}). The named continuous-"
+      f"diffusion fix is REFUTED AS A MECHANISM: the tested iid + non-negative-diffusion field family "
+      f"is structurally incapable of anti-correlation -- v3-A same-row rate "
+      f"{REPORTS['v3-A (snap)']['same_rate_mean']:.1%} vs stock {REAL_SAME_RATE:.1%} (a ~25% floor).")
+print(f"  (b) v3-A's chosen config's lag1 flips sign: calibration (6 seeds) lag1={bestA['lag1']:+.4f} vs "
+      f"validation (20 seeds) lag1={a_lag1:+.4f} -- the sign result is UNSTABLE under resampling.")
+print("=" * 100)
+
 out = dict(
     real_targets=dict(lag1=REAL_LAG1, same_rate=REAL_SAME_RATE, chi2=chi2_real, n_strip=n_strip),
     v2bfs_arc_record_lag1_miss=V2BFS_LAG1_MISS,
@@ -444,6 +492,24 @@ out = dict(
     hypothesis_check=dict(
         v3_A_lag1=a_lag1, v3_A_confirms_snap_failure=(not a_pass_lag1),
         v3_B_lag1=b_lag1, v3_B_confirms_dither_fix=b_pass_lag1,
+    ),
+    review_findings=dict(
+        diffusion_discarded=dict(
+            chosen_iters_A=bestA["iters"], chosen_iters_B=bestB["iters"],
+            chosen_alpha_A=bestA["alpha"], chosen_alpha_B=bestB["alpha"],
+            v3_A_same_rate=REPORTS["v3-A (snap)"]["same_rate_mean"], real_same_rate=REAL_SAME_RATE,
+            note="calibration selected iters=0 (no diffusion passes) for both quantizers -- the "
+                 "named continuous-diffusion mechanism this design is named for was never actually "
+                 "exercised by the winning config; the tested iid+non-negative-diffusion field "
+                 "family is structurally incapable of anti-correlation (same-row rate floors ~25%, "
+                 "vs real 9.8%), refuting the named fix as a mechanism.",
+        ),
+        lag1_sign_unstable=dict(
+            calibration_6seed_lag1=bestA["lag1"], validation_20seed_lag1=a_lag1,
+            note="v3-A's chosen config's lag1 flips sign between the 6-seed calibration grid "
+                 "(+0.0196) and the 20-seed validation run (-0.0677) -- the 'lag1 PASS' verdict "
+                 "is a resampling artifact, not a stable result.",
+        ),
     ),
     pick=None,   # filled by the reporting agent's narrative; the raw numbers above are authoritative
     outputs=[str(p) for p in sorted(OUTD.glob("dunes_strip_emitter_v3_*.png"))],
