@@ -294,7 +294,15 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   auto**, 3-block self-contained; (13,10) is the 1 STRIPS-PARITY window); **snow 0/40** — 35/40 via sand_fam (snow
   has no SAND_BANDS entry) and **5 topo-33-only frozen-shore windows via the separate unclassified-content gap**
   (topo 33 = a distinct unmeasured family, parallel to topo-16 dirt); canyon tallied-only (wall_coastal). New snow
-  candidates need a NON-beach coastal scan — a different enumeration, still open.
+  candidates need a NON-beach coastal scan — a different enumeration, still open. **→ the (8,17)+2×2 carry is
+  DEPLOYED 2026-07-20 at (11,18)+2×2** (the 3rd retile carry; teleport (778.5,−1196.5), A/B donor (586.5,−1132.5);
+  playtest pending). En route: **THE DEGENERATE-SAND GUARD** — 3 donor sand tris straddle two grass cap_land
+  sub-pins that collapse onto desert's single cap row → zero-area UV → texel banding; fixed by
+  `strip_aware_retile.DegenerateSandGuardRetile` (study-local subclass; ⚠ the bare CLI `--ground` path has no
+  tweak hook and WOULD REINTRODUCE the bug — deploy via `deploy_donor_8_17_desert.py` until the flagged shipped
+  fix lands); + the CLI defaults trap (--shift auto/--land-margin 2 fail 4 gates on this donor — explicit
+  `--shift 0,0 --land-margin 0` required); + SITE POLICY (user decision 2026-07-20): pre-reset content homes are
+  NO LONGER RESERVED — only live content blocks placement.
 - [ ] **Resurrect rolling relief for minted islands** (6.0: play 8, feas 5) — every mint since DEAD-RELIEF is
   byte-flat; resurrection notes in this README. Re-key `relief_field` to the same world-coord frame as `fill_y`;
   prove offline before touching shared code (zero-byte-diff acceptances guard it).
