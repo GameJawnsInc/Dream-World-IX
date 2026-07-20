@@ -2134,6 +2134,183 @@ def _mod_overwrite_gate(mod_folder, cell_donors, *, disc, lod="0_1", game=None,
             "existing": "; ".join(hits) if hits else 0, "ok": allow or not hits}
 
 
+# --------------------------------------------------------------------------------------------------
+# THE EFFECTIVE-PREFAB GATE + AUTO-ARM, and THE WANG-CARRY GATE -- the two productized water-carry
+# gates (from the (11,19) water-only-cell arc + THE WANG-CARRY LAW; coast memory
+# ``project-ff9-overworld-coast-mosaic``).  The engine binds a cell's overrides PER the effective
+# prefab's transform set (armed divert donor vs the generic SeaBlockPrefab), and a carry that crops a
+# Wang'd ocean breaks the puzzle at the cut edges -- both invisible to the coverage census.
+_CELL, _G = 4.0, 16
+
+
+def effective_prefab_arm(meshes, *, cell, sidecar_parts, disc: int = 1, lod: str = "0_1"):
+    """THE EFFECTIVE-PREFAB GATE + AUTO-ARM (the (11,19) water-only-cell fix; THE DIVERT-ARM /
+    EFFECTIVE-PREFAB laws, in-game proven 2026-07-20).
+
+    The engine binds a cell's sub-mesh overrides ONLY for the transforms its EFFECTIVE prefab exposes,
+    looked up by ``transform.name``:
+      * a cell WITH a ``Terrain.ff9mesh`` override (real, blanked, or a stub) has ``HasLandOverride`` =
+        true -> the s34 divert fires -> the effective prefab is the ``Donor.txt`` DONOR prefab, whose
+        transform set = ``sidecar_parts``;
+      * a cell WITHOUT any Terrain override loads the generic ``SeaBlockPrefab``, whose ONLY transform is
+        ``Sea4`` -> every OTHER emitted sea layer (Sea3/Sea5/Beach1/...) is SILENTLY DROPPED (holes +
+        a pale/black void -- the (11,19) bug).
+
+    So a WATER-ONLY carry (donor + sidecar both Terrain-less) that emits >1 sea layer must AUTO-ARM: emit
+    a degenerate :func:`ff9mapkit.world.mesh.stub_terrain_mesh` (never bound as geometry -- a water-only
+    donor prefab has no ``TerrainForm1``) so the divert loads the sidecar prefab and each layer binds its
+    OWN material.  ``meshes`` = the ``(part_name, BlockMesh)`` list about to deploy for ``cell``;
+    ``sidecar_parts`` = the lowercase part names the cell's ``Donor.txt`` prefab exposes.  Returns
+    ``(arm_mesh_or_None, gate_dict)``; the arm mesh (if any) is deploy-only (excluded from the weld/
+    coverage census -- it is skip-flagged and below the world).  IDEMPOTENT: a cell that already ships a
+    Terrain override needs no arm -> ``arm_mesh`` is ``None`` and the bytes are unchanged."""
+    from . import mesh as M
+    names = {pn for pn, _ in meshes}
+    (bx, by) = cell
+    has_terrain = "Terrain" in names
+    non_sea4 = {pn for pn in names if pn not in ("Terrain", "Sea4")}
+    arm = None
+    armed = False
+    if not has_terrain and non_sea4:                          # SeaBlockPrefab would bind ONLY Sea4
+        arm = M.stub_terrain_mesh(disc=disc, x=bx, y=by, lod=lod)
+        armed = True
+        has_terrain = True
+    if has_terrain:
+        bound = {p.lower() for p in (sidecar_parts if sidecar_parts is not None
+                                     else {pn.lower() for pn in names})}
+    else:
+        bound = {"sea4"}                                       # generic SeaBlockPrefab
+    emitted = {pn.lower() for pn in names}
+    unbindable = sorted(p for p in emitted if p != "terrain" and p not in bound)
+    gate = {"gate": f"effective-prefab[{bx},{by}]", "armed": armed, "bound": sorted(bound),
+            "unbindable": unbindable, "ok": not unbindable}
+    return arm, gate
+
+
+def _sea_shade_grid(sea_by_name):
+    """16x16 shade grid ('sea3'/'sea4'/'sea5', empty->'sea4') from a ``{lower_part: BlockMesh}`` map --
+    the deployed-byte counterpart of :func:`ff9mapkit.world.water.read_shade_grid`."""
+    seen = [[None] * _G for _ in range(_G)]
+    for part in ("sea3", "sea4", "sea5"):
+        bm = sea_by_name.get(part)
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // _CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // _CELL)
+            if 0 <= i < _G and 0 <= j < _G:
+                seen[i][j] = part
+    return [[seen[i][j] or "sea4" for j in range(_G)] for i in range(_G)]
+
+
+def _sea_water_grid(sea_by_name):
+    """16x16 has-water bool grid (any Sea3/Sea4/Sea5 triangle binned to the cell) -- for LAND-AWARENESS
+    (a 'sea4' shade with NO water triangle is a coast/land cell, not deep water)."""
+    hw = [[False] * _G for _ in range(_G)]
+    for part in ("sea3", "sea4", "sea5"):
+        bm = sea_by_name.get(part)
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            i = int((sum(bm.verts[q][0] for q in tri) / 3) // _CELL)
+            j = int((-sum(bm.verts[q][2] for q in tri) / 3) // _CELL)
+            if 0 <= i < _G and 0 <= j < _G:
+                hw[i][j] = True
+    return hw
+
+
+def _sea5_deepsets(sea5_bm):
+    """{(i,j): deepset} for a Sea5 BlockMesh, fitting cells with >=3 corner UVs (so a 1-triangle shore
+    sliver classifies too), via :func:`ff9mapkit.world.water._fit_tile` + the DEEPSET2TILE inverse."""
+    from . import water as W
+    if sea5_bm is None:
+        return {}
+    inv = {sr: ds for ds, variants in W.DEEPSET2TILE.items() for sr in variants}
+    corners = collections.defaultdict(dict)
+    for tri in sea5_bm.tris:
+        i = int((sum(sea5_bm.verts[q][0] for q in tri) / 3) // _CELL)
+        j = int((-sum(sea5_bm.verts[q][2] for q in tri) / 3) // _CELL)
+        for k in tri:
+            v = sea5_bm.verts[k]
+            corners[(i, j)][(round((v[0] - i * _CELL) / _CELL), round((-v[2] - j * _CELL) / _CELL))] = sea5_bm.uvs[k]
+    out = {}
+    for (i, j), d in corners.items():
+        if len(d) >= 3:
+            us = [uv[0] for uv in d.values()]
+            vs = [uv[1] for uv in d.values()]
+            if max(us) - min(us) > 1e-6 and max(vs) - min(vs) > 1e-6:
+                fit = W._fit_tile(d)
+                if fit is not None:
+                    ds = inv.get((W._strip_of(fit[2]), fit[4]))
+                    if ds is not None:
+                        out[(i, j)] = ds
+    return out
+
+
+def wang_carry_gate(sea_by_cell, region_cells, *, enforce=False, allow=False):
+    """THE WANG-CARRY GATE (THE WANG-CARRY LAW, user-authored 2026-07-20; productizes the (11,19)
+    study's land-aware ``frame_edge_verdicts`` census).
+
+    Water tiles are a cross-block WANG puzzle: neighbouring cells agree by construction (a Sea3 shallow
+    never abuts a Sea4 deep without a Sea5 transition bridge), and that holds ACROSS block seams too.  A
+    carry that CROPS a Wang region breaks the puzzle at the CUT edges -- the carried region's OUTER FRAME,
+    where a tile that was interior (facing more island water) now faces the open-ocean deep with no
+    transition ring = a hard shallow|deep seam (the 17 cropped-Wang rim seams on the (8,17)+2x2 island,
+    fixed by ``studies/overworld-topography/wang_rim_retile.py``).
+
+    This gate CENSUSES the carried cells' OUTER-FRAME sea tiles (land-aware: an edge whose region-
+    neighbour carries no water triangle is a coast, not deep, and is skipped -- without this the census
+    over-flags real coastlines).  A ``sea3``/mis-oriented-``sea5`` tile on a frame edge (facing the
+    open-ocean deep ring) is ``incoherent`` and surfaced in ``incoherent``/``detail``.
+
+    ``enforce`` controls whether an incoherent frame edge FAILS the build.  It defaults **OFF** (report-
+    only, ``ok`` always True) because the raw frame census cannot yet distinguish a carry-INTRODUCED seam
+    (the crop severed a shelf continuation) from a PRE-EXISTING donor coast tile (a real beach island's
+    own shallow shelf already faces its ocean at the donor site -- e.g. the proven (7,17) carry shows 16
+    such frame edges, all its verbatim donor shelf, none carry-introduced; the site-prep's "the donor-
+    site baseline is 4, not 0").  Separating the two needs the DONOR-BASELINE subtraction (census the
+    donor cells against their REAL neighbourhood and subtract), which the rim-retile round implements end-
+    to-end (frame-vs-generic-deep -> 0 with introduced==0); until it lands here, enforcement is opt-in.
+    ``enforce=True`` hard-fails on any incoherent frame edge (for a fresh mint onto known-deep open ocean,
+    where every frame edge IS a crop); ``allow`` waives even then.
+
+    ``sea_by_cell`` = ``{(bx,by): {lower_part: BlockMesh}}`` for the carried WATER cells; ``region_cells``
+    = the set of ``(bx,by)`` in the carried region (an edge to a NON-region block faces the deep ring)."""
+    dirs = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
+    region = {tuple(c) for c in region_cells}
+    shade = {c: _sea_shade_grid(p) for c, p in sea_by_cell.items()}
+    water = {c: _sea_water_grid(p) for c, p in sea_by_cell.items()}
+    ds5 = {c: _sea5_deepsets(p.get("sea5")) for c, p in sea_by_cell.items()}
+    incoherent = []
+    for (bx, by), _p in sea_by_cell.items():
+        g, w, d5 = shade[(bx, by)], water[(bx, by)], ds5[(bx, by)]
+        for i in range(_G):
+            for j in range(_G):
+                if not w[i][j]:
+                    continue
+                for d in "NESW":
+                    di, dj = dirs[d]
+                    off = not (0 <= i + di < _G and 0 <= j + dj < _G)
+                    to_block = (bx + (1 if i + di >= _G else -1 if i + di < 0 else 0),
+                                by + (1 if j + dj >= _G else -1 if j + dj < 0 else 0))
+                    if not (off and to_block not in region):   # only OUTER-FRAME edges (facing the deep ring)
+                        continue
+                    sh = g[i][j]
+                    if sh == "sea4":
+                        continue                              # deep meets deep
+                    if sh == "sea3":
+                        incoherent.append(((bx, by), (i, j), d, "sea3 abuts deep, no transition ring"))
+                    else:                                     # sea5
+                        ds = d5.get((i, j))
+                        if ds is None or d not in ds:
+                            incoherent.append(((bx, by), (i, j), d,
+                                               f"sea5 deepset {sorted(ds) if ds else None} !point {d}"))
+    detail = "; ".join(f"({bxy[0]},{bxy[1]})@{ij}.{d}" for (bxy, ij, d, _r) in incoherent[:6])
+    ok = allow or (not enforce) or not incoherent
+    return {"gate": "wang-carry", "incoherent": len(incoherent), "enforced": bool(enforce),
+            "detail": detail or 0, "ok": ok}
+
+
 def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     """Rotate a REGION-LOCAL point (frame x 0..ext[0], z -ext[1]..0) about the region centre by
     ``nrot`` 90-degree steps into the ROTATED frame (x 0..ext_r[0], z -ext_r[1]..0). Region extents
@@ -2167,7 +2344,8 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                tweaks=(), strips="auto", extra: float = 8.0, land_margin: float = 2.0,
                disc: int = 1, lod: str = "0_1", game=None, census_samples: int = 24,
                allow_real_target: bool = False, allow_object_misalign: bool = False,
-               allow_mod_overwrite: bool = False, dry_run: bool = False,
+               allow_mod_overwrite: bool = False, allow_wang_seams: bool = False,
+               enforce_wang_carry: bool = False, dry_run: bool = False,
                skip_mirror: bool = False) -> dict:
     """Carry the complete real ``donor`` block to ocean ``cell``, rotated by ``rot`` (0/90/180/270
     about the cell centre) and rigid-shifted by ``shift`` (0-mod-4 units; ``"auto"`` centres the
@@ -2392,8 +2570,18 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
             continue
         meshes.append((part_name(p), bm))
 
+    # THE EFFECTIVE-PREFAB GATE + AUTO-ARM: a water-only carry (no Terrain override) would load the
+    # generic SeaBlockPrefab and bind ONLY Sea4 -- so arm the divert with a stub Terrain (deploy-only;
+    # excluded from the weld/coverage census below since it is skip-flagged + below the world).
+    arm_mesh, effective_gate = effective_prefab_arm(
+        meshes, cell=(bx, by), sidecar_parts={p for p in parts if donor_has_part[p]}, disc=disc, lod=lod)
+
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
+    gates.append(effective_gate)
+    gates.append(wang_carry_gate(
+        {(bx, by): {pn.lower(): bm for pn, bm in meshes if pn.lower() in ("sea3", "sea4", "sea5")}},
+        {(bx, by)}, enforce=enforce_wang_carry, allow=allow_wang_seams))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
@@ -2476,6 +2664,9 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
     for (pn, bm) in meshes:
         summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder, game=game,
                                                          lod=lod, part=pn)))
+    if arm_mesh is not None:                                   # the divert-arm stub Terrain (water-only cell)
+        summary["deployed"].append(str(M.deploy_override(arm_mesh, mod_folder=mod_folder, game=game,
+                                                         lod=lod, part="Terrain")))
     summary["deployed"].append(str(M.deploy_donor_sidecar(dbx, dby, mod_folder=mod_folder,
                                                           disc=disc, x=bx, y=by, lod=lod,
                                                           game=game)))
@@ -2582,6 +2773,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
                       census_samples: int = 24, allow_real_target: bool = False,
                       allow_object_misalign: bool = False, allow_mod_overwrite: bool = False,
+                      allow_wang_seams: bool = False, enforce_wang_carry: bool = False,
                       dry_run: bool = False, skip_mirror: bool = False) -> dict:
     """MULTI-CELL verbatim transplant: carry a CONNECTED RECT of ``size = (nx, ny)`` real donor
     blocks (anchor ``donor`` = the rect's min-x/min-y cell) to the target rect anchored at ocean
@@ -2835,6 +3027,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     cell_meta: dict = {}
     prefab_bad: list = []
     deploy_meshes: dict = {}                  # (i, j) -> [(part_name, block-local BlockMesh)]
+    cell_sidecar: dict = {}                   # (i, j) -> the cell's Donor.txt prefab part set (bind set)
     audit_meshes: list = []                   # region-frame soups, all cells (the weld gate's)
     census_meshes: dict = {}                  # (i, j) -> [(part_name, region-frame BlockMesh)]
     for (i, j) in tcells:
@@ -2884,12 +3077,29 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
             audit_meshes.append((part_name(p), reg))
             census_meshes.setdefault((i, j), []).append((part_name(p), reg))
         deploy_meshes[(i, j)] = meshes
+        cell_sidecar[(i, j)] = set(pick_parts)
         cell_meta[(i, j)] = {"cell": [bx + i, by + j], "donor": [pick[0], pick[1]],
                              "carried": {p: len(cell_tris[(i, j)][p]) for p in need},
                              "blanked": blanked}
 
+    # THE EFFECTIVE-PREFAB GATE + AUTO-ARM (per cell): a water-only cell whose sidecar prefab is also
+    # Terrain-less binds ONLY Sea4 -- arm the divert with a stub Terrain so each carried sea layer binds
+    # (deploy-only; excluded from weld/census).  See effective_prefab_arm.
+    arm_meshes: dict = {}
+
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
+    for (i, j), mlist in deploy_meshes.items():
+        arm, epg = effective_prefab_arm(mlist, cell=(bx + i, by + j), sidecar_parts=cell_sidecar[(i, j)],
+                                        disc=disc, lod=lod)
+        gates.append(epg)
+        if arm is not None:
+            arm_meshes[(i, j)] = arm
+    gates.append(wang_carry_gate(
+        {(bx + i, by + j): {pn.lower(): bm for pn, bm in mlist if pn.lower() in ("sea3", "sea4", "sea5")}
+         for (i, j), mlist in deploy_meshes.items()},
+        {tuple(cell_meta[(i, j)]["cell"]) for (i, j) in deploy_meshes},
+        enforce=enforce_wang_carry, allow=allow_wang_seams))
     gates.append({"gate": "bounds", "x": [bb[0], bb[1]], "z": [bb[2], bb[3]],
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
                          and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
@@ -3090,6 +3300,9 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         for (pn, bm) in deploy_meshes[(i, j)]:
             summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder,
                                                              game=game, lod=lod, part=pn)))
+        if (i, j) in arm_meshes:                              # the divert-arm stub Terrain (water-only cell)
+            summary["deployed"].append(str(M.deploy_override(arm_meshes[(i, j)], mod_folder=mod_folder,
+                                                             game=game, lod=lod, part="Terrain")))
         (sdx, sdy) = cell_meta[(i, j)]["donor"]
         summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
                                                               disc=disc, x=bx + i, y=by + j,

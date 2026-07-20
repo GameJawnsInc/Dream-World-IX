@@ -669,3 +669,67 @@ now the active round: the **17 cropped-Wang rim seams** on the island's other th
 (`neighbor_seam_probe.py`; requires re-tiling (11,18)/(12,18)/(12,19)'s outer sea edges per the
 marching-band language) + **productizing the two kit gates** in `transplant.py` (effective-prefab +
 Wang-carry), with the auto-arm emit (stub + Donor.txt) as the proven water-only-cell pattern.
+
+**§4 ADDENDUM 7 — THE 17 CROPPED-WANG RIM SEAMS RE-TILED + BOTH KIT GATES PRODUCTIZED (2026-07-20d).**
+The successor round above, built and DEPLOYED (both discs); awaits the sail-around playtest.
+
+**Target 1 — the rim re-tile (`wang_rim_retile.py`, idempotent, deployed both discs).** The 17 seams
+reproduce EXACTLY (`neighbor_seam_probe.py`): 11 on (11,18).N/.W, 5 on (12,18).E, 1 on (12,19).E;
+(11,19)'s own frame clean (0), byte-identical, untouched. The fix is a SURGICAL per-quad re-tile: for
+each flagged rim quad, a LAND-AWARE marching-band re-derivation of the tile's deep-set (a frame edge
+faces the generic deep ring; an interior edge is deep iff its neighbour is sea4-WITH-WATER — a
+sea4-shaded cell with NO water triangle is LAND/coast, not deep) gives 17 assignments: **12 sea3→sea5**
+(a shallow rim cell → an outward-pointing transition tip), **4 sea5→sea5** (a mis-oriented tile
+re-derived), **1 sea5→sea4** ((2,0), deep-surrounded, the lone shallow poke absorbed). The derivation
+reproduces the design's plan bit-for-bit (cross-check gate). Each moved quad keeps its EXACT verts (Y=0)
++ normals + `tangent.x` TOPO — only the UV rect and the containing Sea file change (THE PER-NAME MATERIAL
+LAW). So the {Sea3,Sea4,Sea5} triangle union is a pure REPARTITION (geometry+topo IDENTICAL) → the
+walkmesh raycast/coverage/boat-legality is byte-for-byte preserved (non-regression airtight by
+construction). **VERBATIM-FIRST (THE FORM LESSON):** the new sea5 UVs are HARVESTED byte-exact from the
+donor island's OWN real sea5 termination tiles (donors (8,17)/(9,17)/(8,18)/(9,18) via
+`water.read_sea5_tiles` + `_fit_tile` — every needed deep-set variant present, intra-variant UV spread
+**0.0**; the donor's real contiguous v-bands 0.244/0.496/0.748 differ from the synthesized
+`water.VSTRIP`, so a harvest — not `VSTRIP` synthesis — is the faithful source); the one sea4 tile copies
+a deep neighbour's own mains UV. Gates (all green): (a) NON-REGRESSION — the (verts+topo) triangle
+multiset is IDENTICAL before==after per cell, sea-union MISS unchanged, moved-quad topos ⊆ boat-legal
+{54,55,57} (the whole topo distribution — incl. pre-existing carried-donor topo-56 deep tiles — is
+unchanged); (b) FLAT-MESH + SEA-LAYER (union vertex-Y set unchanged, ~0.07u donor micro-relief carried
+verbatim); (c) SEAM CENSUS (land-aware) — frame-vs-generic-deep **17 → 0** on all four cells, island-wide
+water-aware directed edges **96 → 79 (removed 17, INTRODUCED 0)**, (11,19) clean before AND after,
+interior water|water residual **79 pre-existing, delta 0** (the real donor beach-island's own near-shore
+lagoon water — sea3 abutting sea4 in complex coast geometry — on interior cells the deliverable is
+FORBIDDEN to touch; NOT the fix's fault and NOT a Wang-cropped rim seam); (d) BYTE-DIFF SCOPED — only the
+12 declared files changed ((11,18) Sea3/Sea4/Sea5, (12,18) Sea3/Sea5, (12,19) Sea5, both discs);
+Terrain/Object/Beach1/Sea1/Sea2/Donor + (11,19) + all other cells byte-identical; (e) DISC PARITY
+Disc1==Disc4; POST render `wang_rim_post.png` — 0 red at the real-neighbour level (was 17). **TRANSPARENCY
+(never explained away):** the STRICT 4-corner `frame_edge_verdicts` reports ONE residual = the (0,9)
+**1-TRIANGLE shore sliver**, which carries the verbatim W-tip gradient UVs (proven byte-exact) but a
+4-corner-only fit can't classify a 3-corner tile — a predicate limitation, NOT a seam; the land-aware
+lenient census (the calibrated instrument, per the site-prep) = 0. Idempotent: re-deploy is
+BYTE-IDENTICAL (0 files changed). Backups → `backups/wang-rim-retile.20260720/`.
+
+**Target 2 — the two kit gates SHIPPED in `transplant.py` (+ `mesh.stub_terrain_mesh`, 10 new tests,
+195 world tests green).** (a) **THE EFFECTIVE-PREFAB GATE + AUTO-ARM** (`effective_prefab_arm`, wired into
+`transplant()` + `transplant_region()`, ENFORCED): the engine binds a cell's overrides only for the
+transforms its EFFECTIVE prefab exposes — armed (a Terrain override present → the s34 divert loads the
+`Donor.txt` prefab) binds the sidecar's set; unarmed loads `SeaBlockPrefab`={Sea4} and SILENTLY DROPS
+every other sea layer (the (11,19) black-screen class). A water-only carry (donor + sidecar both
+Terrain-less) that emits >1 sea layer now AUTO-ARMS with a degenerate `mesh.stub_terrain_mesh`
+(tangent.x=4078 skip-sentinel, never bound as geometry — BYTE-IDENTICAL to the proven (11,19) study
+stub) so each layer binds its own material. Byte-identity-safe: a cell that already ships a Terrain
+override → arm None, unchanged. (b) **THE WANG-CARRY GATE** (`wang_carry_gate`, land-aware frame census
+productizing the study predicate, REPORT-ONLY by default): surfaces a carried region's OUTER-FRAME sea3 /
+mis-oriented-sea5 tiles facing the open-ocean deep ring. Enforcement is OPT-IN (`enforce_wang_carry`)
+because the raw frame census cannot yet separate a carry-INTRODUCED seam from a PRE-EXISTING donor coast
+tile without the DONOR-BASELINE subtraction (the proven (7,17) carry shows 16 frame-incoherent edges —
+all its verbatim beach-island shelf, NONE carry-introduced; "the donor-site baseline is 4, not 0"); the
+rim-retile round IS the end-to-end baseline-aware application. So a cropping carry is VISIBLE
+(report-only) without false-positiving proven carries; full hard-enforcement lands once the donor
+baseline does.
+
+**Target 3 — the Disc4-only `Block[12][18] Object.ff9mesh` (4076B) = BY DESIGN, load-bearing, no fix.**
+The TWO-TREE mirror FREE-RIDE PIN of donor (9,17)'s Object (which free-rides un-overridden on Disc1): its
+geometry == the stock disc1 donor Object but != the disc4 donor Object (the stock Object differs across
+disc trees), so `discmirror` pins the disc1-source bytes as a Disc4 override to force cross-disc parity of
+the free-riding scenery. Verified preserved byte-identical (4076B/64e2abdc) — the re-tile touched only
+Sea3/4/5, never the Object.

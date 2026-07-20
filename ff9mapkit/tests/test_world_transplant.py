@@ -2083,3 +2083,126 @@ def test_mod_overwrite_gate_live_folder():
     assert s2["clean"] is False
     bad = [x["gate"] for x in s2["gates"] if not x["ok"]]
     assert bad == ["mod-overwrite"]
+
+
+# ---------------------------------------------------------------- THE EFFECTIVE-PREFAB + WANG-CARRY gates
+# (the (11,19) water-only-cell arc + THE WANG-CARRY LAW, productized 2026-07-20)
+
+def _sea_cell_quad(part, i, j, *, uv_by_corner=None, name=None):
+    """One Sea BlockMesh with a single 4u quad at cell (i,j) (2 up-wound tris).  ``uv_by_corner`` maps
+    corner (fx,fz) -> (u,v) (default (0.5,0.5))."""
+    x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -(j + 1) * 4.0, -j * 4.0
+    uvc = uv_by_corner or {c: (0.5, 0.5) for c in ((0, 0), (1, 0), (1, 1), (0, 1))}
+    corner = {(0, 0): (x0, z1), (1, 0): (x1, z1), (1, 1): (x1, z0), (0, 1): (x0, z0)}
+    tris = []
+    for (a, b, c) in (((0, 0), (1, 1), (0, 1)), ((0, 0), (1, 0), (1, 1))):
+        tris.append([_v(corner[k][0], 0.0, corner[k][1], uvc[k]) for k in (a, b, c)])
+    return _soup(tris, name=name or f"Block[0][0] {part.capitalize()}")
+
+
+def test_stub_terrain_mesh_is_skip_flagged_and_matches_the_proven_1119_stub(tmp_path):
+    """mesh.stub_terrain_mesh = a degenerate zero-area divert-arm: verts==idx==3, tangent.x=4078
+    (placement.IDALL_SKIP -> never hit), and BYTE-IDENTICAL to the in-game-proven (11,19) study stub."""
+    import importlib.util
+    from pathlib import Path
+    from ff9mapkit.world import placement as P
+    st = M.stub_terrain_mesh(disc=1, x=11, y=19)
+    assert st.vcount == len(st.flat_index) == 3
+    assert int(round(st.tangents[0][0])) == 4078 and 4078 in P.IDALL_SKIP
+    assert P.place([("Terrain", st)], 32.0, -32.0, sky=True)[1] == "MISS"      # skip-flagged: never grounds
+    study = (Path(__file__).resolve().parents[2] / "studies" / "overworld-topography"
+             / "waterfix_1119_r2.py")
+    if study.is_file():                                                        # byte-identity vs the proven stub
+        spec = importlib.util.spec_from_file_location("wf1119", study)
+        wf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wf)
+        a = M.write_ff9mesh(M.stub_terrain_mesh(disc=1, x=11, y=19), tmp_path / "a").read_bytes()
+        b = M.write_ff9mesh(wf.build_stub_terrain(1), tmp_path / "b").read_bytes()
+        assert a == b
+
+
+def test_effective_prefab_arm_water_only_cell_auto_arms():
+    """A WATER-ONLY carry (Sea3/Sea4/Sea5, no Terrain) whose sidecar donor is also Terrain-less:
+    SeaBlockPrefab would bind ONLY Sea4 -> the gate AUTO-ARMS with a stub Terrain so all three layers
+    bind (the (11,19) fix); the returned arm mesh is the stub."""
+    meshes = [("Sea3", _sea_cell_quad("sea3", 0, 0)), ("Sea4", _sea_cell_quad("sea4", 1, 0)),
+              ("Sea5", _sea_cell_quad("sea5", 2, 0))]
+    arm, gate = TR.effective_prefab_arm(meshes, cell=(11, 19), sidecar_parts={"sea3", "sea4", "sea5"})
+    assert arm is not None and int(round(arm.tangents[0][0])) == 4078
+    assert gate["armed"] is True and gate["ok"] is True and gate["unbindable"] == []
+
+
+def test_effective_prefab_gate_land_cell_needs_no_arm():
+    """A cell already emitting a Terrain override (land donor, or a blanked Terrain) is already armed ->
+    arm is None (idempotent, byte-unchanged) and every emitted part binds."""
+    meshes = [("Terrain", _sea_cell_quad("terrain", 0, 0)), ("Sea4", _sea_cell_quad("sea4", 1, 0))]
+    arm, gate = TR.effective_prefab_arm(meshes, cell=(5, 5), sidecar_parts={"terrain", "sea4"})
+    assert arm is None and gate["armed"] is False and gate["ok"] is True
+
+
+def test_effective_prefab_gate_pure_deep_sea4_ok_no_arm():
+    """A pure open-ocean cell emitting ONLY Sea4 needs no Terrain: SeaBlockPrefab binds Sea4 -> ok, no arm."""
+    arm, gate = TR.effective_prefab_arm([("Sea4", _sea_cell_quad("sea4", 0, 0))], cell=(0, 0),
+                                        sidecar_parts={"sea4"})
+    assert arm is None and gate["armed"] is False and gate["ok"] is True
+
+
+def test_effective_prefab_gate_fails_when_sidecar_cannot_bind():
+    """Even after arming, an emitted layer the sidecar prefab does NOT expose can't bind -> ok=False."""
+    _arm, gate = TR.effective_prefab_arm([("Sea3", _sea_cell_quad("sea3", 0, 0))], cell=(0, 0),
+                                         sidecar_parts={"sea4"})               # sidecar lacks Sea3
+    assert gate["ok"] is False and "sea3" in gate["unbindable"]
+
+
+def test_wang_carry_gate_flags_cropped_shallow_frame_when_enforced():
+    """A Sea3 shallow tile on the region's OUTER FRAME (facing the open-ocean deep ring) is incoherent
+    (a hard shallow|deep seam).  Report-only by default (ok True); enforce -> fails; allow -> waived."""
+    sea = {(0, 0): {"sea3": _sea_cell_quad("sea3", 0, 5),        # (0,5) is on the W frame (i=0)
+                    "sea4": _sea_cell_quad("sea4", 8, 8)}}
+    assert TR.wang_carry_gate(sea, {(0, 0)})["ok"] is True                          # report-only default
+    g_enf = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g_enf["incoherent"] >= 1 and g_enf["ok"] is False
+    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True, allow=True)["ok"] is True
+
+
+def test_wang_carry_gate_coherent_deep_frame_is_zero():
+    """A frame cell that is deep (Sea4) meets the deep ring coherently -> 0 incoherent even enforced."""
+    sea = {(0, 0): {"sea4": _sea_cell_quad("sea4", 0, 5)}}
+    g = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g["incoherent"] == 0 and g["ok"] is True
+
+
+def _sea5_tile_uv(deepset_str):
+    from ff9mapkit.world import water as W
+    strip, rot = W.DEEPSET2TILE[frozenset(deepset_str)][0]
+    u0, u1 = W.UFULL
+    v0, v1 = W.VSTRIP[strip]
+    m = W.OMAPS[rot]
+    return {c: [u0 + m(*c)[0] * (u1 - u0), v0 + m(*c)[1] * (v1 - v0)] for c in ((0, 0), (1, 0), (1, 1), (0, 1))}
+
+
+def test_wang_carry_gate_sea5_wtip_terminates_coherently():
+    """A Sea5 W-tip on the W frame (deep-set {W} points OUT into the deep) is COHERENT: the land-aware
+    census fits its tip UVs -> 0 incoherent."""
+    sea = {(0, 0): {"sea5": _sea_cell_quad("sea5", 0, 5, uv_by_corner=_sea5_tile_uv("W"))}}
+    g = TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)
+    assert g["incoherent"] == 0 and g["ok"] is True
+
+
+def test_wang_carry_gate_sea5_mis_oriented_flags_when_enforced():
+    """A Sea5 tip pointing the WRONG way (an E tip on the W frame) does NOT terminate into the deep ->
+    incoherent when enforced."""
+    sea = {(0, 0): {"sea5": _sea_cell_quad("sea5", 0, 5, uv_by_corner=_sea5_tile_uv("E"))}}
+    assert TR.wang_carry_gate(sea, {(0, 0)}, enforce=True)["ok"] is False
+
+
+def test_transplant_wang_carry_report_only_by_default(monkeypatch):
+    """A single-cell carry surfaces the wang-carry census but does NOT fail the build by default
+    (report-only), so a proven carry is never false-positived on its own pre-existing donor coast; the
+    effective-prefab gate is enforced and the land island is already armed (has Terrain)."""
+    monkeypatch.setattr(TR, "world_tris", _fake_world(_island_donor()))
+    s = TR.transplant("MOD", cell=(4, 2), donor=(1, 1), dry_run=True, census_samples=8)
+    wc = next(g for g in s["gates"] if g["gate"] == "wang-carry")
+    assert wc["enforced"] is False and wc["ok"] is True
+    ep = next(g for g in s["gates"] if g["gate"].startswith("effective-prefab"))
+    assert ep["ok"] is True
