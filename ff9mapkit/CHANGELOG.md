@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — overworld sea-carry gates (`world-transplant` / `transplant_region`)
+- **The effective-prefab gate + auto-arm** — the s34 sea→land divert binds a cell's sub-mesh overrides
+  only for the transforms its *effective* prefab exposes, looked up by `transform.name`: an un-armed
+  ocean cell loads the generic `SeaBlockPrefab` whose only transform is **`Sea4`**, so every other emitted
+  layer (Sea3/Sea5/Beach1…) is silently dropped (holes + a pale/black void — the (11,19) bug). A
+  water-only carry that emits more than one sea layer now **auto-arms** the divert with a degenerate,
+  never-bound `Terrain` stub (`mesh.stub_terrain_mesh`: one zero-area tri, `tangent.x = 4078` = the
+  placement IDALL-skip, byte-identical to the in-game-proven (11,19) fix) plus the `Donor.txt` sidecar, so
+  each layer binds its own material. The stub is provably harmless — a water-only donor prefab has no
+  `TerrainForm1`, so `LoadBlock`'s `if (prefab.TerrainForm1)` branch never binds it — and idempotent (a
+  cell already shipping a Terrain override is left byte-unchanged). `auto_mirror` needs no change: because
+  `terrain` joins the overridden set, the Disc4 free-ride pin computes no extras. The gate still **fails**
+  a carry that emits a layer the armed donor prefab cannot bind.
+- **The Wang-carry gate** — a post-carry, land-aware marching-band edge census of the carried cells' outer
+  frame: a shallow/transition tile abutting the open-ocean deep ring with no transition ring is a cropped-
+  Wang seam (the 17 rim seams the (8,17)+2×2 island carry introduced). **Report-only by default** (it does
+  not yet subtract the donor-site baseline, so it cannot auto-separate a carry-introduced seam from a real
+  beach island's own verbatim donor shelf — enforcing by default would false-positive proven carries like
+  (7,17)); `--enforce-wang-carry` hard-fails on any incoherent frame edge (for a fresh mint onto known-deep
+  open ocean, where every frame edge *is* a crop) and `--allow-wang-seams` waives even then. Both gates are
+  byte-neutral over every already-deployed lawful carry.
+
 ### Changed — the in-game debug menu: functionality round
 - **Three tabs** (Go / Cheats / Flags): Time merged into Cheats as a "Time scale" section. The Go tab's
   "More options" hide-toggle is gone — the entrance/scenario fields are one always-visible row. New
