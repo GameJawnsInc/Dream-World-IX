@@ -302,7 +302,19 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   tweak hook and WOULD REINTRODUCE the bug — deploy via `deploy_donor_8_17_desert.py` until the flagged shipped
   fix lands); + the CLI defaults trap (--shift auto/--land-margin 2 fail 4 gates on this donor — explicit
   `--shift 0,0 --land-margin 0` required); + SITE POLICY (user decision 2026-07-20): pre-reset content homes are
-  NO LONGER RESERVED — only live content blocks placement.
+  NO LONGER RESERVED — only live content blocks placement. **★ IN-GAME PROVEN 2026-07-20 ("looks and walks
+  verbatim")** with two findings: (1) the settlement/cave Object wears grass-cliff art — the shared world-Object
+  atlas is untouched by ground retiles; an OBJECT-family translation is an undecoded surface (recorded caveat,
+  user called it expected); (2) missing sea tiles — `beach_island_sea_patch.py`'s dense census found the REAL
+  holes in block (12,18) x[777.5,790.5] z[-1197,-1182.5] hugging the free-ridden Object footprint (the reported
+  ~(763,-1216) point itself is covered, refuted at 0.2u), and they are **GENUINE STOCK HOLES** (0/10 covered at
+  the donor's home; the engine grounds per CONTAINING block only — the neighbour-cover hypothesis refuted) →
+  patched with the mint sea-plane (10 tris topo 57, ONE Sea4 file + mirror; 0.1u block census 305→0 misses,
+  boat-legal) **★ DEPLOYED 2026-07-20, re-test pending**. En route laws: a census over DEPLOYED files must model
+  the Donor.txt FREE-RIDE parts (the deploy gate's "miss=3 inherited=3" both over- and under-counted; the shipped
+  in-memory census gate does NOT share this blind spot — it censuses pre-write soups); + a LIVE field-entrance
+  tile (event=1, area=0, topo 55) free-rides on the Object — flagged report-only, untested whether it can fire
+  at the new location.
 - [ ] **Resurrect rolling relief for minted islands** (6.0: play 8, feas 5) — every mint since DEAD-RELIEF is
   byte-flat; resurrection notes in this README. Re-key `relief_field` to the same world-coord frame as `fill_y`;
   prove offline before touching shared code (zero-byte-diff acceptances guard it).
