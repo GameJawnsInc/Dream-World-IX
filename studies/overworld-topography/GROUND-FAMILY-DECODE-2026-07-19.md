@@ -296,3 +296,99 @@ placement/emission model, **not more byte-decoding.**
   material correction from review: the decal's "mainstream, ~47%" framing conflated
   *block-incidence* (57/120 blocks touch it) with *area share* (~13% of desert's tri area) —
   roughly 4× smaller than the wording implied. Incidence is not extent.
+
+---
+
+## Round 4 (2026-07-19) — the coverage-field verdict · the donor screen · the first dunes MINT · the scrub recreate
+
+Orchestrated as five adversarially-reviewed workflow rounds (Sonnet lanes; every headline
+number independently re-run by a REPRODUCE lens, bit-for-bit deterministic throughout).
+
+**1. The named coverage-field emitter design is REFUTED AS A MECHANISM**
+(`dunes_strip_emitter_v3.py`). The round-3 correction's named next design (continuous coverage
+field → snap/dither quantizer) was built and calibrated (133 configs × 2 quantizers): the
+composite objective discarded the diffusion smoothing entirely (**iters=0 wins for BOTH
+quantizers**), and the tested iid+non-negative-diffusion family is **structurally incapable of
+anti-correlation** — every variant's same-row rate sits at the ~25% iid floor vs stock's 9.8%.
+The snap variant's "improved" lag-1 is inherited touch-category alternation diluted by noise,
+and its sign flips between 6-seed calibration (+0.0196) and 20-seed validation (−0.0677) —
+unstable under resampling. **The mint keeps round 3's BFS emitter** (same-row 9.77% == stock's
+9.77%, in-band 20/20). All variants clear the lawful non-degenerate+in-band bar; the choice is
+statistical preference, not a gate.
+
+**2. The donor-retile screen** (`donor_retile_screen.py`, closes the roadmap SOON item):
+**47 beach-bearing blocks map-wide** (corrects the ~44 earmark) → 40 donor windows → **desert
+6/40 qualified** (the proven (7,17) + 5 new: **(8,17)+2×2 auto [best, 3-block self-contained
+island]**, (13,10) strips=none [the 1 STRIPS-PARITY window], (16,16), (17,9), (17,16));
+**snow 0/40** — honestly split: 35/40 refuse via sand_fam (snow has no `SAND_BANDS` entry),
+and **5 topo-33-ONLY frozen-shore windows ((6,3),(7,2),(7,3),(8,2),(8,3)) refuse via the
+separate unclassified-content gap** — topo 33 is a distinct unmeasured family (parallel to the
+topo-16 dirt gap), NOT the sand_fam mechanism. Canyon tallied-only (wall_coastal refusal).
+New snow candidates must come from a non-beach rock/grass coastal population — a separate scan.
+
+**3. The dunes MINT ladder** (`dunes_mint_design.md` → `dunes_patch_mint.py` +
+`dunes_blob_shapes.py`): the decode's prize — the first minted dunes ecotone (a mint, not a
+carry: THE NO-ENCLOSED-DUNES LAW forbids the verbatim window). Host = `world-island --ground
+desert` at (672,−1248) r26 seed 2 (block (10,19)); dunes mains (topo 41, walk-legal) + the
+desert|dunes STRIPS ring, rows from the frozen BFS emitter; **uv+tangent.x only, zero vertex
+motion**; census MISS=0 regression-equal; the save-brick probes RUN, not argued. The ladder ran
+under a calibrated-EYE deploy gate, each rung's defect distinct and structural:
+- **v1**: 23/23 mechanical gates green — the EYE refused: ring perforation (6/28 theory ring
+  cells dropped as irregular = bare-desert holes) + |Δrow|=2 cliffs across the shell seam.
+  ⇒ the aggregate jumpiness scalar cannot see per-boundary cliffs; **a gate sheet without an
+  eye is incomplete**.
+- **v2**: ring completeness 12/12+16/16 via all-regular window SELECTION (6 candidate windows;
+  the classifier untouched) + cross-shell |Δrow|≤1 — the gate refused: the square-core+shells
+  plan renders a rectilinear SQUARE FRAME. Quantified post-hoc by the shape census: v2
+  convexity 0.9024 vs the real envelope 0.464–0.754; bimodal {1,3} run-lengths vs real decay.
+- **THE SHAPE CENSUS** (`dunes_blob_shapes.py`): stock has exactly **TWO dunes components
+  map-wide** (273 cells over (18-20,3-4); 130 over (13-14,11-12) — the latter with a real
+  ~20-cell enclosed topo-59 hole), **ZERO freckle satellites**, borders essentially all-desert;
+  neither fits an 80-regular-cell host whole. Extracted the **31-cell lobe of comp[0]**
+  (16/19 outline cells verbatim-real) as the stampable template.
+- **v3**: STAMPS the real lobe (8 dihedral transforms × translation over regular cells; winner
+  rot270 at origin (166,−317), same block) + a SHAPE-FIDELITY gate (placed outline byte-matches
+  the template). **The macro silhouette is FIXED — two independent eyes agree the coastline now
+  reads organic** (convexity 0.721, inside the real envelope). The gate refused a third time:
+  the INTERIOR reads as a dune/desert checker QUILT at gameplay scale. Root cause is
+  arithmetic: 19 of 31 footprint cells are boundary wearing gradient strip tiles over a 12-cell
+  core — **61% boundary vs stock's 32–45%; the transition band IS the blob.**
+- **v4 (the decisive round)**: measure stock's per-side/coverage/contiguity arrangement, then
+  one calibrated sheet of three dressings — measured side-conditional · **transplanted-REAL
+  arrangement** (stock comp[0]'s actual boundary sequence laid on our geometry — the control
+  that separates "arrangement fixable" from "blob too small for the band") · solid-core with
+  outer-halo-only. Outcome recorded below.
+
+**4. The scrub rung-1 recreate is DEPLOYED** (2026-07-19, post-reset). `dunes_patch_carry.py
+--deploy` re-ran byte-deterministic vs the pre-reset record (same donor (13,3) window, same
+seed 2, all gates green at deploy); the save-brick point probe on the WRITTEN files grounds
+walkable (scrub topo 4 at centre, desert 17 around, zero MISS); the standalone `world-mirror`
+synced Disc4 (Terrain byte-identical Disc1==Disc4); the install diff shows exactly 18 files,
+all Block[8][19], comp20 untouched. ⚠ Two honest framings: this content was **never playtested
+pre-reset** — its deploy is a FIRST playtest, not a restore; and the known amputation-stump
+cosmetic is reproduced by design (the round-3 TRUE-isolation fix remains an open LATER item).
+Teleport (544,−1248); A/B donor at (1158,−388). ⚠ Mechanism note for future carries: the
+carry's final `deploy_override` write BYPASSES auto-mirror (only `landmass()`'s own writes
+mirror) — the standalone verb is REQUIRED after it, which is exactly how it was run.
+
+**THE v4 VERDICT — the mint arc CLOSES: THE DUNES SIZE-CLASS LAW.** The measurement landed
+first (`dunes_boundary_composition.py`): dune-side boundary strip coverage is **61.0%**, NOT
+100% (desert-side 53.8%); rows are hard side-conditional (dune-side {1,2,3} mean 1.96, row 0
+never; desert-side {0,1,3} mean 1.08, row 2 never); strip runs are CLUMPED (dune-side mean
+3.12 including two real 15-cell runs); interiors beyond depth 1 are 99.6% plain mains. All
+three dressings built on those numbers (measured side-conditional / a TRANSPLANT of comp[0]'s
+real ordered boundary walk / solid-core+outer-halo) fixed v3's interior quilt — the core is
+solid, tagging is contiguous — and **all three were REFUTED by the fresh eye + the gate's own
+look**: a castellated grid-aligned boundary with detached single-cell fragments, at gameplay
+scale, in every variant. **The transplant control is the closure proof: zero-synthesis,
+genuine stock arrangement quilts identically at this size** — the defect is footprint SCALE,
+not dressing choice. Stock's ecotone vocabulary is painted for its two real components
+(273/130 cells, boundary populations 164/171) and the shape census found ZERO smaller
+components or freckles map-wide: **small dune blobs do not exist in FF9, and the dressing
+mechanism is why — the family has a minimum size class.** A lawful dunes mint needs a
+≥~130-cell footprint (a multi-block host stamping a REAL component whole — comp[1] + ring
+needs ~185 regular cells) or a sub-cell blend mechanism outside the decoded per-cell
+vocabulary. NOT deployed; block (10,19) stays empty. What the arc KEEPS: the shape-stamp
+mechanism (v3, proven organic by two eyes twice), the boundary-composition dataset, the
+donor screen, and four rounds of falsification record — the FORM LESSON's dunes instance,
+caught offline by the calibrated eye with zero playtests spent.

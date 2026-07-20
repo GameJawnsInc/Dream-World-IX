@@ -280,9 +280,21 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   controls) are near-indistinguishable — the strip is a 1-cell trim and the silhouette is set by the mains
   geometry beneath. Whether a full placement policy is needed for a shippable mint is now itself open.
   Nothing shipped to `ff9mapkit/` from round 3; the emitter is a documented negative result.
-- [ ] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
+  **★ ROUND 4 (2026-07-19): the named coverage-field design was BUILT and REFUTED AS A MECHANISM**
+  (`dunes_strip_emitter_v3.py` — calibration discards the diffusion at iters=0 for both quantizers; the
+  iid+non-negative-diffusion family is structurally incapable of anti-correlation, same-row floor ~25% vs
+  stock 9.8%; the snap variant's lag-1 sign flips between calibration and validation). The mint keeps the
+  round-3 BFS emitter (same-row 9.77% == stock). The blocker remains lifted at "non-degenerate"; the first
+  dunes MINT itself ran a 4-rung calibrated-EYE ladder the same day — full record in
+  `GROUND-FAMILY-DECODE-2026-07-19.md` §Round 4.
+- [x] **Screen remaining beach/snow/canyon coastal donors** (6.25) — only (7,17)/(10,17) proven of ~44 beach-bearing
   blocks; the realistic beaches-on-our-islands path now the mint ladder is dead. (Canyon expected near-empty per the
-  re-censused wall envelope.)
+  re-censused wall envelope.) — **★ DONE 2026-07-19** (`donor_retile_screen.py`, round 4): **47** beach-bearing
+  blocks (corrects the earmark) → 40 windows → desert **6/40** (the proven (7,17) + 5 new; best = **(8,17)+2×2
+  auto**, 3-block self-contained; (13,10) is the 1 STRIPS-PARITY window); **snow 0/40** — 35/40 via sand_fam (snow
+  has no SAND_BANDS entry) and **5 topo-33-only frozen-shore windows via the separate unclassified-content gap**
+  (topo 33 = a distinct unmeasured family, parallel to topo-16 dirt); canyon tallied-only (wall_coastal). New snow
+  candidates need a NON-beach coastal scan — a different enumeration, still open.
 - [ ] **Resurrect rolling relief for minted islands** (6.0: play 8, feas 5) — every mint since DEAD-RELIEF is
   byte-flat; resurrection notes in this README. Re-key `relief_field` to the same world-coord frame as `fill_y`;
   prove offline before touching shared code (zero-byte-diff acceptances guard it).
@@ -302,7 +314,10 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
 ### LATER
 - [ ] Reconcile the F6 9009 vehicle allow-list vs the 2026-07-08 in-game note (docs or dict — pick one) (4.5)
 - [ ] Ensemble-carry rung for scrub/brush/dunes (5.0) — **blocked on the ecotone decode**; also resolve the deployed
-  (544,−1248) scrub islet's amputation-stump ends
+  (544,−1248) scrub islet's amputation-stump ends — **2026-07-19: the scrub islet is RECREATED + REDEPLOYED
+  post-reset** (byte-deterministic re-run, all gates green, world-mirror synced, save-brick point probe PASS;
+  ⚠ its deploy is a FIRST playtest — the pre-reset build was wiped before ever being seen in-game; the
+  stump-ends cosmetic is reproduced by design, the round-3 TRUE-isolation fix stays open)
 - [ ] Gulug volcano parts + lava-hazard study (5.0) — prerequisite for any volcano/hazard terrain
 - [ ] Mint a second island canvas; re-check the scenery-seal + interior rungs' generality (every proven rung landed
   on the one island-E mint) (5.0)
