@@ -314,7 +314,7 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
   the Donor.txt FREE-RIDE parts (the deploy gate's "miss=3 inherited=3" both over- and under-counted; the shipped
   in-memory census gate does NOT share this blind spot — it censuses pre-write soups); + a LIVE field-entrance
   tile (event=1, area=0, topo 55) free-rides on the Object — flagged report-only, untested whether it can fire
-  at the new location.
+  at the new location. **FINAL (2026-07-20): the sea patch's own ladder closed in-game** — v1 z-fought (coplanar, THE SEA-LAYER LAW: all sea layers Y=0, coexistence = disjoint plan coverage) → v2 refused (reopened 15 sub-0.1u holes in blanket-dropped margin cells) → v3 fine-clip+shave CRASHED the s34 loader (**THE FLAT-MESH INVARIANT**: verts==idx or RegisterBlockComponent aborts LoadBlocks — the 'pale tiles everywhere + relocated spawn' incident; the debug-DLL rebuild was exonerated by forensics) → flat v3 ★ IN-GAME CONFIRMED (z-fight gone, navigable, spawn normal). **The (8,17) beach-island rung is CLOSED**; the entrance tile confirmed inert.
 - [ ] **Resurrect rolling relief for minted islands** (6.0: play 8, feas 5) — every mint since DEAD-RELIEF is
   byte-flat; resurrection notes in this README. Re-key `relief_field` to the same world-coord frame as `fill_y`;
   prove offline before touching shared code (zero-byte-diff acceptances guard it).
