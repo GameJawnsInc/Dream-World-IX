@@ -28,7 +28,7 @@ water rendering, so a single byte-proven :data:`NORMAL` is stamped on every vert
 each target sea cell gets a flat submerged ``Terrain`` override (the s34 land-override GATE, so the divert fires) plus
 the three ``Sea3``/``Sea5``/``Sea4`` water sub-meshes, the two blanked coast shades, and a ``Donor.txt`` naming a real
 deep-ocean block whose base sea prefab supplies everything we don't override. **Requires the CUSTOM engine (s34).**
-RELAUNCH (or exit+re-enter the overworld) to load. A lone cell is reachable via F6 -> World -> Teleport.
+RELAUNCH (or exit+re-enter the overworld) to load. A lone cell is reachable via the debug menu (~) -> World -> Teleport.
 
 Hard-won lessons this encodes (do NOT relitigate -- offline rendering + marginal statistics CANNOT judge water quality;
 these were found only by byte-analysis + the human's in-game read):
@@ -345,7 +345,7 @@ def water(mod_folder: str, *, cells, donor=(15, 4), depth=None, deep_dir: str | 
     real deep-ocean ``donor`` block whose base sea prefab supplies the rest.
 
     Requires the CUSTOM engine (the s34 sea->land divert); a stock sea cell short-circuits to ``SeaBlockPrefab`` before
-    the override fires. RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via F6 -> World -> Teleport.
+    the override fires. RELAUNCH (or exit+re-enter the overworld) to load; reach a lone cell via the debug menu (~) -> World -> Teleport.
     Returns a summary; deploys nothing when ``dry_run``. A real deploy auto-mirrors the written overrides to Disc4
     (``skip_mirror=True`` opts out)."""
     cells = [tuple(c) for c in cells]

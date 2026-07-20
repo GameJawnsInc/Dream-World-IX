@@ -37,7 +37,7 @@ class BuildDoc(QWidget):
         self.kit = self.repo / "ff9mapkit"             # `-m ff9mapkit build` cwd (local pkg shadows)
         self.kit_cwd = self.kit if self.kit.is_dir() else None   # None -> run_job falls back to KIT (always valid)
         # A repo checkout has the deploy scripts at <repo>/tools/; an installed copy (pip/uv/.exe) does NOT,
-        # so the test-slot DEPLOY + the F6 loop are unavailable there. `build` + campaign/journey/New-Game
+        # so the test-slot DEPLOY + the debug-menu loop are unavailable there. `build` + campaign/journey/New-Game
         # deploy work either way (the latter via the package CLI).
         self.has_tools = jobs.has_deploy_tools(self.repo)
         self._run = run
@@ -142,7 +142,7 @@ class BuildDoc(QWidget):
         self.tg.addButton(self.rb_inplace)
         self.rb_inplace.toggled.connect(self._update_dest)
         self.rb_test = QRadioButton(f"Test slot {tid}")
-        self.rb_test.setChecked(self.has_tools)        # installed copy: no F6 dev engine -> default to Install to game
+        self.rb_test.setChecked(self.has_tools)        # installed copy: no debug-menu dev engine -> default to Install to game
         # label = the folder NAME only; the full path lives in the tooltip. (An unwrappable radio label
         # carrying the whole install path forced the tab's minimum width past the pane -> h-scrolling.)
         # KEEP the ternary -- jobs.detect_game_mod() returns None and Path(None) raises TypeError.
@@ -175,7 +175,7 @@ class BuildDoc(QWidget):
         self.other.textChanged.connect(self._update_dest)
         gv.addWidget(self.rb_inplace)                 # its caption is filled by set_field (donor-dependent)
         widgets.option(self.rb_test,
-                       "Quick and reversible. Your field's own id is overridden — play it with F6 → Warp"
+                       "Quick and reversible. Your field's own id is overridden — play it with ~ → Warp"
                        + (", or New Game → the hut door." if tid == 4003 else "."), gv)
         widgets.option(self.rb_own,
                        "Reversible, at the id your field declares. Other fields in the folder keep their "
@@ -196,10 +196,10 @@ class BuildDoc(QWidget):
         self.dest.setProperty("role", "muted")
         self.dest.setProperty("mono", True)                   # it is all ids, folders and paths
         gv.addWidget(self.dest)
-        if not self.has_tools:                         # installed: no test-slot/F6 -> default to Install to game / Build only
+        if not self.has_tools:                         # installed: no test-slot/~ -> default to Install to game / Build only
             self.rb_test.setEnabled(False)
             self.rb_test.setText(self.rb_test.text() + "   (dev repo only)")
-            self.rb_test.setToolTip("The test slot + F6 reload loop need a source checkout. Set the FF9_REPO "
+            self.rb_test.setToolTip("The test slot + ~ reload loop need a source checkout. Set the FF9_REPO "
                                     "environment variable to your Dream World IX repo (or launch it from there), "
                                     "then reopen — this lights up.")
             (self.rb_game if self.game_mod else self.rb_other).setChecked(True)  # safe now: self.dest exists
@@ -221,7 +221,7 @@ class BuildDoc(QWidget):
         cv.addWidget(self.rb_camp_deploy)
         cv.addWidget(self.rb_camp_build)
         widgets.option(self.wire_newgame,
-                       "Off = reach the chain via a gateway, or F6 → Warp on a dev build.", cv)
+                       "Off = reach the chain via a gateway, or ~ → Warp on a dev build.", cv)
         self.campaign_box = box
         return box
 
@@ -250,7 +250,7 @@ class BuildDoc(QWidget):
         self.ng_group = widgets.section("New Game landing (one-shot deploy — single-owner)")
         ngv = self.ng_group.content_layout
         self.ngg = QButtonGroup(self)
-        self.rb_ng_none = QRadioButton("Don't wire New Game — reach the hub via F6 → Warp")
+        self.rb_ng_none = QRadioButton("Don't wire New Game — reach the hub via ~ → Warp")
         self.rb_ng_none.setChecked(True)
         self.rb_ng_hub = QRadioButton("Wire New Game → the hub menu (pick the journey at Mognet; seamless)")
         self.rb_ng_entry = QRadioButton("Wire New Game → straight into the opening (no menu; keeps the real FMV)")
@@ -438,7 +438,7 @@ class BuildDoc(QWidget):
         self.rb_inplace.setToolTip(
             f"Deploys under the donor's own id {t['donor']} (text block {t['text_block']}) into "
             f"{self.mod_folder}, so the engine loads this in place of the real field. Reach it the normal "
-            f"way, or F6 → Warp {t['donor']}. Reversible.")
+            f"way, or ~ → Warp {t['donor']}. Reversible.")
         if self._inplace_autoselected_for != t["donor"]:      # the preferred route for a fork of a real field --
             self.rb_inplace.setChecked(True)                  # but only ONCE per donor, not on every re-render
             self._inplace_autoselected_for = t["donor"]
@@ -551,11 +551,11 @@ class BuildDoc(QWidget):
             return True
         self._warn(
             f"{what} needs a dev checkout",
-            f"'{what}' uses the development deploy loop (the repo's tools/ + the F6 dev engine), which an "
+            f"'{what}' uses the development deploy loop (the repo's tools/ + the debug-menu dev engine), which an "
             "installed copy doesn't ship.\n\n"
             "Two options:\n"
             "  - Point this Workspace at your source checkout: set the FF9_REPO environment variable to your "
-            "Dream World IX repo (or launch apps\\ff9_workspace.pyw from it), then reopen — the test slot + F6 "
+            "Dream World IX repo (or launch apps\\ff9_workspace.pyw from it), then reopen — the test slot + debug menu "
             "light up.\n"
             "  - Or use  Build -> 'Install to game'  (campaign / journey deploy + 'Set New Game' already work "
             "on an installed copy).")
@@ -728,14 +728,14 @@ class BuildDoc(QWidget):
                 self._stream(jobs.deploy_field_inplace_argv(self.repo, field, t), cwd=self.repo,
                              subject=f"Deploy in place on field {t['donor']}",
                              ok_headline=f"Deployed in place on field {t['donor']} ({self.mod_folder})",
-                             ok_next=f"In-game: reach it the normal way, or F6 → Warp {t['donor']}.")
+                             ok_next=f"In-game: reach it the normal way, or ~ → Warp {t['donor']}.")
             return
         if self.rb_test.isChecked():
             if not self._require_tools("Deploy to test slot"):
                 return
             tid = self.worktree_id or 4003
-            reach = ("New Game → walk to the hut door (or F6 → Warp)" if tid == 4003
-                     else f"F6 → Warp to field {tid}")
+            reach = ("New Game → walk to the hut door (or ~ → Warp)" if tid == 4003
+                     else f"~ → Warp to field {tid}")
             if self._confirm(f"Deploy to test field {tid}",
                              f"Build and deploy this field to the test slot {tid} ({self.mod_folder})? "
                              "It replaces whatever is there now (reversible)."):
@@ -749,7 +749,7 @@ class BuildDoc(QWidget):
             self._stream(jobs.deploy_field_own_id_argv(self.repo, field, own, nm), cwd=self.repo,
                          subject=f"Deploy to field {own}",
                          ok_headline=f"Deployed field {own} ({self.mod_folder})",
-                         ok_next=f"In-game: F6 → Warp to field {own}. Undo with Revert.")
+                         ok_next=f"In-game: ~ → Warp to field {own}. Undo with Revert.")
         elif self.rb_game.isChecked():
             if self._confirm("Install to game",
                              f"Build this field into the game mod folder?\n\n{self.game_mod}\n\n"
@@ -775,7 +775,7 @@ class BuildDoc(QWidget):
             return
         wire = self.wire_newgame.isChecked()
         route = ("It also wires New Game to enter the chain (experimental)." if wire
-                 else "Reach each screen in-game via F6 → Warp." if self.has_tools
+                 else "Reach each screen in-game via ~ → Warp." if self.has_tools
                  else "Reach the chain via New Game (if wired) or a [[gateway]] from an early field.")
         if self._confirm("Deploy campaign",
                          f"Reversibly install campaign '{self.plan.name}' ({len(self.plan.members)} fields) "
@@ -790,7 +790,7 @@ class BuildDoc(QWidget):
             else:
                 argv, cwd = jobs.deploy_campaign_pkg_argv(path, wire_newgame=wire,
                                                           mod_folder=self.plan.mod_folder), self.kit_cwd
-            reach = (f"Relaunch once (new DictionaryPatch), then F6 → Warp → {entry} to walk the chain." if self.has_tools
+            reach = (f"Relaunch once (new DictionaryPatch), then ~ → Warp → {entry} to walk the chain." if self.has_tools
                      else f"Add '{self.plan.mod_folder}' to Memoria.ini FolderNames AND Priorities, same order "
                           f"(Memoria auto-detects it; a FolderNames-only hand edit is reverted by the launcher), "
                           f"relaunch once, then reach the chain via New Game / a gateway.")
@@ -828,7 +828,7 @@ class BuildDoc(QWidget):
         route = {"hub": "New Game will land on the hub MENU (single-owner — replaces the current New-Game target).",
                  "entry": "New Game will land STRAIGHT in the opening field, no menu (single-owner — replaces the "
                           "current target; keeps the real opening FMV).",
-                 "none": "New Game is left UNCHANGED — reach the hub via F6 → Warp."}[mode]
+                 "none": "New Game is left UNCHANGED — reach the hub via ~ → Warp."}[mode]
         layout = ("MERGED into ONE stacked mod folder (a single FolderNames entry)" if single
                   else "every campaign into its own stacked mod folder")
         folders_note = ("Reversible via one unified revert. You then add the ONE merged folder to Memoria.ini "
@@ -839,7 +839,7 @@ class BuildDoc(QWidget):
                          f"Deploy journey '{name}' ({njourneys} journey(s)) in one shot — {layout}, the "
                          f"cross-campaign links, then the hub field?\n\n{route}\n\n{folders_note}"):
             reach = {"hub": "New Game → the hub menu", "entry": "New Game → straight into the opening",
-                     "none": "F6 → Warp to the hub"}[mode]
+                     "none": "~ → Warp to the hub"}[mode]
             stackmsg = (f"Add the ONE merged folder to Memoria.ini [Mod] FolderNames AND Priorities, same order "
                         f"(drop the old per-campaign ones from BOTH), relaunch once, then {reach}. Playtest." if single else
                         f"Stack every campaign + hub folder in Memoria.ini [Mod] FolderNames AND Priorities, "

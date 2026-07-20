@@ -25,7 +25,7 @@ PARTIAL delta, merged by id. Authoring blocks: `[[item]]` / `[[weapon]]` / `[[ar
 
 `[[weapon]] model = "GEO_WEP_*"` (stock swap) or `model = { id = 6000-32767, hue/tint/textures }`
 (mint a recolored variant). The `Weapons.csv` Model column takes a minted GEO name — zero-DLL.
-Weapons load on battle entry → RELAUNCH, not F6. Read memory `[[project-ff9-items-equipment]]`
+Weapons load on battle entry → RELAUNCH, not the menu reload. Read memory `[[project-ff9-items-equipment]]`
 (the CUSTOM WEAPON MODELS section).
 
 ## Item text via >DATABASE
@@ -34,7 +34,7 @@ Weapons load on battle entry → RELAUNCH, not F6. Read memory `[[project-ff9-it
 the mod-folder root (a text channel, NOT a CSV). The engine flags help-desc and battle-desc
 identically, so `description` sets BOTH. Verbatim gotcha (FORMAT.md):
 
-> **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (F6 → Reload field will NOT pick it up).
+> **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (~ → Reload field will NOT pick it up).
 
 Full channel spec: read memory `[[project-ff9-item-text]]`.
 

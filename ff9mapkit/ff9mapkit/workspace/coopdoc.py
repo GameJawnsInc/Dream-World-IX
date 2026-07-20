@@ -307,7 +307,7 @@ class CoopDoc(QWidget):
         hint = widgets.caption(
             "Start co-op, keep this app open, then launch FF9 and stand on the same screen as "
             "your friend — ghosts appear anywhere you two share a field (guaranteed meeting "
-            "spot: F6 → Warp to field → 30003). The in-game overlay shows the code + pairing "
+            "spot: ~ → Warp to field → 30003). The in-game overlay shows the code + pairing "
             "state, tells you which field your friend is on, and disappears when their ghost "
             "is up. A running game picks up session changes within a few seconds — no restart "
             "needed.")
@@ -504,8 +504,8 @@ class CoopDoc(QWidget):
 
         started = self._run(argv, cwd=self.kit, subject="Co-op setup",
                             ok_headline="Co-op setup — done",
-                            ok_next=("send your code, then launch FF9 -> F6 -> Warp -> 30003"
-                                     if hosting else "launch FF9 -> F6 -> Warp -> 30003"),
+                            ok_next=("send your code, then launch FF9 -> ~ -> Warp -> 30003"
+                                     if hosting else "launch FF9 -> ~ -> Warp -> 30003"),
                             fail_hint="See the Output panel (is the game path configured?).",
                             on_finished=done)
         if not started:

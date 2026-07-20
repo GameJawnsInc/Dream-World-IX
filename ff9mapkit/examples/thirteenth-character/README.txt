@@ -57,11 +57,11 @@ so the animset needs a relaunch to take effect, same as the model itself.)
 TEST (the order matters)
 ------------------------
 1. RELAUNCH FF9. The new CharacterParameters/BaseStats rows and the CharacterDefaultName directive load
-   at STARTUP / New-Game init — F6 "Reload field" will NOT pick them up (it only re-reads the field's
+   at STARTUP / New-Game init — the menu's "Reload field" will NOT pick them up (it only re-reads the field's
    .eb/.mes/scene/walkmesh). deploy_field prints a "RELAUNCH to apply" reminder for exactly this.
 2. NEW GAME. The engine builds the party with id-12 present (FF9Play_Init allocates a PLAYER for every
    loaded CharacterParameters row, so shipping an Id=12 row is what brings Iviv into existence).
-3. F6 -> "Warp to field" -> your test slot (4003). Main_Init runs B_PARTYADD(12) on load -> Iviv joins.
+3. ~ -> "Warp to field" -> your test slot (4003). Main_Init runs B_PARTYADD(12) on load -> Iviv joins.
 
 VERIFY (the three proofs)
 -------------------------

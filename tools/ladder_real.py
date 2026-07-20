@@ -12,7 +12,7 @@ This sidesteps the suspended-player-loop problem entirely: the region calls the 
 directly. The real climb is bespoke multi-jump; here the climb is a simple teleport up to floor 1 (the
 exit floor) -- faithful TRIGGER, simplified climb body (add jumps/animation later).
 
-Reversible (backs up EVT_TRENO_RES per lang). Re-enter Treno / F6 to reload. Run: py tools/ladder_real.py
+Reversible (backs up EVT_TRENO_RES per lang). Re-enter Treno / ~ to reload. Run: py tools/ladder_real.py
 """
 import datetime
 import os
@@ -116,7 +116,7 @@ def main():
         f"for L in {LANGS!r}:\n"
         "    shutil.copyfile(bk/f'{L}-EVT_TRENO_RES.eb.bytes.preladderreal.{stamp}', live/base/L/'EVT_TRENO_RES.eb.bytes')\n"
         "print('reverted faithful ladder')\n", encoding="utf-8", newline="\n")
-    print("\nTEST: enter Treno / F6. Walk down-left to the ladder base -> a \"!\" prompt should appear ->")
+    print("\nTEST: enter Treno / ~. Walk down-left to the ladder base -> a \"!\" prompt should appear ->")
     print("      press the action button -> you climb (teleport) up to floor 1 -> walk to the exit.")
     print(f"revert: py {rev.relative_to(REPO).as_posix()}")
 

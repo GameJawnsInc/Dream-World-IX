@@ -3,9 +3,9 @@
 prior test first; OTHER ids' deploys are untouched, so multiple ids coexist in the shared install -- give
 a branch/worktree its own slot:  python tools/deploy_field.py my.field.toml --id 5000
 
-DEV LOOP (no relaunch): after deploying, press F6 in-game to open the ff9mapkit debug menu, then
+DEV LOOP (no relaunch): after deploying, press ~ (tilde) in-game to open the ff9mapkit debug menu, then
 "Reload field" (re-reads the current field's mod files -- .eb / .mes / scene / walkmesh / art) or
-"Warp to field" -> <id> to hop straight to this slot. So: edit field.toml -> deploy_field.py -> F6 ->
+"Warp to field" -> <id> to hop straight to this slot. So: edit field.toml -> deploy_field.py -> ~ ->
 Reload/Warp. Only the FIRST use of a NEW id needs one relaunch (to register it in DictionaryPatch);
 BattlePatch + engine DLL changes also need a relaunch.
 
@@ -38,7 +38,7 @@ _def_folder = os.environ.get("FF9_MOD_FOLDER") or _cfg.get("mod_folder") or "FF9
 _def_id = int(_cfg.get("id", 4003))
 _ap = argparse.ArgumentParser(description="Build a field.toml and deploy it reversibly to a custom field "
                                           "id, inside a per-worktree Memoria mod folder. Reach it via the "
-                                          "F6 debug menu's 'Warp to field'.")
+                                          "debug menu (~)'s 'Warp to field'.")
 _ap.add_argument("toml", help="path to the field.toml")
 _ap.add_argument("--id", type=int, default=_def_id,
                  help="custom field id to deploy into (e.g. 5000 to give a branch/worktree its own slot)")
@@ -151,7 +151,7 @@ if src_atlas.is_dir() and any(src_atlas.iterdir()):
     for _af in src_atlas.iterdir():
         if _af.is_file():
             shutil.copyfile(_af, live.face_atlas_dir / _af.name)
-    print("  + Face Atlas override (custom menu portrait) -> RELAUNCH to apply (read at launch, not F6)")
+    print("  + Face Atlas override (custom menu portrait) -> RELAUNCH to apply (read at launch, not the menu reload)")
 
 # [music] file = custom themes: ship the minted OGG(s) + the override MusicMetaData.txt (a NEW song id per
 # theme). Merge the built manifest's custom (band >=1000) entries into any live override so successive
@@ -232,9 +232,9 @@ if status_icon_lines:
     print(f"  + {len(status_icon_lines)} custom-status icon line(s) (Buff/DebuffIcon) -> RELAUNCH to apply")
 if message_file_lines:
     print(f"  + {message_file_lines[0]}  -> RELAUNCH to register the custom text block "
-          f"(DictionaryPatch is read once at launch, not on F6)")
-if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on F6
-    print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not F6)")
+          f"(DictionaryPatch is read once at launch, not on a menu reload)")
+if info.get("location_lines"):                  # the directive is read from DictionaryPatch at LAUNCH, not on a menu reload
+    print(f"  + {info['location_lines'][0]}  -> RELAUNCH to apply (DictionaryPatch is read at launch, not the menu reload)")
 
 # ForkDonorPatch.txt: ANY fork (verbatim OR native/synth) needs its `<forkId> <donorRealId>` mapping so the
 # engine's fork-donor remap suite (s24-s33: off-mesh exemptions, the NAME-keyed overlay-occlusion offsets, scroll
@@ -258,7 +258,7 @@ if _donor and _donor != FID:
     fork_revert_code = ('\nshutil.copyfile(BK/f"ForkDonorPatch.txt.preDEPLOY.{STAMP}", live.root/"ForkDonorPatch.txt")'
                         if _had_fdp else
                         '\n_pf = live.root/"ForkDonorPatch.txt"\nif _pf.exists(): _pf.unlink()')
-    print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not F6)")
+    print(f"  + ForkDonorPatch.txt ({FID} -> donor {_donor}; RELAUNCH to apply -- read at launch, not the menu reload)")
 # Item-data CSV deltas: mod-GLOBAL files build_mod emits when the field carries [start_inventory]/[[equipment]]
 # (the new-game starting bag/gear, read at NEW-GAME init) or [[shop]] (custom shop inventories, merged by id).
 # Deployed only when present, each reversibly (backup pre-existing / delete a newly-created one on revert).
@@ -349,7 +349,7 @@ for _lang in LANGS:
 # (Memoria.Scripts.<MOD>.dll) the engine Assembly.LoadFile's IN ADDITION to its base (project-ff9-scripts-dll).
 # The DLL is the load-bearing artifact -> ship it reversibly (backup/restore/delete, like the CSVs; it joins
 # csv_reverts). Its C# Sources are runtime-INERT -> copied additively for provenance + a future recompile. The
-# Actions.csv scriptId repoint rides the "Actions" sync above. LOADED ONCE AT THE TITLE SCREEN -> RELAUNCH (not F6).
+# Actions.csv scriptId repoint rides the "Actions" sync above. LOADED ONCE AT THE TITLE SCREEN -> RELAUNCH (not ~).
 _src_dll = tl.scripts_dll(MOD_FOLDER)
 if _src_dll.exists():
     from ff9mapkit.battle import scriptcompile as _scomp
@@ -392,7 +392,7 @@ if _src_dll.exists():
         shutil.rmtree(_live_d, ignore_errors=True)
         if _src_d.is_dir():
             shutil.copytree(_src_d, _live_d)
-    print(f"  + {_src_dll.name} (mod scripts DLL) -> RELAUNCH to load (once at title, not F6)")
+    print(f"  + {_src_dll.name} (mod scripts DLL) -> RELAUNCH to load (once at title, not the menu reload)")
     # HOOK STICKINESS (generic -- one path for telemetry + whatever Overload feature comes next): the build's
     # DLL was compiled from the BUILD's sources alone, so a LIVE-owned Overload feature (battle telemetry)
     # would be silently dropped by the copy above -> regenerate the hub + recompile the live DLL from ALL
@@ -414,20 +414,20 @@ for _label, _live, _had in csv_reverts:
         csv_revert_code += f'\nshutil.copyfile(BK/f"{_label}{_ext}.preDEPLOY.{{STAMP}}", Path(r"{_live}"))'
     else:
         csv_revert_code += f'\n_p = Path(r"{_live}")\nif _p.exists(): _p.unlink()'
-# These CSVs are read ONCE at engine startup (static ctors: ff9weap/ff9armor/ff9item) or at New-Game init -- F6
-# Reload re-reads only the field's .eb/.mes/scene/walkmesh, NOT item/stat data -> a change needs a RELAUNCH.
+# These CSVs are read ONCE at engine startup (static ctors: ff9weap/ff9armor/ff9item) or at New-Game init -- the
+# menu Reload re-reads only the field's .eb/.mes/scene/walkmesh, NOT item/stat data -> a change needs a RELAUNCH.
 _STARTUP_CSVS = {"Weapons", "Armors", "Items", "Stats", "ItemEffects", "InitialItems", "ShopItems", "Synthesis",
                  "DefaultEquipment", "Actions", "StatusData", "StatusSets", "BaseStats", "Leveling", "AbilityGems",
                  "AbilityFeatures", "MagicSwordSets", "CharacterParameters", "BattleParameters", "CommandSets",
                  "Commands"}
 if any(_l in _STARTUP_CSVS for _l, _, _ in csv_reverts):
-    print("  !! item/stat CSVs load at game startup (or New-Game init) -> RELAUNCH to apply (F6 Reload won't)")
+    print("  !! item/stat CSVs load at game startup (or New-Game init) -> RELAUNCH to apply (~ Reload won't)")
 
 # BattlePatch.txt: the field's Phase-4 enemy/attack/scene tuning ([[battle_patch]] / [[battle_enemy]] /
 # [[battle_attack]]) + any per-encounter BGM. build_mod emits the COMPLETE block into the built mod; we SPLICE
 # it into the live file under this field's `//` sentinel markers -- NON-clobbering (a co-deployed battle's
 # BGM/repoint lines + a stacked worktree's lines survive) and reversible. The engine skips `//` lines, and
-# BattlePatch is parsed once at startup -> a battle-tuning change needs a RELAUNCH (not just F6 Reload).
+# BattlePatch is parsed once at startup -> a battle-tuning change needs a RELAUNCH (not just ~ Reload).
 from ff9mapkit.battle import battlepatch as _bp
 _live_bp_text = live.battle_patch.read_text(encoding="utf-8") if live.battle_patch.exists() else ""
 _built_block = ([ln for ln in tl.battle_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -450,7 +450,7 @@ if _built_block or f"ff9mapkit field {FID}" in _live_bp_text:
 # TextPatch.txt: the field's item NAME/DESCRIPTION overrides ([[item_text]] -> >DATABASE find/replace).
 # Same non-clobbering splice-under-`//`-markers as BattlePatch (another field's item text + a stacked
 # worktree's lines survive) and reversible. The engine skips `//` lines; TextPatch is read once at
-# DataPatchers.Initialize (AssetManager bring-up) -> a text change needs a RELAUNCH (not just F6 Reload).
+# DataPatchers.Initialize (AssetManager bring-up) -> a text change needs a RELAUNCH (not just ~ Reload).
 from ff9mapkit.content import itemtext as _itxt
 _live_tp_text = live.text_patch.read_text(encoding="utf-8") if live.text_patch.exists() else ""
 _built_tp = ([ln for ln in tl.text_patch.read_text(encoding="utf-8").splitlines() if ln.strip()]
@@ -572,5 +572,5 @@ try:
 except Exception:
     pass
 
-print(f"\n=== Reach it in-game: F6 -> debug menu -> Warp to field {FID} "
+print(f"\n=== Reach it in-game: ~ -> debug menu -> Warp to field {FID} "
       f"(or New Game, if the auto-warp targets {FID}). ===")

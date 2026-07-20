@@ -14,7 +14,7 @@ relaunch steps and PLAYTEST.
 
 Usage:
   py tools/deploy_journey.py <journeys.toml>                         # dry-run: lint + the deploy playbook
-  py tools/deploy_journey.py <journeys.toml> --apply                 # ONE-SHOT: campaigns + links + hub (F6 to reach)
+  py tools/deploy_journey.py <journeys.toml> --apply                 # ONE-SHOT: campaigns + links + hub (~ to reach)
   py tools/deploy_journey.py <journeys.toml> --apply --newgame hub    # ...and New Game -> the hub selector menu
   py tools/deploy_journey.py <journeys.toml> --apply-links           # apply ONLY the cross-campaign link .eb remaps
 """
@@ -41,7 +41,7 @@ def main(argv=None) -> int:
                          "touched unless you add --newgame hub|entry.")
     ap.add_argument("--newgame", choices=("none", "hub", "entry"), default="none",
                     help="with --apply, where New Game lands (SINGLE-OWNER). none (default) = unchanged, reach "
-                         "the hub via F6. hub = the hub selector menu. entry = STRAIGHT into the opening field "
+                         "the hub via the debug menu (~). hub = the hub selector menu. entry = STRAIGHT into the opening field "
                          "(single-journey only; keeps the real opening FMV).")
     ap.add_argument("--wire-newgame", action="store_const", const="hub", dest="newgame",
                     help="back-compat alias for --newgame hub.")

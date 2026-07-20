@@ -14,7 +14,7 @@
 - [Placement — the engine ground-query spec](#placement--the-engine-ground-query-spec)
 - [Entrances — `world-entrance`](#entrances--world-entrance)
 - [Buildings](#buildings)
-- [Save-brick and F6 escape](#save-brick-and-f6-escape)
+- [Save-brick and debug-menu escape](#save-brick-and-debug-menu-escape)
 
 ## Walkable terrain — `world-terrain`
 
@@ -83,7 +83,7 @@ Memory `project-ff9-overworld-placement-rules` holds the COMPLETE 7-rule spec + 
 4. Within a mesh: the FIRST TRIANGLE IN BUFFER ORDER wins — never stack walkable layers.
 5. The up-facing filter is the GEOMETRIC WINDING normal (`ny > 0.1`), not stored vertex normals.
 6. mapid = the hit tri's `tangent.x` IDALL.
-7. F6 teleport = keep Y -> `SetActorPosition` -> `ForceLoadBlockReadyAt` -> sky re-ground -> `Skip = 2`.
+7. debug-menu teleport = keep Y -> `SetActorPosition` -> `ForceLoadBlockReadyAt` -> sky re-ground -> `Skip = 2`.
 
 The synth-terrain placement CHECKLIST (a)-(e) — up-wound tris, 0 MISS anywhere in the cell, no submerged
 up-facing Terrain, no stacked layers, warp target grounds on walkable topo — plus rule (f), verbatim:
@@ -125,12 +125,12 @@ render.
   footprint). Real stock structures round-trip through Blender with real atlas UVs intact (no `--texture`).
 - An Object `.ff9mesh` override REPLACES the whole block's Object mesh — use `--keep-block` to append.
 
-## Save-brick and F6 escape
+## Save-brick and debug-menu escape
 
 - Bad geometry under the spawn = the "no controlled actor" black-screen brick (silent, baked into the save).
   Recognition + recovery + the engine self-heal: memory `project-ff9-overworld-actor-brick`. Recover by
   loading a FIELD save or New Game; deleting the geometry does NOT un-brick a parked save.
-- Live stuck-escape: F6 -> World -> Teleport (or "Warp to field" — fires even when frozen). The F6 cell
+- Live stuck-escape: ~ -> World -> Teleport (or "Warp to field" — fires even when frozen). The debug-menu cell
   readout is the in-game cell-targeting oracle (`w_worldPos2Cell` = `(int)(x/32), (int)(z/-32)`), and the
   Position section leads with the canonical wrapped world/block/cell triple -> memory
   `project-ff9-f6-overworld-debug`.

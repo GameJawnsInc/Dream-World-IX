@@ -261,7 +261,7 @@ DIALOGUE_SPEC = [
     Field("wrap", "Auto-wrap width", OPTINT, "max chars per line (default 28); set 0 to turn wrapping off"),
 ]
 PLAYER_SPEC = [
-    Field("spawn", "Spawn (x, z)", COORD, "where the player appears -- the DEFAULT arrival (an F6 warp, or "
+    Field("spawn", "Spawn (x, z)", COORD, "where the player appears -- the DEFAULT arrival (an debug-menu warp, or "
           "any door without a per-door row below); usually placed in Blender"),
     Field("face", "Spawn facing (0-255)", OPTINT,
           "0=south (toward the camera), 64=west, 128=north, 192=east"),

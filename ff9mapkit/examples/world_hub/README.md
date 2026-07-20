@@ -43,9 +43,9 @@ optional seed}`; HOW a journey plays internally is the fork's own business.
   seamless, no FMV.
 - **Camera on entry** — `[camera] entry_settle = N` adds a black hold on entry so Memoria's smooth-camera
   follower (`CameraStabilizer`) eases the camera to the player *behind* the fade, and you see it already at
-  rest (the generator emits 45; set `0` to drop it). You only need it for the **F6 debug warp** (an instant,
+  rest (the generator emits 45; set `0` to drop it). You only need it for the **debug-menu (~) warp** (an instant,
   fade-less dev jump players never use) — every real way in already has a transition (New Game's fade, the
-  journeys' own verbatim entrances). To test a faded entry yourself, F6 → Warp **4502**
+  journeys' own verbatim entrances). To test a faded entry yourself, ~ → Warp **4502**
   (`hub_lobby.field.toml`) and walk through its door into the hub.
 
 ## Setup (provenance: you supply the game bytes)
@@ -89,9 +89,9 @@ py ../tools/deploy_field.py examples/world_hub/hub.field.toml --id 4500
 > After deploying both, verify the `DictionaryPatch` lists **both** 4500 and 4501; if not, add the missing
 > `FieldScene` line by hand (the assets are already on disk). See memory `project-ff9-text-block-shadow`.
 
-Then in-game (relaunch once if the ids are brand-new, else **F6 → Reload field**):
+Then in-game (relaunch once if the ids are brand-new, else **~ → Reload field**):
 
-1. **New Game** (lands on the hub), or **F6 → Warp → 4500**.
+1. **New Game** (lands on the hub), or **~ → Warp → 4500**.
 2. You're a Moogle. Walk to **Stiltzkin** and talk.
 3. Pick **The Village of Dali** → the real verbatim Dali entrance (real lines/NPCs, seeded to the "waking up"
    beat). Pick **Treno, City of Nobles** → the Treno Pub (real NPCs + dialogue).

@@ -1,0 +1,289 @@
+diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+index f820fc4..d8d2a7b 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
+@@ -4,7 +4,7 @@ using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the w
+ using Memoria.Data;
+ using UnityEngine;
+ 
+-// [ff9mapkit dev] One in-game debug menu (toggled by F6 from UIKeyTrigger, in FIELD or BATTLE) -- dev actions on ONE key +
++// [ff9mapkit dev] One in-game debug menu (toggled by the TILDE/backquote key from UIKeyTrigger -- field, battle, overworld) -- dev actions on ONE key +
+ // a tabbed popup instead of one-hotkey-per-function. IMGUI/OnGUI overlay (the proven in-engine pattern,
+ // cf. OnScreenLog / the FieldCreator editor), self-bootstrapping persistent MonoBehaviour so it is
+ // always alive to receive OnGUI. Dev engine only; never part of the shipped mod.
+@@ -100,11 +100,11 @@ public class Ff9mkDebugMenu : MonoBehaviour
+     private Byte[] _snapshot;                // saved gEventGlobal (flag snapshot/restore)
+     private String _status = "";
+ 
+-    // Deferred FADED warp: a bare F6 Field() warp transitions with the source field still drawn, so the
++    // Deferred FADED warp: a bare debug-menu Field() warp transitions with the source field still drawn, so the
+     // destination loads in the clear and you SEE its smooth-camera ease onto the spawn (the "warp-in drift"
+     // that made debug warps look broken next to the clean shipping entry). Real gateways + the New-Game
+     // field-70 entry fade to BLACK first, so the destination loads black and its reveal + [camera]
+-    // entry_settle hide the settle. So the F6 warp now does the same: fade out, wait for it, THEN change map.
++    // entry_settle hide the settle. So the menu warp now does the same: fade out, wait for it, THEN change map.
+     private const Int32 WarpFadeFrames = 24;     // FF9Wipe fade-out duration (matches the gateway FadeFilter)
+     private const Single WarpFadeWait = 0.9f;    // seconds to let the fade finish before the map change
+     private Int32 _pendingWarpMap = -1;          // >= 0 while a faded warp is in flight
+@@ -346,7 +346,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         get { return _instance != null && _instance._open; }
+     }
+ 
+-    // The menu is allowed in field AND battle (UIKeyTrigger's F6 gate). In battle the field-only tabs
++    // The menu is allowed in field AND battle (UIKeyTrigger's tilde gate). In battle the field-only tabs
+     // (Warp/Move) no-op, so they show a note; Cheats/Flags/Time operate on the shared party/flag/time state.
+     private static Boolean InBattle
+     {
+@@ -382,6 +382,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         // LIVE to stick -- uncheck "Disable control" before teleporting on the world map.
+         ApplyControlHold(open && _disableControl);
+         _open = open;
++        if (!open)
++            GUIUtility.keyboardControl = 0;   // drop IMGUI text-box focus: a closed menu must never hold a stale focus id
+     }
+ 
+     // Pause/resume EventEngine user control (so the d-pad / action button don't drive the character behind the popup).
+@@ -445,6 +447,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.Label(CurrentInfo(), _subtitle);
+         GUILayout.EndVertical();
+         GUILayout.FlexibleSpace();
++        GUILayout.Label("~ toggles", _subtitle);                // the hotkey, discoverable in the menu itself
+         if (GUILayout.Button("×", _iconBtn, GUILayout.Width(34f)))
+             SetOpen(false);
+         GUILayout.EndHorizontal();
+@@ -452,25 +455,28 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         // "Disable control": freeze player input while the menu is up. [x]/[ ] rather than a skin checkbox so it renders
+         // identically across fonts; defaults OFF (persisted). The overworld teleport wants control LIVE, so leave it off there.
+         GUILayout.Space(4f);
+-        if (GUILayout.Button((_disableControl ? "[x]  " : "[  ]  ") + "Disable control", _toggleBtn))
++        GUILayout.BeginHorizontal();                            // ONE prefs row: control hold left, font picker right
++        if (GUILayout.Button((_disableControl ? "[x]  " : "[  ]  ") + "Disable control", _toggleBtn, GUILayout.ExpandWidth(false)))
+         {
+             _disableControl = !_disableControl;
+             SaveDisableControlPref();
+             ApplyControlHold(_disableControl);
+         }
+-
+-        GUILayout.BeginHorizontal();                            // font picker (Alexandria/Garnet = FF9's own bundled UI fonts)
+-        GUILayout.Label("Font", _hint, GUILayout.Width(40f));
++        GUILayout.FlexibleSpace();
++        GUILayout.Label("Font", _hint, GUILayout.Width(36f));
+         for (Int32 fi = 0; fi < FontChoices.Length; fi++)
+-            if (GUILayout.Button(FontChoices[fi], fi == _fontChoice ? _tabOn : _tabOff))
++            if (GUILayout.Button(FontChoices[fi], fi == _fontChoice ? _tabOn : _tabOff, GUILayout.ExpandWidth(false)))
+                 SetFontChoice(fi);
+         GUILayout.EndHorizontal();
+ 
+         GUILayout.Space(6f);
+         GUILayout.BeginHorizontal();                            // tab pills
+         for (Int32 i = 0; i < Tabs.Length; i++)
+-            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _tabOff))
++            if (GUILayout.Button(Tabs[i], i == _tab ? _tabOn : _tabOff) && _tab != i)
++            {
+                 _tab = i;
++                _scroll = Vector2.zero;                         // a fresh tab opens at its top, not mid-scroll
++            }
+         GUILayout.EndHorizontal();
+         GUILayout.Space(2f);
+ 
+@@ -486,7 +492,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+         if (_status.Length > 0)
+             GUILayout.Label(_status, _statusStyle);
+-        GUI.DragWindow(new Rect(0f, 0f, 10000f, 34f));          // drag by the header
++        GUI.DragWindow(new Rect(0f, 0f, 10000f, 60f));          // drag by the whole header bar (title + subtitle)
+     }
+ 
+     // ------------------------------------------------------------------- tabs
+@@ -586,8 +592,6 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.EndHorizontal();
+         GUILayout.Label("right-click the field to copy that point's (x, z).", _hint);
+ 
+-        DrawDiorama();
+-
+         Section("Field");
+         if (GUILayout.Button("Reload field", _button))
+             Reload(false);
+@@ -602,6 +606,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             Reload(false);
+         }
+ 
++        DrawDiorama();                                          // experimental co-op bench: below the everyday actions, above the long list
++
+         Section("Registered fields");
+         GUILayout.BeginHorizontal();                            // filter bar — a verbatim fork can register ~500 fields
+         GUILayout.Label("filter", _label, GUILayout.Width(42f));
+@@ -719,7 +725,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.Label(valid ? "scene " + sc + " = " + FF9StateSystem.Battle.mapName[sc]
+                               : "no scene with that id — " + ids.Length + " exist, from " + ids[0] + " to " + ids[ids.Length - 1], _hint);
+         GUILayout.Label("render-only: every write to your own party, gil and counters is suppressed. "
+-                        + "Re-open F6 in the diorama to leave.", _hint);
++                        + "Re-open the debug menu (~) in the diorama to leave.", _hint);
+     }
+ 
+     private void DrawCheats()
+@@ -795,12 +801,12 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         if (GUILayout.Button("Save preset", _button, GUILayout.Width(96f)))
+             SaveBatchPreset();
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("ops: 1520 = set bit · !1423 or 1423=0 = clear bit · b191=5 = byte · w0=7200 = 16-bit word. Space/comma separated.", _hint);
++        GUILayout.Label("ops: 1520 sets a bit, !1423 (or 1423=0) clears it, b191=5 writes a byte, w0=7200 writes a 16-bit word. Space/comma separated.", _hint);
+         for (Int32 i = 0; i < _batches.Count; i++)
+         {
+             FlagBatch fb = _batches[i];
+             GUILayout.BeginHorizontal();
+-            if (GUILayout.Button("★ " + fb.Name, _button))
++            if (GUILayout.Button("* " + fb.Name, _button))      // ASCII star: the FF9 fonts' glyph set is limited (see the pin buttons)
+                 ApplyFlagBatch(fb.Ops);
+             if (GUILayout.Button("edit", _button, GUILayout.Width(46f)))
+             {
+@@ -881,9 +887,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.BeginHorizontal();
+         _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(64f));
+         _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(64f));
+-        if (GUILayout.Button("Go", _primary, GUILayout.Width(40f)))
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))    // match the field tab's Go/here widths
+             WorldTeleport();
+-        if (GUILayout.Button("here", _button, GUILayout.Width(46f)))
++        if (GUILayout.Button("here", _button, GUILayout.Width(48f)))
+             CopyWorldPos();
+         Boolean favSpot = Single.TryParse(_wxText, out Single spXf) && Single.TryParse(_wzText, out Single spZf)
+                           && HasWorldPin((Int32)Math.Round(spXf), (Int32)Math.Round(spZf));   // match Go's Single parse; pins are int-encoded
+@@ -1141,7 +1147,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+     // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
+     // event-script dispatcher (wldMapNo 9000+N -> WORLD00..12). BOARDING a vehicle sets gEventGlobal[190] AND
+-    // the per-vehicle NAV state (Map.Byte[24/25/26]) together; the F6 swap pokes ONLY the byte. So on any state
++    // the per-vehicle NAV state (Map.Byte[24/25/26]) together; the menu swap pokes ONLY the byte. So on any state
+     // whose per-frame vehicle switch has real nav arms (chocobo / air / boat), forcing a mode -- even one the
+     // game legitimately uses there -- drives that arm on uninitialised nav state -> a CalcStack expression
+     // underflow ("[CalcStack.pop] topOfStackID == 0", spammed per-frame) -> crash. In-game proven: on WORLD00,
+@@ -1562,7 +1568,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         }
+     }
+ 
+-    // [ff9mapkit] On-demand recovery for the overworld 'no controlled actor' black screen (F6 still renders on the
++    // [ff9mapkit] On-demand recovery for the overworld 'no controlled actor' black screen (the menu still renders on the
+     // black screen). Runs the same self-heal as the automatic w_frameUpdate hook; a no-op reports "already healthy".
+     private void RebuildPlayerActor()
+     {
+@@ -1579,7 +1585,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+     // [ff9mapkit] TEST-ONLY: simulate the 'no controlled actor' black screen (clear the designator + point the camera
+     // at the dummy) so "Rebuild player actor" / the auto self-heal can be validated deterministically. The world
+-    // should go black; press Rebuild to confirm recovery. F6 stays up (IMGUI overlay) so you can always recover.
++    // should go black; press Rebuild to confirm recovery. The menu stays up (IMGUI overlay) so you can always recover.
+     private void BreakControlForTest()
+     {
+         try
+@@ -1768,7 +1774,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         }
+     }
+ 
+-    // [ff9mapkit] Set the ScenarioCounter on the CURRENT field without warping (then F6 -> Reload field to let
++    // [ff9mapkit] Set the ScenarioCounter on the CURRENT field without warping (then Reload field to let
+     // the field's Main_Init re-derive its state from the new beat). Handy to nudge a story-gated fork in place.
+     private void SetScenarioNow()
+     {
+@@ -1780,7 +1786,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         try
+         {
+             FF9StateSystem.EventState.ScenarioCounter = scn;
+-            _status = "ScenarioCounter = " + scn + "  (F6 -> Reload field to apply)";
++            _status = "ScenarioCounter = " + scn + "  (Reload field to apply)";
+         }
+         catch (Exception err)
+         {
+@@ -2042,7 +2048,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+             Int32 idx, val;
+             if (!Int32.TryParse(idxPart, out idx) || idx < 0)
+             {
+-                err = "'" + raw + "': bad index";
++                // Name the grammar in the error: the user-hit failure was typing an op NAME ("word:1060=0"),
++                // which parses as 'w' + junk -- a bare "bad index" gave no way to discover the real syntax.
++                err = "'" + raw + "': bad index. ops: <n> set bit, !<n> clear bit, b<i>=<v> byte, w<i>=<v> word";
+                 return false;
+             }
+             if (valPart == null)
+@@ -2155,13 +2163,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         }
+         Byte[] g = FF9StateSystem.EventState.gEventGlobal;
+         System.Array.Copy(_snapshot, g, System.Math.Min(_snapshot.Length, g.Length));
+-        _status = "flag state restored (F6 reload to apply)";
++        _status = "flag state restored (Reload field to apply)";
+     }
+ 
+     private void ResetFlags()
+     {
+         ClearFlagState();
+-        _status = "all flags cleared (F6 reload to re-arm)";
++        _status = "all flags cleared (Reload field to re-arm)";
+     }
+ 
+     private static void ClearFlagState()
+@@ -2401,6 +2409,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+         _header = new GUIStyle(GUI.skin.label);
+         _header.fontSize = 13;
++        _header.fontStyle = FontStyle.Bold;                  // bold muted = reads as a section title over the hairline
+         _header.normal.textColor = muted;
+         _header.margin = new RectOffset(0, 0, 2, 1);
+ 
+@@ -2416,17 +2425,20 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+         _mono = new GUIStyle(GUI.skin.label);          // boxed readout (world pos / story state)
+         _mono.fontSize = 13;
+-        _mono.normal.textColor = muted;
++        _mono.normal.textColor = text;                 // readouts are DATA -- full text color, not hint-muted
+         _mono.wordWrap = true;
+         _mono.border = new RectOffset(1, 1, 1, 1);
+         _mono.padding = new RectOffset(8, 8, 6, 6);
+         _mono.normal.background = MkTex(panel, border, true);
+ 
+-        _statusStyle = new GUIStyle(GUI.skin.label);
++        _statusStyle = new GUIStyle(GUI.skin.label);   // boxed status bar at the window foot (accent-keyed border)
+         _statusStyle.fontSize = 12;
+         _statusStyle.normal.textColor = accent;
+         _statusStyle.wordWrap = true;
+-        _statusStyle.margin = new RectOffset(2, 2, 4, 2);
++        _statusStyle.margin = new RectOffset(0, 0, 5, 1);
++        _statusStyle.border = new RectOffset(1, 1, 1, 1);
++        _statusStyle.padding = new RectOffset(8, 8, 5, 6);
++        _statusStyle.normal.background = MkTex(panel, accentBd, true);
+ 
+         _field = new GUIStyle(GUI.skin.textField);
+         _field.fontSize = 14;
+diff --git a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+index 83f458d..5b87384 100644
+--- a/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
++++ b/Assembly-CSharp/Global/UI/UIKey/UIKeyTrigger.cs
+@@ -155,19 +155,19 @@ public class UIKeyTrigger : MonoBehaviour
+             AccelerateKeyNavigation();
+             if (HandleMenuControlKeyPressCustomInput())
+                 return;
+-            // [ff9mapkit dev] F6 toggles the in-game debug menu (Ff9mkDebugMenu: reload field / reset
+-            // flags+reload / warp to any field id). Consolidates all dev actions onto ONE key + a popup
+-            // instead of one-hotkey-per-function. Read here (UIKeyTrigger.Update runs every render frame =
+-            // reliable GetKeyDown, unlike FieldMap.HonoLateUpdate's ~30fps tick which dropped presses) and
+-            // intercepted before HandleBoosterButton so F6 doesn't also fire the LvMax-disabled SFX. Dev
+-            // engine only; not part of the shipped mod. Allowed in FIELD, BATTLE, and the OVERWORLD (WorldHUD)
+-            // -- the menu is a DontDestroyOnLoad MonoBehaviour so its OnGUI already draws in any of them; the
+-            // field-only tabs (Warp/Move) no-op + show a note off-field, the overworld World tab no-ops off the
+-            // world map, while Cheats/Flags/Time work in all three (shared party/flag/time state).
++            // [ff9mapkit dev] TILDE/backquote (`) toggles the in-game debug menu (Ff9mkDebugMenu) -- all dev
++            // actions on ONE key + a tabbed popup. Was F6, remapped 2026-07-20: stock Memoria already uses F6
++            // as the LvMax cheat hotkey (HandleBoosterButton below), which the old early intercept swallowed;
++            // BackQuote is bound to NOTHING engine-wide (key-name tables only). Read here (UIKeyTrigger.Update
++            // runs every render frame = reliable GetKeyDown, unlike FieldMap.HonoLateUpdate's ~30fps tick).
++            // Allowed in FIELD, BATTLE, and the OVERWORLD (WorldHUD). Unlike F6 this key TYPES a character, so
++            // while the menu is open with a text box focused (GUIUtility.keyboardControl != 0) the toggle is
++            // suppressed -- typing ` into a field must not slam the menu shut; a CLOSED menu skips the guard.
+             UIManager.UIState st = PersistenSingleton<UIManager>.Instance.State;
+             if ((st == UIManager.UIState.FieldHUD || st == UIManager.UIState.BattleHUD
+                  || st == UIManager.UIState.WorldHUD)
+-                && UnityXInput.Input.GetKeyDown(KeyCode.F6))
++                && UnityXInput.Input.GetKeyDown(KeyCode.BackQuote)
++                && !(Ff9mkDebugMenu.IsOpen && GUIUtility.keyboardControl != 0))
+             {
+                 Ff9mkDebugMenu.Toggle();
+                 return;

@@ -243,7 +243,7 @@ class ModLayout:
     def text_patch(self) -> Path:
         """Item/ability/card NAME + DESCRIPTION overrides (``TextPatch.txt``, a ``>DATABASE`` find/replace
         patch -- ``Memoria.TextPatcher``). A per-mod-folder drop-in like the dictionary/battle patches,
-        read once at ``DataPatchers.Initialize`` -> a text change needs a RELAUNCH (not F6 Reload)."""
+        read once at ``DataPatchers.Initialize`` -> a text change needs a RELAUNCH (not ~ Reload)."""
         return self.root / "TextPatch.txt"
 
     @property
@@ -507,7 +507,7 @@ class ModLayout:
         """``…/StreamingAssets/Scripts`` -- holds ``Sources/`` (the emitted C# battle formulas) + the compiled
         ``Memoria.Scripts.<Mod>.dll``. The engine loads a per-mod-folder DLL (name derived from the folder) IN
         ADDITION to the base ``Memoria.Scripts.dll`` (``ScriptsLoader``), so a mod adds new ``[BattleScript(id)]``
-        formulas (id >=256) with NO engine rebuild. RELAUNCH-scoped (loaded once at title; F6 won't reload it)."""
+        formulas (id >=256) with NO engine rebuild. RELAUNCH-scoped (loaded once at title; a menu reload won't reload it)."""
         return self.root / "StreamingAssets" / "Scripts"
 
     @property

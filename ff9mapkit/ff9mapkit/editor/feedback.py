@@ -4,7 +4,7 @@ The kit's apps used to dump raw subprocess/traceback text into a scrolling log, 
 read tea leaves for "did it work, and what do I do next?". This module replaces that with two pieces:
 
   * a :class:`Verdict` -- a one-line outcome (ok / passed-with-warnings / failed / running) plus an
-    optional next-action line ("Relaunch once, then F6 -> Warp -> 2640"), rendered as a coloured banner;
+    optional next-action line ("Relaunch once, then ~ -> Warp -> 2640"), rendered as a coloured banner;
   * a flat list of :class:`Problem` rows (errors + warnings), rendered as a compact, colour-coded,
     selectable list -- the structured replacement for ``ERROR ...`` / ``warn ...`` log spam.
 
@@ -166,7 +166,7 @@ _REWRITES = (
      "Make your own copy first — use the Field menu > New Field (Ctrl-N), or copy the example's folder — "
      "then edit that copy."),
     ("development deploy loop",
-     "One-click Deploy (the quick test-slot + F6 loop) only works from the full developer source-code copy "
+     "One-click Deploy (the quick test-slot + reload loop) only works from the full developer source-code copy "
      "of the app, not this installed copy.",
      "In the Build panel, pick “Install to game” — it writes the mod straight into your FF9 game folder with "
      "no developer checkout needed."),

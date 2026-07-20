@@ -1,5 +1,5 @@
 """Generate the ScenarioCounter -> area progression table from the census, for BOTH the kit's
-flags.py (Python) and the F6 debug menu (C#). Reproducible + census-grounded so the two stay in sync.
+flags.py (Python) and the in-game debug menu (~) (C#). Reproducible + census-grounded so the two stay in sync.
 
 The table maps a ScenarioCounter value to the story AREA the game is in around then (the area of the
 field that sets that value). Cleaning: drop the sub-1000 artifacts (a few disc-3 cutscene fields write

@@ -1575,7 +1575,7 @@ def safe_custom_area(area: int) -> int:
 
 def _player_block(meta) -> str:
     """The ``[player]`` block an emitted (non-verbatim) fork toml gets: the collapsed default spawn
-    (``meta['player_start']``, the proven real-arrival-nearest-centroid choice -- the F6/unmatched
+    (``meta['player_start']``, the proven real-arrival-nearest-centroid choice -- the menu-warp/unmatched
     landing) + the donor's ATTRIBUTED per-entrance table as ``[[player.arrival]]`` rows, so the fork
     keeps the donor's per-door arrivals instead of collapsing them (the field-entry arc, rung 5). The
     donor's exits carry their ``D8:2`` writes through the fork retarget, so the entrance numbers still

@@ -35,9 +35,9 @@ index is a **bit address** for `Bit` vars (byte = `idx>>3`, bit = `idx&7`) and a
 **State of the kit.** `ff9mapkit` already encodes flag ops **byte-for-byte** against real FF9 bytecode
 (`content/region.py`), scans what each field touches offline (`eventscan.py`), allocates per-field
 once-flags, lints dangling/colliding flags (`build.py`, `campaign.py`), and exposes get/set/clear/
-snapshot/reset in the **F6 debug menu** (`Ff9mkDebugMenu.cs`). *Since this research:* a **named flag
+snapshot/reset in the **debug menu (~)** (`Ff9mkDebugMenu.cs`). *Since this research:* a **named flag
 registry** (`flags.py`, recommendation 2), an **offline save-file reader** (`flags-inspect`,
-recommendation 3), and a **live in-game F6 "Story state" readout** (the in-game half of 3, proven 2026-06-10)
+recommendation 3), and a **live the in-game debug menu (~) "Story state" readout** (the in-game half of 3, proven 2026-06-10)
 have landed — **and a save-seed/recreate tool** (`save-edit`, recommendation 4, in-game proven). All five
 verbs are now implemented; the remaining frontiers are campaign `[initial_flags]` entry and seeding map/party.
 
@@ -123,10 +123,10 @@ Palace / Eiko abduction 9250–9890** · Terra 10830–10890 · Pandemonium 1093
   `scan_required_flags` :476, `scan_edge_flag_gates` :502, decoder `_glob_var_token` :436) that report what
   each `.eb` **writes / reads / gates** — GLOB-only (0xC4/0xE4); MAP (0xC5) and UINT8 (0xD5) excluded as
   transient. The census (`research/flag_census.py`) aggregates this across all 676 real fields. In-game, the
-  **F6 → Flags** tab (`Ff9mkDebugMenu.cs:457-526`) does live get/set/clear/snapshot/restore on
+  **~ → Flags** tab (`Ff9mkDebugMenu.cs:457-526`) does live get/set/clear/snapshot/restore on
   `gEventGlobal`.
-- **Now:** ✅ an **offline save-file reader** (`flags-inspect`) AND a **live in-game F6 "Story state" readout**
-  both landed (recommendation 3) — the offline reader Base64-decodes a player's `gEventGlobal`; the F6 tab
+- **Now:** ✅ an **offline save-file reader** (`flags-inspect`) AND a **live the in-game debug menu (~) "Story state" readout**
+  both landed (recommendation 3) — the offline reader Base64-decodes a player's `gEventGlobal`; the debug-menu tab
   shows ScenarioCounter+beat / FieldEntrance / treasure points / chest count live (in-game proven). **Remaining
   gap:** the `.eb` scanners still see only the `0x05` expression path, so flags mutated by engine C# (e.g.
   worldmap-unlock consumers) stay invisible — why **276 bits read as "write-only."**
@@ -167,11 +167,11 @@ Palace / Eiko abduction 9250–9890** · Terra 10830–10890 · Pandemonium 1093
 
 - **Today:** ✅ **Implemented + in-game proven 2026-06-10** (recommendation 4). `ff9mapkit save-edit` reads a
   real `SavedData_ww.dat`, sets ScenarioCounter (+ flags) in a chosen slot, and writes it back — verified by
-  loading an edited save and reading the new state off the F6 readout, no relaunch. See §5(4) for the codec
+  loading an edited save and reading the new state off the debug-menu readout, no relaunch. See §5(4) for the codec
   + the Memoria split-save finding.
 - **Remaining:** the edit sets story STATE only (not map position/party — scope choice); `[initial_flags]`
   at campaign entry is still a TODO; New-Game-into-a-campaign with a full party remains unsolved (reach
-  chains via F6→Warp).
+  chains via the debug menu (~)→Warp).
 
 ---
 
@@ -261,7 +261,7 @@ seed `research/flag_catalog.toml` fed this; `flags.py` is now canonical.)*
 decode a save's `gEventGlobal` (Base64 from `FF9State.json`, `JsonParser.cs:522`) into a human report —
 ScenarioCounter + nearest story beat, IsEikoAbducted, FieldEntrance, treasure-hunter points (engine ranges),
 opened-chest count, set story bits grouped by region. CLI: `ff9mapkit flags-inspect <save>`. *In-game
-(proven 2026-06-10):* the **F6 → Flags tab** gained a live **"Story state"** readout (ScenarioCounter + beat,
+(proven 2026-06-10):* the **~ → Flags tab** gained a live **"Story state"** readout (ScenarioCounter + beat,
 FieldEntrance, TreasureHunter pts via the engine's own `GetTreasureHunterPoints()`, chests opened) + a region
 label on Get (`Ff9mkDebugMenu.cs`, patch `s22`). Verified in a real save at Alexandria Castle (SC 7200) —
 which **corrected the scenario→beat table**: the old ~11-anchor map mislabelled mid-game (7200 read "Madain
@@ -281,7 +281,7 @@ is a String4K (2048 bytes → a 2732-char Base64). AES-CBC is a bijection, so an
 byte-exact (no checksum). **★ The load-bearing in-game finding:** Memoria *also* writes an **unencrypted**
 per-slot extra file (`SavedData_ww_Memoria_{slot}_{save}.dat`) holding the AUTHORITATIVE gEventGlobal, and
 **restores from it on load, overriding the vanilla block** — so `save-edit` patches *both*. Verified: an
-offline-edited save loaded to `ScenarioCounter 2500 → Ice Cavern` on the F6 readout, no relaunch. Needs
+offline-edited save loaded to `ScenarioCounter 2500 → Ice Cavern` on the debug-menu readout, no relaunch. Needs
 `pycryptodome` (lazy import). *Still open:* `[initial_flags]` at campaign entry; seeding map/party (state-only
 for now).
 
@@ -384,8 +384,8 @@ label-accuracy / curation — + 2 research agents → synthesis). All landed in 
   IsEikoAbducted window); **9400** "Hilda Garde" → **Blue Narciss** (field 2855); **11610** "Crystal World" →
   **Memoria** (with Crystal World correctly split to 11765/12000). Restored lost beats: **Burmecia** (3800),
   **Oeilvert** (9605), a second elemental shrine (Water 10620), **Pandemonium** (10930), Memoria. The
-  in-game-validated **7200 → Alexandria Castle** anchor is preserved. Mirrored to the F6 menu C# + engine
-  rebuilt — **in-game proven 2026-06-10** (F6 reads 7200 → Alexandria Castle on a real save and 5900 → Fossil
+  in-game-validated **7200 → Alexandria Castle** anchor is preserved. Mirrored to the debug menu C# + engine
+  rebuilt — **in-game proven 2026-06-10** (the debug menu reads 7200 → Alexandria Castle on a real save and 5900 → Fossil
   Roo on an edited throwaway).
 - **18 named story-flag clusters** (`flags.STORY_REGIONS`, informational/non-reserved) annotate a decoded
   save's set bits by dominant writer area (e.g. `lindblum_events` 2592–2663, `mognet_central_state` 4046–4047).

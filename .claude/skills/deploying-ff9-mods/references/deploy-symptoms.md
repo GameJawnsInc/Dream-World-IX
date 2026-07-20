@@ -23,15 +23,15 @@ fullest fix text) and the memory recipes `project-ff9-eventdb-id-collision` /
 | Black screen leaving a field to the OVERWORLD; log names a fork `.eb` under a `World/` path | Field ids collided with the reserved world-map band 9000-9012 | Re-fork off the band (it is a hole in the custom range) |
 | New-Game-only black screen; DictionaryPatch shorter than its backups | A wholesale DictionaryPatch rewrite clobbered registrations | Restore from `backups/DictionaryPatch.txt.preDEPLOY.*`, relaunch |
 | Wrong dialogue but correct flags/behavior | Text-block `.mes` shadow (a higher-priority folder defines the same block) | Unshadowed real MesDB id / pin `text_block` |
-| A "(saved)" Script-panel edit still shows the old line | Edit recorded in `field.toml` but not rebuilt + redeployed | Rebuild + redeploy, then F6 -> Reload field |
+| A "(saved)" Script-panel edit still shows the old line | Edit recorded in `field.toml` but not rebuilt + redeployed | Rebuild + redeploy, then ~ -> Reload field |
 | After-battle softlock (control never returns) | Missing entry-0 tag-10 Main_Reinit | Use the kit build path (it emits one for encounter fields) |
-| "Nothing changed after deploy" | The change is startup-read, not F6-hot | Relaunch (list below) |
+| "Nothing changed after deploy" | The change is startup-read, not hot-reloadable -- relaunch | Relaunch (list below) |
 
 ## Black screen: null-.eb (global EventDB id collision)
 
 Fingerprint, verbatim from memory `project-ff9-eventdb-id-collision`:
 
-> A custom field is in the F6 warp list (registered) and its background/walkmesh **renders**, yet
+> A custom field is in the debug-menu warp list (registered) and its background/walkmesh **renders**, yet
 > warping to it black-screens with `EventEngine.StartEvents(ebFileData=null)` at
 > `HonoluluFieldMain.ff9InitStateFieldMap` (+ a cascade of `NullReferenceException`).
 > [...] **This fingerprint = a GLOBAL `FF9DBAll.EventDB` id collision across stacked mod folders.**
@@ -70,7 +70,7 @@ doesn't, it's the id, not the content. Fix: pick an id no other stacked folder c
 The engine serves a field's `field/<text_block>.mes` from the highest-priority `Memoria.ini
 FolderNames` folder that defines it, so a lower folder's dialogue is shadowed — behavior/flags stay
 correct. Verbatim from memory `project-ff9-text-block-shadow`: "The flags-readout is immune (it
-reads `gEventGlobal` directly); the message box is not." — so F6 -> Flags is the reliable proof.
+reads `gEventGlobal` directly); the message box is not." — so ~ -> Flags is the reliable proof.
 
 Verbatim constraint: "**`text_block` MUST be a real `MesDB` id** — Memoria's `DataPatchers` checks
 `FF9DBAll.MesDB.ContainsKey(mesID)` and logs "invalid message file ID" otherwise, so an arbitrary
@@ -88,10 +88,10 @@ Two related same-symptom cases:
 
 - **Within-folder shared-block clobber** (campaign members sharing one real block): fixed BUILD-side
   (kit 1.0.0b1, `_reconcile_mes` merge) — but an already-deployed campaign keeps the clobbered `.mes`
-  until re-built + re-deployed; F6 Reload re-reads disk, it does NOT rebuild. Read memory
+  until re-built + re-deployed; ~ Reload re-reads disk, it does NOT rebuild. Read memory
   `[[project-ff9-text-block-shadow]]`.
 - **Script-panel edit shows "(saved)" but the game speaks the old line**: the GUI save records a
-  `[[logic_edit]]` in `field.toml`; only the build rewrites the `.mes`. F6 Reload without a redeploy
+  `[[logic_edit]]` in `field.toml`; only the build rewrites the `.mes`. ~ Reload without a redeploy
   just re-reads the stale file. Rebuild + redeploy, then reload (TROUBLESHOOTING.md "Wrong dialogue").
 
 ## After-battle softlock
@@ -104,8 +104,8 @@ splices outside the normal build. Deep recipe: read memory `[[project-ff9-encoun
 
 ## "Nothing changed after deploy" / when to relaunch
 
-F6 -> Reload field re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art from disk (needs the
-bundled custom engine — stock Memoria has no F6). This is literal: there is NO content cache under it.
+~ -> Reload field re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art from disk (needs the
+bundled custom engine — stock Memoria has no debug menu). This is literal: there is NO content cache under it.
 `AssetManager.LoadFromDisc` bottoms out in `File.ReadAllText`/`ReadAllBytes` per field entry, and the
 one apparent text cache — `FieldImporter.cs`'s `(mesID, language)` early-out — is DEAD CODE, because
 `TextBatch` is a **struct** and `LoadingZoneBatch` is a value-returning property, so the
@@ -119,7 +119,7 @@ process start behind `_isInitialized`). Editing content inside an already-regist
 ONE real `.mes` staleness exception: a shared file pulled in via `[LOADMES=NAME]` is memoized in
 `FF9TextTool.sharedTexts` for the process, so editing the INCLUDED file needs a relaunch.
 
-Relaunch only when F6 Reload can't pick a change up — verbatim list from TROUBLESHOOTING.md:
+Relaunch only when ~ Reload can't pick a change up — verbatim list from TROUBLESHOOTING.md:
 
 > - the **first deploy of a new id** (it has to register its `DictionaryPatch.txt` line),
 > - a **`BattlePatch.txt`** change (battle tuning / per-encounter BGM),

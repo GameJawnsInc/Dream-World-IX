@@ -10,7 +10,7 @@ transfer; and we BG-borrow Treno's real coords, so the climb's position-branchin
 The ladder region (kit-built, RunScriptSync(2,250,17)) is unchanged -- it now runs the REAL climb.
 The climb lands at the REAL ladder top (not the floor-1 teleport), so the exit may need re-placing.
 
-Reversible (backs up EVT_TRENO_RES per lang). F6 in Treno to reload. Run: py tools/ladder_faithful.py
+Reversible (backs up EVT_TRENO_RES per lang). ~ (tilde) in Treno to reload. Run: py tools/ladder_faithful.py
 """
 import datetime
 import os
@@ -95,7 +95,7 @@ def main():
         f"for L in {LANGS!r}:\n"
         "    shutil.copyfile(bk/f'{L}-EVT_TRENO_RES.eb.bytes.prefaithful.{stamp}', live/base/L/'EVT_TRENO_RES.eb.bytes')\n"
         "print('reverted faithful climb')\n", encoding="utf-8", newline="\n")
-    print("\nTEST: F6 in Treno. Walk to the ladder base -> \"!\" -> press action -> you should CLIMB "
+    print("\nTEST: ~ (tilde) in Treno. Walk to the ladder base -> \"!\" -> press action -> you should CLIMB "
           "(real jump animation + arc) up the ladder, not teleport.")
     print(f"revert: py {rev.relative_to(REPO).as_posix()}")
 

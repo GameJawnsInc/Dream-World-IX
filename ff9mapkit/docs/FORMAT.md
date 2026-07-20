@@ -85,7 +85,7 @@ target, replicating the engine's projection + viewport clamp), converts it to fr
 engine's geometric ease (baked for the default `CameraStabilizer = 85` — it's a per-user setting, so
 this is best-effort), and clamps to a sane 20–90 band; the chosen value is printed in the build
 output and by `lint`. It needs the *arriving* transition to have faded to black — kit gateways and
-`fade = true` choice-warps do; a bare F6 debug warp shows the drift regardless (nothing scripted can hide
+`fade = true` choice-warps do; a bare debug-menu (~) warp shows the drift regardless (nothing scripted can hide
 that path). A `--verbatim` fork does **not** need it (the donor's own entry sequence is carried); the key
 is ignored there and `lint` says so. If the requested settle can't be inserted (no plain reveal fade in
 Main_Init), the build warns instead of silently skipping.
@@ -245,7 +245,7 @@ pos      = [-350, -1500]
 | `face` | OPTIONAL facing on arrival (0..255). Absent = keep `[player] face` / the default. |
 
 The build lints each `pos` against the walkmesh like the spawn. Entering with an entrance value that has
-no row (including a fresh New-Game/F6 warp) uses `[player] spawn` — the rows are pure overrides, so a
+no row (including a fresh New-Game/debug-menu warp) uses `[player] spawn` — the rows are pure overrides, so a
 field without them is byte-identical to before.
 
 Coverage is audited automatically. `lint-campaign` (and journey lint) walks the campaign's edge graph and
@@ -909,7 +909,7 @@ Full worked example: [`examples/thirteenth-character/`](../examples/thirteenth-c
 (Iviv + Steiniv); the engine mechanism is in the memory `project-ff9-13th-character`.
 
 > **Relaunch + New Game.** The new `BaseStats`/`CharacterParameters` rows and the name directive load at
-> **startup / New-Game init** — F6 Reload won't pick them up. So: deploy → **relaunch** → **New Game** (so
+> **startup / New-Game init** — ~ Reload won't pick them up. So: deploy → **relaunch** → **New Game** (so
 > the engine inits the party with the new id present) → reach the field (Main_Init recruits it).
 
 ```toml
@@ -1017,7 +1017,7 @@ Set what the player **starts a New Game with** — the starting inventory and ea
 equipment. Unlike `[startup]`/`[party]` (which are `.eb` field-load ops), these are emitted as **mod-global
 CSV deltas** at build time (`StreamingAssets/Data/Items/InitialItems.csv` + `…/Data/Characters/DefaultEquipment.csv`),
 engine-independent (stock Memoria). They're read **once at new-game init**, so they affect a true **New Game**
-only (not an F6 / campaign mid-game entry) and compose with story_flags' seamless New-Game entry + `[startup]`/`[party]`.
+only (not a debug-warp / campaign mid-game entry) and compose with story_flags' seamless New-Game entry + `[startup]`/`[party]`.
 
 ```toml
 [start_inventory]                              # the FULL starting bag (REPLACES the base bag entirely)
@@ -1130,7 +1130,7 @@ zone = [[-400, -900], [400, -900], [400, -500], [-400, -500]]
     hides the "!".
 - **Scope:** the recipe CSV ships for **any** build (incl. verbatim); the synthesized opener is injected on the
   **synthesize** path only (a `--verbatim` fork carries the donor's own logic).
-- **★ RELAUNCH to apply:** `Synthesis.csv` loads once at startup (`ff9mix`) — F6 → Reload won't pick it up.
+- **★ RELAUNCH to apply:** `Synthesis.csv` loads once at startup (`ff9mix`) — ~ → Reload won't pick it up.
 - **Needs a reachable FF9 install at build time** (it reads the base `Synthesis.csv` header + recipe ids; the repo
   commits no game data).
 
@@ -1239,7 +1239,7 @@ for_dead = false            # usable on a KO'd target (Phoenix-Down style)
   item name, the wrong type (`[[weapon]]` on a non-weapon, `[[equip_bonus]]` on a non-equippable, `[[item_effect]]` on
   a non-usable), a bad element/category/character/ability/status name, or an out-of-range `status_index` is a **lint
   error** (`ff9mapkit lint`).
-- **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat
+- **★ RELAUNCH to apply:** item CSVs load once at game **startup** — ~ → Reload field will NOT pick up a stat
   change. Deploy, then relaunch.
 - **Item NAME / DESCRIPTION text** is its own block — see [`[[item_text]]`](#item_text) below (a text channel,
   not a CSV: e.g. a retuned Potion's `[[item_effect]] power` changes how much it heals, while `[[item_text]]`
@@ -1275,7 +1275,7 @@ description  = "Restores 15 HP."      # optional — the help + battle descripti
   separate `KeyItem` text database) and net-new item ids are not covered yet.
 - **Mod-global + repeatable:** any field may carry `[[item_text]]` blocks; they aggregate into one `TextPatch.txt`.
   An unknown item name, or a block that sets neither field, is a **lint error** (`ff9mapkit lint`).
-- **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (F6 → Reload field will NOT pick it up).
+- **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (~ → Reload field will NOT pick it up).
 
 ---
 
@@ -1654,7 +1654,7 @@ scripts DLL (needs a C# compiler at build time — `lint` names it if missing) a
 | `enemy_hp` | × every enemy's max **and** current HP (`0.05`–`20.0`; unset = `1.0`). Clamps at 9,999,999. |
 | `enemy_attack` | × every enemy's Strength (physical). Byte stat — clamps at 255. |
 | `enemy_magic` | × every enemy's Magic. Clamps at 255. |
-| `flag` | optional gate: scale only while this `gEventGlobal` **bit** is set — a `[[flag]]` name or a bit index. Omit = always on. Seed it from `[startup]`/an event for a hard-mode journey; toggle live with F6 → Flags while testing. Bit clear = vanilla. |
+| `flag` | optional gate: scale only while this `gEventGlobal` **bit** is set — a `[[flag]]` name or a bit index. Omit = always on. Seed it from `[startup]`/an event for a hard-mode journey; toggle live with the debug menu (~) → Flags while testing. Bit clear = vanilla. |
 
 The block is **mod-global** (one scaling hook per deployed folder): a campaign may repeat an *identical*
 block on several members, but two members with *different* settings refuse at build. At least one scale must
@@ -1726,7 +1726,7 @@ rule this is not — a unit at 0 HP is dead before this check runs.
 | key | meaning |
 |---|---|
 | `song` | field BGM song-play id (e.g. `9` = Vivi's Theme). Plays on entry, and resumes after battle if there's an encounter. |
-| `file` | **your own track**: a path to an audio file (wav/mp3/ogg/flac/… — anything ffmpeg decodes), relative to this `field.toml`. The build transcodes it to Ogg Vorbis and **mints a brand-new song id** (≥ 1000) into the mod, then wires the field to play it. Needs `ffmpeg` on PATH (or `$FFMPEG`). Only consulted when `song` is **absent** — if both are set, `song` wins and `file` is ignored. Custom audio loads at game **startup**, so hear it after a restart (F6 reload isn't enough). |
+| `file` | **your own track**: a path to an audio file (wav/mp3/ogg/flac/… — anything ffmpeg decodes), relative to this `field.toml`. The build transcodes it to Ogg Vorbis and **mints a brand-new song id** (≥ 1000) into the mod, then wires the field to play it. Needs `ffmpeg` on PATH (or `$FFMPEG`). Only consulted when `song` is **absent** — if both are set, `song` wins and `file` is ignored. Custom audio loads at game **startup**, so hear it after a restart (~ reload isn't enough). |
 | `loop_start` | with `file`: the loop point, in **samples**. Blank = the whole track loops. |
 | `loop_end` | with `file`: the loop end, in samples. Blank = the track's end. |
 

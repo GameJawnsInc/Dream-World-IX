@@ -653,10 +653,10 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
     else:
         out(f"  joining session {code}")
     if target:
-        out(f"  then: launch FF9 -> F6 -> Warp to field -> {target}   (both players)")
+        out(f"  then: launch FF9 -> ~ -> Warp to field -> {target}   (both players)")
     else:
         out("  then: launch FF9 and stand on the SAME screen as your friend -- ghosts appear anywhere "
-            f"you two share a field (guaranteed spot: F6 -> Warp -> {COOP_FIELD})")
+            f"you two share a field (guaranteed spot: ~ -> Warp -> {COOP_FIELD})")
     if lan is not None:
         # Windows' generic "Allow access" prompt ticks Private AND Public by default; clicking
         # through it on a cafe/hotel/campus network exposes the co-op listener to that whole

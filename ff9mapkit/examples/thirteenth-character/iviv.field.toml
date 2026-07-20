@@ -8,9 +8,9 @@
 #
 # THEN (see README.txt for the full recipe):
 #   1. RELAUNCH FF9 (the new CharacterParameters/BaseStats rows + the CharacterDefaultName directive load
-#      at startup / New-Game init — F6 Reload won't pick them up).
+#      at startup / New-Game init — ~ Reload won't pick them up).
 #   2. NEW GAME (so the engine inits the party with id-12 present).
-#   3. F6 -> Warp to field -> the deployed slot (default 4003). Main_Init recruits Iviv on load.
+#   3. ~ -> Warp to field -> the deployed slot (default 4003). Main_Init recruits Iviv on load.
 #   4. Open the party menu: Iviv appears as its OWN member (Vivi's look, its own name + stats).
 #   5. Walk into a battle (this room has encounters) -> Iviv FIGHTS.
 #   6. Step on the save point, save, then reload the save -> Iviv PERSISTS (the save round-trip).

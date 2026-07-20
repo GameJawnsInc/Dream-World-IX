@@ -10,7 +10,7 @@ The brief's layout paragraph quoted verbatim, then broken out as a lookup. Deep 
 > via `--mod-folder`/`$FF9_MOD_FOLDER`). `Memoria.ini [Mod] FolderNames` stacks the folders; each folder's own
 > DictionaryPatch/BattlePatch is read at launch. **Distinct ids are required even across folders** (EventDB/
 > SceneData are GLOBAL). Slots: master → `FF9CustomMap`/**30000** · `-bb`/**30001** · `-ih`/**30002**; reach any
-> via F6 → Warp. **Field-id bands:** **10-3100** real (locked) · **4000-9899** shipped custom · **30000-32767**
+> via ~ → Warp. **Field-id bands:** **10-3100** real (locked) · **4000-9899** shipped custom · **30000-32767**
 > dev scratch (engine `fldMapNo` is Int16 → max **32767**; a higher id registers but is unreachable).
 > **Workflow:** single-repo out of `Dream-World-IX` master (worktrees shelved → [[project-single-repo-mode]]);
 > make edits on a feature branch → `master`. `C:\gd\FFIX` is the read-only archive (Memoria source + old branches).
@@ -36,7 +36,7 @@ The 9000-9012 rule, verbatim from memory `project-ff9-eventdb-id-collision`: "Th
 | battle-backgrounds lane | `FF9CustomMap-bb` | 30001 |
 | infohub-catalog lane | `FF9CustomMap-ih` | 30002 |
 
-Reach any slot via F6 -> Warp. The `-bb`/`-ih` slots date from the shelved per-worktree era but stay
+Reach any slot via ~ -> Warp. The `-bb`/`-ih` slots date from the shelved per-worktree era but stay
 registered; the scheme is documented in memory `project-ff9-git-layout`.
 
 ## .ff9deploy.toml keys

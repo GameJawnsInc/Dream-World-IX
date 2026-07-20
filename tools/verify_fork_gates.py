@@ -8,17 +8,17 @@ wraps + identity-safe for real ids) and are still ⚠ UNVERIFIED.
 
 The proven verification vehicle = a **1-member VERBATIM fork** deployed via ``deploy_campaign --no-warp`` into
 its own scratch id, which emits ``ForkDonorPatch.txt`` (``<forkId> <donorId>`` — the linchpin the whole
-EffectiveFieldId/Name remap needs). Reach it via F6 → Warp. The conclusive A/B: comment the ForkDonorPatch
+EffectiveFieldId/Name remap needs). Reach it via ~ → Warp. The conclusive A/B: comment the ForkDonorPatch
 line + relaunch (fix OFF) vs present (fix ON).
 
 ★ THE LOAD-BEARING FINDING (2026-07-07, this harness): unlike the PROVEN 2507 (a walkmesh hotfix that fires
-at field LOAD, so a cold fork + F6 warp reaches it), **the remaining s29 gates fire mid-CUTSCENE / post-BATTLE
-/ on an abnormal PARTY** — states a cold fork boots PAST. So they are mostly NOT crisply F6-testable; that is
+at field LOAD, so a cold fork + debug-menu warp reaches it), **the remaining s29 gates fire mid-CUTSCENE / post-BATTLE
+/ on an abnormal PARTY** — states a cold fork boots PAST. So they are mostly NOT crisply warp-testable; that is
 exactly why they stayed unverified. Each target below carries an OBSERVABILITY verdict:
 
-  crisp-at-load     the gate fires on field load -> a cold F6 warp reaches it (the 2507 class). TESTABLE.
+  crisp-at-load     the gate fires on field load -> a cold debug-menu warp reaches it (the 2507 class). TESTABLE.
   needs-scripted    fires only inside a scripted scroll/cutscene a cold fork skips; reachable only by seeding
-                    the exact beat AND triggering the scripted sequence. HARD, often impractical via F6.
+                    the exact beat AND triggering the scripted sequence. HARD, often impractical via the debug menu (~).
   low-signal-party  a party-SHAPE guard: silently fixes a "wrong" party. With a NORMAL party you see NOTHING;
                     proving it needs an ABNORMAL party at the exact SC. Code-verified + identity-safe --
                     accept as mechanism-proven (the memory did the same for the s33 BGM/mesh-combine siblings).
@@ -31,7 +31,7 @@ commands. Run ``--emit <field>`` to get the copy-paste playbook for a target.
 
 Usage:
     py tools/verify_fork_gates.py --list                 # the full gate table + verdicts (offline)
-    py tools/verify_fork_gates.py --emit 2512            # the fork+deploy+F6 playbook for one target
+    py tools/verify_fork_gates.py --emit 2512            # the fork+deploy+~ playbook for one target
     py tools/verify_fork_gates.py --emit 2512 --folder FF9CustomMap-vfy --id 31060
 """
 from __future__ import annotations
@@ -68,13 +68,13 @@ TARGETS: tuple[Target, ...] = (
            "FieldMap.cs:1966 (bind playerController when null for 3D scroll)", 10520, "static",
            "needs-scripted",
            "Binds the player controller so a scripted 3D scroll has something to follow; without it the scroll "
-           "camera stalls. Fires only during the scripted scroll cutscene -- a cold F6 warp (you already hold "
+           "camera stalls. Fires only during the scripted scroll cutscene -- a cold debug-menu warp (you already hold "
            "control) won't null the controller, so hard to trigger."),
     Target(1656, "fbg_n31_iftr_map556a_if_pts_1", "Iifa Tree (vine scroll)", "s29",
            "FieldMap.cs:1495 + :1972 (scroll crutch: bind uid 8 / CrutchForEvaMap)", 6970, "static",
            "needs-scripted",
            "Same scroll-crutch class as 2512, on the Iifa vine. Iifa is a POOR testbed (the 1655/1663 saga: "
-           "story-climax, F6 framing artifacts). Skip unless forking Iifa for real."),
+           "story-climax, debug-warp framing artifacts). Skip unless forking Iifa for real."),
     Target(768, "fbg_n13_brmc_map278_bu_int_1", "Burmecia Palace (post-Beatrix)", "s29",
            "EventEngine.updateModelsToBeAdded.cs:80 (reposition 7 actors, fix #664)", 3900, "story-event",
            "needs-scripted",
@@ -116,7 +116,7 @@ _BY_FIELD = {t.field: t for t in TARGETS}
 
 _VERDICT_ORDER = ("crisp-at-load", "needs-scripted", "low-signal-party", "ending-only")
 _VERDICT_HELP = {
-    "crisp-at-load": "F6-TESTABLE — fires at field load; warp in and observe",
+    "crisp-at-load": "WARP-TESTABLE — fires at field load; warp in and observe",
     "needs-scripted": "hard — fires only inside a scripted scroll/cutscene a cold fork skips",
     "low-signal-party": "accept as code-verified — a party-shape guard, invisible with a normal party",
     "ending-only": "untestable outside a full ending run",
@@ -139,7 +139,7 @@ def list_targets() -> str:
             out.append(f"  field {t.field:<5} {t.zone:<32} {t.patch}  ({seed}){proven}")
             out.append(f"        {t.site}")
     out.append("")
-    out.append("Verdict: only the crisp-at-load class is F6-testable on a cold fork (2507 = proven). The rest")
+    out.append("Verdict: only the crisp-at-load class is warp-testable on a cold fork (2507 = proven). The rest")
     out.append("need the real scripted beat or an abnormal party; the low-signal-party + ending-only gates are")
     out.append("code-verified + identity-safe -- accept as mechanism-proven (as the s33 BGM/mesh-combine were).")
     out.append("Emit a fork+deploy playbook for any target:  py tools/verify_fork_gates.py --emit <field>")
@@ -147,7 +147,7 @@ def list_targets() -> str:
 
 
 def emit_playbook(field: int, *, folder: str = "FF9CustomMap-vfy", scratch_id: int = 31060) -> str:
-    """The copy-paste fork + deploy + F6-test playbook for one target (scaffold, not executed)."""
+    """The copy-paste fork + deploy + ~-test playbook for one target (scaffold, not executed)."""
     t = _BY_FIELD.get(field)
     if t is None:
         raise KeyError(f"field {field} is not a verification target (see --list)")
@@ -170,8 +170,8 @@ def emit_playbook(field: int, *, folder: str = "FF9CustomMap-vfy", scratch_id: i
         lines += ["⚠ ENDING-ONLY: fires only in the Epilogue Stage; not reachable via a fork harness. Accept as",
                   "  code-verified (identity-safe transform, same as the proven wraps).", ""]
     elif t.observability == "needs-scripted":
-        lines += ["⚠ NEEDS THE SCRIPTED BEAT: a cold F6 warp boots past this gate. Seed the beat AND drive the",
-                  "  scripted sequence (scroll/battle) to exercise it — often impractical via F6 alone.", ""]
+        lines += ["⚠ NEEDS THE SCRIPTED BEAT: a cold debug-menu warp boots past this gate. Seed the beat AND drive the",
+                  "  scripted sequence (scroll/battle) to exercise it — often impractical via the debug menu (~) alone.", ""]
     lines += [
         "1) Fork it verbatim into its own scratch id (needs the FF9 install):",
         f"   cd ff9mapkit && py -m ff9mapkit import-chain {t.fbg} --ids {t.field} --verbatim \\",
@@ -184,7 +184,7 @@ def emit_playbook(field: int, *, folder: str = "FF9CustomMap-vfy", scratch_id: i
         f"   # then add '{folder}' to Memoria.ini [Mod] FolderNames + Priorities (highest) BY HAND, + RELAUNCH",
         f"   # confirm {folder}/ForkDonorPatch.txt has:  {scratch_id} {t.field}",
         "",
-        "4) Test: F6 → Warp → " + str(scratch_id) + (f"  (set scenario {t.seed} in the Warp tab)" if t.seed else "")
+        "4) Test: ~ → Warp → " + str(scratch_id) + (f"  (set scenario {t.seed} in the Warp tab)" if t.seed else "")
         + ".",
         f"   Expect: {t.expect.split('.')[0]}.",
         "",
@@ -199,7 +199,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Fork-gate verification harness (list targets / emit a playbook).")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--list", action="store_true", help="print the full gate table + observability verdicts")
-    g.add_argument("--emit", type=int, metavar="FIELD", help="print the fork+deploy+F6 playbook for one target")
+    g.add_argument("--emit", type=int, metavar="FIELD", help="print the fork+deploy+~ playbook for one target")
     ap.add_argument("--folder", default="FF9CustomMap-vfy", help="the shared verification mod folder")
     ap.add_argument("--id", type=int, default=31060, dest="scratch_id", help="the scratch fork id (30000-32767)")
     args = ap.parse_args(argv)

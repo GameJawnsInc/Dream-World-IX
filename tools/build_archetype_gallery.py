@@ -119,7 +119,7 @@ for tok, x in zip(toks, xs):
     rows, total = _mfu.usage(m.id, limit=3) if m else ([], 0)
     fids = " ".join(str(f) for f, _ in rows)
     loc = (rows[0][1] if rows else "?").encode("ascii", "ignore").decode().strip()
-    dlg = f"{tok}: warp {fids}  ({loc})" if fids else tok      # talk -> F6 Warp to see it in-story
+    dlg = f"{tok}: warp {fids}  ({loc})" if fids else tok      # talk -> debug-menu Warp to see it in-story
     lines += ["[[npc]]", f'name = "{tok}"', f'model = "GEO_{GROUP}_F0_{tok}"',
               f"pos = [{x}, {row_z}]", f'dialogue = "{dlg}"', ""]
 

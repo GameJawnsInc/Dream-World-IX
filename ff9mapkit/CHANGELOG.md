@@ -3,6 +3,18 @@
 All notable changes to `ff9mapkit`. Format follows [Keep a Changelog](https://keepachangelog.com);
 versioning is [SemVer](https://semver.org). The Blender add-on has its own version, kept in lockstep.
 
+## [Unreleased]
+
+### Changed — the in-game debug menu hotkey is now `~` (tilde/backquote), was F6
+- Stock Memoria binds **F6 to its LvMax cheat** (F1–F9 are all cheat/booster keys), and the menu's
+  early intercept swallowed it; BackQuote is bound to nothing engine-wide. Engine patch
+  `s43-debug-menu-ux-tilde` (rides the next engine-bundle rebuild). Because tilde types a character,
+  the toggle is suppressed while a menu text box is focused. Same round: a menu UX pass — one prefs
+  row, per-tab scroll reset, boxed status bar, bolder section titles, brighter readouts, the battle
+  diorama bench moved below the everyday Go actions, an in-menu "~ toggles" hint, and the Flags batch
+  "bad index" error now prints the op grammar. Docs and tool output say `~` throughout; historical
+  release notes and studies keep F6 as a record.
+
 ## [1.0.0b17] - 2026-07-19 — The moogle letter network, experimental co-op, and living overworld terrain
 
 ### Fixed — THE VANILLA SQUAT: custom dialogue was overwriting real locations' text

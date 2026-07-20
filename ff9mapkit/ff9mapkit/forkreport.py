@@ -931,13 +931,13 @@ def _camera_line(rep: ForkReport) -> str:
 def _entry_settle_line(rep: ForkReport) -> str:
     """The entry-camera-settle advisory (coarse flag). The engine's smooth-camera follower eases onto the
     spawn on a warp-in; a SYNTH fork (--native/BG-borrow) reveals immediately, so on a SCROLLING field that
-    ease is VISIBLE as a drift (worst on an F6/hard warp; the bigger the spawn-to-centre delta, the longer it
+    ease is VISIBLE as a drift (worst on a debug-menu/hard warp; the bigger the spawn-to-centre delta, the longer it
     drifts). Empty for a fixed-camera field (no center-on-player motion) or when the camera wasn't read. A
     --verbatim fork carries the donor's real entry sequence, which hides it. (content/entry_settle.py.)"""
     if not rep.cam_scrolling:
         return ""
     return ("  Entry settle  : scrolling camera -> a SYNTH (--native/BG-borrow) fork may show the camera ease "
-            "onto the spawn on warp-in (worst on an F6/hard warp; a big spawn-to-centre delta drifts longer). "
+            "onto the spawn on warp-in (worst on a debug-menu/hard warp; a big spawn-to-centre delta drifts longer). "
             "Add `[camera] entry_settle = \"auto\"` (the computed hold; a plain frame count like 45 also works) "
             "to hide it behind the load fade; a --verbatim fork carries the real entry sequence and doesn't "
             "need it.")

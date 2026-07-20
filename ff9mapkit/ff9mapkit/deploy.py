@@ -380,7 +380,7 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
         if not res["ok"]:
             out("  WARNING: New-Game retarget did not wire (no field-70 override evt_alex1_ts_opening.eb.bytes in\n"
                 "  a FolderNames folder?). The campaign is installed; wire New Game once that override exists, or\n"
-                "  reach the chain via F6 -> Warp.")
+                "  reach the chain via ~ -> Warp.")
         else:
             warp_revert = res["revert"]
     report["warp_revert"] = warp_revert
@@ -431,8 +431,8 @@ def deploy_campaign(target, *, game=None, mod_folder="FF9CustomMap", entry=None,
     out("   Editing by hand? Set [Mod] Priorities to the SAME order too (game+launcher closed) -- the")
     out("   launcher rewrites FolderNames from Priorities at every Play click, reverting a one-key edit.")
     out(f"2. RELAUNCH the game ONCE -- these are NEW ids ({member_ids[0]}..{member_ids[-1]}); their")
-    out("   FieldScene lines only register on a fresh launch (F6 Reload alone won't register a new id).")
-    out(f"3. New Game now lands in {entry_name} (field {entry_id}).  F6 -> Warp reaches any member.")
+    out("   FieldScene lines only register on a fresh launch (~ Reload alone won't register a new id).")
+    out(f"3. New Game now lands in {entry_name} (field {entry_id}).  ~ -> Warp reaches any member.")
     out(f"Then PLAYTEST and report.   revert: py {rev}")
     report.update(ok=True, rc=0)
     return report
@@ -738,9 +738,9 @@ def _apply_journey(manifest, plan, *, game, newgame, hub_out, backups_dir, rever
         out(f"3. New Game now lands on the hub (field {plan.hub_field_id}); pick a journey, PLAYTEST.")
     elif newgame == "entry":
         out(f"3. New Game now lands STRAIGHT in the opening (field {plan.entry_field_id}) -- no menu; "
-            f"PLAYTEST. (The hub still exists; reach it via F6 -> Warp {plan.hub_field_id}.)")
+            f"PLAYTEST. (The hub still exists; reach it via ~ -> Warp {plan.hub_field_id}.)")
     else:
-        out(f"3. Reach the hub via F6 -> Warp {plan.hub_field_id} (New Game is UNCHANGED). Pick a journey, PLAYTEST.")
+        out(f"3. Reach the hub via ~ -> Warp {plan.hub_field_id} (New Game is UNCHANGED). Pick a journey, PLAYTEST.")
     out(f"Revert EVERYTHING (reverse order): py {unified}")
     return 0, str(unified)
 
@@ -938,7 +938,7 @@ def _apply_journey_single(manifest, plan, *, game, newgame, single_folder, allow
         tgt = plan.hub_field_id if newgame == "hub" else plan.entry_field_id
         out(f"3. New Game lands on field {tgt}; PLAYTEST.")
     else:
-        out(f"3. Reach the hub via F6 -> Warp {plan.hub_field_id} (New Game UNCHANGED). PLAYTEST.")
+        out(f"3. Reach the hub via ~ -> Warp {plan.hub_field_id} (New Game UNCHANGED). PLAYTEST.")
     out(f"Revert EVERYTHING (reverse order): py {unified}")
     return 0, str(unified)
 

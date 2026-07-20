@@ -53,7 +53,7 @@ Grounded against the live codebase (citations inline) and a **live byte-trace of
   `FieldProject.load`s from its own subdir (so camera.bgx/walkmesh.bgi/layer PNG sidecars resolve) and is built by `build_mod(mod_name=campaign.mod_folder)`.
   **text_block stays the default 1073** — an earlier attempt to give each member a distinct textid (= its new id) was REVERTED after in-game testing:
   the FieldScene textid (6th token) must already be a key in `FF9DBAll.MesDB` or `DataPatchers` **skips the whole scene** (`DataPatchers.cs:392-395`
-  `if(!MesDB.ContainsKey(mesID)) continue;` → `"invalid message file ID 30100"` → the field never registers, absent from F6). Empty members ship no
+  `if(!MesDB.ContainsKey(mesID)) continue;` → `"invalid message file ID 30100"` → the field never registers, absent from the debug menu). Empty members ship no
   `.mes`, so 1073 (a real base block) is correct + shared harmlessly; distinct textids only become needed/valid once a member ships its own `.mes` (deferred).
   Campaign-level validation = ids non-empty, distinct, in [4000, 32767] (Int16 cap); per-field validation runs inside build_field. Verified: the
   full Ice Cavern campaign builds a **13-line DictionaryPatch** (`FieldScene 30100 11 IC_ENT IC_ENT 30100` … 30112), one ModDescription with
@@ -372,7 +372,7 @@ Target resolution reuses `deploy_field`'s `.ff9deploy.toml` (mod_folder + id) > 
 
 - The campaign deploys into ONE `mod_folder` pinned by `.ff9deploy.toml` and listed in `Memoria.ini [Mod] FolderNames`; a new folder isn't read until added there and the game relaunches. A hand add/reorder must edit `Priorities` to the same order too — the launcher rewrites `FolderNames` from `Priorities` at every Play click.
 - All N ids must be ≥4000 and **globally distinct** across every stacked folder (EventDB is a merged dict).
-- **First deploy of each NEW id needs one relaunch** to register its DictionaryPatch line; F6 Reload/Warp only work once registered. `deploy-all` should detect all-new ids and tell the user to relaunch once; subsequent edits use F6.
+- **First deploy of each NEW id needs one relaunch** to register its DictionaryPatch line; ~ Reload/Warp only work once registered. `deploy-all` should detect all-new ids and tell the user to relaunch once; subsequent edits use the debug menu.
 - **[open]** Whether `deploy-all` also handles minted BATTLE scenes (the encounter `scene` ids 22/27/28/29 in the trace are *real existing* battle scenes referenced through the BattlePatch merge — no minting needed; minted battle scenes are a separate `deploy_battle.py` path, deferred to a later version).
 
 ---
@@ -422,7 +422,7 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 #    -> walk the cavern: 4100->4101->...->4105 (save at hub) ->4107 (branch)
 #    ->4109->4110->4111->4112; encounters fire on the 8 non-safe screens
 #    (scenes 22/27/28/29 by depth); 4112 worldmap exit re-authored as the author chose.
-#    F6 -> Warp -> 4100 reaches it directly thereafter (no relaunch).
+#    ~ -> Warp -> 4100 reaches it directly thereafter (no relaunch).
 ```
 
 **Playtest in-game after step 6** — the chain isn't "working" until walked in-game.
@@ -438,7 +438,7 @@ py tools/deploy_campaign.py campaign/ice/campaign.toml --mod-folder FF9CustomMap
 - **No custom art unless repainted.** Borrow members reuse real art; editable members ship the field's own art (assembled offline from the atlas at import time), which is then repainted as a manual art step.
 - **Single spawn per field** (§2.6) — entrance imported/round-tripped but the landing position is the default centre; multi-entrance landing deferred.
 - **Scripted/cutscene transitions invisible** (§2.2) — 308's one-way `Field(309)` and 306's `Field(652)` are seams to author by hand.
-- **Additive only — never destructive.** A chain mints NEW ids ≥4000 and borrows art via DictionaryPatch; it never repurposes a real id, so it can't break a live cutscene (unlike REPURPOSE). The one non-additive act — making the chain reachable from the *real* game — would edit a real field's gateway; out of scope for v1 (chain reached via New-Game hook or F6 warp).
+- **Additive only — never destructive.** A chain mints NEW ids ≥4000 and borrows art via DictionaryPatch; it never repurposes a real id, so it can't break a live cutscene (unlike REPURPOSE). The one non-additive act — making the chain reachable from the *real* game — would edit a real field's gateway; out of scope for v1 (chain reached via New-Game hook or debug-menu warp).
 
 ### Honest boundaries
 

@@ -108,13 +108,14 @@ _CARDS = [
     Concept("deploy", "Deploy",
             "Building your project and copying it into the game so you can play it. It goes into a safe test "
             "slot and backs up first, so it's reversible.",
-            "writes into the mod folder; press F9 here, then F6 in-game to reload the field.",
+            "writes into the mod folder; press F9 here, then ~ (tilde) in-game to reload the field.",
             ("deploys", "deployed", "deploying", "f9")),
-    Concept("f6", "F6 debug menu",
-            "An in-game menu you open with F6 to test your work — reload the current screen, warp to any field, "
+    Concept("f6", "debug menu (~)",
+            "An in-game menu you open with the tilde key (~) to test your work — reload the current screen, warp to any field, "
             "set story flags, give items, change the time. It ships in the engine bundle as a real tool.",
-            "context-adaptive tabs: Go / Cheats / Flags / Time, on field, battle and overworld.",
-            ("f6 menu", "debug menu")),
+            "context-adaptive tabs: Go / Cheats / Flags / Time, on field, battle and overworld. (Was F6; "
+            "remapped to ~ because stock Memoria uses F6 as a cheat hotkey.)",
+            ("f6 menu", "debug menu", "tilde", "~", "backquote")),
     Concept("memoria", "Memoria (the engine)",
             "The open-source engine layer this toolkit works with — the Steam release of FF9 uses it. Fields you "
             "build from scratch run on the stock engine; forked fields need the small bundled patch set.",

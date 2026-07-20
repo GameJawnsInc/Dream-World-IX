@@ -108,7 +108,7 @@ Checklist after ANY `deploy-campaign` / `deploy_campaign.py` / journey re-deploy
 
 1. Re-run `py tools/wire_newgame_from_stock.py <entry-id>` (6000 for the faithful opening).
 2. Optional seamless boot: `py tools/skip_opening_fmv.py` (NOPs the 2 pre-warp Cinematic ops).
-3. Verify with a real New Game — F6/mid-game warps skip the New-Game-only CSV seeding.
+3. Verify with a real New Game — debug-warp/mid-game warps skip the New-Game-only CSV seeding.
 
 ## 7. Journey deploys — New-Game knobs + run `--apply-links` last
 
@@ -118,7 +118,7 @@ Checklist after ANY `deploy-campaign` / `deploy_campaign.py` / journey re-deploy
 > override is SINGLE-OWNER, so forcing it would clobber an existing hub (e.g. the live World Hub 4500).
 
 Pick the landing with `--newgame {none,hub,entry}` (`ff9mapkit/docs/JOURNEYS.md` §5): **none** =
-reach the hub via F6; **hub** = the selector menu (`retarget_newgame_warp`); **entry** = straight
+reach the hub via the debug menu (~); **hub** = the selector menu (`retarget_newgame_warp`); **entry** = straight
 into the opening field (`wire_newgame_from_stock`; single-journey arcs). And the sibling rule — the
 same wholesale-replace wipe hits the cross-campaign link patches:
 

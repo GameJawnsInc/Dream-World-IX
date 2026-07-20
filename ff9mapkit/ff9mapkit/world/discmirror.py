@@ -5,7 +5,7 @@ overworld ships exactly TWO asset trees -- ``worldmap/disc1`` (used by discs 1-3
 ``worldmap/disc4`` (distinct art; only ``WorldDisc1``/``WorldDisc4`` prefabs exist) -- and
 every s34 lookup (override files, ``Donor.txt`` sidecars, the reclaim fallback prefab) is
 keyed on the engine's ``currentDisc``. A custom landmass deployed under ``Disc1/`` simply
-does not exist once the scenario (or the F6 disc switch) crosses the disc-4 threshold.
+does not exist once the scenario (or the debug-menu disc switch) crosses the disc-4 threshold.
 
 ``mirror(mod_folder)`` closes the gap:
 

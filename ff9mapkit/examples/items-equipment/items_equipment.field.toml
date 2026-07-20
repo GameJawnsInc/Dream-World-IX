@@ -9,7 +9,7 @@
 # Recreate the demo:
 #   ff9mapkit lint examples/items-equipment/items_equipment.field.toml
 #   py tools/deploy_field.py examples/items-equipment/items_equipment.field.toml --id 4003
-#   # then RELAUNCH (item CSVs + TextPatch.txt load once at startup; F6 Reload won't apply them)
+#   # then RELAUNCH (item CSVs + TextPatch.txt load once at startup; ~ Reload won't apply them)
 # Revert it:  py tools/scroll_out/revert_deploy_4003.py   (restores the base CSVs + removes TextPatch.txt)
 
 [field]
@@ -56,12 +56,12 @@ p_def = 50           # a beefy chestpiece
 name = "Mage Masher"
 price = 1            # and dirt cheap to buy
 teaches = ["Soul Blade"]   # vanilla teaches Detect/What's That -> now Soul Blade (AA:104, IS in Zidane's pool);
-                           #   F6-give + equip on Zidane -> Soul Blade appears in his Skill command (unequip -> gone)
+                           #   menu-give + equip on Zidane -> Soul Blade appears in his Skill command (unequip -> gone)
 
 # --- equippable_by: REWRITE who can equip an item (the 12 Items.csv character bits) ---
 [[item]]
 name = "Broadsword"          # vanilla: Steiner/Marcus/Blank only (a knight's sword Zidane can't touch)
-equippable_by = ["Zidane"]   # now Zidane-ONLY -> F6 give Broadsword, open Zidane's WEAPON equip list: it appears
+equippable_by = ["Zidane"]   # now Zidane-ONLY -> menu-give Broadsword, open Zidane's WEAPON equip list: it appears
 
 # --- equip stat bonuses (Stats.csv / ItemStats): the level-up-growth + affinity lever ---
 # The bonus shows IMMEDIATELY in the status menu when equipped (elem = base + equip bonus), and it's the input
@@ -77,7 +77,7 @@ magic = 30            # equipping the Mage Masher now also grants +30 Magic (iso
 
 # --- a custom SYNTHESIS shop (Synthesis.csv recipe delta + a press-region opener) ---
 # Shop 50 isn't in ShopItems.csv (only 0-31 are), so Menu(2,50) opens it as a SYNTHESIS shop. Warp to field 4003
-# (F6 -> Warp -> 4003), walk into the back of the room ("!" appears) and press: the synth shop opens with these 2
+# (~ -> Warp -> 4003), walk into the back of the room ("!" appears) and press: the synth shop opens with these 2
 # recipes. The first is NOT a vanilla recipe (Mythril Dagger from Mage Masher + Potion) -> proof it's the kit's.
 [[synthesis]]
 shop = 50
@@ -97,7 +97,7 @@ power = 1
 
 # --- item NAME + DESCRIPTION text (TextPatch.txt >DATABASE find/replace): make the menu MATCH the retune ---
 # Pairs with the [[item_effect]] above: that made the Potion heal 15, this makes its menu text SAY so. After a
-# RELAUNCH (TextPatch.txt loads once at startup -- F6 won't), open the item menu / use-in-battle target list:
+# RELAUNCH (TextPatch.txt loads once at startup -- a menu reload won't), open the item menu / use-in-battle target list:
 # the Potion now reads "Mega Potion" and "Restores 15 HP." -- proof the text channel works. (description sets
 # BOTH the menu-help and the in-battle description -- the engine flags them identically.)
 [[item_text]]

@@ -242,7 +242,7 @@ def reclaim(mod_folder: str, *, cells, disc: int = 1, profile: str = "island", t
     donor prefab (``WorldMeshOverride.HasLandOverride`` gate) instead of ``SeaBlockPrefab`` -- a stock sea cell
     short-circuits before the override can fire, so on stock Memoria this is a no-op. A LONE reclaimed cell is an
     ISLAND (surrounding stock sea non-walkable on foot); build a contiguous BRIDGE of cells from the coast for an
-    on-foot-reachable landmass, or reach a lone cell via F6->World->Teleport. Auto-mirrors the written overrides to
+    on-foot-reachable landmass, or reach a lone cell via the debug menu (~)->World->Teleport. Auto-mirrors the written overrides to
     Disc4 (``skip_mirror=True`` opts out). RELAUNCH (or exit+re-enter) to load."""
     from . import mesh as M
     from . import palette as PAL

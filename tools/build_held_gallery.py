@@ -63,7 +63,7 @@ def _arena_scene(meta, spawn_z):
 def spotlight(tok, allitems):
     """One carrier holding the item, slowly TURNING through 16 angles (a turntable) so the human can see
     an unclear item from every side. Uses the cutscene turn+wait steps (instant turns are safe on a
-    player-cloned NPC). once=false -> replays each F6 reload."""
+    player-cloned NPC). once=false -> replays each ~ reload."""
     item = next((it for it in allitems if it[2] == tok), None)
     if not item:
         print(f"{tok} is not an unnamed held item; nothing to spotlight.")
@@ -80,7 +80,7 @@ def spotlight(tok, allitems):
           f'holds = "{pname}"', f'dialogue = "{tok}: what am I holding?"', "",
           "[cutscene]", 'actor = "actor"', "once = false", f"steps = {steps}"]
     (A.IHTEST / "gallery.field.toml").write_text("\n".join(L), encoding="utf-8")
-    print(f"SPOTLIGHT: {carrier} holds {tok} ({pname}) + a 16-step turntable. Deploy + F6 reload.")
+    print(f"SPOTLIGHT: {carrier} holds {tok} ({pname}) + a 16-step turntable. Deploy + ~ reload.")
 
 
 def main():

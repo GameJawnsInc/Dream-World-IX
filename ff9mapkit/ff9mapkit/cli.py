@@ -1436,7 +1436,7 @@ def _cmd_model_export(args: argparse.Namespace) -> int:
             print(f"deployed {meta['geo']} (id {meta['geo_id']}) -> {meta['path']}")
             print(f"  euler round-trip max err {meta['euler_max_err']:.1e} (0.0 = exact)")
             _print_model_notes(meta["geo"], minted=False, merge_warnings=meta.get("merge_warnings"))
-            print("Next: F6 -> Reload field (or warp to a field that uses this model) and confirm it "
+            print("Next: ~ -> Reload field (or warp to a field that uses this model) and confirm it "
                   "renders + animates IDENTICALLY. Revert by deleting that Models/<type>/<id>/ subfolder.")
             return 0
         meta = mexport.export_model(args.model, Path(args.out), game=args.game, flat=args.flat)
@@ -1467,7 +1467,7 @@ def _print_model_notes(geo, *, minted, merge_warnings=None):
     if m is not None and m.form[:1] == "W":
         who = C.world_character(geo) or C.world_role(geo)
         print(f"  NOTE: OVERWORLD model ({who + ' -- ' if who else ''}world-map actor) -- reskin AND .anim edits "
-              f"are both DLL-free here (same loose-FBX/.anim path as a field). See it on the WORLD MAP (F6 -> "
+              f"are both DLL-free here (same loose-FBX/.anim path as a field). See it on the WORLD MAP (~ -> "
               f"warp to a field, then walk out to the overworld), not a field reload. CAVEAT: the Bee / "
               f"Chocobo-minigame scene uses bundled clips, so an .anim edit won't show THERE (the mesh will).")
 
@@ -1639,7 +1639,7 @@ def _cmd_image_field(args: argparse.Namespace) -> int:
         if f["contact"]:
             print(f"  occluder {Path(f['image']).name}: contact ({f['contact'][0]:g},{f['contact'][1]:g}) "
                   f"-> z {f['z']} (walk in front = actor on top; walk behind = occluded)")
-    print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then F6 -> Warp 30058)")
+    print(f"Deploy + walk it: py tools/deploy_field.py {man['toml']} --id 30058   (then ~ -> Warp 30058)")
     print("HAND-TRACED FLOOR: the polygon must outline the floor in the FINAL 384x448 canvas (top-left, "
           "Y-down), below the horizon. Only the human can confirm it lands on the art in-game (CLAUDE.md).")
     return 0
@@ -1683,7 +1683,7 @@ def _cmd_model_reskin(args: argparse.Namespace) -> int:
             man = mreskin.deploy_reskin(args.model, args.texture, args.deploy, game=args.game)
             print(f"reskinned {man['geo']} (id {man['geo_id']}): {', '.join(man['deployed'])}")
             print(f"  -> {man['dir']}")
-            print("Field models: F6 -> Reload field re-probes the texture. Battle/weapon models load "
+            print("Field models: ~ -> Reload field re-probes the texture. Battle/weapon models load "
                   "on battle entry -- a RELAUNCH is the sure path.")
         for w in man.get("warnings", []):
             print(f"  NOTE: {w}")
@@ -1751,12 +1751,12 @@ def _cmd_model_import(args: argparse.Namespace) -> int:
         print(f"  WARN: {w}")
     if anims.get("written"):
         # The engine caches loaded clips in a static AnimationClipReader.LoadedClips (keyed by path, checked
-        # before disc), and F6 field-reload re-requests the SAME path -> it gets the cached clip. So a
-        # re-deployed .anim needs a RELAUNCH; only the mesh/FBX is picked up by F6.
-        print(f"  RELAUNCH FF9 to apply the .anim clip(s) (F6 field-reload keeps the cached clip); the MESH "
-              f"shows on F6. Revert: delete Models/<type>/{r['id']}/ + {_anim_dirs}.")
+        # before disc), and a debug-menu field-reload re-requests the SAME path -> it gets the cached clip. So a
+        # re-deployed .anim needs a RELAUNCH; only the mesh/FBX is picked up by the menu reload.
+        print(f"  RELAUNCH FF9 to apply the .anim clip(s) (a debug-menu field-reload keeps the cached clip); the MESH "
+              f"shows after a menu reload. Revert: delete Models/<type>/{r['id']}/ + {_anim_dirs}.")
     else:
-        print(f"  F6 -> Reload field (or warp to a field using this model) to see the edit. Revert by "
+        print(f"  ~ -> Reload field (or warp to a field using this model) to see the edit. Revert by "
               f"deleting that Models/<type>/{r['id']}/ folder.")
     if r.get("source"):
         _print_model_notes(r["source"], minted=int(r["id"]) >= 6000, merge_warnings=r.get("merge_warnings"))
@@ -1790,7 +1790,7 @@ def _cmd_model_anim(args: argparse.Namespace) -> int:
     else:
         print(f"  keys: {', '.join(str(Path(w).stem) for w in r['written'])}")
         print("  Edit the JSON (time/x/y/z/w per bone) and re-deploy, or edit the .glb in Blender + "
-              "`model-import`. RELAUNCH FF9 to apply (the engine caches clips by path; F6 field-reload "
+              "`model-import`. RELAUNCH FF9 to apply (the engine caches clips by path; a debug-menu field-reload "
               "keeps the cached one).")
     return 0
 
@@ -1867,7 +1867,7 @@ def _cmd_playable_anims(args: argparse.Namespace) -> int:
         print("  no CHANGED clips in the .glb (every matched Action equals the donor) -- edit a pose in Blender first")
     for w in r.get("warnings", []):
         print(f"  WARN: {w}")
-    print(f"  {src} is untouched. RELAUNCH FF9 to apply (the engine caches .anim by path; F6 keeps the cached one), "
+    print(f"  {src} is untouched. RELAUNCH FF9 to apply (the engine caches .anim by path; a menu reload keeps the cached one), "
           f"then enter a battle to see {info['name']}'s new motion.")
     print(f"  NOTE: run this AFTER deploying the field, and RE-RUN it after any re-deploy -- deploy_field re-ships the "
           f"faithful animset (per-file overwrite) and deploy_campaign/deploy_journey REBUILD the whole folder, either "
@@ -1936,7 +1936,7 @@ def _cmd_audio_import(args: argparse.Namespace) -> int:
     vk, vv = res.get("volume_key", "MusicVolume"), res.get("volume")
     if vv == 0:
         print(f"  [!] {vk} is 0 (MUTED) -- turn it up (in-game Config or Memoria.ini) or you won't hear it")
-    print(f"  RESTART FF9 to hear it (audio loads at startup; F6 won't reload it)."
+    print(f"  RESTART FF9 to hear it (audio loads at startup; a menu reload won't reload it)."
           + (f" ({vk} = {vv})" if vv is not None else f" Check {vk} > 0."))
     return 0
 
@@ -2419,7 +2419,7 @@ def _cmd_world_reclaim(args: argparse.Namespace) -> int:
         print(f"  cell {tuple(c['cell'])}: {c['tris']} tris / {c['verts']} verts{edges}")
     if not args.dry_run:
         print("  Needs the CUSTOM engine (s34 ocean->land divert). RELAUNCH (or exit+re-enter the overworld).")
-        print("  A lone cell is an ISLAND -- reach it via F6->World->Teleport, or bridge from the coast with more cells.")
+        print("  A lone cell is an ISLAND -- reach it via the debug menu (~)->World->Teleport, or bridge from the coast with more cells.")
     return 0
 
 
@@ -2748,7 +2748,7 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             extra = f"; centre grounds y={gy} on {nm} topo {topo}"
         print(f"  block {blk}: {b['tris']} tris ({b['verts']} verts){extra}")
     print("all gates CLEAN (geometry, UV language, placement census: 0 MISS). "
-          "F6 -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
+          "~ -> World -> Teleport to the centre; a first-time block needs a world re-entry.")
     return 0
 
 
@@ -2789,7 +2789,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
     print(f"{verb} the canopy carry at world ({cx:.0f},{cz:.0f}): {r['blob_tris']} donor tris, "
           f"{r['dropped']} island tris carved, {r['zip_tris']} zip tris; wall rise {r['wall_rise']} / "
           f"zip rise {r['zip_rise']} (ceiling 2.34). All gates CLEAN incl. the perimeter walk-in "
-          f"simulation + placement census. F6 -> World -> re-enter, then walk INTO and OVER the canopy.")
+          f"simulation + placement census. ~ -> World -> re-enter, then walk INTO and OVER the canopy.")
     return 0
 
 
@@ -2820,7 +2820,7 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
     print(f"{verb} a grass hill at world ({cx:.0f},{cz:.0f}) (H {args.height}, R {args.radius}): "
           f"{r['displaced_tris']} tris displaced, worst flank {r['worst_flank']} deg "
           f"(<= {IN.MAX_FLANK}), peak y {r['peak_y']} (<= {IN.PEAK_CAP}); "
-          f"{len(res['changed'])} block(s) changed. All gates CLEAN. F6 -> World -> re-enter, "
+          f"{len(res['changed'])} block(s) changed. All gates CLEAN. ~ -> World -> re-enter, "
           f"then walk the hill from all sides.")
     return 0
 
@@ -2881,7 +2881,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
           f"plugs), {r['dropped']} island tris carved, {r['zip_tris']} zip tris{ens}; peak y "
           f"{r['peak_y']}, rock rigidity drift {r['rock_rigid'] * 100:.1f}% (<= 3.5), apron "
           f"slope {r['apron_slope']} deg (<= {IN.MTN_APRON_SLOPE}). All gates CLEAN incl. the "
-          f"placement probes + census. F6 -> World -> re-enter, then teleport ({tx}, {tz}) and "
+          f"placement probes + census. ~ -> World -> re-enter, then teleport ({tx}, {tz}) and "
           f"face the massif; walk the whole rim.")
     return 0
 
@@ -2962,7 +2962,7 @@ def _cmd_world_water(args: argparse.Namespace) -> int:
                   file=sys.stderr)
     if not args.dry_run:
         print("  Needs the CUSTOM engine (s34 sea->land divert). RELAUNCH (or exit+re-enter the overworld).")
-        print("  A lone cell is reachable via F6 -> World -> Teleport; a contiguous run of cells stays seamless.")
+        print("  A lone cell is reachable via the debug menu (~) -> World -> Teleport; a contiguous run of cells stays seamless.")
     return 0
 
 
@@ -3365,7 +3365,7 @@ def _cmd_world_encounters(args: argparse.Namespace) -> int:
     if not args.config:                                            # inspect
         print(f"discmr.img disc{args.disc}: {len(d.encounters)} encounter records, {len(d.specials)} special rows")
         if getattr(args, "zones", False):                          # per-ZONE breakdown (the selection unit)
-            print("  zone -> areas (F6 'area' field) -> record slice -> topographs:  "
+            print("  zone -> areas (the debug menu's 'area' field) -> record slice -> topographs:  "
                   "target with [[set]] area=N or zone=Z")
             for z in range(WP.ZONE_COUNT):
                 sl = WP.zone_slice(z)
@@ -3677,7 +3677,7 @@ def _cmd_battle_telemetry(args: argparse.Namespace) -> int:
             dll = T.install(mod_root, game=args.game)
             print(f"telemetry hook installed -> {dll}")
             print(f"  events append to <game>/{T.JSONL_BASENAME}")
-            print("  RELAUNCH the game to load it (scripts DLLs load once at title; F6 won't).")
+            print("  RELAUNCH the game to load it (scripts DLLs load once at title; a menu reload won't).")
             print("  summarize a capture:  ff9mapkit battle-telemetry --report")
     except ScriptCompileError as e:
         print(str(e), file=sys.stderr)
@@ -5232,7 +5232,7 @@ def build_parser() -> argparse.ArgumentParser:
     ma.add_argument("--out", default=".", help="dir to write the Animations/<geoId>/ tree into (default: .)")
     ma.add_argument("--deploy", metavar="MODFOLDER", default=None,
                     help="write straight into MODFOLDER's StreamingAssets override path instead of --out "
-                         "(the loose-override-path proof; F6 -> Reload field to apply)")
+                         "(the loose-override-path proof; ~ -> Reload field to apply)")
     ma.add_argument("--game", default=argparse.SUPPRESS, help="path to the FF9 install (default: auto-detect)")
     ma.set_defaults(func=_cmd_model_anim)
 
@@ -6003,7 +6003,7 @@ def build_parser() -> argparse.ArgumentParser:
     wwt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder to deploy into")
     wwt.add_argument("--cells", required=True,
                      help="target ocean cells: 'x,y;x,y' (e.g. '3,17') or a range 'x0-x1,y0-y1' (a contiguous patch "
-                          "stays seamless). Grid is 24x20; reach a lone cell via F6->World->Teleport.")
+                          "stays seamless). Grid is 24x20; reach a lone cell via the debug menu (~)->World->Teleport.")
     wwt.add_argument("--donor", default="15,4",
                      help="a real DEEP-OCEAN donor block 'dx,dy' whose base sea prefab backs the cell (default 15,4)")
     wwt.add_argument("--deep", choices=["N", "S", "E", "W"], default=None,
@@ -6058,7 +6058,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "every world dispatcher that carries the destination case, all 7 langs) + the event "
                               "tiles + an optional modelled building. Needs the WorldMeshOverride engine patch.")
     wen.add_argument("--cell", type=int, nargs=2, metavar=("X", "Z"), required=True,
-                     help="the overworld CELL to place the entrance (32u cells; see the F6 World tab / world-locate)")
+                     help="the overworld CELL to place the entrance (32u cells; see the debug-menu World tab / world-locate)")
     wen.add_argument("--field", type=int,
                      help="destination base field id (resolved to a dispatch case; e.g. --field 300 = Ice Cavern). "
                           "A fork/journey field_remap/s28 then sends it on to your fork")
@@ -6590,7 +6590,7 @@ def build_parser() -> argparse.ArgumentParser:
                           "you add --newgame hub|entry.")
     dje.add_argument("--newgame", choices=("none", "hub", "entry"), default="none",
                      help="with --apply, where New Game lands (SINGLE-OWNER). none (default) = unchanged, reach "
-                          "the hub via F6. hub = the hub selector menu. entry = straight into the opening field.")
+                          "the hub via the debug menu (~). hub = the hub selector menu. entry = straight into the opening field.")
     dje.add_argument("--wire-newgame", action="store_const", const="hub", dest="newgame",
                      help="back-compat alias for --newgame hub.")
     dje.add_argument("--apply-links", action="store_true", dest="apply_links",

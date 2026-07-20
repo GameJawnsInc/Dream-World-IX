@@ -10,7 +10,7 @@ If the player teleports to floor 1 (and can then walk to the exit), the core mec
 ladder needs -- region -> scripted player move -- is proven. Phase 2 then adds the climb animation +
 the ladder control-attribute for a real climb feel, and finally a generic [[ladder]] kit primitive.
 
-Reversible: backs up each lang's EVT_TRENO_RES first. Re-enter Treno (or press F6 in it) to reload.
+Reversible: backs up each lang's EVT_TRENO_RES first. Re-enter Treno (or press ~ (tilde) in it) to reload.
 Run:  py tools/ladder_proof.py
 """
 import datetime
@@ -96,7 +96,7 @@ def main():
              "                    live / base / L / 'EVT_TRENO_RES.eb.bytes')",
              "print('reverted ladder proof')", ""]
     rev.write_text("\n".join(lines), encoding="utf-8", newline="\n")
-    print(f"\nTEST: enter Treno (or F6 in it). Walk LEFT a few steps onto the trigger -> you should")
+    print(f"\nTEST: enter Treno (or ~ in it). Walk LEFT a few steps onto the trigger -> you should")
     print(f"      teleport up to floor 1, then be able to walk to the exit back to the grotto.")
     print(f"revert: py {rev.relative_to(REPO).as_posix()}")
 

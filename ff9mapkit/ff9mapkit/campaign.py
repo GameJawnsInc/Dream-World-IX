@@ -599,7 +599,7 @@ def build_campaign(campaign_path, out=None, *, author="", description="", allow_
         # Do NOT override text_block to a per-member id. The FieldScene textid (6th DictionaryPatch token)
         # MUST already be a key in FF9DBAll.MesDB, or DataPatchers SKIPS the whole scene registration
         # (DataPatchers.cs:392-395 `if (!MesDB.ContainsKey(mesID)) continue;` -- verified in-game: textid
-        # 30100 -> "invalid message file ID 30100" -> the field never registers, absent from F6). Empty
+        # 30100 -> "invalid message file ID 30100" -> the field never registers, absent from the debug menu). Empty
         # members ship no .mes, so they keep the kit default 1073 (a real base block in MesDB). Distinct
         # textids only become needed -- AND valid -- once a member SHIPS its own .mes for dialogue; doing
         # that safely (a custom .mes that registers its id in MesDB) is a follow-up, not done here.

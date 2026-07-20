@@ -5575,7 +5575,7 @@ def build_script(project: FieldProject, lang: str, dialogue_txids: dict,
 
     # Entry camera-settle (opt-in): hold the screen black for N frames before Main_Init's reveal fade so the
     # engine's per-frame smooth-camera follower (FieldMap.CenterCameraOnPlayer, scaled by Memoria.ini
-    # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/F6
+    # CameraStabilizer) converges UNSEEN -- else a large-delta warp-in (e.g. the World Hub via a New-Game/debug-warp
     # warp) visibly eases the camera to rest over a few seconds. Engine-independent (no DLL). [camera]
     # entry_settle = <frames>; absent/0 = off (byte-identical). A [[camera]] MULTICAM field reads it from
     # any of its blocks (first nonzero wins -- the settle is a Main_Init-wide hold, not per-camera; it used
@@ -7114,7 +7114,7 @@ def _emit_scripts(projects, layout, mod_name) -> list:
     ``[BattleScript(id)]`` matches the Actions.csv ``scriptId`` cell repointed in :func:`_emit_battle_data`.
     All sources compile through :func:`overload.compile_tree` (regenerates the single ``IOverload*`` hub --
     the engine registers ONE implementer per interface per DLL). The DLL loads once at the title screen
-    -> a RELAUNCH is required (F6 won't reload it); the caller/deploy surfaces that. Compiles against the
+    -> a RELAUNCH is required (a menu reload won't reload it); the caller/deploy surfaces that. Compiles against the
     INSTALLED engine (version-coupled), so it needs the FF9 install + a C# compiler; raises BuildError if
     either is missing."""
     playables = []
@@ -7177,7 +7177,7 @@ def _emit_scripts(projects, layout, mod_name) -> list:
         + (["[deathrules] game-over rules"] if dr_spec is not None else [])
         + (["[lowhp] threshold"] if lh_spec is not None else []))
     warnings.append(f"scripted content: built Memoria.Scripts.{mod_name}.dll ({made}). "
-                    f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (F6 Reload won't pick it up).")
+                    f"The scripts DLL loads ONCE at the title screen -- RELAUNCH FF9 (~ Reload won't pick it up).")
     if dr_spec is not None and dr_spec.warp_to is not None:
         # the on_defeat DLL half is mod-GLOBAL, but the field half (the tag-10 wipe-warp check) only lands
         # on fields carrying the [deathrules] block -- a wipe in an uncovered encounter field revives+flees
@@ -7259,7 +7259,7 @@ def _emit_start_state(projects, layout, entry_project=None) -> list:
         _inv.write_initial_items(layout, inv_src.raw["start_inventory"].get("items", []))
         warnings.append("[start_inventory] -> InitialItems.csv is HIGHEST-priority-wins: it REPLACES the base "
                         "starting bag, a stacked mod folder's InitialItems.csv would SHADOW it, and it only "
-                        "affects a true New Game (not an F6/campaign mid-game entry)")
+                        "affects a true New Game (not a debug-warp/campaign mid-game entry)")
     if eqp_src is not None:
         _eqp.write_default_equipment(layout, eqp_src.raw["equipment"])
     return warnings

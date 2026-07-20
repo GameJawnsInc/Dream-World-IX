@@ -47,11 +47,11 @@
   6 gold-fly, 7 Blue Narciss, 8 Hilda Garde III, 9 Invincible). Chocobo OWNERSHIP tier = `gEventGlobal[191]`.
 - Chocobo mount = TWO actors (mount controlled + rider slaved); airship = ONE combined model.
 - Vehicle IDENTITY is bound at DISPATCHER-LOAD by `[190]` at that instant (each vehicle actor's Init runs
-  `DefinePlayerCharacter` gated on `[190]`); an F6 poke afterwards changes only the movement PROFILE.
-  Reliable F6 recipe: force On-foot (mode 0) -> reload the dispatcher -> then poke the desired vehicle,
+  `DefinePlayerCharacter` gated on `[190]`); a debug-menu poke afterwards changes only the movement PROFILE.
+  Reliable debug-menu recipe: force On-foot (mode 0) -> reload the dispatcher -> then poke the desired vehicle,
   only on a dispatcher where that vehicle actor exists. Forcing a mode whose spawn gate isn't met on the
   other dispatchers = a real unguarded null-deref crash (the per-dispatcher fix table is in the memory).
-- F6 vehicle buttons are allow-listed per wldMapNo; the vehicle-independent World-tab Teleport reaches test
+- debug-menu vehicle buttons are allow-listed per wldMapNo; the vehicle-independent World-tab Teleport reaches test
   spots on gated states.
 
 ## Save-position layout
@@ -68,7 +68,7 @@ All in-game proven, detailed in memory `project-ff9-overworld-worlds` + OVERWORL
 - `world-encounter-rate` — rewrites the world `.eb`'s `w_frameEventBattleProb` writes (multiplier / set /
   peaceful), per-language, no DLL.
 - `world-encounters` — edits the 355-record `discmr.img` encounter table (record selection is
-  ZONE-slice-primary; target by `area`/`zone`, read `area` off F6; disc 1 and disc 4 have separate tables;
+  ZONE-slice-primary; target by `area`/`zone`, read `area` off the debug menu; disc 1 and disc 4 have separate tables;
   RELAUNCH to apply).
 - Minimap markers — reveal by `[startup] reveal_markers` (GLOB bit `736+locId`); rename by
   `world-rename-markers`. Adding/moving a marker = DLL.

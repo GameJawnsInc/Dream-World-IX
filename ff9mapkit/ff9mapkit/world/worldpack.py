@@ -63,7 +63,7 @@ def zone_info() -> list:
 
 
 def area_to_zone(area: int) -> int:
-    """The zone that overworld ``area`` (0..64, the ``m_GetIDArea`` tile field shown by F6) belongs to."""
+    """The zone that overworld ``area`` (0..64, the ``m_GetIDArea`` tile field shown by the debug menu) belongs to."""
     if not 0 <= area < AREA_COUNT:
         raise ValueError(f"overworld area must be 0..{AREA_COUNT - 1} (got {area})")
     return _AREA_ZONE[area]
@@ -189,7 +189,7 @@ class Discmr:
 
     def match(self, *, index=None, topograph=None, fog=None, area=None, zone=None) -> list:
         """Indices of records matching the filter: an exact ``index``; a ``zone`` (0..24) or an ``area`` (0..64,
-        the F6 tile field -> its zone) to scope to that region's table slice; and/or a ``topograph`` (``pattern>>2``)
+        the debug-menu tile field -> its zone) to scope to that region's table slice; and/or a ``topograph`` (``pattern>>2``)
         with optional ``fog`` (0/1). No filter -> every record. ``area``/``zone`` are mutually exclusive."""
         if area is not None and zone is not None:
             raise ValueError("give area OR zone, not both")

@@ -5,7 +5,7 @@ The Memoria engine runs a per-frame smooth-camera follower (``FieldMap.CenterCam
 carried-over position to the spawn-centred target over many frames. Real fields hide this because the
 warp's fade-out blacks the screen while the camera settles; the kit's synthesized ``Main_Init`` reveals
 immediately (its FadeFilter fires right after ``EnableMove``), so on a large-delta entry -- e.g. the World
-Hub entered via a New-Game / F6 warp -- you SEE the camera drift to rest over a few seconds.
+Hub entered via a New-Game / debug-menu warp -- you SEE the camera drift to rest over a few seconds.
 
 Fix (engine-independent, ships on stock Memoria -- no DLL, no ``SmoothCamExcludeMaps`` edit): insert
 ``DisableMove ; Wait(n) ; EnableMove`` immediately BEFORE Main_Init's reveal fade. The screen is still

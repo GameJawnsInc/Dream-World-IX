@@ -32,7 +32,7 @@ have it *behave* as that story beat.
 > story beat). It ships the whole `.eb`, so it even subsumes #2b's ref-bearing gated doors (every entry is
 > carried) **and now speaks** — it ships the donor's whole `.mes` so its index-txids resolve in the right
 > language (in-game proven on Dali Inn: renders + runs the real logic + English dialogue). The only remaining
-> item is the cosmetic entrance-fade model-streaming flicker on an F6-warp. (`content/verbatim.py` + the
+> item is the cosmetic entrance-fade model-streaming flicker on a debug-menu warp. (`content/verbatim.py` + the
 > `[verbatim_eb]` block.) **Both field-load levers fire in a verbatim fork** — `[startup]` (boot a beat) and
 > `[[on_entry]]` (a gated, once field-load beat) are armed onto the donor's real Main_Init (the shared
 > `build._apply_startup` / `_apply_on_entry`), and an `[[on_entry]]` **narration message now SHOWS too**
@@ -48,12 +48,12 @@ have it *behave* as that story beat.
 > FieldScene registers; all 676 forkable fields are covered, so the `1073` fallback never fires; same-zone
 > members share a textid and ship identical text → no clobber). `import-chain --verbatim --out C → build-all`
 > compiles a drop-in mod whose `.eb`s carry the retargets in their shipped bytes. **In-game proven** (a 4-field
-> Dali slice: the doors warp between the forks — ids verified via F6 — each screen runs its real logic and
+> Dali slice: the doors warp between the forks — ids verified via the debug menu (~) — each screen runs its real logic and
 > speaks its real dialogue).
 
 ## Play a fork today
 
-`import --native --graft-player-funcs --carry-text`, warp in via F6. **You get:** correct background art with
+`import --native --graft-player-funcs --carry-text`, warp in via the debug menu (~). **You get:** correct background art with
 seam-free per-tile occlusion + correct 3D-model lighting; the byte-exact (multi-floor) walkmesh; the right
 camera + control direction; working ladders/jumps; the field's random encounters with the right BGM and a
 clean after-battle return; carried NPCs/props that render byte-identically, speak their real per-language
@@ -202,7 +202,7 @@ worldmap unlocks, noise-filtered + region-labeled) a downstream fork should seed
 > story-gated cast/logic / a non-Zidane player / party or item grants / per-door arrival — plus a `[startup]`
 > beat; else `--native`) and a lost-on-mint fork-in-place steer. Plus an **Entry settle** line (coarse flag): a
 > SCROLLING field's smooth-cam eases onto the spawn on warp-in, and a SYNTH fork reveals immediately so the ease
-> is VISIBLE (worst on an F6/hard warp) — so it flags "scrolling → a `--native`/BG-borrow fork may drift; add
+> is VISIBLE (worst on a debug-menu/hard warp) — so it flags "scrolling → a `--native`/BG-borrow fork may drift; add
 > `[camera] entry_settle`; `--verbatim` masks it." (A fixed-camera field shows no line.) The exact frame count is
 > still a playtest tune; the flag answers *whether* you need it.
 
@@ -271,7 +271,7 @@ Pick the fork's PURPOSE first; the mode and the carry/drop list follow.
 All keyed on the real `fldMapNo`/FBG-name or a fixed compile-time structure with no `.eb` reach — so they are
 impossible on a *stock* engine. The shipped **`s23`–`s34` fork-donor remap patch suite** (a custom Memoria build,
 bundled in the public engine zip) now restores most of them by wrapping the hardcoded `fldMapNo == N` gates with an
-effective-field-id; the `s22` F6 debug menu ships in the same bundle as a user-facing tool. (This table predates
+effective-field-id; the `s22` debug menu (~) ships in the same bundle as a user-facing tool. (This table predates
 the patch-suite shipping decision — the current public summary of what's stock vs. patch-restored vs. genuinely
 blocked is in [`ENGINE.md`](ENGINE.md). The rows below mark what stays genuinely engine-blocked even with the patch set.)
 

@@ -29,10 +29,10 @@ identical to the ~15 already-proven s24 wraps — all 10 fire only at **disc-2-t
 disc-1 playtest, so none could be verified yet.
 
 ★ **VERIFICATION HARNESS (`tools/verify_fork_gates.py`, 2026-07-07)** — bakes each gate's seed (from
-`fork-report`) + an **observability verdict**, and emits the per-target fork+deploy+F6 playbook. The
+`fork-report`) + an **observability verdict**, and emits the per-target fork+deploy+~ playbook. The
 load-bearing finding: unlike the proven **2507** (its walkmesh hotfix fires at field **LOAD**, so a cold fork
-+ F6 warp reaches it), the other s29 gates fire mid-**cutscene / post-battle / on an abnormal party** — states
-a cold fork boots PAST. So they are mostly **not crisply F6-testable**, which is why they stayed unverified.
++ debug-menu warp reaches it), the other s29 gates fire mid-**cutscene / post-battle / on an abnormal party** — states
+a cold fork boots PAST. So they are mostly **not crisply warp-testable**, which is why they stayed unverified.
 Run `py tools/verify_fork_gates.py --list` for the table, `--emit <field>` for a target's playbook. Checklist
 (the `verdict` column = why / how testable):
 

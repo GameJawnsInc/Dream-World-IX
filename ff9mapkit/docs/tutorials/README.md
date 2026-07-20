@@ -9,7 +9,7 @@ The CLI is the canonical surface; the Workspace GUI tutorials (06/07) cover the 
 | # | Tutorial | Goal | Needs |
 |---|---|---|---|
 | 01 | [First fork](01-first-fork.md) | Fork a real field, add an NPC, play it | UnityPy |
-| 02 | [The dev loop](02-dev-loop.md) | Iterate without relaunching (deploy + F6) | repo checkout |
+| 02 | [The dev loop](02-dev-loop.md) | Iterate without relaunching (deploy + ~) | repo checkout |
 | 03 | [Original-art field](03-original-art-field.md) | A from-scratch field with your own painted background | an image editor |
 | 04 | [Fork a region into a campaign](04-campaign.md) | `import-chain` a connected slice of FF9 into one mod | UnityPy |
 | 05 | [Assemble a journey](05-journey.md) | Chain campaigns behind a World-Hub selector, wire New Game | campaigns from 04 |

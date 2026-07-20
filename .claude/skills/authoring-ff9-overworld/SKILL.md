@@ -15,13 +15,13 @@ description: Gate-and-route skill for the FF9 overworld/world-map -- its FIRST j
 - The save-brick hazard (why the gate exists), verbatim from memory `project-ff9-overworld-actor-brick`: "Editing overworld geometry under (or near) where the player stands can BRICK a save with a silent black screen." The brick is BAKED INTO THE SAVE; deleting the geometry override does NOT fix an already-parked save. Recovery: load a save that is in a FIELD/town, or New Game. Avoidance: keep a safe save on solid land far from the test cell; teleport in/out to inspect; NEVER save while parked on an edited cell. -> `[[project-ff9-overworld-actor-brick]]`.
 - Every deploy is preceded by the offline gates the laws define (weld audit, placement census, crack/grain/ledger gates, `cut_census`) — never skip a gate finding ("never explain away a gate finding; MISS must be 0 EVERYWHERE in the cell").
 
-## Coordinate triple + F6 readout
+## Coordinate triple + debug-menu readout
 
-The canonical wrapped triple every kit tool speaks: `world (x,z)` · `block (floor(x/64), floor(-z/64))` · `cell (floor(x/32), floor(-z/32))`. The F6 Position readout leads with exactly this triple; raw `RealPosition` shows only when `[wrapped]` (it diverges once the overworld wraps — never feed it to kit tools); "Copy position" copies the canonical pair. -> `[[project-ff9-f6-overworld-debug]]`.
+The canonical wrapped triple every kit tool speaks: `world (x,z)` · `block (floor(x/64), floor(-z/64))` · `cell (floor(x/32), floor(-z/32))`. The debug-menu Position readout leads with exactly this triple; raw `RealPosition` shows only when `[wrapped]` (it diverges once the overworld wraps — never feed it to kit tools); "Copy position" copies the canonical pair. -> `[[project-ff9-f6-overworld-debug]]`.
 
 ## RESHAPE-not-OVERLAY & the save-brick hazard
 
-Verbatim (memory `project-ff9-overworld-terrain-authoring`): "THE LOAD-BEARING RULE: RESHAPE the stock terrain verts; do NOT OVERLAY a new mesh." Displacing existing verts leaves ONE walkmesh surface the player walks on; an overlay above intact ground never wins the down-raycast — it is non-walkable decoration (overlays = buildings/props only). If a save bricks anyway (black screen, F6 says "teleport: no controlled actor"): recovery -> `[[project-ff9-overworld-actor-brick]]` (field save / New Game).
+Verbatim (memory `project-ff9-overworld-terrain-authoring`): "THE LOAD-BEARING RULE: RESHAPE the stock terrain verts; do NOT OVERLAY a new mesh." Displacing existing verts leaves ONE walkmesh surface the player walks on; an overlay above intact ground never wins the down-raycast — it is non-walkable decoration (overlays = buildings/props only). If a save bricks anyway (black screen, the debug menu says "teleport: no controlled actor"): recovery -> `[[project-ff9-overworld-actor-brick]]` (field save / New Game).
 
 ## s34 override + `--in-place`
 

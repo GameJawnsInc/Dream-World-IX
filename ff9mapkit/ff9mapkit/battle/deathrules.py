@@ -495,7 +495,7 @@ def render(spec: DeathRulesSpec) -> str:
         label = f" ({spec.flag_label})" if spec.flag_label and spec.flag_label != str(spec.flag) else ""
         gate = _GATE.format(expr=_ovl.flag_expr_cs(spec.flag))
         gate_comment = (f"Gated on gEventGlobal bit {spec.flag}{label}: bit CLEAR (or any state hiccup) = "
-                        f"fully vanilla (Eiko included); toggle live via F6 -> Flags.")
+                        f"fully vanilla (Eiko included); toggle live via the debug menu (~) -> Flags.")
     else:
         gate = ""
         gate_comment = "Always on (no flag gate)."

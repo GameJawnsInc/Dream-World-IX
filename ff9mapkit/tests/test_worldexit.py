@@ -189,7 +189,7 @@ def test_entrance_func_body_nameplate():
 def test_worldmap_exit_arrive_shape():
     """The deterministic return: [gate][arrive var writes (the Init's own 32-bit
     idiom)][D8:2 nonzero][if GLOB[1062]: WorldMap(<var>) computed][the cascade
-    fallback for F6-warped-in visits]."""
+    fallback for debug-warped-in visits]."""
     from ff9mapkit.content import region as R
     from ff9mapkit.content.worldexit import (POSITION_PRESET_KEY, WORLD_STATE_VAR,
                                              arrive_writes, cascade_bytes,

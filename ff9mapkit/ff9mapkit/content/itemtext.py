@@ -31,7 +31,7 @@ VALUE ENCODING (``Replace:`` is a .NET ``Regex.Replace`` replacement string, ``T
 
 PROVENANCE: the kit writes ONLY the author's strings + the resolved item id -- it reads NOTHING from the
 game bundles (unlike the CSV deltas, which carry a base row). RELAUNCH to apply (``DataPatchers.Initialize``
-runs once at AssetManager bring-up, before the item text is imported -- F6 Reload won't re-read it).
+runs once at AssetManager bring-up, before the item text is imported -- ~ Reload won't re-read it).
 
     [[item_text]]
     name = "Potion"                       # the item to rename/redescribe (name or id; RegularItem space)

@@ -204,7 +204,7 @@ def _spawn_at_ff9(context, xz, face=None):
 def _arrival_at_ff9(context, xz, entrance, face=None):
     """Place (or move) the FF9_Arrival marker for ``entrance`` at FF9 floor (x, z) -- ONE marker per
     entrance (the per-door arrival table, [[player.arrival]]; the single Spawn stays the default for
-    unmatched entrances / F6 warps)."""
+    unmatched entrances / debug-menu warps)."""
     loc = bridge.ff9_verts_to_blender([(xz[0], 0, xz[1])])[0]
     e = next((o for o in context.scene.objects
               if o.get(MARKER_KEY) == "arrival" and int(o.get("ff9_entrance", -1)) == int(entrance)), None)

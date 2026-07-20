@@ -43,7 +43,7 @@ containers — see the memory's step log).
   a post-write re-read confirm.
 - Save edits need no relaunch. Verbatim:
 
-> ★ **No relaunch needed — the extra is re-read on EVERY save-load** (not cached at process launch), so the edit→load loop is as fast as an F6 field reload.
+> ★ **No relaunch needed — the extra is re-read on EVERY save-load** (not cached at process launch), so the edit→load loop is as fast as a debug-menu field reload.
 
 ## Data model quick facts
 
@@ -92,8 +92,8 @@ Run `py -m ff9mapkit <verb>` from the kit root. Save target for the `items-*` ve
 - **Item stat CSVs** (`[[weapon]]`/`[[armor]]`/`[[item]]`/`[[equip_bonus]]`/`[[item_effect]]`,
   `[[synthesis]]`) — verbatim from FORMAT.md:
 
-> **★ RELAUNCH to apply:** item CSVs load once at game **startup** — F6 → Reload field will NOT pick up a stat change. Deploy, then relaunch.
+> **★ RELAUNCH to apply:** item CSVs load once at game **startup** — ~ → Reload field will NOT pick up a stat change. Deploy, then relaunch.
 
 - **Item text** (`[[item_text]]`) — verbatim from FORMAT.md:
 
-> **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (F6 → Reload field will NOT pick it up).
+> **★ RELAUNCH to apply:** `TextPatch.txt` is read once at engine startup (~ → Reload field will NOT pick it up).

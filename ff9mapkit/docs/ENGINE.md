@@ -49,7 +49,7 @@ required by the custom-overworld commands `world-reclaim` / `world-coast` / `wor
 patches are applied to a local Memoria build; the showcase opening ships with that custom Memoria. The
 disc-1 gates, the s30/s31 walk+occlusion and s33 menu-LOCATION fixes, and `s32` (proven in-game through
 the fork-verification harness) are verified; some `s29` sites and `s33` sibling sweeps remain unverified
-until those zones are forked and playtested. (The `s22` F6 debug menu also ships in the engine bundle —
+until those zones are forked and playtested. (The `s22` debug menu (~) also ships in the engine bundle —
 a user-facing tool with four context-adaptive tabs, **Go / Cheats / Flags / Time**, available in the
 field, in battle, and on the overworld — but it's not a fork-fidelity patch and isn't part of the
 upstream-candidate set.)

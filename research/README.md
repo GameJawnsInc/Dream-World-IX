@@ -13,7 +13,7 @@ save-persistent story flags. Start with **`STORY_FLAGS.md`**.
 | `make_digest.py` / `make_catalog.py` | Regenerate the digest / catalog from the JSON. |
 | `FLAG_LORE.md` | Per-bit **lore candidate** digest for the ~1900 un-named heap bytes — who writes each bit, the nearest dialogue line (short ≤110-char excerpts of the game's own text; provenance rationale: `ff9mapkit/docs/PROVENANCE.md`), what its gates guard, story beats, confidence tiers a/b/c. A CANDIDATE table for human curation — nothing auto-merges into `flags.py`. Regenerate: `cd ff9mapkit && py ../research/gen_flag_lore.py` (needs `flag_census.json`; also writes `flag_lore.json`, the machine form — **gitignored**). |
 | `gen_flag_lore.py` | The lore generator: deterministic joins over the census + each field's real `.eb`/`.mes` + the Memoria source (tier-a byte greps). |
-| `gen_scenario_table.py` | Generates the ScenarioCounter → story-area progression table from the census, for BOTH `flags.py` (Python) and the F6 debug menu (C#) so the two stay in sync. Run: `py research/gen_scenario_table.py`. |
+| `gen_scenario_table.py` | Generates the ScenarioCounter → story-area progression table from the census, for BOTH `flags.py` (Python) and the in-game debug menu (~) (C#) so the two stay in sync. Run: `py research/gen_scenario_table.py`. |
 | `gen_understand_layer.py` | Mines the census + manifest into the UNDERSTAND layer (field-granular beat dictionary, area-labeled flag clusters, chest-band probe). Outputs **gitignored — regenerable** (`understand_layer.json`, `understand_candidate.md`). Run: `py research/gen_understand_layer.py`. |
 
 ## The one-paragraph model

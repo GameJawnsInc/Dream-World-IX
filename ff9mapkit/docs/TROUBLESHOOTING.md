@@ -157,7 +157,7 @@ py -m ff9mapkit doctor          # prints the resolved mod folder's dict patch pa
 ```
 
 > **Fix.** Give every custom field a **globally distinct id**, even across stacked folders. Custom ids
-> are **≥ 4000**; reach a field with the F6 → Warp menu or via a gateway. (See
+> are **≥ 4000**; reach a field with the ~ → Warp menu or via a gateway. (See
 > [`GLOBAL_RESOURCES.md`](GLOBAL_RESOURCES.md) for the id namespace and the global-id rule.)
 
 **(c) A field id above 32767.** The engine's `fldMapNo` is an **Int16** (max **32767**). A higher id
@@ -193,7 +193,7 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
 
 1. **The edit isn't deployed yet.** A Script-panel rewrite is recorded in the field's `field.toml`
    (as a `[[logic_edit]]`); the GUI save does **not** touch the `.mes` — the build rewrites it. An
-   **F6 → Reload field** *without* a redeploy just re-reads the stale `.mes`.
+   **~ → Reload field** *without* a redeploy just re-reads the stale `.mes`.
 2. **Text-block shadowing.** A field reads dialogue from `field/<text_block>.mes`, and the engine
    serves that block from the **highest-priority** folder in `Memoria.ini FolderNames`. Campaign
    members and the deploy test slots all default to the shared block **1073**, so if a
@@ -208,7 +208,7 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
    journey/campaign member, `ff9mapkit deploy-campaign <campaign.toml> --apply` /
    `ff9mapkit deploy-journey <journeys.toml> --apply` (the checkout scripts
    `py tools/deploy_campaign.py` / `py tools/deploy_journey.py` are thin shims over the same
-   commands) — then **F6 → Reload field** (or relaunch).
+   commands) — then **~ → Reload field** (or relaunch).
 2. **Clear the collision.** The durable fix is a block that belongs to nobody. A
    field with no `text_block` key derives one from its own `[field] id` and auto-registers it, so the
    usual answer is to **delete the key**:
@@ -235,7 +235,7 @@ text** — often another field's lines. Or: a verbatim fork's dialogue was rewri
    > **Relaunch is needed for a REGISTRATION change, not a CONTENT change.** Adding or re-pointing a
    > `MessageFile`/`FieldScene` line in `DictionaryPatch.txt` (a new id, a changed mesID, a renamed FBG)
    > needs a relaunch — `DataPatchers.Initialize()` runs once at process start behind an `_isInitialized`
-   > guard. Editing dialogue *inside* an already-registered block does **not**: F6 → Reload picks it up
+   > guard. Editing dialogue *inside* an already-registered block does **not**: ~ → Reload picks it up
    > (in-game proven 2026-07-18).
    >
    > **Exception — `[LOADMES=...]` includes.** A shared `.mes` pulled in by a `[LOADMES=NAME]` tag is
@@ -283,17 +283,17 @@ rule via `ff9mapkit.coop.mod_order_updates`.)
 **Cause.** Most edits to the *current* field can be hot-reloaded, but some changes are only read at
 startup.
 
-**Fix.** With the bundled custom engine, press **F6 → Reload field** — it re-reads the current field's
+**Fix.** With the bundled custom engine, press **~ → Reload field** — it re-reads the current field's
 `.eb`/`.mes`/scene/walkmesh/art from disk, no relaunch.
 
-**Relaunch the game** only when F6 Reload can't pick a change up:
+**Relaunch the game** only when ~ Reload can't pick a change up:
 
 - the **first deploy of a new id** (it has to register its `DictionaryPatch.txt` line),
 - a **`BattlePatch.txt`** change (battle tuning / per-encounter BGM),
 - **start-state CSVs** or **`TextPatch.txt`** item names (read at startup / New Game),
 - an **engine DLL rebuild**.
 
-> **Note.** The **F6 debug menu needs the bundled custom engine** — it ships in the public engine
+> **Note.** The **debug menu (~) needs the bundled custom engine** — it ships in the public engine
 > bundle (`dwix-custom-memoria-*.zip`, installed by the Windows installer or by
 > `ff9mapkit setup --install-engine <zip>`, which backs up the stock DLLs automatically), but it is
 > not part of **stock** Memoria. On a stock install, reach a custom field through a **gateway** from

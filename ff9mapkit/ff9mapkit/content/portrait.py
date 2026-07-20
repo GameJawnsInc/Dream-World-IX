@@ -86,4 +86,4 @@ def write_face_atlas(layout, portraits) -> list:
     sheet.save(str(d / ATLAS_PNG))
     (d / ATLAS_TPSHEET).write_text(tpsheet, encoding="utf-8", newline="\n")
     return ["[[playable]] portrait -> a loose Face Atlas override (append) is read at LAUNCH -> RELAUNCH to apply "
-            "(F6 won't); it adds the sprite(s) non-destructively (stock faces + a Moguri reskin are untouched)"]
+            "(a menu reload won't); it adds the sprite(s) non-destructively (stock faces + a Moguri reskin are untouched)"]

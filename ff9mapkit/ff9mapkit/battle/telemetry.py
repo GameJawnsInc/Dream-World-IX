@@ -19,7 +19,7 @@ shows the scaled stats the player actually fights). The events, one JSON line ea
 
 The JSONL lands at ``<game>/ff9mk_battle_telemetry.jsonl`` (anchored beside ``StreamingAssets``). Every log
 call is wrapped in ``try/catch`` -- telemetry must NEVER break a battle. RELAUNCH-scoped like the whole
-scripts channel (loaded once at title; F6 won't reload it).
+scripts channel (loaded once at title; a menu reload won't reload it).
 
 Source placement: ``Scripts/Sources/Telemetry/`` -- a SIBLING of ``Sources/Battle`` so a field build's
 ``write_scripts`` wipe (which owns ``Sources/Battle`` only) never deletes it. The deploy-stickiness hole
@@ -217,7 +217,7 @@ def install(mod_root, *, game=None) -> Path:
     """Write the feature source into the LIVE mod at ``mod_root`` and (re)compile the mod scripts DLL from
     ALL its sources via the Overload hub (existing battle formulas + features + the regenerated hub). The
     DLL name derives from the folder NAME (the ``FolderNames`` entry) -- a mismatch is silently never
-    loaded, so it is not a parameter. Returns the DLL path. RELAUNCH to load (once at title, not F6)."""
+    loaded, so it is not a parameter. Returns the DLL path. RELAUNCH to load (once at title, not the menu reload)."""
     from ..config import ModLayout
     from . import overload
     mod_root = Path(mod_root)

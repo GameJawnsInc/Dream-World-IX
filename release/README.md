@@ -25,7 +25,7 @@ quality-of-life fixes are proposed separately as upstream Memoria PRs; the mod d
 ## How to reach it
 The two custom fields aren't wired into the base game's progression, so you reach them one of two
 ways:
-- **Dev engine (F6 debug menu):** in-game press **F6 → Warp to field → 4000** (hut exterior).
+- **Dev engine (debug menu (~)):** in-game press **~ → Warp to field → 4000** (hut exterior).
   The hut's door leads to the interior (4002), and back.
 - **Point New Game at the hut:** run `py tools/retarget_newgame_warp.py 4000` (repoints the
   field-70 opening override's `Field()` warp at field 4000, all 7 languages — pure mod, no DLL),

@@ -89,9 +89,9 @@ Two routes:
   prints a `revert_newgame_from_stock.py` script — run it to restore the normal New Game
   (`newgame <other-id> --retarget` re-points rather than reverts).
 
-- **F6 debug menu (custom engine bundle):** if the Dream World IX engine bundle is installed
+- **debug menu (~) (custom engine bundle):** if the Dream World IX engine bundle is installed
   (`ff9mapkit setup --install-engine <zip>`, see [ENGINE.md](../ENGINE.md)), launch once so the
-  new id registers, then press **F6 → Go → Warp to field → 4003** from anywhere.
+  new id registers, then press **~ → Go → Warp to field → 4003** from anywhere.
 
 Verify: the field renders, the NPC is present, and talking to it shows the new line.
 
