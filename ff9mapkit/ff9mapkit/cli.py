@@ -56,6 +56,40 @@ def _has_unitypy() -> bool:
         return False
 
 
+def _print_engine_status(game) -> None:
+    """Explain, in plain language, what the installed engine can and can't run. Advisory only -- this
+    never affects `doctor`'s exit code, and every probe underneath it is best-effort (a version reads
+    None off Windows, in which case the drift note is simply skipped)."""
+    from . import memoria
+    rep = memoria.engine_report(game)
+    ver = f" (Assembly-CSharp v{rep['assembly_version']})" if rep["assembly_version"] else ""
+    if not rep["memoria_installed"]:
+        print("engine       : Memoria NOT detected -- no mod of any kind will load without it.")
+        print("  Install Memoria first (https://github.com/Albeoris/Memoria), then re-run doctor.")
+        return
+    if rep["dwix_bundle_applied"]:
+        print(f"engine       : Memoria + Dream World IX patches{ver}")
+        print("  Forked real fields and the world-* overworld commands should work.")
+        print("  (A Memoria update or re-patch reverts this -- re-run setup --install-engine to reapply.)")
+        return
+    # The signal is "our installer left backups here", so a SELF-BUILT patched engine (msbuild deploys
+    # straight into Managed, no backup dir) reads as stock -- hence "not detected", never "you have stock".
+    print(f"engine       : Memoria{ver} -- no Dream World IX patches detected.")
+    print("  (If you built the memoria-patches/ stack yourself, that won't show up here -- this only")
+    print("  detects the bundle installed via ff9mapkit.)")
+    print("  Already works unmodified: novel from-scratch fields, custom models, battle content,")
+    print("  audio, and playable characters.")
+    print("  Needs the patched engine: FORKED real fields, and the world-* overworld commands.")
+    print("  To get it, see ff9mapkit/docs/ENGINE.md, or:")
+    print("      ff9mapkit setup --install-engine <dwix-custom-memoria-*.zip>")
+    built, base = rep["assembly_build_date"], rep["base_commit_date"]
+    if built and abs((built - base).days) > memoria.STALE_WARNING_DAYS:
+        print(f"  NOTE: your Memoria compiled {built}, but the prebuilt bundle is pinned to the")
+        print(f"  {base} base -- that's a big gap, and the bundle only replaces managed DLLs, not")
+        print("  Memoria's native side. If it crashes, build the memoria-patches/ stack against your")
+        print("  own Memoria source instead (ENGINE.md option 3).")
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     # Environment first, so these show even if the game path isn't configured yet.
     print(f"ff9mapkit {__version__}")
@@ -80,6 +114,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  dict patch : {layout.dictionary_patch} ({'present' if layout.dictionary_patch.is_file() else 'absent'})")
     from . import provision
     print(f"templates    : {'extracted' if provision.templates_present() else 'NOT extracted -- run: ff9mapkit extract-templates'}")
+    _print_engine_status(game)
     # deploy LEDGER reconciliation: an id the ledger says was deployed but that NO stacked mod folder
     # registers any more is a registration that VANISHED (a campaign wholesale-replace, a foreign deploy's
     # drop, a hand edit) -- and the engine black-screens on it with no error. Retirements are deliberate and

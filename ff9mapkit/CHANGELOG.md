@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `doctor` now explains the engine situation in plain language
+- A new `engine` block reports whether Memoria is installed, whether the Dream World IX patches were
+  applied (detected via the `dwix-engine-backups/` dirs our installer leaves), and — when they weren't —
+  which pillars already work unmodified (novel fields, models, battle, audio, playable characters) versus
+  which need the bundle (forked real fields, the `world-*` overworld commands). No bundle zip required.
+- The installed engine's compile date is decoded from its FileVersion alone (`AssemblyVersion("1.1.*")`
+  fills the build field with days since 2000-01-01); a drift of more than ~180 days from the pinned base
+  adds a note that the prebuilt bundle may not be a clean match and to build from `memoria-patches/`
+  instead. Advisory only — nothing here affects `doctor`'s exit code.
+
 ### Changed — the in-game debug menu: functionality round
 - **Three tabs** (Go / Cheats / Flags): Time merged into Cheats as a "Time scale" section. The Go tab's
   "More options" hide-toggle is gone — the entrance/scenario fields are one always-visible row. New
