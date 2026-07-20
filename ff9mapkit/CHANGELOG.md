@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the in-game debug menu: functionality round
+- **Three tabs** (Go / Cheats / Flags): Time merged into Cheats as a "Time scale" section. The Go tab's
+  "More options" hide-toggle is gone — the entrance/scenario fields are one always-visible row. New
+  **Recent fields** chips (the last 6 fields you were on or warped to, session-scoped) under Favorites —
+  the everyday 2-3-field bounce no longer needs pins or typing. The screen-blanking "Break control
+  (test)" button is removed (the s39 self-heal it validated is long proven). One type step up across the
+  whole menu (15px controls on 32px rows, 20px title) with brighter secondary text and full-color
+  section headers.
+
 ### Changed — the in-game debug menu hotkey is now `~` (tilde/backquote), was F6
 - Stock Memoria binds **F6 to its LvMax cheat** (F1–F9 are all cheat/booster keys), and the menu's
   early intercept swallowed it; BackQuote is bound to nothing engine-wide. Engine patch
