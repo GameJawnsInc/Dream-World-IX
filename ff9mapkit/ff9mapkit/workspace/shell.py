@@ -1208,8 +1208,8 @@ class Workspace(QMainWindow):
         self.deploy_btn.setObjectName("accent")
         self.deploy_btn.setToolTip(
             "Save everything, then build & deploy what the breadcrumb names (F9).\n"
-            "Reversible — your game files are backed up first. After it deploys, press F6 in-game to "
-            "reload the field (or F6 → Warp to jump straight to it).")
+            "Reversible — your game files are backed up first. After it deploys, press ~ (tilde) in-game to "
+            "reload the field (or ~ → Warp to jump straight to it).")
         self.deploy_btn.clicked.connect(self._deploy_now)
         self.deploy_btn.setEnabled(False)
         ch.addWidget(self.deploy_btn)
@@ -4688,7 +4688,7 @@ class Workspace(QMainWindow):
                       "the engine's smooth camera settles unseen (hides the warp-in drift). 0/blank = off; "
                       "~45 is the proven starting value; \"auto\" computes it from the spawn's warp-in "
                       "delta at build time. Needs the arriving transition to fade (gateways do); a bare "
-                      "F6 warp can't be hidden.")
+                      "debug-menu warp can't be hidden.")
         note.setWordWrap(True)
         self.doc_host_lay.addWidget(note)
         row = QHBoxLayout()
@@ -7210,7 +7210,7 @@ class Workspace(QMainWindow):
           and a full-width strip describing an on-screen control is duplication with extra steps.
 
         What survives is what is genuinely absent from the screen: UNSAVED (Save all -- reachable from any
-        tab, and Home's lede never shows it) and JUST-DEPLOYED (press F6 -> Reload field -- the only thing
+        tab, and Home's lede never shows it) and JUST-DEPLOYED (press ~ -> Reload field -- the only thing
         the spine says that appears nowhere else in the UI, because it happens in the GAME, not the app).
         """
         if self._current_target()[0] is None:           # EMPTY -- Home's lede already says exactly this
@@ -7222,7 +7222,7 @@ class Workspace(QMainWindow):
         if not t:                                       # a journey overview / save doc -- nothing to deploy
             return ("", [])
         if self._deployed_target == t:                  # JUST DEPLOYED -- the next step is in the GAME
-            return ("Deployed to your test slot — in your game, press F6 → Reload field (or Warp to it).", [])
+            return ("Deployed to your test slot — in your game, press ~ → Reload field (or Warp to it).", [])
         return ("", [])                                 # READY -- the Deploy button is already right there
 
     def _refresh_spine(self):
@@ -8021,7 +8021,7 @@ class Workspace(QMainWindow):
                                fail_hint=fail_hint)
         self._show_problems(v, [])
         if code == 0 and ("deploy" in subject.lower() or "install to game" in subject.lower()):
-            self._deployed_target = self._deploy_target()   # -> the spine's 'now press F6 in-game' hint
+            self._deployed_target = self._deploy_target()   # -> the spine's 'now press ~ (tilde) in-game' hint
             self._refresh_spine()
         if on_finished:
             on_finished(code)

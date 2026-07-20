@@ -29,7 +29,7 @@ quoted blocks (e.g. `CUSTOM_MODELS.md`, `../examples/...`) resolve against `ff9m
 > (Iviv + Steiniv); the engine mechanism is in the memory `project-ff9-13th-character`.
 >
 > > **Relaunch + New Game.** The new `BaseStats`/`CharacterParameters` rows and the name directive load at
-> > **startup / New-Game init** — F6 Reload won't pick them up. So: deploy → **relaunch** → **New Game** (so
+> > **startup / New-Game init** — ~ Reload won't pick them up. So: deploy → **relaunch** → **New Game** (so
 > > the engine inits the party with the new id present) → reach the field (Main_Init recruits it).
 
 ## Block skeleton

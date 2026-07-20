@@ -138,7 +138,7 @@ slot    = 13
 
 `id` must be unique and not collide with a carried donor effect (use the custom band, e.g. `5000+`). A bad block
 fails the **build** (surfaced in `ff9mapkit lint` / the Workspace Problems console). Verify with `deploy_field` →
-F6. Programmatic surface: `sps.author.build_sps_from_block` / `tcb_source` / `trigger_spec`;
+~ reload. Programmatic surface: `sps.author.build_sps_from_block` / `tcb_source` / `trigger_spec`;
 `content.sps_trigger.inject_sps_triggers` emits the `.eb` trigger.
 
 ### Placement (the floor-Y rule)

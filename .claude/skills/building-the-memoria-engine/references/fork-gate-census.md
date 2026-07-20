@@ -31,14 +31,14 @@ must search `<alias> == N` for EVERY local alias of `fldMapNo`, not just the lit
 `<forkId> <donorRealId>` per line at the mod-folder root; `EffectiveFieldId` returns the donor
 for forks, identity for real ids — so every lever is a no-op on stock content. Emitted by
 `build_campaign` on the campaign/journey deploy path AND (since kit commit `cf5a9cf`) by
-`tools/deploy_field.py` for any fork with a recorded donor. Read at LAUNCH only (no F6 reload
+`tools/deploy_field.py` for any fork with a recorded donor. Read at LAUNCH only (no ~ reload
 path) — an A/B test = comment the line + relaunch. Without this file no gate fires at all.
 
 ## Patch lever map (`memoria-patches/`)
 
 | patch | class | what it does |
 |---|---|---|
-| s22 | dev tool | the F6 debug menu (Go/Cheats/Flags/Time) — SHIPS in the bundle; not a fork wrap |
+| s22 | dev tool | the in-game debug menu (~) (Go/Cheats/Flags/Time) — SHIPS in the bundle; not a fork wrap |
 | s23 | id-gate | narrow-map fork width: `NarrowMapList.MapWidth` falls back to the loaded BG's actual width for ids not in the table (before the `500` default) |
 | s24 | id-gate core | `DataPatchers.EffectiveFieldId` + the `ForkDonorPatch.txt` reader; + `ForkSiblingField` (an event battle's hardcoded after-battle field redirected to the fork sibling); s28 extends the same lever to the overworld→field entry |
 | s29 | id-gate | the remaining SOFTLOCK `== N` wraps (10 fields, 14 lines) |

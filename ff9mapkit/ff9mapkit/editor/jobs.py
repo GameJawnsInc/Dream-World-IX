@@ -110,7 +110,7 @@ def has_deploy_tools(repo_root) -> bool:
 
 
 def resolve_dev_repo(default_repo):
-    """The repo root the Workspace should use for the DEV deploy loop (the F6 test slot + ``tools/``).
+    """The repo root the Workspace should use for the DEV deploy loop (the debug-menu test slot + ``tools/``).
 
     Lets an INSTALLED Workspace light up dev mode against a source checkout, in precedence order:
       1. ``$FF9_REPO`` -- if it points at a checkout (explicit opt-in; wins even over a repo launch);
@@ -363,7 +363,7 @@ def deploy_journey_argv(repo_root, journeys, *, apply=False, newgame="none", wir
     Default (no flags) = a DRY-RUN that lints + prints the ordered deploy playbook (no game files touched).
     ``apply`` = the ONE-SHOT deploy (every campaign into its own stacked folder, the cross-campaign links,
     then the hub field -- one unified revert). ``newgame`` (gated under ``--apply``) chooses where New Game
-    lands -- SINGLE-OWNER, replaces the current target: ``"none"`` (unchanged, reach the hub via F6), ``"hub"``
+    lands -- SINGLE-OWNER, replaces the current target: ``"none"`` (unchanged, reach the hub via the debug menu (~)), ``"hub"``
     (the hub selector menu, seamless), or ``"entry"`` (STRAIGHT into the opening field, no menu -- single-journey
     only; keeps the real opening FMV). ``wire_newgame=True`` is a back-compat alias for ``newgame="hub"``.
     ``apply_links`` = re-apply ONLY the cross-campaign link ``.eb`` remaps (run after a campaign re-deploy).

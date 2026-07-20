@@ -120,7 +120,7 @@ fixes, the overworld→field entry redirect. Those are lost when the fork runs u
 **cannot be restored from script bytecode alone.** The bundled engine patch set
 ([`memoria-patches/`](../../memoria-patches/), `s23`–`s34` — `s34` is the worldmap mesh-override
 lever behind `world-reclaim` / `world-coast` / `world-entrance`) restores them for fork fidelity;
-the bundle also carries `s22`, the F6 debug menu. The showcase opening ships with that custom
+the bundle also carries `s22`, the in-game debug menu (~). The showcase opening ships with that custom
 Memoria build. Exactly what's stock vs. patch-restored is in [`ENGINE.md`](ENGINE.md).
 
 ### A few behaviors are engine-blocked even with the patches
@@ -168,7 +168,7 @@ not a bug — the synthesized path trades that detail for editability.
 
 ## See also
 
-- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`–`s34` patch set (plus the `s22` F6 menu).
+- [`ENGINE.md`](ENGINE.md) — stock vs. enhanced Memoria, and the `s23`–`s34` patch set (plus the `s22` debug menu).
 - [`FORK_FIDELITY.md`](FORK_FIDELITY.md) — the full map of what a fork does and doesn't reproduce.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — first-run failures as symptom → cause → fix.
 - [`FORMAT.md`](FORMAT.md) — the complete `field.toml` schema (every section above).

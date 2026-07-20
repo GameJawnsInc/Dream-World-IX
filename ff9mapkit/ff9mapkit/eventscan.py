@@ -961,7 +961,7 @@ def spawn_settle_mismatch(eb, idx):
     """The 'spawn-flash' signature of a director-driven carried object (P6.1, docs/SAVEPOINT.md): its **Init**
     raises it to one height -- a literal Y with self-relative (``op78``) X/Z -- but its **loop** settles it to
     another, via a fully-literal ``MoveInstantXZY``. A real field's entrance fade hides that one-shot
-    spawn-then-move; a fork's (F6-warp / a custom entrance) may not, so the object visibly spawns at the wrong
+    spawn-then-move; a fork's (debug-menu warp / a custom entrance) may not, so the object visibly spawns at the wrong
     pose then snaps to rest (e.g. the save Moogle standing ON the barrel for ~100ms, then dropping IN).
 
     Returns ``(init_y, settle_y, init_y_offset_in_entry, size)`` when the Init Y differs from the settle Y

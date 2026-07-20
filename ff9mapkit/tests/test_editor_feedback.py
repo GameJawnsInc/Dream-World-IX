@@ -10,9 +10,9 @@ from ff9mapkit.editor import feedback as fb
 def test_clean_is_ok_with_default_or_custom_headline():
     v = fb.classify([], [], subject="Check")
     assert v.level == fb.OK and "all clear" in v.headline and v.headline.startswith("Check")
-    v2 = fb.classify([], [], clean_headline="Built and deployed", next_action="F6 -> Warp -> 4003")
+    v2 = fb.classify([], [], clean_headline="Built and deployed", next_action="~ -> Warp -> 4003")
     assert v2.level == fb.OK and v2.headline == "Built and deployed"
-    assert v2.next_action == "F6 -> Warp -> 4003"
+    assert v2.next_action == "~ -> Warp -> 4003"
 
 
 def test_warnings_only_passes_with_warnings():

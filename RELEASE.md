@@ -112,7 +112,7 @@ Treat this as **verify-and-iterate**, not one-shot-trust. (Claude can run this v
    [`ENGINE.md`](ff9mapkit/docs/ENGINE.md) tells users to download it from Releases — so the asset MUST
    exist when the repo goes public, or every fork's install path dead-ends.
    - Build the fork-fidelity engine: apply `memoria-patches/` `s23` + `s24` + `s29` + `s30` + `s31` +
-     `s32` + `s33` (plus `s22` for the F6 dev menu) to a Memoria source clone and compile `Assembly-CSharp`
+     `s32` + `s33` (plus `s22` for the debug-menu dev menu) to a Memoria source clone and compile `Assembly-CSharp`
      (see ENGINE.md "Build from source"; the per-file map is `memoria-patches/README.md`).
    - Assemble `dwix-custom-memoria-1.0.0b2.zip` = the three managed DLLs (`Assembly-CSharp.dll` + the
      matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) + an `INSTALL.txt` + MIT/Albeoris attribution.

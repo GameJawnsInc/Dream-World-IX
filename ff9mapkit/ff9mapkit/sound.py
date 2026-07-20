@@ -192,7 +192,7 @@ def deploy_audio(in_path, song_id: int, mod_folder, *, kind: str = "music", loop
     """Encode ``in_path`` -> Ogg Vorbis and place it at the loose-override path in ``mod_folder`` for the
     given ``song_id`` (resolved to its ResourceID), clearing any stale ``.akb.bytes`` runtime cache and
     (``set_priority``) forcing ``PriorityToOGG=1``. Returns a manifest dict. RESTART the game to hear it
-    (audio loads at startup; no F6 hot-reload)."""
+    (audio loads at startup; no in-game hot-reload)."""
     resource_id = resolve_resource_id(song_id, kind, game=game)
     dest = Path(mod_folder) / override_rel_path(resource_id)
     encode_ogg(in_path, dest, loop_start=loop_start, loop_end=loop_end, quality=quality)

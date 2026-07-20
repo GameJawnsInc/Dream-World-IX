@@ -69,8 +69,10 @@ letterboxing, after-battle and off-mesh fixes — and those need the bundled eng
 (`memoria-patches/`, `s23`–`s34`) for fork fidelity. Overworld mesh authoring (terrain, land
 reclaim, coasts, water, entrances) requires the `s34` mesh-override patch. The shipped engine
 bundle (`dwix-custom-memoria-*.zip`, installable via `ff9mapkit setup --install-engine`) contains
-these patches plus the **F6 debug menu** (`s22`) — an in-game warp/cheat/flag/time tool available
-in fields, battles, and on the overworld. Details: **[ENGINE.md](ff9mapkit/docs/ENGINE.md)**.
+these patches plus the **debug menu** (`s22`) — an in-game warp/cheat/flag/time tool available
+in fields, battles, and on the overworld, opened with the **`~` tilde/backquote key** (earlier
+bundles used F6; it moved because stock Memoria binds F6 to its LvMax cheat).
+Details: **[ENGINE.md](ff9mapkit/docs/ENGINE.md)**.
 
 ## Legal & provenance
 

@@ -508,7 +508,7 @@ def test_entrance_cell_geometry():
     assert EN.cell_to_block(35, 25) == (17, 12)             # 32u cells, 64u blocks (proven in-game placement)
     assert EN.cell_to_block(37, 24) == (18, 12)
     assert EN.cell_to_block(0, 0) == (0, 0)
-    assert EN.cell_world_center(35, 25) == (1136, -816)     # matches the F6 World-tab cell readout (Z negated)
+    assert EN.cell_world_center(35, 25) == (1136, -816)     # matches the debug-menu World-tab cell readout (Z negated)
     assert EN.cell_world_center(0, 0) == (16, -16)
 
 

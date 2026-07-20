@@ -819,7 +819,7 @@ def raise_vertex_near_center(bm, amount: float) -> int:
 #     blocks that carry a place entrance (``extract.block_summary(...)['place_entrances']``).
 #   * COORDINATES. A block's edit key is its InitialX/InitialY == the mesh-file coord == the extraction coord
 #     (the wrap's CurrentX/CurrentY is only screen position). To find which blocks a place occupies, trust the
-#     runtime (F6 / a ground raycast), NOT the offline area->place decoder -- its area labels are unreliable.
+#     runtime (the debug menu / a ground raycast), NOT the offline area->place decoder -- its area labels are unreliable.
 # --------------------------------------------------------------------------------------------------
 
 def _falloff(t: float, kind: str = "smooth") -> float:

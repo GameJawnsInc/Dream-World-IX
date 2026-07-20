@@ -57,7 +57,7 @@ it as a custom playable character's battle model (`examples/thirteenth-character
 ## 4. Verify
 
 Deploy the mod folder (register it in `Memoria.ini` once) and launch. With the engine bundle:
-**F6 → Go → Reload field** picks up a model override without relaunching ("Reload + anims" also
+**~ → Go → Reload field** picks up a model override without relaunching ("Reload + anims" also
 re-reads edited clips). The edited mesh renders wherever the model appears — field, battle, or
 both, depending on the GEO type.
 

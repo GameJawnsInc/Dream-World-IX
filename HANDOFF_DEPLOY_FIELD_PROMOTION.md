@@ -7,7 +7,7 @@
 
 ## TL;DR
 
-`tools/deploy_field.py` (the edit→deploy→F6 dev loop) is a **repo-only script** whose deploy logic never
+`tools/deploy_field.py` (the edit→deploy→debug-menu dev loop) is a **repo-only script** whose deploy logic never
 got promoted into the `ff9mapkit` package. Consequences on a **fresh exe install** (no repo):
 
 1. **Convenience gap:** there is no `ff9mapkit deploy` verb. Only `deploy-campaign` / `deploy-journey`
@@ -150,7 +150,7 @@ Reuse existing pieces:
 - **Shrink `tools/deploy_field.py`** to a thin shim calling the same function with `REPO/"backups"` +
   `tools/scroll_out/` — mirror `tools/deploy_campaign.py` exactly. **But keep the repo-only dev features
   the shim needs** (see Out-of-scope): the sandbox id-forcing, `.ff9deploy.toml` resolution, prior-id
-  auto-revert, and F6 messaging stay in the shim layer, NOT the package function.
+  auto-revert, and menu-reload messaging stay in the shim layer, NOT the package function.
 
 **Decision to make (ask the user):** verb name `deploy` vs `deploy-field`; and whether Phase 1 should default
 to a dedicated folder (recommended) or offer `--mod-folder FF9CustomMap` (which pulls in Phase 2's merge).
@@ -181,7 +181,7 @@ orchestration, not re-implementation.
 ---
 
 ## Out of scope (stays repo-only, correctly)
-Sandbox id/name forcing, `.ff9deploy.toml` worktree defaults, prior-id auto-revert, F6-reload messaging.
+Sandbox id/name forcing, `.ff9deploy.toml` worktree defaults, prior-id auto-revert, menu-reload messaging.
 These are dev-loop concerns with no meaning on a single-game install; they live in the `tools/` shim layer.
 
 ---
@@ -206,5 +206,5 @@ These are dev-loop concerns with no meaning on a single-game install; they live 
 ## Definition of done (Phases 0–1)
 - `ff9mapkit build <fork> --out <dir>` produces a correct ForkDonorPatch.txt; novel field produces none.
 - `ff9mapkit deploy <field.toml>` installs reversibly on a machine with **no repo**; revert restores cleanly.
-- `tools/deploy_field.py` is a thin shim; the repo dev loop (F6/sandbox/worktree) still works unchanged.
+- `tools/deploy_field.py` is a thin shim; the repo dev loop (debug menu/sandbox/worktree) still works unchanged.
 - Full suite green: `py -m pytest -n 6`.

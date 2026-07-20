@@ -1,28 +1,28 @@
 ---
 name: deploying-ff9-mods
-description: Deploy, hot-reload, and debug FF9 mod builds through the edit-deploy-F6 loop -- the procedure every content task terminates in. Use whenever the user runs `tools/deploy_field.py` or `deploy_battle`; presses F6 to reload/warp in-game; or hits a post-deploy symptom (black screen, wrong dialogue but correct flags, after-battle softlock, "nothing changed after deploy"). Covers `.ff9deploy.toml` resolution and the master/-bb/-ih mod-folder stack, id-bands (real 10-3100 / custom 4000-9899 / scratch 30000-32767), the GLOBAL EventDB/SceneData distinct-id rule and null-`.eb` black-screen diagnosis, text-block/`.mes` shadowing across stacked folders, mesID registration, reverting a deploy, and re-wiring New Game after a wholesale campaign deploy. For campaign/journey deploy see `building-ff9-campaigns`; for rebuilding the engine DLL see `building-the-memoria-engine`; for authoring a field's logic see `authoring-ff9-field-scripts`.
+description: Deploy, hot-reload, and debug FF9 mod builds through the edit-deploy-~ loop -- the procedure every content task terminates in. Use whenever the user runs `tools/deploy_field.py` or `deploy_battle`; presses ~ (tilde) to reload/warp in-game; or hits a post-deploy symptom (black screen, wrong dialogue but correct flags, after-battle softlock, "nothing changed after deploy"). Covers `.ff9deploy.toml` resolution and the master/-bb/-ih mod-folder stack, id-bands (real 10-3100 / custom 4000-9899 / scratch 30000-32767), the GLOBAL EventDB/SceneData distinct-id rule and null-`.eb` black-screen diagnosis, text-block/`.mes` shadowing across stacked folders, mesID registration, reverting a deploy, and re-wiring New Game after a wholesale campaign deploy. For campaign/journey deploy see `building-ff9-campaigns`; for rebuilding the engine DLL see `building-the-memoria-engine`; for authoring a field's logic see `authoring-ff9-field-scripts`.
 ---
 
 > Thin router — link the canonical doc (Layer 3) and the memory recipe (Layer 2); do NOT recopy opcode tables, TOML schemas, or coast laws — those live once in docs/ and memory/ and would rot if forked here.
 
 # Deploying FF9 Mods
 
-Every content change terminates in edit -> deploy -> F6. This skill owns that loop plus post-deploy
+Every content change terminates in edit -> deploy -> ~. This skill owns that loop plus post-deploy
 failure diagnosis. Campaign/journey deploys belong to `building-ff9-campaigns`; engine-DLL rebuilds
 to `building-the-memoria-engine`; authoring the field's logic itself to `authoring-ff9-field-scripts`.
 
-## The edit->deploy->F6 fast loop
+## The edit->deploy->~ fast loop
 
 1. Author/edit a `field.toml`.
 2. `py tools/deploy_field.py <field.toml> [--id N]` — builds + deploys reversibly (default test
    slot 4003 = `TESTROOM`); writes a per-id `revert_deploy_<id>.py`.
-3. In-game: **F6 -> Reload field** (re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art
-   from disk) OR **F6 -> Warp to field -> `<id>`**.
+3. In-game: **~ -> Reload field** (re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art
+   from disk) OR **~ -> Warp to field -> `<id>`**.
 4. Ask the human to verify. One change = one commit = one in-game check.
 
 ## When a relaunch is required
 
-Only three things — everything else is F6-hot:
+Only three things — everything else is menu-hot:
 - the FIRST deploy of a *new* id (registers its DictionaryPatch line),
 - a BattlePatch change,
 - an engine-DLL rebuild.
@@ -56,7 +56,7 @@ grep every stacked folder's `DictionaryPatch.txt` for the duplicate id. A BG-bor
 ## Text-block / .mes shadow
 
 The engine reads a field's `.mes` from the highest-priority `FolderNames` folder that defines it ->
-a lower folder's dialogue is SHADOWED (wrong text, right flags — F6 -> Flags is the reliable proof).
+a lower folder's dialogue is SHADOWED (wrong text, right flags — ~ -> Flags is the reliable proof).
 Fix: pick an unshadowed real `MesDB` id, or pin `text_block=N` in `.ff9deploy.toml` (arbitrary ids
 don't load; a DictionaryPatch `MessageFile` line registers a custom mesID — read memory
 `[[reference-ff9-mesid-registration]]`). `deploy_field.py` warns via `deploystack.py`.

@@ -539,7 +539,7 @@ def option(rb, description, lay, *, width=CAPTION_W):
     """A choice is a NAME; its consequence is a caption BENEATH it, on the label's own column.
 
     The third law: never put prose inside a widget. `QRadioButton("Test slot 4003 -- quick + reversible;
-    play via F6 -> Warp  (or New Game -> hut door)")` is a label doing a description's job -- it makes every
+    play via ~ -> Warp  (or New Game -> hut door)")` is a label doing a description's job -- it makes every
     option the same visual weight as its own explanation, so nothing on the card can be scanned. Split it:
     13px `$text` for what you pick, 11px `$muted` for what it means.
 

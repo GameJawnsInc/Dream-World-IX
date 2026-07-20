@@ -28,17 +28,17 @@ ff9mapkit lint examples/items-equipment/items_equipment.field.toml
 # Build + deploy reversibly into the test slot (writes the CSV/TextPatch deltas + a revert script):
 py tools/deploy_field.py examples/items-equipment/items_equipment.field.toml --id 4003
 
-# Item CSVs + TextPatch.txt load ONCE at engine startup (not field load) -> RELAUNCH to apply (F6 Reload won't).
+# Item CSVs + TextPatch.txt load ONCE at engine startup (not field load) -> RELAUNCH to apply (~ Reload won't).
 ```
 
-**What to see** (after a relaunch, with an F6-give of the items where noted):
+**What to see** (after a relaunch, with a menu-give of the items where noted):
 - **Mage Masher** — Attack jumps to 99, now Fire-elemental, costs 1 gil, grants **+30 Magic** when equipped,
   and **teaches Soul Blade** (appears in Zidane's Skill command while equipped; gone when unequipped).
 - **The Ogre** — equip it (it teaches Soul Blade) and use Soul Blade in battle: the enemy **shrinks** (Mini),
   proving the re-pointed weapon status.
 - **Broadsword** — now appears in **Zidane's** weapon-equip list (vanilla: Steiner/Marcus/Blank only).
 - **Bone Wrist** — equip on Zidane: **Strength +50** in the status menu.
-- **Synthesis** — warp to 4003 (F6 → Warp → 4003), walk into the back, press: a **Synthesis** shop opens with a
+- **Synthesis** — warp to 4003 (~ → Warp → 4003), walk into the back, press: a **Synthesis** shop opens with a
   net-new recipe (Mythril Dagger ← Mage Masher + Potion), proving it's the kit's.
 - **Potion** — heals exactly **15** in battle / **10** in the field (Power×15 / Power×10), and its menu reads
   **"Mega Potion"** / **"Restores 15 HP."** — the effect retune and the text retune agree.

@@ -345,7 +345,7 @@ same value).
   `MoveInstantXZY(-250,-2,-571)`/`SetObjectLogicalSize(1,50,50)`/`SetObjectFlags(37)`) match the source verbatim
   with **zero Zidane-only ops** (the anti-"barrel skin" assertion).
 - **Manual in-game playtest (the shipping gate):** `ff9mapkit import fbg_n08_udft_map122_uf_sto_0 --out F` → `build` →
-  `tools/deploy_field.py` → F6 → Warp → confirm the cask renders **upright at the right spot** (not the
+  `tools/deploy_field.py` → ~ → Warp → confirm the cask renders **upright at the right spot** (not the
   upside-down player-clone) and the two box rows carry. Also confirm the box-instancing switch actually yields 3
   distinct positions (the one mechanism the verdict flagged as asserted-but-unverified). This in-game gate was the
   shipping bar for the feature and is cleared (the cask renders upright, the box rows carry).

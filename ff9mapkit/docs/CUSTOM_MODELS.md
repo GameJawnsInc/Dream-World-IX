@@ -336,7 +336,7 @@ and `AnimationClip`s directly.
 > skinned/animated battle path (2026-07-05):** a 56-bone Goblin (`GEO_MON_B3_001`, id 152) reskinned
 > purple rendered + animated normally in a real battle, the loose FBX winning over Moguri's Goblin
 > texture from a higher-priority `FolderNames` folder. (Battle models load on battle ENTRY, not via
-> F6 — relaunch to pick up a fresh loose override.)
+> the debug menu — relaunch to pick up a fresh loose override.)
 
 > **Alias models (character battle forms, alt outfits) resolve through the engine's rename chain.**
 > ~71 catalog ids ship no prefab under their own id — a character's battle-form BODY is the very
@@ -504,7 +504,7 @@ rich (`_modeldb.py` / `archetypes.py` / InfoHub), and field has zero extra plumb
 - **Scale** — `WMActor.SetScale` uses 0–64 ints × `1/256` with per-actor overrides.
 - **Position** — world 256× fixed-point + block-wrap, vs field `frame="world"` walkmesh coords.
 - **`SmoothFrameUpdater_World`** — an optional 60fps Lerp layer (not a distinct anim driver);
-  skippable via the `Skip` idiom already understood from the F6 overworld work.
+  skippable via the `Skip` idiom already understood from the debug-menu overworld work.
 - **Net-new world actor registration needs DLL** — `WMActor.Initialize()` / `WMAnimationBank`
   hardcode the ~6 world actors. **Reskinning/swapping an existing world actor's GEO needs no DLL.**
 

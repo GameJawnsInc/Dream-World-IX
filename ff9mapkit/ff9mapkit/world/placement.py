@@ -7,7 +7,7 @@ synth-blob's triple in-game stranding offline (its walkable top was wound down-f
 1. Ground = a DOWN ray. Walking: origin ``y + 2.34375``, INFINITE reach downward -- ``ff9.rayDistance``
    (2.8) is passed to ``WMBlock.Raycast`` but the parameter is DEAD (never read; verified in source
    2026-07-12), so a step DOWN of any height is legal and only the climb ceiling exists. Sky (spawn /
-   arrival / the F6 teleport re-ground / flying actors): origin ``y + 400``, infinite.
+   arrival / the debug-menu teleport re-ground / flying actors): origin ``y + 400``, infinite.
 2. **Every miss resolves to ground = 0** (ocean level): block missing/not-ready, or no triangle hit.
    An interior miss strands the player at Y=0 under the land; a WATER-area miss is ALSO an invisible
    VEHICLE WALL (movement into a no-walkmesh region is rejected -- airship-proven in-game) and a void

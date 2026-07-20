@@ -346,7 +346,7 @@ explicit Unity `mscorlib` avoid a double-`mscorlib` conflict.
   FileVersion) — it fires on a real engine swap/update.
 
 - **RELAUNCH required.** A scripts DLL loads **once at the title screen** (`TitleUI.cs` → `Assembly.LoadFile`).
-  **F6 → Reload does NOT re-load it** (like an engine-DLL or CSV-startup change). Deploy prints a relaunch note;
+  **~ → Reload does NOT re-load it** (like an engine-DLL or CSV-startup change). Deploy prints a relaunch note;
   close FF9 fully and relaunch after deploying a scripted ability.
 
 ---
@@ -358,7 +358,7 @@ explicit Unity `mscorlib` avoid a double-`mscorlib` conflict.
   ability never invokes a compiler (the whole channel is a no-op) and *drops* any stale `Scripts/` tree from a
   prior build (so removing the last scripted ability un-ships the DLL).
 - **Deploy:** `deploy_field.py` syncs the DLL reversibly (it rides the CSV-revert idiom) and copies the `Sources/`
-  for provenance. Because the DLL loads at the title, **relaunch FF9** after the deploy (F6 won't pick it up).
+  for provenance. Because the DLL loads at the title, **relaunch FF9** after the deploy (a menu reload won't pick it up).
 - **Revert:** `py tools/scroll_out/revert_deploy_<id>.py` restores the slot (removing the DLL + CSV deltas).
 
 ---
@@ -395,7 +395,7 @@ Scripted formulas are the **last** lever, not the first — they carry the versi
 | `ff9mapkit lint` → `ERROR … needs a C# compiler` | no `csc` on the build machine | install VS Build Tools, or `set FF9_CSC=<path to csc.exe>` (the .NET Framework csc works) |
 | build → `ScriptCompileError` with csc diagnostics | the `body` / template C# doesn't compile against this engine | fix the C# (the diagnostics name the line); clone a template as a starting point |
 | build → "needs your FF9 install / managed DLLs" | no FF9 install to compile against | build on the machine with FF9 installed (the DLL is version-coupled to it) |
-| `Memoria.log` → `Unknown script id: N` | the DLL didn't load / the id didn't bind | relaunch FF9 (F6 won't load the DLL); check the DLL name matches the mod folder |
+| `Memoria.log` → `Unknown script id: N` | the DLL didn't load / the id didn't bind | relaunch FF9 (a menu reload won't load the DLL); check the DLL name matches the mod folder |
 | `Memoria.log` → "incompatible with the current version of Memoria" | a **stale** DLL (compiled against a different engine) | re-deploy so the kit re-compiles against the current install (deploy + the health check warn on this drift *before* the game does — §7) |
 | the spell inflicts no status | the `script` formula doesn't apply statuses | use `magic_damage` (or a `body` calling `TryAlterMagicStatuses()`); the build warns about this |
 | the spell shows the base MP cost in the field menu | a `[code=MPCost]` effect is a **battle**-side hook | expected — the field menu reads the base cost; the effect applies in battle |
@@ -456,7 +456,7 @@ flag = "hard_mode"    # OPTIONAL gate: scale only while this gEventGlobal BIT is
 Scales are `0.05`–`20.0` (unset = `1.0`); HP clamps at 9,999,999 logical, byte stats at 255. The block is
 **mod-global** (the DLL is per deployed folder): a campaign may repeat an *identical* block on several
 members, but two different blocks refuse at build. With `flag`, the gate is read fresh at every battle —
-seed it from `[startup]`/an event for a hard-mode journey, or toggle it live with **F6 → Flags** while
+seed it from `[startup]`/an event for a hard-mode journey, or toggle it live with **~ → Flags** while
 testing; the bit clear (or any state hiccup) means *vanilla*, never a broken battle. Like the whole channel
 it compiles at build time (needs `csc` — the lint gate names it) and loads once at title (**relaunch**).
 
@@ -482,7 +482,7 @@ the `IsDmg9999` cheat forces *player* damage to 9999 after this regardless of th
 
 **Flag-gate granularity differs between the two.** A gated feature is re-checked every time its hook fires,
 so the toggle latency follows the hook: `[rebalance]` gates at damage time (**per hit**), so flipping the bit
-with F6 → Flags takes effect *immediately, mid-battle*; `[difficulty]` gates at battle init (**per battle**),
+with the debug menu (~) → Flags takes effect *immediately, mid-battle*; `[difficulty]` gates at battle init (**per battle**),
 so its bit only bites from the *next* battle. Pick the block whose cadence matches the effect you want (a live
 mid-fight damage swing → rebalance; a per-encounter difficulty toggle → difficulty). ★ Both in-game proven.
 

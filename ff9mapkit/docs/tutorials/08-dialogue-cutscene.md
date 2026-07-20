@@ -92,5 +92,5 @@ ff9mapkit lint <project>\<name>.field.toml
 py tools\deploy_field.py <project>\<name>.field.toml     # or build + install (tutorial 01 §4-5)
 ```
 
-A `once = true` cutscene will not replay after its flag is set — retest with **F6 → Flags**
+A `once = true` cutscene will not replay after its flag is set — retest with **~ → Flags**
 (clear the guard flag), a fresh New Game, or `once = false` while iterating.

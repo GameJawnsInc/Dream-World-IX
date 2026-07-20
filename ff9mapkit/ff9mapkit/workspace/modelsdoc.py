@@ -270,7 +270,7 @@ class ModelsDoc(QWidget):
         mint.addStretch(1)
         v.addLayout(mint)
 
-        hint = QLabel("Mesh edits show on F6 → Reload; edited ANIMATIONS and newly MINTED ids need a game "
+        hint = QLabel("Mesh edits show on ~ → Reload; edited ANIMATIONS and newly MINTED ids need a game "
                       "relaunch (clips + DictionaryPatch load at startup).")
         hint.setWordWrap(True)
         hint.setProperty("role", "muted")
@@ -608,7 +608,7 @@ class ModelsDoc(QWidget):
         if mod is None:
             return
         self._kit(["model-import", glb, "--deploy", mod], subject="Import model",
-                  ok_next="Override deployed. Mesh edits: F6 → Reload on a field using the model. "
+                  ok_next="Override deployed. Mesh edits: ~ → Reload on a field using the model. "
                           "Edited animations need a game RELAUNCH.")
 
     def on_model_mint(self):
@@ -648,7 +648,7 @@ class ModelsDoc(QWidget):
         if not files:
             return
         self._kit(["model-reskin", token, "--deploy", mod, "--texture", *files], subject="Deploy reskin",
-                  ok_next="Reskin deployed. Field models: F6 → Reload field. Battle/weapon models load "
+                  ok_next="Reskin deployed. Field models: ~ → Reload field. Battle/weapon models load "
                           "on battle entry — a RELAUNCH is the sure path.")
 
     def browse_model_mod(self):

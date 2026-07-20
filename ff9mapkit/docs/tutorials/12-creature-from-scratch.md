@@ -89,7 +89,7 @@ dialogue = "Grew here all by myself!"
 anims = { stand = 60001 }     # the key step 3 printed
 ```
 
-Redeploy, **relaunch** (new `3DModel` + anim keys register at startup), F6 → warp to the field.
+Redeploy, **relaunch** (new `3DModel` + anim keys register at startup), ~ → warp to the field.
 
 ## 5. Redeploys keep your anim registration
 

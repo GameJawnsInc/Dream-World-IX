@@ -9,7 +9,7 @@
 #   [[equipment]]     -> StreamingAssets/Data/Characters/DefaultEquipment.csv (a delta)       [items_equipment]
 #
 # All four are read ONLY at a true New Game (FF9Play_Init / FF9Item_Init) — so the proof is a New
-# Game, NOT an F6 warp (which skips them). At New Game the engine seeds Zidane into party slot 0
+# Game, NOT an debug-menu warp (which skips them). At New Game the engine seeds Zidane into party slot 0
 # (FF9Play_SetParty(0, Zidane); slots 1-3 = NONE), so [party] adds the OTHERS on top.
 #
 # Entry plumbing (engine-independent, no DLL): the stock New Game loads field 70, whose mod override
@@ -57,10 +57,10 @@ spawn = [0, -837]
 # ===================== the four starting-state channels (the capstone) =====================
 
 # 1) [startup] — assert the story BEAT (ScenarioCounter) + a custom story bit at field load (.eb lever).
-#    On a custom field the beat gates no content, so prove it via F6 -> Flags (ScenarioCounter == 2600,
+#    On a custom field the beat gates no content, so prove it via the debug menu (~) -> Flags (ScenarioCounter == 2600,
 #    bit 8712 == 1). The presets prepend to Main_Init and nothing overwrites them (synthesized field).
 [startup]
-scenario = 2600                         # a recognizable beat (Dali); chosen to be obvious in F6 -> Flags
+scenario = 2600                         # a recognizable beat (Dali); chosen to be obvious in ~ -> Flags
 flags = [{ flag = 8712, value = 1 }]    # a custom-band story bit (safe band >= 8712, clear of real FF9 usage)
 
 # 2) [party] — who's in the MENU/BATTLE roster. Zidane is already party slot 0 at New Game, so add only

@@ -74,7 +74,7 @@ def cell_to_block(cell_x: int, cell_z: int) -> tuple:
 
 def cell_world_center(cell_x: int, cell_z: int) -> tuple:
     """The world ``(x, z)`` centre of cell ``(cell_x, cell_z)`` -- ``z`` is negated (``w_worldPos2Cell`` inverse).
-    Matches the F6 World-tab cell readout / :func:`ff9mapkit.world.extract.block_world_origin` frame."""
+    Matches the debug-menu World-tab cell readout / :func:`ff9mapkit.world.extract.block_world_origin` frame."""
     return (cell_x * CELL_SIZE + CELL_SIZE // 2, -(cell_z * CELL_SIZE + CELL_SIZE // 2))
 
 

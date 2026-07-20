@@ -14,8 +14,8 @@ animset edit loop). Canonical schema: `ff9mapkit/docs/FORMAT.md` `[[playable]]` 
 in `references/playable-schema.md`); worked example: `ff9mapkit/examples/thirteenth-character/iviv.field.toml`
 (READ ONLY — never edit a bundled example in place).
 
-Test loop: deploy -> **RELAUNCH** (the CSVs + name directive load at startup; F6 Reload won't) -> **New
-Game** (the engine inits the party with the new id present) -> F6 warp -> verify menu / fight / save-reload.
+Test loop: deploy -> **RELAUNCH** (the CSVs + name directive load at startup; ~ Reload won't) -> **New
+Game** (the engine inits the party with the new id present) -> debug-menu warp -> verify menu / fight / save-reload.
 
 ## Allocate the character
 

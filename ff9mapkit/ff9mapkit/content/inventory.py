@@ -5,7 +5,7 @@ Writes ``<mod>/StreamingAssets/Data/Items/InitialItems.csv``. ★ The engine rea
 this file **REPLACES the base starting bag entirely**: list the COMPLETE intended inventory. A stacked mod
 folder that also defines ``InitialItems.csv`` SHADOWS this one (the ``text_block`` trap) -> the build lints.
 
-Read ONCE at new-game init, so it only affects a true **New Game** (not an F6 / campaign mid-game entry).
+Read ONCE at new-game init, so it only affects a true **New Game** (not a debug-warp / campaign mid-game entry).
 It is mod-global (one bag per mod) and lives on the ENTRY field's ``field.toml`` -- emitted at the mod-write
 stage, not into any field's ``.eb``. (memory project-ff9-items-equipment / project-ff9-branch-lanes.)
 

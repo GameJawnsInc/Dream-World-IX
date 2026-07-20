@@ -721,7 +721,7 @@ def status_data_seeds(specs) -> list:
 
 def name_directive_lines(specs) -> list:
     """The mod-global ``CharacterDefaultName <id> <SYM> <name>`` DictionaryPatch lines (one per language),
-    ordered by spec then LANGS. DataPatchers reads these at LAUNCH (a relaunch, not F6, applies a name change)."""
+    ordered by spec then LANGS. DataPatchers reads these at LAUNCH (a relaunch, not the menu reload, applies a name change)."""
     lines = []
     for s in specs:
         for lang in LANGS:

@@ -163,7 +163,7 @@ while iterating on art or geometry.
 Copy the built folder into the game install (next to `FF9_Launcher.exe`), or build with
 `--out` pointing straight at the game's mod folder. Reach the field via a gateway from a
 real field (add a `[[gateway]]` to it in an existing field), or warp straight to it with the
-**F6 debug menu** (Go tab → *Warp to field*, with a search filter), and play. The F6 menu ships
+**debug menu (~)** (Go tab → *Warp to field*, with a search filter), and play. The debug menu ships
 in the `dwix-custom-memoria-*.zip` engine bundle, installable via the Windows installer or
 `ff9mapkit setup --install-engine <zip>`.
 

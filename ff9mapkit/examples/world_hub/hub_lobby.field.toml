@@ -4,7 +4,7 @@
 # (which skip the fade, so you watch the camera settle). It BG-borrows the Treno gate: a DIFFERENT camera than
 # the hub's Gargan Roo, so the entry camera delta (and thus the drift, if unhidden) is large -- the worst case.
 #
-# Test: F6 -> Warp -> 4502, then walk NORTH (up) a step into the doorway -> you transition into the hub (4500)
+# Test: ~ -> Warp -> 4502, then walk NORTH (up) a step into the doorway -> you transition into the hub (4500)
 # via the standard fade. If the camera is already settled when the fade lifts, the fade hides it (the fix is to
 # give the hub/journey entries a real faded transition); if it still drifts after the fade, it doesn't.
 [field]

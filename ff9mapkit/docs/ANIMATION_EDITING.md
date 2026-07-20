@@ -90,11 +90,11 @@ bundled version). It prints which clips it wrote.
 
 ## 6. Test in-game
 
-**Relaunch FF9** (or use the F6 button below), then move Vivi so she runs. An animation change needs its
+**Relaunch FF9** (or use the debug-menu button below), then move Vivi so she runs. An animation change needs its
 clip cache cleared: the engine caches loaded clips by file path (`AnimationClipReader.LoadedClips`) and a
 plain field reload re-requests the same path, so it keeps the *cached* clip. Two ways to apply a re-deploy:
 
-- **F6 ▸ Go ▸ "Reload + anims"** (fast) — clears the clip cache and reloads the field, so the new `.anim`
+- **~ ▸ Go ▸ "Reload + anims"** (fast) — clears the clip cache and reloads the field, so the new `.anim`
   shows without leaving the game. (Needs the shipped/updated engine bundle; plain **Reload field** keeps the
   cached clip on purpose, for when you only changed the mesh — which *does* refresh on a plain reload.)
 - **Relaunch FF9** (always works).
@@ -145,7 +145,7 @@ Revert by deleting the written files under `FF9CustomMap\StreamingAssets\Assets\
 | My edit didn't take / the run looks stock | Your edited clip lost the last-wins race to a pristine duplicate (see above), **or** the edited bone had too few keys and holds a pose. Clean scene + keep the bone's original keys. |
 | "no changed clips to write" | Your edit was below the detection threshold, or you edited a different Action than the one exported. Re-check you edited the `run` Action. |
 | Import: *"the object above bone000 … has a live transform"* | You moved / scaled / rotated the **Armature** object (FF9 can't carry a root-bone parent transform). Reset the Armature to identity, or **Object ▸ Apply ▸ All Transforms** (Ctrl-A), then re-export. |
-| Change doesn't show in-game | F6 reload can keep a cached clip — **relaunch** FF9. Confirm the `.anim` landed under `Animations/8/`. |
+| Change doesn't show in-game | ~ reload can keep a cached clip — **relaunch** FF9. Confirm the `.anim` landed under `Animations/8/`. |
 | The `.anim` landed under a *different* `Animations/<N>/` than the model's id | Correct: many clips (especially NPC-variant idles/walks) live in a **donor** model's folder — the engine reads them from there, and the kit writes the override where the engine looks. Note a donor-folder clip is **shared**: the override affects every model that plays it (the import prints a warning naming the folder). |
 | A limb animates nothing after editing | A bone got renamed (check for `bone024.001` etc.). Rename it back to `bone024`. |
 

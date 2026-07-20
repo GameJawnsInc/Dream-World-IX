@@ -23,7 +23,7 @@
 #
 # Build/deploy:  py -m ff9mapkit build-all examples/stolen-ember/campaign.toml
 #                py tools/deploy_campaign.py examples/stolen-ember/campaign.toml
-# Test:          relaunch (new folder+ids) -> F6 -> Warp to field -> 30100
+# Test:          relaunch (new folder+ids) -> ~ -> Warp to field -> 30100
 
 [campaign]
 name            = "The Stolen Ember"

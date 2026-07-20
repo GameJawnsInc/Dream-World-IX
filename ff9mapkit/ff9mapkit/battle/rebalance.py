@@ -181,7 +181,7 @@ def render(spec: RebalanceSpec) -> str:
         label = f" ({spec.flag_label})" if spec.flag_label and spec.flag_label != str(spec.flag) else ""
         gate = _ovl.flag_gate_cs(spec.flag, label=spec.flag_label, indent=" " * 16)
         gate_comment = (f"Gated on gEventGlobal bit {spec.flag}{label}: bit CLEAR (or any state hiccup) = "
-                        f"vanilla; toggle live via F6 -> Flags.")
+                        f"vanilla; toggle live via the debug menu (~) -> Flags.")
     else:
         gate = ""
         gate_comment = "Always on (no flag gate)."

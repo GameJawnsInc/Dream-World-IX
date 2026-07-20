@@ -162,7 +162,7 @@ A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs
   used by the Steam release). A **novel** field (built from scratch or BG-borrowing real art) runs on a
   **stock, unmodified Memoria**. A **forked** field needs a small bundled patch set
   ([`memoria-patches/`](../../memoria-patches/), `s23`–`s34`) to restore the `fldMapNo`-keyed behaviors
-  noted above; the bundle also carries `s22`, the F6 debug menu (below). See [`ENGINE.md`](ENGINE.md)
+  noted above; the bundle also carries `s22`, the in-game debug menu (~) (below). See [`ENGINE.md`](ENGINE.md)
   for exactly what's stock vs. patched.
 
 **p0data**
@@ -184,8 +184,8 @@ A quick reference to the terms used across the Dream World IX / `ff9mapkit` docs
   `model-*` commands export, edit, mint, and animate them. See [`CUSTOM_MODELS.md`](CUSTOM_MODELS.md)
   and [`ANIMATION_EDITING.md`](ANIMATION_EDITING.md).
 
-**The F6 debug menu**
-: An in-game menu (toggled with F6) that ships in the engine bundle as a user-facing tool. Four
+**The in-game debug menu (~)**
+: An in-game menu (toggled with the debug menu (~)) that ships in the engine bundle as a user-facing tool. Four
   context-adaptive tabs — **Go / Cheats / Flags / Time** — work on a field, in battle, and on the
   overworld: reload the current field, warp to any registered field id, teleport, set story flags,
   give items, toggle cheats, change the time scale; on the overworld, also swap vehicles, teleport

@@ -13,9 +13,9 @@ disable-model-invocation: true
 Most tasks need NO engine rebuild. A novel field (from-scratch or BG-borrow) runs on **stock
 Memoria**; mod CONTENT — fields, campaigns, battles, models, audio, items — deploys without
 touching the DLL (see the `deploying-ff9-mods` skill). Only an **engine-code** change needs a
-rebuild: editing/adding a `memoria-patches/` patch, wrapping a new fork gate, an F6-menu
+rebuild: editing/adding a `memoria-patches/` patch, wrapping a new fork gate, an debug-menu
 feature. If it is not certain the change is engine-side, STOP and ask the user before
-proceeding. A DLL change also requires a full game **relaunch** (F6 reload is not enough) and
+proceeding. A DLL change also requires a full game **relaunch** (~ reload is not enough) and
 a human playtest — the agent cannot see the running game.
 
 ## Back up the DLL first
@@ -57,7 +57,7 @@ in `ff9mapkit/docs/FORK_IDGATE_MAP.md`.
 ## The verification harness
 
 `py tools/verify_fork_gates.py` bakes each s29 gate's seed + observability verdict (`--list`
-= the table; `--emit <field>` = a per-target fork+deploy+F6 playbook). The remap only fires
+= the table; `--emit <field>` = a per-target fork+deploy+~ playbook). The remap only fires
 when the deploy emitted `ForkDonorPatch.txt` (`<forkId> <donorRealId>` lines, read at launch).
 Method + findings: memory `project-ff9-fork-verification-harness`.
 
@@ -71,7 +71,7 @@ Method + findings: memory `project-ff9-fork-verification-harness`.
 ## Engine-independence split
 
 A NOVEL field runs on stock Memoria; a FORKED field REQUIRES the custom bundle (stock +
-s23–s33 + the F6 menu) — without it a fork loses the id-gated engine behaviors (Dante's
+s23–s33 + the debug menu) — without it a fork loses the id-gated engine behaviors (Dante's
 off-mesh exemption, narrow-map width, the fake-battle return, the softlock fixes). The shipped
 faithful-opening therefore ships our custom Memoria (`dwix-custom-memoria-*.zip` = the dev
 engine). Canonical statement + install paths: `ff9mapkit/docs/ENGINE.md`.

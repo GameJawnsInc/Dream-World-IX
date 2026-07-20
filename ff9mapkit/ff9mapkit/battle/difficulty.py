@@ -22,7 +22,7 @@ are settable Bytes; ``FF9StateSystem.EventState.gEventGlobal`` is a public ``Byt
 break a battle (an EventState hiccup means the gate reads closed -> no scaling).
 
 Flag-gated mode is the journey author's "hard mode": seed the bit via ``[startup]``/``[[flag]]``/an event,
-toggle it live via F6 -> Flags for testing. RELAUNCH-scoped like the whole scripts channel.
+toggle it live via the debug menu (~) -> Flags for testing. RELAUNCH-scoped like the whole scripts channel.
 """
 from __future__ import annotations
 
@@ -187,7 +187,7 @@ def render(spec: DifficultySpec) -> str:
         label = f" ({spec.flag_label})" if spec.flag_label and spec.flag_label != str(spec.flag) else ""
         gate = _ovl.flag_gate_cs(spec.flag, label=spec.flag_label)
         gate_comment = (f"Gated on gEventGlobal bit {spec.flag}{label}: bit CLEAR (or any state hiccup) = "
-                        f"vanilla; toggle live via F6 -> Flags.")
+                        f"vanilla; toggle live via the debug menu (~) -> Flags.")
     else:
         gate = ""
         gate_comment = "Always on (no flag gate)."

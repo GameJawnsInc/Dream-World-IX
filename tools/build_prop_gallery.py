@@ -4,7 +4,7 @@ renders the way it does in the game), for the human to identify by appearance + 
 ACC tokens into named prop archetypes -- the same loop the NPC gallery used for characters.
 
 Props are non-interactive (no talk), so identify by left->right position + the per-token field locations
-printed below (warp there via F6 to see the prop in its real scene).
+printed below (warp there via the debug menu (~) to see the prop in its real scene).
 
 Usage:
   py tools/build_prop_gallery.py --batch 0          # the unnamed, in-game-placed ACC tokens, 8/batch
@@ -103,7 +103,7 @@ def main():
         lines.append("")
         locs, total = MFU.usage(m.id, limit=5) if m else ([], 0)
         where = "; ".join(f"{fid}={nm.encode('ascii', 'ignore').decode().strip()}" for fid, nm in locs)
-        rows.append((tok, pose, total, where))         # field IDs included so the human can F6 -> Warp
+        rows.append((tok, pose, total, where))         # field IDs included so the human can ~ -> Warp
 
     out = IHTEST / "gallery.field.toml"
     out.write_text("\n".join(lines), encoding="utf-8")

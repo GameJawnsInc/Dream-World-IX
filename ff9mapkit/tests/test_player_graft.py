@@ -305,7 +305,7 @@ def test_savepoint_director_extracted_and_grafted():
 def test_savepoint_spawn_y_normalized():
     # P6.1 (docs/SAVEPOINT.md): the save Moogle's Init height (-362, standing ON the barrel) differs from its
     # settled height (-2, IN the barrel), so a fork shows a one-shot spawn-then-drop (the source field's
-    # entrance fade hides it; F6-warp does not). The carry AUTO-FIXES it -- the carried Moogle spawns at rest.
+    # entrance fade hides it; debug-menu warp does not). The carry AUTO-FIXES it -- the carried Moogle spawns at rest.
     from ff9mapkit import extract
     donor = extract.extract_event_script("fbg_n08_udft_map122_uf_sto_0")
     eb = EbScript.from_bytes(donor)

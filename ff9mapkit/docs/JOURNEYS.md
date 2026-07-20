@@ -230,7 +230,7 @@ across mod folders):
 > `[[journey.link]]` template. The boundary's actual member names are still wired by **Fill entry & links from
 > forks** (`reconcile_arc_journey`) after the regions are forked. So: *seed → grow → fork each → reconcile → deploy.*
 > At deploy time the **Build & Deploy** journey panel (and `deploy_journey.py --newgame {none,hub,entry}`) picks
-> where New Game lands: **none** (reach the hub via F6), **hub** (the selector menu — `retarget_newgame_warp`,
+> where New Game lands: **none** (reach the hub via the debug menu (~)), **hub** (the selector menu — `retarget_newgame_warp`,
 > seamless), or **entry** (STRAIGHT into the opening field, no menu — `wire_newgame_from_stock`, keeps the real
 > opening FMV; single-journey arc only, since a multi-journey hub has no single opening). For a faithful single-arc
 > recreation, **entry** is the base-game-true front door.
@@ -385,7 +385,7 @@ in-game playtest of the one-shot path):
   flag window → the link rewrites → emit + deploy the hub field), capturing each sub-tool's own revert into
   ONE reverse-order `tools/scroll_out/revert_journey.py`. Fail-closed: any sub-step non-zero aborts after
   writing the partial revert. **New Game is NOT touched by default** — the field-70 override is SINGLE-OWNER,
-  so forcing it would hijack an existing hub (e.g. a live World Hub); reach the new hub via **F6 → Warp**, or
+  so forcing it would hijack an existing hub (e.g. a live World Hub); reach the new hub via **~ → Warp**, or
   pass `--wire-newgame` to opt into making it the New-Game landing. Ends by printing the manual FolderNames +
   relaunch steps (manual, outside the tool; edit `Priorities` to the same order in the same edit — the
   launcher rewrites `FolderNames` from `Priorities` at every Play click). `--apply-links` still runs only the link step (re-apply after a

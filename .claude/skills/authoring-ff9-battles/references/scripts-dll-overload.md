@@ -53,7 +53,7 @@ a raw body and compiles at build (`build._emit_scripts`):
 - The DLL is code bound to the installed `Assembly-CSharp` — a stale DLL throws MissingMemberException
   at cast time. The kit stamps `<dll>.buildinfo.json` and warns on engine drift (`doctor`/deploy).
   Rule: always compile at deploy time; never check in a compiled DLL.
-- **RELAUNCH required** — the DLL loads once at the title screen; F6 Reload does NOT re-load it.
+- **RELAUNCH required** — the DLL loads once at the title screen; ~ Reload does NOT re-load it.
 - **Fully QUIT FF9 before a redeploy that touches the DLL** — a running process memory-maps it and the
   overwrite fails (`OSError: [Errno 22]`); the title screen still holds it.
 

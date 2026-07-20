@@ -1,10 +1,10 @@
-# 02 — The dev loop: edit → deploy → F6
+# 02 — The dev loop: edit → deploy → ~
 
 The fast iteration loop. After the first registration, a field change is testable in seconds with
 no game relaunch.
 
 **Prerequisites:** a repo checkout (the deploy scripts live in `tools/`), and the Dream World IX
-engine bundle for the F6 debug menu ([ENGINE.md](../ENGINE.md)). Without either, use the
+engine bundle for the in-game debug menu (~) ([ENGINE.md](../ENGINE.md)). Without either, use the
 standalone path at the bottom.
 
 ## The loop
@@ -25,9 +25,10 @@ standalone path at the bottom.
    `.ff9deploy.toml` pins another id. Mod-folder resolution: `--mod-folder` → `$FF9_MOD_FOLDER` →
    `.ff9deploy.toml` → `FF9CustomMap`.
 
-3. **Reload in-game with F6.** The F6 debug menu is a draggable popup with four
-   context-adaptive tabs — **Go / Cheats / Flags / Time** — available in fields, battles, and on
-   the overworld:
+3. **Reload in-game with the debug menu.** Press the **`~` tilde/backquote key** (F6 in engine
+   bundles before 2026-07-20 — it moved because stock Memoria binds F6 to a cheat hotkey) to open a
+   draggable popup with four context-adaptive tabs — **Go / Cheats / Flags / Time** — available in
+   fields, battles, and on the overworld:
 
    - **Go** — *Reload field* (re-reads the current field's `.eb`/`.mes`/scene/walkmesh/art from
      disk) and *Warp to field* (any registered id, with a search filter and optional
@@ -37,7 +38,7 @@ standalone path at the bottom.
      event fired even when dialogue text is shadowed by another mod folder.
    - **Time** — 0.25–4× time scale.
 
-   After an edit: redeploy → **F6 → Go → Reload field**.
+   After an edit: redeploy → **~ → Go → Reload field**.
 
 ## When a relaunch is still required
 
@@ -63,7 +64,7 @@ Game only with `--newgame hub|entry`. Installed copies without a repo checkout u
 equivalents: `ff9mapkit deploy-campaign`, `ff9mapkit deploy-journey`, and `ff9mapkit newgame <id>`
 (`newgame` writes immediately; `--dry-run` to preview).
 
-## Standalone path (no test slot, no F6)
+## Standalone path (no test slot, no debug menu)
 
 `ff9mapkit build … --mod-name MyMod` → copy the mod folder into the game install → register it in
 `Memoria.ini [Mod] FolderNames` **and** `Priorities` (same order; the launcher rewrites

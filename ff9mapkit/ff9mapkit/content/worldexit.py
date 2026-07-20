@@ -38,7 +38,7 @@ arrive coords into the position vars] [sets ``D8:2`` NONZERO so nothing
 overwrites them] [``WorldMap(<recorded state>)`` via the computed argFlag lane
 -- the same mechanism as ``region.field_to_var``]. The player returns to the
 SAME world state they left, at exactly the arrive point. If the state var is
-empty (an F6 warp straight into the field), the exit falls back to the generic
+empty (an debug-menu warp straight into the field), the exit falls back to the generic
 cascade.
 """
 

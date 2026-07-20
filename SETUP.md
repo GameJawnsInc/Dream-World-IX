@@ -194,12 +194,12 @@ text namespaces: [`ff9mapkit/docs/GLOBAL_RESOURCES.md`](ff9mapkit/docs/GLOBAL_RE
 
 ## 4. The dev loop
 
-The fast iteration loop — **edit → deploy → F6 reload**, no relaunch per change — is
+The fast iteration loop — **edit → deploy → ~ reload**, no relaunch per change — is
 [tutorial 02](ff9mapkit/docs/tutorials/02-dev-loop.md). Summary:
 
 ```powershell
 py tools\deploy_field.py myroom\MYROOM.field.toml    # sandbox any field.toml into test slot 4003
-# in-game: F6 → Go → Reload field   (or Warp to field → <id>)
+# in-game: ~ → Go → Reload field   (or Warp to field → <id>)
 ```
 
 A relaunch is only needed for: the first deploy of a new id, a `BattlePatch.txt` change,
@@ -267,7 +267,7 @@ console:
   *Upgrade & restart*; session/layout restore.
 
 > **Installed vs. repo.** The installed Workspace is the end-user front door (Build → *Install to
-> game*, campaign/journey deploy, *Point New Game here*). The dev test slot (4003) + the F6 reload
+> game*, campaign/journey deploy, *Point New Game here*). The dev test slot (4003) + the ~ reload
 > loop need the repo's `tools/`, so they are hidden on an installed copy — set **`FF9_REPO`** to a
 > Dream World IX checkout (or launch from inside one) to light them up.
 

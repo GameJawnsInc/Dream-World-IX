@@ -18,7 +18,7 @@ Value routing (engine-verified): ``v < 1000`` = item id (awarded at game end via
 ``30000`` = the "special" sentinel init (never a slot); ``30001`` = the dig found nothing.
 Drop ODDS are the RNG jump tables (variable-length) -- not editable on this lane.
 
--> project memory: project-ff9-chocobo-hot-cold (offsets + the F6 warp-in recipe).
+-> project memory: project-ff9-chocobo-hot-cold (offsets + the debug-menu warp-in recipe).
 """
 from __future__ import annotations
 

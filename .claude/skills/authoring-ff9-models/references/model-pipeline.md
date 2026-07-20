@@ -58,7 +58,7 @@ lines below are verbatim from those sources; everything else is a pointer.
   Zidane F3/F4/F5 + CustomModelField, warned". So "ANY bundled model can be texture-reskinned by
   name without a mesh — the cheapest edit."
 - A weapon reskin = drop ONE PNG at `BattleMap/BattleModel/6/{id}/{id}.png` (texture name = the geoId).
-- "battle models load on battle ENTRY (F6 won't hot-reload them → RELAUNCH to pick up a fresh loose
+- "battle models load on battle ENTRY (a menu reload won't hot-reload them → RELAUNCH to pick up a fresh loose
   override)".
 - `model-deployed` — scan/revert a mod folder's loose model state (overrides / reskins / mints /
   anims / dangling directives).
@@ -86,7 +86,7 @@ lines below are verbatim from those sources; everything else is a pointer.
   (`synth_spin_curves(rest=…)`, `q = yaw * rest`), not replace it."
 - "**A minted ANH name must NOT equal a stock AnimationDB name**" — `deploy_new_anim` refuses
   stock-name collisions.
-- "New keys register at STARTUP → relaunch per new key." For edited EXISTING clips, use the F6
+- "New keys register at STARTUP → relaunch per new key." For edited EXISTING clips, use the debug-menu
   **"Reload + anims"** button — a plain field reload serves the cached clip
   (`AnimationClipReader.LoadedClips`).
 - Redeploy survival: `deploy_field`'s revert/re-apply "PRESERVES foreign DictionaryPatch lines

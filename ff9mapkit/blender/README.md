@@ -90,7 +90,7 @@ A typical pass:
      events. Move/scale it over the trigger spot; set `ff9_message`, `ff9_set_flag` (-1 = none),
      `ff9_once` inline (or flesh out the actions — give_item/gil/requires_flag — in the editor).
    - *Spawn* places the single `FF9_Spawn` marker — where the player appears on entry (the DEFAULT
-     arrival: an F6 warp, or any door without an Arrival marker). Set `ff9_face` to fix the spawn
+     arrival: an debug-menu warp, or any door without an Arrival marker). Set `ff9_face` to fix the spawn
      facing (0=south/toward the camera, 64=west, 128=north, 192=east; -1 keeps the default).
    - *Arrival* drops a per-door arrival marker (`FF9_Arrival_<n>`, a cone) — real FF9 fields land the
      player at a **different spot per door**, and this is that table (`[[player.arrival]]`). Set its
@@ -205,7 +205,7 @@ whatever `ff9mapkit` you have.
    `ff9mapkit model-import "…/model.glb" --deploy "<FF9CustomMap>"`.
 5. **Run that command** in a terminal. One edited model round-trips its mesh **and** any changed animation
    clips (untouched clips keep the bundled version; *Mesh only* = `--no-anims`).
-6. In-game: **F6 → Reload field** to see it (**RELAUNCH** FF9 if it's a brand-new minted id).
+6. In-game: **~ → Reload field** to see it (**RELAUNCH** FF9 if it's a brand-new minted id).
 
 `Like` is normally left blank (the source model is auto-detected from the `.glb` stamp). If your CLI
 predates these commands (`invalid choice: 'model-import'`), update `ff9mapkit`.

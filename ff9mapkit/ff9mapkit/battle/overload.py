@@ -163,7 +163,7 @@ def flag_expr_cs(flag_index: int) -> str:
 def flag_gate_cs(flag_index, *, label: str = "", indent: str = " " * 16) -> str:
     """The shared C# early-return gate a flag-gateable feature emits at the TOP of its hook body: run only
     while a save-backed ``gEventGlobal`` BIT is set (a "hard mode" the author toggles via [startup]/an event
-    /F6 -> Flags). ``flag_index`` None -> ``""`` (always-on, no gate). Sits inside the feature's own
+    /~ -> Flags). ``flag_index`` None -> ``""`` (always-on, no gate). Sits inside the feature's own
     try/catch, so an out-of-range index throws -> caught -> vanilla. ``label`` is the author's raw flag
     spelling (wrapped in parens for the comment when it differs from the index). Cross-feature: both
     [difficulty] and [rebalance] emit an identical gate, so the codegen lives here once."""

@@ -25,7 +25,7 @@ ff9mapkit coop join ff9-XXXX     # player 2 -- with the host's code
 ```
 
 Leave the command running while you play (it hosts the bridge), launch FF9,
-and F6 → Warp → 30003 on both machines. The rest of this page is the manual
+and ~ → Warp → 30003 on both machines. The rest of this page is the manual
 version of the same setup.
 
 ## Manual setup (both players)
@@ -58,7 +58,7 @@ version of the same setup.
 
 4. Both launch the game and stand on the same screen — anywhere. Ghosts
    appear wherever you two share a field; the in-game overlay tells you which
-   field your friend is on. (The co-op room, F6 → Warp → 30003, is a
+   field your friend is on. (The co-op room, ~ → Warp → 30003, is a
    guaranteed meeting spot on any pair of installs.)
 
 With the current custom engine the `[Netsync]` section **hot-reloads**: a

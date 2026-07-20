@@ -87,9 +87,9 @@ Song-0 fork battle BGM (fixed 2b0927b, in-game proven 2026-06-22), quoted verbat
 
 Quoted verbatim from `project-ff9-gateway-regions`:
 
-> - **F6 Reload does NOT refresh a campaign field's `.eb`** — after a `deploy_campaign` redeploy you must fully
->   **RELAUNCH** the game to load the new `.eb` (F6 Reload works for the single-field test slot, not campaign members).
-> - For a clean narrative-state demo, the **F6 → Flags readout is the reliable proof** (it
+> - **~ Reload does NOT refresh a campaign field's `.eb`** — after a `deploy_campaign` redeploy you must fully
+>   **RELAUNCH** the game to load the new `.eb` (~ Reload works for the single-field test slot, not campaign members).
+> - For a clean narrative-state demo, the **~ → Flags readout is the reliable proof** (it
 >   reads `gEventGlobal` directly, immune to art/floors/rendering).
 
 ## Pointers

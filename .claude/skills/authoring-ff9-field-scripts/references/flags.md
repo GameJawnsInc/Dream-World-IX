@@ -15,7 +15,7 @@ Quoted verbatim from CLAUDE.md §7:
 >   of base-game flags); indices > 0xFF need the long-index token encoding (`class|0x20` + 2-byte
 >   LE) — which is why the 8000 band works. `gEventGlobal` index N → byte `N>>3`, bit `N&7`.
 > - A `once=true` event/cutscene won't replay for *testing* once its persistent flag is set —
->   use `once=false`, a fresh New Game, a distinct flag index, or F6 → Flags → reset.
+>   use `once=false`, a fresh New Game, a distinct flag index, or ~ → Flags → reset.
 
 ## The heap map
 
@@ -49,7 +49,7 @@ Historical per-category bands when no `flag_base` is given: EVENT 8000 / CUTSCEN
 
 Quoted verbatim: "**All 5 verbs done** (view/understand/name/create/recreate)."
 
-- VIEW — `ff9mapkit flags` (browse the registry) / `flags-inspect <save>` (decode a save's `gEventGlobal`) + the in-game F6 → Flags tab.
+- VIEW — `ff9mapkit flags` (browse the registry) / `flags-inspect <save>` (decode a save's `gEventGlobal`) + the in-game ~ → Flags tab.
 - UNDERSTAND — the census-grounded scenario→beat table + named bit regions in `flags.py`.
 - NAME — `[[flag]]` tables (name + index) resolved by `flags.resolve_project_flags`; `requires_flag`/`set_flag`/`flag` take a NAME.
 - CREATE — the kit's `.eb` flag encoding (this skill owns it).

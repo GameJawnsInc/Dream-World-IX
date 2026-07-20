@@ -7,7 +7,7 @@ description: Author custom FF9 battle content, zero DLL rebuild. Use for `battle
 
 # Authoring FF9 Battles
 
-Every battle tier is DLL-free (no `Assembly-CSharp.dll` rebuild): backgrounds, stat/AI/choreography tuning, and encounter wiring are data patches on stock Memoria; a genuinely NEW engine formula lives in a separate mod `Memoria.Scripts.<Mod>.dll` compiled at deploy against the installed engine. A `BattlePatch.txt` / DictionaryPatch / Scripts-DLL change needs a game RELAUNCH (not F6-hot). The honest gap map + lever catalog: `ff9mapkit/docs/BATTLE_DESIGN.md`.
+Every battle tier is DLL-free (no `Assembly-CSharp.dll` rebuild): backgrounds, stat/AI/choreography tuning, and encounter wiring are data patches on stock Memoria; a genuinely NEW engine formula lives in a separate mod `Memoria.Scripts.<Mod>.dll` compiled at deploy against the installed engine. A `BattlePatch.txt` / DictionaryPatch / Scripts-DLL change needs a game RELAUNCH (not hot-reloadable -- relaunch). The honest gap map + lever catalog: `ff9mapkit/docs/BATTLE_DESIGN.md`.
 
 ## The 4-channel model
 
@@ -56,7 +56,7 @@ All three in-game proven 2026-07-11. → `references/scripts-dll-overload.md`.
 
 - `battle-telemetry <mod> | --off | --report | --clear` — logs every calc to a JSONL; `--report` = per-ability balance stats. Telemetry IS the verification oracle for `[difficulty]`/`[rebalance]` (byte-exact scaled numbers).
 - `BattlePatch Music:` = the akao **song-play id** (0 = Battle Theme), NOT a file number.
-- BattlePatch / DictionaryPatch / Scripts-DLL changes need a RELAUNCH; F6 → Reload does not re-read them. Fully QUIT FF9 before a redeploy that touches the DLL (the running process memory-maps it — the title screen still holds it).
+- BattlePatch / DictionaryPatch / Scripts-DLL changes need a RELAUNCH; ~ → Reload does not re-read them. Fully QUIT FF9 before a redeploy that touches the DLL (the running process memory-maps it — the title screen still holds it).
 - FieldScene + BattleScene share the GLOBAL `EventDB[id]` — ids must be distinct across both, and across stacked mod folders.
 
 ## Boundary

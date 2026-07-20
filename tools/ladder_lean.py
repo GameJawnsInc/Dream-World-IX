@@ -12,7 +12,7 @@ Fix (faithful, clean byte-wise): graft entries 2/3 into the fork at free slots +
 calls un-NOPed, remapping their entry-arg to the new slots (a same-length 1-byte patch -- no shift), and
 overwrite the player's tag-17 climb with the un-NOPed remapped version (same length, no relayout).
 
-Patches the live EVT_TRENO_RES (7 langs -- bytecode is lang-identical). Reversible. F6 in Treno to test.
+Patches the live EVT_TRENO_RES (7 langs -- bytecode is lang-identical). Reversible. ~ (tilde) in Treno to test.
 Run: py tools/ladder_lean.py
 """
 import datetime
@@ -93,7 +93,7 @@ def main():
         f"for L in {LANGS!r}:\n"
         "    shutil.copyfile(bk/f'{L}-EVT_TRENO_RES.eb.bytes.prelean.{stamp}', live/base/L/'EVT_TRENO_RES.eb.bytes')\n"
         "print('reverted ladder lean')\n", encoding="utf-8", newline="\n")
-    print("\nTEST: F6 in Treno; climb the ladder -> Zidane should now LEAN forward onto the rungs "
+    print("\nTEST: ~ (tilde) in Treno; climb the ladder -> Zidane should now LEAN forward onto the rungs "
           "(0->16 pitch on the way up, 16->0 at the top).")
     print(f"revert: py {rev.relative_to(REPO).as_posix()}")
 

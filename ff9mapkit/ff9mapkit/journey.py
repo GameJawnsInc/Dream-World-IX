@@ -134,7 +134,7 @@ class Journey:
     def hub_scenario(self) -> "int | None":
         """The beat the hub seeds before warping in: the seed's scenario if present, else the bare-row
         ``set_scenario``. (For a multi-campaign journey the seed is applied as the full capstone on the entry
-        field; the hub still seeds the scenario so the F6/select path lands on the right beat.)"""
+        field; the hub still seeds the scenario so the menu-warp/select path lands on the right beat.)"""
         return self.seed.scenario if self.seed.scenario is not None else self.set_scenario
 
 
@@ -1749,7 +1749,7 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
          "# Edit [Mod] Priorities to the SAME order in the same edit (game+launcher closed) -- the launcher",
          "# rewrites FolderNames from Priorities at every Play click, so a FolderNames-only edit is reverted.",
          f"# ONE-SHOT: `py tools/deploy_journey.py {jref} --apply` runs steps 1-3 (campaigns + links + hub) + "
-         "seeds the entry + writes ONE revert. New Game is NOT touched (reach the hub via F6; add "
+         "seeds the entry + writes ONE revert. New Game is NOT touched (reach the hub via the debug menu (~); add "
          "--newgame hub|entry to opt in).",
          ("# (the manual steps below do NOT apply [journey.seed] -- use --apply for a seeded journey)"
           if seeded else ""),
@@ -1800,7 +1800,7 @@ def render_deploy_playbook(manifest: JourneyManifest, *, hub_toml: str = "<hub.f
     else:
         L.append("#   (no cross-campaign links)")
     L.append("")
-    L.append(f"# 3. Emit + deploy the hub field into its OWN folder {plan.hub_folder!r} (reach it via F6 -> Warp; "
+    L.append(f"# 3. Emit + deploy the hub field into its OWN folder {plan.hub_folder!r} (reach it via ~ -> Warp; "
              "New Game stays untouched):")
     L.append(f"py -m ff9mapkit assemble-journey {jref} --out {hub_toml}")
     if plan.hub_field_id is not None:

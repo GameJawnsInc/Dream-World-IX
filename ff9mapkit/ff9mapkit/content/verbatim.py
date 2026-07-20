@@ -10,7 +10,7 @@ only **remaps the `Field()` destinations**; the field then runs its real logic. 
 The declarative content blocks ([[npc]]/[[gateway]]/...) are NOT used in this mode -- the `.eb` is whole, so
 there is nothing to synthesize. Pair with a `[startup]` block to boot a chosen beat. LIMITS (vs a perfect
 clone): the donor `.mes` text is a separate carry (TXIDs may not resolve until then), and a fork reached by
-F6-warp has no entrance fade to mask first-frame model streaming.
+debug-menu warp has no entrance fade to mask first-frame model streaming.
 """
 from __future__ import annotations
 

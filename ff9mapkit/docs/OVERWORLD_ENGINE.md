@@ -1,9 +1,9 @@
 # Overworld (WorldMap / "WM") engine mechanics — Memoria/FF9
 
-Reverse-engineered while building the **F6 overworld debug tools** (2026-07-01). It is all C# in the Memoria
+Reverse-engineered while building the **overworld debug-menu tools** (2026-07-01). It is all C# in the Memoria
 engine (built from FF9's own game bytes), so every mechanic here is ultimately traceable — including the teleport
 reverter at the bottom, which is exactly that: plain C# (Memoria's frame smoother), **not** a
-native driver. Companion: the F6 menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
+native driver. Companion: the debug menu lives in `Ff9mkDebugMenu.cs`; `ff9mapkit world-locate`
 decodes the entrance dispatch.
 
 ## Update / tick architecture
@@ -37,20 +37,20 @@ decodes the entrance dispatch.
 - **Vehicle / control mode:** `gEventGlobal[190]` = `ff9.w_moveCHRControl_No`; `ff9.w_movementChange()` re-reads
   it (in the non-Bee scene) and applies the movement profile from `w_moveCHRControl[]` (ff9.cs:~1467). Modes:
   0 foot · 1–5 chocobo (terrain variants) · 6 gold-flying · 7 Blue Narciss (boat) · 8 Hilda Garde III · 9
-  Invincible. Boarding is event-driven (swaps the controlled actor). The F6 **vehicle swap** does the null-safe
+  Invincible. Boarding is event-driven (swaps the controlled actor). The debug-menu **vehicle swap** does the null-safe
   *profile* swap (`[190]` + `w_movementChange`): terrain access / flight / speed / camera change, but Zidane keeps
   his model, and flying gives flying *collision* without ascent (no actor swap).
   `gEventGlobal[102]` = a separate `wmID` used by `WorldConfiguration`.
 - **⚠ The profile swap is NOT safe in every world state (crash class).** `w_movementChange` is C#-null-safe, but
   each overworld state runs a different `EVT_WORLD_WORLDxx` event-script dispatcher. **Boarding a vehicle sets
-  `[190]` AND the per-vehicle nav state (`Map.Byte[24/25/26]`) together; the F6 swap pokes only the byte.** So on
+  `[190]` AND the per-vehicle nav state (`Map.Byte[24/25/26]`) together; the debug-menu swap pokes only the byte.** So on
   any state whose **per-frame vehicle switch (entry-1/tag-1, `op_0B` on `Global.Byte[190]`)** has real nav arms
   (chocobo / air / boat), forcing a mode — *even one the game legitimately uses there* — drives that arm on
   uninitialised nav state → a `CalcStack` expression underflow (`[CalcStack.pop] topOfStackID == 0`, spammed
   per-frame) → crash. **In-game proven (2026-07-02): on WORLD00 both chocobo (1–5) AND airship (7–9) crash;
   only foot (0) is safe.** The underflow itself is soft (`CalcStack.pop` returns 0 and continues); the crash is a
   secondary fault off the corrupt branch. The real game never hits this because it always boards through the
-  event sequence. **Fix (s22, F6 menu, commit 887ea62 + follow-up):** the vehicle buttons are gated per
+  event sequence. **Fix (s22, debug menu, commit 887ea62 + follow-up):** the vehicle buttons are gated per
   `wldMapNo` (`VehicleAllowByWorld` in `Ff9mkDebugMenu.cs`) + a belt-and-braces refuse in `SetVehicle`:
 
   | wldMapNo | dispatcher | switch shape | allowed modes |
@@ -88,7 +88,7 @@ decodes the entrance dispatch.
   actually loaded (see below).
 - **The game's own debug menu:** `WMBeeMenu` (the "Bee scene" = `WorldMapDebug`). Teleport buttons =
   `SetPosition(fixedPt) + w_movementChrInitSlice()`; disc = 501/502; change char = `WMScriptDirector.SetToNextChracter`.
-  It is the ground-truth reference the F6 tools copy.
+  It is the ground-truth reference the debug-menu tools copy.
 
 ## The 13 world states (dispatchers) + the exit cascade (RE 2026-07-02)
 
@@ -122,7 +122,7 @@ only `WorldDisc1`/`WorldDisc4` prefabs exist) but the **same `.eb` dispatcher fa
 | **9008** | free-roam | **disc 4** | + **Invincible (9)** | sole state at SC≥11090; + {2752,2901 Memoria}; disc-4 art |
 | **9009** | free-roam **superset** | all discs (default) | fullest (foot/chocobo/boat/Invincible) | every band's default arm; 63 fields |
 | **9010** | free-roam, foot-only | disc 1, mid | foot only | baseline (same set as 9002/9011) |
-| **9011** | free-roam, foot-only | disc 1, mid | foot only | baseline; the F6-proven safe vehicle-swap state |
+| **9011** | free-roam, foot-only | disc 1, mid | foot only | baseline; the menu-proven safe vehicle-swap state |
 | **9012** | **cutscene** | discs 2–4 (reused) | scripted (self-sets 190=6) | Chocobo Treasure → Field(1953) |
 
 **Roles:** free-roam area-switch states (9000/02/03/05/07/08/09/10/11) each have the full entry-1/tag-1 dispatcher
@@ -287,7 +287,7 @@ Valid enum names: `environment.WORLD_PLACES` / `WORLD_EFFECTS` (baked from `Memo
 `WorldEffect.cs`). RELAUNCH to apply (parsed at overworld init). The `Title` token (banner rect/timing) is not yet
 exposed. **★ in-game proven 2026-07-02** (`mist = false` forced the disc-1 Mist-Continent mist off).
 
-## SOLVED — F6 overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
+## SOLVED — debug-menu overworld teleport (the `SmoothFrameUpdater_World` reverter) ★ IN-GAME PROVEN 2026-07-01
 `SetActorPosition`/`SetPosition` moved the player; it held ~2 render frames, then snapped back to the **exact**
 prior position on the first logical tick. **Root cause: `Memoria.SmoothFrameUpdater_World`** — Memoria's own
 60fps world frame-interpolation smoother (active when render fps > the 20fps logical tick; `SmoothFrameUpdater_World.cs:45`),
@@ -316,7 +316,7 @@ transform. The engine does exactly this whenever it repositions the world contro
 `EventEngine.DoEventCode.cs:1009` (the `CC`/`DefinePlayerCharacter` opcode) and `SceneDirector.cs:124` (scene change).
 `Ff9mkDebugMenu.WorldTeleport` now does, in order: `EventEngine.SetActorPosition` (writes `po.pos[]` + `lastx/y/z` +
 the wmActor transform) → `w_movementChrInitSlice` (re-ground Y) → `w_movementAutoPilotOFF` → **`SmoothFrameUpdater_World.Skip = 2`**
-(the game uses 1; 2 gives margin because the F6 write lands from OnGUI at an arbitrary phase vs the tick). The movement
+(the game uses 1; 2 gives margin because the debug-menu write lands from OnGUI at an arbitrary phase vs the tick). The movement
 tick itself is NOT a reverter — `w_movementUpdate`/`w_movementControl` read the *current* transform (`lastx/y/z` are
 re-derived from `pos0/1/2` each tick) and `w_movementSetheight` rewrites only Y, so the teleported XZ survives.
 Engine patch: `memoria-patches/s22-debug-menu-f6.patch`.
@@ -326,7 +326,7 @@ First authored overworld connectivity: a plain road cell (35,25, east of Dali) �
 entered the journey's forked Ice Cavern (**map 7000**, via the `s28 ForkSiblingField` redirect of the dispatcher's
 `Field(300)`). Recipe:
 
-1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8 & 0x3F00)|(cellX<<2 & 0xFC)|event` (6-bit z — the kit's `pack_cell_tag` refuses z ≥ 64). The F6 **Go** tab (overworld context) shows the live
+1. **Pick the cell + destination.** `num = 0x8000|(cellZ<<8 & 0x3F00)|(cellX<<2 & 0xFC)|event` (6-bit z — the kit's `pack_cell_tag` refuses z ≥ 64). The debug-menu **Go** tab (overworld context) shows the live
    cell (`w_worldPos2Cell` = `(int)(x/32), (int)(z/-32)`, identical to the readout) — use it as the targeting oracle.
    The destination is chosen by cloning a func whose `Byte[39]` routes there (each existing entrance func is `Byte[39]
    == its dispatch case`; e.g. `0x9895` → case 4 → Field 300 = Ice Cavern).
@@ -420,7 +420,7 @@ What it does, generalizing + hardening the manual recipe:
   tiles = never stuck) is the safe default unless the arrival point is guaranteed outside the footprint. Diagnose a
   trap with a point-in-triangle walkability map: if the spot reads walkable it's not a
   topograph trap (look at the placement / a spawn inside the footprint).
-- **⚠ Walkability / escape.** A live soft-lock escapes via **F6 → World → Teleport**. On-foot walkability is
+- **⚠ Walkability / escape.** A live soft-lock escapes via **~ → World → Teleport**. On-foot walkability is
   `w_movementCheckTopographID(limit, id)` (ff9.cs:5769) with on-foot `limit = {0x0010667F, 0xD8FF3CFF}` — **topo 10/36
   walkable, 49/59 blocked** (a building's topo-59 is the wall). `world-entrance` also LINTS the cell
   (`_cell_openness_note`) and warns on mostly-blocked (river/cliff) cells; an open, all-walkable cell is roomier but the
@@ -508,7 +508,7 @@ stored vertex normal — `WMBlock.cs:70` / `WMPhysics.cs:22`), `tangent.x = enco
 walkable plains** (the on-foot mask `0x0010667F/0xD8FF3CFF` admits 0/10/17/36…; **49/58/59 are BLOCKED** — 59 is the
 building-footprint wall, NOT walkable, so do not use it for ground), and palette-stamped terrain-atlas UVs so it
 textures like stock land. **Reachability:** a lone reclaimed cell is an ISLAND (the surrounding stock sea stays
-non-walkable on foot) — prove render+collide with **F6 → World → Teleport** onto the cell's world center
+non-walkable on foot) — prove render+collide with **~ → World → Teleport** onto the cell's world center
 (`x*64+32, -(y*64+32)`); ship on-foot reachability as a **contiguous bridge of reclaimed cells from the coast** (each
 cell just needs its own override — the divert is per-cell/data-driven). This is the FOUNDATION of a true new landmass;
 the remaining Path-D frontier is scale + a coastline/height pass + true new-continent geography.
@@ -520,10 +520,10 @@ broke the baked-prefab deserialization → NRE flood → overworld blackscreen (
 Memoria.log). (2) **`--height 0` z-fights with the sea surface** (the flat plane is coplanar with
 the water → interlaced green/blue strips; functional but ugly). Deploy an open-ocean island at **`--height` a few units
 above 0** to clear the wave plane. ⚠ Raising height under a STANDING player embeds them (down-ray from `player.y+2.34`
-misses the higher surface) — teleport away + back (F6 re-grounds) after a height change, or set height before first
+misses the higher surface) — teleport away + back (the menu teleport re-grounds) after a height change, or set height before first
 arrival. A coast-flush BRIDGE wants `--height 0` at the shore (matches the coast, which bottoms at Y=0).
 
-### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven 2026-07-02, per-cell donor + F6 fix)
+### FAITHFUL coast — `world-coast` (place a REAL FF9 coastline, ★ in-game proven 2026-07-02, per-cell donor + debug-menu fix)
 
 The synthetic `island` profile is a STYLIZED grass/sand slab; a real FF9 coast is layered **animated sub-meshes**
 (`terrain` land + `sea3/4/5` water + a dedicated `beach1` sand/foam mesh driven by `WMRenderTextureBank` — NOT the
@@ -539,7 +539,7 @@ foam rendered on cell (2,17) via a `Donor.txt`=`"18,15"` sidecar (per-cell, not 
 sea is target-`Number`-gated). Trade-off: faithful land is a MOSAIC of real coast pieces (assembled from FF9's actual
 coastline blocks), not an arbitrary outline — the next frontier is authoring coastlines from scratch.
 
-**F6 teleport fix (bundled):** warping onto varied coastal terrain stranded the player under it — NOT a short re-ground
+**debug-menu teleport fix (bundled):** warping onto varied coastal terrain stranded the player under it — NOT a short re-ground
 ray (`w_movementChrInitSlice` already sky-casts infinitely from +400u), but `w_nwpHit` early-returning `defaultHeight=0`
 on a destination block not yet `IsReady` at warp time. Fix: `WMWorld.ForceLoadBlockReadyAt(pos)` force-loads the target
 block (synchronous `LoadBlock` sets `IsReady`) before grounding. Observable only on a FAR/unstreamed warp.
@@ -639,7 +639,7 @@ sea4=57 deep, IDALL `tangent.x` bits 2-7) and ARE the walkmesh; a BOAT (movement
 water render, so a boat floats ~at the surface with the model visible; hidden under the opaque water → no z-fight; `0`
 z-fights, a bigger negative sinks the vehicle — tune with `--height`) carrying `topograph 57` (`WATER_TOPOGRAPH`,
 `tangent.x=228`). Result: a boat sails on top / on-foot is blocked — real ocean. (Before this: `Y=-3`/topo-0 = a land
-floor UNDER the opaque water, so travel happened submerged with the character hidden.) **Test with a boat** (F6 → World
+floor UNDER the opaque water, so travel happened submerged with the character hidden.) **Test with a boat** (~ → World
 → vehicle swap to Blue Narciss if you don't have one) from a NON-parked-on-the-cell save — changing the topograph under
 a parked on-foot actor risks the "no controlled actor" brick (silent black screen, no log; recover by loading a field save or starting a New Game).
 
@@ -691,7 +691,7 @@ Sea1/Sea2 + donor sidecar — so only the water differs):
     transpose tile a pure rotation can't represent). Deploy it beside `--verbatim` of the same block — they should look
     alike. This holds the LAYOUT fixed (a real block's) so the only variable is tile quality — the in-game form of the
     offline 17/17.
-**In-game loop:** relaunch → F6 → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell
+**In-game loop:** relaunch → ~ → World → Teleport to the cell centre (`x*64+32, -(y*64+32)`; the proven demo cell
 (3,17) → `224, -1120`). Remaining frontier: seam-match the corner variant via the connective-adjacency rules instead of
 the 50/50 coin-flip (cosmetic — the game itself coin-flips it).
 
@@ -746,7 +746,7 @@ The overworld ships exactly **two** asset trees: `worldmap/disc1` (used by discs
 disc2/disc3 tree) and `worldmap/disc4` (distinct art; only `WorldDisc1`/`WorldDisc4` prefabs exist).
 Every s34 lookup — override files, `Donor.txt` sidecars, the reclaim fallback prefab — keys on the
 engine's `currentDisc`, so custom land deployed only under `Disc1/` VANISHES once the scenario (or
-the F6 disc switch) crosses the disc-4 threshold (SC ≥ 11090). `world-mirror --mod-folder M` closes
+the debug-menu disc switch) crosses the disc-4 threshold (SC ≥ 11090). `world-mirror --mod-folder M` closes
 the gap: it copies every Block override + sidecar into the `Disc4` tree, gated per cell (the
 destination's real cell must be open ocean, or byte-identical across discs — real cells that differ,
 e.g. (9,17), skip with a warning), and **pins** a sidecar cell's un-overridden donor-prefab
@@ -1045,18 +1045,18 @@ formation 358 with 999 everywhere"). Deploy writes a **whole-file** `discmr.img`
 `<mod>/StreamingAssets/assets/resources/worldmap/wmap/disc{N}/discmr.img.bytes` (the `AssetManager` bundle-branch
 path, `AssetManager.cs:593` → `Assets/Resources/…​.bytes`, case-insensitive; the same convention the `.eb` overrides
 use). Disc 1 and disc 4 have separate tables (disc 4 also backs the `i+254` alternate band); edit both to fully
-re-table. RELAUNCH to apply (it's a bundled asset, not F6-reloadable).
+re-table. RELAUNCH to apply (it's a bundled asset, not menu-reloadable).
 
 **The zone/area layout (the selection key — ★ IN-GAME PROVEN 2026-07-02).** A zone-0-only edit (`[[set]] area = 0`)
-changed *only* the Alexandria/Mist start (F6 `area` 0/1 → uniform scene 359) while every other region kept its normal
+changed *only* the Alexandria/Mist start (menu `area` 0/1 → uniform scene 359) while every other region kept its normal
 encounters — confirming area → zone → table-slice end-to-end. The 355 records are laid
 out **zone-by-zone**. Two hardcoded engine LUTs (baked into `world/worldpack.py`): `w_worldAreaZone` (`ff9.cs:1348`)
-maps each overworld **area** (0–63, the 6-bit `m_GetIDArea` tile field the F6 Go tab (overworld) prints) → one of **25 zones**;
+maps each overworld **area** (0–63, the 6-bit `m_GetIDArea` tile field the debug-menu Go tab (overworld) prints) → one of **25 zones**;
 `w_worldZoneFigure` (`ff9.cs:1415`) gives each zone its count of topograph entries (×2 fog twins = its record count).
 The CSR `zone_info[z] = 2·Σ figure[0..z-1]` places zone `z` at records `[zone_info[z], zone_info[z+1])`. The disc-1
 zones sum to exactly **254 records (0–253)** — which is precisely why the disc-4 alternate offset is `+254`
 (`ff9.cs:9095`): records 254–354 are the disc-4 band. So the authoring flow is: stand where you want to change
-encounters → read `area` off F6 → `[[set]] area = N` (or `zone = Z`), optionally `+ topograph/fog` to narrow within
+encounters → read `area` off ~ → `[[set]] area = N` (or `zone = Z`), optionally `+ topograph/fog` to narrow within
 the slice. `world-encounters --zones` prints the whole `zone → areas → record-slice → topographs` map. Example: zone 0
 (areas 0,1 = the Alexandria/Mist start) = records 0–5, topographs {0,13,37} — record 4 (topo 37) is scene 359, the
 grass encounter proven above.

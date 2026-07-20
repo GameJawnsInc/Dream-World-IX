@@ -189,7 +189,7 @@ def main():
     print(f"\n{chain}")
     print(f"  NOTE: field {target} must be registered -- deploy to it first (e.g. py tools/deploy_field.py <toml>).")
     if not stock:
-        print("  (dev-engine mode. For a STOCK + F6 engine, re-run with --stock to add the field-70 hop.)")
+        print("  (dev-engine mode. For a STOCK engine (no debug-menu patches), re-run with --stock to add the field-70 hop.)")
     print(f"  revert: py {rev.relative_to(HERE.parent).as_posix()}")
 
 
