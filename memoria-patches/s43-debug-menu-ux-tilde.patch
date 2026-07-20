@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
-index f820fc4..3c53ccd 100644
+index f820fc4..2c2b99b 100644
 --- a/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 +++ b/Assembly-CSharp/Global/UI/UIKey/Ff9mkDebugMenu.cs
 @@ -4,7 +4,7 @@ using Assets.Scripts.Common;        // SceneDirector (FF9Wipe_FadeOutEx -- the w
@@ -40,7 +40,7 @@ index f820fc4..3c53ccd 100644
      private GUIStyle _box, _headerBar, _title, _subtitle, _header, _label, _hint, _mono, _statusStyle,
 -                     _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn;
 +                     _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn,
-+                     _row, _chip, _chipX, _labelMid, _sbar, _sbarThumb, _sbarBtn,
++                     _row, _rowOn, _rowDanger, _chip, _chipX, _labelMid, _sbar, _sbarThumb, _sbarBtn,
 +                     _tabStrip, _linkBtn, _footLbl, _footOn, _footOff;
      private Texture2D _hairlineTex;
      private Font _ff9Font;                               // the active menu font, applied to every style (null = built-in default)
@@ -281,10 +281,10 @@ index f820fc4..3c53ccd 100644
              UseCurrent();
          GUILayout.EndHorizontal();
 -        GUILayout.Label("right-click the field to copy that point's (x, z).", _hint);
--
--        DrawDiorama();
 +        GUILayout.Label("Right-click the field to copy that point's (x, z).", _hint);
  
+-        DrawDiorama();
+-
 -        Section("Field");
 -        if (GUILayout.Button("Reload field", _button))
 +        Section("Reload");
@@ -376,19 +376,103 @@ index f820fc4..3c53ccd 100644
                  ApplyFlagBatch(fb.Ops);
              if (GUILayout.Button("edit", _button, GUILayout.Width(46f)))
              {
-@@ -881,9 +955,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -879,11 +953,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
+ 
+         Section("Teleport on the map");
          GUILayout.BeginHorizontal();
++        GUILayout.Label("x", _labelMid, GUILayout.Width(12f));
          _wxText = GUILayout.TextField(_wxText, 8, _field, GUILayout.Width(64f));
++        GUILayout.Label("z", _labelMid, GUILayout.Width(12f));
          _wzText = GUILayout.TextField(_wzText, 8, _field, GUILayout.Width(64f));
 -        if (GUILayout.Button("Go", _primary, GUILayout.Width(40f)))
-+        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))    // match the field tab's Go/here widths
++        if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
              WorldTeleport();
 -        if (GUILayout.Button("here", _button, GUILayout.Width(46f)))
-+        if (GUILayout.Button("here", _button, GUILayout.Width(48f)))
++        if (GUILayout.Button("Here", _button, GUILayout.Width(52f)))
              CopyWorldPos();
          Boolean favSpot = Single.TryParse(_wxText, out Single spXf) && Single.TryParse(_wzText, out Single spZf)
                            && HasWorldPin((Int32)Math.Round(spXf), (Int32)Math.Round(spZf));   // match Go's Single parse; pins are int-encoded
-@@ -1141,7 +1215,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -896,9 +972,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         Int32 cur = CurrentControlNo();
+         Int32 realMask = VehicleAllowMask();
+         Int32 allowMask = _vehicleForceAll ? AllVehicleModes : realMask;
+-        GUILayout.Label("current: " + VehicleName(cur) + " [190]=" + cur + "   -   world state " + WorldMapNo(), _hint);
+-        if (GUILayout.Button((_vehicleForceAll ? "[x]  " : "[  ]  ") + "Ignore allow-list (debug — may CRASH)", _toggleBtn))
+-            _vehicleForceAll = !_vehicleForceAll;
++        GUILayout.Label("Current: " + VehicleName(cur).Trim('(', ')') + "   [190]=" + cur + "   world state " + WorldMapNo(), _hint);
+         VehicleButton("On foot", 0, allowMask, realMask);
+         VehicleButton("Chocobo — plains", 1, allowMask, realMask);
+         VehicleButton("Chocobo — mountains", 4, allowMask, realMask);
+@@ -908,8 +982,10 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         VehicleButton("Hilda Garde III — airship", 8, allowMask, realMask);
+         VehicleButton("Invincible — airship", 9, allowMask, realMask);
+         GUILayout.Label(_vehicleForceAll
+-            ? "OVERRIDE ON — every mode clickable; a FORCED (red) mode drives an unhandled nav arm and will likely CalcStack-crash. Reload a state (e.g. 9009) above, then force-test here."
+-            : "Normally safe only on WORLD02/10/11 (else On foot). Toggle the override to force-test a state's modes.", _hint);
++            ? "OVERRIDE ON — every mode is clickable; a red (forced) mode drives an unhandled nav arm and will likely crash. Reload a state (e.g. 9009) below, then force-test here."
++            : "Greyed modes aren't handled by this world state — forcing them crashes its event script. All modes are safe on WORLD02/10/11.", _hint);
++        if (GUILayout.Button((_vehicleForceAll ? "[x]  " : "[  ]  ") + "Force every mode (may crash)", _toggleBtn, GUILayout.ExpandWidth(false)))
++            _vehicleForceAll = !_vehicleForceAll;
+ 
+         Section("Disc & control");
+         Byte disc = 0;
+@@ -920,14 +996,14 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         if (GUILayout.Button("Restore control", _danger))
+             RestoreControl();
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Disc 4 = ScenarioCounter >= 11090 (re-derived every world load). Switch sets SC + reloads = a story-state jump; toggle back restores your prior SC. Restore control unfreezes a stuck player.", _hint);
++        GUILayout.Label("Disc follows ScenarioCounter, so switching is a story-state jump; toggling back restores your prior counter. Restore control unfreezes a stuck player.", _hint);
+ 
+         // [ff9mapkit] Debug: RE-ENTER the overworld on a chosen dispatcher (9000-9012) -- a faithful full scene
+         // reload (the same deferred shutdown->Replace("WorldMap") path a real field->world exit takes), NOT a
+         // live hot-swap. Lets a tester reach any of the 13 world states without a story-consistent exit/SC combo.
+         // Does NOT bypass VehicleAllowByWorld above -- forcing a non-foot mode after landing can still crash on
+         // a non-benign state; that's a SEPARATE, still-open bug this helps investigate, not fixes.
+-        Section("Reload overworld on state (debug)");
++        Section("Reload overworld on a state");
+         GUILayout.BeginHorizontal();
+         _forceWorldText = GUILayout.TextField(_forceWorldText, 5, _field, GUILayout.Width(64f));
+         if (GUILayout.Button("Go", _primary, GUILayout.Width(46f)))
+@@ -939,7 +1015,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.BeginHorizontal();
+         ForceWorldButton("9007"); ForceWorldButton("9008"); ForceWorldButton("9009"); ForceWorldButton("9011");
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Full reload (fades, ~1s) -- lands at the state's spawn, not your exact spot. Also fixes a scene left corrupted by an earlier build.", _hint);
++        GUILayout.Label("Full reload (fades, ~1s) — lands at the state's spawn, not your exact spot.", _hint);
+ 
+         // [ff9mapkit] Recovery for the overworld 'no controlled actor' BLACK SCREEN (project-ff9-overworld-actor-brick).
+         Section("Recovery");
+@@ -947,23 +1023,25 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         GUILayout.BeginHorizontal();
+         if (GUILayout.Button("Rebuild player actor", _danger))
+             RebuildPlayerActor();
+-        if (GUILayout.Button("Break control (test)", _button))
++        if (GUILayout.Button("Simulate the break (test)", _linkBtn))
+             BreakControlForTest();
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Rebuild = fix a black / 'no controlled actor' overworld (rebuilds the leader's body, re-grounds, rebinds camera). Break (test) = simulate the black screen to verify Rebuild.", _hint);
++        GUILayout.Label("Rebuild fixes a black 'no controlled actor' overworld (rebuilds the leader's body, re-grounds, rebinds the camera). Simulate blanks the screen on purpose so Rebuild can be verified.", _hint);
+ 
+         // [ff9mapkit] Composition READ-BACK: dump a loaded block's ENGINE-SIDE composition (every child mesh as an
+         // OBJ + a manifest of active states / materials / shaders / block flags + the walkmeshes Raycast reads) so
+         // offline tools can diff what the game ACTUALLY built -- post WorldMeshOverride loader, post s34 donor-carry --
+         // against what the kit emitted. The ground-truth instrument for custom-coast visual debugging.
+-        Section("Dump block (read-back)");
++        Section("Dump block");
+         GUILayout.BeginHorizontal();
++        GUILayout.Label("x", _labelMid, GUILayout.Width(12f));
+         _dumpBxText = GUILayout.TextField(_dumpBxText, 4, _field, GUILayout.Width(48f));
++        GUILayout.Label("y", _labelMid, GUILayout.Width(12f));
+         _dumpByText = GUILayout.TextField(_dumpByText, 4, _field, GUILayout.Width(48f));
+         if (GUILayout.Button("Dump", _primary, GUILayout.Width(64f)))
+             DumpBlockFromText();
+         GUILayout.EndHorizontal();
+-        GUILayout.Label("Block-grid x,y (0..23, 0..19); blank = the block under you. The block must be LOADED (stand on or near it). Writes ff9mk_dumps\\block_<x>_<y>\\ next to the game data (OBJ per child mesh + manifest.txt).", _hint);
++        GUILayout.Label("Block-grid x,y (0..23, 0..19); blank = the block under you (it must be loaded — stand on or near it). Writes OBJ meshes + a manifest into ff9mk_dumps\\ next to the game data.", _hint);
+     }
+ 
+     // [ff9mapkit] Block-dump entry: resolve the target cell (typed, or the player's own block from the un-wrapped
+@@ -1141,7 +1219,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
      // [ff9mapkit] Per-world-state vehicle allow-list. Each overworld state runs a DIFFERENT EVT_WORLD_WORLDxx
      // event-script dispatcher (wldMapNo 9000+N -> WORLD00..12). BOARDING a vehicle sets gEventGlobal[190] AND
@@ -397,7 +481,30 @@ index f820fc4..3c53ccd 100644
      // whose per-frame vehicle switch has real nav arms (chocobo / air / boat), forcing a mode -- even one the
      // game legitimately uses there -- drives that arm on uninitialised nav state -> a CalcStack expression
      // underflow ("[CalcStack.pop] topOfStackID == 0", spammed per-frame) -> crash. In-game proven: on WORLD00,
-@@ -1562,7 +1636,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1247,18 +1325,17 @@ public class Ff9mkDebugMenu : MonoBehaviour
+         if ((allowMask & (1 << mode)) == 0)
+         {
+             // Greyed + non-clickable: this world state's dispatcher doesn't handle this vehicle (forcing it
+-            // would crash the event script). GUI.enabled=false is the IMGUI disable idiom.
++            // would crash the event script). The one hint line under the group explains why — no per-row noise.
+             Boolean prev = GUI.enabled;
+             GUI.enabled = false;
+-            GUILayout.Button("- " + label + "   — n/a in this world state", _button);
++            GUILayout.Button(label, _row);
+             GUI.enabled = prev;
+             return;
+         }
+         // Clickable ONLY because the debug override is on (the real allow-list wouldn't permit it here) -> flag it
+-        // red + "FORCED" so the tester knows this is the crash-candidate, not a genuinely-safe mode.
++        // red so the tester knows this is the crash-candidate, not a genuinely-safe mode.
+         Boolean forced = (realMask & (1 << mode)) == 0;
+-        String suffix = forced ? "   — FORCED (may crash)" : "";
+-        if (GUILayout.Button((on ? "* " : "- ") + label + suffix, on ? _tabOn : (forced ? _danger : _button)))
++        if (GUILayout.Button(forced ? label + "   — may crash (forced)" : label, on ? _rowOn : (forced ? _rowDanger : _row)))
+             SetVehicle(mode);
+     }
+ 
+@@ -1562,7 +1639,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          }
      }
  
@@ -406,7 +513,7 @@ index f820fc4..3c53ccd 100644
      // black screen). Runs the same self-heal as the automatic w_frameUpdate hook; a no-op reports "already healthy".
      private void RebuildPlayerActor()
      {
-@@ -1579,7 +1653,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1579,7 +1656,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
      // [ff9mapkit] TEST-ONLY: simulate the 'no controlled actor' black screen (clear the designator + point the camera
      // at the dummy) so "Rebuild player actor" / the auto self-heal can be validated deterministically. The world
@@ -415,7 +522,7 @@ index f820fc4..3c53ccd 100644
      private void BreakControlForTest()
      {
          try
-@@ -1768,7 +1842,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1768,7 +1845,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          }
      }
  
@@ -424,7 +531,7 @@ index f820fc4..3c53ccd 100644
      // the field's Main_Init re-derive its state from the new beat). Handy to nudge a story-gated fork in place.
      private void SetScenarioNow()
      {
-@@ -1780,7 +1854,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -1780,7 +1857,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          try
          {
              FF9StateSystem.EventState.ScenarioCounter = scn;
@@ -433,7 +540,7 @@ index f820fc4..3c53ccd 100644
          }
          catch (Exception err)
          {
-@@ -2042,7 +2116,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2042,7 +2119,9 @@ public class Ff9mkDebugMenu : MonoBehaviour
              Int32 idx, val;
              if (!Int32.TryParse(idxPart, out idx) || idx < 0)
              {
@@ -444,7 +551,7 @@ index f820fc4..3c53ccd 100644
                  return false;
              }
              if (valPart == null)
-@@ -2155,13 +2231,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2155,13 +2234,13 @@ public class Ff9mkDebugMenu : MonoBehaviour
          }
          Byte[] g = FF9StateSystem.EventState.gEventGlobal;
          System.Array.Copy(_snapshot, g, System.Math.Min(_snapshot.Length, g.Length));
@@ -460,7 +567,7 @@ index f820fc4..3c53ccd 100644
      }
  
      private static void ClearFlagState()
-@@ -2283,7 +2359,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2283,7 +2362,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
          String at = (p != null && p.pos != null && p.pos.Length >= 3)
              ? String.Format("   @ ({0}, {1})", (Int32)p.pos[0], (Int32)p.pos[2])
              : "";
@@ -469,7 +576,7 @@ index f820fc4..3c53ccd 100644
      }
  
      private static List<KeyValuePair<Int32, String>> RegisteredFields()
-@@ -2401,6 +2477,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2401,6 +2480,7 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
          _header = new GUIStyle(GUI.skin.label);
          _header.fontSize = 13;
@@ -477,7 +584,7 @@ index f820fc4..3c53ccd 100644
          _header.normal.textColor = muted;
          _header.margin = new RectOffset(0, 0, 2, 1);
  
-@@ -2416,17 +2493,20 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2416,17 +2496,20 @@ public class Ff9mkDebugMenu : MonoBehaviour
  
          _mono = new GUIStyle(GUI.skin.label);          // boxed readout (world pos / story state)
          _mono.fontSize = 13;
@@ -501,13 +608,21 @@ index f820fc4..3c53ccd 100644
  
          _field = new GUIStyle(GUI.skin.textField);
          _field.fontSize = 14;
-@@ -2458,6 +2538,70 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2458,6 +2541,78 @@ public class Ff9mkDebugMenu : MonoBehaviour
          _toggleBtn = MkButton(window, panel, window, text, false);   // borderless-looking (border == window bg)
          _toggleBtn.alignment = TextAnchor.MiddleLeft;
  
 +        _row = MkButton(panel, inputHi, border, text, false);        // LIST row: left-aligned (centered pairs don't scan)
 +        _row.alignment = TextAnchor.MiddleLeft;
 +        _row.clipping = TextClipping.Clip;
++
++        _rowOn = MkButton(accentBg, accentHi, accentBd, accent, true);    // the selected option in a left-aligned list
++        _rowOn.alignment = TextAnchor.MiddleLeft;
++        _rowOn.clipping = TextClipping.Clip;
++
++        _rowDanger = MkButton(dangerBg, dangerHi, dangerBd, danger, false);   // a crash-candidate option (forced vehicle)
++        _rowDanger.alignment = TextAnchor.MiddleLeft;
++        _rowDanger.clipping = TextClipping.Clip;
 +
 +        _chip = MkButton(panel, inputHi, border, text, false);       // favorites chip: compact, clipped, left-aligned
 +        _chip.alignment = TextAnchor.MiddleLeft;
@@ -572,13 +687,13 @@ index f820fc4..3c53ccd 100644
          // Use the live FFIX UI font (TBUDGoStd via EncryptFontManager — the same Font UILabel renders with) so the menu
          // matches the game. It loads lazily; if null here, OnGUI retries and applies it once available. Falls back to the
          // default IMGUI font if the font system is disabled/unavailable.
-@@ -2517,7 +2661,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
+@@ -2517,7 +2672,8 @@ public class Ff9mkDebugMenu : MonoBehaviour
      private void ApplyFont(Font f)
      {
          GUIStyle[] all = { _box, _headerBar, _title, _subtitle, _header, _label, _hint, _mono, _statusStyle,
 -                           _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn };
 +                           _button, _primary, _danger, _field, _tabOn, _tabOff, _iconBtn, _toggleBtn,
-+                           _row, _chip, _chipX, _labelMid, _linkBtn, _footLbl, _footOn, _footOff };
++                           _row, _rowOn, _rowDanger, _chip, _chipX, _labelMid, _linkBtn, _footLbl, _footOn, _footOff };
          foreach (GUIStyle s in all)
              if (s != null)
                  s.font = f;
