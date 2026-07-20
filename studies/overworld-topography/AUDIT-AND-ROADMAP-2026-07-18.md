@@ -314,10 +314,12 @@ Judge key: `feas`=feasibility/cost · `play`=player-visible value · `fide`=fide
 ### LATER
 - [ ] Reconcile the F6 9009 vehicle allow-list vs the 2026-07-08 in-game note (docs or dict — pick one) (4.5)
 - [ ] Ensemble-carry rung for scrub/brush/dunes (5.0) — **blocked on the ecotone decode**; also resolve the deployed
-  (544,−1248) scrub islet's amputation-stump ends — **2026-07-19: the scrub islet is RECREATED + REDEPLOYED
-  post-reset** (byte-deterministic re-run, all gates green, world-mirror synced, save-brick point probe PASS;
-  ⚠ its deploy is a FIRST playtest — the pre-reset build was wiped before ever being seen in-game; the
-  stump-ends cosmetic is reproduced by design, the round-3 TRUE-isolation fix stays open)
+  (544,−1248) scrub islet's amputation-stump ends — **2026-07-19: recreated + redeployed post-reset; 2026-07-20:
+  playtested — stumps re-confirmed in-game → the OPEN-END TRIM was built (full8 8-adjacency escape gate) and
+  proved NO subset of the window terminates naturally (one 232-cell donor system; the true donor block is
+  (18,6), the "(13,3)" label was a print bug) → the user chose REMOVE: Block[8][19] is redeployed as the PLAIN
+  desert islet, the scrub-PATCH rung is CLOSED BY REMOVAL.** The ensemble-carry rung above stays the lawful
+  path (ground+shrub+slope+rock on a bigger bench); the stump-ends sub-item is moot.
 - [ ] Gulug volcano parts + lava-hazard study (5.0) — prerequisite for any volcano/hazard terrain
 - [ ] Mint a second island canvas; re-check the scenery-seal + interior rungs' generality (every proven rung landed
   on the one island-E mint) (5.0)

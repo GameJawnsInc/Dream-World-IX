@@ -392,3 +392,20 @@ vocabulary. NOT deployed; block (10,19) stays empty. What the arc KEEPS: the sha
 mechanism (v3, proven organic by two eyes twice), the boundary-composition dataset, the
 donor screen, and four rounds of falsification record — the FORM LESSON's dunes instance,
 caught offline by the calibrated eye with zero playtests spent.
+
+**§4 ADDENDUM — the playtest verdict + disposition (2026-07-20).** The recreate's first
+playtest re-confirmed the amputation stumps in-game (screenshot: the fully-carried centre
+patch reads well; two hard-edged corner fragments). The OPEN-END TRIM (the round-3 design,
+now BUILT: `full8()` unbounded 8-adjacency donor flood-fill + `trim_open_ends()` + the
+ZERO-OPEN-ENDS gate + a donor-context render) returned the strongest form of the answer:
+**DROP EVERYTHING** — all 8 scrub-bearing window cells (6 comp + 2 that had leaked into the
+ring untagged) belong to ONE 232-cell donor shrub system, 224 cells outside the window; even
+the good-looking centre patch is a lucky slice, not a terminating patch. THE ENSEMBLE LAW,
+now in-game-confirmed. En route: the donor label bug — `cand['block']` was the mega-region's
+`blocks[0]`; the true donor block is **(18,6)**, not "(13,3)" (the world teleport (1158,−388)
+was always correct). **Disposition (the user's call, made 2026-07-20): REMOVE THE PATCH** —
+Block[8][19] is redeployed as the PLAIN desert islet (same mint: (544,−1248) r26 seed 2,
+all gates clean, MISS=0, auto-mirrored, Disc1==Disc4 byte-identical). The scrub-patch rung
+is **CLOSED BY REMOVAL**: the lawful mixed-biome unit is the full interlocked ensemble
+(ground + shrub + slope + rock) on a bigger bench — the ensemble-carry rung, unchanged in
+the LATER tier.
