@@ -19,8 +19,11 @@ It began as "add one playable custom room to FF9 (Steam, Memoria engine)." **Tha
 
 ## 2. Hard constraints (non-negotiable)
 
-- **I cannot see the running game.** After any change that should be visible in-game,
-  STOP and ask the human to playtest and report. Never assume it worked because it built.
+- **I cannot PLAY the running game — but I CAN see it in static frames**: `tools/game_snap.ps1`
+  captures the live FF9 window to a PNG I can read (PrintWindow; needs windowed/borderless, warns
+  on exclusive-fullscreen black). Use it for visual verification (menus, art, alignment) whenever
+  the game is up. Behavior/feel still needs the human: after any change that should be visible
+  in-game, ask them to playtest and report. Never assume it worked because it built.
 - **I cannot paint background art.** Pre-rendered backgrounds + their depth layers are a
   human/art task. (I *do* tell the human exactly where to paint via the projection math.)
 - **The human owns final in-game alignment judgment.** I author the camera + walkmesh from
