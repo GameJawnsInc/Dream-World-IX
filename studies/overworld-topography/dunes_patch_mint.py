@@ -1,40 +1,61 @@
-"""THE FIRST MINTED DUNES ECOTONE PATCH -- implements ``dunes_mint_design.md``, v2 (this round
-fixes the confirmed RING FRAGMENTATION defect a calibrated eye review caught in v1's render).
+"""THE FIRST MINTED DUNES ECOTONE PATCH -- v3 (this round replaces v2's rectilinear 3x3-core +
+concentric-shells design, which ``dunes_blob_shapes.py`` proved renders as a SQUARE FRAME -- straight
+cell-column seams, 90-degree corners -- while every real stock dunes closure is an organic blob:
+v2's convexity 0.9024 sits *above* the measured real max 0.754, and its run-length histogram is a
+clean bimodal {1,3} vs real's broad decaying {1,2,3,4}/{1,2,3,5} spread.
 
-Not a carry (THE NO-ENCLOSED-DUNES LAW): a plain ``--ground desert`` `world-island` host, then an
-IN-PLACE RETILE of a compact interior cell-set -- a 3x3 dunes-mains CORE, wrapped in a two-shell
-strip RING (inner shell topo 41/dunes-side, outer shell topo 17/desert-side, both wearing the
-``STRIPS[("desert","dunes")]`` seam UV), placed via round 3's BFS row emitter
-(``dunes_strip_emitter.py``) with its measured constants FROZEN below (re-verified live every run
-against the same script, LAW 5). Geometry (vertex positions/normals/triangle winding/block
-partition) is byte-identical to the plain desert mint at every step -- only ``uv`` and
-``tangent.x`` (topograph) change on the touched triangles.
+**v3's fix: STAMP a real stock footprint (cell-set SHAPE ONLY, zero texture/UV bytes carried) instead
+of generating a synthetic core+shells.** The template is ``lobe_of_comp_0_cut_at_saddle`` from
+``out/dunes_blob_templates.json`` (``dunes_blob_shapes.py``'s census): a 31-cell, bbox-9x6 closed lobe
+cut from the 273-cell real dunes component at blocks (18,3)/(18,4)/(19,3)/(19,4)/(20,3) -- the only
+template that (a) is a genuine piece of real stock geometry and (b) fits an ~80-regular-cell host
+budget with its ring (both whole stock components, 130 and 273 cells, do not). 19 of its 31 cells are
+its own boundary (16 real stock component edge, 3 on the erosion-Voronoi SYNTHETIC cut where this
+lobe was severed from its 6 sibling lobes) -- see ``_template_provenance()`` for the live-reverified
+breakdown.
 
-SITE (design doc Sec.4, orchestrator-locked host build): island.build_landmass(center=(672,-1248),
-base_radius=26, seed=2.0, ground="desert") -> single block (10,19), 494 tris -- UNCHANGED from v1.
-**The dunes-core ORIGIN within that host moved** (v1 fix cause 1, RING HOLES): v1's fixed guess
-(cell origin (164,-314), world centre (662,-1250)) put 1/12 inner + 5/16 outer ring cells on the
-irregular rim-blend curve, silently dropping them from the strip band -- a literal hole. v2
-SELECTS the core origin instead (select_core_window(), below): scan every 3x3 origin over the
-SAME seed-2 host for one whose full two-shell ring is 100% regular cells; 6 such windows exist,
-closest-to-centre wins -> cell origin (166,-314), world centre (670,-1250) -- 4u east, 0u north of
-v1's guess. Zero seeds beyond 2 / zero alternate sites were needed (documented, not implemented,
-since the primary seed already had a clean window -- see plan_cells()). Ring = the two 4-neighbour
-BFS shells around the (now relocated) core (inner touches the core -> topo 41; outer touches only
-remaining plain desert -> topo 17); beyond the ring, everything stays untouched desert mains (the
-verified 2-cell all-desert margin -- THE WALL-CONTEXT LAW never comes into play, ground="desert"
-is wall_coastal=True and the patch never nears the rim).
+**Everything the census called out as ALREADY CORRECT survives unchanged**: the desert host build
+(``island.build_landmass``), the dunes-mains retile rule (``grassland.ground_uv(..., "dunes")``), the
+frozen-constant BFS row emitter (``dunes_strip_emitter.py``'s measured TARGET_PMF/DELTA_P, re-verified
+live every run -- LAW 5) with its cross-boundary ``|drow|<=1`` hard constraint generalized from "inner
+shell vs outer shell" to "the footprint's own boundary cells vs the 1-cell ring outside it" (the BFS
+emitter's cellset/shell_of machinery was already an arbitrary 2D-seam abstraction; only the SHAPE
+feeding it changes), and zero vertex motion (uv/tangent.x only).
 
-**v1 fix cause 2 (DENSITY CLIFFS)**: the row emitter (emit_strip_rows(), below) now hard-constrains
-every INNER|OUTER cross-shell adjacent pair to |drow|<=1 with the row rising toward dunes, closing
-the |drow|=2 coverage-density jumps a calibrated render caught as visible perforation-adjacent
-cliffs. LATERAL (same-shell) adjacent pairs are left exactly as round 3's own delta_p-weighted
-dither -- that variance is real (stock's own lateral pairs jump too), only cross-shell was the
-defect.
+**What "core/inner/outer" now mean, generalized from v1/v2's concentric-square language to an
+arbitrary stamped footprint:**
+- CORE = the footprint's own INTERIOR cells (footprint minus its own boundary cells) -- plain dunes
+  MAINS UV, no strip, topo 41.
+- INNER = the footprint's own BOUNDARY cells (``template["boundary_cell_offsets"]``, transformed +
+  translated onto the host) -- dunes-side strip UV, topo 41, touch-category ``B-only`` (fixed, same
+  convention v1/v2 used for their inner ring).
+- OUTER = the 1-cell 4-neighbour dilation of the WHOLE footprint (not just the core) -- desert-side
+  strip UV, topo 17, touch-category ``A-only``/``neither`` exactly as v2 computed it, just keyed off
+  the footprint's outward dilation instead of a 3x3 core's.
 
-Gate list = design doc Sec.5 (v1's 23) + this round's 2 new structural gates (RING COMPLETENESS,
-CROSS-SHELL SMOOTHNESS), in order. NO --deploy is ever invoked by the harness that runs this (the
---deploy CODE PATH is implemented per the brief but must not be executed).
+**Placement**: an exhaustive search over all 8 dihedral transforms (4 rotations x mirror) and every
+translation across the host's REGULAR-cell region (the same 4u-grid-square classifier v1/v2 already
+used to exclude the irregular rim-blend cells -- the CLEAN-BOUNDARY precedent, generalized from
+"does a fixed 3x3+shells window fit" to "does ANY dihedral placement of the template+ring fit"), for
+one candidate: footprint AND its outward ring must land entirely on regular cells. The primary design
+site (seed=2, radius=26, block (10,19), ``dunes_mint_design.md`` Sec.4) has exactly ONE such placement
+(dihedral=rot270, verified this round -- see ``resolve_site_and_placement()``'s printed search log) --
+no fallback tier (seed scan 1-39 / radius scan 27-30 / block (11,19)) was needed, though all three are
+implemented and would run in that order if it had been.
+
+**Freckles**: ``dunes_blob_shapes.py`` found ZERO 1-2-cell satellite dunes components anywhere on the
+map (falsifying the task brief's "freckle satellite" premise) -- so v3 mints none, rather than
+inventing an unmeasured strip treatment for them.
+
+Gate list = v2's (this round renames "CROSS-SHELL SMOOTHNESS" -> "CROSS-BOUNDARY SMOOTHNESS", same
+logic) + two NEW structural gates: RING COMPLETENESS is now checked against the template's own
+boundary/dilation counts (not a fixed shell theory), and a new SHAPE-FIDELITY gate asserts the placed
+footprint's straight-run-length histogram + corner count are IDENTICAL to the template's own (a rigid
+dihedral transform + translation cannot change either metric; any diff would mean a cell was
+silently dropped during placement -- "it is a stamp, any deviation is a bug").
+
+NO --deploy is ever invoked by the harness that runs this (the --deploy CODE PATH is implemented per
+the brief but must not be executed).
 
 Run from the repo root:  py studies/overworld-topography/dunes_patch_mint.py [--deploy]
 Artifacts -> out/dunes_patch_mint.json, out/dunes_patch_mint_*.png
@@ -73,17 +94,11 @@ OUTD = HERE / "out"
 OUTD.mkdir(exist_ok=True)
 
 MOD = "FF9CustomMap-world"
-CENTER = (672.0, -1248.0)
+CENTER = (672.0, -1248.0)                                      # PRIMARY design site (v1/v2's own pick)
 RADIUS = 26.0
 SEED = 2.0
 GROUND = "desert"
-V1_CORE_ORIGIN = (164, -314)                                  # THE V1 PICK -- FRAGMENTED. Kept only
-# for provenance: v1's centre-of-footprint guess dropped 1/12 inner + 5/16 outer ring cells to
-# the irregular-rim exclusion (a real hole in the strip band -- the confirmed defect this round
-# fixes). v2 SELECTS a window instead (see select_core_window()) rather than relaxing the
-# regularity classifier -- the CLEAN-BOUNDARY precedent.
-CORE_SIZE = 3                                                  # 3x3 core, same as v1
-PAIR = ("desert", "dunes")
+TEMPLATE_NAME = "lobe_of_comp_0_cut_at_saddle"                 # from out/dunes_blob_templates.json
 MAINS_SEED = 0xF91                                             # build_landmass's own default mains_seed
 MINT_SEED = 0                                                  # the row emitter's seed (recorded)
 BLOCK = 64.0
@@ -92,6 +107,9 @@ NEI4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
 EPS = 0.006
 TOL_V = 0.008
 ROW_PITCH = 0.03125
+# comp20 massif carry (6-7,18-19) + the scrub recreate islet (8,19) + (9,19) explicitly reserved
+# untouched by the lane's CONTEXT -- a fallback tier must never land on any of these.
+EXCLUDED_BLOCKS = {(6, 18), (6, 19), (7, 18), (7, 19), (8, 19), (9, 19)}
 
 GATES: list = []                                               # (name, ok, detail)
 
@@ -167,22 +185,24 @@ def emit_strip_rows_v1_unconstrained(cells, touch_of_local, target_pmf, delta_p,
 
 
 def emit_strip_rows(cells, touch_of_local, target_pmf, delta_p, seed=0, shell_of=None):
-    """v2 -- emit_strip_rows_v1_unconstrained() PLUS a hard cross-shell constraint (this round's
-    fix, cause 2/DENSITY CLIFFS): on every RING adjacency where the two cells sit in DIFFERENT
-    shells (shell_of[a] != shell_of[b] -- inner|outer touching), the candidate row for the
-    later-assigned cell is restricted to rows that are (a) within 1 of the already-assigned
-    neighbour's row (|dr|<=1, closing the |drow|=2 density cliffs the calibrated eye caught) and
-    (b) still rising toward dunes (inner's row >= outer's row on that pair, consistent with the
-    measured family-relative direction law, Sec.2). LATERAL adjacencies (same shell touching same
-    shell) are left exactly as v1's own delta_p-weighted transition -- that is the measured,
-    real, in-band dither (stock's own lateral pairs jump too; only cross-shell pairs are a
-    density-cliff defect). If ``shell_of`` is None this degenerates to the v1 behaviour exactly
-    (used nowhere in this script, kept for API symmetry/testability).
+    """v2 -- emit_strip_rows_v1_unconstrained() PLUS a hard cross-BOUNDARY constraint (v2's fix,
+    cause 2/DENSITY CLIFFS): on every RING adjacency where the two cells sit on DIFFERENT sides of
+    the footprint boundary (``shell_of[a] != shell_of[b]`` -- inner|outer touching, generalized in
+    v3 from "concentric shell" to "inside vs outside the stamped footprint's own boundary" -- this
+    BFS machinery never cared which SHAPE it was walking, only the cellset + adjacency, so the v2
+    generalization needed zero code changes here), the candidate row for the later-assigned cell is
+    restricted to rows that are (a) within 1 of the already-assigned neighbour's row (|dr|<=1,
+    closing the |drow|=2 density cliffs a calibrated eye caught) and (b) still rising toward dunes
+    (inner's row >= outer's row on that pair, consistent with the measured family-relative direction
+    law, Sec.2). LATERAL adjacencies (same side touching same side) are left exactly as v1's own
+    delta_p-weighted transition -- that is the measured, real, in-band dither. If ``shell_of`` is
+    None this degenerates to the v1 behaviour exactly (used nowhere in this script, kept for API
+    symmetry/testability).
 
-    Conflict fallback (should not occur for one ring cell wide on each side, and did not occur
-    this run -- printed if it ever does): if every row is hard-vetoed by two already-assigned
-    cross-shell neighbours pulling in opposite directions, relax to the row minimising total
-    violation (ties broken by target_pmf weight) rather than crash or silently violate the gate."""
+    Conflict fallback (should not occur for one ring cell wide on each side, and did not occur this
+    run -- printed if it ever does): if every row is hard-vetoed by two already-assigned cross-
+    boundary neighbours pulling in opposite directions, relax to the row minimising total violation
+    (ties broken by target_pmf weight) rather than crash or silently violate the gate."""
     rng = random.Random(seed)
     cellset = set(cells)
 
@@ -258,7 +278,7 @@ def emit_strip_rows(cells, touch_of_local, target_pmf, delta_p, seed=0, shell_of
             fweights = [pmf[r] for r in fallback_rows]
             ftot = sum(fweights) or 1.0
             assigned[c] = rng.choices(fallback_rows, weights=[w / ftot for w in fweights], k=1)[0]
-            print(f"  [emit_strip_rows conflict fallback] cell {c}: no row satisfies all cross-shell "
+            print(f"  [emit_strip_rows conflict fallback] cell {c}: no row satisfies all cross-boundary "
                   f"constraints from {cross_rows} -- chose row {assigned[c]} (min violation {best_v})")
             continue
         probs = [w / tot for w in weights]
@@ -304,12 +324,71 @@ def _live_reverify():
     return ns
 
 
+def _live_reverify_template():
+    """v3 NEW: re-run dunes_blob_shapes.py IN FULL (its own map-wide 480-block census is ~4-5s, not
+    the 1-2min UnityPy-cold-start figure -- timed this session) via the same exec-and-cut technique,
+    and assert the chosen template's cell-set matches out/dunes_blob_templates.json's committed copy
+    byte-for-byte (LAW 5: this script's own template choice is independently reproducible, not just
+    trusted from a stale file). Returns (the live template dict, the full live namespace -- reused
+    by _template_provenance() below for the source-component/block breakdown without a second scan)."""
+    src_path = HERE / "dunes_blob_shapes.py"
+    src = src_path.read_text(encoding="utf-8")
+    ns = {"__name__": "_dunes_blob_shapes_trunc", "__file__": str(src_path)}
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        exec(compile(src, "dunes_blob_shapes.py(full)", "exec"), ns)
+    live_templates = {t["name"]: t for t in ns["templates"]}
+    disk_path = OUTD / "dunes_blob_templates.json"
+    if not disk_path.is_file():
+        gate("out/dunes_blob_templates.json present for cross-check", False, "missing -- run dunes_blob_shapes.py first")
+        return live_templates[TEMPLATE_NAME], ns
+    disk = json.loads(disk_path.read_text(encoding="utf-8"))
+    disk_templates = {t["name"]: t for t in disk["templates"]}
+    live_t = live_templates.get(TEMPLATE_NAME)
+    disk_t = disk_templates.get(TEMPLATE_NAME)
+    # round-trip the live dict through JSON (tuples -> lists, matching the on-disk shape) before
+    # comparing -- dunes_blob_shapes.py's in-memory templates carry (i,j) TUPLES (from its own
+    # normalize()/sorted() calls), json.loads() always yields lists; without this the equality
+    # check would report a false mismatch on every run despite identical content.
+    live_t_json = json.loads(json.dumps(live_t, default=str)) if live_t is not None else None
+    match = live_t_json == disk_t
+    gate(f"chosen template '{TEMPLATE_NAME}' matches a live full re-derivation of dunes_blob_shapes.py "
+         "(map-wide 480-block census, LAW 5)", match,
+         f"live size={len(live_t.get('cell_offsets', [])) if live_t else None} "
+         f"disk size={len(disk_t.get('cell_offsets', [])) if disk_t else None}")
+    return (live_t if live_t is not None else disk_t), ns
+
+
+def _template_provenance(ns):
+    """Which real stock dunes component this round's template was cut from, and which real blocks
+    it spans -- read off the live namespace _live_reverify_template() already produced (zero extra
+    scan)."""
+    lobe_report = ns["lobe_report"]
+    src_idx = lobe_report["source_comp"]
+    comp = next(c for c in ns["comp_info"] if c["idx"] == src_idx)
+    blocks = sorted({ns["to_block"](c) for c in comp["cells"]})
+    n_cut = len(lobe_report["cut_cells_in_chosen_lobe"])
+    print(f"TEMPLATE PROVENANCE: '{TEMPLATE_NAME}' = one lobe (size {lobe_report['chosen_lobe_size']}) of "
+          f"real stock dunes component[{src_idx}] (whole-component size {comp['size']}, bbox "
+          f"{comp['bbox']}, {lobe_report['n_lobes']} lobes total, sizes {lobe_report['lobe_sizes']}) "
+          f"spanning real blocks {blocks}. {n_cut} of the lobe's 19 boundary cells sit on the "
+          f"erosion-Voronoi SYNTHETIC cut (the saddle line between this lobe and its 6 sibling lobes "
+          f"of the same real component); the remaining {19 - n_cut} boundary cells are verbatim-real "
+          f"stock component edge.")
+    return dict(source_component_idx=src_idx, source_component_size=comp["size"],
+                source_component_bbox=list(comp["bbox"]), source_component_blocks=[list(b) for b in blocks],
+                n_lobes=lobe_report["n_lobes"], lobe_sizes=lobe_report["lobe_sizes"],
+                n_cut_boundary_cells=n_cut, n_real_boundary_cells=19 - n_cut)
+
+
 # ============================================================================================
 # strip_uv() -- design doc Sec.2, authored to mirror mains_uv() exactly (ori fixed at 0, the
 # conservative/measured-safe choice -- round 2/3 never varied tile rotation within a strip cell)
 # ============================================================================================
 
-def strip_uv(x: float, z: float, cell, row: int, ori: int = 0, *, pair=PAIR):
+def strip_uv(x: float, z: float, cell, row: int, ori: int = 0, *, pair=("desert", "dunes")):
     (i, j) = cell
     fx, fz = (x - CELL_U * i) / CELL_U, (z - CELL_U * j) / CELL_U
     a, b = G.rot_ab(fx, fz, ori)
@@ -319,6 +398,8 @@ def strip_uv(x: float, z: float, cell, row: int, ori: int = 0, *, pair=PAIR):
     v0, v1 = G.STRIPS_V[row]
     return [u0 + a * (u1 - u0) + S["du"], v0 + b * (v1 - v0) + S["dv"]]
 
+
+PAIR = ("desert", "dunes")
 
 # ---- the zero-residual classification oracle (reimplemented, not imported -- LAW 5) --------------
 
@@ -374,29 +455,52 @@ def classify_tri(topo, uv3):
 
 
 # ============================================================================================
-# STEP 1 -- build the plain desert host in memory (no writes)
+# DIHEDRAL TRANSFORMS -- v3 NEW: 4 rotations x optional mirror, applied to a normalized cell-
+# offset set (re-normalized to its own bbox-min-corner origin after transform, matching
+# dunes_blob_shapes.py's normalize() convention -- LAW 5, reimplemented not imported)
 # ============================================================================================
 
-def build_host():
-    built = I.build_landmass(center=CENTER, base_radius=RADIUS, seed=SEED, ground=GROUND, stamps=None, disc=1)
-    cells = sorted(built["blocks"])
-    gate("host is a single block (design site pick)", cells == [(10, 19)], f"blocks={cells}")
-    CELL = cells[0]
-    occupied = {blk: occ for blk in cells if (occ := I._real_block_parts(blk, disc=1, game=None))}
-    gate("OPEN-OCEAN TARGET (every touched block is true open ocean)", not occupied, f"occupied={occupied}")
-    gate("THE WALL-CONTEXT LAW (ground=desert -> wall_coastal=True)", G.GROUNDS[GROUND]["wall_coastal"] is True,
-         "enforced by build_landmass at call time; would have raised otherwise")
-    plane = I._sea_plane(disc=1, game=None)
-    report = I.verify_landmass(built, sea_plane=plane, land_height=3.2)
-    gate("mint acceptance -- verify_landmass on the plain host (baseline, pre-retile)", report["clean"],
-         f"{ {k: v for k, v in report.items() if k not in ('placement', 'shape')} }")
-    n_tris = len(built["blocks"][CELL].tris)
-    print(f"host: block {CELL}, {n_tris} tris, seed {built['seed']}, centre {built['center']}")
-    return built, CELL, plane, report
+def dihedral_point(i: int, j: int, k: int):
+    """k in 0..7: k>=4 mirrors the i axis first, then rotates (k%4)*90deg CCW about the origin."""
+    if k >= 4:
+        i = -i
+    r = k % 4
+    if r == 0:
+        return (i, j)
+    if r == 1:
+        return (-j, i)
+    if r == 2:
+        return (-i, -j)
+    return (j, -i)
+
+
+def dihedral_cellset(cells, k):
+    """Transform + renormalize an (i,j) offset iterable under dihedral element k. Returns
+    (normalized_set, (ti0, tj0)) -- the origin subtracted, so a caller can push a SIBLING subset
+    (e.g. the template's own boundary cells) through dihedral_point() + the SAME (ti0, tj0) for an
+    identical transform."""
+    pts = [dihedral_point(i, j, k) for (i, j) in cells]
+    ti0 = min(p[0] for p in pts)
+    tj0 = min(p[1] for p in pts)
+    return {(p[0] - ti0, p[1] - tj0) for p in pts}, (ti0, tj0)
+
+
+def apply_placement(cells, placement):
+    """Push an arbitrary auxiliary cell subset (e.g. the template's cut-boundary cells, kept only
+    for provenance printing) through the SAME dihedral+translation a winning placement used."""
+    k = placement["k"]
+    ti0, tj0 = placement["dihedral_origin"]
+    oi, oj = placement["oi"], placement["oj"]
+    out = set()
+    for (i, j) in cells:
+        pi, pj = dihedral_point(i, j, k)
+        out.add((pi - ti0 + oi, pj - tj0 + oj))
+    return out
 
 
 # ============================================================================================
-# STEP 2 -- the retile (in place; zero vertex motion by construction -- uv/tangent.x only)
+# once_edges / weld / frame / census gates (reused technique, dunes_patch_carry.py) -- moved up
+# here since dilate()/_cell_is_regular() below are shared by the geometry + placement passes
 # ============================================================================================
 
 def to_world(bm, cell):
@@ -432,41 +536,50 @@ def _cell_is_regular(cell, tri_list, tris_idx, world_pos, *, tol=0.02):
     return True
 
 
-def select_core_window(mains_cells, regular_cells, cx, cz):
-    """SELECT a 3x3 core origin whose FULL two-shell ring (inner=dilate(CORE), outer=
-    dilate(inner)-CORE-inner) is entirely regular -- zero irregular-rim cells anywhere in the
-    touched footprint. Scans every candidate origin over the host's own mains-cell coordinate
-    range (not just the design's original centre-of-footprint guess); returns every passing
-    candidate sorted by distance from the host's own placement centre (cx, cz), ties broken by
-    (ci, cj) for determinism. This is the CLEAN-BOUNDARY precedent applied to a mint: select the
-    window for cleanliness, never relax the regularity classifier to force a dirty one through."""
-    if not mains_cells:
-        return []
-    xs = sorted({c[0] for c in mains_cells})
-    zs = sorted({c[1] for c in mains_cells})
-    candidates = []
-    for ci in range(xs[0], xs[-1] - CORE_SIZE + 2):
-        for cj in range(zs[0], zs[-1] - CORE_SIZE + 2):
-            CORE = {(ci + di, cj + dj) for di in range(CORE_SIZE) for dj in range(CORE_SIZE)}
-            if not CORE <= regular_cells:
-                continue
-            inner_theory = dilate(CORE, CORE)
-            outer_theory = dilate(inner_theory, CORE | inner_theory)
-            if not (CORE | inner_theory | outer_theory) <= regular_cells:
-                continue
-            wx = CELL_U * (ci + CORE_SIZE / 2.0)
-            wz = CELL_U * (cj + CORE_SIZE / 2.0)
-            d = math.hypot(wx - cx, wz - cz)
-            candidates.append((d, ci, cj, len(inner_theory), len(outer_theory)))
-    candidates.sort()
-    return candidates
+def once_edges_from_bm(bm, cell):
+    world_pos = to_world(bm, cell)
+    tris_idx = np.asarray(bm.flat_index, dtype=np.int64).reshape(-1, 3)
+    c = Counter()
+    for tri in tris_idx:
+        ks = [tuple(round(v, 3) for v in world_pos[j]) for j in tri]
+        for i in range(3):
+            e = frozenset((ks[i], ks[(i + 1) % 3]))
+            if len(e) == 2:
+                c[e] += 1
+    return {e for e, n in c.items() if n == 1}
 
 
-def plan_cells(bm, cell):
-    """CORE (3x3, dunes mains) + INNER/OUTER ring shells (BFS distance 1/2 from CORE), sited by
-    select_core_window() so the FULL two-shell ring is 100% regular cells -- zero dropped cells,
-    zero ring holes (Sec.A of this round's fix; v1's fixed CORE_ORIGIN dropped 1/12 inner +
-    5/16 outer to the irregular-rim exclusion, the confirmed perforation defect)."""
+# ============================================================================================
+# STEP A -- the plain desert host build (site-parametrized -- the fallback ladder tries several)
+# ============================================================================================
+
+def probe_site(center, radius, seed, label):
+    """Cheap-first probe: build the landmass, reject on single-block/excluded-block/open-ocean
+    grounds WITHOUT running the (more expensive) verify_landmass engine census -- that only runs
+    once, on the tier that actually wins (finalize_site_gates(), below). No gate() calls here:
+    a rejected candidate is not a defect, it's the ladder working as designed."""
+    try:
+        built = I.build_landmass(center=center, base_radius=radius, seed=seed, ground=GROUND,
+                                 stamps=None, disc=1)
+    except Exception as e:                                     # noqa: BLE001
+        print(f"  [{label}] build_landmass raised: {e}")
+        return None
+    cells = sorted(built["blocks"])
+    if len(cells) != 1:
+        print(f"  [{label}] rejected: not single-block ({cells})")
+        return None
+    CELL = cells[0]
+    if CELL in EXCLUDED_BLOCKS:
+        print(f"  [{label}] rejected: touches an excluded block {CELL}")
+        return None
+    occupied = {blk: occ for blk in cells if (occ := I._real_block_parts(blk, disc=1, game=None))}
+    if occupied:
+        print(f"  [{label}] rejected: not open ocean {occupied}")
+        return None
+    return dict(built=built, cell=CELL, center=center, radius=radius, seed=seed, label=label)
+
+
+def compute_mains_geometry(bm, cell):
     world_pos = to_world(bm, cell)
     tris_idx = np.asarray(bm.flat_index, dtype=np.int64).reshape(-1, 3)
     mains_cells = defaultdict(list)
@@ -478,44 +591,235 @@ def plan_cells(bm, cell):
         cz = sum(world_pos[j][2] for j in tri) / 3.0
         mains_cells[(math.floor(cx / CELL_U), math.floor(cz / CELL_U))].append(ti)
     regular_cells = {c for c, tl in mains_cells.items() if _cell_is_regular(c, tl, tris_idx, world_pos)}
-    irregular = set(mains_cells) - regular_cells
-    print(f"mains cells: {len(mains_cells)} total, {len(irregular)} irregular (rim-blended, coast-adjacent) "
-          f"excluded from ring eligibility: {sorted(irregular)}")
+    return dict(world_pos=world_pos, tris_idx=tris_idx, mains_cells=mains_cells, regular_cells=regular_cells)
 
-    v1_core = {(V1_CORE_ORIGIN[0] + di, V1_CORE_ORIGIN[1] + dj) for di in range(CORE_SIZE) for dj in range(CORE_SIZE)}
-    v1_inner_theory = dilate(v1_core, v1_core)
-    v1_outer_theory = dilate(v1_inner_theory, v1_core | v1_inner_theory)
-    v1_full = v1_core | v1_inner_theory | v1_outer_theory
-    print(f"v1 pick {V1_CORE_ORIGIN}: {len(v1_full - regular_cells)} of {len(v1_full)} ring+core cells "
-          f"irregular (this is the confirmed fragmentation defect -- v1 dropped them silently)")
 
-    candidates = select_core_window(mains_cells, regular_cells, *CENTER)
-    gate("a fully-regular two-shell window exists in the seed-2 host (no other seed/site scan needed)",
-         bool(candidates), f"{len(candidates)} candidate origins found over the host's own mains range")
-    if not candidates:                                          # pragma: no cover -- not hit this session
-        raise SystemExit("no fully-regular core window found at seed 2 -- would need to scan seeds "
-                          "1-39 (design lane precedent) or fall back to the (11,19) open-ocean site; "
-                          "neither fallback is implemented since it was never needed here")
-    d, ci, cj, n_inner_theory, n_outer_theory = candidates[0]
-    print(f"select_core_window: {len(candidates)} fully-regular candidates over the host's mains range "
-          f"{sorted((c[1], c[2]) for c in candidates)}; winner (ci,cj)=({ci},{cj}) at distance {d:.2f}u "
-          f"from the host centre {CENTER} -- closest fully-regular window wins, (ci,cj) breaks ties")
-    CORE = {(ci + di, cj + dj) for di in range(CORE_SIZE) for dj in range(CORE_SIZE)}
-    gate("dunes core is fully within the built island's desert-mains footprint", CORE <= set(mains_cells),
-         f"missing={sorted(CORE - set(mains_cells))}")
-    gate("dunes core cells are all geometrically regular (clean 4u grid squares)", CORE <= regular_cells,
-         f"irregular core cells={sorted(CORE - regular_cells)}")
-    inner_theory = dilate(CORE, CORE)
-    INNER = inner_theory & regular_cells
-    outer_theory = dilate(inner_theory, CORE | inner_theory)
-    OUTER = (outer_theory & regular_cells) - INNER
-    gate("RING COMPLETENESS -- inner shell has zero dropped cells (== theoretical shell size)",
-         len(INNER) == len(inner_theory), f"inner={len(INNER)} theory={len(inner_theory)} "
-         f"dropped={sorted(inner_theory - INNER)}")
-    gate("RING COMPLETENESS -- outer shell has zero dropped cells (== theoretical shell size)",
-         len(OUTER) == len(outer_theory), f"outer={len(OUTER)} theory={len(outer_theory)} "
-         f"dropped={sorted(outer_theory - OUTER)}")
-    remaining_mains = set(mains_cells) - CORE - INNER - OUTER
+# ============================================================================================
+# STEP B -- template placement search (v3 NEW): 8 dihedral transforms x every translation over
+# the host's regular-cell region; a candidate must land the footprint AND its 1-cell outward
+# ring entirely on regular cells.
+# ============================================================================================
+
+def search_placement(regular_cells, template_cells, template_boundary, host_center, *, label=""):
+    if not regular_cells:
+        print(f"  [{label}] no placement found (host has zero regular cells)")
+        return None
+    xs = sorted({c[0] for c in regular_cells})
+    zs = sorted({c[1] for c in regular_cells})
+    candidates = []
+    for k in range(8):
+        footprint_norm, origin = dihedral_cellset(template_cells, k)
+        ti0, tj0 = origin
+        boundary_norm = {(dihedral_point(i, j, k)[0] - ti0, dihedral_point(i, j, k)[1] - tj0)
+                          for (i, j) in template_boundary}
+        w = max(p[0] for p in footprint_norm) + 1
+        h = max(p[1] for p in footprint_norm) + 1
+        for oi in range(xs[0] - 1, xs[-1] - w + 2):
+            for oj in range(zs[0] - 1, zs[-1] - h + 2):
+                footprint = {(oi + a, oj + b) for (a, b) in footprint_norm}
+                if not footprint <= regular_cells:
+                    continue
+                ring = dilate(footprint, footprint)
+                if not ring <= regular_cells:
+                    continue
+                boundary_placed = {(oi + a, oj + b) for (a, b) in boundary_norm}
+                wx = CELL_U * (oi + w / 2.0)
+                wz = CELL_U * (oj + h / 2.0)
+                d = math.hypot(wx - host_center[0], wz - host_center[1])
+                candidates.append((d, k, oi, oj, footprint, boundary_placed, ring, (ti0, tj0)))
+    if not candidates:
+        print(f"  [{label}] no placement found ({len(regular_cells)} regular cells in this host, "
+              f"8 dihedral orientations scanned)")
+        return None
+    candidates.sort(key=lambda c: (round(c[0], 6), c[1], c[2], c[3]))
+    d, k, oi, oj, footprint, boundary_placed, ring, dihedral_origin = candidates[0]
+    print(f"  [{label}] placement FOUND: {len(candidates)} candidate(s) over 8 dihedral orientations, "
+          f"winner dihedral={k} origin=({oi},{oj}) distance={d:.2f}u from host centre")
+    return dict(k=k, oi=oi, oj=oj, footprint=footprint, boundary=boundary_placed, ring=ring,
+                dihedral_origin=dihedral_origin, n_candidates=len(candidates), distance=d)
+
+
+def resolve_site_and_placement(template_cells, template_boundary):
+    """The fallback ladder (brief requirement 1, in order): primary design site -> seed-scan
+    1-39 -> radius-scan 27-30 -> fallback block (11,19). Stops at the first site+placement that
+    both build cleanly (single block, not excluded, open ocean) AND admit a valid template
+    placement. Returns (site, geom, placement, tier_info)."""
+    tiers = [("primary design site (seed=2.0, radius=26.0)", CENTER, RADIUS, SEED)]
+    for s in range(1, 40):
+        if s == int(SEED):
+            continue
+        tiers.append((f"seed-scan seed={s} (radius=26.0, same centre)", CENTER, RADIUS, float(s)))
+    for r in range(27, 31):
+        tiers.append((f"radius-scan radius={r} (seed=2.0, same centre)", CENTER, float(r), SEED))
+    fb_center = (BLOCK * 11 + BLOCK / 2.0, -(BLOCK * 19 + BLOCK / 2.0))
+    tiers.append((f"fallback block (11,19) centre={fb_center}", fb_center, RADIUS, SEED))
+
+    print(f"placement search: {len(tiers)} tiers queued (1 primary + 38 seed-scan + 4 radius-scan + "
+          f"1 block-fallback; stops at first success) -----------------------------------------")
+    for label, center, radius, seed in tiers:
+        site = probe_site(center, radius, seed, label)
+        if site is None:
+            continue
+        geom = compute_mains_geometry(site["built"]["blocks"][site["cell"]], site["cell"])
+        print(f"  [{label}] host accepted: block {site['cell']}, {len(geom['mains_cells'])} mains "
+              f"cells ({len(geom['regular_cells'])} regular)")
+        placement = search_placement(geom["regular_cells"], template_cells, template_boundary,
+                                      center, label=label)
+        if placement is not None:
+            print(f"\n=== WINNER: {label} -- centre={center} radius={radius} seed={seed} "
+                  f"block={site['cell']} ===\n")
+            return site, geom, placement, dict(label=label, center=list(center), radius=radius,
+                                               seed=seed, block=list(site["cell"]))
+    raise SystemExit("no placement found across every fallback tier (primary + seed 1-39 + radius "
+                      "27-30 + block (11,19)) -- would need a larger host radius or a smaller "
+                      "template; neither implemented since not needed this run")
+
+
+def finalize_site_gates(site, tier_info):
+    """The official named gates for the WINNING site only (rejected tiers are not defects, so they
+    get plain prints in probe_site()/search_placement(), not gate() calls)."""
+    built = site["built"]
+    CELL = site["cell"]
+    cells = sorted(built["blocks"])
+    gate(f"host is a single block ({tier_info['label']})", cells == [CELL], f"blocks={cells}")
+    gate("chosen block is not excluded (comp20 (6-7,18-19) / the scrub islet (8,19) / (9,19) "
+         "explicitly reserved-untouched)", CELL not in EXCLUDED_BLOCKS,
+         f"block={CELL} excluded={sorted(EXCLUDED_BLOCKS)}")
+    occupied = {blk: occ for blk in cells if (occ := I._real_block_parts(blk, disc=1, game=None))}
+    gate("OPEN-OCEAN TARGET (every touched block is true open ocean)", not occupied, f"occupied={occupied}")
+    gate("THE WALL-CONTEXT LAW (ground=desert -> wall_coastal=True)", G.GROUNDS[GROUND]["wall_coastal"] is True,
+         "enforced by build_landmass at call time; would have raised otherwise")
+    plane = I._sea_plane(disc=1, game=None)
+    report = I.verify_landmass(built, sea_plane=plane, land_height=3.2)
+    gate("mint acceptance -- verify_landmass on the plain host (baseline, pre-retile)", report["clean"],
+         f"{ {k: v for k, v in report.items() if k not in ('placement', 'shape')} }")
+    n_tris = len(built["blocks"][CELL].tris)
+    print(f"host: block {CELL}, {n_tris} tris, seed {tier_info['seed']}, centre {tier_info['center']}, "
+          f"radius {tier_info['radius']}, tier '{tier_info['label']}'")
+    return plane, report
+
+
+# ============================================================================================
+# SHAPE-FIDELITY oracle -- v3 NEW: a slimmed, independent re-derivation (LAW 5) of
+# dunes_blob_shapes.py's boundary_trace()/loop_area()/run_lengths_and_corners(), used to assert
+# the PLACED footprint's straight-run histogram + corner count are IDENTICAL to the template's
+# own (a rigid dihedral transform + translation preserves both exactly -- any diff means a cell
+# was dropped/added during placement, i.e. a real bug, not measurement noise).
+# ============================================================================================
+
+def _boundary_trace(cellset):
+    directed = {}
+    for (i, j) in cellset:
+        bl, br, tr, tl = (i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)
+        sides = [(bl, br, (i, j - 1)), (br, tr, (i + 1, j)),
+                 (tr, tl, (i, j + 1)), (tl, bl, (i - 1, j))]
+        for (a, b, nb) in sides:
+            if nb in cellset:
+                continue
+            directed[(a, b)] = (i, j)
+    out_from = defaultdict(list)
+    for (a, b), cell in directed.items():
+        out_from[a].append((b, cell))
+
+    def turn_priority(prev_dir, cand_dir):
+        cross = prev_dir[0] * cand_dir[1] - prev_dir[1] * cand_dir[0]
+        dot = prev_dir[0] * cand_dir[0] + prev_dir[1] * cand_dir[1]
+        return -math.atan2(cross, dot)
+
+    remaining = dict(directed)
+    loops = []
+    while remaining:
+        (a0, b0) = next(iter(remaining))
+        loop = []
+        a, b = a0, b0
+        cell0 = remaining.pop((a0, b0))
+        loop.append((a, b, cell0))
+        cur = b
+        prev_dir = (b[0] - a[0], b[1] - a[1])
+        guard = 0
+        while cur != a0 and guard < 100000:
+            guard += 1
+            cands = [(end, cell) for (end, cell) in out_from[cur] if (cur, end) in remaining]
+            if not cands:
+                break
+            if len(cands) == 1:
+                end, cell = cands[0]
+            else:
+                end, cell = min(cands, key=lambda ec: turn_priority(prev_dir, (ec[0][0] - cur[0], ec[0][1] - cur[1])))
+            remaining.pop((cur, end))
+            loop.append((cur, end, cell))
+            prev_dir = (end[0] - cur[0], end[1] - cur[1])
+            cur = end
+        loops.append(loop)
+    return loops
+
+
+def _loop_area(loop):
+    a = 0.0
+    for (p, q, _c) in loop:
+        a += p[0] * q[1] - q[0] * p[1]
+    return a / 2.0
+
+
+def _run_lengths_and_corners(loop):
+    dirs = [(q[0] - p[0], q[1] - p[1]) for (p, q, _c) in loop]
+    if not dirs:
+        return [], 0
+    runs = []
+    cur_dir = dirs[0]
+    run_len = 1
+    for d in dirs[1:]:
+        if d == cur_dir:
+            run_len += 1
+        else:
+            runs.append(run_len)
+            cur_dir = d
+            run_len = 1
+    runs.append(run_len)
+    if len(runs) > 1 and dirs[-1] == dirs[0]:
+        runs[0] += runs[-1]
+        runs.pop()
+    return runs, len(runs)
+
+
+def analyze_shape_local(cellset):
+    loops = _boundary_trace(cellset)
+    outer_loops = [lp for lp in loops if _loop_area(lp) > 0]
+    outer = max(outer_loops, key=lambda lp: abs(_loop_area(lp))) if outer_loops else (max(loops, key=len) if loops else [])
+    runs, n_corners = _run_lengths_and_corners(outer)
+    return dict(run_hist=dict(sorted(Counter(runs).items())), max_run=(max(runs) if runs else 0),
+                n_corners=n_corners, n_loops=len(loops))
+
+
+# ============================================================================================
+# STEP C -- the retile plan (CORE/INNER/OUTER generalized from v1/v2's concentric squares to an
+# arbitrary stamped footprint's own interior/boundary/outward-ring split)
+# ============================================================================================
+
+def plan_cells(geom, placement, template_cells_original, template_boundary_original):
+    mains_cells, regular_cells = geom["mains_cells"], geom["regular_cells"]
+    footprint, boundary_placed, ring = placement["footprint"], placement["boundary"], placement["ring"]
+
+    gate("dunes footprint is fully within the built island's desert-mains footprint",
+         footprint <= set(mains_cells), f"missing={sorted(footprint - set(mains_cells))}")
+    gate("dunes footprint cells (footprint + 1-cell ring) are all geometrically regular (clean 4u "
+         "grid squares)", (footprint | ring) <= regular_cells,
+         f"irregular cells={sorted((footprint | ring) - regular_cells)}")
+
+    CORE = footprint - boundary_placed                          # interior -- pure mains dunes, no strip
+    INNER = boundary_placed                                     # the footprint's own boundary -- strip, dunes-side
+    OUTER = ring                                                 # 1-cell outward dilation -- strip, desert-side
+
+    gate("RING COMPLETENESS -- footprint-boundary (inner strip) shell has zero dropped cells "
+         "(== the template's own boundary cell count, transform-invariant)",
+         len(INNER) == len(template_boundary_original),
+         f"inner={len(INNER)} template_boundary={len(template_boundary_original)}")
+    outer_theory = dilate(footprint, footprint)
+    gate("RING COMPLETENESS -- outer shell (1-cell dilation beyond the whole footprint) has zero "
+         "dropped cells (== theoretical dilation size)", OUTER == outer_theory,
+         f"outer={len(OUTER)} theory={len(outer_theory)} dropped={sorted(outer_theory - OUTER)}")
+
+    remaining_mains = set(mains_cells) - footprint - OUTER
     touch_of = {}
     for c in INNER:
         touch_of[c] = "B-only"
@@ -523,15 +827,38 @@ def plan_cells(bm, cell):
         touches_desert = any((c[0] + di, c[1] + dj) in remaining_mains for (di, dj) in NEI4)
         touch_of[c] = "A-only" if touches_desert else "neither"
     tally = Counter(touch_of.values())
-    print(f"cells: core={len(CORE)} inner={len(INNER)} outer={len(OUTER)} "
-          f"(theory inner={len(inner_theory)} outer={len(outer_theory)}); touch tally {dict(tally)}")
-    return dict(world_pos=world_pos, tris_idx=tris_idx, mains_cells=mains_cells, CORE=CORE,
-                INNER=INNER, OUTER=OUTER, touch_of=touch_of, core_origin=(ci, cj),
-                n_candidates=len(candidates))
+    print(f"cells: footprint={len(footprint)} (core={len(CORE)} inner={len(INNER)}) outer={len(OUTER)} "
+          f"template size={len(template_cells_original)}; touch tally {dict(tally)}")
+
+    # -- SHAPE-FIDELITY gate (v3 NEW): the placed footprint's straight-run histogram + corner
+    # count must be IDENTICAL to the template's own (rotation/mirror/translation-invariant) --------
+    tmpl_shape = analyze_shape_local(set(template_cells_original))
+    placed_shape = analyze_shape_local(footprint)
+    shape_ok = (tmpl_shape["run_hist"] == placed_shape["run_hist"]
+                and tmpl_shape["max_run"] == placed_shape["max_run"]
+                and tmpl_shape["n_corners"] == placed_shape["n_corners"])
+    gate("SHAPE-FIDELITY -- the stamped footprint's straight-run distribution + corner count are "
+         "IDENTICAL to the template's own (a rigid dihedral transform + translation cannot change "
+         "either metric; any deviation means a cell was silently dropped/added -- it is a stamp, "
+         "any deviation is a bug)", shape_ok,
+         f"template run_hist={tmpl_shape['run_hist']} max_run={tmpl_shape['max_run']} "
+         f"corners={tmpl_shape['n_corners']} | placed run_hist={placed_shape['run_hist']} "
+         f"max_run={placed_shape['max_run']} corners={placed_shape['n_corners']}")
+
+    fx0, fx1 = min(c[0] for c in footprint), max(c[0] for c in footprint)
+    fz0, fz1 = min(c[1] for c in footprint), max(c[1] for c in footprint)
+    footprint_center_world = (CELL_U * (fx0 + fx1 + 1) / 2.0, CELL_U * (fz0 + fz1 + 1) / 2.0)
+
+    return dict(CORE=CORE, INNER=INNER, OUTER=OUTER, touch_of=touch_of, footprint=footprint,
+                footprint_center_world=footprint_center_world, dihedral=placement["k"],
+                origin=(placement["oi"], placement["oj"]), n_candidates=placement["n_candidates"],
+                template_shape=tmpl_shape, placed_shape=placed_shape,
+                world_pos=geom["world_pos"], tris_idx=geom["tris_idx"], mains_cells=mains_cells)
 
 
 def cross_shell_pairs(INNER, OUTER):
-    """Every RING adjacency where the two cells sit in different shells (inner touching outer)."""
+    """Every RING adjacency where the two cells sit on different sides of the footprint boundary
+    (inner touching outer)."""
     pairs = []
     for c in INNER:
         for (di, dj) in NEI4:
@@ -550,7 +877,7 @@ def apply_retile(bm, plan):
     rows = emit_strip_rows(sorted(RING), touch_of, FROZEN_TARGET_PMF, FROZEN_DELTA_P, seed=MINT_SEED,
                             shell_of=shell_of)
 
-    # -- CROSS-SHELL SMOOTHNESS gate (cause 2/DENSITY CLIFFS, this round's fix) ------------------
+    # -- CROSS-BOUNDARY SMOOTHNESS gate (v2's cause 2/DENSITY CLIFFS fix, generalized) ------------
     xpairs = cross_shell_pairs(INNER, OUTER)
     offenders = []
     for (inr, outr) in xpairs:
@@ -558,8 +885,9 @@ def apply_retile(bm, plan):
         if abs(dr) > 1 or dr < 0:                                  # |drow|<=1 AND inner>=outer (rising to dunes)
             offenders.append((inr, outr, rows[inr], rows[outr], dr))
     max_abs_dr = max((abs(rows[i] - rows[o]) for i, o in xpairs), default=0)
-    gate("CROSS-SHELL SMOOTHNESS -- every inner|outer-adjacent pair has |drow|<=1 and inner>=outer "
-         "(dunes-ward rise, zero density cliffs)", not offenders,
+    gate("CROSS-BOUNDARY SMOOTHNESS -- every inner|outer-adjacent pair (footprint boundary vs the "
+         "1-cell ring outside it) has |drow|<=1 and inner>=outer (dunes-ward rise, zero density "
+         "cliffs)", not offenders,
          f"max|drow|={max_abs_dr} n_pairs={len(xpairs)} offenders={offenders}" if offenders else
          f"max|drow|={max_abs_dr} n_pairs={len(xpairs)}")
 
@@ -601,25 +929,11 @@ def apply_retile(bm, plan):
 
 
 # ============================================================================================
-# once_edges / weld / frame / census gates (reused technique, dunes_patch_carry.py)
+# STEP D -- run_gates(): everything below is v2's regression/census/save-brick gate list,
+# unchanged in mechanism -- only plan["core_origin"] (a fixed 3x3-square centre) is replaced by
+# plan["footprint_center_world"] + an actual CORE/INNER cell probe point (the footprint is no
+# longer a rectangle, so a bbox-centre point is not guaranteed to land inside it)
 # ============================================================================================
-
-def _kk(p):
-    return (round(p[0], 3), round(p[1], 3), round(p[2], 3))
-
-
-def once_edges_from_bm(bm, cell):
-    world_pos = to_world(bm, cell)
-    tris_idx = np.asarray(bm.flat_index, dtype=np.int64).reshape(-1, 3)
-    c = Counter()
-    for tri in tris_idx:
-        ks = [_kk(world_pos[j]) for j in tri]
-        for i in range(3):
-            e = frozenset((ks[i], ks[(i + 1) % 3]))
-            if len(e) == 2:
-                c[e] += 1
-    return {e for e, n in c.items() if n == 1}
-
 
 def run_gates(built, CELL, plane, plan, before_snapshot):
     bm = built["blocks"][CELL]
@@ -683,20 +997,26 @@ def run_gates(built, CELL, plane, plan, before_snapshot):
     gate("placement census MISS==0 (post-retile)", len(cen_after["miss"]) == 0, f"miss={cen_after['miss'][:5]}")
 
     # -- THE SAVE-BRICK PROBE: actually ground-query candidate spawn points, don't just assert --
-    cx, cz = CENTER
+    cx, cz = plan["footprint_center_world"]
     lx0, lz0 = cx - BLOCK * bx, cz + BLOCK * (by + 1) - BLOCK
     gy0, nm0, idall0, topo0 = P.place(meshlist_after, lx0, lz0, sky=True)
     block_centre_ok = nm0 == "Terrain" and topo0 in (17, 41)
-    gate(f"save-brick probe: block centre ({cx:.0f},{cz:.0f}) grounds walkable", block_centre_ok,
+    gate(f"save-brick probe: footprint centre ({cx:.0f},{cz:.0f}) grounds walkable", block_centre_ok,
          f"y={gy0:.2f} mesh={nm0} topo={topo0}")
-    ci, cj = plan["core_origin"]                                   # the SELECTED core's own world centre
-    px = CELL_U * (ci + CORE_SIZE / 2.0)
-    pz = CELL_U * (cj + CORE_SIZE / 2.0)
+
+    # a probe point GUARANTEED inside a dunes cell (the footprint is no longer a rectangle, so the
+    # bbox-centre point above may or may not itself be a dunes cell -- pick the CORE (or, if the
+    # footprint has no pure-interior cell, INNER) cell nearest the bbox centre)
+    def cell_world_centre(c):
+        return (CELL_U * (c[0] + 0.5), CELL_U * (c[1] + 0.5))
+    dunes_pool = plan["CORE"] if plan["CORE"] else plan["INNER"]
+    probe_cell = min(dunes_pool, key=lambda c: (lambda w: (w[0] - cx) ** 2 + (w[1] - cz) ** 2)(cell_world_centre(c)))
+    px, pz = cell_world_centre(probe_cell)
     plx, plz = px - BLOCK * bx, pz + BLOCK * (by + 1) - BLOCK
     gy1, nm1, idall1, topo1 = P.place(meshlist_after, plx, plz, sky=True)
     core_centre_ok = nm1 == "Terrain" and topo1 == 41
-    gate(f"save-brick probe: dunes-core centre ({px:.0f},{pz:.0f}) grounds on walkable dunes (topo 41)",
-         core_centre_ok, f"y={gy1:.2f} mesh={nm1} topo={topo1}")
+    gate(f"save-brick probe: a dunes cell ({px:.0f},{pz:.0f}, {'CORE' if probe_cell in plan['CORE'] else 'INNER'}) "
+         "grounds on walkable dunes (topo 41)", core_centre_ok, f"y={gy1:.2f} mesh={nm1} topo={topo1}")
     # a handful of ring-cell centres too (inner + outer), not just the two named points
     ring_ok = True
     ring_samples = []
@@ -864,16 +1184,6 @@ def offline_eye(built, CELL, plan, rows, live_ns):
     synth = synth_tris(bm, CELL)
 
     # ---- jumpiness, calibrated against the transplant-null band (3.83-5.85) ------------------
-    # v1's aggregate mixed EVERY lattice-adjacent RING pair (cross-shell + lateral) undifferentiated
-    # -- the exact blind spot the calibrated eye caught (an averaged scalar cannot see a per-boundary
-    # cliff). This round adds cross-shell hard constraints (the CROSS-SHELL SMOOTHNESS gate above,
-    # structural, on the discrete row index) while leaving LATERAL pairs' delta_p dither untouched.
-    # The aggregate below is kept for continuity but is now a STALE instrument for this generator:
-    # it was calibrated on the fully-unconstrained v1 emitter, and capping ~40% of the ring's pairs
-    # (cross-shell) at |drow|<=1 mechanically pulls the mixed average down. Read the LATERAL-only
-    # split below instead -- that is the population the transplant-null band actually describes
-    # (real desert|dunes seams are not concentric two-shell rings, so "cross-shell" has no stock
-    # analogue; "lateral" is the closest like-for-like comparison).
     lum = row_mean_luminance(atlas_wh, atlas_px)
     INNER, OUTER = plan["INNER"], plan["OUTER"]
     RING = INNER | OUTER
@@ -894,14 +1204,14 @@ def offline_eye(built, CELL, plan, rows, live_ns):
          "-- see lateral-only split below; expected to read low, not a defect)", band_ok,
          f"jumpiness={jump:.3f} n_pairs={len(diffs)} row_luminance={ {k: round(v,1) for k,v in lum.items()} }")
     gate("offline-eye jumpiness, LATERAL-ONLY pairs (the like-for-like comparison to the "
-         "transplant-null band -- same-shell dither is deliberately left unconstrained)", lat_band_ok,
+         "transplant-null band -- same-boundary-side dither is deliberately left unconstrained)", lat_band_ok,
          f"jumpiness={lat_jump:.3f} n_pairs={len(lateral_diffs)} "
-         f"(cross-shell n_pairs={len(cross_diffs)}, mean={((sum(cross_diffs)/len(cross_diffs)) if cross_diffs else 0.0):.3f}, capped by construction)")
+         f"(cross-boundary n_pairs={len(cross_diffs)}, mean={((sum(cross_diffs)/len(cross_diffs)) if cross_diffs else 0.0):.3f}, capped by construction)")
 
-    # ---- render: tight zoom on the minted seam + 2 real stock calibration windows ------------
-    ci, cj = plan["core_origin"]                                   # the SELECTED core's own world centre
-    px = CELL_U * (ci + CORE_SIZE / 2.0)
-    pz = CELL_U * (cj + CORE_SIZE / 2.0)
+    # ---- render: fixed-window (24x24u tight / 48x48u medium -- v2's own calibrated windows, kept
+    # unchanged for apples-to-apples with the stock reference panels, which also only ever show a
+    # LOCAL window of a much bigger real component) zoom on the minted seam + 2 real stock windows --
+    px, pz = plan["footprint_center_world"]
     STOCK_A, STOCK_B = (18, 3), (13, 12)
     cellinfo = live_ns["cellinfo"]
     strip_cells = live_ns["strip_cells"]
@@ -920,7 +1230,7 @@ def offline_eye(built, CELL, plan, rows, live_ns):
         + stock_tris(STOCK_B[0], STOCK_B[1] - 1) + stock_tris(STOCK_B[0], STOCK_B[1] + 1)
 
     tight_panels = []
-    for label, tris, cx, cz in (("SYNTH minted seam (10,19)", synth, px, pz),
+    for label, tris, cx, cz in (("SYNTH minted seam (v3 stamped footprint)", synth, px, pz),
                                  (f"STOCK {STOCK_A} (smooth-organic ref)", a_tris, acx, acz),
                                  (f"STOCK {STOCK_B} (boxy ref)", b_tris, bcx, bcz)):
         tex, com = paint(tris, cx, cz, 24, 24, 32, atlas_wh=atlas_wh, atlas_px=atlas_px)
@@ -950,11 +1260,12 @@ def offline_eye(built, CELL, plan, rows, live_ns):
 # THE --deploy PATH -- implemented per the brief, NEVER invoked by this harness run
 # ============================================================================================
 
-def would_write_list():
+def would_write_list(cell):
     """The exact Disc1 + auto-mirrored Disc4 file list a --deploy would write (design Sec.6.5-6.6),
-    printed in dry mode without touching the filesystem (path construction only)."""
+    printed in dry mode without touching the filesystem (path construction only). ``cell`` is the
+    WINNING site's block (may differ from (10,19) if a fallback tier won)."""
     game_root = _cfg.find_game_path(None)
-    (bx, by) = 10, 19
+    (bx, by) = cell
     parts = ("Terrain", "Sea4", "Object", "Sea1", "Sea2", "Sea3", "Sea5", "Beach1")
     disc1 = [str(game_root / MOD / M.override_relpath(1, bx, by, part=p)) for p in parts]
     disc1.append(str(game_root / MOD / M.donor_sidecar_relpath(1, bx, by)))
@@ -982,19 +1293,22 @@ def deploy_patch(built, CELL, plane):                          # pragma: no cove
 
 
 # ============================================================================================
-# CLI smoke test -- the design doc's own recommended CLI line, --dry-run (writes nothing)
+# CLI smoke test -- the design doc's own recommended CLI line, --dry-run (writes nothing),
+# parametrized to the WINNING site (v3: may not be seed=2/radius=26 if a fallback tier won)
 # ============================================================================================
 
-def cli_smoke_test():
+def cli_smoke_test(center, radius, seed):
     kit_root = HERE.resolve().parents[1] / "ff9mapkit"
     cmd = [sys.executable, "-m", "ff9mapkit", "world-island", "--ground", "desert",
-           "--mod-folder", MOD, "--center", "672,-1248", "--radius", "26", "--seed", "2", "--dry-run"]
+           "--mod-folder", MOD, "--center", f"{center[0]:g},{center[1]:g}", "--radius", f"{radius:g}",
+           "--seed", f"{seed:g}", "--dry-run"]
     print(f"CLI smoke test (from {kit_root}): {' '.join(cmd)}")
     try:
         r = subprocess.run(cmd, cwd=str(kit_root), capture_output=True, text=True, timeout=180)
         ok = r.returncode == 0 and "all gates CLEAN" in r.stdout
-        gate("CLI smoke test (world-island --dry-run, the design's recommended host command, writes nothing)",
-             ok, f"returncode={r.returncode} stdout_tail={r.stdout[-300:]!r} stderr_tail={r.stderr[-300:]!r}")
+        gate("CLI smoke test (world-island --dry-run, the winning site's own reproduction command, "
+             "writes nothing)", ok, f"returncode={r.returncode} stdout_tail={r.stdout[-300:]!r} "
+             f"stderr_tail={r.stderr[-300:]!r}")
         return dict(returncode=r.returncode, stdout=r.stdout, stderr=r.stderr)
     except Exception as e:                                     # noqa: BLE001
         gate("CLI smoke test (world-island --dry-run)", False, f"exception: {e}")
@@ -1006,17 +1320,40 @@ def cli_smoke_test():
 # ============================================================================================
 
 def main():
-    print(f"=== dunes_patch_mint.py -- MOD={MOD} CENTER={CENTER} RADIUS={RADIUS} SEED={SEED} "
-          f"GROUND={GROUND} MINT_SEED(row emitter)={MINT_SEED} ===\n")
+    print(f"=== dunes_patch_mint.py v3 -- MOD={MOD} PRIMARY_CENTER={CENTER} PRIMARY_RADIUS={RADIUS} "
+          f"PRIMARY_SEED={SEED} GROUND={GROUND} TEMPLATE={TEMPLATE_NAME} MINT_SEED(row emitter)={MINT_SEED} ===\n")
 
-    print("--- frozen-constant live re-verification ---")
+    print("--- frozen-constant live re-verification (row emitter) ---")
     live_ns = _live_reverify()
 
-    print("\n--- STEP 1: build the plain desert host in memory (no writes) ---")
-    built, CELL, plane, base_report = build_host()
+    print("\n--- template live re-verification (dunes_blob_shapes.py, full re-run) ---")
+    template, blob_ns = _live_reverify_template()
+    template_cells = [tuple(c) for c in template["cell_offsets"]]
+    template_boundary = [tuple(c) for c in template["boundary_cell_offsets"]]
+    template_cut_boundary = [tuple(c) for c in template.get("cut_boundary_cell_offsets", [])]
+    provenance = _template_provenance(blob_ns)
+    print(f"template: '{TEMPLATE_NAME}' size={template['size']} bbox_wh={template['bbox_wh']} "
+          f"boundary_cells={len(template_boundary)} fits_80_cell_host_with_ring="
+          f"{template['fits_80_cell_host_with_ring']}")
+    print("NOTE: dunes_blob_shapes.py's own census found ZERO 1-2-cell freckle components anywhere "
+          "on the map (falsifying the brief's 'freckle satellite' premise) -- v3 mints none.")
 
-    print("\n--- STEP 2: plan the core/ring cell-set ---")
-    plan = plan_cells(built["blocks"][CELL], CELL)
+    print("\n--- STEP B: resolve site + placement (fallback ladder) ---")
+    site, geom, placement, tier_info = resolve_site_and_placement(template_cells, template_boundary)
+    plane, base_report = finalize_site_gates(site, tier_info)
+    gate(f"template placement found ({tier_info['label']}): footprint({len(placement['footprint'])} "
+         f"cells) + 1-cell ring({len(placement['ring'])} cells) entirely regular, dihedral="
+         f"{placement['k']} origin=({placement['oi']},{placement['oj']})", True,
+         f"{placement['n_candidates']} candidate placement(s) found across 8 dihedral orientations "
+         "at the winning site")
+
+    CELL = site["cell"]
+    built = site["built"]
+
+    print("\n--- STEP C: plan the footprint/core/inner/outer cell-set ---")
+    plan = plan_cells(geom, placement, template_cells, template_boundary)
+    cut_boundary_placed = apply_placement(template_cut_boundary, placement) if template_cut_boundary else set()
+    plan["cut_boundary_placed"] = cut_boundary_placed
 
     # snapshot BEFORE the retile (position-only + a plain copy for the census/edge regressions)
     bm = built["blocks"][CELL]
@@ -1026,17 +1363,17 @@ def main():
         bm_plain=dataclasses.replace(bm, chan_arrays={k: copy.deepcopy(v) for k, v in bm.chan_arrays.items()}),
     )
 
-    print("\n--- STEP 3: apply the retile (uv + tangent.x only) ---")
+    print("\n--- STEP D: apply the retile (uv + tangent.x only) ---")
     rows = apply_retile(bm, plan)
 
-    print("\n--- STEP 4: the gate list ---")
+    print("\n--- STEP E: the gate list ---")
     gate_summary = run_gates(built, CELL, plane, plan, before_snapshot)
 
-    print("\n--- STEP 5: the offline eye (calibrated) ---")
+    print("\n--- STEP F: the offline eye (calibrated) ---")
     eye = offline_eye(built, CELL, plan, rows, live_ns)
 
-    print("\n--- STEP 6: the --deploy path (dry mode only -- would-write list) ---")
-    disc1, disc4 = would_write_list()
+    print("\n--- STEP G: the --deploy path (dry mode only -- would-write list) ---")
+    disc1, disc4 = would_write_list(CELL)
     print("would write (Disc1):")
     for p in disc1:
         print(f"   {p}")
@@ -1044,22 +1381,25 @@ def main():
     for p in disc4:
         print(f"   {p}")
 
-    print("\n--- STEP 7: CLI smoke test ---")
-    cli_result = cli_smoke_test()
+    print("\n--- STEP H: CLI smoke test (winning site's own reproduction command) ---")
+    cli_result = cli_smoke_test(tier_info["center"], tier_info["radius"], tier_info["seed"])
 
     n_fail = sum(1 for _, ok, _ in GATES if not ok)
     print(f"\n=== {len(GATES)} gates run, {n_fail} FAILED ===")
 
     out = dict(
-        mod_folder=MOD, center=list(CENTER), radius=RADIUS, seed=SEED, ground=GROUND,
-        core_origin=list(plan["core_origin"]), v1_core_origin=list(V1_CORE_ORIGIN), core_size=CORE_SIZE,
-        n_core_window_candidates=plan["n_candidates"], mint_seed=MINT_SEED, mains_seed=MAINS_SEED,
-        cell=list(CELL),
+        mod_folder=MOD, template_name=TEMPLATE_NAME, template_provenance=provenance,
+        tier_info=tier_info, primary_center=list(CENTER), primary_radius=RADIUS, primary_seed=SEED,
+        ground=GROUND, mint_seed=MINT_SEED, mains_seed=MAINS_SEED, cell=list(CELL),
+        dihedral=plan["dihedral"], placement_origin=list(plan["origin"]),
+        n_placement_candidates=plan["n_candidates"],
         core_cells=[list(c) for c in sorted(plan["CORE"])],
         inner_ring_cells=[list(c) for c in sorted(plan["INNER"])],
         outer_ring_cells=[list(c) for c in sorted(plan["OUTER"])],
+        cut_boundary_cells_placed=[list(c) for c in sorted(plan["cut_boundary_placed"])],
         touch_of={f"{c[0]},{c[1]}": v for c, v in plan["touch_of"].items()},
         row_assignment={f"{c[0]},{c[1]}": r for c, r in rows.items()},
+        template_shape=plan["template_shape"], placed_shape=plan["placed_shape"],
         gates=[{"name": n, "ok": ok, "detail": d} for n, ok, d in GATES],
         n_gates=len(GATES), n_failed=n_fail,
         gate_summary=gate_summary, offline_eye=eye,
